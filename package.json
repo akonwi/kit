@@ -1,30 +1,27 @@
 {
-  "name": "@akonwi/pi-kit",
-  "version": "0.3.0",
-  "description": "Pi customization pack (Amp/OpenCode-like UX, thread tooling, alerts, and Ard subagent support).",
-  "keywords": ["pi-package"],
+  "name": "pi-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone pi-kit app with Pi-core compatibility and a custom terminal shell.",
   "license": "MIT",
-  "files": [
-    "extensions",
-    "prompts",
-    "themes",
-    "agents",
-    "README.md"
-  ],
-  "pi": {
-    "extensions": [
-      "./extensions/protected-paths.ts",
-      "./extensions/pi-kit.ts",
-      "./extensions/thread-references.ts",
-      "./extensions/subagent/index.ts",
-      "./extensions/claude-commands.ts"
-    ],
-    "prompts": ["./prompts"],
-    "themes": ["./themes"]
+  "type": "module",
+  "scripts": {
+    "dev": "bun run src/app/main.tsx",
+    "start": "bun run src/app/main.tsx",
+    "typecheck": "tsc --noEmit"
   },
-  "peerDependencies": {
+  "dependencies": {
     "@mariozechner/pi-agent-core": "*",
     "@mariozechner/pi-coding-agent": "*",
-    "@sinclair/typebox": "*"
+    "@opentui/core": "^0.1.87",
+    "@opentui/solid": "^0.1.87",
+    "solid-js": "^1.9.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
   }
 }
