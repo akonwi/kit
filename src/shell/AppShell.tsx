@@ -14,7 +14,7 @@ export function AppShell(props: AppShellProps) {
       <TranscriptPane items={props.state.transcript} />
       <box flexShrink={0} flexDirection="column" gap={0}>
         <PanelHost panel={props.state.panel} />
-        <ComposerDock composer={props.state.composer} cwd={props.state.footerStatus.cwd} />
+        <ComposerDock composer={props.state.composer} cwd={props.state.footerStatus.cwd} sessionName={props.state.sessionMeta.sessionName} />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
     </box>

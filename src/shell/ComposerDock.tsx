@@ -3,6 +3,7 @@ import type { ComposerState } from "../state/app-state";
 export type ComposerDockProps = {
   composer: ComposerState;
   cwd: string;
+  sessionName: string | undefined;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
@@ -32,6 +33,9 @@ export function ComposerDock(props: ComposerDockProps) {
           focused
         />
       </box>
+      <text position="absolute" bottom={0} left={2} fg="#8f8f8f">
+        {props.sessionName || "Unnamed"}
+      </text>
       <text position="absolute" bottom={0} right={2} fg="#8f8f8f">
         {props.cwd}
       </text>
