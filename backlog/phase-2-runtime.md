@@ -4,16 +4,16 @@ These are the highest-priority items needed to move from a read-only session vie
 
 ## Immediate next milestone: continue a real session
 
-- [ ] Keep the loaded `SessionManager` available in app/runtime state
-- [ ] Track composer text in app state
-- [ ] On submit, append a Pi-compatible user message to the active session
-- [ ] Regenerate transcript from the updated session branch
-- [ ] Clear composer after successful submit
+- [x] Keep the loaded `SessionManager` available in app/runtime state
+- [x] Track composer text in app state
+- [x] On submit, append a Pi-compatible user message to the active session
+- [x] Regenerate transcript from the updated session branch
+- [x] Clear composer after successful submit
 
 ## Command path
 
-- [ ] Detect slash commands before normal message submission
-- [ ] Add initial command handler scaffold
+- [x] Detect slash commands before normal message submission
+- [x] Add initial command handler scaffold
 - [ ] Support a small first set of commands:
   - [ ] `/new`
   - [ ] `/session`

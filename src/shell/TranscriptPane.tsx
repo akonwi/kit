@@ -54,7 +54,6 @@ export function TranscriptPane(props: TranscriptPaneProps) {
       flexGrow={1}
       scrollY
       stickyScroll
-      stickyStart="bottom"
       viewportCulling
       padding={1}
       style={{
@@ -67,15 +66,18 @@ export function TranscriptPane(props: TranscriptPaneProps) {
         },
       }}
     >
-      <box flexDirection="column" gap={1} width="100%">
-        <For each={props.items}>
-          {(item) => (
-            <TranscriptEntry
-              item={item}
-              onClick={props.onItemClick ? () => props.onItemClick!(item) : undefined}
-            />
-          )}
-        </For>
+      <box height="100%" width="100%" flexDirection="column">
+        <box flexGrow={1} />
+        <box flexShrink={0} flexDirection="column" gap={1} width="100%">
+          <For each={props.items}>
+            {(item) => (
+              <TranscriptEntry
+                item={item}
+                onClick={props.onItemClick ? () => props.onItemClick!(item) : undefined}
+              />
+            )}
+          </For>
+        </box>
       </box>
     </scrollbox>
   );

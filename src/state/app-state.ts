@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import type { UserMessage } from "@mariozechner/pi-ai";
 import { createStore } from "solid-js/store";
 import type { LoadedSession } from "../compat/sessions";
 import { mapBranchToTranscript } from "../compat/sessions/transcript-mapper";
@@ -26,7 +27,7 @@ export type ComposerState = {
   mode: DockMode;
   title: string;
   placeholder: string;
-  initialValue: string;
+  text: string;
   height: number;
 };
 
@@ -71,7 +72,6 @@ function formatCwd(rawCwd: string): string {
 }
 
 function deriveModel(settings: LoadedSettings, session: LoadedSession | null): string {
-  // Try to get model from the session context (most recent model_change)
   if (session) {
     const context = session.manager.buildSessionContext();
     if (context.model?.modelId) {
@@ -83,7 +83,6 @@ function deriveModel(settings: LoadedSettings, session: LoadedSession | null): s
 }
 
 function deriveThinkingLevel(settings: LoadedSettings, session: LoadedSession | null): string {
-  // Try to get thinking level from the session context
   if (session) {
     const context = session.manager.buildSessionContext();
     if (context.thinkingLevel) {
@@ -109,7 +108,6 @@ function buildTranscript(session: LoadedSession | null): TranscriptItem[] {
     return mapBranchToTranscript(session.branch);
   }
 
-  // No session — show a welcome message
   return [
     {
       id: "welcome",
@@ -151,11 +149,11 @@ export function buildInitialAppState(
       mode: "composer",
       title: "Compose",
       placeholder: "Ask pi-kit to do something...",
-      initialValue: "",
+      text: "",
       height: 6,
     },
     footerStatus: {
-      cwd: formatCwd(session?.cwd ?? process.cwd()),
+      cwd: formatCwd(process.cwd()),
       model: deriveModel(settings, session),
       thinkingLevel: deriveThinkingLevel(settings, session),
       contextPct: "0%",
@@ -170,18 +168,93 @@ export function buildInitialAppState(
 
 export function createAppState(settings: LoadedSettings, session: LoadedSession | null) {
   const [state, setState] = createStore(buildInitialAppState(settings, session));
+  let activeSession = session;
+
+  function showPanel(title: string, lines: string[]) {
+    setState("panel", {
+      visible: true,
+      title,
+      lines,
+    });
+  }
+
+  function hidePanel() {
+    setState("panel", {
+      visible: false,
+      title: "",
+      lines: [],
+    });
+  }
+
+  function refreshFromActiveSession() {
+    setState("transcript", buildTranscript(activeSession));
+    setState("sessionMeta", buildSessionMeta(activeSession));
+    setState("footerStatus", {
+      ...state.footerStatus,
+      model: deriveModel(settings, activeSession),
+      thinkingLevel: deriveThinkingLevel(settings, activeSession),
+    });
+  }
 
   function inspectTranscriptItem(item: TranscriptItem) {
     if (!item.rawEntry) return;
-    // Toggle: click same item again to dismiss
     const json = JSON.stringify(item.rawEntry, null, 2);
     const current = state.debugEntry;
     setState("debugEntry", current === json ? null : json);
+  }
+
+  function setComposerText(text: string) {
+    setState("composer", "text", text);
+  }
+
+  function handleSlashCommand(raw: string) {
+    const [command] = raw.trim().split(/\s+/, 1);
+    showPanel("Commands", [`${command} is not implemented yet.`]);
+    setState("composer", "text", "");
+  }
+
+  function submitComposer() {
+    const raw = state.composer.text;
+    if (!raw.trim()) return;
+
+    if (raw.trimStart().startsWith("/")) {
+      handleSlashCommand(raw);
+      return;
+    }
+
+    if (!activeSession) {
+      showPanel("Session Error", ["No active session is available for this submission."]);
+      return;
+    }
+
+    const userMessage: UserMessage = {
+      role: "user",
+      content: [{ type: "text", text: raw }],
+      timestamp: Date.now(),
+    };
+
+    activeSession.manager.appendMessage(userMessage);
+    activeSession = {
+      ...activeSession,
+      branch: activeSession.manager.getBranch(),
+      sessionFile: activeSession.manager.getSessionFile(),
+      sessionName: activeSession.manager.getSessionName(),
+      sessionId: activeSession.manager.getSessionId(),
+      cwd: activeSession.manager.getCwd(),
+    };
+
+    setState("composer", "text", "");
+    hidePanel();
+    refreshFromActiveSession();
   }
 
   return {
     state,
     setState,
     inspectTranscriptItem,
+    setComposerText,
+    submitComposer,
+    showPanel,
+    hidePanel,
   };
 }

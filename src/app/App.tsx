@@ -14,6 +14,8 @@ export function App(props: AppProps) {
     <AppShell
       state={appState.state}
       onInspectItem={appState.inspectTranscriptItem}
+      onComposerChange={appState.setComposerText}
+      onComposerSubmit={appState.submitComposer}
     />
   );
 }

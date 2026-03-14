@@ -9,3 +9,4 @@ Examples:
 - footer/status information policy
 - slash command parsing behavior
 - session picker interaction model
+- assistant message streaming policy

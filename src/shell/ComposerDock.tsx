@@ -1,12 +1,28 @@
+import { createEffect } from "solid-js";
 import type { ComposerState } from "../state/app-state";
 
 export type ComposerDockProps = {
   composer: ComposerState;
   cwd: string;
   sessionName: string | undefined;
+  onContentChange: (value: string) => void;
+  onSubmit: () => void;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
+  let textareaRef: {
+    plainText: string;
+    setText: (value: string) => void;
+  } | undefined;
+
+  createEffect(() => {
+    const nextText = props.composer.text;
+    if (!textareaRef) return;
+    if (textareaRef.plainText !== nextText) {
+      textareaRef.setText(nextText);
+    }
+  });
+
   return (
     <box flexShrink={0}>
       <box
@@ -20,8 +36,11 @@ export function ComposerDock(props: ComposerDockProps) {
         gap={0}
       >
         <textarea
+          ref={(value) => {
+            textareaRef = value as typeof textareaRef;
+          }}
           height={props.composer.height}
-          initialValue={props.composer.initialValue}
+          initialValue={props.composer.text}
           placeholder={props.composer.placeholder}
           placeholderColor="#666666"
           backgroundColor="#1b1b1b"
@@ -30,6 +49,15 @@ export function ComposerDock(props: ComposerDockProps) {
           focusedTextColor="#f2f2f2"
           cursorColor="#ffffff"
           wrapMode="word"
+          keyBindings={[
+            { name: "return", action: "submit" },
+            { name: "linefeed", action: "submit" },
+            { name: "return", shift: true, action: "newline" },
+          ]}
+          onContentChange={() => {
+            props.onContentChange(textareaRef?.plainText ?? "");
+          }}
+          onSubmit={props.onSubmit}
           focused
         />
       </box>

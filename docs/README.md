@@ -11,5 +11,6 @@ This directory records architectural decisions and feature design choices for th
 ## Current key docs
 
 - `architecture/custom-shell.md` — primary architecture decision for the standalone app
+- `decisions/assistant-message-streaming.md` — assistant text is not streamed; only runtime activity may appear live
 
 As we make decisions in chat, capture them here so the design does not live only in conversation history.
