@@ -36,9 +36,9 @@ function mapEntry(entry: SessionEntry): TranscriptItem | null {
     case "message":
       return mapMessageEntry(entry);
     case "model_change":
-      return mapModelChange(entry);
+      return null;
     case "thinking_level_change":
-      return mapThinkingLevelChange(entry);
+      return null;
     case "compaction":
       return mapCompaction(entry);
     case "branch_summary":
