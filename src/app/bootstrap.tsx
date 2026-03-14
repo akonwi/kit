@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
+import { createAgentRuntime } from "../backend";
 import {
   openRecentSession,
   openSessionFile,
@@ -47,7 +48,8 @@ function loadSession(): LoadedSession | null {
 export async function bootstrap(): Promise<void> {
   const settings = await loadSettings();
   const session = loadSession();
+  const runtime = await createAgentRuntime(session);
   const renderer = await createCliRenderer();
 
-  render(() => <App settings={settings} session={session} />, renderer);
+  render(() => <App settings={settings} session={session} runtime={runtime} />, renderer);
 }

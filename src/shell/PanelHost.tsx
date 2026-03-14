@@ -1,24 +1,21 @@
-import { For, Show } from "solid-js";
 import type { PanelState } from "../state/app-state";
 
 export type PanelHostProps = {
   panel: PanelState;
 };
 
+function renderPanelLine(panel: PanelState): string {
+  if (!panel.visible) return "";
+  const message = panel.lines.filter(Boolean).join(" ").trim();
+  if (!panel.title) return message;
+  if (!message) return panel.title;
+  return `${panel.title}: ${message}`;
+}
+
 export function PanelHost(props: PanelHostProps) {
   return (
-    <Show when={props.panel.visible}>
-      <box
-        flexShrink={0}
-        border
-        borderColor="#2f6e9b"
-        paddingX={1}
-        flexDirection="column"
-        gap={1}
-      >
-        <text fg="#6cb6ff">{props.panel.title}</text>
-        <For each={props.panel.lines}>{(line) => <text>{line}</text>}</For>
-      </box>
-    </Show>
+    <box flexShrink={0} height={1} paddingLeft={1} paddingRight={1} flexDirection="row">
+      <text fg="#8f8f8f">{renderPanelLine(props.panel)}</text>
+    </box>
   );
 }

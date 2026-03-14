@@ -1,19 +1,9 @@
 import { homedir } from "node:os";
-import type { UserMessage } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
+import type { AgentRuntime } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
-import { mapBranchToTranscript } from "../compat/sessions/transcript-mapper";
 import type { LoadedSettings } from "../compat/settings/load-settings";
-
-export type TranscriptRole = "system" | "user" | "assistant" | "tool" | "meta";
-
-export type TranscriptItem = {
-  id: string;
-  role: TranscriptRole;
-  lines: string[];
-  /** Raw session entry for debug inspection. Only present for session-loaded items. */
-  rawEntry?: unknown;
-};
 
 export type DockMode = "composer" | "wizard" | "pager";
 
@@ -49,12 +39,12 @@ export type SessionMeta = {
 };
 
 export type AppState = {
-  transcript: TranscriptItem[];
+  messages: AgentMessage[];
   panel: PanelState;
   composer: ComposerState;
   footerStatus: FooterStatusState;
   sessionMeta: SessionMeta;
-  /** Debug: raw session entry JSON for the currently inspected transcript item */
+  /** Debug: raw message JSON for the currently inspected message */
   debugEntry: string | null;
 };
 
@@ -103,20 +93,6 @@ function deriveSpeechStatus(settings: LoadedSettings): string {
   return asEnabledStatus(speech?.enabled, "🗣 on", "🤫 off");
 }
 
-function buildTranscript(session: LoadedSession | null): TranscriptItem[] {
-  if (session && session.branch.length > 0) {
-    return mapBranchToTranscript(session.branch);
-  }
-
-  return [
-    {
-      id: "welcome",
-      role: "system",
-      lines: ["pi-kit", "No existing session found. Start a conversation below."],
-    },
-  ];
-}
-
 function buildSessionMeta(session: LoadedSession | null): SessionMeta {
   if (session) {
     return {
@@ -137,9 +113,12 @@ function buildSessionMeta(session: LoadedSession | null): SessionMeta {
 export function buildInitialAppState(
   settings: LoadedSettings,
   session: LoadedSession | null,
+  runtime: AgentRuntime | null,
 ): AppState {
+  const messages = runtime ? runtime.getMessages() : [];
+
   return {
-    transcript: buildTranscript(session),
+    messages,
     panel: {
       visible: false,
       title: "",
@@ -166,9 +145,12 @@ export function buildInitialAppState(
   };
 }
 
-export function createAppState(settings: LoadedSettings, session: LoadedSession | null) {
-  const [state, setState] = createStore(buildInitialAppState(settings, session));
-  let activeSession = session;
+export function createAppState(
+  settings: LoadedSettings,
+  session: LoadedSession | null,
+  runtime: AgentRuntime | null,
+) {
+  const [state, setState] = createStore(buildInitialAppState(settings, session, runtime));
 
   function showPanel(title: string, lines: string[]) {
     setState("panel", {
@@ -186,19 +168,24 @@ export function createAppState(settings: LoadedSettings, session: LoadedSession 
     });
   }
 
-  function refreshFromActiveSession() {
-    setState("transcript", buildTranscript(activeSession));
-    setState("sessionMeta", buildSessionMeta(activeSession));
-    setState("footerStatus", {
-      ...state.footerStatus,
-      model: deriveModel(settings, activeSession),
-      thinkingLevel: deriveThinkingLevel(settings, activeSession),
-    });
-  }
+  runtime?.subscribe((event) => {
+    switch (event.type) {
+      case "messages_changed":
+        setState("messages", event.messages);
+        break;
+      case "panel":
+        setState("panel", event.panel);
+        break;
+      case "error":
+        showPanel(event.title, event.lines);
+        break;
+      default:
+        break;
+    }
+  });
 
-  function inspectTranscriptItem(item: TranscriptItem) {
-    if (!item.rawEntry) return;
-    const json = JSON.stringify(item.rawEntry, null, 2);
+  function inspectMessage(msg: AgentMessage) {
+    const json = JSON.stringify(msg, null, 2);
     const current = state.debugEntry;
     setState("debugEntry", current === json ? null : json);
   }
@@ -213,7 +200,7 @@ export function createAppState(settings: LoadedSettings, session: LoadedSession 
     setState("composer", "text", "");
   }
 
-  function submitComposer() {
+  async function submitComposer() {
     const raw = state.composer.text;
     if (!raw.trim()) return;
 
@@ -222,36 +209,29 @@ export function createAppState(settings: LoadedSettings, session: LoadedSession 
       return;
     }
 
-    if (!activeSession) {
-      showPanel("Session Error", ["No active session is available for this submission."]);
+    if (!runtime) {
+      showPanel("Runtime Error", ["No runtime is available for this submission."]);
       return;
     }
 
-    const userMessage: UserMessage = {
-      role: "user",
-      content: [{ type: "text", text: raw }],
-      timestamp: Date.now(),
-    };
-
-    activeSession.manager.appendMessage(userMessage);
-    activeSession = {
-      ...activeSession,
-      branch: activeSession.manager.getBranch(),
-      sessionFile: activeSession.manager.getSessionFile(),
-      sessionName: activeSession.manager.getSessionName(),
-      sessionId: activeSession.manager.getSessionId(),
-      cwd: activeSession.manager.getCwd(),
-    };
-
     setState("composer", "text", "");
-    hidePanel();
-    refreshFromActiveSession();
+
+    try {
+      await runtime.submitUserMessage(raw);
+    } catch (error) {
+      setState("composer", "text", raw);
+      if (error instanceof Error) {
+        showPanel("Runtime Error", [error.message]);
+      } else {
+        showPanel("Runtime Error", [String(error)]);
+      }
+    }
   }
 
   return {
     state,
     setState,
-    inspectTranscriptItem,
+    inspectMessage,
     setComposerText,
     submitComposer,
     showPanel,

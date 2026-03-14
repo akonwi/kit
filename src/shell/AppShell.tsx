@@ -1,4 +1,5 @@
-import type { AppState, TranscriptItem } from "../state/app-state";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AppState } from "../state/app-state";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import { DebugPanel } from "./DebugPanel";
@@ -7,7 +8,7 @@ import { TranscriptPane } from "./TranscriptPane";
 
 export type AppShellProps = {
   state: AppState;
-  onInspectItem: (item: TranscriptItem) => void;
+  onInspectMessage: (msg: AgentMessage) => void;
   onComposerChange: (value: string) => void;
   onComposerSubmit: () => void;
 };
@@ -15,7 +16,7 @@ export type AppShellProps = {
 export function AppShell(props: AppShellProps) {
   return (
     <box width="100%" height="100%" flexDirection="column">
-      <TranscriptPane items={props.state.transcript} onItemClick={props.onInspectItem} />
+      <TranscriptPane messages={props.state.messages} onMessageClick={props.onInspectMessage} />
       <box flexShrink={0} flexDirection="column" gap={0}>
         <PanelHost panel={props.state.panel} />
         <DebugPanel json={props.state.debugEntry} />

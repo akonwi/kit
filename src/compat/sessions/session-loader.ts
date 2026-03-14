@@ -20,20 +20,11 @@ export type LoadedSession = {
   sessionName: string | undefined;
 };
 
-/**
- * Open the most recent session for the given cwd, or create a new one.
- * Uses Pi's SessionManager.continueRecent() which either resumes the latest
- * session file or creates a new one if none exists.
- */
-export function openRecentSession(cwd: string, sessionDir?: string): LoadedSession {
-  const manager = SessionManager.continueRecent(cwd, sessionDir);
-  const header = manager.getHeader();
-  const branch = manager.getBranch();
-
+export function snapshotLoadedSession(manager: SessionManager): LoadedSession {
   return {
     manager,
-    header,
-    branch,
+    header: manager.getHeader(),
+    branch: manager.getBranch(),
     cwd: manager.getCwd(),
     sessionFile: manager.getSessionFile(),
     sessionId: manager.getSessionId(),
@@ -42,22 +33,21 @@ export function openRecentSession(cwd: string, sessionDir?: string): LoadedSessi
 }
 
 /**
+ * Open the most recent session for the given cwd, or create a new one.
+ * Uses Pi's SessionManager.continueRecent() which either resumes the latest
+ * session file or creates a new one if none exists.
+ */
+export function openRecentSession(cwd: string, sessionDir?: string): LoadedSession {
+  const manager = SessionManager.continueRecent(cwd, sessionDir);
+  return snapshotLoadedSession(manager);
+}
+
+/**
  * Open a specific session file.
  */
 export function openSessionFile(filePath: string, sessionDir?: string): LoadedSession {
   const manager = SessionManager.open(filePath, sessionDir);
-  const header = manager.getHeader();
-  const branch = manager.getBranch();
-
-  return {
-    manager,
-    header,
-    branch,
-    cwd: manager.getCwd(),
-    sessionFile: manager.getSessionFile(),
-    sessionId: manager.getSessionId(),
-    sessionName: manager.getSessionName(),
-  };
+  return snapshotLoadedSession(manager);
 }
 
 /**

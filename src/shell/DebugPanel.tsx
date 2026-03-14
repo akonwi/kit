@@ -16,7 +16,7 @@ export function DebugPanel(props: DebugPanelProps) {
         padding={1}
       >
         <box flexDirection="column" width="100%">
-          <text fg="#8a6bbd">Debug: Raw SessionEntry</text>
+          <text fg="#8a6bbd">Debug: Raw Message</text>
           <text fg="#c0c0c0">{props.json}</text>
         </box>
       </scrollbox>

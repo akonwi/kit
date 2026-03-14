@@ -1,0 +1,160 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import {
+  AgentSession,
+  createAgentSession,
+  SessionManager,
+  type AgentSessionEvent,
+} from "@mariozechner/pi-coding-agent";
+import {
+  snapshotLoadedSession,
+  type LoadedSession,
+} from "../../compat/sessions";
+
+export type RuntimePanelState = {
+  visible: boolean;
+  title: string;
+  lines: string[];
+};
+
+export type AgentRuntimeEvent =
+  | { type: "messages_changed"; messages: AgentMessage[] }
+  | { type: "panel"; panel: RuntimePanelState }
+  | { type: "error"; title: string; lines: string[] };
+
+export type AgentRuntime = {
+  submitUserMessage(text: string): Promise<void>;
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
+  getSession(): LoadedSession;
+  getAgentSession(): AgentSession;
+  getMessages(): AgentMessage[];
+  dispose(): void;
+};
+
+function panel(title: string, lines: string[]): RuntimePanelState {
+  return { visible: true, title, lines };
+}
+
+function hiddenPanel(): RuntimePanelState {
+  return { visible: false, title: "", lines: [] };
+}
+
+function summarizeToolStart(toolName: string, args: unknown): string {
+  if (args && typeof args === "object") {
+    const record = args as Record<string, unknown>;
+    if (typeof record.command === "string" && record.command.trim()) {
+      return `Running ${toolName}: ${record.command}`;
+    }
+    if (typeof record.path === "string" && record.path.trim()) {
+      return `Running ${toolName}: ${record.path}`;
+    }
+  }
+  return `Running ${toolName}...`;
+}
+
+function summarizeToolEnd(toolName: string, isError: boolean): string {
+  return isError ? `✗ ${toolName} failed` : `✓ ${toolName} finished`;
+}
+
+function defaultRuntimeError(error: unknown): { title: string; lines: string[] } {
+  if (error instanceof Error) {
+    return { title: "Runtime Error", lines: [error.message] };
+  }
+  return { title: "Runtime Error", lines: [String(error)] };
+}
+
+export async function createAgentRuntime(initialSession: LoadedSession | null): Promise<AgentRuntime> {
+  const sessionManager = initialSession?.manager ?? SessionManager.continueRecent(process.cwd());
+  const { session: agentSession } = await createAgentSession({
+    cwd: process.cwd(),
+    sessionManager,
+  });
+
+  let currentSession = snapshotLoadedSession(agentSession.sessionManager);
+  const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+
+  const emit = (event: AgentRuntimeEvent) => {
+    for (const listener of listeners) {
+      listener(event);
+    }
+  };
+
+  function emitMessages() {
+    emit({ type: "messages_changed", messages: [...agentSession.messages] });
+  }
+
+  const unsubscribeAgent = agentSession.subscribe((event: AgentSessionEvent) => {
+    try {
+      handleAgentEvent(event);
+    } catch (error) {
+      const runtimeError = defaultRuntimeError(error);
+      emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });
+    }
+  });
+
+  function handleAgentEvent(event: AgentSessionEvent) {
+    switch (event.type) {
+      case "agent_start":
+        // User message is already in state.messages at this point
+        emitMessages();
+        emit({ type: "panel", panel: panel("", ["Working..."]) });
+        break;
+      case "message_start":
+        if (event.message.role === "assistant") {
+          emit({ type: "panel", panel: panel("", ["Thinking..."]) });
+        }
+        break;
+      case "message_end":
+        emitMessages();
+        break;
+      case "tool_execution_start":
+        emit({
+          type: "panel",
+          panel: panel("", [summarizeToolStart(event.toolName, event.args)]),
+        });
+        break;
+      case "tool_execution_end":
+        emit({
+          type: "panel",
+          panel: panel("", [summarizeToolEnd(event.toolName, event.isError)]),
+        });
+        break;
+      case "agent_end":
+        currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitMessages();
+        emit({ type: "panel", panel: hiddenPanel() });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    async submitUserMessage(text: string): Promise<void> {
+      try {
+        await agentSession.sendUserMessage(text);
+      } catch (error) {
+        const runtimeError = defaultRuntimeError(error);
+        emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });
+        throw error;
+      }
+    },
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    getSession() {
+      return currentSession;
+    },
+    getAgentSession() {
+      return agentSession;
+    },
+    getMessages() {
+      return [...agentSession.messages];
+    },
+    dispose() {
+      unsubscribeAgent();
+      agentSession.dispose();
+      listeners.clear();
+    },
+  };
+}
