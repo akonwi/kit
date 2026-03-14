@@ -1,47 +1,21 @@
-import type { LoadedSettings } from "../compat/settings/load-settings";
+import type { AppState } from "../state/app-state";
+import { BottomStatusBar } from "./BottomStatusBar";
+import { ComposerDock } from "./ComposerDock";
+import { PanelHost } from "./PanelHost";
+import { TranscriptPane } from "./TranscriptPane";
 
 export type AppShellProps = {
-  settings: LoadedSettings;
+  state: AppState;
 };
 
-const transcriptPreview = [
-  "pi-kit v2 scaffold",
-  "",
-  "This shell is intentionally minimal.",
-  "",
-  "Near-term goals:",
-  "- fixed bottom dock",
-  "- independently scrollable transcript/screens",
-  "- Pi session compatibility",
-  "- feature migration from the old pi-kit extension",
-];
-
-export function AppShell({ settings }: AppShellProps) {
+export function AppShell(props: AppShellProps) {
   return (
     <box width="100%" height="100%" flexDirection="column">
-      <scrollbox
-        flexGrow={1}
-        scrollY
-        stickyScroll
-        stickyStart="bottom"
-        viewportCulling
-        border
-        borderColor="#444444"
-        padding={1}
-        focused
-      >
-        <box flexDirection="column" gap={1} width="100%">
-          {transcriptPreview.map((line) => (
-            <text>{line}</text>
-          ))}
-        </box>
-      </scrollbox>
-
-      <box flexShrink={0} border borderColor="#666666" padding={1} flexDirection="column" gap={1}>
-        <text>Dock placeholder</text>
-        <text>Settings source: {settings.source}</text>
-        <text>Pi root: {settings.paths.piAgentRoot}</text>
-        <text>pi-kit settings: {settings.paths.piKitSettingsPath}</text>
+      <TranscriptPane items={props.state.transcript} />
+      <box flexShrink={0} flexDirection="column" gap={0}>
+        <PanelHost panel={props.state.panel} />
+        <ComposerDock composer={props.state.composer} cwd={props.state.footerStatus.cwd} />
+        <BottomStatusBar status={props.state.footerStatus} />
       </box>
     </box>
   );
