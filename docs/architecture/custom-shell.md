@@ -440,6 +440,23 @@ Future extension support should be built on the new shell's own abstractions, no
 
 ---
 
+## Future refinements
+
+### Mutable working directory within a session
+
+Pi's `SessionManager` treats `cwd` as immutable — it is set once at session creation and stored in the session header. There is no `setCwd()` method, and the session directory path is physically derived from the original cwd.
+
+pi-kit should support changing the working directory during a session. This would require:
+
+- tracking the "current cwd" as app-level state, separate from `session.getCwd()`
+- possibly persisting cwd changes as custom session entries so they survive session reload
+- updating the shell UI (composer border, footer, file resolution) when cwd changes
+- deciding how cwd changes interact with tool execution (e.g., `bash` commands should run in the current cwd, not the session's original cwd)
+
+This is deferred until the core session and agent execution loop are working.
+
+---
+
 ## Decision
 
 `v2/` will proceed as a standalone custom coding-agent application with Pi-core compatibility, not as an evolution of the Pi extension-hosted UI.
