@@ -24,7 +24,8 @@ These are the highest-priority items needed to move from a read-only session vie
 
 - [ ] Define backend-facing runtime abstraction for running a turn
 - [ ] Send the active session context to the model
-- [ ] Stream assistant output into the transcript
+- [ ] Show live runtime activity for thinking/tool events in the panel above the composer without streaming assistant prose
+- [ ] Commit the final assistant message atomically once complete
 - [ ] Append tool calls / tool results into the session in Pi-compatible form
 - [ ] Update footer/runtime state from real session/runtime data
 
