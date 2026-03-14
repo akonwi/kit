@@ -3,6 +3,7 @@ import type { TranscriptItem, TranscriptRole } from "../state/app-state";
 
 export type TranscriptPaneProps = {
   items: TranscriptItem[];
+  onItemClick?: (item: TranscriptItem) => void;
 };
 
 function textColor(role: TranscriptRole): string {
@@ -21,7 +22,7 @@ function textColor(role: TranscriptRole): string {
   }
 }
 
-function TranscriptEntry(props: { item: TranscriptItem }) {
+function TranscriptEntry(props: { item: TranscriptItem; onClick?: () => void }) {
   const color = textColor(props.item.role);
 
   if (props.item.role === "user") {
@@ -33,6 +34,7 @@ function TranscriptEntry(props: { item: TranscriptItem }) {
         flexDirection="column"
         gap={0}
         width="100%"
+        onMouseDown={props.onClick}
       >
         <For each={props.item.lines}>{(line) => <text fg={color}>{line}</text>}</For>
       </box>
@@ -40,7 +42,7 @@ function TranscriptEntry(props: { item: TranscriptItem }) {
   }
 
   return (
-    <box flexDirection="column" gap={0} width="100%">
+    <box flexDirection="column" gap={0} width="100%" onMouseDown={props.onClick}>
       <For each={props.item.lines}>{(line) => <text fg={color}>{line}</text>}</For>
     </box>
   );
@@ -67,7 +69,12 @@ export function TranscriptPane(props: TranscriptPaneProps) {
     >
       <box flexDirection="column" gap={1} width="100%">
         <For each={props.items}>
-          {(item) => <TranscriptEntry item={item} />}
+          {(item) => (
+            <TranscriptEntry
+              item={item}
+              onClick={props.onItemClick ? () => props.onItemClick!(item) : undefined}
+            />
+          )}
         </For>
       </box>
     </scrollbox>

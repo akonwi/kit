@@ -23,6 +23,7 @@ export function mapBranchToTranscript(entries: SessionEntry[]): TranscriptItem[]
   for (const entry of entries) {
     const mapped = mapEntry(entry);
     if (mapped) {
+      mapped.rawEntry = entry;
       items.push(mapped);
     }
   }

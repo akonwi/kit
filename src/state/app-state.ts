@@ -10,6 +10,8 @@ export type TranscriptItem = {
   id: string;
   role: TranscriptRole;
   lines: string[];
+  /** Raw session entry for debug inspection. Only present for session-loaded items. */
+  rawEntry?: unknown;
 };
 
 export type DockMode = "composer" | "wizard" | "pager";
@@ -51,6 +53,8 @@ export type AppState = {
   composer: ComposerState;
   footerStatus: FooterStatusState;
   sessionMeta: SessionMeta;
+  /** Debug: raw session entry JSON for the currently inspected transcript item */
+  debugEntry: string | null;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -160,13 +164,24 @@ export function buildInitialAppState(
       repoSummary: "",
     },
     sessionMeta: buildSessionMeta(session),
+    debugEntry: null,
   };
 }
 
 export function createAppState(settings: LoadedSettings, session: LoadedSession | null) {
   const [state, setState] = createStore(buildInitialAppState(settings, session));
+
+  function inspectTranscriptItem(item: TranscriptItem) {
+    if (!item.rawEntry) return;
+    // Toggle: click same item again to dismiss
+    const json = JSON.stringify(item.rawEntry, null, 2);
+    const current = state.debugEntry;
+    setState("debugEntry", current === json ? null : json);
+  }
+
   return {
     state,
     setState,
+    inspectTranscriptItem,
   };
 }

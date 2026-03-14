@@ -10,5 +10,10 @@ export type AppProps = {
 
 export function App(props: AppProps) {
   const appState = createAppState(props.settings, props.session);
-  return <AppShell state={appState.state} />;
+  return (
+    <AppShell
+      state={appState.state}
+      onInspectItem={appState.inspectTranscriptItem}
+    />
+  );
 }
