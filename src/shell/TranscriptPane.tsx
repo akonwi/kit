@@ -5,7 +5,7 @@ export type TranscriptPaneProps = {
   items: TranscriptItem[];
 };
 
-function roleColor(role: TranscriptRole): string {
+function textColor(role: TranscriptRole): string {
   switch (role) {
     case "user":
       return "#6cb6ff";
@@ -21,20 +21,29 @@ function roleColor(role: TranscriptRole): string {
   }
 }
 
-function roleLabel(role: TranscriptRole): string {
-  switch (role) {
-    case "user":
-      return "user";
-    case "assistant":
-      return "assistant";
-    case "tool":
-      return "tool";
-    case "meta":
-      return "meta";
-    case "system":
-    default:
-      return "system";
+function TranscriptEntry(props: { item: TranscriptItem }) {
+  const color = textColor(props.item.role);
+
+  if (props.item.role === "user") {
+    return (
+      <box
+        border={["left"] as any}
+        borderColor="#6cb6ff"
+        paddingLeft={1}
+        flexDirection="column"
+        gap={0}
+        width="100%"
+      >
+        <For each={props.item.lines}>{(line) => <text fg={color}>{line}</text>}</For>
+      </box>
+    );
   }
+
+  return (
+    <box flexDirection="column" gap={0} width="100%">
+      <For each={props.item.lines}>{(line) => <text fg={color}>{line}</text>}</For>
+    </box>
+  );
 }
 
 export function TranscriptPane(props: TranscriptPaneProps) {
@@ -58,12 +67,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
     >
       <box flexDirection="column" gap={1} width="100%">
         <For each={props.items}>
-          {(item) => (
-            <box flexDirection="column" gap={0} width="100%">
-              <text fg={roleColor(item.role)}>{roleLabel(item.role)}</text>
-              <For each={item.lines}>{(line) => <text>{line}</text>}</For>
-            </box>
-          )}
+          {(item) => <TranscriptEntry item={item} />}
         </For>
       </box>
     </scrollbox>
