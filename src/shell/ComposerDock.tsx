@@ -2,7 +2,7 @@ import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { AgentRuntime } from "../backend";
 import type { PaletteManager } from "../state/palette-manager";
-import { matchCommands } from "../features/command-registry";
+import { COMMANDS } from "../features/command-registry";
 import { executeCommand } from "../features/commands";
 import { theme } from "./theme";
 
@@ -24,38 +24,25 @@ export function ComposerDock(props: ComposerDockProps) {
   let filterText = "";
   let inputText = "";
   let lastInputMode = false;
-  let commandPaletteActive = false;
 
   function handleTextChange() {
     const text = textareaRef?.plainText ?? "";
     const trimmed = text.trimStart();
 
-    if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
-      const matches = matchCommands(trimmed);
-      if (matches.length > 0) {
-        const options = matches.map((c) => ({
-          name: c.name,
-          description: c.description,
-          value: c,
+    if (trimmed === "/" && !props.palette.visible) {
+      props.palette.show({
+        filterable: true,
+        options: COMMANDS.map((cmd) => ({
+          name: cmd.name,
+          description: cmd.description,
+          value: cmd,
           action: (ctx: { dismiss: () => void }) => {
-            commandPaletteActive = false;
+            textareaRef?.setText("");
             ctx.dismiss();
-            handleSlashCommand(c.name);
+            handleSlashCommand(cmd.name);
           },
-        }));
-        if (commandPaletteActive) {
-          props.palette.updateTopOptions(options);
-        } else {
-          props.palette.show({ options });
-          commandPaletteActive = true;
-        }
-        return;
-      }
-    }
-
-    if (commandPaletteActive) {
-      commandPaletteActive = false;
-      props.palette.pop();
+        })),
+      });
     }
   }
 
@@ -357,12 +344,6 @@ export function ComposerDock(props: ComposerDockProps) {
     const text = textareaRef?.plainText ?? "";
     if (!text.trim()) return;
 
-    if (text.trimStart().startsWith("/")) {
-      textareaRef?.setText("");
-      await handleSlashCommand(text.trim());
-      return;
-    }
-
     textareaRef?.setText("");
     try {
       await props.runtime.submitUserMessage(text);
@@ -407,9 +388,6 @@ export function ComposerDock(props: ComposerDockProps) {
             handleTextChange();
           }}
           onSubmit={handleSubmit}
-          onKeyDown={(e) => {
-            console.log(`pressed: ${e.name}`);
-          }}
           focused
         />
       </box>
