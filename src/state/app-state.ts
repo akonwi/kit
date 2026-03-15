@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store";
 import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
+import { executeCommand } from "../features/commands";
 
 export type DockMode = "composer" | "wizard" | "pager";
 
@@ -178,10 +179,30 @@ export function createAppState(
     setState("composer", "text", text);
   }
 
-  function handleSlashCommand(raw: string) {
-    const [command] = raw.trim().split(/\s+/, 1);
-    showPanel("Commands", [`${command} is not implemented yet.`]);
+  async function handleSlashCommand(raw: string) {
+    if (!runtime) {
+      showPanel("", ["No runtime available."]);
+      setState("composer", "text", "");
+      return;
+    }
+
     setState("composer", "text", "");
+
+    try {
+      const result = await executeCommand(raw, runtime);
+      if (result.panel) {
+        showPanel(result.panel.title, result.panel.lines);
+      }
+      if (result.sessionName !== undefined) {
+        setState("sessionMeta", "sessionName", result.sessionName);
+      }
+    } catch (error) {
+      if (error instanceof Error) {
+        showPanel("Command Error", [error.message]);
+      } else {
+        showPanel("Command Error", [String(error)]);
+      }
+    }
   }
 
   async function submitComposer() {

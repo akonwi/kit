@@ -14,20 +14,21 @@ These are the highest-priority items needed to move from a read-only session vie
 
 - [x] Detect slash commands before normal message submission
 - [x] Add initial command handler scaffold
-- [ ] Support a small first set of commands:
-  - [ ] `/new`
-  - [ ] `/session`
-  - [ ] `/model`
-  - [ ] `/thinking`
+- [x] Support a small first set of commands:
+  - [x] `/new`
+  - [x] `/session`
+  - [x] `/model` (cycles to next available model)
+  - [x] `/thinking` (cycles or sets by name)
+  - [x] `/name <name>` (set session display name)
 
 ## Agent runtime
 
-- [ ] Define backend-facing runtime abstraction for running a turn
-- [ ] Send the active session context to the model
-- [ ] Show live runtime activity for thinking/tool events in the panel above the composer without streaming assistant prose
-- [ ] Commit the final assistant message atomically once complete
-- [ ] Append tool calls / tool results into the session in Pi-compatible form
-- [ ] Update footer/runtime state from real session/runtime data
+- [x] Define backend-facing runtime abstraction for running a turn
+- [x] Send the active session context to the model
+- [x] Show live runtime activity for thinking/tool events in the panel above the composer without streaming assistant prose
+- [x] Commit the final assistant message atomically once complete
+- [x] Append tool calls / tool results into the session in Pi-compatible form
+- [x] Update footer/runtime state from real session/runtime data
 
 ## Session UX
 

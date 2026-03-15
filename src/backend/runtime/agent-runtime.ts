@@ -1,4 +1,4 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import {
   AgentSession,
   createAgentSession,
@@ -31,6 +31,11 @@ export type AgentRuntimeEvent =
 
 export type AgentRuntime = {
   submitUserMessage(text: string): Promise<void>;
+  newSession(): Promise<boolean>;
+  cycleModel(direction?: "forward" | "backward"): Promise<string | undefined>;
+  setThinkingLevel(level: ThinkingLevel): void;
+  cycleThinkingLevel(): string | undefined;
+  setSessionName(name: string): void;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
   getSession(): LoadedSession;
   getAgentSession(): AgentSession;
@@ -163,6 +168,33 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });
         throw error;
       }
+    },
+    async newSession(): Promise<boolean> {
+      const ok = await agentSession.newSession();
+      if (ok) {
+        currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitMessages();
+        emitStatus();
+      }
+      return ok;
+    },
+    async cycleModel(direction?: "forward" | "backward"): Promise<string | undefined> {
+      const result = await agentSession.cycleModel(direction);
+      emitStatus();
+      return result ? result.model.name ?? result.model.id : undefined;
+    },
+    setThinkingLevel(level: ThinkingLevel): void {
+      agentSession.setThinkingLevel(level);
+      emitStatus();
+    },
+    cycleThinkingLevel(): string | undefined {
+      const level = agentSession.cycleThinkingLevel();
+      emitStatus();
+      return level;
+    },
+    setSessionName(name: string): void {
+      agentSession.setSessionName(name);
+      currentSession = snapshotLoadedSession(agentSession.sessionManager);
     },
     subscribe(listener) {
       listeners.add(listener);
