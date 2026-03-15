@@ -23,7 +23,10 @@ export type AppShellProps = {
 export function AppShell(props: AppShellProps) {
   return (
     <box width="100%" height="100%" flexDirection="column">
-      <TranscriptPane messages={props.state.messages} onMessageClick={props.onInspectMessage} />
+      <TranscriptPane
+        messages={props.state.messages}
+        onMessageClick={props.onInspectMessage}
+      />
       <box flexShrink={0} flexDirection="column" gap={0}>
         <PanelHost panel={props.state.panel} />
         <DebugPanel json={props.state.debugEntry} />

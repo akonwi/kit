@@ -54,13 +54,6 @@ export function ComposerDock(props: ComposerDockProps) {
       props.onPickerDismiss();
       return;
     }
-    if (e.name === "return") {
-      e.preventDefault();
-      filterText = "";
-      props.onPickerSelect();
-      return;
-    }
-
     // For filterable pickers, intercept typing
     if (props.pickerFilterable) {
       e.preventDefault();
@@ -109,7 +102,14 @@ export function ComposerDock(props: ComposerDockProps) {
           onContentChange={() => {
             props.onContentChange(textareaRef?.plainText ?? "");
           }}
-          onSubmit={props.onSubmit}
+          onSubmit={() => {
+            if (props.pickerVisible) {
+              filterText = "";
+              props.onPickerSelect();
+            } else {
+              props.onSubmit();
+            }
+          }}
           focused
         />
       </box>

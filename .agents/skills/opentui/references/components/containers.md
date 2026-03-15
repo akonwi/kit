@@ -240,6 +240,30 @@ items.forEach(item => {
 </scrollbox>
 ```
 
+### Sticky Scroll (Auto-follow new content)
+
+Use `stickyScroll` with `stickyStart` to automatically stay scrolled to the bottom (or top) as new content is added:
+
+```tsx
+<scrollbox
+  height="100%"
+  flexGrow={1}
+  scrollY
+  stickyScroll
+  stickyStart="bottom"
+>
+  <For each={messages()}>
+    {(msg) => <text>{msg}</text>}
+  </For>
+</scrollbox>
+```
+
+- `stickyScroll` — enables sticky scroll behavior
+- `stickyStart="bottom"` — initially scrolls to the bottom; stays at bottom as content grows (unless the user scrolls away manually)
+- `stickyStart="top"` — stays at the top
+
+This is the preferred approach for chat-like UIs where new content appears at the bottom.
+
 ### Scroll Position (Core)
 
 ```typescript
@@ -251,9 +275,14 @@ const scrollbox = new ScrollBoxRenderable(renderer, {
 // Scroll programmatically
 scrollbox.scrollTo(0)           // Scroll to top
 scrollbox.scrollTo(100)         // Scroll to position
+scrollbox.scrollTo({ y: 100 })  // Object form
 scrollbox.scrollBy(10)          // Scroll relative
-scrollbox.scrollToBottom()      // Scroll to end
+
+// Access scroll position
+scrollbox.scrollTop              // Current vertical scroll offset
 ```
+
+**Note:** There is no `scrollToBottom()` method. To scroll to the end, use `scrollTo({ y: Number.MAX_SAFE_INTEGER })` — the scrollbox clamps to the maximum scroll position internally.
 
 ## Composition Patterns
 
