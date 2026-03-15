@@ -1,19 +1,14 @@
 import type { KeyEvent, SelectOption } from "@opentui/core";
 import { Show } from "solid-js";
-import type { PickerState } from "../state/app-state";
+import type { PickerOption, PickerState } from "../state/app-state";
 
 export type PickerOverlayProps = {
   picker: PickerState;
+  onSelect: (option: PickerOption) => void;
   onDismiss: () => void;
 };
 
 export function PickerOverlay(props: PickerOverlayProps) {
-  const options = (): SelectOption[] =>
-    props.picker.options.map((o) => ({
-      name: o.name,
-      description: o.description,
-    }));
-
   return (
     <Show when={props.picker.visible}>
       <box
@@ -43,7 +38,13 @@ export function PickerOverlay(props: PickerOverlayProps) {
           <text fg="#6cb6ff">{props.picker.title}</text>
           <select
             focused
-            options={options()}
+            flexGrow={1}
+            options={
+              props.picker.options.map((o): SelectOption => ({
+                name: o.name,
+                description: o.description,
+              }))
+            }
             selectedIndex={props.picker.selectedIndex}
             textColor="#b8b8b8"
             focusedTextColor="#ffffff"
@@ -54,11 +55,10 @@ export function PickerOverlay(props: PickerOverlayProps) {
             wrapSelection
             showScrollIndicator
             onSelect={(_index: number, option: SelectOption | null) => {
-              if (option && props.picker.onSelect) {
-                const idx = props.picker.options.findIndex((o) => o.name === option.name);
-                if (idx >= 0) {
-                  props.picker.onSelect(props.picker.options[idx]);
-                }
+              if (!option) return;
+              const picked = props.picker.options.find((o) => o.name === option.name);
+              if (picked) {
+                props.onSelect(picked);
               }
             }}
           />

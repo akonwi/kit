@@ -47,7 +47,6 @@ export type PickerState = {
   title: string;
   options: PickerOption[];
   selectedIndex: number;
-  onSelect: ((option: PickerOption) => void) | null;
 };
 
 export type AppState = {
@@ -131,7 +130,6 @@ export function buildInitialAppState(
       title: "",
       options: [],
       selectedIndex: 0,
-      onSelect: null,
     },
     composer: {
       mode: "composer",
@@ -281,29 +279,35 @@ export function createAppState(
     }
   }
 
+  let pickerCallback: ((option: PickerOption) => void) | null = null;
+
   function openPicker(
     title: string,
     options: PickerOption[],
     selectedIndex: number,
     onSelect: (option: PickerOption) => void,
   ) {
+    pickerCallback = onSelect;
     setState("picker", {
       visible: true,
       title,
       options,
       selectedIndex,
-      onSelect,
     });
   }
 
   function closePicker() {
+    pickerCallback = null;
     setState("picker", {
       visible: false,
       title: "",
       options: [],
       selectedIndex: 0,
-      onSelect: null,
     });
+  }
+
+  function selectPickerOption(option: PickerOption) {
+    pickerCallback?.(option);
   }
 
   return {
@@ -316,5 +320,6 @@ export function createAppState(
     hidePanel,
     openPicker,
     closePicker,
+    selectPickerOption,
   };
 }

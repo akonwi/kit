@@ -12,6 +12,7 @@ export type AppShellProps = {
   onInspectMessage: (msg: AgentMessage) => void;
   onComposerChange: (value: string) => void;
   onComposerSubmit: () => void;
+  onPickerSelect: (option: import("../state/app-state").PickerOption) => void;
   onPickerDismiss: () => void;
 };
 
@@ -31,7 +32,7 @@ export function AppShell(props: AppShellProps) {
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
-      <PickerOverlay picker={props.state.picker} onDismiss={props.onPickerDismiss} />
+      <PickerOverlay picker={props.state.picker} onSelect={props.onPickerSelect} onDismiss={props.onPickerDismiss} />
     </box>
   );
 }
