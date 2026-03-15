@@ -1,80 +1,123 @@
 import type { KeyEvent } from "@opentui/core";
-import { createEffect } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
-import type { ComposerState } from "../state/app-state";
+import type { PaletteManager } from "../state/palette-manager";
 import { theme } from "./theme";
 
 export type ComposerDockProps = {
-  composer: ComposerState;
   cwd: string;
   sessionName: string | undefined;
-  pickerVisible: boolean;
-  pickerFilterable: boolean;
-  onContentChange: (value: string) => void;
-  onSubmit: () => void;
-  onPickerUp: () => void;
-  onPickerDown: () => void;
-  onPickerSelect: () => void;
-  onPickerDismiss: () => void;
-  onPickerFilter: (query: string) => void;
+  palette: PaletteManager;
+  onTextChange: (text: string) => void;
+  onSubmit: (text: string) => Promise<{ composerText?: string }>;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
-  let textareaRef: {
-    plainText: string;
-    setText: (value: string) => void;
-  } | undefined;
+  let textareaRef:
+    | {
+        plainText: string;
+        setText: (value: string) => void;
+      }
+    | undefined;
 
   let filterText = "";
+  let inputText = "";
+  let lastInputMode = false;
 
-  createEffect(() => {
-    const nextText = props.composer.text;
-    if (!textareaRef) return;
-    if (textareaRef.plainText !== nextText) {
-      textareaRef.setText(nextText);
-    }
-  });
-
-  // Global key handler — fires before the textarea processes the key
   useKeyboard((e: KeyEvent) => {
-    if (!props.pickerVisible) return;
+    const pm = props.palette;
+
+    // Seed inputText when entering input mode
+    if (pm.isInputMode && !lastInputMode) {
+      inputText = pm.inputValue;
+    }
+    lastInputMode = pm.isInputMode;
+
+    // Input mode (rename prompt etc.)
+    if (pm.isInputMode) {
+      e.preventDefault();
+      if (e.name === "return") {
+        pm.submitInput();
+        inputText = "";
+      } else if (e.name === "escape") {
+        pm.pop();
+        inputText = "";
+      } else if (e.name === "backspace") {
+        inputText = inputText.slice(0, -1);
+        pm.setInputValue(inputText);
+      } else if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
+        inputText += e.sequence;
+        pm.setInputValue(inputText);
+      }
+      return;
+    }
+
+    if (!pm.visible) return;
 
     if (e.name === "up") {
       e.preventDefault();
-      props.onPickerUp();
+      pm.moveUp();
       return;
     }
     if (e.name === "down") {
       e.preventDefault();
-      props.onPickerDown();
+      pm.moveDown();
       return;
     }
     if (e.name === "escape") {
       e.preventDefault();
       filterText = "";
-      props.onPickerDismiss();
+      pm.pop();
       return;
     }
-    // Enter selects current picker item (for filterable pickers where
-    // the textarea onSubmit won't fire because we preventDefault below)
-    if (props.pickerFilterable && e.name === "return") {
+
+    // Ctrl keybindings
+    if (e.ctrl && e.name) {
+      const key = `ctrl+${e.name}`;
+      if (pm.handleKeyBinding(key)) {
+        e.preventDefault();
+        return;
+      }
+    }
+
+    // Enter selects (filterable pickers)
+    if (pm.isFilterable && e.name === "return") {
       e.preventDefault();
       filterText = "";
-      props.onPickerSelect();
+      pm.selectCurrent();
       return;
     }
-    // For filterable pickers, intercept typing
-    if (props.pickerFilterable) {
+
+    // Filterable text input
+    if (pm.isFilterable) {
       e.preventDefault();
       if (e.name === "backspace") {
         filterText = filterText.slice(0, -1);
-        props.onPickerFilter(filterText);
+        pm.filter(filterText);
       } else if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
         filterText += e.sequence;
-        props.onPickerFilter(filterText);
+        pm.filter(filterText);
       }
+      return;
     }
   });
+
+  async function handleSubmit() {
+    const pm = props.palette;
+    if (pm.visible && !pm.isFilterable) {
+      pm.selectCurrent();
+      return;
+    }
+    if (pm.visible) return;
+
+    const text = textareaRef?.plainText ?? "";
+    if (!text.trim()) return;
+
+    textareaRef?.setText("");
+    const result = await props.onSubmit(text);
+    if (result.composerText !== undefined) {
+      textareaRef?.setText(result.composerText);
+    }
+  }
 
   return (
     <box flexShrink={0}>
@@ -92,16 +135,15 @@ export function ComposerDock(props: ComposerDockProps) {
           ref={(value) => {
             textareaRef = value as typeof textareaRef;
           }}
-          height={props.composer.height}
-          initialValue={props.composer.text}
-          placeholder={props.composer.placeholder}
+          height={6}
+          placeholder="Ask pi-kit to do something..."
           placeholderColor={theme.textPlaceholder}
           backgroundColor={theme.bgSurface}
           focusedBackgroundColor={theme.bgSurface}
           textColor={theme.textPrimary}
           focusedTextColor={theme.textPrimary}
           cursorColor={theme.cursor}
-          showCursor={!props.pickerFilterable}
+          showCursor={!props.palette.isFilterable && !props.palette.isInputMode}
           wrapMode="word"
           keyBindings={[
             { name: "return", action: "submit" },
@@ -109,15 +151,12 @@ export function ComposerDock(props: ComposerDockProps) {
             { name: "return", shift: true, action: "newline" },
           ]}
           onContentChange={() => {
-            props.onContentChange(textareaRef?.plainText ?? "");
+            const text = textareaRef?.plainText ?? "";
+            props.onTextChange(text);
           }}
-          onSubmit={() => {
-            if (props.pickerVisible) {
-              filterText = "";
-              props.onPickerSelect();
-            } else {
-              props.onSubmit();
-            }
+          onSubmit={handleSubmit}
+          onKeyDown={(e) => {
+            console.log(`pressed: ${e.name}`);
           }}
           focused
         />

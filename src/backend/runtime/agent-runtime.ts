@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises";
 import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Api, Model } from "@mariozechner/pi-ai";
 import {
@@ -43,6 +44,8 @@ export type AgentRuntime = {
   setSessionName(name: string): void;
   listAllSessions(): Promise<SessionInfo[]>;
   switchSession(sessionPath: string): Promise<boolean>;
+  renameSession(sessionPath: string, name: string): void;
+  deleteSession(sessionPath: string): Promise<void>;
   onQuit(handler: () => void): void;
   quit(): void;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
@@ -225,6 +228,22 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     setSessionName(name: string): void {
       agentSession.setSessionName(name);
       currentSession = snapshotLoadedSession(agentSession.sessionManager);
+    },
+    renameSession(sessionPath: string, name: string): void {
+      const isCurrent = agentSession.sessionFile === sessionPath;
+      if (isCurrent) {
+        agentSession.setSessionName(name);
+        currentSession = snapshotLoadedSession(agentSession.sessionManager);
+      } else {
+        const sm = SessionManager.open(sessionPath);
+        sm.appendSessionInfo(name);
+      }
+    },
+    async deleteSession(sessionPath: string): Promise<void> {
+      if (agentSession.sessionFile === sessionPath) {
+        throw new Error("Cannot delete the currently active session.");
+      }
+      await rm(sessionPath);
     },
     async listAllSessions(): Promise<SessionInfo[]> {
       return SessionManager.listAll();

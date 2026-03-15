@@ -7,482 +7,423 @@ import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { matchCommands } from "../features/command-registry";
 import { executeCommand, type SessionPickerItem } from "../features/commands";
-
-export type DockMode = "composer" | "wizard" | "pager";
+import { createPaletteManager, type PaletteManager } from "./palette-manager";
+import { emptySnapshot, type PaletteOption } from "./palette";
 
 export type PanelState = {
-  visible: boolean;
-  title: string;
-  lines: string[];
-};
-
-export type ComposerState = {
-  mode: DockMode;
-  title: string;
-  placeholder: string;
-  text: string;
-  height: number;
+	visible: boolean;
+	title: string;
+	lines: string[];
 };
 
 export type FooterStatusState = {
-  cwd: string;
-  model: string;
-  thinkingLevel: string;
-  contextPct: string;
+	cwd: string;
+	model: string;
+	thinkingLevel: string;
+	contextPct: string;
 };
 
 export type SessionMeta = {
-  sessionId: string;
-  sessionName: string | undefined;
-  sessionCwd: string;
-  hasSession: boolean;
-};
-
-export type PickerOption = {
-  name: string;
-  description: string;
-  value: unknown;
-};
-
-
-export type PickerState = {
-  visible: boolean;
-  title: string;
-  options: PickerOption[];
-  selectedIndex: number;
-  filterable: boolean;
-  filterText: string;
+	sessionId: string;
+	sessionName: string | undefined;
+	sessionCwd: string;
+	hasSession: boolean;
 };
 
 export type AppState = {
-  messages: AgentMessage[];
-  panel: PanelState;
-  picker: PickerState;
-  composer: ComposerState;
-  footerStatus: FooterStatusState;
-  sessionMeta: SessionMeta;
-  /** Debug: raw message JSON for the currently inspected message */
-  debugEntry: string | null;
+	messages: AgentMessage[];
+	panel: PanelState;
+	palette: import("./palette").PaletteSnapshot;
+	footerStatus: FooterStatusState;
+	sessionMeta: SessionMeta;
 };
 
+// ── Helpers ────────────────────────────────────────────────────────
+
 function formatTimeAgo(date: Date): string {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 30) return `${days}d ago`;
-  return date.toLocaleDateString();
+	const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+	if (seconds < 60) return "just now";
+	const minutes = Math.floor(seconds / 60);
+	if (minutes < 60) return `${minutes}m ago`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `${hours}h ago`;
+	const days = Math.floor(hours / 24);
+	if (days < 30) return `${days}d ago`;
+	return date.toLocaleDateString();
 }
 
 function formatCwd(rawCwd: string): string {
-  const home = homedir();
-  return rawCwd.startsWith(home) ? `~${rawCwd.slice(home.length)}` : rawCwd;
+	const home = homedir();
+	return rawCwd.startsWith(home) ? `~${rawCwd.slice(home.length)}` : rawCwd;
 }
 
-function deriveFooterStatus(runtime: AgentRuntime | null): Omit<FooterStatusState, "cwd"> {
-  if (runtime) {
-    const status = runtime.getStatus();
-    return {
-      model: status.model,
-      thinkingLevel: status.thinkingLevel,
-      contextPct: status.contextPct,
-    };
-  }
-  return {
-    model: "no-model",
-    thinkingLevel: "off",
-    contextPct: "–",
-  };
+function deriveFooterStatus(
+	runtime: AgentRuntime | null,
+): Omit<FooterStatusState, "cwd"> {
+	if (runtime) {
+		const status = runtime.getStatus();
+		return {
+			model: status.model,
+			thinkingLevel: status.thinkingLevel,
+			contextPct: status.contextPct,
+		};
+	}
+	return { model: "no-model", thinkingLevel: "off", contextPct: "–" };
 }
 
 function applyRuntimeStatus(
-  current: FooterStatusState,
-  status: RuntimeStatus,
+	current: FooterStatusState,
+	status: RuntimeStatus,
 ): FooterStatusState {
-  return {
-    ...current,
-    model: status.model,
-    thinkingLevel: status.thinkingLevel,
-    contextPct: status.contextPct,
-  };
+	return {
+		...current,
+		model: status.model,
+		thinkingLevel: status.thinkingLevel,
+		contextPct: status.contextPct,
+	};
 }
 
 function buildSessionMeta(session: LoadedSession | null): SessionMeta {
-  if (session) {
-    return {
-      sessionId: session.sessionId,
-      sessionName: session.sessionName,
-      sessionCwd: session.cwd,
-      hasSession: true,
-    };
-  }
-  return {
-    sessionId: "",
-    sessionName: undefined,
-    sessionCwd: process.cwd(),
-    hasSession: false,
-  };
+	if (session) {
+		return {
+			sessionId: session.sessionId,
+			sessionName: session.sessionName,
+			sessionCwd: session.cwd,
+			hasSession: true,
+		};
+	}
+	return {
+		sessionId: "",
+		sessionName: undefined,
+		sessionCwd: process.cwd(),
+		hasSession: false,
+	};
 }
 
-export function buildInitialAppState(
-  _settings: LoadedSettings,
-  session: LoadedSession | null,
-  runtime: AgentRuntime | null,
-): AppState {
-  const messages = runtime ? runtime.getMessages() : [];
-  const footer = deriveFooterStatus(runtime);
-
-  return {
-    messages,
-    panel: {
-      visible: false,
-      title: "",
-      lines: [],
-    },
-    picker: {
-      visible: false,
-      title: "",
-      options: [],
-      selectedIndex: 0,
-      filterable: false,
-      filterText: "",
-    },
-    composer: {
-      mode: "composer",
-      title: "Compose",
-      placeholder: "Ask pi-kit to do something...",
-      text: "",
-      height: 6,
-    },
-    footerStatus: {
-      cwd: formatCwd(process.cwd()),
-      ...footer,
-    },
-    sessionMeta: buildSessionMeta(session),
-    debugEntry: null,
-  };
-}
+// ── App state factory ──────────────────────────────────────────────
 
 export function createAppState(
-  settings: LoadedSettings,
-  session: LoadedSession | null,
-  runtime: AgentRuntime | null,
+	_settings: LoadedSettings,
+	session: LoadedSession | null,
+	runtime: AgentRuntime | null,
 ) {
-  const [state, setState] = createStore(buildInitialAppState(settings, session, runtime));
+	const messages = runtime ? runtime.getMessages() : [];
+	const footer = deriveFooterStatus(runtime);
 
-  function showPanel(title: string, lines: string[]) {
-    setState("panel", {
-      visible: true,
-      title,
-      lines,
-    });
-  }
+	const [state, setState] = createStore<AppState>({
+		messages,
+		panel: { visible: false, title: "", lines: [] },
+		palette: emptySnapshot,
+		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
+		sessionMeta: buildSessionMeta(session),
+	});
 
-  function hidePanel() {
-    setState("panel", {
-      visible: false,
-      title: "",
-      lines: [],
-    });
-  }
+	const palette: PaletteManager = createPaletteManager(setState);
 
-  runtime?.subscribe((event) => {
-    switch (event.type) {
-      case "messages_changed":
-        setState("messages", event.messages);
-        break;
-      case "status_changed":
-        setState("footerStatus", applyRuntimeStatus(state.footerStatus, event.status));
-        break;
-      case "panel":
-        setState("panel", event.panel);
-        break;
-      case "error":
-        showPanel(event.title, event.lines);
-        break;
-      default:
-        break;
-    }
-  });
+	// ── Panel ──────────────────────────────────────────────────────
 
-  function inspectMessage(msg: AgentMessage) {
-    const json = JSON.stringify(msg, null, 2);
-    const current = state.debugEntry;
-    setState("debugEntry", current === json ? null : json);
-  }
+	function showPanel(title: string, lines: string[]) {
+		setState("panel", { visible: true, title, lines });
+	}
 
-  function setComposerText(text: string) {
-    setState("composer", "text", text);
-    updateCommandPicker(text);
-  }
+	function hidePanel() {
+		setState("panel", { visible: false, title: "", lines: [] });
+	}
 
-  function updateCommandPicker(text: string) {
-    const trimmed = text.trimStart();
+	// ── Runtime subscription ───────────────────────────────────────
 
-    // Only show command picker if text is purely a slash prefix (no space yet = still picking)
-    if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
-      const matches = matchCommands(trimmed);
-      if (matches.length > 0) {
-        const options: PickerOption[] = matches.map((c) => ({
-          name: c.name,
-          description: c.description,
-          value: c,
-        }));
-        openPicker("Commands", options, 0, (option) => {
-          const cmd = option.value as { name: string; takesArgs?: boolean };
-          closePicker();
-          if (cmd.takesArgs) {
-            // Fill in the command and let user type args
-            setState("composer", "text", `${cmd.name} `);
-          } else {
-            // Execute immediately
-            setState("composer", "text", cmd.name);
-            handleSlashCommand(cmd.name);
-          }
-        });
-        return;
-      }
-    }
+	runtime?.subscribe((event) => {
+		switch (event.type) {
+			case "messages_changed":
+				setState("messages", event.messages);
+				break;
+			case "status_changed":
+				setState(
+					"footerStatus",
+					applyRuntimeStatus(state.footerStatus, event.status),
+				);
+				break;
+			case "panel":
+				setState("panel", event.panel);
+				break;
+			case "error":
+				showPanel(event.title, event.lines);
+				break;
+		}
+	});
 
-    // Dismiss the command picker if it's currently showing commands
-    if (state.picker.visible && state.picker.title === "Commands") {
-      dismissPicker();
-    }
-  }
+	// ── Command palette (slash commands) ───────────────────────────
 
-  async function handleSlashCommand(raw: string) {
-    if (!runtime) {
-      showPanel("", ["No runtime available."]);
-      setState("composer", "text", "");
-      return;
-    }
+	let commandPaletteActive = false;
 
-    setState("composer", "text", "");
+	function onComposerTextChange(text: string) {
+		const trimmed = text.trimStart();
 
-    try {
-      const result = await executeCommand(raw, runtime);
-      if (result.panel) {
-        showPanel(result.panel.title, result.panel.lines);
-      }
-      if (result.sessionName !== undefined) {
-        setState("sessionMeta", "sessionName", result.sessionName);
-      }
-      if (result.openModelPicker) {
-        const { models, currentModelId } = result.openModelPicker;
-        const options: PickerOption[] = models.map((m) => ({
-          name: m.name,
-          description: m.provider,
-          value: m,
-        }));
-        const currentIdx = models.findIndex((m) => m.id === currentModelId);
-        openPicker(
-          "Select Model",
-          options,
-          currentIdx >= 0 ? currentIdx : 0,
-          async (option: PickerOption) => {
-            const model = option.value as { id: string; name: string; provider: string };
-            try {
-              await runtime.setModel(model.provider, model.id);
-              hidePanel();
-            } catch (error) {
-              if (error instanceof Error) {
-                showPanel("Model Error", [error.message]);
-              }
-            }
-            closePicker();
-          },
-          true, // filterable
-        );
-      }
-      if (result.openSessionPicker) {
-        const { sessions, currentSessionId } = result.openSessionPicker;
-        const home = homedir();
-        const options: PickerOption[] = sessions.map((s) => {
-          const label = s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
-          const cwd = s.cwd.startsWith(home) ? `~${s.cwd.slice(home.length)}` : s.cwd;
-          const dir = basename(cwd);
-          const ago = formatTimeAgo(s.modified);
-          return {
-            name: label,
-            description: `${dir}  ${ago}`,
-            value: s,
-          };
-        });
-        const currentIdx = sessions.findIndex((s) => s.id === currentSessionId);
-        openPicker(
-          "Switch Session",
-          options,
-          currentIdx >= 0 ? currentIdx : 0,
-          async (option: PickerOption) => {
-            const session = option.value as SessionPickerItem;
-            try {
-              const ok = await runtime.switchSession(session.path);
-              if (ok) {
-                const snap = runtime.getSession();
-                setState("sessionMeta", {
-                  sessionId: snap.sessionId,
-                  sessionName: snap.sessionName,
-                  sessionCwd: snap.cwd,
-                  hasSession: true,
-                });
-                hidePanel();
-              } else {
-                showPanel("", ["Session switch was cancelled."]);
-              }
-            } catch (error) {
-              if (error instanceof Error) {
-                showPanel("Session Error", [error.message]);
-              }
-            }
-            closePicker();
-          },
-          true, // filterable
-        );
-      }
-    } catch (error) {
-      if (error instanceof Error) {
-        showPanel("Command Error", [error.message]);
-      } else {
-        showPanel("Command Error", [String(error)]);
-      }
-    }
-  }
+		if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
+			const matches = matchCommands(trimmed);
+			if (matches.length > 0) {
+				const options: PaletteOption[] = matches.map((c) => ({
+					name: c.name,
+					description: c.description,
+					value: c,
+					action: (ctx) => {
+						commandPaletteActive = false;
+						ctx.dismiss();
+						if (c.takesArgs) {
+							ctx.setComposerText(`${c.name} `);
+						} else {
+							ctx.setComposerText("");
+							handleSlashCommand(c.name);
+						}
+					},
+				}));
+				if (commandPaletteActive) {
+					palette.updateTopOptions(options);
+				} else {
+					palette.show({ options });
+					commandPaletteActive = true;
+				}
+				return;
+			}
+		}
 
-  async function submitComposer() {
-    const raw = state.composer.text;
-    if (!raw.trim()) return;
+		if (commandPaletteActive) {
+			commandPaletteActive = false;
+			palette.pop();
+		}
+	}
 
-    if (raw.trimStart().startsWith("/")) {
-      if (state.picker.visible && state.picker.title === "Commands") {
-        closePicker();
-      }
-      handleSlashCommand(raw);
-      return;
-    }
+	// ── Submit ─────────────────────────────────────────────────────
 
-    if (!runtime) {
-      showPanel("Runtime Error", ["No runtime is available for this submission."]);
-      return;
-    }
+	async function onComposerSubmit(
+		text: string,
+	): Promise<{ composerText?: string }> {
+		if (text.trimStart().startsWith("/")) {
+			if (palette.visible) palette.clear();
+			commandPaletteActive = false;
+			handleSlashCommand(text);
+			return {};
+		}
 
-    setState("composer", "text", "");
+		if (!runtime) {
+			showPanel("Runtime Error", [
+				"No runtime is available for this submission.",
+			]);
+			return { composerText: text };
+		}
 
-    try {
-      await runtime.submitUserMessage(raw);
-    } catch (error) {
-      setState("composer", "text", raw);
-      if (error instanceof Error) {
-        showPanel("Runtime Error", [error.message]);
-      } else {
-        showPanel("Runtime Error", [String(error)]);
-      }
-    }
-  }
+		try {
+			await runtime.submitUserMessage(text);
+			return {};
+		} catch (error) {
+			if (error instanceof Error) {
+				showPanel("Runtime Error", [error.message]);
+			} else {
+				showPanel("Runtime Error", [String(error)]);
+			}
+			return { composerText: text };
+		}
+	}
 
-  let pickerCallback: ((option: PickerOption) => void) | null = null;
-  let pickerAllOptions: PickerOption[] = [];
+	// ── Slash commands ─────────────────────────────────────────────
 
-  function openPicker(
-    title: string,
-    options: PickerOption[],
-    selectedIndex: number,
-    onSelect: (option: PickerOption) => void,
-    filterable = false,
-  ) {
-    pickerCallback = onSelect;
-    pickerAllOptions = options;
-    setState("picker", {
-      visible: true,
-      title,
-      options,
-      selectedIndex,
-      filterable,
-      filterText: "",
-    });
-  }
+	async function handleSlashCommand(raw: string) {
+		if (!runtime) {
+			showPanel("", ["No runtime available."]);
+			return;
+		}
 
-  function closePicker() {
-    pickerCallback = null;
-    pickerAllOptions = [];
-    setState("picker", {
-      visible: false,
-      title: "",
-      options: [],
-      selectedIndex: 0,
-      filterable: false,
-      filterText: "",
-    });
-    setState("composer", "text", "");
-  }
+		try {
+			const result = await executeCommand(raw, runtime);
 
-  /** Dismiss picker without clearing the composer text */
-  function dismissPicker() {
-    pickerCallback = null;
-    pickerAllOptions = [];
-    setState("picker", {
-      visible: false,
-      title: "",
-      options: [],
-      selectedIndex: 0,
-      filterable: false,
-      filterText: "",
-    });
-  }
+			if (result.panel) {
+				showPanel(result.panel.title, result.panel.lines);
+			}
+			if (result.sessionName !== undefined) {
+				setState("sessionMeta", "sessionName", result.sessionName);
+			}
+			if (result.openModelPicker) {
+				openModelPalette(
+					result.openModelPicker.models,
+					result.openModelPicker.currentModelId,
+				);
+			}
+			if (result.openSessionPicker) {
+				openSessionSwitchPalette(
+					result.openSessionPicker.sessions,
+					result.openSessionPicker.currentSessionId,
+				);
+			}
+			if (result.openSessionManage) {
+				openSessionManagePalette(
+					result.openSessionManage.sessions,
+					result.openSessionManage.currentSessionId!,
+				);
+			}
+		} catch (error) {
+			if (error instanceof Error) {
+				showPanel("Command Error", [error.message]);
+			} else {
+				showPanel("Command Error", [String(error)]);
+			}
+		}
+	}
 
-  function filterPicker(query: string) {
-    if (!state.picker.visible || !state.picker.filterable) return;
-    setState("picker", "filterText", query);
-    if (!query) {
-      setState("picker", "options", pickerAllOptions);
-      setState("picker", "selectedIndex", 0);
-      return;
-    }
-    const q = query.toLowerCase();
-    const filtered = pickerAllOptions.filter(
-      (o) => o.name.toLowerCase().includes(q) || o.description.toLowerCase().includes(q),
-    );
-    setState("picker", "options", filtered);
-    setState("picker", "selectedIndex", 0);
-  }
+	// ── Model palette ──────────────────────────────────────────────
 
-  function selectPickerOption(option: PickerOption) {
-    pickerCallback?.(option);
-  }
+	function openModelPalette(
+		models: Array<{ id: string; name: string; provider: string }>,
+		_currentModelId: string | undefined,
+	) {
+		const options: PaletteOption[] = models.map((m) => ({
+			name: m.name,
+			description: m.provider,
+			value: m,
+			action: async (ctx) => {
+				try {
+					await runtime!.setModel(m.provider, m.id);
+					hidePanel();
+				} catch (error) {
+					if (error instanceof Error) showPanel("Model Error", [error.message]);
+				}
+				ctx.dismiss();
+			},
+		}));
+		palette.show({ options, filterable: true });
+	}
 
-  function selectCurrentPickerOption() {
-    const option = state.picker.options[state.picker.selectedIndex];
-    if (option) pickerCallback?.(option);
-  }
+	// ── Session switch palette ─────────────────────────────────────
 
-  function pickerUp() {
-    const count = state.picker.options.length;
-    if (count === 0) return;
-    setState("picker", "selectedIndex", (i) => (i <= 0 ? count - 1 : i - 1));
-  }
+	function openSessionSwitchPalette(
+		sessions: SessionPickerItem[],
+		_currentSessionId: string | undefined,
+	) {
+		const home = homedir();
+		const options: PaletteOption[] = sessions.map((s) => {
+			const label = s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
+			const cwd = s.cwd.startsWith(home)
+				? `~${s.cwd.slice(home.length)}`
+				: s.cwd;
+			const dir = basename(cwd);
+			const ago = formatTimeAgo(s.modified);
+			return {
+				name: label,
+				description: `${dir}  ${ago}`,
+				value: s,
+				action: async (ctx) => {
+					try {
+						const ok = await runtime!.switchSession(s.path);
+						if (ok) {
+							const snap = runtime!.getSession();
+							setState("sessionMeta", {
+								sessionId: snap.sessionId,
+								sessionName: snap.sessionName,
+								sessionCwd: snap.cwd,
+								hasSession: true,
+							});
+							hidePanel();
+						} else {
+							showPanel("", ["Session switch was cancelled."]);
+						}
+					} catch (error) {
+						if (error instanceof Error)
+							showPanel("Session Error", [error.message]);
+					}
+					ctx.dismiss();
+				},
+			};
+		});
+		palette.show({ options, filterable: true });
+	}
 
-  function pickerDown() {
-    const count = state.picker.options.length;
-    if (count === 0) return;
-    setState("picker", "selectedIndex", (i) => (i >= count - 1 ? 0 : i + 1));
-  }
+	// ── Session manage palette ─────────────────────────────────────
 
-  return {
-    state,
-    setState,
-    inspectMessage,
-    setComposerText,
-    submitComposer,
-    showPanel,
-    hidePanel,
-    openPicker,
-    closePicker,
-    selectPickerOption,
-    selectCurrentPickerOption,
-    pickerUp,
-    pickerDown,
-    filterPicker,
-  };
+	function openSessionManagePalette(
+		sessions: SessionPickerItem[],
+		currentSessionId: string,
+	) {
+		let manageSessions = [...sessions];
+
+		function buildOptions(): PaletteOption[] {
+			const home = homedir();
+			return manageSessions.map((s) => {
+				const label = s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
+				const cwd = s.cwd.startsWith(home)
+					? `~${s.cwd.slice(home.length)}`
+					: s.cwd;
+				const dir = basename(cwd);
+				const ago = formatTimeAgo(s.modified);
+				return {
+					name: label,
+					description: `${dir}  ${ago}`,
+					value: s,
+					action: () => {},
+				};
+			});
+		}
+
+		function refresh() {
+			palette.pop();
+			palette.show(
+				{
+					options: buildOptions(),
+					filterable: true,
+					hint: "Ctrl+R rename · Ctrl+D delete · Esc close",
+				},
+				{
+					"ctrl+r": (option, _ctx) => {
+						const session = option.value as SessionPickerItem;
+						palette.show({
+							mode: "input",
+							label: "Rename session",
+							inputValue: session.name || "",
+							onSubmit: (value, inputCtx) => {
+								try {
+									runtime!.renameSession(session.path, value);
+									session.name = value;
+									if (session.id === currentSessionId) {
+										setState("sessionMeta", "sessionName", value);
+									}
+									showPanel("", [`Renamed to "${value}"`]);
+								} catch (error) {
+									if (error instanceof Error)
+										showPanel("Error", [error.message]);
+								}
+								inputCtx.dismiss();
+								refresh();
+							},
+						});
+					},
+					"ctrl+d": async (option, _ctx) => {
+						const session = option.value as SessionPickerItem;
+						if (session.id === currentSessionId) {
+							showPanel("", ["Cannot delete the active session."]);
+							return;
+						}
+						try {
+							await runtime!.deleteSession(session.path);
+							manageSessions = manageSessions.filter(
+								(s) => s.id !== session.id,
+							);
+							showPanel("", ["Session deleted."]);
+							refresh();
+						} catch (error) {
+							if (error instanceof Error) showPanel("Error", [error.message]);
+						}
+					},
+				},
+			);
+		}
+
+		refresh();
+	}
+
+	return {
+		state,
+		palette,
+		onComposerTextChange,
+		onComposerSubmit,
+		showPanel,
+		hidePanel,
+	};
 }

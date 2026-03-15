@@ -1,11 +1,11 @@
 import { createMemo, For, Show } from "solid-js";
-import type { PickerState } from "../state/app-state";
+import type { PaletteSnapshot } from "../state/palette";
 import { theme } from "./theme";
 
 const MAX_VISIBLE = 10;
 
 export type InlinePickerProps = {
-  picker: PickerState;
+  palette: PaletteSnapshot;
 };
 
 function computeScrollbar(total: number, visible: number, offset: number) {
@@ -21,20 +21,16 @@ function computeScrollbar(total: number, visible: number, offset: number) {
 }
 
 export function InlinePicker(props: InlinePickerProps) {
-  const visible = () => props.picker.visible;
   const maxNameLen = () =>
-    props.picker.options.reduce((max, o) => Math.max(max, o.name.length), 0);
+    props.palette.options.reduce((max, o) => Math.max(max, o.name.length), 0);
 
   const visibleSlice = createMemo(() => {
-    const options = props.picker.options;
+    const options = props.palette.options;
     const count = options.length;
-    const selected = props.picker.selectedIndex;
+    const selected = props.palette.selectedIndex;
 
     if (count <= MAX_VISIBLE) {
-      return {
-        items: options.map((o, i) => ({ option: o, index: i })),
-        offset: 0,
-      };
+      return { items: options.map((o, i) => ({ option: o, index: i })), offset: 0 };
     }
 
     let offset = selected - Math.floor(MAX_VISIBLE / 2);
@@ -48,15 +44,11 @@ export function InlinePicker(props: InlinePickerProps) {
   });
 
   const scrollbar = createMemo(() =>
-    computeScrollbar(
-      props.picker.options.length,
-      MAX_VISIBLE,
-      visibleSlice().offset,
-    ),
+    computeScrollbar(props.palette.options.length, MAX_VISIBLE, visibleSlice().offset),
   );
 
   return (
-    <Show when={visible()}>
+    <Show when={props.palette.visible}>
       <box
         position="absolute"
         bottom={12}
@@ -66,51 +58,62 @@ export function InlinePicker(props: InlinePickerProps) {
         borderColor={theme.pickerBorder}
         backgroundColor={theme.pickerBg}
         paddingX={1}
-        flexDirection="row"
+        flexDirection="column"
       >
-        <box flexGrow={1} flexDirection="column">
-          <Show when={props.picker.filterable}>
-            <text fg={theme.textPrimary}>
-              {"> "}
-              {props.picker.filterText}
-            </text>
+        <Show when={props.palette.mode === "input"}>
+          <text fg={theme.textMuted}>{props.palette.label}</text>
+          <text fg={theme.textPrimary}>{"> "}{props.palette.inputValue}</text>
+        </Show>
+
+        <Show when={props.palette.mode === "list"}>
+          <Show when={props.palette.filterable}>
+            <text fg={theme.textPrimary}>{"> "}{props.palette.filterText}</text>
             <text> </text>
           </Show>
-          <Show when={props.picker.options.length === 0}>
+
+          <Show when={props.palette.options.length === 0}>
             <text fg={theme.textMuted}>No results</text>
           </Show>
-          <For each={visibleSlice().items}>
-            {(entry) => {
-              const isFocused = () =>
-                entry.index === props.picker.selectedIndex;
-              const padded = () => entry.option.name.padEnd(maxNameLen());
-              return (
-                <box
-                  flexDirection="row"
-                  width="100%"
-                  backgroundColor={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
-                >
-                  <text
-                    fg={isFocused() ? theme.pickerFocusedText : theme.pickerItemText}
-                    bg={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
-                  >
-                    {padded()} {entry.option.description}
-                  </text>
-                </box>
-              );
-            }}
-          </For>
-        </box>
-        <Show when={scrollbar()}>
-          <box flexShrink={0} width={1} flexDirection="column">
-            <For each={scrollbar()!}>
-              {(isThumb) => (
-                <text fg={isThumb ? theme.pickerScrollThumb : theme.pickerScrollTrack}>
-                  {isThumb ? "█" : "│"}
-                </text>
-              )}
-            </For>
+
+          <box flexDirection="row">
+            <box flexGrow={1} flexDirection="column">
+              <For each={visibleSlice().items}>
+                {(entry) => {
+                  const isFocused = () => entry.index === props.palette.selectedIndex;
+                  const padded = () => entry.option.name.padEnd(maxNameLen());
+                  return (
+                    <box
+                      flexDirection="row"
+                      width="100%"
+                      backgroundColor={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
+                    >
+                      <text
+                        fg={isFocused() ? theme.pickerFocusedText : theme.pickerItemText}
+                        bg={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
+                      >
+                        {padded()} {entry.option.description}
+                      </text>
+                    </box>
+                  );
+                }}
+              </For>
+            </box>
+            <Show when={scrollbar()}>
+              <box flexShrink={0} width={1} flexDirection="column">
+                <For each={scrollbar()!}>
+                  {(isThumb) => (
+                    <text fg={isThumb ? theme.pickerScrollThumb : theme.pickerScrollTrack}>
+                      {isThumb ? "█" : "│"}
+                    </text>
+                  )}
+                </For>
+              </box>
+            </Show>
           </box>
+
+          <Show when={props.palette.hint && props.palette.hint !== "__commands__"}>
+            <text fg={theme.textMuted}>{props.palette.hint}</text>
+          </Show>
         </Show>
       </box>
     </Show>

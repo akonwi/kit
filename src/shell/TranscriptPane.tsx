@@ -9,7 +9,6 @@ import { theme } from "./theme";
 
 export type TranscriptPaneProps = {
   messages: AgentMessage[];
-  onMessageClick?: (msg: AgentMessage) => void;
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -214,16 +213,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
           </box>
         </Show>
         <For each={props.messages}>
-          {(msg) => (
-            <MessageEntry
-              msg={msg}
-              onClick={
-                props.onMessageClick
-                  ? () => props.onMessageClick!(msg)
-                  : undefined
-              }
-            />
-          )}
+          {(msg) => <MessageEntry msg={msg} onClick={() => console.log(msg)} />}
         </For>
       </box>
     </scrollbox>

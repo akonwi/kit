@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { createCliRenderer } from "@opentui/core";
+import { ConsolePosition, createCliRenderer } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
 import {
@@ -49,12 +49,24 @@ export async function bootstrap(): Promise<void> {
   const settings = await loadSettings();
   const session = loadSession();
   const runtime = await createAgentRuntime(session);
-  const renderer = await createCliRenderer();
-
+  const renderer = await createCliRenderer({
+    consoleOptions: {
+      position: ConsolePosition.TOP,
+      sizePercent: 30,
+    },
+  });
+  renderer.keyInput.on("keypress", (key) => {
+    if (key.ctrl && key.name === "d") {
+      renderer.console.toggle();
+    }
+  });
   runtime.onQuit(() => {
     runtime.dispose();
     renderer.destroy();
   });
 
-  render(() => <App settings={settings} session={session} runtime={runtime} />, renderer);
+  render(
+    () => <App settings={settings} session={session} runtime={runtime} />,
+    renderer,
+  );
 }

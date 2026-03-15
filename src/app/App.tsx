@@ -11,19 +11,14 @@ export type AppProps = {
 };
 
 export function App(props: AppProps) {
-  const appState = createAppState(props.settings, props.runtime.getSession(), props.runtime);
+  const app = createAppState(props.settings, props.runtime.getSession(), props.runtime);
   return (
     <AppShell
-      state={appState.state}
-      onInspectMessage={appState.inspectMessage}
-      onComposerChange={appState.setComposerText}
-      onComposerSubmit={appState.submitComposer}
-      onPickerSelect={appState.selectPickerOption}
-      onPickerSelectCurrent={appState.selectCurrentPickerOption}
-      onPickerUp={appState.pickerUp}
-      onPickerDown={appState.pickerDown}
-      onPickerDismiss={appState.closePicker}
-      onPickerFilter={appState.filterPicker}
+      state={app.state}
+      palette={app.palette}
+      onInspectMessage={app.inspectMessage}
+      onComposerTextChange={app.onComposerTextChange}
+      onComposerSubmit={app.onComposerSubmit}
     />
   );
 }

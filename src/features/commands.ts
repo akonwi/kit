@@ -18,15 +18,23 @@ export type SessionPickerItem = {
 
 export type CommandResult = {
   panel?: { title: string; lines: string[] };
-  /** If set, update the session name label in the UI */
   sessionName?: string;
-  /** If set, open a model picker with these items */
   openModelPicker?: {
     models: ModelPickerItem[];
     currentModelId: string | undefined;
   };
-  /** If set, open a session picker with these items */
+  openThinkingPicker?: {
+    levels: ThinkingLevel[];
+    current: string;
+  };
+  openNameInput?: {
+    currentName: string;
+  };
   openSessionPicker?: {
+    sessions: SessionPickerItem[];
+    currentSessionId: string | undefined;
+  };
+  openSessionManage?: {
     sessions: SessionPickerItem[];
     currentSessionId: string | undefined;
   };
@@ -42,22 +50,21 @@ export async function executeCommand(
   raw: string,
   runtime: AgentRuntime,
 ): Promise<CommandResult> {
-  const trimmed = raw.trim();
-  const spaceIdx = trimmed.indexOf(" ");
-  const command = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
-  const args = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx + 1).trim();
+  const command = raw.trim().split(/\s+/)[0];
 
   switch (command) {
     case "/new":
       return handleNew(runtime);
     case "/model":
-      return handleModel(runtime, args);
+      return handleModel(runtime);
     case "/thinking":
-      return handleThinking(runtime, args);
+      return handleThinking(runtime);
     case "/name":
-      return handleName(runtime, args);
+      return handleName(runtime);
     case "/switch":
       return handleSwitch(runtime);
+    case "/sessions:manage":
+      return handleSessionsManage(runtime);
     case "/quit":
     case "/exit":
       runtime.quit();
@@ -75,7 +82,7 @@ async function handleNew(runtime: AgentRuntime): Promise<CommandResult> {
   return { panel: { title: "", lines: ["Could not start new session."] } };
 }
 
-async function handleModel(runtime: AgentRuntime, _args: string): Promise<CommandResult> {
+async function handleModel(runtime: AgentRuntime): Promise<CommandResult> {
   const models = runtime.getAvailableModels();
   if (models.length === 0) {
     return { panel: { title: "", lines: ["No models available."] } };
@@ -88,35 +95,20 @@ async function handleModel(runtime: AgentRuntime, _args: string): Promise<Comman
   };
 }
 
-async function handleThinking(runtime: AgentRuntime, args: string): Promise<CommandResult> {
-  if (args && isThinkingLevel(args)) {
-    runtime.setThinkingLevel(args);
-    return { panel: { title: "", lines: [`Thinking → ${args}`] } };
-  }
-  if (args) {
-    return {
-      panel: {
-        title: "",
-        lines: [`Invalid thinking level: ${args}. Valid: ${THINKING_LEVELS.join(", ")}`],
-      },
-    };
-  }
-  // No args — cycle
-  const level = runtime.cycleThinkingLevel();
-  if (level) {
-    return { panel: { title: "", lines: [`Thinking → ${level}`] } };
-  }
-  return { panel: { title: "", lines: ["Current model does not support thinking."] } };
+function handleThinking(runtime: AgentRuntime): CommandResult {
+  const current = runtime.getAgentSession().thinkingLevel ?? "off";
+  return {
+    openThinkingPicker: {
+      levels: THINKING_LEVELS,
+      current,
+    },
+  };
 }
 
-function handleName(runtime: AgentRuntime, args: string): CommandResult {
-  if (!args) {
-    return { panel: { title: "", lines: ["Usage: /name <session name>"] } };
-  }
-  runtime.setSessionName(args);
+function handleName(runtime: AgentRuntime): CommandResult {
+  const currentName = runtime.getSession().sessionName || "";
   return {
-    panel: { title: "", lines: [`Session name → ${args}`] },
-    sessionName: args,
+    openNameInput: { currentName },
   };
 }
 
@@ -141,6 +133,32 @@ async function handleSwitch(runtime: AgentRuntime): Promise<CommandResult> {
 
   return {
     openSessionPicker: {
+      sessions: items,
+      currentSessionId: currentId,
+    },
+  };
+}
+
+async function handleSessionsManage(runtime: AgentRuntime): Promise<CommandResult> {
+  const sessions = await runtime.listAllSessions();
+  if (sessions.length === 0) {
+    return { panel: { title: "", lines: ["No sessions found."] } };
+  }
+
+  const sorted = [...sessions].sort((a, b) => b.modified.getTime() - a.modified.getTime());
+  const currentId = runtime.getSession().sessionId;
+
+  const items: SessionPickerItem[] = sorted.map((s) => ({
+    path: s.path,
+    id: s.id,
+    name: s.name,
+    cwd: s.cwd,
+    modified: s.modified,
+    firstMessage: s.firstMessage,
+  }));
+
+  return {
+    openSessionManage: {
       sessions: items,
       currentSessionId: currentId,
     },
