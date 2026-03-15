@@ -43,8 +43,11 @@ export type PickerOption = {
   value: unknown;
 };
 
+export type PickerMode = "inline" | "modal";
+
 export type PickerState = {
   visible: boolean;
+  mode: PickerMode;
   title: string;
   options: PickerOption[];
   selectedIndex: number;
@@ -128,6 +131,7 @@ export function buildInitialAppState(
     },
     picker: {
       visible: false,
+      mode: "inline",
       title: "",
       options: [],
       selectedIndex: 0,
@@ -213,7 +217,7 @@ export function createAppState(
           description: c.description,
           value: c,
         }));
-        openPicker("Commands", options, 0, (option) => {
+        openPicker("inline", "Commands", options, 0, (option) => {
           const cmd = option.value as { name: string; takesArgs?: boolean };
           closePicker();
           if (cmd.takesArgs) {
@@ -261,10 +265,11 @@ export function createAppState(
         }));
         const currentIdx = models.findIndex((m) => m.id === currentModelId);
         openPicker(
+          "modal",
           "Select Model",
           options,
           currentIdx >= 0 ? currentIdx : 0,
-          async (option) => {
+          async (option: PickerOption) => {
             const model = option.value as { id: string; name: string; provider: string };
             try {
               await runtime.setModel(model.provider, model.id);
@@ -321,6 +326,7 @@ export function createAppState(
   let pickerCallback: ((option: PickerOption) => void) | null = null;
 
   function openPicker(
+    mode: PickerMode,
     title: string,
     options: PickerOption[],
     selectedIndex: number,
@@ -329,6 +335,7 @@ export function createAppState(
     pickerCallback = onSelect;
     setState("picker", {
       visible: true,
+      mode,
       title,
       options,
       selectedIndex,
@@ -339,6 +346,7 @@ export function createAppState(
     pickerCallback = null;
     setState("picker", {
       visible: false,
+      mode: "inline",
       title: "",
       options: [],
       selectedIndex: 0,

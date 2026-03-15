@@ -2,37 +2,32 @@ import type { KeyEvent, SelectOption } from "@opentui/core";
 import { Show } from "solid-js";
 import type { PickerOption, PickerState } from "../state/app-state";
 
-export type PickerOverlayProps = {
+export type InlinePickerProps = {
   picker: PickerState;
   onSelect: (option: PickerOption) => void;
   onDismiss: () => void;
 };
 
-export function PickerOverlay(props: PickerOverlayProps) {
+export function InlinePicker(props: InlinePickerProps) {
+  const visible = () => props.picker.visible && props.picker.mode === "inline";
+  const optionCount = () => props.picker.options.length;
+  const selectHeight = () => Math.min(optionCount(), 8);
+
   return (
-    <Show when={props.picker.visible && props.picker.mode === "modal"}>
+    <Show when={visible()}>
       <box
-        position="absolute"
-        top="10%"
-        left="20%"
-        width="60%"
-        height="80%"
-        flexDirection="column"
-        border
-        borderColor="#6cb6ff"
-        backgroundColor="#1a1a2e"
-        padding={1}
-        gap={1}
+        flexShrink={0}
+        height={selectHeight()}
         onKeyDown={(e: KeyEvent) => {
           if (e.name === "escape") {
             props.onDismiss();
           }
         }}
       >
-        <text fg="#6cb6ff">{props.picker.title}</text>
         <select
           focused
-          flexGrow={1}
+          width="100%"
+          height={selectHeight()}
           options={
             props.picker.options.map((o): SelectOption => ({
               name: o.name,
@@ -40,10 +35,11 @@ export function PickerOverlay(props: PickerOverlayProps) {
             }))
           }
           selectedIndex={props.picker.selectedIndex}
-          textColor="#b8b8b8"
+          backgroundColor="#1a1a2e"
+          textColor="#8f8f8f"
           focusedTextColor="#ffffff"
           focusedBackgroundColor="#2f6e9b"
-          descriptionColor="#666666"
+          descriptionColor="#555555"
           selectedDescriptionColor="#8f8f8f"
           showDescription
           wrapSelection
@@ -56,7 +52,6 @@ export function PickerOverlay(props: PickerOverlayProps) {
             }
           }}
         />
-        <text fg="#666666">↑↓ navigate · Enter select · Esc cancel</text>
       </box>
     </Show>
   );

@@ -1,8 +1,9 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AppState } from "../state/app-state";
+import type { AppState, PickerOption } from "../state/app-state";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import { DebugPanel } from "./DebugPanel";
+import { InlinePicker } from "./InlinePicker";
 import { PanelHost } from "./PanelHost";
 import { PickerOverlay } from "./PickerOverlay";
 import { TranscriptPane } from "./TranscriptPane";
@@ -12,7 +13,7 @@ export type AppShellProps = {
   onInspectMessage: (msg: AgentMessage) => void;
   onComposerChange: (value: string) => void;
   onComposerSubmit: () => void;
-  onPickerSelect: (option: import("../state/app-state").PickerOption) => void;
+  onPickerSelect: (option: PickerOption) => void;
   onPickerDismiss: () => void;
 };
 
@@ -23,6 +24,7 @@ export function AppShell(props: AppShellProps) {
       <box flexShrink={0} flexDirection="column" gap={0}>
         <PanelHost panel={props.state.panel} />
         <DebugPanel json={props.state.debugEntry} />
+        <InlinePicker picker={props.state.picker} onSelect={props.onPickerSelect} onDismiss={props.onPickerDismiss} />
         <ComposerDock
           composer={props.state.composer}
           cwd={props.state.footerStatus.cwd}
