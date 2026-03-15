@@ -36,9 +36,24 @@ export type SessionMeta = {
   hasSession: boolean;
 };
 
+export type PickerOption = {
+  name: string;
+  description: string;
+  value: unknown;
+};
+
+export type PickerState = {
+  visible: boolean;
+  title: string;
+  options: PickerOption[];
+  selectedIndex: number;
+  onSelect: ((option: PickerOption) => void) | null;
+};
+
 export type AppState = {
   messages: AgentMessage[];
   panel: PanelState;
+  picker: PickerState;
   composer: ComposerState;
   footerStatus: FooterStatusState;
   sessionMeta: SessionMeta;
@@ -110,6 +125,13 @@ export function buildInitialAppState(
       visible: false,
       title: "",
       lines: [],
+    },
+    picker: {
+      visible: false,
+      title: "",
+      options: [],
+      selectedIndex: 0,
+      onSelect: null,
     },
     composer: {
       mode: "composer",
@@ -196,6 +218,32 @@ export function createAppState(
       if (result.sessionName !== undefined) {
         setState("sessionMeta", "sessionName", result.sessionName);
       }
+      if (result.openModelPicker) {
+        const { models, currentModelId } = result.openModelPicker;
+        const options: PickerOption[] = models.map((m) => ({
+          name: m.name,
+          description: m.provider,
+          value: m,
+        }));
+        const currentIdx = models.findIndex((m) => m.id === currentModelId);
+        openPicker(
+          "Select Model",
+          options,
+          currentIdx >= 0 ? currentIdx : 0,
+          async (option) => {
+            const model = option.value as { id: string; name: string; provider: string };
+            try {
+              await runtime.setModel(model.provider, model.id);
+              showPanel("", [`Model → ${model.name}`]);
+            } catch (error) {
+              if (error instanceof Error) {
+                showPanel("Model Error", [error.message]);
+              }
+            }
+            closePicker();
+          },
+        );
+      }
     } catch (error) {
       if (error instanceof Error) {
         showPanel("Command Error", [error.message]);
@@ -233,6 +281,31 @@ export function createAppState(
     }
   }
 
+  function openPicker(
+    title: string,
+    options: PickerOption[],
+    selectedIndex: number,
+    onSelect: (option: PickerOption) => void,
+  ) {
+    setState("picker", {
+      visible: true,
+      title,
+      options,
+      selectedIndex,
+      onSelect,
+    });
+  }
+
+  function closePicker() {
+    setState("picker", {
+      visible: false,
+      title: "",
+      options: [],
+      selectedIndex: 0,
+      onSelect: null,
+    });
+  }
+
   return {
     state,
     setState,
@@ -241,5 +314,7 @@ export function createAppState(
     submitComposer,
     showPanel,
     hidePanel,
+    openPicker,
+    closePicker,
   };
 }

@@ -1,4 +1,5 @@
 import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
+import type { Api, Model } from "@mariozechner/pi-ai";
 import {
   AgentSession,
   createAgentSession,
@@ -32,6 +33,9 @@ export type AgentRuntimeEvent =
 export type AgentRuntime = {
   submitUserMessage(text: string): Promise<void>;
   newSession(): Promise<boolean>;
+  getAvailableModels(): Array<{ id: string; name: string; provider: string }>;
+  getCurrentModelId(): string | undefined;
+  setModel(provider: string, modelId: string): Promise<void>;
   cycleModel(direction?: "forward" | "backward"): Promise<string | undefined>;
   setThinkingLevel(level: ThinkingLevel): void;
   cycleThinkingLevel(): string | undefined;
@@ -168,6 +172,26 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });
         throw error;
       }
+    },
+    getAvailableModels(): Array<{ id: string; name: string; provider: string }> {
+      return agentSession.modelRegistry.getAvailable().map((m: Model<Api>) => ({
+        id: m.id,
+        name: m.name,
+        provider: m.provider,
+      }));
+    },
+    getCurrentModelId(): string | undefined {
+      return agentSession.model?.id;
+    },
+    async setModel(provider: string, modelId: string): Promise<void> {
+      const model = agentSession.modelRegistry.getAvailable().find(
+        (m: Model<Api>) => m.provider === provider && m.id === modelId,
+      );
+      if (!model) {
+        throw new Error(`Model not found: ${provider}/${modelId}`);
+      }
+      await agentSession.setModel(model);
+      emitStatus();
     },
     async newSession(): Promise<boolean> {
       const ok = await agentSession.newSession();

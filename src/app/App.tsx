@@ -18,6 +18,7 @@ export function App(props: AppProps) {
       onInspectMessage={appState.inspectMessage}
       onComposerChange={appState.setComposerText}
       onComposerSubmit={appState.submitComposer}
+      onPickerDismiss={appState.closePicker}
     />
   );
 }

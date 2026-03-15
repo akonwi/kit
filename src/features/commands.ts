@@ -1,10 +1,21 @@
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { AgentRuntime } from "../backend";
 
+export type ModelPickerItem = {
+  id: string;
+  name: string;
+  provider: string;
+};
+
 export type CommandResult = {
   panel?: { title: string; lines: string[] };
   /** If set, update the session name label in the UI */
   sessionName?: string;
+  /** If set, open a model picker with these items */
+  openModelPicker?: {
+    models: ModelPickerItem[];
+    currentModelId: string | undefined;
+  };
 };
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
@@ -46,16 +57,17 @@ async function handleNew(runtime: AgentRuntime): Promise<CommandResult> {
   return { panel: { title: "", lines: ["Could not start new session."] } };
 }
 
-async function handleModel(runtime: AgentRuntime, args: string): Promise<CommandResult> {
-  if (args) {
-    // For now, only cycling is supported. Setting by name would need model registry lookup.
-    return { panel: { title: "", lines: ["Setting model by name is not yet supported. Use /model to cycle."] } };
+async function handleModel(runtime: AgentRuntime, _args: string): Promise<CommandResult> {
+  const models = runtime.getAvailableModels();
+  if (models.length === 0) {
+    return { panel: { title: "", lines: ["No models available."] } };
   }
-  const name = await runtime.cycleModel();
-  if (name) {
-    return { panel: { title: "", lines: [`Model → ${name}`] } };
-  }
-  return { panel: { title: "", lines: ["Only one model available."] } };
+  return {
+    openModelPicker: {
+      models,
+      currentModelId: runtime.getCurrentModelId(),
+    },
+  };
 }
 
 async function handleThinking(runtime: AgentRuntime, args: string): Promise<CommandResult> {
