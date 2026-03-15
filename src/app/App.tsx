@@ -16,8 +16,7 @@ export function App(props: AppProps) {
     <AppShell
       state={app.state}
       palette={app.palette}
-      onComposerTextChange={app.onComposerTextChange}
-      onComposerSubmit={app.onComposerSubmit}
+      runtime={props.runtime}
     />
   );
 }

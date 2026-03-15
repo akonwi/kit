@@ -1,3 +1,4 @@
+import type { AgentRuntime } from "../backend";
 import type { AppState } from "../state/app-state";
 import type { PaletteManager } from "../state/palette-manager";
 import { BottomStatusBar } from "./BottomStatusBar";
@@ -10,8 +11,7 @@ import { theme } from "./theme";
 export type AppShellProps = {
   state: AppState;
   palette: PaletteManager;
-  onComposerTextChange: (text: string) => void;
-  onComposerSubmit: (text: string) => Promise<{ composerText?: string }>;
+  runtime: AgentRuntime;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -29,8 +29,7 @@ export function AppShell(props: AppShellProps) {
           cwd={props.state.footerStatus.cwd}
           sessionName={props.state.sessionMeta.sessionName}
           palette={props.palette}
-          onTextChange={props.onComposerTextChange}
-          onSubmit={props.onComposerSubmit}
+          runtime={props.runtime}
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
