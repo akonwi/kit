@@ -5,7 +5,6 @@ import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { createPaletteManager, type PaletteManager } from "./palette-manager";
-import { emptySnapshot } from "./palette";
 
 export type PanelState = {
 	pending: boolean;
@@ -29,7 +28,6 @@ export type SessionMeta = {
 export type AppState = {
 	messages: AgentMessage[];
 	panel: PanelState;
-	palette: import("./palette").PaletteSnapshot;
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
 	debugEntry: string | null;
@@ -98,13 +96,12 @@ export function createAppState(
 	const [state, setState] = createStore<AppState>({
 		messages,
 		panel: { pending: false, title: "" },
-		palette: emptySnapshot,
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
 		debugEntry: null,
 	});
 
-	const palette: PaletteManager = createPaletteManager(setState);
+	const palette: PaletteManager = createPaletteManager();
 
 	// ── Runtime subscription ───────────────────────────────────────
 

@@ -1,5 +1,4 @@
-import type { SetStoreFunction } from "solid-js/store";
-import type { AppState } from "./app-state";
+import { createSignal, type Accessor } from "solid-js";
 import {
   emptySnapshot,
   snapshotFromEntry,
@@ -13,12 +12,13 @@ import {
 
 let nextId = 0;
 
-export function createPaletteManager(setState: SetStoreFunction<AppState>) {
+export function createPaletteManager() {
   const stack: PaletteEntry[] = [];
+  const [snapshot, setSnapshot] = createSignal<PaletteSnapshot>(emptySnapshot);
 
   function sync() {
     const top = stack[stack.length - 1];
-    setState("palette", top ? snapshotFromEntry(top) : emptySnapshot);
+    setSnapshot(top ? snapshotFromEntry(top) : { ...emptySnapshot });
   }
 
   function ctxFor(id: number): PaletteContext {
@@ -168,6 +168,7 @@ export function createPaletteManager(setState: SetStoreFunction<AppState>) {
   }
 
   return {
+    snapshot,
     show,
     updateTopOptions,
     pop,

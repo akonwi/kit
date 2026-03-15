@@ -1,3 +1,4 @@
+import type { Accessor } from "solid-js";
 import { createMemo, For, Show } from "solid-js";
 import type { PaletteSnapshot } from "../state/palette";
 import { theme } from "./theme";
@@ -5,7 +6,7 @@ import { theme } from "./theme";
 const MAX_VISIBLE = 10;
 
 export type InlinePickerProps = {
-  palette: PaletteSnapshot;
+  palette: Accessor<PaletteSnapshot>;
 };
 
 function computeScrollbar(total: number, visible: number, offset: number) {
@@ -21,13 +22,16 @@ function computeScrollbar(total: number, visible: number, offset: number) {
 }
 
 export function InlinePicker(props: InlinePickerProps) {
+  const palette = () => props.palette();
+
   const maxNameLen = () =>
-    props.palette.options.reduce((max, o) => Math.max(max, o.name.length), 0);
+    palette().options.reduce((max, o) => Math.max(max, o.name.length), 0);
 
   const visibleSlice = createMemo(() => {
-    const options = props.palette.options;
+    const p = palette();
+    const options = p.options;
     const count = options.length;
-    const selected = props.palette.selectedIndex;
+    const selected = p.selectedIndex;
 
     if (count <= MAX_VISIBLE) {
       return { items: options.map((o, i) => ({ option: o, index: i })), offset: 0 };
@@ -44,11 +48,11 @@ export function InlinePicker(props: InlinePickerProps) {
   });
 
   const scrollbar = createMemo(() =>
-    computeScrollbar(props.palette.options.length, MAX_VISIBLE, visibleSlice().offset),
+    computeScrollbar(palette().options.length, MAX_VISIBLE, visibleSlice().offset),
   );
 
   return (
-    <Show when={props.palette.visible}>
+    <Show when={palette().visible}>
       <box
         position="absolute"
         bottom={12}
@@ -60,18 +64,18 @@ export function InlinePicker(props: InlinePickerProps) {
         paddingX={1}
         flexDirection="column"
       >
-        <Show when={props.palette.mode === "input"}>
-          <text fg={theme.textMuted}>{props.palette.label}</text>
-          <text fg={theme.textPrimary}>{"> "}{props.palette.inputValue}</text>
+        <Show when={palette().mode === "input"}>
+          <text fg={theme.textMuted}>{palette().label}</text>
+          <text fg={theme.textPrimary}>{"> "}{palette().inputValue}</text>
         </Show>
 
-        <Show when={props.palette.mode === "list"}>
-          <Show when={props.palette.filterable}>
-            <text fg={theme.textPrimary}>{"> "}{props.palette.filterText}</text>
+        <Show when={palette().mode === "list"}>
+          <Show when={palette().filterable}>
+            <text fg={theme.textPrimary}>{"> "}{palette().filterText}</text>
             <text> </text>
           </Show>
 
-          <Show when={props.palette.options.length === 0}>
+          <Show when={palette().options.length === 0}>
             <text fg={theme.textMuted}>No results</text>
           </Show>
 
@@ -79,7 +83,7 @@ export function InlinePicker(props: InlinePickerProps) {
             <box flexGrow={1} flexDirection="column">
               <For each={visibleSlice().items}>
                 {(entry) => {
-                  const isFocused = () => entry.index === props.palette.selectedIndex;
+                  const isFocused = () => entry.index === palette().selectedIndex;
                   const padded = () => entry.option.name.padEnd(maxNameLen());
                   return (
                     <box
@@ -111,8 +115,8 @@ export function InlinePicker(props: InlinePickerProps) {
             </Show>
           </box>
 
-          <Show when={props.palette.hint && props.palette.hint !== "__commands__"}>
-            <text fg={theme.textMuted}>{props.palette.hint}</text>
+          <Show when={palette().hint && palette().hint !== "__commands__"}>
+            <text fg={theme.textMuted}>{palette().hint}</text>
           </Show>
         </Show>
       </box>
