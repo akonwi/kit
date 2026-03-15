@@ -11,9 +11,8 @@ import { createPaletteManager, type PaletteManager } from "./palette-manager";
 import { emptySnapshot, type PaletteOption } from "./palette";
 
 export type PanelState = {
-	visible: boolean;
+	pending: boolean;
 	title: string;
-	lines: string[];
 };
 
 export type FooterStatusState = {
@@ -36,6 +35,7 @@ export type AppState = {
 	palette: import("./palette").PaletteSnapshot;
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
+	debugEntry: string | null;
 };
 
 // ── Helpers ────────────────────────────────────────────────────────
@@ -112,23 +112,14 @@ export function createAppState(
 
 	const [state, setState] = createStore<AppState>({
 		messages,
-		panel: { visible: false, title: "", lines: [] },
+		panel: { pending: false, title: "" },
 		palette: emptySnapshot,
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
+		debugEntry: null,
 	});
 
 	const palette: PaletteManager = createPaletteManager(setState);
-
-	// ── Panel ──────────────────────────────────────────────────────
-
-	function showPanel(title: string, lines: string[]) {
-		setState("panel", { visible: true, title, lines });
-	}
-
-	function hidePanel() {
-		setState("panel", { visible: false, title: "", lines: [] });
-	}
 
 	// ── Runtime subscription ───────────────────────────────────────
 
@@ -147,7 +138,7 @@ export function createAppState(
 				setState("panel", event.panel);
 				break;
 			case "error":
-				showPanel(event.title, event.lines);
+				console.error(event);
 				break;
 		}
 	});
@@ -169,12 +160,7 @@ export function createAppState(
 					action: (ctx) => {
 						commandPaletteActive = false;
 						ctx.dismiss();
-						if (c.takesArgs) {
-							ctx.setComposerText(`${c.name} `);
-						} else {
-							ctx.setComposerText("");
-							handleSlashCommand(c.name);
-						}
+						handleSlashCommand(c.name);
 					},
 				}));
 				if (commandPaletteActive) {
@@ -206,9 +192,6 @@ export function createAppState(
 		}
 
 		if (!runtime) {
-			showPanel("Runtime Error", [
-				"No runtime is available for this submission.",
-			]);
 			return { composerText: text };
 		}
 
@@ -216,11 +199,7 @@ export function createAppState(
 			await runtime.submitUserMessage(text);
 			return {};
 		} catch (error) {
-			if (error instanceof Error) {
-				showPanel("Runtime Error", [error.message]);
-			} else {
-				showPanel("Runtime Error", [String(error)]);
-			}
+			console.error(error);
 			return { composerText: text };
 		}
 	}
@@ -228,31 +207,25 @@ export function createAppState(
 	// ── Slash commands ─────────────────────────────────────────────
 
 	async function handleSlashCommand(raw: string) {
-		if (!runtime) {
-			showPanel("", ["No runtime available."]);
-			return;
-		}
+		if (!runtime) return;
 
 		try {
 			const result = await executeCommand(raw, runtime);
 
-			if (result.panel) {
-				showPanel(result.panel.title, result.panel.lines);
-			}
-			if (result.sessionName !== undefined) {
-				setState("sessionMeta", "sessionName", result.sessionName);
-			}
 			if (result.openModelPicker) {
-				openModelPalette(
-					result.openModelPicker.models,
-					result.openModelPicker.currentModelId,
+				openModelPalette(result.openModelPicker.models);
+			}
+			if (result.openThinkingPicker) {
+				openThinkingPalette(
+					result.openThinkingPicker.levels,
+					result.openThinkingPicker.current,
 				);
+			}
+			if (result.openNameInput) {
+				openNameInputPalette(result.openNameInput.currentName);
 			}
 			if (result.openSessionPicker) {
-				openSessionSwitchPalette(
-					result.openSessionPicker.sessions,
-					result.openSessionPicker.currentSessionId,
-				);
+				openSessionSwitchPalette(result.openSessionPicker.sessions);
 			}
 			if (result.openSessionManage) {
 				openSessionManagePalette(
@@ -261,19 +234,48 @@ export function createAppState(
 				);
 			}
 		} catch (error) {
-			if (error instanceof Error) {
-				showPanel("Command Error", [error.message]);
-			} else {
-				showPanel("Command Error", [String(error)]);
-			}
+			console.error(error);
 		}
+	}
+
+	// ── Thinking palette ─────────────────────────────────────────
+
+	function openThinkingPalette(levels: string[], current: string) {
+		const options: PaletteOption[] = levels.map((level) => ({
+			name: level,
+			description: level === current ? "(current)" : "",
+			value: level,
+			action: (ctx) => {
+				runtime!.setThinkingLevel(
+					level as import("@mariozechner/pi-agent-core").ThinkingLevel,
+				);
+				ctx.dismiss();
+			},
+		}));
+		palette.show({ options });
+	}
+
+	// ── Name input palette ───────────────────────────────────────
+
+	function openNameInputPalette(currentName: string) {
+		palette.show({
+			mode: "input",
+			label: "Session name",
+			inputValue: currentName,
+			onSubmit: (value, ctx) => {
+				if (value.trim()) {
+					runtime!.setSessionName(value.trim());
+					setState("sessionMeta", "sessionName", value.trim());
+				}
+				ctx.dismiss();
+			},
+		});
 	}
 
 	// ── Model palette ──────────────────────────────────────────────
 
 	function openModelPalette(
 		models: Array<{ id: string; name: string; provider: string }>,
-		_currentModelId: string | undefined,
 	) {
 		const options: PaletteOption[] = models.map((m) => ({
 			name: m.name,
@@ -282,9 +284,8 @@ export function createAppState(
 			action: async (ctx) => {
 				try {
 					await runtime!.setModel(m.provider, m.id);
-					hidePanel();
 				} catch (error) {
-					if (error instanceof Error) showPanel("Model Error", [error.message]);
+					console.error(error);
 				}
 				ctx.dismiss();
 			},
@@ -294,13 +295,11 @@ export function createAppState(
 
 	// ── Session switch palette ─────────────────────────────────────
 
-	function openSessionSwitchPalette(
-		sessions: SessionPickerItem[],
-		_currentSessionId: string | undefined,
-	) {
+	function openSessionSwitchPalette(sessions: SessionPickerItem[]) {
 		const home = homedir();
 		const options: PaletteOption[] = sessions.map((s) => {
-			const label = s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
+			const label =
+				s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
 			const cwd = s.cwd.startsWith(home)
 				? `~${s.cwd.slice(home.length)}`
 				: s.cwd;
@@ -321,13 +320,9 @@ export function createAppState(
 								sessionCwd: snap.cwd,
 								hasSession: true,
 							});
-							hidePanel();
-						} else {
-							showPanel("", ["Session switch was cancelled."]);
 						}
 					} catch (error) {
-						if (error instanceof Error)
-							showPanel("Session Error", [error.message]);
+						console.error(error);
 					}
 					ctx.dismiss();
 				},
@@ -347,7 +342,8 @@ export function createAppState(
 		function buildOptions(): PaletteOption[] {
 			const home = homedir();
 			return manageSessions.map((s) => {
-				const label = s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
+				const label =
+					s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
 				const cwd = s.cwd.startsWith(home)
 					? `~${s.cwd.slice(home.length)}`
 					: s.cwd;
@@ -384,10 +380,8 @@ export function createAppState(
 									if (session.id === currentSessionId) {
 										setState("sessionMeta", "sessionName", value);
 									}
-									showPanel("", [`Renamed to "${value}"`]);
 								} catch (error) {
-									if (error instanceof Error)
-										showPanel("Error", [error.message]);
+									console.error(error);
 								}
 								inputCtx.dismiss();
 								refresh();
@@ -397,7 +391,6 @@ export function createAppState(
 					"ctrl+d": async (option, _ctx) => {
 						const session = option.value as SessionPickerItem;
 						if (session.id === currentSessionId) {
-							showPanel("", ["Cannot delete the active session."]);
 							return;
 						}
 						try {
@@ -405,10 +398,9 @@ export function createAppState(
 							manageSessions = manageSessions.filter(
 								(s) => s.id !== session.id,
 							);
-							showPanel("", ["Session deleted."]);
 							refresh();
 						} catch (error) {
-							if (error instanceof Error) showPanel("Error", [error.message]);
+							console.error(error);
 						}
 					},
 				},
@@ -418,12 +410,12 @@ export function createAppState(
 		refresh();
 	}
 
+	// ── Debug ──────────────────────────────────────────────────────
+
 	return {
 		state,
 		palette,
 		onComposerTextChange,
 		onComposerSubmit,
-		showPanel,
-		hidePanel,
 	};
 }

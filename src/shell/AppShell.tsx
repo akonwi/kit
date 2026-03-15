@@ -3,7 +3,7 @@ import type { PaletteManager } from "../state/palette-manager";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import { InlinePicker } from "./InlinePicker";
-import { PanelHost } from "./PanelHost";
+import { PendingSlot } from "./PendingSlot";
 import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
 
@@ -24,7 +24,7 @@ export function AppShell(props: AppShellProps) {
     >
       <TranscriptPane messages={props.state.messages} />
       <box flexShrink={0} flexDirection="column" gap={0}>
-        <PanelHost panel={props.state.panel} />
+        <PendingSlot panel={props.state.panel} />
         <ComposerDock
           cwd={props.state.footerStatus.cwd}
           sessionName={props.state.sessionMeta.sessionName}

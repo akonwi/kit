@@ -17,8 +17,6 @@ export type SessionPickerItem = {
 };
 
 export type CommandResult = {
-  panel?: { title: string; lines: string[] };
-  sessionName?: string;
   openModelPicker?: {
     models: ModelPickerItem[];
     currentModelId: string | undefined;
@@ -42,10 +40,6 @@ export type CommandResult = {
 
 const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh"];
 
-function isThinkingLevel(value: string): value is ThinkingLevel {
-  return THINKING_LEVELS.includes(value as ThinkingLevel);
-}
-
 export async function executeCommand(
   raw: string,
   runtime: AgentRuntime,
@@ -54,7 +48,8 @@ export async function executeCommand(
 
   switch (command) {
     case "/new":
-      return handleNew(runtime);
+      await runtime.newSession();
+      return {};
     case "/model":
       return handleModel(runtime);
     case "/thinking":
@@ -70,23 +65,13 @@ export async function executeCommand(
       runtime.quit();
       return {};
     default:
-      return { panel: { title: "", lines: [`Unknown command: ${command}`] } };
+      return {};
   }
 }
 
-async function handleNew(runtime: AgentRuntime): Promise<CommandResult> {
-  const ok = await runtime.newSession();
-  if (ok) {
-    return { panel: { title: "", lines: ["Started new session."] } };
-  }
-  return { panel: { title: "", lines: ["Could not start new session."] } };
-}
-
-async function handleModel(runtime: AgentRuntime): Promise<CommandResult> {
+function handleModel(runtime: AgentRuntime): CommandResult {
   const models = runtime.getAvailableModels();
-  if (models.length === 0) {
-    return { panel: { title: "", lines: ["No models available."] } };
-  }
+  if (models.length === 0) return {};
   return {
     openModelPicker: {
       models,
@@ -107,33 +92,26 @@ function handleThinking(runtime: AgentRuntime): CommandResult {
 
 function handleName(runtime: AgentRuntime): CommandResult {
   const currentName = runtime.getSession().sessionName || "";
-  return {
-    openNameInput: { currentName },
-  };
+  return { openNameInput: { currentName } };
 }
 
 async function handleSwitch(runtime: AgentRuntime): Promise<CommandResult> {
   const sessions = await runtime.listAllSessions();
-  if (sessions.length === 0) {
-    return { panel: { title: "", lines: ["No sessions found."] } };
-  }
+  if (sessions.length === 0) return {};
 
-  // Sort by most recently modified first
   const sorted = [...sessions].sort((a, b) => b.modified.getTime() - a.modified.getTime());
   const currentId = runtime.getSession().sessionId;
 
-  const items: SessionPickerItem[] = sorted.map((s) => ({
-    path: s.path,
-    id: s.id,
-    name: s.name,
-    cwd: s.cwd,
-    modified: s.modified,
-    firstMessage: s.firstMessage,
-  }));
-
   return {
     openSessionPicker: {
-      sessions: items,
+      sessions: sorted.map((s) => ({
+        path: s.path,
+        id: s.id,
+        name: s.name,
+        cwd: s.cwd,
+        modified: s.modified,
+        firstMessage: s.firstMessage,
+      })),
       currentSessionId: currentId,
     },
   };
@@ -141,25 +119,21 @@ async function handleSwitch(runtime: AgentRuntime): Promise<CommandResult> {
 
 async function handleSessionsManage(runtime: AgentRuntime): Promise<CommandResult> {
   const sessions = await runtime.listAllSessions();
-  if (sessions.length === 0) {
-    return { panel: { title: "", lines: ["No sessions found."] } };
-  }
+  if (sessions.length === 0) return {};
 
   const sorted = [...sessions].sort((a, b) => b.modified.getTime() - a.modified.getTime());
   const currentId = runtime.getSession().sessionId;
 
-  const items: SessionPickerItem[] = sorted.map((s) => ({
-    path: s.path,
-    id: s.id,
-    name: s.name,
-    cwd: s.cwd,
-    modified: s.modified,
-    firstMessage: s.firstMessage,
-  }));
-
   return {
     openSessionManage: {
-      sessions: items,
+      sessions: sorted.map((s) => ({
+        path: s.path,
+        id: s.id,
+        name: s.name,
+        cwd: s.cwd,
+        modified: s.modified,
+        firstMessage: s.firstMessage,
+      })),
       currentSessionId: currentId,
     },
   };

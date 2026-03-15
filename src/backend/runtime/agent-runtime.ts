@@ -14,9 +14,8 @@ import {
 } from "../../compat/sessions";
 
 export type RuntimePanelState = {
-  visible: boolean;
+  pending: boolean;
   title: string;
-  lines: string[];
 };
 
 export type RuntimeStatus = {
@@ -56,12 +55,12 @@ export type AgentRuntime = {
   dispose(): void;
 };
 
-function panel(title: string, lines: string[]): RuntimePanelState {
-  return { visible: true, title, lines };
+function panelActive(title: string): RuntimePanelState {
+  return { pending: true, title };
 }
 
-function hiddenPanel(): RuntimePanelState {
-  return { visible: false, title: "", lines: [] };
+function panelIdle(): RuntimePanelState {
+  return { pending: false, title: "" };
 }
 
 function summarizeToolStart(toolName: string, args: unknown): string {
@@ -136,13 +135,12 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
   function handleAgentEvent(event: AgentSessionEvent) {
     switch (event.type) {
       case "agent_start":
-        // User message is already in state.messages at this point
         emitMessages();
-        emit({ type: "panel", panel: panel("", ["Working..."]) });
+        emit({ type: "panel", panel: panelActive("Working...") });
         break;
       case "message_start":
         if (event.message.role === "assistant") {
-          emit({ type: "panel", panel: panel("", ["Thinking..."]) });
+          emit({ type: "panel", panel: panelActive("Thinking...") });
         }
         break;
       case "message_end":
@@ -150,22 +148,16 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         emitStatus();
         break;
       case "tool_execution_start":
-        emit({
-          type: "panel",
-          panel: panel("", [summarizeToolStart(event.toolName, event.args)]),
-        });
+        emit({ type: "panel", panel: panelActive(summarizeToolStart(event.toolName, event.args)) });
         break;
       case "tool_execution_end":
-        emit({
-          type: "panel",
-          panel: panel("", [summarizeToolEnd(event.toolName, event.isError)]),
-        });
+        emit({ type: "panel", panel: panelActive(summarizeToolEnd(event.toolName, event.isError)) });
         break;
       case "agent_end":
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
         emitMessages();
         emitStatus();
-        emit({ type: "panel", panel: hiddenPanel() });
+        emit({ type: "panel", panel: panelIdle() });
         break;
       default:
         break;
