@@ -55,6 +55,14 @@ export function ComposerDock(props: ComposerDockProps) {
       props.onPickerDismiss();
       return;
     }
+    // Enter selects current picker item (for filterable pickers where
+    // the textarea onSubmit won't fire because we preventDefault below)
+    if (props.pickerFilterable && e.name === "return") {
+      e.preventDefault();
+      filterText = "";
+      props.onPickerSelect();
+      return;
+    }
     // For filterable pickers, intercept typing
     if (props.pickerFilterable) {
       e.preventDefault();
