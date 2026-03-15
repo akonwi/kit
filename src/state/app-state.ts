@@ -116,6 +116,9 @@ export function createAppState(
 					applyRuntimeStatus(state.footerStatus, event.status),
 				);
 				break;
+			case "session_changed":
+				setState("sessionMeta", buildSessionMeta(event.session));
+				break;
 			case "panel":
 				setState("panel", event.panel);
 				break;

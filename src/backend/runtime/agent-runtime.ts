@@ -28,6 +28,7 @@ export type RuntimeStatus = {
 export type AgentRuntimeEvent =
   | { type: "messages_changed"; messages: AgentMessage[] }
   | { type: "status_changed"; status: RuntimeStatus }
+  | { type: "session_changed"; session: LoadedSession }
   | { type: "panel"; panel: RuntimePanelState }
   | { type: "error"; title: string; lines: string[] };
 
@@ -123,6 +124,10 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     emit({ type: "status_changed", status: snapshotStatus() });
   }
 
+  function emitSession() {
+    emit({ type: "session_changed", session: currentSession });
+  }
+
   const unsubscribeAgent = agentSession.subscribe((event: AgentSessionEvent) => {
     try {
       handleAgentEvent(event);
@@ -155,6 +160,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         break;
       case "agent_end":
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitSession();
         emitMessages();
         emitStatus();
         emit({ type: "panel", panel: panelIdle() });
@@ -198,6 +204,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
       const ok = await agentSession.newSession();
       if (ok) {
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitSession();
         emitMessages();
         emitStatus();
       }
@@ -220,12 +227,14 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     setSessionName(name: string): void {
       agentSession.setSessionName(name);
       currentSession = snapshotLoadedSession(agentSession.sessionManager);
+      emitSession();
     },
     renameSession(sessionPath: string, name: string): void {
       const isCurrent = agentSession.sessionFile === sessionPath;
       if (isCurrent) {
         agentSession.setSessionName(name);
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitSession();
       } else {
         const sm = SessionManager.open(sessionPath);
         sm.appendSessionInfo(name);
@@ -244,6 +253,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
       const ok = await agentSession.switchSession(sessionPath);
       if (ok) {
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitSession();
         emitMessages();
         emitStatus();
       }
