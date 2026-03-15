@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store";
 import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
+import { matchCommands } from "../features/command-registry";
 import { executeCommand } from "../features/commands";
 
 export type DockMode = "composer" | "wizard" | "pager";
@@ -197,6 +198,41 @@ export function createAppState(
 
   function setComposerText(text: string) {
     setState("composer", "text", text);
+    updateCommandPicker(text);
+  }
+
+  function updateCommandPicker(text: string) {
+    const trimmed = text.trimStart();
+
+    // Only show command picker if text is purely a slash prefix (no space yet = still picking)
+    if (trimmed.startsWith("/") && !trimmed.includes(" ")) {
+      const matches = matchCommands(trimmed);
+      if (matches.length > 0) {
+        const options: PickerOption[] = matches.map((c) => ({
+          name: c.name,
+          description: c.description,
+          value: c,
+        }));
+        openPicker("Commands", options, 0, (option) => {
+          const cmd = option.value as { name: string; takesArgs?: boolean };
+          closePicker();
+          if (cmd.takesArgs) {
+            // Fill in the command and let user type args
+            setState("composer", "text", `${cmd.name} `);
+          } else {
+            // Execute immediately
+            setState("composer", "text", cmd.name);
+            handleSlashCommand(cmd.name);
+          }
+        });
+        return;
+      }
+    }
+
+    // Close the command picker if it's currently showing commands
+    if (state.picker.visible && state.picker.title === "Commands") {
+      closePicker();
+    }
   }
 
   async function handleSlashCommand(raw: string) {
@@ -256,6 +292,9 @@ export function createAppState(
     if (!raw.trim()) return;
 
     if (raw.trimStart().startsWith("/")) {
+      if (state.picker.visible && state.picker.title === "Commands") {
+        closePicker();
+      }
       handleSlashCommand(raw);
       return;
     }
