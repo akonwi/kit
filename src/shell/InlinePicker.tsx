@@ -57,10 +57,13 @@ export function InlinePicker(props: InlinePickerProps) {
   return (
     <Show when={visible()}>
       <box
-        flexShrink={0}
+        position="absolute"
+        bottom={12}
+        left={0}
+        width="100%"
         border
         borderColor="white"
-        paddingLeft={1}
+        paddingX={1}
         flexDirection="row"
       >
         <box flexGrow={1} flexDirection="column">

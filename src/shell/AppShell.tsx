@@ -47,6 +47,7 @@ export function AppShell(props: AppShellProps) {
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
+      <InlinePicker picker={props.state.picker} />
     </box>
   );
 }
