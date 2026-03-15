@@ -16,8 +16,16 @@ export type RuntimePanelState = {
   lines: string[];
 };
 
+export type RuntimeStatus = {
+  model: string;
+  thinkingLevel: string;
+  contextPct: string;
+  isStreaming: boolean;
+};
+
 export type AgentRuntimeEvent =
   | { type: "messages_changed"; messages: AgentMessage[] }
+  | { type: "status_changed"; status: RuntimeStatus }
   | { type: "panel"; panel: RuntimePanelState }
   | { type: "error"; title: string; lines: string[] };
 
@@ -27,6 +35,7 @@ export type AgentRuntime = {
   getSession(): LoadedSession;
   getAgentSession(): AgentSession;
   getMessages(): AgentMessage[];
+  getStatus(): RuntimeStatus;
   dispose(): void;
 };
 
@@ -78,8 +87,23 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     }
   };
 
+  function snapshotStatus(): RuntimeStatus {
+    const model = agentSession.model;
+    const usage = agentSession.getContextUsage();
+    return {
+      model: model?.name ?? model?.id ?? "no-model",
+      thinkingLevel: agentSession.thinkingLevel ?? "off",
+      contextPct: usage?.percent != null ? `${Math.round(usage.percent)}%` : "–",
+      isStreaming: agentSession.isStreaming,
+    };
+  }
+
   function emitMessages() {
     emit({ type: "messages_changed", messages: [...agentSession.messages] });
+  }
+
+  function emitStatus() {
+    emit({ type: "status_changed", status: snapshotStatus() });
   }
 
   const unsubscribeAgent = agentSession.subscribe((event: AgentSessionEvent) => {
@@ -105,6 +129,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         break;
       case "message_end":
         emitMessages();
+        emitStatus();
         break;
       case "tool_execution_start":
         emit({
@@ -121,6 +146,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
       case "agent_end":
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
         emitMessages();
+        emitStatus();
         emit({ type: "panel", panel: hiddenPanel() });
         break;
       default:
@@ -150,6 +176,9 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     },
     getMessages() {
       return [...agentSession.messages];
+    },
+    getStatus() {
+      return snapshotStatus();
     },
     dispose() {
       unsubscribeAgent();

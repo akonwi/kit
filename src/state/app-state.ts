@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
-import type { AgentRuntime } from "../backend";
+import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 
@@ -26,9 +26,6 @@ export type FooterStatusState = {
   model: string;
   thinkingLevel: string;
   contextPct: string;
-  bellStatus: string;
-  speechStatus: string;
-  repoSummary: string;
 };
 
 export type SessionMeta = {
@@ -48,49 +45,37 @@ export type AppState = {
   debugEntry: string | null;
 };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-function asEnabledStatus(value: unknown, onLabel: string, offLabel: string): string {
-  return value === true ? onLabel : offLabel;
-}
-
 function formatCwd(rawCwd: string): string {
   const home = homedir();
   return rawCwd.startsWith(home) ? `~${rawCwd.slice(home.length)}` : rawCwd;
 }
 
-function deriveModel(settings: LoadedSettings, session: LoadedSession | null): string {
-  if (session) {
-    const context = session.manager.buildSessionContext();
-    if (context.model?.modelId) {
-      return context.model.modelId;
-    }
+function deriveFooterStatus(runtime: AgentRuntime | null): Omit<FooterStatusState, "cwd"> {
+  if (runtime) {
+    const status = runtime.getStatus();
+    return {
+      model: status.model,
+      thinkingLevel: status.thinkingLevel,
+      contextPct: status.contextPct,
+    };
   }
-  const raw = settings.values.model;
-  return typeof raw === "string" && raw.trim() ? raw.trim() : "no-model";
+  return {
+    model: "no-model",
+    thinkingLevel: "off",
+    contextPct: "–",
+  };
 }
 
-function deriveThinkingLevel(settings: LoadedSettings, session: LoadedSession | null): string {
-  if (session) {
-    const context = session.manager.buildSessionContext();
-    if (context.thinkingLevel) {
-      return context.thinkingLevel;
-    }
-  }
-  const raw = settings.values.thinking;
-  return typeof raw === "string" && raw.trim() ? raw.trim() : "off";
-}
-
-function deriveBellStatus(settings: LoadedSettings): string {
-  const bells = isRecord(settings.values.bells) ? settings.values.bells : null;
-  return asEnabledStatus(bells?.enabled, "🔔 on", "🔕 off");
-}
-
-function deriveSpeechStatus(settings: LoadedSettings): string {
-  const speech = isRecord(settings.values.speech) ? settings.values.speech : null;
-  return asEnabledStatus(speech?.enabled, "🗣 on", "🤫 off");
+function applyRuntimeStatus(
+  current: FooterStatusState,
+  status: RuntimeStatus,
+): FooterStatusState {
+  return {
+    ...current,
+    model: status.model,
+    thinkingLevel: status.thinkingLevel,
+    contextPct: status.contextPct,
+  };
 }
 
 function buildSessionMeta(session: LoadedSession | null): SessionMeta {
@@ -111,11 +96,12 @@ function buildSessionMeta(session: LoadedSession | null): SessionMeta {
 }
 
 export function buildInitialAppState(
-  settings: LoadedSettings,
+  _settings: LoadedSettings,
   session: LoadedSession | null,
   runtime: AgentRuntime | null,
 ): AppState {
   const messages = runtime ? runtime.getMessages() : [];
+  const footer = deriveFooterStatus(runtime);
 
   return {
     messages,
@@ -133,12 +119,7 @@ export function buildInitialAppState(
     },
     footerStatus: {
       cwd: formatCwd(process.cwd()),
-      model: deriveModel(settings, session),
-      thinkingLevel: deriveThinkingLevel(settings, session),
-      contextPct: "0%",
-      bellStatus: deriveBellStatus(settings),
-      speechStatus: deriveSpeechStatus(settings),
-      repoSummary: "",
+      ...footer,
     },
     sessionMeta: buildSessionMeta(session),
     debugEntry: null,
@@ -172,6 +153,9 @@ export function createAppState(
     switch (event.type) {
       case "messages_changed":
         setState("messages", event.messages);
+        break;
+      case "status_changed":
+        setState("footerStatus", applyRuntimeStatus(state.footerStatus, event.status));
         break;
       case "panel":
         setState("panel", event.panel);
