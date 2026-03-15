@@ -90,11 +90,17 @@ export function ComposerDock(props: ComposerDockProps) {
       }
     }
 
-    // Enter selects (filterable pickers)
-    if (pm.isFilterable && e.name === "return") {
+    // Enter selects current option in any visible picker
+    if (e.name === "return") {
       e.preventDefault();
       filterText = "";
       pm.selectCurrent();
+      return;
+    }
+
+    // Non-filterable pickers block all remaining keystrokes
+    if (!pm.isFilterable) {
+      e.preventDefault();
       return;
     }
 
