@@ -11,6 +11,7 @@ export const COMMANDS: CommandDef[] = [
   { name: "/thinking", description: "Cycle or set thinking level", takesArgs: true },
   { name: "/name", description: "Set session display name", takesArgs: true },
   { name: "/session", description: "Show session stats" },
+  { name: "/switch", description: "Switch to another session" },
   { name: "/quit", description: "Exit pi-kit" },
 ];
 

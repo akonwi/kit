@@ -7,6 +7,15 @@ export type ModelPickerItem = {
   provider: string;
 };
 
+export type SessionPickerItem = {
+  path: string;
+  id: string;
+  name: string | undefined;
+  cwd: string;
+  modified: Date;
+  firstMessage: string;
+};
+
 export type CommandResult = {
   panel?: { title: string; lines: string[] };
   /** If set, update the session name label in the UI */
@@ -15,6 +24,11 @@ export type CommandResult = {
   openModelPicker?: {
     models: ModelPickerItem[];
     currentModelId: string | undefined;
+  };
+  /** If set, open a session picker with these items */
+  openSessionPicker?: {
+    sessions: SessionPickerItem[];
+    currentSessionId: string | undefined;
   };
 };
 
@@ -44,6 +58,8 @@ export async function executeCommand(
       return handleName(runtime, args);
     case "/session":
       return handleSession(runtime);
+    case "/switch":
+      return handleSwitch(runtime);
     case "/quit":
     case "/exit":
       runtime.quit();
@@ -103,6 +119,33 @@ function handleName(runtime: AgentRuntime, args: string): CommandResult {
   return {
     panel: { title: "", lines: [`Session name → ${args}`] },
     sessionName: args,
+  };
+}
+
+async function handleSwitch(runtime: AgentRuntime): Promise<CommandResult> {
+  const sessions = await runtime.listAllSessions();
+  if (sessions.length === 0) {
+    return { panel: { title: "", lines: ["No sessions found."] } };
+  }
+
+  // Sort by most recently modified first
+  const sorted = [...sessions].sort((a, b) => b.modified.getTime() - a.modified.getTime());
+  const currentId = runtime.getSession().sessionId;
+
+  const items: SessionPickerItem[] = sorted.map((s) => ({
+    path: s.path,
+    id: s.id,
+    name: s.name,
+    cwd: s.cwd,
+    modified: s.modified,
+    firstMessage: s.firstMessage,
+  }));
+
+  return {
+    openSessionPicker: {
+      sessions: items,
+      currentSessionId: currentId,
+    },
   };
 }
 

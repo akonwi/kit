@@ -5,6 +5,7 @@ import {
   createAgentSession,
   SessionManager,
   type AgentSessionEvent,
+  type SessionInfo,
 } from "@mariozechner/pi-coding-agent";
 import {
   snapshotLoadedSession,
@@ -40,6 +41,8 @@ export type AgentRuntime = {
   setThinkingLevel(level: ThinkingLevel): void;
   cycleThinkingLevel(): string | undefined;
   setSessionName(name: string): void;
+  listAllSessions(): Promise<SessionInfo[]>;
+  switchSession(sessionPath: string): Promise<boolean>;
   onQuit(handler: () => void): void;
   quit(): void;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
@@ -222,6 +225,18 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     setSessionName(name: string): void {
       agentSession.setSessionName(name);
       currentSession = snapshotLoadedSession(agentSession.sessionManager);
+    },
+    async listAllSessions(): Promise<SessionInfo[]> {
+      return SessionManager.listAll();
+    },
+    async switchSession(sessionPath: string): Promise<boolean> {
+      const ok = await agentSession.switchSession(sessionPath);
+      if (ok) {
+        currentSession = snapshotLoadedSession(agentSession.sessionManager);
+        emitMessages();
+        emitStatus();
+      }
+      return ok;
     },
     onQuit(handler: () => void) {
       quitHandler = handler;

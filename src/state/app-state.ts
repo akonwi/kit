@@ -1,3 +1,4 @@
+import { basename } from "node:path";
 import { homedir } from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
@@ -5,7 +6,7 @@ import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { matchCommands } from "../features/command-registry";
-import { executeCommand } from "../features/commands";
+import { executeCommand, type SessionPickerItem } from "../features/commands";
 
 export type DockMode = "composer" | "wizard" | "pager";
 
@@ -63,6 +64,18 @@ export type AppState = {
   /** Debug: raw message JSON for the currently inspected message */
   debugEntry: string | null;
 };
+
+function formatTimeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return date.toLocaleDateString();
+}
 
 function formatCwd(rawCwd: string): string {
   const home = homedir();
@@ -277,6 +290,51 @@ export function createAppState(
             } catch (error) {
               if (error instanceof Error) {
                 showPanel("Model Error", [error.message]);
+              }
+            }
+            closePicker();
+          },
+          true, // filterable
+        );
+      }
+      if (result.openSessionPicker) {
+        const { sessions, currentSessionId } = result.openSessionPicker;
+        const home = homedir();
+        const options: PickerOption[] = sessions.map((s) => {
+          const label = s.name || s.firstMessage.slice(0, 60) || s.id.slice(0, 8);
+          const cwd = s.cwd.startsWith(home) ? `~${s.cwd.slice(home.length)}` : s.cwd;
+          const dir = basename(cwd);
+          const ago = formatTimeAgo(s.modified);
+          return {
+            name: label,
+            description: `${dir}  ${ago}`,
+            value: s,
+          };
+        });
+        const currentIdx = sessions.findIndex((s) => s.id === currentSessionId);
+        openPicker(
+          "Switch Session",
+          options,
+          currentIdx >= 0 ? currentIdx : 0,
+          async (option: PickerOption) => {
+            const session = option.value as SessionPickerItem;
+            try {
+              const ok = await runtime.switchSession(session.path);
+              if (ok) {
+                const snap = runtime.getSession();
+                setState("sessionMeta", {
+                  sessionId: snap.sessionId,
+                  sessionName: snap.sessionName,
+                  sessionCwd: snap.cwd,
+                  hasSession: true,
+                });
+                hidePanel();
+              } else {
+                showPanel("", ["Session switch was cancelled."]);
+              }
+            } catch (error) {
+              if (error instanceof Error) {
+                showPanel("Session Error", [error.message]);
               }
             }
             closePicker();
