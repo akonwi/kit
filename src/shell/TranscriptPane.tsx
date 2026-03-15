@@ -93,7 +93,9 @@ function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
       width="100%"
       onMouseDown={props.onClick}
     >
-      <For each={lines}>{(line) => <text fg={theme.userText}>{line}</text>}</For>
+      <For each={lines}>
+        {(line) => <text fg={theme.userText}>{line}</text>}
+      </For>
     </box>
   );
 }
@@ -125,7 +127,9 @@ function AssistantEntry(props: {
         width="100%"
         onMouseDown={props.onClick}
       >
-        <For each={lines}>{(line) => <text fg={theme.assistantText}>{line}</text>}</For>
+        <For each={lines}>
+          {(line) => <text fg={theme.assistantText}>{line}</text>}
+        </For>
       </box>
     </Show>
   );
@@ -148,7 +152,9 @@ function ToolResultEntry(props: {
       <text fg={headerColor}>
         {prefix} {props.msg.toolName}
       </text>
-      <For each={lines}>{(line) => <text fg={theme.toolText}>{line}</text>}</For>
+      <For each={lines}>
+        {(line) => <text fg={theme.toolText}>{line}</text>}
+      </For>
     </box>
   );
 }
@@ -193,7 +199,6 @@ export function TranscriptPane(props: TranscriptPaneProps) {
       padding={1}
       style={{
         scrollbarOptions: {
-          showArrows: true,
           trackOptions: {
             foregroundColor: theme.scrollbarFg,
             backgroundColor: theme.scrollbarBg,
