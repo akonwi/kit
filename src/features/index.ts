@@ -1,2 +1,2 @@
-export { executeCommand } from "./commands";
-export type { CommandResult } from "./commands";
+export * from "./commands";
+export type { Command, CommandContext } from "./commands";
