@@ -41,7 +41,7 @@ export function InlinePicker(props: InlinePickerProps) {
           backgroundColor="#1b1b1b"
           textColor="#8f8f8f"
           focusedTextColor="#f2f2f2"
-          focusedBackgroundColor="#2f6e9b"
+          focusedBackgroundColor="#333333"
           descriptionColor="#555555"
           selectedDescriptionColor="#8f8f8f"
           showDescription
