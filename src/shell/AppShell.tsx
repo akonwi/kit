@@ -5,7 +5,6 @@ import { ComposerDock } from "./ComposerDock";
 import { DebugPanel } from "./DebugPanel";
 import { InlinePicker } from "./InlinePicker";
 import { PanelHost } from "./PanelHost";
-import { PickerOverlay } from "./PickerOverlay";
 import { TranscriptPane } from "./TranscriptPane";
 
 export type AppShellProps = {
@@ -21,9 +20,6 @@ export type AppShellProps = {
 };
 
 export function AppShell(props: AppShellProps) {
-  const inlinePickerVisible = () =>
-    props.state.picker.visible && props.state.picker.mode === "inline";
-
   return (
     <box width="100%" height="100%" flexDirection="column">
       <TranscriptPane messages={props.state.messages} onMessageClick={props.onInspectMessage} />
@@ -35,7 +31,7 @@ export function AppShell(props: AppShellProps) {
           composer={props.state.composer}
           cwd={props.state.footerStatus.cwd}
           sessionName={props.state.sessionMeta.sessionName}
-          pickerVisible={inlinePickerVisible()}
+          pickerVisible={props.state.picker.visible}
           onContentChange={props.onComposerChange}
           onSubmit={props.onComposerSubmit}
           onPickerUp={props.onPickerUp}
@@ -45,7 +41,6 @@ export function AppShell(props: AppShellProps) {
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
-      <PickerOverlay picker={props.state.picker} onSelect={props.onPickerSelect} onDismiss={props.onPickerDismiss} />
     </box>
   );
 }
