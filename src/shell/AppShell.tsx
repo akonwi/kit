@@ -17,6 +17,7 @@ export type AppShellProps = {
   onPickerUp: () => void;
   onPickerDown: () => void;
   onPickerDismiss: () => void;
+  onPickerFilter: (query: string) => void;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -32,12 +33,14 @@ export function AppShell(props: AppShellProps) {
           cwd={props.state.footerStatus.cwd}
           sessionName={props.state.sessionMeta.sessionName}
           pickerVisible={props.state.picker.visible}
+          pickerFilterable={props.state.picker.filterable}
           onContentChange={props.onComposerChange}
           onSubmit={props.onComposerSubmit}
           onPickerUp={props.onPickerUp}
           onPickerDown={props.onPickerDown}
           onPickerSelect={props.onPickerSelectCurrent}
           onPickerDismiss={props.onPickerDismiss}
+          onPickerFilter={props.onPickerFilter}
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>

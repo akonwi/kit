@@ -20,7 +20,7 @@ function computeScrollbar(total: number, visible: number, offset: number) {
 }
 
 export function InlinePicker(props: InlinePickerProps) {
-  const visible = () => props.picker.visible && props.picker.options.length > 0;
+  const visible = () => props.picker.visible;
   const maxNameLen = () =>
     props.picker.options.reduce((max, o) => Math.max(max, o.name.length), 0);
 
@@ -64,6 +64,16 @@ export function InlinePicker(props: InlinePickerProps) {
         flexDirection="row"
       >
         <box flexGrow={1} flexDirection="column">
+          <Show when={props.picker.filterable}>
+            <text fg="#f2f2f2">
+              {"> "}
+              {props.picker.filterText}
+            </text>
+            <text> </text>
+          </Show>
+          <Show when={props.picker.options.length === 0}>
+            <text fg="#8f8f8f">No results</text>
+          </Show>
           <For each={visibleSlice().items}>
             {(entry) => {
               const isFocused = () =>

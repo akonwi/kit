@@ -23,6 +23,7 @@ export function App(props: AppProps) {
       onPickerUp={appState.pickerUp}
       onPickerDown={appState.pickerDown}
       onPickerDismiss={appState.closePicker}
+      onPickerFilter={appState.filterPicker}
     />
   );
 }

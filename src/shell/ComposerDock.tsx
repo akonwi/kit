@@ -1,5 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { createEffect } from "solid-js";
+import { useKeyboard } from "@opentui/solid";
 import type { ComposerState } from "../state/app-state";
 
 export type ComposerDockProps = {
@@ -7,12 +8,14 @@ export type ComposerDockProps = {
   cwd: string;
   sessionName: string | undefined;
   pickerVisible: boolean;
+  pickerFilterable: boolean;
   onContentChange: (value: string) => void;
   onSubmit: () => void;
   onPickerUp: () => void;
   onPickerDown: () => void;
   onPickerSelect: () => void;
   onPickerDismiss: () => void;
+  onPickerFilter: (query: string) => void;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
@@ -20,6 +23,8 @@ export function ComposerDock(props: ComposerDockProps) {
     plainText: string;
     setText: (value: string) => void;
   } | undefined;
+
+  let filterText = "";
 
   createEffect(() => {
     const nextText = props.composer.text;
@@ -29,20 +34,45 @@ export function ComposerDock(props: ComposerDockProps) {
     }
   });
 
-  function handleKeyDown(e: KeyEvent) {
+  // Global key handler — fires before the textarea processes the key
+  useKeyboard((e: KeyEvent) => {
     if (!props.pickerVisible) return;
 
     if (e.name === "up") {
       e.preventDefault();
       props.onPickerUp();
-    } else if (e.name === "down") {
+      return;
+    }
+    if (e.name === "down") {
       e.preventDefault();
       props.onPickerDown();
-    } else if (e.name === "escape") {
-      e.preventDefault();
-      props.onPickerDismiss();
+      return;
     }
-  }
+    if (e.name === "escape") {
+      e.preventDefault();
+      filterText = "";
+      props.onPickerDismiss();
+      return;
+    }
+    if (e.name === "return") {
+      e.preventDefault();
+      filterText = "";
+      props.onPickerSelect();
+      return;
+    }
+
+    // For filterable pickers, intercept typing
+    if (props.pickerFilterable) {
+      e.preventDefault();
+      if (e.name === "backspace") {
+        filterText = filterText.slice(0, -1);
+        props.onPickerFilter(filterText);
+      } else if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
+        filterText += e.sequence;
+        props.onPickerFilter(filterText);
+      }
+    }
+  });
 
   return (
     <box flexShrink={0}>
@@ -69,23 +99,17 @@ export function ComposerDock(props: ComposerDockProps) {
           textColor="#f2f2f2"
           focusedTextColor="#f2f2f2"
           cursorColor="#ffffff"
+          showCursor={!props.pickerFilterable}
           wrapMode="word"
           keyBindings={[
             { name: "return", action: "submit" },
             { name: "linefeed", action: "submit" },
             { name: "return", shift: true, action: "newline" },
           ]}
-          onKeyDown={handleKeyDown}
           onContentChange={() => {
             props.onContentChange(textareaRef?.plainText ?? "");
           }}
-          onSubmit={() => {
-            if (props.pickerVisible) {
-              props.onPickerSelect();
-            } else {
-              props.onSubmit();
-            }
-          }}
+          onSubmit={props.onSubmit}
           focused
         />
       </box>

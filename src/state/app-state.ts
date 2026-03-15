@@ -49,6 +49,8 @@ export type PickerState = {
   title: string;
   options: PickerOption[];
   selectedIndex: number;
+  filterable: boolean;
+  filterText: string;
 };
 
 export type AppState = {
@@ -132,6 +134,8 @@ export function buildInitialAppState(
       title: "",
       options: [],
       selectedIndex: 0,
+      filterable: false,
+      filterText: "",
     },
     composer: {
       mode: "composer",
@@ -269,7 +273,7 @@ export function createAppState(
             const model = option.value as { id: string; name: string; provider: string };
             try {
               await runtime.setModel(model.provider, model.id);
-              showPanel("", [`Model → ${model.name}`]);
+              hidePanel();
             } catch (error) {
               if (error instanceof Error) {
                 showPanel("Model Error", [error.message]);
@@ -277,6 +281,7 @@ export function createAppState(
             }
             closePicker();
           },
+          true, // filterable
         );
       }
     } catch (error) {
@@ -320,30 +325,55 @@ export function createAppState(
   }
 
   let pickerCallback: ((option: PickerOption) => void) | null = null;
+  let pickerAllOptions: PickerOption[] = [];
 
   function openPicker(
     title: string,
     options: PickerOption[],
     selectedIndex: number,
     onSelect: (option: PickerOption) => void,
+    filterable = false,
   ) {
     pickerCallback = onSelect;
+    pickerAllOptions = options;
     setState("picker", {
       visible: true,
       title,
       options,
       selectedIndex,
+      filterable,
+      filterText: "",
     });
   }
 
   function closePicker() {
     pickerCallback = null;
+    pickerAllOptions = [];
     setState("picker", {
       visible: false,
       title: "",
       options: [],
       selectedIndex: 0,
+      filterable: false,
+      filterText: "",
     });
+    setState("composer", "text", "");
+  }
+
+  function filterPicker(query: string) {
+    if (!state.picker.visible || !state.picker.filterable) return;
+    setState("picker", "filterText", query);
+    if (!query) {
+      setState("picker", "options", pickerAllOptions);
+      setState("picker", "selectedIndex", 0);
+      return;
+    }
+    const q = query.toLowerCase();
+    const filtered = pickerAllOptions.filter(
+      (o) => o.name.toLowerCase().includes(q) || o.description.toLowerCase().includes(q),
+    );
+    setState("picker", "options", filtered);
+    setState("picker", "selectedIndex", 0);
   }
 
   function selectPickerOption(option: PickerOption) {
@@ -381,5 +411,6 @@ export function createAppState(
     selectCurrentPickerOption,
     pickerUp,
     pickerDown,
+    filterPicker,
   };
 }
