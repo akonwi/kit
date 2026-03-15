@@ -1,3 +1,4 @@
+import type { KeyEvent } from "@opentui/core";
 import { createEffect } from "solid-js";
 import type { ComposerState } from "../state/app-state";
 
@@ -5,8 +6,13 @@ export type ComposerDockProps = {
   composer: ComposerState;
   cwd: string;
   sessionName: string | undefined;
+  pickerVisible: boolean;
   onContentChange: (value: string) => void;
   onSubmit: () => void;
+  onPickerUp: () => void;
+  onPickerDown: () => void;
+  onPickerSelect: () => void;
+  onPickerDismiss: () => void;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
@@ -22,6 +28,21 @@ export function ComposerDock(props: ComposerDockProps) {
       textareaRef.setText(nextText);
     }
   });
+
+  function handleKeyDown(e: KeyEvent) {
+    if (!props.pickerVisible) return;
+
+    if (e.name === "up") {
+      e.preventDefault();
+      props.onPickerUp();
+    } else if (e.name === "down") {
+      e.preventDefault();
+      props.onPickerDown();
+    } else if (e.name === "escape") {
+      e.preventDefault();
+      props.onPickerDismiss();
+    }
+  }
 
   return (
     <box flexShrink={0}>
@@ -54,10 +75,17 @@ export function ComposerDock(props: ComposerDockProps) {
             { name: "linefeed", action: "submit" },
             { name: "return", shift: true, action: "newline" },
           ]}
+          onKeyDown={handleKeyDown}
           onContentChange={() => {
             props.onContentChange(textareaRef?.plainText ?? "");
           }}
-          onSubmit={props.onSubmit}
+          onSubmit={() => {
+            if (props.pickerVisible) {
+              props.onPickerSelect();
+            } else {
+              props.onSubmit();
+            }
+          }}
           focused
         />
       </box>

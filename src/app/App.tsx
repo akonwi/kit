@@ -19,6 +19,9 @@ export function App(props: AppProps) {
       onComposerChange={appState.setComposerText}
       onComposerSubmit={appState.submitComposer}
       onPickerSelect={appState.selectPickerOption}
+      onPickerSelectCurrent={appState.selectCurrentPickerOption}
+      onPickerUp={appState.pickerUp}
+      onPickerDown={appState.pickerDown}
       onPickerDismiss={appState.closePicker}
     />
   );

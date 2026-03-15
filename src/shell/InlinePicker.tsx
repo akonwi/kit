@@ -1,17 +1,14 @@
-import type { KeyEvent, SelectOption } from "@opentui/core";
-import { Show } from "solid-js";
-import type { PickerOption, PickerState } from "../state/app-state";
+import { For, Show } from "solid-js";
+import type { PickerState } from "../state/app-state";
 
 export type InlinePickerProps = {
   picker: PickerState;
-  onSelect: (option: PickerOption) => void;
-  onDismiss: () => void;
 };
 
 export function InlinePicker(props: InlinePickerProps) {
   const visible = () => props.picker.visible && props.picker.mode === "inline";
-  const optionCount = () => props.picker.options.length;
-  const selectHeight = () => Math.min(optionCount(), 8);
+  const maxNameLen = () =>
+    props.picker.options.reduce((max, o) => Math.max(max, o.name.length), 0);
 
   return (
     <Show when={visible()}>
@@ -21,42 +18,28 @@ export function InlinePicker(props: InlinePickerProps) {
         borderColor="white"
         paddingLeft={1}
         paddingRight={1}
-        onKeyDown={(e: KeyEvent) => {
-          if (e.name === "escape") {
-            props.onDismiss();
-          }
-        }}
+        flexDirection="column"
       >
-        <select
-          focused
-          width="100%"
-          height={selectHeight()}
-          options={
-            props.picker.options.map((o): SelectOption => ({
-              name: o.name,
-              description: o.description,
-            }))
-          }
-          selectedIndex={props.picker.selectedIndex}
-          backgroundColor="transparent"
-          textColor="#8f8f8f"
-          focusedBackgroundColor="transparent"
-          focusedTextColor="#8f8f8f"
-          selectedBackgroundColor="transparent"
-          selectedTextColor="#f2f2f2"
-          descriptionColor="#555555"
-          selectedDescriptionColor="#8f8f8f"
-          showDescription
-          wrapSelection
-          showScrollIndicator
-          onSelect={(_index: number, option: SelectOption | null) => {
-            if (!option) return;
-            const picked = props.picker.options.find((o) => o.name === option.name);
-            if (picked) {
-              props.onSelect(picked);
-            }
+        <For each={props.picker.options}>
+          {(option, i) => {
+            const isFocused = () => i() === props.picker.selectedIndex;
+            const padded = () => option.name.padEnd(maxNameLen());
+            return (
+              <box
+                flexDirection="row"
+                width="100%"
+                backgroundColor={isFocused() ? "white" : "transparent"}
+              >
+                <text
+                  fg={isFocused() ? "#000000" : "#8f8f8f"}
+                  bg={isFocused() ? "white" : "transparent"}
+                >
+                  {padded()}  {option.description}
+                </text>
+              </box>
+            );
           }}
-        />
+        </For>
       </box>
     </Show>
   );

@@ -357,6 +357,23 @@ export function createAppState(
     pickerCallback?.(option);
   }
 
+  function selectCurrentPickerOption() {
+    const option = state.picker.options[state.picker.selectedIndex];
+    if (option) pickerCallback?.(option);
+  }
+
+  function pickerUp() {
+    const count = state.picker.options.length;
+    if (count === 0) return;
+    setState("picker", "selectedIndex", (i) => (i <= 0 ? count - 1 : i - 1));
+  }
+
+  function pickerDown() {
+    const count = state.picker.options.length;
+    if (count === 0) return;
+    setState("picker", "selectedIndex", (i) => (i >= count - 1 ? 0 : i + 1));
+  }
+
   return {
     state,
     setState,
@@ -368,5 +385,8 @@ export function createAppState(
     openPicker,
     closePicker,
     selectPickerOption,
+    selectCurrentPickerOption,
+    pickerUp,
+    pickerDown,
   };
 }
