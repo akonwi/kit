@@ -51,5 +51,10 @@ export async function bootstrap(): Promise<void> {
   const runtime = await createAgentRuntime(session);
   const renderer = await createCliRenderer();
 
+  runtime.onQuit(() => {
+    runtime.dispose();
+    renderer.destroy();
+  });
+
   render(() => <App settings={settings} session={session} runtime={runtime} />, renderer);
 }

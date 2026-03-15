@@ -46,7 +46,8 @@ export async function executeCommand(
       return handleSession(runtime);
     case "/quit":
     case "/exit":
-      process.exit(0);
+      runtime.quit();
+      return {};
     default:
       return { panel: { title: "", lines: [`Unknown command: ${command}`] } };
   }

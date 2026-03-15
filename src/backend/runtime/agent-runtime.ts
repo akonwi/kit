@@ -40,6 +40,8 @@ export type AgentRuntime = {
   setThinkingLevel(level: ThinkingLevel): void;
   cycleThinkingLevel(): string | undefined;
   setSessionName(name: string): void;
+  onQuit(handler: () => void): void;
+  quit(): void;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
   getSession(): LoadedSession;
   getAgentSession(): AgentSession;
@@ -88,6 +90,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
   });
 
   let currentSession = snapshotLoadedSession(agentSession.sessionManager);
+  let quitHandler: (() => void) | null = null;
   const listeners = new Set<(event: AgentRuntimeEvent) => void>();
 
   const emit = (event: AgentRuntimeEvent) => {
@@ -219,6 +222,12 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
     setSessionName(name: string): void {
       agentSession.setSessionName(name);
       currentSession = snapshotLoadedSession(agentSession.sessionManager);
+    },
+    onQuit(handler: () => void) {
+      quitHandler = handler;
+    },
+    quit() {
+      quitHandler?.();
     },
     subscribe(listener) {
       listeners.add(listener);
