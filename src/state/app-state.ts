@@ -234,9 +234,9 @@ export function createAppState(
       }
     }
 
-    // Close the command picker if it's currently showing commands
+    // Dismiss the command picker if it's currently showing commands
     if (state.picker.visible && state.picker.title === "Commands") {
-      closePicker();
+      dismissPicker();
     }
   }
 
@@ -358,6 +358,20 @@ export function createAppState(
       filterText: "",
     });
     setState("composer", "text", "");
+  }
+
+  /** Dismiss picker without clearing the composer text */
+  function dismissPicker() {
+    pickerCallback = null;
+    pickerAllOptions = [];
+    setState("picker", {
+      visible: false,
+      title: "",
+      options: [],
+      selectedIndex: 0,
+      filterable: false,
+      filterText: "",
+    });
   }
 
   function filterPicker(query: string) {
