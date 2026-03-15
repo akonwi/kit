@@ -38,10 +38,12 @@ export function InlinePicker(props: InlinePickerProps) {
             }))
           }
           selectedIndex={props.picker.selectedIndex}
-          backgroundColor="#1b1b1b"
+          backgroundColor="transparent"
           textColor="#8f8f8f"
-          focusedTextColor="#f2f2f2"
-          focusedBackgroundColor="#333333"
+          focusedBackgroundColor="transparent"
+          focusedTextColor="#8f8f8f"
+          selectedBackgroundColor="transparent"
+          selectedTextColor="#f2f2f2"
           descriptionColor="#555555"
           selectedDescriptionColor="#8f8f8f"
           showDescription
