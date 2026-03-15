@@ -17,7 +17,10 @@ export function InlinePicker(props: InlinePickerProps) {
     <Show when={visible()}>
       <box
         flexShrink={0}
-        height={selectHeight()}
+        border
+        borderColor="white"
+        paddingLeft={1}
+        paddingRight={1}
         onKeyDown={(e: KeyEvent) => {
           if (e.name === "escape") {
             props.onDismiss();
@@ -35,9 +38,9 @@ export function InlinePicker(props: InlinePickerProps) {
             }))
           }
           selectedIndex={props.picker.selectedIndex}
-          backgroundColor="#1a1a2e"
+          backgroundColor="#1b1b1b"
           textColor="#8f8f8f"
-          focusedTextColor="#ffffff"
+          focusedTextColor="#f2f2f2"
           focusedBackgroundColor="#2f6e9b"
           descriptionColor="#555555"
           selectedDescriptionColor="#8f8f8f"
