@@ -56,8 +56,6 @@ export async function executeCommand(
       return handleThinking(runtime, args);
     case "/name":
       return handleName(runtime, args);
-    case "/session":
-      return handleSession(runtime);
     case "/switch":
       return handleSwitch(runtime);
     case "/quit":
@@ -147,22 +145,4 @@ async function handleSwitch(runtime: AgentRuntime): Promise<CommandResult> {
       currentSessionId: currentId,
     },
   };
-}
-
-async function handleSession(runtime: AgentRuntime): Promise<CommandResult> {
-  const session = runtime.getAgentSession();
-  const stats = session.getSessionStats();
-  const lines: string[] = [
-    `Session: ${stats.sessionId}`,
-    `File: ${stats.sessionFile ?? "(unsaved)"}`,
-    `Messages: ${stats.totalMessages} (${stats.userMessages} user, ${stats.assistantMessages} assistant)`,
-    `Tool calls: ${stats.toolCalls}`,
-  ];
-  if (stats.tokens.total > 0) {
-    lines.push(`Tokens: ${stats.tokens.total.toLocaleString()} (in: ${stats.tokens.input.toLocaleString()}, out: ${stats.tokens.output.toLocaleString()})`);
-  }
-  if (stats.cost > 0) {
-    lines.push(`Cost: $${stats.cost.toFixed(4)}`);
-  }
-  return { panel: { title: "", lines } };
 }
