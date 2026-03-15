@@ -162,7 +162,7 @@ export function ComposerDock(props: ComposerDockProps) {
           textColor={theme.textPrimary}
           focusedTextColor={theme.textPrimary}
           cursorColor={theme.cursor}
-          showCursor={!props.palette.isFilterable && !props.palette.isInputMode}
+          showCursor={!props.palette.visible}
           wrapMode="word"
           keyBindings={[
             { name: "return", action: "submit" },

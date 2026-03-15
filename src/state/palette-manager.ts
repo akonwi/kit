@@ -207,19 +207,18 @@ export function createPaletteManager() {
 		submitInput,
 		setInputValue,
 		get visible() {
-			return stack.length > 0;
+			return snapshot().visible;
 		},
 		get isFilterable() {
-			const t = top();
-			return t?.mode === "list" && t.filterable;
+			const s = snapshot();
+			return s.mode === "list" && s.filterable;
 		},
 		get isInputMode() {
-			const t = top();
-			return t?.mode === "input";
+			return snapshot().mode === "input";
 		},
 		get inputValue() {
-			const t = top();
-			return t?.mode === "input" ? t.inputValue : "";
+			const s = snapshot();
+			return s.mode === "input" ? s.inputValue : "";
 		},
 	};
 
