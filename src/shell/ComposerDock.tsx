@@ -2,6 +2,7 @@ import type { KeyEvent } from "@opentui/core";
 import { createEffect } from "solid-js";
 import { useKeyboard } from "@opentui/solid";
 import type { ComposerState } from "../state/app-state";
+import { theme } from "./theme";
 
 export type ComposerDockProps = {
   composer: ComposerState;
@@ -72,7 +73,7 @@ export function ComposerDock(props: ComposerDockProps) {
       <box
         width="100%"
         border
-        borderColor="white"
+        borderColor={theme.borderFocused}
         paddingLeft={1}
         paddingRight={1}
         paddingBottom={1}
@@ -86,12 +87,12 @@ export function ComposerDock(props: ComposerDockProps) {
           height={props.composer.height}
           initialValue={props.composer.text}
           placeholder={props.composer.placeholder}
-          placeholderColor="#666666"
-          backgroundColor="#1b1b1b"
-          focusedBackgroundColor="#1b1b1b"
-          textColor="#f2f2f2"
-          focusedTextColor="#f2f2f2"
-          cursorColor="#ffffff"
+          placeholderColor={theme.textPlaceholder}
+          backgroundColor={theme.bgSurface}
+          focusedBackgroundColor={theme.bgSurface}
+          textColor={theme.textPrimary}
+          focusedTextColor={theme.textPrimary}
+          cursorColor={theme.cursor}
           showCursor={!props.pickerFilterable}
           wrapMode="word"
           keyBindings={[
@@ -113,10 +114,10 @@ export function ComposerDock(props: ComposerDockProps) {
           focused
         />
       </box>
-      <text position="absolute" bottom={0} left={2} fg="#8f8f8f">
+      <text position="absolute" bottom={0} left={2} fg={theme.textMuted}>
         {props.sessionName || "Unnamed"}
       </text>
-      <text position="absolute" bottom={0} right={2} fg="#8f8f8f">
+      <text position="absolute" bottom={0} right={2} fg={theme.textMuted}>
         {props.cwd}
       </text>
     </box>

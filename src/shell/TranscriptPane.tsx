@@ -5,6 +5,7 @@ import type {
   UserMessage,
 } from "@mariozechner/pi-ai";
 import { For, Show } from "solid-js";
+import { theme } from "./theme";
 
 export type TranscriptPaneProps = {
   messages: AgentMessage[];
@@ -85,14 +86,14 @@ function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
   return (
     <box
       border={["left"] as any}
-      borderColor="#6cb6ff"
+      borderColor={theme.userBorder}
       paddingLeft={1}
       flexDirection="column"
       gap={0}
       width="100%"
       onMouseDown={props.onClick}
     >
-      <For each={lines}>{(line) => <text fg="#6cb6ff">{line}</text>}</For>
+      <For each={lines}>{(line) => <text fg={theme.userText}>{line}</text>}</For>
     </box>
   );
 }
@@ -110,7 +111,7 @@ function AssistantEntry(props: {
         width="100%"
         onMouseDown={props.onClick}
       >
-        <text fg="#f85149">{props.msg.errorMessage}</text>
+        <text fg={theme.errorText}>{props.msg.errorMessage}</text>
       </box>
     );
   }
@@ -124,7 +125,7 @@ function AssistantEntry(props: {
         width="100%"
         onMouseDown={props.onClick}
       >
-        <For each={lines}>{(line) => <text fg="#f2f2f2">{line}</text>}</For>
+        <For each={lines}>{(line) => <text fg={theme.assistantText}>{line}</text>}</For>
       </box>
     </Show>
   );
@@ -135,7 +136,7 @@ function ToolResultEntry(props: {
   onClick?: () => void;
 }) {
   const prefix = props.msg.isError ? "✗" : "✓";
-  const headerColor = props.msg.isError ? "#f85149" : "#7ee787";
+  const headerColor = props.msg.isError ? theme.errorText : theme.toolText;
   const lines = extractToolResultLines(props.msg);
   return (
     <box
@@ -147,7 +148,7 @@ function ToolResultEntry(props: {
       <text fg={headerColor}>
         {prefix} {props.msg.toolName}
       </text>
-      <For each={lines}>{(line) => <text fg="#7ee787">{line}</text>}</For>
+      <For each={lines}>{(line) => <text fg={theme.toolText}>{line}</text>}</For>
     </box>
   );
 }
@@ -194,8 +195,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
         scrollbarOptions: {
           showArrows: true,
           trackOptions: {
-            foregroundColor: "#6e6e6e",
-            backgroundColor: "#2a2a2a",
+            foregroundColor: theme.scrollbarFg,
+            backgroundColor: theme.scrollbarBg,
           },
         },
       }}
@@ -203,8 +204,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
       <box flexDirection="column" gap={1} width="100%">
         <Show when={props.messages.length === 0}>
           <box flexDirection="column" gap={0} width="100%">
-            <text fg="#b8b8b8">pi-kit</text>
-            <text fg="#b8b8b8">Start a conversation below.</text>
+            <text fg={theme.textSecondary}>pi-kit</text>
+            <text fg={theme.textSecondary}>Start a conversation below.</text>
           </box>
         </Show>
         <For each={props.messages}>

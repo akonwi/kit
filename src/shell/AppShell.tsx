@@ -6,6 +6,7 @@ import { DebugPanel } from "./DebugPanel";
 import { InlinePicker } from "./InlinePicker";
 import { PanelHost } from "./PanelHost";
 import { TranscriptPane } from "./TranscriptPane";
+import { theme } from "./theme";
 
 export type AppShellProps = {
   state: AppState;
@@ -22,7 +23,12 @@ export type AppShellProps = {
 
 export function AppShell(props: AppShellProps) {
   return (
-    <box width="100%" height="100%" flexDirection="column">
+    <box
+      width="100%"
+      height="100%"
+      flexDirection="column"
+      backgroundColor={theme.bg}
+    >
       <TranscriptPane
         messages={props.state.messages}
         onMessageClick={props.onInspectMessage}

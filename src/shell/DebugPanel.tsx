@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import { theme } from "./theme";
 
 export type DebugPanelProps = {
   json: string | null;
@@ -12,12 +13,12 @@ export function DebugPanel(props: DebugPanelProps) {
         height={16}
         scrollY
         border
-        borderColor="#8a6bbd"
+        borderColor={theme.borderDebug}
         padding={1}
       >
         <box flexDirection="column" width="100%">
-          <text fg="#8a6bbd">Debug: Raw Message</text>
-          <text fg="#c0c0c0">{props.json}</text>
+          <text fg={theme.debugLabel}>Debug: Raw Message</text>
+          <text fg={theme.textDebug}>{props.json}</text>
         </box>
       </scrollbox>
     </Show>

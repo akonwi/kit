@@ -1,5 +1,6 @@
 import { createMemo, For, Show } from "solid-js";
 import type { PickerState } from "../state/app-state";
+import { theme } from "./theme";
 
 const MAX_VISIBLE = 10;
 
@@ -62,20 +63,21 @@ export function InlinePicker(props: InlinePickerProps) {
         left={0}
         width="100%"
         border
-        borderColor="white"
+        borderColor={theme.pickerBorder}
+        backgroundColor={theme.pickerBg}
         paddingX={1}
         flexDirection="row"
       >
         <box flexGrow={1} flexDirection="column">
           <Show when={props.picker.filterable}>
-            <text fg="#f2f2f2">
+            <text fg={theme.textPrimary}>
               {"> "}
               {props.picker.filterText}
             </text>
             <text> </text>
           </Show>
           <Show when={props.picker.options.length === 0}>
-            <text fg="#8f8f8f">No results</text>
+            <text fg={theme.textMuted}>No results</text>
           </Show>
           <For each={visibleSlice().items}>
             {(entry) => {
@@ -86,11 +88,11 @@ export function InlinePicker(props: InlinePickerProps) {
                 <box
                   flexDirection="row"
                   width="100%"
-                  backgroundColor={isFocused() ? "white" : "transparent"}
+                  backgroundColor={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
                 >
                   <text
-                    fg={isFocused() ? "#000000" : "white"}
-                    bg={isFocused() ? "white" : "transparent"}
+                    fg={isFocused() ? theme.pickerFocusedText : theme.pickerItemText}
+                    bg={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
                   >
                     {padded()} {entry.option.description}
                   </text>
@@ -103,7 +105,7 @@ export function InlinePicker(props: InlinePickerProps) {
           <box flexShrink={0} width={1} flexDirection="column">
             <For each={scrollbar()!}>
               {(isThumb) => (
-                <text fg={isThumb ? "#888888" : "#333333"}>
+                <text fg={isThumb ? theme.pickerScrollThumb : theme.pickerScrollTrack}>
                   {isThumb ? "█" : "│"}
                 </text>
               )}

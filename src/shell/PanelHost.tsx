@@ -1,5 +1,6 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { PanelState } from "../state/app-state";
+import { theme } from "./theme";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
@@ -20,7 +21,7 @@ function Spinner() {
   }, SPINNER_INTERVAL);
   onCleanup(() => clearInterval(timer));
 
-  return <text fg="#8f8f8f">{SPINNER_FRAMES[frame()]}</text>;
+  return <text fg={theme.panelText}>{SPINNER_FRAMES[frame()]}</text>;
 }
 
 export function PanelHost(props: PanelHostProps) {
@@ -29,7 +30,7 @@ export function PanelHost(props: PanelHostProps) {
       <Show when={props.panel.visible}>
         <Spinner />
       </Show>
-      <text fg="#8f8f8f">{panelMessage(props.panel)}</text>
+      <text fg={theme.panelText}>{panelMessage(props.panel)}</text>
     </box>
   );
 }

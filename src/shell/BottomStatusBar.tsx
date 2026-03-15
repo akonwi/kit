@@ -1,4 +1,5 @@
 import type { FooterStatusState } from "../state/app-state";
+import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
   status: FooterStatusState;
@@ -9,12 +10,12 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
     <box
       flexShrink={0}
       border
-      borderColor="#5d5330"
+      borderColor={theme.borderStatus}
       paddingX={1}
       flexDirection="row"
       justifyContent="space-between"
     >
-      <text fg="#8f8f8f">
+      <text fg={theme.textMuted}>
         {props.status.model} ({props.status.thinkingLevel}) 🪟{props.status.contextPct}
       </text>
     </box>
