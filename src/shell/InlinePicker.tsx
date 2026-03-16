@@ -7,6 +7,7 @@ const MAX_VISIBLE = 10;
 
 export type InlinePickerProps = {
   palette: PaletteManager;
+  bottomOffset: number;
 };
 
 function computeScrollbar(total: number, visible: number, offset: number) {
@@ -62,7 +63,7 @@ export function InlinePicker(props: InlinePickerProps) {
     <Show when={palette().visible}>
       <box
         position="absolute"
-        bottom={12}
+        bottom={props.bottomOffset}
         left={0}
         width="100%"
         border

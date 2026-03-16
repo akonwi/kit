@@ -1,3 +1,4 @@
+import { createSignal } from "solid-js";
 import type { AgentRuntime } from "../backend";
 import type { AppState } from "../state/app-state";
 import type { PaletteManager } from "../state/palette-manager";
@@ -8,6 +9,8 @@ import { PendingSlot } from "./PendingSlot";
 import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
 
+const STATUS_BAR_HEIGHT = 1;
+
 export type AppShellProps = {
   state: AppState;
   palette: PaletteManager;
@@ -15,6 +18,8 @@ export type AppShellProps = {
 };
 
 export function AppShell(props: AppShellProps) {
+  const [dockHeight, setDockHeight] = createSignal(3);
+
   return (
     <box
       width="100%"
@@ -30,10 +35,16 @@ export function AppShell(props: AppShellProps) {
           sessionName={props.state.sessionMeta.sessionName}
           palette={props.palette}
           runtime={props.runtime}
+          onHeightChange={setDockHeight}
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
-      <InlinePicker palette={props.palette} />
+      <InlinePicker
+        palette={props.palette}
+        bottomOffset={
+          dockHeight() + STATUS_BAR_HEIGHT + 2 /* extra for borders */
+        }
+      />
     </box>
   );
 }

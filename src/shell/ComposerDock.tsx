@@ -9,9 +9,11 @@ export type ComposerDockProps = {
   sessionName: string | undefined;
   palette: PaletteManager;
   runtime: AgentRuntime;
+  onHeightChange?: (height: number) => void;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
+  let dockRef: { width: number; height: number } | undefined;
   let textareaRef:
     | {
         plainText: string;
@@ -93,7 +95,13 @@ export function ComposerDock(props: ComposerDockProps) {
   }
 
   return (
-    <box flexShrink={0}>
+    <box
+      flexShrink={0}
+      ref={(value) => { dockRef = value as typeof dockRef; }}
+      onSizeChange={() => {
+        if (dockRef) props.onHeightChange?.(dockRef.height);
+      }}
+    >
       <box
         width="100%"
         border
