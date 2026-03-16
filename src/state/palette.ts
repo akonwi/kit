@@ -53,7 +53,7 @@ export type PaletteEntry = {
     }
 );
 
-/** Serializable snapshot for rendering (no functions in Solid store) */
+/** Derived view for rendering — strips functions and internal state from entries */
 export type PaletteSnapshot = {
   visible: boolean;
   mode: "list" | "input";

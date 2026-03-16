@@ -8,7 +8,6 @@ import {
 	type PaletteContext,
 	type PaletteEntry,
 	type PaletteKeyBinding,
-	type PaletteOption,
 } from "./palette";
 
 let nextId = 0;
@@ -75,13 +74,6 @@ export function createPaletteManager() {
 		}
 
 		setStack((s) => [...s, entry]);
-	}
-
-	function updateTopOptions(options: PaletteOption[]) {
-		updateTop((t) => {
-			if (t.mode !== "list") return t;
-			return { ...t, options, allOptions: options, selectedIndex: 0, filterText: "" };
-		});
 	}
 
 	function pop() {
@@ -186,7 +178,6 @@ export function createPaletteManager() {
 		current,
 		show,
 		showCommands,
-		updateTopOptions,
 		pop,
 		clear,
 		moveUp,
