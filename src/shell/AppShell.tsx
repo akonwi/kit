@@ -33,7 +33,7 @@ export function AppShell(props: AppShellProps) {
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
-      <InlinePicker palette={props.palette.snapshot} />
+      <InlinePicker palette={props.palette} />
     </box>
   );
 }

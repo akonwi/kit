@@ -1,12 +1,11 @@
-import type { Accessor } from "solid-js";
 import { createMemo, For, Show } from "solid-js";
-import type { PaletteSnapshot } from "../state/palette";
+import type { PaletteManager } from "../state/palette-manager";
 import { theme } from "./theme";
 
 const MAX_VISIBLE = 10;
 
 export type InlinePickerProps = {
-  palette: Accessor<PaletteSnapshot>;
+  palette: PaletteManager;
 };
 
 function computeScrollbar(total: number, visible: number, offset: number) {
@@ -22,7 +21,7 @@ function computeScrollbar(total: number, visible: number, offset: number) {
 }
 
 export function InlinePicker(props: InlinePickerProps) {
-  const palette = () => props.palette();
+  const palette = () => props.palette.snapshot();
 
   const maxNameLen = () =>
     palette().options.reduce((max, o) => Math.max(max, o.name.length), 0);
@@ -34,7 +33,10 @@ export function InlinePicker(props: InlinePickerProps) {
     const selected = p.selectedIndex;
 
     if (count <= MAX_VISIBLE) {
-      return { items: options.map((o, i) => ({ option: o, index: i })), offset: 0 };
+      return {
+        items: options.map((o, i) => ({ option: o, index: i })),
+        offset: 0,
+      };
     }
 
     let offset = selected - Math.floor(MAX_VISIBLE / 2);
@@ -48,7 +50,11 @@ export function InlinePicker(props: InlinePickerProps) {
   });
 
   const scrollbar = createMemo(() =>
-    computeScrollbar(palette().options.length, MAX_VISIBLE, visibleSlice().offset),
+    computeScrollbar(
+      palette().options.length,
+      MAX_VISIBLE,
+      visibleSlice().offset,
+    ),
   );
 
   return (
@@ -66,12 +72,25 @@ export function InlinePicker(props: InlinePickerProps) {
       >
         <Show when={palette().mode === "input"}>
           <text fg={theme.textMuted}>{palette().label}</text>
-          <text fg={theme.textPrimary}>{"> "}{palette().inputValue}</text>
+          <box flexDirection="row" gap={1} width="100%">
+            <text flexBasis={1} fg={theme.textPrimary}>
+              {">"}
+            </text>
+            <input
+              flexGrow={1}
+              focused
+              value={palette().inputValue}
+              onInput={(value: string) => props.palette.setInputValue(value)}
+            />
+          </box>
         </Show>
 
         <Show when={palette().mode === "list"}>
           <Show when={palette().filterable}>
-            <text fg={theme.textPrimary}>{"> "}{palette().filterText}</text>
+            <text fg={theme.textPrimary}>
+              {"> "}
+              {palette().filterText}
+            </text>
             <text> </text>
           </Show>
 
@@ -83,17 +102,30 @@ export function InlinePicker(props: InlinePickerProps) {
             <box flexGrow={1} flexDirection="column">
               <For each={visibleSlice().items}>
                 {(entry) => {
-                  const isFocused = () => entry.index === palette().selectedIndex;
+                  const isFocused = () =>
+                    entry.index === palette().selectedIndex;
                   const padded = () => entry.option.name.padEnd(maxNameLen());
                   return (
                     <box
                       flexDirection="row"
                       width="100%"
-                      backgroundColor={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
+                      backgroundColor={
+                        isFocused()
+                          ? theme.pickerFocusedBg
+                          : theme.bgTransparent
+                      }
                     >
                       <text
-                        fg={isFocused() ? theme.pickerFocusedText : theme.pickerItemText}
-                        bg={isFocused() ? theme.pickerFocusedBg : theme.bgTransparent}
+                        fg={
+                          isFocused()
+                            ? theme.pickerFocusedText
+                            : theme.pickerItemText
+                        }
+                        bg={
+                          isFocused()
+                            ? theme.pickerFocusedBg
+                            : theme.bgTransparent
+                        }
                       >
                         {padded()} {entry.option.description}
                       </text>
@@ -106,7 +138,13 @@ export function InlinePicker(props: InlinePickerProps) {
               <box flexShrink={0} width={1} flexDirection="column">
                 <For each={scrollbar()!}>
                   {(isThumb) => (
-                    <text fg={isThumb ? theme.pickerScrollThumb : theme.pickerScrollTrack}>
+                    <text
+                      fg={
+                        isThumb
+                          ? theme.pickerScrollThumb
+                          : theme.pickerScrollTrack
+                      }
+                    >
                       {isThumb ? "█" : "│"}
                     </text>
                   )}

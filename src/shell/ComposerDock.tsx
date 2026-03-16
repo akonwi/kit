@@ -173,7 +173,7 @@ export function ComposerDock(props: ComposerDockProps) {
             handleTextChange();
           }}
           onSubmit={handleSubmit}
-          focused
+          focused={!props.palette.visible}
         />
       </box>
       <text position="absolute" bottom={0} left={2} fg={theme.textMuted}>
