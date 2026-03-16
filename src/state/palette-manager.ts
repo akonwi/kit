@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import type { AgentRuntime } from "../backend";
 import { COMMANDS } from "../features/commands";
 import {
@@ -9,34 +9,37 @@ import {
 	type PaletteEntry,
 	type PaletteKeyBinding,
 	type PaletteOption,
-	type PaletteSnapshot,
 } from "./palette";
 
 let nextId = 0;
 
 export function createPaletteManager() {
-	const stack: PaletteEntry[] = [];
-	const [snapshot, setSnapshot] = createSignal<PaletteSnapshot>(emptySnapshot);
+	const [stack, setStack] = createSignal<PaletteEntry[]>([]);
 
-	function sync() {
-		const top = stack[stack.length - 1];
-		setSnapshot(top ? snapshotFromEntry(top) : { ...emptySnapshot });
+	const current = createMemo(() => {
+		const s = stack();
+		const t = s[s.length - 1];
+		return t ? snapshotFromEntry(t) : emptySnapshot;
+	});
+
+	function top(): PaletteEntry | undefined {
+		return stack().at(-1);
+	}
+
+	function updateTop(fn: (entry: PaletteEntry) => PaletteEntry) {
+		setStack((s) => {
+			if (s.length === 0) return s;
+			const updated = fn(s[s.length - 1]);
+			return [...s.slice(0, -1), updated];
+		});
 	}
 
 	function ctxFor(id: number): PaletteContext {
 		return {
 			dismiss() {
-				const idx = stack.findIndex((e) => e.id === id);
-				if (idx >= 0) {
-					stack.splice(idx, 1);
-					sync();
-				}
+				setStack((s) => s.filter((e) => e.id !== id));
 			},
 		};
-	}
-
-	function top(): PaletteEntry | undefined {
-		return stack[stack.length - 1];
 	}
 
 	// ── Public API ──────────────────────────────────────────────────
@@ -71,50 +74,42 @@ export function createPaletteManager() {
 			};
 		}
 
-		stack.push(entry);
-		sync();
+		setStack((s) => [...s, entry]);
 	}
 
 	function updateTopOptions(options: PaletteOption[]) {
-		const t = top();
-		if (!t || t.mode !== "list") return;
-		t.options = options;
-		t.allOptions = options;
-		t.selectedIndex = 0;
-		t.filterText = "";
-		sync();
+		updateTop((t) => {
+			if (t.mode !== "list") return t;
+			return { ...t, options, allOptions: options, selectedIndex: 0, filterText: "" };
+		});
 	}
 
 	function pop() {
-		if (stack.length > 0) {
-			stack.pop();
-			sync();
-		}
+		setStack((s) => s.slice(0, -1));
 	}
 
 	function clear() {
-		stack.length = 0;
-		sync();
+		setStack([]);
 	}
 
 	// ── Key handling ────────────────────────────────────────────────
 
 	function moveUp() {
-		const t = top();
-		if (!t || t.mode !== "list") return;
-		const count = t.options.length;
-		if (count === 0) return;
-		t.selectedIndex = t.selectedIndex <= 0 ? count - 1 : t.selectedIndex - 1;
-		sync();
+		updateTop((t) => {
+			if (t.mode !== "list") return t;
+			const count = t.options.length;
+			if (count === 0) return t;
+			return { ...t, selectedIndex: t.selectedIndex <= 0 ? count - 1 : t.selectedIndex - 1 };
+		});
 	}
 
 	function moveDown() {
-		const t = top();
-		if (!t || t.mode !== "list") return;
-		const count = t.options.length;
-		if (count === 0) return;
-		t.selectedIndex = t.selectedIndex >= count - 1 ? 0 : t.selectedIndex + 1;
-		sync();
+		updateTop((t) => {
+			if (t.mode !== "list") return t;
+			const count = t.options.length;
+			if (count === 0) return t;
+			return { ...t, selectedIndex: t.selectedIndex >= count - 1 ? 0 : t.selectedIndex + 1 };
+		});
 	}
 
 	function selectCurrent() {
@@ -127,21 +122,16 @@ export function createPaletteManager() {
 	}
 
 	function filter(query: string) {
-		const t = top();
-		if (!t || t.mode !== "list" || !t.filterable) return;
-		t.filterText = query;
-		if (!query) {
-			t.options = t.allOptions;
-		} else {
-			const q = query.toLowerCase();
-			t.options = t.allOptions.filter(
-				(o) =>
-					o.name.toLowerCase().includes(q) ||
-					o.description.toLowerCase().includes(q),
-			);
-		}
-		t.selectedIndex = 0;
-		sync();
+		updateTop((t) => {
+			if (t.mode !== "list" || !t.filterable) return t;
+			const options = query
+				? t.allOptions.filter((o) => {
+						const q = query.toLowerCase();
+						return o.name.toLowerCase().includes(q) || o.description.toLowerCase().includes(q);
+					})
+				: t.allOptions;
+			return { ...t, filterText: query, options, selectedIndex: 0 };
+		});
 	}
 
 	function handleKeyBinding(key: string): boolean {
@@ -163,10 +153,10 @@ export function createPaletteManager() {
 	}
 
 	function setInputValue(value: string) {
-		const t = top();
-		if (!t || t.mode !== "input") return;
-		t.inputValue = value;
-		sync();
+		updateTop((t) => {
+			if (t.mode !== "input") return t;
+			return { ...t, inputValue: value };
+		});
 	}
 
 	// ── Slash commands ──────────────────────────────────────────────
@@ -193,7 +183,7 @@ export function createPaletteManager() {
 	}
 
 	const self = {
-		snapshot,
+		current,
 		show,
 		showCommands,
 		updateTopOptions,
@@ -207,18 +197,18 @@ export function createPaletteManager() {
 		submitInput,
 		setInputValue,
 		get visible() {
-			return snapshot().visible;
+			return current().visible;
 		},
 		get isFilterable() {
-			const s = snapshot();
-			return s.mode === "list" && s.filterable;
+			const c = current();
+			return c.mode === "list" && c.filterable;
 		},
 		get isInputMode() {
-			return snapshot().mode === "input";
+			return current().mode === "input";
 		},
 		get inputValue() {
-			const s = snapshot();
-			return s.mode === "input" ? s.inputValue : "";
+			const c = current();
+			return c.mode === "input" ? c.inputValue : "";
 		},
 	};
 

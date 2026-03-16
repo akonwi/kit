@@ -22,7 +22,7 @@ function computeScrollbar(total: number, visible: number, offset: number) {
 }
 
 export function InlinePicker(props: InlinePickerProps) {
-  const palette = () => props.palette.snapshot();
+  const palette = () => props.palette.current();
 
   const maxNameLen = () =>
     palette().options.reduce((max, o) => Math.max(max, o.name.length), 0);
