@@ -2,6 +2,7 @@ import type { AgentRuntime } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import type { FileIndex } from "../features/files";
+import type { ThreadIndex } from "../features/threads";
 import { AppShell } from "../shell/AppShell";
 import { createAppState } from "../state/app-state";
 
@@ -19,6 +20,7 @@ export function App(props: AppProps) {
       palette={app.palette}
       runtime={props.runtime}
       fileIndex={app.fileIndex}
+      threadIndex={app.threadIndex}
     />
   );
 }

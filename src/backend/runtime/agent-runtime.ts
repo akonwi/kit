@@ -12,6 +12,7 @@ import {
   snapshotLoadedSession,
   type LoadedSession,
 } from "../../compat/sessions";
+import { expandThreadReferences } from "../../features/threads";
 
 export type RuntimePanelState = {
   pending: boolean;
@@ -175,7 +176,17 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
   return {
     async submitUserMessage(text: string): Promise<void> {
       try {
-        await agentSession.sendUserMessage(text);
+        // Expand [[thread:id]] references before sending
+        let finalText = text;
+        if (text.includes("[[thread:")) {
+          const currentPath = agentSession.sessionManager.getSessionFile();
+          const result = await expandThreadReferences(text, currentPath);
+          finalText = result.text;
+          if (result.errors.length > 0) {
+            emit({ type: "error", title: "Thread Reference", lines: result.errors });
+          }
+        }
+        await agentSession.sendUserMessage(finalText);
       } catch (error) {
         const runtimeError = defaultRuntimeError(error);
         emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });

@@ -5,6 +5,7 @@ import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { createFileIndex, type FileIndex } from "../features/files";
+import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import { createPaletteManager, type PaletteManager } from "./palette-manager";
 
 export type PanelState = {
@@ -104,6 +105,7 @@ export function createAppState(
 
 	const palette: PaletteManager = createPaletteManager();
 	const fileIndex: FileIndex = createFileIndex(process.cwd());
+	const threadIndex: ThreadIndex | null = runtime ? createThreadIndex(runtime) : null;
 
 	// ── Runtime subscription ───────────────────────────────────────
 
@@ -123,6 +125,7 @@ export function createAppState(
 				break;
 			case "session_changed":
 				setState("sessionMeta", buildSessionMeta(event.session));
+				threadIndex?.invalidate();
 				break;
 			case "panel":
 				setState("panel", event.panel);
@@ -146,5 +149,6 @@ export function createAppState(
 		state,
 		palette,
 		fileIndex,
+		threadIndex,
 	};
 }

@@ -2,6 +2,7 @@ import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { AgentRuntime } from "../backend";
 import type { FileIndex } from "../features/files";
+import type { ThreadIndex } from "../features/threads";
 import type { PaletteManager } from "../state/palette-manager";
 import { theme } from "./theme";
 
@@ -11,6 +12,7 @@ export type ComposerDockProps = {
   palette: PaletteManager;
   runtime: AgentRuntime;
   fileIndex: FileIndex;
+  threadIndex: ThreadIndex | null;
   onHeightChange?: (height: number) => void;
 };
 
@@ -22,13 +24,24 @@ type TextareaRef = {
 };
 
 /**
- * Find the `@query` token immediately before the cursor, if any.
- * Returns the full `@...` prefix string, or null if no trigger is active.
+ * Find the `@@query` token immediately before the cursor (thread reference).
+ * Must be checked before single-@ to avoid false positives.
+ */
+function findDoubleAtPrefix(text: string, cursorOffset: number): string | null {
+  const before = text.slice(0, cursorOffset);
+  const match = before.match(/(?:^|\s)(@@[^\s]*)$/);
+  if (!match) return null;
+  return match[1]; // the "@@..." part
+}
+
+/**
+ * Find the `@query` token immediately before the cursor (file reference).
+ * Only matches single-@ (not @@).
  */
 function findAtPrefix(text: string, cursorOffset: number): string | null {
   const before = text.slice(0, cursorOffset);
-  // Match @<non-whitespace> at the end, preceded by start-of-string or whitespace
-  const match = before.match(/(?:^|\s)(@[^\s]*)$/);
+  // Match @<non-whitespace> at the end, but not @@ (thread trigger)
+  const match = before.match(/(?:^|\s)(@(?!@)[^\s]*)$/);
   if (!match) return null;
   return match[1]; // the "@..." part
 }
@@ -37,13 +50,14 @@ export function ComposerDock(props: ComposerDockProps) {
   let dockRef: { width: number; height: number } | undefined;
   let textareaRef: TextareaRef | undefined;
 
-  // Track whether the current palette was opened by the @ trigger
-  // so we don't interfere with slash commands or other palettes.
+  // Track which picker is currently open (file vs thread) to avoid interference.
   let filePickerActive = false;
+  let threadPickerActive = false;
 
-  // Suppress @ trigger after user dismisses the file picker (escape / backspace).
-  // Cleared when the user types a fresh '@' character.
+  // Suppress triggers after user dismisses the picker.
+  // Cleared when the user types a fresh '@' or '@@'.
   let suppressAtTrigger = false;
+  let suppressDoubleAtTrigger = false;
 
   // Track previous text length to distinguish typing (growth) from deletion.
   let prevTextLength = 0;
@@ -70,16 +84,34 @@ export function ComposerDock(props: ComposerDockProps) {
     if (grew && !props.palette.visible) {
       const cursorOffset = textareaRef?.cursorOffset ?? text.length;
       if (cursorOffset > 0 && text[cursorOffset - 1] === "@") {
-        suppressAtTrigger = false;
+        // Typing a second @ clears thread suppression
+        if (cursorOffset > 1 && text[cursorOffset - 2] === "@") {
+          suppressDoubleAtTrigger = false;
+        } else {
+          suppressAtTrigger = false;
+        }
       }
     }
 
-    // File reference trigger: only on text growth, not suppressed
-    if (!props.palette.visible && grew && !suppressAtTrigger) {
+    // Trigger detection: only on text growth, not suppressed, check @@ before @
+    if (!props.palette.visible && grew) {
       const cursorOffset = textareaRef?.cursorOffset ?? text.length;
-      const prefix = findAtPrefix(text, cursorOffset);
-      if (prefix) {
-        openFilePicker(prefix);
+
+      // Thread reference trigger: @@
+      if (!suppressDoubleAtTrigger) {
+        const doublePrefix = findDoubleAtPrefix(text, cursorOffset);
+        if (doublePrefix) {
+          openThreadPicker(doublePrefix);
+          return;
+        }
+      }
+
+      // File reference trigger: @
+      if (!suppressAtTrigger) {
+        const prefix = findAtPrefix(text, cursorOffset);
+        if (prefix) {
+          openFilePicker(prefix);
+        }
       }
     }
   }
@@ -128,6 +160,55 @@ export function ComposerDock(props: ComposerDockProps) {
     const before = text.slice(0, prefixStart);
     const after = text.slice(cursorOffset);
     const replacement = `@${filePath} `;
+    const newText = before + replacement + after;
+    const newCursorOffset = prefixStart + replacement.length;
+
+    textareaRef.setText(newText);
+    textareaRef.cursorOffset = newCursorOffset;
+    prevTextLength = newText.length;
+  }
+
+  async function openThreadPicker(doubleAtPrefix: string) {
+    if (!props.threadIndex) return;
+    const query = doubleAtPrefix.slice(2); // strip leading @@
+    const suggestions = await props.threadIndex.suggest(query);
+    if (suggestions.length === 0) return;
+    if (props.palette.visible) return;
+
+    threadPickerActive = true;
+    props.palette.show({
+      filterable: true,
+      hint: "Select a thread to reference",
+      onDismiss: () => {
+        threadPickerActive = false;
+        suppressDoubleAtTrigger = true;
+      },
+      options: suggestions.map((s) => ({
+        name: s.name,
+        description: s.description,
+        value: s.value,
+        action: (ctx) => {
+          insertThreadReference(doubleAtPrefix, s.value);
+          ctx.dismiss();
+        },
+      })),
+    });
+  }
+
+  function insertThreadReference(doubleAtPrefix: string, shortId: string) {
+    if (!textareaRef) return;
+    const text = textareaRef.plainText;
+    const cursorOffset = textareaRef.cursorOffset;
+
+    const prefixStart = cursorOffset - doubleAtPrefix.length;
+    if (prefixStart < 0) {
+      textareaRef.insertText(`[[thread:${shortId}]] `);
+      return;
+    }
+
+    const before = text.slice(0, prefixStart);
+    const after = text.slice(cursorOffset);
+    const replacement = `[[thread:${shortId}]] `;
     const newText = before + replacement + after;
     const newCursorOffset = prefixStart + replacement.length;
 
