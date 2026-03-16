@@ -19,10 +19,6 @@ export function ComposerDock(props: ComposerDockProps) {
       }
     | undefined;
 
-  let filterText = "";
-  let inputText = "";
-  let lastInputMode = false;
-
   function handleTextChange() {
     const text = textareaRef?.plainText ?? "";
     const trimmed = text.trimStart();
@@ -36,86 +32,25 @@ export function ComposerDock(props: ComposerDockProps) {
 
   useKeyboard((e: KeyEvent) => {
     const pm = props.palette;
-
-    // Seed inputText when entering input mode
-    if (pm.isInputMode && !lastInputMode) {
-      inputText = pm.inputValue;
-    }
-    lastInputMode = pm.isInputMode;
-
-    // Input mode (rename prompt etc.)
-    if (pm.isInputMode) {
-      e.preventDefault();
-      if (e.name === "return") {
-        pm.submitInput();
-        inputText = "";
-      } else if (e.name === "escape") {
-        pm.pop();
-        inputText = "";
-      } else if (e.name === "backspace") {
-        inputText = inputText.slice(0, -1);
-        pm.setInputValue(inputText);
-      } else if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        inputText += e.sequence;
-        pm.setInputValue(inputText);
-      }
-      return;
-    }
-
     if (!pm.visible) return;
 
-    if (e.name === "up") {
-      e.preventDefault();
-      pm.moveUp();
-      return;
-    }
-    if (e.name === "down") {
-      e.preventDefault();
-      pm.moveDown();
-      return;
-    }
-    if (e.name === "escape") {
-      e.preventDefault();
-      filterText = "";
-      pm.pop();
-      return;
-    }
+    // Filterable/input pickers are handled by InlinePicker's <input>
+    if (pm.isFilterable || pm.isInputMode) return;
+
+    // Non-filterable pickers (e.g. /thinking)
+    if (e.name === "up") { e.preventDefault(); pm.moveUp(); return; }
+    if (e.name === "down") { e.preventDefault(); pm.moveDown(); return; }
+    if (e.name === "escape") { e.preventDefault(); pm.pop(); return; }
+    if (e.name === "return") { e.preventDefault(); pm.selectCurrent(); return; }
 
     // Ctrl keybindings
     if (e.ctrl && e.name) {
       const key = `ctrl+${e.name}`;
-      if (pm.handleKeyBinding(key)) {
-        e.preventDefault();
-        return;
-      }
+      if (pm.handleKeyBinding(key)) { e.preventDefault(); return; }
     }
 
-    // Enter selects current option in any visible picker
-    if (e.name === "return") {
-      e.preventDefault();
-      filterText = "";
-      pm.selectCurrent();
-      return;
-    }
-
-    // Non-filterable pickers block all remaining keystrokes
-    if (!pm.isFilterable) {
-      e.preventDefault();
-      return;
-    }
-
-    // Filterable text input
-    if (pm.isFilterable) {
-      e.preventDefault();
-      if (e.name === "backspace") {
-        filterText = filterText.slice(0, -1);
-        pm.filter(filterText);
-      } else if (e.sequence && e.sequence.length === 1 && !e.ctrl && !e.meta) {
-        filterText += e.sequence;
-        pm.filter(filterText);
-      }
-      return;
-    }
+    // Block all other keystrokes
+    e.preventDefault();
   });
 
   async function handleSubmit() {

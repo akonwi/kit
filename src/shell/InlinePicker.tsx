@@ -1,3 +1,4 @@
+import type { KeyEvent } from "@opentui/core";
 import { createMemo, For, Show } from "solid-js";
 import type { PaletteManager } from "../state/palette-manager";
 import { theme } from "./theme";
@@ -81,17 +82,37 @@ export function InlinePicker(props: InlinePickerProps) {
               focused
               value={palette().inputValue}
               onInput={(value: string) => props.palette.setInputValue(value)}
+              onKeyDown={(e: KeyEvent) => {
+                if (e.name === "return") { e.preventDefault(); props.palette.submitInput(); }
+                else if (e.name === "escape") { e.preventDefault(); props.palette.pop(); }
+              }}
             />
           </box>
         </Show>
 
         <Show when={palette().mode === "list"}>
           <Show when={palette().filterable}>
-            <text fg={theme.textPrimary}>
-              {"> "}
-              {palette().filterText}
-            </text>
-            <text> </text>
+            <box flexDirection="row" gap={1} width="100%">
+              <text flexBasis={1} fg={theme.textPrimary}>
+                {">"}
+              </text>
+              <input
+                flexGrow={1}
+                focused
+                value={palette().filterText}
+                onInput={(value: string) => props.palette.filter(value)}
+                onKeyDown={(e: KeyEvent) => {
+                  if (e.name === "up") { e.preventDefault(); props.palette.moveUp(); }
+                  else if (e.name === "down") { e.preventDefault(); props.palette.moveDown(); }
+                  else if (e.name === "return") { e.preventDefault(); props.palette.selectCurrent(); }
+                  else if (e.name === "escape") { e.preventDefault(); props.palette.pop(); }
+                  else if (e.ctrl && e.name) {
+                    const key = `ctrl+${e.name}`;
+                    if (props.palette.handleKeyBinding(key)) { e.preventDefault(); }
+                  }
+                }}
+              />
+            </box>
           </Show>
 
           <Show when={palette().options.length === 0}>
