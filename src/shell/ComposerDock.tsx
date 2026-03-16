@@ -38,15 +38,34 @@ export function ComposerDock(props: ComposerDockProps) {
     if (pm.isFilterable || pm.isInputMode) return;
 
     // Non-filterable pickers (e.g. /thinking)
-    if (e.name === "up") { e.preventDefault(); pm.moveUp(); return; }
-    if (e.name === "down") { e.preventDefault(); pm.moveDown(); return; }
-    if (e.name === "escape") { e.preventDefault(); pm.pop(); return; }
-    if (e.name === "return") { e.preventDefault(); pm.selectCurrent(); return; }
+    if (e.name === "up") {
+      e.preventDefault();
+      pm.moveUp();
+      return;
+    }
+    if (e.name === "down") {
+      e.preventDefault();
+      pm.moveDown();
+      return;
+    }
+    if (e.name === "escape") {
+      e.preventDefault();
+      pm.pop();
+      return;
+    }
+    if (e.name === "return") {
+      e.preventDefault();
+      pm.selectCurrent();
+      return;
+    }
 
     // Ctrl keybindings
     if (e.ctrl && e.name) {
       const key = `ctrl+${e.name}`;
-      if (pm.handleKeyBinding(key)) { e.preventDefault(); return; }
+      if (pm.handleKeyBinding(key)) {
+        e.preventDefault();
+        return;
+      }
     }
 
     // Block all other keystrokes
@@ -89,7 +108,7 @@ export function ComposerDock(props: ComposerDockProps) {
           ref={(value) => {
             textareaRef = value as typeof textareaRef;
           }}
-          height={6}
+          minHeight={1}
           placeholder="Ask pi-kit to do something..."
           placeholderColor={theme.textPlaceholder}
           backgroundColor={theme.bgSurface}

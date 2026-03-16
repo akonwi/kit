@@ -1,7 +1,8 @@
 # Architecture Decision: Custom Shell App with Pi-Core Compatibility
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-03-13
+- Updated: 2026-03-15
 - Scope: `v2/` standalone app architecture
 
 ## Summary
@@ -208,45 +209,100 @@ This layer owns agent execution and app-facing domain behavior.
 
 Responsibilities:
 
-- agent orchestration
+- agent orchestration (`AgentRuntime`)
 - tool execution integration
 - model/provider interaction
 - session mutation and event emission
-- command/action execution
 - feature services shared by multiple screens
 
-This layer should expose app-friendly state and events to the shell.
+The backend exposes app-friendly state and events to the rest of the app via an event subscription model (see [Runtime event pattern](#runtime-event-pattern) below).
 
-## 3. Shell layer
+## 3. State layer
 
-This is the custom TUI shell.
+This layer owns reactive app state using Solid primitives (`createStore`, `createSignal`, `createMemo`).
 
 Responsibilities:
 
-- layout
-- focus and input routing
-- transcript rendering
-- screen management
-- dock management
-- overlays/dialogs/pickers
-- keyboard interaction model
+- app-wide reactive state (`AppState` via `createStore`)
+- palette/overlay state management (`PaletteManager` via `createSignal`)
+- subscribing to backend runtime events and updating reactive state
+- exposing derived/computed state for the shell to render
+
+The state layer bridges the backend (imperative events) and the shell (reactive rendering). It does not contain rendering logic or UI components.
+
+## 4. Shell layer
+
+This is the custom TUI shell, built with OpenTUI/Solid.
+
+Responsibilities:
+
+- layout (`AppShell`)
+- transcript rendering (`TranscriptPane`)
+- composer input (`ComposerDock`)
+- picker/overlay rendering (`InlinePicker`)
+- focus management and keyboard interaction
+- status display (`BottomStatusBar`)
+
+The shell reads from reactive state and delegates actions to the backend runtime or palette manager. Picker keyboard handling (up/down/enter/escape, filtering) is owned by the `InlinePicker` component itself, keeping the `ComposerDock` focused on text composition.
 
 This layer is free to diverge from Pi interactive mode.
 
-## 4. Feature layer
+## 5. Feature layer
 
 This layer ports and evolves the behavior currently living in `pi-kit`.
 
-Examples:
+Responsibilities:
 
-- pager
-- wizard
-- thread references
-- handoff flows
-- ignore-file workflows
-- grouped note/review flows
+- slash commands — self-contained command definitions that own their own execution and palette interaction (`src/features/commands/`)
+- pager (planned)
+- wizard (planned)
+- thread references (planned)
+- handoff flows (planned)
+- ignore-file workflows (planned)
 
-Features should depend on backend + shell abstractions, not on Pi extension APIs.
+Each command is a `Command` object with `name`, `description`, and an `execute(ctx)` function that receives the runtime and palette manager. Commands handle their own UI flow (opening pickers, prompting for input) without leaking implementation details to the shell.
+
+Features depend on backend + state abstractions, not on Pi extension APIs.
+
+---
+
+## Runtime event pattern
+
+The backend `AgentRuntime` communicates state changes to the rest of the app via an event subscription model. This decouples the backend from the rendering layer.
+
+### Event types (`AgentRuntimeEvent`)
+
+| Event | Emitted when |
+|-------|-------------|
+| `messages_changed` | Messages are added, modified, or the session changes |
+| `status_changed` | Model, thinking level, or context usage changes |
+| `session_changed` | Session is created, switched, or renamed |
+| `panel` | Tool execution starts/ends (pending indicator) |
+| `error` | An error occurs during agent execution |
+
+### Data flow
+
+```
+AgentRuntime (backend)
+  │  emits AgentRuntimeEvent
+  ▼
+AppState (state layer)
+  │  subscribes, updates createStore
+  ▼
+Shell components (shell layer)
+  │  read reactive state, render
+  ▼
+User actions
+  │  call runtime methods or palette manager
+  ▼
+AgentRuntime / PaletteManager
+  │  emit events / update signals
+  └──→ cycle repeats
+```
+
+The state layer subscribes to runtime events and translates them into reactive store updates. Shell components read from the store and re-render automatically via Solid's fine-grained reactivity.
+
+Commands in the feature layer receive both the runtime and palette manager via `CommandContext`, allowing them to trigger backend operations and open UI pickers without coupling to the shell.
 
 ---
 
@@ -314,62 +370,71 @@ It should inform the new shell, but not define it.
 
 The new app should move away from extension-centric structure and toward app-centric structure.
 
-Illustrative layout:
+Current layout:
 
 ```text
 v2/
   src/
     app/
-      main.ts
-      bootstrap.ts
+      main.tsx              # entrypoint
+      bootstrap.tsx         # app initialization
+      App.tsx               # root component
     compat/
+      paths.ts              # Pi-compatible storage paths
       sessions/
+        session-loader.ts   # session loading/snapshot
       settings/
-      prompts/
-      themes/
-      models/
+        load-settings.ts    # settings resolution with precedence
     backend/
-      agent/
-      tools/
-      commands/
-      services/
-    shell/
-      layout/
-      transcript/
-      dock/
-      screens/
-      overlays/
-      input/
-    features/
-      pager/
-      wizard/
-      thread-references/
-      handoff/
-      ignores/
+      runtime/
+        agent-runtime.ts    # AgentRuntime — orchestration, events
     state/
-    util/
+      app-state.ts          # reactive AppState (createStore)
+      palette-manager.ts    # PaletteManager (createSignal stack)
+      palette.ts            # palette types, snapshot helpers
+    shell/
+      AppShell.tsx           # root layout
+      ComposerDock.tsx       # composer input with slash command trigger
+      InlinePicker.tsx       # picker/overlay rendering with native inputs
+      TranscriptPane.tsx     # scrollable message transcript
+      PendingSlot.tsx        # pending operation display
+      BottomStatusBar.tsx    # footer status bar
+      theme.ts               # color/style constants
+    features/
+      commands/
+        types.ts             # Command, CommandContext
+        utils.ts             # shared helpers (formatTimeAgo, etc.)
+        new.ts               # /new command
+        model.ts             # /model command
+        thinking.ts          # /thinking command
+        name.ts              # /name command
+        switch.ts            # /switch command
+        sessions-manage.ts   # /sessions:manage command
+        quit.ts              # /quit command
   docs/
     architecture/
+    decisions/
+    features/
 ```
 
 This keeps Pi compatibility concerns separate from shell concerns.
 
 ---
 
-## UI technology direction
+## UI technology
 
-The architecture should remain renderer-agnostic, but it is being designed with a renderer in mind that supports:
+The shell is built with **OpenTUI** using the **Solid reconciler** (`@opentui/solid`).
 
-- explicit layout regions
+OpenTUI provides the terminal rendering primitives the shell requires:
+
+- explicit layout regions (flexbox via Yoga)
 - fixed panes
 - scroll containers
-- focusable inputs
-- overlays/dialogs
+- focusable inputs (`<input>`, `<textarea>`, `<select>`)
+- overlays/dialogs (absolute positioning)
 - efficient rerendering under frequent state changes
 
-OpenTUI is a strong candidate because it appears to support these primitives directly.
-
-However, the architecture should not hard-code OpenTUI assumptions into domain or compatibility layers.
+Renderer-specific assumptions are isolated to the shell layer. The compatibility, backend, and feature layers do not depend on OpenTUI or Solid directly.
 
 ---
 
@@ -395,20 +460,20 @@ Future extension support should be built on the new shell's own abstractions, no
 
 ## Migration strategy
 
-## Phase 0 — Architecture and app boundary
+## Phase 0 — Architecture and app boundary [done]
 
 - Define compatibility contract
 - Define shell model
 - Establish app-first source layout
 
-## Phase 1 — Minimal app shell
+## Phase 1 — Minimal app shell [done]
 
 - standalone entrypoint
 - shell layout with fixed dock + scrollable main content
 - basic transcript rendering
 - basic composer input
 
-## Phase 2 — Pi compatibility baseline
+## Phase 2 — Pi compatibility baseline [done]
 
 - session loading/saving from the Pi compatibility root (`~/.pi/agent` by default)
 - settings loading with precedence:
@@ -418,7 +483,7 @@ Future extension support should be built on the new shell's own abstractions, no
 - storage path conventions
 - basic command/runtime bootstrap
 
-## Phase 3 — Feature migration
+## Phase 3 — Feature migration [in progress]
 
 - pager
 - wizard
@@ -426,11 +491,12 @@ Future extension support should be built on the new shell's own abstractions, no
 - handoff
 - ignore-file workflows
 
-## Phase 4 — Product refinement
+## Phase 4 — Product refinement [in progress]
 
-- model/session UX
+- model/session UX — slash commands for model, thinking, name, switch, sessions:manage [done]
+- command palette with filterable picker and native input fields [done]
+- reactive session metadata updates via runtime events [done]
 - richer overlays
-- improved command palette
 - review flows and other custom affordances
 
 ## Phase 5 — Optional extension architecture
