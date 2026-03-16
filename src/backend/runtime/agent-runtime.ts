@@ -30,6 +30,7 @@ export type AgentRuntimeEvent =
   | { type: "status_changed"; status: RuntimeStatus }
   | { type: "session_changed"; session: LoadedSession }
   | { type: "panel"; panel: RuntimePanelState }
+  | { type: "tool_completed" }
   | { type: "error"; title: string; lines: string[] };
 
 export type AgentRuntime = {
@@ -157,6 +158,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         break;
       case "tool_execution_end":
         emit({ type: "panel", panel: panelActive(summarizeToolEnd(event.toolName, event.isError)) });
+        emit({ type: "tool_completed" });
         break;
       case "agent_end":
         currentSession = snapshotLoadedSession(agentSession.sessionManager);

@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import type { AgentRuntime } from "../backend";
+import type { FileIndex } from "../features/files";
 import type { AppState } from "../state/app-state";
 import type { PaletteManager } from "../state/palette-manager";
 import { BottomStatusBar } from "./BottomStatusBar";
@@ -15,6 +16,7 @@ export type AppShellProps = {
   state: AppState;
   palette: PaletteManager;
   runtime: AgentRuntime;
+  fileIndex: FileIndex;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -35,6 +37,7 @@ export function AppShell(props: AppShellProps) {
           sessionName={props.state.sessionMeta.sessionName}
           palette={props.palette}
           runtime={props.runtime}
+          fileIndex={props.fileIndex}
           onHeightChange={setDockHeight}
         />
         <BottomStatusBar status={props.state.footerStatus} />

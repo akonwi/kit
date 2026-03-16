@@ -24,16 +24,21 @@ export type PaletteConfig = {
   options: PaletteOption[];
   filterable?: boolean;
   hint?: string;
+  /** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+  onDismiss?: () => void;
 } | {
   mode: "input";
   label?: string;
   inputValue?: string;
   onSubmit: (value: string, ctx: PaletteContext) => void;
+  /** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+  onDismiss?: () => void;
 };
 
 /** Internal entry stored on the stack */
 export type PaletteEntry = {
   id: number;
+  onDismiss?: () => void;
 } & (
   | {
       mode: "list";

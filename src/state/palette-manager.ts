@@ -36,7 +36,11 @@ export function createPaletteManager() {
 	function ctxFor(id: number): PaletteContext {
 		return {
 			dismiss() {
-				setStack((s) => s.filter((e) => e.id !== id));
+				setStack((s) => {
+					const entry = s.find((e) => e.id === id);
+					entry?.onDismiss?.();
+					return s.filter((e) => e.id !== id);
+				});
 			},
 		};
 	}
@@ -53,6 +57,7 @@ export function createPaletteManager() {
 		if ("mode" in config && config.mode === "input") {
 			entry = {
 				id,
+				onDismiss: config.onDismiss,
 				mode: "input",
 				label: config.label ?? "",
 				inputValue: config.inputValue ?? "",
@@ -62,6 +67,7 @@ export function createPaletteManager() {
 			const opts = config as Exclude<PaletteConfig, { mode: "input" }>;
 			entry = {
 				id,
+				onDismiss: opts.onDismiss,
 				mode: "list",
 				options: opts.options,
 				allOptions: opts.options,
@@ -77,7 +83,11 @@ export function createPaletteManager() {
 	}
 
 	function pop() {
-		setStack((s) => s.slice(0, -1));
+		setStack((s) => {
+			const removed = s[s.length - 1];
+			removed?.onDismiss?.();
+			return s.slice(0, -1);
+		});
 	}
 
 	function clear() {

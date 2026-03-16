@@ -4,6 +4,7 @@ import { createStore } from "solid-js/store";
 import type { AgentRuntime, RuntimeStatus } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
+import { createFileIndex, type FileIndex } from "../features/files";
 import { createPaletteManager, type PaletteManager } from "./palette-manager";
 
 export type PanelState = {
@@ -102,8 +103,12 @@ export function createAppState(
 	});
 
 	const palette: PaletteManager = createPaletteManager();
+	const fileIndex: FileIndex = createFileIndex(process.cwd());
 
 	// ── Runtime subscription ───────────────────────────────────────
+
+	const FILE_INDEX_INVALIDATE_INTERVAL = 5;
+	let toolCompletionCount = 0;
 
 	runtime?.subscribe((event) => {
 		switch (event.type) {
@@ -122,6 +127,13 @@ export function createAppState(
 			case "panel":
 				setState("panel", event.panel);
 				break;
+			case "tool_completed":
+				toolCompletionCount++;
+				if (toolCompletionCount >= FILE_INDEX_INVALIDATE_INTERVAL) {
+					toolCompletionCount = 0;
+					fileIndex.invalidate();
+				}
+				break;
 			case "error":
 				console.error(event);
 				break;
@@ -133,5 +145,6 @@ export function createAppState(
 	return {
 		state,
 		palette,
+		fileIndex,
 	};
 }
