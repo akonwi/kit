@@ -7,6 +7,8 @@ import { theme } from "./theme";
 export type ComposerDockProps = {
   cwd: string;
   sessionName: string | undefined;
+  gitBranch: string | null;
+  gitDirty: boolean;
   controller: ComposerController;
   pager: PagerController;
   onHeightChange?: (height: number) => void;
@@ -191,6 +193,7 @@ export function ComposerDock(props: ComposerDockProps) {
       </text>
       <text position="absolute" bottom={0} right={2} fg={theme.textMuted}>
         {props.cwd}
+        {props.gitBranch && ` (${props.gitBranch}${props.gitDirty ? " ●" : " ○"})`}
       </text>
     </box>
   );

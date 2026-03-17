@@ -57,6 +57,8 @@ export function AppShell(props: AppShellProps) {
           <ComposerDock
             cwd={props.state.footerStatus.cwd}
             sessionName={props.state.sessionMeta.sessionName}
+            gitBranch={props.state.footerStatus.gitBranch}
+            gitDirty={props.state.footerStatus.gitDirty}
             controller={props.controller}
             pager={props.pager}
             onHeightChange={setDockHeight}
