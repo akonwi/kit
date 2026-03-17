@@ -255,6 +255,22 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
     if (!text.trim()) return;
 
+    // Handle bash command (! for context, !! for excluded)
+    if (text.startsWith("!")) {
+      const isExcluded = text.startsWith("!!");
+      const command = isExcluded ? text.slice(2).trim() : text.slice(1).trim();
+      if (command) {
+        textareaRef?.setText("");
+        prevTextLength = 0;
+        try {
+          await runtime.executeBash(command, isExcluded);
+        } catch (error) {
+          console.error("bash failed:", error);
+        }
+        return;
+      }
+    }
+
     textareaRef?.setText("");
     prevTextLength = 0;
     try {

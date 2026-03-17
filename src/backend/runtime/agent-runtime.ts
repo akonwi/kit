@@ -8,6 +8,15 @@ import {
   type AgentSessionEvent,
   type SessionInfo,
 } from "@mariozechner/pi-coding-agent";
+
+// Minimal BashResult type - just what we need
+export interface BashResult {
+  output: string;
+  exitCode: number | undefined;
+  cancelled: boolean;
+  truncated: boolean;
+  fullOutputPath?: string;
+}
 import {
   snapshotLoadedSession,
   type LoadedSession,
@@ -39,6 +48,7 @@ export type AgentRuntimeEvent =
 
 export type AgentRuntime = {
   submitUserMessage(text: string): Promise<void>;
+  executeBash(command: string, excludeFromContext?: boolean): Promise<BashResult>;
   abort(): Promise<void>;
   newSession(options?: { parentSession?: string; setup?: (sm: SessionManager) => Promise<void> }): Promise<boolean>;
   getAvailableModels(): Array<{ id: string; name: string; provider: string }>;
@@ -220,6 +230,10 @@ export async function createAgentRuntime(
         emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });
         throw error;
       }
+    },
+    async executeBash(command: string, excludeFromContext?: boolean): Promise<BashResult> {
+      const result = await agentSession.executeBash(command, undefined, { excludeFromContext });
+      return result;
     },
     async abort(): Promise<void> {
       await agentSession.abort();

@@ -5,6 +5,18 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@mariozechner/pi-ai";
+
+// BashExecutionMessage type from pi-coding-agent
+interface BashExecutionMessage {
+  role: "bashExecution";
+  command: string;
+  output: string;
+  exitCode: number | undefined;
+  cancelled: boolean;
+  truncated: boolean;
+  fullOutputPath?: string;
+  timestamp: number;
+}
 import { TextAttributes } from "@opentui/core";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { useRenderer } from "@opentui/solid";
@@ -71,6 +83,10 @@ function isAssistantError(msg: AssistantMessage): boolean {
   return msg.stopReason === "error" && !!msg.errorMessage;
 }
 
+function isBashExecution(msg: AgentMessage): msg is BashExecutionMessage {
+  return "role" in msg && msg.role === "bashExecution";
+}
+
 // ── Spinner ──────────────────────────────────────────────────────────
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -106,6 +122,64 @@ function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
         fg={props.aborted ? theme.textMuted : theme.textPrimary}
         attributes={props.aborted ? ABORTED_ATTRS : undefined}
       />
+    </box>
+  );
+}
+
+function BashEntry(props: { msg: BashExecutionMessage }) {
+  const [expanded, setExpanded] = createSignal(false);
+
+  const outputLines = () => props.msg.output.split("\n");
+  const hasOutput = outputLines().length > 0;
+  const prefix = props.msg.cancelled ? "⊘" : props.msg.exitCode === 0 ? "✓" : "✗";
+  const prefixColor = props.msg.cancelled
+    ? theme.textMuted
+    : props.msg.exitCode === 0
+      ? theme.toolText
+      : theme.errorText;
+
+  const displayLines = () => {
+    if (!expanded()) return [];
+    if (outputLines().length > 20) {
+      return [...outputLines().slice(0, 18), `  ... (${outputLines().length - 18} more lines)`];
+    }
+    return outputLines();
+  };
+
+  return (
+    <box
+      border={["left"] as any}
+      borderColor={theme.toolText}
+      paddingLeft={1}
+      flexDirection="column"
+      gap={0}
+      width="100%"
+    >
+      <box
+        flexDirection="row"
+        gap={1}
+        onMouseDown={() => hasOutput && setExpanded(!expanded())}
+      >
+        <text fg={prefixColor}>{prefix}</text>
+        <code
+          filetype="bash"
+          content={props.msg.command}
+          syntaxStyle={syntaxStyle}
+          fg={theme.textPrimary}
+        />
+        <Show when={hasOutput}>
+          <text fg={theme.textMuted}>
+            {expanded() ? "▾" : "▸"} {outputLines().length} line{outputLines().length === 1 ? "" : "s"}
+          </text>
+        </Show>
+      </box>
+      <Show when={expanded()}>
+        <box paddingLeft={2} flexDirection="column" gap={0}>
+          <For each={displayLines()}>
+            {(line) => <text fg={theme.textMuted}>{line}</text>}
+          </For>
+        </box>
+      </Show>
     </box>
   );
 }
@@ -265,6 +339,8 @@ function MessageEntry(props: {
           aborted={aborted}
         />
       );
+    case "bashExecution":
+      return <BashEntry msg={props.msg as BashExecutionMessage} />;
     default:
       return null;
   }
