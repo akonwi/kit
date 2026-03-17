@@ -28,5 +28,5 @@ These are important but intentionally deferred refinements.
 ## Runtime / status
 
 - [x] Replace placeholder context % with real runtime/session usage
-- [ ] Replace placeholder repo summary with real repo/runtime state
+- [x] Replace placeholder repo summary with real repo/runtime state
 - [ ] Decide what bell/speech/runtime indicators belong in the new app
