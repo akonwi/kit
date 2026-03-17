@@ -40,9 +40,4 @@ These are features to port or redesign from the current extension-based `pi-kit`
 - [ ] Port handoff summary builders
 - [ ] Support child thread creation / continue-in-new-thread flows
 
-## Ignore-file commands
 
-- [ ] Port `/files:ignore` command (add paths to `.pi-ignore`)
-- [ ] Port `/files:unignore` command (remove paths from `.pi-ignore`)
-- [ ] Rebuild ignore picker UX in the new shell
-- [x] `.pi-ignore` parsing already used by file scanner

@@ -35,10 +35,9 @@
 
 - [x] Thread references — `@@` picker, `[[thread:id]]` expansion on submit
 - [x] File references — `@` picker with lazy file scanning, `.gitignore`/`.pi-ignore` support
+- [ ] Handoff
 - [ ] Pager
 - [ ] Wizard / questionnaire flow
-- [ ] Handoff
-- [ ] Ignore-file commands (`/files:ignore`, `/files:unignore`)
 
 ## Phase 4 — Product refinement
 

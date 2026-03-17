@@ -36,7 +36,7 @@ export type AgentRuntimeEvent =
 
 export type AgentRuntime = {
   submitUserMessage(text: string): Promise<void>;
-  newSession(): Promise<boolean>;
+  newSession(options?: { parentSession?: string; setup?: (sm: SessionManager) => Promise<void> }): Promise<boolean>;
   getAvailableModels(): Array<{ id: string; name: string; provider: string }>;
   getCurrentModelId(): string | undefined;
   setModel(provider: string, modelId: string): Promise<void>;
@@ -48,6 +48,8 @@ export type AgentRuntime = {
   switchSession(sessionPath: string): Promise<boolean>;
   renameSession(sessionPath: string, name: string): void;
   deleteSession(sessionPath: string): Promise<void>;
+  showPanel(title: string): void;
+  hidePanel(): void;
   onQuit(handler: () => void): void;
   quit(): void;
   subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
@@ -213,8 +215,11 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
       await agentSession.setModel(model);
       emitStatus();
     },
-    async newSession(): Promise<boolean> {
-      const ok = await agentSession.newSession();
+    async newSession(options?: { parentSession?: string; setup?: (sm: SessionManager) => Promise<void> }): Promise<boolean> {
+      const ok = await agentSession.newSession({
+        parentSession: options?.parentSession,
+        setup: options?.setup,
+      });
       if (ok) {
         currentSession = snapshotLoadedSession(agentSession.sessionManager);
         emitSession();
@@ -271,6 +276,12 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         emitStatus();
       }
       return ok;
+    },
+    showPanel(title: string) {
+      emit({ type: "panel", panel: panelActive(title) });
+    },
+    hidePanel() {
+      emit({ type: "panel", panel: panelIdle() });
     },
     onQuit(handler: () => void) {
       quitHandler = handler;
