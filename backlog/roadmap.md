@@ -35,6 +35,7 @@
 
 - [x] Thread references — `@@` picker, `[[thread:id]]` expansion on submit
 - [x] File references — `@` picker with lazy file scanning, `.gitignore`/`.pi-ignore` support
+- [ ] Bash execution (`!` / `!!` prefix)
 - [ ] Handoff
 - [ ] Pager
 - [ ] Wizard / questionnaire flow

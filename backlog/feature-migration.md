@@ -17,6 +17,14 @@ These are features to port or redesign from the current extension-based `pi-kit`
 - [x] Token expansion on submit — reads referenced session context, injects formatted reference block
 - [x] Thread index invalidates on session changes
 
+## Bash execution
+
+- [ ] `!command` prefix runs a shell command and adds output to session context (as a user-initiated tool result)
+- [ ] `!!command` prefix runs a shell command but does NOT add output to session context (fire-and-forget)
+- [ ] Detect prefix in composer submit path (before normal message handling)
+- [ ] Display command output in transcript for `!` commands
+- [ ] Display command output transiently (or in a panel) for `!!` commands
+
 ## Pager
 
 - [ ] Define pager screen contract in the new shell
