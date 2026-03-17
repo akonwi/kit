@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { ConsolePosition, createCliRenderer, getTreeSitterClient } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
+import { createWizardController, createGuidedQuestionsTool } from "../features/wizard";
 import {
   openRecentSession,
   openSessionFile,
@@ -81,7 +82,11 @@ export async function bootstrap(): Promise<void> {
 
   const settings = await loadSettings();
   const session = loadSession();
-  const runtime = await createAgentRuntime(session);
+  const wizard = createWizardController();
+  const guidedQuestionsTool = createGuidedQuestionsTool(wizard);
+  const runtime = await createAgentRuntime(session, {
+    customTools: [guidedQuestionsTool],
+  });
   const renderer = await createCliRenderer({
     consoleOptions: {
       position: ConsolePosition.TOP,
@@ -99,7 +104,7 @@ export async function bootstrap(): Promise<void> {
   });
 
   render(
-    () => <App settings={settings} session={session} runtime={runtime} />,
+    () => <App settings={settings} session={session} runtime={runtime} wizard={wizard} />,
     renderer,
   );
 }

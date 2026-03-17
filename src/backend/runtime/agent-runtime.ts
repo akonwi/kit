@@ -93,11 +93,19 @@ function defaultRuntimeError(error: unknown): { title: string; lines: string[] }
   return { title: "Runtime Error", lines: [String(error)] };
 }
 
-export async function createAgentRuntime(initialSession: LoadedSession | null): Promise<AgentRuntime> {
+export type AgentRuntimeOptions = {
+  customTools?: any[];
+};
+
+export async function createAgentRuntime(
+  initialSession: LoadedSession | null,
+  options?: AgentRuntimeOptions,
+): Promise<AgentRuntime> {
   const sessionManager = initialSession?.manager ?? SessionManager.continueRecent(process.cwd());
   const { session: agentSession } = await createAgentSession({
     cwd: process.cwd(),
     sessionManager,
+    customTools: options?.customTools,
   });
 
   let currentSession = snapshotLoadedSession(agentSession.sessionManager);
