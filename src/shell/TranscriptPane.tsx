@@ -127,7 +127,7 @@ function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
 }
 
 function BashEntry(props: { msg: BashExecutionMessage }) {
-  const [expanded, setExpanded] = createSignal(false);
+  const [expanded, setExpanded] = createSignal(true); // expanded by default for user-invoked commands
 
   const outputLines = () => props.msg.output.split("\n");
   const hasOutput = outputLines().length > 0;
