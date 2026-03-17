@@ -1,6 +1,4 @@
 import { createMemo, createSignal } from "solid-js";
-import type { AgentRuntime } from "../backend";
-import { COMMANDS } from "../features/commands";
 import {
 	emptySnapshot,
 	snapshotFromEntry,
@@ -161,33 +159,9 @@ export function createPaletteManager() {
 		});
 	}
 
-	// ── Slash commands ──────────────────────────────────────────────
-
-	function showCommands(
-		runtime: AgentRuntime,
-		options?: { onSelect?: () => void },
-	) {
-		const manager = self;
-
-		show({
-			filterable: true,
-			options: COMMANDS.map((cmd) => ({
-				name: cmd.name,
-				description: cmd.description,
-				value: cmd,
-				action: (ctx) => {
-					options?.onSelect?.();
-					ctx.dismiss();
-					cmd.execute({ runtime, palette: manager });
-				},
-			})),
-		});
-	}
-
 	const self = {
 		current,
 		show,
-		showCommands,
 		pop,
 		clear,
 		moveUp,

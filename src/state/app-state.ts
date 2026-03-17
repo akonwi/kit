@@ -6,7 +6,6 @@ import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
-import { createPaletteManager, type PaletteManager } from "./palette-manager";
 
 export type PanelState = {
 	pending: boolean;
@@ -103,7 +102,6 @@ export function createAppState(
 		debugEntry: null,
 	});
 
-	const palette: PaletteManager = createPaletteManager();
 	const fileIndex: FileIndex = createFileIndex(process.cwd());
 	const threadIndex: ThreadIndex | null = runtime ? createThreadIndex(runtime) : null;
 
@@ -147,7 +145,6 @@ export function createAppState(
 
 	return {
 		state,
-		palette,
 		fileIndex,
 		threadIndex,
 	};
