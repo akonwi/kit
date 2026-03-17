@@ -25,21 +25,21 @@ These are features to port or redesign from the current extension-based `pi-kit`
 - [x] Display command output in transcript for `!` commands
 - [x] Display command output transiently (or in a panel) for `!!` commands
 
-## Pager
+## Pager [done]
 
-- [ ] Define pager screen contract in the new shell
-- [ ] Port long-form section splitting logic
-- [ ] Port note/review interactions where still useful
+- [x] Define pager screen contract in the new shell
+- [x] Port long-form section splitting logic
+- [x] Port note/review interactions where still useful
 
-## Wizard / questionnaire
+## Wizard / questionnaire [done]
 
-- [ ] Define wizard dock/screen model
-- [ ] Port questionnaire normalization behavior
-- [ ] Support guided question flows in the custom shell
+- [x] Define wizard dock/screen model
+- [x] Port questionnaire normalization behavior
+- [x] Support guided question flows in the custom shell
 
-## Handoff
+## Handoff [done]
 
-- [ ] Port handoff summary builders
+- [x] Port handoff summary builders
 - [x] Support child thread creation / continue-in-new-thread flows (skipped - handoff is sufficient)
 
 
