@@ -306,6 +306,14 @@ export function createComposerController(deps: ComposerControllerDeps) {
     }
   }
 
+  function abort() {
+    runtime.abort();
+  }
+
+  function isStreaming(): boolean {
+    return runtime.getStatus().isStreaming;
+  }
+
   function quit() {
     runtime.quit();
   }
@@ -319,6 +327,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
     getTextareaText,
     setTextareaText,
     recallLastUserMessage,
+    abort,
+    isStreaming,
     quit,
   };
 }

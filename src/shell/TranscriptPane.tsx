@@ -5,9 +5,12 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from "@mariozechner/pi-ai";
+import { TextAttributes } from "@opentui/core";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { useRenderer } from "@opentui/solid";
 import { syntaxStyle, theme } from "./theme";
+
+const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
 export type TranscriptPaneProps = {
   messages: AgentMessage[];
@@ -83,12 +86,12 @@ function InlineSpinner() {
 
 // ── Entry renderers ──────────────────────────────────────────────────
 
-function UserEntry(props: { msg: UserMessage }) {
+function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
   const text = extractUserText(props.msg);
   return (
     <box
       border={["left"] as any}
-      borderColor={theme.userBorder}
+      borderColor={props.aborted ? theme.textMuted : theme.userBorder}
       paddingLeft={1}
       flexDirection="column"
       gap={0}
@@ -100,7 +103,8 @@ function UserEntry(props: { msg: UserMessage }) {
         syntaxStyle={syntaxStyle}
         conceal
         drawUnstyledText={false}
-        fg={theme.textPrimary}
+        fg={props.aborted ? theme.textMuted : theme.textPrimary}
+        attributes={props.aborted ? ABORTED_ATTRS : undefined}
       />
     </box>
   );
@@ -109,11 +113,13 @@ function UserEntry(props: { msg: UserMessage }) {
 /**
  * A pending tool call — no result yet. Shows spinner + tool name.
  */
-function PendingToolCall(props: { tc: ToolCall }) {
+function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
   return (
     <box flexDirection="row" gap={1}>
-      <InlineSpinner />
-      <text fg={theme.toolText}>
+      <Show when={!props.aborted} fallback={<text fg={theme.textMuted}>⊘</text>}>
+        <InlineSpinner />
+      </Show>
+      <text fg={props.aborted ? theme.textMuted : theme.toolText} attributes={props.aborted ? ABORTED_ATTRS : undefined}>
         {props.tc.name}{formatToolArgs(props.tc.arguments)}
       </text>
     </box>
@@ -123,12 +129,12 @@ function PendingToolCall(props: { tc: ToolCall }) {
 /**
  * A completed tool call — shows result header (✓/✗) with collapsible output.
  */
-function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage }) {
+function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage; aborted?: boolean }) {
   const [expanded, setExpanded] = createSignal(false);
   const renderer = useRenderer();
   const lines = extractToolResultLines(props.result);
-  const prefix = props.result.isError ? "✗" : "✓";
-  const headerColor = props.result.isError ? theme.errorText : theme.toolText;
+  const prefix = props.aborted ? "⊘" : props.result.isError ? "✗" : "✓";
+  const headerColor = props.aborted ? theme.textMuted : props.result.isError ? theme.errorText : theme.toolText;
   const hasOutput = lines.length > 0;
 
   const displayLines = () => {
@@ -149,10 +155,10 @@ function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage }) {
           if (hasOutput) setExpanded(!expanded());
         }}
       >
-        <text fg={headerColor}>
+        <text fg={headerColor} attributes={props.aborted ? ABORTED_ATTRS : undefined}>
           {prefix} {props.tc.name}{formatToolArgs(props.tc.arguments)}
         </text>
-        <Show when={hasOutput}>
+        <Show when={hasOutput && !props.aborted}>
           <text fg={theme.textMuted}>
             {expanded() ? "▾" : "▸"} {lines.length} line{lines.length === 1 ? "" : "s"}
           </text>
@@ -172,6 +178,7 @@ function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage }) {
 function AssistantEntry(props: {
   msg: AssistantMessage;
   toolResults: Map<string, ToolResultMessage>;
+  aborted?: boolean;
 }) {
   if (isAssistantError(props.msg)) {
     return (
@@ -190,8 +197,8 @@ function AssistantEntry(props: {
         {(tc) => {
           const result = () => props.toolResults.get(tc.id);
           return (
-            <Show when={result()} fallback={<PendingToolCall tc={tc} />}>
-              <CompletedToolCall tc={tc} result={result()!} />
+            <Show when={result()} fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}>
+              <CompletedToolCall tc={tc} result={result()!} aborted={props.aborted} />
             </Show>
           );
         }}
@@ -205,7 +212,8 @@ function AssistantEntry(props: {
           syntaxStyle={syntaxStyle}
           conceal
           drawUnstyledText={false}
-          fg={theme.textPrimary}
+          fg={props.aborted ? theme.textMuted : theme.textPrimary}
+          attributes={props.aborted ? ABORTED_ATTRS : undefined}
         />
       </Show>
     </box>
@@ -241,17 +249,19 @@ function isStandaloneMessage(msg: AgentMessage): boolean {
 function MessageEntry(props: {
   msg: AgentMessage;
   toolResults: Map<string, ToolResultMessage>;
+  aborted?: boolean;
 }) {
   if (!("role" in props.msg)) return null;
 
   switch (props.msg.role) {
     case "user":
-      return <UserEntry msg={props.msg as UserMessage} />;
+      return <UserEntry msg={props.msg as UserMessage} aborted={props.aborted} />;
     case "assistant":
       return (
         <AssistantEntry
           msg={props.msg as AssistantMessage}
           toolResults={props.toolResults}
+          aborted={props.aborted}
         />
       );
     default:
@@ -259,9 +269,46 @@ function MessageEntry(props: {
   }
 }
 
+/**
+ * Build a set of message indices that belong to aborted turns.
+ * An aborted turn is identified by an assistant message with
+ * stopReason === "aborted", plus all messages from the preceding
+ * user message onward.
+ */
+function buildAbortedSet(messages: AgentMessage[]): Set<number> {
+  const aborted = new Set<number>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (!("role" in msg) || msg.role !== "assistant") continue;
+    const assistant = msg as AssistantMessage;
+    if (assistant.stopReason !== "aborted") continue;
+
+    // Mark the assistant message and everything back to its user message
+    for (let j = i; j >= 0; j--) {
+      aborted.add(j);
+      const m = messages[j];
+      if ("role" in m && m.role === "user") break;
+    }
+  }
+  return aborted;
+}
+
 export function TranscriptPane(props: TranscriptPaneProps) {
   const toolResults = () => buildToolResultMap(props.messages);
-  const visibleMessages = () => props.messages.filter(isStandaloneMessage);
+  const abortedSet = () => buildAbortedSet(props.messages);
+
+  // Pair each visible message with its original index so we can
+  // look it up in the aborted set.
+  const visibleEntries = () => {
+    const entries: Array<{ msg: AgentMessage; idx: number }> = [];
+    for (let i = 0; i < props.messages.length; i++) {
+      const msg = props.messages[i];
+      if (isStandaloneMessage(msg)) {
+        entries.push({ msg, idx: i });
+      }
+    }
+    return entries;
+  };
 
   return (
     <scrollbox
@@ -287,8 +334,14 @@ export function TranscriptPane(props: TranscriptPaneProps) {
             <text fg={theme.textSecondary}>Start a conversation below.</text>
           </box>
         </Show>
-        <For each={visibleMessages()}>
-          {(msg) => <MessageEntry msg={msg} toolResults={toolResults()} />}
+        <For each={visibleEntries()}>
+          {(entry) => (
+            <MessageEntry
+              msg={entry.msg}
+              toolResults={toolResults()}
+              aborted={abortedSet().has(entry.idx)}
+            />
+          )}
         </For>
       </box>
     </scrollbox>

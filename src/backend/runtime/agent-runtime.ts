@@ -37,6 +37,7 @@ export type AgentRuntimeEvent =
 
 export type AgentRuntime = {
   submitUserMessage(text: string): Promise<void>;
+  abort(): Promise<void>;
   newSession(options?: { parentSession?: string; setup?: (sm: SessionManager) => Promise<void> }): Promise<boolean>;
   getAvailableModels(): Array<{ id: string; name: string; provider: string }>;
   getCurrentModelId(): string | undefined;
@@ -214,6 +215,9 @@ export async function createAgentRuntime(
         emit({ type: "error", title: runtimeError.title, lines: runtimeError.lines });
         throw error;
       }
+    },
+    async abort(): Promise<void> {
+      await agentSession.abort();
     },
     getAvailableModels(): Array<{ id: string; name: string; provider: string }> {
       return agentSession.modelRegistry.getAvailable().map((m: Model<Api>) => ({

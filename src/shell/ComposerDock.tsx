@@ -35,6 +35,19 @@ export function ComposerDock(props: ComposerDockProps) {
       return;
     }
 
+    // Escape — abort agent when composer is empty and agent is working
+    if (
+      e.name === "escape" &&
+      !pager.active &&
+      !palette.visible &&
+      !props.controller.getTextareaText().trim() &&
+      props.controller.isStreaming()
+    ) {
+      e.preventDefault();
+      props.controller.abort();
+      return;
+    }
+
     // Up arrow in empty composer — recall last user message
     if (
       e.name === "up" &&
