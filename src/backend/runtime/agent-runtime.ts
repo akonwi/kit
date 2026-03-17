@@ -233,6 +233,8 @@ export async function createAgentRuntime(
     },
     async executeBash(command: string, excludeFromContext?: boolean): Promise<BashResult> {
       const result = await agentSession.executeBash(command, undefined, { excludeFromContext });
+      // ExecuteBash doesn't emit an event, so manually emit messages_changed
+      emitMessages();
       return result;
     },
     async abort(): Promise<void> {
