@@ -1,7 +1,7 @@
 import type { Command } from "./types";
 
 export const nameCommand: Command = {
-	name: "/name",
+	name: "name",
 	description: "Set session display name",
 	execute({ runtime, palette }) {
 		const currentName = runtime.getSession().sessionName || "";

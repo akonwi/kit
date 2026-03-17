@@ -11,7 +11,7 @@ const THINKING_LEVELS: ThinkingLevel[] = [
 ];
 
 export const thinkingCommand: Command = {
-	name: "/thinking",
+	name: "thinking",
 	description: "Cycle or set thinking level",
 	execute({ runtime, palette }) {
 		const current = runtime.getAgentSession().thinkingLevel ?? "off";

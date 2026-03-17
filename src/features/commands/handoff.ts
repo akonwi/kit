@@ -6,7 +6,7 @@ function clip(text: string, max: number): string {
 }
 
 export const handoffCommand: Command = {
-	name: "/handoff",
+	name: "handoff",
 	description: "Create a child thread with compact context and switch to it",
 	async execute(ctx) {
 		const session = ctx.runtime.getSession();

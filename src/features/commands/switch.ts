@@ -2,7 +2,7 @@ import type { Command } from "./types";
 import { formatSessionOption } from "./utils";
 
 export const switchCommand: Command = {
-	name: "/switch",
+	name: "switch",
 	description: "Switch to another session",
 	async execute({ runtime, palette }) {
 		const sessions = await runtime.listAllSessions();

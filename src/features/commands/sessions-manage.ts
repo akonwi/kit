@@ -11,7 +11,7 @@ type SessionItem = {
 };
 
 export const sessionsManageCommand: Command = {
-	name: "/sessions:manage",
+	name: "sessions:manage",
 	description: "Rename or delete sessions",
 	async execute({ runtime, palette }) {
 		const sessions = await runtime.listAllSessions();

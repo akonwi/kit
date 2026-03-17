@@ -1,7 +1,7 @@
 import type { Command } from "./types";
 
 export const modelCommand: Command = {
-	name: "/model",
+	name: "model",
 	description: "Select a model",
 	execute({ runtime, palette }) {
 		const models = runtime.getAvailableModels();
