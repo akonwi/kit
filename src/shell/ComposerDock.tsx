@@ -18,6 +18,18 @@ export function ComposerDock(props: ComposerDockProps) {
   const pager = props.pager;
 
   useKeyboard((e: KeyEvent) => {
+    // Up arrow in empty composer — recall last user message
+    if (
+      e.name === "up" &&
+      !pager.active &&
+      !palette.visible &&
+      !props.controller.getTextareaText().trim()
+    ) {
+      e.preventDefault();
+      props.controller.recallLastUserMessage();
+      return;
+    }
+
     // Pager navigation
     if (pager.active && !palette.visible) {
       if (e.name === "escape") {

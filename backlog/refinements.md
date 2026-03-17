@@ -13,9 +13,9 @@ These are important but intentionally deferred refinements.
 - [x] Markdown rendering for user and assistant messages (tree-sitter, concealed syntax)
 - [x] Syntax-highlighted code blocks with language injection (ts, tsx, js, jsx)
 - [x] Unified theme for user and assistant markdown
-- [ ] Refine tool call vs tool result presentation
-- [ ] Decide whether thinking should ever be shown and in what form
-- [ ] Improve rendering for long tool output (collapse/expand)
+- [x] Tool calls and results merged into single collapsible entries
+- [x] Thinking omitted from transcript, streamed through PendingSlot
+- [x] Collapsible tool output (click to expand/collapse)
 
 ## Shell UX
 

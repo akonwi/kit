@@ -281,6 +281,31 @@ export function createComposerController(deps: ComposerControllerDeps) {
     prevTextLength = text.length;
   }
 
+  function recallLastUserMessage() {
+    const messages = runtime.getMessages();
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role !== "user") continue;
+      const content = (msg as { content?: unknown }).content;
+      let text = "";
+      if (typeof content === "string") {
+        text = content;
+      } else if (Array.isArray(content)) {
+        text = content
+          .filter((b: any) => b?.type === "text" && typeof b.text === "string")
+          .map((b: any) => b.text)
+          .join("\n");
+      }
+      if (text.trim()) {
+        setTextareaText(text);
+        if (textareaRef) {
+          textareaRef.cursorOffset = text.length;
+        }
+        return;
+      }
+    }
+  }
+
   return {
     palette,
     setTextarea,
@@ -289,6 +314,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
     insertText,
     getTextareaText,
     setTextareaText,
+    recallLastUserMessage,
   };
 }
 
