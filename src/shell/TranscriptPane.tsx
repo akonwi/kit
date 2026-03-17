@@ -249,19 +249,20 @@ function isStandaloneMessage(msg: AgentMessage): boolean {
 function MessageEntry(props: {
   msg: AgentMessage;
   toolResults: Map<string, ToolResultMessage>;
-  aborted?: boolean;
 }) {
   if (!("role" in props.msg)) return null;
 
   switch (props.msg.role) {
     case "user":
-      return <UserEntry msg={props.msg as UserMessage} aborted={props.aborted} />;
+      return <UserEntry msg={props.msg as UserMessage} />;
     case "assistant":
+      const assistant = props.msg as AssistantMessage;
+      const aborted = assistant.stopReason === "aborted";
       return (
         <AssistantEntry
-          msg={props.msg as AssistantMessage}
+          msg={assistant}
           toolResults={props.toolResults}
-          aborted={props.aborted}
+          aborted={aborted}
         />
       );
     default:
@@ -269,46 +270,9 @@ function MessageEntry(props: {
   }
 }
 
-/**
- * Build a set of message indices that belong to aborted turns.
- * An aborted turn is identified by an assistant message with
- * stopReason === "aborted", plus all messages from the preceding
- * user message onward.
- */
-function buildAbortedSet(messages: AgentMessage[]): Set<number> {
-  const aborted = new Set<number>();
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const msg = messages[i];
-    if (!("role" in msg) || msg.role !== "assistant") continue;
-    const assistant = msg as AssistantMessage;
-    if (assistant.stopReason !== "aborted") continue;
-
-    // Mark the assistant message and everything back to its user message
-    for (let j = i; j >= 0; j--) {
-      aborted.add(j);
-      const m = messages[j];
-      if ("role" in m && m.role === "user") break;
-    }
-  }
-  return aborted;
-}
-
 export function TranscriptPane(props: TranscriptPaneProps) {
   const toolResults = () => buildToolResultMap(props.messages);
-  const abortedSet = () => buildAbortedSet(props.messages);
-
-  // Pair each visible message with its original index so we can
-  // look it up in the aborted set.
-  const visibleEntries = () => {
-    const entries: Array<{ msg: AgentMessage; idx: number }> = [];
-    for (let i = 0; i < props.messages.length; i++) {
-      const msg = props.messages[i];
-      if (isStandaloneMessage(msg)) {
-        entries.push({ msg, idx: i });
-      }
-    }
-    return entries;
-  };
+  const visibleMessages = () => props.messages.filter(isStandaloneMessage);
 
   return (
     <scrollbox
@@ -334,14 +298,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
             <text fg={theme.textSecondary}>Start a conversation below.</text>
           </box>
         </Show>
-        <For each={visibleEntries()}>
-          {(entry) => (
-            <MessageEntry
-              msg={entry.msg}
-              toolResults={toolResults()}
-              aborted={abortedSet().has(entry.idx)}
-            />
-          )}
+        <For each={visibleMessages()}>
+          {(msg) => <MessageEntry msg={msg} toolResults={toolResults()} />}
         </For>
       </box>
     </scrollbox>
