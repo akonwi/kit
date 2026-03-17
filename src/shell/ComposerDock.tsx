@@ -1,4 +1,4 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { theme } from "./theme";
@@ -33,6 +33,13 @@ export function ComposerDock(props: ComposerDockProps) {
     e.preventDefault();
   });
 
+  function handlePaste(event: PasteEvent) {
+    const text = event.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+    if (text) {
+      props.controller.insertText(text);
+    }
+  }
+
   return (
     <box
       flexShrink={0}
@@ -51,6 +58,7 @@ export function ComposerDock(props: ComposerDockProps) {
         flexDirection="column"
         gap={0}
       >
+        {/* @ts-ignore onPaste is supported by OpenTUI but not in the type defs */}
         <textarea
           ref={(value) => {
             props.controller.setTextarea(value as TextareaHandle | undefined);
@@ -72,6 +80,7 @@ export function ComposerDock(props: ComposerDockProps) {
           ]}
           onContentChange={() => props.controller.handleTextChange()}
           onSubmit={() => props.controller.handleSubmit()}
+          onPaste={handlePaste}
           focused={!palette.visible}
         />
       </box>

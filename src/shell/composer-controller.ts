@@ -258,11 +258,18 @@ export function createComposerController(deps: ComposerControllerDeps) {
     }
   }
 
+  function insertText(text: string) {
+    if (!textareaRef) return;
+    textareaRef.insertText(text);
+    prevTextLength = textareaRef.plainText.length;
+  }
+
   return {
     palette,
     setTextarea,
     handleTextChange,
     handleSubmit,
+    insertText,
   };
 }
 
