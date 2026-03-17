@@ -27,8 +27,8 @@
 - [x] Keep transcript state in sync after session mutation
 - [x] Add basic command/runtime bootstrap
 - [x] Session switching via `/switch` command
-- [ ] Session picker / recent session list (beyond `/switch`)
-- [ ] Branch/tree navigation UX
+- [x] Session management via `/sessions:manage`
+- [x] Session metadata display (composer border + status bar)
 - [ ] Define storage/path conventions beyond current compatibility helpers
 
 ## Phase 3 — Feature migration

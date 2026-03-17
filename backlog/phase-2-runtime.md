@@ -31,9 +31,9 @@
 - [x] Update footer/runtime state from real session/runtime data
 - [x] Emit `tool_completed` events for file index invalidation
 
-## Session UX [in progress]
+## Session UX [done]
 
 - [x] Switch the active session via `/switch` command
-- [ ] Session picker / recent session list (richer than `/switch`)
-- [ ] Branch navigation and branch switching
-- [ ] Surface session metadata in a cleaner way than raw debug inspection
+- [x] Session management via `/sessions:manage` (rename/delete)
+- [x] Session metadata in composer border + status bar
+- ~~Branch navigation~~ — replaced by `/handoff` (see feature-migration.md)
