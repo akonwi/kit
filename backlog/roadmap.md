@@ -19,36 +19,38 @@
 
 ## Phase 2 — Pi compatibility baseline
 
-- [x] Settings loading with precedence:
-  - [x] `~/.pi-kit/settings.json`
-  - [x] fallback Pi settings
-  - [x] built-in defaults
+- [x] Settings loading with precedence
 - [x] Load Pi sessions from `~/.pi/agent`
 - [x] Map session entries into transcript items
 - [x] Load specific sessions via `--session` / `-s`
-- [ ] Append composer submissions into the active session
-- [ ] Keep transcript state in sync after session mutation
-- [ ] Add session switching UX beyond CLI boot arg
-- [ ] Add branch/tree navigation UX
-- [ ] Add basic command/runtime bootstrap
+- [x] Append composer submissions into the active session
+- [x] Keep transcript state in sync after session mutation
+- [x] Add basic command/runtime bootstrap
+- [x] Session switching via `/switch` command
+- [ ] Session picker / recent session list (beyond `/switch`)
+- [ ] Branch/tree navigation UX
 - [ ] Define storage/path conventions beyond current compatibility helpers
 
 ## Phase 3 — Feature migration
 
+- [x] Thread references — `@@` picker, `[[thread:id]]` expansion on submit
+- [x] File references — `@` picker with lazy file scanning, `.gitignore`/`.pi-ignore` support
 - [ ] Pager
 - [ ] Wizard / questionnaire flow
-- [ ] Thread references
 - [ ] Handoff
-- [ ] Ignore-file workflows
+- [ ] Ignore-file commands (`/files:ignore`, `/files:unignore`)
 
 ## Phase 4 — Product refinement
 
-- [ ] Model/session UX
+- [x] Model/session UX — `/model`, `/thinking`, `/name`, `/switch`, `/sessions:manage`, `/new`, `/quit`
+- [x] Command palette with filterable picker and native input fields
+- [x] Reactive session metadata updates via runtime events
+- [x] Markdown rendering with syntax-highlighted code blocks (tree-sitter)
+- [ ] Inline composer picker (@ and @@ without palette overlay)
 - [ ] Richer overlays and picker flows
-- [ ] Improved command palette
 - [ ] Review flows and other custom affordances
 - [ ] Better footer/status/runtime telemetry
-- [ ] Better transcript rendering for distinct message content types
+- [ ] Better transcript rendering for tool calls and thinking
 
 ## Phase 5 — Optional extension architecture
 

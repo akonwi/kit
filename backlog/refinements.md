@@ -10,16 +10,19 @@ These are important but intentionally deferred refinements.
 
 ## Transcript rendering
 
-- [ ] Refine rendering for user / assistant / tool / meta entries
-- [ ] Decide how to present tool calls vs tool results vs commentary
+- [x] Markdown rendering for user and assistant messages (tree-sitter, concealed syntax)
+- [x] Syntax-highlighted code blocks with language injection (ts, tsx, js, jsx)
+- [x] Unified theme for user and assistant markdown
+- [ ] Refine tool call vs tool result presentation
 - [ ] Decide whether thinking should ever be shown and in what form
-- [ ] Improve rendering for code blocks and long tool output
+- [ ] Improve rendering for long tool output (collapse/expand)
 
 ## Shell UX
 
 - [ ] Keyboard navigation across transcript, debug panel, overlays, and composer
 - [ ] Overlay stack model for pickers/dialogs/menus
 - [ ] Resize behavior for dock and optional panels
+- [x] Palette `onDismiss` callback for cleanup on escape/dismiss
 
 ## Runtime / status
 

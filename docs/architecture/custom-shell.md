@@ -254,11 +254,12 @@ This layer ports and evolves the behavior currently living in `pi-kit`.
 Responsibilities:
 
 - slash commands — self-contained command definitions that own their own execution and palette interaction (`src/features/commands/`)
+- file references — `@` picker with lazy file scanning, `.gitignore`/`.pi-ignore` support (`src/features/files/`)
+- thread references — `@@` picker, `[[thread:id]]` expansion on submit (`src/features/threads/`)
 - pager (planned)
 - wizard (planned)
-- thread references (planned)
 - handoff flows (planned)
-- ignore-file workflows (planned)
+- ignore-file commands (planned)
 
 Each command is a `Command` object with `name`, `description`, and an `execute(ctx)` function that receives the runtime and palette manager. Commands handle their own UI flow (opening pickers, prompting for input) without leaking implementation details to the shell.
 
@@ -278,6 +279,7 @@ The backend `AgentRuntime` communicates state changes to the rest of the app via
 | `status_changed` | Model, thinking level, or context usage changes |
 | `session_changed` | Session is created, switched, or renamed |
 | `panel` | Tool execution starts/ends (pending indicator) |
+| `tool_completed` | A tool execution finishes (used for file index invalidation) |
 | `error` | An error occurs during agent execution |
 
 ### Data flow
@@ -399,7 +401,7 @@ v2/
       TranscriptPane.tsx     # scrollable message transcript
       PendingSlot.tsx        # pending operation display
       BottomStatusBar.tsx    # footer status bar
-      theme.ts               # color/style constants
+      theme.ts               # color/style constants + SyntaxStyle for markdown
     features/
       commands/
         types.ts             # Command, CommandContext
@@ -411,6 +413,13 @@ v2/
         switch.ts            # /switch command
         sessions-manage.ts   # /sessions:manage command
         quit.ts              # /quit command
+      files/
+        scan-files.ts        # directory walker with .gitignore/.pi-ignore support
+        file-index.ts        # lazy file index with fuzzy scoring
+        score.ts             # fuzzy match scoring helpers
+      threads/
+        thread-index.ts      # lazy session index with fuzzy scoring
+        expand-references.ts # [[thread:id]] token expansion
   docs/
     architecture/
     decisions/
