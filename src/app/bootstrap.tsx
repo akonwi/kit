@@ -47,6 +47,13 @@ function loadSession(): LoadedSession | null {
 }
 
 export async function bootstrap(): Promise<void> {
+  // When launched via the bin script, CWD is the project root (for bunfig.toml).
+  // Restore the user's actual working directory.
+  const userCwd = process.env.PIKIT_USER_CWD;
+  if (userCwd && userCwd !== process.cwd()) {
+    process.chdir(userCwd);
+  }
+
   // Initialize tree-sitter and register additional filetype aliases.
   // Built-in markdown injection only maps ts/js/typescript/javascript,
   // so tsx/jsx need explicit registration using the same grammars.
