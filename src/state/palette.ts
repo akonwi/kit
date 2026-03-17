@@ -26,6 +26,8 @@ export type PaletteConfig = {
   hint?: string;
   /** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
   onDismiss?: () => void;
+  /** Called when the filter text changes. Return false to intercept (prevents normal filtering). */
+  onFilterChange?: (text: string) => boolean | void;
 } | {
   mode: "input";
   label?: string;
@@ -39,6 +41,7 @@ export type PaletteConfig = {
 export type PaletteEntry = {
   id: number;
   onDismiss?: () => void;
+  onFilterChange?: (text: string) => boolean | void;
 } & (
   | {
       mode: "list";

@@ -120,6 +120,33 @@ export function createComposerController(deps: ComposerControllerDeps) {
         filePickerActive = false;
         suppressAtTrigger = true;
       },
+      onFilterChange: (text) => {
+        // If the first keystroke in the file picker is '@', the user is
+        // typing '@@' for a thread reference. Switch to the thread picker.
+        if (text === "@") {
+          palette.pop();
+          // Append the second @ to the textarea so it reads '@@'
+          if (textareaRef) {
+            const currentText = textareaRef.plainText;
+            const cursor = textareaRef.cursorOffset;
+            // Insert @ at cursor position
+            const before = currentText.slice(0, cursor);
+            const after = currentText.slice(cursor);
+            textareaRef.setText(before + "@" + after);
+            textareaRef.cursorOffset = cursor + 1;
+            prevTextLength = textareaRef.plainText.length;
+          }
+          suppressDoubleAtTrigger = false;
+          const doublePrefix = findDoubleAtPrefix(
+            textareaRef?.plainText ?? "",
+            textareaRef?.cursorOffset ?? 0,
+          );
+          if (doublePrefix) {
+            openThreadPicker(doublePrefix);
+          }
+          return false;
+        }
+      },
       options: suggestions.map((s) => ({
         name: s.name,
         description: s.description,

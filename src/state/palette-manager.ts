@@ -66,6 +66,7 @@ export function createPaletteManager() {
 			entry = {
 				id,
 				onDismiss: opts.onDismiss,
+				onFilterChange: opts.onFilterChange,
 				mode: "list",
 				options: opts.options,
 				allOptions: opts.options,
@@ -122,6 +123,11 @@ export function createPaletteManager() {
 	}
 
 	function filter(query: string) {
+		const t = top();
+		if (t?.onFilterChange) {
+			const result = t.onFilterChange(query);
+			if (result === false) return;
+		}
 		updateTop((t) => {
 			if (t.mode !== "list" || !t.filterable) return t;
 			const options = query
