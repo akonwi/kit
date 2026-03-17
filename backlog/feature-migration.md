@@ -17,12 +17,6 @@ These are features to port or redesign from the current extension-based `pi-kit`
 - [x] Token expansion on submit — reads referenced session context, injects formatted reference block
 - [x] Thread index invalidates on session changes
 
-## Inline composer picker [deferred]
-
-- [ ] Redesign `@` and `@@` to work inline in the composer (like v1 extension)
-- [ ] Typing stays in composer, picker is an overlay that updates on each keystroke
-- [ ] `@@` seamlessly replaces `@` picker without requiring escape
-
 ## Pager
 
 - [ ] Define pager screen contract in the new shell

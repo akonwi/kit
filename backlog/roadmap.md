@@ -45,7 +45,7 @@
 - [x] Command palette with filterable picker and native input fields
 - [x] Reactive session metadata updates via runtime events
 - [x] Markdown rendering with syntax-highlighted code blocks (tree-sitter)
-- [ ] Inline composer picker (@ and @@ without palette overlay)
+
 - [ ] Richer overlays and picker flows
 - [ ] Review flows and other custom affordances
 - [ ] Better footer/status/runtime telemetry

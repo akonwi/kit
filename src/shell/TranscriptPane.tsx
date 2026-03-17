@@ -1,10 +1,11 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type {
   AssistantMessage,
+  ToolCall,
   ToolResultMessage,
   UserMessage,
 } from "@mariozechner/pi-ai";
-import { For, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { syntaxStyle, theme } from "./theme";
 
 export type TranscriptPaneProps = {
@@ -27,41 +28,28 @@ function extractUserText(msg: UserMessage): string {
   return "";
 }
 
-function extractAssistantText(msg: AssistantMessage): string {
-  const parts: string[] = [];
+function extractAssistantParts(msg: AssistantMessage): {
+  text: string;
+  toolCalls: ToolCall[];
+} {
+  const textParts: string[] = [];
+  const toolCalls: ToolCall[] = [];
   for (const block of msg.content) {
     if (block.type === "text" && "text" in block && block.text) {
-      parts.push(block.text);
+      textParts.push(block.text);
     } else if (block.type === "toolCall" && "name" in block) {
-      const tc = block as {
-        type: "toolCall";
-        name: string;
-        arguments?: Record<string, unknown>;
-      };
-      parts.push(`\`$ ${tc.name}${formatToolArgs(tc.arguments)}\``);
+      toolCalls.push(block as ToolCall);
     }
+    // thinking blocks are omitted
   }
-  if (parts.length === 0) {
-    for (const block of msg.content) {
-      if (block.type === "toolCall" && "name" in block) {
-        parts.push(`\`$ ${(block as { name: string }).name}\``);
-      }
-    }
-  }
-  return parts.join("\n\n");
+  return { text: textParts.join("\n\n"), toolCalls };
 }
 
 function extractToolResultLines(msg: ToolResultMessage): string[] {
   const lines: string[] = [];
   for (const block of msg.content) {
     if (block.type === "text" && "text" in block && block.text) {
-      const outputLines = block.text.split("\n");
-      if (outputLines.length > 20) {
-        lines.push(...outputLines.slice(0, 18));
-        lines.push(`  ... (${outputLines.length - 18} more lines)`);
-      } else {
-        lines.push(...outputLines);
-      }
+      lines.push(...block.text.split("\n"));
     }
   }
   return lines;
@@ -79,9 +67,22 @@ function isAssistantError(msg: AssistantMessage): boolean {
   return msg.stopReason === "error" && !!msg.errorMessage;
 }
 
+// ── Spinner ──────────────────────────────────────────────────────────
+
+const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+function InlineSpinner() {
+  const [frame, setFrame] = createSignal(0);
+  const timer = setInterval(() => {
+    setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+  }, 80);
+  onCleanup(() => clearInterval(timer));
+  return <text fg={theme.toolText}>{SPINNER_FRAMES[frame()]}</text>;
+}
+
 // ── Entry renderers ──────────────────────────────────────────────────
 
-function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
+function UserEntry(props: { msg: UserMessage }) {
   const text = extractUserText(props.msg);
   return (
     <box
@@ -91,7 +92,6 @@ function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
       flexDirection="column"
       gap={0}
       width="100%"
-      onMouseDown={props.onClick}
     >
       <code
         filetype="markdown"
@@ -105,33 +105,95 @@ function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
   );
 }
 
+/**
+ * A pending tool call — no result yet. Shows spinner + tool name.
+ */
+function PendingToolCall(props: { tc: ToolCall }) {
+  return (
+    <box flexDirection="row" gap={1}>
+      <InlineSpinner />
+      <text fg={theme.toolText}>
+        {props.tc.name}{formatToolArgs(props.tc.arguments)}
+      </text>
+    </box>
+  );
+}
+
+/**
+ * A completed tool call — shows result header (✓/✗) with collapsible output.
+ */
+function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage }) {
+  const [expanded, setExpanded] = createSignal(false);
+  const lines = extractToolResultLines(props.result);
+  const prefix = props.result.isError ? "✗" : "✓";
+  const headerColor = props.result.isError ? theme.errorText : theme.toolText;
+  const hasOutput = lines.length > 0;
+
+  const displayLines = () => {
+    if (!expanded()) return [];
+    if (lines.length > 40) {
+      return [...lines.slice(0, 38), `  ... (${lines.length - 38} more lines)`];
+    }
+    return lines;
+  };
+
+  return (
+    <box flexDirection="column" gap={0} width="100%">
+      <box
+        flexDirection="row"
+        gap={1}
+        onMouseDown={() => hasOutput && setExpanded(!expanded())}
+      >
+        <text fg={headerColor}>
+          {prefix} {props.tc.name}{formatToolArgs(props.tc.arguments)}
+        </text>
+        <Show when={hasOutput}>
+          <text fg={theme.textMuted}>
+            {expanded() ? "▾" : "▸"} {lines.length} line{lines.length === 1 ? "" : "s"}
+          </text>
+        </Show>
+      </box>
+      <Show when={expanded()}>
+        <box paddingLeft={2} flexDirection="column" gap={0}>
+          <For each={displayLines()}>
+            {(line) => <text fg={theme.textMuted}>{line}</text>}
+          </For>
+        </box>
+      </Show>
+    </box>
+  );
+}
+
 function AssistantEntry(props: {
   msg: AssistantMessage;
-  onClick?: () => void;
+  toolResults: Map<string, ToolResultMessage>;
 }) {
   if (isAssistantError(props.msg)) {
     return (
-      <box
-        paddingLeft={1}
-        flexDirection="column"
-        gap={0}
-        width="100%"
-        onMouseDown={props.onClick}
-      >
+      <box paddingLeft={1} flexDirection="column" gap={0} width="100%">
         <text fg={theme.errorText}>{props.msg.errorMessage}</text>
       </box>
     );
   }
 
-  const text = extractAssistantText(props.msg);
+  const { text, toolCalls } = extractAssistantParts(props.msg);
+
   return (
-    <Show when={text.length > 0}>
-      <box
-        flexDirection="column"
-        gap={0}
-        width="100%"
-        onMouseDown={props.onClick}
-      >
+    <box flexDirection="column" gap={0} width="100%">
+      {/* Tool calls — merged with their results */}
+      <For each={toolCalls}>
+        {(tc) => {
+          const result = () => props.toolResults.get(tc.id);
+          return (
+            <Show when={result()} fallback={<PendingToolCall tc={tc} />}>
+              <CompletedToolCall tc={tc} result={result()!} />
+            </Show>
+          );
+        }}
+      </For>
+
+      {/* Text content */}
+      <Show when={text.length > 0}>
         <code
           filetype="markdown"
           content={text}
@@ -140,57 +202,51 @@ function AssistantEntry(props: {
           drawUnstyledText={false}
           fg={theme.textPrimary}
         />
-      </box>
-    </Show>
-  );
-}
-
-function ToolResultEntry(props: {
-  msg: ToolResultMessage;
-  onClick?: () => void;
-}) {
-  const prefix = props.msg.isError ? "✗" : "✓";
-  const headerColor = props.msg.isError ? theme.errorText : theme.toolText;
-  const lines = extractToolResultLines(props.msg);
-  return (
-    <box
-      flexDirection="column"
-      gap={0}
-      width="100%"
-      onMouseDown={props.onClick}
-    >
-      <text fg={headerColor}>
-        {prefix} {props.msg.toolName}
-      </text>
-      <For each={lines}>
-        {(line) => <text fg={theme.toolText}>{line}</text>}
-      </For>
+      </Show>
     </box>
   );
 }
 
 // ── Main component ───────────────────────────────────────────────────
 
-function MessageEntry(props: { msg: AgentMessage; onClick?: () => void }) {
+/**
+ * Build a map from toolCallId → ToolResultMessage for pairing
+ * tool calls with their results.
+ */
+function buildToolResultMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
+  const map = new Map<string, ToolResultMessage>();
+  for (const msg of messages) {
+    if ("role" in msg && msg.role === "toolResult") {
+      const tr = msg as ToolResultMessage;
+      map.set(tr.toolCallId, tr);
+    }
+  }
+  return map;
+}
+
+/**
+ * Filter out standalone toolResult messages — they're rendered
+ * inline within their parent AssistantEntry.
+ */
+function isStandaloneMessage(msg: AgentMessage): boolean {
+  if (!("role" in msg)) return false;
+  return msg.role !== "toolResult";
+}
+
+function MessageEntry(props: {
+  msg: AgentMessage;
+  toolResults: Map<string, ToolResultMessage>;
+}) {
   if (!("role" in props.msg)) return null;
 
   switch (props.msg.role) {
     case "user":
-      return (
-        <UserEntry msg={props.msg as UserMessage} onClick={props.onClick} />
-      );
+      return <UserEntry msg={props.msg as UserMessage} />;
     case "assistant":
       return (
         <AssistantEntry
           msg={props.msg as AssistantMessage}
-          onClick={props.onClick}
-        />
-      );
-    case "toolResult":
-      return (
-        <ToolResultEntry
-          msg={props.msg as ToolResultMessage}
-          onClick={props.onClick}
+          toolResults={props.toolResults}
         />
       );
     default:
@@ -199,6 +255,9 @@ function MessageEntry(props: { msg: AgentMessage; onClick?: () => void }) {
 }
 
 export function TranscriptPane(props: TranscriptPaneProps) {
+  const toolResults = () => buildToolResultMap(props.messages);
+  const visibleMessages = () => props.messages.filter(isStandaloneMessage);
+
   return (
     <scrollbox
       flexGrow={1}
@@ -223,8 +282,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
             <text fg={theme.textSecondary}>Start a conversation below.</text>
           </box>
         </Show>
-        <For each={props.messages}>
-          {(msg) => <MessageEntry msg={msg} onClick={() => console.log(msg)} />}
+        <For each={visibleMessages()}>
+          {(msg) => <MessageEntry msg={msg} toolResults={toolResults()} />}
         </For>
       </box>
     </scrollbox>

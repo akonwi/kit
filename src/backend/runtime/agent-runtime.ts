@@ -161,6 +161,16 @@ export async function createAgentRuntime(
           emit({ type: "panel", panel: panelActive("Thinking...") });
         }
         break;
+      case "message_update": {
+        const ame = (event as { assistantMessageEvent?: { type: string; delta?: string } }).assistantMessageEvent;
+        if (ame?.type === "thinking_delta" && ame.delta) {
+          const trimmed = ame.delta.replace(/\s+/g, " ").trim();
+          if (trimmed) {
+            emit({ type: "panel", panel: panelActive(trimmed) });
+          }
+        }
+        break;
+      }
       case "message_end":
         emitMessages();
         emitStatus();
