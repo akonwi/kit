@@ -37,8 +37,8 @@
 - [x] File references — `@` picker with lazy file scanning, `.gitignore`/`.pi-ignore` support
 - [ ] Bash execution (`!` / `!!` prefix)
 - [ ] Handoff
-- [ ] Pager
-- [ ] Wizard / questionnaire flow
+- [x] Pager
+- [x] Wizard / questionnaire flow
 
 ## Phase 4 — Product refinement
 
@@ -47,10 +47,10 @@
 - [x] Reactive session metadata updates via runtime events
 - [x] Markdown rendering with syntax-highlighted code blocks (tree-sitter)
 
-- [ ] Richer overlays and picker flows
+- [x] Richer overlays and picker flows
 - [ ] Review flows and other custom affordances
-- [ ] Better footer/status/runtime telemetry
-- [ ] Better transcript rendering for tool calls and thinking
+- [x] Better footer/status/runtime telemetry
+- [x] Better transcript rendering for tool calls and thinking
 
 ## Phase 5 — Optional extension architecture
 
