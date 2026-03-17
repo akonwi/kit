@@ -7,16 +7,23 @@ Standalone `pi-kit` application with:
 - a custom terminal shell built outside Pi interactive mode
 - an OpenTUI Solid-based UI scaffold
 
-## Status
+## Installation
 
-Early scaffold.
+Requires [Bun](https://bun.sh) (>= 1.3.0).
 
-The current focus is establishing:
+```bash
+bun install
 
-- app structure
-- compatibility layer boundaries
-- shell boundaries
-- config/session resolution rules
+# Symlink the executable into your PATH
+ln -sf "$(pwd)/bin/pi-kit" ~/.bun/bin/pi-kit
+```
+
+Then run `pi-kit` from any directory.
+
+```bash
+pi-kit              # opens most recent session for the current directory
+pi-kit -s abc123    # opens a specific session by ID
+```
 
 ## Compatibility
 
@@ -39,7 +46,6 @@ If both Pi baseline settings and pi-kit settings exist, **pi-kit settings win**.
 ## Development
 
 ```bash
-bun install
 bun run dev
 ```
 
