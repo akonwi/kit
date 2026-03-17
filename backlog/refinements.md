@@ -20,13 +20,13 @@ These are important but intentionally deferred refinements.
 
 ## Shell UX
 
-- [ ] Keyboard navigation across transcript, debug panel, overlays, and composer
-- [ ] Overlay stack model for pickers/dialogs/menus
-- [ ] Resize behavior for dock and optional panels
+- [x] Keyboard navigation across transcript, debug panel, overlays, and composer
+- [x] Overlay stack model for pickers/dialogs/menus
+- [x] Resize behavior for dock and optional panels
 - [x] Palette `onDismiss` callback for cleanup on escape/dismiss
 
 ## Runtime / status
 
-- [ ] Replace placeholder context % with real runtime/session usage
+- [x] Replace placeholder context % with real runtime/session usage
 - [ ] Replace placeholder repo summary with real repo/runtime state
 - [ ] Decide what bell/speech/runtime indicators belong in the new app

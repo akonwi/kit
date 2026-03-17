@@ -13,6 +13,7 @@ import {
   type LoadedSession,
 } from "../../compat/sessions";
 import { expandThreadReferences } from "../../features/threads";
+import { getGitInfo, type GitInfo } from "./git-info";
 
 export type RuntimePanelState = {
   pending: boolean;
@@ -24,6 +25,7 @@ export type RuntimeStatus = {
   thinkingLevel: string;
   contextPct: string;
   isStreaming: boolean;
+  git: GitInfo;
 };
 
 export type AgentRuntimeEvent =
@@ -122,11 +124,14 @@ export async function createAgentRuntime(
   function snapshotStatus(): RuntimeStatus {
     const model = agentSession.model;
     const usage = agentSession.getContextUsage();
+    const cwd = agentSession.sessionManager.getCwd();
+    const git = getGitInfo(cwd);
     return {
       model: model?.name ?? model?.id ?? "no-model",
       thinkingLevel: agentSession.thinkingLevel ?? "off",
       contextPct: usage?.percent != null ? `${Math.round(usage.percent)}%` : "–",
       isStreaming: agentSession.isStreaming,
+      git,
     };
   }
 

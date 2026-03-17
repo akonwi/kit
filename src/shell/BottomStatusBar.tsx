@@ -6,6 +6,11 @@ export type BottomStatusBarProps = {
 };
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
+  const gitIndicator = () => {
+    if (!props.status.gitBranch) return null;
+    return props.status.gitDirty ? " ●" : " ○";
+  };
+
   return (
     <box
       flexShrink={0}
@@ -17,6 +22,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
     >
       <text fg={theme.textMuted}>
         {props.status.model} ({props.status.thinkingLevel}) 🪟{props.status.contextPct}
+        {props.status.gitBranch && ` (${props.status.gitBranch}${gitIndicator()})`}
       </text>
     </box>
   );

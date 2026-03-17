@@ -17,6 +17,8 @@ export type FooterStatusState = {
 	model: string;
 	thinkingLevel: string;
 	contextPct: string;
+	gitBranch: string | null;
+	gitDirty: boolean;
 };
 
 export type SessionMeta = {
@@ -50,9 +52,11 @@ function deriveFooterStatus(
 			model: status.model,
 			thinkingLevel: status.thinkingLevel,
 			contextPct: status.contextPct,
+			gitBranch: status.git.branch,
+			gitDirty: status.git.dirty,
 		};
 	}
-	return { model: "no-model", thinkingLevel: "off", contextPct: "–" };
+	return { model: "no-model", thinkingLevel: "off", contextPct: "–", gitBranch: null, gitDirty: false };
 }
 
 function applyRuntimeStatus(
@@ -64,6 +68,8 @@ function applyRuntimeStatus(
 		model: status.model,
 		thinkingLevel: status.thinkingLevel,
 		contextPct: status.contextPct,
+		gitBranch: status.git.branch,
+		gitDirty: status.git.dirty,
 	};
 }
 
