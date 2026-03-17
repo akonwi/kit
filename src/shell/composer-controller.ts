@@ -306,6 +306,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
     }
   }
 
+  function quit() {
+    runtime.quit();
+  }
+
   return {
     palette,
     setTextarea,
@@ -315,6 +319,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
     getTextareaText,
     setTextareaText,
     recallLastUserMessage,
+    quit,
   };
 }
 

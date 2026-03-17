@@ -18,6 +18,23 @@ export function ComposerDock(props: ComposerDockProps) {
   const pager = props.pager;
 
   useKeyboard((e: KeyEvent) => {
+    // Ctrl+C — clear composer if it has content, otherwise quit
+    if (e.ctrl && e.name === "c") {
+      e.preventDefault();
+      if (palette.visible) {
+        palette.clear();
+        return;
+      }
+      const text = props.controller.getTextareaText();
+      if (text.trim()) {
+        props.controller.setTextareaText("");
+        return;
+      }
+      // Empty composer — quit the app
+      props.controller.quit();
+      return;
+    }
+
     // Up arrow in empty composer — recall last user message
     if (
       e.name === "up" &&

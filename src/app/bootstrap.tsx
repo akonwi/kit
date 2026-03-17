@@ -88,6 +88,8 @@ export async function bootstrap(): Promise<void> {
     customTools: [guidedQuestionsTool],
   });
   const renderer = await createCliRenderer({
+    exitOnCtrlC: false,
+    exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGBREAK", "SIGPIPE", "SIGBUS", "SIGFPE"],
     consoleOptions: {
       position: ConsolePosition.TOP,
       sizePercent: 30,
