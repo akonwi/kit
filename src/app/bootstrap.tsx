@@ -1,5 +1,6 @@
+import path from "node:path";
 import { parseArgs } from "node:util";
-import { ConsolePosition, createCliRenderer } from "@opentui/core";
+import { ConsolePosition, createCliRenderer, getTreeSitterClient } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
 import {
@@ -46,6 +47,31 @@ function loadSession(): LoadedSession | null {
 }
 
 export async function bootstrap(): Promise<void> {
+  // Initialize tree-sitter and register additional filetype aliases.
+  // Built-in markdown injection only maps ts/js/typescript/javascript,
+  // so tsx/jsx need explicit registration using the same grammars.
+  const treeSitter = getTreeSitterClient();
+  await treeSitter.initialize();
+
+  const coreAssets = path.resolve(
+    import.meta.dirname,
+    "../../node_modules/@opentui/core/assets",
+  );
+  treeSitter.addFiletypeParser({
+    filetype: "tsx",
+    wasm: path.join(coreAssets, "typescript/tree-sitter-typescript.wasm"),
+    queries: {
+      highlights: [path.join(coreAssets, "typescript/highlights.scm")],
+    },
+  });
+  treeSitter.addFiletypeParser({
+    filetype: "jsx",
+    wasm: path.join(coreAssets, "javascript/tree-sitter-javascript.wasm"),
+    queries: {
+      highlights: [path.join(coreAssets, "javascript/highlights.scm")],
+    },
+  });
+
   const settings = await loadSettings();
   const session = loadSession();
   const runtime = await createAgentRuntime(session);

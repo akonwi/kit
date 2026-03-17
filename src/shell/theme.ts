@@ -6,6 +6,8 @@
  * instead of hardcoding color strings.
  */
 
+import { SyntaxStyle } from "@opentui/core";
+
 // ── Color palette ────────────────────────────────────────────────────
 
 const black = "#0a0a0a";
@@ -76,3 +78,55 @@ export const theme = {
   // Spinner / panel
   panelText: gray,
 };
+
+// ── Syntax style for markdown / code rendering ───────────────────────
+
+import { RGBA, type ThemeTokenStyle } from "@opentui/core";
+
+function rgba(hex: string): RGBA {
+  return RGBA.fromHex(hex);
+}
+
+const themeRules: ThemeTokenStyle[] = [
+  // Default text
+  { scope: ["default"], style: { foreground: rgba(offWhite) } },
+
+  // ── Markdown ────────────────────────────────────────────────────
+  { scope: ["markup.heading", "markup.heading.1", "markup.heading.2", "markup.heading.3", "markup.heading.4", "markup.heading.5", "markup.heading.6"], style: { foreground: rgba(blue), bold: true } },
+  { scope: ["markup.bold", "markup.strong"], style: { foreground: rgba(offWhite), bold: true } },
+  { scope: ["markup.italic"], style: { foreground: rgba(amber), italic: true } },
+  { scope: ["markup.list"], style: { foreground: rgba(blue) } },
+  { scope: ["markup.quote"], style: { foreground: rgba(amber), italic: true } },
+  { scope: ["markup.raw.block"], style: { foreground: rgba(offWhite) } },
+  { scope: ["markup.raw", "markup.raw.inline"], style: { foreground: rgba(green) } },
+  { scope: ["markup.link"], style: { foreground: rgba(blue), underline: true } },
+  { scope: ["markup.link.label"], style: { foreground: rgba(blue), underline: true } },
+  { scope: ["markup.link.url"], style: { foreground: rgba(blue), underline: true } },
+  { scope: ["markup.strikethrough"], style: { foreground: rgba(gray) } },
+  { scope: ["conceal"], style: { foreground: rgba(midGray) } },
+  { scope: ["spell", "nospell"], style: { foreground: rgba(offWhite) } },
+
+  // ── Code / tree-sitter scopes ───────────────────────────────────
+  { scope: ["comment", "comment.documentation"], style: { foreground: rgba(gray), italic: true } },
+  { scope: ["string", "symbol", "character", "character.special"], style: { foreground: rgba(green) } },
+  { scope: ["string.escape", "string.regexp"], style: { foreground: rgba(purple) } },
+  { scope: ["number", "boolean", "float", "constant"], style: { foreground: rgba(amber) } },
+  { scope: ["keyword", "keyword.import", "keyword.export", "keyword.directive", "keyword.modifier", "keyword.exception"], style: { foreground: rgba(purple), italic: true } },
+  { scope: ["keyword.return", "keyword.conditional", "keyword.repeat", "keyword.coroutine"], style: { foreground: rgba(purple), italic: true } },
+  { scope: ["keyword.type"], style: { foreground: rgba(amber), bold: true, italic: true } },
+  { scope: ["keyword.function", "function.method"], style: { foreground: rgba(blue) } },
+  { scope: ["operator", "keyword.operator", "punctuation.delimiter", "keyword.conditional.ternary"], style: { foreground: rgba(offWhite) } },
+  { scope: ["variable", "variable.parameter", "function.method.call", "function.call", "property", "field", "parameter"], style: { foreground: rgba(offWhite) } },
+  { scope: ["variable.member", "function", "constructor"], style: { foreground: rgba(blue) } },
+  { scope: ["variable.builtin", "type.builtin", "function.builtin", "module.builtin", "constant.builtin", "variable.super"], style: { foreground: rgba(red) } },
+  { scope: ["type", "module", "namespace", "class", "type.definition"], style: { foreground: rgba(amber) } },
+  { scope: ["punctuation", "punctuation.bracket", "punctuation.special"], style: { foreground: rgba(gray) } },
+  { scope: ["tag"], style: { foreground: rgba(red) } },
+  { scope: ["tag.attribute"], style: { foreground: rgba(purple) } },
+  { scope: ["tag.delimiter"], style: { foreground: rgba(gray) } },
+  { scope: ["attribute", "annotation"], style: { foreground: rgba(amber) } },
+  { scope: ["label"], style: { foreground: rgba(blue) } },
+];
+
+/** Shared SyntaxStyle instance for markdown/code components. */
+export const syntaxStyle: SyntaxStyle = SyntaxStyle.fromTheme(themeRules);

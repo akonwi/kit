@@ -5,7 +5,7 @@ import type {
   UserMessage,
 } from "@mariozechner/pi-ai";
 import { For, Show } from "solid-js";
-import { theme } from "./theme";
+import { syntaxStyle, theme } from "./theme";
 
 export type TranscriptPaneProps = {
   messages: AgentMessage[];
@@ -13,41 +13,42 @@ export type TranscriptPaneProps = {
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function extractUserText(msg: UserMessage): string[] {
-  if (typeof msg.content === "string") return msg.content.split("\n");
+function extractUserText(msg: UserMessage): string {
+  if (typeof msg.content === "string") return msg.content;
   if (Array.isArray(msg.content)) {
     return msg.content
       .filter(
         (c): c is { type: "text"; text: string } =>
           c.type === "text" && typeof c.text === "string",
       )
-      .flatMap((c) => c.text.split("\n"));
+      .map((c) => c.text)
+      .join("\n");
   }
-  return [];
+  return "";
 }
 
-function extractAssistantLines(msg: AssistantMessage): string[] {
-  const lines: string[] = [];
+function extractAssistantText(msg: AssistantMessage): string {
+  const parts: string[] = [];
   for (const block of msg.content) {
     if (block.type === "text" && "text" in block && block.text) {
-      lines.push(...block.text.split("\n"));
+      parts.push(block.text);
     } else if (block.type === "toolCall" && "name" in block) {
       const tc = block as {
         type: "toolCall";
         name: string;
         arguments?: Record<string, unknown>;
       };
-      lines.push(`$ ${tc.name}${formatToolArgs(tc.arguments)}`);
+      parts.push(`\`$ ${tc.name}${formatToolArgs(tc.arguments)}\``);
     }
   }
-  if (lines.length === 0) {
+  if (parts.length === 0) {
     for (const block of msg.content) {
       if (block.type === "toolCall" && "name" in block) {
-        lines.push(`$ ${(block as { name: string }).name}`);
+        parts.push(`\`$ ${(block as { name: string }).name}\``);
       }
     }
   }
-  return lines;
+  return parts.join("\n\n");
 }
 
 function extractToolResultLines(msg: ToolResultMessage): string[] {
@@ -81,7 +82,7 @@ function isAssistantError(msg: AssistantMessage): boolean {
 // ── Entry renderers ──────────────────────────────────────────────────
 
 function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
-  const lines = extractUserText(props.msg);
+  const text = extractUserText(props.msg);
   return (
     <box
       border={["left"] as any}
@@ -92,9 +93,14 @@ function UserEntry(props: { msg: UserMessage; onClick?: () => void }) {
       width="100%"
       onMouseDown={props.onClick}
     >
-      <For each={lines}>
-        {(line) => <text fg={theme.userText}>{line}</text>}
-      </For>
+      <code
+        filetype="markdown"
+        content={text}
+        syntaxStyle={syntaxStyle}
+        conceal
+        drawUnstyledText={false}
+        fg={theme.textPrimary}
+      />
     </box>
   );
 }
@@ -117,18 +123,23 @@ function AssistantEntry(props: {
     );
   }
 
-  const lines = extractAssistantLines(props.msg);
+  const text = extractAssistantText(props.msg);
   return (
-    <Show when={lines.length > 0}>
+    <Show when={text.length > 0}>
       <box
         flexDirection="column"
         gap={0}
         width="100%"
         onMouseDown={props.onClick}
       >
-        <For each={lines}>
-          {(line) => <text fg={theme.assistantText}>{line}</text>}
-        </For>
+        <code
+          filetype="markdown"
+          content={text}
+          syntaxStyle={syntaxStyle}
+          conceal
+          drawUnstyledText={false}
+          fg={theme.textPrimary}
+        />
       </box>
     </Show>
   );
