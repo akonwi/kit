@@ -1,4 +1,5 @@
 import { createSignal, Show } from "solid-js";
+import { useRenderer } from "@opentui/solid";
 import type { PagerController } from "../features/pager";
 import type { WizardController } from "../features/wizard";
 import type { AppState } from "../state/app-state";
@@ -8,6 +9,7 @@ import type { ComposerController } from "./composer-controller";
 import { InlinePicker } from "./InlinePicker";
 import { PagerView } from "./PagerView";
 import { PendingSlot } from "./PendingSlot";
+import { copySelection } from "./selection";
 import { TranscriptPane } from "./TranscriptPane";
 import { WizardDock } from "./WizardDock";
 import { WizardView } from "./WizardView";
@@ -24,6 +26,7 @@ export type AppShellProps = {
 
 export function AppShell(props: AppShellProps) {
   const [dockHeight, setDockHeight] = createSignal(3);
+  const renderer = useRenderer();
 
   return (
     <box
@@ -31,6 +34,7 @@ export function AppShell(props: AppShellProps) {
       height="100%"
       flexDirection="column"
       backgroundColor={theme.bg}
+      onMouseUp={() => copySelection(renderer)}
     >
       {/* Main content area — transcript, pager, or wizard */}
       <Show when={props.wizard.active}>

@@ -6,6 +6,7 @@ import type {
   UserMessage,
 } from "@mariozechner/pi-ai";
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { useRenderer } from "@opentui/solid";
 import { syntaxStyle, theme } from "./theme";
 
 export type TranscriptPaneProps = {
@@ -124,6 +125,7 @@ function PendingToolCall(props: { tc: ToolCall }) {
  */
 function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage }) {
   const [expanded, setExpanded] = createSignal(false);
+  const renderer = useRenderer();
   const lines = extractToolResultLines(props.result);
   const prefix = props.result.isError ? "✗" : "✓";
   const headerColor = props.result.isError ? theme.errorText : theme.toolText;
@@ -142,7 +144,10 @@ function CompletedToolCall(props: { tc: ToolCall; result: ToolResultMessage }) {
       <box
         flexDirection="row"
         gap={1}
-        onMouseDown={() => hasOutput && setExpanded(!expanded())}
+        onMouseDown={() => {
+          if (renderer.getSelection()?.getSelectedText()) return;
+          if (hasOutput) setExpanded(!expanded());
+        }}
       >
         <text fg={headerColor}>
           {prefix} {props.tc.name}{formatToolArgs(props.tc.arguments)}
