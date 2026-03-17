@@ -16,6 +16,7 @@ These are important but intentionally deferred refinements.
 - [x] Tool calls and results merged into single collapsible entries
 - [x] Thinking omitted from transcript, streamed through PendingSlot
 - [x] Collapsible tool output (click to expand/collapse)
+- [ ] Strikethrough for canceled/aborted turns (strike through user message + all resulting assistant/tool messages, not just the assistant message with stopReason="aborted")
 
 ## Shell UX
 
