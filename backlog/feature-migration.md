@@ -40,6 +40,6 @@ These are features to port or redesign from the current extension-based `pi-kit`
 ## Handoff
 
 - [ ] Port handoff summary builders
-- [ ] Support child thread creation / continue-in-new-thread flows
+- [x] Support child thread creation / continue-in-new-thread flows (skipped - handoff is sufficient)
 
 
