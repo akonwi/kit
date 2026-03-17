@@ -8,6 +8,7 @@ import { nameCommand } from "./name";
 import { switchCommand } from "./switch";
 import { sessionsManageCommand } from "./sessions-manage";
 import { handoffCommand } from "./handoff";
+import { pagerCommand } from "./pager";
 import { quitCommand } from "./quit";
 
 export const COMMANDS: Command[] = [
@@ -18,5 +19,6 @@ export const COMMANDS: Command[] = [
 	switchCommand,
 	sessionsManageCommand,
 	handoffCommand,
+	pagerCommand,
 	quitCommand,
 ] as const;

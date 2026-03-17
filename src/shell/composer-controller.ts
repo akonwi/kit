@@ -7,6 +7,7 @@
 
 import type { AgentRuntime } from "../backend";
 import type { FileIndex } from "../features/files";
+import type { PagerController } from "../features/pager";
 import type { ThreadIndex } from "../features/threads";
 import { COMMANDS } from "../features/commands";
 import { createPaletteManager, type PaletteManager } from "../state/palette-manager";
@@ -44,10 +45,11 @@ export type ComposerControllerDeps = {
   runtime: AgentRuntime;
   fileIndex: FileIndex;
   threadIndex: ThreadIndex | null;
+  pager: PagerController;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-  const { runtime, fileIndex, threadIndex } = deps;
+  const { runtime, fileIndex, threadIndex, pager } = deps;
   const palette: PaletteManager = createPaletteManager();
 
   let textareaRef: TextareaHandle | undefined;
@@ -99,7 +101,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
           textareaRef?.setText("");
           prevTextLength = 0;
           ctx.dismiss();
-          cmd.execute({ runtime, palette });
+          cmd.execute({ runtime, palette, pager });
         },
       })),
     });
@@ -196,8 +198,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
     const trimmed = text.trimStart();
 
-    // Slash command trigger
-    if (trimmed === "/" && !palette.visible) {
+    // Slash command trigger (disabled in pager mode)
+    if (trimmed === "/" && !palette.visible && !pager.active) {
       openSlashCommands();
       return;
     }
@@ -245,6 +247,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
     if (palette.visible) return;
 
     const text = textareaRef?.plainText ?? "";
+
+    // Pager mode: notes auto-save on navigation, ignore Enter submit
+    if (pager.active) {
+      return;
+    }
+
     if (!text.trim()) return;
 
     textareaRef?.setText("");
@@ -264,12 +272,23 @@ export function createComposerController(deps: ComposerControllerDeps) {
     prevTextLength = textareaRef.plainText.length;
   }
 
+  function getTextareaText(): string {
+    return textareaRef?.plainText ?? "";
+  }
+
+  function setTextareaText(text: string) {
+    textareaRef?.setText(text);
+    prevTextLength = text.length;
+  }
+
   return {
     palette,
     setTextarea,
     handleTextChange,
     handleSubmit,
     insertText,
+    getTextareaText,
+    setTextareaText,
   };
 }
 

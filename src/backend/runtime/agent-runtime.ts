@@ -32,6 +32,7 @@ export type AgentRuntimeEvent =
   | { type: "session_changed"; session: LoadedSession }
   | { type: "panel"; panel: RuntimePanelState }
   | { type: "tool_completed" }
+  | { type: "turn_complete"; messages: AgentMessage[] }
   | { type: "error"; title: string; lines: string[] };
 
 export type AgentRuntime = {
@@ -169,6 +170,7 @@ export async function createAgentRuntime(initialSession: LoadedSession | null): 
         emitMessages();
         emitStatus();
         emit({ type: "panel", panel: panelIdle() });
+        emit({ type: "turn_complete", messages: [...agentSession.messages] });
         break;
       default:
         break;
