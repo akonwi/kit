@@ -1,10 +1,14 @@
+import { createSignal } from "solid-js";
 import type { AppState } from "../state/app-state";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
+import { InlinePicker } from "./InlinePicker";
 import { PendingSlot } from "./PendingSlot";
 import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
+
+const STATUS_BAR_HEIGHT = 1;
 
 export type AppShellProps = {
   state: AppState;
@@ -12,6 +16,8 @@ export type AppShellProps = {
 };
 
 export function AppShell(props: AppShellProps) {
+  const [dockHeight, setDockHeight] = createSignal(3);
+
   return (
     <box
       width="100%"
@@ -26,9 +32,14 @@ export function AppShell(props: AppShellProps) {
           cwd={props.state.footerStatus.cwd}
           sessionName={props.state.sessionMeta.sessionName}
           controller={props.controller}
+          onHeightChange={setDockHeight}
         />
         <BottomStatusBar status={props.state.footerStatus} />
       </box>
+      <InlinePicker
+        palette={props.controller.palette}
+        bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
+      />
     </box>
   );
 }
