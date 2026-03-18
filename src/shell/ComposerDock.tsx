@@ -170,8 +170,8 @@ export function ComposerDock(props: ComposerDockProps) {
           minHeight={1}
           placeholder={placeholder()}
           placeholderColor={theme.textPlaceholder}
-          backgroundColor={theme.bgSurface}
-          focusedBackgroundColor={theme.bgSurface}
+          backgroundColor={theme.bg}
+          focusedBackgroundColor={theme.bg}
           textColor={theme.textPrimary}
           focusedTextColor={theme.textPrimary}
           cursorColor={theme.cursor}
