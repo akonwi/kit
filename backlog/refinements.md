@@ -13,3 +13,8 @@ Deferred refinements that don't block shipping but should be revisited.
 ## Runtime / status
 
 - [x] Decide what bell/speech/runtime indicators belong in the new app
+
+## Features to port
+
+- [ ] Auto session naming — generate a short title after agent turns (currently done by pi-kit extension via `pi -p`)
+- [ ] Subagent tool — parallel/chained task delegation via child processes (currently registered by subagent extension)
