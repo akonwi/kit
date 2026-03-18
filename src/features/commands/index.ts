@@ -1,6 +1,7 @@
 export type { Command, CommandContext } from "./types";
 
 import type { Command } from "./types";
+import { cdCommand } from "./cd";
 import { newCommand } from "./new";
 import { modelCommand } from "./model";
 import { thinkingCommand } from "./thinking";
@@ -12,6 +13,7 @@ import { pagerCommand } from "./pager";
 import { quitCommand } from "./quit";
 
 export const COMMANDS: Command[] = [
+	cdCommand,
 	newCommand,
 	modelCommand,
 	thinkingCommand,
