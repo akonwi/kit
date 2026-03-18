@@ -1,13 +1,16 @@
+import { createSignal } from "solid-js";
 import type { FooterStatusState } from "../state/app-state";
 import { theme } from "./theme";
 
-const SHADE_CHARS = "░▒▓█";
+const BORDER_CHAR = "─";
+const BLUE = "#5599dd";
+const ORANGE = "#dd8833";
+const RED = "#dd3333";
 
-function contextBlock(pct: string): string {
-  const n = parseInt(pct, 10);
-  if (isNaN(n)) return "░";
-  const idx = Math.min(Math.floor((n / 100) * SHADE_CHARS.length), SHADE_CHARS.length - 1);
-  return SHADE_CHARS[idx];
+function progressColor(pct: number): string {
+  if (pct > 80) return RED;
+  if (pct > 77) return ORANGE;
+  return BLUE;
 }
 
 export type BottomStatusBarProps = {
@@ -15,21 +18,39 @@ export type BottomStatusBarProps = {
 };
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
+  const [barWidth, setBarWidth] = createSignal(80);
+  let boxRef: { width: number } | undefined;
+
+  const pct = () => {
+    const n = parseInt(props.status.contextPct, 10);
+    return isNaN(n) ? 0 : n;
+  };
+
+  const filledWidth = () => Math.round((pct() / 100) * barWidth());
+  const emptyWidth = () => barWidth() - filledWidth();
+
   const bell = () => props.status.bellsEnabled ? "🔔" : "🔕";
   const speech = () => props.status.speechEnabled ? "🗣" : "🤫";
 
   return (
     <box
       flexShrink={0}
-      border
-      borderColor={theme.borderStatus}
-      paddingX={1}
-      flexDirection="row"
-      justifyContent="space-between"
+      flexDirection="column"
+      ref={(r) => { boxRef = r as typeof boxRef; }}
+      onSizeChange={() => { if (boxRef) setBarWidth(boxRef.width); }}
     >
-      <text fg={theme.textMuted}>
-        {props.status.model} ({props.status.thinkingLevel}) {contextBlock(props.status.contextPct)}{props.status.contextPct}  {bell()} {speech()}
-      </text>
+      {/* Progress border */}
+      <box flexDirection="row" flexShrink={0}>
+        <text fg={progressColor(pct())}>{BORDER_CHAR.repeat(filledWidth())}</text>
+        <text fg={theme.borderStatus}>{BORDER_CHAR.repeat(emptyWidth())}</text>
+      </box>
+
+      {/* Status content */}
+      <box paddingX={1}>
+        <text fg={theme.textMuted}>
+          {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}  {bell()} {speech()}
+        </text>
+      </box>
     </box>
   );
 }
