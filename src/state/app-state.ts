@@ -28,8 +28,15 @@ export type SessionMeta = {
 	hasSession: boolean;
 };
 
+export type AppError = {
+	title: string;
+	lines: string[];
+	timestamp: number;
+};
+
 export type AppState = {
 	messages: AgentMessage[];
+	errors: AppError[];
 	panel: PanelState;
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
@@ -103,6 +110,7 @@ export function createAppState(
 
 	const [state, setState] = createStore<AppState>({
 		messages,
+		errors: [],
 		panel: { pending: false, title: "" },
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
@@ -143,7 +151,11 @@ export function createAppState(
 				}
 				break;
 			case "error":
-				console.error(event);
+				setState("errors", [...state.errors, {
+					title: event.title,
+					lines: event.lines,
+					timestamp: Date.now(),
+				}]);
 				break;
 		}
 	});

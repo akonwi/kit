@@ -44,7 +44,7 @@ export function AppShell(props: AppShellProps) {
         <PagerView pager={props.pager} />
       </Show>
       <Show when={!props.pager.active && !props.wizard.active}>
-        <TranscriptPane messages={props.state.messages} />
+        <TranscriptPane messages={props.state.messages} errors={props.state.errors} />
       </Show>
 
       {/* Dock area — composer or wizard input */}

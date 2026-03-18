@@ -24,8 +24,11 @@ import { syntaxStyle, theme } from "./theme";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
+import type { AppError } from "../state/app-state";
+
 export type TranscriptPaneProps = {
   messages: AgentMessage[];
+  errors?: AppError[];
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -320,6 +323,21 @@ function isStandaloneMessage(msg: AgentMessage): boolean {
   return msg.role !== "toolResult";
 }
 
+function ErrorEntry(props: { error: AppError }) {
+  return (
+    <box
+      border={["left"] as any}
+      borderColor={theme.errorText}
+      paddingLeft={1}
+      flexDirection="column"
+      gap={0}
+      width="100%"
+    >
+      <text fg={theme.errorText}>{props.error.title}: {props.error.lines.join("\n")}</text>
+    </box>
+  );
+}
+
 function MessageEntry(props: {
   msg: AgentMessage;
   toolResults: Map<string, ToolResultMessage>;
@@ -376,6 +394,9 @@ export function TranscriptPane(props: TranscriptPaneProps) {
         </Show>
         <For each={visibleMessages()}>
           {(msg) => <MessageEntry msg={msg} toolResults={toolResults()} />}
+        </For>
+        <For each={props.errors ?? []}>
+          {(error) => <ErrorEntry error={error} />}
         </For>
       </box>
     </scrollbox>
