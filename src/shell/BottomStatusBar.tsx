@@ -32,25 +32,29 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
   const bell = () => props.status.bellsEnabled ? "🔔" : "🔕";
   const speech = () => props.status.speechEnabled ? "🗣" : "🤫";
 
+  // Inner width = box width minus 2 for side borders
+  const innerWidth = () => Math.max(0, barWidth() - 2);
+  const filled = () => Math.round((pct() / 100) * innerWidth());
+  const empty = () => innerWidth() - filled();
+
   return (
     <box
       flexShrink={0}
-      flexDirection="column"
+      border
+      borderColor={theme.borderStatus}
+      paddingX={1}
       ref={(r) => { boxRef = r as typeof boxRef; }}
       onSizeChange={() => { if (boxRef) setBarWidth(boxRef.width); }}
     >
-      {/* Progress border */}
-      <box flexDirection="row" flexShrink={0}>
-        <text fg={progressColor(pct())}>{BORDER_CHAR.repeat(filledWidth())}</text>
-        <text fg={theme.borderStatus}>{BORDER_CHAR.repeat(emptyWidth())}</text>
-      </box>
+      {/* Progress overlay on top border */}
+      <text position="absolute" top={0} left={1} fg={progressColor(pct())}>
+        {BORDER_CHAR.repeat(filled())}
+      </text>
 
       {/* Status content */}
-      <box paddingX={1}>
-        <text fg={theme.textMuted}>
-          {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}  {bell()} {speech()}
-        </text>
-      </box>
+      <text fg={theme.textMuted}>
+        {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}  {bell()} {speech()}
+      </text>
     </box>
   );
 }
