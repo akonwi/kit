@@ -25,7 +25,7 @@ export const cdCommand: Command = {
 					: resolve(currentCwd, raw);
 
 				if (!existsSync(expanded)) {
-					console.error(`cd: directory not found: ${expanded}`);
+					runtime.emitError("cd", [`Directory not found: ${expanded}`]);
 					return;
 				}
 
@@ -42,9 +42,12 @@ export const cdCommand: Command = {
 					// 3. Reload to recreate tools with new cwd
 					await agentSession.reload();
 
-					console.log(`cd: changed to ${expanded}`);
+					// 4. Refresh status bar (cwd + git info)
+					runtime.refreshStatus();
 				} catch (err) {
-					console.error(`cd failed: ${err}`);
+					runtime.emitError("cd", [
+						`Failed to change directory: ${err instanceof Error ? err.message : String(err)}`,
+					]);
 				}
 			},
 		});

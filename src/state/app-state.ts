@@ -65,6 +65,7 @@ function applyRuntimeStatus(
 ): FooterStatusState {
 	return {
 		...current,
+		cwd: formatCwd(process.cwd()),
 		model: status.model,
 		thinkingLevel: status.thinkingLevel,
 		contextPct: status.contextPct,

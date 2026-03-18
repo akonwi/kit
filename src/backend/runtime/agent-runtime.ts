@@ -70,6 +70,8 @@ export type AgentRuntime = {
 	deleteSession(sessionPath: string): Promise<void>;
 	showPanel(title: string): void;
 	hidePanel(): void;
+	refreshStatus(): void;
+	emitError(title: string, lines: string[]): void;
 	onQuit(handler: () => void): void;
 	quit(): void;
 	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
@@ -374,6 +376,12 @@ export async function createAgentRuntime(
 		},
 		hidePanel() {
 			emit({ type: "panel", panel: panelIdle() });
+		},
+		refreshStatus() {
+			emitStatus();
+		},
+		emitError(title: string, lines: string[]) {
+			emit({ type: "error", title, lines });
 		},
 		onQuit(handler: () => void) {
 			quitHandler = handler;
