@@ -90,23 +90,6 @@ function panelIdle(): RuntimePanelState {
 	return { pending: false, title: "" };
 }
 
-function summarizeToolStart(toolName: string, args: unknown): string {
-	if (args && typeof args === "object") {
-		const record = args as Record<string, unknown>;
-		if (typeof record.command === "string" && record.command.trim()) {
-			return `Running ${toolName}: ${record.command}`;
-		}
-		if (typeof record.path === "string" && record.path.trim()) {
-			return `Running ${toolName}: ${record.path}`;
-		}
-	}
-	return `Running ${toolName}...`;
-}
-
-function summarizeToolEnd(toolName: string, isError: boolean): string {
-	return isError ? `✗ ${toolName} failed` : `✓ ${toolName} finished`;
-}
-
 function defaultRuntimeError(error: unknown): {
 	title: string;
 	lines: string[];
@@ -213,16 +196,8 @@ export async function createAgentRuntime(
 				emitStatus();
 				break;
 			case "tool_execution_start":
-				emit({
-					type: "panel",
-					panel: panelActive(summarizeToolStart(event.toolName, event.args)),
-				});
 				break;
 			case "tool_execution_end":
-				emit({
-					type: "panel",
-					panel: panelActive(summarizeToolEnd(event.toolName, event.isError)),
-				});
 				emit({ type: "tool_completed" });
 				break;
 			case "agent_end":
