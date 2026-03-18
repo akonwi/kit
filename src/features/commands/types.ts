@@ -6,6 +6,7 @@ export type CommandContext = {
 	runtime: AgentRuntime;
 	palette: PaletteManager;
 	pager: PagerController;
+	addNotice: (variant: "error" | "info", title: string, lines: string[]) => void;
 };
 
 export type Command = {

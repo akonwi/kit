@@ -46,10 +46,11 @@ export type ComposerControllerDeps = {
   fileIndex: FileIndex;
   threadIndex: ThreadIndex | null;
   pager: PagerController;
+  addNotice: (variant: "error" | "info", title: string, lines: string[]) => void;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-  const { runtime, fileIndex, threadIndex, pager } = deps;
+  const { runtime, fileIndex, threadIndex, pager, addNotice } = deps;
   const palette: PaletteManager = createPaletteManager();
 
   let textareaRef: TextareaHandle | undefined;
@@ -101,7 +102,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
           textareaRef?.setText("");
           prevTextLength = 0;
           ctx.dismiss();
-          cmd.execute({ runtime, palette, pager });
+          cmd.execute({ runtime, palette, pager, addNotice });
         },
       })),
     });

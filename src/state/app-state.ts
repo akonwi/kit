@@ -30,7 +30,8 @@ export type SessionMeta = {
 	hasSession: boolean;
 };
 
-export type AppError = {
+export type AppNotice = {
+	variant: "error" | "info";
 	title: string;
 	lines: string[];
 	timestamp: number;
@@ -38,7 +39,7 @@ export type AppError = {
 
 export type AppState = {
 	messages: AgentMessage[];
-	errors: AppError[];
+	notices: AppNotice[];
 	panel: PanelState;
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
@@ -114,7 +115,7 @@ export function createAppState(
 
 	const [state, setState] = createStore<AppState>({
 		messages,
-		errors: [],
+		notices: [],
 		panel: { pending: false, title: "" },
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
@@ -155,7 +156,8 @@ export function createAppState(
 				}
 				break;
 			case "error":
-				setState("errors", [...state.errors, {
+				setState("notices", [...state.notices, {
+					variant: "error",
 					title: event.title,
 					lines: event.lines,
 					timestamp: Date.now(),
@@ -171,10 +173,15 @@ export function createAppState(
 		setState("footerStatus", "speechEnabled", speech);
 	}
 
+	function addNotice(variant: "error" | "info", title: string, lines: string[]) {
+		setState("notices", [...state.notices, { variant, title, lines, timestamp: Date.now() }]);
+	}
+
 	return {
 		state,
 		fileIndex,
 		threadIndex,
 		setNotificationStatus,
+		addNotice,
 	};
 }

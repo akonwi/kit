@@ -24,11 +24,11 @@ import { syntaxStyle, theme } from "./theme";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
-import type { AppError } from "../state/app-state";
+import type { AppNotice } from "../state/app-state";
 
 export type TranscriptPaneProps = {
   messages: AgentMessage[];
-  errors?: AppError[];
+  notices?: AppNotice[];
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -323,17 +323,18 @@ function isStandaloneMessage(msg: AgentMessage): boolean {
   return msg.role !== "toolResult";
 }
 
-function ErrorEntry(props: { error: AppError }) {
+function NoticeEntry(props: { notice: AppNotice }) {
+  const color = () => props.notice.variant === "error" ? theme.errorText : theme.textMuted;
   return (
     <box
       border={["left"] as any}
-      borderColor={theme.errorText}
+      borderColor={color()}
       paddingLeft={1}
       flexDirection="column"
       gap={0}
       width="100%"
     >
-      <text fg={theme.errorText}>{props.error.title}: {props.error.lines.join("\n")}</text>
+      <text fg={color()}>{props.notice.title}: {props.notice.lines.join("\n")}</text>
     </box>
   );
 }
@@ -395,8 +396,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
         <For each={visibleMessages()}>
           {(msg) => <MessageEntry msg={msg} toolResults={toolResults()} />}
         </For>
-        <For each={props.errors ?? []}>
-          {(error) => <ErrorEntry error={error} />}
+        <For each={props.notices ?? []}>
+          {(notice) => <NoticeEntry notice={notice} />}
         </For>
       </box>
     </scrollbox>

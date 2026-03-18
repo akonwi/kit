@@ -55,6 +55,7 @@ export function App(props: AppProps) {
     fileIndex: app.fileIndex,
     threadIndex: app.threadIndex,
     pager,
+    addNotice: app.addNotice,
   });
 
   // Auto-activate pager when agent finishes a turn with 2+ sections
