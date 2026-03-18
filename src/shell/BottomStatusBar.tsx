@@ -1,13 +1,13 @@
 import type { FooterStatusState } from "../state/app-state";
 import { theme } from "./theme";
 
-const BLOCK_CHARS = "▁▂▃▄▅▆▇█";
+const SHADE_CHARS = "░▒▓█";
 
 function contextBlock(pct: string): string {
   const n = parseInt(pct, 10);
-  if (isNaN(n)) return "▁";
-  const idx = Math.min(Math.floor((n / 100) * BLOCK_CHARS.length), BLOCK_CHARS.length - 1);
-  return BLOCK_CHARS[idx];
+  if (isNaN(n)) return "░";
+  const idx = Math.min(Math.floor((n / 100) * SHADE_CHARS.length), SHADE_CHARS.length - 1);
+  return SHADE_CHARS[idx];
 }
 
 export type BottomStatusBarProps = {
