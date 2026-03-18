@@ -42,7 +42,13 @@ export function App(props: AppProps) {
 
   // Notification config — mutable ref shared with /bells and /speech commands
   const configRef = { current: props.notificationConfig };
-  setNotificationConfigRef(configRef);
+  setNotificationConfigRef(configRef, (config) => {
+    app.setNotificationStatus(config.bells.enabled, config.speech.enabled);
+    saveNotificationConfig(config).catch(() => {});
+  });
+
+  // Set initial notification status in footer
+  app.setNotificationStatus(configRef.current.bells.enabled, configRef.current.speech.enabled);
 
   const controller = createComposerController({
     runtime: props.runtime,
@@ -79,7 +85,8 @@ export function App(props: AppProps) {
         });
       }
 
-      // Persist config changes (from /bells or /speech toggle)
+      // Sync notification status to footer and persist config
+      app.setNotificationStatus(config.bells.enabled, config.speech.enabled);
       saveNotificationConfig(config).catch(() => {});
     }
   });

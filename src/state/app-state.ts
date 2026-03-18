@@ -19,6 +19,8 @@ export type FooterStatusState = {
 	contextPct: string;
 	gitBranch: string | null;
 	gitDirty: boolean;
+	bellsEnabled: boolean;
+	speechEnabled: boolean;
 };
 
 export type SessionMeta = {
@@ -61,9 +63,11 @@ function deriveFooterStatus(
 			contextPct: status.contextPct,
 			gitBranch: status.git.branch,
 			gitDirty: status.git.dirty,
+			bellsEnabled: true,
+			speechEnabled: true,
 		};
 	}
-	return { model: "no-model", thinkingLevel: "off", contextPct: "–", gitBranch: null, gitDirty: false };
+	return { model: "no-model", thinkingLevel: "off", contextPct: "–", gitBranch: null, gitDirty: false, bellsEnabled: true, speechEnabled: true };
 }
 
 function applyRuntimeStatus(
@@ -162,9 +166,15 @@ export function createAppState(
 
 	// ── Debug ─────────────────────────────────────────────────────
 
+	function setNotificationStatus(bells: boolean, speech: boolean) {
+		setState("footerStatus", "bellsEnabled", bells);
+		setState("footerStatus", "speechEnabled", speech);
+	}
+
 	return {
 		state,
 		fileIndex,
 		threadIndex,
+		setNotificationStatus,
 	};
 }
