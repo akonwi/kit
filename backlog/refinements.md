@@ -1,6 +1,6 @@
 # Refinements Backlog
 
-These are important but intentionally deferred refinements.
+Deferred refinements that don't block shipping but should be revisited.
 
 ## Session / cwd behavior
 
@@ -10,23 +10,8 @@ These are important but intentionally deferred refinements.
 
 ## Transcript rendering
 
-- [x] Markdown rendering for user and assistant messages (tree-sitter, concealed syntax)
-- [x] Syntax-highlighted code blocks with language injection (ts, tsx, js, jsx)
-- [x] Unified theme for user and assistant markdown
-- [x] Tool calls and results merged into single collapsible entries
-- [x] Thinking omitted from transcript, streamed through PendingSlot
-- [x] Collapsible tool output (click to expand/collapse)
 - [ ] Strikethrough for canceled/aborted turns (strike through user message + all resulting assistant/tool messages, not just the assistant message with stopReason="aborted")
-
-## Shell UX
-
-- [x] Keyboard navigation across transcript, debug panel, overlays, and composer
-- [x] Overlay stack model for pickers/dialogs/menus
-- [x] Resize behavior for dock and optional panels
-- [x] Palette `onDismiss` callback for cleanup on escape/dismiss
 
 ## Runtime / status
 
-- [x] Replace placeholder context % with real runtime/session usage
-- [x] Replace placeholder repo summary with real repo/runtime state
 - [ ] Decide what bell/speech/runtime indicators belong in the new app
