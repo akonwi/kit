@@ -12,4 +12,4 @@ Deferred refinements that don't block shipping but should be revisited.
 
 ## Runtime / status
 
-- [ ] Decide what bell/speech/runtime indicators belong in the new app
+- [x] Decide what bell/speech/runtime indicators belong in the new app
