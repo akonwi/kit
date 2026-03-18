@@ -8,7 +8,6 @@ Phases 0–3 are complete. See `docs/architecture/custom-shell.md` for full hist
 
 ## Phase 4 — Product refinement (1 remaining)
 
-- [ ] Review flows and other custom affordances
 
 ## Phase 5 — Optional extension architecture
 
