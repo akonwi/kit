@@ -11,6 +11,7 @@ import {
   type LoadedSession,
 } from "../compat/sessions";
 import { loadSettings } from "../compat/settings/load-settings";
+import { loadNotificationConfig } from "../features/notification-config";
 import { App } from "./App";
 
 function loadSession(): LoadedSession | null {
@@ -81,6 +82,7 @@ export async function bootstrap(): Promise<void> {
   });
 
   const settings = await loadSettings();
+  const notificationConfig = await loadNotificationConfig();
   const session = loadSession();
   const wizard = createWizardController();
   const guidedQuestionsTool = createGuidedQuestionsTool(wizard);
@@ -106,7 +108,7 @@ export async function bootstrap(): Promise<void> {
   });
 
   render(
-    () => <App settings={settings} session={session} runtime={runtime} wizard={wizard} />,
+    () => <App settings={settings} session={session} runtime={runtime} wizard={wizard} notificationConfig={notificationConfig} />,
     renderer,
   );
 }

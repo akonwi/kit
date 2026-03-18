@@ -1,6 +1,11 @@
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentRuntime } from "../backend";
 import type { LoadedSession } from "../compat/sessions";
 import type { LoadedSettings } from "../compat/settings/load-settings";
+import { setNotificationConfigRef } from "../features/commands/bells-speech";
+import { loadNotificationConfig, saveNotificationConfig, type NotificationConfig } from "../features/notification-config";
+import { ringBell, speak } from "../features/notifications";
 import { createPagerController } from "../features/pager";
 import type { WizardController } from "../features/wizard";
 import { AppShell } from "../shell/AppShell";
@@ -12,11 +17,32 @@ export type AppProps = {
   session: LoadedSession | null;
   runtime: AgentRuntime;
   wizard: WizardController;
+  notificationConfig: NotificationConfig;
 };
+
+function findLastAssistant(messages: AgentMessage[]): AssistantMessage | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if ("role" in msg && msg.role === "assistant") return msg as AssistantMessage;
+  }
+  return null;
+}
+
+function extractAssistantText(msg: AssistantMessage): string {
+  return msg.content
+    .filter((b): b is { type: "text"; text: string } => b.type === "text" && "text" in b && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+}
 
 export function App(props: AppProps) {
   const app = createAppState(props.settings, props.runtime.getSession(), props.runtime);
   const pager = createPagerController(props.runtime);
+
+  // Notification config — mutable ref shared with /bells and /speech commands
+  const configRef = { current: props.notificationConfig };
+  setNotificationConfigRef(configRef);
 
   const controller = createComposerController({
     runtime: props.runtime,
@@ -29,6 +55,32 @@ export function App(props: AppProps) {
   props.runtime.subscribe((event) => {
     if (event.type === "turn_complete" && !pager.active && !props.wizard.active) {
       pager.tryActivate(event.messages);
+    }
+
+    // Bells and speech on turn complete
+    if (event.type === "turn_complete") {
+      const config = configRef.current;
+      const lastAssistant = findLastAssistant(event.messages);
+      const isError = lastAssistant != null && (
+        lastAssistant.stopReason === "error" ||
+        lastAssistant.stopReason === "aborted"
+      );
+
+      if (config.bells.enabled) {
+        ringBell(isError);
+      }
+
+      if (config.speech.enabled && lastAssistant && !isError) {
+        const text = extractAssistantText(lastAssistant);
+        const sessionId = props.runtime.getSession().sessionId;
+        speak(text, sessionId, {
+          voice: config.speech.voice ?? undefined,
+          maxChars: config.speech.maxChars,
+        });
+      }
+
+      // Persist config changes (from /bells or /speech toggle)
+      saveNotificationConfig(config).catch(() => {});
     }
   });
 
