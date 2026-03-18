@@ -35,25 +35,26 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
   // Inner width = box width minus 2 for side borders
   const innerWidth = () => Math.max(0, barWidth() - 2);
   const filled = () => Math.round((pct() / 100) * innerWidth());
-  const empty = () => innerWidth() - filled();
 
   return (
     <box
       flexShrink={0}
-      border
-      borderColor={theme.borderStatus}
-      paddingX={1}
       ref={(r) => { boxRef = r as typeof boxRef; }}
       onSizeChange={() => { if (boxRef) setBarWidth(boxRef.width); }}
     >
+      <box
+        border
+        borderColor={theme.borderStatus}
+        paddingX={1}
+      >
+        <text fg={theme.textMuted}>
+          {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}  {bell()} {speech()}
+        </text>
+      </box>
+
       {/* Progress overlay on top border */}
       <text position="absolute" top={0} left={1} fg={progressColor(pct())}>
         {BORDER_CHAR.repeat(filled())}
-      </text>
-
-      {/* Status content */}
-      <text fg={theme.textMuted}>
-        {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}  {bell()} {speech()}
       </text>
     </box>
   );
