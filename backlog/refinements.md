@@ -4,9 +4,7 @@ Deferred refinements that don't block shipping but should be revisited.
 
 ## Session / cwd behavior
 
-- [ ] Define how pi-kit should support mutable cwd during a session
-- [ ] Decide whether cwd changes should be persisted as custom session entries
-- [ ] Decide how cwd changes affect tool execution and file resolution
+- [x] Define how pi-kit should support mutable cwd during a session (deferred — see docs/decisions/mutable-cwd.md)
 
 ## Transcript rendering
 
