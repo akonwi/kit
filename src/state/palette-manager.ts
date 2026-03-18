@@ -1,4 +1,5 @@
 import { createMemo, createSignal } from "solid-js";
+import { scoreMatch } from "../features/files/score";
 import {
 	emptySnapshot,
 	snapshotFromEntry,
@@ -131,10 +132,15 @@ export function createPaletteManager() {
 		updateTop((t) => {
 			if (t.mode !== "list" || !t.filterable) return t;
 			const options = query
-				? t.allOptions.filter((o) => {
-						const q = query.toLowerCase();
-						return o.name.toLowerCase().includes(q) || o.description.toLowerCase().includes(q);
-					})
+				? t.allOptions
+						.map((o) => {
+							const nameScore = scoreMatch(o.name, query);
+							const descScore = scoreMatch(o.description, query);
+							return { option: o, score: Math.max(nameScore, descScore) };
+						})
+						.filter((e) => e.score > 0)
+						.sort((a, b) => b.score - a.score)
+						.map((e) => e.option)
 				: t.allOptions;
 			return { ...t, filterText: query, options, selectedIndex: 0 };
 		});
