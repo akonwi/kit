@@ -7,6 +7,7 @@ import { setNotificationConfigRef } from "../features/commands/bells-speech";
 import { loadNotificationConfig, saveNotificationConfig, type NotificationConfig } from "../features/notification-config";
 import { ringBell, speak } from "../features/notifications";
 import { createPagerController } from "../features/pager";
+import { maybeAutoNameSession } from "../features/session-naming/auto-name";
 import type { WizardController } from "../features/wizard";
 import { AppShell } from "../shell/AppShell";
 import { createComposerController } from "../shell/composer-controller";
@@ -85,6 +86,8 @@ export function App(props: AppProps) {
           maxChars: config.speech.maxChars,
         });
       }
+
+      void maybeAutoNameSession(props.runtime, event.messages);
 
       // Sync notification status to footer and persist config
       app.setNotificationStatus(config.bells.enabled, config.speech.enabled);
