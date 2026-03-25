@@ -63,7 +63,6 @@ export function App(props: AppProps) {
       claudeCommands = discoverClaudeCommands(process.cwd());
     },
   });
-  const extraCommands = [reloadCommand, ...claudeCommands];
   const controller = createComposerController({
     runtime: props.runtime,
     fileIndex: app.fileIndex,
@@ -71,7 +70,7 @@ export function App(props: AppProps) {
     threadIndex: app.threadIndex,
     pager,
     addNotice: app.addNotice,
-    extraCommands,
+    getExtraCommands: () => [reloadCommand, ...claudeCommands],
   });
 
   // Auto-activate pager when agent finishes a turn with 2+ sections

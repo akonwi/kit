@@ -49,14 +49,11 @@ export type ComposerControllerDeps = {
   threadIndex: ThreadIndex | null;
   pager: PagerController;
   addNotice: (variant: "error" | "info", title: string, lines: string[]) => void;
-  extraCommands?: Command[];
+  getExtraCommands?: () => Command[];
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-  const { runtime, fileIndex, agentIndex, threadIndex, pager, addNotice, extraCommands } = deps;
-  const allCommands: Command[] = extraCommands
-    ? [...COMMANDS, ...extraCommands]
-    : COMMANDS;
+  const { runtime, fileIndex, agentIndex, threadIndex, pager, addNotice, getExtraCommands } = deps;
   const palette: PaletteManager = createPaletteManager();
 
   let textareaRef: TextareaHandle | undefined;
@@ -98,6 +95,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
   // ── Slash commands ──────────────────────────────────────────────
 
   function openSlashCommands() {
+    const extra = getExtraCommands?.() ?? [];
+    const allCommands = [...COMMANDS, ...extra];
     palette.show({
       filterable: true,
       options: allCommands.map((cmd) => ({
