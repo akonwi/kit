@@ -31,6 +31,65 @@ export type TranscriptPaneProps = {
   notices?: AppNotice[];
 };
 
+// ── Turn grouping ────────────────────────────────────────────────────
+
+/**
+ * A turn starts at each user message and includes all subsequent
+ * assistant, toolResult, and bashExecution messages until the next
+ * user message. If the first messages are non-user (e.g., restored
+ * session), they form a turn with `user: null`.
+ *
+ * `aborted` is true when any assistant in the turn has stopReason "aborted".
+ */
+export type TranscriptTurn = {
+  user: UserMessage | null;
+  entries: AgentMessage[];
+  toolResults: Map<string, ToolResultMessage>;
+  aborted: boolean;
+};
+
+function groupIntoTurns(messages: AgentMessage[]): TranscriptTurn[] {
+  const turns: TranscriptTurn[] = [];
+  let current: TranscriptTurn | null = null;
+
+  for (const msg of messages) {
+    if (!("role" in msg)) continue;
+
+    if (msg.role === "user") {
+      // Start a new turn
+      current = {
+        user: msg as UserMessage,
+        entries: [],
+        toolResults: new Map(),
+        aborted: false,
+      };
+      turns.push(current);
+    } else {
+      // Append to current turn, or create an initial userless turn
+      if (!current) {
+        current = { user: null, entries: [], toolResults: new Map(), aborted: false };
+        turns.push(current);
+      }
+
+      current.entries.push(msg);
+
+      if (msg.role === "toolResult") {
+        const tr = msg as ToolResultMessage;
+        current.toolResults.set(tr.toolCallId, tr);
+      }
+
+      if (
+        msg.role === "assistant" &&
+        (msg as AssistantMessage).stopReason === "aborted"
+      ) {
+        current.aborted = true;
+      }
+    }
+  }
+
+  return turns;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────
 
 function extractUserText(msg: UserMessage): string {
@@ -84,10 +143,6 @@ function formatToolArgs(args?: Record<string, unknown>): string {
 
 function isAssistantError(msg: AssistantMessage): boolean {
   return msg.stopReason === "error" && !!msg.errorMessage;
-}
-
-function isBashExecution(msg: AgentMessage): msg is BashExecutionMessage {
-  return "role" in msg && msg.role === "bashExecution";
 }
 
 // ── Spinner ──────────────────────────────────────────────────────────
@@ -299,30 +354,6 @@ function AssistantEntry(props: {
 
 // ── Main component ───────────────────────────────────────────────────
 
-/**
- * Build a map from toolCallId → ToolResultMessage for pairing
- * tool calls with their results.
- */
-function buildToolResultMap(messages: AgentMessage[]): Map<string, ToolResultMessage> {
-  const map = new Map<string, ToolResultMessage>();
-  for (const msg of messages) {
-    if ("role" in msg && msg.role === "toolResult") {
-      const tr = msg as ToolResultMessage;
-      map.set(tr.toolCallId, tr);
-    }
-  }
-  return map;
-}
-
-/**
- * Filter out standalone toolResult messages — they're rendered
- * inline within their parent AssistantEntry.
- */
-function isStandaloneMessage(msg: AgentMessage): boolean {
-  if (!("role" in msg)) return false;
-  return msg.role !== "toolResult";
-}
-
 function NoticeEntry(props: { notice: AppNotice }) {
   const color = () => props.notice.variant === "error" ? theme.errorText : theme.textMuted;
   return (
@@ -339,23 +370,24 @@ function NoticeEntry(props: { notice: AppNotice }) {
   );
 }
 
-function MessageEntry(props: {
+/**
+ * Render a single non-user, non-toolResult entry within a turn.
+ * toolResult messages are rendered inline by AssistantEntry.
+ */
+function TurnEntryItem(props: {
   msg: AgentMessage;
   toolResults: Map<string, ToolResultMessage>;
+  aborted: boolean;
 }) {
   if (!("role" in props.msg)) return null;
 
   switch (props.msg.role) {
-    case "user":
-      return <UserEntry msg={props.msg as UserMessage} />;
     case "assistant":
-      const assistant = props.msg as AssistantMessage;
-      const aborted = assistant.stopReason === "aborted";
       return (
         <AssistantEntry
-          msg={assistant}
+          msg={props.msg as AssistantMessage}
           toolResults={props.toolResults}
-          aborted={aborted}
+          aborted={props.aborted}
         />
       );
     case "bashExecution":
@@ -365,9 +397,30 @@ function MessageEntry(props: {
   }
 }
 
+/**
+ * Render a complete turn: user message + all resulting entries.
+ */
+function TurnEntry(props: { turn: TranscriptTurn }) {
+  return (
+    <box flexDirection="column" gap={0} width="100%">
+      <Show when={props.turn.user}>
+        <UserEntry msg={props.turn.user!} aborted={props.turn.aborted} />
+      </Show>
+      <For each={props.turn.entries.filter((m) => "role" in m && m.role !== "toolResult")}>
+        {(msg) => (
+          <TurnEntryItem
+            msg={msg}
+            toolResults={props.turn.toolResults}
+            aborted={props.turn.aborted}
+          />
+        )}
+      </For>
+    </box>
+  );
+}
+
 export function TranscriptPane(props: TranscriptPaneProps) {
-  const toolResults = () => buildToolResultMap(props.messages);
-  const visibleMessages = () => props.messages.filter(isStandaloneMessage);
+  const turns = () => groupIntoTurns(props.messages);
 
   return (
     <scrollbox
@@ -393,8 +446,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
             <text fg={theme.textSecondary}>Start a conversation below.</text>
           </box>
         </Show>
-        <For each={visibleMessages()}>
-          {(msg) => <MessageEntry msg={msg} toolResults={toolResults()} />}
+        <For each={turns()}>
+          {(turn) => <TurnEntry turn={turn} />}
         </For>
         <For each={props.notices ?? []}>
           {(notice) => <NoticeEntry notice={notice} />}

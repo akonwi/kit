@@ -8,7 +8,7 @@ Deferred refinements that don't block shipping but should be revisited.
 
 ## Transcript rendering
 
-- [ ] Strikethrough for canceled/aborted turns (strike through user message + all resulting assistant/tool messages, not just the assistant message with stopReason="aborted")
+- [x] Strikethrough for canceled/aborted turns (turn-based grouping: user message + all resulting assistant/tool messages struck through together)
 
 ## Runtime / status
 
