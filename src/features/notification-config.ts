@@ -1,14 +1,14 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
+import { getPiKitPaths } from "../compat/paths";
 
 export type NotificationConfig = {
   bells: { enabled: boolean };
   speech: { enabled: boolean; maxChars: number; voice: string | null };
 };
 
-const CONFIG_PATH = path.join(homedir(), ".pi", "agent", "kit.json");
+const CONFIG_PATH = getPiKitPaths().notificationConfigPath;
 
 const DEFAULTS: NotificationConfig = {
   bells: { enabled: true },

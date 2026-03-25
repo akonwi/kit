@@ -4,9 +4,9 @@ Phases 0–3 are complete. See `docs/architecture/custom-shell.md` for full hist
 
 ## Phase 2 — Pi compatibility baseline (1 remaining)
 
-- [ ] Define storage/path conventions beyond current compatibility helpers
+- [x] Define storage/path conventions beyond current compatibility helpers (see docs/decisions/storage-paths.md)
 
-## Phase 4 — Product refinement (1 remaining)
+## Phase 4 — Product refinement (done)
 
 
 ## Phase 5 — Optional extension architecture
