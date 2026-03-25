@@ -132,7 +132,6 @@ function makeMinimalResourceLoader(systemPrompt: string): ResourceLoader {
     getAgentsFiles: () => ({ agentsFiles: [] }),
     getSystemPrompt: () => systemPrompt || "You are a helpful assistant. Be concise.",
     getAppendSystemPrompt: () => [],
-    getPathMetadata: () => new Map(),
     extendResources: () => {},
     reload: async () => {},
   };
