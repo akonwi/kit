@@ -17,4 +17,4 @@ Deferred refinements that don't block shipping but should be revisited.
 ## Features to port
 
 - [x] Auto session naming — generate a short title after agent turns (ported in-process via current model)
-- [ ] Subagent tool — parallel/chained task delegation via child processes (currently registered by subagent extension)
+- [x] Subagent tool — parallel/chained task delegation via in-process AgentSession instances

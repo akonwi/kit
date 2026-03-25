@@ -3,6 +3,7 @@ import { parseArgs } from "node:util";
 import { ConsolePosition, createCliRenderer, getTreeSitterClient } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
+import { createSubagentTool } from "../features/subagent";
 import { createWizardController, createGuidedQuestionsTool } from "../features/wizard";
 import {
   openRecentSession,
@@ -86,9 +87,21 @@ export async function bootstrap(): Promise<void> {
   const session = loadSession();
   const wizard = createWizardController();
   const guidedQuestionsTool = createGuidedQuestionsTool(wizard);
-  const runtime = await createAgentRuntime(session, {
-    customTools: [guidedQuestionsTool],
+
+  // Subagent tool deps are resolved lazily to break the circular dependency:
+  // runtime creation needs the tool, but the tool needs runtime for model/registry access.
+  type Runtime = Awaited<ReturnType<typeof createAgentRuntime>>;
+  const runtimeRef: { current: Runtime | null } = { current: null };
+  const subagentTool = createSubagentTool({
+    getModelRegistry: () => runtimeRef.current!.getAgentSession().modelRegistry,
+    getParentModel: () => runtimeRef.current?.getAgentSession().model,
+    getCwd: () => process.cwd(),
   });
+
+  const runtime = await createAgentRuntime(session, {
+    customTools: [guidedQuestionsTool, subagentTool],
+  });
+  runtimeRef.current = runtime;
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGBREAK", "SIGPIPE", "SIGBUS", "SIGFPE"],
