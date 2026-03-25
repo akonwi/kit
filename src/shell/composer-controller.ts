@@ -8,6 +8,7 @@
 import type { AgentRuntime } from "../backend";
 import type { FileIndex } from "../features/files";
 import type { PagerController } from "../features/pager";
+import type { AgentIndex } from "../features/subagent";
 import type { ThreadIndex } from "../features/threads";
 import { COMMANDS, type Command } from "../features/commands";
 import { createPaletteManager, type PaletteManager } from "../state/palette-manager";
@@ -44,6 +45,7 @@ function findAtPrefix(text: string, cursorOffset: number): string | null {
 export type ComposerControllerDeps = {
   runtime: AgentRuntime;
   fileIndex: FileIndex;
+  agentIndex: AgentIndex | null;
   threadIndex: ThreadIndex | null;
   pager: PagerController;
   addNotice: (variant: "error" | "info", title: string, lines: string[]) => void;
@@ -51,7 +53,7 @@ export type ComposerControllerDeps = {
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-  const { runtime, fileIndex, threadIndex, pager, addNotice, extraCommands } = deps;
+  const { runtime, fileIndex, agentIndex, threadIndex, pager, addNotice, extraCommands } = deps;
   const allCommands: Command[] = extraCommands
     ? [...COMMANDS, ...extraCommands]
     : COMMANDS;
@@ -114,15 +116,19 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
   // ── File picker ─────────────────────────────────────────────────
 
-  async function openFilePicker(atPrefix: string) {
+  async function openAtPicker(atPrefix: string) {
     const query = atPrefix.slice(1);
-    const suggestions = await fileIndex.suggest(query);
-    if (suggestions.length === 0 || palette.visible) return;
+    const agentSuggestions = agentIndex?.suggest(query) ?? [];
+    const fileSuggestions = await fileIndex.suggest(query);
+
+    // Agents first, then files
+    const allSuggestions = [...agentSuggestions, ...fileSuggestions];
+    if (allSuggestions.length === 0 || palette.visible) return;
 
     filePickerActive = true;
     palette.show({
       filterable: true,
-      hint: "Select a file to reference",
+      hint: "Select an agent or file",
       onDismiss: () => {
         filePickerActive = false;
         suppressAtTrigger = true;
@@ -154,7 +160,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
           return false;
         }
       },
-      options: suggestions.map((s) => ({
+      options: allSuggestions.map((s) => ({
         name: s.name,
         description: s.description,
         value: s.value,
@@ -236,7 +242,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
       if (!suppressAtTrigger) {
         const prefix = findAtPrefix(text, cursorOffset);
         if (prefix) {
-          openFilePicker(prefix);
+          openAtPicker(prefix);
         }
       }
     }

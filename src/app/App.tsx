@@ -8,6 +8,7 @@ import { loadNotificationConfig, saveNotificationConfig, type NotificationConfig
 import { ringBell, speak } from "../features/notifications";
 import { discoverClaudeCommands } from "../features/commands/claude-commands";
 import { createPagerController } from "../features/pager";
+import { createAgentIndex } from "../features/subagent";
 import { maybeAutoNameSession } from "../features/session-naming/auto-name";
 import type { WizardController } from "../features/wizard";
 import { AppShell } from "../shell/AppShell";
@@ -53,9 +54,11 @@ export function App(props: AppProps) {
   app.setNotificationStatus(configRef.current.bells.enabled, configRef.current.speech.enabled);
 
   const claudeCommands = discoverClaudeCommands(process.cwd());
+  const agentIndex = createAgentIndex(process.cwd());
   const controller = createComposerController({
     runtime: props.runtime,
     fileIndex: app.fileIndex,
+    agentIndex,
     threadIndex: app.threadIndex,
     pager,
     addNotice: app.addNotice,

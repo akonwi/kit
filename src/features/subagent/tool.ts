@@ -107,11 +107,20 @@ export function createSubagentTool(deps: SubagentToolDeps) {
       'Default agent scope is "user" (from ~/.pi/agent/agents).',
       'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
     ].join(" "),
-    promptSnippet:
-      "Delegate tasks to specialized subagents with isolated context. " +
-      "Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder). " +
-      'Default agent scope is "user" (from ~/.pi/agent/agents). ' +
-      'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
+    get promptSnippet() {
+      const agents = discoverAgents(deps.getCwd(), "both").agents;
+      const agentList = agents.length > 0
+        ? agents.map((a) => `- ${a.name}: ${a.description}`).join("\n")
+        : "(none discovered)";
+      return (
+        "Delegate tasks to specialized subagents with isolated context. " +
+        "Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder). " +
+        'Default agent scope is "user" (from ~/.pi/agent/agents). ' +
+        'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").\n\n' +
+        "Available agents:\n" + agentList + "\n\n" +
+        "When the user references an agent with @name (e.g. @summarizer), delegate the task to that agent using this tool."
+      );
+    },
     parameters: SubagentParams,
 
     async execute(
