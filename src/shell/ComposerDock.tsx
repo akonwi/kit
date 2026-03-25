@@ -177,6 +177,8 @@ export function ComposerDock(props: ComposerDockProps) {
           cursorColor={theme.cursor}
           showCursor={!palette.visible}
           wrapMode="word"
+          maxHeight={10}
+          overflow="scroll"
           keyBindings={[
             { name: "return", action: "submit" },
             { name: "linefeed", action: "submit" },
