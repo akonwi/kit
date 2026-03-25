@@ -6,6 +6,7 @@ import type { LoadedSettings } from "../compat/settings/load-settings";
 import { setNotificationConfigRef } from "../features/commands/bells-speech";
 import { loadNotificationConfig, saveNotificationConfig, type NotificationConfig } from "../features/notification-config";
 import { ringBell, speak } from "../features/notifications";
+import { discoverClaudeCommands } from "../features/commands/claude-commands";
 import { createPagerController } from "../features/pager";
 import { maybeAutoNameSession } from "../features/session-naming/auto-name";
 import type { WizardController } from "../features/wizard";
@@ -51,12 +52,14 @@ export function App(props: AppProps) {
   // Set initial notification status in footer
   app.setNotificationStatus(configRef.current.bells.enabled, configRef.current.speech.enabled);
 
+  const claudeCommands = discoverClaudeCommands(process.cwd());
   const controller = createComposerController({
     runtime: props.runtime,
     fileIndex: app.fileIndex,
     threadIndex: app.threadIndex,
     pager,
     addNotice: app.addNotice,
+    extraCommands: claudeCommands.length > 0 ? claudeCommands : undefined,
   });
 
   // Auto-activate pager when agent finishes a turn with 2+ sections

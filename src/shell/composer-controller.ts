@@ -9,7 +9,7 @@ import type { AgentRuntime } from "../backend";
 import type { FileIndex } from "../features/files";
 import type { PagerController } from "../features/pager";
 import type { ThreadIndex } from "../features/threads";
-import { COMMANDS } from "../features/commands";
+import { COMMANDS, type Command } from "../features/commands";
 import { createPaletteManager, type PaletteManager } from "../state/palette-manager";
 
 // ── Textarea handle ─────────────────────────────────────────────────
@@ -47,10 +47,14 @@ export type ComposerControllerDeps = {
   threadIndex: ThreadIndex | null;
   pager: PagerController;
   addNotice: (variant: "error" | "info", title: string, lines: string[]) => void;
+  extraCommands?: Command[];
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-  const { runtime, fileIndex, threadIndex, pager, addNotice } = deps;
+  const { runtime, fileIndex, threadIndex, pager, addNotice, extraCommands } = deps;
+  const allCommands: Command[] = extraCommands
+    ? [...COMMANDS, ...extraCommands]
+    : COMMANDS;
   const palette: PaletteManager = createPaletteManager();
 
   let textareaRef: TextareaHandle | undefined;
@@ -94,7 +98,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
   function openSlashCommands() {
     palette.show({
       filterable: true,
-      options: COMMANDS.map((cmd) => ({
+      options: allCommands.map((cmd) => ({
         name: cmd.name,
         description: cmd.description,
         value: cmd,
