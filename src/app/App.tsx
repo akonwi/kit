@@ -22,6 +22,7 @@ export type AppProps = {
   runtime: AgentRuntime;
   wizard: WizardController;
   notificationConfig: NotificationConfig;
+  updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 };
 
 function findLastAssistant(messages: AgentMessage[]): AssistantMessage | null {
@@ -75,6 +76,10 @@ export function App(props: AppProps) {
 
   // Auto-activate pager when agent finishes a turn with 2+ sections
   props.runtime.subscribe((event) => {
+    if (event.type === "session_changed") {
+      props.updateTerminalTitle(event.session.sessionName ?? undefined, process.cwd());
+    }
+
     if (event.type === "turn_complete" && !pager.active && !props.wizard.active) {
       pager.tryActivate(event.messages);
     }

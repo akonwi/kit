@@ -13,6 +13,7 @@ import {
 } from "../compat/sessions";
 import { loadSettings } from "../compat/settings/load-settings";
 import { loadNotificationConfig } from "../features/notification-config";
+import { initTerminalTitle, updateTerminalTitle } from "../shell/terminal-title";
 import { App } from "./App";
 
 function loadSession(): LoadedSession | null {
@@ -115,13 +116,18 @@ export async function bootstrap(): Promise<void> {
       renderer.console.toggle();
     }
   });
+
+  // Terminal title — set initial and allow App to update on session name changes
+  initTerminalTitle((title) => renderer.setTerminalTitle(title));
+  updateTerminalTitle(session?.sessionName, process.cwd());
+
   runtime.onQuit(() => {
     runtime.dispose();
     renderer.destroy();
   });
 
   render(
-    () => <App settings={settings} session={session} runtime={runtime} wizard={wizard} notificationConfig={notificationConfig} />,
+    () => <App settings={settings} session={session} runtime={runtime} wizard={wizard} notificationConfig={notificationConfig} updateTerminalTitle={updateTerminalTitle} />,
     renderer,
   );
 }
