@@ -31,6 +31,9 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 
   const bell = () => props.status.bellsEnabled ? "🔔" : "🔕";
   const speech = () => props.status.speechEnabled ? "🗣" : "🤫";
+  const pending = () => props.status.pendingMessages > 0
+    ? ` 📬${props.status.pendingMessages}`
+    : "";
 
   // Inner width = box width minus 2 for side borders
   const innerWidth = () => Math.max(0, barWidth() - 2);
@@ -48,7 +51,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
         paddingX={1}
       >
         <text fg={theme.textMuted}>
-          {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}  {bell()} {speech()}
+          {props.status.model} ({props.status.thinkingLevel}) {props.status.contextPct}{pending()}  {bell()} {speech()}
         </text>
       </box>
 

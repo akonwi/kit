@@ -13,6 +13,7 @@ import { sessionsManageCommand } from "./sessions-manage";
 import { handoffCommand } from "./handoff";
 import { pagerCommand } from "./pager";
 import { quitCommand } from "./quit";
+import { steerCommand, followUpCommand } from "./steering";
 
 export const COMMANDS: Command[] = [
 	bellsCommand,
@@ -28,4 +29,6 @@ export const COMMANDS: Command[] = [
 	handoffCommand,
 	pagerCommand,
 	quitCommand,
+	steerCommand,
+	followUpCommand,
 ] as const;

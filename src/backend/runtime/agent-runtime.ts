@@ -44,6 +44,7 @@ export type AgentRuntimeEvent =
 	| { type: "panel"; panel: RuntimePanelState }
 	| { type: "tool_completed" }
 	| { type: "turn_complete"; messages: AgentMessage[] }
+	| { type: "pending_changed"; count: number }
 	| { type: "error"; title: string; lines: string[] };
 
 export type AgentRuntime = {
@@ -80,6 +81,16 @@ export type AgentRuntime = {
 	getMessages(): AgentMessage[];
 	getStatus(): RuntimeStatus;
 	dispose(): void;
+	/** Number of queued steering + follow-up messages */
+	getPendingMessageCount(): number;
+	/** Get pending steering and follow-up messages */
+	getPendingMessages(): { steering: string[]; followUp: string[] };
+	/** Queue a follow-up message (processed after agent finishes) */
+	sendFollowUp(text: string): Promise<void>;
+	/** Queue a steering message (processed after current tool calls) */
+	sendSteer(text: string): Promise<void>;
+	/** Clear all queued messages and return them */
+	clearPendingMessages(): { steering: string[]; followUp: string[] };
 };
 
 function panelActive(title: string): RuntimePanelState {
@@ -206,6 +217,7 @@ export async function createAgentRuntime(
 				emitMessages();
 				emitStatus();
 				emit({ type: "panel", panel: panelIdle() });
+				emit({ type: "pending_changed", count: agentSession.pendingMessageCount });
 				emit({ type: "turn_complete", messages: [...agentSession.messages] });
 				break;
 			default:
@@ -230,7 +242,9 @@ export async function createAgentRuntime(
 						});
 					}
 				}
-				await agentSession.sendUserMessage(finalText);
+				await agentSession.sendUserMessage(finalText, {
+					deliverAs: agentSession.isStreaming ? "steer" : undefined,
+				});
 			} catch (error) {
 				const runtimeError = defaultRuntimeError(error);
 				emit({
@@ -379,6 +393,28 @@ export async function createAgentRuntime(
 		},
 		getStatus() {
 			return snapshotStatus();
+		},
+		getPendingMessageCount(): number {
+			return agentSession.pendingMessageCount;
+		},
+		getPendingMessages(): { steering: string[]; followUp: string[] } {
+			return {
+				steering: [...agentSession.getSteeringMessages()],
+				followUp: [...agentSession.getFollowUpMessages()],
+			};
+		},
+		async sendFollowUp(text: string): Promise<void> {
+			await agentSession.followUp(text);
+			emit({ type: "pending_changed", count: agentSession.pendingMessageCount });
+		},
+		async sendSteer(text: string): Promise<void> {
+			await agentSession.steer(text);
+			emit({ type: "pending_changed", count: agentSession.pendingMessageCount });
+		},
+		clearPendingMessages(): { steering: string[]; followUp: string[] } {
+			const result = agentSession.clearQueue();
+			emit({ type: "pending_changed", count: 0 });
+			return result;
 		},
 		dispose() {
 			unsubscribeAgent();

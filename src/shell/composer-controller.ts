@@ -344,11 +344,46 @@ export function createComposerController(deps: ComposerControllerDeps) {
     runtime.quit();
   }
 
+  /** Queue the current composer text as a follow-up message. */
+  async function handleFollowUp() {
+    const text = textareaRef?.plainText ?? "";
+    if (!text.trim()) return;
+    textareaRef?.setText("");
+    prevTextLength = 0;
+    try {
+      await runtime.sendFollowUp(text);
+    } catch (error) {
+      console.error(error);
+      textareaRef?.setText(text);
+      prevTextLength = text.length;
+    }
+  }
+
+  /** Restore all pending (steering + follow-up) messages back to the composer. */
+  function restorePendingMessages() {
+    const { steering, followUp } = runtime.clearPendingMessages();
+    const parts: string[] = [];
+    for (const msg of [...steering, ...followUp]) {
+      parts.push(msg);
+    }
+    if (parts.length > 0) {
+      const current = textareaRef?.plainText ?? "";
+      const restored = current.trim()
+        ? `${current.trim()}\n${parts.join("\n")}`
+        : parts.join("\n");
+      setTextareaText(restored);
+      if (textareaRef) textareaRef.cursorOffset = restored.length;
+    }
+    addNotice("info", "Messages restored", [`${steering.length} steering, ${followUp.length} follow-up restored to composer.`]);
+  }
+
   return {
     palette,
     setTextarea,
     handleTextChange,
     handleSubmit,
+    handleFollowUp,
+    restorePendingMessages,
     insertText,
     getTextareaText,
     setTextareaText,

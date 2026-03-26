@@ -21,6 +21,7 @@ export type FooterStatusState = {
 	gitDirty: boolean;
 	bellsEnabled: boolean;
 	speechEnabled: boolean;
+	pendingMessages: number;
 };
 
 export type SessionMeta = {
@@ -66,9 +67,10 @@ function deriveFooterStatus(
 			gitDirty: status.git.dirty,
 			bellsEnabled: true,
 			speechEnabled: true,
+			pendingMessages: 0,
 		};
 	}
-	return { model: "no-model", thinkingLevel: "off", contextPct: "–", gitBranch: null, gitDirty: false, bellsEnabled: true, speechEnabled: true };
+	return { model: "no-model", thinkingLevel: "off", contextPct: "–", gitBranch: null, gitDirty: false, bellsEnabled: true, speechEnabled: true, pendingMessages: 0 };
 }
 
 function applyRuntimeStatus(
@@ -83,6 +85,7 @@ function applyRuntimeStatus(
 		contextPct: status.contextPct,
 		gitBranch: status.git.branch,
 		gitDirty: status.git.dirty,
+		pendingMessages: current.pendingMessages,
 	};
 }
 
@@ -147,6 +150,9 @@ export function createAppState(
 				break;
 			case "panel":
 				setState("panel", event.panel);
+				break;
+			case "pending_changed":
+				setState("footerStatus", "pendingMessages", event.count);
 				break;
 			case "tool_completed":
 				toolCompletionCount++;
