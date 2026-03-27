@@ -6,6 +6,7 @@
  */
 
 import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { platform } from "node:os";
 
 const FUNK_SOUND_PATH = "/System/Library/Sounds/Funk.aiff";
@@ -13,6 +14,23 @@ const FUNK_SOUND_PATH = "/System/Library/Sounds/Funk.aiff";
 // ── Bell ────────────────────────────────────────────────────────────
 
 function writeBell(): void {
+  // For terminal-tab bell indicators (Ghostty, iTerm, etc), write BEL directly
+  // to the controlling TTY when possible.
+  try {
+    writeFileSync("/dev/tty", "\u0007");
+    return;
+  } catch {
+    // fall through
+  }
+
+  // Fallback paths.
+  try {
+    process.stderr.write("\u0007");
+    return;
+  } catch {
+    // fall through
+  }
+
   try {
     process.stdout.write("\u0007");
   } catch {
@@ -20,19 +38,25 @@ function writeBell(): void {
   }
 }
 
-function playErrorSound(): void {
+function playErrorSound(enabled: boolean): void {
+  if (!enabled) return;
   if (platform() === "darwin") {
-    spawn("afplay", [FUNK_SOUND_PATH], { stdio: "ignore" }).unref();
-  } else {
-    writeBell();
+    const child = spawn("afplay", [FUNK_SOUND_PATH], { stdio: "ignore" });
+    child.unref();
   }
 }
 
-export function ringBell(isError: boolean): void {
+/**
+ * Emit terminal tab notification (BEL) always.
+ * Optional sound playback is controlled separately via `soundEnabled`.
+ */
+export function ringBell(isError: boolean, soundEnabled: boolean): void {
+  // Always emit BEL so terminal tab indicators light up.
+  writeBell();
+
+  // Sound policy is separate from tab notification.
   if (isError) {
-    playErrorSound();
-  } else {
-    writeBell();
+    playErrorSound(soundEnabled);
   }
 }
 

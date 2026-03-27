@@ -14,7 +14,7 @@ export function setNotificationConfigRef(
 
 export const bellsCommand: Command = {
   name: "bells",
-  description: "Toggle bell notifications on/off",
+  description: "Toggle notification sounds on/off (tab bell indicator is always on)",
   execute({ palette }) {
     if (!configRef) return;
     const config = configRef.current;

@@ -93,9 +93,8 @@ export function App(props: AppProps) {
         lastAssistant.stopReason === "aborted"
       );
 
-      if (config.bells.enabled) {
-        ringBell(isError);
-      }
+      // Tab notification (BEL) is always emitted; bells.enabled controls sound only.
+      ringBell(isError, config.bells.enabled);
 
       if (config.speech.enabled && lastAssistant && !isError) {
         const text = extractAssistantText(lastAssistant);
