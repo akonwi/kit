@@ -162,6 +162,7 @@ export function ComposerDock(props: ComposerDockProps) {
     if (text) {
       props.controller.insertText(text);
     }
+    event.preventDefault();
   }
 
   const placeholder = () =>
