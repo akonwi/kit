@@ -1,4 +1,4 @@
-import type { KeyEvent, PasteEvent } from "@opentui/core";
+import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { PagerController } from "../features/pager";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
@@ -59,6 +59,19 @@ export function ComposerDock(props: ComposerDockProps) {
     ) {
       e.preventDefault();
       props.controller.recallLastUserMessage();
+      return;
+    }
+
+    // Alt+Enter — queue composer text as follow-up (processed after agent finishes)
+    if (
+      e.option &&
+      (e.name === "return" || e.name === "enter") &&
+      !pager.active &&
+      !palette.visible &&
+      props.controller.getTextareaText().trim()
+    ) {
+      e.preventDefault();
+      void props.controller.handleFollowUp();
       return;
     }
 
@@ -157,14 +170,6 @@ export function ComposerDock(props: ComposerDockProps) {
     e.preventDefault();
   });
 
-  function handlePaste(event: PasteEvent) {
-    const text = event.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
-    if (text) {
-      props.controller.insertText(text);
-    }
-    event.preventDefault();
-  }
-
   const placeholder = () =>
     pager.active
       ? "Add a note for this section... (Ctrl+Enter to submit all)"
@@ -188,7 +193,6 @@ export function ComposerDock(props: ComposerDockProps) {
         flexDirection="column"
         gap={0}
       >
-        {/* @ts-ignore onPaste is supported by OpenTUI but not in the type defs */}
         <textarea
           ref={(value) => {
             props.controller.setTextarea(value as TextareaHandle | undefined);
@@ -212,7 +216,6 @@ export function ComposerDock(props: ComposerDockProps) {
           ]}
           onContentChange={() => props.controller.handleTextChange()}
           onSubmit={() => props.controller.handleSubmit()}
-          onPaste={handlePaste}
           focused={!palette.visible}
         />
       </box>
