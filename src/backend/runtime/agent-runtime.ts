@@ -14,7 +14,7 @@ import {
 	type Model,
 	registerBuiltInApiProviders,
 } from "@mariozechner/pi-ai";
-import { getApiKey, getAuthenticatedProviderIds } from "../../compat/auth";
+import { getApiKey, getAuthenticatedProviderIds } from "../../auth";
 import {
 	createSession,
 	deleteSession,

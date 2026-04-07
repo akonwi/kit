@@ -1,29 +1,12 @@
 import { exec } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
 import {
 	getOAuthProviders,
 	type OAuthAuthInfo,
 	type OAuthPrompt,
 	type OAuthProviderInterface,
 } from "@mariozechner/pi-ai/oauth";
+import { readAuthFile, writeAuthFile } from "../../auth";
 import type { Command } from "./types";
-
-const AUTH_PATH = join(homedir(), ".kit", "auth.json");
-
-async function readAuthFile(): Promise<Record<string, unknown>> {
-	try {
-		return JSON.parse(await readFile(AUTH_PATH, "utf8"));
-	} catch {
-		return {};
-	}
-}
-
-async function writeAuthFile(data: Record<string, unknown>): Promise<void> {
-	await mkdir(dirname(AUTH_PATH), { recursive: true });
-	await writeFile(AUTH_PATH, JSON.stringify(data, null, 2), "utf8");
-}
 
 export const loginCommand: Command = {
 	name: "login",
