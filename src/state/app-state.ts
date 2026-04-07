@@ -153,7 +153,7 @@ export function createAppState(
 	function showToast(toast: Omit<Toast, "id">) {
 		const id = nextToastId++;
 		setState("toasts", (prev) => [...prev, { ...toast, id }]);
-		toastTimers.set(id, setTimeout(() => dismissToast(id), 5_000));
+		toastTimers.set(id, setTimeout(() => dismissToast(id), 10_000));
 	}
 
 	// ── Runtime subscription ───────────────────────────────────────
