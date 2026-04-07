@@ -2,7 +2,7 @@ import { For } from "solid-js";
 import type { Toast } from "../state/app-state";
 import { theme } from "./theme";
 
-function ToastItem(props: { toast: Toast }) {
+function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 	const color = () =>
 		props.toast.variant === "error" ? theme.errorText : theme.textSecondary;
 	const label = () =>
@@ -17,8 +17,15 @@ function ToastItem(props: { toast: Toast }) {
 			backgroundColor={theme.pickerBg}
 			border
 			borderColor={color()}
+			flexDirection="row"
+			gap={1}
 		>
-			<text fg={color()}>{label()}</text>
+			<text flexGrow={1} fg={color()}>
+				{label()}
+			</text>
+			<box onMouseUp={props.onDismiss}>
+				<text fg={theme.textMuted}>✕</text>
+			</box>
 		</box>
 	);
 }
@@ -26,6 +33,7 @@ function ToastItem(props: { toast: Toast }) {
 export type ToastStackProps = {
 	toasts: Toast[];
 	bottom: number;
+	onDismiss: (id: number) => void;
 };
 
 export function ToastStack(props: ToastStackProps) {
@@ -39,7 +47,14 @@ export function ToastStack(props: ToastStackProps) {
 			flexDirection="column"
 			gap={0}
 		>
-			<For each={props.toasts}>{(toast) => <ToastItem toast={toast} />}</For>
+			<For each={props.toasts}>
+				{(toast) => (
+					<ToastItem
+						toast={toast}
+						onDismiss={() => props.onDismiss(toast.id)}
+					/>
+				)}
+			</For>
 		</box>
 	);
 }

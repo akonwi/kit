@@ -16,7 +16,7 @@ const STATUS_BAR_HEIGHT = 1;
 export type AppShellProps = {
 	state: AppState;
 	controller: ComposerController;
-	dismissToast: (id: number) => void; // kept for future keyboard dismiss
+	dismissToast: (id: number) => void;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -54,6 +54,7 @@ export function AppShell(props: AppShellProps) {
 			<ToastStack
 				toasts={props.state.toasts}
 				bottom={dockHeight() + STATUS_BAR_HEIGHT + 3}
+				onDismiss={props.dismissToast}
 			/>
 		</box>
 	);

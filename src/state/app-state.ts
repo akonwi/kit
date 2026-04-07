@@ -146,14 +146,20 @@ export function createAppState(
 
 	function dismissToast(id: number) {
 		const timer = toastTimers.get(id);
-		if (timer) { clearTimeout(timer); toastTimers.delete(id); }
+		if (timer) {
+			clearTimeout(timer);
+			toastTimers.delete(id);
+		}
 		setState("toasts", (prev) => prev.filter((t) => t.id !== id));
 	}
 
 	function showToast(toast: Omit<Toast, "id">) {
 		const id = nextToastId++;
 		setState("toasts", (prev) => [...prev, { ...toast, id }]);
-		toastTimers.set(id, setTimeout(() => dismissToast(id), 10_000));
+		toastTimers.set(
+			id,
+			setTimeout(() => dismissToast(id), 10_000),
+		);
 	}
 
 	// ── Runtime subscription ───────────────────────────────────────
