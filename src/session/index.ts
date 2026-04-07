@@ -1,5 +1,4 @@
 export {
-	appendMessages,
 	createSession,
 	deleteSession,
 	findSessionById,
@@ -12,5 +11,5 @@ export {
 	updateSession,
 	writeSession,
 } from "./storage";
-export type { Session, SessionSummary } from "./types";
+export type { KitAgentMessage, Session, SessionSummary, Turn } from "./types";
 export { SESSION_VERSION } from "./types";

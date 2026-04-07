@@ -4,7 +4,6 @@ import type {
 	AgentTool,
 	ThinkingLevel,
 } from "@mariozechner/pi-agent-core";
-import { Agent } from "@mariozechner/pi-agent-core";
 import {
 	type Api,
 	getEnvApiKey,
@@ -26,10 +25,12 @@ import {
 	readSession,
 	type Session,
 	type SessionSummary,
+	type Turn,
 	updateSession,
 } from "../session";
 import { createDefaultTools } from "../tools";
 import { type GitInfo, getGitInfo } from "./git-info";
+import { KitAgent } from "./kit-agent";
 
 // Register built-in API providers (Anthropic, OpenAI, etc.) once
 registerBuiltInApiProviders();
@@ -49,12 +50,12 @@ export type RuntimePanelState = {
 };
 
 export type AgentRuntimeEvent =
-	| { type: "messages_changed"; messages: AgentMessage[] }
+	| { type: "turns_changed"; turns: Turn[] }
 	| { type: "status_changed"; status: RuntimeStatus }
 	| { type: "session_changed"; session: Session }
 	| { type: "panel"; panel: RuntimePanelState }
 	| { type: "tool_completed" }
-	| { type: "turn_complete"; messages: AgentMessage[] }
+	| { type: "turn_complete"; turn: Turn | null }
 	| { type: "pending_changed"; count: number }
 	| { type: "error"; title: string; lines: string[] }
 	| { type: "info"; title: string; lines: string[] };
@@ -71,6 +72,7 @@ export type AgentRuntime = {
 	// Session management
 	getSession(): Session;
 	getMessages(): AgentMessage[];
+	getTurns(): Turn[];
 	newSession(cwd?: string): Promise<void>;
 	switchSession(id: string): Promise<boolean>;
 	setSessionName(name: string): Promise<void>;
@@ -98,12 +100,6 @@ export type AgentRuntime = {
 	dispose(): void;
 };
 
-// --- Default system prompt ---
-
-const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
-You have access to tools to read and modify files, run commands, search code, and more.
-Be concise and direct. Prefer surgical edits over full rewrites when practical.`;
-
 // --- Factory ---
 
 export async function createAgentRuntime(
@@ -113,7 +109,6 @@ export async function createAgentRuntime(
 	// Load or create session
 	let session = initialSession ?? (await openRecentSession(process.cwd()));
 
-	// Pick default model — prefer claude-sonnet
 	const defaultModel = resolveDefaultModel(session.model);
 	console.log(
 		"[runtime] model:",
@@ -125,19 +120,14 @@ export async function createAgentRuntime(
 	);
 
 	// Create Agent
-	const agent = new Agent({
+	const agent = KitAgent.fromSession(session, {
 		initialState: {
-			systemPrompt: DEFAULT_SYSTEM_PROMPT,
 			model: defaultModel,
-			thinkingLevel: "medium",
-			messages: session.messages,
 			tools: [
 				...createDefaultTools(session.cwd),
 				...(options?.extraTools ?? []),
 			],
 		},
-		steeringMode: "all",
-		followUpMode: "all",
 		getApiKey: (provider) => getApiKey(provider),
 	});
 
@@ -156,11 +146,11 @@ export async function createAgentRuntime(
 		git: getGitInfo(session.cwd),
 	});
 
-	// Persist messages to disk after each turn
-	const persistMessages = async () => {
+	// Persist turns to disk after each turn
+	const persistTurns = async () => {
 		try {
 			session = await updateSession(session, {
-				messages: agent.state.messages,
+				turns: agent.turns,
 				model: agent.state.model?.id,
 			});
 		} catch (err) {
@@ -177,7 +167,7 @@ export async function createAgentRuntime(
 		switch (event.type) {
 			case "agent_start":
 				emit({ type: "panel", panel: { pending: true, title: "Working…" } });
-				emit({ type: "messages_changed", messages: [...agent.state.messages] });
+				emit({ type: "turns_changed", turns: [...agent.turns] });
 				break;
 
 			case "message_start":
@@ -188,7 +178,12 @@ export async function createAgentRuntime(
 
 			case "message_update": {
 				const ame = event.assistantMessageEvent;
-				if (ame?.type === "thinking_delta" && (ame as any).delta?.trim()) {
+				if (
+					ame?.type === "thinking_delta" &&
+					"delta" in ame &&
+					typeof ame.delta === "string" &&
+					ame.delta.trim()
+				) {
 					emit({
 						type: "panel",
 						panel: {
@@ -201,7 +196,7 @@ export async function createAgentRuntime(
 			}
 
 			case "message_end":
-				emit({ type: "messages_changed", messages: [...agent.state.messages] });
+				emit({ type: "turns_changed", turns: [...agent.turns] });
 				emit({ type: "status_changed", status: snapshotStatus() });
 				break;
 
@@ -210,15 +205,15 @@ export async function createAgentRuntime(
 				break;
 
 			case "agent_end":
-				void persistMessages().then(() => {
+				void persistTurns().then(() => {
 					emit({ type: "session_changed", session });
-					emit({
-						type: "messages_changed",
-						messages: [...agent.state.messages],
-					});
+					emit({ type: "turns_changed", turns: [...agent.turns] });
 					emit({ type: "status_changed", status: snapshotStatus() });
 					emit({ type: "panel", panel: { pending: false, title: "" } });
-					emit({ type: "turn_complete", messages: [...agent.state.messages] });
+					emit({
+						type: "turn_complete",
+						turn: agent.turns.at(-1) ?? null,
+					});
 					pendingCount = agent.hasQueuedMessages() ? 1 : 0;
 					emit({ type: "pending_changed", count: pendingCount });
 				});
@@ -280,26 +275,30 @@ export async function createAgentRuntime(
 		},
 
 		getMessages() {
-			return [...agent.state.messages];
+			return agent.turns.flatMap((turn) => turn.messages);
+		},
+
+		getTurns() {
+			return [...agent.turns];
 		},
 
 		async newSession(cwd?: string) {
 			const targetCwd = cwd ?? session.cwd;
 			session = await createSession(targetCwd, agent.state.model?.id);
-			agent.replaceMessages([]);
+			agent.replaceFromTurns([]);
 			agent.setTools(createDefaultTools(targetCwd));
 			emit({ type: "session_changed", session });
-			emit({ type: "messages_changed", messages: [] });
+			emit({ type: "turns_changed", turns: [] });
 		},
 
 		async switchSession(id) {
 			const target = (await findSessionById(id)) ?? (await readSession(id));
 			if (!target) return false;
 			session = target;
-			agent.replaceMessages(session.messages);
+			agent.replaceFromTurns(session.turns);
 			agent.setTools(createDefaultTools(session.cwd));
 			emit({ type: "session_changed", session });
-			emit({ type: "messages_changed", messages: [...session.messages] });
+			emit({ type: "turns_changed", turns: [...session.turns] });
 			emit({ type: "status_changed", status: snapshotStatus() });
 			return true;
 		},

@@ -9,6 +9,15 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 
 export const SESSION_VERSION = 1;
 
+/** AgentMessage tagged with the turn it belongs to. */
+export type KitAgentMessage = AgentMessage & { turnId: string };
+
+/** A single agent turn: one user prompt + all resulting messages. */
+export interface Turn {
+	id: string;
+	messages: KitAgentMessage[];
+}
+
 export interface Session {
 	/** UUID */
 	id: string;
@@ -21,7 +30,7 @@ export interface Session {
 	model?: string;
 	createdAt: string; // ISO 8601
 	updatedAt: string; // ISO 8601
-	messages: AgentMessage[];
+	turns: Turn[];
 }
 
 /** Lightweight summary for listings — no messages */

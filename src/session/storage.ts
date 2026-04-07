@@ -14,8 +14,12 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { SESSION_VERSION, type Session, type SessionSummary } from "./types";
+import {
+	SESSION_VERSION,
+	type Session,
+	type SessionSummary,
+	type Turn,
+} from "./types";
 
 export const SESSIONS_DIR = join(homedir(), ".kit", "sessions");
 
@@ -35,19 +39,23 @@ function now(): string {
 	return new Date().toISOString();
 }
 
-function firstUserMessage(messages: AgentMessage[]): string | undefined {
-	for (const msg of messages) {
-		if (msg.role !== "user") continue;
-		const content = (msg as { content?: unknown }).content;
-		if (typeof content === "string") return content.slice(0, 120);
-		if (Array.isArray(content)) {
-			for (const block of content) {
-				if (
-					block &&
-					typeof block === "object" &&
-					(block as any).type === "text"
-				) {
-					return ((block as any).text as string).slice(0, 120);
+function firstUserMessage(turns: Turn[]): string | undefined {
+	for (const turn of turns) {
+		for (const msg of turn.messages) {
+			if (msg.role !== "user") continue;
+			const content = (msg as { content?: unknown }).content;
+			if (typeof content === "string") return content.slice(0, 120);
+			if (Array.isArray(content)) {
+				for (const block of content) {
+					if (
+						block &&
+						typeof block === "object" &&
+						"type" in block &&
+						(block as { type: string }).type === "text" &&
+						"text" in block
+					) {
+						return (block as { text: string }).text.slice(0, 120);
+					}
 				}
 			}
 		}
@@ -63,8 +71,11 @@ export function toSummary(session: Session): SessionSummary {
 		model: session.model,
 		createdAt: session.createdAt,
 		updatedAt: session.updatedAt,
-		messageCount: session.messages.length,
-		firstMessage: firstUserMessage(session.messages),
+		messageCount: session.turns.reduce(
+			(count, turn) => count + turn.messages.length,
+			0,
+		),
+		firstMessage: firstUserMessage(session.turns),
 	};
 }
 
@@ -82,7 +93,7 @@ export async function createSession(
 		model,
 		createdAt: now(),
 		updatedAt: now(),
-		messages: [],
+		turns: [],
 	};
 	await writeSession(session);
 	return session;
@@ -108,7 +119,7 @@ export async function writeSession(session: Session): Promise<void> {
 
 export async function updateSession(
 	session: Session,
-	changes: Partial<Pick<Session, "name" | "model" | "messages">>,
+	changes: Partial<Pick<Session, "name" | "model" | "turns">>,
 ): Promise<Session> {
 	const updated: Session = {
 		...session,
@@ -117,17 +128,6 @@ export async function updateSession(
 	};
 	await writeSession(updated);
 	return updated;
-}
-
-export async function appendMessages(
-	session: Session,
-	messages: AgentMessage[],
-	model?: string,
-): Promise<Session> {
-	return updateSession(session, {
-		messages: [...session.messages, ...messages],
-		...(model ? { model } : {}),
-	});
 }
 
 export async function deleteSession(id: string): Promise<void> {

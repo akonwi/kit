@@ -6,6 +6,7 @@ import type {
 	UserMessage,
 } from "@mariozechner/pi-ai";
 import type { BorderSides } from "@opentui/core";
+import type { Turn } from "../session";
 
 // BashExecutionMessage type from pi-coding-agent
 interface BashExecutionMessage {
@@ -27,71 +28,45 @@ import { syntaxStyle, theme } from "./theme";
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
 export type TranscriptPaneProps = {
-	messages: AgentMessage[];
+	turns: Turn[];
 };
 
-// ── Turn grouping ────────────────────────────────────────────────────
-
-/**
- * A turn starts at each user message and includes all subsequent
- * assistant, toolResult, and bashExecution messages until the next
- * user message. If the first messages are non-user (e.g., restored
- * session), they form a turn with `user: null`.
- *
- * `aborted` is true when any assistant in the turn has stopReason "aborted".
- */
 export type TranscriptTurn = {
+	id: string;
 	user: UserMessage | null;
 	entries: AgentMessage[];
 	toolResults: Map<string, ToolResultMessage>;
 	aborted: boolean;
 };
 
-function groupIntoTurns(messages: AgentMessage[]): TranscriptTurn[] {
-	const turns: TranscriptTurn[] = [];
-	let current: TranscriptTurn | null = null;
+function toTranscriptTurn(turn: Turn): TranscriptTurn {
+	let user: UserMessage | null = null;
+	const entries: AgentMessage[] = [];
+	const toolResults = new Map<string, ToolResultMessage>();
+	let aborted = false;
 
-	for (const msg of messages) {
+	for (const msg of turn.messages) {
 		if (!("role" in msg)) continue;
+		if (msg.role === "user" && user === null) {
+			user = msg as UserMessage;
+			continue;
+		}
 
-		if (msg.role === "user") {
-			// Start a new turn
-			current = {
-				user: msg as UserMessage,
-				entries: [],
-				toolResults: new Map(),
-				aborted: false,
-			};
-			turns.push(current);
-		} else {
-			// Append to current turn, or create an initial userless turn
-			if (!current) {
-				current = {
-					user: null,
-					entries: [],
-					toolResults: new Map(),
-					aborted: false,
-				};
-				turns.push(current);
-			}
+		entries.push(msg);
 
-			current.entries.push(msg);
+		if (msg.role === "toolResult") {
+			toolResults.set(msg.toolCallId, msg as ToolResultMessage);
+		}
 
-			if (msg.role === "toolResult") {
-				const tr = msg as ToolResultMessage;
-				current.toolResults.set(tr.toolCallId, tr);
-			}
-
-			if (
-				msg.role === "assistant" &&
-				(msg as AssistantMessage).stopReason === "aborted"
-			) {
-				current.aborted = true;
-			}
+		if (
+			msg.role === "assistant" &&
+			(msg as AssistantMessage).stopReason === "aborted"
+		) {
+			aborted = true;
 		}
 	}
 
-	return turns;
+	return { id: turn.id, user, entries, toolResults, aborted };
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -449,7 +424,7 @@ function TurnEntry(props: { turn: TranscriptTurn }) {
 }
 
 export function TranscriptPane(props: TranscriptPaneProps) {
-	const turns = () => groupIntoTurns(props.messages);
+	const turns = () => props.turns.map(toTranscriptTurn);
 
 	return (
 		<scrollbox
@@ -469,7 +444,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 			}}
 		>
 			<box flexDirection="column" gap={1} width="100%">
-				<Show when={props.messages.length === 0}>
+				<Show when={props.turns.length === 0}>
 					<box flexDirection="column" gap={0} width="100%">
 						<text fg={theme.textSecondary}>kit</text>
 						<text fg={theme.textSecondary}>Start a conversation below.</text>

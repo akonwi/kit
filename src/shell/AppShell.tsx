@@ -31,7 +31,7 @@ export function AppShell(props: AppShellProps) {
 			backgroundColor={theme.bg}
 			onMouseUp={() => copySelection(renderer)}
 		>
-			<TranscriptPane messages={props.state.messages} />
+			<TranscriptPane turns={props.state.turns} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot panel={props.state.panel} />

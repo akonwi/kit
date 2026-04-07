@@ -1,10 +1,9 @@
 import { homedir } from "node:os";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
-import type { Session } from "../session";
+import type { Session, Turn } from "../session";
 import type { LoadedSettings } from "../settings";
 
 export type PanelState = {
@@ -39,7 +38,7 @@ export type Toast = {
 };
 
 export type AppState = {
-	messages: AgentMessage[];
+	turns: Turn[];
 	toasts: Toast[];
 	panel: PanelState;
 	footerStatus: FooterStatusState;
@@ -122,11 +121,11 @@ export function createAppState(
 	session: Session | null,
 	runtime: AgentRuntime | null,
 ) {
-	const messages = runtime ? runtime.getMessages() : [];
+	const turns = runtime ? runtime.getTurns() : [];
 	const footer = deriveFooterStatus(runtime);
 
 	const [state, setState] = createStore<AppState>({
-		messages,
+		turns,
 		toasts: [],
 		panel: { pending: false, title: "" },
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
@@ -169,8 +168,8 @@ export function createAppState(
 
 	runtime?.subscribe((event) => {
 		switch (event.type) {
-			case "messages_changed":
-				setState("messages", event.messages);
+			case "turns_changed":
+				setState("turns", event.turns);
 				for (const timer of toastTimers.values()) clearTimeout(timer);
 				toastTimers.clear();
 				setState("toasts", []);
