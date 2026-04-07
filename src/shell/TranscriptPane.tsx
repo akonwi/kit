@@ -442,7 +442,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
       <box flexDirection="column" gap={1} width="100%">
         <Show when={props.messages.length === 0}>
           <box flexDirection="column" gap={0} width="100%">
-            <text fg={theme.textSecondary}>pi-kit</text>
+            <text fg={theme.textSecondary}>kit</text>
             <text fg={theme.textSecondary}>Start a conversation below.</text>
           </box>
         </Show>

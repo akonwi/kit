@@ -1,7 +1,7 @@
 /**
- * pi-kit session types.
+ * kit session types.
  *
- * Sessions are stored as JSON files at ~/.pi-kit/sessions/<id>.json.
+ * Sessions are stored as JSON files at ~/.kit/sessions/<id>.json.
  * No Pi format compatibility.
  */
 

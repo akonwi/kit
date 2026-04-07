@@ -17,9 +17,9 @@ export function initTerminalTitle(setter: (title: string) => void) {
 function formatTitle(sessionName: string | undefined, cwd: string): string {
 	const cwdBasename = path.basename(cwd);
 	if (sessionName) {
-		return `pi-kit - ${sessionName} - ${cwdBasename}`;
+		return `kit - ${sessionName} - ${cwdBasename}`;
 	}
-	return `pi-kit - ${cwdBasename}`;
+	return `kit - ${cwdBasename}`;
 }
 
 export function updateTerminalTitle(sessionName: string | undefined, cwd: string) {

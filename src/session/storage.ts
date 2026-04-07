@@ -1,5 +1,5 @@
 /**
- * Session file storage — read/write ~/.pi-kit/sessions/<id>.json
+ * Session file storage — read/write ~/.kit/sessions/<id>.json
  */
 
 import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { SESSION_VERSION, type Session, type SessionSummary } from "./types";
 
-export const SESSIONS_DIR = join(homedir(), ".pi-kit", "sessions");
+export const SESSIONS_DIR = join(homedir(), ".kit", "sessions");
 
 function sessionsDir(): string {
   return SESSIONS_DIR;

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { getPiKitPaths, type PiKitPaths } from "../paths";
 
-export type SettingsSource = "pi-kit" | "pi" | "defaults";
+export type SettingsSource = "kit" | "pi" | "defaults";
 
 export type LoadedSettings = {
   source: SettingsSource;
@@ -22,11 +22,11 @@ async function tryReadJson(filePath: string): Promise<Record<string, unknown> | 
 export async function loadSettings(): Promise<LoadedSettings> {
   const paths = getPiKitPaths();
 
-  const piKitSettings = await tryReadJson(paths.piKitSettingsPath);
-  if (piKitSettings) {
+  const kitSettings = await tryReadJson(paths.kitSettingsPath);
+  if (kitSettings) {
     return {
-      source: "pi-kit",
-      values: piKitSettings,
+      source: "kit",
+      values: kitSettings,
       paths,
     };
   }

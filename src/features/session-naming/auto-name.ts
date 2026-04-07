@@ -5,7 +5,7 @@ import type { AgentRuntime } from "../../backend";
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
 const AUTO_TITLE_MAX_TOKENS = 32;
-const AUTO_TITLE_DISABLED = process.env.PI_KIT_NO_AUTO_TITLE === "1";
+const AUTO_TITLE_DISABLED = process.env.KIT_NO_AUTO_TITLE === "1";
 const lastAutoTitleAttemptBySession = new Map<string, number>();
 
 function clip(text: string, maxChars: number): string {

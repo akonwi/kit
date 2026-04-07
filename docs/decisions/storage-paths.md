@@ -14,7 +14,7 @@ pi-kit needs clear conventions for where app state lives on disk, balancing Pi c
 | Root | Path | Purpose |
 |------|------|---------|
 | **Pi compatibility** | `~/.pi/agent/` | Shared state that Pi can also read/write |
-| **Pi-kit app** | `~/.pi-kit/` | App-native config and state |
+| **Pi-kit app** | `~/.kit/` | App-native config and state |
 
 ### Pi compatibility root (`~/.pi/agent/`)
 
@@ -27,16 +27,16 @@ pi-kit reads and writes to this directory for:
 
 pi-kit does **not** create its own session directory. Sessions remain in `~/.pi/agent/sessions/` to preserve full interoperability with Pi.
 
-### Pi-kit app root (`~/.pi-kit/`)
+### Pi-kit app root (`~/.kit/`)
 
 pi-kit owns this directory for app-specific state:
 
-- **Settings** (`settings.json`) — pi-kit settings, takes precedence over Pi settings
+- **Settings** (`settings.json`) — kit settings, takes precedence over Pi settings
 - **Notifications** (`notifications.json`) — bell/speech preferences
 
 ### Settings precedence
 
-1. `~/.pi-kit/settings.json` (app-native, wins when present)
+1. `~/.kit/settings.json` (app-native, wins when present)
 2. `~/.pi/agent/settings.json` (Pi fallback)
 3. Built-in defaults
 
@@ -44,7 +44,7 @@ This makes it easy to migrate to more pi-kit-specific settings in the future, si
 
 ### Single source of truth
 
-All resolved paths are centralized in `src/compat/paths.ts` via `getPiKitPaths()`. No other module should hardcode `~/.pi/agent` or `~/.pi-kit` paths directly.
+All resolved paths are centralized in `src/compat/paths.ts` via `getPiKitPaths()`. No other module should hardcode `~/.pi/agent` or `~/.kit` paths directly.
 
 ### Project-local state
 
@@ -52,6 +52,6 @@ Project-local discovery (`.pi/agents/`, `.pi/prompts/`, `.pi/skills/`, `AGENTS.m
 
 ## Consequences
 
-- Notification config moves from `~/.pi/agent/kit.json` to `~/.pi-kit/notifications.json`
-- Future app-specific state (e.g., UI preferences, theme selection) should go in `~/.pi-kit/`
+- Notification config moves from `~/.pi/agent/kit.json` to `~/.kit/notifications.json`
+- Future app-specific state (e.g., UI preferences, theme selection) should go in `~/.kit/`
 - Pi session compatibility is preserved without pi-kit needing to own the session storage path

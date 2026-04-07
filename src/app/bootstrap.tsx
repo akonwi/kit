@@ -53,7 +53,7 @@ function loadSession(): LoadedSession | null {
 export async function bootstrap(): Promise<void> {
   // When launched via the bin script, CWD is the project root (for bunfig.toml).
   // Restore the user's actual working directory.
-  const userCwd = process.env.PIKIT_USER_CWD;
+  const userCwd = process.env.KIT_USER_CWD;
   if (userCwd && userCwd !== process.cwd()) {
     process.chdir(userCwd);
   }

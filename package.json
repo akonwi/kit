@@ -1,8 +1,8 @@
 {
-  "name": "pi-kit",
+  "name": "kit",
   "version": "0.1.0",
   "private": true,
-  "description": "Standalone pi-kit app with Pi-core compatibility and a custom terminal shell.",
+  "description": "Standalone kit app with Pi-core compatibility and a custom terminal shell.",
   "license": "MIT",
   "type": "module",
   "scripts": {

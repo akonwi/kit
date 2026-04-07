@@ -1,5 +1,5 @@
 /**
- * Centralized color tokens for the pi-kit shell.
+ * Centralized color tokens for the kit shell.
  *
  * Palette inspired by the Stone desktop app dark theme.
  * All shell components should reference theme tokens

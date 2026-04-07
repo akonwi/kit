@@ -173,7 +173,7 @@ export function ComposerDock(props: ComposerDockProps) {
   const placeholder = () =>
     pager.active
       ? "Add a note for this section... (Ctrl+Enter to submit all)"
-      : "Ask pi-kit to do something...";
+      : "Ask kit to do something...";
 
   return (
     <box

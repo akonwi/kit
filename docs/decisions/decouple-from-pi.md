@@ -26,10 +26,10 @@ Remove `@mariozechner/pi-coding-agent` entirely. Keep only:
 
 **Currently:** `SessionManager` from `pi-coding-agent` reads/writes Pi's JSONL session format.
 
-**Replace with:** Own session format. Proposed: one JSON file per session in `~/.pi-kit/sessions/`.
+**Replace with:** Own session format. Proposed: one JSON file per session in `~/.kit/sessions/`.
 
 ```
-~/.pi-kit/
+~/.kit/
   sessions/
     <id>.json       # full session: header + messages array
   settings.json
@@ -71,7 +71,7 @@ with session persistence, compaction, tool registration, etc.
 
 **Currently:** `SettingsManager` from `pi-coding-agent`.
 
-**Replace with:** Already partially done — `~/.pi-kit/settings.json` with own loader.
+**Replace with:** Already partially done — `~/.kit/settings.json` with own loader.
 Finish removing the Pi settings dependency.
 
 ### 5. Subagent runner
@@ -85,7 +85,7 @@ extension's `pi` subprocess runner).
 
 **Currently:** Reads Pi's JSONL session files from `~/.pi/agent/sessions/`.
 
-**Replace with:** Read our own `~/.pi-kit/sessions/*.json` files.
+**Replace with:** Read our own `~/.kit/sessions/*.json` files.
 
 ### 7. `generateSummary` (handoff)
 
@@ -97,7 +97,7 @@ extension's `pi` subprocess runner).
 
 **Currently:** Imported from `pi-coding-agent`.
 
-**Replace with:** Own path helper (`~/.pi-kit/agents/`) + simple YAML frontmatter parser.
+**Replace with:** Own path helper (`~/.kit/agents/`) + simple YAML frontmatter parser.
 
 ## Keep
 

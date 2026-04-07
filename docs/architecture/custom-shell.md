@@ -157,19 +157,19 @@ This is the default location for:
 
 The new app's own settings live at:
 
-- `~/.pi-kit/settings.json`
+- `~/.kit/settings.json`
 
 These settings are **app-native** and should be used for shell/UI behavior and other pi-kit-specific configuration.
 
 ### Precedence
 
-If both Pi baseline settings and pi-kit app settings are available, the app should prefer:
+If both Pi baseline settings and kit app settings are available, the app should prefer:
 
-1. `~/.pi-kit/settings.json`
+1. `~/.kit/settings.json`
 2. fallback values read from `~/.pi/agent` where relevant
 3. built-in defaults
 
-In other words: when both are present, **pi-kit settings win**.
+In other words: when both are present, **kit settings win**.
 
 This allows the new app to stay Pi-compatible by default without forcing its own UX and product behavior to live inside Pi's config namespace.
 
@@ -486,7 +486,7 @@ Future extension support should be built on the new shell's own abstractions, no
 
 - session loading/saving from the Pi compatibility root (`~/.pi/agent` by default)
 - settings loading with precedence:
-  - `~/.pi-kit/settings.json`
+  - `~/.kit/settings.json`
   - then relevant Pi settings from `~/.pi/agent`
   - then built-in defaults
 - storage path conventions

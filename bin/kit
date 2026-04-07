@@ -14,6 +14,6 @@ done
 SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-export PIKIT_USER_CWD="${PIKIT_USER_CWD:-$(pwd)}"
+export KIT_USER_CWD="${KIT_USER_CWD:-$(pwd)}"
 cd "$PROJECT_ROOT"
 exec bun run "$PROJECT_ROOT/src/app/main.tsx" "$@"
