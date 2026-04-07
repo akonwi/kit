@@ -341,6 +341,18 @@ export async function createAgentRuntime(
 		setModel(model: Model<Api>) {
 			agent.setModel(model);
 			emit({ type: "status_changed", status: snapshotStatus() });
+			void updateSession(session, { model: model.id })
+				.then((updated) => {
+					session = updated;
+					emit({ type: "session_changed", session });
+				})
+				.catch((err) => {
+					emit({
+						type: "error",
+						title: "Session save failed",
+						lines: [String(err)],
+					});
+				});
 		},
 
 		setThinkingLevel(level) {
