@@ -11,5 +11,5 @@ export {
 	updateSession,
 	writeSession,
 } from "./storage";
-export type { KitAgentMessage, Session, SessionSummary, Turn } from "./types";
+export type { Session, SessionSummary } from "./types";
 export { SESSION_VERSION } from "./types";

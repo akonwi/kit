@@ -6,7 +6,7 @@ import type {
 	UserMessage,
 } from "@mariozechner/pi-ai";
 import type { BorderSides } from "@opentui/core";
-import type { Turn } from "../session";
+import type { Turn } from "../session/types";
 
 // BashExecutionMessage type from pi-coding-agent
 interface BashExecutionMessage {

@@ -25,9 +25,9 @@ import {
 	readSession,
 	type Session,
 	type SessionSummary,
-	type Turn,
 	updateSession,
 } from "../session";
+import type { Turn } from "../session/types";
 import { createDefaultTools } from "../tools";
 import { type GitInfo, getGitInfo } from "./git-info";
 import { KitAgent } from "./kit-agent";

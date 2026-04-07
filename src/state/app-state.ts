@@ -3,7 +3,8 @@ import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
-import type { Session, Turn } from "../session";
+import type { Session } from "../session";
+import type { Turn } from "../session/types";
 import type { LoadedSettings } from "../settings";
 
 export type PanelState = {
