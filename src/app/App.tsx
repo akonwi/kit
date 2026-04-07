@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentRuntime } from "../backend";
-import type { LoadedSession } from "../compat/sessions";
+import type { Session } from "../session";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { setNotificationConfigRef } from "../features/commands/bells-speech";
 import { loadNotificationConfig, saveNotificationConfig, type NotificationConfig } from "../features/notification-config";
@@ -18,7 +18,7 @@ import { createAppState } from "../state/app-state";
 
 export type AppProps = {
   settings: LoadedSettings;
-  session: LoadedSession | null;
+  session: Session | null;
   runtime: AgentRuntime;
   wizard: WizardController;
   notificationConfig: NotificationConfig;
@@ -77,7 +77,7 @@ export function App(props: AppProps) {
   // Auto-activate pager when agent finishes a turn with 2+ sections
   props.runtime.subscribe((event) => {
     if (event.type === "session_changed") {
-      props.updateTerminalTitle(event.session.sessionName ?? undefined, process.cwd());
+      props.updateTerminalTitle((event.session as Session).name, process.cwd());
     }
 
     if (event.type === "turn_complete" && !pager.active && !props.wizard.active) {
@@ -98,7 +98,7 @@ export function App(props: AppProps) {
 
       if (config.speech.enabled && lastAssistant && !isError) {
         const text = extractAssistantText(lastAssistant);
-        const sessionId = props.runtime.getSession().sessionId;
+        const sessionId = props.runtime.getSession().id;
         speak(text, sessionId, {
           voice: config.speech.voice ?? undefined,
           maxChars: config.speech.maxChars,

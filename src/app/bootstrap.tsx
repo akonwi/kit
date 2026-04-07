@@ -3,20 +3,19 @@ import { parseArgs } from "node:util";
 import { ConsolePosition, createCliRenderer, getTreeSitterClient } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
-import { createSubagentTool } from "../features/subagent";
 import { createWizardController, createGuidedQuestionsTool } from "../features/wizard";
 import {
   openRecentSession,
-  openSessionFile,
-  findSessionFileById,
-  type LoadedSession,
-} from "../compat/sessions";
+  findSessionById,
+  readSession,
+  type Session,
+} from "../session";
 import { loadSettings } from "../compat/settings/load-settings";
 import { loadNotificationConfig } from "../features/notification-config";
 import { initTerminalTitle, updateTerminalTitle } from "../shell/terminal-title";
 import { App } from "./App";
 
-function loadSession(): LoadedSession | null {
+async function loadSession(): Promise<Session | null> {
   const { values } = parseArgs({
     args: process.argv.slice(2),
     options: {
@@ -28,23 +27,18 @@ function loadSession(): LoadedSession | null {
   const sessionArg = values.session as string | undefined;
 
   if (sessionArg) {
-    // If it looks like a file path, open it directly
-    if (sessionArg.endsWith(".jsonl") || sessionArg.includes("/")) {
-      return openSessionFile(sessionArg);
-    }
-
-    // Otherwise treat it as a session UUID (or prefix)
-    const filePath = findSessionFileById(sessionArg);
-    if (!filePath) {
+    // Try as a UUID or prefix
+    const session = await findSessionById(sessionArg) ?? await readSession(sessionArg);
+    if (!session) {
       console.error(`Session not found: ${sessionArg}`);
       process.exit(1);
     }
-    return openSessionFile(filePath);
+    return session;
   }
 
   // Default: open the most recent session for the current cwd
   try {
-    return openRecentSession(process.cwd());
+    return await openRecentSession(process.cwd());
   } catch {
     return null;
   }
@@ -59,8 +53,6 @@ export async function bootstrap(): Promise<void> {
   }
 
   // Initialize tree-sitter and register additional filetype aliases.
-  // Built-in markdown injection only maps ts/js/typescript/javascript,
-  // so tsx/jsx need explicit registration using the same grammars.
   const treeSitter = getTreeSitterClient();
   await treeSitter.initialize();
 
@@ -85,24 +77,14 @@ export async function bootstrap(): Promise<void> {
 
   const settings = await loadSettings();
   const notificationConfig = await loadNotificationConfig();
-  const session = loadSession();
+  const session = await loadSession();
   const wizard = createWizardController();
   const guidedQuestionsTool = createGuidedQuestionsTool(wizard);
 
-  // Subagent tool deps are resolved lazily to break the circular dependency:
-  // runtime creation needs the tool, but the tool needs runtime for model/registry access.
-  type Runtime = Awaited<ReturnType<typeof createAgentRuntime>>;
-  const runtimeRef: { current: Runtime | null } = { current: null };
-  const subagentTool = createSubagentTool({
-    getModelRegistry: () => runtimeRef.current!.getAgentSession().modelRegistry,
-    getParentModel: () => runtimeRef.current?.getAgentSession().model,
-    getCwd: () => process.cwd(),
+  const runtime = await createAgentRuntime(session, {
+    extraTools: [guidedQuestionsTool],
   });
 
-  const runtime = await createAgentRuntime(session, {
-    customTools: [guidedQuestionsTool, subagentTool],
-  });
-  runtimeRef.current = runtime;
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     exitSignals: ["SIGTERM", "SIGQUIT", "SIGABRT", "SIGHUP", "SIGBREAK", "SIGPIPE", "SIGBUS", "SIGFPE"],
@@ -117,9 +99,8 @@ export async function bootstrap(): Promise<void> {
     }
   });
 
-  // Terminal title — set initial and allow App to update on session name changes
   initTerminalTitle((title) => renderer.setTerminalTitle(title));
-  updateTerminalTitle(session?.sessionName, process.cwd());
+  updateTerminalTitle(session?.name, process.cwd());
 
   runtime.onQuit(() => {
     runtime.dispose();

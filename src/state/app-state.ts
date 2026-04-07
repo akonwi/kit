@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
 import type { AgentRuntime, RuntimeStatus } from "../backend";
-import type { LoadedSession } from "../compat/sessions";
+import type { Session } from "../session";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
@@ -62,7 +62,7 @@ function deriveFooterStatus(
 		return {
 			model: status.model,
 			thinkingLevel: status.thinkingLevel,
-			contextPct: status.contextPct,
+			contextPct: "–",
 			gitBranch: status.git.branch,
 			gitDirty: status.git.dirty,
 			bellsEnabled: true,
@@ -82,18 +82,18 @@ function applyRuntimeStatus(
 		cwd: formatCwd(process.cwd()),
 		model: status.model,
 		thinkingLevel: status.thinkingLevel,
-		contextPct: status.contextPct,
+		contextPct: "–",
 		gitBranch: status.git.branch,
 		gitDirty: status.git.dirty,
 		pendingMessages: current.pendingMessages,
 	};
 }
 
-function buildSessionMeta(session: LoadedSession | null): SessionMeta {
+function buildSessionMeta(session: Session | null): SessionMeta {
 	if (session) {
 		return {
-			sessionId: session.sessionId,
-			sessionName: session.sessionName,
+			sessionId: session.id,
+			sessionName: session.name,
 			sessionCwd: session.cwd,
 			hasSession: true,
 		};
@@ -110,7 +110,7 @@ function buildSessionMeta(session: LoadedSession | null): SessionMeta {
 
 export function createAppState(
 	_settings: LoadedSettings,
-	session: LoadedSession | null,
+	session: Session | null,
 	runtime: AgentRuntime | null,
 ) {
 	const messages = runtime ? runtime.getMessages() : [];
@@ -145,7 +145,7 @@ export function createAppState(
 				);
 				break;
 			case "session_changed":
-				setState("sessionMeta", buildSessionMeta(event.session));
+				setState("sessionMeta", buildSessionMeta(event.session as Session));
 				threadIndex?.invalidate();
 				break;
 			case "panel":

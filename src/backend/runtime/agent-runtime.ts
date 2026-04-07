@@ -1,425 +1,384 @@
-import { rm } from "node:fs/promises";
-import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { Api, Model } from "@mariozechner/pi-ai";
+import { Agent } from "@mariozechner/pi-agent-core";
+import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import {
-	AgentSession,
-	createAgentSession,
-	SessionManager,
-	type AgentSessionEvent,
-	type SessionInfo,
-} from "@mariozechner/pi-coding-agent";
-
-// Minimal BashResult type - just what we need
-export interface BashResult {
-	output: string;
-	exitCode: number | undefined;
-	cancelled: boolean;
-	truncated: boolean;
-	fullOutputPath?: string;
-}
+  getEnvApiKey,
+  getModel,
+  getModels,
+  getProviders,
+  registerBuiltInApiProviders,
+  type Model,
+  type Api,
+} from "@mariozechner/pi-ai";
 import {
-	snapshotLoadedSession,
-	type LoadedSession,
-} from "../../compat/sessions";
-import { expandThreadReferences } from "../../features/threads";
+  type Session,
+  type SessionSummary,
+  openRecentSession,
+  readSession,
+  findSessionById,
+  writeSession,
+  updateSession,
+  createSession,
+  listAllSessions,
+  listSessionsForCwd,
+  deleteSession,
+} from "../../session";
+import { createDefaultTools } from "../../tools";
 import { getGitInfo, type GitInfo } from "./git-info";
 
-export type RuntimePanelState = {
-	pending: boolean;
-	title: string;
-};
+// Register built-in API providers (Anthropic, OpenAI, etc.) once
+registerBuiltInApiProviders();
+
+// --- Types ---
 
 export type RuntimeStatus = {
-	model: string;
-	thinkingLevel: string;
-	contextPct: string;
-	isStreaming: boolean;
-	git: GitInfo;
+  model: string;
+  thinkingLevel: string;
+  isStreaming: boolean;
+  git: GitInfo;
+};
+
+export type RuntimePanelState = {
+  pending: boolean;
+  title: string;
 };
 
 export type AgentRuntimeEvent =
-	| { type: "messages_changed"; messages: AgentMessage[] }
-	| { type: "status_changed"; status: RuntimeStatus }
-	| { type: "session_changed"; session: LoadedSession }
-	| { type: "panel"; panel: RuntimePanelState }
-	| { type: "tool_completed" }
-	| { type: "turn_complete"; messages: AgentMessage[] }
-	| { type: "pending_changed"; count: number }
-	| { type: "error"; title: string; lines: string[] };
+  | { type: "messages_changed"; messages: AgentMessage[] }
+  | { type: "status_changed"; status: RuntimeStatus }
+  | { type: "session_changed"; session: Session }
+  | { type: "panel"; panel: RuntimePanelState }
+  | { type: "tool_completed" }
+  | { type: "turn_complete"; messages: AgentMessage[] }
+  | { type: "pending_changed"; count: number }
+  | { type: "error"; title: string; lines: string[] };
 
 export type AgentRuntime = {
-	submitUserMessage(text: string): Promise<void>;
-	executeBash(
-		command: string,
-		excludeFromContext?: boolean,
-	): Promise<BashResult>;
-	abort(): Promise<void>;
-	newSession(options?: {
-		parentSession?: string;
-		setup?: (sm: SessionManager) => Promise<void>;
-	}): Promise<boolean>;
-	getAvailableModels(): Array<{ id: string; name: string; provider: string }>;
-	getCurrentModelId(): string | undefined;
-	setModel(provider: string, modelId: string): Promise<void>;
-	cycleModel(direction?: "forward" | "backward"): Promise<string | undefined>;
-	setThinkingLevel(level: ThinkingLevel): void;
-	cycleThinkingLevel(): string | undefined;
-	setSessionName(name: string): void;
-	listAllSessions(): Promise<SessionInfo[]>;
-	switchSession(sessionPath: string): Promise<boolean>;
-	renameSession(sessionPath: string, name: string): void;
-	deleteSession(sessionPath: string): Promise<void>;
-	showPanel(title: string): void;
-	hidePanel(): void;
-	refreshStatus(): void;
-	emitError(title: string, lines: string[]): void;
-	onQuit(handler: () => void): void;
-	quit(): void;
-	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
-	getSession(): LoadedSession;
-	getAgentSession(): AgentSession;
-	getMessages(): AgentMessage[];
-	getStatus(): RuntimeStatus;
-	dispose(): void;
-	/** Number of queued steering + follow-up messages */
-	getPendingMessageCount(): number;
-	/** Get pending steering and follow-up messages */
-	getPendingMessages(): { steering: string[]; followUp: string[] };
-	/** Queue a follow-up message (processed after agent finishes) */
-	sendFollowUp(text: string): Promise<void>;
-	/** Queue a steering message (processed after current tool calls) */
-	sendSteer(text: string): Promise<void>;
-	/** Clear all queued messages and return them */
-	clearPendingMessages(): { steering: string[]; followUp: string[] };
+  // Messaging
+  submitUserMessage(text: string): Promise<void>;
+  abort(): void;
+  sendFollowUp(text: string): void;
+  sendSteer(text: string): void;
+  clearPendingMessages(): void;
+  getPendingMessageCount(): number;
+
+  // Session management
+  getSession(): Session;
+  getMessages(): AgentMessage[];
+  newSession(cwd?: string): Promise<void>;
+  switchSession(id: string): Promise<boolean>;
+  setSessionName(name: string): Promise<void>;
+  listAllSessions(): Promise<SessionSummary[]>;
+  listSessionsForCwd(cwd: string): Promise<SessionSummary[]>;
+  deleteSession(id: string): Promise<void>;
+
+  // Model management
+  getStatus(): RuntimeStatus;
+  getAvailableModels(): Array<{ id: string; name: string; provider: string }>;
+  getCurrentModelId(): string | undefined;
+  setModel(provider: string, modelId: string): void;
+  setThinkingLevel(level: ThinkingLevel): void;
+
+  // UI helpers
+  showPanel(title: string): void;
+  hidePanel(): void;
+  emitError(title: string, lines: string[]): void;
+  onQuit(handler: () => void): void;
+  quit(): void;
+
+  // Lifecycle
+  subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
+  dispose(): void;
 };
 
-function panelActive(title: string): RuntimePanelState {
-	return { pending: true, title };
-}
+// --- Default system prompt ---
 
-function panelIdle(): RuntimePanelState {
-	return { pending: false, title: "" };
-}
+const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
+You have access to tools to read and modify files, run commands, search code, and more.
+Be concise and direct. Prefer surgical edits over full rewrites when practical.`;
 
-function defaultRuntimeError(error: unknown): {
-	title: string;
-	lines: string[];
-} {
-	if (error instanceof Error) {
-		return { title: "Runtime Error", lines: [error.message] };
-	}
-	return { title: "Runtime Error", lines: [String(error)] };
-}
-
-export type AgentRuntimeOptions = {
-	customTools?: any[];
-};
+// --- Factory ---
 
 export async function createAgentRuntime(
-	initialSession: LoadedSession | null,
-	options?: AgentRuntimeOptions,
+  initialSession: Session | null,
+  options?: { extraTools?: AgentTool[] },
 ): Promise<AgentRuntime> {
-	const sessionManager =
-		initialSession?.manager ?? SessionManager.continueRecent(process.cwd());
-	const { session: agentSession } = await createAgentSession({
-		cwd: process.cwd(),
-		sessionManager,
-		customTools: options?.customTools,
-	});
+  // Load or create session
+  let session = initialSession ?? (await openRecentSession(process.cwd()));
 
-	let currentSession = snapshotLoadedSession(agentSession.sessionManager);
-	let quitHandler: (() => void) | null = null;
-	const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+  // Pick default model — prefer claude-sonnet
+  const defaultModel = resolveDefaultModel(session.model);
 
-	const emit = (event: AgentRuntimeEvent) => {
-		for (const listener of listeners) {
-			listener(event);
-		}
-	};
+  // Create Agent
+  const agent = new Agent({
+    initialState: {
+      systemPrompt: DEFAULT_SYSTEM_PROMPT,
+      model: defaultModel,
+      thinkingLevel: "medium",
+      messages: session.messages,
+      tools: [
+        ...createDefaultTools(session.cwd),
+        ...(options?.extraTools ?? []),
+      ],
+    },
+    steeringMode: "all",
+    followUpMode: "all",
+    getApiKey: (provider) => getEnvApiKey(provider),
+  });
 
-	function snapshotStatus(): RuntimeStatus {
-		const model = agentSession.model;
-		const usage = agentSession.getContextUsage();
-		const cwd = agentSession.sessionManager.getCwd();
-		const git = getGitInfo(cwd);
-		return {
-			model: model?.name ?? model?.id ?? "no-model",
-			thinkingLevel: agentSession.thinkingLevel ?? "off",
-			contextPct:
-				usage?.percent != null ? `${Math.round(usage.percent)}%` : "–",
-			isStreaming: agentSession.isStreaming,
-			git,
-		};
-	}
+  const listeners = new Set<(event: AgentRuntimeEvent) => void>();
+  let quitHandler: (() => void) | null = null;
+  let pendingCount = 0;
 
-	function emitMessages() {
-		emit({ type: "messages_changed", messages: [...agentSession.messages] });
-	}
+  const emit = (event: AgentRuntimeEvent) => {
+    for (const listener of listeners) listener(event);
+  };
 
-	function emitStatus() {
-		emit({ type: "status_changed", status: snapshotStatus() });
-	}
+  const snapshotStatus = (): RuntimeStatus => ({
+    model: agent.state.model?.name ?? agent.state.model?.id ?? "no model",
+    thinkingLevel: agent.state.thinkingLevel ?? "off",
+    isStreaming: agent.state.isStreaming,
+    git: getGitInfo(session.cwd),
+  });
 
-	function emitSession() {
-		emit({ type: "session_changed", session: currentSession });
-	}
+  // Persist messages to disk after each turn
+  const persistMessages = async () => {
+    try {
+      session = await updateSession(session, {
+        messages: agent.state.messages,
+        model: agent.state.model?.id,
+      });
+    } catch (err) {
+      emit({ type: "error", title: "Session save failed", lines: [String(err)] });
+    }
+  };
 
-	const unsubscribeAgent = agentSession.subscribe(
-		(event: AgentSessionEvent) => {
-			try {
-				handleAgentEvent(event);
-			} catch (error) {
-				const runtimeError = defaultRuntimeError(error);
-				emit({
-					type: "error",
-					title: runtimeError.title,
-					lines: runtimeError.lines,
-				});
-			}
-		},
-	);
+  // Subscribe to agent events
+  const unsubscribe = agent.subscribe((event: AgentEvent) => {
+    switch (event.type) {
+      case "agent_start":
+        emit({ type: "panel", panel: { pending: true, title: "Working…" } });
+        emit({ type: "messages_changed", messages: [...agent.state.messages] });
+        break;
 
-	function handleAgentEvent(event: AgentSessionEvent) {
-		switch (event.type) {
-			case "agent_start":
-				emitMessages();
-				emit({ type: "panel", panel: panelActive("Working...") });
-				break;
-			case "message_start":
-				if (event.message.role === "assistant") {
-					emit({ type: "panel", panel: panelActive("Thinking...") });
-				}
-				break;
-			case "message_update": {
-				const ame = (
-					event as { assistantMessageEvent?: { type: string; delta?: string } }
-				).assistantMessageEvent;
-				if (ame?.type === "thinking_delta" && ame.delta) {
-					const trimmed = ame.delta.replace(/\s+/g, " ").trim();
-					if (trimmed) {
-						emit({ type: "panel", panel: panelActive(trimmed) });
-					}
-				}
-				break;
-			}
-			case "message_end":
-				emitMessages();
-				emitStatus();
-				break;
-			case "tool_execution_start":
-				break;
-			case "tool_execution_end":
-				emit({ type: "tool_completed" });
-				break;
-			case "agent_end":
-				currentSession = snapshotLoadedSession(agentSession.sessionManager);
-				emitSession();
-				emitMessages();
-				emitStatus();
-				emit({ type: "panel", panel: panelIdle() });
-				emit({ type: "pending_changed", count: agentSession.pendingMessageCount });
-				emit({ type: "turn_complete", messages: [...agentSession.messages] });
-				break;
-			default:
-				break;
-		}
-	}
+      case "message_start":
+        if (event.message.role === "assistant") {
+          emit({ type: "panel", panel: { pending: true, title: "Thinking…" } });
+        }
+        break;
 
-	return {
-		async submitUserMessage(text: string): Promise<void> {
-			try {
-				// Expand [[thread:id]] references before sending
-				let finalText = text;
-				if (text.includes("[[thread:")) {
-					const currentPath = agentSession.sessionManager.getSessionFile();
-					const result = await expandThreadReferences(text, currentPath);
-					finalText = result.text;
-					if (result.errors.length > 0) {
-						emit({
-							type: "error",
-							title: "Thread Reference",
-							lines: result.errors,
-						});
-					}
-				}
-				await agentSession.sendUserMessage(finalText, {
-					deliverAs: agentSession.isStreaming ? "steer" : undefined,
-				});
-			} catch (error) {
-				const runtimeError = defaultRuntimeError(error);
-				emit({
-					type: "error",
-					title: runtimeError.title,
-					lines: runtimeError.lines,
-				});
-				throw error;
-			}
-		},
-		async executeBash(
-			command: string,
-			excludeFromContext?: boolean,
-		): Promise<BashResult> {
-			const result = await agentSession.executeBash(command, undefined, {
-				excludeFromContext,
-			});
-			// ExecuteBash doesn't emit an event, so manually emit messages_changed
-			emitMessages();
-			return result;
-		},
-		async abort(): Promise<void> {
-			await agentSession.abort();
-		},
-		getAvailableModels(): Array<{
-			id: string;
-			name: string;
-			provider: string;
-		}> {
-			return agentSession.modelRegistry.getAvailable().map((m: Model<Api>) => ({
-				id: m.id,
-				name: m.name,
-				provider: m.provider,
-			}));
-		},
-		getCurrentModelId(): string | undefined {
-			return agentSession.model?.id;
-		},
-		async setModel(provider: string, modelId: string): Promise<void> {
-			const model = agentSession.modelRegistry
-				.getAvailable()
-				.find((m: Model<Api>) => m.provider === provider && m.id === modelId);
-			if (!model) {
-				throw new Error(`Model not found: ${provider}/${modelId}`);
-			}
-			await agentSession.setModel(model);
-			emitStatus();
-		},
-		async newSession(options?: {
-			parentSession?: string;
-			setup?: (sm: SessionManager) => Promise<void>;
-		}): Promise<boolean> {
-			const ok = await agentSession.newSession({
-				parentSession: options?.parentSession,
-				setup: options?.setup,
-			});
-			if (ok) {
-				currentSession = snapshotLoadedSession(agentSession.sessionManager);
-				emitSession();
-				emitMessages();
-				emitStatus();
-			}
-			return ok;
-		},
-		async cycleModel(
-			direction?: "forward" | "backward",
-		): Promise<string | undefined> {
-			const result = await agentSession.cycleModel(direction);
-			emitStatus();
-			return result ? (result.model.name ?? result.model.id) : undefined;
-		},
-		setThinkingLevel(level: ThinkingLevel): void {
-			agentSession.setThinkingLevel(level);
-			emitStatus();
-		},
-		cycleThinkingLevel(): string | undefined {
-			const level = agentSession.cycleThinkingLevel();
-			emitStatus();
-			return level;
-		},
-		setSessionName(name: string): void {
-			agentSession.setSessionName(name);
-			currentSession = snapshotLoadedSession(agentSession.sessionManager);
-			emitSession();
-		},
-		renameSession(sessionPath: string, name: string): void {
-			const isCurrent = agentSession.sessionFile === sessionPath;
-			if (isCurrent) {
-				agentSession.setSessionName(name);
-				currentSession = snapshotLoadedSession(agentSession.sessionManager);
-				emitSession();
-			} else {
-				const sm = SessionManager.open(sessionPath);
-				sm.appendSessionInfo(name);
-			}
-		},
-		async deleteSession(sessionPath: string): Promise<void> {
-			if (agentSession.sessionFile === sessionPath) {
-				throw new Error("Cannot delete the currently active session.");
-			}
-			await rm(sessionPath);
-		},
-		async listAllSessions(): Promise<SessionInfo[]> {
-			return SessionManager.listAll();
-		},
-		async switchSession(sessionPath: string): Promise<boolean> {
-			const ok = await agentSession.switchSession(sessionPath);
-			if (ok) {
-				currentSession = snapshotLoadedSession(agentSession.sessionManager);
-				emitSession();
-				emitMessages();
-				emitStatus();
-			}
-			return ok;
-		},
-		showPanel(title: string) {
-			emit({ type: "panel", panel: panelActive(title) });
-		},
-		hidePanel() {
-			emit({ type: "panel", panel: panelIdle() });
-		},
-		refreshStatus() {
-			emitStatus();
-		},
-		emitError(title: string, lines: string[]) {
-			emit({ type: "error", title, lines });
-		},
-		onQuit(handler: () => void) {
-			quitHandler = handler;
-		},
-		quit() {
-			quitHandler?.();
-		},
-		subscribe(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
-		},
-		getSession() {
-			return currentSession;
-		},
-		getAgentSession() {
-			return agentSession;
-		},
-		getMessages() {
-			return [...agentSession.messages];
-		},
-		getStatus() {
-			return snapshotStatus();
-		},
-		getPendingMessageCount(): number {
-			return agentSession.pendingMessageCount;
-		},
-		getPendingMessages(): { steering: string[]; followUp: string[] } {
-			return {
-				steering: [...agentSession.getSteeringMessages()],
-				followUp: [...agentSession.getFollowUpMessages()],
-			};
-		},
-		async sendFollowUp(text: string): Promise<void> {
-			await agentSession.followUp(text);
-			emit({ type: "pending_changed", count: agentSession.pendingMessageCount });
-		},
-		async sendSteer(text: string): Promise<void> {
-			await agentSession.steer(text);
-			emit({ type: "pending_changed", count: agentSession.pendingMessageCount });
-		},
-		clearPendingMessages(): { steering: string[]; followUp: string[] } {
-			const result = agentSession.clearQueue();
-			emit({ type: "pending_changed", count: 0 });
-			return result;
-		},
-		dispose() {
-			unsubscribeAgent();
-			agentSession.dispose();
-			listeners.clear();
-		},
-	};
+      case "message_update": {
+        const ame = (event as any).assistantMessageEvent;
+        if (ame?.type === "thinking_delta" && ame.delta?.trim()) {
+          emit({ type: "panel", panel: { pending: true, title: ame.delta.replace(/\s+/g, " ").trim() } });
+        }
+        break;
+      }
+
+      case "message_end":
+        emit({ type: "messages_changed", messages: [...agent.state.messages] });
+        emit({ type: "status_changed", status: snapshotStatus() });
+        break;
+
+      case "tool_execution_end":
+        emit({ type: "tool_completed" });
+        break;
+
+      case "agent_end":
+        void persistMessages().then(() => {
+          emit({ type: "session_changed", session });
+          emit({ type: "messages_changed", messages: [...agent.state.messages] });
+          emit({ type: "status_changed", status: snapshotStatus() });
+          emit({ type: "panel", panel: { pending: false, title: "" } });
+          emit({ type: "turn_complete", messages: [...agent.state.messages] });
+          pendingCount = agent.hasQueuedMessages() ? 1 : 0;
+          emit({ type: "pending_changed", count: pendingCount });
+        });
+        break;
+    }
+  });
+
+  return {
+    // --- Messaging ---
+
+    async submitUserMessage(text) {
+      try {
+        await agent.prompt(text);
+      } catch (err) {
+        emit({ type: "error", title: "Agent error", lines: [String(err)] });
+      }
+    },
+
+    abort() {
+      agent.abort();
+    },
+
+    sendFollowUp(text) {
+      const msg: AgentMessage = { role: "user", content: text } as any;
+      agent.followUp(msg);
+      pendingCount = agent.hasQueuedMessages() ? 1 : 0;
+      emit({ type: "pending_changed", count: pendingCount });
+    },
+
+    sendSteer(text) {
+      const msg: AgentMessage = { role: "user", content: text } as any;
+      agent.steer(msg);
+      pendingCount = agent.hasQueuedMessages() ? 1 : 0;
+      emit({ type: "pending_changed", count: pendingCount });
+    },
+
+    clearPendingMessages() {
+      agent.clearAllQueues();
+      pendingCount = 0;
+      emit({ type: "pending_changed", count: 0 });
+    },
+
+    getPendingMessageCount() {
+      return pendingCount;
+    },
+
+    // --- Session ---
+
+    getSession() {
+      return session;
+    },
+
+    getMessages() {
+      return [...agent.state.messages];
+    },
+
+    async newSession(cwd?: string) {
+      const targetCwd = cwd ?? session.cwd;
+      session = await createSession(targetCwd, agent.state.model?.id);
+      agent.replaceMessages([]);
+      agent.setTools(createDefaultTools(targetCwd));
+      emit({ type: "session_changed", session });
+      emit({ type: "messages_changed", messages: [] });
+    },
+
+    async switchSession(id) {
+      const target = await findSessionById(id) ?? await readSession(id);
+      if (!target) return false;
+      session = target;
+      agent.replaceMessages(session.messages);
+      agent.setTools(createDefaultTools(session.cwd));
+      emit({ type: "session_changed", session });
+      emit({ type: "messages_changed", messages: [...session.messages] });
+      emit({ type: "status_changed", status: snapshotStatus() });
+      return true;
+    },
+
+    async setSessionName(name) {
+      session = await updateSession(session, { name });
+      emit({ type: "session_changed", session });
+    },
+
+    async listAllSessions() {
+      return listAllSessions();
+    },
+
+    async listSessionsForCwd(cwd) {
+      return listSessionsForCwd(cwd);
+    },
+
+    async deleteSession(id) {
+      if (id === session.id) throw new Error("Cannot delete the active session");
+      await deleteSession(id);
+    },
+
+    // --- Model ---
+
+    getStatus() {
+      return snapshotStatus();
+    },
+
+    getAvailableModels() {
+      return getProviders().flatMap((provider) =>
+        getModels(provider).map((m: Model<Api>) => ({
+          id: m.id,
+          name: m.name ?? m.id,
+          provider,
+        })),
+      );
+    },
+
+    getCurrentModelId() {
+      return agent.state.model?.id;
+    },
+
+    setModel(provider, modelId) {
+      const model = getModel(provider as any, modelId as any);
+      if (!model) throw new Error(`Model not found: ${provider}/${modelId}`);
+      agent.setModel(model);
+      emit({ type: "status_changed", status: snapshotStatus() });
+    },
+
+    setThinkingLevel(level) {
+      agent.setThinkingLevel(level);
+      emit({ type: "status_changed", status: snapshotStatus() });
+    },
+
+    // --- UI ---
+
+    showPanel(title) {
+      emit({ type: "panel", panel: { pending: true, title } });
+    },
+
+    hidePanel() {
+      emit({ type: "panel", panel: { pending: false, title: "" } });
+    },
+
+    emitError(title, lines) {
+      emit({ type: "error", title, lines });
+    },
+
+    onQuit(handler) {
+      quitHandler = handler;
+    },
+
+    quit() {
+      quitHandler?.();
+    },
+
+    // --- Lifecycle ---
+
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+
+    dispose() {
+      unsubscribe();
+      listeners.clear();
+    },
+  };
+}
+
+// --- Helpers ---
+
+function resolveDefaultModel(preferredModelId?: string): Model<Api> {
+  const providers = getProviders();
+
+  // Try to find the preferred model from the last session
+  if (preferredModelId) {
+    for (const provider of providers) {
+      for (const m of getModels(provider)) {
+        if (m.id === preferredModelId) return m;
+      }
+    }
+  }
+
+  // Fall back to claude-sonnet or first available
+  for (const provider of providers) {
+    for (const m of getModels(provider)) {
+      if (m.id.includes("claude-sonnet")) return m;
+    }
+  }
+
+  const firstProvider = providers[0];
+  if (firstProvider) {
+    const models = getModels(firstProvider);
+    if (models[0]) return models[0];
+  }
+
+  throw new Error("No models available. Check your API keys.");
 }
