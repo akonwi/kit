@@ -365,11 +365,13 @@ function AssistantEntry(props: {
 							when={result()}
 							fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}
 						>
-							<CompletedToolCall
-								tc={tc}
-								result={result()!}
-								aborted={props.aborted}
-							/>
+							{(r) => (
+								<CompletedToolCall
+									tc={tc}
+									result={r()}
+									aborted={props.aborted}
+								/>
+							)}
 						</Show>
 					);
 				}}
@@ -427,7 +429,7 @@ function TurnEntry(props: { turn: TranscriptTurn }) {
 	return (
 		<box flexDirection="column" gap={1} width="100%">
 			<Show when={props.turn.user}>
-				<UserEntry msg={props.turn.user!} aborted={props.turn.aborted} />
+				{(user) => <UserEntry msg={user()} aborted={props.turn.aborted} />}
 			</Show>
 			<For
 				each={props.turn.entries.filter(
