@@ -4,113 +4,118 @@
  */
 
 export type PaletteContext = {
-  /** Pop this palette from the stack */
-  dismiss: () => void;
+	/** Pop this palette from the stack */
+	dismiss: () => void;
 };
 
 export type PaletteOption = {
-  name: string;
-  description: string;
-  value?: unknown;
-  action: (ctx: PaletteContext) => void;
+	name: string;
+	description: string;
+	value?: unknown;
+	action: (ctx: PaletteContext) => void;
 };
 
 export type PaletteKeyBinding = (
-  option: PaletteOption,
-  ctx: PaletteContext,
+	option: PaletteOption,
+	ctx: PaletteContext,
 ) => void;
 
-export type PaletteConfig = {
-  options: PaletteOption[];
-  filterable?: boolean;
-  hint?: string;
-  /** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
-  onDismiss?: () => void;
-  /** Called when the filter text changes. Return false to intercept (prevents normal filtering). */
-  onFilterChange?: (text: string) => boolean | void;
-} | {
-  mode: "input";
-  label?: string;
-  inputValue?: string;
-  onSubmit: (value: string, ctx: PaletteContext) => void;
-  /** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
-  onDismiss?: () => void;
-};
+export type PaletteConfig =
+	| {
+			options: PaletteOption[];
+			filterable?: boolean;
+			hint?: string;
+			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+			onDismiss?: () => void;
+			/** Called when the filter text changes. Return false to intercept (prevents normal filtering). */
+			onFilterChange?: (text: string) => boolean | void;
+	  }
+	| {
+			mode: "input";
+			label?: string;
+			inputValue?: string;
+			onSubmit: (value: string, ctx: PaletteContext) => void;
+			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+			onDismiss?: () => void;
+	  };
 
 /** Internal entry stored on the stack */
 export type PaletteEntry = {
-  id: number;
-  onDismiss?: () => void;
-  onFilterChange?: (text: string) => boolean | void;
+	id: number;
+	onDismiss?: () => void;
+	onFilterChange?: (text: string) => boolean | void;
 } & (
-  | {
-      mode: "list";
-      options: PaletteOption[];
-      allOptions: PaletteOption[];
-      selectedIndex: number;
-      filterable: boolean;
-      filterText: string;
-      hint: string;
-      keyBindings: Record<string, PaletteKeyBinding>;
-    }
-  | {
-      mode: "input";
-      label: string;
-      inputValue: string;
-      onSubmit: (value: string, ctx: PaletteContext) => void;
-    }
+	| {
+			mode: "list";
+			options: PaletteOption[];
+			allOptions: PaletteOption[];
+			selectedIndex: number;
+			filterable: boolean;
+			filterText: string;
+			hint: string;
+			keyBindings: Record<string, PaletteKeyBinding>;
+	  }
+	| {
+			mode: "input";
+			label: string;
+			inputValue: string;
+			onSubmit: (value: string, ctx: PaletteContext) => void;
+	  }
 );
 
 /** Derived view for rendering — strips functions and internal state from entries */
 export type PaletteSnapshot = {
-  visible: boolean;
-  mode: "list" | "input";
-  // list mode
-  options: Array<{ name: string; description: string }>;
-  selectedIndex: number;
-  filterable: boolean;
-  filterText: string;
-  hint: string;
-  // input mode
-  label: string;
-  inputValue: string;
+	visible: boolean;
+	mode: "list" | "input";
+	// list mode
+	options: Array<{ name: string; description: string }>;
+	selectedIndex: number;
+	filterable: boolean;
+	filterText: string;
+	hint: string;
+	// input mode
+	label: string;
+	inputValue: string;
 };
 
 export const emptySnapshot: PaletteSnapshot = {
-  visible: false,
-  mode: "list",
-  options: [],
-  selectedIndex: 0,
-  filterable: false,
-  filterText: "",
-  hint: "",
-  label: "",
-  inputValue: "",
+	visible: false,
+	mode: "list",
+	options: [],
+	selectedIndex: 0,
+	filterable: false,
+	filterText: "",
+	hint: "",
+	label: "",
+	inputValue: "",
 };
 
 export function snapshotFromEntry(entry: PaletteEntry): PaletteSnapshot {
-  if (entry.mode === "input") {
-    return {
-      visible: true,
-      mode: "input",
-      options: [],
-      selectedIndex: 0,
-      filterable: false,
-      filterText: "",
-      hint: "",
-      label: entry.label,
-      inputValue: entry.inputValue,
-    };
-  }
-  return {
-    visible: true,
-    mode: "list",
-    options: entry.options.map((o) => ({ name: o.name, description: o.description })),
-    selectedIndex: entry.selectedIndex,
-    filterable: entry.filterable,
-    filterText: entry.filterText,
-    hint: entry.hint,
-    label: "",
-    inputValue: "",
-  };
+	if (entry.mode === "input") {
+		return {
+			visible: true,
+			mode: "input",
+			options: [],
+			selectedIndex: 0,
+			filterable: false,
+			filterText: "",
+			hint: "",
+			label: entry.label,
+			inputValue: entry.inputValue,
+		};
+	}
+	return {
+		visible: true,
+		mode: "list",
+		options: entry.options.map((o) => ({
+			name: o.name,
+			description: o.description,
+		})),
+		selectedIndex: entry.selectedIndex,
+		filterable: entry.filterable,
+		filterText: entry.filterText,
+		hint: entry.hint,
+		label: "",
+		inputValue: "",
+	};
 }

@@ -1,2 +1,5 @@
-export { createPagerController, type PagerController } from "./pager-controller";
-export { splitSections, type PagerSection } from "./split-sections";
+export {
+	createPagerController,
+	type PagerController,
+} from "./pager-controller";
+export { type PagerSection, splitSections } from "./split-sections";

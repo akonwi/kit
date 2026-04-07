@@ -1,28 +1,37 @@
-// @ts-nocheck — disabled pending rewrite
 import type { Command } from "./types";
 
 export const modelCommand: Command = {
 	name: "model",
-	description: "Select a model",
-	execute({ runtime, palette }) {
+	description: "Switch the active model",
+	async execute({ runtime, palette }) {
 		const models = runtime.getAvailableModels();
-		if (models.length === 0) return;
+		const currentId = runtime.getCurrentModelId();
 
-		palette.show({
-			filterable: true,
-			options: models.map((m) => ({
-				name: m.name,
-				description: m.provider,
-				value: m,
-				action: async (ctx) => {
-					try {
-						await runtime.setModel(m.provider, m.id);
-					} catch (error) {
-						console.error(error);
+		await new Promise<void>((resolve) => {
+			let selected: (typeof models)[0] | null = null;
+			palette.show({
+				filterable: true,
+				hint: "Select a model",
+				onDismiss: () => {
+					if (selected) {
+						try {
+							runtime.setModel(selected);
+						} catch (e) {
+							console.log("[model] setModel error:", e);
+						}
 					}
-					ctx.dismiss();
+					resolve();
 				},
-			})),
+				options: models.map((m) => ({
+					name: m.id === currentId ? `${m.name ?? m.id} ✓` : (m.name ?? m.id),
+					description: m.provider,
+					value: m,
+					action: (ctx: any) => {
+						selected = m;
+						ctx.dismiss();
+					},
+				})),
+			});
 		});
 	},
 };

@@ -11,9 +11,15 @@ export const sessionCommand: Command = {
 		const model = agentSession.model;
 		const messages = runtime.getMessages();
 
-		const userCount = messages.filter((m) => "role" in m && m.role === "user").length;
-		const assistantCount = messages.filter((m) => "role" in m && m.role === "assistant").length;
-		const toolResultCount = messages.filter((m) => "role" in m && m.role === "toolResult").length;
+		const userCount = messages.filter(
+			(m) => "role" in m && m.role === "user",
+		).length;
+		const assistantCount = messages.filter(
+			(m) => "role" in m && m.role === "assistant",
+		).length;
+		const toolResultCount = messages.filter(
+			(m) => "role" in m && m.role === "toolResult",
+		).length;
 
 		const lines: string[] = [
 			`ID:       ${session.sessionId}`,

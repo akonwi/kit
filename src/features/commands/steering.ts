@@ -19,9 +19,13 @@ export const steerCommand: Command = {
 					return;
 				}
 				runtime.sendSteer(text.trim()).catch((err) => {
-					addNotice("error", "/steer failed", [err instanceof Error ? err.message : String(err)]);
+					addNotice("error", "/steer failed", [
+						err instanceof Error ? err.message : String(err),
+					]);
 				});
-				addNotice("info", "Steering queued", [`"${text.trim().slice(0, 60)}${text.trim().length > 60 ? "…" : ""}"`]);
+				addNotice("info", "Steering queued", [
+					`"${text.trim().slice(0, 60)}${text.trim().length > 60 ? "…" : ""}"`,
+				]);
 				palette.pop();
 			},
 		});
@@ -42,9 +46,13 @@ export const followUpCommand: Command = {
 					return;
 				}
 				runtime.sendFollowUp(text.trim()).catch((err) => {
-					addNotice("error", "/followup failed", [err instanceof Error ? err.message : String(err)]);
+					addNotice("error", "/followup failed", [
+						err instanceof Error ? err.message : String(err),
+					]);
 				});
-				addNotice("info", "Follow-up queued", [`"${text.trim().slice(0, 60)}${text.trim().length > 60 ? "…" : ""}"`]);
+				addNotice("info", "Follow-up queued", [
+					`"${text.trim().slice(0, 60)}${text.trim().length > 60 ? "…" : ""}"`,
+				]);
 				palette.pop();
 			},
 		});

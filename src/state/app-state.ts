@@ -2,10 +2,10 @@ import { homedir } from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
 import type { AgentRuntime, RuntimeStatus } from "../backend";
-import type { Session } from "../session";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
+import type { Session } from "../session";
 
 export type PanelState = {
 	pending: boolean;
@@ -70,7 +70,16 @@ function deriveFooterStatus(
 			pendingMessages: 0,
 		};
 	}
-	return { model: "no-model", thinkingLevel: "off", contextPct: "–", gitBranch: null, gitDirty: false, bellsEnabled: true, speechEnabled: true, pendingMessages: 0 };
+	return {
+		model: "no-model",
+		thinkingLevel: "off",
+		contextPct: "–",
+		gitBranch: null,
+		gitDirty: false,
+		bellsEnabled: true,
+		speechEnabled: true,
+		pendingMessages: 0,
+	};
 }
 
 function applyRuntimeStatus(
@@ -126,7 +135,9 @@ export function createAppState(
 	});
 
 	const fileIndex: FileIndex = createFileIndex(process.cwd());
-	const threadIndex: ThreadIndex | null = runtime ? createThreadIndex(runtime) : null;
+	const threadIndex: ThreadIndex | null = runtime
+		? createThreadIndex(runtime)
+		: null;
 
 	// ── Runtime subscription ───────────────────────────────────────
 
@@ -162,12 +173,16 @@ export function createAppState(
 				}
 				break;
 			case "error":
-				setState("notices", [...state.notices, {
-					variant: "error",
-					title: event.title,
-					lines: event.lines,
-					timestamp: Date.now(),
-				}]);
+			case "info":
+				setState("notices", [
+					...state.notices,
+					{
+						variant: event.type,
+						title: event.title,
+						lines: event.lines,
+						timestamp: Date.now(),
+					},
+				]);
 				break;
 		}
 	});
@@ -179,8 +194,15 @@ export function createAppState(
 		setState("footerStatus", "speechEnabled", speech);
 	}
 
-	function addNotice(variant: "error" | "info", title: string, lines: string[]) {
-		setState("notices", [...state.notices, { variant, title, lines, timestamp: Date.now() }]);
+	function addNotice(
+		variant: "error" | "info",
+		title: string,
+		lines: string[],
+	) {
+		setState("notices", [
+			...state.notices,
+			{ variant, title, lines, timestamp: Date.now() },
+		]);
 	}
 
 	return {

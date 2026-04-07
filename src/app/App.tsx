@@ -1,41 +1,40 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentRuntime } from "../backend";
-import type { Session } from "../session";
 import type { LoadedSettings } from "../compat/settings/load-settings";
 import type { NotificationConfig } from "../features/notification-config";
 import type { WizardController } from "../features/wizard";
+import type { Session } from "../session";
 import { AppShell } from "../shell/AppShell";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";
 
 export type AppProps = {
-  settings: LoadedSettings;
-  session: Session | null;
-  runtime: AgentRuntime;
-  wizard: WizardController;
-  notificationConfig: NotificationConfig;
-  updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
+	settings: LoadedSettings;
+	session: Session | null;
+	runtime: AgentRuntime;
+	wizard: WizardController;
+	notificationConfig: NotificationConfig;
+	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 };
 
 export function App(props: AppProps) {
-  const app = createAppState(props.settings, props.runtime.getSession(), props.runtime);
+	const app = createAppState(
+		props.settings,
+		props.runtime.getSession(),
+		props.runtime,
+	);
 
-  const controller = createComposerController({
-    runtime: props.runtime,
-    fileIndex: app.fileIndex,
-  });
+	const controller = createComposerController({
+		runtime: props.runtime,
+		fileIndex: app.fileIndex,
+	});
 
-  props.runtime.subscribe((event) => {
-    if (event.type === "session_changed") {
-      props.updateTerminalTitle((event.session as Session).name, process.cwd());
-    }
-  });
+	props.runtime.subscribe((event) => {
+		if (event.type === "session_changed") {
+			props.updateTerminalTitle((event.session as Session).name, process.cwd());
+		}
+	});
 
-  return (
-    <AppShell
-      state={app.state}
-      controller={controller}
-    />
-  );
+	return <AppShell state={app.state} controller={controller} />;
 }

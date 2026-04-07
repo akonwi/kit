@@ -22,7 +22,10 @@ function formatTitle(sessionName: string | undefined, cwd: string): string {
 	return `kit - ${cwdBasename}`;
 }
 
-export function updateTerminalTitle(sessionName: string | undefined, cwd: string) {
+export function updateTerminalTitle(
+	sessionName: string | undefined,
+	cwd: string,
+) {
 	if (!setTitle) return;
 	setTitle(formatTitle(sessionName, cwd));
 }

@@ -1,3 +1,12 @@
+export {
+	type AgentIndex,
+	type AgentSuggestion,
+	createAgentIndex,
+} from "./agent-index";
+export {
+	type AgentConfig,
+	type AgentDiscoveryResult,
+	type AgentScope,
+	discoverAgents,
+} from "./agents";
 export { createSubagentTool } from "./tool";
-export { discoverAgents, type AgentConfig, type AgentScope, type AgentDiscoveryResult } from "./agents";
-export { createAgentIndex, type AgentIndex, type AgentSuggestion } from "./agent-index";

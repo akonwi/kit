@@ -2,11 +2,11 @@ import { createMemo, createSignal } from "solid-js";
 import { scoreMatch } from "../features/files/score";
 import {
 	emptySnapshot,
-	snapshotFromEntry,
 	type PaletteConfig,
 	type PaletteContext,
 	type PaletteEntry,
 	type PaletteKeyBinding,
+	snapshotFromEntry,
 } from "./palette";
 
 let nextId = 0;
@@ -35,8 +35,15 @@ export function createPaletteManager() {
 	function ctxFor(id: number): PaletteContext {
 		return {
 			dismiss() {
+				console.log("[palette] ctx.dismiss() called for id:", id);
 				setStack((s) => {
 					const entry = s.find((e) => e.id === id);
+					console.log(
+						"[palette] found entry:",
+						!!entry,
+						"calling onDismiss:",
+						!!entry?.onDismiss,
+					);
 					entry?.onDismiss?.();
 					return s.filter((e) => e.id !== id);
 				});
@@ -101,7 +108,10 @@ export function createPaletteManager() {
 			if (t.mode !== "list") return t;
 			const count = t.options.length;
 			if (count === 0) return t;
-			return { ...t, selectedIndex: t.selectedIndex <= 0 ? count - 1 : t.selectedIndex - 1 };
+			return {
+				...t,
+				selectedIndex: t.selectedIndex <= 0 ? count - 1 : t.selectedIndex - 1,
+			};
 		});
 	}
 
@@ -110,14 +120,26 @@ export function createPaletteManager() {
 			if (t.mode !== "list") return t;
 			const count = t.options.length;
 			if (count === 0) return t;
-			return { ...t, selectedIndex: t.selectedIndex >= count - 1 ? 0 : t.selectedIndex + 1 };
+			return {
+				...t,
+				selectedIndex: t.selectedIndex >= count - 1 ? 0 : t.selectedIndex + 1,
+			};
 		});
 	}
 
 	function selectCurrent() {
 		const t = top();
+		console.log(
+			"[palette] selectCurrent mode:",
+			t?.mode,
+			"idx:",
+			(t as any)?.selectedIndex,
+			"opts:",
+			(t as any)?.options?.length,
+		);
 		if (!t || t.mode !== "list") return;
 		const option = t.options[t.selectedIndex];
+		console.log("[palette] action for:", option?.name);
 		if (option) {
 			option.action(ctxFor(t.id));
 		}

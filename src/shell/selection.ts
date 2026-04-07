@@ -1,8 +1,8 @@
 import { copyToClipboard } from "./clipboard";
 
 type Renderer = {
-  getSelection(): { getSelectedText(): string } | null;
-  clearSelection(): void;
+	getSelection(): { getSelectedText(): string } | null;
+	clearSelection(): void;
 };
 
 /**
@@ -10,13 +10,13 @@ type Renderer = {
  * selection, and return true. Otherwise return false.
  */
 export function copySelection(renderer: Renderer): boolean {
-  const text = renderer.getSelection()?.getSelectedText();
-  if (!text) return false;
+	const text = renderer.getSelection()?.getSelectedText();
+	if (!text) return false;
 
-  copyToClipboard(text).catch((err) => {
-    console.error("clipboard copy failed:", err);
-  });
+	copyToClipboard(text).catch((err) => {
+		console.error("clipboard copy failed:", err);
+	});
 
-  renderer.clearSelection();
-  return true;
+	renderer.clearSelection();
+	return true;
 }

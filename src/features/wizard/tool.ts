@@ -4,122 +4,124 @@
  */
 
 import { Type } from "@sinclair/typebox";
-import type { WizardController } from "./wizard-controller";
 import { normalizeQuestion, type WizardInput } from "./types";
+import type { WizardController } from "./wizard-controller";
 
 const GUIDED_QUESTIONS_POLICY = [
-  "When you need clarification from the user and there are 2 or more missing inputs, call guided_questions instead of asking a long list in plain chat.",
-  "Keep questions short and concrete.",
-  "Prefer select/boolean questions when possible, and only use free text when necessary.",
-  "After guided_questions returns, proceed using details.answers as source-of-truth.",
+	"When you need clarification from the user and there are 2 or more missing inputs, call guided_questions instead of asking a long list in plain chat.",
+	"Keep questions short and concrete.",
+	"Prefer select/boolean questions when possible, and only use free text when necessary.",
+	"After guided_questions returns, proceed using details.answers as source-of-truth.",
 ].join("\n");
 
 export { GUIDED_QUESTIONS_POLICY };
 
 export function createGuidedQuestionsTool(wizard: WizardController) {
-  return {
-    name: "guided_questions",
-    label: "Guided Questions",
-    description:
-      "Ask the user a structured, one-question-at-a-time questionnaire in the terminal UI.",
-    promptSnippet:
-      "Collect structured user answers via an interactive questionnaire when multiple clarifying questions are needed.",
-    promptGuidelines: [
-      "Use this tool when you need 2+ clarifying answers from the user.",
-      "Prefer short labels and constrained choices for select questions.",
-      "After the tool returns, continue using the structured answers directly.",
-    ],
-    parameters: Type.Object({
-      title: Type.Optional(
-        Type.String({ description: "Short title shown to the user" }),
-      ),
-      intro: Type.Optional(
-        Type.String({
-          description: "Optional intro shown before the first question",
-        }),
-      ),
-      questions: Type.Array(
-        Type.Object({
-          id: Type.String({ description: "Stable key for the answer" }),
-          kind: Type.Optional(
-            Type.String({ description: "text | select | boolean" }),
-          ),
-          label: Type.String({ description: "Question shown to the user" }),
-          help: Type.Optional(Type.String({ description: "Optional helper text" })),
-          placeholder: Type.Optional(
-            Type.String({ description: "Placeholder for text input" }),
-          ),
-          required: Type.Optional(
-            Type.Boolean({
-              description: "Whether answer is required (default true)",
-            }),
-          ),
-          options: Type.Optional(
-            Type.Array(Type.String(), {
-              description: "Options for select questions",
-            }),
-          ),
-        }),
-        { minItems: 1, maxItems: 12 },
-      ),
-    }),
-    async execute(
-      _toolCallId: string,
-      input: any,
-      _signal: any,
-      _onUpdate: any,
-      _ctx: any,
-    ) {
-      const params: WizardInput = {
-        title: input.title,
-        intro: input.intro,
-        questions: (input.questions || []).map(normalizeQuestion),
-      };
+	return {
+		name: "guided_questions",
+		label: "Guided Questions",
+		description:
+			"Ask the user a structured, one-question-at-a-time questionnaire in the terminal UI.",
+		promptSnippet:
+			"Collect structured user answers via an interactive questionnaire when multiple clarifying questions are needed.",
+		promptGuidelines: [
+			"Use this tool when you need 2+ clarifying answers from the user.",
+			"Prefer short labels and constrained choices for select questions.",
+			"After the tool returns, continue using the structured answers directly.",
+		],
+		parameters: Type.Object({
+			title: Type.Optional(
+				Type.String({ description: "Short title shown to the user" }),
+			),
+			intro: Type.Optional(
+				Type.String({
+					description: "Optional intro shown before the first question",
+				}),
+			),
+			questions: Type.Array(
+				Type.Object({
+					id: Type.String({ description: "Stable key for the answer" }),
+					kind: Type.Optional(
+						Type.String({ description: "text | select | boolean" }),
+					),
+					label: Type.String({ description: "Question shown to the user" }),
+					help: Type.Optional(
+						Type.String({ description: "Optional helper text" }),
+					),
+					placeholder: Type.Optional(
+						Type.String({ description: "Placeholder for text input" }),
+					),
+					required: Type.Optional(
+						Type.Boolean({
+							description: "Whether answer is required (default true)",
+						}),
+					),
+					options: Type.Optional(
+						Type.Array(Type.String(), {
+							description: "Options for select questions",
+						}),
+					),
+				}),
+				{ minItems: 1, maxItems: 12 },
+			),
+		}),
+		async execute(
+			_toolCallId: string,
+			input: any,
+			_signal: any,
+			_onUpdate: any,
+			_ctx: any,
+		) {
+			const params: WizardInput = {
+				title: input.title,
+				intro: input.intro,
+				questions: (input.questions || []).map(normalizeQuestion),
+			};
 
-      const result = await wizard.activate(params);
-      const title =
-        typeof params.title === "string" && params.title.trim()
-          ? params.title.trim()
-          : "Guided questionnaire";
+			const result = await wizard.activate(params);
+			const title =
+				typeof params.title === "string" && params.title.trim()
+					? params.title.trim()
+					: "Guided questionnaire";
 
-      if (result.cancelled) {
-        return {
-          content: [{ type: "text", text: "Questionnaire cancelled." }],
-          details: {
-            cancelled: true,
-            answers: result.answers,
-            answeredCount: Object.keys(result.answers).length,
-            totalQuestions: params.questions.length,
-          },
-        };
-      }
+			if (result.cancelled) {
+				return {
+					content: [{ type: "text", text: "Questionnaire cancelled." }],
+					details: {
+						cancelled: true,
+						answers: result.answers,
+						answeredCount: Object.keys(result.answers).length,
+						totalQuestions: params.questions.length,
+					},
+				};
+			}
 
-      const summaryLines = params.questions.map((q) => {
-        const value = result.answers[q.id];
-        const rendered =
-          typeof value === "boolean"
-            ? value
-              ? "Yes"
-              : "No"
-            : String(value || "").trim() || "(skipped)";
-        return `- ${q.label}: ${rendered}`;
-      });
+			const summaryLines = params.questions.map((q) => {
+				const value = result.answers[q.id];
+				const rendered =
+					typeof value === "boolean"
+						? value
+							? "Yes"
+							: "No"
+						: String(value || "").trim() || "(skipped)";
+				return `- ${q.label}: ${rendered}`;
+			});
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: [`${title} complete.`, "", ...summaryLines].join("\n"),
-          },
-        ],
-        details: {
-          title,
-          answers: result.answers,
-          answeredCount: Object.keys(result.answers).length,
-          totalQuestions: params.questions.length,
-          completed: true,
-        },
-      };
-    },
-  };
+			return {
+				content: [
+					{
+						type: "text",
+						text: [`${title} complete.`, "", ...summaryLines].join("\n"),
+					},
+				],
+				details: {
+					title,
+					answers: result.answers,
+					answeredCount: Object.keys(result.answers).length,
+					totalQuestions: params.questions.length,
+					completed: true,
+				},
+			};
+		},
+	};
 }

@@ -1,64 +1,66 @@
 // @ts-nocheck — disabled pending rewrite
-import type { Command } from "./types";
+
 import type { NotificationConfig } from "../notification-config";
+import type { Command } from "./types";
 
 let configRef: { current: NotificationConfig } | null = null;
 let onChangeCallback: ((config: NotificationConfig) => void) | null = null;
 
 export function setNotificationConfigRef(
-  ref: { current: NotificationConfig },
-  onChange?: (config: NotificationConfig) => void,
+	ref: { current: NotificationConfig },
+	onChange?: (config: NotificationConfig) => void,
 ) {
-  configRef = ref;
-  onChangeCallback = onChange ?? null;
+	configRef = ref;
+	onChangeCallback = onChange ?? null;
 }
 
 export const bellsCommand: Command = {
-  name: "bells",
-  description: "Toggle notification sounds on/off (tab bell indicator is always on)",
-  execute({ palette }) {
-    if (!configRef) return;
-    const config = configRef.current;
+	name: "bells",
+	description:
+		"Toggle notification sounds on/off (tab bell indicator is always on)",
+	execute({ palette }) {
+		if (!configRef) return;
+		const config = configRef.current;
 
-    palette.show({
-      filterable: false,
-      options: [
-        {
-          name: config.bells.enabled ? "Turn off" : "Turn on",
-          description: "",
-          value: "toggle",
-          action: (ctx) => {
-            config.bells.enabled = !config.bells.enabled;
-            onChangeCallback?.(config);
-            ctx.dismiss();
-          },
-        },
-      ],
-    });
-  },
+		palette.show({
+			filterable: false,
+			options: [
+				{
+					name: config.bells.enabled ? "Turn off" : "Turn on",
+					description: "",
+					value: "toggle",
+					action: (ctx) => {
+						config.bells.enabled = !config.bells.enabled;
+						onChangeCallback?.(config);
+						ctx.dismiss();
+					},
+				},
+			],
+		});
+	},
 };
 
 export const speechCommand: Command = {
-  name: "speech",
-  description: "Toggle speech notifications on/off",
-  execute({ palette }) {
-    if (!configRef) return;
-    const config = configRef.current;
+	name: "speech",
+	description: "Toggle speech notifications on/off",
+	execute({ palette }) {
+		if (!configRef) return;
+		const config = configRef.current;
 
-    palette.show({
-      filterable: false,
-      options: [
-        {
-          name: config.speech.enabled ? "Turn off" : "Turn on",
-          description: "",
-          value: "toggle",
-          action: (ctx) => {
-            config.speech.enabled = !config.speech.enabled;
-            onChangeCallback?.(config);
-            ctx.dismiss();
-          },
-        },
-      ],
-    });
-  },
+		palette.show({
+			filterable: false,
+			options: [
+				{
+					name: config.speech.enabled ? "Turn off" : "Turn on",
+					description: "",
+					value: "toggle",
+					action: (ctx) => {
+						config.speech.enabled = !config.speech.enabled;
+						onChangeCallback?.(config);
+						ctx.dismiss();
+					},
+				},
+			],
+		});
+	},
 };
