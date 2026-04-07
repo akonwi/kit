@@ -329,7 +329,9 @@ export async function createAgentRuntime(
 		},
 
 		getAvailableModels() {
-			return getProviders().flatMap((provider) => getModels(provider));
+			return getAuthenticatedProviders().flatMap((provider) =>
+				getModels(provider as KnownProvider),
+			);
 		},
 
 		getCurrentModelId() {
