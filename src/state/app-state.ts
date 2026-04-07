@@ -31,16 +31,16 @@ export type SessionMeta = {
 	hasSession: boolean;
 };
 
-export type AppNotice = {
+export type Toast = {
+	id: number;
 	variant: "error" | "info";
 	title: string;
 	lines: string[];
-	timestamp: number;
 };
 
 export type AppState = {
 	messages: AgentMessage[];
-	notices: AppNotice[];
+	toasts: Toast[];
 	panel: PanelState;
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
@@ -127,7 +127,7 @@ export function createAppState(
 
 	const [state, setState] = createStore<AppState>({
 		messages,
-		notices: [],
+		toasts: [],
 		panel: { pending: false, title: "" },
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
@@ -139,6 +139,23 @@ export function createAppState(
 		? createThreadIndex(runtime)
 		: null;
 
+	// ── Toast ────────────────────────────────────────────────
+
+	let nextToastId = 0;
+	const toastTimers = new Map<number, ReturnType<typeof setTimeout>>();
+
+	function dismissToast(id: number) {
+		const timer = toastTimers.get(id);
+		if (timer) { clearTimeout(timer); toastTimers.delete(id); }
+		setState("toasts", (prev) => prev.filter((t) => t.id !== id));
+	}
+
+	function showToast(toast: Omit<Toast, "id">) {
+		const id = nextToastId++;
+		setState("toasts", (prev) => [...prev, { ...toast, id }]);
+		toastTimers.set(id, setTimeout(() => dismissToast(id), 5_000));
+	}
+
 	// ── Runtime subscription ───────────────────────────────────────
 
 	const FILE_INDEX_INVALIDATE_INTERVAL = 5;
@@ -148,6 +165,9 @@ export function createAppState(
 		switch (event.type) {
 			case "messages_changed":
 				setState("messages", event.messages);
+				for (const timer of toastTimers.values()) clearTimeout(timer);
+				toastTimers.clear();
+				setState("toasts", []);
 				break;
 			case "status_changed":
 				setState(
@@ -174,42 +194,21 @@ export function createAppState(
 				break;
 			case "error":
 			case "info":
-				setState("notices", [
-					...state.notices,
-					{
-						variant: event.type,
-						title: event.title,
-						lines: event.lines,
-						timestamp: Date.now(),
-					},
-				]);
+				showToast({
+					variant: event.type,
+					title: event.title,
+					lines: event.lines,
+				});
 				break;
 		}
 	});
 
 	// ── Debug ─────────────────────────────────────────────────────
 
-	function setNotificationStatus(bells: boolean, speech: boolean) {
-		setState("footerStatus", "bellsEnabled", bells);
-		setState("footerStatus", "speechEnabled", speech);
-	}
-
-	function addNotice(
-		variant: "error" | "info",
-		title: string,
-		lines: string[],
-	) {
-		setState("notices", [
-			...state.notices,
-			{ variant, title, lines, timestamp: Date.now() },
-		]);
-	}
-
 	return {
 		state,
 		fileIndex,
 		threadIndex,
-		setNotificationStatus,
-		addNotice,
+		dismissToast,
 	};
 }

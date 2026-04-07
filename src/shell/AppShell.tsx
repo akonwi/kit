@@ -7,6 +7,7 @@ import type { ComposerController } from "./composer-controller";
 import { InlinePicker } from "./InlinePicker";
 import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
+import { ToastStack } from "./ToastStack";
 import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
 
@@ -15,6 +16,7 @@ const STATUS_BAR_HEIGHT = 1;
 export type AppShellProps = {
 	state: AppState;
 	controller: ComposerController;
+	dismissToast: (id: number) => void; // kept for future keyboard dismiss
 };
 
 export function AppShell(props: AppShellProps) {
@@ -29,10 +31,7 @@ export function AppShell(props: AppShellProps) {
 			backgroundColor={theme.bg}
 			onMouseUp={() => copySelection(renderer)}
 		>
-			<TranscriptPane
-				messages={props.state.messages}
-				notices={props.state.notices}
-			/>
+			<TranscriptPane messages={props.state.messages} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot panel={props.state.panel} />
@@ -50,6 +49,11 @@ export function AppShell(props: AppShellProps) {
 			<InlinePicker
 				palette={props.controller.palette}
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
+			/>
+
+			<ToastStack
+				toasts={props.state.toasts}
+				bottom={dockHeight() + STATUS_BAR_HEIGHT + 3}
 			/>
 		</box>
 	);

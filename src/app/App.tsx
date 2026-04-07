@@ -30,5 +30,5 @@ export function App(props: AppProps) {
 		}
 	});
 
-	return <AppShell state={app.state} controller={controller} />;
+	return <AppShell state={app.state} controller={controller} dismissToast={app.dismissToast} />;
 }

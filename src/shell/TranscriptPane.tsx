@@ -25,11 +25,8 @@ import { syntaxStyle, theme } from "./theme";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
-import type { AppNotice } from "../state/app-state";
-
 export type TranscriptPaneProps = {
 	messages: AgentMessage[];
-	notices?: AppNotice[];
 };
 
 // ── Turn grouping ────────────────────────────────────────────────────
@@ -395,25 +392,6 @@ function AssistantEntry(props: {
 
 // ── Main component ───────────────────────────────────────────────────
 
-function NoticeEntry(props: { notice: AppNotice }) {
-	const color = () =>
-		props.notice.variant === "error" ? theme.errorText : theme.textMuted;
-	return (
-		<box
-			border={["left"] as any}
-			borderColor={color()}
-			paddingLeft={1}
-			flexDirection="column"
-			gap={0}
-			width="100%"
-		>
-			<text fg={color()}>
-				{props.notice.title}: {props.notice.lines.join("\n")}
-			</text>
-		</box>
-	);
-}
-
 /**
  * Render a single non-user, non-toolResult entry within a turn.
  * toolResult messages are rendered inline by AssistantEntry.
@@ -495,9 +473,6 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 					</box>
 				</Show>
 				<For each={turns()}>{(turn) => <TurnEntry turn={turn} />}</For>
-				<For each={props.notices ?? []}>
-					{(notice) => <NoticeEntry notice={notice} />}
-				</For>
 			</box>
 		</scrollbox>
 	);
