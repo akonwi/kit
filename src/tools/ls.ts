@@ -3,7 +3,7 @@ import { join, resolve } from "node:path";
 import { Type } from "@mariozechner/pi-ai";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 
-export function createLsTool(cwd: string): AgentTool {
+export function createLsTool(cwd: string): AgentTool<any> {
   return {
     name: "ls",
     label: "LS",

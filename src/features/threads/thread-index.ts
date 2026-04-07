@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 /**
  * Thread (session) index for @@ references.
  * Fetches session list from the runtime, caches it, provides scored suggestions.

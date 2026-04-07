@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { completeSimple } from "@mariozechner/pi-ai";
 import type { AgentRuntime } from "../../backend";

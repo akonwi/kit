@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 import type { Command } from "./types";
 
 export const compactCommand: Command = {

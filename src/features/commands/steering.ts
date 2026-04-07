@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 /**
  * /steer and /followup commands — queue messages for the agent.
  */

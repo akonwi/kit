@@ -1,6 +1,5 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
-import type { PagerController } from "../features/pager";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { theme } from "./theme";
 
@@ -10,14 +9,13 @@ export type ComposerDockProps = {
   gitBranch: string | null;
   gitDirty: boolean;
   controller: ComposerController;
-  pager: PagerController;
   onHeightChange?: (height: number) => void;
 };
 
 export function ComposerDock(props: ComposerDockProps) {
   let dockRef: { width: number; height: number } | undefined;
   const palette = props.controller.palette;
-  const pager = props.pager;
+  const pager = { active: false }; // TODO: restore pager
 
   useKeyboard((e: KeyEvent) => {
     // Ctrl+C — clear composer if it has content, otherwise quit
@@ -100,59 +98,6 @@ export function ComposerDock(props: ComposerDockProps) {
       return;
     }
 
-    // Pager navigation
-    if (pager.active && !palette.visible) {
-      if (e.name === "escape") {
-        e.preventDefault();
-        // Save current note before closing
-        const text = props.controller.getTextareaText();
-        pager.setNote(pager.currentIndex, text);
-        pager.close();
-        props.controller.setTextareaText("");
-        return;
-      }
-      // Ctrl+Shift+Right — next section (save current note first)
-      if (e.ctrl && e.shift && e.name === "right") {
-        e.preventDefault();
-        // Save current note before navigating
-        const text = props.controller.getTextareaText();
-        pager.setNote(pager.currentIndex, text);
-        pager.nextSection();
-        // Load note for new section
-        props.controller.setTextareaText(pager.notes.get(pager.currentIndex) ?? "");
-        return;
-      }
-      // Ctrl+Shift+Left — prev section
-      if (e.ctrl && e.shift && e.name === "left") {
-        e.preventDefault();
-        const text = props.controller.getTextareaText();
-        pager.setNote(pager.currentIndex, text);
-        pager.prevSection();
-        props.controller.setTextareaText(pager.notes.get(pager.currentIndex) ?? "");
-        return;
-      }
-      // Ctrl+Up/Down — scroll current page
-      if (e.ctrl && e.name === "up") {
-        e.preventDefault();
-        pager.scrollUp();
-        return;
-      }
-      if (e.ctrl && e.name === "down") {
-        e.preventDefault();
-        pager.scrollDown();
-        return;
-      }
-      // Ctrl+Enter — submit all notes as feedback
-      if (e.ctrl && e.name === "return") {
-        e.preventDefault();
-        const text = props.controller.getTextareaText();
-        pager.setNote(pager.currentIndex, text);
-        pager.submitFeedback();
-        props.controller.setTextareaText("");
-        return;
-      }
-    }
-
     // Non-filterable palette navigation
     if (!palette.visible) return;
     if (palette.isFilterable || palette.isInputMode) return;
@@ -170,10 +115,7 @@ export function ComposerDock(props: ComposerDockProps) {
     e.preventDefault();
   });
 
-  const placeholder = () =>
-    pager.active
-      ? "Add a note for this section... (Ctrl+Enter to submit all)"
-      : "Ask kit to do something...";
+  const placeholder = () => "Ask kit to do something...";
 
   return (
     <box

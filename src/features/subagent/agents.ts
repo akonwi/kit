@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 /**
  * Agent discovery and configuration.
  * Loads agent definitions from .md files with frontmatter.

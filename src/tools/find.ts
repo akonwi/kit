@@ -12,7 +12,7 @@ function toPosix(p: string): string {
   return p.split("/").join("/").replace(/\\/g, "/");
 }
 
-export function createFindTool(cwd: string): AgentTool {
+export function createFindTool(cwd: string): AgentTool<any> {
   return {
     name: "find",
     label: "Find",

@@ -10,7 +10,7 @@ const DEFAULT_LIMIT = 100;
 const MAX_LINE_LENGTH = 2000;
 const MAX_BYTES = 200 * 1024; // 200KB
 
-export function createGrepTool(cwd: string): AgentTool {
+export function createGrepTool(cwd: string): AgentTool<any> {
   return {
     name: "grep",
     label: "Grep",

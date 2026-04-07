@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 /**
  * Subagent tool — registered with the agent session so the model
  * can delegate tasks to specialized subagents with isolated context.

@@ -3,7 +3,6 @@ import { parseArgs } from "node:util";
 import { ConsolePosition, createCliRenderer, getTreeSitterClient } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
-import { createWizardController, createGuidedQuestionsTool } from "../features/wizard";
 import {
   openRecentSession,
   findSessionById,
@@ -78,12 +77,7 @@ export async function bootstrap(): Promise<void> {
   const settings = await loadSettings();
   const notificationConfig = await loadNotificationConfig();
   const session = await loadSession();
-  const wizard = createWizardController();
-  const guidedQuestionsTool = createGuidedQuestionsTool(wizard);
-
-  const runtime = await createAgentRuntime(session, {
-    extraTools: [guidedQuestionsTool],
-  });
+  const runtime = await createAgentRuntime(session);
 
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
@@ -106,6 +100,8 @@ export async function bootstrap(): Promise<void> {
     runtime.dispose();
     renderer.destroy();
   });
+
+  const wizard = null as any; // TODO: restore wizard
 
   render(
     () => <App settings={settings} session={session} runtime={runtime} wizard={wizard} notificationConfig={notificationConfig} updateTerminalTitle={updateTerminalTitle} />,

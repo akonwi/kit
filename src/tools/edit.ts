@@ -20,7 +20,7 @@ const editSchema = Type.Object({
   ),
 });
 
-export function createEditTool(cwd: string): AgentTool {
+export function createEditTool(cwd: string): AgentTool<any> {
   return {
     name: "edit",
     label: "Edit",
@@ -28,25 +28,14 @@ export function createEditTool(cwd: string): AgentTool {
       "Edit a file using exact text replacements. Each edit's oldText must match exactly and be unique. Multiple edits are applied to the original file simultaneously — do not include overlapping edits.",
     parameters: editSchema,
 
-    /**
-     * Accept legacy single-edit shape {path, oldText, newText} in addition to
-     * the canonical {path, edits:[...]} shape, since models sometimes use both.
-     */
-    prepareArguments(raw: unknown) {
-      if (!raw || typeof raw !== "object") return raw as any;
-      const args = raw as Record<string, unknown>;
-      if (
-        typeof args.oldText === "string" &&
-        typeof args.newText === "string" &&
-        !Array.isArray(args.edits)
-      ) {
-        const { oldText, newText, ...rest } = args;
-        return { ...rest, edits: [{ oldText, newText }] } as any;
+    async execute(_id, rawParams, _signal) {
+      // Accept legacy single-edit shape {path, oldText, newText} in addition to
+      // the canonical {path, edits:[...]} shape, since models sometimes use both.
+      let params = rawParams as any;
+      if (params && typeof params.oldText === "string" && typeof params.newText === "string" && !Array.isArray(params.edits)) {
+        const { oldText, newText, ...rest } = params;
+        params = { ...rest, edits: [{ oldText, newText }] };
       }
-      return raw as any;
-    },
-
-    async execute(_id, params, _signal) {
       try {
         const abs = resolve(cwd, params.path);
         const original = await readFile(abs, "utf8");

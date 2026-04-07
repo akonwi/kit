@@ -1,7 +1,6 @@
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import {
-  getEnvApiKey,
   getModel,
   getModels,
   getProviders,
@@ -9,6 +8,7 @@ import {
   type Model,
   type Api,
 } from "@mariozechner/pi-ai";
+import { getApiKey } from "../../compat/auth";
 import {
   type Session,
   type SessionSummary,
@@ -122,7 +122,7 @@ export async function createAgentRuntime(
     },
     steeringMode: "all",
     followUpMode: "all",
-    getApiKey: (provider) => getEnvApiKey(provider),
+    getApiKey: (provider) => getApiKey(provider),
   });
 
   const listeners = new Set<(event: AgentRuntimeEvent) => void>();

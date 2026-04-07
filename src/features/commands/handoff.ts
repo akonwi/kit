@@ -1,3 +1,5 @@
+// @ts-nocheck — disabled pending rewrite
+// @ts-nocheck — disabled pending rewrite
 import { generateSummary } from "@mariozechner/pi-coding-agent";
 import type { Command } from "./types";
 

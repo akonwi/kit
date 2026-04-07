@@ -5,7 +5,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 
 const MAX_CHARS = 50_000;
 
-export function createReadTool(cwd: string): AgentTool {
+export function createReadTool(cwd: string): AgentTool<any> {
   return {
     name: "read",
     label: "Read",

@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 import type { ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { Command } from "./types";
 

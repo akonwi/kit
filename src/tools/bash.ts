@@ -14,7 +14,7 @@ export interface BashResult {
   truncated: boolean;
 }
 
-export function createBashTool(cwd: string): AgentTool {
+export function createBashTool(cwd: string): AgentTool<any> {
   return {
     name: "bash",
     label: "Bash",

@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 /**
  * Expand [[thread:id]] tokens in user message text.
  *

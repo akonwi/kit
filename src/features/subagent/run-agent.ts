@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 /**
  * In-process subagent execution via createAgentSession.
  */

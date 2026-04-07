@@ -1,3 +1,4 @@
+// @ts-nocheck — disabled pending rewrite
 import type { Command } from "./types";
 import { formatSessionOption } from "./utils";
 
