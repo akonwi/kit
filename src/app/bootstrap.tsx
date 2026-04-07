@@ -6,7 +6,6 @@ import {
 	getTreeSitterClient,
 } from "@opentui/core";
 import { render } from "@opentui/solid";
-import { loadNotificationConfig } from "../features/notification-config";
 import { createAgentRuntime } from "../runtime/agent-runtime";
 import {
 	findSessionById,
@@ -83,7 +82,6 @@ export async function bootstrap(): Promise<void> {
 	});
 
 	const settings = await loadSettings();
-	const notificationConfig = await loadNotificationConfig();
 	const session = await loadSession();
 	const runtime = await createAgentRuntime(session);
 
@@ -118,16 +116,12 @@ export async function bootstrap(): Promise<void> {
 		renderer.destroy();
 	});
 
-	const wizard = null as any; // TODO: restore wizard
-
 	render(
 		() => (
 			<App
 				settings={settings}
 				session={session}
 				runtime={runtime}
-				wizard={wizard}
-				notificationConfig={notificationConfig}
 				updateTerminalTitle={updateTerminalTitle}
 			/>
 		),

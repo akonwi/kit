@@ -83,7 +83,7 @@ export async function scanFiles(cwd: string): Promise<ScanResult> {
 			isFile(): boolean;
 		}>;
 		try {
-			rawEntries = (await readdir(dir, { withFileTypes: true })) as any;
+			rawEntries = await readdir(dir, { withFileTypes: true });
 		} catch {
 			continue;
 		}

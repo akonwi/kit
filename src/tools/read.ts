@@ -52,8 +52,7 @@ export function createReadTool(cwd: string): AgentTool<any> {
 				return {
 					content: [{ type: "text", text: `Error: ${msg}` }],
 					details: { path: params.path, lines: 0, truncated: false },
-					isError: true,
-				} as any;
+				};
 			}
 		},
 	};

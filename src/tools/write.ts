@@ -30,8 +30,7 @@ export function createWriteTool(cwd: string): AgentTool<any> {
 				return {
 					content: [{ type: "text", text: `Error: ${msg}` }],
 					details: { path: params.path, lines: 0 },
-					isError: true,
-				} as any;
+				};
 			}
 		},
 	};

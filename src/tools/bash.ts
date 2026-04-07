@@ -64,8 +64,7 @@ export function createBashTool(cwd: string): AgentTool<any> {
 				return {
 					content: [{ type: "text", text: `Error: ${msg}` }],
 					details: { exitCode: undefined, truncated: false },
-					isError: true,
-				} as any;
+				};
 			}
 		},
 	};

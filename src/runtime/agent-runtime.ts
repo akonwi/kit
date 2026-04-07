@@ -13,6 +13,7 @@ import {
 	type KnownProvider,
 	type Model,
 	registerBuiltInApiProviders,
+	type UserMessage,
 } from "@mariozechner/pi-ai";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
@@ -186,8 +187,8 @@ export async function createAgentRuntime(
 				break;
 
 			case "message_update": {
-				const ame = (event as any).assistantMessageEvent;
-				if (ame?.type === "thinking_delta" && ame.delta?.trim()) {
+				const ame = event.assistantMessageEvent;
+				if (ame?.type === "thinking_delta" && (ame as any).delta?.trim()) {
 					emit({
 						type: "panel",
 						panel: {
@@ -241,14 +242,22 @@ export async function createAgentRuntime(
 		},
 
 		sendFollowUp(text) {
-			const msg: AgentMessage = { role: "user", content: text } as any;
+			const msg: UserMessage = {
+				role: "user",
+				content: text,
+				timestamp: Date.now(),
+			};
 			agent.followUp(msg);
 			pendingCount = agent.hasQueuedMessages() ? 1 : 0;
 			emit({ type: "pending_changed", count: pendingCount });
 		},
 
 		sendSteer(text) {
-			const msg: AgentMessage = { role: "user", content: text } as any;
+			const msg: UserMessage = {
+				role: "user",
+				content: text,
+				timestamp: Date.now(),
+			};
 			agent.steer(msg);
 			pendingCount = agent.hasQueuedMessages() ? 1 : 0;
 			emit({ type: "pending_changed", count: pendingCount });

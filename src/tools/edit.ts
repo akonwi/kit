@@ -67,8 +67,7 @@ export function createEditTool(cwd: string): AgentTool<any> {
 					return {
 						content: [{ type: "text", text: `Error:\n${errors.join("\n")}` }],
 						details: { path: abs, applied: 0, errors },
-						isError: true,
-					} as any;
+					};
 				}
 
 				// Check for overlaps: no oldText should contain another
@@ -87,8 +86,7 @@ export function createEditTool(cwd: string): AgentTool<any> {
 					return {
 						content: [{ type: "text", text: `Error:\n${errors.join("\n")}` }],
 						details: { path: abs, applied: 0, errors },
-						isError: true,
-					} as any;
+					};
 				}
 
 				// Apply all edits to the original (not incrementally)
@@ -113,8 +111,7 @@ export function createEditTool(cwd: string): AgentTool<any> {
 				return {
 					content: [{ type: "text", text: `Error: ${msg}` }],
 					details: { path: params.path, applied: 0, errors: [msg] },
-					isError: true,
-				} as any;
+				};
 			}
 		},
 	};

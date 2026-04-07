@@ -37,8 +37,7 @@ export function createLsTool(cwd: string): AgentTool<any> {
 				return {
 					content: [{ type: "text", text: `Error: ${msg}` }],
 					details: { path: params.path ?? ".", count: 0 },
-					isError: true,
-				} as any;
+				};
 			}
 		},
 	};

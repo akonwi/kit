@@ -1,3 +1,4 @@
+import type { PaletteContext } from "../../state/palette";
 import type { Command } from "./types";
 
 export const modelCommand: Command = {
@@ -26,7 +27,7 @@ export const modelCommand: Command = {
 					name: m.id === currentId ? `${m.name ?? m.id} ✓` : (m.name ?? m.id),
 					description: m.provider,
 					value: m,
-					action: (ctx: any) => {
+					action: (ctx: PaletteContext) => {
 						selected = m;
 						ctx.dismiss();
 					},

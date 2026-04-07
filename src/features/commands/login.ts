@@ -6,6 +6,8 @@ import {
 	type OAuthProviderInterface,
 } from "@mariozechner/pi-ai/oauth";
 import { readAuthFile, writeAuthFile } from "../../auth";
+import type { PaletteContext } from "../../state/palette";
+import type { PaletteManager } from "../../state/palette-manager";
 import type { Command } from "./types";
 
 export const loginCommand: Command = {
@@ -31,7 +33,7 @@ export const loginCommand: Command = {
 						name: p.name,
 						description: p.id,
 						value: p,
-						action: (ctx: any) => {
+						action: (ctx: PaletteContext) => {
 							selected = p;
 							ctx.dismiss();
 						},
@@ -64,7 +66,7 @@ export const loginCommand: Command = {
 							mode: "input",
 							label: prompt.message,
 							onDismiss: () => resolve(""),
-							onSubmit: (value: string, ctx: any) => {
+							onSubmit: (value: string, ctx: PaletteContext) => {
 								ctx.dismiss();
 								resolve(value);
 							},
@@ -78,7 +80,7 @@ export const loginCommand: Command = {
 							label:
 								"Paste the redirect URL (or leave blank to wait for browser callback)",
 							onDismiss: () => resolveInput(""),
-							onSubmit: (value: string, ctx: any) => {
+							onSubmit: (value: string, ctx: PaletteContext) => {
 								ctx.dismiss();
 								resolveInput(value);
 							},
@@ -104,13 +106,13 @@ export const loginCommand: Command = {
 	},
 };
 
-async function promptApiKey(palette: any): Promise<void> {
+async function promptApiKey(palette: PaletteManager): Promise<void> {
 	await new Promise<void>((resolve) => {
 		palette.show({
 			mode: "input",
 			label: "Enter API key (e.g. ANTHROPIC_API_KEY)",
 			onDismiss: resolve,
-			onSubmit: (key: string, ctx: any) => {
+			onSubmit: (key: string, ctx: PaletteContext) => {
 				if (key.trim()) process.env.ANTHROPIC_API_KEY = key.trim();
 				ctx.dismiss();
 				resolve();
