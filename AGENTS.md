@@ -40,6 +40,21 @@ The goal is to build a custom coding-agent UX while preserving compatibility wit
 - When we make an architectural or feature design decision, capture it under `docs/`.
 - When we identify outstanding work or defer something, capture it under `backlog/`.
 
+## Pre-commit checklist
+
+Before asking to commit, always:
+
+1. **`bun run typecheck`** — zero TypeScript errors required
+2. **`biome check --write .`** — auto-fix formatting and safe lint fixes
+3. **Address remaining biome warnings** — fix or suppress with `// biome-ignore <rule>: <reason>`
+   - `noExplicitAny`: replace with proper types where possible
+   - `noNonNullAssertion`: prefer Solid child accessor pattern or type narrowing over `!`
+   - `noUnusedImports` / `noUnusedVariables`: remove dead code
+   - Do **not** suppress warnings without a clear reason in the comment
+4. **Re-run `bun run typecheck`** after biome changes to confirm nothing broke
+
+---
+
 ## Non-goals for now
 
 - Pi extension API compatibility
