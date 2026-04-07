@@ -1,10 +1,10 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { AgentRuntime } from "../backend";
-import type { LoadedSettings } from "../compat/settings/load-settings";
 import type { NotificationConfig } from "../features/notification-config";
 import type { WizardController } from "../features/wizard";
 import type { Session } from "../session";
+import type { LoadedSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";

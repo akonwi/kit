@@ -2,10 +2,10 @@ import { homedir } from "node:os";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createStore } from "solid-js/store";
 import type { AgentRuntime, RuntimeStatus } from "../backend";
-import type { LoadedSettings } from "../compat/settings/load-settings";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import type { Session } from "../session";
+import type { LoadedSettings } from "../settings";
 
 export type PanelState = {
 	pending: boolean;

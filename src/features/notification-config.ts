@@ -1,14 +1,14 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { getPiKitPaths } from "../compat/paths";
+import { getKitPaths } from "../paths";
 
 export type NotificationConfig = {
 	bells: { enabled: boolean };
 	speech: { enabled: boolean; maxChars: number; voice: string | null };
 };
 
-const CONFIG_PATH = getPiKitPaths().notificationConfigPath;
+const CONFIG_PATH = getKitPaths().notificationConfigPath;
 
 const DEFAULTS: NotificationConfig = {
 	bells: { enabled: true },

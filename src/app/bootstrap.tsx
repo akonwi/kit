@@ -7,7 +7,6 @@ import {
 } from "@opentui/core";
 import { render } from "@opentui/solid";
 import { createAgentRuntime } from "../backend";
-import { loadSettings } from "../compat/settings/load-settings";
 import { loadNotificationConfig } from "../features/notification-config";
 import {
 	findSessionById,
@@ -15,6 +14,7 @@ import {
 	readSession,
 	type Session,
 } from "../session";
+import { loadSettings } from "../settings";
 import {
 	initTerminalTitle,
 	updateTerminalTitle,
