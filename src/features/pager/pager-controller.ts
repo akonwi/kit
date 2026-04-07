@@ -5,7 +5,7 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
-import type { AgentRuntime } from "../../backend";
+import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { type PagerSection, splitSections } from "./split-sections";
 
 function extractAssistantText(msg: AgentMessage): string {

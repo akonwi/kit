@@ -14,7 +14,7 @@ import {
 	type Model,
 	registerBuiltInApiProviders,
 } from "@mariozechner/pi-ai";
-import { getApiKey, getAuthenticatedProviderIds } from "../../auth";
+import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
 	createSession,
 	deleteSession,
@@ -26,8 +26,8 @@ import {
 	type Session,
 	type SessionSummary,
 	updateSession,
-} from "../../session";
-import { createDefaultTools } from "../../tools";
+} from "../session";
+import { createDefaultTools } from "../tools";
 import { type GitInfo, getGitInfo } from "./git-info";
 
 // Register built-in API providers (Anthropic, OpenAI, etc.) once

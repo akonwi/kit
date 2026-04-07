@@ -5,7 +5,7 @@
  */
 
 import type { SessionInfo } from "@mariozechner/pi-coding-agent";
-import type { AgentRuntime } from "../../backend";
+import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { scoreMatch } from "../files/score";
 
 export type ThreadSuggestion = {

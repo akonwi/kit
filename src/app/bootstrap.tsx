@@ -6,8 +6,8 @@ import {
 	getTreeSitterClient,
 } from "@opentui/core";
 import { render } from "@opentui/solid";
-import { createAgentRuntime } from "../backend";
 import { loadNotificationConfig } from "../features/notification-config";
+import { createAgentRuntime } from "../runtime/agent-runtime";
 import {
 	findSessionById,
 	openRecentSession,

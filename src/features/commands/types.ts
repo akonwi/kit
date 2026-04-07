@@ -1,4 +1,4 @@
-import type { AgentRuntime } from "../../backend";
+import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { PaletteManager } from "../../state/palette-manager";
 
 export type CommandContext = {

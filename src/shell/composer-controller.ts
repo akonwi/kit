@@ -1,6 +1,6 @@
-import type { AgentRuntime } from "../backend";
 import { COMMANDS } from "../features/commands";
 import type { FileIndex } from "../features/files";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	createPaletteManager,
 	type PaletteManager,

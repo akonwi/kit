@@ -1,7 +1,7 @@
 // @ts-nocheck — disabled pending rewrite
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { completeSimple } from "@mariozechner/pi-ai";
-import type { AgentRuntime } from "../../backend";
+import type { AgentRuntime } from "../../runtime/agent-runtime";
 
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
