@@ -1,117 +1,103 @@
-# Decision: Full decoupling from pi-coding-agent
+# Decision: Full decoupling from Pi
 
 ## Status
 
-Decided — work in progress
+Accepted
 
 ## Context
 
-`pi-kit` started as a Pi extension pack, then became a standalone app that reused
-Pi's session format and `pi-coding-agent` internals for session management,
-agent orchestration, and tooling. The goal was Pi compatibility.
+`kit` started life as Pi extension work and then as a standalone app that still
+tried to preserve Pi compatibility.
 
-That goal is now dropped. Full independence is preferred over compatibility.
+That is no longer the goal.
+
+The app now prefers independence over compatibility and uses Pi packages only
+where they are still the right technical foundation.
 
 ## Decision
 
-Remove `@mariozechner/pi-coding-agent` entirely. Keep only:
+Remove `@mariozechner/pi-coding-agent` and stop targeting Pi storage/session
+compatibility.
 
-- `@mariozechner/pi-agent-core` — agent loop, tool types, message types
-- `@mariozechner/pi-ai` — AI provider abstraction (Anthropic, etc.)
-- `@opentui/solid` + `@opentui/core` — TUI rendering
+Keep only the lower-level foundations that are still useful:
 
-## What needs to be replaced
+- `@mariozechner/pi-agent-core` — agent loop, tool/message/event types
+- `@mariozechner/pi-ai` — provider/model abstraction
+- `@opentui/core` + `@opentui/solid` — terminal UI rendering
 
-### 1. Session storage (highest impact)
+## What this means in practice
 
-**Currently:** `SessionManager` from `pi-coding-agent` reads/writes Pi's JSONL session format.
+### Storage is app-owned
 
-**Replace with:** Own session format. Proposed: one JSON file per session in `~/.kit/sessions/`.
+`kit` owns its own storage under `~/.kit/`:
 
-```
+```text
 ~/.kit/
-  sessions/
-    <id>.json       # full session: header + messages array
+  auth.json
   settings.json
-  agents/           # user-scope agent definitions
+  sessions/
+    <id>.json
 ```
 
-Session file shape:
-```json
-{
-  "id": "uuid",
-  "version": 1,
-  "cwd": "/path/to/project",
-  "name": "optional display name",
-  "createdAt": "iso8601",
-  "updatedAt": "iso8601",
-  "model": "claude-sonnet-4",
-  "messages": [ ...AgentMessage[] ]
-}
-```
+No Pi session format or Pi session directory is used.
 
-### 2. Agent runtime
+### Runtime wiring is app-owned
 
-**Currently:** `AgentSession` / `createAgentSession` from `pi-coding-agent` — wraps the agent loop
-with session persistence, compaction, tool registration, etc.
+`kit` uses its own runtime wrapper around `pi-agent-core`.
 
-**Replace with:** Thin `AgentRuntime` class around `pi-agent-core`'s `Agent` that:
-- Holds messages in memory
-- Persists to our session file on each turn
-- Handles abort / streaming events
+Current key pieces:
 
-### 3. Tools
+- `src/runtime/kit-agent.ts`
+- `src/runtime/agent-runtime.ts`
 
-**Currently:** `createBashTool`, `createReadTool`, `createWriteTool`, etc. from `pi-coding-agent`.
+### Tools are app-owned
 
-**Replace with:** Own implementations. These are straightforward wrappers around
-`fs` / `child_process` that return `AgentTool`-shaped objects.
+Built-in tools are implemented in `src/tools/` and no longer come from
+`pi-coding-agent`.
 
-### 4. Settings
+### Settings and auth are app-owned
 
-**Currently:** `SettingsManager` from `pi-coding-agent`.
+- settings: `~/.kit/settings.json`
+- auth: `~/.kit/auth.json`
 
-**Replace with:** Already partially done — `~/.kit/settings.json` with own loader.
-Finish removing the Pi settings dependency.
+There is no Pi fallback.
 
-### 5. Subagent runner
+## Replaced assumptions
 
-**Currently:** `createAgentSession` to spawn an in-process subagent.
+These old assumptions are obsolete:
 
-**Replace with:** Spawn `pi-kit` CLI as a subprocess (same approach as the old
-extension's `pi` subprocess runner).
+- Pi session compatibility
+- Pi settings fallback
+- Pi auth fallback
+- `compat/` as a major architectural layer
+- `pi-kit` naming and storage roots
 
-### 6. Session loader / thread index
+## Consequences
 
-**Currently:** Reads Pi's JSONL session files from `~/.pi/agent/sessions/`.
+### Positive
 
-**Replace with:** Read our own `~/.kit/sessions/*.json` files.
+- simpler architecture
+- fewer hidden dependencies on Pi internals
+- app-specific UX no longer constrained by compatibility decisions
+- persistence format can evolve around `kit`'s shell/runtime needs
 
-### 7. `generateSummary` (handoff)
+### Trade-offs
 
-**Currently:** Imported from `pi-coding-agent`.
+- existing Pi sessions are not a compatibility target
+- some previously deferred design choices now belong fully to `kit`
+- documentation must describe `kit` as its own product, not a Pi-compatible shell
 
-**Replace with:** Direct LLM call via `pi-agent-core`'s `Agent` with a summarization prompt.
+## Current foundation after decoupling
 
-### 8. `getAgentDir`, `parseFrontmatter` (subagent agents)
+The current baseline is now established:
 
-**Currently:** Imported from `pi-coding-agent`.
+- standalone session storage
+- standalone auth storage
+- standalone settings
+- standalone built-in tools
+- `KitAgent` + `AgentRuntime` around `pi-agent-core`
+- OpenTUI shell
 
-**Replace with:** Own path helper (`~/.kit/agents/`) + simple YAML frontmatter parser.
+## Decision
 
-## Keep
-
-- `pi-agent-core`: `Agent`, `agentLoop`, `AgentMessage`, `AgentTool`, `AgentEvent`, `ThinkingLevel`
-- `pi-ai`: `streamSimple`, `Model`, `Api`, provider registration, `ApiRegistry`
-
-## Migration order
-
-1. Own session format + reader/writer (`src/session/`)
-2. Own tool implementations (`src/tools/`)
-3. Own `AgentRuntime` using `pi-agent-core`'s `Agent`
-4. Own settings (`src/settings/`)
-5. Wire up session loader, thread index to new format
-6. Replace subagent runner
-7. Replace `generateSummary`
-8. Replace `getAgentDir` / `parseFrontmatter`
-9. Remove `pi-coding-agent` from `package.json`
+`kit` is a standalone app built on Pi core libraries, not a Pi-compatible shell.

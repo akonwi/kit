@@ -1,57 +1,58 @@
-# Mutable CWD: Exploration and Deferral
+# Decision: Mutable CWD remains deferred
 
 **Date:** 2026-03-17
+**Updated:** 2026-04-07
+**Status:** Deferred
 
 ## Context
 
-Pi's `SessionManager` treats `cwd` as immutable — set once at session creation, stored in the session header, and used to derive the session directory path. All tools (bash, edit, read, write, grep, find) capture cwd in closures at creation time via `createAllTools(cwd, ...)`.
+`kit` sessions currently store a `cwd` and runtime tools are created against that
+session cwd.
 
-We explored whether pi-kit could support changing the working directory mid-session.
+Today, changing the working directory mid-session is not part of the core app
+model.
 
-## What we explored
+The current runtime/session architecture assumes:
 
-### Approach 1: Fork session into new directory
+- a session has one persisted `cwd`
+- built-in tools are created for that session context
+- session lookup and persistence are independent from Pi, but still keyed to the
+  session's own stored metadata
 
-Use `SessionManager.forkFrom(sourcePath, newCwd)` to copy the full session history into a new session in the new directory, then create a new `AgentSession` with the forked session manager.
+## Why this is still deferred
 
-- **Pros:** Clean — new session, new tools, full history preserved
-- **Cons:** Requires recreating the entire agent session. The old session file would need to be deleted to avoid confusion. Complex lifecycle management.
+Supporting mutable cwd correctly would require a clear policy for all of the
+following:
 
-### Approach 2: Mutate private fields + reload
+1. **Persistence**
+   - should the session's persisted `cwd` change?
+   - should cwd changes be recorded as events in session history?
 
-Cast `agentSession` to `any` and mutate `_cwd`, plus mutate `sessionManager.cwd`, then call `agentSession.reload()` which internally calls `_buildRuntime()` — recreating all tools with the new cwd.
+2. **Runtime/tool rebuilding**
+   - tools like `bash`, `read`, `write`, `edit`, `grep`, and `find` are created
+     relative to the session context
+   - changing cwd may require rebuilding tool instances and refreshing dependent
+     indexes
 
-```typescript
-(agentSession as any)._cwd = newCwd;
-(agentSession.sessionManager as any).cwd = newCwd;
-process.chdir(newCwd);
-await agentSession.reload();
-```
+3. **Shell/UI semantics**
+   - transcript references, file references, footer state, and palette behavior
+     all need a clear answer for which cwd they should use
 
-- **Pros:** Simple, tools get recreated with new cwd, conversation context preserved
-- **Cons:** Relies on private implementation details. The session file stays in the original directory (derived from the original cwd), so quitting and reopening from the new directory finds a different session. Session persistence doesn't follow the directory change.
-
-### Prototype results
-
-We implemented Approach 2 as a `/cd` command. It worked — tools resolved paths relative to the new cwd, the status bar updated, and the agent operated in the new directory.
-
-However, session persistence broke: the session file remained in the original cwd's session directory, so reopening from the new directory didn't find the same session.
+4. **Session UX**
+   - if cwd changes substantially, should that still be the same session or a
+     fork/new session?
 
 ## Decision
 
-Defer mutable cwd. The session persistence problem is fundamental — `SessionManager` physically stores sessions under `~/.pi/agent/sessions/<encoded-cwd>/`, and changing cwd mid-session doesn't move the session file. Solving this properly would require either:
+Do not support mutable cwd yet.
 
-1. Upstream changes to `SessionManager` to support cwd migration
-2. A session file move/copy mechanism
-3. Decoupling session storage from cwd entirely
+For now:
 
-None of these are worth the complexity right now.
+- a session's `cwd` is stable for the life of that session
+- changing directories should be modeled as creating/switching sessions instead
+  of mutating the active one in place
 
-## What we kept
+## Revisit when
 
-The prototype yielded useful infrastructure that we kept:
-
-- `runtime.refreshStatus()` — forces a status bar update
-- `runtime.emitError(title, lines)` — emits errors to the transcript
-- `AppError` type and error rendering in the transcript (red left border)
-- `applyRuntimeStatus` now refreshes `cwd` from `process.cwd()`
+Revisit this only after the rebuilt runtime, pager, threads, handoff, and other
+core UX layers are stable on the current architecture.

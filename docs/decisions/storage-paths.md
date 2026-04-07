@@ -2,56 +2,93 @@
 
 - Status: Accepted
 - Date: 2026-03-24
+- Updated: 2026-04-07
 
 ## Context
 
-pi-kit needs clear conventions for where app state lives on disk, balancing Pi compatibility with app-native config.
+`kit` needs clear app-owned conventions for where state lives on disk.
+
+Earlier plans kept a split between Pi-compatible storage and app-native storage.
+That is no longer the architecture.
 
 ## Decision
 
-### Two roots
+`kit` stores its state under a single app-owned root:
 
-| Root | Path | Purpose |
-|------|------|---------|
-| **Pi compatibility** | `~/.pi/agent/` | Shared state that Pi can also read/write |
-| **Pi-kit app** | `~/.kit/` | App-native config and state |
+```text
+~/.kit/
+  auth.json
+  settings.json
+  sessions/
+    <id>.json
+```
 
-### Pi compatibility root (`~/.pi/agent/`)
+## Conventions
 
-pi-kit reads and writes to this directory for:
+### Settings
 
-- **Sessions** (`sessions/`) — `.jsonl` session files, shared format with Pi
-- **Auth** (`auth.json`) — API key credentials, managed by Pi's `AuthStorage`
-- **Agents** (`agents/`) — user-level agent `.md` definitions
-- **Settings** (`settings.json`) — Pi settings, used as fallback
+Path:
 
-pi-kit does **not** create its own session directory. Sessions remain in `~/.pi/agent/sessions/` to preserve full interoperability with Pi.
+```text
+~/.kit/settings.json
+```
 
-### Pi-kit app root (`~/.kit/`)
+This is the only settings source.
 
-pi-kit owns this directory for app-specific state:
+### Auth
 
-- **Settings** (`settings.json`) — kit settings, takes precedence over Pi settings
-- **Notifications** (`notifications.json`) — bell/speech preferences
+Path:
 
-### Settings precedence
+```text
+~/.kit/auth.json
+```
 
-1. `~/.kit/settings.json` (app-native, wins when present)
-2. `~/.pi/agent/settings.json` (Pi fallback)
-3. Built-in defaults
+This is the primary credential store for authenticated providers.
 
-This makes it easy to migrate to more pi-kit-specific settings in the future, since the settings structure can mirror Pi's where applicable and diverge where needed.
+### Sessions
 
-### Single source of truth
+Path:
 
-All resolved paths are centralized in `src/compat/paths.ts` via `getPiKitPaths()`. No other module should hardcode `~/.pi/agent` or `~/.kit` paths directly.
+```text
+~/.kit/sessions/<id>.json
+```
 
-### Project-local state
+Sessions are stored as one JSON file per session.
 
-Project-local discovery (`.pi/agents/`, `.pi/prompts/`, `.pi/skills/`, `AGENTS.md`) is handled by Pi's `createAgentSession` resource loader. pi-kit does not add its own project-local conventions.
+The current session shape is turn-first rather than flat-message-first:
+
+```json
+{
+  "id": "uuid",
+  "version": 1,
+  "cwd": "/path/to/project",
+  "name": "optional display name",
+  "model": "optional model id",
+  "createdAt": "iso8601",
+  "updatedAt": "iso8601",
+  "turns": [
+    {
+      "id": "turn-id",
+      "messages": [
+        { "role": "user", "turnId": "turn-id", "content": "..." }
+      ]
+    }
+  ]
+}
+```
+
+## Single source of truth
+
+Path resolution should come from the app's own path/settings/session modules.
+No module should assume Pi storage roots.
 
 ## Consequences
 
-- Notification config moves from `~/.pi/agent/kit.json` to `~/.kit/notifications.json`
-- Future app-specific state (e.g., UI preferences, theme selection) should go in `~/.kit/`
-- Pi session compatibility is preserved without pi-kit needing to own the session storage path
+- there is no `~/.pi/agent` fallback
+- there is no Pi session directory compatibility target
+- session persistence can evolve around the shell/runtime model
+- explicit turns are a first-class persistence concept
+
+## Decision
+
+All app-owned state lives under `~/.kit/`.

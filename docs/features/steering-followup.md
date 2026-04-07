@@ -1,59 +1,68 @@
 # Steering & Follow-up Messages
 
+## Status
+
+Available in the current runtime/composer flow.
+
 ## Overview
 
-pi-kit supports queueing messages for the agent while it's actively processing a turn. This allows you to steer the agent's behavior mid-run or queue follow-up work.
+`kit` supports queueing messages for the agent while it is actively processing a
+turn.
+
+This allows the user to either:
+
+- **steer** the in-flight work as soon as the current tool batch completes, or
+- **queue follow-up** work for after the agent becomes fully idle
 
 ## Concepts
 
 ### Steering
-A steering message is delivered **immediately after the current tool-call batch finishes**, before the next LLM call. Use it to:
-- Correct the agent's direction
-- Ask it to pause or wait
-- Provide a redirect before it continues
+
+A steering message is delivered after the current tool-call batch finishes and
+before the next LLM call.
+
+Use it to:
+
+- correct the agent's direction
+- redirect the task
+- inject a clarification before the turn continues
 
 ### Follow-up
-A follow-up message is delivered **only when the agent is completely idle** (no pending tool calls, no steering messages). Use it to:
-- Queue up additional work after the current task finishes
-- Ask follow-up questions once the agent stops
 
-## Usage
+A follow-up message is delivered only when the agent is fully idle.
+
+Use it to:
+
+- queue the next piece of work
+- ask something that should wait until the current turn is done
+
+## Current UX
 
 ### Keybindings
 
 | Key | Action |
 |-----|--------|
-| **Enter** (while streaming) | Queue as steering message |
-| **Alt+Enter** | Queue as follow-up message |
-| **Alt+Up** | Restore all pending (steering + follow-up) messages back to the composer |
+| **Enter** while streaming | queue as steering message |
+| **Alt+Enter** | queue as follow-up message |
+| **Alt+Up** | clear pending messages / restore that state path |
 
-### Slash Commands
+### Runtime methods
 
-| Command | Description |
-|---------|-------------|
-| `/steer <msg>` | Opens an input prompt; queues the text as a steering message |
-| `/followup <msg>` | Opens an input prompt; queues the text as a follow-up message |
-
-### Footer Indicator
-
-When pending messages are queued, the status bar shows `📬N` (e.g. `📬2`) next to the model info. The count drops to zero once messages are delivered.
-
-## API
-
-The runtime exposes these methods:
+The current runtime/composer path exposes:
 
 ```ts
-runtime.sendFollowUp(text: string): Promise<void>
-runtime.sendSteer(text: string): Promise<void>
-runtime.clearPendingMessages(): { steering: string[]; followUp: string[] }
-runtime.getPendingMessages(): { steering: string[]; followUp: string[] }
+runtime.sendFollowUp(text: string): void
+runtime.sendSteer(text: string): void
+runtime.clearPendingMessages(): void
 runtime.getPendingMessageCount(): number
 ```
 
-## Session Persistence
+## Current caveat
 
-Queued steering and follow-up messages are held in memory only. If you want to preserve them across sessions, restore them to the composer with `Alt+Up` before ending the session.
+The underlying decision remains stable, but some earlier docs described richer
+pending-message inspection/restore APIs than the current runtime exposes. The
+minimum working loop currently keeps the behavior simpler.
 
-## Design Decision
+## Related decision
 
-Enter steers by default, not follow-up. Steering is the more common use case while the agent is mid-turn (corrections, redirects). Follow-up is rarer and more deliberate, hence the modifier key. See [docs/decisions/steering-followup.md](../decisions/steering-followup.md).
+See `../decisions/steering-followup.md`.

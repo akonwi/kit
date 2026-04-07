@@ -6,7 +6,7 @@
 
 ## Summary
 
-pi-kit should **not stream assistant message text into the transcript** while the model is generating it.
+`kit` should **not stream assistant message text into the transcript** while the model is generating it.
 
 Instead:
 
@@ -54,9 +54,9 @@ It may also be reflected secondarily in footer/status state when useful, but the
 
 ### Session model
 
-The final assistant message should still be appended to the Pi-compatible session in the normal way.
+The final assistant message should still be appended to the persisted session in the normal way.
 
-Temporary runtime activity does **not** need to be represented as a final committed assistant transcript entry unless there is a Pi-compatible session entry type that should persist.
+Temporary runtime activity does **not** need to be represented as a final committed assistant transcript entry unless we later introduce a deliberate persisted entry type for it.
 
 ## Follow-up design work
 

@@ -9,7 +9,7 @@ The agent session supports two message queueing modes while the agent is streami
 - **Steering** — message is delivered after current tool calls finish, before the next LLM call
 - **Follow-up** — message waits until the agent is completely idle (no tool calls, no steering messages)
 
-pi-kit needs to decide what happens when the user presses Enter in the composer while the agent is streaming.
+`kit` needs to decide what happens when the user presses Enter in the composer while the agent is streaming.
 
 ## Options
 

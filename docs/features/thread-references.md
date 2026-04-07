@@ -1,23 +1,42 @@
 # Thread References
 
-Allows referencing content from other sessions via `@@` trigger.
+## Status
 
-## Trigger
+Foundation exists, but the inline `@@` reference UX is not fully wired in the
+current minimum loop.
 
-Type `@@` in the composer to open a filterable thread picker.
+## Goal
 
-## How it works
+Allow users to reference other sessions/threads from the composer via an `@@`
+trigger.
 
-1. `@@` trigger detects the double-@ prefix before the cursor
-2. Opens a fuzzy-scored picker showing recent sessions
-3. On selection, inserts `[[thread:sessionid]] ` at cursor position
-4. On submit, the token is expanded: reads the referenced session's context and injects a formatted reference block into the prompt
+## Current foundation
 
-## Thread Index
+The codebase already includes:
 
-- Lazy session index that scans session files on demand
-- Fuzzy scoring by session name/title
-- Invalidates on session changes (create, switch, rename)
+- a thread/session index
+- thread reference expansion logic
+- session invalidation hooks in app state
+
+Relevant modules:
+
+- `src/features/threads/thread-index.ts`
+- `src/features/threads/expand-references.ts`
+- `src/features/threads/index.ts`
+
+## Intended UX
+
+1. User types `@@` in the composer
+2. A filterable picker opens with matching sessions
+3. Selecting a thread inserts a thread token/reference
+4. On submit, the token is expanded into a formatted thread-context block for
+   the agent
+
+## Current caveat
+
+Like file references, this is not yet fully reconnected to the rebuilt composer
+flow. The indexing/expansion pieces exist, but the end-to-end inline trigger UX
+still needs to be restored.
 
 ## Source
 

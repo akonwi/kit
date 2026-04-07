@@ -1,34 +1,52 @@
 # Slash Commands
 
-Built-in commands accessible via `/` in the composer.
+## Status
 
-## Available Commands
+Partially available.
+
+The command system is active, but the current minimum working loop only exposes a
+small command set.
+
+## Available now
+
+The commands currently registered in `src/features/commands/index.ts` are:
 
 | Command | Description |
 |---------|-------------|
-| `/new` | Start a new session |
+| `/login` | Authenticate a provider |
 | `/model` | Switch model |
-| `/thinking` | Cycle thinking level (off, minimal, low, medium, high, xhigh) |
-| `/name` | Rename current session |
-| `/switch` | Switch to another session |
-| `/sessions:manage` | Browse, create, delete sessions |
 | `/quit` | Exit the application |
-| `/handoff` | Transfer context to a new session |
 
-## How it works
+## Command UX
 
-1. Type `/` to trigger command palette
-2. Filter commands by typing
-3. Select with Enter or click
-4. Some commands open pickers (model, sessions) or prompts (name)
+1. Type `/` in the composer
+2. A filterable palette opens
+3. Select a command with Enter or mouse
+4. The command runs its own logic using the runtime and palette manager
 
-## Command Structure
+## Command model
 
 Each command is a `Command` object with:
-- `name` — command identifier
-- `description` — shown in palette
-- `execute(ctx)` — receives runtime and palette manager
+
+- `name`
+- `description`
+- `execute(ctx)`
+
+`ctx` currently provides:
+
+- `runtime`
+- `palette`
+
+## Additional command code in the repo
+
+There are more command modules in `src/features/commands/`, including commands
+for sessions, handoff, steering, pager, and others.
+
+However, many of those are **not currently registered in the active command
+list** while the app is being rebuilt on the new architecture.
 
 ## Source
 
-`src/features/commands/`
+- `src/features/commands/index.ts`
+- `src/features/commands/types.ts`
+- `src/shell/composer-controller.ts`

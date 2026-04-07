@@ -1,24 +1,33 @@
-# Wizard / Questionnaire
+# Wizard / Guided Questions
 
-Guided question flows for complex multi-step interactions.
+## Status
 
-## Trigger
+Partially implemented, not fully wired into the active shell flow.
 
-Activated by the agent via tool calls that request structured input.
+## Goal
 
-## How it works
+Provide structured multi-step input when the agent needs guided answers rather
+than a single freeform prompt.
 
-1. Agent requests information via a question tool
-2. A wizard UI replaces the composer with a guided input flow
-3. Questions are presented one at a time with input validation
-4. On completion, answers are submitted back to the agent
+## Current foundation
 
-## UI Components
+Wizard-related modules already exist:
 
-- **WizardDock** — replaces the composer when wizard is active
-- **WizardView** — displays the wizard questions and progress
-- **Questionnaire normalization** — answers can be normalized/transformed before submission
+- `src/features/wizard/tool.ts`
+- `src/features/wizard/wizard-controller.ts`
+- `src/features/wizard/types.ts`
+- `src/shell/WizardView.tsx`
+- `src/shell/WizardDock.tsx`
 
-## Source
+## Intended behavior
 
-`src/features/wizard/`
+1. The agent requests guided input through a dedicated tool
+2. The shell activates a wizard-specific surface
+3. Questions are answered in a structured flow
+4. The result is submitted back to the agent as structured data
+
+## Current caveat
+
+The wizard is not currently part of the minimum working loop. The foundational
+pieces exist, but the end-to-end activation and shell integration still need to
+be rebuilt cleanly on the current architecture.

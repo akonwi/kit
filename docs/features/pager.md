@@ -1,32 +1,39 @@
 # Pager
 
-Long-form output review mode for agent responses with section-by-section notes.
+## Status
 
-## Trigger
+Partially implemented, not restored to the active shell flow yet.
 
-The pager activates automatically when the agent finishes a turn with 2+ sections. Press Escape to close.
+## Goal
 
-## How it works
+Provide a focused long-form review surface for substantial agent output, with
+section-based navigation and note/feedback capture.
 
-1. Agent completes a turn with structured output (e.g., multiple file edits, multi-step results)
-2. The pager automatically splits the response into sections
-3. Each section can be annotated with a note
-4. Ctrl+Enter submits all notes as feedback to the agent
+## Current foundation
 
-## Controls
+The repo includes pager-specific modules:
 
-- **Escape** — close pager
-- **Ctrl+Shift+Right** — next section
-- **Ctrl+Shift+Left** — previous section  
-- **Ctrl+Up/Down** — scroll current section
-- **Ctrl+Enter** — submit all notes as feedback
+- `src/features/pager/index.ts`
+- `src/features/pager/pager-controller.ts`
+- `src/features/pager/split-sections.ts`
+- `src/shell/PagerView.tsx`
+- `src/features/commands/pager.ts`
 
-## Notes
+## Intended behavior
 
-- Notes are per-section and persisted in memory
-- Notes auto-save when navigating between sections
-- Empty notes are ignored on submit
+The pager is meant to:
 
-## Source
+- activate for substantial assistant output
+- split content into sections
+- let the user move section-by-section
+- capture per-section notes
+- optionally feed structured feedback back into the agent
 
-`src/features/pager/`
+## Current caveat
+
+The active shell path has been simplified while the standalone runtime was being
+rebuilt. Pager code exists, but it is not currently part of the critical-path
+loop.
+
+Any pager reintroduction should be done against the current runtime/state/shell
+architecture rather than by reviving older assumptions wholesale.

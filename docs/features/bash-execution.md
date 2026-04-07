@@ -1,28 +1,40 @@
 # Bash Execution
 
-Run shell commands directly from the composer.
+## Status
 
-## Triggers
+Not currently wired in the active minimum loop.
 
-- `!command` — runs the command and adds output to session context (agent sees it)
-- `!!command` — runs the command but excludes output from context (fire-and-forget)
+## Goal
 
-## How it works
+Support a direct shell-command UX from the composer and render command execution
+results in the transcript.
 
-1. Composer submit detects `!` or `!!` prefix
-2. Strips prefix and executes command via `AgentSession.executeBash()`
-3. Output is displayed as a `BashEntry` in the transcript
-4. For `!`: output is added to session context via `BashExecutionMessage`
-5. For `!!`: output is excluded via `excludeFromContext: true`
+## Current relevant pieces
 
-## BashEntry Display
+- the app has a built-in `bash` tool in `src/tools/bash.ts`
+- the transcript already knows how to render `bashExecution` entries via
+  `BashEntry` in `src/shell/TranscriptPane.tsx`
 
-- Shows command with syntax highlighting
-- Prefix indicates result: `✓` (success), `✗` (error), `⊘` (cancelled)
-- Collapsible output (expanded by default for user-invoked commands)
-- Click to expand/collapse long output
+## Historical / intended UX
+
+Earlier iterations explored composer prefixes such as:
+
+- `!command` — run command and include output in context
+- `!!command` — run command without including output in context
+
+That UX is **not currently active** in the rebuilt composer flow.
+
+## Current caveat
+
+There is a difference between:
+
+- the agent calling the `bash` tool as part of a normal turn, and
+- the user directly invoking ad-hoc shell execution from the composer
+
+The first exists as part of the runtime/tooling foundation.
+The second still needs a deliberate UX decision and wiring work.
 
 ## Source
 
-`src/shell/TranscriptPane.tsx` (BashEntry component)
-`src/shell/composer-controller.ts` (prefix detection)
+- `src/tools/bash.ts`
+- `src/shell/TranscriptPane.tsx`

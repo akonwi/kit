@@ -1,31 +1,39 @@
 # Handoff
 
-Transfer conversation context to a new session.
+## Status
 
-## Trigger
+Planned / partially explored, not currently active in the minimum loop.
 
-`/handoff` command or UI action.
+## Goal
 
-## How it works
+Allow the current session to hand off context into a fresh session with a
+compact summary of what matters.
 
-1. User triggers handoff (command or picker)
-2. A summary of the current session is generated
-3. A new session is created with the summary as initial context
-4. User continues in the new session with full history
+## Current foundation
 
-## Summary
+There is existing command-side handoff code in:
 
-The handoff summary provides context for the new session:
-- Recent conversation highlights
-- Key decisions or code changes
-- Current state of work
+- `src/features/commands/handoff.ts`
 
-## Use case
+That code reflects the intended workflow direction, but it is not currently part
+of the active command set.
 
-- "Hand off" work to continue in a fresh context
-- Start a new direction while preserving the original conversation
-- Clear token budget while maintaining context
+## Intended behavior
 
-## Source
+1. User initiates handoff
+2. The app generates a compact summary of the current work
+3. A new session is created with that summary as its starting context
+4. The user continues in the new session while preserving the parent session as
+   its own artifact
 
-`src/features/commands/handoff.ts`
+## Why this is useful
+
+- continue work in a fresh context window
+- branch into a new direction without losing prior work
+- preserve important context in a tighter form
+
+## Current caveat
+
+Handoff needs to be reintroduced deliberately on top of the new standalone
+session/runtime model rather than assuming earlier Pi-era or transition-era
+behavior.
