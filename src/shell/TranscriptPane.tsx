@@ -5,6 +5,7 @@ import type {
 	ToolResultMessage,
 	UserMessage,
 } from "@mariozechner/pi-ai";
+import type { BorderSides } from "@opentui/core";
 
 // BashExecutionMessage type from pi-coding-agent
 interface BashExecutionMessage {
@@ -167,7 +168,7 @@ function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
 	const text = extractUserText(props.msg);
 	return (
 		<box
-			border={["left"] as any}
+			border={["left" as BorderSides]}
 			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
 			paddingLeft={1}
 			flexDirection="column"
@@ -216,7 +217,7 @@ function BashEntry(props: { msg: BashExecutionMessage }) {
 
 	return (
 		<box
-			border={["left"] as any}
+			border={["left" as BorderSides]}
 			borderColor={theme.toolText}
 			paddingLeft={1}
 			flexDirection="column"

@@ -1,15 +1,15 @@
 {
-  "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "a11y": {
-        "recommended": false
-      }
-    }
-  },
-  "formatter": {
-    "enabled": true,
-    "indentStyle": "tab"
-  }
+	"$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"a11y": {
+				"recommended": false
+			}
+		}
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab"
+	}
 }

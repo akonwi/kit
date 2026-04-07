@@ -5,8 +5,4 @@ import { modelCommand } from "./model";
 import { quitCommand } from "./quit";
 import type { Command } from "./types";
 
-export const COMMANDS: Command[] = [
-	loginCommand,
-	modelCommand,
-	quitCommand,
-];
+export const COMMANDS: Command[] = [loginCommand, modelCommand, quitCommand];
