@@ -1,0 +1,35 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { Type } from "@mariozechner/pi-ai";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+
+export function createWriteTool(cwd: string): AgentTool {
+  return {
+    name: "write",
+    label: "Write",
+    description: "Write content to a file. Creates the file and any missing parent directories.",
+    parameters: Type.Object({
+      path: Type.String({ description: "Path to the file (relative to cwd or absolute)" }),
+      content: Type.String({ description: "Content to write" }),
+    }),
+    async execute(_id, params, _signal) {
+      try {
+        const abs = resolve(cwd, params.path);
+        await mkdir(dirname(abs), { recursive: true });
+        await writeFile(abs, params.content, "utf8");
+        const lines = params.content.split("\n").length;
+        return {
+          content: [{ type: "text", text: `Wrote ${lines} lines to ${abs}` }],
+          details: { path: abs, lines },
+        };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text", text: `Error: ${msg}` }],
+          details: { path: params.path, lines: 0 },
+          isError: true,
+        } as any;
+      }
+    },
+  };
+}
