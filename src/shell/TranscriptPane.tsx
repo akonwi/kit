@@ -424,7 +424,7 @@ function TurnEntryItem(props: {
  */
 function TurnEntry(props: { turn: TranscriptTurn }) {
 	return (
-		<box flexDirection="column" gap={0} width="100%">
+		<box flexDirection="column" gap={1} width="100%">
 			<Show when={props.turn.user}>
 				<UserEntry msg={props.turn.user!} aborted={props.turn.aborted} />
 			</Show>
