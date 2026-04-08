@@ -37,10 +37,7 @@ import {
 import { type GitInfo, getGitInfo } from "./git-info";
 import { KitAgent } from "./kit-agent";
 
-// Register built-in API providers (Anthropic, OpenAI, etc.) once
 registerBuiltInApiProviders();
-
-// --- Types ---
 
 export type RuntimeStatus = {
 	model: string;
@@ -67,119 +64,97 @@ export type AgentRuntimeEvent =
 	| { type: "error"; title: string; lines: string[] }
 	| { type: "info"; title: string; lines: string[] };
 
-export type AgentRuntime = {
-	// Messaging
-	submitUserMessage(text: string): Promise<void>;
-	abort(): void;
-	sendFollowUp(text: string): void;
-	sendSteer(text: string): void;
-	clearPendingMessages(): void;
-	drainPendingMessages(): string[];
-	promotePendingFollowUpsToSteering(): void;
-	getPendingMessageCount(): number;
-	getPendingMessages(): string[];
+export class AgentRuntime {
+	private session: Session;
+	private agent: KitAgent;
+	private listeners = new Set<(event: AgentRuntimeEvent) => void>();
+	private quitHandler: (() => void) | null = null;
+	private pendingCount = 0;
+	private isCompacting = false;
+	private unsubscribeAgent: (() => void) | null = null;
 
-	// Session management
-	getSession(): Session;
-	getMessages(): AgentMessage[];
-	getTurns(): Turn[];
-	newSession(cwd?: string): Promise<void>;
-	switchSession(id: string): Promise<boolean>;
-	setSessionName(name: string): Promise<void>;
-	listAllSessions(): Promise<SessionSummary[]>;
-	listSessionsForCwd(cwd: string): Promise<SessionSummary[]>;
-	deleteSession(id: string): Promise<void>;
+	private constructor(session: Session, agent: KitAgent) {
+		this.session = session;
+		this.agent = agent;
+		this.unsubscribeAgent = this.agent.subscribe((event) =>
+			this.handleAgentEvent(event),
+		);
+	}
 
-	// Model management
-	getStatus(): RuntimeStatus;
-	getAvailableModels(): Array<Model<Api>>;
-	getCurrentModelId(): string | undefined;
-	setModel(model: Model<Api>): void;
-	setThinkingLevel(level: ThinkingLevel): void;
+	static async new(
+		initialSession: Session | null,
+		options?: { extraTools?: AgentTool[] },
+	): Promise<AgentRuntime> {
+		const session = initialSession ?? (await openRecentSession(process.cwd()));
+		const defaultModel = resolveDefaultModel(session.model);
 
-	// UI helpers
-	showPanel(title: string): void;
-	hidePanel(): void;
-	emitError(title: string, lines: string[]): void;
-	emitInfo(title: string, lines: string[]): void;
-	onQuit(handler: () => void): void;
-	quit(): void;
+		console.log(
+			"[runtime] model:",
+			defaultModel.id,
+			"provider:",
+			defaultModel.provider,
+			"api:",
+			defaultModel.api,
+		);
 
-	// Lifecycle
-	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
-	dispose(): void;
-};
-
-// --- Factory ---
-
-export async function createAgentRuntime(
-	initialSession: Session | null,
-	options?: { extraTools?: AgentTool[] },
-): Promise<AgentRuntime> {
-	// Load or create session
-	let session = initialSession ?? (await openRecentSession(process.cwd()));
-
-	const defaultModel = resolveDefaultModel(session.model);
-	console.log(
-		"[runtime] model:",
-		defaultModel.id,
-		"provider:",
-		defaultModel.provider,
-		"api:",
-		defaultModel.api,
-	);
-
-	// Create Agent
-	const agent = KitAgent.fromSession(session, {
-		initialState: {
-			model: defaultModel,
-			tools: [
-				...createDefaultTools(session.cwd),
-				...(options?.extraTools ?? []),
-			],
-		},
-		getApiKey: (provider) => getApiKey(provider),
-	});
-
-	const listeners = new Set<(event: AgentRuntimeEvent) => void>();
-	let quitHandler: (() => void) | null = null;
-	let pendingCount = 0;
-	let isCompacting = false;
-
-	const emit = (event: AgentRuntimeEvent) => {
-		for (const listener of listeners) listener(event);
-	};
-
-	const syncPendingState = () => {
-		pendingCount = agent.getPendingFollowUps().length;
-		emit({ type: "pending_changed", count: pendingCount });
-		emit({
-			type: "pending_messages_changed",
-			messages: agent.getPendingFollowUps(),
+		const agent = KitAgent.fromSession(session, {
+			initialState: {
+				model: defaultModel,
+				tools: [
+					...createDefaultTools(session.cwd),
+					...(options?.extraTools ?? []),
+				],
+			},
+			getApiKey: (provider) => getApiKey(provider),
 		});
-	};
 
-	const snapshotStatus = (): RuntimeStatus => ({
-		model: agent.state.model?.name ?? agent.state.model?.id ?? "no model",
-		thinkingLevel: agent.state.thinkingLevel ?? "off",
-		isStreaming: agent.state.isStreaming,
-		git: getGitInfo(session.cwd),
-		contextUsage: getRuntimeContextUsage(
-			agent.state.messages,
-			agent.state.model,
-		),
-	});
+		return new AgentRuntime(session, agent);
+	}
 
-	const isEmpty = () => session.turns.length === 0;
+	private emit(event: AgentRuntimeEvent) {
+		for (const listener of this.listeners) listener(event);
+	}
 
-	const maybeAutoCompact = async () => {
-		if (isCompacting) return;
-		const model = agent.state.model;
-		const contextUsage = getRuntimeContextUsage(agent.state.messages, model);
+	private syncPendingState() {
+		this.pendingCount = this.agent.getPendingFollowUps().length;
+		this.emit({ type: "pending_changed", count: this.pendingCount });
+		this.emit({
+			type: "pending_messages_changed",
+			messages: this.agent.getPendingFollowUps(),
+		});
+	}
+
+	private snapshotStatus(): RuntimeStatus {
+		return {
+			model:
+				this.agent.state.model?.name ??
+				this.agent.state.model?.id ??
+				"no model",
+			thinkingLevel: this.agent.state.thinkingLevel ?? "off",
+			isStreaming: this.agent.state.isStreaming,
+			git: getGitInfo(this.session.cwd),
+			contextUsage: getRuntimeContextUsage(
+				this.agent.state.messages,
+				this.agent.state.model,
+			),
+		};
+	}
+
+	private isEmpty(): boolean {
+		return this.session.turns.length === 0;
+	}
+
+	private async maybeAutoCompact() {
+		if (this.isCompacting) return;
+		const model = this.agent.state.model;
+		const contextUsage = getRuntimeContextUsage(
+			this.agent.state.messages,
+			model,
+		);
 		if (!model || !shouldAutoCompact(contextUsage?.percent)) return;
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			emit({
+			this.emit({
 				type: "error",
 				title: "Auto-compaction failed",
 				lines: [`No API key available for ${model.provider}.`],
@@ -187,8 +162,8 @@ export async function createAgentRuntime(
 			return;
 		}
 
-		isCompacting = true;
-		emit({
+		this.isCompacting = true;
+		this.emit({
 			type: "panel",
 			panel: {
 				pending: true,
@@ -198,18 +173,18 @@ export async function createAgentRuntime(
 
 		try {
 			const result = await compactSessionTurns({
-				session,
+				session: this.session,
 				model,
 				apiKey,
 			});
 			if (!result) return;
 
-			agent.replaceFromTurns(result.turns);
-			session = await updateSession(session, {
+			this.agent.replaceFromTurns(result.turns);
+			this.session = await updateSession(this.session, {
 				turns: result.turns,
 				model: model.id,
 			});
-			emit({
+			this.emit({
 				type: "info",
 				title: "Session compacted",
 				lines: [
@@ -218,48 +193,52 @@ export async function createAgentRuntime(
 				],
 			});
 		} catch (error) {
-			emit({
+			this.emit({
 				type: "error",
 				title: "Auto-compaction failed",
 				lines: [error instanceof Error ? error.message : String(error)],
 			});
 		} finally {
-			isCompacting = false;
+			this.isCompacting = false;
 		}
-	};
+	}
 
-	// Persist turns to disk after each turn
-	const persistTurns = async () => {
+	private async persistTurns() {
 		try {
-			session = await updateSession(session, {
-				turns: agent.turns,
-				model: agent.state.model?.id,
+			this.session = await updateSession(this.session, {
+				turns: this.agent.turns,
+				model: this.agent.state.model?.id,
 			});
 		} catch (err) {
-			emit({
+			this.emit({
 				type: "error",
 				title: "Session save failed",
 				lines: [String(err)],
 			});
 		}
-	};
+	}
 
-	// Subscribe to agent events
-	const unsubscribe = agent.subscribe((event: AgentEvent) => {
+	private handleAgentEvent(event: AgentEvent) {
 		switch (event.type) {
 			case "agent_start":
-				emit({ type: "panel", panel: { pending: true, title: "Working…" } });
-				emit({ type: "turns_changed", turns: [...agent.turns] });
-				emit({ type: "status_changed", status: snapshotStatus() });
+				this.emit({
+					type: "panel",
+					panel: { pending: true, title: "Working…" },
+				});
+				this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+				this.emit({ type: "status_changed", status: this.snapshotStatus() });
 				break;
 
 			case "turn_start":
-				syncPendingState();
+				this.syncPendingState();
 				break;
 
 			case "message_start":
 				if (event.message.role === "assistant") {
-					emit({ type: "panel", panel: { pending: true, title: "Thinking…" } });
+					this.emit({
+						type: "panel",
+						panel: { pending: true, title: "Thinking…" },
+					});
 				}
 				break;
 
@@ -271,7 +250,7 @@ export async function createAgentRuntime(
 					typeof ame.delta === "string" &&
 					ame.delta.trim()
 				) {
-					emit({
+					this.emit({
 						type: "panel",
 						panel: {
 							pending: true,
@@ -283,269 +262,258 @@ export async function createAgentRuntime(
 			}
 
 			case "message_end":
-				emit({ type: "turns_changed", turns: [...agent.turns] });
-				emit({ type: "status_changed", status: snapshotStatus() });
+				this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+				this.emit({ type: "status_changed", status: this.snapshotStatus() });
 				break;
 
 			case "tool_execution_end":
-				emit({ type: "tool_completed" });
+				this.emit({ type: "tool_completed" });
 				break;
 
 			case "agent_end":
-				void persistTurns()
+				void this.persistTurns()
 					.then(async () => {
-						await maybeAutoCompact();
-						emit({ type: "session_changed", session });
-						emit({ type: "turns_changed", turns: [...agent.turns] });
-						emit({ type: "status_changed", status: snapshotStatus() });
-						emit({ type: "panel", panel: { pending: false, title: "" } });
-						emit({
-							type: "turn_complete",
-							turn: agent.turns.at(-1) ?? null,
+						await this.maybeAutoCompact();
+						this.emit({ type: "session_changed", session: this.session });
+						this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+						this.emit({
+							type: "status_changed",
+							status: this.snapshotStatus(),
 						});
-						syncPendingState();
+						this.emit({ type: "panel", panel: { pending: false, title: "" } });
+						this.emit({
+							type: "turn_complete",
+							turn: this.agent.turns.at(-1) ?? null,
+						});
+						this.syncPendingState();
 					})
 					.catch((error) => {
-						emit({
+						this.emit({
 							type: "error",
 							title: "Session save failed",
 							lines: [error instanceof Error ? error.message : String(error)],
 						});
-						emit({ type: "panel", panel: { pending: false, title: "" } });
+						this.emit({ type: "panel", panel: { pending: false, title: "" } });
 					});
 				break;
 		}
-	});
+	}
 
-	return {
-		// --- Messaging ---
+	async submitUserMessage(text: string): Promise<void> {
+		try {
+			await this.agent.prompt(text);
+		} catch (err) {
+			this.emit({ type: "error", title: "Agent error", lines: [String(err)] });
+		}
+	}
 
-		async submitUserMessage(text) {
-			try {
-				await agent.prompt(text);
-			} catch (err) {
-				emit({ type: "error", title: "Agent error", lines: [String(err)] });
-			}
-		},
+	abort(): void {
+		this.agent.abort();
+	}
 
-		abort() {
-			agent.abort();
-		},
+	sendFollowUp(text: string): void {
+		const msg: UserMessage = {
+			role: "user",
+			content: text,
+			timestamp: Date.now(),
+		};
+		this.agent.followUp(msg);
+		this.syncPendingState();
+	}
 
-		sendFollowUp(text) {
+	sendSteer(text: string): void {
+		const msg: UserMessage = {
+			role: "user",
+			content: text,
+			timestamp: Date.now(),
+		};
+		this.agent.steer(msg);
+	}
+
+	clearPendingMessages(): void {
+		this.agent.clearPendingFollowUps();
+		this.syncPendingState();
+	}
+
+	drainPendingMessages(): string[] {
+		const drained = this.agent.drainPendingFollowUps();
+		this.syncPendingState();
+		return drained;
+	}
+
+	promotePendingFollowUpsToSteering(): void {
+		const drained = this.agent.drainPendingFollowUps();
+		for (const text of drained) {
 			const msg: UserMessage = {
 				role: "user",
 				content: text,
 				timestamp: Date.now(),
 			};
-			agent.followUp(msg);
-			syncPendingState();
-		},
+			this.agent.steer(msg);
+		}
+		this.syncPendingState();
+		if (drained.length > 0) {
+			this.emit({ type: "info", title: "Steering", lines: [] });
+		}
+	}
 
-		sendSteer(text) {
-			const msg: UserMessage = {
-				role: "user",
-				content: text,
-				timestamp: Date.now(),
+	getPendingMessageCount(): number {
+		return this.agent.getPendingFollowUps().length;
+	}
+
+	getPendingMessages(): string[] {
+		return this.agent.getPendingFollowUps();
+	}
+
+	getSession(): Session {
+		return this.session;
+	}
+
+	getMessages(): AgentMessage[] {
+		return this.agent.turns.flatMap((turn) => turn.messages);
+	}
+
+	getTurns(): Turn[] {
+		return [...this.agent.turns];
+	}
+
+	async newSession(cwd?: string): Promise<void> {
+		const targetCwd = cwd ?? this.session.cwd;
+		this.session = await createSession(targetCwd, this.agent.state.model?.id);
+		this.agent.replaceFromTurns([]);
+		this.agent.setTools(createDefaultTools(targetCwd));
+		this.syncPendingState();
+		this.emit({ type: "session_changed", session: this.session });
+		this.emit({ type: "turns_changed", turns: [] });
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+	}
+
+	async switchSession(id: string): Promise<boolean> {
+		const target = (await findSessionById(id)) ?? (await readSession(id));
+		if (!target) return false;
+		this.session = target;
+		this.agent.replaceFromTurns(this.session.turns);
+		this.agent.setTools(createDefaultTools(this.session.cwd));
+		this.syncPendingState();
+		this.emit({ type: "session_changed", session: this.session });
+		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		return true;
+	}
+
+	async setSessionName(name: string): Promise<void> {
+		if (this.isEmpty()) {
+			this.session = {
+				...this.session,
+				name,
+				updatedAt: new Date().toISOString(),
 			};
-			agent.steer(msg);
-		},
+			this.emit({ type: "session_changed", session: this.session });
+			return;
+		}
+		this.session = await updateSession(this.session, { name });
+		this.emit({ type: "session_changed", session: this.session });
+	}
 
-		clearPendingMessages() {
-			agent.clearPendingFollowUps();
-			syncPendingState();
-		},
+	async listAllSessions(): Promise<SessionSummary[]> {
+		return listAllSessions();
+	}
 
-		drainPendingMessages() {
-			const drained = agent.drainPendingFollowUps();
-			syncPendingState();
-			return drained;
-		},
+	async listSessionsForCwd(cwd: string): Promise<SessionSummary[]> {
+		return listSessionsForCwd(cwd);
+	}
 
-		promotePendingFollowUpsToSteering() {
-			const drained = agent.drainPendingFollowUps();
-			for (const text of drained) {
-				const msg: UserMessage = {
-					role: "user",
-					content: text,
-					timestamp: Date.now(),
-				};
-				agent.steer(msg);
-			}
-			syncPendingState();
-			if (drained.length > 0) {
-				emit({ type: "info", title: "Steering", lines: [] });
-			}
-		},
+	async deleteSession(id: string): Promise<void> {
+		if (id === this.session.id) {
+			throw new Error("Cannot delete the active session");
+		}
+		await deleteSession(id);
+	}
 
-		getPendingMessageCount() {
-			return agent.getPendingFollowUps().length;
-		},
+	getStatus(): RuntimeStatus {
+		return this.snapshotStatus();
+	}
 
-		getPendingMessages() {
-			return agent.getPendingFollowUps();
-		},
+	getAvailableModels(): Array<Model<Api>> {
+		return getAuthenticatedProviders().flatMap((provider) =>
+			getModels(provider as KnownProvider),
+		);
+	}
 
-		// --- Session ---
+	getCurrentModelId(): string | undefined {
+		return this.agent.state.model?.id;
+	}
 
-		getSession() {
-			return session;
-		},
+	setModel(model: Model<Api>): void {
+		this.agent.setModel(model);
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
 
-		getMessages() {
-			return agent.turns.flatMap((turn) => turn.messages);
-		},
+		if (this.isEmpty()) {
+			this.session = {
+				...this.session,
+				model: model.id,
+				updatedAt: new Date().toISOString(),
+			};
+			this.emit({ type: "session_changed", session: this.session });
+			return;
+		}
 
-		getTurns() {
-			return [...agent.turns];
-		},
-
-		async newSession(cwd?: string) {
-			const targetCwd = cwd ?? session.cwd;
-			session = await createSession(targetCwd, agent.state.model?.id);
-			agent.replaceFromTurns([]);
-			agent.setTools(createDefaultTools(targetCwd));
-			syncPendingState();
-			emit({ type: "session_changed", session });
-			emit({ type: "turns_changed", turns: [] });
-			emit({ type: "status_changed", status: snapshotStatus() });
-		},
-
-		async switchSession(id) {
-			const target = (await findSessionById(id)) ?? (await readSession(id));
-			if (!target) return false;
-			session = target;
-			agent.replaceFromTurns(session.turns);
-			agent.setTools(createDefaultTools(session.cwd));
-			syncPendingState();
-			emit({ type: "session_changed", session });
-			emit({ type: "turns_changed", turns: [...session.turns] });
-			emit({ type: "status_changed", status: snapshotStatus() });
-			return true;
-		},
-
-		async setSessionName(name) {
-			if (isEmpty()) {
-				session = {
-					...session,
-					name,
-					updatedAt: new Date().toISOString(),
-				};
-				emit({ type: "session_changed", session });
-				return;
-			}
-			session = await updateSession(session, { name });
-			emit({ type: "session_changed", session });
-		},
-
-		async listAllSessions() {
-			return listAllSessions();
-		},
-
-		async listSessionsForCwd(cwd) {
-			return listSessionsForCwd(cwd);
-		},
-
-		async deleteSession(id) {
-			if (id === session.id)
-				throw new Error("Cannot delete the active session");
-			await deleteSession(id);
-		},
-
-		// --- Model ---
-
-		getStatus() {
-			return snapshotStatus();
-		},
-
-		getAvailableModels() {
-			return getAuthenticatedProviders().flatMap((provider) =>
-				getModels(provider as KnownProvider),
-			);
-		},
-
-		getCurrentModelId() {
-			return agent.state.model?.id;
-		},
-
-		setModel(model: Model<Api>) {
-			agent.setModel(model);
-			emit({ type: "status_changed", status: snapshotStatus() });
-
-			if (isEmpty()) {
-				session = {
-					...session,
-					model: model.id,
-					updatedAt: new Date().toISOString(),
-				};
-				emit({ type: "session_changed", session });
-				return;
-			}
-
-			void updateSession(session, { model: model.id })
-				.then((updated) => {
-					session = updated;
-					emit({ type: "session_changed", session });
-				})
-				.catch((err) => {
-					emit({
-						type: "error",
-						title: "Session save failed",
-						lines: [String(err)],
-					});
+		void updateSession(this.session, { model: model.id })
+			.then((updated) => {
+				this.session = updated;
+				this.emit({ type: "session_changed", session: this.session });
+			})
+			.catch((err) => {
+				this.emit({
+					type: "error",
+					title: "Session save failed",
+					lines: [String(err)],
 				});
-		},
+			});
+	}
 
-		setThinkingLevel(level) {
-			agent.setThinkingLevel(level);
-			emit({ type: "status_changed", status: snapshotStatus() });
-		},
+	setThinkingLevel(level: ThinkingLevel): void {
+		this.agent.setThinkingLevel(level);
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+	}
 
-		// --- UI ---
+	showPanel(title: string): void {
+		this.emit({ type: "panel", panel: { pending: true, title } });
+	}
 
-		showPanel(title) {
-			emit({ type: "panel", panel: { pending: true, title } });
-		},
+	hidePanel(): void {
+		this.emit({ type: "panel", panel: { pending: false, title: "" } });
+	}
 
-		hidePanel() {
-			emit({ type: "panel", panel: { pending: false, title: "" } });
-		},
+	emitError(title: string, lines: string[]): void {
+		this.emit({ type: "error", title, lines });
+	}
 
-		emitError(title, lines) {
-			emit({ type: "error", title, lines });
-		},
+	emitInfo(title: string, lines: string[]): void {
+		this.emit({ type: "info", title, lines });
+	}
 
-		emitInfo(title, lines) {
-			emit({ type: "info", title, lines });
-		},
+	onQuit(handler: () => void): void {
+		this.quitHandler = handler;
+	}
 
-		onQuit(handler) {
-			quitHandler = handler;
-		},
+	quit(): void {
+		this.quitHandler?.();
+	}
 
-		quit() {
-			quitHandler?.();
-		},
+	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
 
-		// --- Lifecycle ---
-
-		subscribe(listener) {
-			listeners.add(listener);
-			return () => listeners.delete(listener);
-		},
-
-		dispose() {
-			unsubscribe();
-			listeners.clear();
-		},
-	};
+	dispose(): void {
+		this.unsubscribeAgent?.();
+		this.unsubscribeAgent = null;
+		this.listeners.clear();
+	}
 }
 
-// --- Helpers ---
-
 function getAuthenticatedProviders(): string[] {
-	// Auth.json keys are the source of truth for authenticated providers.
-	// Also pick up any providers configured via env vars only.
 	const fromAuth = getAuthenticatedProviderIds();
 	const fromEnv = getProviders().filter(
 		(p) => !fromAuth.includes(p) && getEnvApiKey(p) != null,
@@ -560,16 +528,14 @@ function resolveDefaultModel(preferredModelId?: string): Model<Api> {
 		throw new Error("No authenticated providers found. Run /login first.");
 	}
 
-	// Try to match the preferred model from the last session
 	if (preferredModelId) {
 		for (const provider of providers) {
-			for (const m of getModels(provider as KnownProvider)) {
-				if (m.id === preferredModelId) return m;
+			for (const model of getModels(provider as KnownProvider)) {
+				if (model.id === preferredModelId) return model;
 			}
 		}
 	}
 
-	// First model from first authenticated provider
 	for (const provider of providers) {
 		const models = getModels(provider as KnownProvider);
 		if (models[0]) return models[0];

@@ -6,7 +6,7 @@ import {
 	getTreeSitterClient,
 } from "@opentui/core";
 import { render } from "@opentui/solid";
-import { createAgentRuntime } from "../runtime/agent-runtime";
+import { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	findSessionById,
 	openRecentSession,
@@ -83,7 +83,7 @@ export async function bootstrap(): Promise<void> {
 
 	const settings = await loadSettings();
 	const session = await loadSession();
-	const runtime = await createAgentRuntime(session);
+	const runtime = await AgentRuntime.new(session);
 
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,
