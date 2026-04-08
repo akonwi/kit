@@ -1,5 +1,6 @@
 import { COMMANDS } from "../features/commands";
 import type { FileIndex } from "../features/files";
+import type { ThreadIndex } from "../features/threads";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	createPaletteManager,
@@ -16,10 +17,11 @@ export type TextareaHandle = {
 export type ComposerControllerDeps = {
 	runtime: AgentRuntime;
 	fileIndex: FileIndex;
+	threadIndex: ThreadIndex | null;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, fileIndex } = deps;
+	const { runtime, fileIndex, threadIndex } = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -72,7 +74,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				value: entry.path,
 				action: (ctx) => {
 					const path = String(entry.path);
-					insertFileReference(path);
+					insertReference("@", path);
 					ctx.dismiss();
 				},
 			})),
@@ -82,23 +84,36 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 	}
 
-	function insertFileReference(path: string) {
+	async function openThreadReferences(initialQuery = "") {
+		if (!threadIndex) return;
+		const suggestions = await threadIndex.suggest(initialQuery);
+		palette.show({
+			filterable: true,
+			hint: "Enter insert · Esc close",
+			options: suggestions.map((entry) => ({
+				name: entry.name,
+				description: entry.description,
+				value: entry.value,
+				action: (ctx) => {
+					insertReference("#", formatThreadReference(entry.value, entry.name));
+					ctx.dismiss();
+				},
+			})),
+		});
+		if (initialQuery) {
+			palette.filter(initialQuery);
+		}
+	}
+
+	function insertReference(prefix: "@" | "#", value: string) {
 		if (!textareaRef) return;
 		const text = textareaRef.plainText;
 		const cursor = textareaRef.cursorOffset;
-		let start = cursor - 1;
-		while (start >= 0) {
-			const char = text[start];
-			if (char === "@") break;
-			if (/\s/.test(char)) {
-				start = -1;
-				break;
-			}
-			start--;
-		}
+		const token = `${prefix}${value}`;
+		const tokenStart = findReferenceTokenStart(text, cursor, prefix);
 
-		if (start < 0 || text[start] !== "@") {
-			insertText(`@${path}`);
+		if (tokenStart < 0) {
+			insertText(token);
 			return;
 		}
 
@@ -107,9 +122,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			end++;
 		}
 
-		const nextText = `${text.slice(0, start)}@${path}${text.slice(end)}`;
+		const nextText = `${text.slice(0, tokenStart)}${token}${text.slice(end)}`;
 		setTextareaText(nextText);
-		if (textareaRef) textareaRef.cursorOffset = start + path.length + 1;
+		if (textareaRef) textareaRef.cursorOffset = tokenStart + token.length;
 	}
 
 	function handleTextChange() {
@@ -120,6 +135,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 		if (text.trimStart() === "/" && !palette.visible && grew) {
 			openSlashCommands();
+			return;
+		}
+
+		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
+			void openThreadReferences();
 			return;
 		}
 
@@ -251,3 +271,26 @@ export function createComposerController(deps: ComposerControllerDeps) {
 }
 
 export type ComposerController = ReturnType<typeof createComposerController>;
+
+function formatThreadReference(id: string, name: string): string {
+	const safeName = name
+		.replace(/[\]\r\n]+/g, " ")
+		.replace(/\s+/g, " ")
+		.trim();
+	return `[thread:${id}:${safeName}]`;
+}
+
+function findReferenceTokenStart(
+	text: string,
+	cursor: number,
+	prefix: "@" | "#",
+): number {
+	let start = cursor - 1;
+	while (start >= 0) {
+		const char = text[start];
+		if (char === prefix) return start;
+		if (/\s/.test(char)) return -1;
+		start--;
+	}
+	return -1;
+}

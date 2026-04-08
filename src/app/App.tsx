@@ -22,6 +22,7 @@ export function App(props: AppProps) {
 	const controller = createComposerController({
 		runtime: props.runtime,
 		fileIndex: app.fileIndex,
+		threadIndex: app.threadIndex,
 	});
 
 	props.runtime.subscribe((event) => {
