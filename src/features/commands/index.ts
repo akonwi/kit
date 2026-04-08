@@ -6,7 +6,7 @@ import { nameCommand } from "./name";
 import { newCommand } from "./new";
 import { quitCommand } from "./quit";
 import { sessionCommand } from "./session";
-import { switchCommand } from "./switch";
+import { sessionsManageCommand } from "./sessions-manage";
 import { thinkingCommand } from "./thinking";
 import type { Command } from "./types";
 
@@ -16,7 +16,7 @@ export const COMMANDS: Command[] = [
 	nameCommand,
 	newCommand,
 	sessionCommand,
-	switchCommand,
+	sessionsManageCommand,
 	thinkingCommand,
 	quitCommand,
 ];
