@@ -5,6 +5,7 @@ import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
 import { InlinePicker } from "./InlinePicker";
+import { Modal } from "./Modal";
 import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
@@ -56,6 +57,8 @@ export function AppShell(props: AppShellProps) {
 				bottom={dockHeight() + STATUS_BAR_HEIGHT + 3}
 				onDismiss={props.dismissToast}
 			/>
+
+			<Modal palette={props.controller.palette} />
 		</box>
 	);
 }

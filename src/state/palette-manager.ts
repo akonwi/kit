@@ -69,8 +69,19 @@ export function createPaletteManager() {
 				inputValue: config.inputValue ?? "",
 				onSubmit: config.onSubmit,
 			};
+		} else if ("mode" in config && config.mode === "modal") {
+			entry = {
+				id,
+				onDismiss: config.onDismiss,
+				mode: "modal",
+				title: config.title,
+				lines: config.lines,
+			};
 		} else {
-			const opts = config as Exclude<PaletteConfig, { mode: "input" }>;
+			const opts = config as Exclude<
+				PaletteConfig,
+				{ mode: "input" | "modal" }
+			>;
 			entry = {
 				id,
 				onDismiss: opts.onDismiss,
@@ -129,17 +140,8 @@ export function createPaletteManager() {
 
 	function selectCurrent() {
 		const t = top();
-		console.log(
-			"[palette] selectCurrent mode:",
-			t?.mode,
-			"idx:",
-			(t as any)?.selectedIndex,
-			"opts:",
-			(t as any)?.options?.length,
-		);
 		if (!t || t.mode !== "list") return;
 		const option = t.options[t.selectedIndex];
-		console.log("[palette] action for:", option?.name);
 		if (option) {
 			option.action(ctxFor(t.id));
 		}

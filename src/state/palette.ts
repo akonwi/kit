@@ -28,7 +28,7 @@ export type PaletteConfig =
 			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
 			/** Called when the filter text changes. Return false to intercept (prevents normal filtering). */
-			onFilterChange?: (text: string) => boolean | void;
+			onFilterChange?: (text: string) => boolean | undefined;
 	  }
 	| {
 			mode: "input";
@@ -37,13 +37,20 @@ export type PaletteConfig =
 			onSubmit: (value: string, ctx: PaletteContext) => void;
 			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
+	  }
+	| {
+			mode: "modal";
+			title: string;
+			lines: string[];
+			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+			onDismiss?: () => void;
 	  };
 
 /** Internal entry stored on the stack */
 export type PaletteEntry = {
 	id: number;
 	onDismiss?: () => void;
-	onFilterChange?: (text: string) => boolean | void;
+	onFilterChange?: (text: string) => boolean | undefined;
 } & (
 	| {
 			mode: "list";
@@ -61,12 +68,17 @@ export type PaletteEntry = {
 			inputValue: string;
 			onSubmit: (value: string, ctx: PaletteContext) => void;
 	  }
+	| {
+			mode: "modal";
+			title: string;
+			lines: string[];
+	  }
 );
 
 /** Derived view for rendering — strips functions and internal state from entries */
 export type PaletteSnapshot = {
 	visible: boolean;
-	mode: "list" | "input";
+	mode: "list" | "input" | "modal";
 	// list mode
 	options: Array<{ name: string; description: string }>;
 	selectedIndex: number;
@@ -76,6 +88,9 @@ export type PaletteSnapshot = {
 	// input mode
 	label: string;
 	inputValue: string;
+	// modal mode
+	modalTitle: string;
+	modalLines: string[];
 };
 
 export const emptySnapshot: PaletteSnapshot = {
@@ -88,6 +103,8 @@ export const emptySnapshot: PaletteSnapshot = {
 	hint: "",
 	label: "",
 	inputValue: "",
+	modalTitle: "",
+	modalLines: [],
 };
 
 export function snapshotFromEntry(entry: PaletteEntry): PaletteSnapshot {
@@ -102,6 +119,23 @@ export function snapshotFromEntry(entry: PaletteEntry): PaletteSnapshot {
 			hint: "",
 			label: entry.label,
 			inputValue: entry.inputValue,
+			modalTitle: "",
+			modalLines: [],
+		};
+	}
+	if (entry.mode === "modal") {
+		return {
+			visible: true,
+			mode: "modal",
+			options: [],
+			selectedIndex: 0,
+			filterable: false,
+			filterText: "",
+			hint: "",
+			label: "",
+			inputValue: "",
+			modalTitle: entry.title,
+			modalLines: entry.lines,
 		};
 	}
 	return {
@@ -117,5 +151,7 @@ export function snapshotFromEntry(entry: PaletteEntry): PaletteSnapshot {
 		hint: entry.hint,
 		label: "",
 		inputValue: "",
+		modalTitle: "",
+		modalLines: [],
 	};
 }

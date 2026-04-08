@@ -17,7 +17,6 @@ const midGray = "#404040";
 const gray = "#a1a1a1";
 const lightGray = "#d4d4d4";
 const offWhite = "#fafafa";
-const white = "white";
 const transparent = "transparent";
 
 const blue = "#6cb6ff";
@@ -35,6 +34,7 @@ export const theme = {
 	bgMuted: darkGray,
 	bgAccent: midGray,
 	bgTransparent: transparent,
+	modalBackdrop: transparent,
 
 	// Borders
 	borderDefault: darkGray,
