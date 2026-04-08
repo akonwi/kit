@@ -62,7 +62,7 @@ export function ComposerDock(props: ComposerDockProps) {
 			return;
 		}
 
-		// Up arrow in empty composer — recall last user message
+		// Up arrow in empty composer — restore queued follow-ups first, then recall last user message
 		if (
 			e.name === "up" &&
 			!pager.active &&
@@ -70,27 +70,9 @@ export function ComposerDock(props: ComposerDockProps) {
 			!props.controller.getTextareaText().trim()
 		) {
 			e.preventDefault();
-			props.controller.recallLastUserMessage();
-			return;
-		}
-
-		// Alt+Enter — queue composer text as follow-up (processed after agent finishes)
-		if (
-			e.option &&
-			(e.name === "return" || e.name === "enter") &&
-			!pager.active &&
-			!palette.visible &&
-			props.controller.getTextareaText().trim()
-		) {
-			e.preventDefault();
-			void props.controller.handleFollowUp();
-			return;
-		}
-
-		// Alt+Up — restore queued steering/follow-up messages to composer
-		if (e.option && e.name === "up" && !pager.active && !palette.visible) {
-			e.preventDefault();
-			props.controller.restorePendingMessages();
+			if (!props.controller.restorePendingMessages()) {
+				props.controller.recallLastUserMessage();
+			}
 			return;
 		}
 

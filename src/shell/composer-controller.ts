@@ -114,12 +114,13 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		runtime.sendFollowUp(text);
 	}
 
-	function restorePendingMessages() {
+	function restorePendingMessages(): boolean {
 		const pending = runtime.drainPendingMessages();
-		if (pending.length === 0) return;
+		if (pending.length === 0) return false;
 		const restored = pending.join("\n\n");
 		setTextareaText(restored);
 		if (textareaRef) textareaRef.cursorOffset = restored.length;
+		return true;
 	}
 
 	function recallLastUserMessage() {
