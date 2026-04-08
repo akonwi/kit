@@ -48,6 +48,20 @@ export function ComposerDock(props: ComposerDockProps) {
 			return;
 		}
 
+		// Enter in empty composer while streaming with queued follow-ups — promote to steering
+		if (
+			(e.name === "return" || e.name === "enter") &&
+			!pager.active &&
+			!palette.visible &&
+			!props.controller.getTextareaText().trim() &&
+			props.controller.isStreaming() &&
+			props.controller.getPendingMessageCount() > 0
+		) {
+			e.preventDefault();
+			props.controller.promotePendingFollowUpsToSteering();
+			return;
+		}
+
 		// Up arrow in empty composer — recall last user message
 		if (
 			e.name === "up" &&

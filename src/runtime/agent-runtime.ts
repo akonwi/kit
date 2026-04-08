@@ -75,6 +75,7 @@ export type AgentRuntime = {
 	sendSteer(text: string): void;
 	clearPendingMessages(): void;
 	drainPendingMessages(): string[];
+	promotePendingFollowUpsToSteering(): void;
 	getPendingMessageCount(): number;
 	getPendingMessages(): string[];
 
@@ -359,6 +360,22 @@ export async function createAgentRuntime(
 			const drained = agent.drainPendingFollowUps();
 			syncPendingState();
 			return drained;
+		},
+
+		promotePendingFollowUpsToSteering() {
+			const drained = agent.drainPendingFollowUps();
+			for (const text of drained) {
+				const msg: UserMessage = {
+					role: "user",
+					content: text,
+					timestamp: Date.now(),
+				};
+				agent.steer(msg);
+			}
+			syncPendingState();
+			if (drained.length > 0) {
+				emit({ type: "info", title: "Steering", lines: [] });
+			}
 		},
 
 		getPendingMessageCount() {

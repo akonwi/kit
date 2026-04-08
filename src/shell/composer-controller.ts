@@ -79,7 +79,15 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (palette.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
-		if (!text.trim()) return;
+		if (!text.trim()) {
+			if (
+				runtime.getStatus().isStreaming &&
+				runtime.getPendingMessageCount() > 0
+			) {
+				runtime.promotePendingFollowUpsToSteering();
+			}
+			return;
+		}
 
 		textareaRef?.setText("");
 		prevTextLength = 0;
@@ -155,6 +163,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	function isStreaming(): boolean {
 		return runtime.getStatus().isStreaming;
 	}
+	function getPendingMessageCount(): number {
+		return runtime.getPendingMessageCount();
+	}
+	function promotePendingFollowUpsToSteering() {
+		runtime.promotePendingFollowUpsToSteering();
+	}
 	function quit() {
 		runtime.quit();
 	}
@@ -172,6 +186,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		recallLastUserMessage,
 		abort,
 		isStreaming,
+		getPendingMessageCount,
+		promotePendingFollowUpsToSteering,
 		quit,
 	};
 }
