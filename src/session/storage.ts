@@ -85,8 +85,7 @@ export async function createSession(
 	cwd: string,
 	model?: string,
 ): Promise<Session> {
-	await ensureSessionsDir();
-	const session: Session = {
+	return {
 		id: randomUUID(),
 		version: SESSION_VERSION,
 		cwd,
@@ -95,8 +94,6 @@ export async function createSession(
 		updatedAt: now(),
 		turns: [],
 	};
-	await writeSession(session);
-	return session;
 }
 
 export async function readSession(id: string): Promise<Session | null> {

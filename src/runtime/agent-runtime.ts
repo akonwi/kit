@@ -146,6 +146,8 @@ export async function createAgentRuntime(
 		git: getGitInfo(session.cwd),
 	});
 
+	const isEmpty = () => session.turns.length === 0;
+
 	// Persist turns to disk after each turn
 	const persistTurns = async () => {
 		try {
@@ -304,6 +306,15 @@ export async function createAgentRuntime(
 		},
 
 		async setSessionName(name) {
+			if (isEmpty()) {
+				session = {
+					...session,
+					name,
+					updatedAt: new Date().toISOString(),
+				};
+				emit({ type: "session_changed", session });
+				return;
+			}
 			session = await updateSession(session, { name });
 			emit({ type: "session_changed", session });
 		},
@@ -341,6 +352,17 @@ export async function createAgentRuntime(
 		setModel(model: Model<Api>) {
 			agent.setModel(model);
 			emit({ type: "status_changed", status: snapshotStatus() });
+
+			if (isEmpty()) {
+				session = {
+					...session,
+					model: model.id,
+					updatedAt: new Date().toISOString(),
+				};
+				emit({ type: "session_changed", session });
+				return;
+			}
+
 			void updateSession(session, { model: model.id })
 				.then((updated) => {
 					session = updated;
