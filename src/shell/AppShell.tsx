@@ -57,7 +57,7 @@ export function AppShell(props: AppShellProps) {
 
 			<ToastStack
 				toasts={props.state.toasts}
-				bottom={dockHeight() + STATUS_BAR_HEIGHT + 3}
+				top={1}
 				onDismiss={props.dismissToast}
 			/>
 

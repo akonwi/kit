@@ -32,7 +32,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 
 export type ToastStackProps = {
 	toasts: Toast[];
-	bottom: number;
+	top: number;
 	onDismiss: (id: number) => void;
 };
 
@@ -40,7 +40,7 @@ export function ToastStack(props: ToastStackProps) {
 	return (
 		<box
 			position="absolute"
-			bottom={props.bottom}
+			top={props.top}
 			left={2}
 			right={2}
 			zIndex={200}
