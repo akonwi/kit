@@ -84,16 +84,31 @@ This is acceptable only if compaction is explicit and conservative.
 
 ## UX implications
 
-Compaction should be treated as a deliberate session operation, not an invisible
-background optimization.
+Compaction should still be understandable as a session operation, but it may
+also run automatically when context pressure becomes too high.
 
 Expected UX direction:
 
-- user-triggered action
-- clear explanation that older history will be replaced by a generated summary
-- likely confirmation before proceeding
-- result feedback describing how many turns were compacted and how many were
-  preserved
+- manual compaction, when exposed later, should remain explicit and likely use
+  confirmation
+- automatic compaction may run without prompting once the session clearly needs
+  it
+- result feedback should describe how many turns were compacted and how many
+  were preserved
+
+## Automatic compaction trigger
+
+Automatic compaction should run **after a turn completes**, never mid-turn.
+
+Policy:
+
+- compute current context usage after the turn is committed
+- if usage is known and `percent >= 90`, trigger compaction
+- compact before the next normal turn proceeds
+
+This aligns automatic compaction with the footer danger threshold and keeps the
+runtime behavior simple: turn finishes, usage is evaluated, then compaction may
+rewrite the persisted session before the next turn starts.
 
 ## Prerequisite work
 

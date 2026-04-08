@@ -10,7 +10,12 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 export const SESSION_VERSION = 1;
 
 /** AgentMessage tagged with the turn it belongs to. */
-export type KitAgentMessage = AgentMessage & { turnId: string };
+export type KitAgentMessage = AgentMessage & {
+	turnId: string;
+	synthetic?: {
+		kind: "compaction-summary";
+	};
+};
 
 /** A single agent turn: one user prompt + all resulting messages. */
 export interface Turn {
