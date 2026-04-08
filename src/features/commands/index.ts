@@ -5,6 +5,7 @@ import { modelCommand } from "./model";
 import { nameCommand } from "./name";
 import { newCommand } from "./new";
 import { quitCommand } from "./quit";
+import { switchCommand } from "./switch";
 import { thinkingCommand } from "./thinking";
 import type { Command } from "./types";
 
@@ -13,6 +14,7 @@ export const COMMANDS: Command[] = [
 	modelCommand,
 	nameCommand,
 	newCommand,
+	switchCommand,
 	thinkingCommand,
 	quitCommand,
 ];

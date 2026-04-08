@@ -25,9 +25,6 @@ function computeScrollbar(total: number, visible: number, offset: number) {
 export function InlinePicker(props: InlinePickerProps) {
 	const palette = () => props.palette.current();
 
-	const maxNameLen = () =>
-		palette().options.reduce((max, o) => Math.max(max, o.name.length), 0);
-
 	const visibleSlice = createMemo(() => {
 		const p = palette();
 		const options = p.options;
@@ -151,52 +148,49 @@ export function InlinePicker(props: InlinePickerProps) {
 								{(entry) => {
 									const isFocused = () =>
 										entry.index === palette().selectedIndex;
-									const padded = () => entry.option.name.padEnd(maxNameLen());
+									const fg = () =>
+										isFocused()
+											? theme.pickerFocusedText
+											: theme.pickerItemText;
+									const bg = () =>
+										isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
 									return (
 										<box
 											flexDirection="row"
 											width="100%"
-											backgroundColor={
-												isFocused()
-													? theme.pickerFocusedBg
-													: theme.bgTransparent
-											}
+											backgroundColor={bg()}
 										>
-											<text
-												fg={
-													isFocused()
-														? theme.pickerFocusedText
-														: theme.pickerItemText
-												}
-												bg={
-													isFocused()
-														? theme.pickerFocusedBg
-														: theme.bgTransparent
-												}
-											>
-												{padded()} {entry.option.description}
+											<text flexGrow={1} fg={fg()} bg={bg()}>
+												{entry.option.name}
 											</text>
+											<Show when={entry.option.description.length > 0}>
+												<text flexShrink={0} fg={fg()} bg={bg()}>
+													{entry.option.description}
+												</text>
+											</Show>
 										</box>
 									);
 								}}
 							</For>
 						</box>
 						<Show when={scrollbar()}>
-							<box flexShrink={0} width={1} flexDirection="column">
-								<For each={scrollbar()!}>
-									{(isThumb) => (
-										<text
-											fg={
-												isThumb
-													? theme.pickerScrollThumb
-													: theme.pickerScrollTrack
-											}
-										>
-											{isThumb ? "█" : "│"}
-										</text>
-									)}
-								</For>
-							</box>
+							{(track) => (
+								<box flexShrink={0} width={1} flexDirection="column">
+									<For each={track()}>
+										{(isThumb) => (
+											<text
+												fg={
+													isThumb
+														? theme.pickerScrollThumb
+														: theme.pickerScrollTrack
+												}
+											>
+												{isThumb ? "█" : "│"}
+											</text>
+										)}
+									</For>
+								</box>
+							)}
 						</Show>
 					</box>
 

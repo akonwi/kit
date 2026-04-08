@@ -10,20 +10,41 @@ export function formatTimeAgo(date: Date): string {
 	return date.toLocaleDateString();
 }
 
-export function formatSessionOption(session: {
-	name?: string;
-	firstMessage: string;
-	id: string;
-	cwd: string;
-	modified: Date;
-}): { label: string; description: string } {
+export function formatSessionOption(
+	session: {
+		name?: string;
+		firstMessage?: string;
+		id: string;
+		cwd: string;
+		updatedAt: string;
+		messageCount?: number;
+	},
+	widths?: {
+		cwd: number;
+		updatedAt: number;
+		messageCount: number;
+	},
+): { label: string; description: string } {
 	const home = process.env.HOME || process.env.USERPROFILE || "";
 	const label =
-		session.name || session.firstMessage.slice(0, 60) || session.id.slice(0, 8);
+		session.name ||
+		session.firstMessage?.slice(0, 60) ||
+		session.id.slice(0, 8);
 	const cwd = session.cwd.startsWith(home)
 		? `~${session.cwd.slice(home.length)}`
 		: session.cwd;
-	const dir = cwd.split("/").pop() || cwd;
-	const ago = formatTimeAgo(session.modified);
-	return { label, description: `${dir}  ${ago}` };
+	const ago = formatTimeAgo(new Date(session.updatedAt));
+	const messageCount = `${session.messageCount ?? 0} msgs`;
+
+	if (!widths) {
+		return {
+			label,
+			description: `${cwd}  ${ago}  ${messageCount}`,
+		};
+	}
+
+	return {
+		label,
+		description: `${cwd.padStart(widths.cwd)}  ${ago.padStart(widths.updatedAt)}  ${messageCount.padStart(widths.messageCount)}`,
+	};
 }
