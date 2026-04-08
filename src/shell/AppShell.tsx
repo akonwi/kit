@@ -35,7 +35,10 @@ export function AppShell(props: AppShellProps) {
 			<TranscriptPane turns={props.state.turns} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
-				<PendingSlot panel={props.state.panel} />
+				<PendingSlot
+					panel={props.state.panel}
+					pendingMessages={props.state.pendingMessages}
+				/>
 				<ComposerDock
 					cwd={props.state.footerStatus.cwd}
 					sessionName={props.state.sessionMeta.sessionName}

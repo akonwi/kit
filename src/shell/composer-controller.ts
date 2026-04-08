@@ -19,7 +19,7 @@ export type ComposerControllerDeps = {
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, fileIndex } = deps;
+	const { runtime } = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -83,6 +83,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 		textareaRef?.setText("");
 		prevTextLength = 0;
+
+		if (runtime.getStatus().isStreaming) {
+			runtime.sendFollowUp(text);
+			return;
+		}
+
 		try {
 			await runtime.submitUserMessage(text);
 		} catch (error) {
@@ -101,7 +107,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	function restorePendingMessages() {
-		runtime.clearPendingMessages();
+		const pending = runtime.drainPendingMessages();
+		if (pending.length === 0) return;
+		const restored = pending.join("\n\n");
+		setTextareaText(restored);
+		if (textareaRef) textareaRef.cursorOffset = restored.length;
 	}
 
 	function recallLastUserMessage() {
@@ -114,8 +124,21 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			if (typeof content === "string") text = content;
 			else if (Array.isArray(content)) {
 				text = content
-					.filter((b: any) => b?.type === "text")
-					.map((b: any) => b.text)
+					.filter(
+						(
+							block,
+						): block is {
+							type: "text";
+							text: string;
+						} =>
+							typeof block === "object" &&
+							block !== null &&
+							"type" in block &&
+							block.type === "text" &&
+							"text" in block &&
+							typeof block.text === "string",
+					)
+					.map((block) => block.text)
 					.join("\n");
 			}
 			if (text.trim()) {

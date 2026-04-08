@@ -23,6 +23,7 @@ export interface KitAgentOptions extends AgentOptions {
 export class KitAgent extends Agent {
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
+	private _pendingFollowUps: string[] = [];
 
 	static fromSession(session: Session, opts?: KitAgentOptions): KitAgent {
 		return new KitAgent({
@@ -60,6 +61,7 @@ export class KitAgent extends Agent {
 		this.subscribe((event) => {
 			switch (event.type) {
 				case "turn_start": {
+					this._pendingFollowUps = [];
 					this.startTurn();
 					break;
 				}
@@ -87,6 +89,30 @@ export class KitAgent extends Agent {
 		return this._turns;
 	}
 
+	getPendingFollowUps(): string[] {
+		return [...this._pendingFollowUps];
+	}
+
+	drainPendingFollowUps(): string[] {
+		const drained = [...this._pendingFollowUps];
+		this.clearAllQueues();
+		this._pendingFollowUps = [];
+		return drained;
+	}
+
+	clearPendingFollowUps(): void {
+		this.clearAllQueues();
+		this._pendingFollowUps = [];
+	}
+
+	override followUp(message: AgentMessage): void {
+		super.followUp(message);
+		const text = extractPlainText(message);
+		if (text.trim()) {
+			this._pendingFollowUps = [...this._pendingFollowUps, text];
+		}
+	}
+
 	private startTurn(): Turn {
 		const turn: Turn = { id: randomUUID(), messages: [] };
 		this._turns = [...this._turns, turn];
@@ -108,9 +134,34 @@ export class KitAgent extends Agent {
 			messages: [...turn.messages],
 		}));
 		this._currentTurn = null;
+		this._pendingFollowUps = [];
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
 		this.replaceMessages(messages);
 	}
+}
+
+function extractPlainText(message: AgentMessage): string {
+	if (!("content" in message)) return "";
+	const { content } = message;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter(
+			(
+				block,
+			): block is {
+				type: "text";
+				text: string;
+			} =>
+				typeof block === "object" &&
+				block !== null &&
+				"type" in block &&
+				block.type === "text" &&
+				"text" in block &&
+				typeof block.text === "string",
+		)
+		.map((block) => block.text)
+		.join("\n");
 }

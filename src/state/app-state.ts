@@ -42,6 +42,7 @@ export type AppState = {
 	turns: Turn[];
 	toasts: Toast[];
 	panel: PanelState;
+	pendingMessages: string[];
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
 	debugEntry: string | null;
@@ -67,7 +68,7 @@ function deriveFooterStatus(
 			gitDirty: status.git.dirty,
 			bellsEnabled: true,
 			speechEnabled: true,
-			pendingMessages: 0,
+			pendingMessages: runtime.getPendingMessageCount(),
 		};
 	}
 	return {
@@ -129,6 +130,7 @@ export function createAppState(
 		turns,
 		toasts: [],
 		panel: { pending: false, title: "" },
+		pendingMessages: runtime ? runtime.getPendingMessages() : [],
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
 		debugEntry: null,
@@ -190,6 +192,9 @@ export function createAppState(
 				break;
 			case "pending_changed":
 				setState("footerStatus", "pendingMessages", event.count);
+				break;
+			case "pending_messages_changed":
+				setState("pendingMessages", event.messages);
 				break;
 			case "tool_completed":
 				toolCompletionCount++;

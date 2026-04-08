@@ -63,6 +63,7 @@ export type AgentRuntimeEvent =
 	| { type: "tool_completed" }
 	| { type: "turn_complete"; turn: Turn | null }
 	| { type: "pending_changed"; count: number }
+	| { type: "pending_messages_changed"; messages: string[] }
 	| { type: "error"; title: string; lines: string[] }
 	| { type: "info"; title: string; lines: string[] };
 
@@ -73,7 +74,9 @@ export type AgentRuntime = {
 	sendFollowUp(text: string): void;
 	sendSteer(text: string): void;
 	clearPendingMessages(): void;
+	drainPendingMessages(): string[];
 	getPendingMessageCount(): number;
+	getPendingMessages(): string[];
 
 	// Session management
 	getSession(): Session;
@@ -144,6 +147,15 @@ export async function createAgentRuntime(
 
 	const emit = (event: AgentRuntimeEvent) => {
 		for (const listener of listeners) listener(event);
+	};
+
+	const syncPendingState = () => {
+		pendingCount = agent.getPendingFollowUps().length;
+		emit({ type: "pending_changed", count: pendingCount });
+		emit({
+			type: "pending_messages_changed",
+			messages: agent.getPendingFollowUps(),
+		});
 	};
 
 	const snapshotStatus = (): RuntimeStatus => ({
@@ -240,6 +252,10 @@ export async function createAgentRuntime(
 				emit({ type: "status_changed", status: snapshotStatus() });
 				break;
 
+			case "turn_start":
+				syncPendingState();
+				break;
+
 			case "message_start":
 				if (event.message.role === "assistant") {
 					emit({ type: "panel", panel: { pending: true, title: "Thinking…" } });
@@ -286,8 +302,7 @@ export async function createAgentRuntime(
 							type: "turn_complete",
 							turn: agent.turns.at(-1) ?? null,
 						});
-						pendingCount = agent.hasQueuedMessages() ? 1 : 0;
-						emit({ type: "pending_changed", count: pendingCount });
+						syncPendingState();
 					})
 					.catch((error) => {
 						emit({
@@ -323,8 +338,7 @@ export async function createAgentRuntime(
 				timestamp: Date.now(),
 			};
 			agent.followUp(msg);
-			pendingCount = agent.hasQueuedMessages() ? 1 : 0;
-			emit({ type: "pending_changed", count: pendingCount });
+			syncPendingState();
 		},
 
 		sendSteer(text) {
@@ -334,18 +348,25 @@ export async function createAgentRuntime(
 				timestamp: Date.now(),
 			};
 			agent.steer(msg);
-			pendingCount = agent.hasQueuedMessages() ? 1 : 0;
-			emit({ type: "pending_changed", count: pendingCount });
 		},
 
 		clearPendingMessages() {
-			agent.clearAllQueues();
-			pendingCount = 0;
-			emit({ type: "pending_changed", count: 0 });
+			agent.clearPendingFollowUps();
+			syncPendingState();
+		},
+
+		drainPendingMessages() {
+			const drained = agent.drainPendingFollowUps();
+			syncPendingState();
+			return drained;
 		},
 
 		getPendingMessageCount() {
-			return pendingCount;
+			return agent.getPendingFollowUps().length;
+		},
+
+		getPendingMessages() {
+			return agent.getPendingFollowUps();
 		},
 
 		// --- Session ---
@@ -367,6 +388,7 @@ export async function createAgentRuntime(
 			session = await createSession(targetCwd, agent.state.model?.id);
 			agent.replaceFromTurns([]);
 			agent.setTools(createDefaultTools(targetCwd));
+			syncPendingState();
 			emit({ type: "session_changed", session });
 			emit({ type: "turns_changed", turns: [] });
 			emit({ type: "status_changed", status: snapshotStatus() });
@@ -378,6 +400,7 @@ export async function createAgentRuntime(
 			session = target;
 			agent.replaceFromTurns(session.turns);
 			agent.setTools(createDefaultTools(session.cwd));
+			syncPendingState();
 			emit({ type: "session_changed", session });
 			emit({ type: "turns_changed", turns: [...session.turns] });
 			emit({ type: "status_changed", status: snapshotStatus() });
