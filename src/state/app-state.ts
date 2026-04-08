@@ -60,14 +60,15 @@ function deriveFooterStatus(
 ): Omit<FooterStatusState, "cwd"> {
 	if (runtime) {
 		const status = runtime.getStatus();
+		const notificationConfig = runtime.getNotificationConfig();
 		return {
 			model: status.model,
 			thinkingLevel: status.thinkingLevel,
 			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 			gitBranch: status.git.branch,
 			gitDirty: status.git.dirty,
-			bellsEnabled: true,
-			speechEnabled: true,
+			bellsEnabled: notificationConfig.bells.enabled,
+			speechEnabled: notificationConfig.speech.enabled,
 			pendingMessages: runtime.getPendingMessageCount(),
 		};
 	}
@@ -195,6 +196,10 @@ export function createAppState(
 				break;
 			case "pending_messages_changed":
 				setState("pendingMessages", event.messages);
+				break;
+			case "notification_config_changed":
+				setState("footerStatus", "bellsEnabled", event.config.bells.enabled);
+				setState("footerStatus", "speechEnabled", event.config.speech.enabled);
 				break;
 			case "tool_completed":
 				toolCompletionCount++;

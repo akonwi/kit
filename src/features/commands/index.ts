@@ -1,5 +1,6 @@
 export type { Command, CommandContext } from "./types";
 
+import { bellsCommand } from "./bells-speech";
 import { loginCommand } from "./login";
 import { modelCommand } from "./model";
 import { nameCommand } from "./name";
@@ -11,6 +12,7 @@ import { thinkingCommand } from "./thinking";
 import type { Command } from "./types";
 
 export const COMMANDS: Command[] = [
+	bellsCommand,
 	loginCommand,
 	modelCommand,
 	nameCommand,

@@ -16,6 +16,12 @@ import {
 } from "@mariozechner/pi-ai";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
+	loadNotificationConfigSync,
+	type NotificationConfig,
+	saveNotificationConfig,
+} from "../features/notification-config";
+import { ringBell } from "../features/notifications";
+import {
 	createSession,
 	deleteSession,
 	findSessionById,
@@ -60,6 +66,7 @@ export type AgentRuntimeEvent =
 	| { type: "turn_complete"; turn: Turn | null }
 	| { type: "pending_changed"; count: number }
 	| { type: "pending_messages_changed"; messages: string[] }
+	| { type: "notification_config_changed"; config: NotificationConfig }
 	| { type: "error"; title: string; lines: string[] }
 	| { type: "info"; title: string; lines: string[] };
 
@@ -71,9 +78,11 @@ export class AgentRuntime {
 	private pendingCount = 0;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
+	private notificationConfig: NotificationConfig;
 
 	constructor(session: Session, options?: { extraTools?: AgentTool[] }) {
 		this.session = session;
+		this.notificationConfig = loadNotificationConfigSync();
 		const defaultModel = resolveDefaultModel(session.model);
 
 		console.log(
@@ -207,6 +216,15 @@ export class AgentRuntime {
 		}
 	}
 
+	private notifyTurnComplete(turn: Turn | null): void {
+		if (!turn) return;
+		const isError = turn.messages.some(
+			(message) =>
+				message.role === "assistant" && message.stopReason === "error",
+		);
+		ringBell(isError, this.notificationConfig.bells.enabled);
+	}
+
 	private handleAgentEvent(event: AgentEvent) {
 		switch (event.type) {
 			case "agent_start":
@@ -270,10 +288,12 @@ export class AgentRuntime {
 							status: this.snapshotStatus(),
 						});
 						this.emit({ type: "panel", panel: { pending: false, title: "" } });
+						const completedTurn = this.agent.turns.at(-1) ?? null;
 						this.emit({
 							type: "turn_complete",
-							turn: this.agent.turns.at(-1) ?? null,
+							turn: completedTurn,
 						});
+						this.notifyTurnComplete(completedTurn);
 						this.syncPendingState();
 					})
 					.catch((error) => {
@@ -417,6 +437,26 @@ export class AgentRuntime {
 			throw new Error("Cannot delete the active session");
 		}
 		await deleteSession(id);
+	}
+
+	getNotificationConfig(): NotificationConfig {
+		return {
+			bells: { ...this.notificationConfig.bells },
+			speech: { ...this.notificationConfig.speech },
+		};
+	}
+
+	async toggleBells(): Promise<boolean> {
+		this.notificationConfig = {
+			...this.notificationConfig,
+			bells: { enabled: !this.notificationConfig.bells.enabled },
+		};
+		await saveNotificationConfig(this.notificationConfig);
+		this.emit({
+			type: "notification_config_changed",
+			config: this.getNotificationConfig(),
+		});
+		return this.notificationConfig.bells.enabled;
 	}
 
 	getStatus(): RuntimeStatus {
