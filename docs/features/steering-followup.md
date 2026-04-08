@@ -42,9 +42,9 @@ Use it to:
 
 | Key | Action |
 |-----|--------|
-| **Enter** while streaming | queue as steering message |
-| **Alt+Enter** | queue as follow-up message |
-| **Alt+Up** | clear pending messages / restore that state path |
+| **Enter** while streaming with composer text | queue as follow-up |
+| **Enter** while streaming with empty composer and queued follow-ups | promote queued follow-ups to steering |
+| **Up** in empty composer | restore queued follow-ups first, otherwise recall the last user message |
 
 ### Runtime methods
 
@@ -54,14 +54,16 @@ The current runtime/composer path exposes:
 runtime.sendFollowUp(text: string): void
 runtime.sendSteer(text: string): void
 runtime.clearPendingMessages(): void
+runtime.drainPendingMessages(): string[]
+runtime.promotePendingFollowUpsToSteering(): void
 runtime.getPendingMessageCount(): number
 ```
 
-## Current caveat
+## Current behavior notes
 
-The underlying decision remains stable, but some earlier docs described richer
-pending-message inspection/restore APIs than the current runtime exposes. The
-minimum working loop currently keeps the behavior simpler.
+- follow-ups are visible above the composer while queued
+- when the next turn begins consuming queued follow-ups, that visible stack clears
+- steering/follow-up are currently exposed through composer behavior rather than slash commands
 
 ## Related decision
 

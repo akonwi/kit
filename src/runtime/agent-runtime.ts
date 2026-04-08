@@ -20,7 +20,7 @@ import {
 	type NotificationConfig,
 	saveNotificationConfig,
 } from "../features/notification-config";
-import { ringBell } from "../features/notifications";
+import { ringBell, speak } from "../features/notifications";
 import {
 	createSession,
 	deleteSession,
@@ -223,6 +223,14 @@ export class AgentRuntime {
 				message.role === "assistant" && message.stopReason === "error",
 		);
 		ringBell(isError, this.notificationConfig.bells.enabled);
+
+		if (!this.notificationConfig.speech.enabled) return;
+		const assistantText = getLastAssistantText(turn.messages);
+		if (!assistantText) return;
+		speak(assistantText, this.session.id, {
+			maxChars: this.notificationConfig.speech.maxChars,
+			voice: this.notificationConfig.speech.voice ?? undefined,
+		});
 	}
 
 	private handleAgentEvent(event: AgentEvent) {
@@ -459,6 +467,22 @@ export class AgentRuntime {
 		return this.notificationConfig.bells.enabled;
 	}
 
+	async toggleSpeech(): Promise<boolean> {
+		this.notificationConfig = {
+			...this.notificationConfig,
+			speech: {
+				...this.notificationConfig.speech,
+				enabled: !this.notificationConfig.speech.enabled,
+			},
+		};
+		await saveNotificationConfig(this.notificationConfig);
+		this.emit({
+			type: "notification_config_changed",
+			config: this.getNotificationConfig(),
+		});
+		return this.notificationConfig.speech.enabled;
+	}
+
 	getStatus(): RuntimeStatus {
 		return this.snapshotStatus();
 	}
@@ -540,6 +564,20 @@ export class AgentRuntime {
 		this.unsubscribeAgent = null;
 		this.listeners.clear();
 	}
+}
+
+function getLastAssistantText(messages: AgentMessage[]): string {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const message = messages[i];
+		if (message.role !== "assistant") continue;
+		const text = message.content
+			.filter((part) => part.type === "text")
+			.map((part) => part.text)
+			.join("\n")
+			.trim();
+		if (text) return text;
+	}
+	return "";
 }
 
 function getAuthenticatedProviders(): string[] {

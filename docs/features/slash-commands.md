@@ -13,6 +13,8 @@ The commands currently registered in `src/features/commands/index.ts` are:
 
 | Command | Description |
 |---------|-------------|
+| `/bells` | Toggle audible notification sounds |
+| `/speech` | Toggle speech notifications |
 | `/login` | Authenticate a provider |
 | `/model` | Switch model |
 | `/name` | Set the current session name |
