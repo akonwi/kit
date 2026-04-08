@@ -1,6 +1,6 @@
 import { COMMANDS } from "../features/commands";
 import type { FileIndex } from "../features/files";
-import type { ThreadIndex } from "../features/threads";
+import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	createPaletteManager,
@@ -148,6 +148,15 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 	}
 
+	async function prepareMessageText(text: string): Promise<string | null> {
+		const result = await expandThreadReferences(text, runtime.getSession().id);
+		if (result.errors.length > 0) {
+			runtime.emitError("Thread references", result.errors);
+			return null;
+		}
+		return result.text;
+	}
+
 	async function handleSubmit() {
 		if (palette.visible && !palette.isFilterable) {
 			palette.selectCurrent();
@@ -169,13 +178,20 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		textareaRef?.setText("");
 		prevTextLength = 0;
 
+		const preparedText = await prepareMessageText(text);
+		if (!preparedText) {
+			textareaRef?.setText(text);
+			prevTextLength = text.length;
+			return;
+		}
+
 		if (runtime.getStatus().isStreaming) {
-			runtime.sendFollowUp(text);
+			runtime.sendFollowUp(preparedText);
 			return;
 		}
 
 		try {
-			await runtime.submitUserMessage(text);
+			await runtime.submitUserMessage(preparedText);
 		} catch (error) {
 			console.error(error);
 			textareaRef?.setText(text);
@@ -188,7 +204,13 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (!text.trim()) return;
 		textareaRef?.setText("");
 		prevTextLength = 0;
-		runtime.sendFollowUp(text);
+		const preparedText = await prepareMessageText(text);
+		if (!preparedText) {
+			textareaRef?.setText(text);
+			prevTextLength = text.length;
+			return;
+		}
+		runtime.sendFollowUp(preparedText);
 	}
 
 	function restorePendingMessages(): boolean {
