@@ -21,7 +21,6 @@ import {
 	findSessionById,
 	listAllSessions,
 	listSessionsForCwd,
-	openRecentSession,
 	readSession,
 	type Session,
 	type SessionSummary,
@@ -73,19 +72,8 @@ export class AgentRuntime {
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
 
-	private constructor(session: Session, agent: KitAgent) {
+	constructor(session: Session, options?: { extraTools?: AgentTool[] }) {
 		this.session = session;
-		this.agent = agent;
-		this.unsubscribeAgent = this.agent.subscribe((event) =>
-			this.handleAgentEvent(event),
-		);
-	}
-
-	static async new(
-		initialSession: Session | null,
-		options?: { extraTools?: AgentTool[] },
-	): Promise<AgentRuntime> {
-		const session = initialSession ?? (await openRecentSession(process.cwd()));
 		const defaultModel = resolveDefaultModel(session.model);
 
 		console.log(
@@ -97,7 +85,7 @@ export class AgentRuntime {
 			defaultModel.api,
 		);
 
-		const agent = KitAgent.fromSession(session, {
+		this.agent = KitAgent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
 				tools: [
@@ -107,8 +95,9 @@ export class AgentRuntime {
 			},
 			getApiKey: (provider) => getApiKey(provider),
 		});
-
-		return new AgentRuntime(session, agent);
+		this.unsubscribeAgent = this.agent.subscribe((event) =>
+			this.handleAgentEvent(event),
+		);
 	}
 
 	private emit(event: AgentRuntimeEvent) {

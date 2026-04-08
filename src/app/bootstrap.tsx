@@ -20,7 +20,7 @@ import {
 } from "../shell/terminal-title";
 import { App } from "./App";
 
-async function loadSession(): Promise<Session | null> {
+async function loadSession(): Promise<Session> {
 	const { values } = parseArgs({
 		args: process.argv.slice(2),
 		options: {
@@ -43,11 +43,7 @@ async function loadSession(): Promise<Session | null> {
 	}
 
 	// Default: open the most recent session for the current cwd
-	try {
-		return await openRecentSession(process.cwd());
-	} catch {
-		return null;
-	}
+	return openRecentSession(process.cwd());
 }
 
 export async function bootstrap(): Promise<void> {
@@ -83,7 +79,7 @@ export async function bootstrap(): Promise<void> {
 
 	const settings = await loadSettings();
 	const session = await loadSession();
-	const runtime = await AgentRuntime.new(session);
+	const runtime = new AgentRuntime(session);
 
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,
@@ -109,7 +105,7 @@ export async function bootstrap(): Promise<void> {
 	});
 
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
-	updateTerminalTitle(session?.name, process.cwd());
+	updateTerminalTitle(session.name, process.cwd());
 
 	runtime.onQuit(() => {
 		runtime.dispose();
