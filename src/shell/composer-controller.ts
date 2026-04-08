@@ -19,7 +19,7 @@ export type ComposerControllerDeps = {
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime } = deps;
+	const { runtime, fileIndex } = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -61,13 +61,70 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		});
 	}
 
+	async function openFileReferences(initialQuery = "") {
+		const entries = await fileIndex.ensureLoaded();
+		palette.show({
+			filterable: true,
+			hint: "Enter insert · Esc close",
+			options: entries.map((entry) => ({
+				name: entry.path,
+				description: entry.isDir ? "directory" : "",
+				value: entry.path,
+				action: (ctx) => {
+					const path = String(entry.path);
+					insertFileReference(path);
+					ctx.dismiss();
+				},
+			})),
+		});
+		if (initialQuery) {
+			palette.filter(initialQuery);
+		}
+	}
+
+	function insertFileReference(path: string) {
+		if (!textareaRef) return;
+		const text = textareaRef.plainText;
+		const cursor = textareaRef.cursorOffset;
+		let start = cursor - 1;
+		while (start >= 0) {
+			const char = text[start];
+			if (char === "@") break;
+			if (/\s/.test(char)) {
+				start = -1;
+				break;
+			}
+			start--;
+		}
+
+		if (start < 0 || text[start] !== "@") {
+			insertText(`@${path}`);
+			return;
+		}
+
+		let end = cursor;
+		while (end < text.length && !/\s/.test(text[end] ?? "")) {
+			end++;
+		}
+
+		const nextText = `${text.slice(0, start)}@${path}${text.slice(end)}`;
+		setTextareaText(nextText);
+		if (textareaRef) textareaRef.cursorOffset = start + path.length + 1;
+	}
+
 	function handleTextChange() {
 		const text = textareaRef?.plainText ?? "";
+		const cursor = textareaRef?.cursorOffset ?? text.length;
 		const grew = text.length > prevTextLength;
 		prevTextLength = text.length;
 
 		if (text.trimStart() === "/" && !palette.visible && grew) {
 			openSlashCommands();
+			return;
+		}
+
+		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "@") {
+			void openFileReferences();
 		}
 	}
 
