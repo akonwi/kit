@@ -15,6 +15,11 @@ The commands currently registered in `src/features/commands/index.ts` are:
 |---------|-------------|
 | `/login` | Authenticate a provider |
 | `/model` | Switch model |
+| `/name` | Set the current session name |
+| `/new` | Start a new session |
+| `/session` | Show current session details |
+| `/sessions` | Browse, switch, or delete sessions |
+| `/thinking` | Change the current thinking level |
 | `/quit` | Exit the application |
 
 ## Command UX
@@ -40,9 +45,9 @@ Each command is a `Command` object with:
 ## Additional command code in the repo
 
 There are more command modules in `src/features/commands/`, including commands
-for sessions, handoff, steering, pager, and others.
+for handoff, pager, notification toggles, and others.
 
-However, many of those are **not currently registered in the active command
+However, some of those are **not currently registered in the active command
 list** while the app is being rebuilt on the new architecture.
 
 ## Source
