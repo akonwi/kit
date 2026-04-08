@@ -20,6 +20,10 @@ export const sessionCommand: Command = {
 			(m) => "role" in m && m.role === "toolResult",
 		).length;
 
+		const contextLine = status.contextUsage
+			? `Context: ${status.contextUsage.tokens.toLocaleString()} / ${status.contextUsage.contextWindow.toLocaleString()} tokens (${status.contextUsage.percent}%)`
+			: "Context: unknown";
+
 		palette.show({
 			mode: "modal",
 			title: "Session",
@@ -29,6 +33,7 @@ export const sessionCommand: Command = {
 				`CWD: ${session.cwd}`,
 				`Model: ${runtime.getCurrentModelId() ?? "none"}`,
 				`Thinking: ${status.thinkingLevel}`,
+				contextLine,
 				`Streaming: ${status.isStreaming ? "yes" : "no"}`,
 				`Pending queued messages: ${pending}`,
 				`Turns: ${turns.length}`,

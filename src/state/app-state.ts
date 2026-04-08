@@ -62,7 +62,7 @@ function deriveFooterStatus(
 		return {
 			model: status.model,
 			thinkingLevel: status.thinkingLevel,
-			contextPct: "–",
+			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 			gitBranch: status.git.branch,
 			gitDirty: status.git.dirty,
 			bellsEnabled: true,
@@ -91,7 +91,7 @@ function applyRuntimeStatus(
 		cwd: formatCwd(process.cwd()),
 		model: status.model,
 		thinkingLevel: status.thinkingLevel,
-		contextPct: "–",
+		contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 		gitBranch: status.git.branch,
 		gitDirty: status.git.dirty,
 		pendingMessages: current.pendingMessages,

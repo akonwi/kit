@@ -12,6 +12,7 @@ import {
 	type KnownProvider,
 	type Model,
 	registerBuiltInApiProviders,
+	type Usage,
 	type UserMessage,
 } from "@mariozechner/pi-ai";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
@@ -37,11 +38,21 @@ registerBuiltInApiProviders();
 
 // --- Types ---
 
+export type RuntimeContextUsage = {
+	tokens: number;
+	contextWindow: number;
+	percent: number;
+	usageTokens: number;
+	trailingTokens: number;
+	lastUsageIndex: number | null;
+};
+
 export type RuntimeStatus = {
 	model: string;
 	thinkingLevel: string;
 	isStreaming: boolean;
 	git: GitInfo;
+	contextUsage: RuntimeContextUsage | null;
 };
 
 export type RuntimePanelState = {
@@ -144,6 +155,10 @@ export async function createAgentRuntime(
 		thinkingLevel: agent.state.thinkingLevel ?? "off",
 		isStreaming: agent.state.isStreaming,
 		git: getGitInfo(session.cwd),
+		contextUsage: getRuntimeContextUsage(
+			agent.state.messages,
+			agent.state.model,
+		),
 	});
 
 	const isEmpty = () => session.turns.length === 0;
@@ -170,6 +185,7 @@ export async function createAgentRuntime(
 			case "agent_start":
 				emit({ type: "panel", panel: { pending: true, title: "Working…" } });
 				emit({ type: "turns_changed", turns: [...agent.turns] });
+				emit({ type: "status_changed", status: snapshotStatus() });
 				break;
 
 			case "message_start":
@@ -291,6 +307,7 @@ export async function createAgentRuntime(
 			agent.setTools(createDefaultTools(targetCwd));
 			emit({ type: "session_changed", session });
 			emit({ type: "turns_changed", turns: [] });
+			emit({ type: "status_changed", status: snapshotStatus() });
 		},
 
 		async switchSession(id) {
@@ -432,6 +449,122 @@ function getAuthenticatedProviders(): string[] {
 		(p) => !fromAuth.includes(p) && getEnvApiKey(p) != null,
 	);
 	return [...fromAuth, ...fromEnv];
+}
+
+function calculateContextTokens(usage: Usage): number {
+	return (
+		usage.totalTokens ||
+		usage.input + usage.output + usage.cacheRead + usage.cacheWrite
+	);
+}
+
+function getAssistantUsage(message: AgentMessage): Usage | undefined {
+	if (message.role !== "assistant") return undefined;
+	if (message.stopReason === "aborted" || message.stopReason === "error") {
+		return undefined;
+	}
+	return message.usage;
+}
+
+function estimateTokens(message: AgentMessage): number {
+	let chars = 0;
+
+	switch (message.role) {
+		case "user": {
+			if (typeof message.content === "string") {
+				chars = message.content.length;
+			} else {
+				for (const block of message.content) {
+					if (block.type === "text") chars += block.text.length;
+					if (block.type === "image") chars += 4800;
+				}
+			}
+			break;
+		}
+
+		case "assistant": {
+			for (const block of message.content) {
+				if (block.type === "text") chars += block.text.length;
+				if (block.type === "thinking") chars += block.thinking.length;
+				if (block.type === "toolCall") {
+					chars += block.name.length + JSON.stringify(block.arguments).length;
+				}
+			}
+			break;
+		}
+
+		case "toolResult": {
+			for (const block of message.content) {
+				if (block.type === "text") chars += block.text.length;
+				if (block.type === "image") chars += 4800;
+			}
+			break;
+		}
+
+		default: {
+			if ("content" in message) {
+				const content = message.content;
+				if (typeof content === "string") {
+					chars = content.length;
+				} else if (Array.isArray(content)) {
+					for (const block of content) {
+						if (
+							typeof block === "object" &&
+							block !== null &&
+							"type" in block &&
+							block.type === "text" &&
+							"text" in block &&
+							typeof block.text === "string"
+						) {
+							chars += block.text.length;
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return Math.ceil(chars / 4);
+}
+
+function getRuntimeContextUsage(
+	messages: AgentMessage[],
+	model: Model<Api> | undefined,
+): RuntimeContextUsage | null {
+	if (!model?.contextWindow) return null;
+
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const usage = getAssistantUsage(messages[index]);
+		if (!usage) continue;
+		const usageTokens = calculateContextTokens(usage);
+		let trailingTokens = 0;
+		for (let i = index + 1; i < messages.length; i++) {
+			trailingTokens += estimateTokens(messages[i]);
+		}
+		const tokens = usageTokens + trailingTokens;
+		return {
+			tokens,
+			contextWindow: model.contextWindow,
+			percent: Math.round((tokens / model.contextWindow) * 100),
+			usageTokens,
+			trailingTokens,
+			lastUsageIndex: index,
+		};
+	}
+
+	let tokens = 0;
+	for (const message of messages) {
+		tokens += estimateTokens(message);
+	}
+
+	return {
+		tokens,
+		contextWindow: model.contextWindow,
+		percent: Math.round((tokens / model.contextWindow) * 100),
+		usageTokens: 0,
+		trailingTokens: tokens,
+		lastUsageIndex: null,
+	};
 }
 
 function resolveDefaultModel(preferredModelId?: string): Model<Api> {

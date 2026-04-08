@@ -15,5 +15,6 @@ This directory records architectural decisions and feature design choices for `k
 - `decisions/storage-paths.md` — `~/.kit` is the single storage root
 - `decisions/turn-based-session-model.md` — sessions persist explicit turns with `turnId`-tagged messages
 - `decisions/assistant-message-streaming.md` — assistant text is not streamed; only runtime activity may appear live
+- `decisions/compaction-strategy.md` — future compaction should rewrite persisted history, after context-window visibility exists
 
 As we make decisions in chat, capture them here so the design does not live only in conversation history.
