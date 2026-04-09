@@ -8,6 +8,7 @@
 	"scripts": {
 		"dev": "bun run src/app/main.tsx",
 		"start": "bun run src/app/main.tsx",
+		"build": "bun run script/build.ts",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
@@ -17,7 +18,8 @@
 		"@opentui/core": "^0.1.87",
 		"@opentui/solid": "^0.1.87",
 		"ignore": "^7.0.5",
-		"solid-js": "^1.9.0"
+		"solid-js": "^1.9.0",
+		"web-tree-sitter": "0.25.10"
 	},
 	"devDependencies": {
 		"@types/bun": "latest",

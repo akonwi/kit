@@ -1,52 +1,45 @@
-# pi-kit v2
+# kit
 
-Standalone `pi-kit` application with:
+Standalone `kit` application with:
 
-- Pi session compatibility
-- Pi-core-compatible backend behavior
-- a custom terminal shell built outside Pi interactive mode
-- an OpenTUI Solid-based UI scaffold
+- its own session storage under `~/.kit/sessions`
+- its own auth storage under `~/.kit/auth.json`
+- its own settings under `~/.kit/settings.json`
+- a custom terminal shell built with OpenTUI Solid
 
-## Installation
+## Requirements
 
 Requires [Bun](https://bun.sh) (>= 1.3.0).
 
+## Install for normal use
+
 ```bash
 bun install
+bun run build
 
-# Symlink the executable into your PATH
-ln -sf "$(pwd)/bin/pi-kit" ~/.bun/bin/pi-kit
+# Symlink the compiled binary into your PATH
+ln -sf "$(pwd)/dist/kit" ~/.bun/bin/kit
 ```
 
-Then run `pi-kit` from any directory.
+Then run `kit` from any directory.
 
 ```bash
-pi-kit              # opens most recent session for the current directory
-pi-kit -s abc123    # opens a specific session by ID
+kit              # opens most recent session for the current directory
+kit -s abc123    # opens a specific session by ID
 ```
-
-## Compatibility
-
-### Pi compatibility root
-
-By default, the app reads Pi-compatible state from:
-
-- `~/.pi/agent`
-
-This is intended to preserve compatibility with existing Pi sessions and baseline Pi-managed state.
-
-### pi-kit settings
-
-The app's own settings live at:
-
-- `~/.pi-kit/settings.json`
-
-If both Pi baseline settings and pi-kit settings exist, **pi-kit settings win**.
 
 ## Development
 
+Run from source:
+
 ```bash
 bun run dev
+```
+
+Build the distributed binary:
+
+```bash
+bun run build
 ```
 
 Typecheck:
@@ -54,6 +47,12 @@ Typecheck:
 ```bash
 bun run typecheck
 ```
+
+## Notes
+
+- the compiled binary is the intended non-development entry point
+- the old wrapper-based launcher is no longer the recommended install path
+- Kit session, auth, and settings state live under `~/.kit`
 
 ## Architecture
 
