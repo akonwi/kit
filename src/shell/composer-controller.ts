@@ -166,7 +166,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const tokenStart = findReferenceTokenStart(text, cursor, prefix);
 
 		if (tokenStart < 0) {
-			insertText(token);
+			insertText(`${token} `);
 			return;
 		}
 
@@ -175,9 +175,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			end++;
 		}
 
-		const nextText = `${text.slice(0, tokenStart)}${token}${text.slice(end)}`;
+		const nextText = `${text.slice(0, tokenStart)}${token} ${text.slice(end)}`;
 		setTextareaText(nextText);
-		if (textareaRef) textareaRef.cursorOffset = tokenStart + token.length;
+		if (textareaRef) textareaRef.cursorOffset = tokenStart + token.length + 1;
 	}
 
 	function handleTextChange() {
