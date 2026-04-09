@@ -6,6 +6,7 @@ import {
 	type PaletteContext,
 	type PaletteEntry,
 	type PaletteKeyBinding,
+	type PaletteOption,
 	snapshotFromEntry,
 } from "./palette";
 
@@ -149,24 +150,42 @@ export function createPaletteManager() {
 
 	function filter(query: string) {
 		const t = top();
+		let override:
+			| {
+					query?: string;
+					options?: PaletteOption[];
+					selectedIndex?: number;
+			  }
+			| undefined;
 		if (t?.onFilterChange) {
 			const result = t.onFilterChange(query);
 			if (result === false) return;
+			if (result && typeof result === "object") {
+				override = result;
+			}
 		}
 		updateTop((t) => {
 			if (t.mode !== "list" || !t.filterable) return t;
-			const options = query
-				? t.allOptions
-						.map((o) => {
-							const nameScore = scoreMatch(o.name, query);
-							const descScore = scoreMatch(o.description, query);
-							return { option: o, score: Math.max(nameScore, descScore) };
-						})
-						.filter((e) => e.score > 0)
-						.sort((a, b) => b.score - a.score)
-						.map((e) => e.option)
-				: t.allOptions;
-			return { ...t, filterText: query, options, selectedIndex: 0 };
+			const effectiveQuery = override?.query ?? query;
+			const options = override?.options
+				? override.options
+				: effectiveQuery
+					? t.allOptions
+							.map((o) => {
+								const nameScore = scoreMatch(o.name, effectiveQuery);
+								const descScore = scoreMatch(o.description, effectiveQuery);
+								return { option: o, score: Math.max(nameScore, descScore) };
+							})
+							.filter((e) => e.score > 0)
+							.sort((a, b) => b.score - a.score)
+							.map((e) => e.option)
+					: t.allOptions;
+			return {
+				...t,
+				filterText: query,
+				options,
+				selectedIndex: override?.selectedIndex ?? 0,
+			};
 		});
 	}
 

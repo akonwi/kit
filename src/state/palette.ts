@@ -11,6 +11,7 @@ export type PaletteContext = {
 export type PaletteOption = {
 	name: string;
 	description: string;
+	argHint?: string;
 	value?: unknown;
 	action: (ctx: PaletteContext) => void;
 };
@@ -20,6 +21,15 @@ export type PaletteKeyBinding = (
 	ctx: PaletteContext,
 ) => void;
 
+export type PaletteFilterChangeResult =
+	| boolean
+	| {
+			query?: string;
+			options?: PaletteOption[];
+			selectedIndex?: number;
+	  }
+	| undefined;
+
 export type PaletteConfig =
 	| {
 			options: PaletteOption[];
@@ -27,8 +37,8 @@ export type PaletteConfig =
 			hint?: string;
 			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
-			/** Called when the filter text changes. Return false to intercept (prevents normal filtering). */
-			onFilterChange?: (text: string) => boolean | undefined;
+			/** Called when the filter text changes. Return false to intercept; or override query/options. */
+			onFilterChange?: (text: string) => PaletteFilterChangeResult;
 	  }
 	| {
 			mode: "input";
@@ -50,7 +60,7 @@ export type PaletteConfig =
 export type PaletteEntry = {
 	id: number;
 	onDismiss?: () => void;
-	onFilterChange?: (text: string) => boolean | undefined;
+	onFilterChange?: (text: string) => PaletteFilterChangeResult;
 } & (
 	| {
 			mode: "list";
@@ -80,7 +90,7 @@ export type PaletteSnapshot = {
 	visible: boolean;
 	mode: "list" | "input" | "modal";
 	// list mode
-	options: Array<{ name: string; description: string }>;
+	options: Array<{ name: string; description: string; argHint?: string }>;
 	selectedIndex: number;
 	filterable: boolean;
 	filterText: string;
@@ -144,6 +154,7 @@ export function snapshotFromEntry(entry: PaletteEntry): PaletteSnapshot {
 		options: entry.options.map((o) => ({
 			name: o.name,
 			description: o.description,
+			argHint: o.argHint,
 		})),
 		selectedIndex: entry.selectedIndex,
 		filterable: entry.filterable,

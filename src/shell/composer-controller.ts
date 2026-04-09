@@ -2,6 +2,7 @@ import { COMMANDS } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import type { PaletteContext } from "../state/palette";
 import {
 	createPaletteManager,
 	type PaletteManager,
@@ -47,20 +48,68 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	function openSlashCommands() {
-		palette.show({
-			filterable: true,
-			options: COMMANDS.map((cmd) => ({
-				name: cmd.name,
-				description: cmd.description,
-				value: cmd,
-				action: (ctx) => {
-					textareaRef?.setText("");
-					prevTextLength = 0;
-					ctx.dismiss();
-					cmd.execute({ runtime, palette });
+		let resolvedCommandName: string | null = null;
+		let currentArgs = "";
+		const options = COMMANDS.map((cmd) => ({
+			name: cmd.name,
+			description: cmd.description,
+			argHint: cmd.argName,
+			value: cmd,
+			action: (ctx: PaletteContext) => {
+				textareaRef?.setText("");
+				prevTextLength = 0;
+				ctx.dismiss();
+				cmd.execute({ runtime, palette, args: currentArgs });
+			},
+		}));
+		const findOption = (name: string) =>
+			options.find((option) => option.name === name);
+
+		palette.show(
+			{
+				filterable: true,
+				hint: "Tab complete · Enter run · Esc close",
+				options,
+				onFilterChange: (text) => {
+					const trimmed = text.trimStart();
+					const firstSpace = trimmed.search(/\s/);
+					const commandToken = (
+						firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace)
+					).trim();
+
+					if (resolvedCommandName) {
+						if (
+							trimmed === resolvedCommandName ||
+							trimmed.startsWith(`${resolvedCommandName} `)
+						) {
+							currentArgs = trimmed.slice(resolvedCommandName.length).trim();
+							const pinned = findOption(resolvedCommandName);
+							return pinned
+								? {
+										options: [pinned],
+										selectedIndex: 0,
+										query: resolvedCommandName,
+									}
+								: { query: resolvedCommandName };
+						}
+						resolvedCommandName = null;
+					}
+
+					currentArgs =
+						firstSpace === -1 ? "" : trimmed.slice(firstSpace + 1).trim();
+					return { query: commandToken };
 				},
-			})),
-		});
+			},
+			{
+				tab: (option) => {
+					const cmd = option.value as (typeof COMMANDS)[number] | undefined;
+					if (!cmd) return;
+					resolvedCommandName = cmd.name;
+					currentArgs = "";
+					palette.filter(`${cmd.name} `);
+				},
+			},
+		);
 	}
 
 	async function openFileReferences(initialQuery = "") {
@@ -165,6 +214,17 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (palette.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
+		const slashCommand = parseSlashCommand(text);
+		if (slashCommand) {
+			textareaRef?.setText("");
+			prevTextLength = 0;
+			await slashCommand.command.execute({
+				runtime,
+				palette,
+				args: slashCommand.args,
+			});
+			return;
+		}
 		if (!text.trim()) {
 			if (
 				runtime.getStatus().isStreaming &&
@@ -315,4 +375,25 @@ function findReferenceTokenStart(
 		start--;
 	}
 	return -1;
+}
+
+function parseSlashCommand(
+	text: string,
+): { command: (typeof COMMANDS)[number]; args: string } | null {
+	const trimmed = text.trim();
+	if (!trimmed.startsWith("/")) return null;
+
+	const withoutSlash = trimmed.slice(1);
+	const firstSpace = withoutSlash.search(/\s/);
+	const name = (
+		firstSpace === -1 ? withoutSlash : withoutSlash.slice(0, firstSpace)
+	).trim();
+	if (!name) return null;
+
+	const command = COMMANDS.find((candidate) => candidate.name === name);
+	if (!command) return null;
+
+	const args =
+		firstSpace === -1 ? "" : withoutSlash.slice(firstSpace + 1).trim();
+	return { command, args };
 }

@@ -406,7 +406,7 @@ export class AgentRuntime {
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
 	}
 
-	async handoffSession(): Promise<Session> {
+	async handoffSession(firstMessage?: string): Promise<Session> {
 		if (this.session.turns.length === 0) {
 			throw new Error("Nothing to hand off yet.");
 		}
@@ -431,6 +431,12 @@ export class AgentRuntime {
 		this.emit({ type: "session_changed", session: this.session });
 		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+
+		const prompt = firstMessage?.trim();
+		if (prompt) {
+			await this.submitUserMessage(prompt);
+		}
+
 		return child;
 	}
 

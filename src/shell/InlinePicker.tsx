@@ -120,6 +120,10 @@ export function InlinePicker(props: InlinePickerProps) {
 									} else if (e.name === "down") {
 										e.preventDefault();
 										props.palette.moveDown();
+									} else if (e.name === "tab") {
+										if (props.palette.handleKeyBinding("tab")) {
+											e.preventDefault();
+										}
 									} else if (e.name === "return") {
 										e.preventDefault();
 										console.log("[picker] selectCurrent");
@@ -160,9 +164,16 @@ export function InlinePicker(props: InlinePickerProps) {
 											width="100%"
 											backgroundColor={bg()}
 										>
-											<text flexGrow={1} fg={fg()} bg={bg()}>
-												{entry.option.name}
-											</text>
+											<box flexGrow={1} flexDirection="row">
+												<text fg={fg()} bg={bg()}>
+													{entry.option.name}
+												</text>
+												<Show when={entry.option.argHint}>
+													<text fg={theme.textMuted} bg={bg()}>
+														{` [${entry.option.argHint}]`}
+													</text>
+												</Show>
+											</box>
 											<Show when={entry.option.description.length > 0}>
 												<text flexShrink={0} fg={fg()} bg={bg()}>
 													{entry.option.description}
