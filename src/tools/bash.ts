@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
@@ -14,20 +14,21 @@ export interface BashResult {
 	truncated: boolean;
 }
 
-export function createBashTool(cwd: string): AgentTool<any> {
+// Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
+const parameters = Type.Object({
+	command: Type.String({ description: "The shell command to run" }),
+	timeout: Type.Optional(
+		Type.Number({ description: "Timeout in milliseconds (default 120000)" }),
+	),
+});
+
+export function createBashTool(cwd: string): AgentTool<typeof parameters> {
 	return {
 		name: "bash",
 		label: "Bash",
 		description:
 			"Run a shell command in the project directory. Use for file operations, building, testing, git, etc. Avoid interactive commands.",
-		parameters: Type.Object({
-			command: Type.String({ description: "The shell command to run" }),
-			timeout: Type.Optional(
-				Type.Number({
-					description: "Timeout in milliseconds (default 120000)",
-				}),
-			),
-		}),
+		parameters,
 		async execute(_id, params, signal) {
 			const timeoutMs = params.timeout ?? TIMEOUT_MS;
 			let tmpDir: string | null = null;
@@ -102,8 +103,12 @@ function runBash(
 		});
 
 		let output = "";
-		proc.stdout.on("data", (d: Buffer) => (output += d.toString()));
-		proc.stderr.on("data", (d: Buffer) => (output += d.toString()));
+		proc.stdout.on("data", (d: Buffer) => {
+			output += d.toString();
+		});
+		proc.stderr.on("data", (d: Buffer) => {
+			output += d.toString();
+		});
 
 		const kill = () => {
 			if (proc.pid != null) killTree(proc.pid);

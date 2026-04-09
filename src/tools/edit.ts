@@ -3,6 +3,19 @@ import { resolve } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
 
+// Legacy single-edit shape the model sometimes sends instead of the canonical {edits:[...]} shape.
+type LegacyEditParams = {
+	path: string;
+	oldText: string;
+	newText: string;
+	edits?: never;
+};
+type CanonicalEditParams = {
+	path: string;
+	edits: { oldText: string; newText: string }[];
+};
+type EditParams = CanonicalEditParams | LegacyEditParams;
+
 const editSchema = Type.Object({
 	path: Type.String({
 		description: "Path to the file to edit (relative or absolute)",
@@ -24,7 +37,7 @@ const editSchema = Type.Object({
 	),
 });
 
-export function createEditTool(cwd: string): AgentTool<any> {
+export function createEditTool(cwd: string): AgentTool<typeof editSchema> {
 	return {
 		name: "edit",
 		label: "Edit",
@@ -35,16 +48,15 @@ export function createEditTool(cwd: string): AgentTool<any> {
 		async execute(_id, rawParams, _signal) {
 			// Accept legacy single-edit shape {path, oldText, newText} in addition to
 			// the canonical {path, edits:[...]} shape, since models sometimes use both.
-			let params = rawParams as any;
-			if (
-				params &&
-				typeof params.oldText === "string" &&
-				typeof params.newText === "string" &&
-				!Array.isArray(params.edits)
-			) {
-				const { oldText, newText, ...rest } = params;
-				params = { ...rest, edits: [{ oldText, newText }] };
-			}
+			const raw = rawParams as unknown as EditParams;
+			const legacy = raw as LegacyEditParams;
+			const params: CanonicalEditParams =
+				typeof legacy.oldText === "string" && !Array.isArray(raw.edits)
+					? {
+							path: raw.path,
+							edits: [{ oldText: legacy.oldText, newText: legacy.newText }],
+						}
+					: (raw as CanonicalEditParams);
 			try {
 				const abs = resolve(cwd, params.path);
 				const original = await readFile(abs, "utf8");
