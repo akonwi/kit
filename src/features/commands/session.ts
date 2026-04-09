@@ -9,6 +9,7 @@ export const sessionCommand: Command = {
 		const messages = runtime.getMessages();
 		const status = runtime.getStatus();
 		const pending = runtime.getPendingMessageCount();
+		const contextFiles = runtime.getContextFiles();
 
 		const userCount = messages.filter(
 			(m) => "role" in m && m.role === "user",
@@ -39,6 +40,8 @@ export const sessionCommand: Command = {
 				`Pending queued messages: ${pending}`,
 				`Turns: ${turns.length}`,
 				`Messages: ${messages.length} total (${userCount} user, ${assistantCount} assistant, ${toolResultCount} tool results)`,
+				`Context files: ${contextFiles.length}`,
+				...contextFiles.map((file) => `- ${file.path}`),
 				`Created: ${new Date(session.createdAt).toLocaleString()}`,
 				`Updated: ${new Date(session.updatedAt).toLocaleString()}`,
 			],

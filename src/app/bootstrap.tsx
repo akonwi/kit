@@ -79,7 +79,10 @@ export async function bootstrap(): Promise<void> {
 
 	const coreAssets = installedRuntimeDir
 		? path.join(installedRuntimeDir, "assets")
-		: path.resolve(import.meta.dirname, "../../node_modules/@opentui/core/assets");
+		: path.resolve(
+				import.meta.dirname,
+				"../../node_modules/@opentui/core/assets",
+			);
 	treeSitter.addFiletypeParser({
 		filetype: "tsx",
 		wasm: path.join(coreAssets, "typescript/tree-sitter-typescript.wasm"),

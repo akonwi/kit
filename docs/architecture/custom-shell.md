@@ -30,14 +30,19 @@ Key modules:
 
 - `src/runtime/kit-agent.ts`
   - `KitAgent extends Agent`
-  - applies kit defaults (system prompt, thinking level, steering/follow-up mode)
+  - applies kit defaults (base system prompt, thinking level, steering/follow-up mode)
   - tracks explicit `Turn[]`
   - tags each committed message with `turnId`
 - `src/runtime/agent-runtime.ts`
   - app-facing runtime wrapper
   - session switching/creation
+  - context-file discovery and effective system-prompt composition
   - persistence on turn completion
   - runtime event emission for the UI
+- `src/context/agents.ts`
+  - discovers `~/.kit/AGENTS.md`
+  - walks project ancestors for `AGENTS.md` / `CLAUDE.md`
+  - renders discovered guidance into the final system prompt
 
 ### 2. Session layer
 

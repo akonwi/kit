@@ -16,6 +16,11 @@ import {
 } from "@mariozechner/pi-ai";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
+	buildSystemPrompt,
+	type ContextFile,
+	discoverContextFiles,
+} from "../context/agents";
+import {
 	loadNotificationConfigSync,
 	type NotificationConfig,
 	saveNotificationConfig,
@@ -44,6 +49,10 @@ import { type GitInfo, getGitInfo } from "./git-info";
 import { KitAgent } from "./kit-agent";
 
 registerBuiltInApiProviders();
+
+const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
+You have access to tools to read and modify files, run commands, search code, and more.
+Be concise and direct. Prefer surgical edits over full rewrites when practical.`;
 
 export type RuntimeStatus = {
 	model: string;
@@ -80,11 +89,13 @@ export class AgentRuntime {
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
 	private notificationConfig: NotificationConfig;
+	private contextFiles: ContextFile[] = [];
 
 	constructor(session: Session, options?: { extraTools?: AgentTool[] }) {
 		this.session = session;
 		this.notificationConfig = loadNotificationConfigSync();
 		const defaultModel = resolveDefaultModel(session.model);
+		this.contextFiles = discoverContextFiles(session.cwd);
 
 		console.log(
 			"[runtime] model:",
@@ -98,6 +109,10 @@ export class AgentRuntime {
 		this.agent = KitAgent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
+				systemPrompt: buildSystemPrompt(
+					DEFAULT_SYSTEM_PROMPT,
+					this.contextFiles,
+				),
 				tools: [
 					...createDefaultTools(session.cwd),
 					...(options?.extraTools ?? []),
@@ -105,9 +120,19 @@ export class AgentRuntime {
 			},
 			getApiKey: (provider) => getApiKey(provider),
 		});
+		this.agent.sessionId = session.id;
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
 			this.handleAgentEvent(event),
 		);
+	}
+
+	private applySessionContext(session: Session): void {
+		this.contextFiles = discoverContextFiles(session.cwd);
+		this.agent.setSystemPrompt(
+			buildSystemPrompt(DEFAULT_SYSTEM_PROMPT, this.contextFiles),
+		);
+		this.agent.setTools(createDefaultTools(session.cwd));
+		this.agent.sessionId = session.id;
 	}
 
 	private emit(event: AgentRuntimeEvent) {
@@ -387,6 +412,10 @@ export class AgentRuntime {
 		return this.session;
 	}
 
+	getContextFiles(): ContextFile[] {
+		return [...this.contextFiles];
+	}
+
 	getMessages(): AgentMessage[] {
 		return this.agent.turns.flatMap((turn) => turn.messages);
 	}
@@ -399,7 +428,7 @@ export class AgentRuntime {
 		const targetCwd = cwd ?? this.session.cwd;
 		this.session = await createSession(targetCwd, this.agent.state.model?.id);
 		this.agent.replaceFromTurns([]);
-		this.agent.setTools(createDefaultTools(targetCwd));
+		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
 		this.emit({ type: "turns_changed", turns: [] });
@@ -426,7 +455,7 @@ export class AgentRuntime {
 		await writeSession(child);
 		this.session = child;
 		this.agent.replaceFromTurns(child.turns);
-		this.agent.setTools(createDefaultTools(child.cwd));
+		this.applySessionContext(child);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
 		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
@@ -445,7 +474,7 @@ export class AgentRuntime {
 		if (!target) return false;
 		this.session = target;
 		this.agent.replaceFromTurns(this.session.turns);
-		this.agent.setTools(createDefaultTools(this.session.cwd));
+		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
 		this.emit({ type: "turns_changed", turns: [...this.session.turns] });

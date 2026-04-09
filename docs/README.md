@@ -13,6 +13,7 @@ This directory records architectural decisions and feature design choices for `k
 - `architecture/custom-shell.md` — primary architecture document for the current standalone app
 - `decisions/decouple-from-pi.md` — the app is standalone and no longer targets Pi compatibility
 - `decisions/storage-paths.md` — `~/.kit` is the single storage root
+- `decisions/context-files.md` — how Kit discovers `AGENTS.md` / `CLAUDE.md` guidance
 - `decisions/turn-based-session-model.md` — sessions persist explicit turns with `turnId`-tagged messages
 - `decisions/assistant-message-streaming.md` — assistant text is not streamed; only runtime activity may appear live
 - `decisions/compaction-strategy.md` — future compaction should rewrite persisted history, after context-window visibility exists

@@ -6,10 +6,6 @@ import {
 } from "@mariozechner/pi-agent-core";
 import type { KitAgentMessage, Session, Turn } from "../session/types";
 
-const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
-You have access to tools to read and modify files, run commands, search code, and more.
-Be concise and direct. Prefer surgical edits over full rewrites when practical.`;
-
 export interface KitAgentOptions extends AgentOptions {
 	initialTurns?: Turn[];
 }
@@ -39,7 +35,7 @@ export class KitAgent extends Agent {
 		super({
 			...opts,
 			initialState: {
-				systemPrompt: opts?.initialState?.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
+				systemPrompt: opts?.initialState?.systemPrompt ?? "",
 				thinkingLevel: opts?.initialState?.thinkingLevel ?? "medium",
 				...opts?.initialState,
 				messages:
