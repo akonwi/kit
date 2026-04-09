@@ -2,38 +2,54 @@
 
 ## Status
 
-Planned / partially explored, not currently active in the minimum loop.
+Available now.
 
 ## Goal
 
-Allow the current session to hand off context into a fresh session with a
-compact summary of what matters.
+Allow the current session to fork into a new linked child session without
+rewriting or summarizing the prior conversation.
 
-## Current foundation
+## Current behavior
 
-There is existing command-side handoff code in:
+`/handoff` is a fork-like command.
 
-- `src/features/commands/handoff.ts`
+When invoked, Kit:
 
-That code reflects the intended workflow direction, but it is not currently part
-of the active command set.
+1. clones the current session's turns into a new session
+2. sets `parentSessionId` on the child session
+3. names the child session `handoff: {parentName}`
+4. switches to the child session immediately
 
-## Intended behavior
+No summary or compaction-style synthetic prompt is generated.
 
-1. User initiates handoff
-2. The app generates a compact summary of the current work
-3. A new session is created with that summary as its starting context
-4. The user continues in the new session while preserving the parent session as
-   its own artifact
+## Optional first message
+
+`/handoff` also accepts an optional inline message:
+
+- `/handoff` — fork and switch only
+- `/handoff continue with the refactor` — fork, switch, and submit
+  `continue with the refactor` as the first new user message in the child
+  session
+
+The copied history remains unchanged; the optional message is simply the first
+new turn in the child session.
 
 ## Why this is useful
 
-- continue work in a fresh context window
 - branch into a new direction without losing prior work
-- preserve important context in a tighter form
+- preserve the full parent conversation in the child
+- keep formal lineage between sessions via `parentSessionId`
+- avoid lossy handoff summaries
 
-## Current caveat
+## Current limits
 
-Handoff needs to be reintroduced deliberately on top of the new standalone
-session/runtime model rather than assuming earlier Pi-era or transition-era
-behavior.
+- handoff does **not** reduce context usage; it copies the full session history
+- empty sessions cannot be handed off yet
+- lineage is currently visible in `/debug`, but not yet surfaced more broadly in
+  session-management UI
+
+## Source
+
+- `src/features/commands/handoff.ts`
+- `src/runtime/agent-runtime.ts`
+- `src/session/types.ts`

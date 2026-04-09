@@ -17,7 +17,7 @@ should still be read with an explicit distinction between:
 - [Bash Execution](bash-execution.md) — historical/planned shell-command UX, not currently wired
 - [Pager](pager.md) — pager direction and current rebuild status
 - [Wizard](wizard.md) — guided questionnaire direction and current rebuild status
-- [Handoff](handoff.md) — handoff direction and current rebuild status
+- [Handoff](handoff.md) — current fork-like linked-session handoff behavior
 - [Steering & Follow-up](steering-followup.md) — current queued-message behavior while streaming
 
 ## Related
