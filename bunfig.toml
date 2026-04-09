@@ -1,1 +1,3 @@
-preload = ["@opentui/solid/preload"]
+# OpenTUI Solid plugin is passed directly via plugins [] in Bun.build
+# for both dev (bun run dev) and build (bun run build).
+# No preload needed - the plugin handles JSX transformation at bundle time.

@@ -2,11 +2,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import solidPlugin from "@opentui/solid/bun-plugin";
-import { $ } from "bun";
 
 const dir = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(dir, "dist");
-const bundleDir = path.join(distDir, "bundle");
 const runtimeDir = path.join(distDir, "runtime");
 const binaryPath = path.join(distDir, "kit");
 const parserWorkerPath = path.resolve(
@@ -17,36 +15,37 @@ const coreAssetsPath = path.resolve(dir, "node_modules/@opentui/core/assets");
 
 process.chdir(dir);
 
-// Step 1: Bundle the app with the OpenTUI Solid plugin.
+// Bundle and compile with the OpenTUI Solid plugin.
 await fs.promises.rm(distDir, { recursive: true, force: true });
 await fs.promises.mkdir(distDir, { recursive: true });
 await fs.promises.mkdir(runtimeDir, { recursive: true });
+
+console.log("Compiling binary...");
 
 const bundle = await Bun.build({
 	target: "bun",
 	tsconfig: "./tsconfig.json",
 	plugins: [solidPlugin],
-	outdir: bundleDir,
 	entrypoints: ["./src/app/main.tsx"],
 	define: {
 		OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(parserWorkerPath),
 	},
+	compile: {
+		outfile: binaryPath,
+	},
 });
 
 if (!bundle.success) {
-	console.error("Bundle failed:");
+	console.error("Compile failed:");
 	for (const log of bundle.logs) {
 		console.error(" ", log);
 	}
 	process.exit(1);
 }
 
-console.log("Bundle produced, compiling binary...");
+console.log("Binary compiled, bundling runtime assets...");
 
-// Step 2: Compile the bundled JS into a standalone binary.
-await $`bun build --compile --target=bun --outfile=${binaryPath} ${path.join(bundleDir, "main.js")}`;
-
-// Step 3: Bundle the tree-sitter worker and copy runtime assets needed by the compiled binary.
+// Step 2: Bundle the tree-sitter worker and copy runtime assets needed by the compiled binary.
 const workerBundle = await Bun.build({
 	entrypoints: [parserWorkerPath],
 	outdir: runtimeDir,
@@ -77,12 +76,6 @@ if (bundledWasm) {
 
 await fs.promises.cp(coreAssetsPath, path.join(runtimeDir, "assets"), {
 	recursive: true,
-});
-
-// Clean up intermediate bundle.
-await fs.promises.rm(bundleDir, {
-	recursive: true,
-	force: true,
 });
 
 console.log(`Built ${binaryPath}`);
