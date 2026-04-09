@@ -83,7 +83,8 @@ export type AgentRuntimeEvent =
 export class AgentRuntime {
 	private session: Session;
 	private agent: KitAgent;
-	private extraTools: AgentTool[];
+	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
+	private extraTools: AgentTool<any>[];
 	private systemPromptAdditions: string[];
 	private listeners = new Set<(event: AgentRuntimeEvent) => void>();
 	private quitHandler: (() => void) | null = null;
@@ -95,7 +96,11 @@ export class AgentRuntime {
 
 	constructor(
 		session: Session,
-		options?: { extraTools?: AgentTool[]; systemPromptAdditions?: string[] },
+		// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
+		options?: {
+			extraTools?: AgentTool<any>[];
+			systemPromptAdditions?: string[];
+		},
 	) {
 		this.session = session;
 		this.notificationConfig = loadNotificationConfigSync();

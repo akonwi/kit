@@ -4,7 +4,7 @@
  */
 
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { Type } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import type { GuidedQuestionsController } from "./controller";
 import { type GuidedQuestionsInput, normalizeQuestion } from "./types";
 
@@ -16,6 +16,44 @@ const GUIDED_QUESTIONS_POLICY = [
 ].join("\n");
 
 export { GUIDED_QUESTIONS_POLICY };
+
+// Extracted so execute() can reference `Static<typeof parameters>` instead of `any`.
+const parameters = Type.Object({
+	title: Type.Optional(
+		Type.String({ description: "Short title shown to the user" }),
+	),
+	intro: Type.Optional(
+		Type.String({
+			description: "Optional intro shown before the first question",
+		}),
+	),
+	questions: Type.Array(
+		Type.Object({
+			id: Type.String({ description: "Stable key for the answer" }),
+			kind: Type.Optional(
+				Type.String({
+					description: "text | select | multiselect | boolean",
+				}),
+			),
+			label: Type.String({ description: "Question shown to the user" }),
+			help: Type.Optional(Type.String({ description: "Optional helper text" })),
+			placeholder: Type.Optional(
+				Type.String({ description: "Placeholder for text input" }),
+			),
+			required: Type.Optional(
+				Type.Boolean({
+					description: "Whether answer is required (default true)",
+				}),
+			),
+			options: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Options for select questions",
+				}),
+			),
+		}),
+		{ minItems: 1, maxItems: 12 },
+	),
+});
 
 export function createGuidedQuestionsTool(
 	guidedQuestions: GuidedQuestionsController,
@@ -32,47 +70,10 @@ export function createGuidedQuestionsTool(
 			"Prefer short labels and constrained choices for select questions.",
 			"After the tool returns, continue using the structured answers directly.",
 		],
-		parameters: Type.Object({
-			title: Type.Optional(
-				Type.String({ description: "Short title shown to the user" }),
-			),
-			intro: Type.Optional(
-				Type.String({
-					description: "Optional intro shown before the first question",
-				}),
-			),
-			questions: Type.Array(
-				Type.Object({
-					id: Type.String({ description: "Stable key for the answer" }),
-					kind: Type.Optional(
-						Type.String({
-							description: "text | select | multiselect | boolean",
-						}),
-					),
-					label: Type.String({ description: "Question shown to the user" }),
-					help: Type.Optional(
-						Type.String({ description: "Optional helper text" }),
-					),
-					placeholder: Type.Optional(
-						Type.String({ description: "Placeholder for text input" }),
-					),
-					required: Type.Optional(
-						Type.Boolean({
-							description: "Whether answer is required (default true)",
-						}),
-					),
-					options: Type.Optional(
-						Type.Array(Type.String(), {
-							description: "Options for select questions",
-						}),
-					),
-				}),
-				{ minItems: 1, maxItems: 12 },
-			),
-		}),
+		parameters,
 		async execute(
 			_toolCallId: string,
-			input: any,
+			input: Static<typeof parameters>,
 			_signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 		): Promise<AgentToolResult<Record<string, unknown>>> {
