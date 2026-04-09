@@ -30,6 +30,7 @@ export const sessionCommand: Command = {
 			lines: [
 				`ID: ${session.id}`,
 				`Name: ${session.name || "(unnamed)"}`,
+				`Parent: ${session.parentSessionId ?? "(none)"}`,
 				`CWD: ${session.cwd}`,
 				`Model: ${runtime.getCurrentModelId() ?? "none"}`,
 				`Thinking: ${status.thinkingLevel}`,

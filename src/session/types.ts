@@ -29,6 +29,8 @@ export interface Session {
 	version: typeof SESSION_VERSION;
 	/** Absolute path to the working directory when session was created */
 	cwd: string;
+	/** Parent session ID when this session was forked/handed off */
+	parentSessionId?: string;
 	/** User-assigned display name */
 	name?: string;
 	/** Model ID at time of last message, e.g. "claude-sonnet-4" */

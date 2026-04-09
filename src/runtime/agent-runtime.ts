@@ -31,6 +31,7 @@ import {
 	type Session,
 	type SessionSummary,
 	updateSession,
+	writeSession,
 } from "../session";
 import type { Turn } from "../session/types";
 import { createDefaultTools } from "../tools";
@@ -403,6 +404,34 @@ export class AgentRuntime {
 		this.emit({ type: "session_changed", session: this.session });
 		this.emit({ type: "turns_changed", turns: [] });
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+	}
+
+	async handoffSession(): Promise<Session> {
+		if (this.session.turns.length === 0) {
+			throw new Error("Nothing to hand off yet.");
+		}
+
+		const parentName = this.session.name?.trim() || "Untitled";
+		const now = new Date().toISOString();
+		const child: Session = {
+			...(await createSession(this.session.cwd, this.agent.state.model?.id)),
+			parentSessionId: this.session.id,
+			name: `handoff: ${parentName}`,
+			model: this.agent.state.model?.id ?? this.session.model,
+			createdAt: now,
+			updatedAt: now,
+			turns: structuredClone(this.session.turns),
+		};
+
+		await writeSession(child);
+		this.session = child;
+		this.agent.replaceFromTurns(child.turns);
+		this.agent.setTools(createDefaultTools(child.cwd));
+		this.syncPendingState();
+		this.emit({ type: "session_changed", session: this.session });
+		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		return child;
 	}
 
 	async switchSession(id: string): Promise<boolean> {
