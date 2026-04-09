@@ -3,18 +3,21 @@ import { dirname, resolve } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
 
-export function createWriteTool(cwd: string): AgentTool<any> {
+// Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
+const parameters = Type.Object({
+	path: Type.String({
+		description: "Path to the file (relative to cwd or absolute)",
+	}),
+	content: Type.String({ description: "Content to write" }),
+});
+
+export function createWriteTool(cwd: string): AgentTool<typeof parameters> {
 	return {
 		name: "write",
 		label: "Write",
 		description:
 			"Write content to a file. Creates the file and any missing parent directories.",
-		parameters: Type.Object({
-			path: Type.String({
-				description: "Path to the file (relative to cwd or absolute)",
-			}),
-			content: Type.String({ description: "Content to write" }),
-		}),
+		parameters,
 		async execute(_id, params, _signal) {
 			try {
 				const abs = resolve(cwd, params.path);

@@ -16,7 +16,8 @@ export { createReadTool } from "./read";
 export { createWriteTool } from "./write";
 
 /** Create the standard coding tool suite for a given working directory. */
-export function createDefaultTools(cwd: string): AgentTool[] {
+// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
+export function createDefaultTools(cwd: string): AgentTool<any>[] {
 	return [
 		createBashTool(cwd),
 		createReadTool(cwd),

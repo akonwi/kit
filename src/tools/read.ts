@@ -5,25 +5,28 @@ import { Type } from "@mariozechner/pi-ai";
 
 const MAX_CHARS = 50_000;
 
-export function createReadTool(cwd: string): AgentTool<any> {
+// Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
+const parameters = Type.Object({
+	path: Type.String({
+		description: "Path to the file (relative to cwd or absolute)",
+	}),
+	offset: Type.Optional(
+		Type.Number({
+			description: "Line number to start reading from (1-indexed)",
+		}),
+	),
+	limit: Type.Optional(
+		Type.Number({ description: "Maximum number of lines to read" }),
+	),
+});
+
+export function createReadTool(cwd: string): AgentTool<typeof parameters> {
 	return {
 		name: "read",
 		label: "Read",
 		description:
 			"Read the contents of a file. Supports an optional line offset and limit.",
-		parameters: Type.Object({
-			path: Type.String({
-				description: "Path to the file (relative to cwd or absolute)",
-			}),
-			offset: Type.Optional(
-				Type.Number({
-					description: "Line number to start reading from (1-indexed)",
-				}),
-			),
-			limit: Type.Optional(
-				Type.Number({ description: "Maximum number of lines to read" }),
-			),
-		}),
+		parameters,
 		async execute(_id, params, _signal) {
 			try {
 				const abs = resolve(cwd, params.path);

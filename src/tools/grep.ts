@@ -9,48 +9,44 @@ const DEFAULT_LIMIT = 100;
 const MAX_LINE_LENGTH = 2000;
 const MAX_BYTES = 200 * 1024; // 200KB
 
-export function createGrepTool(cwd: string): AgentTool<any> {
+// Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
+const parameters = Type.Object({
+	pattern: Type.String({
+		description: "Search pattern (regex or literal string)",
+	}),
+	path: Type.Optional(
+		Type.String({ description: "Directory or file to search (default: cwd)" }),
+	),
+	glob: Type.Optional(
+		Type.String({ description: "Filter files by glob pattern, e.g. '*.ts'" }),
+	),
+	ignoreCase: Type.Optional(
+		Type.Boolean({ description: "Case-insensitive search (default: false)" }),
+	),
+	literal: Type.Optional(
+		Type.Boolean({
+			description:
+				"Treat pattern as literal string instead of regex (default: false)",
+		}),
+	),
+	context: Type.Optional(
+		Type.Number({
+			description: "Lines of context before and after each match (default: 0)",
+		}),
+	),
+	limit: Type.Optional(
+		Type.Number({
+			description: `Max matches to return (default: ${DEFAULT_LIMIT})`,
+		}),
+	),
+});
+
+export function createGrepTool(cwd: string): AgentTool<typeof parameters> {
 	return {
 		name: "grep",
 		label: "Grep",
 		description: `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output truncated to ${DEFAULT_LIMIT} matches. Long lines truncated to ${MAX_LINE_LENGTH} chars.`,
-		parameters: Type.Object({
-			pattern: Type.String({
-				description: "Search pattern (regex or literal string)",
-			}),
-			path: Type.Optional(
-				Type.String({
-					description: "Directory or file to search (default: cwd)",
-				}),
-			),
-			glob: Type.Optional(
-				Type.String({
-					description: "Filter files by glob pattern, e.g. '*.ts'",
-				}),
-			),
-			ignoreCase: Type.Optional(
-				Type.Boolean({
-					description: "Case-insensitive search (default: false)",
-				}),
-			),
-			literal: Type.Optional(
-				Type.Boolean({
-					description:
-						"Treat pattern as literal string instead of regex (default: false)",
-				}),
-			),
-			context: Type.Optional(
-				Type.Number({
-					description:
-						"Lines of context before and after each match (default: 0)",
-				}),
-			),
-			limit: Type.Optional(
-				Type.Number({
-					description: `Max matches to return (default: ${DEFAULT_LIMIT})`,
-				}),
-			),
-		}),
+		parameters,
 
 		async execute(_id, params, signal) {
 			return new Promise((resolve_, reject) => {
@@ -152,9 +148,13 @@ export function createGrepTool(cwd: string): AgentTool<any> {
 
 					rl.on("line", (line) => {
 						if (!line.trim() || matchCount >= effectiveLimit) return;
-						let event: any;
+						type RgEvent = {
+							type: string;
+							data?: { path?: { text?: string }; line_number?: number };
+						};
+						let event: RgEvent;
 						try {
-							event = JSON.parse(line);
+							event = JSON.parse(line) as RgEvent;
 						} catch {
 							return;
 						}

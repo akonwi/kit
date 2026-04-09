@@ -3,16 +3,19 @@ import { join, resolve } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
 
-export function createLsTool(cwd: string): AgentTool<any> {
+// Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
+const parameters = Type.Object({
+	path: Type.Optional(
+		Type.String({ description: "Directory to list (default: cwd)" }),
+	),
+});
+
+export function createLsTool(cwd: string): AgentTool<typeof parameters> {
 	return {
 		name: "ls",
 		label: "LS",
 		description: "List files and directories at a path.",
-		parameters: Type.Object({
-			path: Type.Optional(
-				Type.String({ description: "Directory to list (default: cwd)" }),
-			),
-		}),
+		parameters,
 		async execute(_id, params, _signal) {
 			try {
 				const target = resolve(cwd, params.path ?? ".");

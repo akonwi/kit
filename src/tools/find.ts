@@ -12,23 +12,26 @@ function toPosix(p: string): string {
 	return p.split("/").join("/").replace(/\\/g, "/");
 }
 
-export function createFindTool(cwd: string): AgentTool<any> {
+// Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
+const parameters = Type.Object({
+	pattern: Type.String({
+		description:
+			"Glob pattern to match files, e.g. '*.ts', '**/*.json', 'src/**/*.spec.ts'",
+	}),
+	path: Type.Optional(
+		Type.String({ description: "Directory to search (default: cwd)" }),
+	),
+	limit: Type.Optional(
+		Type.Number({ description: `Max results (default: ${DEFAULT_LIMIT})` }),
+	),
+});
+
+export function createFindTool(cwd: string): AgentTool<typeof parameters> {
 	return {
 		name: "find",
 		label: "Find",
 		description: `Find files by glob pattern. Returns paths relative to the search directory. Respects .gitignore. Truncated to ${DEFAULT_LIMIT} results.`,
-		parameters: Type.Object({
-			pattern: Type.String({
-				description:
-					"Glob pattern to match files, e.g. '*.ts', '**/*.json', 'src/**/*.spec.ts'",
-			}),
-			path: Type.Optional(
-				Type.String({ description: "Directory to search (default: cwd)" }),
-			),
-			limit: Type.Optional(
-				Type.Number({ description: `Max results (default: ${DEFAULT_LIMIT})` }),
-			),
-		}),
+		parameters,
 
 		async execute(_id, params, signal) {
 			return new Promise((resolve_, reject) => {
