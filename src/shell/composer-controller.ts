@@ -52,18 +52,20 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	function openSlashCommands() {
 		let resolvedCommandName: string | null = null;
 		let currentArgs = "";
-		const options = COMMANDS.map((cmd) => ({
-			name: cmd.name,
-			description: cmd.description,
-			argHint: cmd.argName,
-			value: cmd,
-			action: (ctx: PaletteContext) => {
-				textareaRef?.setText("");
-				prevTextLength = 0;
-				ctx.dismiss();
-				cmd.execute({ runtime, palette, guidedQuestions, args: currentArgs });
-			},
-		}));
+		const options = COMMANDS.slice()
+			.sort((a, b) => a.name.localeCompare(b.name))
+			.map((cmd) => ({
+				name: cmd.name,
+				description: cmd.description,
+				argHint: cmd.argName,
+				value: cmd,
+				action: (ctx: PaletteContext) => {
+					textareaRef?.setText("");
+					prevTextLength = 0;
+					ctx.dismiss();
+					cmd.execute({ runtime, palette, guidedQuestions, args: currentArgs });
+				},
+			}));
 		const findOption = (name: string) =>
 			options.find((option) => option.name === name);
 
