@@ -53,13 +53,26 @@ bun install @opentui/solid @opentui/core solid-js
 
 ### bunfig.toml
 
-**Required** for the Solid compiler:
+**For development only** - use the CLI flag instead to support compiled binaries:
+
+```bash
+bun --preload=@opentui/solid/preload src/index.tsx
+```
+
+**Why not bunfig.toml?**
+
+The `preload` in bunfig.toml causes runtime errors in compiled binaries because the compiled executable tries to resolve the npm module at runtime. Instead:
+
+1. **Development**: Use `--preload` CLI flag
+2. **Build**: Pass the solid plugin directly to `Bun.build`
+
+If you only need development mode and won't compile, bunfig.toml works:
 
 ```toml
 preload = ["@opentui/solid/preload"]
 ```
 
-This loads the Solid JSX transform before your code runs.
+But **do not use this if building a compiled binary**.
 
 ## Package Configuration
 
@@ -70,8 +83,8 @@ This loads the Solid JSX transform before your code runs.
   "name": "my-tui-app",
   "type": "module",
   "scripts": {
-    "start": "bun run src/index.tsx",
-    "dev": "bun --watch run src/index.tsx",
+    "start": "bun --preload=@opentui/solid/preload src/index.tsx",
+    "dev": "bun --preload=@opentui/solid/preload --watch src/index.tsx",
     "test": "bun test",
     "build": "bun run build.ts"
   },
@@ -102,7 +115,7 @@ my-tui-app/
 │   │   └── appStore.ts
 │   ├── App.tsx
 │   └── index.tsx
-├── bunfig.toml           # Required!
+├── bunfig.toml           # Optional - see Bun Configuration section
 ├── package.json
 └── tsconfig.json
 ```
@@ -202,6 +215,8 @@ Run: `bun run build.ts`
 
 ### Creating Executables
 
+**Critical**: Do NOT use `preload` in bunfig.toml when building executables. The preload causes runtime errors because compiled binaries cannot resolve npm modules.
+
 ```typescript
 import solidPlugin from "@opentui/solid/bun-plugin"
 
@@ -210,8 +225,8 @@ await Bun.build({
   target: "bun",
   plugins: [solidPlugin],
   compile: {
-    target: "bun-darwin-arm64",  // or bun-linux-x64, etc.
     outfile: "my-app",
+    // target: "bun-darwin-arm64", // optional, defaults to current platform
   },
 })
 ```
@@ -222,6 +237,8 @@ await Bun.build({
 - `bun-linux-x64` - Linux x64
 - `bun-linux-arm64` - Linux ARM64
 - `bun-windows-x64` - Windows x64
+
+Or omit `target` to compile for the current platform automatically.
 
 ## Environment Variables
 
@@ -274,15 +291,24 @@ test("Counter renders initial value", async () => {
 
 ## Common Configuration Issues
 
-### Missing bunfig.toml
+### Missing Preload (Development)
 
-**Symptom**: JSX not transformed, syntax errors
+**Symptom**: JSX not transformed, syntax errors in development
 
-**Fix**: Create `bunfig.toml` with preload:
+**Fix**: Use the `--preload` CLI flag:
 
-```toml
-preload = ["@opentui/solid/preload"]
+```bash
+bun --preload=@opentui/solid/preload src/index.tsx
 ```
+
+### Preload in bunfig.toml (Compiled Binaries)
+
+**Symptom**: Compiled binary fails with `error: preload not found "@opentui/solid/preload"`
+
+**Fix**: Remove preload from bunfig.toml. Instead:
+
+1. Use `--preload` CLI flag for dev/start scripts
+2. Pass the solid plugin to `Bun.build` in your build script
 
 ### Wrong JSX Settings
 
