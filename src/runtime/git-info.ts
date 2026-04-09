@@ -1,5 +1,3 @@
-import { spawn } from "node:child_process";
-
 export type GitInfo = {
 	branch: string | null;
 	dirty: boolean;

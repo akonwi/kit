@@ -107,7 +107,9 @@ export function createGuidedQuestionsController() {
 			setMode("multiselect");
 			const opts = getSelectOptions(q);
 			const selected = getMultiSelectValues(q.id);
-			const firstSelected = opts.findIndex((option) => selected.includes(option));
+			const firstSelected = opts.findIndex((option) =>
+				selected.includes(option),
+			);
 			setSelectIndex(firstSelected >= 0 ? firstSelected : 0);
 			return;
 		}

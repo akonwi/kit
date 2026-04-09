@@ -105,7 +105,7 @@ export function createGrepTool(cwd: string): AgentTool<any> {
 						if (s.length <= MAX_LINE_LENGTH)
 							return { text: s, wasTruncated: false };
 						return {
-							text: s.slice(0, MAX_LINE_LENGTH) + "…",
+							text: `${s.slice(0, MAX_LINE_LENGTH)}…`,
 							wasTruncated: true,
 						};
 					};

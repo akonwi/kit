@@ -45,7 +45,9 @@ export function createGuidedQuestionsTool(
 				Type.Object({
 					id: Type.String({ description: "Stable key for the answer" }),
 					kind: Type.Optional(
-						Type.String({ description: "text | select | multiselect | boolean" }),
+						Type.String({
+							description: "text | select | multiselect | boolean",
+						}),
 					),
 					label: Type.String({ description: "Question shown to the user" }),
 					help: Type.Optional(

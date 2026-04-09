@@ -39,7 +39,7 @@ export function createReadTool(cwd: string): AgentTool<any> {
 				let truncated = false;
 
 				if (text.length > MAX_CHARS) {
-					text = text.slice(0, MAX_CHARS) + "\n[truncated]";
+					text = `${text.slice(0, MAX_CHARS)}\n[truncated]`;
 					truncated = true;
 				}
 

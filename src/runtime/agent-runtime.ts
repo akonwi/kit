@@ -137,7 +137,10 @@ export class AgentRuntime {
 	private applySessionContext(session: Session): void {
 		this.contextFiles = discoverContextFiles(session.cwd);
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
-		this.agent.setTools([...createDefaultTools(session.cwd), ...this.extraTools]);
+		this.agent.setTools([
+			...createDefaultTools(session.cwd),
+			...this.extraTools,
+		]);
 		this.agent.sessionId = session.id;
 	}
 

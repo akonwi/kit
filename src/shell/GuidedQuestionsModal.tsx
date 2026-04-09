@@ -84,7 +84,11 @@ export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
 				g.submitMultiSelect();
 				return;
 			}
-			if (!isMultiSelectQuestion() && g.mode === "select" && e.name === "return") {
+			if (
+				!isMultiSelectQuestion() &&
+				g.mode === "select" &&
+				e.name === "return"
+			) {
 				e.preventDefault();
 				g.selectOption();
 				return;
@@ -175,7 +179,9 @@ export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
 								{(option, idx) => {
 									const isFocused = () => idx() === focusedIndex();
 									const isSelected = () =>
-										isMultiSelectQuestion() ? g.isOptionSelected(option) : false;
+										isMultiSelectQuestion()
+											? g.isOptionSelected(option)
+											: false;
 									return (
 										<box
 											backgroundColor={
