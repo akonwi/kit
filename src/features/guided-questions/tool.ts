@@ -3,9 +3,10 @@
  * can invoke it to ask the user structured questions.
  */
 
+import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
-import { normalizeQuestion, type WizardInput } from "./types";
-import type { WizardController } from "./wizard-controller";
+import type { GuidedQuestionsController } from "./controller";
+import { type GuidedQuestionsInput, normalizeQuestion } from "./types";
 
 const GUIDED_QUESTIONS_POLICY = [
 	"When you need clarification from the user and there are 2 or more missing inputs, call guided_questions instead of asking a long list in plain chat.",
@@ -16,7 +17,9 @@ const GUIDED_QUESTIONS_POLICY = [
 
 export { GUIDED_QUESTIONS_POLICY };
 
-export function createGuidedQuestionsTool(wizard: WizardController) {
+export function createGuidedQuestionsTool(
+	guidedQuestions: GuidedQuestionsController,
+) {
 	return {
 		name: "guided_questions",
 		label: "Guided Questions",
@@ -42,7 +45,7 @@ export function createGuidedQuestionsTool(wizard: WizardController) {
 				Type.Object({
 					id: Type.String({ description: "Stable key for the answer" }),
 					kind: Type.Optional(
-						Type.String({ description: "text | select | boolean" }),
+						Type.String({ description: "text | select | multiselect | boolean" }),
 					),
 					label: Type.String({ description: "Question shown to the user" }),
 					help: Type.Optional(
@@ -68,17 +71,16 @@ export function createGuidedQuestionsTool(wizard: WizardController) {
 		async execute(
 			_toolCallId: string,
 			input: any,
-			_signal: any,
-			_onUpdate: any,
-			_ctx: any,
-		) {
-			const params: WizardInput = {
+			_signal: AbortSignal | undefined,
+			_onUpdate: unknown,
+		): Promise<AgentToolResult<Record<string, unknown>>> {
+			const params: GuidedQuestionsInput = {
 				title: input.title,
 				intro: input.intro,
 				questions: (input.questions || []).map(normalizeQuestion),
 			};
 
-			const result = await wizard.activate(params);
+			const result = await guidedQuestions.activate(params);
 			const title =
 				typeof params.title === "string" && params.title.trim()
 					? params.title.trim()
@@ -86,7 +88,9 @@ export function createGuidedQuestionsTool(wizard: WizardController) {
 
 			if (result.cancelled) {
 				return {
-					content: [{ type: "text", text: "Questionnaire cancelled." }],
+					content: [
+						{ type: "text" as const, text: "Questionnaire cancelled." },
+					],
 					details: {
 						cancelled: true,
 						answers: result.answers,
@@ -98,8 +102,11 @@ export function createGuidedQuestionsTool(wizard: WizardController) {
 
 			const summaryLines = params.questions.map((q) => {
 				const value = result.answers[q.id];
-				const rendered =
-					typeof value === "boolean"
+				const rendered = Array.isArray(value)
+					? value.length > 0
+						? value.join(", ")
+						: "(skipped)"
+					: typeof value === "boolean"
 						? value
 							? "Yes"
 							: "No"
@@ -110,7 +117,7 @@ export function createGuidedQuestionsTool(wizard: WizardController) {
 			return {
 				content: [
 					{
-						type: "text",
+						type: "text" as const,
 						text: [`${title} complete.`, "", ...summaryLines].join("\n"),
 					},
 				],

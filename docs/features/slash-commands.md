@@ -15,6 +15,7 @@ The commands currently registered in `src/features/commands/index.ts` are:
 | `/bells` | Toggle audible notification sounds |
 | `/speech` | Toggle speech notifications |
 | `/handoff [message]` | Fork the current session into a linked child session |
+| `/guidedQuestionsTest` | Open a sample guided questions flow for testing |
 | `/login` | Authenticate a provider |
 | `/model` | Switch model |
 | `/name` | Set the current session name |
@@ -54,6 +55,7 @@ Each command is a `Command` object with:
 
 - `runtime`
 - `palette`
+- `guidedQuestions`
 - `args`
 
 ## Notes

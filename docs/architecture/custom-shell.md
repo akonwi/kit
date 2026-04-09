@@ -136,7 +136,7 @@ Current or in-progress areas:
 - file references
 - thread references
 - pager
-- wizard
+- guided questions
 - handoff
 - subagent
 

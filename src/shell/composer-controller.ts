@@ -1,5 +1,6 @@
 import { COMMANDS } from "../features/commands";
 import type { FileIndex } from "../features/files";
+import type { GuidedQuestionsController } from "../features/guided-questions";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { PaletteContext } from "../state/palette";
@@ -17,12 +18,13 @@ export type TextareaHandle = {
 
 export type ComposerControllerDeps = {
 	runtime: AgentRuntime;
+	guidedQuestions: GuidedQuestionsController;
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, fileIndex, threadIndex } = deps;
+	const { runtime, guidedQuestions, fileIndex, threadIndex } = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -59,7 +61,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				textareaRef?.setText("");
 				prevTextLength = 0;
 				ctx.dismiss();
-				cmd.execute({ runtime, palette, args: currentArgs });
+				cmd.execute({ runtime, palette, guidedQuestions, args: currentArgs });
 			},
 		}));
 		const findOption = (name: string) =>
@@ -221,6 +223,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			await slashCommand.command.execute({
 				runtime,
 				palette,
+				guidedQuestions,
 				args: slashCommand.args,
 			});
 			return;

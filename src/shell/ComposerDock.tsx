@@ -9,6 +9,7 @@ export type ComposerDockProps = {
 	gitBranch: string | null;
 	gitDirty: boolean;
 	controller: ComposerController;
+	locked?: boolean;
 	onHeightChange?: (height: number) => void;
 };
 
@@ -18,6 +19,8 @@ export function ComposerDock(props: ComposerDockProps) {
 	const pager = { active: false }; // TODO: restore pager
 
 	useKeyboard((e: KeyEvent) => {
+		if (props.locked) return;
+
 		// Ctrl+C — clear composer if it has content, otherwise quit
 		if (e.ctrl && e.name === "c") {
 			e.preventDefault();
@@ -146,12 +149,12 @@ export function ComposerDock(props: ComposerDockProps) {
 					textColor={theme.textPrimary}
 					focusedTextColor={theme.textPrimary}
 					cursorColor={theme.cursor}
-					showCursor={!palette.visible}
+					showCursor={!palette.visible && !props.locked}
 					wrapMode="word"
 					maxHeight={10}
 					overflow="scroll"
 					keyBindings={
-						palette.visible
+						palette.visible || props.locked
 							? []
 							: [
 									{ name: "return", action: "submit" },
@@ -161,7 +164,7 @@ export function ComposerDock(props: ComposerDockProps) {
 					}
 					onContentChange={() => props.controller.handleTextChange()}
 					onSubmit={() => props.controller.handleSubmit()}
-					focused={!palette.visible}
+					focused={!palette.visible && !props.locked}
 				/>
 			</box>
 			<text position="absolute" bottom={0} left={2} fg={theme.textMuted}>

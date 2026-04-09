@@ -7,6 +7,11 @@ import {
 	getTreeSitterClient,
 } from "@opentui/core";
 import { render } from "@opentui/solid";
+import {
+	createGuidedQuestionsController,
+	createGuidedQuestionsTool,
+	GUIDED_QUESTIONS_POLICY,
+} from "../features/guided-questions";
 import { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	findSessionById,
@@ -100,7 +105,11 @@ export async function bootstrap(): Promise<void> {
 
 	const settings = await loadSettings();
 	const session = await loadSession();
-	const runtime = new AgentRuntime(session);
+	const guidedQuestions = createGuidedQuestionsController();
+	const runtime = new AgentRuntime(session, {
+		extraTools: [createGuidedQuestionsTool(guidedQuestions)],
+		systemPromptAdditions: [GUIDED_QUESTIONS_POLICY],
+	});
 
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,
@@ -139,6 +148,7 @@ export async function bootstrap(): Promise<void> {
 				settings={settings}
 				session={session}
 				runtime={runtime}
+				guidedQuestions={guidedQuestions}
 				updateTerminalTitle={updateTerminalTitle}
 			/>
 		),

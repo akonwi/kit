@@ -1,34 +1,39 @@
 /**
- * Wizard controller — manages question navigation, answer state,
+ * Guided questions controller — manages question navigation, answer state,
  * and input mode for the guided questionnaire.
  */
 
 import { createMemo, createSignal } from "solid-js";
 import {
 	type AnswerValue,
+	type GuidedQuestion,
+	type GuidedQuestionsInput,
 	normalizeQuestion,
-	type WizardInput,
-	type WizardQuestion,
 } from "./types";
 
-export type WizardMode = "select" | "text" | "otherText";
+export type GuidedQuestionsMode =
+	| "select"
+	| "multiselect"
+	| "text"
+	| "otherText";
 
-export type WizardResult = {
+export type GuidedQuestionsResult = {
 	cancelled: boolean;
 	answers: Record<string, AnswerValue>;
 };
 
-export function createWizardController() {
+export function createGuidedQuestionsController() {
 	const [active, setActive] = createSignal(false);
-	const [questions, setQuestions] = createSignal<WizardQuestion[]>([]);
+	const [questions, setQuestions] = createSignal<GuidedQuestion[]>([]);
 	const [title, setTitle] = createSignal("");
 	const [intro, setIntro] = createSignal("");
 	const [currentIndex, setCurrentIndex] = createSignal(0);
 	const [selectIndex, setSelectIndex] = createSignal(0);
-	const [mode, setMode] = createSignal<WizardMode>("select");
+	const [mode, setMode] = createSignal<GuidedQuestionsMode>("select");
 	const [answers, setAnswers] = createSignal<Record<string, AnswerValue>>({});
 
-	let resolveWizard: ((result: WizardResult) => void) | null = null;
+	let resolveGuidedQuestions: ((result: GuidedQuestionsResult) => void) | null =
+		null;
 
 	const currentQuestion = createMemo(() => {
 		const qs = questions();
@@ -42,13 +47,14 @@ export function createWizardController() {
 		return qs.filter((q) => {
 			const v = ans[q.id];
 			if (typeof v === "boolean") return true;
+			if (Array.isArray(v)) return v.length > 0;
 			return typeof v === "string" && v.trim().length > 0;
 		}).length;
 	});
 
 	// ── Option helpers ────────────────────────────────────────────
 
-	function getSelectOptions(q: WizardQuestion): string[] {
+	function getSelectOptions(q: GuidedQuestion): string[] {
 		if (q.kind === "boolean") {
 			return q.required === false ? ["Yes", "No", "Skip"] : ["Yes", "No"];
 		}
@@ -58,7 +64,26 @@ export function createWizardController() {
 				: [];
 			return q.required === false ? [...provided, "Skip"] : provided;
 		}
+		if (q.kind === "multiselect") {
+			return Array.isArray(q.options) ? q.options.filter(Boolean) : [];
+		}
 		return [];
+	}
+
+	function getMultiSelectValues(questionId: string): string[] {
+		const existing = answers()[questionId];
+		return Array.isArray(existing)
+			? existing.filter((value): value is string => typeof value === "string")
+			: [];
+	}
+
+	function getValidSelectIndex(q: GuidedQuestion): number {
+		const opts = getSelectOptions(q);
+		if (opts.length === 0) return -1;
+		const index = selectIndex();
+		const clamped = Math.max(0, Math.min(index, opts.length - 1));
+		if (clamped !== index) setSelectIndex(clamped);
+		return clamped;
 	}
 
 	function isOtherOption(value: string): boolean {
@@ -67,14 +92,23 @@ export function createWizardController() {
 
 	// ── State loading ─────────────────────────────────────────────
 
-	function loadQuestionState() {
-		const q = currentQuestion();
+	function loadQuestionState(question = currentQuestion()) {
+		const q = question;
 		if (!q) return;
 
 		const existing = answers()[q.id];
 
 		if (q.kind === "text") {
 			setMode("text");
+			return;
+		}
+
+		if (q.kind === "multiselect") {
+			setMode("multiselect");
+			const opts = getSelectOptions(q);
+			const selected = getMultiSelectValues(q.id);
+			const firstSelected = opts.findIndex((option) => selected.includes(option));
+			setSelectIndex(firstSelected >= 0 ? firstSelected : 0);
 			return;
 		}
 
@@ -121,8 +155,9 @@ export function createWizardController() {
 			finish(false);
 			return;
 		}
-		setCurrentIndex(currentIndex() + 1);
-		loadQuestionState();
+		const nextIndex = currentIndex() + 1;
+		setCurrentIndex(nextIndex);
+		loadQuestionState(questions()[nextIndex] ?? null);
 	}
 
 	function setAnswer(id: string, value: AnswerValue) {
@@ -135,7 +170,7 @@ export function createWizardController() {
 
 		if (q.kind === "boolean") {
 			const opts = getSelectOptions(q);
-			const choice = opts[selectIndex()];
+			const choice = opts[getValidSelectIndex(q)];
 			if (!choice) return false;
 			if (choice === "Skip") setAnswer(q.id, "");
 			else setAnswer(q.id, choice === "Yes");
@@ -145,7 +180,7 @@ export function createWizardController() {
 
 		if (q.kind === "select") {
 			const opts = getSelectOptions(q);
-			const choice = opts[selectIndex()];
+			const choice = opts[getValidSelectIndex(q)];
 			if (!choice) return false;
 
 			if (choice === "Skip") {
@@ -161,6 +196,27 @@ export function createWizardController() {
 
 			setAnswer(q.id, choice);
 			advance();
+			return true;
+		}
+
+		if (q.kind === "multiselect") {
+			const opts = getSelectOptions(q);
+			const choice = opts[getValidSelectIndex(q)];
+			if (!choice) return false;
+			const current = getMultiSelectValues(q.id);
+			if (choice === "Skip") {
+				setAnswer(q.id, []);
+				advance();
+				return true;
+			}
+			if (current.includes(choice)) {
+				setAnswer(
+					q.id,
+					current.filter((value) => value !== choice),
+				);
+			} else {
+				setAnswer(q.id, [...current, choice]);
+			}
 			return true;
 		}
 
@@ -194,8 +250,9 @@ export function createWizardController() {
 			return;
 		}
 		if (currentIndex() > 0) {
-			setCurrentIndex(currentIndex() - 1);
-			loadQuestionState();
+			const previousIndex = currentIndex() - 1;
+			setCurrentIndex(previousIndex);
+			loadQuestionState(questions()[previousIndex] ?? null);
 		}
 	}
 
@@ -203,8 +260,9 @@ export function createWizardController() {
 		const q = currentQuestion();
 		if (!q) return;
 		const opts = getSelectOptions(q);
-		if (opts.length > 0 && selectIndex() > 0) {
-			setSelectIndex(selectIndex() - 1);
+		const index = getValidSelectIndex(q);
+		if (opts.length > 0 && index > 0) {
+			setSelectIndex(index - 1);
 		}
 	}
 
@@ -212,14 +270,32 @@ export function createWizardController() {
 		const q = currentQuestion();
 		if (!q) return;
 		const opts = getSelectOptions(q);
-		if (opts.length > 0 && selectIndex() < opts.length - 1) {
-			setSelectIndex(selectIndex() + 1);
+		const index = getValidSelectIndex(q);
+		if (opts.length > 0 && index < opts.length - 1) {
+			setSelectIndex(index + 1);
 		}
+	}
+
+	function submitMultiSelect(): boolean {
+		const q = currentQuestion();
+		if (!q || q.kind !== "multiselect") return false;
+		const selected = getMultiSelectValues(q.id);
+		if (selected.length === 0 && q.required !== false) return false;
+		advance();
+		return true;
+	}
+
+	function isOptionSelected(option: string): boolean {
+		const q = currentQuestion();
+		if (!q || q.kind !== "multiselect") return false;
+		return getMultiSelectValues(q.id).includes(option);
 	}
 
 	// ── Lifecycle ─────────────────────────────────────────────────
 
-	function activate(params: WizardInput): Promise<WizardResult> {
+	function activate(
+		params: GuidedQuestionsInput,
+	): Promise<GuidedQuestionsResult> {
 		const qs = (params.questions || []).map(normalizeQuestion);
 		if (qs.length === 0) {
 			return Promise.resolve({ cancelled: true, answers: {} });
@@ -232,18 +308,21 @@ export function createWizardController() {
 		setSelectIndex(0);
 		setAnswers({});
 		setActive(true);
-		loadQuestionState();
+		loadQuestionState(qs[0] ?? null);
 
-		return new Promise<WizardResult>((resolve) => {
-			resolveWizard = resolve;
+		return new Promise<GuidedQuestionsResult>((resolve) => {
+			resolveGuidedQuestions = resolve;
 		});
 	}
 
 	function finish(cancelled: boolean) {
-		const result: WizardResult = { cancelled, answers: answers() };
+		const result: GuidedQuestionsResult = {
+			cancelled,
+			answers: answers(),
+		};
 		setActive(false);
-		resolveWizard?.(result);
-		resolveWizard = null;
+		resolveGuidedQuestions?.(result);
+		resolveGuidedQuestions = null;
 	}
 
 	function cancel() {
@@ -286,11 +365,16 @@ export function createWizardController() {
 		cancel,
 		selectOption,
 		submitText,
+		submitMultiSelect,
 		escapeTextMode,
 		movePrev,
 		moveSelectUp,
 		moveSelectDown,
+		isOptionSelected,
+		getValidSelectIndex,
 	};
 }
 
-export type WizardController = ReturnType<typeof createWizardController>;
+export type GuidedQuestionsController = ReturnType<
+	typeof createGuidedQuestionsController
+>;

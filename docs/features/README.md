@@ -17,7 +17,7 @@ should still be read with an explicit distinction between:
 - [Thread References](thread-references.md) — current `#` picker behavior and submit-time thread expansion
 - [Bash Execution](bash-execution.md) — historical/planned shell-command UX, not currently wired
 - [Pager](pager.md) — pager direction and current rebuild status
-- [Wizard](wizard.md) — guided questionnaire direction and current rebuild status
+- [Guided Questions](guided-questions.md) — structured clarification questionnaires in a modal
 - [Handoff](handoff.md) — current fork-like linked-session handoff behavior
 - [Steering & Follow-up](steering-followup.md) — current queued-message behavior while streaming
 

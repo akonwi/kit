@@ -1,6 +1,6 @@
-export type QuestionKind = "text" | "select" | "boolean";
+export type QuestionKind = "text" | "select" | "multiselect" | "boolean";
 
-export type WizardQuestion = {
+export type GuidedQuestion = {
 	id: string;
 	kind: QuestionKind;
 	label: string;
@@ -10,17 +10,23 @@ export type WizardQuestion = {
 	options?: string[];
 };
 
-export type WizardInput = {
+export type GuidedQuestionsInput = {
 	title?: string;
 	intro?: string;
-	questions: WizardQuestion[];
+	questions: GuidedQuestion[];
 };
 
-export type AnswerValue = string | boolean;
+export type AnswerValue = string | string[] | boolean;
 
-export function normalizeQuestion(raw: any, index: number): WizardQuestion {
+export function normalizeQuestion(
+	raw: Record<string, unknown>,
+	index: number,
+): GuidedQuestion {
 	const kind: QuestionKind =
-		raw.kind === "select" || raw.kind === "boolean" || raw.kind === "text"
+		raw.kind === "select" ||
+		raw.kind === "multiselect" ||
+		raw.kind === "boolean" ||
+		raw.kind === "text"
 			? raw.kind
 			: "text";
 

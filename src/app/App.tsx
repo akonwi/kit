@@ -1,3 +1,4 @@
+import type { GuidedQuestionsController } from "../features/guided-questions";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { LoadedSettings } from "../settings";
@@ -9,6 +10,7 @@ export type AppProps = {
 	settings: LoadedSettings;
 	session: Session | null;
 	runtime: AgentRuntime;
+	guidedQuestions: GuidedQuestionsController;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 };
 
@@ -21,6 +23,7 @@ export function App(props: AppProps) {
 
 	const controller = createComposerController({
 		runtime: props.runtime,
+		guidedQuestions: props.guidedQuestions,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
 	});
@@ -35,6 +38,7 @@ export function App(props: AppProps) {
 		<AppShell
 			state={app.state}
 			controller={controller}
+			guidedQuestions={props.guidedQuestions}
 			dismissToast={app.dismissToast}
 		/>
 	);

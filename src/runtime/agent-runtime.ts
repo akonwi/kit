@@ -83,6 +83,8 @@ export type AgentRuntimeEvent =
 export class AgentRuntime {
 	private session: Session;
 	private agent: KitAgent;
+	private extraTools: AgentTool[];
+	private systemPromptAdditions: string[];
 	private listeners = new Set<(event: AgentRuntimeEvent) => void>();
 	private quitHandler: (() => void) | null = null;
 	private pendingCount = 0;
@@ -91,9 +93,14 @@ export class AgentRuntime {
 	private notificationConfig: NotificationConfig;
 	private contextFiles: ContextFile[] = [];
 
-	constructor(session: Session, options?: { extraTools?: AgentTool[] }) {
+	constructor(
+		session: Session,
+		options?: { extraTools?: AgentTool[]; systemPromptAdditions?: string[] },
+	) {
 		this.session = session;
 		this.notificationConfig = loadNotificationConfigSync();
+		this.extraTools = options?.extraTools ?? [];
+		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
 		this.contextFiles = discoverContextFiles(session.cwd);
 
@@ -109,14 +116,8 @@ export class AgentRuntime {
 		this.agent = KitAgent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
-				systemPrompt: buildSystemPrompt(
-					DEFAULT_SYSTEM_PROMPT,
-					this.contextFiles,
-				),
-				tools: [
-					...createDefaultTools(session.cwd),
-					...(options?.extraTools ?? []),
-				],
+				systemPrompt: this.getEffectiveSystemPrompt(),
+				tools: [...createDefaultTools(session.cwd), ...this.extraTools],
 			},
 			getApiKey: (provider) => getApiKey(provider),
 		});
@@ -126,12 +127,17 @@ export class AgentRuntime {
 		);
 	}
 
+	private getEffectiveSystemPrompt(): string {
+		const basePrompt = [DEFAULT_SYSTEM_PROMPT, ...this.systemPromptAdditions]
+			.filter((value) => value.trim().length > 0)
+			.join("\n\n");
+		return buildSystemPrompt(basePrompt, this.contextFiles);
+	}
+
 	private applySessionContext(session: Session): void {
 		this.contextFiles = discoverContextFiles(session.cwd);
-		this.agent.setSystemPrompt(
-			buildSystemPrompt(DEFAULT_SYSTEM_PROMPT, this.contextFiles),
-		);
-		this.agent.setTools(createDefaultTools(session.cwd));
+		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		this.agent.setTools([...createDefaultTools(session.cwd), ...this.extraTools]);
 		this.agent.sessionId = session.id;
 	}
 
