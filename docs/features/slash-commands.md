@@ -19,7 +19,7 @@ The commands currently registered in `src/features/commands/index.ts` are:
 | `/model` | Switch model |
 | `/name` | Set the current session name |
 | `/new` | Start a new session |
-| `/session` | Show current session details |
+| `/debug` | Show runtime and session debug details |
 | `/sessions` | Browse, switch, or delete sessions |
 | `/thinking` | Change the current thinking level |
 | `/quit` | Exit the application |

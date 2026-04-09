@@ -1,8 +1,8 @@
 import type { Command } from "./types";
 
 export const sessionCommand: Command = {
-	name: "session",
-	description: "Show current session details",
+	name: "debug",
+	description: "Show runtime and session debug details",
 	execute({ runtime, palette }) {
 		const session = runtime.getSession();
 		const turns = runtime.getTurns();
@@ -26,7 +26,7 @@ export const sessionCommand: Command = {
 
 		palette.show({
 			mode: "modal",
-			title: "Session",
+			title: "Debug",
 			lines: [
 				`ID: ${session.id}`,
 				`Name: ${session.name || "(unnamed)"}`,
