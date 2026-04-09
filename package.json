@@ -6,8 +6,8 @@
 	"license": "MIT",
 	"type": "module",
 	"scripts": {
-		"dev": "bun run src/app/main.tsx",
-		"start": "bun run src/app/main.tsx",
+		"dev": "bun --preload=@opentui/solid/preload src/app/main.tsx",
+		"start": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"build": "bun run script/build.ts",
 		"typecheck": "tsc --noEmit"
 	},
