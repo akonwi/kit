@@ -1,5 +1,6 @@
 import { useRenderer } from "@opentui/solid";
-import { createSignal } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
+import type { OverlayEntry } from "../app/overlay-ui";
 import type { GuidedQuestionsController } from "../features/guided-questions";
 import type { PagerController } from "../features/pager";
 import type { AppState } from "../state/app-state";
@@ -23,6 +24,7 @@ export type AppShellProps = {
 	controller: ComposerController;
 	guidedQuestions: GuidedQuestionsController;
 	pager: PagerController;
+	overlays: () => OverlayEntry[];
 	dismissToast: (id: number) => void;
 };
 
@@ -51,7 +53,11 @@ export function AppShell(props: AppShellProps) {
 					gitBranch={props.state.footerStatus.gitBranch}
 					gitDirty={props.state.footerStatus.gitDirty}
 					controller={props.controller}
-					locked={props.guidedQuestions.active || props.pager.active}
+					locked={
+						props.guidedQuestions.active ||
+						props.pager.active ||
+						props.overlays().length > 0
+					}
 					onHeightChange={setDockHeight}
 				/>
 				<BottomStatusBar status={props.state.footerStatus} />
@@ -74,6 +80,15 @@ export function AppShell(props: AppShellProps) {
 				bottomInset={dockHeight() + STATUS_BAR_HEIGHT + 1}
 			/>
 			<PagerModal pager={props.pager} />
+			<Show when={props.overlays().length > 0}>
+				<For each={props.overlays()}>
+					{(entry) =>
+						entry.component({
+							done: (result: unknown) => entry.resolve(result),
+						})
+					}
+				</For>
+			</Show>
 		</box>
 	);
 }

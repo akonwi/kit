@@ -1,4 +1,4 @@
-import { COMMANDS } from "../features/commands";
+import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import type { GuidedQuestionsController } from "../features/guided-questions";
 import type { PagerController } from "../features/pager";
@@ -21,12 +21,14 @@ export type ComposerControllerDeps = {
 	runtime: AgentRuntime;
 	guidedQuestions: GuidedQuestionsController;
 	pager: PagerController;
+	commands: CommandRegistry;
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, guidedQuestions, pager, fileIndex, threadIndex } = deps;
+	const { runtime, guidedQuestions, pager, commands, fileIndex, threadIndex } =
+		deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -54,7 +56,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	function openSlashCommands() {
 		let resolvedCommandName: string | null = null;
 		let currentArgs = "";
-		const options = COMMANDS.slice()
+		const availableCommands = commands.getAll();
+		const options = availableCommands
+			.slice()
 			.sort((a, b) => a.name.localeCompare(b.name))
 			.map((cmd) => ({
 				name: cmd.name,
@@ -114,7 +118,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			},
 			{
 				tab: (option) => {
-					const cmd = option.value as (typeof COMMANDS)[number] | undefined;
+					const cmd = option.value as Command | undefined;
 					if (!cmd) return;
 					resolvedCommandName = cmd.name;
 					currentArgs = "";
@@ -226,7 +230,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (palette.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
-		const slashCommand = parseSlashCommand(text);
+		const slashCommand = parseSlashCommand(text, commands.getAll());
 		if (slashCommand) {
 			textareaRef?.setText("");
 			prevTextLength = 0;
@@ -393,7 +397,8 @@ function findReferenceTokenStart(
 
 function parseSlashCommand(
 	text: string,
-): { command: (typeof COMMANDS)[number]; args: string } | null {
+	commands: Command[],
+): { command: Command; args: string } | null {
 	const trimmed = text.trim();
 	if (!trimmed.startsWith("/")) return null;
 
@@ -404,7 +409,7 @@ function parseSlashCommand(
 	).trim();
 	if (!name) return null;
 
-	const command = COMMANDS.find((candidate) => candidate.name === name);
+	const command = commands.find((candidate) => candidate.name === name);
 	if (!command) return null;
 
 	const args =

@@ -1,4 +1,4 @@
-import { onCleanup } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import {
 	BUILT_IN_COMMANDS,
 	type CommandRegistry,
@@ -17,6 +17,7 @@ import type { LoadedSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";
+import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
 
 export type AppProps = {
 	settings: LoadedSettings;
@@ -34,15 +35,23 @@ export function App(props: AppProps) {
 		props.runtime,
 	);
 
-	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
+	const [overlays, setOverlays] = createSignal<OverlayEntry[]>([]);
+
 	const ui: PluginUI = {
-		notify: () => {
-			// Phase 2 skeleton: app-owned plugin UI is introduced in Phase 3.
+		notify: (
+			message: string,
+			variant: "info" | "warning" | "error" = "info",
+		) => {
+			app.showToast({
+				title: message,
+				lines: [],
+				variant: variant === "warning" ? "info" : variant,
+			});
 		},
-		custom: async () => {
-			throw new Error("PluginUI.custom() is not implemented yet");
-		},
+		custom: createCustomOverlayHandler(setOverlays),
 	};
+
+	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
 	const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {
 		runtime: props.runtime,
 		commands,
@@ -79,6 +88,7 @@ export function App(props: AppProps) {
 			controller={controller}
 			guidedQuestions={props.guidedQuestions}
 			pager={props.pager}
+			overlays={overlays}
 			dismissToast={app.dismissToast}
 		/>
 	);

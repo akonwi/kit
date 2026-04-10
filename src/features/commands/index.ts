@@ -1,3 +1,4 @@
+export { type CommandRegistry, createCommandRegistry } from "./registry";
 export type { Command, CommandContext } from "./types";
 
 import { bellsCommand, speechCommand } from "./bells-speech";
@@ -13,7 +14,7 @@ import { sessionsManageCommand } from "./sessions-manage";
 import { thinkingCommand } from "./thinking";
 import type { Command } from "./types";
 
-export const COMMANDS: Command[] = [
+export const BUILT_IN_COMMANDS: Command[] = [
 	bellsCommand,
 	speechCommand,
 	handoffCommand,

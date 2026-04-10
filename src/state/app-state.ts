@@ -226,5 +226,6 @@ export function createAppState(
 		fileIndex,
 		threadIndex,
 		dismissToast,
+		showToast,
 	};
 }
