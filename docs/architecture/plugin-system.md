@@ -22,31 +22,66 @@ declare components that the host renders on their behalf. Instead, they call
 **imperative async UI operations** through `ctx.ui`:
 
 ```ts
-// Plugin code reads like normal control flow:
 const choice = await ctx.ui.select("Pick a session", options);
-const name   = await ctx.ui.input("New name", current);
-const ok     = await ctx.ui.confirm("Delete?", "This cannot be undone.");
+const name = await ctx.ui.input("New name", current);
+const ok = await ctx.ui.confirm("Delete?", "This cannot be undone.");
 ctx.ui.notify("Done!", "info");
 
-// Full-screen custom component — blocks until done() is called:
 await ctx.ui.custom(({ done }) => <PagerContent onClose={done} />);
 ```
 
-The plugin's async control flow is the UI flow. No reactive `active` signals,
-no persistent mounts, no host-managed overlay registries.
+The plugin's async control flow is the UI flow.
 
 ## Core concepts
 
-### `Plugin`
+### Base `Plugin` class
+
+Plugins are classes, not objects. The base class owns the constructor shape,
+default no-op lifecycle hooks, and common cleanup helpers.
 
 ```ts
-interface Plugin {
-  id: string;
-  setup(ctx: PluginContext): void | (() => void);  // optional teardown
+abstract class Plugin {
+  private readonly disposers: Array<() => void> = [];
+
+  constructor(protected readonly ctx: PluginContext) {}
+
+  async initialize(): Promise<void> {}
+
+  protected subscribeRuntime(
+    handler: (event: AgentRuntimeEvent) => void | Promise<void>,
+  ): void {
+    const unsubscribe = this.ctx.runtime.subscribe((event) => {
+      void handler(event);
+    });
+    this.disposers.push(unsubscribe);
+  }
+
+  protected registerCommand(command: Command): void {
+    const unregister = this.ctx.commands.register(command);
+    this.disposers.push(unregister);
+  }
+
+  protected addDisposer(disposer: () => void): void {
+    this.disposers.push(disposer);
+  }
+
+  async dispose(): Promise<void> {
+    for (const disposer of this.disposers.splice(0).reverse()) {
+      disposer();
+    }
+  }
 }
 ```
 
-No `render()`. All UI comes through `ctx.ui`.
+Notes:
+
+- `ctx` is `protected`, not `private`, so subclasses can use it
+- `initialize()` is called immediately after instantiation
+- `dispose()` is called during teardown/shutdown
+- `subscribeRuntime()` and `registerCommand()` are convenience wrappers that
+  automatically register their cleanup behavior
+- `addDisposer()` is still available for timers, custom listeners, and anything
+  else that needs teardown
 
 ### `PluginContext`
 
@@ -67,21 +102,14 @@ internals.
 
 ```ts
 interface PluginUI {
-  // Imperative async dialogs — backed by the existing palette/modal/toast infra
   select(title: string, options: string[]): Promise<string | undefined>;
   confirm(title: string, message: string): Promise<boolean>;
   input(title: string, placeholder?: string): Promise<string | undefined>;
-
-  // Fire-and-forget notification — backed by the ToastStack
   notify(message: string, type?: "info" | "warning" | "error"): void;
-
-  // Full-screen overlay — mounts component, resolves when done() is called
-  custom<T>(component: (props: { done: (result: T) => void }) => JSX.Element): Promise<T>;
-
-  // Persistent named status item in the status bar
+  custom<T>(
+    component: (props: { done: (result: T) => void }) => JSX.Element,
+  ): Promise<T>;
   setStatus(key: string, text: string | undefined): void;
-
-  // future: setFooter(), setWidget(), setHeader()
 }
 ```
 
@@ -92,7 +120,7 @@ the composer controller reads from the registry.
 
 ```ts
 interface CommandRegistry {
-  register(cmd: Command): () => void;  // returns unregister fn
+  register(cmd: Command): () => void;
   getAll(): Command[];
 }
 ```
@@ -102,86 +130,120 @@ interface CommandRegistry {
 ### Pager
 
 ```tsx
-{
-  id: "pager",
-  setup({ runtime, commands, ui }) {
-    const controller = createPagerController();
-    controller.setSubmitCallback(msg => runtime.submitUserMessage(msg));
+export class PagerPlugin extends Plugin {
+  private readonly pager = createPagerController();
 
-    async function openPager() {
-      // ui.custom mounts <PagerContent> as a full-screen overlay and
-      // resolves when the user closes it. No active signal needed.
-      await ui.custom(({ done }) => (
-        <PagerContent pager={controller} onClose={done} />
-      ));
-    }
+  override async initialize(): Promise<void> {
+    this.pager.setSubmitCallback((msg) =>
+      this.ctx.runtime.submitUserMessage(msg),
+    );
 
-    runtime.subscribe(event => {
+    this.subscribeRuntime(async (event) => {
       if (event.type === "turn_complete") {
-        if (controller.tryActivate(runtime.getMessages())) openPager();
+        if (this.pager.tryActivate(this.ctx.runtime.getMessages())) {
+          await this.openPager();
+        }
       }
     });
 
-    commands.register({
+    this.registerCommand({
       name: "pager",
       description: "Open pager for last assistant response",
-      execute() {
-        if (!controller.tryActivate(runtime.getMessages())) {
-          ui.notify("No long response to page through.", "warning");
+      execute: async () => {
+        if (!this.pager.tryActivate(this.ctx.runtime.getMessages())) {
+          this.ctx.ui.notify("No long response to page through.", "warning");
           return;
         }
-        openPager();
+        await this.openPager();
       },
     });
-  },
+  }
+
+  override async dispose(): Promise<void> {
+    this.pager.close();
+    await super.dispose();
+  }
+
+  private async openPager(): Promise<void> {
+    await this.ctx.ui.custom<void>(({ done }) => (
+      <PagerContent pager={this.pager} onClose={done} />
+    ));
+  }
 }
 ```
 
 ### Guided questions
 
 ```tsx
-{
-  id: "guided-questions",
-  setup({ runtime, ui }) {
-    // The controller uses ui.custom internally when the agent invokes the tool.
-    const controller = createGuidedQuestionsController(ui);
-    runtime.registerTool(createGuidedQuestionsTool(controller));
-  },
+export class GuidedQuestionsPlugin extends Plugin {
+  private readonly controller = createGuidedQuestionsController(this.ctx.ui);
+
+  override async initialize(): Promise<void> {
+    this.ctx.runtime.registerTool(
+      createGuidedQuestionsTool(this.controller),
+    );
+  }
 }
 ```
 
-`createGuidedQuestionsController` accepts `ui` and calls
-`ui.custom(({ done }) => <GuidedQuestionsContent ... onClose={done} />)`
-when the agent triggers the tool. The tool `await`s that call, so the agent
-waits for the user to finish answering before continuing.
+The guided-questions controller uses `this.ctx.ui.custom(...)` internally when
+the tool is invoked. The tool `await`s that call, so the agent waits for the
+user to finish answering before continuing.
 
-### Notifications (no UI surface needed)
+### Notifications
 
 ```ts
-{
-  id: "notifications",
-  setup({ runtime }) {
-    return runtime.subscribe(event => {
+export class NotificationsPlugin extends Plugin {
+  override async initialize(): Promise<void> {
+    this.subscribeRuntime((event) => {
       if (event.type === "turn_complete") {
         ringBell(...);
         speak(...);
       }
     });
-  },
+  }
 }
 ```
 
-### Session naming (no UI)
+### Session naming
 
 ```ts
-{
-  id: "session-naming",
-  setup({ runtime }) {
-    return runtime.subscribe(event => {
-      if (event.type === "turn_complete")
-        maybeAutoNameSession(runtime, runtime.getMessages());
+export class SessionNamingPlugin extends Plugin {
+  override async initialize(): Promise<void> {
+    this.subscribeRuntime((event) => {
+      if (event.type === "turn_complete") {
+        void maybeAutoNameSession(
+          this.ctx.runtime,
+          this.ctx.runtime.getMessages(),
+        );
+      }
     });
-  },
+  }
+}
+```
+
+## Plugin manager
+
+The plugin manager instantiates plugin classes, calls `initialize()`, and later
+calls `dispose()` in reverse order.
+
+```ts
+const pluginClasses = [
+  NotificationsPlugin,
+  PagerPlugin,
+  GuidedQuestionsPlugin,
+  SessionNamingPlugin,
+];
+
+const plugins = pluginClasses.map((PluginClass) => new PluginClass(ctx));
+
+for (const plugin of plugins) {
+  await plugin.initialize();
+}
+
+// teardown
+for (const plugin of plugins.slice().reverse()) {
+  await plugin.dispose();
 }
 ```
 
@@ -192,24 +254,25 @@ onto it and returns a Promise. When `done()` is called, the component is popped
 and the Promise resolves.
 
 ```ts
-// In the app:
 const [overlayStack, setOverlayStack] = createSignal<OverlayEntry[]>([]);
 
 const ui: PluginUI = {
   custom<T>(component) {
-    return new Promise<T>(resolve => {
+    return new Promise<T>((resolve) => {
       const id = randomUUID();
-      setOverlayStack(prev => [...prev, {
-        id,
-        render: (done) => component({ done }),
-        resolve: (result) => {
-          setOverlayStack(prev => prev.filter(e => e.id !== id));
-          resolve(result as T);
+      setOverlayStack((prev) => [
+        ...prev,
+        {
+          id,
+          render: (done) => component({ done }),
+          resolve: (result) => {
+            setOverlayStack((prev) => prev.filter((e) => e.id !== id));
+            resolve(result as T);
+          },
         },
-      }]);
+      ]);
     });
   },
-  // ...
 };
 ```
 
@@ -222,8 +285,8 @@ AppShell renders the stack — typically just the top entry:
 ```
 
 Because overlays are mounted only when `ui.custom()` is called and unmounted
-when `done()` is called, no persistent `when={active()}` props or reactive
-`active` signals are needed in the components themselves.
+when `done()` is called, no persistent `active` signals or feature-specific
+modal wiring are needed in `AppShell`.
 
 ## How AppShell changes
 
@@ -242,8 +305,8 @@ stack and renders the top entry:
 </box>
 ```
 
-`ComposerDock` is locked whenever any overlay is active — no per-feature
-locked checks needed.
+`ComposerDock` is locked whenever any overlay is active — no per-feature locked
+checks needed.
 
 ## How AgentRuntime shrinks
 
@@ -251,10 +314,10 @@ The following leave `AgentRuntime`:
 
 | Removed | Moves to |
 |---|---|
-| `notificationConfig` field | `notifications` plugin |
-| `toggleBells()` / `toggleSpeech()` | bells/speech commands in `notifications` plugin |
-| `getNotificationConfig()` | `notifications` plugin internal |
-| `notifyTurnComplete()` | `notifications` plugin |
+| `notificationConfig` field | `NotificationsPlugin` |
+| `toggleBells()` / `toggleSpeech()` | notification-related commands in `NotificationsPlugin` |
+| `getNotificationConfig()` | `NotificationsPlugin` internal |
+| `notifyTurnComplete()` | `NotificationsPlugin` |
 | `notification_config_changed` event | removed from event union |
 
 `AgentRuntime` becomes focused on: agent lifecycle, session management, tool
@@ -266,7 +329,6 @@ registration, and event emission (`turns_changed`, `status_changed`,
 Plugins are opt-out via settings:
 
 ```json
-// ~/.pi-kit/settings.json
 {
   "plugins": {
     "notifications": true,
@@ -282,9 +344,10 @@ Bootstrap reads this and skips instantiating disabled plugins.
 ## Rollout order
 
 1. **`CommandRegistry`** — additive, no breakage. Replace static `COMMANDS` array.
-2. **Extract notifications** — remove notification logic from `AgentRuntime`, create notifications plugin.
-3. **`Plugin` + `PluginUI` + overlay stack** — formalize `ctx.ui`, wire into bootstrap/App.
-4. **Migrate pager → plugin** — replace PagerModal/pager wiring with `ui.custom()`.
-5. **Migrate guided-questions → plugin** — replace GuidedQuestionsModal wiring with `ui.custom()`.
-6. **Wire session-naming** — finally hook up `auto-name.ts` as a plugin.
-7. **Simplify AppShell** — remove all feature-specific imports, generic overlay stack only.
+2. **Extract notifications** — remove notification logic from `AgentRuntime`, create `NotificationsPlugin`.
+3. **Introduce `Plugin`, `PluginContext`, and `PluginUI`** — formalize the plugin lifecycle and `ctx.ui` surface.
+4. **Add overlay stack + `ui.custom()`** — centralize modal rendering in the app shell.
+5. **Migrate pager → `PagerPlugin`** — replace pager-specific app wiring with `ui.custom()`.
+6. **Migrate guided-questions → `GuidedQuestionsPlugin`** — replace guided-questions app wiring with `ui.custom()`.
+7. **Wire session-naming → `SessionNamingPlugin`** — finally hook up `auto-name.ts`.
+8. **Simplify AppShell** — remove all feature-specific imports, generic overlay stack only.
