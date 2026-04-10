@@ -1,5 +1,16 @@
+import { onCleanup } from "solid-js";
+import {
+	BUILT_IN_COMMANDS,
+	type CommandRegistry,
+	createCommandRegistry,
+} from "../features/commands";
 import type { GuidedQuestionsController } from "../features/guided-questions";
 import type { PagerController } from "../features/pager";
+import {
+	BUILT_IN_PLUGIN_CLASSES,
+	PluginManager,
+	type PluginUI,
+} from "../plugins";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { LoadedSettings } from "../settings";
@@ -23,10 +34,31 @@ export function App(props: AppProps) {
 		props.runtime,
 	);
 
+	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
+	const ui: PluginUI = {
+		notify: () => {
+			// Phase 2 skeleton: app-owned plugin UI is introduced in Phase 3.
+		},
+		custom: async () => {
+			throw new Error("PluginUI.custom() is not implemented yet");
+		},
+	};
+	const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {
+		runtime: props.runtime,
+		commands,
+		settings: props.settings,
+		ui,
+	});
+	void pluginManager.initialize();
+	onCleanup(() => {
+		void pluginManager.dispose();
+	});
+
 	const controller = createComposerController({
 		runtime: props.runtime,
 		guidedQuestions: props.guidedQuestions,
 		pager: props.pager,
+		commands,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
 	});
