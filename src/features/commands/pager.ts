@@ -1,4 +1,3 @@
-// @ts-nocheck — disabled pending rewrite
 import type { Command } from "./types";
 
 export const pagerCommand: Command = {
@@ -13,8 +12,11 @@ export const pagerCommand: Command = {
 		const messages = ctx.runtime.getMessages();
 		const activated = ctx.pager.tryActivate(messages);
 		if (!activated) {
-			// No long assistant response found — could show a notification
-			// but for now just silently do nothing
+			ctx.palette.show({
+				mode: "modal",
+				title: "Pager",
+				lines: ["No long assistant response found to paginate."],
+			});
 		}
 	},
 };

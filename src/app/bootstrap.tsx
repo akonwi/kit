@@ -12,6 +12,7 @@ import {
 	createGuidedQuestionsTool,
 	GUIDED_QUESTIONS_POLICY,
 } from "../features/guided-questions";
+import { createPagerController } from "../features/pager";
 import { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	findSessionById,
@@ -106,10 +107,12 @@ export async function bootstrap(): Promise<void> {
 	const settings = await loadSettings();
 	const session = await loadSession();
 	const guidedQuestions = createGuidedQuestionsController();
+	const pager = createPagerController();
 	const runtime = new AgentRuntime(session, {
 		extraTools: [createGuidedQuestionsTool(guidedQuestions)],
 		systemPromptAdditions: [GUIDED_QUESTIONS_POLICY],
 	});
+	pager.setSubmitCallback((msg) => runtime.submitUserMessage(msg));
 
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,
@@ -149,6 +152,7 @@ export async function bootstrap(): Promise<void> {
 				session={session}
 				runtime={runtime}
 				guidedQuestions={guidedQuestions}
+				pager={pager}
 				updateTerminalTitle={updateTerminalTitle}
 			/>
 		),

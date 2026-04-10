@@ -1,4 +1,5 @@
 import type { GuidedQuestionsController } from "../features/guided-questions";
+import type { PagerController } from "../features/pager";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { LoadedSettings } from "../settings";
@@ -11,6 +12,7 @@ export type AppProps = {
 	session: Session | null;
 	runtime: AgentRuntime;
 	guidedQuestions: GuidedQuestionsController;
+	pager: PagerController;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 };
 
@@ -24,6 +26,7 @@ export function App(props: AppProps) {
 	const controller = createComposerController({
 		runtime: props.runtime,
 		guidedQuestions: props.guidedQuestions,
+		pager: props.pager,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
 	});
@@ -32,6 +35,10 @@ export function App(props: AppProps) {
 		if (event.type === "session_changed") {
 			props.updateTerminalTitle((event.session as Session).name, process.cwd());
 		}
+		// Auto-open the pager when a long structured response arrives.
+		if (event.type === "turn_complete" && !props.pager.active) {
+			props.pager.tryActivate(props.runtime.getMessages());
+		}
 	});
 
 	return (
@@ -39,6 +46,7 @@ export function App(props: AppProps) {
 			state={app.state}
 			controller={controller}
 			guidedQuestions={props.guidedQuestions}
+			pager={props.pager}
 			dismissToast={app.dismissToast}
 		/>
 	);

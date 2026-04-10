@@ -5,8 +5,9 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
-import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { type PagerSection, splitSections } from "./split-sections";
+
+const LONGFORM_MIN_CHARS = 100;
 
 function extractAssistantText(msg: AgentMessage): string {
 	const content: unknown = (msg as { content?: unknown }).content;
@@ -33,7 +34,10 @@ function formatFeedbackMessage(
 	sections.forEach((section, idx) => {
 		const note = notes.get(idx)?.trim();
 		if (!note) return;
-		blocks.push(`## ${section.title}\n${note}`);
+		const label = section.sectionTitle
+			? `${section.sectionTitle}: ${section.title}`
+			: section.title;
+		blocks.push(`## ${label}\n${note}`);
 	});
 
 	if (blocks.length === 0) return null;
@@ -47,11 +51,12 @@ function formatFeedbackMessage(
 	].join("\n");
 }
 
-export function createPagerController(runtime: AgentRuntime) {
+export function createPagerController() {
 	const [sections, setSections] = createSignal<PagerSection[]>([]);
 	const [currentIndex, setCurrentIndex] = createSignal(0);
 	const [notes, setNotes] = createSignal<Map<number, string>>(new Map());
 	const [active, setActive] = createSignal(false);
+	const [title, setTitle] = createSignal("");
 
 	const currentSection = createMemo(() => {
 		const s = sections();
@@ -59,23 +64,56 @@ export function createPagerController(runtime: AgentRuntime) {
 		return idx >= 0 && idx < s.length ? s[idx] : null;
 	});
 
+	// Resolves the Promise returned by activateWithContent when the pager closes.
+	let pendingClose: (() => void) | null = null;
+
+	// Wired after runtime is created to avoid a circular dependency.
+	let submitMessageFn: ((message: string) => Promise<void>) | null = null;
+
+	function setSubmitCallback(fn: (message: string) => Promise<void>) {
+		submitMessageFn = fn;
+	}
+
+	/**
+	 * Activate the pager with arbitrary markdown content.
+	 * Returns a Promise that resolves when the user closes the pager —
+	 * use this from agent tools so the tool awaits user interaction.
+	 */
+	function activateWithContent(
+		text: string,
+		pageTitle?: string,
+	): Promise<void> {
+		const result = splitSections(text);
+		if (result.length === 0) return Promise.resolve();
+
+		setSections(result);
+		setTitle(pageTitle ?? result[0]?.title ?? "");
+		setCurrentIndex(0);
+		setNotes(new Map());
+		setActive(true);
+
+		return new Promise<void>((resolve) => {
+			pendingClose = resolve;
+		});
+	}
+
 	/**
 	 * Try to activate the pager for the last assistant message.
 	 * Returns true if the pager was activated.
 	 */
 	function tryActivate(messages: AgentMessage[]): boolean {
-		// Find last assistant message
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const msg = messages[i];
 			if (msg.role !== "assistant") continue;
 
 			const text = extractAssistantText(msg);
-			if (!text) break;
+			if (!text || text.length < LONGFORM_MIN_CHARS) break;
 
 			const result = splitSections(text);
 			if (result.length < 2) break;
 
 			setSections(result);
+			setTitle(result[0]?.title ?? "");
 			setCurrentIndex(0);
 			setNotes(new Map());
 			setActive(true);
@@ -84,7 +122,7 @@ export function createPagerController(runtime: AgentRuntime) {
 		return false;
 	}
 
-	// Scroll delegate — PagerView binds its scrollbox ref here
+	// Scroll delegate — PagerModal binds its scrollbox ref here.
 	let scrollDelegate: { scrollBy: (delta: number) => void } | null = null;
 
 	function setScrollDelegate(
@@ -106,20 +144,20 @@ export function createPagerController(runtime: AgentRuntime) {
 		setSections([]);
 		setNotes(new Map());
 		setCurrentIndex(0);
+		setTitle("");
 		scrollDelegate = null;
+		const resolve = pendingClose;
+		pendingClose = null;
+		resolve?.();
 	}
 
 	function nextSection() {
 		const max = sections().length - 1;
-		if (currentIndex() < max) {
-			setCurrentIndex(currentIndex() + 1);
-		}
+		if (currentIndex() < max) setCurrentIndex(currentIndex() + 1);
 	}
 
 	function prevSection() {
-		if (currentIndex() > 0) {
-			setCurrentIndex(currentIndex() - 1);
-		}
+		if (currentIndex() > 0) setCurrentIndex(currentIndex() - 1);
 	}
 
 	function setNote(index: number, text: string) {
@@ -146,16 +184,19 @@ export function createPagerController(runtime: AgentRuntime) {
 	 */
 	async function submitFeedback(): Promise<boolean> {
 		const message = formatFeedbackMessage(sections(), notes());
-		if (!message) return false;
+		if (!message || !submitMessageFn) return false;
 
 		close();
-		await runtime.submitUserMessage(message);
+		await submitMessageFn(message);
 		return true;
 	}
 
 	return {
 		get active() {
 			return active();
+		},
+		get title() {
+			return title();
 		},
 		get sections() {
 			return sections();
@@ -170,6 +211,8 @@ export function createPagerController(runtime: AgentRuntime) {
 			return notes();
 		},
 		getNoteCount,
+		setSubmitCallback,
+		activateWithContent,
 		tryActivate,
 		close,
 		nextSection,
