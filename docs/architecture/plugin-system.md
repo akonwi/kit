@@ -22,15 +22,16 @@ declare components that the host renders on their behalf. Instead, they call
 **imperative async UI operations** through `ctx.ui`:
 
 ```ts
-const choice = await ctx.ui.select("Pick a session", options);
-const name = await ctx.ui.input("New name", current);
-const ok = await ctx.ui.confirm("Delete?", "This cannot be undone.");
 ctx.ui.notify("Done!", "info");
-
 await ctx.ui.custom(({ done }) => <PagerContent onClose={done} />);
 ```
 
 The plugin's async control flow is the UI flow.
+
+For the initial implementation, we should keep the surface intentionally small:
+`ui.notify()` and `ui.custom()`. Pi-style helpers like `select`, `input`,
+`confirm`, `setStatus`, `setFooter`, and `setWidget` are good future targets,
+but should be deferred until we have explicit use cases.
 
 ## Core concepts
 
@@ -100,18 +101,24 @@ The app-provided UI surface. All methods go through here so the app controls
 how each operation is rendered without the plugin needing to know about shell
 internals.
 
+Initial scope:
+
 ```ts
 interface PluginUI {
-  select(title: string, options: string[]): Promise<string | undefined>;
-  confirm(title: string, message: string): Promise<boolean>;
-  input(title: string, placeholder?: string): Promise<string | undefined>;
   notify(message: string, type?: "info" | "warning" | "error"): void;
   custom<T>(
     component: (props: { done: (result: T) => void }) => JSX.Element,
   ): Promise<T>;
-  setStatus(key: string, text: string | undefined): void;
 }
 ```
+
+Deferred until explicit use cases exist:
+
+- `select(...)`
+- `input(...)`
+- `confirm(...)`
+- `setStatus(...)`
+- footer/header/widget customization APIs
 
 ### `CommandRegistry`
 
@@ -326,26 +333,36 @@ registration, and event emission (`turns_changed`, `status_changed`,
 
 ## Settings integration
 
-Plugins are opt-out via settings:
+Plugins should eventually be opt-out via settings, but we should defer the
+exact settings schema until we reach that phase of the refactor. The structure
+should be designed together with the actual enable/disable implementation,
+not prematurely locked in now.
 
-```json
-{
-  "plugins": {
-    "notifications": true,
-    "pager": true,
-    "guided-questions": true,
-    "session-naming": true
-  }
-}
-```
+At that stage we will decide:
 
-Bootstrap reads this and skips instantiating disabled plugins.
+- where plugin settings live in `settings.json`
+- whether the model is simple booleans or nested plugin-specific config
+- whether plugin enable/disable is boot-time only or runtime-reactive
+
+## Deferred UI capabilities
+
+These are explicitly out of scope for the first pass, but worth keeping in mind
+for a future Pi-like UI surface:
+
+- `ui.select(...)`
+- `ui.input(...)`
+- `ui.confirm(...)`
+- `ui.setStatus(...)`
+- customizable header/footer APIs
+- widget/slot APIs above or below the composer
+
+These should be added only when we have concrete feature needs.
 
 ## Rollout order
 
 1. **`CommandRegistry`** — additive, no breakage. Replace static `COMMANDS` array.
 2. **Extract notifications** — remove notification logic from `AgentRuntime`, create `NotificationsPlugin`.
-3. **Introduce `Plugin`, `PluginContext`, and `PluginUI`** — formalize the plugin lifecycle and `ctx.ui` surface.
+3. **Introduce `Plugin`, `PluginContext`, and minimal `PluginUI`** — formalize the plugin lifecycle and `ctx.ui` surface with just `notify()` and `custom()`.
 4. **Add overlay stack + `ui.custom()`** — centralize modal rendering in the app shell.
 5. **Migrate pager → `PagerPlugin`** — replace pager-specific app wiring with `ui.custom()`.
 6. **Migrate guided-questions → `GuidedQuestionsPlugin`** — replace guided-questions app wiring with `ui.custom()`.
