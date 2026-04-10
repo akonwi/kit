@@ -11,17 +11,17 @@ export class PluginManager {
 		private readonly ctx: PluginContext,
 	) {}
 
-	async initialize(): Promise<void> {
+	initialize(): void {
 		for (const PluginClass of this.pluginClasses) {
 			const plugin = new PluginClass(this.ctx);
 			this.plugins.push(plugin);
-			await plugin.initialize();
+			plugin.initialize();
 		}
 	}
 
-	async dispose(): Promise<void> {
+	dispose(): void {
 		for (const plugin of [...this.plugins].reverse()) {
-			await plugin.dispose();
+			plugin.dispose();
 		}
 		this.plugins.length = 0;
 	}

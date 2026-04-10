@@ -5,7 +5,6 @@ import {
 	createCommandRegistry,
 } from "../features/commands";
 import type { GuidedQuestionsController } from "../features/guided-questions";
-import type { PagerController } from "../features/pager";
 import {
 	BUILT_IN_PLUGIN_CLASSES,
 	PluginManager,
@@ -24,7 +23,6 @@ export type AppProps = {
 	session: Session | null;
 	runtime: AgentRuntime;
 	guidedQuestions: GuidedQuestionsController;
-	pager: PagerController;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 };
 
@@ -58,15 +56,14 @@ export function App(props: AppProps) {
 		settings: props.settings,
 		ui,
 	});
-	void pluginManager.initialize();
+	pluginManager.initialize();
 	onCleanup(() => {
-		void pluginManager.dispose();
+		pluginManager.dispose();
 	});
 
 	const controller = createComposerController({
 		runtime: props.runtime,
 		guidedQuestions: props.guidedQuestions,
-		pager: props.pager,
 		commands,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
@@ -76,10 +73,6 @@ export function App(props: AppProps) {
 		if (event.type === "session_changed") {
 			props.updateTerminalTitle((event.session as Session).name, process.cwd());
 		}
-		// Auto-open the pager when a long structured response arrives.
-		if (event.type === "turn_complete" && !props.pager.active) {
-			props.pager.tryActivate(props.runtime.getMessages());
-		}
 	});
 
 	return (
@@ -87,7 +80,6 @@ export function App(props: AppProps) {
 			state={app.state}
 			controller={controller}
 			guidedQuestions={props.guidedQuestions}
-			pager={props.pager}
 			overlays={overlays}
 			dismissToast={app.dismissToast}
 		/>

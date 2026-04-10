@@ -7,7 +7,6 @@ import { loginCommand } from "./login";
 import { modelCommand } from "./model";
 import { nameCommand } from "./name";
 import { newCommand } from "./new";
-import { pagerCommand } from "./pager";
 import { quitCommand } from "./quit";
 import { sessionCommand } from "./session";
 import { sessionsManageCommand } from "./sessions-manage";
@@ -25,6 +24,5 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	sessionCommand,
 	sessionsManageCommand,
 	thinkingCommand,
-	pagerCommand,
 	quitCommand,
 ];

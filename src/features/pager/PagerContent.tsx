@@ -1,14 +1,15 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
-import type { PagerController } from "../features/pager";
-import { syntaxStyle, theme } from "./theme";
+import { syntaxStyle, theme } from "../../shell/theme";
+import type { PagerController } from "./pager-controller";
 
-export type PagerModalProps = {
+export type PagerContentProps = {
 	pager: PagerController;
+	onClose: () => void;
 };
 
-export function PagerModal(props: PagerModalProps) {
+export function PagerContent(props: PagerContentProps) {
 	const pager = props.pager;
 
 	// Local UI state
@@ -65,6 +66,7 @@ export function PagerModal(props: PagerModalProps) {
 	async function handleSubmit() {
 		saveNote();
 		await pager.submitFeedback();
+		props.onClose();
 	}
 
 	// Global keyboard handler (navigate mode + edit-mode escape/submit)
@@ -86,6 +88,7 @@ export function PagerModal(props: PagerModalProps) {
 		if (e.name === "escape" || e.name === "q") {
 			e.preventDefault();
 			pager.close();
+			props.onClose();
 			return;
 		}
 		if (e.name === "n" || e.name === "i") {

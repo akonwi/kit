@@ -6,7 +6,7 @@ export abstract class Plugin {
 
 	constructor(protected readonly ctx: PluginContext) {}
 
-	async initialize(): Promise<void> {}
+	initialize(): void {}
 
 	protected subscribeRuntime(
 		handler: (event: AgentRuntimeEvent) => void | Promise<void>,
@@ -28,7 +28,7 @@ export abstract class Plugin {
 		this.disposers.push(disposer);
 	}
 
-	async dispose(): Promise<void> {
+	dispose(): void {
 		for (const disposer of this.disposers.splice(0).reverse()) {
 			disposer();
 		}
