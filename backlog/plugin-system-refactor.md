@@ -159,6 +159,9 @@ Not part of the first refactor pass.
 - [ ] customizable header/footer APIs
 - [ ] widget/slot APIs above or below the composer
 - [ ] richer plugin-owned shell surfaces
+- [ ] Update `src/runtime/kit-agent.ts` to support unregistering specific tools
+      (currently tools are added via `setTools()` which replaces all; need per-tool
+      add/remove for dynamic plugin tool lifecycle)
 
 ## Definition of done
 

@@ -1,6 +1,5 @@
 import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
-import type { GuidedQuestionsController } from "../features/guided-questions";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { PaletteContext } from "../state/palette";
@@ -18,14 +17,13 @@ export type TextareaHandle = {
 
 export type ComposerControllerDeps = {
 	runtime: AgentRuntime;
-	guidedQuestions: GuidedQuestionsController;
 	commands: CommandRegistry;
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, guidedQuestions, commands, fileIndex, threadIndex } = deps;
+	const { runtime, commands, fileIndex, threadIndex } = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -69,7 +67,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 					cmd.execute({
 						runtime,
 						palette,
-						guidedQuestions,
 						args: currentArgs,
 					});
 				},
@@ -233,7 +230,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			await slashCommand.command.execute({
 				runtime,
 				palette,
-				guidedQuestions,
 				args: slashCommand.args,
 			});
 			return;

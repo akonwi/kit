@@ -368,6 +368,14 @@ export class AgentRuntime {
 		this.agent.abort();
 	}
 
+	addTool(tool: AgentTool): void {
+		this.extraTools.push(tool);
+		this.agent.setTools([
+			...createDefaultTools(this.session.cwd),
+			...this.extraTools,
+		]);
+	}
+
 	sendFollowUp(text: string): void {
 		const msg: UserMessage = {
 			role: "user",

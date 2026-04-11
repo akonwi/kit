@@ -1,4 +1,5 @@
 import { Plugin } from "../../plugins/Plugin";
+import type { CommandContext } from "../commands/types";
 import { PagerContent } from "./PagerContent";
 import {
 	createPagerController,
@@ -12,9 +13,9 @@ export class PagerPlugin extends Plugin {
 
 	override initialize(): void {
 		// Wire pager feedback submission to runtime
-		this.pager.setSubmitCallback((msg) =>
-			this.ctx.runtime.submitUserMessage(msg),
-		);
+		this.pager.setSubmitCallback(async (msg) => {
+			await this.ctx.runtime.submitUserMessage(msg);
+		});
 
 		// Auto-activate pager on turn_complete if the assistant response is long
 		this.subscribeRuntime(async (event) => {
@@ -30,12 +31,12 @@ export class PagerPlugin extends Plugin {
 		this.registerCommand({
 			name: "pager",
 			description: "Open pager for last assistant response, or close if open",
-			execute: async () => {
+			execute: async (ctx: CommandContext) => {
 				if (this.pager.active) {
 					this.pager.close();
 					return;
 				}
-				if (!this.pager.tryActivate(this.ctx.runtime.getMessages())) {
+				if (!this.pager.tryActivate(ctx.runtime.getMessages())) {
 					this.ctx.ui.notify(
 						"No long assistant response to paginate.",
 						"warning",

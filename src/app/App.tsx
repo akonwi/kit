@@ -4,13 +4,13 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import type { GuidedQuestionsController } from "../features/guided-questions";
+import { GUIDED_QUESTIONS_POLICY } from "../features/guided-questions";
 import {
 	BUILT_IN_PLUGIN_CLASSES,
 	PluginManager,
 	type PluginUI,
 } from "../plugins";
-import type { AgentRuntime } from "../runtime/agent-runtime";
+import { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { LoadedSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
@@ -20,27 +20,26 @@ import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
 
 export type AppProps = {
 	settings: LoadedSettings;
-	session: Session | null;
-	runtime: AgentRuntime;
-	guidedQuestions: GuidedQuestionsController;
+	session: Session;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 };
 
 export function App(props: AppProps) {
-	const app = createAppState(
-		props.settings,
-		props.runtime.getSession(),
-		props.runtime,
-	);
-
 	const [overlays, setOverlays] = createSignal<OverlayEntry[]>([]);
 
+	// Toast handler - will be connected after app state is created
+	let showToast:
+		| ((toast: {
+				title: string;
+				lines: string[];
+				variant: "info" | "error";
+		  }) => void)
+		| null = null;
+
+	// Create UI for plugins
 	const ui: PluginUI = {
-		notify: (
-			message: string,
-			variant: "info" | "warning" | "error" = "info",
-		) => {
-			app.showToast({
+		notify: (message, variant = "info") => {
+			showToast?.({
 				title: message,
 				lines: [],
 				variant: variant === "warning" ? "info" : variant,
@@ -49,27 +48,43 @@ export function App(props: AppProps) {
 		custom: createCustomOverlayHandler(setOverlays),
 	};
 
+	// Create command registry
 	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
+
+	// Create runtime first (plugins need it)
+	const runtime = new AgentRuntime(props.session, {
+		extraTools: [], // Plugins will add tools via registerTool()
+		systemPromptAdditions: [GUIDED_QUESTIONS_POLICY],
+	});
+
+	// Create plugin manager and initialize plugins
 	const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {
-		runtime: props.runtime,
+		runtime,
 		commands,
 		settings: props.settings,
 		ui,
 	});
 	pluginManager.initialize();
+
+	// Create app state (provides showToast implementation)
+	const app = createAppState(props.settings, props.session, runtime);
+	showToast = app.showToast;
+
 	onCleanup(() => {
 		pluginManager.dispose();
+		runtime.dispose();
 	});
 
+	// Create composer controller
 	const controller = createComposerController({
-		runtime: props.runtime,
-		guidedQuestions: props.guidedQuestions,
+		runtime,
 		commands,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
 	});
 
-	props.runtime.subscribe((event) => {
+	// Update terminal title on session change
+	runtime.subscribe((event) => {
 		if (event.type === "session_changed") {
 			props.updateTerminalTitle((event.session as Session).name, process.cwd());
 		}
@@ -79,7 +94,6 @@ export function App(props: AppProps) {
 		<AppShell
 			state={app.state}
 			controller={controller}
-			guidedQuestions={props.guidedQuestions}
 			overlays={overlays}
 			dismissToast={app.dismissToast}
 		/>

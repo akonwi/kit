@@ -1,3 +1,5 @@
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { Command } from "../features/commands/types";
 import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { PluginContext } from "./types";
 
@@ -17,11 +19,15 @@ export abstract class Plugin {
 		this.disposers.push(unsubscribe);
 	}
 
-	protected registerCommand(
-		command: Parameters<PluginContext["commands"]["register"]>[0],
-	): void {
+	protected registerCommand(command: Command): void {
 		const unregister = this.ctx.commands.register(command);
 		this.disposers.push(unregister);
+	}
+
+	protected registerTool(tool: AgentTool<any>): void {
+		this.ctx.runtime.addTool(tool);
+		// Note: tools registered this way persist for the session lifetime
+		// If unregistration is needed, we'd need a different mechanism
 	}
 
 	protected addDisposer(disposer: () => void): void {

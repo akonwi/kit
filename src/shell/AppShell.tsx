@@ -1,12 +1,10 @@
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
 import type { OverlayEntry } from "../app/overlay-ui";
-import type { GuidedQuestionsController } from "../features/guided-questions";
 import type { AppState } from "../state/app-state";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
-import { GuidedQuestionsModal } from "./GuidedQuestionsModal";
 import { InlinePicker } from "./InlinePicker";
 import { Modal } from "./Modal";
 import { PendingSlot } from "./PendingSlot";
@@ -20,7 +18,6 @@ const STATUS_BAR_HEIGHT = 1;
 export type AppShellProps = {
 	state: AppState;
 	controller: ComposerController;
-	guidedQuestions: GuidedQuestionsController;
 	overlays: () => OverlayEntry[];
 	dismissToast: (id: number) => void;
 };
@@ -50,7 +47,7 @@ export function AppShell(props: AppShellProps) {
 					gitBranch={props.state.footerStatus.gitBranch}
 					gitDirty={props.state.footerStatus.gitDirty}
 					controller={props.controller}
-					locked={props.guidedQuestions.active || props.overlays().length > 0}
+					locked={props.overlays().length > 0}
 					onHeightChange={setDockHeight}
 				/>
 				<BottomStatusBar status={props.state.footerStatus} />
@@ -68,10 +65,6 @@ export function AppShell(props: AppShellProps) {
 			/>
 
 			<Modal palette={props.controller.palette} />
-			<GuidedQuestionsModal
-				guidedQuestions={props.guidedQuestions}
-				bottomInset={dockHeight() + STATUS_BAR_HEIGHT + 1}
-			/>
 			<Show when={props.overlays().length > 0}>
 				<For each={props.overlays()}>
 					{(entry) =>

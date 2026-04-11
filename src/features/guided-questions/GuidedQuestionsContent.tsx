@@ -1,15 +1,15 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
-import type { GuidedQuestionsController } from "../features/guided-questions";
-import { theme } from "./theme";
+import { theme } from "../../shell/theme";
+import type { GuidedQuestionsController } from "./controller";
 
-export type GuidedQuestionsModalProps = {
+export type GuidedQuestionsContentProps = {
 	guidedQuestions: GuidedQuestionsController;
-	bottomInset?: number;
+	onClose: () => void;
 };
 
-export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
+export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 	const g = props.guidedQuestions;
 	const [textValue, setTextValue] = createSignal("");
 	let textareaRef:
@@ -20,6 +20,7 @@ export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
 		if (!g.active) {
 			setTextValue("");
 			textareaRef = undefined;
+			props.onClose();
 			return;
 		}
 
@@ -46,7 +47,10 @@ export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
 		if (e.name === "escape") {
 			e.preventDefault();
 			if (g.mode === "otherText") g.escapeTextMode();
-			else g.cancel();
+			else {
+				g.cancel();
+				props.onClose();
+			}
 			return;
 		}
 
@@ -136,7 +140,7 @@ export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
 				position="absolute"
 				left={0}
 				top={0}
-				bottom={props.bottomInset ?? 0}
+				bottom={0}
 				width="100%"
 				justifyContent="center"
 				alignItems="center"
@@ -166,9 +170,9 @@ export function GuidedQuestionsModal(props: GuidedQuestionsModalProps) {
 
 					<Show when={g.currentQuestion}>
 						<box flexDirection="column" gap={0}>
-							<text fg={theme.textPrimary}>{g.currentQuestion!.label}</text>
-							<Show when={g.currentQuestion!.help}>
-								<text fg={theme.textMuted}>{g.currentQuestion!.help}</text>
+							<text fg={theme.textPrimary}>{g.currentQuestion?.label}</text>
+							<Show when={g.currentQuestion?.help}>
+								<text fg={theme.textMuted}>{g.currentQuestion?.help}</text>
 							</Show>
 						</box>
 					</Show>
