@@ -1,6 +1,6 @@
-// @ts-nocheck — disabled pending rewrite
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import { completeSimple } from "@mariozechner/pi-ai";
+import { type Api, completeSimple, type Model } from "@mariozechner/pi-ai";
+import { getApiKey } from "../../auth";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
@@ -86,15 +86,14 @@ async function generateTitleWithCurrentModel(
 	runtime: AgentRuntime,
 	prompt: string,
 ): Promise<string> {
-	const agentSession = runtime.getAgentSession();
-	const model = agentSession.model;
+	const model = runtime.getCurrentModel();
 	if (!model) return "";
 
-	const apiKey = await agentSession.modelRegistry.getApiKey(model);
+	const apiKey = await getApiKey(model.provider);
 	if (!apiKey) return "";
 
 	const response = await completeSimple(
-		model,
+		model as Model<Api>,
 		{
 			messages: [
 				{
@@ -127,9 +126,9 @@ export async function maybeAutoNameSession(
 	if (lastAssistantFailed(messages)) return;
 
 	const session = runtime.getSession();
-	const sessionId = session.sessionId;
+	const sessionId = session.id;
 	if (!sessionId) return;
-	if (session.sessionName?.trim()) return;
+	if (session.name?.trim()) return;
 
 	const now = Date.now();
 	const lastAttempt = lastAutoTitleAttemptBySession.get(sessionId) || 0;
@@ -162,8 +161,8 @@ export async function maybeAutoNameSession(
 		if (!title) return;
 
 		const currentSession = runtime.getSession();
-		if (currentSession.sessionId !== sessionId) return;
-		if (currentSession.sessionName?.trim()) return;
+		if (currentSession.id !== sessionId) return;
+		if (currentSession.name?.trim()) return;
 
 		runtime.setSessionName(title);
 	} catch {

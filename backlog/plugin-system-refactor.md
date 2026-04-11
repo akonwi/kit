@@ -116,11 +116,12 @@ Refactor the app toward a class-based plugin architecture with:
 
 ## Phase 7 — SessionNamingPlugin
 
-- [ ] Create `src/plugins/SessionNamingPlugin.ts`
-- [ ] Subscribe to `turn_complete`
-- [ ] Call `maybeAutoNameSession(...)`
-- [ ] Fix or isolate remaining type issues in `auto-name.ts`
-- [ ] Make it easy to disable later through settings
+- [x] Create `src/features/session-naming/index.tsx` (consolidated SessionNamingPlugin)
+- [x] Subscribe to `turn_complete`
+- [x] Call `maybeAutoNameSession(...)`
+- [x] Fix type issues in `auto-name.ts` (removed @ts-nocheck, fixed Session and Model types)
+- [x] Add `getCurrentModel()` to AgentRuntime
+- [ ] Make it easy to disable later through settings (deferred to Phase 9)
 
 ## Phase 8 — Shell/app cleanup
 

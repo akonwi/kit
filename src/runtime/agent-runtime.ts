@@ -528,6 +528,10 @@ export class AgentRuntime {
 		return this.agent.state.model?.id;
 	}
 
+	getCurrentModel(): Model<Api> | undefined {
+		return this.agent.state.model;
+	}
+
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
