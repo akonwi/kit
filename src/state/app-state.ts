@@ -1,12 +1,11 @@
 import { homedir } from "node:os";
 import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
-import { loadNotificationConfigSync } from "../features/notifications/notification-config";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { Turn } from "../session/types";
-import type { LoadedSettings } from "../settings";
+import type { LoadedSettings, Settings } from "../settings";
 
 export type PanelState = {
 	pending: boolean;
@@ -56,20 +55,31 @@ function formatCwd(rawCwd: string): string {
 	return rawCwd.startsWith(home) ? `~${rawCwd.slice(home.length)}` : rawCwd;
 }
 
+function resolveBellsEnabled(settings: Settings): boolean {
+	return settings.bells ?? true;
+}
+
+function resolveSpeechEnabled(settings: Settings): boolean {
+	const s = settings.speech;
+	if (typeof s === "boolean") return s;
+	if (s && typeof s === "object") return s.enabled ?? true;
+	return true;
+}
+
 function deriveFooterStatus(
 	runtime: AgentRuntime | null,
+	settings: Settings,
 ): Omit<FooterStatusState, "cwd"> {
 	if (runtime) {
 		const status = runtime.getStatus();
-		const notificationConfig = loadNotificationConfigSync();
 		return {
 			model: status.model,
 			thinkingLevel: status.thinkingLevel,
 			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 			gitBranch: status.git.branch,
 			gitDirty: status.git.dirty,
-			bellsEnabled: notificationConfig.bells.enabled,
-			speechEnabled: notificationConfig.speech.enabled,
+			bellsEnabled: resolveBellsEnabled(settings),
+			speechEnabled: resolveSpeechEnabled(settings),
 			pendingMessages: runtime.getPendingMessageCount(),
 		};
 	}
@@ -79,8 +89,8 @@ function deriveFooterStatus(
 		contextPct: "–",
 		gitBranch: null,
 		gitDirty: false,
-		bellsEnabled: true,
-		speechEnabled: true,
+		bellsEnabled: resolveBellsEnabled(settings),
+		speechEnabled: resolveSpeechEnabled(settings),
 		pendingMessages: 0,
 	};
 }
@@ -121,12 +131,12 @@ function buildSessionMeta(session: Session | null): SessionMeta {
 // ── App state factory ──────────────────────────────────────────────
 
 export function createAppState(
-	_settings: LoadedSettings,
+	loaded: LoadedSettings,
 	session: Session | null,
 	runtime: AgentRuntime | null,
 ) {
 	const turns = runtime ? runtime.getTurns() : [];
-	const footer = deriveFooterStatus(runtime);
+	const footer = deriveFooterStatus(runtime, loaded.settings);
 
 	const [state, setState] = createStore<AppState>({
 		turns,
@@ -195,12 +205,20 @@ export function createAppState(
 			case "pending_changed":
 				setState("footerStatus", "pendingMessages", event.count);
 				break;
+			case "settings_changed":
+				setState(
+					"footerStatus",
+					"bellsEnabled",
+					resolveBellsEnabled(event.settings),
+				);
+				setState(
+					"footerStatus",
+					"speechEnabled",
+					resolveSpeechEnabled(event.settings),
+				);
+				break;
 			case "pending_messages_changed":
 				setState("pendingMessages", event.messages);
-				break;
-			case "notification_config_changed":
-				setState("footerStatus", "bellsEnabled", event.config.bells.enabled);
-				setState("footerStatus", "speechEnabled", event.config.speech.enabled);
 				break;
 			case "tool_completed":
 				toolCompletionCount++;

@@ -1,22 +1,8 @@
 import { Plugin } from "../../plugins/Plugin";
 import type { AgentRuntimeEvent } from "../../runtime/agent-runtime";
 import type { Turn } from "../../session/types";
-import {
-	loadNotificationConfigSync,
-	loadNotificationConfig,
-	saveNotificationConfig,
-	saveNotificationConfigSync,
-	type NotificationConfig,
-} from "./notification-config";
+import { type Settings, saveSettings } from "../../settings";
 import { ringBell, speak } from "./notifications";
-
-export {
-	loadNotificationConfig,
-	loadNotificationConfigSync,
-	saveNotificationConfig,
-	saveNotificationConfigSync,
-};
-export type { NotificationConfig };
 
 function getLastAssistantText(messages: Turn["messages"]): string | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -43,12 +29,29 @@ function getLastAssistantText(messages: Turn["messages"]): string | null {
 	return null;
 }
 
-export class NotificationsPlugin extends Plugin {
-	private config: NotificationConfig;
+type ResolvedSpeech = {
+	enabled: boolean;
+	maxChars: number;
+	voice?: string;
+};
 
-	constructor(ctx: ConstructorParameters<typeof Plugin>[0]) {
-		super(ctx);
-		this.config = loadNotificationConfigSync();
+function resolveSpeechConfig(speech: Settings["speech"]): ResolvedSpeech {
+	if (typeof speech === "boolean") {
+		return { enabled: speech, maxChars: 220 };
+	}
+	if (speech && typeof speech === "object") {
+		return {
+			enabled: speech.enabled ?? true,
+			maxChars: speech.maxChars ?? 220,
+			...(speech.voice ? { voice: speech.voice } : {}),
+		};
+	}
+	return { enabled: true, maxChars: 220 };
+}
+
+export class NotificationsPlugin extends Plugin {
+	private getSettings(): Settings {
+		return this.ctx.settings.settings;
 	}
 
 	override initialize(): void {
@@ -64,7 +67,8 @@ export class NotificationsPlugin extends Plugin {
 			name: "bells",
 			description: "Toggle audible notification sounds on/off",
 			execute: async () => {
-				await this.toggleBells();
+				const bells = !this.getBells();
+				await this.saveSettings({ ...this.getSettings(), bells });
 			},
 		});
 
@@ -73,9 +77,27 @@ export class NotificationsPlugin extends Plugin {
 			name: "speech",
 			description: "Toggle the agent's speech notifications",
 			execute: async () => {
-				await this.toggleSpeech();
+				const speech = this.getSpeech();
+				await this.saveSettings({
+					...this.getSettings(),
+					speech: { ...speech, enabled: !speech.enabled },
+				});
 			},
 		});
+	}
+
+	private getBells(): boolean {
+		return this.getSettings().bells ?? true;
+	}
+
+	private getSpeech(): ResolvedSpeech {
+		return resolveSpeechConfig(this.getSettings().speech);
+	}
+
+	private async saveSettings(settings: Settings): Promise<void> {
+		await saveSettings(settings);
+		this.ctx.settings.settings = settings;
+		this.ctx.runtime.emitSettingsChanged(settings);
 	}
 
 	private notifyTurnComplete(turn: Turn | null): void {
@@ -84,44 +106,16 @@ export class NotificationsPlugin extends Plugin {
 			(message: { role: string; stopReason?: string }) =>
 				message.role === "assistant" && message.stopReason === "error",
 		);
-		ringBell(isError, this.config.bells.enabled);
+		ringBell(isError, this.getBells());
 
-		if (!this.config.speech.enabled) return;
+		const speech = this.getSpeech();
+		if (!speech.enabled) return;
 		const assistantText = getLastAssistantText(turn.messages);
 		if (!assistantText) return;
 		const sessionId = this.ctx.runtime.getSession().id;
 		speak(assistantText, sessionId, {
-			maxChars: this.config.speech.maxChars,
-			voice: this.config.speech.voice ?? undefined,
+			maxChars: speech.maxChars,
+			voice: speech.voice,
 		});
-	}
-
-	private async toggleBells(): Promise<boolean> {
-		this.config = {
-			...this.config,
-			bells: { enabled: !this.config.bells.enabled },
-		};
-		await saveNotificationConfig(this.config);
-		this.ctx.runtime.emitNotificationConfigChanged(this.config);
-		this.ctx.ui.notify(
-			this.config.bells.enabled ? "Bells enabled" : "Bells disabled",
-		);
-		return this.config.bells.enabled;
-	}
-
-	private async toggleSpeech(): Promise<boolean> {
-		this.config = {
-			...this.config,
-			speech: {
-				...this.config.speech,
-				enabled: !this.config.speech.enabled,
-			},
-		};
-		await saveNotificationConfig(this.config);
-		this.ctx.runtime.emitNotificationConfigChanged(this.config);
-		this.ctx.ui.notify(
-			this.config.speech.enabled ? "Speech enabled" : "Speech disabled",
-		);
-		return this.config.speech.enabled;
 	}
 }

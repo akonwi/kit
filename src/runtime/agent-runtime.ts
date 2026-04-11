@@ -20,7 +20,6 @@ import {
 	type ContextFile,
 	discoverContextFiles,
 } from "../context/agents";
-import type { NotificationConfig } from "../features/notifications/notification-config";
 import {
 	createSession,
 	deleteSession,
@@ -34,6 +33,7 @@ import {
 	writeSession,
 } from "../session";
 import type { Turn } from "../session/types";
+import type { Settings } from "../settings";
 import { createDefaultTools } from "../tools";
 import { compactSessionTurns, shouldAutoCompact } from "./compaction";
 import {
@@ -71,7 +71,7 @@ export type AgentRuntimeEvent =
 	| { type: "turn_complete"; turn: Turn | null }
 	| { type: "pending_changed"; count: number }
 	| { type: "pending_messages_changed"; messages: string[] }
-	| { type: "notification_config_changed"; config: NotificationConfig }
+	| { type: "settings_changed"; settings: Settings }
 	| { type: "error"; title: string; lines: string[] }
 	| { type: "info"; title: string; lines: string[] };
 
@@ -507,13 +507,6 @@ export class AgentRuntime {
 		await deleteSession(id);
 	}
 
-	emitNotificationConfigChanged(config: NotificationConfig): void {
-		this.emit({
-			type: "notification_config_changed",
-			config,
-		});
-	}
-
 	getStatus(): RuntimeStatus {
 		return this.snapshotStatus();
 	}
@@ -579,6 +572,10 @@ export class AgentRuntime {
 
 	emitInfo(title: string, lines: string[]): void {
 		this.emit({ type: "info", title, lines });
+	}
+
+	emitSettingsChanged(settings: Settings): void {
+		this.emit({ type: "settings_changed", settings });
 	}
 
 	onQuit(handler: () => void): void {

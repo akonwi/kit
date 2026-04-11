@@ -141,19 +141,11 @@ Refactor the app toward a class-based plugin architecture with:
 
 ## Phase 9 — Settings integration
 
-Do this when the actual plugin migration is far enough along to justify locking
-in the settings structure.
+Built-in plugins are core features - always enabled, no settings needed.
+Settings mechanism deferred until there are optional/user-installed plugins.
 
-- [ ] Design plugin settings structure in `settings.json`
-- [ ] Decide whether plugin config is:
-  - [ ] simple booleans
-  - [ ] nested plugin-specific config
-  - [ ] both
-- [ ] Decide whether enable/disable is:
-  - [ ] boot-time only
-  - [ ] runtime-reactive
-- [ ] Add default enabled plugin set
-- [ ] Gate plugin instantiation by settings
+- [x] Keep built-in plugins always enabled
+- [ ] Optional plugins with enable/disable (deferred until needed)
 
 ## Deferred / future
 

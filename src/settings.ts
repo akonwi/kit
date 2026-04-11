@@ -1,8 +1,68 @@
-import { readFile } from "node:fs/promises";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { getKitPaths, type KitPaths } from "./paths";
 
+export type Settings = {
+	/** Enable terminal bell on turn complete */
+	bells?: boolean;
+	/** Speech settings - can be a boolean or object with options */
+	speech?:
+		| boolean
+		| {
+				enabled?: boolean;
+				maxChars?: number;
+				voice?: string;
+		  };
+};
+
+const DEFAULTS: Settings = {
+	bells: true,
+	speech: { enabled: true, maxChars: 220 },
+};
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+	return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function defaultSpeechObject(): {
+	enabled: boolean;
+	maxChars: number;
+	voice?: string;
+} {
+	return { enabled: true, maxChars: 220 };
+}
+
+function sanitizeSettings(raw: unknown): Settings {
+	if (!isRecord(raw)) {
+		return { ...DEFAULTS };
+	}
+
+	const bells = typeof raw.bells === "boolean" ? raw.bells : DEFAULTS.bells;
+
+	let speech: Settings["speech"];
+	if (typeof raw.speech === "boolean") {
+		speech = raw.speech;
+	} else if (isRecord(raw.speech)) {
+		const rawSpeech = raw.speech;
+		speech = {
+			enabled:
+				typeof rawSpeech.enabled === "boolean" ? rawSpeech.enabled : true,
+			maxChars:
+				typeof rawSpeech.maxChars === "number" ? rawSpeech.maxChars : 220,
+			...(typeof rawSpeech.voice === "string"
+				? { voice: rawSpeech.voice }
+				: {}),
+		};
+	} else {
+		speech = defaultSpeechObject();
+	}
+
+	return { bells, speech };
+}
+
 export type LoadedSettings = {
-	values: Record<string, unknown>;
+	settings: Settings;
 	paths: KitPaths;
 };
 
@@ -11,12 +71,35 @@ export async function loadSettings(): Promise<LoadedSettings> {
 	try {
 		const content = await readFile(paths.settingsPath, "utf8");
 		const parsed = JSON.parse(content) as unknown;
-		const values =
-			parsed && typeof parsed === "object"
-				? (parsed as Record<string, unknown>)
-				: {};
-		return { values, paths };
+		const settings = sanitizeSettings(parsed);
+		return { settings, paths };
 	} catch {
-		return { values: {}, paths };
+		return { settings: { ...DEFAULTS }, paths };
 	}
+}
+
+export function loadSettingsSync(): LoadedSettings {
+	const paths = getKitPaths();
+	try {
+		const content = readFileSync(paths.settingsPath, "utf8");
+		const parsed = JSON.parse(content) as unknown;
+		const settings = sanitizeSettings(parsed);
+		return { settings, paths };
+	} catch {
+		return { settings: { ...DEFAULTS }, paths };
+	}
+}
+
+export async function saveSettings(settings: Settings): Promise<void> {
+	const paths = getKitPaths();
+	const dir = path.dirname(paths.settingsPath);
+	if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+	await writeFile(paths.settingsPath, JSON.stringify(settings, null, 2));
+}
+
+export function saveSettingsSync(settings: Settings): void {
+	const paths = getKitPaths();
+	const dir = path.dirname(paths.settingsPath);
+	if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+	writeFileSync(paths.settingsPath, JSON.stringify(settings, null, 2));
 }
