@@ -22,6 +22,7 @@ export type AppProps = {
 	settings: LoadedSettings;
 	session: Session;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
+	quitAndDestroy: () => void;
 };
 
 export function App(props: AppProps) {
@@ -69,6 +70,12 @@ export function App(props: AppProps) {
 	// Create app state (provides showToast implementation)
 	const app = createAppState(props.settings, props.session, runtime);
 	showToast = app.showToast;
+
+	runtime.onQuit(() => {
+		pluginManager.dispose();
+		runtime.dispose();
+		props.quitAndDestroy();
+	});
 
 	onCleanup(() => {
 		pluginManager.dispose();

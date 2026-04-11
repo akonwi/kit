@@ -129,6 +129,10 @@ export async function bootstrap(): Promise<void> {
 				settings={settings}
 				session={session}
 				updateTerminalTitle={updateTerminalTitle}
+				quitAndDestroy={() => {
+					// Called when app quits - renderer destruction happens here
+					renderer.destroy();
+				}}
 			/>
 		),
 		renderer,
