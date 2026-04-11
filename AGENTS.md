@@ -45,7 +45,7 @@ The goal is to build a custom coding-agent UX while preserving compatibility wit
 Before asking to commit, always:
 
 1. **`bun run typecheck`** — zero TypeScript errors required
-2. **`biome check --write .`** — auto-fix formatting and safe lint fixes
+2. **`bun run check`** — auto-fix formatting and safe lint fixes
 3. **Address remaining biome warnings** — fix or suppress with `// biome-ignore <rule>: <reason>`
    - `noExplicitAny`: replace with proper types where possible
    - `noNonNullAssertion`: prefer Solid child accessor pattern or type narrowing over `!`
