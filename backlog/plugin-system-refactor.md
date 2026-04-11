@@ -125,15 +125,19 @@ Refactor the app toward a class-based plugin architecture with:
 
 ## Phase 8 — Shell/app cleanup
 
-- [ ] Remove feature-specific modal imports from `AppShell`
-- [ ] Ensure `AppShell` only knows about:
-  - [ ] transcript
-  - [ ] composer
-  - [ ] picker
-  - [ ] toasts
-  - [ ] overlay stack
-- [ ] Reduce `App.tsx` to composition/bootstrap glue
+- [x] Remove feature-specific modal imports from `AppShell`
+- [x] Ensure `AppShell` only knows about:
+  - [x] transcript
+  - [x] composer
+  - [x] picker
+  - [x] toasts
+  - [x] overlay stack
+- [x] Reduce `App.tsx` to composition/bootstrap glue
 - [ ] Move remaining feature-specific subscriptions into plugins
+  - `session_changed` subscription for terminal title is core app behavior, kept in App
+- [ ] `GUIDED_QUESTIONS_POLICY` in systemPromptAdditions
+  - Deferred: would require runtime.addSystemPromptAddition() method
+  - Plugin's tool already includes promptGuidelines; policy adds extra context
 
 ## Phase 9 — Settings integration
 
