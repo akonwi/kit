@@ -14,11 +14,20 @@ export type Settings = {
 				maxChars?: number;
 				voice?: string;
 		  };
+	/** Auto-open the pager for long assistant responses */
+	pager?: boolean;
+	/** Expose the guided_questions tool to the agent */
+	guidedQuestions?: boolean;
+	/** Auto-generate a session title after the first couple of turns */
+	sessionNaming?: boolean;
 };
 
 const DEFAULTS: Settings = {
 	bells: true,
 	speech: { enabled: true, maxChars: 220 },
+	pager: true,
+	guidedQuestions: true,
+	sessionNaming: true,
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -39,6 +48,15 @@ function sanitizeSettings(raw: unknown): Settings {
 	}
 
 	const bells = typeof raw.bells === "boolean" ? raw.bells : DEFAULTS.bells;
+	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
+	const guidedQuestions =
+		typeof raw.guidedQuestions === "boolean"
+			? raw.guidedQuestions
+			: DEFAULTS.guidedQuestions;
+	const sessionNaming =
+		typeof raw.sessionNaming === "boolean"
+			? raw.sessionNaming
+			: DEFAULTS.sessionNaming;
 
 	let speech: Settings["speech"];
 	if (typeof raw.speech === "boolean") {
@@ -58,7 +76,7 @@ function sanitizeSettings(raw: unknown): Settings {
 		speech = defaultSpeechObject();
 	}
 
-	return { bells, speech };
+	return { bells, speech, pager, guidedQuestions, sessionNaming };
 }
 
 export type LoadedSettings = {

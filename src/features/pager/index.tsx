@@ -17,13 +17,14 @@ export class PagerPlugin extends Plugin {
 			await this.ctx.runtime.submitUserMessage(msg);
 		});
 
-		// Auto-activate pager on turn_complete if the assistant response is long
+		// Auto-activate pager on turn_complete if the assistant response is long.
+		// Respects the `pager` setting; `/pager` always works regardless.
 		this.subscribeRuntime(async (event) => {
-			if (event.type === "turn_complete") {
-				if (this.pager.active) return;
-				if (this.pager.tryActivate(this.ctx.runtime.getMessages())) {
-					await this.openPager();
-				}
+			if (event.type !== "turn_complete") return;
+			if (this.ctx.settings.settings.pager === false) return;
+			if (this.pager.active) return;
+			if (this.pager.tryActivate(this.ctx.runtime.getMessages())) {
+				await this.openPager();
 			}
 		});
 

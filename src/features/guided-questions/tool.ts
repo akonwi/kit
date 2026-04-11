@@ -57,6 +57,7 @@ const parameters = Type.Object({
 
 export function createGuidedQuestionsTool(
 	guidedQuestions: GuidedQuestionsController,
+	isEnabled: () => boolean = () => true,
 ) {
 	return {
 		name: "guided_questions",
@@ -82,6 +83,23 @@ export function createGuidedQuestionsTool(
 				intro: input.intro,
 				questions: (input.questions || []).map(normalizeQuestion),
 			};
+
+			if (!isEnabled()) {
+				return {
+					content: [
+						{
+							type: "text" as const,
+							text: "Guided questions are currently disabled by the user. Ask the clarifying questions directly in plain chat instead.",
+						},
+					],
+					details: {
+						disabled: true,
+						answers: {},
+						answeredCount: 0,
+						totalQuestions: params.questions.length,
+					},
+				};
+			}
 
 			const result = await guidedQuestions.activate(params);
 			const title =
