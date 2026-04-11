@@ -20,12 +20,7 @@ import {
 	type ContextFile,
 	discoverContextFiles,
 } from "../context/agents";
-import {
-	loadNotificationConfigSync,
-	type NotificationConfig,
-	saveNotificationConfig,
-} from "../features/notification-config";
-import { ringBell, speak } from "../features/notifications";
+import type { NotificationConfig } from "../features/notifications/notification-config";
 import {
 	createSession,
 	deleteSession,
@@ -91,19 +86,16 @@ export class AgentRuntime {
 	private pendingCount = 0;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
-	private notificationConfig: NotificationConfig;
 	private contextFiles: ContextFile[] = [];
 
 	constructor(
 		session: Session,
-		// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 		options?: {
-			extraTools?: AgentTool<any>[];
+			extraTools?: AgentTool<any>[]; // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection
 			systemPromptAdditions?: string[];
 		},
 	) {
 		this.session = session;
-		this.notificationConfig = loadNotificationConfigSync();
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
@@ -256,23 +248,6 @@ export class AgentRuntime {
 		}
 	}
 
-	private notifyTurnComplete(turn: Turn | null): void {
-		if (!turn) return;
-		const isError = turn.messages.some(
-			(message) =>
-				message.role === "assistant" && message.stopReason === "error",
-		);
-		ringBell(isError, this.notificationConfig.bells.enabled);
-
-		if (!this.notificationConfig.speech.enabled) return;
-		const assistantText = getLastAssistantText(turn.messages);
-		if (!assistantText) return;
-		speak(assistantText, this.session.id, {
-			maxChars: this.notificationConfig.speech.maxChars,
-			voice: this.notificationConfig.speech.voice ?? undefined,
-		});
-	}
-
 	private handleAgentEvent(event: AgentEvent) {
 		switch (event.type) {
 			case "agent_start":
@@ -341,7 +316,6 @@ export class AgentRuntime {
 							type: "turn_complete",
 							turn: completedTurn,
 						});
-						this.notifyTurnComplete(completedTurn);
 						this.syncPendingState();
 					})
 					.catch((error) => {
@@ -533,40 +507,11 @@ export class AgentRuntime {
 		await deleteSession(id);
 	}
 
-	getNotificationConfig(): NotificationConfig {
-		return {
-			bells: { ...this.notificationConfig.bells },
-			speech: { ...this.notificationConfig.speech },
-		};
-	}
-
-	async toggleBells(): Promise<boolean> {
-		this.notificationConfig = {
-			...this.notificationConfig,
-			bells: { enabled: !this.notificationConfig.bells.enabled },
-		};
-		await saveNotificationConfig(this.notificationConfig);
+	emitNotificationConfigChanged(config: NotificationConfig): void {
 		this.emit({
 			type: "notification_config_changed",
-			config: this.getNotificationConfig(),
+			config,
 		});
-		return this.notificationConfig.bells.enabled;
-	}
-
-	async toggleSpeech(): Promise<boolean> {
-		this.notificationConfig = {
-			...this.notificationConfig,
-			speech: {
-				...this.notificationConfig.speech,
-				enabled: !this.notificationConfig.speech.enabled,
-			},
-		};
-		await saveNotificationConfig(this.notificationConfig);
-		this.emit({
-			type: "notification_config_changed",
-			config: this.getNotificationConfig(),
-		});
-		return this.notificationConfig.speech.enabled;
 	}
 
 	getStatus(): RuntimeStatus {
@@ -650,20 +595,6 @@ export class AgentRuntime {
 		this.unsubscribeAgent = null;
 		this.listeners.clear();
 	}
-}
-
-function getLastAssistantText(messages: AgentMessage[]): string {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const message = messages[i];
-		if (message.role !== "assistant") continue;
-		const text = message.content
-			.filter((part) => part.type === "text")
-			.map((part) => part.text)
-			.join("\n")
-			.trim();
-		if (text) return text;
-	}
-	return "";
 }
 
 function getAuthenticatedProviders(): string[] {

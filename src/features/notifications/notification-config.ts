@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { getKitPaths } from "../paths";
+import { getKitPaths } from "../../paths";
 
 export type NotificationConfig = {
 	bells: { enabled: boolean };

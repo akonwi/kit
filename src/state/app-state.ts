@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
+import { loadNotificationConfigSync } from "../features/notifications/notification-config";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
 import type { Session } from "../session";
@@ -60,7 +61,7 @@ function deriveFooterStatus(
 ): Omit<FooterStatusState, "cwd"> {
 	if (runtime) {
 		const status = runtime.getStatus();
-		const notificationConfig = runtime.getNotificationConfig();
+		const notificationConfig = loadNotificationConfigSync();
 		return {
 			model: status.model,
 			thinkingLevel: status.thinkingLevel,

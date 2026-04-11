@@ -1,7 +1,6 @@
 export { type CommandRegistry, createCommandRegistry } from "./registry";
 export type { Command, CommandContext } from "./types";
 
-import { bellsCommand, speechCommand } from "./bells-speech";
 import { handoffCommand } from "./handoff";
 import { loginCommand } from "./login";
 import { modelCommand } from "./model";
@@ -14,8 +13,6 @@ import { thinkingCommand } from "./thinking";
 import type { Command } from "./types";
 
 export const BUILT_IN_COMMANDS: Command[] = [
-	bellsCommand,
-	speechCommand,
 	handoffCommand,
 	loginCommand,
 	modelCommand,

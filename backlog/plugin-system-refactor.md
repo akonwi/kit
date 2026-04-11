@@ -28,89 +28,91 @@ Refactor the app toward a class-based plugin architecture with:
 
 ## Phase 1 — CommandRegistry
 
-- [ ] Create `src/features/commands/registry.ts`
-- [ ] Add `register(command): unregister`
-- [ ] Add `getAll(): Command[]`
-- [ ] Update `composer-controller.ts` to read commands from the registry
-- [ ] Preserve alphabetical sorting in the picker
-- [ ] Register today's built-in commands through one path using the registry
-- [ ] Remove direct `COMMANDS` array reads from the composer flow
-- [ ] Verify slash commands still work
+- [x] Create `src/features/commands/registry.ts`
+- [x] Add `register(command): unregister`
+- [x] Add `getAll(): Command[]`
+- [x] Update `composer-controller.ts` to read commands from the registry
+- [x] Preserve alphabetical sorting in the picker
+- [x] Register today's built-in commands through one path using the registry
+- [x] Remove direct `COMMANDS` array reads from the composer flow
+- [x] Verify slash commands still work
 
 ## Phase 2 — Plugin base + PluginManager
 
-- [ ] Create `src/plugins/Plugin.ts`
-- [ ] Base class should include:
-  - [ ] `constructor(protected readonly ctx: PluginContext)`
-  - [ ] `initialize()`
-  - [ ] `dispose()`
-  - [ ] `subscribeRuntime(...)`
-  - [ ] `registerCommand(...)`
-  - [ ] `addDisposer(...)`
-- [ ] Create `src/plugins/types.ts`
-- [ ] Define `PluginContext` with:
-  - [ ] `runtime`
-  - [ ] `commands`
-  - [ ] `settings`
-  - [ ] `ui`
-- [ ] Create `src/plugins/PluginManager.ts`
-- [ ] Instantiate plugin classes and call `initialize()`
-- [ ] Dispose plugins in reverse order
-- [ ] Keep existing feature wiring intact for now
+- [x] Create `src/plugins/Plugin.ts`
+- [x] Base class should include:
+  - [x] `constructor(protected readonly ctx: PluginContext)`
+  - [x] `initialize()`
+  - [x] `dispose()`
+  - [x] `subscribeRuntime(...)`
+  - [x] `registerCommand(...)`
+  - [x] `addDisposer(...)`
+- [x] Create `src/plugins/types.ts`
+- [x] Define `PluginContext` with:
+  - [x] `runtime`
+  - [x] `commands`
+  - [x] `settings`
+  - [x] `ui`
+- [x] Create `src/plugins/PluginManager.ts`
+- [x] Instantiate plugin classes and call `initialize()`
+- [x] Dispose plugins in reverse order
+- [x] Keep existing feature wiring intact for now
 
 ## Phase 3 — Minimal PluginUI + overlay stack
 
-- [ ] Add app-level overlay stack state
-- [ ] Implement `ui.custom<T>(...) => Promise<T>`
-- [ ] Render top overlay in `AppShell`
-- [ ] Lock composer when overlay stack is non-empty
-- [ ] Implement `ui.notify(...)` backed by existing toast system
-- [ ] Define cancellation/close semantics for `ui.custom()`
-- [ ] Verify focus and cursor behavior while overlays are active
+- [x] Add app-level overlay stack state
+- [x] Implement `ui.custom<T>(...) => Promise<T>`
+- [x] Render top overlay in `AppShell`
+- [x] Lock composer when overlay stack is non-empty
+- [x] Implement `ui.notify(...)` backed by existing toast system
+- [x] Define cancellation/close semantics for `ui.custom()`
+- [x] Verify focus and cursor behavior while overlays are active
 
 ## Phase 4 — PagerPlugin
 
-- [ ] Create `src/plugins/PagerPlugin.ts`
-- [ ] Move pager controller ownership into the plugin
-- [ ] Register `/pager` via `registerCommand(...)`
-- [ ] Subscribe to `turn_complete` via `subscribeRuntime(...)`
-- [ ] Replace current pager modal wiring with `ui.custom()`
-- [ ] Remove pager-specific props/deps from:
-  - [ ] `App.tsx`
-  - [ ] `AppShell.tsx`
-  - [ ] `ComposerControllerDeps`
-  - [ ] `CommandContext`
-- [ ] Verify auto-open still works
-- [ ] Verify notes submission still works
+- [x] Create `src/features/pager/index.tsx` (consolidated PagerPlugin)
+- [x] Move pager controller ownership into the plugin
+- [x] Register `/pager` via `registerCommand(...)`
+- [x] Subscribe to `turn_complete` via `subscribeRuntime(...)`
+- [x] Replace current pager modal wiring with `ui.custom()`
+- [x] Remove pager-specific props/deps from:
+  - [x] `App.tsx`
+  - [x] `AppShell.tsx`
+  - [x] `ComposerControllerDeps`
+  - [x] `CommandContext`
+- [x] Verify auto-open still works
+- [x] Verify notes submission still works
 
 ## Phase 5 — GuidedQuestionsPlugin
 
-- [ ] Create `src/plugins/GuidedQuestionsPlugin.ts`
-- [ ] Move guided-questions controller ownership into the plugin
-- [ ] Register guided-questions tool from the plugin
-- [ ] Replace modal wiring with `ui.custom()`
-- [ ] Remove guided-questions-specific props/deps from:
-  - [ ] `bootstrap.tsx`
-  - [ ] `App.tsx`
-  - [ ] `AppShell.tsx`
-  - [ ] `ComposerControllerDeps`
-  - [ ] `CommandContext`
-- [ ] Preserve agent wait-for-user-answer behavior
+- [x] Create `src/features/guided-questions/index.tsx` (consolidated GuidedQuestionsPlugin)
+- [x] Move guided-questions controller ownership into the plugin
+- [x] Register guided-questions tool via `runtime.addTool()`
+- [x] Replace modal wiring with `ui.custom()`
+- [x] Remove guided-questions-specific props/deps from:
+  - [x] `bootstrap.tsx`
+  - [x] `App.tsx`
+  - [x] `AppShell.tsx`
+  - [x] `ComposerControllerDeps`
+  - [x] `CommandContext`
+- [x] Preserve agent wait-for-user-answer behavior
+- [x] Add `AgentRuntime.addTool()` for dynamic tool registration
 
 ## Phase 6 — NotificationsPlugin
 
-- [ ] Create `src/plugins/NotificationsPlugin.ts`
-- [ ] Move bell/speech turn-complete logic out of `AgentRuntime`
-- [ ] Move bell/speech commands into the plugin
-- [ ] Keep config storage in a plugin-owned module or reuse current config module
-- [ ] Remove from `AgentRuntime`:
-  - [ ] `notificationConfig` field
-  - [ ] `getNotificationConfig()`
-  - [ ] `toggleBells()`
-  - [ ] `toggleSpeech()`
-  - [ ] `notifyTurnComplete()`
-  - [ ] `notification_config_changed` event
-- [ ] Verify behavior remains unchanged
+- [x] Create `src/features/notifications/index.tsx` (consolidated NotificationsPlugin)
+- [x] Move bell/speech turn-complete logic out of `AgentRuntime`
+- [x] Move `/bells` and `/speech` commands into the plugin
+- [x] Keep config storage in `notification-config.ts` module
+- [x] Remove from `AgentRuntime`:
+  - [x] `notificationConfig` field
+  - [x] `getNotificationConfig()`
+  - [x] `toggleBells()`
+  - [x] `toggleSpeech()`
+  - [x] `notifyTurnComplete()`
+- [x] Add `emitNotificationConfigChanged()` to AgentRuntime for plugin events
+- [x] Remove `bellsCommand`/`speechCommand` from built-in commands
+- [x] Verify behavior remains unchanged
 
 ## Phase 7 — SessionNamingPlugin
 
