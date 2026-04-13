@@ -121,7 +121,7 @@ Refactor the app toward a class-based plugin architecture with:
 - [x] Call `maybeAutoNameSession(...)`
 - [x] Fix type issues in `auto-name.ts` (removed @ts-nocheck, fixed Session and Model types)
 - [x] Add `getCurrentModel()` to AgentRuntime
-- [ ] Make it easy to disable later through settings (deferred to Phase 9)
+- [x] Disable via `sessionNaming: false` setting
 
 ## Phase 8 — Shell/app cleanup
 
@@ -133,19 +133,26 @@ Refactor the app toward a class-based plugin architecture with:
   - [x] toasts
   - [x] overlay stack
 - [x] Reduce `App.tsx` to composition/bootstrap glue
-- [ ] Move remaining feature-specific subscriptions into plugins
-  - `session_changed` subscription for terminal title is core app behavior, kept in App
-- [ ] `GUIDED_QUESTIONS_POLICY` in systemPromptAdditions
-  - Deferred: would require runtime.addSystemPromptAddition() method
-  - Plugin's tool already includes promptGuidelines; policy adds extra context
+- [x] Move remaining feature-specific subscriptions into plugins
+  - `session_changed` subscription for terminal title is core app behavior, kept in App (wontfix)
+- [x] `GUIDED_QUESTIONS_POLICY` owned by GuidedQuestionsPlugin
+  - Added `AgentRuntime.addSystemPromptAddition()` + `Plugin.addSystemPromptAddition()` helper
+  - Plugin appends the policy in `initialize()`; `App.tsx` no longer imports it
 
 ## Phase 9 — Settings integration
 
-Built-in plugins are core features - always enabled, no settings needed.
-Settings mechanism deferred until there are optional/user-installed plugins.
+Built-in plugins are always instantiated as core features. The Settings schema
+does not gate plugin instantiation; instead it exposes per-feature booleans
+that each plugin reads live to toggle its behavior.
 
-- [x] Keep built-in plugins always enabled
-- [ ] Optional plugins with enable/disable (deferred until needed)
+- [x] Settings schema with per-feature booleans
+  - `bells`, `speech` (NotificationsPlugin — toggleable via `/bells` / `/speech`)
+  - `pager` (PagerPlugin auto-open — `/pager` command still works when off)
+  - `guidedQuestions` (tool execute() returns disabled response when off)
+  - `sessionNaming` (auto-name subscription bails when off)
+- [x] `saveSettings` + `runtime.emitSettingsChanged` for reactive updates
+- [x] `app-state` listens to `settings_changed` to keep the footer in sync
+- [ ] Optional / user-installed plugin registry (deferred until we have one)
 
 ## Deferred / future
 
@@ -158,16 +165,20 @@ Not part of the first refactor pass.
 - [ ] customizable header/footer APIs
 - [ ] widget/slot APIs above or below the composer
 - [ ] richer plugin-owned shell surfaces
+- [ ] Optional / user-installed plugin registry (enable/disable by settings,
+      discovery, etc.)
 - [ ] Update `src/runtime/kit-agent.ts` to support unregistering specific tools
       (currently tools are added via `setTools()` which replaces all; need per-tool
       add/remove for dynamic plugin tool lifecycle)
+- [ ] `AgentRuntime.removeSystemPromptAddition()` counterpart for dynamic
+      plugin lifecycle
 
 ## Definition of done
 
-- [ ] Built-in features are instantiated as plugins
-- [ ] Plugins receive runtime events through the base class helpers
-- [ ] Plugins invoke app-owned UI through `PluginUI`
-- [ ] `AppShell` contains no feature-specific modal wiring
-- [ ] `ComposerController` no longer carries feature controllers
-- [ ] `AgentRuntime` is focused on core agent/session responsibilities
-- [ ] Plugin settings structure is implemented intentionally, not prematurely
+- [x] Built-in features are instantiated as plugins
+- [x] Plugins receive runtime events through the base class helpers
+- [x] Plugins invoke app-owned UI through `PluginUI`
+- [x] `AppShell` contains no feature-specific modal wiring
+- [x] `ComposerController` no longer carries feature controllers
+- [x] `AgentRuntime` is focused on core agent/session responsibilities
+- [x] Plugin settings structure is implemented intentionally, not prematurely

@@ -26,8 +26,12 @@ export abstract class Plugin {
 
 	protected registerTool(tool: AgentTool<any>): void {
 		this.ctx.runtime.addTool(tool);
-		// Note: tools registered this way persist for the session lifetime
-		// If unregistration is needed, we'd need a different mechanism
+		// Note: tools registered this way persist for the session lifetime.
+		// If unregistration is needed, we'd need a different mechanism.
+	}
+
+	protected addSystemPromptAddition(text: string): void {
+		this.ctx.runtime.addSystemPromptAddition(text);
 	}
 
 	protected addDisposer(disposer: () => void): void {

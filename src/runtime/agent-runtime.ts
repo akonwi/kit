@@ -350,6 +350,18 @@ export class AgentRuntime {
 		]);
 	}
 
+	/**
+	 * Append text to the effective system prompt and propagate it to the agent.
+	 * Intended for plugins that own a feature-specific policy or tool guidelines
+	 * that should be part of the system prompt without being baked into `App.tsx`.
+	 */
+	addSystemPromptAddition(text: string): void {
+		const trimmed = text.trim();
+		if (!trimmed) return;
+		this.systemPromptAdditions.push(trimmed);
+		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+	}
+
 	sendFollowUp(text: string): void {
 		const msg: UserMessage = {
 			role: "user",

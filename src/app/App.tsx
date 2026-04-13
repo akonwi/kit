@@ -4,7 +4,6 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import { GUIDED_QUESTIONS_POLICY } from "../features/guided-questions";
 import {
 	BUILT_IN_PLUGIN_CLASSES,
 	PluginManager,
@@ -52,11 +51,9 @@ export function App(props: AppProps) {
 	// Create command registry
 	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
 
-	// Create runtime first (plugins need it)
-	const runtime = new AgentRuntime(props.session, {
-		extraTools: [], // Plugins will add tools via registerTool()
-		systemPromptAdditions: [GUIDED_QUESTIONS_POLICY],
-	});
+	// Create runtime first (plugins need it).
+	// Plugins add their own tools and system prompt additions in initialize().
+	const runtime = new AgentRuntime(props.session);
 
 	// Create plugin manager and initialize plugins
 	const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {
