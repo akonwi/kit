@@ -16,7 +16,6 @@ export type ComposerDockProps = {
 export function ComposerDock(props: ComposerDockProps) {
 	let dockRef: { width: number; height: number } | undefined;
 	const palette = props.controller.palette;
-	const pager = { active: false }; // TODO: restore pager
 
 	useKeyboard((e: KeyEvent) => {
 		if (props.locked) return;
@@ -41,7 +40,6 @@ export function ComposerDock(props: ComposerDockProps) {
 		// Escape — abort agent when composer is empty and agent is working
 		if (
 			e.name === "escape" &&
-			!pager.active &&
 			!palette.visible &&
 			!props.controller.getTextareaText().trim() &&
 			props.controller.isStreaming()
@@ -54,7 +52,6 @@ export function ComposerDock(props: ComposerDockProps) {
 		// Enter in empty composer while streaming with queued follow-ups — promote to steering
 		if (
 			(e.name === "return" || e.name === "enter") &&
-			!pager.active &&
 			!palette.visible &&
 			!props.controller.getTextareaText().trim() &&
 			props.controller.isStreaming() &&
@@ -68,7 +65,6 @@ export function ComposerDock(props: ComposerDockProps) {
 		// Up arrow in empty composer — restore queued follow-ups first, then recall last user message
 		if (
 			e.name === "up" &&
-			!pager.active &&
 			!palette.visible &&
 			!props.controller.getTextareaText().trim()
 		) {
@@ -121,7 +117,7 @@ export function ComposerDock(props: ComposerDockProps) {
 		<box
 			flexShrink={0}
 			ref={(value) => {
-				dockRef = value as typeof dockRef;
+				dockRef = value;
 			}}
 			onSizeChange={() => {
 				if (dockRef) props.onHeightChange?.(dockRef.height);

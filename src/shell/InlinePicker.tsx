@@ -106,14 +106,6 @@ export function InlinePicker(props: InlinePickerProps) {
 								value={palette().filterText}
 								onInput={(value: string) => props.palette.filter(value)}
 								onKeyDown={(e: KeyEvent) => {
-									console.log(
-										"[picker] keydown:",
-										e.name,
-										"ctrl:",
-										e.ctrl,
-										"shift:",
-										e.shift,
-									);
 									if (e.name === "up") {
 										e.preventDefault();
 										props.palette.moveUp();
@@ -126,7 +118,6 @@ export function InlinePicker(props: InlinePickerProps) {
 										}
 									} else if (e.name === "return") {
 										e.preventDefault();
-										console.log("[picker] selectCurrent");
 										props.palette.selectCurrent();
 									} else if (e.name === "escape") {
 										e.preventDefault();
