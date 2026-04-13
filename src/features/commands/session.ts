@@ -25,6 +25,13 @@ export const sessionCommand: Command = {
 			? `Context: ${status.contextUsage.tokens.toLocaleString()} / ${status.contextUsage.contextWindow.toLocaleString()} tokens (${status.contextUsage.percent}%)`
 			: "Context: unknown";
 
+		const debugSections = runtime.getDebugSections();
+		const pluginLines: string[] = [];
+		for (const [section, lines] of debugSections) {
+			pluginLines.push(`${section}:`);
+			pluginLines.push(...lines);
+		}
+
 		palette.show({
 			mode: "modal",
 			title: "Debug",
@@ -42,6 +49,7 @@ export const sessionCommand: Command = {
 				`Messages: ${messages.length} total (${userCount} user, ${assistantCount} assistant, ${toolResultCount} tool results)`,
 				`Context files: ${contextFiles.length}`,
 				...contextFiles.map((file) => `- ${file.path}`),
+				...pluginLines,
 				`Created: ${new Date(session.createdAt).toLocaleString()}`,
 				`Updated: ${new Date(session.updatedAt).toLocaleString()}`,
 			],

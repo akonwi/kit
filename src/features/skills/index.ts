@@ -22,12 +22,20 @@ export class SkillsPlugin extends Plugin {
 
 		if (skills.length > 0) {
 			// List available skills in the system prompt so the model knows
-			// what's available. The prompt directs it to use the load_skill tool.
+			// what's available. The prompt directs it to use activate_skill.
 			this.addSystemPromptAddition(formatSkillsForPrompt(skills));
 
-			// Register the load_skill tool for on-demand skill activation.
+			// Register the activate_skill tool for on-demand skill activation.
 			const tool = createActivateSkillTool(() => this.skills);
 			this.registerTool(tool as AgentTool);
 		}
+
+		// Register debug info for /debug command
+		this.ctx.runtime.setDebugSection(
+			"Skills",
+			skills.length > 0
+				? skills.map((s) => `- ${s.name} (${s.source}) ${s.filePath}`)
+				: ["(none)"],
+		);
 	}
 }

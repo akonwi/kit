@@ -87,6 +87,7 @@ export class AgentRuntime {
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
+	private debugSections = new Map<string, string[]>();
 
 	constructor(
 		session: Session,
@@ -422,6 +423,18 @@ export class AgentRuntime {
 
 	getContextFiles(): ContextFile[] {
 		return [...this.contextFiles];
+	}
+
+	/**
+	 * Register a named section of debug lines.
+	 * Plugins call this so `/debug` can display their state.
+	 */
+	setDebugSection(key: string, lines: string[]): void {
+		this.debugSections.set(key, lines);
+	}
+
+	getDebugSections(): Map<string, string[]> {
+		return this.debugSections;
 	}
 
 	getMessages(): AgentMessage[] {
