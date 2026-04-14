@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import solidPlugin from "@opentui/solid/bun-plugin";
@@ -62,6 +63,13 @@ if (!fs.existsSync(binaryPath)) {
 	console.error(`Bun version: ${Bun.version}`);
 	console.error("Outputs:", bundle.outputs.map((o) => o.path));
 	process.exit(1);
+}
+
+// Ad-hoc sign the binary so macOS doesn't SIGKILL it
+if (process.platform === "darwin") {
+	console.log("Code-signing binary for macOS...");
+	execSync(`codesign --remove-signature ${binaryPath}`, { stdio: "inherit" });
+	execSync(`codesign --sign - --force ${binaryPath}`, { stdio: "inherit" });
 }
 
 console.log("Binary compiled, bundling runtime assets...");
