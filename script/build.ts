@@ -40,6 +40,21 @@ if (!bundle.success) {
 	process.exit(1);
 }
 
+if (bundle.logs.length > 0) {
+	for (const log of bundle.logs) {
+		console.warn(" ", log);
+	}
+}
+
+if (!fs.existsSync(binaryPath)) {
+	console.error(
+		`Compile reported success but binary not found at ${binaryPath}`,
+	);
+	console.error(`Bun version: ${Bun.version}`);
+	console.error("Outputs:", bundle.outputs.map((o) => o.path));
+	process.exit(1);
+}
+
 console.log("Binary compiled, bundling runtime assets...");
 
 // Step 2: Bundle the tree-sitter worker and copy runtime assets needed by the compiled binary.
