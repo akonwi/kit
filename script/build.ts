@@ -27,9 +27,6 @@ const bundle = await Bun.build({
 	tsconfig: "./tsconfig.json",
 	plugins: [solidPlugin],
 	entrypoints: ["./src/app/main.tsx"],
-	define: {
-		OTUI_TREE_SITTER_WORKER_PATH: JSON.stringify(parserWorkerPath),
-	},
 	compile: {
 		outfile: binaryPath,
 	},
@@ -71,6 +68,11 @@ if (bundledWasm) {
 		`module2.exports = "./${wasmFileName}";`,
 		`module2.exports = new URL("./${wasmFileName}", import.meta.url).pathname;`,
 	);
+	if (patchedWorkerSource === workerSource) {
+		console.warn(
+			"Warning: WASM path patch did not match — tree-sitter may not work in compiled binary",
+		);
+	}
 	await fs.promises.writeFile(bundledWorkerPath, patchedWorkerSource, "utf8");
 }
 
