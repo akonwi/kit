@@ -276,7 +276,11 @@ export async function showThreadPicker(): Promise<string | null> {
 	const sessions = await listSessionsForCwd(process.cwd());
 
 	if (sessions.length === 0) {
-		const renderer = await createCliRenderer({ exitOnCtrlC: true });
+		const renderer = await createCliRenderer({
+			exitOnCtrlC: true,
+			screenMode: "split-footer",
+			footerHeight: 5,
+		});
 		return new Promise<null>((resolve) => {
 			render(
 				() => (
@@ -292,7 +296,12 @@ export async function showThreadPicker(): Promise<string | null> {
 		});
 	}
 
-	const renderer = await createCliRenderer({ exitOnCtrlC: false });
+	const footerHeight = Math.max(10, Math.min(sessions.length + 4, 20));
+	const renderer = await createCliRenderer({
+		exitOnCtrlC: false,
+		screenMode: "split-footer",
+		footerHeight,
+	});
 
 	return new Promise<string | null>((resolve) => {
 		render(
