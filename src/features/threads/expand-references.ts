@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import type { Session } from "../../session";
 import { findSessionById } from "../../session";
 
@@ -5,16 +7,16 @@ function threadTitle(session: Session): string {
 	return (session.name?.trim() || "Untitled thread").replace(/\s+/g, " ");
 }
 
-function buildReferenceBlock(session: Session): string {
-	return [
-		"[Thread Reference]",
-		`id: ${session.id}`,
-		`title: ${threadTitle(session)}`,
-		`cwd: ${session.cwd || "(unknown)"}`,
-		`updated: ${session.updatedAt}`,
-		`turns: ${session.turns.length}`,
-		`messages: ${session.turns.reduce((count, turn) => count + turn.messages.length, 0)}`,
-	].join("\n");
+function sessionPath(id: string): string {
+	const fullPath = join(homedir(), ".kit", "sessions", `${id}.json`);
+	const home = homedir();
+	return fullPath.startsWith(home)
+		? `~${fullPath.slice(home.length)}`
+		: fullPath;
+}
+
+function buildReferenceLink(session: Session): string {
+	return `[thread:${session.id}:${threadTitle(session)}](${sessionPath(session.id)})`;
 }
 
 export type ExpandResult = {
@@ -27,7 +29,8 @@ export async function expandThreadReferences(
 	text: string,
 	currentSessionId?: string,
 ): Promise<ExpandResult> {
-	const matches = [...text.matchAll(/\[thread:([^:\]]+):([^\]]*)\]/gi)];
+	// Match #[thread:id:label] — the # prefix is inserted by the composer
+	const matches = [...text.matchAll(/#\[thread:([^:\]]+):([^\]]*)\]/gi)];
 	if (matches.length === 0) {
 		return { text, expanded: 0, errors: [] };
 	}
@@ -41,7 +44,7 @@ export async function expandThreadReferences(
 		).values(),
 	);
 
-	let transformed = text;
+	let result = text;
 	let expanded = 0;
 	const errors: string[] = [];
 
@@ -61,10 +64,9 @@ export async function expandThreadReferences(
 			continue;
 		}
 
-		const block = buildReferenceBlock(session);
-		transformed = transformed.split(match.placeholder).join(`\n\n${block}\n\n`);
+		result = result.split(match.placeholder).join(buildReferenceLink(session));
 		expanded++;
 	}
 
-	return { text: transformed, expanded, errors };
+	return { text: result, expanded, errors };
 }
