@@ -1,4 +1,8 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import "../runtime/custom-messages";
+import type {
+	AgentMessage,
+	CustomAgentMessages,
+} from "@mariozechner/pi-agent-core";
 import type {
 	AssistantMessage,
 	ToolCall,
@@ -6,20 +10,10 @@ import type {
 	UserMessage,
 } from "@mariozechner/pi-ai";
 import type { BorderSides } from "@opentui/core";
+import { TextAttributes } from "@opentui/core";
 import type { Turn } from "../session/types";
 
-interface BashExecutionMessage {
-	role: "bashExecution";
-	command: string;
-	output: string;
-	exitCode: number | undefined;
-	cancelled: boolean;
-	truncated: boolean;
-	fullOutputPath?: string;
-	timestamp: number;
-}
-
-import { TextAttributes } from "@opentui/core";
+type BashExecutionMessage = CustomAgentMessages["bashExecution"];
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { syntaxStyle, theme } from "./theme";

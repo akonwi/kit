@@ -244,6 +244,26 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			return;
 		}
 
+		// Handle bash command: ! for context, !! for excluded from context
+		if (text.startsWith("!")) {
+			const excludeFromContext = text.startsWith("!!");
+			const command = excludeFromContext
+				? text.slice(2).trim()
+				: text.slice(1).trim();
+			if (command) {
+				textareaRef?.setText("");
+				prevTextLength = 0;
+				try {
+					await runtime.executeBash(command, excludeFromContext);
+				} catch (error) {
+					runtime.emitError("Bash failed", [
+						error instanceof Error ? error.message : String(error),
+					]);
+				}
+				return;
+			}
+		}
+
 		textareaRef?.setText("");
 		prevTextLength = 0;
 

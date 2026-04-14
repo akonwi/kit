@@ -1,18 +1,12 @@
-import { spawn } from "node:child_process";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@mariozechner/pi-ai";
+import { runBash } from "./run-bash";
 
 const MAX_OUTPUT_CHARS = 30_000;
 const TIMEOUT_MS = 120_000;
-
-export interface BashResult {
-	output: string;
-	exitCode: number | undefined;
-	truncated: boolean;
-}
 
 // Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
 const parameters = Type.Object({
@@ -31,7 +25,6 @@ export function createBashTool(cwd: string): AgentTool<typeof parameters> {
 		parameters,
 		async execute(_id, params, signal) {
 			const timeoutMs = params.timeout ?? TIMEOUT_MS;
-			let tmpDir: string | null = null;
 			let fullOutputPath: string | undefined;
 
 			try {
@@ -41,7 +34,7 @@ export function createBashTool(cwd: string): AgentTool<typeof parameters> {
 				let truncated = false;
 
 				if (output.length > MAX_OUTPUT_CHARS) {
-					tmpDir = await mkdtemp(join(tmpdir(), "kit-bash-"));
+					const tmpDir = await mkdtemp(join(tmpdir(), "kit-bash-"));
 					fullOutputPath = join(tmpDir, "output.txt");
 					await writeFile(fullOutputPath, output, "utf8");
 					output = output.slice(0, MAX_OUTPUT_CHARS);
@@ -71,66 +64,3 @@ export function createBashTool(cwd: string): AgentTool<typeof parameters> {
 	};
 }
 
-function killTree(pid: number): void {
-	try {
-		// Negative PID sends signal to the entire process group
-		process.kill(-pid, "SIGTERM");
-		setTimeout(() => {
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* already dead */
-			}
-		}, 5_000).unref();
-	} catch {
-		// Process already gone
-	}
-}
-
-function runBash(
-	command: string,
-	cwd: string,
-	timeoutMs: number,
-	signal?: AbortSignal,
-): Promise<{ output: string; exitCode: number | undefined }> {
-	return new Promise((resolve) => {
-		const shell = process.env.SHELL || "bash";
-		const proc = spawn(shell, ["-c", command], {
-			cwd,
-			// detached: true creates a new process group so we can kill the whole tree
-			detached: true,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-
-		let output = "";
-		proc.stdout.on("data", (d: Buffer) => {
-			output += d.toString();
-		});
-		proc.stderr.on("data", (d: Buffer) => {
-			output += d.toString();
-		});
-
-		const kill = () => {
-			if (proc.pid != null) killTree(proc.pid);
-		};
-
-		const timer = setTimeout(() => {
-			output += "\n[timed out]";
-			kill();
-		}, timeoutMs);
-
-		signal?.addEventListener("abort", kill, { once: true });
-
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", kill);
-			resolve({ output: output.trimEnd(), exitCode: code ?? undefined });
-		});
-
-		proc.on("error", (err) => {
-			clearTimeout(timer);
-			signal?.removeEventListener("abort", kill);
-			resolve({ output: err.message, exitCode: undefined });
-		});
-	});
-}

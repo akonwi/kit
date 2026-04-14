@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import "./custom-messages";
 import {
 	Agent,
 	type AgentMessage,
 	type AgentOptions,
 } from "@mariozechner/pi-agent-core";
+import type { Message, UserMessage } from "@mariozechner/pi-ai";
 import type { KitAgentMessage, Session, Turn } from "../session/types";
 
 export interface KitAgentOptions extends AgentOptions {
@@ -45,6 +47,7 @@ export class KitAgent extends Agent {
 			},
 			steeringMode: opts?.steeringMode ?? "all",
 			followUpMode: opts?.followUpMode ?? "all",
+			convertToLlm: convertToLlm,
 		});
 
 		if (initialTurns) {
@@ -121,6 +124,28 @@ export class KitAgent extends Agent {
 	}
 
 	/**
+	 * Append a custom message (e.g. bashExecution) to the current turn.
+	 * Creates a new turn if none is active. Also appends to the Agent's
+	 * message list so it's included in future context.
+	 */
+	appendCustomMessage(message: AgentMessage): void {
+		const turn = this.ensureCurrentTurn();
+		const tagged: KitAgentMessage = {
+			...message,
+			turnId: turn.id,
+		};
+		const updatedTurn: Turn = {
+			...turn,
+			messages: [...turn.messages, tagged],
+		};
+		this._currentTurn = updatedTurn;
+		this._turns = this._turns.map((candidate) =>
+			candidate.id === updatedTurn.id ? updatedTurn : candidate,
+		);
+		this.appendMessage(message);
+	}
+
+	/**
 	 * Replace the agent's message history from a persisted turn list.
 	 * Restores both the raw messages (for the LLM context) and the turn structure.
 	 */
@@ -136,6 +161,42 @@ export class KitAgent extends Agent {
 		) as AgentMessage[];
 		this.replaceMessages(messages);
 	}
+}
+
+/**
+ * Convert AgentMessage[] to LLM-compatible Message[].
+ * Filters out custom message types that the LLM doesn't understand,
+ * optionally converting some to user messages for context.
+ */
+function convertToLlm(messages: AgentMessage[]): Message[] {
+	const result: Message[] = [];
+	for (const msg of messages) {
+		switch (msg.role) {
+			case "user":
+			case "assistant":
+			case "toolResult":
+				result.push(msg as Message);
+				break;
+			case "bashExecution": {
+				// Include in LLM context as a user message unless excluded
+				if (!msg.excludeFromContext) {
+					const exitInfo =
+						msg.exitCode != null && msg.exitCode !== 0
+							? ` (exit code: ${msg.exitCode})`
+							: "";
+					const userMsg: UserMessage = {
+						role: "user",
+						content: `[bash command: ${msg.command}]${exitInfo}\n${msg.output}`,
+						timestamp: msg.timestamp,
+					};
+					result.push(userMsg);
+				}
+				break;
+			}
+			// Unknown custom roles are silently dropped
+		}
+	}
+	return result;
 }
 
 function extractPlainText(message: AgentMessage): string {

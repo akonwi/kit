@@ -1,3 +1,4 @@
+import "./custom-messages";
 import type {
 	AgentEvent,
 	AgentMessage,
@@ -35,6 +36,7 @@ import {
 import type { Turn } from "../session/types";
 import type { Settings } from "../settings";
 import { createDefaultTools } from "../tools";
+import { runBash } from "../tools/run-bash";
 import { compactSessionTurns, shouldAutoCompact } from "./compaction";
 import {
 	getRuntimeContextUsage,
@@ -361,6 +363,32 @@ export class AgentRuntime {
 		if (!trimmed) return;
 		this.systemPromptAdditions.push(trimmed);
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+	}
+
+	/**
+	 * Execute a bash command from the user's `!` prefix.
+	 * Injects a synthetic bashExecution message into the transcript.
+	 * When excludeFromContext is true (`!!`), the message is not
+	 * sent to the model on the next turn.
+	 */
+	async executeBash(
+		command: string,
+		excludeFromContext = false,
+	): Promise<void> {
+		const result = await runBash(command, this.session.cwd);
+
+		const bashMessage: AgentMessage = {
+			role: "bashExecution",
+			command,
+			output: result.output,
+			exitCode: result.exitCode,
+			cancelled: false,
+			truncated: false,
+			excludeFromContext,
+			timestamp: Date.now(),
+		};
+		this.agent.appendCustomMessage(bashMessage);
+		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
 	}
 
 	sendFollowUp(text: string): void {
