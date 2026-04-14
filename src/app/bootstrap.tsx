@@ -25,19 +25,17 @@ function getInstalledRuntimeDir(): string | null {
 	}
 }
 
-async function loadSession(): Promise<Session> {
-	const { values } = parseArgs({
-		args: process.argv.slice(2),
-		options: {
-			session: { type: "string", short: "s" },
-		},
-		strict: false,
-	});
-
-	const sessionArg = values.session as string | undefined;
+async function loadSession(sessionId?: string): Promise<Session> {
+	// If a session ID is provided directly (e.g. from `kit threads`), use it
+	const sessionArg =
+		sessionId ??
+		(parseArgs({
+			args: process.argv.slice(2),
+			options: { session: { type: "string", short: "s" } },
+			strict: false,
+		}).values.session as string | undefined);
 
 	if (sessionArg) {
-		// Try as a UUID or prefix
 		const { findSessionById, readSession } = await import("../session");
 		const session =
 			(await findSessionById(sessionArg)) ?? (await readSession(sessionArg));
@@ -48,12 +46,11 @@ async function loadSession(): Promise<Session> {
 		return session;
 	}
 
-	// Default: open the most recent session for the current cwd
 	const { openRecentSession } = await import("../session");
 	return openRecentSession(process.cwd());
 }
 
-export async function bootstrap(): Promise<void> {
+export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 	// Legacy support for older wrapper-based launches. The compiled binary should
 	// run directly from the user's current working directory and not need this.
 	const userCwd = process.env.KIT_USER_CWD;
@@ -95,7 +92,7 @@ export async function bootstrap(): Promise<void> {
 	});
 
 	const settings = await loadSettings();
-	const session = await loadSession();
+	const session = await loadSession(opts?.sessionId);
 
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,
