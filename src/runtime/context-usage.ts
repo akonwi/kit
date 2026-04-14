@@ -78,8 +78,9 @@ export function estimateTokens(message: AgentMessage): number {
 		}
 
 		default: {
-			if ("content" in message) {
-				const content = message.content;
+			const fallback = message as Record<string, unknown>;
+			if ("content" in fallback) {
+				const content = fallback.content;
 				if (typeof content === "string") {
 					chars = content.length;
 				} else if (Array.isArray(content)) {

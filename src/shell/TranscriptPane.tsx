@@ -8,7 +8,6 @@ import type {
 import type { BorderSides } from "@opentui/core";
 import type { Turn } from "../session/types";
 
-// BashExecutionMessage type from pi-coding-agent
 interface BashExecutionMessage {
 	role: "bashExecution";
 	command: string;
@@ -381,7 +380,8 @@ function TurnEntryItem(props: {
 }) {
 	if (!("role" in props.msg)) return null;
 
-	switch (props.msg.role) {
+	const role = props.msg.role as string;
+	switch (role) {
 		case "assistant":
 			return (
 				<AssistantEntry
@@ -391,7 +391,7 @@ function TurnEntryItem(props: {
 				/>
 			);
 		case "bashExecution":
-			return <BashEntry msg={props.msg as BashExecutionMessage} />;
+			return <BashEntry msg={props.msg as unknown as BashExecutionMessage} />;
 		default:
 			return null;
 	}
