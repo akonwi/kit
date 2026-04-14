@@ -19,10 +19,7 @@ export class GuidedQuestionsPlugin extends Plugin {
 		// Register the guided_questions tool. The tool reads the current
 		// `guidedQuestions` setting on every invocation, so toggling the setting
 		// takes effect immediately (next tool call returns a disabled response).
-		const tool = createGuidedQuestionsTool(
-			this.controller,
-			() => this.ctx.settings.settings.guidedQuestions !== false,
-		);
+		const tool = createGuidedQuestionsTool(this.controller, this.ctx);
 		this.registerTool(
 			tool as import("@mariozechner/pi-agent-core").AgentTool<any>,
 		);
