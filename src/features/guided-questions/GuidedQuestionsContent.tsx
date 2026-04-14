@@ -112,7 +112,10 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 
 	function handlePaste(event: PasteEvent) {
 		if (g.mode !== "text" && g.mode !== "otherText") return;
-		const pasted = event.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		const pasted = new TextDecoder()
+			.decode(event.bytes)
+			.replace(/\r\n/g, "\n")
+			.replace(/\r/g, "\n");
 		setTextValue((current) => `${current}${pasted}`);
 	}
 

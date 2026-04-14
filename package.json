@@ -15,8 +15,8 @@
 	"dependencies": {
 		"@mariozechner/pi-agent-core": "^0.62.0",
 		"@mariozechner/pi-ai": "^0.62.0",
-		"@opentui/core": "^0.1.87",
-		"@opentui/solid": "^0.1.87",
+		"@opentui/core": "^0.1.99",
+		"@opentui/solid": "^0.1.99",
 		"ignore": "^7.0.5",
 		"solid-js": "^1.9.0",
 		"web-tree-sitter": "0.25.10",

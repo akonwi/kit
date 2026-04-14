@@ -125,7 +125,10 @@ export function PagerContent(props: PagerContentProps) {
 
 	function handlePaste(event: PasteEvent) {
 		if (mode() !== "edit") return;
-		const pasted = event.text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		const pasted = new TextDecoder()
+			.decode(event.bytes)
+			.replace(/\r\n/g, "\n")
+			.replace(/\r/g, "\n");
 		setNoteText((cur) => `${cur}${pasted}`);
 	}
 
