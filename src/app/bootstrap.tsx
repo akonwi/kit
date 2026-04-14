@@ -120,18 +120,25 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
 	updateTerminalTitle(session.name, process.cwd());
 
-	render(
-		() => (
-			<App
-				settings={settings}
-				session={session}
-				updateTerminalTitle={updateTerminalTitle}
-				quitAndDestroy={() => {
-					// Called when app quits - renderer destruction happens here
-					renderer.destroy();
-				}}
-			/>
-		),
-		renderer,
-	);
+	// Keep the process alive until the renderer is destroyed.
+	// In compiled binaries, the async bootstrap() returning would let
+	// the event loop drain and the process exit prematurely.
+	const alive = new Promise<void>((resolve) => {
+		render(
+			() => (
+				<App
+					settings={settings}
+					session={session}
+					updateTerminalTitle={updateTerminalTitle}
+					quitAndDestroy={() => {
+						renderer.destroy();
+						resolve();
+					}}
+				/>
+			),
+			renderer,
+		);
+	});
+
+	await alive;
 }

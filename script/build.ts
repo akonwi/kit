@@ -3,6 +3,15 @@ import fs from "node:fs";
 import path from "node:path";
 import solidPlugin from "@opentui/solid/bun-plugin";
 
+// Enforce minimum Bun version
+const MIN_BUN_VERSION = "1.3.0";
+if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
+	console.error(
+		`Bun >= ${MIN_BUN_VERSION} required (found ${Bun.version}). Please upgrade: bun upgrade`,
+	);
+	process.exit(1);
+}
+
 const dir = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(dir, "dist");
 const runtimeDir = path.join(distDir, "runtime");
