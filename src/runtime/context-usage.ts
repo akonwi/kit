@@ -33,12 +33,30 @@ function isSyntheticCompactionSummary(
 	);
 }
 
-function getAssistantUsage(message: AgentMessage): Usage | undefined {
+function isUsageCompatibleWithModel(
+	message: AgentMessage,
+	model: Model<Api> | undefined,
+): boolean {
+	if (message.role !== "assistant") return false;
+	if (!model) return true;
+	const provider = "provider" in message ? message.provider : undefined;
+	const modelId = "model" in message ? message.model : undefined;
+	if (typeof provider !== "string" || typeof modelId !== "string") {
+		return false;
+	}
+	return provider === model.provider && modelId === model.id;
+}
+
+function getAssistantUsage(
+	message: AgentMessage,
+	model: Model<Api> | undefined,
+): Usage | undefined {
 	if (message.role !== "assistant") return undefined;
 	if (isSyntheticCompactionSummary(message)) return undefined;
 	if (message.stopReason === "aborted" || message.stopReason === "error") {
 		return undefined;
 	}
+	if (!isUsageCompatibleWithModel(message, model)) return undefined;
 	return message.usage;
 }
 
@@ -111,7 +129,7 @@ export function getRuntimeContextUsage(
 	if (!model?.contextWindow) return null;
 
 	for (let index = messages.length - 1; index >= 0; index--) {
-		const usage = getAssistantUsage(messages[index]);
+		const usage = getAssistantUsage(messages[index], model);
 		if (!usage) continue;
 		const usageTokens = calculateContextTokens(usage);
 		let trailingTokens = 0;
