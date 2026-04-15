@@ -48,6 +48,32 @@ function turnTokens(turn: Turn): number {
 	);
 }
 
+const MAX_USER_MESSAGE_CHARS = 4_000;
+const MAX_ASSISTANT_MESSAGE_CHARS = 4_000;
+const MAX_TOOL_CALL_ARGS_CHARS = 200;
+
+function truncateText(text: string, maxChars: number): string {
+	const normalized = text.trim();
+	if (normalized.length <= maxChars) return normalized;
+	return `${normalized.slice(0, maxChars)}… [truncated ${normalized.length - maxChars} chars]`;
+}
+
+function summarizeToolResultText(text: string): string {
+	const trimmed = text.trim();
+	if (!trimmed) return "[empty output omitted]";
+	const lines = trimmed.split(/\r?\n/);
+	return `[tool output omitted: ${lines.length} lines, ${trimmed.length} chars]`;
+}
+
+function summarizeBashExecution(message: Extract<AgentMessage, { role: "bashExecution" }>): string {
+	const output = message.output.trim();
+	const exit = typeof message.exitCode === "number" ? String(message.exitCode) : "unknown";
+	const outputSummary = output
+		? `[bash output omitted: ${output.split(/\r?\n/).length} lines, ${output.length} chars]`
+		: "[no output]";
+	return `[Bash execution]\nCommand: ${message.command}\nExit code: ${exit}${message.cancelled ? " (cancelled)" : ""}\n${outputSummary}`;
+}
+
 function serializeConversation(messages: AgentMessage[]): string {
 	const parts: string[] = [];
 
@@ -60,30 +86,31 @@ function serializeConversation(messages: AgentMessage[]): string {
 							.filter((block) => block.type === "text")
 							.map((block) => block.text)
 							.join("\n");
-			if (content) parts.push(`[User]\n${content}`);
+			if (content) {
+				parts.push(`[User]\n${truncateText(content, MAX_USER_MESSAGE_CHARS)}`);
+			}
 			continue;
 		}
 
 		if (message.role === "assistant") {
 			const textParts: string[] = [];
-			const thinkingParts: string[] = [];
 			const toolCalls: string[] = [];
 
 			for (const block of message.content) {
 				if (block.type === "text") textParts.push(block.text);
-				if (block.type === "thinking") thinkingParts.push(block.thinking);
 				if (block.type === "toolCall") {
-					toolCalls.push(
-						`${block.name}(${JSON.stringify(block.arguments, null, 0)})`,
+					const args = truncateText(
+						JSON.stringify(block.arguments, null, 0),
+						MAX_TOOL_CALL_ARGS_CHARS,
 					);
+					toolCalls.push(`${block.name}(${args})`);
 				}
 			}
 
-			if (thinkingParts.length > 0) {
-				parts.push(`[Assistant thinking]\n${thinkingParts.join("\n")}`);
-			}
 			if (textParts.length > 0) {
-				parts.push(`[Assistant]\n${textParts.join("\n")}`);
+				parts.push(
+					`[Assistant]\n${truncateText(textParts.join("\n"), MAX_ASSISTANT_MESSAGE_CHARS)}`,
+				);
 			}
 			if (toolCalls.length > 0) {
 				parts.push(`[Assistant tool calls]\n${toolCalls.join("\n")}`);
@@ -96,8 +123,13 @@ function serializeConversation(messages: AgentMessage[]): string {
 				.filter((block) => block.type === "text")
 				.map((block) => block.text)
 				.join("\n");
-			if (content) {
-				parts.push(`[Tool result]\n${content.slice(0, 2_000)}`);
+			parts.push(`[Tool result summary]\n${summarizeToolResultText(content)}`);
+			continue;
+		}
+
+		if (message.role === "bashExecution") {
+			if (!message.excludeFromContext) {
+				parts.push(summarizeBashExecution(message));
 			}
 		}
 	}
