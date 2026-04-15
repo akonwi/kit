@@ -94,6 +94,9 @@ export class AgentRuntime {
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
+	private lastSessionModel: string | undefined;
+	private overflowRecoveryInFlight = false;
+	private lastOverflowRecoveryKey: string | null = null;
 
 	constructor(
 		session: Session,
@@ -103,6 +106,7 @@ export class AgentRuntime {
 		},
 	) {
 		this.session = session;
+		this.lastSessionModel = session.model;
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
@@ -164,7 +168,12 @@ export class AgentRuntime {
 	}
 
 	private emitSessionUpdated(): void {
+		const previousModel = this.lastSessionModel;
+		this.lastSessionModel = this.session.model;
 		this.emit({ type: "session_updated", session: this.session });
+		if (previousModel !== this.session.model) {
+			void this.maybeHandleModelSwitchOverflow();
+		}
 	}
 
 	private syncPendingState() {
@@ -197,7 +206,7 @@ export class AgentRuntime {
 	}
 
 	private async maybeAutoCompact() {
-		if (this.isCompacting) return;
+		if (this.isCompacting || this.overflowRecoveryInFlight) return;
 		const model = this.agent.state.model;
 		const contextUsage = getRuntimeContextUsage(
 			this.agent.state.messages,
@@ -267,6 +276,93 @@ export class AgentRuntime {
 				title: "Session save failed",
 				lines: [String(err)],
 			});
+		}
+	}
+
+	private async maybeHandleModelSwitchOverflow(): Promise<void> {
+		const model = this.agent.state.model;
+		if (!model || this.isCompacting || this.overflowRecoveryInFlight) return;
+
+		const contextUsage = getRuntimeContextUsage(this.agent.state.messages, model);
+		if (!contextUsage || contextUsage.percent <= 100) return;
+
+		const recoveryKey = `${this.session.id}:${model.id}:${this.session.updatedAt}:${this.agent.turns.length}`;
+		if (this.lastOverflowRecoveryKey === recoveryKey) return;
+		this.lastOverflowRecoveryKey = recoveryKey;
+
+		const apiKey = await getApiKey(model.provider);
+		if (!apiKey) {
+			this.emit({
+				type: "error",
+				title: "Model too small for session",
+				lines: [
+					`No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
+					"Start a new session or hand off to continue with this model.",
+				],
+			});
+			return;
+		}
+
+		this.overflowRecoveryInFlight = true;
+		this.emit({
+			type: "panel",
+			panel: {
+				pending: true,
+				title: `Adapting session to ${model.name ?? model.id}… (${contextUsage.percent}%)`,
+			},
+		});
+
+		try {
+			const result = await compactSessionTurns({
+				session: this.session,
+				model,
+				apiKey,
+			});
+			if (!result) {
+				this.emit({
+					type: "error",
+					title: "Model too small for session",
+					lines: [
+						`${model.name ?? model.id} cannot fit this session, even after optimized compaction.`,
+						"Start a new session or hand off to continue with this model.",
+					],
+				});
+				return;
+			}
+
+			this.agent.replaceFromTurns(result.turns);
+			this.session = await updateSession(this.session, {
+				turns: result.turns,
+				model: model.id,
+			});
+			this.emit({ type: "session_changed", session: this.session });
+			this.emitSessionUpdated();
+			this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+			this.emit({ type: "status_changed", status: this.snapshotStatus() });
+
+			const nextUsage = getRuntimeContextUsage(this.agent.state.messages, model);
+			if (nextUsage && nextUsage.percent > 100) {
+				this.emit({
+					type: "error",
+					title: "Model too small for session",
+					lines: [
+						`${model.name ?? model.id} is still over capacity after compaction (${nextUsage.percent}%).`,
+						"Start a new session or hand off to continue with this model.",
+					],
+				});
+			}
+		} catch (error) {
+			this.emit({
+				type: "error",
+				title: "Model switch compaction failed",
+				lines: [
+					error instanceof Error ? error.message : String(error),
+					"Start a new session or hand off to continue with this model.",
+				],
+			});
+		} finally {
+			this.overflowRecoveryInFlight = false;
+			this.emit({ type: "panel", panel: { pending: false, title: "" } });
 		}
 	}
 
