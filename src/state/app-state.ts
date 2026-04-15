@@ -196,6 +196,7 @@ export function createAppState(
 				);
 				break;
 			case "session_changed":
+			case "session_updated":
 				setState("sessionMeta", buildSessionMeta(event.session as Session));
 				threadIndex?.invalidate();
 				break;

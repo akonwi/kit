@@ -69,6 +69,7 @@ export type AgentRuntimeEvent =
 	| { type: "turns_changed"; turns: Turn[] }
 	| { type: "status_changed"; status: RuntimeStatus }
 	| { type: "session_changed"; session: Session }
+	| { type: "session_updated"; session: Session }
 	| { type: "panel"; panel: RuntimePanelState }
 	| { type: "tool_completed" }
 	| { type: "turn_complete"; turn: Turn | null }
@@ -160,6 +161,10 @@ export class AgentRuntime {
 
 	private emit(event: AgentRuntimeEvent) {
 		for (const listener of this.listeners) listener(event);
+	}
+
+	private emitSessionUpdated(): void {
+		this.emit({ type: "session_updated", session: this.session });
 	}
 
 	private syncPendingState() {
@@ -322,6 +327,7 @@ export class AgentRuntime {
 					.then(async () => {
 						await this.maybeAutoCompact();
 						this.emit({ type: "session_changed", session: this.session });
+						this.emitSessionUpdated();
 						this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
 						this.emit({
 							type: "status_changed",
@@ -494,6 +500,7 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
+		this.emitSessionUpdated();
 		this.emit({ type: "turns_changed", turns: [] });
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
 	}
@@ -521,6 +528,7 @@ export class AgentRuntime {
 		this.applySessionContext(child);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
+		this.emitSessionUpdated();
 		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
 
@@ -540,6 +548,7 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
+		this.emitSessionUpdated();
 		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
 		return true;
@@ -553,10 +562,12 @@ export class AgentRuntime {
 				updatedAt: new Date().toISOString(),
 			};
 			this.emit({ type: "session_changed", session: this.session });
+			this.emitSessionUpdated();
 			return;
 		}
 		this.session = await updateSession(this.session, { name });
 		this.emit({ type: "session_changed", session: this.session });
+		this.emitSessionUpdated();
 	}
 
 	async listAllSessions(): Promise<SessionSummary[]> {
@@ -603,6 +614,7 @@ export class AgentRuntime {
 				updatedAt: new Date().toISOString(),
 			};
 			this.emit({ type: "session_changed", session: this.session });
+			this.emitSessionUpdated();
 			return;
 		}
 
@@ -610,6 +622,7 @@ export class AgentRuntime {
 			.then((updated) => {
 				this.session = updated;
 				this.emit({ type: "session_changed", session: this.session });
+				this.emitSessionUpdated();
 			})
 			.catch((err) => {
 				this.emit({
