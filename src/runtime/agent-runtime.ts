@@ -42,7 +42,8 @@ import {
 	getRuntimeContextUsage,
 	type RuntimeContextUsage,
 } from "./context-usage";
-import { type GitInfo, getGitInfo } from "./git-info";
+import type { GitInfo } from "./git-info";
+import { GitInfoWatcher } from "./git-info-watcher";
 import { KitAgent } from "./kit-agent";
 
 registerBuiltInApiProviders();
@@ -90,6 +91,8 @@ export class AgentRuntime {
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
+	private gitWatcher: GitInfoWatcher | null = null;
+	private gitInfo: GitInfo = { branch: null, dirty: false };
 
 	constructor(
 		session: Session,
@@ -125,6 +128,7 @@ export class AgentRuntime {
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
 			this.handleAgentEvent(event),
 		);
+		this.resetGitWatcher();
 	}
 
 	private getEffectiveSystemPrompt(): string {
@@ -142,6 +146,16 @@ export class AgentRuntime {
 			...this.extraTools,
 		]);
 		this.agent.sessionId = session.id;
+		this.resetGitWatcher();
+	}
+
+	private resetGitWatcher(): void {
+		this.gitWatcher?.dispose();
+		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (git) => {
+			this.gitInfo = git;
+			this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		});
+		this.gitInfo = this.gitWatcher.getCurrent();
 	}
 
 	private emit(event: AgentRuntimeEvent) {
@@ -165,7 +179,7 @@ export class AgentRuntime {
 				"no model",
 			thinkingLevel: this.agent.state.thinkingLevel ?? "off",
 			isStreaming: this.agent.state.isStreaming,
-			git: getGitInfo(this.session.cwd),
+			git: this.gitInfo,
 			contextUsage: getRuntimeContextUsage(
 				this.agent.state.messages,
 				this.agent.state.model,
@@ -647,6 +661,8 @@ export class AgentRuntime {
 	dispose(): void {
 		this.unsubscribeAgent?.();
 		this.unsubscribeAgent = null;
+		this.gitWatcher?.dispose();
+		this.gitWatcher = null;
 		this.listeners.clear();
 	}
 }
