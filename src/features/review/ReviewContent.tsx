@@ -34,6 +34,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [files] = createResource(loadReviewFiles);
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
 	const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());
+	const [patchFocused, setPatchFocused] = createSignal(false);
 	let listScrollRef:
 		| {
 				scrollChildIntoView: (childId: string) => void;
@@ -78,7 +79,30 @@ export function ReviewContent(props: ReviewContentProps) {
 		});
 	}
 
+	function scrollPatch(delta: number) {
+		listScrollRef?.scrollBy({ x: 0, y: delta });
+	}
+
 	useKeyboard((e: KeyEvent) => {
+		if (patchFocused()) {
+			if (e.name === "escape") {
+				e.preventDefault();
+				setPatchFocused(false);
+				return;
+			}
+			if (e.name === "up" || e.name === "k") {
+				e.preventDefault();
+				scrollPatch(-3);
+				return;
+			}
+			if (e.name === "down" || e.name === "j") {
+				e.preventDefault();
+				scrollPatch(3);
+				return;
+			}
+			return;
+		}
+
 		if (e.name === "escape") {
 			e.preventDefault();
 			props.onClose();
@@ -91,7 +115,15 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		if (e.name === "down" || e.name === "j") {
 			e.preventDefault();
-			setSelectedIndex((index) => Math.min(reviewFiles().length - 1, index + 1));
+			setSelectedIndex((index) =>
+				Math.min(reviewFiles().length - 1, index + 1),
+			);
+			return;
+		}
+		if (e.name === "return" || e.name === "enter") {
+			e.preventDefault();
+			const file = selectedFile();
+			if (file && expandedKeys().has(file.id)) setPatchFocused(true);
 			return;
 		}
 		if (e.name === "space") {
@@ -162,8 +194,14 @@ export function ReviewContent(props: ReviewContentProps) {
 												flexDirection="column"
 												gap={0}
 												border
-												borderColor={theme.borderDefault}
-												backgroundColor={selected() ? theme.bgMuted : theme.bgTransparent}
+												borderColor={
+													selected() && !patchFocused()
+														? theme.borderAccent
+														: theme.borderDefault
+												}
+												backgroundColor={
+													selected() ? theme.bgMuted : theme.bgTransparent
+												}
 											>
 												<box
 													paddingX={1}
@@ -173,21 +211,41 @@ export function ReviewContent(props: ReviewContentProps) {
 												>
 													<box flexDirection="column">
 														<text
-															fg={selected() ? theme.textPrimary : theme.textSecondary}
+															fg={
+																selected()
+																	? theme.textPrimary
+																	: theme.textSecondary
+															}
 														>
-															{expanded() ? "▾" : "▸"} {statusLabel(file)} {file.path}
+															{expanded() ? "▾" : "▸"} {statusLabel(file)}{" "}
+															{file.path}
 														</text>
 														<Show when={file.prevPath}>
-															<text fg={theme.textMuted}>from {file.prevPath}</text>
+															<text fg={theme.textMuted}>
+																from {file.prevPath}
+															</text>
 														</Show>
 													</box>
 													<text fg={theme.textMuted}>
-														{file.hunks.length} hunk{file.hunks.length === 1 ? "" : "s"} · {file.changeCount} changed line{file.changeCount === 1 ? "" : "s"}
+														{file.hunks.length} hunk
+														{file.hunks.length === 1 ? "" : "s"} ·{" "}
+														{file.changeCount} changed line
+														{file.changeCount === 1 ? "" : "s"}
 													</text>
 												</box>
 
 												<Show when={expanded()}>
-													<box padding={1} paddingTop={0} flexDirection="column" gap={0}>
+													<box
+														padding={1}
+														paddingTop={0}
+														flexDirection="column"
+														gap={0}
+														backgroundColor={
+															selected() && patchFocused()
+																? theme.bg
+																: undefined
+														}
+													>
 														<diff
 															diff={file.rawPatch}
 															view="unified"
@@ -220,9 +278,16 @@ export function ReviewContent(props: ReviewContentProps) {
 				</Show>
 
 				<box flexShrink={0}>
-					<box border borderColor={theme.borderDefault} paddingX={1} paddingY={0}>
+					<box
+						border
+						borderColor={theme.borderDefault}
+						paddingX={1}
+						paddingY={0}
+					>
 						<text fg={theme.textMuted}>
-							↑/↓ or j/k move · Space collapse/expand · Esc close
+							{patchFocused()
+								? "↑/↓ or j/k scroll patch · Esc back"
+								: "↑/↓ or j/k move · Enter focus patch · Space collapse/expand · Esc close"}
 						</text>
 					</box>
 				</box>
