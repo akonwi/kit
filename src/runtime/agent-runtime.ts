@@ -154,6 +154,16 @@ export class AgentRuntime {
 		this.resetGitWatcher();
 	}
 
+	private findModelById(modelId: string | undefined): Model<Api> | undefined {
+		if (!modelId) return undefined;
+		for (const provider of getAuthenticatedProviders()) {
+			for (const model of getModels(provider as KnownProvider)) {
+				if (model.id === modelId) return model;
+			}
+		}
+		return undefined;
+	}
+
 	private resetGitWatcher(): void {
 		this.gitWatcher?.dispose();
 		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (git) => {
@@ -641,6 +651,8 @@ export class AgentRuntime {
 		if (!target) return false;
 		this.session = target;
 		this.agent.replaceFromTurns(this.session.turns);
+		const model = this.findModelById(this.session.model);
+		if (model) this.agent.setModel(model);
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
@@ -648,6 +660,28 @@ export class AgentRuntime {
 		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
 		return true;
+	}
+
+	async reloadSession(): Promise<void> {
+		const reloaded =
+			(await findSessionById(this.session.id)) ?? (await readSession(this.session.id));
+		if (reloaded) {
+			this.session = reloaded;
+			this.agent.replaceFromTurns(this.session.turns);
+			const model = this.findModelById(this.session.model);
+			if (model) this.agent.setModel(model);
+		}
+		this.applySessionContext(this.session);
+		this.syncPendingState();
+		this.emit({ type: "session_changed", session: this.session });
+		this.emitSessionUpdated();
+		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit({
+			type: "info",
+			title: "Session reloaded",
+			lines: ["Reloaded session state, context files, tools, and runtime status."],
+		});
 	}
 
 	async setSessionName(name: string): Promise<void> {

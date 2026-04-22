@@ -7,6 +7,7 @@ import { modelCommand } from "./model";
 import { nameCommand } from "./name";
 import { newCommand } from "./new";
 import { quitCommand } from "./quit";
+import { reloadCommand } from "./reload";
 import { sessionCommand } from "./session";
 import { sessionsManageCommand } from "./sessions-manage";
 import { thinkingCommand } from "./thinking";
@@ -19,6 +20,7 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	modelCommand,
 	nameCommand,
 	newCommand,
+	reloadCommand,
 	sessionCommand,
 	sessionsManageCommand,
 	treeCommand,
