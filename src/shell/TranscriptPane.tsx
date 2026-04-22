@@ -143,14 +143,11 @@ function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
 			gap={0}
 			width="100%"
 		>
-			<code
-				filetype="markdown"
+			<markdown
 				content={text}
 				syntaxStyle={syntaxStyle}
 				conceal
-				drawUnstyledText={false}
 				fg={props.aborted ? theme.textMuted : theme.textPrimary}
-				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			/>
 		</box>
 	);
@@ -347,14 +344,11 @@ function AssistantEntry(props: {
 
 			{/* Text content */}
 			<Show when={text.length > 0}>
-				<code
-					filetype="markdown"
+				<markdown
 					content={text}
 					syntaxStyle={syntaxStyle}
 					conceal
-					drawUnstyledText={false}
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
-					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				/>
 			</Show>
 		</box>
