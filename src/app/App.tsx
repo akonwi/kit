@@ -36,6 +36,8 @@ export function App(props: AppProps) {
 		  }) => void)
 		| null = null;
 
+	const openCustomOverlay = createCustomOverlayHandler(setOverlays);
+
 	// Create UI for plugins
 	const ui: PluginUI = {
 		notify: (message, variant = "info") => {
@@ -45,7 +47,7 @@ export function App(props: AppProps) {
 				variant: variant === "warning" ? "info" : variant,
 			});
 		},
-		custom: createCustomOverlayHandler(setOverlays),
+		custom: openCustomOverlay,
 	};
 
 	// Create command registry
@@ -85,6 +87,7 @@ export function App(props: AppProps) {
 		commands,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
+		openCustomOverlay,
 	});
 
 	// Update terminal title on session change

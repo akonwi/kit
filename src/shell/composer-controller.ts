@@ -20,10 +20,13 @@ export type ComposerControllerDeps = {
 	commands: CommandRegistry;
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
+	openCustomOverlay: <T>(
+		component: (props: { done: (result: T) => void }) => import("solid-js").JSX.Element,
+	) => Promise<T>;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, commands, fileIndex, threadIndex } = deps;
+	const { runtime, commands, fileIndex, threadIndex, openCustomOverlay } = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -68,6 +71,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 						runtime,
 						palette,
 						args: currentArgs,
+						openCustomOverlay,
 					});
 				},
 			}));
@@ -231,6 +235,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				runtime,
 				palette,
 				args: slashCommand.args,
+				openCustomOverlay,
 			});
 			return;
 		}
