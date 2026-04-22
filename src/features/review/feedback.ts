@@ -9,13 +9,13 @@ export function buildReviewFeedbackMessage(options: {
 
 	for (const file of options.files) {
 		const sections: string[] = [];
-		const fileNote = options.fileNotes.get(file.path)?.trim();
+		const fileNote = options.fileNotes.get(file.noteKey)?.trim();
 		if (fileNote) {
 			sections.push(`### File-level feedback\n${fileNote}`);
 		}
 
 		for (const hunk of file.hunks) {
-			const note = options.hunkNotes.get(hunk.id)?.trim();
+			const note = options.hunkNotes.get(hunk.noteKey)?.trim();
 			if (!note) continue;
 			sections.push(`### Hunk: ${hunk.header}\n${note}`);
 		}

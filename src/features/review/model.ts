@@ -14,16 +14,24 @@ export type ReviewLine = {
 
 export type ReviewHunk = {
 	id: string;
+	noteKey: string;
 	header: string;
 	context: string;
 	lines: ReviewLine[];
+	changeCount: number;
+	patchStartLine: number;
 };
 
 export type ReviewFile = {
+	id: string;
+	noteKey: string;
 	path: string;
 	prevPath?: string;
 	status: FileDiffMetadata["type"];
+	filetype?: string;
+	rawPatch: string;
 	hunks: ReviewHunk[];
+	changeCount: number;
 };
 
 function getWorkingTreeDiff(): string {
@@ -57,6 +65,38 @@ function getWorkingTreeDiff(): string {
 		.join("\n");
 }
 
+function splitRawDiffIntoFiles(diff: string): string[] {
+	if (!diff.trim()) return [];
+	return diff
+		.split(/(?=^diff --git )/m)
+		.filter((chunk) => chunk.trim().startsWith("diff --git "));
+}
+
+function inferFiletype(path: string): string | undefined {
+	const normalized = path.toLowerCase();
+	if (normalized.endsWith(".ts") || normalized.endsWith(".tsx")) {
+		return "typescript";
+	}
+	if (
+		normalized.endsWith(".js") ||
+		normalized.endsWith(".jsx") ||
+		normalized.endsWith(".mjs")
+	) {
+		return "javascript";
+	}
+	if (normalized.endsWith(".json")) return "json";
+	if (normalized.endsWith(".md")) return "markdown";
+	if (normalized.endsWith(".sh")) return "bash";
+	if (normalized.endsWith(".yml") || normalized.endsWith(".yaml"))
+		return "yaml";
+	if (normalized.endsWith(".css")) return "css";
+	if (normalized.endsWith(".html")) return "html";
+	if (normalized.endsWith(".rs")) return "rust";
+	if (normalized.endsWith(".go")) return "go";
+	if (normalized.endsWith(".py")) return "python";
+	return undefined;
+}
+
 function contextLines(
 	block: ContextContent,
 	file: FileDiffMetadata,
@@ -79,30 +119,68 @@ function changeLines(
 	return [...deleted, ...added];
 }
 
+function findHunkPatchStartLine(
+	rawPatch: string,
+	header: string,
+	occurrence: number,
+): number {
+	const lines = rawPatch.split("\n");
+	let seen = 0;
+	for (const [index, line] of lines.entries()) {
+		if (line.startsWith(header)) {
+			if (seen === occurrence) return index;
+			seen += 1;
+		}
+	}
+	return 0;
+}
+
 function hunkToReviewHunk(
 	file: FileDiffMetadata,
 	hunk: Hunk,
+	fileNoteKey: string,
 	index: number,
+	rawPatch: string,
 ): ReviewHunk {
 	const lines = hunk.hunkContent.flatMap((block) =>
 		block.type === "context"
 			? contextLines(block, file)
 			: changeLines(block, file),
 	);
+	const changeCount = lines.filter((line) => line.kind !== "context").length;
+	const noteKey = `${fileNoteKey}:${hunk.hunkSpecs ?? `hunk-${index + 1}`}:${index}`;
+	const header = hunk.hunkSpecs ?? `Hunk ${index + 1}`;
 	return {
 		id: `${file.name}:${hunk.hunkSpecs ?? index}:${index}`,
-		header: hunk.hunkSpecs ?? `Hunk ${index + 1}`,
+		noteKey,
+		header,
 		context: hunk.hunkContext ?? "",
 		lines,
+		changeCount,
+		patchStartLine: findHunkPatchStartLine(rawPatch, header, index),
 	};
 }
 
-function fileToReviewFile(file: FileDiffMetadata): ReviewFile {
+function fileToReviewFile(
+	file: FileDiffMetadata,
+	rawPatch: string,
+	index: number,
+): ReviewFile {
+	const noteKey = `${file.prevName ?? ""}->${file.name}`;
+	const hunks = file.hunks.map((hunk, hunkIndex) =>
+		hunkToReviewHunk(file, hunk, noteKey, hunkIndex, rawPatch),
+	);
+	const changeCount = hunks.reduce((sum, hunk) => sum + hunk.changeCount, 0);
 	return {
+		id: `${noteKey}:${index}`,
+		noteKey,
 		path: file.name,
 		prevPath: file.prevName,
 		status: file.type,
-		hunks: file.hunks.map((hunk, index) => hunkToReviewHunk(file, hunk, index)),
+		filetype: inferFiletype(file.name),
+		rawPatch,
+		hunks,
+		changeCount,
 	};
 }
 
@@ -110,5 +188,9 @@ export async function loadReviewFiles(): Promise<ReviewFile[]> {
 	const diff = getWorkingTreeDiff();
 	if (!diff.trim()) return [];
 	const parsed = parsePatchFiles(diff, "review", true);
-	return parsed.flatMap((patch) => patch.files.map(fileToReviewFile));
+	const rawFiles = splitRawDiffIntoFiles(diff);
+	const files = parsed.flatMap((patch) => patch.files);
+	return files.map((file, index) =>
+		fileToReviewFile(file, rawFiles[index] ?? "", index),
+	);
 }

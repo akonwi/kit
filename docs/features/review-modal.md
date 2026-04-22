@@ -1,4 +1,4 @@
-# Review modal (`/review`)
+# Review modal (`/code-review`)
 
 ## Status
 
@@ -6,7 +6,7 @@ Prototype in progress
 
 ## Goal
 
-Add a `/review` command that opens a modal for reviewing the current uncommitted Git diff.
+Add a `/code-review` command that opens a modal for reviewing the current uncommitted Git diff.
 
 The modal should support:
 
@@ -36,7 +36,7 @@ A dedicated review modal would make code review a first-class interaction in Kit
 
 ### In scope for v1
 
-- `/review` command
+- `/code-review` command
 - current uncommitted diff as review source
 - file list
 - hunk navigation
@@ -256,7 +256,7 @@ Suggested modules:
 
 Likely integration shape:
 
-- built-in plugin registers `/review`
+- built-in plugin registers `/code-review`
 - modal opened via existing overlay/custom UI path
 - feedback submitted through runtime in the same spirit as pager feedback
 

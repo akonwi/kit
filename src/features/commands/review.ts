@@ -3,8 +3,8 @@ import { ReviewContent } from "../review/ReviewContent";
 import type { Command } from "./types";
 
 export const reviewCommand: Command = {
-	name: "review",
-	description: "Review current uncommitted changes with file and hunk notes",
+	name: "code-review",
+	description: "Review current uncommitted changes in a code review modal",
 	async execute({ openCustomOverlay, runtime }) {
 		await openCustomOverlay<void>((props) =>
 			createComponent(ReviewContent, {
