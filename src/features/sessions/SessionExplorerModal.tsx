@@ -9,6 +9,7 @@ import {
 	Show,
 } from "solid-js";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import { theme } from "../../shell/theme";
 import { formatTimeAgo } from "../commands/utils";
 import {
 	buildRelatedSessionTree,
@@ -16,7 +17,6 @@ import {
 	flattenSessionTree,
 	formatSessionTreeLabel,
 } from "./tree";
-import { theme } from "../../shell/theme";
 
 export type SessionExplorerModalProps = {
 	runtime: AgentRuntime;
@@ -86,6 +86,13 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			props.onClose();
 			return;
 		}
+
+		if (e.name === "return" || e.name === "enter") {
+			e.preventDefault();
+			props.onSelect(selectedSessionId());
+			return;
+		}
+
 		if (e.name === "up" || e.name === "k") {
 			e.preventDefault();
 			setSelectedIndex((index) => Math.max(0, index - 1));
@@ -106,11 +113,6 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			setSelectedIndex((index) =>
 				Math.min(rows().length - 1, index + MAX_VISIBLE_ROWS),
 			);
-			return;
-		}
-		if (e.name === "return" || e.name === "enter") {
-			e.preventDefault();
-			props.onSelect(selectedSessionId());
 		}
 	});
 
@@ -150,24 +152,49 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				<text fg={theme.textPrimary}>Session Explorer</text>
 
 				<Show when={!sessions.loading} fallback={<text fg={theme.textMuted}>Loading sessions…</text>}>
-					<box flexGrow={1} border borderColor={theme.borderDefault} padding={1} flexDirection="column">
+					<box
+						flexGrow={1}
+						border
+						borderColor={theme.borderDefault}
+						padding={1}
+						flexDirection="column"
+					>
 						<text fg={theme.textPrimary}>Related sessions</text>
-						<Show when={rows().length > 0} fallback={<text fg={theme.textMuted}>No related sessions found.</text>}>
+						<Show
+							when={rows().length > 0}
+							fallback={<text fg={theme.textMuted}>No related sessions found.</text>}
+						>
 							<box flexDirection="column" flexGrow={1}>
 								<For each={visibleSlice().rows}>
 									{(row, idx) => {
 										const absoluteIndex = () => visibleSlice().offset + idx();
 										const focused = () => absoluteIndex() === selectedIndex();
 										const label = () => formatSessionTreeLabel(row);
-										const meta = () => `${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
+										const meta = () =>
+											`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
 										const labelColor = () =>
-											row.isCurrent ? theme.borderAccent : focused() ? theme.pickerFocusedText : theme.textPrimary;
+											row.isCurrent
+												? theme.borderAccent
+												: focused()
+													? theme.pickerFocusedText
+													: theme.textPrimary;
 										return (
-											<box backgroundColor={focused() ? theme.pickerFocusedBg : theme.bgTransparent}>
+											<box
+												backgroundColor={
+													focused() ? theme.pickerFocusedBg : theme.bgTransparent
+												}
+											>
 												<text fg={labelColor()}>
-													{row.isCurrent ? "• " : "  "}{label()}
+													{row.isCurrent ? "• " : "  "}
+													{label()}
 												</text>
-												<text fg={focused() ? theme.pickerFocusedText : theme.textMuted}>
+												<text
+													fg={
+														focused()
+															? theme.pickerFocusedText
+															: theme.textMuted
+													}
+												>
 													 {meta()}
 												</text>
 											</box>
@@ -182,7 +209,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 					</box>
 				</Show>
 
-				<text fg={theme.textMuted}>↑/↓ move · PgUp/PgDn scroll · Enter switch · Esc close</text>
+				<text fg={theme.textMuted}>
+					↑/↓ move · PgUp/PgDn scroll · Enter switch · Esc close
+				</text>
 			</box>
 		</box>
 	);
