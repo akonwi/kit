@@ -57,12 +57,14 @@ Current prototype direction:
 - localhost HTTP server owned by Kit
 - browser page opened directly with the system browser
 - WebSocket bridge for browser ↔ Kit communication
+- a real SPA entrypoint served by Kit
+- client-side diff rendering in the SPA using `@pierre/diffs`
 
 Likely later refinements:
 
 - localhost HTTP + WebSocket for live review state
 - localhost HTTP + POST for one-shot submit or export flows
-- static asset serving instead of inline prototype HTML
+- richer client-side review state and persistence
 
 ## Inspiration
 
@@ -73,11 +75,12 @@ These are still useful references for the browser review UX and host/UI split, e
 
 ## Current prototype scope
 
-The first prototype is intentionally small:
+The current prototype establishes the browser foundations:
 
-- `/code-review` opens a browser page on localhost
-- the page connects back to Kit over WebSocket
-- Kit sends session state and runtime events to the page
-- the page can send test messages back to Kit
+- `/code-review` opens a localhost-backed SPA
+- the SPA connects back to Kit over WebSocket
+- Kit sends diff/session state to the SPA
+- the SPA renders the selected patch client-side with `@pierre/diffs`
+- the browser shell uses Kit-aligned theme tokens instead of ad hoc debug chrome
 
-This is only a transport and shell prototype. It is not yet a real diff review UI.
+This is now a real browser diff surface, but it is still missing richer review interactions like annotations, hunk selection state, and structured submission.

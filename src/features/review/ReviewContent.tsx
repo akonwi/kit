@@ -40,7 +40,7 @@ type PatchScrollRef = {
 };
 
 export function ReviewContent(props: ReviewContentProps) {
-	const [files] = createResource(loadReviewFiles);
+	const [files] = createResource(() => loadReviewFiles());
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
 	const [selectedHunkIndex, setSelectedHunkIndex] = createSignal(0);
 	const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());

@@ -35,7 +35,7 @@ export type ReviewFile = {
 	changeCount: number;
 };
 
-function getWorkingTreeDiff(): string {
+function getWorkingTreeDiff(cwd?: string): string {
 	const staged = spawnSync(
 		"git",
 		[
@@ -46,7 +46,7 @@ function getWorkingTreeDiff(): string {
 			"--find-copies",
 			"--unified=3",
 		],
-		{ encoding: "utf8" },
+		{ encoding: "utf8", cwd },
 	);
 	if (staged.status !== 0) {
 		throw new Error(staged.stderr || "Failed to read staged diff.");
@@ -55,7 +55,7 @@ function getWorkingTreeDiff(): string {
 	const unstaged = spawnSync(
 		"git",
 		["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--unified=3"],
-		{ encoding: "utf8" },
+		{ encoding: "utf8", cwd },
 	);
 	if (unstaged.status !== 0) {
 		throw new Error(unstaged.stderr || "Failed to read unstaged diff.");
@@ -187,8 +187,8 @@ function fileToReviewFile(
 	};
 }
 
-export async function loadReviewFiles(): Promise<ReviewFile[]> {
-	const diff = getWorkingTreeDiff();
+export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
+	const diff = getWorkingTreeDiff(cwd);
 	if (!diff.trim()) return [];
 	const parsed = parsePatchFiles(diff, "review", true);
 	const rawFiles = splitRawDiffIntoFiles(diff);
