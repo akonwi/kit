@@ -748,7 +748,13 @@ socket.addEventListener("message", (event) => {
 		return;
 	}
 	if (message.type === "submission_saved") {
+		draft = { fileComments: {}, rangeComments: {} };
+		selectedRange = null;
 		submitStatus.textContent = `Sent ${message.commentCount} comment${message.commentCount === 1 ? "" : "s"} across ${message.fileCount} file${message.fileCount === 1 ? "" : "s"} at ${message.submittedAt}.`;
+		if (currentState) {
+			renderState(currentState);
+		}
+		send({ type: "refresh_diff" });
 	}
 });
 
