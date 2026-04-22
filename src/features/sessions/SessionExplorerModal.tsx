@@ -9,7 +9,6 @@ import {
 	Show,
 } from "solid-js";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
-import type { SessionSummary } from "../../session";
 import { formatTimeAgo } from "../commands/utils";
 import {
 	buildRelatedSessionTree,
@@ -42,10 +41,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		return flattenSessionTree(root, currentSessionId());
 	});
 
-	const selectedRow = createMemo(() => rows()[selectedIndex()]);
-	const selectedSession = createMemo(() => selectedRow()?.session ?? null);
 	const currentSelectionIndex = createMemo(() =>
 		findSessionRowIndex(rows(), currentSessionId()),
+	);
+	const selectedSessionId = createMemo(
+		() => rows()[selectedIndex()]?.session.id ?? null,
 	);
 	const visibleSlice = createMemo(() => {
 		const allRows = rows();
@@ -110,17 +110,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		}
 		if (e.name === "return" || e.name === "enter") {
 			e.preventDefault();
-			props.onSelect(selectedSession()?.id ?? null);
+			props.onSelect(selectedSessionId());
 		}
 	});
-
-	function sessionRole(session: SessionSummary | null): string {
-		if (!session) return "";
-		if (session.id === currentSessionId()) return "current";
-		if (!session.parentSessionId) return "root";
-		if (session.parentSessionId === currentSessionId()) return "child";
-		return "related";
-	}
 
 	const treeFooter = createMemo(() => {
 		const allRows = rows();
@@ -156,76 +148,37 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				gap={1}
 			>
 				<text fg={theme.textPrimary}>Session Explorer</text>
-				<text fg={theme.textMuted}>
-					Current: {props.runtime.getSession().name || props.runtime.getSession().id.slice(0, 8)}
-				</text>
 
 				<Show when={!sessions.loading} fallback={<text fg={theme.textMuted}>Loading sessions…</text>}>
-					<box flexGrow={1} flexDirection="row" gap={1}>
-						<box
-							width="55%"
-							border
-							borderColor={theme.borderDefault}
-							padding={1}
-							flexDirection="column"
-						>
-							<text fg={theme.textPrimary}>Related sessions</text>
-							<Show when={rows().length > 0} fallback={<text fg={theme.textMuted}>No related sessions found.</text>}>
-								<box flexDirection="column" flexGrow={1}>
-									<For each={visibleSlice().rows}>
-										{(row, idx) => {
-											const absoluteIndex = () => visibleSlice().offset + idx();
-											const focused = () => absoluteIndex() === selectedIndex();
-											const label = () => formatSessionTreeLabel(row);
-											const meta = () => `${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
-											return (
-												<box backgroundColor={focused() ? theme.pickerFocusedBg : theme.bgTransparent}>
-													<text fg={focused() ? theme.pickerFocusedText : row.isCurrent ? theme.borderAccent : theme.textPrimary}>
-														{focused() ? "› " : row.isCurrent ? "• " : "  "}{label()}
-													</text>
-													<text fg={focused() ? theme.pickerFocusedText : theme.textMuted}>
-														 {meta()}
-													</text>
-												</box>
-											);
-										}}
-									</For>
-									<Show when={treeFooter()}>
-										<text fg={theme.textMuted}>{treeFooter()}</text>
-									</Show>
-								</box>
-							</Show>
-						</box>
-
-						<box
-							flexGrow={1}
-							border
-							borderColor={theme.borderDefault}
-							padding={1}
-							flexDirection="column"
-							gap={1}
-						>
-							<text fg={theme.textPrimary}>Details</text>
-							<Show when={selectedSession()} fallback={<text fg={theme.textMuted}>Select a session.</text>}>
-								{text => (
-									<>
-										<text fg={theme.textPrimary}>{text().name || text().firstMessage || text().id.slice(0, 8)}</text>
-										<text fg={theme.textMuted}>ID: {text().id}</text>
-										<text fg={theme.textMuted}>Role: {sessionRole(text())}</text>
-										<text fg={theme.textMuted}>Parent: {text().parentSessionId ?? "(none)"}</text>
-										<text fg={theme.textMuted}>CWD: {text().cwd}</text>
-										<text fg={theme.textMuted}>Updated: {new Date(text().updatedAt).toLocaleString()}</text>
-										<text fg={theme.textMuted}>Messages: {text().messageCount}</text>
-										<Show when={text().firstMessage}>
-											<box flexDirection="column">
-												<text fg={theme.textPrimary}>First message</text>
-												<text fg={theme.textSecondary}>{text().firstMessage}</text>
+					<box flexGrow={1} border borderColor={theme.borderDefault} padding={1} flexDirection="column">
+						<text fg={theme.textPrimary}>Related sessions</text>
+						<Show when={rows().length > 0} fallback={<text fg={theme.textMuted}>No related sessions found.</text>}>
+							<box flexDirection="column" flexGrow={1}>
+								<For each={visibleSlice().rows}>
+									{(row, idx) => {
+										const absoluteIndex = () => visibleSlice().offset + idx();
+										const focused = () => absoluteIndex() === selectedIndex();
+										const label = () => formatSessionTreeLabel(row);
+										const meta = () => `${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
+										const labelColor = () =>
+											row.isCurrent ? theme.borderAccent : focused() ? theme.pickerFocusedText : theme.textPrimary;
+										return (
+											<box backgroundColor={focused() ? theme.pickerFocusedBg : theme.bgTransparent}>
+												<text fg={labelColor()}>
+													{row.isCurrent ? "• " : "  "}{label()}
+												</text>
+												<text fg={focused() ? theme.pickerFocusedText : theme.textMuted}>
+													 {meta()}
+												</text>
 											</box>
-										</Show>
-									</>
-								)}
-							</Show>
-						</box>
+										);
+									}}
+								</For>
+								<Show when={treeFooter()}>
+									<text fg={theme.textMuted}>{treeFooter()}</text>
+								</Show>
+							</box>
+						</Show>
 					</box>
 				</Show>
 
