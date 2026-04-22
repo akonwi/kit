@@ -63,9 +63,7 @@ export function getAuthenticatedProviderIds(): string[] {
  *
  * Priority: auth.json (api_key or oauth) > environment variable.
  */
-export async function getApiKey(
-	provider: string,
-): Promise<string | undefined> {
+export async function getApiKey(provider: string): Promise<string | undefined> {
 	const auth = await readAuthFile();
 	const entry = auth[provider];
 

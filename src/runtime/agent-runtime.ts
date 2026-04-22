@@ -293,7 +293,10 @@ export class AgentRuntime {
 		const model = this.agent.state.model;
 		if (!model || this.isCompacting || this.overflowRecoveryInFlight) return;
 
-		const contextUsage = getRuntimeContextUsage(this.agent.state.messages, model);
+		const contextUsage = getRuntimeContextUsage(
+			this.agent.state.messages,
+			model,
+		);
 		if (!contextUsage || contextUsage.percent <= 100) return;
 
 		const recoveryKey = `${this.session.id}:${model.id}:${this.session.updatedAt}:${this.agent.turns.length}`;
@@ -350,7 +353,10 @@ export class AgentRuntime {
 			this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
 			this.emit({ type: "status_changed", status: this.snapshotStatus() });
 
-			const nextUsage = getRuntimeContextUsage(this.agent.state.messages, model);
+			const nextUsage = getRuntimeContextUsage(
+				this.agent.state.messages,
+				model,
+			);
 			if (nextUsage && nextUsage.percent > 100) {
 				this.emit({
 					type: "error",
@@ -664,7 +670,8 @@ export class AgentRuntime {
 
 	async reloadSession(): Promise<void> {
 		const reloaded =
-			(await findSessionById(this.session.id)) ?? (await readSession(this.session.id));
+			(await findSessionById(this.session.id)) ??
+			(await readSession(this.session.id));
 		if (reloaded) {
 			this.session = reloaded;
 			this.agent.replaceFromTurns(this.session.turns);
@@ -680,7 +687,9 @@ export class AgentRuntime {
 		this.emit({
 			type: "info",
 			title: "Session reloaded",
-			lines: ["Reloaded session state, context files, tools, and runtime status."],
+			lines: [
+				"Reloaded session state, context files, tools, and runtime status.",
+			],
 		});
 	}
 

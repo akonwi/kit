@@ -14,6 +14,7 @@ import { TextAttributes } from "@opentui/core";
 import type { Turn } from "../session/types";
 
 type BashExecutionMessage = CustomAgentMessages["bashExecution"];
+
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import { syntaxStyle, theme } from "./theme";

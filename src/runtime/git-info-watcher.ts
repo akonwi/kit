@@ -1,8 +1,8 @@
 import {
 	existsSync,
+	type FSWatcher,
 	readFileSync,
 	statSync,
-	type FSWatcher,
 	watch,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -97,7 +97,10 @@ export class GitInfoWatcher {
 	private setupWatchers(): void {
 		if (!this.gitPaths) return;
 
-		this.watchPath(dirname(this.gitPaths.headPath), (filename) => !filename || filename === "HEAD");
+		this.watchPath(
+			dirname(this.gitPaths.headPath),
+			(filename) => !filename || filename === "HEAD",
+		);
 		this.watchPath(this.gitPaths.commonGitDir, (filename) => {
 			if (!filename) return true;
 			return (

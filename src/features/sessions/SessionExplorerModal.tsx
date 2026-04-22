@@ -32,7 +32,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	const [lastCenteredSessionId, setLastCenteredSessionId] = createSignal<
 		string | null
 	>(null);
-	const [sessions] = createResource(async () => props.runtime.listAllSessions());
+	const [sessions] = createResource(async () =>
+		props.runtime.listAllSessions(),
+	);
 
 	const rows = createMemo(() => {
 		const list = sessions() ?? [];
@@ -77,7 +79,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			return;
 		}
 
-		setSelectedIndex((index) => Math.max(0, Math.min(index, allRows.length - 1)));
+		setSelectedIndex((index) =>
+			Math.max(0, Math.min(index, allRows.length - 1)),
+		);
 	});
 
 	useKeyboard((e: KeyEvent) => {
@@ -151,7 +155,10 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			>
 				<text fg={theme.textPrimary}>Session Explorer</text>
 
-				<Show when={!sessions.loading} fallback={<text fg={theme.textMuted}>Loading sessions…</text>}>
+				<Show
+					when={!sessions.loading}
+					fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
+				>
 					<box
 						flexGrow={1}
 						border
@@ -162,7 +169,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 						<text fg={theme.textPrimary}>Related sessions</text>
 						<Show
 							when={rows().length > 0}
-							fallback={<text fg={theme.textMuted}>No related sessions found.</text>}
+							fallback={
+								<text fg={theme.textMuted}>No related sessions found.</text>
+							}
 						>
 							<box flexDirection="column" flexGrow={1}>
 								<For each={visibleSlice().rows}>
@@ -181,7 +190,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 										return (
 											<box
 												backgroundColor={
-													focused() ? theme.pickerFocusedBg : theme.bgTransparent
+													focused()
+														? theme.pickerFocusedBg
+														: theme.bgTransparent
 												}
 											>
 												<text fg={labelColor()}>
@@ -195,7 +206,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 															: theme.textMuted
 													}
 												>
-													 {meta()}
+													{meta()}
 												</text>
 											</box>
 										);

@@ -21,7 +21,9 @@ export type ComposerControllerDeps = {
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 	openCustomOverlay: <T>(
-		component: (props: { done: (result: T) => void }) => import("solid-js").JSX.Element,
+		component: (props: {
+			done: (result: T) => void;
+		}) => import("solid-js").JSX.Element,
 	) => Promise<T>;
 };
 

@@ -8,7 +8,7 @@ export type SessionTreeNode = {
 export type SessionTreeRow = {
 	session: SessionSummary;
 	depth: number;
-		isCurrent: boolean;
+	isCurrent: boolean;
 	isLeaf: boolean;
 	isLastChild: boolean;
 	ancestorHasNextSibling: boolean[];
@@ -114,7 +114,10 @@ export function findSessionRowIndex(
 }
 
 export function formatSessionTreeLabel(row: SessionTreeRow): string {
-	const title = row.session.name?.trim() || row.session.firstMessage?.trim() || row.session.id.slice(0, 8);
+	const title =
+		row.session.name?.trim() ||
+		row.session.firstMessage?.trim() ||
+		row.session.id.slice(0, 8);
 	if (row.depth === 0) return title;
 
 	const columns = row.ancestorHasNextSibling

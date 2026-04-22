@@ -65,9 +65,12 @@ function summarizeToolResultText(text: string): string {
 	return `[tool output omitted: ${lines.length} lines, ${trimmed.length} chars]`;
 }
 
-function summarizeBashExecution(message: Extract<AgentMessage, { role: "bashExecution" }>): string {
+function summarizeBashExecution(
+	message: Extract<AgentMessage, { role: "bashExecution" }>,
+): string {
 	const output = message.output.trim();
-	const exit = typeof message.exitCode === "number" ? String(message.exitCode) : "unknown";
+	const exit =
+		typeof message.exitCode === "number" ? String(message.exitCode) : "unknown";
 	const outputSummary = output
 		? `[bash output omitted: ${output.split(/\r?\n/).length} lines, ${output.length} chars]`
 		: "[no output]";
