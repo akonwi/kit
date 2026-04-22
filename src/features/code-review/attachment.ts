@@ -1,7 +1,5 @@
-import type {
-	Attachment,
-	MessagePart,
-} from "../../shell/attachments-controller";
+import type { MessagePart } from "../../messages/parts";
+import type { Attachment } from "../../shell/attachments-controller";
 
 type CodeReviewSubmission = {
 	submittedAt: string;
@@ -35,9 +33,24 @@ export class CodeReviewAttachment implements Attachment {
 	}
 
 	toMessagePart(): MessagePart {
+		const lines = ["Attached code review:"];
+		for (const file of this.review.files) {
+			lines.push(`File: ${file.path}`);
+			if (file.fileComment.trim()) {
+				lines.push(`- File comment: ${file.fileComment.trim()}`);
+			}
+			for (const range of file.ranges) {
+				const lineLabel =
+					range.startLine === range.endLine
+						? `${range.startLine}`
+						: `${range.startLine}-${range.endLine}`;
+				lines.push(`- ${range.side} ${lineLabel}: ${range.comment.trim()}`);
+			}
+		}
 		return {
 			type: this.type,
 			review: this.review,
+			promptText: lines.join("\n"),
 		};
 	}
 }

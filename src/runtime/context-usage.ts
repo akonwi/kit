@@ -1,5 +1,6 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Api, Model, Usage } from "@mariozechner/pi-ai";
+import { messagePartToPromptText } from "../messages/parts";
 
 type SyntheticCompactionSummaryMessage = AgentMessage & {
 	synthetic?: { kind: "compaction-summary" };
@@ -69,8 +70,8 @@ export function estimateTokens(message: AgentMessage): number {
 				chars = message.content.length;
 			} else {
 				for (const block of message.content) {
-					if (block.type === "text") chars += block.text.length;
 					if (block.type === "image") chars += 4800;
+					else chars += messagePartToPromptText(block as never).length;
 				}
 			}
 			break;

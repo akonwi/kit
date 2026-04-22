@@ -5,19 +5,23 @@ import {
 	type AgentMessage,
 	type AgentOptions,
 } from "@mariozechner/pi-agent-core";
-import type { Message, UserMessage } from "@mariozechner/pi-ai";
+import type {
+	ImageContent,
+	Message,
+	TextContent,
+	UserMessage,
+} from "@mariozechner/pi-ai";
+import {
+	type MessagePart,
+	messagePartToPromptText,
+	type UserMultipartMessage,
+} from "../messages/parts";
 import type { KitAgentMessage, Session, Turn } from "../session/types";
 
 export interface KitAgentOptions extends AgentOptions {
 	initialTurns?: Turn[];
 }
 
-/**
- * Extends pi-agent-core's Agent with explicit turn tracking.
- *
- * Every message is tagged with a turnId at the moment it arrives,
- * so grouping is always O(1) rather than derived by scanning.
- */
 export class KitAgent extends Agent {
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
@@ -47,7 +51,7 @@ export class KitAgent extends Agent {
 			},
 			steeringMode: opts?.steeringMode ?? "all",
 			followUpMode: opts?.followUpMode ?? "all",
-			convertToLlm: convertToLlm,
+			convertToLlm,
 		});
 
 		if (initialTurns) {
@@ -123,11 +127,6 @@ export class KitAgent extends Agent {
 		return this._currentTurn ?? this.startTurn();
 	}
 
-	/**
-	 * Append a custom message (e.g. bashExecution) to the current turn.
-	 * Creates a new turn if none is active. Also appends to the Agent's
-	 * message list so it's included in future context.
-	 */
 	appendCustomMessage(message: AgentMessage): void {
 		const turn = this.ensureCurrentTurn();
 		const tagged: KitAgentMessage = {
@@ -145,10 +144,6 @@ export class KitAgent extends Agent {
 		this.appendMessage(message);
 	}
 
-	/**
-	 * Replace the agent's message history from a persisted turn list.
-	 * Restores both the raw messages (for the LLM context) and the turn structure.
-	 */
 	replaceFromTurns(turns: Turn[]): void {
 		this._turns = turns.map((turn) => ({
 			...turn,
@@ -163,22 +158,22 @@ export class KitAgent extends Agent {
 	}
 }
 
-/**
- * Convert AgentMessage[] to LLM-compatible Message[].
- * Filters out custom message types that the LLM doesn't understand,
- * optionally converting some to user messages for context.
- */
 function convertToLlm(messages: AgentMessage[]): Message[] {
 	const result: Message[] = [];
 	for (const msg of messages) {
 		switch (msg.role) {
-			case "user":
+			case "user": {
+				const normalized = normalizeUserMessage(
+					msg as UserMessage | UserMultipartMessage,
+				);
+				result.push(normalized);
+				break;
+			}
 			case "assistant":
 			case "toolResult":
 				result.push(msg as Message);
 				break;
 			case "bashExecution": {
-				// Include in LLM context as a user message unless excluded
 				if (!msg.excludeFromContext) {
 					const exitInfo =
 						msg.exitCode != null && msg.exitCode !== 0
@@ -193,10 +188,39 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
 				}
 				break;
 			}
-			// Unknown custom roles are silently dropped
 		}
 	}
 	return result;
+}
+
+function normalizeUserMessage(
+	message: UserMessage | UserMultipartMessage,
+): UserMessage {
+	if (typeof message.content === "string") {
+		return {
+			role: "user",
+			content: message.content,
+			timestamp: message.timestamp,
+		};
+	}
+	const content: Array<TextContent | ImageContent> = [];
+	for (const part of message.content as Array<
+		TextContent | ImageContent | MessagePart
+	>) {
+		if (part.type === "image" && "data" in part && "mimeType" in part) {
+			content.push(part as ImageContent);
+			continue;
+		}
+		const promptText = messagePartToPromptText(part as MessagePart);
+		if (promptText) {
+			content.push({ type: "text", text: promptText });
+		}
+	}
+	return {
+		role: "user",
+		content,
+		timestamp: message.timestamp,
+	};
 }
 
 function extractPlainText(message: AgentMessage): string {

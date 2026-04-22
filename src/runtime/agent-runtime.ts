@@ -21,6 +21,7 @@ import {
 	type ContextFile,
 	discoverContextFiles,
 } from "../context/agents";
+import type { MessagePart, UserMultipartMessage } from "../messages/parts";
 import {
 	createSession,
 	deleteSession,
@@ -101,7 +102,8 @@ export class AgentRuntime {
 	constructor(
 		session: Session,
 		options?: {
-			extraTools?: AgentTool<any>[]; // biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection
+			// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection
+			extraTools?: AgentTool<any>[];
 			systemPromptAdditions?: string[];
 		},
 	) {
@@ -465,11 +467,19 @@ export class AgentRuntime {
 		}
 	}
 
-	async submitUserMessage(text: string): Promise<void> {
+	async submitUserMessage(input: string | MessagePart[]): Promise<void> {
+		const parts: MessagePart[] =
+			typeof input === "string" ? [{ type: "text", text: input }] : input;
+		const message: UserMultipartMessage = {
+			role: "user",
+			content: parts,
+			timestamp: Date.now(),
+		};
 		try {
-			await this.agent.prompt(text);
+			await this.agent.prompt(message);
 		} catch (err) {
 			this.emit({ type: "error", title: "Agent error", lines: [String(err)] });
+			throw err;
 		}
 	}
 

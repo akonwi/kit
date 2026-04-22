@@ -90,6 +90,7 @@ export function App(props: AppProps) {
 		commands,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
+		attachments,
 		openCustomOverlay,
 	});
 

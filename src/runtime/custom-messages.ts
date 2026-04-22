@@ -2,10 +2,10 @@
  * Custom AgentMessage types for Kit.
  *
  * Uses pi-agent-core's declaration merging to register app-specific
- * message roles that the transcript can render but the LLM never sees.
+ * message roles and message shapes that the transcript can render.
  */
 
-export {};
+import type { UserMultipartMessage } from "../messages/parts";
 
 declare module "@mariozechner/pi-agent-core" {
 	interface CustomAgentMessages {
@@ -20,5 +20,6 @@ declare module "@mariozechner/pi-agent-core" {
 			excludeFromContext: boolean;
 			timestamp: number;
 		};
+		userMultipart: UserMultipartMessage;
 	}
 }

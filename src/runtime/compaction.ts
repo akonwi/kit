@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { type Api, completeSimple, type Model } from "@mariozechner/pi-ai";
+import { messagePartToPromptText } from "../messages/parts";
 import type { Session } from "../session";
 import type { KitAgentMessage, Turn } from "../session/types";
 import { estimateTokens } from "./context-usage";
@@ -86,8 +87,8 @@ function serializeConversation(messages: AgentMessage[]): string {
 				typeof message.content === "string"
 					? message.content
 					: message.content
-							.filter((block) => block.type === "text")
-							.map((block) => block.text)
+							.map((block) => messagePartToPromptText(block as never))
+							.filter(Boolean)
 							.join("\n");
 			if (content) {
 				parts.push(`[User]\n${truncateText(content, MAX_USER_MESSAGE_CHARS)}`);

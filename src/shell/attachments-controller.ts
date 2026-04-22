@@ -1,9 +1,5 @@
 import { type Accessor, createSignal } from "solid-js";
-
-export type MessagePart = {
-	type: string;
-	[key: string]: unknown;
-};
+import type { MessagePart } from "../messages/parts";
 
 export interface Attachment {
 	id: string;
