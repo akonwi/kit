@@ -43,6 +43,7 @@ type PatchScrollRef = {
 export function ReviewContent(props: ReviewContentProps) {
 	const [files] = createResource(loadReviewFiles);
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
+	const [selectedHunkIndex, setSelectedHunkIndex] = createSignal(0);
 	const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());
 	const [patchFocused, setPatchFocused] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
@@ -55,6 +56,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		const list = reviewFiles();
 		if (selectedIndex() >= list.length) {
 			setSelectedIndex(Math.max(0, list.length - 1));
+		}
+	});
+
+	createEffect(() => {
+		const hunks = selectedFile()?.hunks ?? [];
+		if (selectedHunkIndex() >= hunks.length) {
+			setSelectedHunkIndex(Math.max(0, hunks.length - 1));
 		}
 	});
 
@@ -91,10 +99,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		});
 	}
 
-	function scrollPatch(delta: number) {
-		const file = selectedFile();
-		if (!file) return;
-		patchScrollRefs.get(file.id)?.scrollBy({ x: 0, y: delta });
+	function scrollToHunk(file: ReviewFile, hunkIndex: number) {
+		const hunk = file.hunks[hunkIndex];
+		if (!hunk) return;
+		patchScrollRefs.get(file.id)?.scrollTo({
+			x: 0,
+			y: Math.max(0, hunk.patchStartLine - 2),
+		});
 	}
 
 	useKeyboard((e: KeyEvent) => {
@@ -106,12 +117,23 @@ export function ReviewContent(props: ReviewContentProps) {
 			}
 			if (e.name === "up" || e.name === "k") {
 				e.preventDefault();
-				scrollPatch(-3);
+				const file = selectedFile();
+				if (!file) return;
+				const nextIndex = Math.max(0, selectedHunkIndex() - 1);
+				setSelectedHunkIndex(nextIndex);
+				queueMicrotask(() => scrollToHunk(file, nextIndex));
 				return;
 			}
 			if (e.name === "down" || e.name === "j") {
 				e.preventDefault();
-				scrollPatch(3);
+				const file = selectedFile();
+				if (!file) return;
+				const nextIndex = Math.min(
+					file.hunks.length - 1,
+					selectedHunkIndex() + 1,
+				);
+				setSelectedHunkIndex(nextIndex);
+				queueMicrotask(() => scrollToHunk(file, nextIndex));
 				return;
 			}
 			return;
@@ -125,6 +147,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (e.name === "up" || e.name === "k") {
 			e.preventDefault();
 			setSelectedIndex((index) => Math.max(0, index - 1));
+			setSelectedHunkIndex(0);
 			return;
 		}
 		if (e.name === "down" || e.name === "j") {
@@ -132,12 +155,16 @@ export function ReviewContent(props: ReviewContentProps) {
 			setSelectedIndex((index) =>
 				Math.min(reviewFiles().length - 1, index + 1),
 			);
+			setSelectedHunkIndex(0);
 			return;
 		}
 		if (e.name === "return" || e.name === "enter") {
 			e.preventDefault();
 			const file = selectedFile();
-			if (file && expandedKeys().has(file.id)) setPatchFocused(true);
+			if (file && expandedKeys().has(file.id)) {
+				setPatchFocused(true);
+				queueMicrotask(() => scrollToHunk(file, selectedHunkIndex()));
+			}
 			return;
 		}
 		if (e.name === "space") {
@@ -372,7 +399,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					>
 						<text fg={theme.textMuted}>
 							{patchFocused()
-								? "↑/↓ or j/k scroll patch · Esc back"
+								? "↑/↓ or j/k jump hunks · Esc back"
 								: "↑/↓ or j/k move · Enter focus patch · Space collapse/expand · Esc close"}
 						</text>
 					</box>

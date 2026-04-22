@@ -119,20 +119,11 @@ function changeLines(
 	return [...deleted, ...added];
 }
 
-function findHunkPatchStartLine(
-	rawPatch: string,
-	header: string,
-	occurrence: number,
-): number {
-	const lines = rawPatch.split("\n");
-	let seen = 0;
-	for (const [index, line] of lines.entries()) {
-		if (line.startsWith(header)) {
-			if (seen === occurrence) return index;
-			seen += 1;
-		}
-	}
-	return 0;
+function getRenderedUnifiedLineCount(hunk: Hunk): number {
+	return hunk.hunkContent.reduce((count, block) => {
+		if (block.type === "context") return count + block.lines;
+		return count + block.additions + block.deletions;
+	}, 0);
 }
 
 function hunkToReviewHunk(
@@ -140,7 +131,7 @@ function hunkToReviewHunk(
 	hunk: Hunk,
 	fileNoteKey: string,
 	index: number,
-	rawPatch: string,
+	renderedStartLine: number,
 ): ReviewHunk {
 	const lines = hunk.hunkContent.flatMap((block) =>
 		block.type === "context"
@@ -157,7 +148,7 @@ function hunkToReviewHunk(
 		context: hunk.hunkContext ?? "",
 		lines,
 		changeCount,
-		patchStartLine: findHunkPatchStartLine(rawPatch, header, index),
+		patchStartLine: renderedStartLine,
 	};
 }
 
@@ -167,9 +158,18 @@ function fileToReviewFile(
 	index: number,
 ): ReviewFile {
 	const noteKey = `${file.prevName ?? ""}->${file.name}`;
-	const hunks = file.hunks.map((hunk, hunkIndex) =>
-		hunkToReviewHunk(file, hunk, noteKey, hunkIndex, rawPatch),
-	);
+	let renderedStartLine = 0;
+	const hunks = file.hunks.map((hunk, hunkIndex) => {
+		const reviewHunk = hunkToReviewHunk(
+			file,
+			hunk,
+			noteKey,
+			hunkIndex,
+			renderedStartLine,
+		);
+		renderedStartLine += getRenderedUnifiedLineCount(hunk);
+		return reviewHunk;
+	});
 	const changeCount = hunks.reduce((sum, hunk) => sum + hunk.changeCount, 0);
 	return {
 		id: `${noteKey}:${index}`,
