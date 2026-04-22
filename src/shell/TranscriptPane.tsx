@@ -136,22 +136,17 @@ function InlineSpinner() {
 	return <text fg={theme.toolText}>{SPINNER_FRAMES[frame()]}</text>;
 }
 
-function CodeReviewPartEntry(props: { part: MessagePart }) {
-	const part = props.part as MessagePart & {
-		review?: {
-			files?: Array<{
-				path: string;
-				fileComment: string;
-				ranges: Array<{
-					side: string;
-					startLine: number;
-					endLine: number;
-					comment: string;
+function CodeReviewPartEntry(props: { part: MessagePart; aborted?: boolean }) {
+	const review = (
+		props.part as MessagePart & {
+			review?: {
+				files?: Array<{
+					fileComment: string;
+					ranges: Array<{ comment: string }>;
 				}>;
-			}>;
-		};
-	};
-	const review = part.review;
+			};
+		}
+	).review;
 	const fileCount = review?.files?.length ?? 0;
 	const commentCount =
 		review?.files?.reduce(
@@ -160,31 +155,42 @@ function CodeReviewPartEntry(props: { part: MessagePart }) {
 			0,
 		) ?? 0;
 	const summary = `Code review · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${fileCount} file${fileCount === 1 ? "" : "s"}`;
-	const icon = "🧐";
+
 	return (
 		<box
 			border={["left" as BorderSides]}
-			borderColor={theme.borderDefault}
+			borderColor={props.aborted ? theme.textMuted : theme.reviewText}
 			paddingLeft={1}
 			flexDirection="column"
 			gap={0}
 			width="100%"
 		>
-			<text fg={theme.textMuted}>
-				{icon} {summary}
+			<text
+				fg={props.aborted ? theme.textMuted : theme.reviewText}
+				attributes={props.aborted ? ABORTED_ATTRS : undefined}
+			>
+				🧐 {summary}
 			</text>
-			<For each={review?.files ?? []}>
-				{(file) => {
-					const commentCount =
-						(file.fileComment.trim().length > 0 ? 1 : 0) + file.ranges.length;
-					return (
-						<text fg={theme.textMuted}>
-							{file.path} · {commentCount} comment
-							{commentCount === 1 ? "" : "s"}
-						</text>
-					);
-				}}
-			</For>
+		</box>
+	);
+}
+
+function UserTextEntry(props: { text: string; aborted?: boolean }) {
+	return (
+		<box
+			border={["left" as BorderSides]}
+			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
+			paddingLeft={1}
+			flexDirection="column"
+			gap={0}
+			width="100%"
+		>
+			<markdown
+				content={props.text}
+				syntaxStyle={syntaxStyle}
+				conceal
+				fg={props.aborted ? theme.textMuted : theme.textPrimary}
+			/>
 		</box>
 	);
 }
@@ -196,26 +202,14 @@ function UserEntry(props: {
 	const text = extractUserText(props.msg);
 	const parts = extractUserCustomParts(props.msg);
 	return (
-		<box
-			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
-			paddingLeft={1}
-			flexDirection="column"
-			gap={0}
-			width="100%"
-		>
+		<box flexDirection="column" gap={1} width="100%">
 			<Show when={text.trim().length > 0}>
-				<markdown
-					content={text}
-					syntaxStyle={syntaxStyle}
-					conceal
-					fg={props.aborted ? theme.textMuted : theme.textPrimary}
-				/>
+				<UserTextEntry text={text} aborted={props.aborted} />
 			</Show>
 			<For each={parts}>
 				{(part) =>
 					part.type === "code-review" ? (
-						<CodeReviewPartEntry part={part} />
+						<CodeReviewPartEntry part={part} aborted={props.aborted} />
 					) : null
 				}
 			</For>
