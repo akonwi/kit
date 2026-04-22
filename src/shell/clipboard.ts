@@ -1,5 +1,5 @@
-import { spawn } from "child_process";
-import { platform } from "os";
+import { spawn } from "node:child_process";
+import { platform } from "node:os";
 
 /**
  * Write text to clipboard via OSC 52 escape sequence.
@@ -10,7 +10,7 @@ function writeOsc52(text: string): void {
 	if (!process.stdout.isTTY) return;
 	const base64 = Buffer.from(text).toString("base64");
 	const osc52 = `\x1b]52;c;${base64}\x07`;
-	const passthrough = process.env["TMUX"] || process.env["STY"];
+	const passthrough = process.env.TMUX || process.env.STY;
 	const sequence = passthrough ? `\x1bPtmux;\x1b${osc52}\x1b\\` : osc52;
 	process.stdout.write(sequence);
 }
@@ -31,7 +31,7 @@ async function nativeCopy(text: string): Promise<void> {
 
 	if (os === "linux") {
 		// Try wayland first, then X11
-		const cmd = process.env["WAYLAND_DISPLAY"]
+		const cmd = process.env.WAYLAND_DISPLAY
 			? ["wl-copy"]
 			: ["xclip", "-selection", "clipboard"];
 		return new Promise((resolve, reject) => {
