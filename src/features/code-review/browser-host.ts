@@ -123,6 +123,18 @@ class CodeReviewBrowserHost {
 	private state: CodeReviewBrowserState | null = null;
 	private refreshCounter = 0;
 	private appBundlePromise: Promise<string> | null = null;
+	private onReviewSubmitted: ((review: CodeReviewSubmission) => void) | null =
+		null;
+
+	setOnReviewSubmitted(
+		handler: ((review: CodeReviewSubmission) => void) | null,
+	): void {
+		this.onReviewSubmitted = handler;
+	}
+
+	clearPendingReview(): void {
+		// Pending review attachment state currently lives outside the browser host.
+	}
 
 	async launch(runtime: AgentRuntime): Promise<void> {
 		this.ensureServer();
@@ -263,6 +275,7 @@ class CodeReviewBrowserHost {
 						file.ranges.length,
 					0,
 				);
+				this.onReviewSubmitted?.(message.review);
 				this.send(ws, {
 					type: "submission_saved",
 					submittedAt: message.review.submittedAt,

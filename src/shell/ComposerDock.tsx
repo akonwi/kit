@@ -1,5 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
+import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { theme } from "./theme";
 
@@ -9,6 +10,7 @@ export type ComposerDockProps = {
 	gitBranch: string | null;
 	gitDirty: boolean;
 	controller: ComposerController;
+	attachments: AttachmentsController;
 	locked?: boolean;
 	onHeightChange?: (height: number) => void;
 };
@@ -133,6 +135,25 @@ export function ComposerDock(props: ComposerDockProps) {
 				flexDirection="column"
 				gap={0}
 			>
+				{props.attachments.attachments().map((attachment) => (
+					<box
+						width="100%"
+						paddingTop={1}
+						paddingBottom={1}
+						justifyContent="space-between"
+						alignItems="center"
+					>
+						<text fg={theme.textMuted}>
+							{attachment.icon} {attachment.summary}
+						</text>
+						<text
+							fg={theme.textMuted}
+							onMouseUp={() => props.attachments.detach(attachment.id)}
+						>
+							×
+						</text>
+					</box>
+				))}
 				<textarea
 					ref={(value) => {
 						props.controller.setTextarea(value as TextareaHandle | undefined);
