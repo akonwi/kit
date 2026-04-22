@@ -1,6 +1,7 @@
 export { type CommandRegistry, createCommandRegistry } from "./registry";
 export type { Command, CommandContext } from "./types";
 
+import { codeReviewCommand } from "./code-review";
 import { handoffCommand } from "./handoff";
 import { loginCommand } from "./login";
 import { modelCommand } from "./model";
@@ -16,6 +17,7 @@ import { treeCommand } from "./tree";
 import type { Command } from "./types";
 
 export const BUILT_IN_COMMANDS: Command[] = [
+	codeReviewCommand,
 	handoffCommand,
 	loginCommand,
 	modelCommand,

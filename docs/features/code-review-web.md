@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Prototype started
 
 ## Decision
 
@@ -52,14 +52,32 @@ Kit should remain the orchestrator:
 4. exchange state/results with the SPA
 5. receive structured review output back into Kit
 
-Likely implementation options:
+Current prototype direction:
 
-- localhost HTTP + WebSocket
-- localhost HTTP + POST for one-shot submit
+- localhost HTTP server owned by Kit
+- browser page opened directly with the system browser
+- WebSocket bridge for browser ↔ Kit communication
+
+Likely later refinements:
+
+- localhost HTTP + WebSocket for live review state
+- localhost HTTP + POST for one-shot submit or export flows
+- static asset serving instead of inline prototype HTML
 
 ## Inspiration
 
 - `pi-diff-review`
 - `glimpse`
 
-These are good references for the browser review UX and the general split between host app orchestration and browser rendering.
+These are still useful references for the browser review UX and host/UI split, even though the current prototype direction is to use the system browser directly rather than a Glimpse window.
+
+## Current prototype scope
+
+The first prototype is intentionally small:
+
+- `/code-review` opens a browser page on localhost
+- the page connects back to Kit over WebSocket
+- Kit sends session state and runtime events to the page
+- the page can send test messages back to Kit
+
+This is only a transport and shell prototype. It is not yet a real diff review UI.
