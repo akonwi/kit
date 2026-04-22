@@ -313,12 +313,16 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			parts.push(attachment.toMessagePart());
 		}
 
+		for (const attachment of pendingAttachments) {
+			attachments.detach(attachment.id);
+		}
+
 		try {
 			await runtime.submitUserMessage(parts);
-			for (const attachment of pendingAttachments) {
-				attachments.detach(attachment.id);
-			}
 		} catch (error) {
+			for (const attachment of pendingAttachments) {
+				attachments.attach(attachment);
+			}
 			console.error(error);
 			textareaRef?.setText(text);
 			prevTextLength = text.length;
