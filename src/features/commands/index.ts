@@ -10,6 +10,7 @@ import { quitCommand } from "./quit";
 import { sessionCommand } from "./session";
 import { sessionsManageCommand } from "./sessions-manage";
 import { thinkingCommand } from "./thinking";
+import { treeCommand } from "./tree";
 import type { Command } from "./types";
 
 export const BUILT_IN_COMMANDS: Command[] = [
@@ -20,6 +21,7 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	newCommand,
 	sessionCommand,
 	sessionsManageCommand,
+	treeCommand,
 	thinkingCommand,
 	quitCommand,
 ];

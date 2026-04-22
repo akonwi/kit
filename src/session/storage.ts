@@ -67,6 +67,7 @@ export function toSummary(session: Session): SessionSummary {
 	return {
 		id: session.id,
 		cwd: session.cwd,
+		parentSessionId: session.parentSessionId,
 		name: session.name,
 		model: session.model,
 		createdAt: session.createdAt,
