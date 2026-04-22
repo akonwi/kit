@@ -21,6 +21,10 @@ export type ReviewHunk = {
 	changeCount: number;
 	patchStartLine: number;
 	patchLineCount: number;
+	additionStart: number;
+	additionCount: number;
+	deletionStart: number;
+	deletionCount: number;
 };
 
 export type ReviewFile = {
@@ -152,6 +156,10 @@ function hunkToReviewHunk(
 		changeCount,
 		patchStartLine: renderedStartLine,
 		patchLineCount,
+		additionStart: hunk.additionStart,
+		additionCount: hunk.additionCount,
+		deletionStart: hunk.deletionStart,
+		deletionCount: hunk.deletionCount,
 	};
 }
 

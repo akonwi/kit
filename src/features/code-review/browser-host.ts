@@ -7,17 +7,50 @@ import { openExternal } from "../../shell/open-external";
 import { theme } from "../../shell/theme";
 import { loadReviewFiles } from "../review/model";
 
+type CodeReviewSubmission = {
+	submittedAt: string;
+	files: Array<{
+		path: string;
+		fileComment: string;
+		ranges: Array<{
+			side: "additions" | "deletions";
+			startLine: number;
+			endLine: number;
+			comment: string;
+		}>;
+	}>;
+};
+
 type CodeReviewClientMessage =
 	| { type: "ready" }
 	| { type: "request_state" }
-	| { type: "refresh_diff" };
+	| { type: "refresh_diff" }
+	| { type: "submit_review_state"; review: CodeReviewSubmission };
 
 type CodeReviewServerMessage =
 	| { type: "connected"; sessionUrl: string }
-	| { type: "state"; state: CodeReviewBrowserState; reason: string };
+	| { type: "state"; state: CodeReviewBrowserState; reason: string }
+	| {
+			type: "submission_saved";
+			submittedAt: string;
+			fileCount: number;
+			commentCount: number;
+	  };
+
+type CodeReviewBrowserHunk = {
+	id: string;
+	header: string;
+	context: string;
+	changeCount: number;
+	additionStart: number;
+	additionCount: number;
+	deletionStart: number;
+	deletionCount: number;
+};
 
 type CodeReviewBrowserFile = {
 	id: string;
+	noteKey: string;
 	path: string;
 	prevPath?: string;
 	status: string;
@@ -25,6 +58,7 @@ type CodeReviewBrowserFile = {
 	changeCount: number;
 	hunkCount: number;
 	rawPatch: string;
+	hunks: CodeReviewBrowserHunk[];
 };
 
 type CodeReviewBrowserState = {
@@ -220,6 +254,23 @@ class CodeReviewBrowserHost {
 			case "refresh_diff":
 				await this.refreshState(runtime, "browser_refresh_diff");
 				break;
+			case "submit_review_state": {
+				const fileCount = message.review.files.length;
+				const commentCount = message.review.files.reduce(
+					(sum, file) =>
+						sum +
+						(file.fileComment.trim().length > 0 ? 1 : 0) +
+						file.ranges.length,
+					0,
+				);
+				this.send(ws, {
+					type: "submission_saved",
+					submittedAt: message.review.submittedAt,
+					fileCount,
+					commentCount,
+				});
+				break;
+			}
 		}
 	}
 
@@ -243,6 +294,7 @@ class CodeReviewBrowserHost {
 		try {
 			reviewFiles = (await loadReviewFiles(session.cwd)).map((file) => ({
 				id: file.id,
+				noteKey: file.noteKey,
 				path: file.path,
 				prevPath: file.prevPath,
 				status: file.status,
@@ -250,6 +302,16 @@ class CodeReviewBrowserHost {
 				changeCount: file.changeCount,
 				hunkCount: file.hunks.length,
 				rawPatch: file.rawPatch,
+				hunks: file.hunks.map((hunk) => ({
+					id: hunk.id,
+					header: hunk.header,
+					context: hunk.context,
+					changeCount: hunk.changeCount,
+					additionStart: hunk.additionStart,
+					additionCount: hunk.additionCount,
+					deletionStart: hunk.deletionStart,
+					deletionCount: hunk.deletionCount,
+				})),
 			}));
 		} catch (error) {
 			reviewError = String(error);
