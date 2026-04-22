@@ -544,9 +544,6 @@ function renderReviewList(state: CodeReviewBrowserState): void {
 			const prevPath = file.prevPath
 				? `<div class="muted">from ${escapeHtml(file.prevPath)}</div>`
 				: "";
-			const filetype = file.filetype
-				? `<span class="muted">${escapeHtml(file.filetype)}</span>`
-				: "";
 			const fileComment =
 				draft.fileComments[fileCommentKey(file)]?.trim() ?? "";
 			const rangeCommentCount = Object.entries(draft.rangeComments).filter(
@@ -561,12 +558,6 @@ function renderReviewList(state: CodeReviewBrowserState): void {
 					: "";
 			const body = expanded
 				? `<div class="file-body">
-					<div class="row">
-						<div class="header-stack">
-							<h3 style="font-size:16px;">${escapeHtml(file.path)}</h3>
-							<div class="muted">${file.hunkCount} hunks • ${file.changeCount} changed lines</div>
-						</div>
-					</div>
 					<div class="file-comment-card">
 						<label for="${expandedFileCommentId(file.id)}">File comment</label>
 						<textarea id="${expandedFileCommentId(file.id)}" rows="4" placeholder="Comment on the whole file...">${escapeHtml(draft.fileComments[fileCommentKey(file)] ?? "")}</textarea>
@@ -581,9 +572,8 @@ function renderReviewList(state: CodeReviewBrowserState): void {
 				<button class="file-button${selected}" data-file-id="${escapeHtml(file.id)}" type="button">
 					<div class="row">
 						<span class="path"><span class="badge ${statusClass(file.status)}">${statusLabel(file.status)}</span><strong>${escapeHtml(file.path)}</strong></span>
-						<span class="muted">${file.changeCount}</span>
+						${commentSummary}
 					</div>
-					<div class="row"><span class="muted">${file.hunkCount} hunks</span><span style="display:inline-flex;gap:8px;align-items:center;">${filetype}${commentSummary}</span></div>
 					${prevPath}
 				</button>
 				${body}
