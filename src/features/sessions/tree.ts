@@ -50,12 +50,25 @@ export function buildRelatedSessionTree(
 		children.sort(compareSessions);
 	}
 
-	const buildNode = (session: SessionSummary): SessionTreeNode => ({
-		session,
-		children: (childrenByParent.get(session.id) ?? []).map(buildNode),
-	});
+	const buildNode = (
+		session: SessionSummary,
+		visited: Set<string>,
+	): SessionTreeNode => {
+		if (visited.has(session.id)) {
+			return { session, children: [] };
+		}
 
-	return buildNode(root);
+		const nextVisited = new Set(visited);
+		nextVisited.add(session.id);
+		return {
+			session,
+			children: (childrenByParent.get(session.id) ?? []).map((child) =>
+				buildNode(child, nextVisited),
+			),
+		};
+	};
+
+	return buildNode(root, new Set());
 }
 
 export function flattenSessionTree(
