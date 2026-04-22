@@ -1,4 +1,4 @@
-# Review modal (`/code-review`)
+# Diff modal (`/diff`)
 
 ## Status
 
@@ -6,17 +6,16 @@ Prototype in progress
 
 ## Goal
 
-Add a `/code-review` command that opens a modal for reviewing the current uncommitted Git diff.
+Add a `/diff` command that opens a terminal modal for browsing the current uncommitted Git diff.
 
 The modal should support:
 
 - browsing changed files
-- navigating hunks within a file
-- leaving **file-level** notes
-- leaving **hunk-level** notes
-- submitting structured review feedback back to the agent
+- expanding/collapsing file patches
+- navigating between files
+- navigating hunks within a focused patch
 
-This is conceptually similar to the pager UX, but specialized for code review over diffs instead of markdown sections.
+This is conceptually similar to the pager UX, but specialized for terminal diff inspection rather than markdown sections.
 
 ## Why
 
@@ -26,33 +25,34 @@ Current review of in-progress code changes is ad hoc:
 - agent reading changed files directly
 - freeform follow-up prompts
 
-A dedicated review modal would make code review a first-class interaction in Kit:
+A dedicated diff modal makes uncommitted change inspection a first-class interaction in Kit:
 
 - inspect uncommitted changes quickly
-- anchor feedback to the right file or hunk
-- send structured review comments back to the agent
+- browse file patches without leaving the terminal
+- keep lightweight diff viewing separate from richer review workflows
 
 ## Scope
 
 ### In scope for v1
 
-- `/code-review` command
+- `/diff` command
 - current uncommitted diff as review source
 - file list
 - hunk navigation
-- file-level notes
-- hunk-level notes
-- structured feedback submission to the agent
+- file accordion list
+- focused patch mode
+- hunk navigation while patch-focused
 - refresh action while modal is open
 
 ### Out of scope for v1
 
-- line-level comments
+- annotations/comments
 - split diff rendering
 - staging / unstaging actions
 - editing code directly in the modal
 - commit history review
 - merge-base or PR review workflows
+- browser-backed code review workflows
 
 ## Review source
 
@@ -87,19 +87,17 @@ A modal overlay with three conceptual areas:
    - selected hunk should be visually distinct
    - should evolve toward a richer, polished diff presentation similar to diffs.com rather than a plain text patch viewer
 
-3. **Note area / annotations**
-   - can target either:
-     - current file
-     - current hunk
-   - note mode should be explicit in the UI
-   - should be designed so it can later grow into inline comment / annotation affordances inspired by diffs.com annotations support
+3. **Focused patch view**
+   - patch focus mode should keep the file header visible while navigating the patch
+   - hunk navigation should be clear in this focused mode
+   - richer annotations are intentionally deferred to the browser-backed `/code-review` flow
 
 ### Navigation
 
 Suggested controls:
 
 - `↑/↓` — move files or hunks depending on active focus region
-- `Tab` — cycle focus region / note target
+- `Enter` — focus the current expanded patch
 - `[` / `]` or `Ctrl+J` / `Ctrl+K` — previous/next hunk
 - `r` — refresh diff
 - `Enter` — submit review feedback when not editing text
@@ -107,32 +105,17 @@ Suggested controls:
 
 Exact bindings can be refined during implementation.
 
-## Anchoring model
+## Hunk navigation model
 
-### File-level notes
-
-A file note applies to the entire changed file.
+The terminal diff viewer should support a current hunk concept while in focused patch mode.
 
 Use cases:
 
-- naming comments
-- structural comments
-- tests needed for the whole file
-- overall design concerns
+- jump between hunks quickly
+- keep context visible around the selected hunk
+- prepare for a future handoff into richer browser-backed review
 
-### Hunk-level notes
-
-A hunk note applies to the currently selected diff hunk.
-
-Use cases:
-
-- incorrect logic in a specific change block
-- edge case in a local edit
-- request for rewrite of a particular patch section
-
-### No line-level comments in v1
-
-Line-level review is intentionally deferred. Hunk-level anchoring is the right first granularity.
+Inline annotation and comment anchoring are intentionally deferred from `/diff`.
 
 ## Data model
 
@@ -166,32 +149,11 @@ Notes:
 - `id` should be stable for the current parsed diff snapshot
 - hunk IDs do not need to survive a refresh if the diff changed; refresh can rebuild state conservatively
 
-## Feedback submission
+## Submission
 
-Submitting review comments should generate a structured user message back to the agent.
+`/diff` is a viewer, not a structured review submission flow.
 
-Example shape:
-
-```md
-Here is my review feedback on the current uncommitted changes.
-
-## src/runtime/agent-runtime.ts
-
-### File-level feedback
-The overall reload flow looks good, but the user-facing messaging should be tighter.
-
-### Hunk: @@ -664,7 +670,8 @@
-This reloading logic should probably avoid showing a toast if nothing changed.
-
-## src/features/commands/reload.ts
-
-### Hunk: @@ -1,6 +1,10 @@
-The description should mention context refresh explicitly.
-
-Please use this review feedback to revise the changes.
-```
-
-If there are no notes, submission should be disabled or no-op.
+Structured annotations and submission should move to the future browser-backed `/code-review` experience.
 
 ## Refresh behavior
 
@@ -204,7 +166,7 @@ A refresh action should:
 - attempt to preserve hunk selection when possible
 - preserve note text where anchors still match reasonably
 
-For v1, preserving file notes by file path and hunk notes by hunk header is acceptable.
+For v1, preserving file selection and focused hunk where possible is acceptable.
 
 ## Rendering approach
 
@@ -214,9 +176,9 @@ Kit should own:
 
 - modal layout
 - selection model
-- note state
+- focus/selection state
 - keyboard handling
-- structured feedback generation
+- patch-focused navigation
 
 A diff library can provide:
 
@@ -228,7 +190,7 @@ A diff library can provide:
 
 Current direction: use `@pierre/diffs` for diff parsing / structuring, while keeping Kit's review UX app-owned.
 
-The diffs.com docs and examples are also useful product references, especially their annotations support. We should treat that as a forward-looking design input even if v1 remains file/hunk-note based.
+The diffs.com docs and examples are still useful references, but richer annotation behavior should be treated as forward-looking input for the browser-backed `/code-review` flow rather than the terminal `/diff` viewer.
 
 Questions to answer during investigation:
 
@@ -256,7 +218,7 @@ Suggested modules:
 
 Likely integration shape:
 
-- built-in plugin registers `/code-review`
+- built-in plugin registers `/diff`
 - modal opened via existing overlay/custom UI path
 - feedback submitted through runtime in the same spirit as pager feedback
 

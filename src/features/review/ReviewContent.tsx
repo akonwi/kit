@@ -13,7 +13,6 @@ import { loadReviewFiles, type ReviewFile } from "./model";
 
 export type ReviewContentProps = {
 	onClose: () => void;
-	onSubmit: (message: string) => Promise<void>;
 };
 
 function statusLabel(file: ReviewFile): string {
@@ -51,6 +50,9 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	const reviewFiles = createMemo(() => files() ?? []);
 	const selectedFile = createMemo(() => reviewFiles()[selectedIndex()] ?? null);
+	const selectedHunk = createMemo(
+		() => selectedFile()?.hunks[selectedHunkIndex()] ?? null,
+	);
 
 	createEffect(() => {
 		const list = reviewFiles();
@@ -345,6 +347,32 @@ export function ReviewContent(props: ReviewContentProps) {
 											{file().changeCount === 1 ? "" : "s"}
 										</text>
 									</box>
+									<Show when={selectedHunk()}>
+										{(hunk) => (
+											<box paddingX={1} paddingBottom={1}>
+												<text fg={theme.borderAccent}>
+													{hunk().header}
+													{hunk().context ? ` · ${hunk().context}` : ""}
+												</text>
+											</box>
+										)}
+									</Show>
+									<Show when={selectedHunk()}>
+										{(hunk) => (
+											<box
+												border
+												borderColor={theme.borderAccent}
+												paddingX={1}
+												paddingY={0}
+												marginBottom={1}
+											>
+												<text fg={theme.borderAccent}>
+													{hunk().header}
+													{hunk().context ? ` · ${hunk().context}` : ""}
+												</text>
+											</box>
+										)}
+									</Show>
 									<box
 										flexGrow={1}
 										padding={1}

@@ -20,6 +20,7 @@ export type ReviewHunk = {
 	lines: ReviewLine[];
 	changeCount: number;
 	patchStartLine: number;
+	patchLineCount: number;
 };
 
 export type ReviewFile = {
@@ -141,6 +142,7 @@ function hunkToReviewHunk(
 	const changeCount = lines.filter((line) => line.kind !== "context").length;
 	const noteKey = `${fileNoteKey}:${hunk.hunkSpecs ?? `hunk-${index + 1}`}:${index}`;
 	const header = hunk.hunkSpecs ?? `Hunk ${index + 1}`;
+	const patchLineCount = getRenderedUnifiedLineCount(hunk);
 	return {
 		id: `${file.name}:${hunk.hunkSpecs ?? index}:${index}`,
 		noteKey,
@@ -149,6 +151,7 @@ function hunkToReviewHunk(
 		lines,
 		changeCount,
 		patchStartLine: renderedStartLine,
+		patchLineCount,
 	};
 }
 
