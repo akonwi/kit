@@ -7,7 +7,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
 import { type PagerSection, splitSections } from "./split-sections";
 
-const LONGFORM_MIN_CHARS = 100;
+const LONGFORM_MIN_CHARS = 500;
 
 function extractAssistantText(msg: AgentMessage): string {
 	const content: unknown = (msg as { content?: unknown }).content;
@@ -110,7 +110,7 @@ export function createPagerController() {
 			if (!text || text.length < LONGFORM_MIN_CHARS) break;
 
 			const result = splitSections(text);
-			if (result.length < 2) break;
+			if (result.length <= 3) break;
 
 			setSections(result);
 			setTitle(result[0]?.title ?? "");
