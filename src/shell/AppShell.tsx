@@ -22,6 +22,11 @@ export type AppShellProps = {
 	attachments: AttachmentsController;
 	overlays: () => OverlayEntry[];
 	dismissToast: (id: number) => void;
+	showToast: (toast: {
+		title: string;
+		lines: string[];
+		variant: "info" | "error";
+	}) => void;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -36,7 +41,7 @@ export function AppShell(props: AppShellProps) {
 			backgroundColor={theme.bg}
 			onMouseUp={() => copySelection(renderer)}
 		>
-			<TranscriptPane turns={props.state.turns} />
+			<TranscriptPane turns={props.state.turns} showToast={props.showToast} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot

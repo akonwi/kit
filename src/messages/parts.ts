@@ -29,6 +29,7 @@ export type ImageMessagePart = {
 	data: string;
 	mimeType: string;
 	filename?: string;
+	sourcePath?: string;
 };
 
 export type MessagePart =

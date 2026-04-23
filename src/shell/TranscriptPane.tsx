@@ -13,6 +13,7 @@ import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { openImagePart } from "../features/images/open";
 import type {
 	CodeReviewMessagePart,
 	ImageMessagePart,
@@ -28,6 +29,11 @@ const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
 export type TranscriptPaneProps = {
 	turns: Turn[];
+	showToast: (toast: {
+		title: string;
+		lines: string[];
+		variant: "info" | "error";
+	}) => void;
 };
 
 export type TranscriptTurn = {
@@ -173,7 +179,11 @@ function CodeReviewPartEntry(props: {
 	);
 }
 
-function ImagePartEntry(props: { part: ImageMessagePart; aborted?: boolean }) {
+function ImagePartEntry(props: {
+	part: ImageMessagePart;
+	aborted?: boolean;
+	showToast: TranscriptPaneProps["showToast"];
+}) {
 	const label = props.part.filename ?? "Image attachment";
 	return (
 		<box
@@ -183,6 +193,17 @@ function ImagePartEntry(props: { part: ImageMessagePart; aborted?: boolean }) {
 			flexDirection="column"
 			gap={0}
 			width="100%"
+			onMouseUp={() => {
+				if (props.aborted) return;
+				void openImagePart(props.part).then((result) => {
+					if (result.ok) return;
+					props.showToast({
+						title: "Could not open image",
+						lines: [result.message],
+						variant: "error",
+					});
+				});
+			}}
 		>
 			<text fg={props.aborted ? theme.textMuted : theme.borderAccent}>
 				🖼️ {label}
@@ -214,6 +235,7 @@ function UserTextEntry(props: { text: string; aborted?: boolean }) {
 function UserEntry(props: {
 	msg: UserMessage | UserMultipartMessage;
 	aborted?: boolean;
+	showToast: TranscriptPaneProps["showToast"];
 }) {
 	const text = extractUserText(props.msg);
 	const parts = extractUserCustomParts(props.msg);
@@ -230,7 +252,13 @@ function UserEntry(props: {
 								<CodeReviewPartEntry part={part} aborted={props.aborted} />
 							);
 						case "image":
-							return <ImagePartEntry part={part} aborted={props.aborted} />;
+							return (
+								<ImagePartEntry
+									part={part}
+									aborted={props.aborted}
+									showToast={props.showToast}
+								/>
+							);
 						default:
 							return null;
 					}
@@ -456,11 +484,20 @@ function TurnEntryItem(props: {
 	}
 }
 
-function TurnEntry(props: { turn: TranscriptTurn }) {
+function TurnEntry(props: {
+	turn: TranscriptTurn;
+	showToast: TranscriptPaneProps["showToast"];
+}) {
 	return (
 		<box flexDirection="column" gap={1} width="100%">
 			<Show when={props.turn.user}>
-				{(user) => <UserEntry msg={user()} aborted={props.turn.aborted} />}
+				{(user) => (
+					<UserEntry
+						msg={user()}
+						aborted={props.turn.aborted}
+						showToast={props.showToast}
+					/>
+				)}
 			</Show>
 			<For
 				each={props.turn.entries.filter(
@@ -506,7 +543,9 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 						<text fg={theme.textSecondary}>Start a conversation below.</text>
 					</box>
 				</Show>
-				<For each={turns()}>{(turn) => <TurnEntry turn={turn} />}</For>
+				<For each={turns()}>
+					{(turn) => <TurnEntry turn={turn} showToast={props.showToast} />}
+				</For>
 			</box>
 		</scrollbox>
 	);

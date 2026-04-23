@@ -108,6 +108,7 @@ export function App(props: AppProps) {
 			attachments={attachments}
 			overlays={overlays}
 			dismissToast={app.dismissToast}
+			showToast={app.showToast}
 		/>
 	);
 }

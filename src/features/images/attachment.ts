@@ -12,6 +12,7 @@ export class ImageAttachment implements Attachment {
 		public readonly filename: string,
 		public readonly mimeType: string,
 		public readonly data: string,
+		public readonly sourcePath?: string,
 	) {
 		this.summary = filename;
 	}
@@ -22,6 +23,7 @@ export class ImageAttachment implements Attachment {
 			data: this.data,
 			mimeType: this.mimeType,
 			filename: this.filename,
+			sourcePath: this.sourcePath,
 		};
 		return part;
 	}

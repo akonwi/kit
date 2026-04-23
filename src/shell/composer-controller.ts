@@ -534,6 +534,7 @@ async function readImageAttachmentFromPath(
 		basename(candidatePath),
 		mimeType,
 		bytes.toString("base64"),
+		candidatePath,
 	);
 }
 
