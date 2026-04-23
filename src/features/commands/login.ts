@@ -50,7 +50,7 @@ export const loginCommand: Command = {
 		runtime.showPanel(`Logging in to ${provider.name}…`);
 		try {
 			const credentials = await provider.login({
-				onAuth({ url, instructions }: OAuthAuthInfo) {
+				onAuth({ url, instructions: _instructions }: OAuthAuthInfo) {
 					console.log("[login] onAuth called, url:", url?.slice(0, 60));
 					exec(`open "${url}"`);
 					runtime.showPanel(`Browser opened — complete login then return here`);

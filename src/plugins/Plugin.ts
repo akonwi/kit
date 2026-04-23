@@ -1,4 +1,5 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { TSchema } from "@sinclair/typebox";
 import type { Command } from "../features/commands/types";
 import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { PluginContext } from "./types";
@@ -24,8 +25,10 @@ export abstract class Plugin {
 		this.disposers.push(unregister);
 	}
 
-	protected registerTool(tool: AgentTool<any>): void {
-		this.ctx.runtime.addTool(tool);
+	protected registerTool<TParameters extends TSchema, TDetails>(
+		tool: AgentTool<TParameters, TDetails>,
+	): void {
+		this.ctx.runtime.addTool(tool as unknown as AgentTool);
 		// Note: tools registered this way persist for the session lifetime.
 		// If unregistration is needed, we'd need a different mechanism.
 	}

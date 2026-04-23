@@ -75,7 +75,9 @@ export async function scanFiles(cwd: string): Promise<ScanResult> {
 	const stack: StackEntry[] = [{ dir: cwd, ignoreChain: [rootIgnore] }];
 
 	while (stack.length > 0 && files.length + dirs.length < MAX_FILES) {
-		const { dir, ignoreChain } = stack.pop()!;
+		const next = stack.pop();
+		if (!next) break;
+		const { dir, ignoreChain } = next;
 
 		let rawEntries: Array<{
 			name: string;

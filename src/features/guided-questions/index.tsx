@@ -20,9 +20,7 @@ export class GuidedQuestionsPlugin extends Plugin {
 		// `guidedQuestions` setting on every invocation, so toggling the setting
 		// takes effect immediately (next tool call returns a disabled response).
 		const tool = createGuidedQuestionsTool(this.controller, this.ctx);
-		this.registerTool(
-			tool as import("@mariozechner/pi-agent-core").AgentTool<any>,
-		);
+		this.registerTool(tool as import("@mariozechner/pi-agent-core").AgentTool);
 
 		// Watch for activation and show overlay
 		createEffect(() => {
