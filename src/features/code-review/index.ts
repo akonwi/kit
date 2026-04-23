@@ -18,6 +18,9 @@ const codeReviewCommand: Command = {
 export class CodeReviewPlugin extends Plugin {
 	initialize(): void {
 		this.registerCommand(codeReviewCommand);
+		void codeReviewBrowserHost.activate(this.ctx.runtime).catch((error) => {
+			console.warn("[code-review] failed to activate browser host", error);
+		});
 		codeReviewBrowserHost.setOnReviewSubmitted((review) => {
 			this.ctx.attachments.attach(
 				new CodeReviewAttachment("code-review", review),

@@ -101,11 +101,15 @@ function getBrowserTheme(): BrowserTheme {
 	};
 }
 
+const SERVER_PORT_BASE = 41000;
+const SERVER_PORT_RANGE = 2000;
+
 class CodeReviewBrowserHost {
 	private server: Bun.Server<SocketData> | null = null;
 	private readonly clients = new Set<Bun.ServerWebSocket<SocketData>>();
-	private token = crypto.randomUUID();
+	private token = "";
 	private activeRuntime: AgentRuntime | null = null;
+	private activeSessionId: string | null = null;
 	private unsubscribeRuntime: (() => void) | null = null;
 	private state: CodeReviewBrowserState | null = null;
 	private refreshCounter = 0;
@@ -123,21 +127,40 @@ class CodeReviewBrowserHost {
 		// Pending review attachment state currently lives outside the browser host.
 	}
 
-	async launch(runtime: AgentRuntime): Promise<void> {
-		this.ensureServer();
+	async activate(runtime: AgentRuntime): Promise<void> {
+		this.ensureServer(runtime);
 		this.attachRuntime(runtime);
-		await this.refreshState(runtime, "launch");
+		await this.refreshState(runtime, "activate");
+	}
+
+	async launch(runtime: AgentRuntime): Promise<void> {
+		await this.activate(runtime);
 
 		const url = this.getSessionUrl();
 		await openExternal(url);
 		runtime.emitInfo("Code review opened", [url]);
 	}
 
-	private ensureServer(): void {
-		if (this.server) return;
+	private ensureServer(runtime: AgentRuntime): void {
+		const sessionId = runtime.getSession().id;
+		const nextToken = this.getSessionToken(sessionId);
+		if (
+			this.server &&
+			this.activeSessionId === sessionId &&
+			this.token === nextToken
+		) {
+			return;
+		}
+		if (this.server) {
+			this.server.stop(true);
+			this.server = null;
+			this.clients.clear();
+		}
+		this.activeSessionId = sessionId;
+		this.token = nextToken;
 
 		this.server = Bun.serve<SocketData>({
-			port: 0,
+			port: this.getSessionPort(sessionId),
 			fetch: async (request, server) => {
 				const url = new URL(request.url);
 
@@ -401,7 +424,19 @@ class CodeReviewBrowserHost {
 		if (!server) {
 			throw new Error("Code review browser server has not started.");
 		}
-		return `http://127.0.0.1:${server.port}/?token=${this.token}`;
+		return `http://127.0.0.1:${server.port}/?token=${encodeURIComponent(this.token)}`;
+	}
+
+	private getSessionToken(sessionId: string): string {
+		return `session:${sessionId}`;
+	}
+
+	private getSessionPort(sessionId: string): number {
+		let hash = 0;
+		for (let i = 0; i < sessionId.length; i++) {
+			hash = (hash * 31 + sessionId.charCodeAt(i)) >>> 0;
+		}
+		return SERVER_PORT_BASE + (hash % SERVER_PORT_RANGE);
 	}
 
 	private isAuthorized(url: URL): boolean {

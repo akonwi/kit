@@ -716,47 +716,73 @@ function renderState(state: CodeReviewBrowserState): void {
 	updateSubmitButtonState();
 }
 
+let socket: WebSocket | null = null;
+let reconnectTimer: number | null = null;
+let reconnectAttempt = 0;
+
 function send(message: CodeReviewClientMessage): void {
+	if (!socket || socket.readyState !== WebSocket.OPEN) return;
 	socket.send(JSON.stringify(message));
 }
 
 const url = new URL(window.location.href);
 const token = url.searchParams.get("token") ?? "";
 const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const socket = new WebSocket(
-	`${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`,
-);
+const socketUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
 
-socket.addEventListener("open", () => {
-	setConnection("Connected", theme.toolText);
-	send({ type: "ready" });
-});
+function scheduleReconnect(): void {
+	if (reconnectTimer !== null) return;
+	const delay = Math.min(1000 * 2 ** reconnectAttempt, 5000);
+	reconnectAttempt += 1;
+	setConnection("Reconnecting…", theme.warningText);
+	reconnectTimer = window.setTimeout(() => {
+		reconnectTimer = null;
+		connectSocket();
+	}, delay);
+}
 
-socket.addEventListener("close", () => {
-	setConnection("Disconnected", theme.warningText);
-});
+function connectSocket(): void {
+	if (socket && socket.readyState === WebSocket.OPEN) return;
+	const nextSocket = new WebSocket(socketUrl);
+	socket = nextSocket;
 
-socket.addEventListener("error", () => {
-	setConnection("Connection error", theme.errorText);
-});
+	nextSocket.addEventListener("open", () => {
+		reconnectAttempt = 0;
+		setConnection("Connected", theme.toolText);
+		send({ type: "ready" });
+	});
 
-socket.addEventListener("message", (event) => {
-	const message = JSON.parse(event.data) as CodeReviewServerMessage;
-	if (message.type === "connected") return;
-	if (message.type === "state") {
-		renderState(message.state);
-		return;
-	}
-	if (message.type === "submission_saved") {
-		draft = { fileComments: {}, rangeComments: {} };
-		selectedRange = null;
-		submitStatus.textContent = `Sent ${message.commentCount} comment${message.commentCount === 1 ? "" : "s"} across ${message.fileCount} file${message.fileCount === 1 ? "" : "s"} at ${message.submittedAt}.`;
-		if (currentState) {
-			renderState(currentState);
+	nextSocket.addEventListener("close", () => {
+		if (socket === nextSocket) {
+			socket = null;
 		}
-		send({ type: "refresh_diff" });
-	}
-});
+		scheduleReconnect();
+	});
+
+	nextSocket.addEventListener("error", () => {
+		setConnection("Connection error", theme.errorText);
+	});
+
+	nextSocket.addEventListener("message", (event) => {
+		const message = JSON.parse(event.data) as CodeReviewServerMessage;
+		if (message.type === "connected") return;
+		if (message.type === "state") {
+			renderState(message.state);
+			return;
+		}
+		if (message.type === "submission_saved") {
+			draft = { fileComments: {}, rangeComments: {} };
+			selectedRange = null;
+			submitStatus.textContent = `Sent ${message.commentCount} comment${message.commentCount === 1 ? "" : "s"} across ${message.fileCount} file${message.fileCount === 1 ? "" : "s"} at ${message.submittedAt}.`;
+			if (currentState) {
+				renderState(currentState);
+			}
+			send({ type: "refresh_diff" });
+		}
+	});
+}
+
+connectSocket();
 
 refreshButton.addEventListener("click", () => {
 	send({ type: "refresh_diff" });
