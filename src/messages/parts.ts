@@ -24,7 +24,17 @@ export type CodeReviewMessagePart = {
 	};
 };
 
-export type MessagePart = TextMessagePart | CodeReviewMessagePart;
+export type ImageMessagePart = {
+	type: "image";
+	data: string;
+	mimeType: string;
+	filename?: string;
+};
+
+export type MessagePart =
+	| TextMessagePart
+	| CodeReviewMessagePart
+	| ImageMessagePart;
 
 export type UserMultipartMessage = {
 	role: "user";
@@ -53,5 +63,9 @@ export function messagePartToPromptText(part: MessagePart): string {
 			}
 			return lines.join("\n");
 		}
+		case "image":
+			return part.filename
+				? `Attached image: ${part.filename}`
+				: "Attached image";
 	}
 }

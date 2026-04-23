@@ -1,5 +1,11 @@
+import { randomUUID } from "node:crypto";
+import { access, readFile } from "node:fs/promises";
+import { basename } from "node:path";
+import { fileURLToPath } from "node:url";
+import type { PasteEvent } from "@opentui/core";
 import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
+import { ImageAttachment } from "../features/images/attachment";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { MessagePart } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
@@ -199,6 +205,70 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const nextText = `${text.slice(0, tokenStart)}${token} ${text.slice(end)}`;
 		setTextareaText(nextText);
 		if (textareaRef) textareaRef.cursorOffset = tokenStart + token.length + 1;
+	}
+
+	async function handlePaste(event: PasteEvent) {
+		const mimeType = event.metadata?.mimeType ?? "";
+		const pastedText = new TextDecoder().decode(event.bytes).trim();
+		const candidatePaths = getPastedPathCandidates(pastedText);
+		console.log("[composer] paste event", {
+			mimeType,
+			kind: event.metadata?.kind,
+			byteLength: event.bytes.length,
+			pastedText,
+			candidatePaths,
+			defaultPrevented: event.defaultPrevented,
+			propagationStopped: event.propagationStopped,
+		});
+
+		if (mimeType.startsWith("image/")) {
+			event.preventDefault();
+			event.stopPropagation();
+			const extension = mimeType.split("/")[1] ?? "bin";
+			const filename = `pasted-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
+			const data = Buffer.from(event.bytes).toString("base64");
+			console.log("[composer] attaching pasted image bytes", {
+				filename,
+				mimeType,
+				base64Length: data.length,
+			});
+			attachments.attach(
+				new ImageAttachment(randomUUID(), filename, mimeType, data),
+			);
+			return;
+		}
+
+		if (candidatePaths.length > 0) {
+			event.preventDefault();
+			event.stopPropagation();
+			const attachedFromPaths =
+				await attachImagesFromPastedPaths(candidatePaths);
+			if (attachedFromPaths > 0) {
+				console.log("[composer] attached images from pasted path(s)", {
+					count: attachedFromPaths,
+				});
+				return;
+			}
+			console.log(
+				"[composer] prevented path paste, but no image attachments were created",
+			);
+			return;
+		}
+
+		console.log("[composer] paste ignored: not image bytes or image path");
+	}
+
+	async function attachImagesFromPastedPaths(
+		candidates: string[],
+	): Promise<number> {
+		let attached = 0;
+		for (const candidate of candidates) {
+			const image = await readImageAttachmentFromPath(candidate);
+			if (!image) continue;
+			attachments.attach(image);
+			attached += 1;
+		}
+		return attached;
 	}
 
 	function handleTextChange() {
@@ -406,6 +476,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	return {
 		palette,
 		setTextarea,
+		handlePaste,
 		handleTextChange,
 		handleSubmit,
 		handleFollowUp,
@@ -445,6 +516,59 @@ function findReferenceTokenStart(
 		start--;
 	}
 	return -1;
+}
+
+async function readImageAttachmentFromPath(
+	candidatePath: string,
+): Promise<ImageAttachment | null> {
+	try {
+		await access(candidatePath);
+	} catch {
+		return null;
+	}
+	const mimeType = inferImageMimeType(candidatePath);
+	if (!mimeType) return null;
+	const bytes = await readFile(candidatePath);
+	return new ImageAttachment(
+		randomUUID(),
+		basename(candidatePath),
+		mimeType,
+		bytes.toString("base64"),
+	);
+}
+
+function getPastedPathCandidates(text: string): string[] {
+	if (!text) return [];
+	return text
+		.split(/\r?\n/)
+		.map((line) => normalizePastedPath(line))
+		.filter((line): line is string => Boolean(line));
+}
+
+function normalizePastedPath(value: string): string | null {
+	const trimmed = value.trim();
+	if (!trimmed) return null;
+	const unwrapped = trimmed.replace(/^['"]|['"]$/g, "");
+	if (unwrapped.startsWith("file://")) {
+		try {
+			return fileURLToPath(unwrapped);
+		} catch {
+			return null;
+		}
+	}
+	if (!unwrapped.startsWith("/")) return null;
+	return unwrapped.replace(/\\([\\\s])/g, "$1");
+}
+
+function inferImageMimeType(path: string): string | null {
+	const lower = path.toLowerCase();
+	if (lower.endsWith(".png")) return "image/png";
+	if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+	if (lower.endsWith(".gif")) return "image/gif";
+	if (lower.endsWith(".webp")) return "image/webp";
+	if (lower.endsWith(".bmp")) return "image/bmp";
+	if (lower.endsWith(".svg")) return "image/svg+xml";
+	return null;
 }
 
 function parseSlashCommand(

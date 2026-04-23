@@ -1,4 +1,4 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
@@ -160,6 +160,7 @@ export function ComposerDock(props: ComposerDockProps) {
 				flexDirection="column"
 				gap={0}
 			>
+				{/* @ts-ignore onPaste supported but not typed */}
 				<textarea
 					ref={(value) => {
 						props.controller.setTextarea(value as TextareaHandle | undefined);
@@ -186,6 +187,14 @@ export function ComposerDock(props: ComposerDockProps) {
 								]
 					}
 					onContentChange={() => props.controller.handleTextChange()}
+					onPaste={(event: PasteEvent) => {
+						console.log("[composer-dock] textarea onPaste fired", {
+							mimeType: event.metadata?.mimeType,
+							kind: event.metadata?.kind,
+							byteLength: event.bytes.length,
+						});
+						void props.controller.handlePaste(event);
+					}}
 					onSubmit={() => props.controller.handleSubmit()}
 					focused={!palette.visible && !props.locked}
 				/>

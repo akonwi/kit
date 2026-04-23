@@ -15,6 +15,7 @@ import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type {
 	CodeReviewMessagePart,
+	ImageMessagePart,
 	MessagePart,
 	UserMultipartMessage,
 } from "../messages/parts";
@@ -172,6 +173,24 @@ function CodeReviewPartEntry(props: {
 	);
 }
 
+function ImagePartEntry(props: { part: ImageMessagePart; aborted?: boolean }) {
+	const label = props.part.filename ?? "Image attachment";
+	return (
+		<box
+			border={["left" as BorderSides]}
+			borderColor={props.aborted ? theme.textMuted : theme.borderAccent}
+			paddingLeft={1}
+			flexDirection="column"
+			gap={0}
+			width="100%"
+		>
+			<text fg={props.aborted ? theme.textMuted : theme.borderAccent}>
+				🖼️ {label}
+			</text>
+		</box>
+	);
+}
+
 function UserTextEntry(props: { text: string; aborted?: boolean }) {
 	return (
 		<box
@@ -204,11 +223,18 @@ function UserEntry(props: {
 				<UserTextEntry text={text} aborted={props.aborted} />
 			</Show>
 			<For each={parts}>
-				{(part) =>
-					part.type === "code-review" ? (
-						<CodeReviewPartEntry part={part} aborted={props.aborted} />
-					) : null
-				}
+				{(part) => {
+					switch (part.type) {
+						case "code-review":
+							return (
+								<CodeReviewPartEntry part={part} aborted={props.aborted} />
+							);
+						case "image":
+							return <ImagePartEntry part={part} aborted={props.aborted} />;
+						default:
+							return null;
+					}
+				}}
 			</For>
 		</box>
 	);
