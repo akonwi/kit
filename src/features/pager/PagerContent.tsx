@@ -217,12 +217,10 @@ export function PagerContent(props: PagerContentProps) {
 								<b>{pager.currentSection?.sectionTitle}</b>
 							</text>
 						</Show>
-						<code
-							filetype="markdown"
+						<markdown
 							content={pager.currentSection?.body ?? ""}
 							syntaxStyle={syntaxStyle}
 							conceal
-							drawUnstyledText={false}
 							fg={theme.textPrimary}
 						/>
 					</box>

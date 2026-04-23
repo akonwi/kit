@@ -37,6 +37,8 @@ The goal is to build a custom coding-agent UX while preserving compatibility wit
   - `features/`
 - Extract reusable logic from the old extension code, but do not carry over extension-era structure unless it still serves the new app.
 - Keep renderer-specific assumptions isolated from domain and compatibility logic.
+- Do not take architectural shortcuts that bypass an agreed interface or design just to get something working quickly.
+- Once we have settled on an interface or abstraction, implement through that interface unless we explicitly re-open the design decision.
 - When we make an architectural or feature design decision, capture it under `docs/`.
 - When we identify outstanding work or defer something, capture it under `backlog/`.
 

@@ -44,6 +44,7 @@ export interface Session {
 export interface SessionSummary {
 	id: string;
 	cwd: string;
+	parentSessionId?: string;
 	name?: string;
 	model?: string;
 	createdAt: string;

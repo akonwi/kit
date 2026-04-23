@@ -1,12 +1,14 @@
 import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
+import type { MessagePart } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { PaletteContext } from "../state/palette";
 import {
 	createPaletteManager,
 	type PaletteManager,
 } from "../state/palette-manager";
+import type { AttachmentsController } from "./attachments-controller";
 
 export type TextareaHandle = {
 	plainText: string;
@@ -20,10 +22,23 @@ export type ComposerControllerDeps = {
 	commands: CommandRegistry;
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
+	attachments: AttachmentsController;
+	openCustomOverlay: <T>(
+		component: (props: {
+			done: (result: T) => void;
+		}) => import("solid-js").JSX.Element,
+	) => Promise<T>;
 };
 
 export function createComposerController(deps: ComposerControllerDeps) {
-	const { runtime, commands, fileIndex, threadIndex } = deps;
+	const {
+		runtime,
+		commands,
+		fileIndex,
+		threadIndex,
+		attachments,
+		openCustomOverlay,
+	} = deps;
 	const palette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
@@ -68,6 +83,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 						runtime,
 						palette,
 						args: currentArgs,
+						openCustomOverlay,
 					});
 				},
 			}));
@@ -223,6 +239,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (palette.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
+		const pendingAttachments = attachments.attachments();
 		const slashCommand = parseSlashCommand(text, commands.getAll());
 		if (slashCommand) {
 			textareaRef?.setText("");
@@ -231,10 +248,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				runtime,
 				palette,
 				args: slashCommand.args,
+				openCustomOverlay,
 			});
 			return;
 		}
-		if (!text.trim()) {
+		if (!text.trim() && pendingAttachments.length === 0) {
 			if (
 				runtime.getStatus().isStreaming &&
 				runtime.getPendingMessageCount() > 0
@@ -245,7 +263,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 
 		// Handle bash command: ! for context, !! for excluded from context
-		if (text.startsWith("!")) {
+		if (text.trim() && text.startsWith("!")) {
 			const excludeFromContext = text.startsWith("!!");
 			const command = excludeFromContext
 				? text.slice(2).trim()
@@ -267,21 +285,44 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		textareaRef?.setText("");
 		prevTextLength = 0;
 
-		const preparedText = await prepareMessageText(text);
-		if (!preparedText) {
+		const preparedText = text.trim() ? await prepareMessageText(text) : "";
+		if (text.trim() && !preparedText) {
 			textareaRef?.setText(text);
 			prevTextLength = text.length;
 			return;
 		}
 
 		if (runtime.getStatus().isStreaming) {
-			runtime.sendFollowUp(preparedText);
+			if (pendingAttachments.length > 0) {
+				runtime.emitError("Attachments not supported in queued follow-ups", [
+					"Wait for the current turn to finish before sending attached reviews.",
+				]);
+				textareaRef?.setText(text);
+				prevTextLength = text.length;
+				return;
+			}
+			runtime.sendFollowUp(preparedText ?? "");
 			return;
 		}
 
+		const parts: MessagePart[] = [];
+		if ((preparedText ?? "").trim()) {
+			parts.push({ type: "text", text: preparedText ?? "" });
+		}
+		for (const attachment of pendingAttachments) {
+			parts.push(attachment.toMessagePart());
+		}
+
+		for (const attachment of pendingAttachments) {
+			attachments.detach(attachment.id);
+		}
+
 		try {
-			await runtime.submitUserMessage(preparedText);
+			await runtime.submitUserMessage(parts);
 		} catch (error) {
+			for (const attachment of pendingAttachments) {
+				attachments.attach(attachment);
+			}
 			console.error(error);
 			textareaRef?.setText(text);
 			prevTextLength = text.length;

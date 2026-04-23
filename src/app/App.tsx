@@ -13,6 +13,7 @@ import { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { LoadedSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
+import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
@@ -36,6 +37,8 @@ export function App(props: AppProps) {
 		  }) => void)
 		| null = null;
 
+	const openCustomOverlay = createCustomOverlayHandler(setOverlays);
+
 	// Create UI for plugins
 	const ui: PluginUI = {
 		notify: (message, variant = "info") => {
@@ -45,11 +48,12 @@ export function App(props: AppProps) {
 				variant: variant === "warning" ? "info" : variant,
 			});
 		},
-		custom: createCustomOverlayHandler(setOverlays),
+		custom: openCustomOverlay,
 	};
 
 	// Create command registry
 	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
+	const attachments = createAttachmentsController();
 
 	// Create runtime first (plugins need it).
 	// Plugins add their own tools and system prompt additions in initialize().
@@ -61,6 +65,7 @@ export function App(props: AppProps) {
 		commands,
 		settings: props.settings,
 		ui,
+		attachments,
 	});
 	pluginManager.initialize();
 
@@ -85,6 +90,8 @@ export function App(props: AppProps) {
 		commands,
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
+		attachments,
+		openCustomOverlay,
 	});
 
 	// Update terminal title on session change
@@ -98,6 +105,7 @@ export function App(props: AppProps) {
 		<AppShell
 			state={app.state}
 			controller={controller}
+			attachments={attachments}
 			overlays={overlays}
 			dismissToast={app.dismissToast}
 		/>

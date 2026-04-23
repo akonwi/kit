@@ -11,12 +11,17 @@ import type {
 } from "@mariozechner/pi-ai";
 import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
-import type { Turn } from "../session/types";
-
-type BashExecutionMessage = CustomAgentMessages["bashExecution"];
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import type {
+	CodeReviewMessagePart,
+	MessagePart,
+	UserMultipartMessage,
+} from "../messages/parts";
+import type { Turn } from "../session/types";
 import { syntaxStyle, theme } from "./theme";
+
+type BashExecutionMessage = CustomAgentMessages["bashExecution"];
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -26,14 +31,14 @@ export type TranscriptPaneProps = {
 
 export type TranscriptTurn = {
 	id: string;
-	user: UserMessage | null;
+	user: (UserMessage | UserMultipartMessage) | null;
 	entries: AgentMessage[];
 	toolResults: Map<string, ToolResultMessage>;
 	aborted: boolean;
 };
 
 function toTranscriptTurn(turn: Turn): TranscriptTurn {
-	let user: UserMessage | null = null;
+	let user: (UserMessage | UserMultipartMessage) | null = null;
 	const entries: AgentMessage[] = [];
 	const toolResults = new Map<string, ToolResultMessage>();
 	let aborted = false;
@@ -41,7 +46,7 @@ function toTranscriptTurn(turn: Turn): TranscriptTurn {
 	for (const msg of turn.messages) {
 		if (!("role" in msg)) continue;
 		if (msg.role === "user" && user === null) {
-			user = msg as UserMessage;
+			user = msg as UserMessage | UserMultipartMessage;
 			continue;
 		}
 
@@ -62,20 +67,27 @@ function toTranscriptTurn(turn: Turn): TranscriptTurn {
 	return { id: turn.id, user, entries, toolResults, aborted };
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function extractUserText(msg: UserMessage): string {
-	if (typeof msg.content === "string") return msg.content;
-	if (Array.isArray(msg.content)) {
-		return msg.content
-			.filter(
-				(c): c is { type: "text"; text: string } =>
-					c.type === "text" && typeof c.text === "string",
-			)
-			.map((c) => c.text)
-			.join("\n");
+function getUserParts(msg: UserMessage | UserMultipartMessage): MessagePart[] {
+	if (typeof msg.content === "string") {
+		return [{ type: "text", text: msg.content }];
 	}
-	return "";
+	return msg.content as MessagePart[];
+}
+
+function extractUserText(msg: UserMessage | UserMultipartMessage): string {
+	return getUserParts(msg)
+		.filter(
+			(part): part is { type: "text"; text: string } =>
+				part.type === "text" && "text" in part && typeof part.text === "string",
+		)
+		.map((part) => part.text)
+		.join("\n");
+}
+
+function extractUserCustomParts(
+	msg: UserMessage | UserMultipartMessage,
+): MessagePart[] {
+	return getUserParts(msg).filter((part) => part.type !== "text");
 }
 
 function extractAssistantParts(msg: AssistantMessage): {
@@ -90,7 +102,6 @@ function extractAssistantParts(msg: AssistantMessage): {
 		} else if (block.type === "toolCall" && "name" in block) {
 			toolCalls.push(block as ToolCall);
 		}
-		// thinking blocks are omitted
 	}
 	return { text: textParts.join("\n\n"), toolCalls };
 }
@@ -107,8 +118,9 @@ function extractToolResultLines(msg: ToolResultMessage): string[] {
 
 function formatToolArgs(args?: Record<string, unknown>): string {
 	if (!args) return "";
-	if ("command" in args && typeof args.command === "string")
+	if ("command" in args && typeof args.command === "string") {
 		return ` ${args.command}`;
+	}
 	if ("path" in args && typeof args.path === "string") return ` ${args.path}`;
 	return "";
 }
@@ -116,8 +128,6 @@ function formatToolArgs(args?: Record<string, unknown>): string {
 function isAssistantError(msg: AssistantMessage): boolean {
 	return msg.stopReason === "error" && !!msg.errorMessage;
 }
-
-// ── Spinner ──────────────────────────────────────────────────────────
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
@@ -130,10 +140,39 @@ function InlineSpinner() {
 	return <text fg={theme.toolText}>{SPINNER_FRAMES[frame()]}</text>;
 }
 
-// ── Entry renderers ──────────────────────────────────────────────────
+function CodeReviewPartEntry(props: {
+	part: CodeReviewMessagePart;
+	aborted?: boolean;
+}) {
+	const review = props.part.review;
+	const fileCount = review.files.length;
+	const commentCount = review.files.reduce(
+		(sum, file) =>
+			sum + (file.fileComment.trim().length > 0 ? 1 : 0) + file.ranges.length,
+		0,
+	);
+	const summary = `Code review · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${fileCount} file${fileCount === 1 ? "" : "s"}`;
 
-function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
-	const text = extractUserText(props.msg);
+	return (
+		<box
+			border={["left" as BorderSides]}
+			borderColor={props.aborted ? theme.textMuted : theme.reviewText}
+			paddingLeft={1}
+			flexDirection="column"
+			gap={0}
+			width="100%"
+		>
+			<text
+				fg={props.aborted ? theme.textMuted : theme.reviewText}
+				attributes={props.aborted ? ABORTED_ATTRS : undefined}
+			>
+				🧐 {summary}
+			</text>
+		</box>
+	);
+}
+
+function UserTextEntry(props: { text: string; aborted?: boolean }) {
 	return (
 		<box
 			border={["left" as BorderSides]}
@@ -143,22 +182,40 @@ function UserEntry(props: { msg: UserMessage; aborted?: boolean }) {
 			gap={0}
 			width="100%"
 		>
-			<code
-				filetype="markdown"
-				content={text}
+			<markdown
+				content={props.text}
 				syntaxStyle={syntaxStyle}
 				conceal
-				drawUnstyledText={false}
 				fg={props.aborted ? theme.textMuted : theme.textPrimary}
-				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			/>
 		</box>
 	);
 }
 
-function BashEntry(props: { msg: BashExecutionMessage }) {
-	const [expanded, setExpanded] = createSignal(true); // expanded by default for user-invoked commands
+function UserEntry(props: {
+	msg: UserMessage | UserMultipartMessage;
+	aborted?: boolean;
+}) {
+	const text = extractUserText(props.msg);
+	const parts = extractUserCustomParts(props.msg);
+	return (
+		<box flexDirection="column" gap={1} width="100%">
+			<Show when={text.trim().length > 0}>
+				<UserTextEntry text={text} aborted={props.aborted} />
+			</Show>
+			<For each={parts}>
+				{(part) =>
+					part.type === "code-review" ? (
+						<CodeReviewPartEntry part={part} aborted={props.aborted} />
+					) : null
+				}
+			</For>
+		</box>
+	);
+}
 
+function BashEntry(props: { msg: BashExecutionMessage }) {
+	const [expanded, setExpanded] = createSignal(true);
 	const outputLines = () => props.msg.output.split("\n");
 	const hasOutput = outputLines().length > 0;
 	const prefix = props.msg.cancelled
@@ -222,9 +279,6 @@ function BashEntry(props: { msg: BashExecutionMessage }) {
 	);
 }
 
-/**
- * A pending tool call — no result yet. Shows spinner + tool name.
- */
 function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 	return (
 		<box flexDirection="row" gap={1}>
@@ -245,9 +299,6 @@ function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 	);
 }
 
-/**
- * A completed tool call — shows result header (✓/✗) with collapsible output.
- */
 function CompletedToolCall(props: {
 	tc: ToolCall;
 	result: ToolResultMessage;
@@ -324,7 +375,6 @@ function AssistantEntry(props: {
 
 	return (
 		<box flexDirection="column" gap={0} width="100%">
-			{/* Tool calls — merged with their results */}
 			<For each={toolCalls}>
 				{(tc) => {
 					const result = () => props.toolResults.get(tc.id);
@@ -344,29 +394,18 @@ function AssistantEntry(props: {
 					);
 				}}
 			</For>
-
-			{/* Text content */}
 			<Show when={text.length > 0}>
-				<code
-					filetype="markdown"
+				<markdown
 					content={text}
 					syntaxStyle={syntaxStyle}
 					conceal
-					drawUnstyledText={false}
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
-					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				/>
 			</Show>
 		</box>
 	);
 }
 
-// ── Main component ───────────────────────────────────────────────────
-
-/**
- * Render a single non-user, non-toolResult entry within a turn.
- * toolResult messages are rendered inline by AssistantEntry.
- */
 function TurnEntryItem(props: {
 	msg: AgentMessage;
 	toolResults: Map<string, ToolResultMessage>;
@@ -391,9 +430,6 @@ function TurnEntryItem(props: {
 	}
 }
 
-/**
- * Render a complete turn: user message + all resulting entries.
- */
 function TurnEntry(props: { turn: TranscriptTurn }) {
 	return (
 		<box flexDirection="column" gap={1} width="100%">

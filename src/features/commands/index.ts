@@ -7,9 +7,12 @@ import { modelCommand } from "./model";
 import { nameCommand } from "./name";
 import { newCommand } from "./new";
 import { quitCommand } from "./quit";
+import { reloadCommand } from "./reload";
+import { diffCommand } from "./review";
 import { sessionCommand } from "./session";
 import { sessionsManageCommand } from "./sessions-manage";
 import { thinkingCommand } from "./thinking";
+import { treeCommand } from "./tree";
 import type { Command } from "./types";
 
 export const BUILT_IN_COMMANDS: Command[] = [
@@ -18,8 +21,11 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	modelCommand,
 	nameCommand,
 	newCommand,
+	reloadCommand,
+	diffCommand,
 	sessionCommand,
 	sessionsManageCommand,
+	treeCommand,
 	thinkingCommand,
 	quitCommand,
 ];

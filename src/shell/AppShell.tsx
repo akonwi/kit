@@ -2,6 +2,7 @@ import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
 import type { OverlayEntry } from "../app/overlay-ui";
 import type { AppState } from "../state/app-state";
+import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
@@ -18,6 +19,7 @@ const STATUS_BAR_HEIGHT = 1;
 export type AppShellProps = {
 	state: AppState;
 	controller: ComposerController;
+	attachments: AttachmentsController;
 	overlays: () => OverlayEntry[];
 	dismissToast: (id: number) => void;
 };
@@ -47,6 +49,7 @@ export function AppShell(props: AppShellProps) {
 					gitBranch={props.state.footerStatus.gitBranch}
 					gitDirty={props.state.footerStatus.gitDirty}
 					controller={props.controller}
+					attachments={props.attachments}
 					locked={props.overlays().length > 0}
 					onHeightChange={setDockHeight}
 				/>

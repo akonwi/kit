@@ -61,7 +61,10 @@ if (!fs.existsSync(binaryPath)) {
 		`Compile reported success but binary not found at ${binaryPath}`,
 	);
 	console.error(`Bun version: ${Bun.version}`);
-	console.error("Outputs:", bundle.outputs.map((o) => o.path));
+	console.error(
+		"Outputs:",
+		bundle.outputs.map((o) => o.path),
+	);
 	process.exit(1);
 }
 

@@ -5,11 +5,11 @@
  * delete, or rename.
  */
 
-import { createCliRenderer } from "@opentui/core";
 import type { KeyEvent } from "@opentui/core";
-import { render } from "@opentui/solid";
-import { useKeyboard } from "@opentui/solid";
+import { createCliRenderer } from "@opentui/core";
+import { render, useKeyboard } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
+import { formatSessionOption, formatTimeAgo } from "../features/commands/utils";
 import type { SessionSummary } from "../session";
 import {
 	deleteSession,
@@ -17,7 +17,6 @@ import {
 	readSession,
 	updateSession,
 } from "../session";
-import { formatSessionOption, formatTimeAgo } from "../features/commands/utils";
 import { theme } from "../shell/theme";
 
 type Mode = "navigate" | "rename" | "confirmDelete";
@@ -33,7 +32,9 @@ function ThreadPicker(props: {
 	const [mode, setMode] = createSignal<Mode>("navigate");
 	const [renameText, setRenameText] = createSignal("");
 
-	let renameRef: { plainText: string; setText: (v: string) => void } | undefined;
+	let renameRef:
+		| { plainText: string; setText: (v: string) => void }
+		| undefined;
 
 	const home = process.env.HOME || process.env.USERPROFILE || "";
 
@@ -180,14 +181,10 @@ function ThreadPicker(props: {
 								}
 							>
 								<text
-									fg={
-										focused()
-											? theme.pickerFocusedText
-											: theme.textPrimary
-									}
+									fg={focused() ? theme.pickerFocusedText : theme.textPrimary}
 								>
 									{focused() ? "› " : "  "}
-									{opt.label}  {opt.description}
+									{opt.label} {opt.description}
 								</text>
 							</box>
 						);
@@ -214,9 +211,7 @@ function ThreadPicker(props: {
 						cursorColor={theme.cursor}
 						showCursor
 						focused={mode() === "rename"}
-						onContentChange={() =>
-							setRenameText(renameRef?.plainText ?? "")
-						}
+						onContentChange={() => setRenameText(renameRef?.plainText ?? "")}
 					/>
 				</box>
 			</Show>
@@ -225,8 +220,8 @@ function ThreadPicker(props: {
 			<Show when={mode() === "confirmDelete"}>
 				<box paddingX={1}>
 					<text fg={theme.errorText}>
-						Delete "{currentOpt()?.label}"? Enter to confirm, any
-						other key to cancel
+						Delete "{currentOpt()?.label}"? Enter to confirm, any other key to
+						cancel
 					</text>
 				</box>
 			</Show>

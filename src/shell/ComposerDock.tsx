@@ -1,5 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
+import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { theme } from "./theme";
 
@@ -9,6 +10,7 @@ export type ComposerDockProps = {
 	gitBranch: string | null;
 	gitDirty: boolean;
 	controller: ComposerController;
+	attachments: AttachmentsController;
 	locked?: boolean;
 	onHeightChange?: (height: number) => void;
 };
@@ -116,6 +118,8 @@ export function ComposerDock(props: ComposerDockProps) {
 	return (
 		<box
 			flexShrink={0}
+			flexDirection="column"
+			gap={0}
 			ref={(value) => {
 				dockRef = value;
 			}}
@@ -123,6 +127,29 @@ export function ComposerDock(props: ComposerDockProps) {
 				if (dockRef) props.onHeightChange?.(dockRef.height);
 			}}
 		>
+			<box width="100%" flexDirection="column" gap={0}>
+				{props.attachments.attachments().map((attachment) => (
+					<box
+						width="100%"
+						flexDirection="row"
+						paddingLeft={1}
+						paddingRight={1}
+						paddingBottom={1}
+						justifyContent="space-between"
+						alignItems="center"
+					>
+						<text fg={theme.textMuted}>
+							{attachment.icon} {attachment.summary}
+						</text>
+						<text
+							fg={theme.textMuted}
+							onMouseUp={() => props.attachments.detach(attachment.id)}
+						>
+							×
+						</text>
+					</box>
+				))}
+			</box>
 			<box
 				width="100%"
 				border
@@ -163,14 +190,14 @@ export function ComposerDock(props: ComposerDockProps) {
 					focused={!palette.visible && !props.locked}
 				/>
 			</box>
-			<text position="absolute" bottom={0} left={2} fg={theme.textMuted}>
-				{props.sessionName || "Unnamed"}
-			</text>
-			<text position="absolute" bottom={0} right={2} fg={theme.textMuted}>
-				{props.cwd}
-				{props.gitBranch &&
-					` (${props.gitBranch}${props.gitDirty ? " ●" : " ○"})`}
-			</text>
+			<box width="100%" flexDirection="row" justifyContent="space-between">
+				<text fg={theme.textMuted}>{props.sessionName || "Unnamed"}</text>
+				<text fg={theme.textMuted}>
+					{props.cwd}
+					{props.gitBranch &&
+						` (${props.gitBranch}${props.gitDirty ? " ●" : " ○"})`}
+				</text>
+			</box>
 		</box>
 	);
 }

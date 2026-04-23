@@ -63,4 +63,3 @@ export function createBashTool(cwd: string): AgentTool<typeof parameters> {
 		},
 	};
 }
-

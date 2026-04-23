@@ -55,6 +55,7 @@ export const theme = {
 	userBorder: blue,
 	assistantText: offWhite,
 	toolText: green,
+	reviewText: purple,
 	errorText: red,
 	warningText: amber,
 	debugLabel: purple,
