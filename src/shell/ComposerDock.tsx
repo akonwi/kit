@@ -128,78 +128,76 @@ export function ComposerDock(props: ComposerDockProps) {
 			}}
 		>
 			<box width="100%" flexDirection="column" gap={0}>
-				<box width="100%" flexDirection="column" gap={0}>
-					{props.attachments.attachments().map((attachment) => (
-						<box
-							width="100%"
-							flexDirection="row"
-							paddingLeft={1}
-							paddingRight={1}
-							paddingBottom={1}
-							justifyContent="space-between"
-							alignItems="center"
+				{props.attachments.attachments().map((attachment) => (
+					<box
+						width="100%"
+						flexDirection="row"
+						paddingLeft={1}
+						paddingRight={1}
+						paddingBottom={1}
+						justifyContent="space-between"
+						alignItems="center"
+					>
+						<text fg={theme.textMuted}>
+							{attachment.icon} {attachment.summary}
+						</text>
+						<text
+							fg={theme.textMuted}
+							onMouseUp={() => props.attachments.detach(attachment.id)}
 						>
-							<text fg={theme.textMuted}>
-								{attachment.icon} {attachment.summary}
-							</text>
-							<text
-								fg={theme.textMuted}
-								onMouseUp={() => props.attachments.detach(attachment.id)}
-							>
-								×
-							</text>
-						</box>
-					))}
-				</box>
-				<box
-					width="100%"
-					border
-					borderColor={theme.borderFocused}
-					paddingLeft={1}
-					paddingRight={1}
-					paddingBottom={1}
-					flexDirection="column"
-					gap={0}
-				>
-					<textarea
-						ref={(value) => {
-							props.controller.setTextarea(value as TextareaHandle | undefined);
-						}}
-						minHeight={1}
-						placeholder={placeholder()}
-						placeholderColor={theme.textPlaceholder}
-						backgroundColor={theme.bg}
-						focusedBackgroundColor={theme.bg}
-						textColor={theme.textPrimary}
-						focusedTextColor={theme.textPrimary}
-						cursorColor={theme.cursor}
-						showCursor={!palette.visible && !props.locked}
-						wrapMode="word"
-						maxHeight={10}
-						overflow="scroll"
-						keyBindings={
-							palette.visible || props.locked
-								? []
-								: [
-										{ name: "return", action: "submit" },
-										{ name: "linefeed", action: "submit" },
-										{ name: "return", shift: true, action: "newline" },
-									]
-						}
-						onContentChange={() => props.controller.handleTextChange()}
-						onSubmit={() => props.controller.handleSubmit()}
-						focused={!palette.visible && !props.locked}
-					/>
-				</box>
+							×
+						</text>
+					</box>
+				))}
 			</box>
-			<text position="absolute" bottom={0} left={2} fg={theme.textMuted}>
-				{props.sessionName || "Unnamed"}
-			</text>
-			<text position="absolute" bottom={0} right={2} fg={theme.textMuted}>
-				{props.cwd}
-				{props.gitBranch &&
-					` (${props.gitBranch}${props.gitDirty ? " ●" : " ○"})`}
-			</text>
+			<box
+				width="100%"
+				border
+				borderColor={theme.borderFocused}
+				paddingLeft={1}
+				paddingRight={1}
+				paddingBottom={1}
+				flexDirection="column"
+				gap={0}
+			>
+				<textarea
+					ref={(value) => {
+						props.controller.setTextarea(value as TextareaHandle | undefined);
+					}}
+					minHeight={1}
+					placeholder={placeholder()}
+					placeholderColor={theme.textPlaceholder}
+					backgroundColor={theme.bg}
+					focusedBackgroundColor={theme.bg}
+					textColor={theme.textPrimary}
+					focusedTextColor={theme.textPrimary}
+					cursorColor={theme.cursor}
+					showCursor={!palette.visible && !props.locked}
+					wrapMode="word"
+					maxHeight={10}
+					overflow="scroll"
+					keyBindings={
+						palette.visible || props.locked
+							? []
+							: [
+									{ name: "return", action: "submit" },
+									{ name: "linefeed", action: "submit" },
+									{ name: "return", shift: true, action: "newline" },
+								]
+					}
+					onContentChange={() => props.controller.handleTextChange()}
+					onSubmit={() => props.controller.handleSubmit()}
+					focused={!palette.visible && !props.locked}
+				/>
+			</box>
+			<box width="100%" flexDirection="row" justifyContent="space-between">
+				<text fg={theme.textMuted}>{props.sessionName || "Unnamed"}</text>
+				<text fg={theme.textMuted}>
+					{props.cwd}
+					{props.gitBranch &&
+						` (${props.gitBranch}${props.gitDirty ? " ●" : " ○"})`}
+				</text>
+			</box>
 		</box>
 	);
 }

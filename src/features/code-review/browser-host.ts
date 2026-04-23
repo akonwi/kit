@@ -6,20 +6,7 @@ import type {
 import { openExternal } from "../../shell/open-external";
 import { theme } from "../../shell/theme";
 import { loadReviewFiles } from "../review/model";
-
-type CodeReviewSubmission = {
-	submittedAt: string;
-	files: Array<{
-		path: string;
-		fileComment: string;
-		ranges: Array<{
-			side: "additions" | "deletions";
-			startLine: number;
-			endLine: number;
-			comment: string;
-		}>;
-	}>;
-};
+import type { CodeReviewSubmission } from "./attachment";
 
 type CodeReviewClientMessage =
 	| { type: "ready" }

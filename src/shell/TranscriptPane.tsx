@@ -13,7 +13,11 @@ import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
-import type { MessagePart, UserMultipartMessage } from "../messages/parts";
+import type {
+	CodeReviewMessagePart,
+	MessagePart,
+	UserMultipartMessage,
+} from "../messages/parts";
 import type { Turn } from "../session/types";
 import { syntaxStyle, theme } from "./theme";
 
@@ -136,24 +140,17 @@ function InlineSpinner() {
 	return <text fg={theme.toolText}>{SPINNER_FRAMES[frame()]}</text>;
 }
 
-function CodeReviewPartEntry(props: { part: MessagePart; aborted?: boolean }) {
-	const review = (
-		props.part as MessagePart & {
-			review?: {
-				files?: Array<{
-					fileComment: string;
-					ranges: Array<{ comment: string }>;
-				}>;
-			};
-		}
-	).review;
-	const fileCount = review?.files?.length ?? 0;
-	const commentCount =
-		review?.files?.reduce(
-			(sum, file) =>
-				sum + (file.fileComment.trim().length > 0 ? 1 : 0) + file.ranges.length,
-			0,
-		) ?? 0;
+function CodeReviewPartEntry(props: {
+	part: CodeReviewMessagePart;
+	aborted?: boolean;
+}) {
+	const review = props.part.review;
+	const fileCount = review.files.length;
+	const commentCount = review.files.reduce(
+		(sum, file) =>
+			sum + (file.fileComment.trim().length > 0 ? 1 : 0) + file.ranges.length,
+		0,
+	);
 	const summary = `Code review · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${fileCount} file${fileCount === 1 ? "" : "s"}`;
 
 	return (

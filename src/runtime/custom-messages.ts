@@ -5,7 +5,7 @@
  * message roles and message shapes that the transcript can render.
  */
 
-import type { UserMultipartMessage } from "../messages/parts";
+export {};
 
 declare module "@mariozechner/pi-agent-core" {
 	interface CustomAgentMessages {
@@ -20,6 +20,5 @@ declare module "@mariozechner/pi-agent-core" {
 			excludeFromContext: boolean;
 			timestamp: number;
 		};
-		userMultipart: UserMultipartMessage;
 	}
 }

@@ -3,13 +3,28 @@ export type TextMessagePart = {
 	text: string;
 };
 
-export type CustomMessagePart = {
-	type: string;
-	promptText: string;
-	[key: string]: unknown;
+export type CodeReviewCommentRange = {
+	side: "additions" | "deletions";
+	startLine: number;
+	endLine: number;
+	comment: string;
 };
 
-export type MessagePart = TextMessagePart | CustomMessagePart;
+export type CodeReviewFileComment = {
+	path: string;
+	fileComment: string;
+	ranges: CodeReviewCommentRange[];
+};
+
+export type CodeReviewMessagePart = {
+	type: "code-review";
+	review: {
+		submittedAt: string;
+		files: CodeReviewFileComment[];
+	};
+};
+
+export type MessagePart = TextMessagePart | CodeReviewMessagePart;
 
 export type UserMultipartMessage = {
 	role: "user";
@@ -18,11 +33,25 @@ export type UserMultipartMessage = {
 };
 
 export function messagePartToPromptText(part: MessagePart): string {
-	if (part.type === "text" && "text" in part && typeof part.text === "string") {
-		return part.text;
+	switch (part.type) {
+		case "text":
+			return part.text;
+		case "code-review": {
+			const lines = ["Attached code review:"];
+			for (const file of part.review.files) {
+				lines.push(`File: ${file.path}`);
+				if (file.fileComment.trim()) {
+					lines.push(`- File comment: ${file.fileComment.trim()}`);
+				}
+				for (const range of file.ranges) {
+					const lineLabel =
+						range.startLine === range.endLine
+							? `${range.startLine}`
+							: `${range.startLine}-${range.endLine}`;
+					lines.push(`- ${range.side} ${lineLabel}: ${range.comment.trim()}`);
+				}
+			}
+			return lines.join("\n");
+		}
 	}
-	if ("promptText" in part && typeof part.promptText === "string") {
-		return part.promptText;
-	}
-	return "";
 }

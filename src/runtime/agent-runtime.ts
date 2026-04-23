@@ -476,7 +476,7 @@ export class AgentRuntime {
 			timestamp: Date.now(),
 		};
 		try {
-			await this.agent.prompt(message);
+			await this.agent.prompt(message as unknown as AgentMessage);
 		} catch (err) {
 			this.emit({ type: "error", title: "Agent error", lines: [String(err)] });
 			throw err;

@@ -7,6 +7,7 @@ export interface Attachment {
 	icon: string;
 	summary: string;
 	toMessagePart(): MessagePart;
+	toPromptText(): string;
 }
 
 export type AttachmentEvent =

@@ -1,18 +1,14 @@
-import type { MessagePart } from "../../messages/parts";
+import type {
+	CodeReviewFileComment,
+	CodeReviewMessagePart,
+	MessagePart,
+} from "../../messages/parts";
+import { messagePartToPromptText } from "../../messages/parts";
 import type { Attachment } from "../../shell/attachments-controller";
 
-type CodeReviewSubmission = {
+export type CodeReviewSubmission = {
 	submittedAt: string;
-	files: Array<{
-		path: string;
-		fileComment: string;
-		ranges: Array<{
-			side: "additions" | "deletions";
-			startLine: number;
-			endLine: number;
-			comment: string;
-		}>;
-	}>;
+	files: CodeReviewFileComment[];
 };
 
 export class CodeReviewAttachment implements Attachment {
@@ -33,26 +29,14 @@ export class CodeReviewAttachment implements Attachment {
 	}
 
 	toMessagePart(): MessagePart {
-		const lines = ["Attached code review:"];
-		for (const file of this.review.files) {
-			lines.push(`File: ${file.path}`);
-			if (file.fileComment.trim()) {
-				lines.push(`- File comment: ${file.fileComment.trim()}`);
-			}
-			for (const range of file.ranges) {
-				const lineLabel =
-					range.startLine === range.endLine
-						? `${range.startLine}`
-						: `${range.startLine}-${range.endLine}`;
-				lines.push(`- ${range.side} ${lineLabel}: ${range.comment.trim()}`);
-			}
-		}
-		return {
+		const part: CodeReviewMessagePart = {
 			type: this.type,
 			review: this.review,
-			promptText: lines.join("\n"),
 		};
+		return part;
+	}
+
+	toPromptText(): string {
+		return messagePartToPromptText(this.toMessagePart());
 	}
 }
-
-export type { CodeReviewSubmission };

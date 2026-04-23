@@ -1,6 +1,6 @@
 import { Plugin } from "../../plugins/Plugin";
 import type { Command } from "../commands/types";
-import { CodeReviewAttachment, type CodeReviewSubmission } from "./attachment";
+import { CodeReviewAttachment } from "./attachment";
 import { codeReviewBrowserHost } from "./browser-host";
 
 const codeReviewCommand: Command = {
@@ -35,5 +35,3 @@ export class CodeReviewPlugin extends Plugin {
 		);
 	}
 }
-
-export type { CodeReviewSubmission };
