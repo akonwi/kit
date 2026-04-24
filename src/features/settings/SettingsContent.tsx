@@ -31,9 +31,17 @@ type SettingsRow =
 			disabled?: boolean;
 	  };
 
-const TABS: Array<{ id: SettingsTabId; label: string }> = [
-	{ id: "general", label: "General" },
-	{ id: "notifications", label: "Notifications" },
+const TABS: Array<{ id: SettingsTabId; label: string; description: string }> = [
+	{
+		id: "general",
+		label: "General",
+		description: "Core assistant behavior and session automation.",
+	},
+	{
+		id: "notifications",
+		label: "Notifications",
+		description: "Bell and speech feedback after turns complete.",
+	},
 ];
 
 function cloneSettings(settings: Settings): Settings {
@@ -44,6 +52,33 @@ function cloneSettings(settings: Settings): Settings {
 				? { ...settings.speech }
 				: settings.speech,
 	};
+}
+
+type ToggleProps = {
+	checked: boolean;
+	disabled: boolean;
+};
+
+function Toggle(props: ToggleProps) {
+	const trackBackground = props.disabled
+		? theme.bgMuted
+		: props.checked
+			? "#567fab"
+			: theme.bgAccent;
+	const knobBackground = props.disabled ? theme.textMuted : theme.textSecondary;
+
+	return (
+		<box
+			width={4}
+			height={1}
+			backgroundColor={trackBackground}
+			flexDirection="row"
+			justifyContent={props.checked ? "flex-end" : "flex-start"}
+			alignItems="center"
+		>
+			<box width={2} height={1} backgroundColor={knobBackground} />
+		</box>
+	);
 }
 
 export function SettingsContent(props: SettingsContentProps) {
@@ -269,6 +304,56 @@ export function SettingsContent(props: SettingsContentProps) {
 		});
 	}
 
+	const activeTabMeta = createMemo(
+		() => TABS.find((tab) => tab.id === activeTab()) ?? TABS[0],
+	);
+
+	function renderInputValue(row: Extract<SettingsRow, { kind: "input" }>) {
+		const disabled = row.disabled === true;
+		const editing = editingField() === row.id;
+		const value = row.id === "speech.maxChars" ? maxCharsDraft() : voiceDraft();
+		const display = row.value || row.placeholder || "";
+		const minWidth = row.id === "speech.maxChars" ? 8 : 24;
+		return (
+			<box
+				minWidth={minWidth}
+				border
+				borderColor={theme.borderDefault}
+				backgroundColor={theme.bgSurface}
+				paddingX={1}
+			>
+				<Show
+					when={editing}
+					fallback={
+						<text fg={disabled ? theme.textMuted : theme.textSecondary}>
+							{display}
+						</text>
+					}
+				>
+					<input
+						focused
+						width="100%"
+						value={value}
+						placeholder={row.placeholder}
+						placeholderColor={theme.textPlaceholder}
+						backgroundColor={theme.bgSurface}
+						focusedBackgroundColor={theme.bgSurface}
+						textColor={theme.textPrimary}
+						focusedTextColor={theme.textPrimary}
+						cursorColor={theme.cursor}
+						onInput={(nextValue: string) => {
+							if (row.id === "speech.maxChars") {
+								if (/^\d*$/.test(nextValue)) setMaxCharsDraft(nextValue);
+								return;
+							}
+							setVoiceDraft(nextValue);
+						}}
+					/>
+				</Show>
+			</box>
+		);
+	}
+
 	useKeyboard((e) => {
 		if (e.name === "escape") {
 			e.preventDefault();
@@ -335,9 +420,9 @@ export function SettingsContent(props: SettingsContentProps) {
 			backgroundColor={theme.modalBackdrop}
 		>
 			<box
-				width="70%"
-				maxWidth={96}
-				minWidth={56}
+				width="74%"
+				maxWidth={104}
+				minWidth={64}
 				border
 				borderStyle="double"
 				borderColor={theme.borderFocused}
@@ -346,7 +431,13 @@ export function SettingsContent(props: SettingsContentProps) {
 				flexDirection="column"
 				gap={1}
 			>
-				<text fg={theme.textPrimary}>Settings</text>
+				<box flexDirection="column" gap={0}>
+					<box flexDirection="row" justifyContent="space-between">
+						<text fg={theme.textPrimary}>Settings</text>
+						<text fg={theme.textMuted}>~/.kit/settings.json</text>
+					</box>
+					<text fg={theme.textMuted}>{activeTabMeta().description}</text>
+				</box>
 
 				<box flexDirection="row" gap={1}>
 					<For each={TABS}>
@@ -354,7 +445,7 @@ export function SettingsContent(props: SettingsContentProps) {
 							const selected = () => tab.id === activeTab();
 							return (
 								<box
-									paddingX={1}
+									paddingX={2}
 									border
 									borderColor={
 										selected() ? theme.borderAccent : theme.borderDefault
@@ -373,18 +464,22 @@ export function SettingsContent(props: SettingsContentProps) {
 					</For>
 				</box>
 
-				<box flexDirection="column" gap={1}>
+				<box border borderColor={theme.borderDefault} flexDirection="column">
 					<For each={rows()}>
 						{(row, index) => {
 							const focused = () => index() === focusedRowIndex();
 							const disabled = () => row.disabled === true;
-							const editing = () =>
-								row.kind === "input" && editingField() === row.id;
 							return (
 								<box
-									flexDirection="column"
-									gap={0}
+									flexDirection="row"
+									justifyContent="space-between"
+									alignItems="center"
+									gap={2}
 									paddingX={1}
+									paddingY={0}
+									borderColor={
+										focused() ? theme.borderAccent : theme.borderDefault
+									}
 									backgroundColor={focused() ? theme.bgMuted : theme.bgSurface}
 									onMouseUp={() => {
 										void runAfterPendingEdit(async () => {
@@ -400,63 +495,21 @@ export function SettingsContent(props: SettingsContentProps) {
 										});
 									}}
 								>
-									{row.kind === "boolean" ? (
-										<>
-											<text
-												fg={disabled() ? theme.textMuted : theme.textPrimary}
-											>
-												{focused() ? "> " : "  "}[{row.checked ? "✓" : " "}]{" "}
-												{row.label}
-											</text>
-											<text fg={theme.textMuted}> {row.help}</text>
-										</>
-									) : (
-										<box flexDirection="column" gap={0}>
-											<text
-												fg={disabled() ? theme.textMuted : theme.textPrimary}
-											>
-												{focused() ? "> " : "  "}
-												{row.label}
-											</text>
-											<Show
-												when={editing()}
-												fallback={
-													<text
-														fg={
-															disabled() ? theme.textMuted : theme.textSecondary
-														}
-													>
-														[{row.value || row.placeholder || ""}]
-													</text>
-												}
-											>
-												<input
-													marginLeft={4}
-													focused
-													value={
-														row.id === "speech.maxChars"
-															? maxCharsDraft()
-															: voiceDraft()
-													}
-													placeholder={row.placeholder}
-													placeholderColor={theme.textPlaceholder}
-													backgroundColor={theme.bg}
-													focusedBackgroundColor={theme.bg}
-													textColor={theme.textPrimary}
-													focusedTextColor={theme.textPrimary}
-													cursorColor={theme.cursor}
-													onInput={(value: string) => {
-														if (row.id === "speech.maxChars") {
-															if (/^\d*$/.test(value)) setMaxCharsDraft(value);
-															return;
-														}
-														setVoiceDraft(value);
-													}}
-												/>
-											</Show>
-											<text fg={theme.textMuted}> {row.help}</text>
-										</box>
-									)}
+									<box flexDirection="column" flexGrow={1} gap={0}>
+										<text fg={disabled() ? theme.textMuted : theme.textPrimary}>
+											{focused() ? "› " : "  "}
+											{row.label}
+										</text>
+										<text fg={theme.textMuted}>{row.help}</text>
+									</box>
+
+									<box flexShrink={0} justifyContent="center">
+										{row.kind === "boolean" ? (
+											<Toggle checked={row.checked} disabled={disabled()} />
+										) : (
+											renderInputValue(row)
+										)}
+									</box>
 								</box>
 							);
 						}}
@@ -464,14 +517,18 @@ export function SettingsContent(props: SettingsContentProps) {
 				</box>
 
 				<Show when={error()}>
-					<text fg={theme.errorText}>{error()}</text>
+					<box border borderColor={theme.errorText} paddingX={1}>
+						<text fg={theme.errorText}>{error()}</text>
+					</box>
 				</Show>
 
-				<text fg={theme.textMuted}>
-					{editingField()
-						? "Enter save · Esc cancel · Click another tab or row to save"
-						: "Esc close · ↑/↓ move · ←/→ tabs · Enter edit · Space toggle · Click supported"}
-				</text>
+				<box border borderColor={theme.borderDefault} paddingX={1}>
+					<text fg={theme.textMuted}>
+						{editingField()
+							? "Enter save · Esc cancel · Click another tab or row to save"
+							: "Esc close · ↑/↓ move · ←/→ tabs · Enter edit · Space toggle · Click supported"}
+					</text>
+				</box>
 			</box>
 		</box>
 	);
