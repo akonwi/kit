@@ -5,6 +5,7 @@ import {
 	resolveSpeechSettings,
 	type Settings,
 } from "../../settings";
+import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { SpeechVoiceDiscovery } from "../notifications/voices";
 
@@ -62,6 +63,11 @@ type SettingsRow =
 			disabled?: boolean;
 	  };
 
+const SETTINGS_BINDINGS: { editing: Binding[]; browsing: Binding[] } = {
+	editing: [{ key: "Enter", action: "save" }, { key: "Esc", action: "cancel" }, { key: "Click", action: "another tab or row to save" }],
+	browsing: [{ key: "Esc", action: "close" }, { key: "↑/↓", action: "move" }, { key: "←/→", action: "tabs" }, { key: "Enter", action: "edit" }, { key: "Space", action: "toggle" }],
+};
+
 const TABS: Array<{ id: SettingsTabId; label: string }> = [
 	{
 		id: "general",
@@ -92,7 +98,7 @@ function Toggle(props: ToggleProps) {
 	const trackBackground = props.disabled
 		? theme.bgMuted
 		: props.checked
-			? "#567fab"
+			? theme.toggleOn
 			: theme.bgAccent;
 	const knobBackground = props.disabled ? theme.textMuted : theme.textSecondary;
 
@@ -158,28 +164,28 @@ export function SettingsContent(props: SettingsContentProps) {
 					id: "guidedQuestions",
 					kind: "boolean",
 					label: "Guided Questions",
-					help: "Let the agent open structured questionnaires when it needs several answers.",
+					help: "The agent uses a form when it needs several answers.",
 					checked: currentSettings.guidedQuestions !== false,
 				},
 				{
 					id: "sessionNaming",
 					kind: "boolean",
 					label: "Auto-name Sessions",
-					help: "Generate a session title automatically after the first couple of turns.",
+					help: "Generated after the first couple of turns.",
 					checked: currentSettings.sessionNaming !== false,
 				},
 				{
 					id: "pager",
 					kind: "boolean",
 					label: "Auto-open Pager",
-					help: "Open pager automatically for substantial assistant responses.",
+					help: "A paged modal UX for long agent responses",
 					checked: currentSettings.pager !== false,
 				},
 				{
 					id: "retry.enabled",
 					kind: "boolean",
 					label: "Auto-retry Errors",
-					help: "Retry transient provider and server failures with exponential backoff.",
+					help: "Retry transient provider and server failures.",
 					checked: retry.enabled,
 				},
 				{
@@ -194,7 +200,7 @@ export function SettingsContent(props: SettingsContentProps) {
 					id: "retry.baseDelayMs",
 					kind: "input",
 					label: "Retry Base Delay",
-					help: "Base delay in milliseconds. Retries back off exponentially from this value.",
+					help: "Base delay in milliseconds.",
 					value: String(retry.baseDelayMs),
 					disabled: !retry.enabled,
 				},
@@ -213,7 +219,7 @@ export function SettingsContent(props: SettingsContentProps) {
 			? props.speechVoices.reason
 			: props.speechVoices.voices.length === 0
 				? "No macOS voices were discovered."
-				: "Choose which macOS voice to use for speech notifications.";
+				: "Which macOS voice to use for speech notifications.";
 
 		return [
 			{
@@ -452,7 +458,7 @@ export function SettingsContent(props: SettingsContentProps) {
 		});
 	}
 
-	function renderInputValue(row: Extract<SettingsRow, { kind: "input" }>) {
+	function renderInputValue(row: Extract<SettingsRow, { kind: "input" }>, rowFocused: boolean) {
 		const disabled = row.disabled === true;
 		const editing = editingField() === row.id;
 		const value =
@@ -468,8 +474,8 @@ export function SettingsContent(props: SettingsContentProps) {
 			<box
 				minWidth={8}
 				border
-				borderColor={theme.borderDefault}
-				backgroundColor={theme.bgSurface}
+				borderColor={editing ? theme.borderAccent : rowFocused ? theme.borderFocused : theme.borderDefault}
+				backgroundColor={theme.bgTransparent}
 				paddingX={1}
 			>
 				<Show
@@ -486,8 +492,8 @@ export function SettingsContent(props: SettingsContentProps) {
 						value={value}
 						placeholder={row.placeholder}
 						placeholderColor={theme.textPlaceholder}
-						backgroundColor={theme.bgSurface}
-						focusedBackgroundColor={theme.bgSurface}
+						backgroundColor={theme.bgTransparent}
+						focusedBackgroundColor={theme.bgTransparent}
 						textColor={theme.textPrimary}
 						focusedTextColor={theme.textPrimary}
 						cursorColor={theme.cursor}
@@ -506,7 +512,7 @@ export function SettingsContent(props: SettingsContentProps) {
 		);
 	}
 
-	function renderSelectValue(row: Extract<SettingsRow, { kind: "select" }>) {
+	function renderSelectValue(row: Extract<SettingsRow, { kind: "select" }>, rowFocused: boolean) {
 		const disabled = row.disabled === true;
 		const editing = editingField() === row.id;
 		const display = row.value || row.placeholder || "";
@@ -514,8 +520,8 @@ export function SettingsContent(props: SettingsContentProps) {
 			<box
 				minWidth={28}
 				border
-				borderColor={theme.borderDefault}
-				backgroundColor={theme.bgSurface}
+				borderColor={editing ? theme.borderAccent : rowFocused ? theme.borderFocused : theme.borderDefault}
+				backgroundColor={theme.bgTransparent}
 				paddingX={editing ? 0 : 1}
 			>
 				<Show
@@ -623,6 +629,7 @@ export function SettingsContent(props: SettingsContentProps) {
 				width="74%"
 				maxWidth={104}
 				minWidth={64}
+				height="70%"
 				border
 				borderStyle="double"
 				borderColor={theme.borderFocused}
@@ -631,14 +638,14 @@ export function SettingsContent(props: SettingsContentProps) {
 				flexDirection="column"
 				gap={1}
 			>
-				<box flexDirection="column" gap={0}>
+				<box flexShrink={0} flexDirection="column" gap={0}>
 					<box flexDirection="row" justifyContent="space-between">
 						<text fg={theme.textPrimary}>Settings</text>
 						<text fg={theme.textMuted}>~/.kit/settings.json</text>
 					</box>
 				</box>
 
-				<box flexDirection="row" gap={1}>
+				<box flexShrink={0} flexDirection="row" gap={1}>
 					<For each={TABS}>
 						{(tab) => {
 							const selected = () => tab.id === activeTab();
@@ -649,7 +656,6 @@ export function SettingsContent(props: SettingsContentProps) {
 									borderColor={
 										selected() ? theme.borderAccent : theme.borderDefault
 									}
-									backgroundColor={selected() ? theme.bgMuted : theme.bgSurface}
 									onMouseUp={() => {
 										void switchTab(tab.id);
 									}}
@@ -663,64 +669,66 @@ export function SettingsContent(props: SettingsContentProps) {
 					</For>
 				</box>
 
-				<box border borderColor={theme.borderDefault} flexDirection="column">
-					<For each={rows()}>
-						{(row, index) => {
-							const focused = () => index() === focusedRowIndex();
-							const disabled = () => row.disabled === true;
-							return (
-								<box
-									flexDirection="row"
-									justifyContent="space-between"
-									alignItems="center"
-									gap={2}
-									paddingX={1}
-									paddingY={0}
-									borderColor={
-										focused() ? theme.borderAccent : theme.borderDefault
-									}
-									backgroundColor={focused() ? theme.bgMuted : theme.bgSurface}
-									onMouseUp={() => {
-										void runAfterPendingEdit(async () => {
-											focusRow(index());
-											if (row.kind === "boolean") {
-												if (!disabled()) await toggleBoolean(row.id);
-												return;
-											}
-											if (!disabled()) {
-												setError(null);
-												if (row.kind === "select") {
-													setVoiceSelectedIndex(
-														resolveVoiceIndex(voiceDraft()),
-													);
+				<scrollbox flexGrow={1} scrollY>
+					<box flexDirection="column" gap={1}>
+						<For each={rows()}>
+							{(row, index) => {
+								const focused = () => index() === focusedRowIndex();
+								const disabled = () => row.disabled === true;
+								return (
+									<box
+										flexDirection="row"
+										justifyContent="space-between"
+										alignItems="flex-start"
+										gap={2}
+										height={3}
+										paddingX={1}
+										backgroundColor={focused() ? theme.bgMuted : theme.bgTransparent}
+										onMouseUp={() => {
+											void runAfterPendingEdit(async () => {
+												focusRow(index());
+												if (row.kind === "boolean") {
+													if (!disabled()) await toggleBoolean(row.id);
+													return;
 												}
-												setEditingField(row.id);
-											}
-										});
-									}}
-								>
-									<box flexDirection="column" flexGrow={1} gap={0}>
-										<text fg={disabled() ? theme.textMuted : theme.textPrimary}>
-											{focused() ? "› " : "  "}
-											{row.label}
-										</text>
-										<text fg={theme.textMuted}>{row.help}</text>
-									</box>
+												if (!disabled()) {
+													setError(null);
+													if (row.kind === "select") {
+														setVoiceSelectedIndex(
+															resolveVoiceIndex(voiceDraft()),
+														);
+													}
+													setEditingField(row.id);
+												}
+											});
+										}}
+									>
+										<box flexDirection="column" flexGrow={1} gap={0}>
+											<text fg={disabled() ? theme.textMuted : theme.textPrimary}>
+												{row.label}
+											</text>
+											<text fg={theme.textMuted}>
+												{row.help.length > 55
+													? `${row.help.slice(0, 54)}…`
+													: row.help}
+											</text>
+										</box>
 
-									<box flexShrink={0} justifyContent="center">
-										{row.kind === "boolean" ? (
-											<Toggle checked={row.checked} disabled={disabled()} />
-										) : row.kind === "input" ? (
-											renderInputValue(row)
-										) : (
-											renderSelectValue(row)
-										)}
+										<box flexShrink={0}>
+											{row.kind === "boolean" ? (
+												<box paddingY={1}><Toggle checked={row.checked} disabled={disabled()} /></box>
+											) : row.kind === "input" ? (
+												renderInputValue(row, focused())
+											) : (
+												renderSelectValue(row, focused())
+											)}
+										</box>
 									</box>
-								</box>
-							);
-						}}
-					</For>
-				</box>
+								);
+							}}
+						</For>
+					</box>
+				</scrollbox>
 
 				<Show when={error()}>
 					<box border borderColor={theme.errorText} paddingX={1}>
@@ -728,13 +736,7 @@ export function SettingsContent(props: SettingsContentProps) {
 					</box>
 				</Show>
 
-				<box border borderColor={theme.borderDefault} paddingX={1}>
-					<text fg={theme.textMuted}>
-						{editingField()
-							? "Enter save · Esc cancel · Click another tab or row to save"
-							: "Esc close · ↑/↓ move · ←/→ tabs · Enter edit · Space toggle · Click supported"}
-					</text>
-				</box>
+				<HintBar bindings={SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]} />
 			</box>
 		</box>
 	);

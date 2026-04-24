@@ -1,8 +1,17 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
+import { type Binding, HintBar } from "../../shell/HintBar";
+import { MessageComposer } from "../../shell/MessageComposer";
+import { ScreenHeader } from "../../shell/ScreenHeader";
+import { ScreenLayout } from "../../shell/ScreenLayout";
 import { syntaxStyle, theme } from "../../shell/theme";
 import type { PagerController } from "./pager-controller";
+
+const MODE_BINDINGS: { [key in "navigate" | "edit"]: Binding[] } = {
+	navigate: [{ key: "←/→", action: "section" }, { key: "j/k", action: "scroll" }, { key: "n", action: "note" }, { key: "Ctrl+Enter", action: "submit" }, { key: "Esc", action: "close" }],
+	edit: [{ key: "Shift+Enter", action: "newline" }, { key: "Esc", action: "back" }, { key: "Ctrl+Enter", action: "submit notes" }],
+};
 
 export type PagerContentProps = {
 	pager: PagerController;
@@ -135,66 +144,63 @@ export function PagerContent(props: PagerContentProps) {
 	const noteCount = () => pager.getNoteCount();
 	const currentNote = () => pager.notes.get(pager.currentIndex) ?? "";
 
+	const sectionPct = () => {
+		const total = pager.sections.length;
+		if (total <= 1) return 100;
+		return Math.round(((pager.currentIndex + 1) / total) * 100);
+	};
+
 	return (
 		<Show when={pager.active}>
-			<box
-				position="absolute"
-				top={0}
-				left={0}
-				width="100%"
-				height="100%"
+			<ScreenLayout
 				zIndex={1200}
-				backgroundColor={theme.bg}
-				flexDirection="column"
-				border
-				borderColor={theme.borderFocused}
+				header={
+					<ScreenHeader
+						left={
+							<text fg={theme.textPrimary}>
+								<b>{pager.title}</b>
+							</text>
+						}
+						right={
+							<text fg={theme.textMuted}>
+								{pager.currentIndex + 1}/{pager.sections.length}
+								{noteCount() > 0
+									? ` · ${noteCount()} note${noteCount() === 1 ? "" : "s"}`
+									: ""}
+							</text>
+						}
+						progress={sectionPct()}
+					/>
+				}
+				footer={
+					<box flexDirection="column" gap={0}>
+							<Show
+								when={mode() === "edit"}
+								fallback={
+									<MessageComposer
+										placeholder={currentNote() || "press n to add a note"}
+										maxHeight={6}
+										focused={false}
+										showCursor={false}
+									/>
+								}
+							>
+								<MessageComposer
+									ref={(el) => {
+										textareaRef = el as typeof textareaRef;
+									}}
+									initialValue={noteText()}
+									placeholder="Type your note..."
+									maxHeight={6}
+									keyBindings={[{ name: "return", shift: true, action: "newline" }]}
+									onContentChange={() => setNoteText(textareaRef?.plainText ?? "")}
+									onPaste={handlePaste}
+								/>
+							</Show>
+						<HintBar bindings={MODE_BINDINGS[mode()]} />
+					</box>
+				}
 			>
-				{/* Header: title + position */}
-				<box
-					flexShrink={0}
-					flexDirection="row"
-					justifyContent="space-between"
-					paddingX={1}
-					backgroundColor={theme.bgSurface}
-				>
-					<text fg={theme.textPrimary}>
-						<b>{pager.title}</b>
-					</text>
-					<text fg={theme.textMuted}>
-						{pager.currentIndex + 1}/{pager.sections.length}
-						{noteCount() > 0
-							? ` · ${noteCount()} note${noteCount() === 1 ? "" : "s"}`
-							: ""}
-					</text>
-				</box>
-
-				{/* Section dots */}
-				<box flexShrink={0} flexDirection="row" gap={1} paddingX={1}>
-					<For each={pager.sections}>
-						{(_, idx) => {
-							const isCurrent = () => idx() === pager.currentIndex;
-							const hasNote = () => pager.notes.has(idx());
-							const color = () => {
-								if (isCurrent())
-									return hasNote() ? theme.borderAccent : theme.textPrimary;
-								return hasNote() ? theme.toolText : theme.textMuted;
-							};
-							return (
-								<text fg={color()}>
-									{isCurrent()
-										? hasNote()
-											? "◆"
-											: "●"
-										: hasNote()
-											? "●"
-											: "○"}
-								</text>
-							);
-						}}
-					</For>
-				</box>
-
-				{/* Scrollable section content */}
 				<scrollbox
 					ref={bindScroll}
 					flexGrow={1}
@@ -225,57 +231,7 @@ export function PagerContent(props: PagerContentProps) {
 						/>
 					</box>
 				</scrollbox>
-
-				{/* Note area */}
-				<text fg={theme.borderDefault}>{"─".repeat(80)}</text>
-				<box flexShrink={0} flexDirection="column" paddingX={1} gap={0}>
-					<Show when={mode() === "navigate"}>
-						<text fg={theme.textMuted}>
-							{currentNote()
-								? `Note: ${currentNote()}`
-								: "(press n to add a note for this section)"}
-						</text>
-					</Show>
-					<Show when={mode() === "edit"}>
-						<text fg={theme.borderAccent}>Note:</text>
-						{/* @ts-ignore onPaste supported but not typed */}
-						<textarea
-							ref={(el) => {
-								textareaRef = el as typeof textareaRef;
-								try {
-									textareaRef?.setText(noteText());
-								} catch {
-									textareaRef = undefined;
-								}
-							}}
-							minHeight={3}
-							maxHeight={6}
-							placeholder="Type your note..."
-							placeholderColor={theme.textPlaceholder}
-							backgroundColor={theme.bg}
-							focusedBackgroundColor={theme.bg}
-							textColor={theme.textPrimary}
-							focusedTextColor={theme.textPrimary}
-							cursorColor={theme.cursor}
-							showCursor
-							wrapMode="word"
-							focused={mode() === "edit"}
-							keyBindings={[{ name: "return", shift: true, action: "newline" }]}
-							onContentChange={() => setNoteText(textareaRef?.plainText ?? "")}
-							onPaste={handlePaste}
-						/>
-					</Show>
-				</box>
-
-				{/* Hints */}
-				<box flexShrink={0} paddingX={1} paddingBottom={0}>
-					<text fg={theme.textMuted}>
-						{mode() === "edit"
-							? "Shift+Enter newline · Esc back · Ctrl+Enter submit notes"
-							: "←/→ section · j/k scroll · n note · Ctrl+Enter submit · Esc close"}
-					</text>
-				</box>
-			</box>
+			</ScreenLayout>
 		</Show>
 	);
 }

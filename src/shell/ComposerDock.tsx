@@ -2,6 +2,7 @@ import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
+import { MessageComposer } from "./MessageComposer";
 import { theme } from "./theme";
 
 export type ComposerDockProps = {
@@ -134,7 +135,7 @@ export function ComposerDock(props: ComposerDockProps) {
 						justifyContent="space-between"
 						alignItems="center"
 					>
-						<text fg={theme.textMuted}>
+						<text fg={theme.attachmentText}>
 							{attachment.icon} {attachment.summary}
 						</text>
 						<text
@@ -146,55 +147,33 @@ export function ComposerDock(props: ComposerDockProps) {
 					</box>
 				))}
 			</box>
-			<box
-				width="100%"
-				border
-				borderColor={theme.borderFocused}
-				paddingLeft={1}
-				paddingRight={1}
-				paddingBottom={1}
-				flexDirection="column"
-				gap={0}
-			>
-				{/* @ts-ignore onPaste supported but not typed */}
-				<textarea
-					ref={(value) => {
-						props.controller.setTextarea(value as TextareaHandle | undefined);
-					}}
-					minHeight={1}
-					placeholder={placeholder()}
-					placeholderColor={theme.textPlaceholder}
-					backgroundColor={theme.bg}
-					focusedBackgroundColor={theme.bg}
-					textColor={theme.textPrimary}
-					focusedTextColor={theme.textPrimary}
-					cursorColor={theme.cursor}
-					showCursor={!palette.visible && !props.locked}
-					wrapMode="word"
-					maxHeight={10}
-					overflow="scroll"
-					keyBindings={
-						palette.visible || props.locked
-							? []
-							: [
-									{ name: "return", action: "submit" },
-									{ name: "linefeed", action: "submit" },
-									{ name: "return", shift: true, action: "newline" },
-								]
-					}
-					onContentChange={() => props.controller.handleTextChange()}
-					onPaste={(event: PasteEvent) => {
-						console.log("[composer-dock] textarea onPaste fired", {
-							mimeType: event.metadata?.mimeType,
-							kind: event.metadata?.kind,
-							byteLength: event.bytes.length,
-						});
-						void props.controller.handlePaste(event);
-					}}
-					onSubmit={() => props.controller.handleSubmit()}
-					focused={!palette.visible && !props.locked}
-				/>
-			</box>
+			<MessageComposer
+				ref={(value) => {
+					props.controller.setTextarea(value as TextareaHandle | undefined);
+				}}
+				placeholder={placeholder()}
+				focused={!palette.visible && !props.locked}
+				showCursor={!palette.visible && !props.locked}
+				keyBindings={
+					palette.visible || props.locked
+						? []
+						: [
+								{ name: "return", action: "submit" },
+								{ name: "linefeed", action: "submit" },
+								{ name: "return", shift: true, action: "newline" },
+							]
+				}
+				onContentChange={() => props.controller.handleTextChange()}
+				onPaste={(event: PasteEvent) => {
+					console.log("[composer-dock] textarea onPaste fired", {
+						mimeType: event.metadata?.mimeType,
+						kind: event.metadata?.kind,
+						byteLength: event.bytes.length,
+					});
+					void props.controller.handlePaste(event);
+				}}
+				onSubmit={() => props.controller.handleSubmit()}
+			/>
 		</box>
 	);
 }

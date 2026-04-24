@@ -163,14 +163,14 @@ function CodeReviewPartEntry(props: {
 	return (
 		<box
 			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.reviewText}
+			borderColor={props.aborted ? theme.textMuted : theme.attachmentText}
 			paddingLeft={1}
 			flexDirection="column"
 			gap={0}
 			width="100%"
 		>
 			<text
-				fg={props.aborted ? theme.textMuted : theme.reviewText}
+				fg={props.aborted ? theme.textMuted : theme.attachmentText}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
 				🧐 {summary}
@@ -188,7 +188,7 @@ function ImagePartEntry(props: {
 	return (
 		<box
 			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.borderAccent}
+			borderColor={props.aborted ? theme.textMuted : theme.attachmentText}
 			paddingLeft={1}
 			flexDirection="column"
 			gap={0}
@@ -205,7 +205,7 @@ function ImagePartEntry(props: {
 				});
 			}}
 		>
-			<text fg={props.aborted ? theme.textMuted : theme.borderAccent}>
+			<text fg={props.aborted ? theme.textMuted : theme.attachmentText}>
 				🖼️ {label}
 			</text>
 		</box>
@@ -316,7 +316,7 @@ function BashEntry(props: { msg: BashExecutionMessage }) {
 					fg={theme.textPrimary}
 				/>
 				<Show when={hasOutput}>
-					<text fg={theme.textMuted}>
+					<text fg={theme.metaText}>
 						{expanded() ? "▾" : "▸"} {outputLines().length} line
 						{outputLines().length === 1 ? "" : "s"}
 					</text>
@@ -395,7 +395,7 @@ function CompletedToolCall(props: {
 					{formatToolArgs(props.tc.arguments)}
 				</text>
 				<Show when={hasOutput && !props.aborted}>
-					<text fg={theme.textMuted}>
+					<text fg={theme.metaText}>
 						{expanded() ? "▾" : "▸"} {lines.length} line
 						{lines.length === 1 ? "" : "s"}
 					</text>
@@ -536,17 +536,36 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				},
 			}}
 		>
-			<box flexDirection="column" gap={1} width="100%">
-				<Show when={props.turns.length === 0}>
-					<box flexDirection="column" gap={0} width="100%">
-						<text fg={theme.textSecondary}>kit</text>
-						<text fg={theme.textSecondary}>Start a conversation below.</text>
+			<Show
+				when={props.turns.length > 0}
+				fallback={
+					<box
+						flexGrow={1}
+						flexDirection="column"
+						justifyContent="center"
+						alignItems="center"
+						gap={1}
+						width="100%"
+					>
+						<box flexDirection="column" alignItems="center" gap={0}>
+							<text fg={theme.textPrimary}>k    i    t</text>
+							<text fg={theme.borderAccent}>━━━━━━━━━━━</text>
+						</box>
+						<text fg={theme.textSecondary}>
+							Ask a question or give a task.
+						</text>
+						<text fg={theme.textPlaceholder}>
+							/ to open commands
+						</text>
 					</box>
-				</Show>
-				<For each={turns()}>
-					{(turn) => <TurnEntry turn={turn} showToast={props.showToast} />}
-				</For>
-			</box>
+				}
+			>
+				<box flexDirection="column" gap={1} width="100%">
+					<For each={turns()}>
+						{(turn) => <TurnEntry turn={turn} showToast={props.showToast} />}
+					</For>
+				</box>
+			</Show>
 		</scrollbox>
 	);
 }

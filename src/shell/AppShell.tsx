@@ -5,6 +5,7 @@ import type { AppState } from "../state/app-state";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { ComposerDock } from "./ComposerDock";
+import { HeaderBar } from "./HeaderBar";
 import type { ComposerController } from "./composer-controller";
 import { InlinePicker } from "./InlinePicker";
 import { Modal } from "./Modal";
@@ -33,7 +34,6 @@ export function AppShell(props: AppShellProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
 	const renderer = useRenderer();
-	let headerRef: { height: number } | undefined;
 
 	return (
 		<box
@@ -43,22 +43,11 @@ export function AppShell(props: AppShellProps) {
 			backgroundColor={theme.bg}
 			onMouseUp={() => copySelection(renderer)}
 		>
-			<box
-				flexShrink={0}
-				border
-				borderColor={theme.borderDefault}
-				paddingX={1}
-				ref={(value) => {
-					headerRef = value;
-				}}
-				onSizeChange={() => {
-					if (headerRef) setHeaderHeight(headerRef.height);
-				}}
-			>
-				<text fg={theme.textMuted}>
-					{props.state.sessionMeta.sessionName || "Unnamed session"}
-				</text>
-			</box>
+			<HeaderBar
+				sessionName={props.state.sessionMeta.sessionName}
+				status={props.state.footerStatus}
+				onHeightChange={setHeaderHeight}
+			/>
 
 			<TranscriptPane turns={props.state.turns} showToast={props.showToast} />
 

@@ -8,11 +8,19 @@ import {
 	For,
 	Show,
 } from "solid-js";
+import { type Binding, HintBar } from "../../shell/HintBar";
+import { ScreenHeader } from "../../shell/ScreenHeader";
+import { ScreenLayout } from "../../shell/ScreenLayout";
 import { syntaxStyle, theme } from "../../shell/theme";
 import { loadReviewFiles, type ReviewFile } from "./model";
 
 export type ReviewContentProps = {
 	onClose: () => void;
+};
+
+const FOCUS_BINDINGS: { [key in "list" | "patch"]: Binding[] } = {
+	list: [{ key: "↑/↓ or j/k", action: "move" }, { key: "Enter", action: "focus patch" }, { key: "Space", action: "collapse/expand" }, { key: "Esc", action: "close" }],
+	patch: [{ key: "↑/↓ or j/k", action: "scroll" }, { key: "Esc", action: "back" }],
 };
 
 function statusLabel(file: ReviewFile): string {
@@ -36,13 +44,11 @@ type ScrollRef = {
 
 type PatchScrollRef = {
 	scrollBy: (delta: number | { x: number; y: number }) => void;
-	scrollTo: (position: number | { x: number; y: number }) => void;
 };
 
 export function ReviewContent(props: ReviewContentProps) {
 	const [files] = createResource(() => loadReviewFiles());
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
-	const [selectedHunkIndex, setSelectedHunkIndex] = createSignal(0);
 	const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());
 	const [patchFocused, setPatchFocused] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
@@ -58,12 +64,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	});
 
-	createEffect(() => {
-		const hunks = selectedFile()?.hunks ?? [];
-		if (selectedHunkIndex() >= hunks.length) {
-			setSelectedHunkIndex(Math.max(0, hunks.length - 1));
-		}
-	});
 
 	createEffect(() => {
 		const list = reviewFiles();
@@ -98,15 +98,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		});
 	}
 
-	function scrollToHunk(file: ReviewFile, hunkIndex: number) {
-		const hunk = file.hunks[hunkIndex];
-		if (!hunk) return;
-		patchScrollRefs.get(file.id)?.scrollTo({
-			x: 0,
-			y: Math.max(0, hunk.patchStartLine - 2),
-		});
-	}
-
 	function scrollPatch(fileId: string, deltaY: number) {
 		patchScrollRefs.get(fileId)?.scrollBy({ x: 0, y: deltaY });
 	}
@@ -118,39 +109,18 @@ export function ReviewContent(props: ReviewContentProps) {
 				setPatchFocused(false);
 				return;
 			}
-			if (e.name === "up") {
+			if (e.name === "up" || e.name === "k") {
 				e.preventDefault();
 				const file = selectedFile();
 				if (!file) return;
 				scrollPatch(file.id, -1);
 				return;
 			}
-			if (e.name === "down") {
+			if (e.name === "down" || e.name === "j") {
 				e.preventDefault();
 				const file = selectedFile();
 				if (!file) return;
 				scrollPatch(file.id, 1);
-				return;
-			}
-			if (e.name === "k") {
-				e.preventDefault();
-				const file = selectedFile();
-				if (!file) return;
-				const nextIndex = Math.max(0, selectedHunkIndex() - 1);
-				setSelectedHunkIndex(nextIndex);
-				queueMicrotask(() => scrollToHunk(file, nextIndex));
-				return;
-			}
-			if (e.name === "j") {
-				e.preventDefault();
-				const file = selectedFile();
-				if (!file) return;
-				const nextIndex = Math.min(
-					file.hunks.length - 1,
-					selectedHunkIndex() + 1,
-				);
-				setSelectedHunkIndex(nextIndex);
-				queueMicrotask(() => scrollToHunk(file, nextIndex));
 				return;
 			}
 			return;
@@ -164,7 +134,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (e.name === "up" || e.name === "k") {
 			e.preventDefault();
 			setSelectedIndex((index) => Math.max(0, index - 1));
-			setSelectedHunkIndex(0);
+
 			return;
 		}
 		if (e.name === "down" || e.name === "j") {
@@ -172,7 +142,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			setSelectedIndex((index) =>
 				Math.min(reviewFiles().length - 1, index + 1),
 			);
-			setSelectedHunkIndex(0);
+
 			return;
 		}
 		if (e.name === "return" || e.name === "enter") {
@@ -180,7 +150,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			const file = selectedFile();
 			if (file && expandedKeys().has(file.id)) {
 				setPatchFocused(true);
-				queueMicrotask(() => scrollToHunk(file, selectedHunkIndex()));
 			}
 			return;
 		}
@@ -192,236 +161,204 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 
 	return (
-		<box
-			position="absolute"
-			left={0}
-			top={0}
-			width="100%"
-			height="100%"
+		<ScreenLayout
 			zIndex={1200}
-			backgroundColor={theme.modalBackdrop}
+			header={
+				<ScreenHeader
+					left={<text fg={theme.textMuted}>Diffs</text>}
+					right={
+						<text fg={theme.textMuted}>
+							{reviewFiles().length} file{reviewFiles().length === 1 ? "" : "s"}
+						</text>
+					}
+				/>
+			}
+			footer={
+				<HintBar bindings={FOCUS_BINDINGS[patchFocused() ? "patch" : "list"]} />
+			}
 		>
-			<box
-				width="100%"
-				height="100%"
-				border
-				borderStyle="double"
-				borderColor={theme.borderFocused}
-				backgroundColor={theme.bgSurface}
-				padding={1}
-				paddingBottom={0}
-				flexDirection="column"
-				gap={0}
+			<Show
+				when={!files.loading}
+				fallback={
+					<box flexGrow={1} padding={1}>
+						<text fg={theme.textMuted}>Loading diff…</text>
+					</box>
+				}
 			>
-				<box
-					flexShrink={0}
-					flexDirection="row"
-					justifyContent="space-between"
-					paddingX={1}
-					paddingBottom={1}
-				>
-					<text fg={theme.textMuted}>Code review</text>
-					<text fg={theme.textMuted}>
-						{reviewFiles().length} file{reviewFiles().length === 1 ? "" : "s"}
-					</text>
-				</box>
-
 				<Show
-					when={!files.loading}
-					fallback={<text fg={theme.textMuted}>Loading diff…</text>}
+					when={reviewFiles().length > 0}
+					fallback={
+						<box flexGrow={1} padding={1}>
+							<text fg={theme.textMuted}>No uncommitted changes.</text>
+						</box>
+					}
 				>
 					<Show
-						when={reviewFiles().length > 0}
-						fallback={<text fg={theme.textMuted}>No uncommitted changes.</text>}
-					>
-						<Show
-							when={patchFocused() && selectedFile()}
-							fallback={
-								<scrollbox
-									ref={(value) => {
-										listScrollRef = value as ScrollRef;
-									}}
-									flexGrow={1}
-									scrollY
-								>
-									<box flexDirection="column" gap={0}>
-										<For each={reviewFiles()}>
-											{(file, idx) => {
-												const selected = () => idx() === selectedIndex();
-												const expanded = () => expandedKeys().has(file.id);
-												return (
+						when={patchFocused() && selectedFile()}
+						fallback={
+							<scrollbox
+								ref={(value) => {
+									listScrollRef = value as ScrollRef;
+								}}
+								flexGrow={1}
+								scrollY
+								padding={1}
+							>
+								<box flexDirection="column" gap={0}>
+									<For each={reviewFiles()}>
+										{(file, idx) => {
+											const selected = () => idx() === selectedIndex();
+											const expanded = () => expandedKeys().has(file.id);
+											return (
+												<box
+													id={`review-file-${file.id}`}
+													flexDirection="column"
+													gap={0}
+													backgroundColor={
+														selected() ? theme.bgMuted : theme.bgTransparent
+													}
+												>
 													<box
-														id={`review-file-${file.id}`}
-														flexDirection="column"
-														gap={0}
-														border
-														borderColor={
-															selected()
-																? theme.borderAccent
-																: theme.borderDefault
-														}
-														backgroundColor={
-															selected() ? theme.bgMuted : theme.bgTransparent
-														}
+														paddingX={1}
+														paddingY={0}
+														flexDirection="row"
+														justifyContent="space-between"
 													>
-														<box
-															paddingX={1}
-															paddingY={0}
-															flexDirection="row"
-															justifyContent="space-between"
-														>
-															<box flexDirection="column">
-																<text
-																	fg={
-																		selected()
-																			? theme.textPrimary
-																			: theme.textSecondary
-																	}
-																>
-																	{expanded() ? "▾" : "▸"} {statusLabel(file)}{" "}
-																	{file.path}
-																</text>
-																<Show when={file.prevPath}>
-																	<text fg={theme.textMuted}>
-																		from {file.prevPath}
-																	</text>
-																</Show>
-															</box>
-															<text fg={theme.textMuted}>
-																{file.hunks.length} hunk
-																{file.hunks.length === 1 ? "" : "s"} ·{" "}
-																{file.changeCount} changed line
-																{file.changeCount === 1 ? "" : "s"}
-															</text>
-														</box>
-														<Show when={expanded()}>
-															<box
-																padding={1}
-																paddingTop={0}
-																flexDirection="column"
-																gap={0}
+														<box flexDirection="column">
+															<text
+																fg={
+																	selected()
+																		? theme.textPrimary
+																		: theme.textSecondary
+																}
 															>
-																<diff
-																	diff={file.rawPatch}
-																	view="unified"
-																	filetype={file.filetype}
-																	syntaxStyle={syntaxStyle}
-																	showLineNumbers
-																	addedBg="#16351f"
-																	removedBg="#3a1f24"
-																	contextBg={theme.bgSurface}
-																	addedContentBg="#0f2917"
-																	removedContentBg="#291217"
-																	contextContentBg={theme.bgSurface}
-																	addedSignColor={theme.toolText}
-																	removedSignColor={theme.errorText}
-																	lineNumberFg={theme.textMuted}
-																	lineNumberBg={theme.bg}
-																	addedLineNumberBg="#102717"
-																	removedLineNumberBg="#2a1519"
-																	wrapMode="none"
-																/>
-															</box>
-														</Show>
+																{expanded() ? "▾" : "▸"} {statusLabel(file)}{" "}
+																{file.path}
+															</text>
+															<Show when={file.prevPath}>
+																<text fg={theme.textMuted}>
+																	from {file.prevPath}
+																</text>
+															</Show>
+														</box>
+														<text fg={theme.textMuted}>
+															{file.hunks.length} hunk
+															{file.hunks.length === 1 ? "" : "s"} ·{" "}
+															{file.changeCount} changed line
+															{file.changeCount === 1 ? "" : "s"}
+														</text>
 													</box>
-												);
-											}}
-										</For>
+													<Show when={expanded()}>
+														<box
+															padding={1}
+															paddingTop={0}
+															flexDirection="column"
+															gap={0}
+														>
+															<diff
+																diff={file.rawPatch}
+																view="unified"
+																filetype={file.filetype}
+																syntaxStyle={syntaxStyle}
+																showLineNumbers
+																addedBg={theme.diffAddedBg}
+																removedBg={theme.diffRemovedBg}
+																contextBg={theme.bgSurface}
+																addedContentBg={theme.diffAddedContentBg}
+																removedContentBg={theme.diffRemovedContentBg}
+																contextContentBg={theme.bgSurface}
+																addedSignColor={theme.toolText}
+																removedSignColor={theme.errorText}
+																lineNumberFg={theme.textMuted}
+																lineNumberBg={theme.bg}
+																addedLineNumberBg={theme.diffAddedLineNumberBg}
+																removedLineNumberBg={theme.diffRemovedLineNumberBg}
+																wrapMode="none"
+															/>
+														</box>
+													</Show>
+												</box>
+											);
+										}}
+									</For>
+								</box>
+							</scrollbox>
+						}
+					>
+						{(file) => (
+							<box
+								flexGrow={1}
+								flexDirection="column"
+								gap={0}
+								backgroundColor={theme.bgMuted}
+							>
+								<box
+									flexShrink={0}
+									paddingX={1}
+									paddingY={0}
+									flexDirection="row"
+									justifyContent="space-between"
+								>
+									<box flexDirection="column">
+										<text fg={theme.textPrimary}>
+											▾ {statusLabel(file())} {file().path}
+										</text>
+										<Show when={file().prevPath}>
+											<text fg={theme.textMuted}>from {file().prevPath}</text>
+										</Show>
 									</box>
-								</scrollbox>
-							}
-						>
-							{(file) => (
+									<text fg={theme.textMuted}>
+										{file().hunks.length} hunk
+										{file().hunks.length === 1 ? "" : "s"} ·{" "}
+										{file().changeCount} changed line
+										{file().changeCount === 1 ? "" : "s"}
+									</text>
+								</box>
 								<box
 									flexGrow={1}
-									flexDirection="column"
-									gap={0}
-									border
-									borderColor={theme.borderAccent}
-									backgroundColor={theme.bgMuted}
+									padding={1}
+									paddingTop={0}
+									backgroundColor={theme.bg}
 								>
-									<box
-										flexShrink={0}
-										paddingX={1}
-										paddingY={0}
-										flexDirection="row"
-										justifyContent="space-between"
-									>
-										<box flexDirection="column">
-											<text fg={theme.textPrimary}>
-												▾ {statusLabel(file())} {file().path}
-											</text>
-											<Show when={file().prevPath}>
-												<text fg={theme.textMuted}>from {file().prevPath}</text>
-											</Show>
-										</box>
-										<text fg={theme.textMuted}>
-											{file().hunks.length} hunk
-											{file().hunks.length === 1 ? "" : "s"} ·{" "}
-											{file().changeCount} changed line
-											{file().changeCount === 1 ? "" : "s"}
-										</text>
-									</box>
-									<box
+									<scrollbox
+										ref={(value) => {
+											if (value)
+												patchScrollRefs.set(
+													file().id,
+													value as PatchScrollRef,
+												);
+										}}
 										flexGrow={1}
-										padding={1}
-										paddingTop={0}
-										backgroundColor={theme.bg}
+										scrollY
 									>
-										<scrollbox
-											ref={(value) => {
-												if (value)
-													patchScrollRefs.set(
-														file().id,
-														value as PatchScrollRef,
-													);
-											}}
-											flexGrow={1}
-											scrollY
-										>
-											<diff
-												diff={file().rawPatch}
-												view="unified"
-												filetype={file().filetype}
-												syntaxStyle={syntaxStyle}
-												showLineNumbers
-												addedBg="#16351f"
-												removedBg="#3a1f24"
-												contextBg={theme.bgSurface}
-												addedContentBg="#0f2917"
-												removedContentBg="#291217"
-												contextContentBg={theme.bgSurface}
-												addedSignColor={theme.toolText}
-												removedSignColor={theme.errorText}
-												lineNumberFg={theme.textMuted}
-												lineNumberBg={theme.bg}
-												addedLineNumberBg="#102717"
-												removedLineNumberBg="#2a1519"
-												wrapMode="none"
-											/>
-										</scrollbox>
-									</box>
+										<diff
+											diff={file().rawPatch}
+											view="unified"
+											filetype={file().filetype}
+											syntaxStyle={syntaxStyle}
+											showLineNumbers
+											addedBg={theme.diffAddedBg}
+											removedBg={theme.diffRemovedBg}
+											contextBg={theme.bgSurface}
+											addedContentBg={theme.diffAddedContentBg}
+											removedContentBg={theme.diffRemovedContentBg}
+											contextContentBg={theme.bgSurface}
+											addedSignColor={theme.toolText}
+											removedSignColor={theme.errorText}
+											lineNumberFg={theme.textMuted}
+											lineNumberBg={theme.bg}
+											addedLineNumberBg={theme.diffAddedLineNumberBg}
+											removedLineNumberBg={theme.diffRemovedLineNumberBg}
+											wrapMode="none"
+										/>
+									</scrollbox>
 								</box>
-							)}
-						</Show>
+							</box>
+						)}
 					</Show>
 				</Show>
+			</Show>
 
-				<box flexShrink={0}>
-					<box
-						border
-						borderColor={theme.borderDefault}
-						paddingX={1}
-						paddingY={0}
-					>
-						<text fg={theme.textMuted}>
-							{patchFocused()
-								? "↑/↓ scroll · j/k jump hunks · Esc back"
-								: "↑/↓ or j/k move · Enter focus patch · Space collapse/expand · Esc close"}
-						</text>
-					</box>
-				</box>
-			</box>
-		</box>
+		</ScreenLayout>
 	);
 }

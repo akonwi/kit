@@ -6,7 +6,7 @@
  * instead of hardcoding color strings.
  */
 
-import { SyntaxStyle } from "@opentui/core";
+import { RGBA, SyntaxStyle } from "@opentui/core";
 
 // ── Color palette ────────────────────────────────────────────────────
 
@@ -24,6 +24,8 @@ const green = "#7ee787";
 const red = "#ff6467";
 const amber = "#ffb86a";
 const purple = "#8a6bbd";
+const cyan = "#7dcfff";
+const rose = "#e78a9a";
 
 // ── Theme ────────────────────────────────────────────────────────────
 
@@ -34,7 +36,7 @@ export const theme = {
 	bgMuted: darkGray,
 	bgAccent: midGray,
 	bgTransparent: transparent,
-	modalBackdrop: transparent,
+	modalBackdrop: RGBA.fromInts(10, 10, 10, 180),
 
 	// Borders
 	borderDefault: darkGray,
@@ -60,6 +62,10 @@ export const theme = {
 	warningText: amber,
 	debugLabel: purple,
 
+	// Secondary
+	metaText: cyan,
+	attachmentText: rose,
+
 	// Cursor
 	cursor: offWhite,
 
@@ -78,11 +84,27 @@ export const theme = {
 
 	// Spinner / panel
 	panelText: gray,
+
+	// Progress bar
+	progressNormal: "#5599dd",
+	progressWarning: "#dd8833",
+	progressCritical: "#dd3333",
+
+	// Toggle
+	toggleOn: "#567fab",
+
+	// Diff
+	diffAddedBg: "#16351f",
+	diffRemovedBg: "#3a1f24",
+	diffAddedContentBg: "#0f2917",
+	diffRemovedContentBg: "#291217",
+	diffAddedLineNumberBg: "#102717",
+	diffRemovedLineNumberBg: "#2a1519",
 };
 
 // ── Syntax style for markdown / code rendering ───────────────────────
 
-import { RGBA, type ThemeTokenStyle } from "@opentui/core";
+import type { ThemeTokenStyle } from "@opentui/core";
 
 function rgba(hex: string): RGBA {
 	return RGBA.fromHex(hex);

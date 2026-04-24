@@ -17,9 +17,17 @@ import {
 	readSession,
 	updateSession,
 } from "../session";
+import { Binding, HintBar } from "../shell/HintBar";
 import { theme } from "../shell/theme";
 
 type Mode = "navigate" | "rename" | "confirmDelete";
+
+const MODE_BINDINGS: {[key in Mode]: Binding[]} = {
+  "rename": [{ key: "Enter", action: "save" }, { key: "Esc", action: "cancel" }],
+  "confirmDelete": [],
+  "navigate": [{ key: "↑/↓", action: "navigate" }, { key: "Enter", action: "open" }, { key: "r", action: "rename" }, { key: "Ctrl+D", action: "delete" }, { key: "Esc", action: "quit" }]
+}
+
 
 function ThreadPicker(props: {
 	initialSessions: SessionSummary[];
@@ -227,15 +235,9 @@ function ThreadPicker(props: {
 			</Show>
 
 			{/* Hints */}
-			<box paddingX={1} paddingBottom={1}>
-				<text fg={theme.textMuted}>
-					{mode() === "rename"
-						? "Enter save · Esc cancel"
-						: mode() === "confirmDelete"
-							? ""
-							: "↑/↓ navigate · Enter open · r rename · Ctrl+D delete · Esc quit"}
-				</text>
-			</box>
+			<HintBar
+				bindings={MODE_BINDINGS[mode()]}
+			/>
 		</box>
 	);
 }

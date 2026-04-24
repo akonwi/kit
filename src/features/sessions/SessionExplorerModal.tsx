@@ -9,6 +9,7 @@ import {
 	Show,
 } from "solid-js";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import { HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import { formatTimeAgo } from "../commands/utils";
 import {
@@ -220,9 +221,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 					</box>
 				</Show>
 
-				<text fg={theme.textMuted}>
-					↑/↓ move · PgUp/PgDn scroll · Enter switch · Esc close
-				</text>
+				<HintBar bindings={[{ key: "↑/↓", action: "move" }, { key: "PgUp/PgDn", action: "scroll" }, { key: "Enter", action: "switch" }, { key: "Esc", action: "close" }]} />
 			</box>
 		</box>
 	);
