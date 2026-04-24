@@ -42,16 +42,14 @@ type SettingsRow =
 			disabled?: boolean;
 	  };
 
-const TABS: Array<{ id: SettingsTabId; label: string; description: string }> = [
+const TABS: Array<{ id: SettingsTabId; label: string; }> = [
 	{
 		id: "general",
 		label: "General",
-		description: "Core assistant behavior and session automation.",
 	},
 	{
 		id: "notifications",
 		label: "Notifications",
-		description: "Bell and speech feedback after turns complete.",
 	},
 ];
 
@@ -516,7 +514,6 @@ export function SettingsContent(props: SettingsContentProps) {
 						<text fg={theme.textPrimary}>Settings</text>
 						<text fg={theme.textMuted}>~/.kit/settings.json</text>
 					</box>
-					<text fg={theme.textMuted}>{activeTabMeta().description}</text>
 				</box>
 
 				<box flexDirection="row" gap={1}>
