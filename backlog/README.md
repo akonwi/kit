@@ -10,7 +10,6 @@ This directory tracks outstanding work for the standalone `pi-kit` app.
 Delete done items
 
 ## Ideas
-- [ ] model thining level doesn't seem to restore correctly when reopening a session
 - [ ] Design language refresh or refinement
 - [ ] theming
 - [ ] fix: using custom prompts during a turn should do normal follow-up/quue behavior

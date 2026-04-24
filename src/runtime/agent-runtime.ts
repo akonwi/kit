@@ -46,6 +46,7 @@ import {
 import type { GitInfo } from "./git-info";
 import { GitInfoWatcher } from "./git-info-watcher";
 import { KitAgent } from "./kit-agent";
+import { clampThinkingLevel } from "./thinking-levels";
 
 registerBuiltInApiProviders();
 
@@ -120,6 +121,14 @@ export class AgentRuntime {
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
+		const initialThinkingLevel = clampThinkingLevel(
+			session.thinkingLevel,
+			defaultModel,
+		);
+		this.session = {
+			...this.session,
+			thinkingLevel: initialThinkingLevel,
+		};
 		this.contextFiles = discoverContextFiles(session.cwd);
 
 		console.log(
@@ -134,6 +143,7 @@ export class AgentRuntime {
 		this.agent = KitAgent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
+				thinkingLevel: initialThinkingLevel,
 				systemPrompt: this.getEffectiveSystemPrompt(),
 				tools: [...createDefaultTools(session.cwd), ...this.extraTools],
 			},
@@ -199,6 +209,41 @@ export class AgentRuntime {
 
 	private getRetrySettings() {
 		return resolveRetrySettings(this.settings.retry);
+	}
+
+	private getRestoredThinkingLevel(
+		model: Model<Api> | undefined,
+	): ThinkingLevel {
+		return clampThinkingLevel(this.session.thinkingLevel, model);
+	}
+
+	private async persistSessionThinkingLevel(
+		level: ThinkingLevel,
+	): Promise<void> {
+		if (this.session.thinkingLevel === level) return;
+		if (this.isEmpty()) {
+			this.session = {
+				...this.session,
+				thinkingLevel: level,
+				updatedAt: new Date().toISOString(),
+			};
+			this.emit({ type: "session_changed", session: this.session });
+			this.emitSessionUpdated();
+			return;
+		}
+		try {
+			this.session = await updateSession(this.session, {
+				thinkingLevel: level,
+			});
+			this.emit({ type: "session_changed", session: this.session });
+			this.emitSessionUpdated();
+		} catch (err) {
+			this.emit({
+				type: "error",
+				title: "Session save failed",
+				lines: [String(err)],
+			});
+		}
 	}
 
 	private resolveRecovery(): void {
@@ -325,6 +370,7 @@ export class AgentRuntime {
 			this.session = await updateSession(this.session, {
 				turns: result.turns,
 				model: model.id,
+				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.emit({
 				type: "info",
@@ -350,6 +396,7 @@ export class AgentRuntime {
 			this.session = await updateSession(this.session, {
 				turns: this.agent.turns,
 				model: this.agent.state.model?.id,
+				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 		} catch (err) {
 			this.emit({
@@ -491,6 +538,7 @@ export class AgentRuntime {
 			this.session = await updateSession(this.session, {
 				turns: result.turns,
 				model: model.id,
+				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.emit({ type: "session_changed", session: this.session });
 			this.emitSessionUpdated();
@@ -605,6 +653,7 @@ export class AgentRuntime {
 			this.session = await updateSession(this.session, {
 				turns: result.turns,
 				model: model.id,
+				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.emit({ type: "session_changed", session: this.session });
 			this.emitSessionUpdated();
@@ -861,8 +910,17 @@ export class AgentRuntime {
 
 	async newSession(cwd?: string): Promise<void> {
 		const targetCwd = cwd ?? this.session.cwd;
-		this.session = await createSession(targetCwd, this.agent.state.model?.id);
+		this.session = await createSession(
+			targetCwd,
+			this.agent.state.model?.id,
+			this.agent.state.thinkingLevel,
+		);
 		this.agent.replaceFromTurns([]);
+		const restoredThinkingLevel = this.getRestoredThinkingLevel(
+			this.agent.state.model,
+		);
+		this.agent.setThinkingLevel(restoredThinkingLevel);
+		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
@@ -879,10 +937,15 @@ export class AgentRuntime {
 		const parentName = this.session.name?.trim() || "Untitled";
 		const now = new Date().toISOString();
 		const child: Session = {
-			...(await createSession(this.session.cwd, this.agent.state.model?.id)),
+			...(await createSession(
+				this.session.cwd,
+				this.agent.state.model?.id,
+				this.agent.state.thinkingLevel,
+			)),
 			parentSessionId: this.session.id,
 			name: `handoff: ${parentName}`,
 			model: this.agent.state.model?.id ?? this.session.model,
+			thinkingLevel: this.agent.state.thinkingLevel,
 			createdAt: now,
 			updatedAt: now,
 			turns: structuredClone(this.session.turns),
@@ -891,6 +954,11 @@ export class AgentRuntime {
 		await writeSession(child);
 		this.session = child;
 		this.agent.replaceFromTurns(child.turns);
+		const restoredThinkingLevel = this.getRestoredThinkingLevel(
+			this.agent.state.model,
+		);
+		this.agent.setThinkingLevel(restoredThinkingLevel);
+		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(child);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
@@ -913,6 +981,11 @@ export class AgentRuntime {
 		this.agent.replaceFromTurns(this.session.turns);
 		const model = this.findModelById(this.session.model);
 		if (model) this.agent.setModel(model);
+		const restoredThinkingLevel = this.getRestoredThinkingLevel(
+			this.agent.state.model,
+		);
+		this.agent.setThinkingLevel(restoredThinkingLevel);
+		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit({ type: "session_changed", session: this.session });
@@ -931,6 +1004,11 @@ export class AgentRuntime {
 			this.agent.replaceFromTurns(this.session.turns);
 			const model = this.findModelById(this.session.model);
 			if (model) this.agent.setModel(model);
+			const restoredThinkingLevel = this.getRestoredThinkingLevel(
+				this.agent.state.model,
+			);
+			this.agent.setThinkingLevel(restoredThinkingLevel);
+			this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		}
 		this.applySessionContext(this.session);
 		this.syncPendingState();
@@ -1027,8 +1105,14 @@ export class AgentRuntime {
 	}
 
 	setThinkingLevel(level: ThinkingLevel): void {
-		this.agent.setThinkingLevel(level);
+		const clamped = clampThinkingLevel(level, this.agent.state.model);
+		this.agent.setThinkingLevel(clamped);
+		this.session = {
+			...this.session,
+			thinkingLevel: clamped,
+		};
 		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		void this.persistSessionThinkingLevel(clamped);
 	}
 
 	showPanel(title: string): void {

@@ -5,7 +5,7 @@
  * No Pi format compatibility.
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 
 export const SESSION_VERSION = 1;
 
@@ -35,6 +35,8 @@ export interface Session {
 	name?: string;
 	/** Model ID at time of last message, e.g. "claude-sonnet-4" */
 	model?: string;
+	/** Current session thinking level */
+	thinkingLevel?: ThinkingLevel;
 	createdAt: string; // ISO 8601
 	updatedAt: string; // ISO 8601
 	turns: Turn[];
@@ -47,6 +49,7 @@ export interface SessionSummary {
 	parentSessionId?: string;
 	name?: string;
 	model?: string;
+	thinkingLevel?: ThinkingLevel;
 	createdAt: string;
 	updatedAt: string;
 	messageCount: number;

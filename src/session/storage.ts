@@ -70,6 +70,7 @@ export function toSummary(session: Session): SessionSummary {
 		parentSessionId: session.parentSessionId,
 		name: session.name,
 		model: session.model,
+		thinkingLevel: session.thinkingLevel,
 		createdAt: session.createdAt,
 		updatedAt: session.updatedAt,
 		messageCount: session.turns.reduce(
@@ -85,12 +86,14 @@ export function toSummary(session: Session): SessionSummary {
 export async function createSession(
 	cwd: string,
 	model?: string,
+	thinkingLevel?: Session["thinkingLevel"],
 ): Promise<Session> {
 	return {
 		id: randomUUID(),
 		version: SESSION_VERSION,
 		cwd,
 		model,
+		thinkingLevel,
 		createdAt: now(),
 		updatedAt: now(),
 		turns: [],
@@ -117,7 +120,7 @@ export async function writeSession(session: Session): Promise<void> {
 
 export async function updateSession(
 	session: Session,
-	changes: Partial<Pick<Session, "name" | "model" | "turns">>,
+	changes: Partial<Pick<Session, "name" | "model" | "thinkingLevel" | "turns">>,
 ): Promise<Session> {
 	const updated: Session = {
 		...session,
