@@ -10,7 +10,6 @@ This directory tracks outstanding work for the standalone `pi-kit` app.
 Delete done items
 
 ## Ideas
-- [ ] refactor: /code-review doesn't need `token` for web ui. it should simply use `sessionId` query key for establishing connection
 - [ ] in /diff, when focused on a patch, up/down arrows should scroll and j/k jumps hunks
 - [ ] can opentui's [TabSelect](https://opentui.com/docs/components/tab-select/) be used for the pickers?
 - [ ] retryable errors should be retryed with a backoff like Pi does.
@@ -20,3 +19,4 @@ Delete done items
 - [ ] theming
 - [ ] fix: using custom prompts during a turn should do normal follow-up/quue behavior
   - current error: `Error: agent is already processing a prompt. Use steer() or followUp() to queue message, or wait for completion.`
+- [ ] bash commands should enter the transcript immediately and show loading state - like tool calls
