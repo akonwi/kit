@@ -24,6 +24,7 @@ Kit loads context guidance from:
 - project walk-up from the session cwd:
   - `AGENTS.md` if present in a directory
   - otherwise `CLAUDE.md`
+- `AGENTS.md` files in immediate child directories of the session cwd
 
 Only one file is loaded per directory.
 
@@ -33,6 +34,7 @@ Files are composed in this order:
 
 1. `~/.kit/AGENTS.md`
 2. ancestor directories from outermost to innermost/current
+3. `AGENTS.md` files in immediate child directories of the session cwd
 
 ## Notes
 

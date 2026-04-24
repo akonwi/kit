@@ -28,12 +28,21 @@ loads at most one context file per directory:
 
 If both exist in the same directory, only `AGENTS.md` is used.
 
+### Nested monorepo context
+
+For monorepo-style repositories, Kit also checks the immediate child
+directories of the session cwd for `AGENTS.md` files.
+
+This is intended to pick up package-level guidance without doing a full
+recursive subtree scan.
+
 ## Ordering
 
 Context files are appended in this order:
 
 1. `~/.kit/AGENTS.md`
 2. ancestor directory context files from outermost to innermost/current
+3. `AGENTS.md` files found in immediate child directories of the session cwd
 
 This means more local project guidance appears later in the composed prompt.
 
@@ -44,7 +53,6 @@ Kit does not currently implement Pi's broader resource-loader model for:
 - `SYSTEM.md`
 - `APPEND_SYSTEM.md`
 - package-provided context files
-- reloadable context file discovery
 
 ## Visibility
 
