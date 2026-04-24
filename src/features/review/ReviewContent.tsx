@@ -107,6 +107,10 @@ export function ReviewContent(props: ReviewContentProps) {
 		});
 	}
 
+	function scrollPatch(fileId: string, deltaY: number) {
+		patchScrollRefs.get(fileId)?.scrollBy({ x: 0, y: deltaY });
+	}
+
 	useKeyboard((e: KeyEvent) => {
 		if (patchFocused()) {
 			if (e.name === "escape") {
@@ -114,7 +118,21 @@ export function ReviewContent(props: ReviewContentProps) {
 				setPatchFocused(false);
 				return;
 			}
-			if (e.name === "up" || e.name === "k") {
+			if (e.name === "up") {
+				e.preventDefault();
+				const file = selectedFile();
+				if (!file) return;
+				scrollPatch(file.id, -1);
+				return;
+			}
+			if (e.name === "down") {
+				e.preventDefault();
+				const file = selectedFile();
+				if (!file) return;
+				scrollPatch(file.id, 1);
+				return;
+			}
+			if (e.name === "k") {
 				e.preventDefault();
 				const file = selectedFile();
 				if (!file) return;
@@ -123,7 +141,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				queueMicrotask(() => scrollToHunk(file, nextIndex));
 				return;
 			}
-			if (e.name === "down" || e.name === "j") {
+			if (e.name === "j") {
 				e.preventDefault();
 				const file = selectedFile();
 				if (!file) return;
@@ -398,7 +416,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					>
 						<text fg={theme.textMuted}>
 							{patchFocused()
-								? "↑/↓ or j/k jump hunks · Esc back"
+								? "↑/↓ scroll · j/k jump hunks · Esc back"
 								: "↑/↓ or j/k move · Enter focus patch · Space collapse/expand · Esc close"}
 						</text>
 					</box>
