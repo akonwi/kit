@@ -42,7 +42,7 @@ type SettingsRow =
 			disabled?: boolean;
 	  };
 
-const TABS: Array<{ id: SettingsTabId; label: string; }> = [
+const TABS: Array<{ id: SettingsTabId; label: string }> = [
 	{
 		id: "general",
 		label: "General",
@@ -344,10 +344,6 @@ export function SettingsContent(props: SettingsContentProps) {
 			setError(null);
 		});
 	}
-
-	const activeTabMeta = createMemo(
-		() => TABS.find((tab) => tab.id === activeTab()) ?? TABS[0],
-	);
 
 	function renderInputValue(row: Extract<SettingsRow, { kind: "input" }>) {
 		const disabled = row.disabled === true;
