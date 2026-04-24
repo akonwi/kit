@@ -30,8 +30,10 @@ export type AppShellProps = {
 };
 
 export function AppShell(props: AppShellProps) {
+	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
 	const renderer = useRenderer();
+	let headerRef: { height: number } | undefined;
 
 	return (
 		<box
@@ -41,6 +43,23 @@ export function AppShell(props: AppShellProps) {
 			backgroundColor={theme.bg}
 			onMouseUp={() => copySelection(renderer)}
 		>
+			<box
+				flexShrink={0}
+				border
+				borderColor={theme.borderDefault}
+				paddingX={1}
+				ref={(value) => {
+					headerRef = value;
+				}}
+				onSizeChange={() => {
+					if (headerRef) setHeaderHeight(headerRef.height);
+				}}
+			>
+				<text fg={theme.textMuted}>
+					{props.state.sessionMeta.sessionName || "Unnamed session"}
+				</text>
+			</box>
+
 			<TranscriptPane turns={props.state.turns} showToast={props.showToast} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
@@ -49,10 +68,6 @@ export function AppShell(props: AppShellProps) {
 					pendingMessages={props.state.pendingMessages}
 				/>
 				<ComposerDock
-					cwd={props.state.footerStatus.cwd}
-					sessionName={props.state.sessionMeta.sessionName}
-					gitBranch={props.state.footerStatus.gitBranch}
-					gitDirty={props.state.footerStatus.gitDirty}
 					controller={props.controller}
 					attachments={props.attachments}
 					locked={props.overlays().length > 0}
@@ -68,7 +83,7 @@ export function AppShell(props: AppShellProps) {
 
 			<ToastStack
 				toasts={props.state.toasts}
-				top={1}
+				top={headerHeight()}
 				onDismiss={props.dismissToast}
 			/>
 

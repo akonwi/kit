@@ -5,10 +5,6 @@ import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { theme } from "./theme";
 
 export type ComposerDockProps = {
-	cwd: string;
-	sessionName: string | undefined;
-	gitBranch: string | null;
-	gitDirty: boolean;
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	locked?: boolean;
@@ -198,14 +194,6 @@ export function ComposerDock(props: ComposerDockProps) {
 					onSubmit={() => props.controller.handleSubmit()}
 					focused={!palette.visible && !props.locked}
 				/>
-			</box>
-			<box width="100%" flexDirection="row" justifyContent="space-between">
-				<text fg={theme.textMuted}>{props.sessionName || "Unnamed"}</text>
-				<text fg={theme.textMuted}>
-					{props.cwd}
-					{props.gitBranch &&
-						` (${props.gitBranch}${props.gitDirty ? " ●" : " ○"})`}
-				</text>
 			</box>
 		</box>
 	);

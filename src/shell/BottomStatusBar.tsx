@@ -32,6 +32,10 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 		props.status.pendingMessages > 0
 			? ` 📬${props.status.pendingMessages}`
 			: "";
+	const location = () =>
+		props.status.gitBranch
+			? `${props.status.cwd} (${props.status.gitBranch}${props.status.gitDirty ? " ●" : " ○"})`
+			: props.status.cwd;
 
 	// Inner width = box width minus 2 for side borders
 	const innerWidth = () => Math.max(0, barWidth() - 2);
@@ -47,12 +51,20 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 				if (boxRef) setBarWidth(boxRef.width);
 			}}
 		>
-			<box border borderColor={theme.borderStatus} paddingX={1}>
+			<box
+				border
+				borderColor={theme.borderStatus}
+				paddingX={1}
+				width="100%"
+				flexDirection="row"
+				justifyContent="space-between"
+			>
 				<text fg={theme.textMuted}>
 					{props.status.model} ({props.status.thinkingLevel}){" "}
 					{props.status.contextPct}
 					{pending()} {bell()} {speech()}
 				</text>
+				<text fg={theme.textMuted}>{location()}</text>
 			</box>
 
 			{/* Progress overlay on top border */}
