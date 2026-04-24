@@ -57,7 +57,9 @@ export function App(props: AppProps) {
 
 	// Create runtime first (plugins need it).
 	// Plugins add their own tools and system prompt additions in initialize().
-	const runtime = new AgentRuntime(props.session);
+	const runtime = new AgentRuntime(props.session, {
+		settings: props.settings.settings,
+	});
 
 	// Create plugin manager and initialize plugins
 	const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {

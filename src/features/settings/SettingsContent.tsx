@@ -1,11 +1,21 @@
 import { useKeyboard } from "@opentui/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
-import { resolveSpeechSettings, type Settings } from "../../settings";
+import {
+	resolveRetrySettings,
+	resolveSpeechSettings,
+	type Settings,
+} from "../../settings";
 import { theme } from "../../shell/theme";
 import type { SpeechVoiceDiscovery } from "../notifications/voices";
 
 type SettingsTabId = "general" | "notifications";
-type EditableField = "speech.maxChars" | "speech.voice" | null;
+type EditableField =
+	| "speech.maxChars"
+	| "speech.voice"
+	| "retry.maxRetries"
+	| "retry.baseDelayMs"
+	| "retry.maxDelayMs"
+	| null;
 
 type SettingsContentProps = {
 	initialSettings: Settings;
@@ -16,7 +26,13 @@ type SettingsContentProps = {
 
 type SettingsRow =
 	| {
-			id: "guidedQuestions" | "sessionNaming" | "pager" | "bells" | "speech";
+			id:
+				| "guidedQuestions"
+				| "sessionNaming"
+				| "pager"
+				| "bells"
+				| "speech"
+				| "retry.enabled";
 			kind: "boolean";
 			label: string;
 			help: string;
@@ -24,7 +40,11 @@ type SettingsRow =
 			disabled?: boolean;
 	  }
 	| {
-			id: "speech.maxChars";
+			id:
+				| "speech.maxChars"
+				| "retry.maxRetries"
+				| "retry.baseDelayMs"
+				| "retry.maxDelayMs";
 			kind: "input";
 			label: string;
 			help: string;
@@ -101,6 +121,15 @@ export function SettingsContent(props: SettingsContentProps) {
 	const [maxCharsDraft, setMaxCharsDraft] = createSignal(
 		String(resolveSpeechSettings(props.initialSettings.speech).maxChars),
 	);
+	const [retryMaxRetriesDraft, setRetryMaxRetriesDraft] = createSignal(
+		String(resolveRetrySettings(props.initialSettings.retry).maxRetries),
+	);
+	const [retryBaseDelayDraft, setRetryBaseDelayDraft] = createSignal(
+		String(resolveRetrySettings(props.initialSettings.retry).baseDelayMs),
+	);
+	const [retryMaxDelayDraft, setRetryMaxDelayDraft] = createSignal(
+		String(resolveRetrySettings(props.initialSettings.retry).maxDelayMs),
+	);
 	const [voiceDraft, setVoiceDraft] = createSignal(
 		resolveSpeechSettings(props.initialSettings.speech).voice ?? "",
 	);
@@ -122,6 +151,7 @@ export function SettingsContent(props: SettingsContentProps) {
 	const rows = createMemo<SettingsRow[]>(() => {
 		const currentSettings = settings();
 		const speech = resolveSpeechSettings(currentSettings.speech);
+		const retry = resolveRetrySettings(currentSettings.retry);
 		if (activeTab() === "general") {
 			return [
 				{
@@ -144,6 +174,37 @@ export function SettingsContent(props: SettingsContentProps) {
 					label: "Auto-open Pager",
 					help: "Open pager automatically for substantial assistant responses.",
 					checked: currentSettings.pager !== false,
+				},
+				{
+					id: "retry.enabled",
+					kind: "boolean",
+					label: "Auto-retry Errors",
+					help: "Retry transient provider and server failures with exponential backoff.",
+					checked: retry.enabled,
+				},
+				{
+					id: "retry.maxRetries",
+					kind: "input",
+					label: "Retry Attempts",
+					help: "Maximum retry attempts for transient errors.",
+					value: String(retry.maxRetries),
+					disabled: !retry.enabled,
+				},
+				{
+					id: "retry.baseDelayMs",
+					kind: "input",
+					label: "Retry Base Delay",
+					help: "Base delay in milliseconds. Retries back off exponentially from this value.",
+					value: String(retry.baseDelayMs),
+					disabled: !retry.enabled,
+				},
+				{
+					id: "retry.maxDelayMs",
+					kind: "input",
+					label: "Retry Max Delay",
+					help: "Maximum server-requested retry delay to honor, in milliseconds.",
+					value: String(retry.maxDelayMs),
+					disabled: !retry.enabled,
 				},
 			];
 		}
@@ -199,7 +260,11 @@ export function SettingsContent(props: SettingsContentProps) {
 
 	function syncDrafts(nextSettings: Settings) {
 		const speech = resolveSpeechSettings(nextSettings.speech);
+		const retry = resolveRetrySettings(nextSettings.retry);
 		setMaxCharsDraft(String(speech.maxChars));
+		setRetryMaxRetriesDraft(String(retry.maxRetries));
+		setRetryBaseDelayDraft(String(retry.baseDelayMs));
+		setRetryMaxDelayDraft(String(retry.maxDelayMs));
 		setVoiceDraft(speech.voice ?? "");
 		setVoiceSelectedIndex(resolveVoiceIndex(speech.voice ?? ""));
 	}
@@ -254,14 +319,38 @@ export function SettingsContent(props: SettingsContentProps) {
 						},
 					};
 				}
+				case "retry.enabled": {
+					const retry = resolveRetrySettings(current.retry);
+					return {
+						...current,
+						retry: {
+							enabled: !retry.enabled,
+							maxRetries: retry.maxRetries,
+							baseDelayMs: retry.baseDelayMs,
+							maxDelayMs: retry.maxDelayMs,
+						},
+					};
+				}
 			}
 		});
 	}
 
 	async function commitEdit(field = editingField()): Promise<boolean> {
 		if (!field) return true;
-		if (field === "speech.maxChars") {
-			const draft = maxCharsDraft().trim();
+		if (
+			field === "speech.maxChars" ||
+			field === "retry.maxRetries" ||
+			field === "retry.baseDelayMs" ||
+			field === "retry.maxDelayMs"
+		) {
+			const draft =
+				field === "speech.maxChars"
+					? maxCharsDraft().trim()
+					: field === "retry.maxRetries"
+						? retryMaxRetriesDraft().trim()
+						: field === "retry.baseDelayMs"
+							? retryBaseDelayDraft().trim()
+							: retryMaxDelayDraft().trim();
 			if (draft.length === 0) {
 				syncDrafts(settings());
 				setEditingField(null);
@@ -273,13 +362,31 @@ export function SettingsContent(props: SettingsContentProps) {
 				setEditingField(null);
 				return true;
 			}
-			const currentSpeech = resolveSpeechSettings(settings().speech);
+			const currentSettings = cloneSettings(settings());
+			if (field === "speech.maxChars") {
+				const currentSpeech = resolveSpeechSettings(currentSettings.speech);
+				const ok = await persist({
+					...currentSettings,
+					speech: {
+						enabled: currentSpeech.enabled,
+						maxChars: parsed,
+						...(currentSpeech.voice ? { voice: currentSpeech.voice } : {}),
+					},
+				});
+				if (ok) setEditingField(null);
+				return ok;
+			}
+			const currentRetry = resolveRetrySettings(currentSettings.retry);
 			const ok = await persist({
-				...cloneSettings(settings()),
-				speech: {
-					enabled: currentSpeech.enabled,
-					maxChars: parsed,
-					...(currentSpeech.voice ? { voice: currentSpeech.voice } : {}),
+				...currentSettings,
+				retry: {
+					enabled: currentRetry.enabled,
+					maxRetries:
+						field === "retry.maxRetries" ? parsed : currentRetry.maxRetries,
+					baseDelayMs:
+						field === "retry.baseDelayMs" ? parsed : currentRetry.baseDelayMs,
+					maxDelayMs:
+						field === "retry.maxDelayMs" ? parsed : currentRetry.maxDelayMs,
 				},
 			});
 			if (ok) setEditingField(null);
@@ -348,7 +455,14 @@ export function SettingsContent(props: SettingsContentProps) {
 	function renderInputValue(row: Extract<SettingsRow, { kind: "input" }>) {
 		const disabled = row.disabled === true;
 		const editing = editingField() === row.id;
-		const value = maxCharsDraft();
+		const value =
+			row.id === "speech.maxChars"
+				? maxCharsDraft()
+				: row.id === "retry.maxRetries"
+					? retryMaxRetriesDraft()
+					: row.id === "retry.baseDelayMs"
+						? retryBaseDelayDraft()
+						: retryMaxDelayDraft();
 		const display = row.value || row.placeholder || "";
 		return (
 			<box
@@ -378,7 +492,13 @@ export function SettingsContent(props: SettingsContentProps) {
 						focusedTextColor={theme.textPrimary}
 						cursorColor={theme.cursor}
 						onInput={(nextValue: string) => {
-							if (/^\d*$/.test(nextValue)) setMaxCharsDraft(nextValue);
+							if (!/^\d*$/.test(nextValue)) return;
+							if (row.id === "speech.maxChars") setMaxCharsDraft(nextValue);
+							else if (row.id === "retry.maxRetries")
+								setRetryMaxRetriesDraft(nextValue);
+							else if (row.id === "retry.baseDelayMs")
+								setRetryBaseDelayDraft(nextValue);
+							else setRetryMaxDelayDraft(nextValue);
 						}}
 					/>
 				</Show>
@@ -440,7 +560,13 @@ export function SettingsContent(props: SettingsContentProps) {
 		}
 
 		if (editingField()) {
-			if (editingField() === "speech.maxChars" && e.name === "return") {
+			if (
+				e.name === "return" &&
+				(editingField() === "speech.maxChars" ||
+					editingField() === "retry.maxRetries" ||
+					editingField() === "retry.baseDelayMs" ||
+					editingField() === "retry.maxDelayMs")
+			) {
 				e.preventDefault();
 				void commitEdit();
 			}

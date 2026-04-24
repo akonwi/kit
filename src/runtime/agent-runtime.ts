@@ -35,7 +35,7 @@ import {
 	writeSession,
 } from "../session";
 import type { Turn } from "../session/types";
-import type { Settings } from "../settings";
+import { resolveRetrySettings, type Settings } from "../settings";
 import { createDefaultTools } from "../tools";
 import { runBash } from "../tools/run-bash";
 import { compactSessionTurns, shouldAutoCompact } from "./compaction";
@@ -83,6 +83,7 @@ export type AgentRuntimeEvent =
 export class AgentRuntime {
 	private session: Session;
 	private agent: KitAgent;
+	private settings: Settings;
 	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 	private extraTools: AgentTool<any>[];
 	private systemPromptAdditions: string[];
@@ -98,6 +99,11 @@ export class AgentRuntime {
 	private lastSessionModel: string | undefined;
 	private overflowRecoveryInFlight = false;
 	private lastOverflowRecoveryKey: string | null = null;
+	private retryAbortController: AbortController | null = null;
+	private retryAttempt = 0;
+	private recoveryPromise: Promise<void> | null = null;
+	private recoveryResolve: (() => void) | null = null;
+	private overflowRecoveryAttempted = false;
 
 	constructor(
 		session: Session,
@@ -105,9 +111,11 @@ export class AgentRuntime {
 			// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection
 			extraTools?: AgentTool<any>[];
 			systemPromptAdditions?: string[];
+			settings?: Settings;
 		},
 	) {
 		this.session = session;
+		this.settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
@@ -130,6 +138,7 @@ export class AgentRuntime {
 				tools: [...createDefaultTools(session.cwd), ...this.extraTools],
 			},
 			getApiKey: (provider) => getApiKey(provider),
+			maxRetryDelayMs: resolveRetrySettings(this.settings.retry).maxDelayMs,
 		});
 		this.agent.sessionId = session.id;
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
@@ -185,6 +194,66 @@ export class AgentRuntime {
 		this.emit({ type: "session_updated", session: this.session });
 		if (previousModel !== this.session.model) {
 			void this.maybeHandleModelSwitchOverflow();
+		}
+	}
+
+	private getRetrySettings() {
+		return resolveRetrySettings(this.settings.retry);
+	}
+
+	private resolveRecovery(): void {
+		this.recoveryResolve?.();
+		this.recoveryResolve = null;
+		this.recoveryPromise = null;
+	}
+
+	private async waitForRecovery(): Promise<void> {
+		if (this.recoveryPromise) {
+			await this.recoveryPromise;
+		}
+	}
+
+	private findLastAssistantMessage(
+		messages: AgentMessage[],
+	): Extract<AgentMessage, { role: "assistant" }> | undefined {
+		for (let index = messages.length - 1; index >= 0; index--) {
+			const message = messages[index];
+			if (message.role === "assistant") return message;
+		}
+		return undefined;
+	}
+
+	private isContextOverflowError(
+		message: Extract<AgentMessage, { role: "assistant" }>,
+	): boolean {
+		if (message.stopReason !== "error" || !message.errorMessage) return false;
+		return /prompt is too long|exceeds the context window|input token count.*exceeds|maximum prompt length is|reduce the length of the messages|maximum context length|available context size|greater than the context length|context window exceeds limit|exceeded model token limit|too large for model with .* maximum context length/i.test(
+			message.errorMessage,
+		);
+	}
+
+	private isRetryableAssistantError(
+		message: Extract<AgentMessage, { role: "assistant" }>,
+	): boolean {
+		if (message.stopReason !== "error" || !message.errorMessage) return false;
+		if (this.isContextOverflowError(message)) return false;
+		return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|timed? out|timeout|terminated|retry delay/i.test(
+			message.errorMessage,
+		);
+	}
+
+	private createRecoveryPromiseForAgentEnd(event: AgentEvent): void {
+		if (event.type !== "agent_end" || this.recoveryPromise) return;
+		const assistant = this.findLastAssistantMessage(event.messages);
+		if (!assistant) return;
+		if (
+			this.isContextOverflowError(assistant) ||
+			(this.getRetrySettings().enabled &&
+				this.isRetryableAssistantError(assistant))
+		) {
+			this.recoveryPromise = new Promise<void>((resolve) => {
+				this.recoveryResolve = resolve;
+			});
 		}
 	}
 
@@ -291,6 +360,193 @@ export class AgentRuntime {
 		}
 	}
 
+	private removeTerminalAssistantErrorFromLiveState(): void {
+		const turns = [...this.agent.turns];
+		const lastTurn = turns.at(-1);
+		const lastMessage = lastTurn?.messages.at(-1);
+		if (!lastTurn || lastMessage?.role !== "assistant") return;
+		if (lastMessage.stopReason !== "error") return;
+		const nextTurns = turns.slice(0, -1);
+		const nextLastTurn: Turn = {
+			...lastTurn,
+			messages: lastTurn.messages.slice(0, -1),
+		};
+		if (nextLastTurn.messages.length > 0) {
+			nextTurns.push(nextLastTurn);
+		}
+		this.agent.replaceFromTurns(nextTurns);
+		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+	}
+
+	private scheduleContinue(): void {
+		setTimeout(() => {
+			void this.agent.continue().catch((error) => {
+				this.emit({
+					type: "error",
+					title: "Retry failed",
+					lines: [error instanceof Error ? error.message : String(error)],
+				});
+				this.retryAttempt = 0;
+				this.retryAbortController = null;
+				this.overflowRecoveryAttempted = false;
+				this.emit({ type: "panel", panel: { pending: false, title: "" } });
+				this.resolveRecovery();
+			});
+		}, 0);
+	}
+
+	private async sleepWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+		await new Promise<void>((resolve, reject) => {
+			if (signal.aborted) {
+				reject(new Error("aborted"));
+				return;
+			}
+			const timeout = setTimeout(() => {
+				signal.removeEventListener("abort", onAbort);
+				resolve();
+			}, ms);
+			const onAbort = () => {
+				clearTimeout(timeout);
+				reject(new Error("aborted"));
+			};
+			signal.addEventListener("abort", onAbort, { once: true });
+		});
+	}
+
+	private async handleRetryableAssistantError(): Promise<boolean> {
+		const settings = this.getRetrySettings();
+		if (!settings.enabled) return false;
+		this.retryAttempt += 1;
+		if (this.retryAttempt > settings.maxRetries) {
+			this.retryAttempt = 0;
+			this.resolveRecovery();
+			return false;
+		}
+
+		this.removeTerminalAssistantErrorFromLiveState();
+		const delayMs = settings.baseDelayMs * 2 ** (this.retryAttempt - 1);
+		this.emit({
+			type: "panel",
+			panel: {
+				pending: true,
+				title: `Retrying (${this.retryAttempt}/${settings.maxRetries}) in ${Math.ceil(delayMs / 1000)}s…`,
+			},
+		});
+		this.retryAbortController = new AbortController();
+		try {
+			await this.sleepWithAbort(delayMs, this.retryAbortController.signal);
+		} catch {
+			this.retryAttempt = 0;
+			this.retryAbortController = null;
+			this.emit({ type: "panel", panel: { pending: false, title: "" } });
+			this.resolveRecovery();
+			return true;
+		}
+		this.retryAbortController = null;
+		this.scheduleContinue();
+		return true;
+	}
+
+	private async handleOverflowAssistantError(
+		message: Extract<AgentMessage, { role: "assistant" }>,
+	): Promise<boolean> {
+		const model = this.agent.state.model;
+		if (!model) return false;
+		if (this.overflowRecoveryAttempted) {
+			this.emit({
+				type: "error",
+				title: "Context overflow recovery failed",
+				lines: [
+					"Kit already attempted one compact-and-retry recovery for this overflow.",
+					message.errorMessage ??
+						"Start a new session or switch to a larger-context model.",
+				],
+			});
+			this.overflowRecoveryAttempted = false;
+			this.resolveRecovery();
+			return false;
+		}
+
+		const apiKey = await getApiKey(model.provider);
+		if (!apiKey) return false;
+
+		this.overflowRecoveryAttempted = true;
+		this.removeTerminalAssistantErrorFromLiveState();
+		this.emit({
+			type: "panel",
+			panel: { pending: true, title: `Compacting session for retry…` },
+		});
+		try {
+			const result = await compactSessionTurns({
+				session: this.session,
+				model,
+				apiKey,
+			});
+			if (!result) {
+				this.resolveRecovery();
+				return false;
+			}
+			this.agent.replaceFromTurns(result.turns);
+			this.session = await updateSession(this.session, {
+				turns: result.turns,
+				model: model.id,
+			});
+			this.emit({ type: "session_changed", session: this.session });
+			this.emitSessionUpdated();
+			this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+			this.emit({ type: "status_changed", status: this.snapshotStatus() });
+			this.emit({
+				type: "info",
+				title: "Session compacted",
+				lines: [
+					`Recovered from a context overflow by compacting ${result.compactedTurnCount} turns into 1 summary turn.`,
+					`Kept ${result.keptTurnCount} recent turns unchanged.`,
+				],
+			});
+			this.scheduleContinue();
+			return true;
+		} catch (error) {
+			this.emit({
+				type: "error",
+				title: "Context overflow recovery failed",
+				lines: [error instanceof Error ? error.message : String(error)],
+			});
+			this.resolveRecovery();
+			return false;
+		}
+	}
+
+	private async finalizeAgentRun(messages: AgentMessage[]): Promise<void> {
+		await this.persistTurns();
+		const assistant = this.findLastAssistantMessage(messages);
+		if (assistant?.stopReason === "error") {
+			if (this.isContextOverflowError(assistant)) {
+				const didRecover = await this.handleOverflowAssistantError(assistant);
+				if (didRecover) return;
+			}
+			if (this.isRetryableAssistantError(assistant)) {
+				const didRetry = await this.handleRetryableAssistantError();
+				if (didRetry) return;
+			}
+		}
+		await this.maybeAutoCompact();
+		this.emit({ type: "session_changed", session: this.session });
+		this.emitSessionUpdated();
+		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit({ type: "panel", panel: { pending: false, title: "" } });
+		const completedTurn = this.agent.turns.at(-1) ?? null;
+		this.emit({
+			type: "turn_complete",
+			turn: completedTurn,
+		});
+		this.syncPendingState();
+		this.retryAttempt = 0;
+		this.overflowRecoveryAttempted = false;
+		this.resolveRecovery();
+	}
+
 	private async maybeHandleModelSwitchOverflow(): Promise<void> {
 		const model = this.agent.state.model;
 		if (!model || this.isCompacting || this.overflowRecoveryInFlight) return;
@@ -385,6 +641,7 @@ export class AgentRuntime {
 	}
 
 	private handleAgentEvent(event: AgentEvent) {
+		this.createRecoveryPromiseForAgentEnd(event);
 		switch (event.type) {
 			case "agent_start":
 				this.emit({
@@ -437,32 +694,17 @@ export class AgentRuntime {
 				break;
 
 			case "agent_end":
-				void this.persistTurns()
-					.then(async () => {
-						await this.maybeAutoCompact();
-						this.emit({ type: "session_changed", session: this.session });
-						this.emitSessionUpdated();
-						this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-						this.emit({
-							type: "status_changed",
-							status: this.snapshotStatus(),
-						});
-						this.emit({ type: "panel", panel: { pending: false, title: "" } });
-						const completedTurn = this.agent.turns.at(-1) ?? null;
-						this.emit({
-							type: "turn_complete",
-							turn: completedTurn,
-						});
-						this.syncPendingState();
-					})
-					.catch((error) => {
-						this.emit({
-							type: "error",
-							title: "Session save failed",
-							lines: [error instanceof Error ? error.message : String(error)],
-						});
-						this.emit({ type: "panel", panel: { pending: false, title: "" } });
+				void this.finalizeAgentRun(event.messages).catch((error) => {
+					this.retryAttempt = 0;
+					this.overflowRecoveryAttempted = false;
+					this.resolveRecovery();
+					this.emit({
+						type: "error",
+						title: "Session save failed",
+						lines: [error instanceof Error ? error.message : String(error)],
 					});
+					this.emit({ type: "panel", panel: { pending: false, title: "" } });
+				});
 				break;
 		}
 	}
@@ -477,6 +719,7 @@ export class AgentRuntime {
 		};
 		try {
 			await this.agent.prompt(message as unknown as AgentMessage);
+			await this.waitForRecovery();
 		} catch (err) {
 			this.emit({ type: "error", title: "Agent error", lines: [String(err)] });
 			throw err;
@@ -484,6 +727,7 @@ export class AgentRuntime {
 	}
 
 	abort(): void {
+		this.retryAbortController?.abort();
 		this.agent.abort();
 	}
 
@@ -804,6 +1048,8 @@ export class AgentRuntime {
 	}
 
 	emitSettingsChanged(settings: Settings): void {
+		this.settings = settings;
+		this.agent.maxRetryDelayMs = this.getRetrySettings().maxDelayMs;
 		this.emit({ type: "settings_changed", settings });
 	}
 

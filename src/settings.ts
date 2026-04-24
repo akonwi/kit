@@ -20,6 +20,13 @@ export type Settings = {
 	guidedQuestions?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
 	sessionNaming?: boolean;
+	/** Retry settings for transient model/provider errors */
+	retry?: {
+		enabled?: boolean;
+		maxRetries?: number;
+		baseDelayMs?: number;
+		maxDelayMs?: number;
+	};
 };
 
 export type ResolvedSpeechSettings = {
@@ -28,12 +35,25 @@ export type ResolvedSpeechSettings = {
 	voice?: string;
 };
 
+export type ResolvedRetrySettings = {
+	enabled: boolean;
+	maxRetries: number;
+	baseDelayMs: number;
+	maxDelayMs: number;
+};
+
 const DEFAULTS: Settings = {
 	bells: true,
 	speech: { enabled: true, maxChars: 220 },
 	pager: true,
 	guidedQuestions: true,
 	sessionNaming: true,
+	retry: {
+		enabled: true,
+		maxRetries: 3,
+		baseDelayMs: 2000,
+		maxDelayMs: 60000,
+	},
 };
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -42,6 +62,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 function defaultSpeechObject(): ResolvedSpeechSettings {
 	return { enabled: true, maxChars: 220 };
+}
+
+function defaultRetryObject(): ResolvedRetrySettings {
+	return { enabled: true, maxRetries: 3, baseDelayMs: 2000, maxDelayMs: 60000 };
 }
 
 export function resolveSpeechSettings(
@@ -60,6 +84,22 @@ export function resolveSpeechSettings(
 	return defaultSpeechObject();
 }
 
+export function resolveRetrySettings(
+	retry: Settings["retry"],
+): ResolvedRetrySettings {
+	if (retry && typeof retry === "object") {
+		return {
+			enabled: retry.enabled ?? true,
+			maxRetries: typeof retry.maxRetries === "number" ? retry.maxRetries : 3,
+			baseDelayMs:
+				typeof retry.baseDelayMs === "number" ? retry.baseDelayMs : 2000,
+			maxDelayMs:
+				typeof retry.maxDelayMs === "number" ? retry.maxDelayMs : 60000,
+		};
+	}
+	return defaultRetryObject();
+}
+
 function sanitizeSettings(raw: unknown): Settings {
 	if (!isRecord(raw)) {
 		return { ...DEFAULTS };
@@ -75,6 +115,23 @@ function sanitizeSettings(raw: unknown): Settings {
 		typeof raw.sessionNaming === "boolean"
 			? raw.sessionNaming
 			: DEFAULTS.sessionNaming;
+
+	const retry = isRecord(raw.retry)
+		? {
+				enabled:
+					typeof raw.retry.enabled === "boolean" ? raw.retry.enabled : true,
+				maxRetries:
+					typeof raw.retry.maxRetries === "number" ? raw.retry.maxRetries : 3,
+				baseDelayMs:
+					typeof raw.retry.baseDelayMs === "number"
+						? raw.retry.baseDelayMs
+						: 2000,
+				maxDelayMs:
+					typeof raw.retry.maxDelayMs === "number"
+						? raw.retry.maxDelayMs
+						: 60000,
+			}
+		: defaultRetryObject();
 
 	let speech: Settings["speech"];
 	if (typeof raw.speech === "boolean") {
@@ -94,7 +151,7 @@ function sanitizeSettings(raw: unknown): Settings {
 		speech = defaultSpeechObject();
 	}
 
-	return { bells, speech, pager, guidedQuestions, sessionNaming };
+	return { bells, speech, pager, guidedQuestions, sessionNaming, retry };
 }
 
 export type LoadedSettings = {
