@@ -107,7 +107,6 @@ const SERVER_PORT_RANGE = 2000;
 class CodeReviewBrowserHost {
 	private server: Bun.Server<SocketData> | null = null;
 	private readonly clients = new Set<Bun.ServerWebSocket<SocketData>>();
-	private token = "";
 	private activeRuntime: AgentRuntime | null = null;
 	private activeSessionId: string | null = null;
 	private unsubscribeRuntime: (() => void) | null = null;
@@ -127,6 +126,17 @@ class CodeReviewBrowserHost {
 		// Pending review attachment state currently lives outside the browser host.
 	}
 
+	dispose(): void {
+		this.unsubscribeRuntime?.();
+		this.unsubscribeRuntime = null;
+		this.activeRuntime = null;
+		this.server?.stop(true);
+		this.server = null;
+		this.clients.clear();
+		this.activeSessionId = null;
+		this.state = null;
+	}
+
 	async activate(runtime: AgentRuntime): Promise<void> {
 		this.ensureServer(runtime);
 		this.attachRuntime(runtime);
@@ -143,12 +153,7 @@ class CodeReviewBrowserHost {
 
 	private ensureServer(runtime: AgentRuntime): void {
 		const sessionId = runtime.getSession().id;
-		const nextToken = this.getSessionToken(sessionId);
-		if (
-			this.server &&
-			this.activeSessionId === sessionId &&
-			this.token === nextToken
-		) {
+		if (this.server && this.activeSessionId === sessionId) {
 			return;
 		}
 		if (this.server) {
@@ -157,7 +162,6 @@ class CodeReviewBrowserHost {
 			this.clients.clear();
 		}
 		this.activeSessionId = sessionId;
-		this.token = nextToken;
 
 		this.server = Bun.serve<SocketData>({
 			port: this.getSessionPort(sessionId),
@@ -168,8 +172,8 @@ class CodeReviewBrowserHost {
 					return Response.json({ ok: true });
 				}
 
-				if (!this.isAuthorized(url)) {
-					return new Response("Unauthorized", { status: 401 });
+				if (!this.matchesSession(url)) {
+					return new Response("Session not found", { status: 404 });
 				}
 
 				if (url.pathname === "/ws") {
@@ -424,11 +428,11 @@ class CodeReviewBrowserHost {
 		if (!server) {
 			throw new Error("Code review browser server has not started.");
 		}
-		return `http://127.0.0.1:${server.port}/?token=${encodeURIComponent(this.token)}`;
-	}
-
-	private getSessionToken(sessionId: string): string {
-		return `session:${sessionId}`;
+		const sessionId = this.activeSessionId;
+		if (!sessionId) {
+			throw new Error("Code review browser session is not active.");
+		}
+		return `http://127.0.0.1:${server.port}/?sessionId=${encodeURIComponent(sessionId)}`;
 	}
 
 	private getSessionPort(sessionId: string): number {
@@ -439,8 +443,8 @@ class CodeReviewBrowserHost {
 		return SERVER_PORT_BASE + (hash % SERVER_PORT_RANGE);
 	}
 
-	private isAuthorized(url: URL): boolean {
-		return url.searchParams.get("token") === this.token;
+	private matchesSession(url: URL): boolean {
+		return url.searchParams.get("sessionId") === this.activeSessionId;
 	}
 
 	private renderHtml(): string {
@@ -458,7 +462,7 @@ class CodeReviewBrowserHost {
 	<script>
 		window.__KIT_CODE_REVIEW_BOOTSTRAP__ = ${bootstrap};
 	</script>
-	<script type="module" src="/app.js?token=${this.token}"></script>
+	<script type="module" src="/app.js?sessionId=${this.activeSessionId}"></script>
 </body>
 </html>`;
 	}

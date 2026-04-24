@@ -29,6 +29,9 @@ export class CodeReviewPlugin extends Plugin {
 		this.addDisposer(() => {
 			codeReviewBrowserHost.setOnReviewSubmitted(null);
 		});
+		this.addDisposer(() => {
+			codeReviewBrowserHost.dispose();
+		});
 		this.addDisposer(
 			this.ctx.attachments.subscribe((event) => {
 				if (event.type === "detached" && event.id === "code-review") {

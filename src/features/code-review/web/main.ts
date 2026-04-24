@@ -726,9 +726,9 @@ function send(message: CodeReviewClientMessage): void {
 }
 
 const url = new URL(window.location.href);
-const token = url.searchParams.get("token") ?? "";
+const sessionId = url.searchParams.get("sessionId") ?? "";
 const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-const socketUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
+const socketUrl = `${protocol}//${window.location.host}/ws?sessionId=${encodeURIComponent(sessionId)}`;
 
 function scheduleReconnect(): void {
 	if (reconnectTimer !== null) return;
