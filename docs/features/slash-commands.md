@@ -8,20 +8,26 @@ The command system is active and exposed through the composer slash picker.
 
 ## Available now
 
-The commands currently registered in `src/features/commands/index.ts` are:
+The command surface is composed from built-in commands plus plugin-registered commands.
+
+The currently available built-in and core plugin commands are:
 
 | Command | Description |
 |---------|-------------|
 | `/bells` | Toggle audible notification sounds |
 | `/speech` | Toggle speech notifications |
+| `/settings` | Open the in-app settings modal |
+| `/pager` | Open pager for the last long assistant response |
 | `/handoff [message]` | Fork the current session into a linked child session |
-| `/guidedQuestionsTest` | Open a sample guided questions flow for testing |
 | `/login` | Authenticate a provider |
 | `/model` | Switch model |
 | `/name` | Set the current session name |
 | `/new` | Start a new session |
+| `/reload` | Reload the current session and rediscover context |
+| `/diff` | View the current uncommitted diff in a terminal modal |
 | `/debug` | Show runtime and session debug details |
 | `/sessions` | Browse, switch, or delete sessions |
+| `/tree` | Browse the current session tree in a modal explorer |
 | `/thinking` | Change the current thinking level |
 | `/quit` | Exit the application |
 
@@ -55,14 +61,14 @@ Each command is a `Command` object with:
 
 - `runtime`
 - `palette`
-- `guidedQuestions`
 - `args`
+- `openCustomOverlay`
 
 ## Notes
 
 - Unknown slash-prefixed text currently falls back to normal composer submission
-- Some additional command modules still exist in `src/features/commands/`, but
-  only the commands registered in `src/features/commands/index.ts` are active
+- Prompt templates discovered from prompt directories are also registered as slash commands at runtime
+- Some commands are registered by plugins during initialization rather than directly in `src/features/commands/index.ts`
 
 ## Source
 

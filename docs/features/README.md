@@ -18,6 +18,7 @@ should still be read with an explicit distinction between:
 - [Bash Execution](bash-execution.md) — historical/planned shell-command UX, not currently wired
 - [Pager](pager.md) — pager direction and current rebuild status
 - [Guided Questions](guided-questions.md) — structured clarification questionnaires in a modal
+- [Settings](settings.md) — in-app modal for editing active Kit settings
 - [Handoff](handoff.md) — current fork-like linked-session handoff behavior
 - [Steering & Follow-up](steering-followup.md) — current queued-message behavior while streaming
 

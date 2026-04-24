@@ -4,6 +4,7 @@ import { NotificationsPlugin } from "../features/notifications";
 import { PagerPlugin } from "../features/pager";
 import { PromptsPlugin } from "../features/prompts";
 import { SessionNamingPlugin } from "../features/session-naming";
+import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
 import type { PluginClass } from "./PluginManager";
 
@@ -15,5 +16,6 @@ export const BUILT_IN_PLUGIN_CLASSES: PluginClass[] = [
 	GuidedQuestionsPlugin,
 	NotificationsPlugin,
 	SessionNamingPlugin,
+	SettingsPlugin,
 	CodeReviewPlugin,
 ];

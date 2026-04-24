@@ -1,7 +1,12 @@
 import { Plugin } from "../../plugins/Plugin";
 import type { AgentRuntimeEvent } from "../../runtime/agent-runtime";
 import type { Turn } from "../../session/types";
-import { type Settings, saveSettings } from "../../settings";
+import {
+	type ResolvedSpeechSettings,
+	resolveSpeechSettings,
+	type Settings,
+	saveSettings,
+} from "../../settings";
 import { ringBell, speak } from "./notifications";
 
 function getLastAssistantText(messages: Turn["messages"]): string | null {
@@ -27,26 +32,6 @@ function getLastAssistantText(messages: Turn["messages"]): string | null {
 		}
 	}
 	return null;
-}
-
-type ResolvedSpeech = {
-	enabled: boolean;
-	maxChars: number;
-	voice?: string;
-};
-
-function resolveSpeechConfig(speech: Settings["speech"]): ResolvedSpeech {
-	if (typeof speech === "boolean") {
-		return { enabled: speech, maxChars: 220 };
-	}
-	if (speech && typeof speech === "object") {
-		return {
-			enabled: speech.enabled ?? true,
-			maxChars: speech.maxChars ?? 220,
-			...(speech.voice ? { voice: speech.voice } : {}),
-		};
-	}
-	return { enabled: true, maxChars: 220 };
 }
 
 export class NotificationsPlugin extends Plugin {
@@ -90,8 +75,8 @@ export class NotificationsPlugin extends Plugin {
 		return this.getSettings().bells ?? true;
 	}
 
-	private getSpeech(): ResolvedSpeech {
-		return resolveSpeechConfig(this.getSettings().speech);
+	private getSpeech(): ResolvedSpeechSettings {
+		return resolveSpeechSettings(this.getSettings().speech);
 	}
 
 	private async saveSettings(settings: Settings): Promise<void> {

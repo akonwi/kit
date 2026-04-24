@@ -22,6 +22,12 @@ export type Settings = {
 	sessionNaming?: boolean;
 };
 
+export type ResolvedSpeechSettings = {
+	enabled: boolean;
+	maxChars: number;
+	voice?: string;
+};
+
 const DEFAULTS: Settings = {
 	bells: true,
 	speech: { enabled: true, maxChars: 220 },
@@ -34,12 +40,24 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 	return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-function defaultSpeechObject(): {
-	enabled: boolean;
-	maxChars: number;
-	voice?: string;
-} {
+function defaultSpeechObject(): ResolvedSpeechSettings {
 	return { enabled: true, maxChars: 220 };
+}
+
+export function resolveSpeechSettings(
+	speech: Settings["speech"],
+): ResolvedSpeechSettings {
+	if (typeof speech === "boolean") {
+		return { enabled: speech, maxChars: 220 };
+	}
+	if (speech && typeof speech === "object") {
+		return {
+			enabled: speech.enabled ?? true,
+			maxChars: speech.maxChars ?? 220,
+			...(speech.voice ? { voice: speech.voice } : {}),
+		};
+	}
+	return defaultSpeechObject();
 }
 
 function sanitizeSettings(raw: unknown): Settings {
