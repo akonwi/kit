@@ -1,39 +1,30 @@
 # Pager
 
-## Status
+The pager provides a focused reading surface for substantial assistant output.
 
-Partially implemented, not restored to the active shell flow yet.
+Instead of reading long responses only in the transcript, the pager can open that content in a section-based view for more deliberate review.
 
-## Goal
+Current behavior:
 
-Provide a focused long-form review surface for substantial agent output, with
-section-based navigation and note/feedback capture.
+- `/pager` opens the pager for the last long assistant response
+- if the pager is already open, `/pager` closes it
+- Kit can also auto-open the pager after a turn completes when the assistant response is long enough
+- auto-open respects the `pager` setting
+- if there is no long assistant response to page through, Kit shows a warning instead of opening the pager
 
-## Current foundation
+The pager is designed to:
 
-The repo includes pager-specific modules:
+- split long content into sections
+- let the user move section by section
+- support focused reading outside the normal transcript flow
+- support structured feedback on paged content
 
-- `src/features/pager/index.ts`
-- `src/features/pager/pager-controller.ts`
-- `src/features/pager/split-sections.ts`
-- `src/shell/PagerView.tsx`
-- `src/features/commands/pager.ts`
+## How to access it
 
-## Intended behavior
+Run:
 
-The pager is meant to:
+```text
+/pager
+```
 
-- activate for substantial assistant output
-- split content into sections
-- let the user move section-by-section
-- capture per-section notes
-- optionally feed structured feedback back into the agent
-
-## Current caveat
-
-The active shell path has been simplified while the standalone runtime was being
-rebuilt. Pager code exists, but it is not currently part of the critical-path
-loop.
-
-Any pager reintroduction should be done against the current runtime/state/shell
-architecture rather than by reviving older assumptions wholesale.
+The pager may also open automatically after long assistant responses if pager auto-open is enabled in settings.

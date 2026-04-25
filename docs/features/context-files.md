@@ -1,22 +1,16 @@
-# Context Files
+# Guidance Sources
 
-## Status
+Kit can incorporate guidance from several different sources.
 
-Available now.
+The main guidance source types are:
 
-## What they do
+- context files such as `AGENTS.md` and `CLAUDE.md`
+- skills
+- prompt command files
 
-Context files provide persistent guidance that Kit appends to the base system
-prompt for the active session.
+## Context files
 
-This is intended for:
-
-- repository conventions
-- coding standards
-- workflow reminders
-- environment-specific guidance
-
-## Discovery rules
+Context files provide persistent filesystem-based guidance that Kit appends to the base system prompt for the active session.
 
 Kit loads context guidance from:
 
@@ -28,23 +22,37 @@ Kit loads context guidance from:
 
 Only one file is loaded per directory.
 
-## Ordering
-
 Files are composed in this order:
 
 1. `~/.kit/AGENTS.md`
-2. ancestor directories from outermost to innermost/current
+2. ancestor directories from outermost to innermost or current
 3. `AGENTS.md` files in immediate child directories of the session cwd
 
-## Notes
+Context files are attached to the system prompt, not inserted into the transcript. The active file list is visible in `/debug`, and switching sessions recomputes context files using that session's cwd.
 
-- context files are attached to the system prompt, not inserted into the transcript
-- no startup toast is shown when context files are loaded
-- the active file list is visible in `/debug`
-- switching sessions recomputes context files using that session's cwd
+## Skills
 
-## Source
+Skills are task-specific instruction bundles discovered from skill directories.
 
-- `src/context/agents.ts`
-- `src/runtime/agent-runtime.ts`
-- `src/features/commands/session.ts`
+They are not automatically appended as general context. Instead, the model can activate a skill when a task matches that skill's description.
+
+## Prompt command files
+
+Prompt command files are markdown templates that become slash commands.
+
+They are not part of the always-on system prompt guidance. Instead, they provide reusable user-invoked prompt templates.
+
+## How to access it
+
+Context files are automatic.
+
+To use them, place guidance in files such as:
+
+- `~/.kit/AGENTS.md`
+- project `AGENTS.md`
+- project `CLAUDE.md`
+
+Skills and prompt command files are documented separately in:
+
+- `docs/features/skills.md`
+- `docs/features/prompt-commands.md`

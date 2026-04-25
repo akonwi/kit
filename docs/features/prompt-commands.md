@@ -1,11 +1,5 @@
 # Prompt Commands
 
-## Status
-
-Available now.
-
-## What they do
-
 Prompt commands are markdown files that become slash commands. Each `.md` file
 in a prompts directory registers a `/filename` command. When invoked, the file's
 content is expanded with any arguments and submitted as a user message.
@@ -76,9 +70,3 @@ Submits: `Review the recent code changes and provide feedback. focus on error ha
 ## Debugging
 
 Run `/debug` to see all discovered prompt commands with their source and file path.
-
-## Source
-
-- `src/features/prompts/discovery.ts`
-- `src/features/prompts/substitute.ts`
-- `src/features/prompts/index.ts`

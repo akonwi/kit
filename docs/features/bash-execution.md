@@ -1,10 +1,6 @@
 # Bash Execution
 
-## What this covers
-
 Kit supports direct user-triggered bash execution from the composer, in addition to normal agent use of the built-in `bash` tool.
-
-## Current user-facing behavior
 
 Users can run bash commands directly from the composer with:
 
@@ -13,36 +9,19 @@ Users can run bash commands directly from the composer with:
 
 These commands render into the transcript as `bashExecution` entries.
 
-## Transcript behavior
-
-Bash executions appear in the transcript immediately when submitted.
-
 Current behavior:
 
 - a pending transcript entry is added as soon as the command is submitted
 - the entry shows loading or in-progress state while the command is running
 - the pending entry is replaced in place when execution completes
-- completed entries include command, output, and exit status information
+- completed entries include the command, output, and exit status
+- pending bash transcript entries are not included in model context
 
-Pending bash transcript entries are not included in model context.
+Kit also has a separate agent-driven `bash` tool path. The low-level execution code is shared, but direct user bash execution and agent tool use are different flows.
 
-## Agent tool calls vs direct user execution
+## How to access it
 
-There are two related bash paths in Kit:
+Type a bash command directly into the composer:
 
-1. **Agent bash tool use**
-   - the agent calls the built-in `bash` tool as part of a normal turn
-
-2. **Direct user bash execution**
-   - the user explicitly runs `!command` or `!!command` from the composer
-   - the runtime injects a synthetic `bashExecution` transcript message
-
-These share low-level bash execution code, but they represent different user flows.
-
-## Source
-
-- `src/tools/run-bash.ts`
-- `src/tools/bash.ts`
-- `src/runtime/agent-runtime.ts`
-- `src/shell/composer-controller.ts`
-- `src/shell/TranscriptPane.tsx`
+- `!ls`
+- `!!git status`

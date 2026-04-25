@@ -1,70 +1,26 @@
 # Steering & Follow-up Messages
 
-## Status
+Kit can queue messages for the agent while it is still working on the current turn.
 
-Available in the current runtime/composer flow.
+There are two relevant behaviors in the current composer flow:
 
-## Overview
+- **follow-up** — queue a message so it runs after the agent becomes idle
+- **steering promotion** — promote already queued follow-ups so they are delivered before the next model call
 
-`kit` supports queueing messages for the agent while it is actively processing a
-turn.
+Current behavior:
 
-This allows the user to either:
+- when the agent is streaming and the composer has text, pressing `Enter` queues that text as a follow-up
+- queued follow-ups are shown above the composer while they are pending
+- when the composer is empty, the agent is streaming, and queued follow-ups exist, pressing `Enter` promotes those queued follow-ups to steering
+- pressing `Up` in an empty composer restores queued follow-ups first; if none exist, it recalls the last user message
+- queued follow-ups clear from the visible stack when the next turn begins consuming them
 
-- **steer** the in-flight work as soon as the current tool batch completes, or
-- **queue follow-up** work for after the agent becomes fully idle
+This behavior is currently exposed through the composer flow rather than through dedicated slash commands.
 
-## Concepts
+## How to access it
 
-### Steering
+Use the normal composer while the agent is streaming:
 
-A steering message is delivered after the current tool-call batch finishes and
-before the next LLM call.
-
-Use it to:
-
-- correct the agent's direction
-- redirect the task
-- inject a clarification before the turn continues
-
-### Follow-up
-
-A follow-up message is delivered only when the agent is fully idle.
-
-Use it to:
-
-- queue the next piece of work
-- ask something that should wait until the current turn is done
-
-## Current UX
-
-### Keybindings
-
-| Key | Action |
-|-----|--------|
-| **Enter** while streaming with composer text | queue as follow-up |
-| **Enter** while streaming with empty composer and queued follow-ups | promote queued follow-ups to steering |
-| **Up** in empty composer | restore queued follow-ups first, otherwise recall the last user message |
-
-### Runtime methods
-
-The current runtime/composer path exposes:
-
-```ts
-runtime.sendFollowUp(text: string): void
-runtime.sendSteer(text: string): void
-runtime.clearPendingMessages(): void
-runtime.drainPendingMessages(): string[]
-runtime.promotePendingFollowUpsToSteering(): void
-runtime.getPendingMessageCount(): number
-```
-
-## Current behavior notes
-
-- follow-ups are visible above the composer while queued
-- when the next turn begins consuming queued follow-ups, that visible stack clears
-- steering/follow-up are currently exposed through composer behavior rather than slash commands
-
-## Related decision
-
-See `../adrs/0012-steering-followup.md`.
+- type a message and press `Enter` to queue it as a follow-up
+- press `Enter` again in an empty composer to promote queued follow-ups to steering
+- press `Up` in an empty composer to restore queued follow-ups back into the composer

@@ -1,47 +1,32 @@
 # Settings
 
-## Status
+Kit includes an in-app settings surface so users can change active application settings without manually editing `~/.kit/settings.json`.
 
-Available now.
+Current behavior:
 
-## Goal
+- `/settings` opens a modal settings UI
+- changes apply immediately when saved
+- the modal supports keyboard and mouse interaction
+- save failures are shown inline
 
-Provide an in-app settings surface for Kit so users can change active app settings without manually editing `~/.kit/settings.json`.
+The current settings UI exposes:
 
-## Current behavior
+- theme selection
+- guided questions
+- automatic session naming
+- automatic pager opening
+- automatic retry settings
+- bells
+- speech enablement
+- speech max chars
+- speech voice
 
-Kit exposes a `/settings` command that opens a modal settings UI.
+Settings are persisted to `~/.kit/settings.json`.
 
-The current modal:
+## How to access it
 
-- is centered and overlay-based
-- applies changes immediately
-- supports keyboard and mouse interaction
-- only surfaces save failures inline
+Run:
 
-## Settings currently exposed
-
-### General
-
-- `guidedQuestions`
-- `sessionNaming`
-- `pager`
-
-### Notifications
-
-- `bells`
-- `speech.enabled`
-- `speech.maxChars`
-- `speech.voice`
-
-## Notes
-
-- settings are persisted to `~/.kit/settings.json`
-- speech settings are normalized in the UI to an object shape even if the stored value started as a boolean
-- speech sub-fields stay visible but are disabled when speech is off
-- the current UI is functional but expected to evolve visually
-
-## Source
-
-- `src/features/settings/`
-- `src/settings.ts`
+```text
+/settings
+```
