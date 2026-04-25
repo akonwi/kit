@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type {
 	ChangeContent,
 	ContextContent,
@@ -39,9 +41,21 @@ export type ReviewFile = {
 	changeCount: number;
 };
 
+function runGit(
+	cwd: string | undefined,
+	args: string[],
+	errorMessage: string,
+): string {
+	const result = spawnSync("git", args, { encoding: "utf8", cwd });
+	if (result.status !== 0) {
+		throw new Error(result.stderr || errorMessage);
+	}
+	return result.stdout;
+}
+
 function getWorkingTreeDiff(cwd?: string): string {
-	const staged = spawnSync(
-		"git",
+	const staged = runGit(
+		cwd,
 		[
 			"diff",
 			"--cached",
@@ -50,23 +64,71 @@ function getWorkingTreeDiff(cwd?: string): string {
 			"--find-copies",
 			"--unified=3",
 		],
-		{ encoding: "utf8", cwd },
+		"Failed to read staged diff.",
 	);
-	if (staged.status !== 0) {
-		throw new Error(staged.stderr || "Failed to read staged diff.");
-	}
 
-	const unstaged = spawnSync(
-		"git",
+	const unstaged = runGit(
+		cwd,
 		["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--unified=3"],
-		{ encoding: "utf8", cwd },
+		"Failed to read unstaged diff.",
 	);
-	if (unstaged.status !== 0) {
-		throw new Error(unstaged.stderr || "Failed to read unstaged diff.");
-	}
 
-	return [staged.stdout, unstaged.stdout]
+	const untracked = getUntrackedDiff(cwd);
+
+	return [staged, unstaged, untracked]
 		.filter((value) => value.trim().length > 0)
+		.join("\n");
+}
+
+function getUntrackedDiff(cwd?: string): string {
+	const output = runGit(
+		cwd,
+		["ls-files", "--others", "--exclude-standard", "-z"],
+		"Failed to list untracked files.",
+	);
+	const paths = output.split("\0").filter(Boolean);
+	if (paths.length === 0) return "";
+	const repoRoot = runGit(
+		cwd,
+		["rev-parse", "--show-toplevel"],
+		"Failed to resolve repository root.",
+	).trim();
+	return paths
+		.map((filePath) => buildUntrackedFilePatch(repoRoot, filePath))
+		.filter((patch): patch is string => patch !== null)
+		.join("\n");
+}
+
+function buildUntrackedFilePatch(
+	repoRoot: string,
+	relativePath: string,
+): string | null {
+	const absolutePath = path.join(repoRoot, relativePath);
+	if (!existsSync(absolutePath)) return null;
+
+	let content: string;
+	try {
+		content = readFileSync(absolutePath, "utf8");
+	} catch {
+		return null;
+	}
+	if (content.includes("\0")) return null;
+
+	const normalized = content.replace(/\r\n/g, "\n");
+	const lines = normalized.length === 0 ? [] : normalized.split("\n");
+	const lineCount = lines.length;
+	const displayPath = relativePath.replace(/\\/g, "/");
+	const body = lines.map((line) => `+${line}`).join("\n");
+	return [
+		`diff --git a/${displayPath} b/${displayPath}`,
+		"new file mode 100644",
+		"index 0000000..0000000",
+		`--- /dev/null`,
+		`+++ b/${displayPath}`,
+		`@@ -0,0 +1,${lineCount} @@`,
+		body,
+	]
+		.filter((line) => line.length > 0)
 		.join("\n");
 }
 
