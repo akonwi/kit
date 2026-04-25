@@ -1,5 +1,5 @@
 import type { TerminalColors } from "@opentui/core";
-import { KIT_SYNTAX_PALETTE, KIT_TOKENS } from "./kit";
+import { KIT_TOKENS } from "./kit";
 import type { ThemeDefinition } from "./types";
 
 // ── ANSI 16 palette indices ──────────────────────────────────────────
@@ -42,11 +42,7 @@ function toHex(r: number, g: number, b: number): string {
 function lerp(a: string, b: string, t: number): string {
 	const [ar, ag, ab] = parseHex(a);
 	const [br, bg, bb] = parseHex(b);
-	return toHex(
-		ar + (br - ar) * t,
-		ag + (bg - ag) * t,
-		ab + (bb - ab) * t,
-	);
+	return toHex(ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t);
 }
 
 function luminance(hex: string): number {
@@ -65,7 +61,8 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 	const p = (index: number): string | null => colors.palette[index] ?? null;
 
 	const bg = colors.defaultBackground ?? p(ANSI.BLACK) ?? KIT_TOKENS.bg;
-	const fg = colors.defaultForeground ?? p(ANSI.WHITE) ?? KIT_TOKENS.textPrimary;
+	const fg =
+		colors.defaultForeground ?? p(ANSI.WHITE) ?? KIT_TOKENS.textPrimary;
 
 	const red = p(ANSI.RED) ?? KIT_TOKENS.errorText;
 	const green = p(ANSI.GREEN) ?? KIT_TOKENS.toolText;
@@ -74,11 +71,7 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 	const magenta = p(ANSI.MAGENTA) ?? KIT_TOKENS.reviewText;
 	const cyan = p(ANSI.CYAN) ?? KIT_TOKENS.metaText;
 
-	const brightBlack = p(ANSI.BRIGHT_BLACK) ?? lerp(bg, fg, 0.25);
 	const brightWhite = p(ANSI.BRIGHT_WHITE) ?? fg;
-	const brightBlue = p(ANSI.BRIGHT_BLUE) ?? blue;
-	const brightGreen = p(ANSI.BRIGHT_GREEN) ?? green;
-	const brightRed = p(ANSI.BRIGHT_RED) ?? red;
 
 	const isDark = luminance(bg) < 0.5;
 

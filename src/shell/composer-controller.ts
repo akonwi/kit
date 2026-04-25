@@ -209,17 +209,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	async function handlePaste(event: PasteEvent) {
 		const mimeType = event.metadata?.mimeType ?? "";
-		const pastedText = new TextDecoder().decode(event.bytes).trim();
+		const pastedText = new TextDecoder()
+			.decode(event.bytes)
+			.replace(/\r\n/g, "\n")
+			.replace(/\r/g, "\n");
 		const candidatePaths = getPastedPathCandidates(pastedText);
-		console.log("[composer] paste event", {
-			mimeType,
-			kind: event.metadata?.kind,
-			byteLength: event.bytes.length,
-			pastedText,
-			candidatePaths,
-			defaultPrevented: event.defaultPrevented,
-			propagationStopped: event.propagationStopped,
-		});
 
 		if (mimeType.startsWith("image/")) {
 			event.preventDefault();
@@ -239,23 +233,29 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 
 		if (candidatePaths.length > 0) {
-			event.preventDefault();
-			event.stopPropagation();
 			const attachedFromPaths =
 				await attachImagesFromPastedPaths(candidatePaths);
 			if (attachedFromPaths > 0) {
+				event.preventDefault();
+				event.stopPropagation();
 				console.log("[composer] attached images from pasted path(s)", {
 					count: attachedFromPaths,
 				});
 				return;
 			}
 			console.log(
-				"[composer] prevented path paste, but no image attachments were created",
+				"[composer] path-like paste did not resolve to images; falling back to text paste",
 			);
+		}
+
+		if (pastedText.length > 0) {
+			event.preventDefault();
+			event.stopPropagation();
+			insertText(pastedText);
 			return;
 		}
 
-		console.log("[composer] paste ignored: not image bytes or image path");
+		console.log("[composer] paste ignored: empty payload");
 	}
 
 	async function attachImagesFromPastedPaths(
