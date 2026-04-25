@@ -14,7 +14,7 @@ export class PagerPlugin extends Plugin {
 	override initialize(): void {
 		// Wire pager feedback submission to runtime
 		this.pager.setSubmitCallback(async (msg) => {
-			await this.ctx.runtime.submitUserMessage(msg);
+			await this.ctx.runtime.submitMessage(msg);
 		});
 
 		// Auto-activate pager on turn_complete if the assistant response is long.

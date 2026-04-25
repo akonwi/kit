@@ -758,6 +758,33 @@ export class AgentRuntime {
 		}
 	}
 
+	async submitMessage(input: string | MessagePart[]): Promise<void> {
+		const parts: MessagePart[] =
+			typeof input === "string" ? [{ type: "text", text: input }] : input;
+		if (!this.agent.state.isStreaming) {
+			await this.submitUserMessage(parts);
+			return;
+		}
+		const textOnly = parts.every((part) => part.type === "text");
+		if (!textOnly) {
+			const error = new Error(
+				"Attachments not supported in queued follow-ups. Wait for the current turn to finish before sending attached reviews.",
+			);
+			this.emit({
+				type: "error",
+				title: "Queued follow-up unsupported",
+				lines: [error.message],
+			});
+			throw error;
+		}
+		const queuedText = parts
+			.map((part) => (part.type === "text" ? part.text : ""))
+			.join("\n")
+			.trim();
+		if (!queuedText) return;
+		this.sendFollowUp(queuedText);
+	}
+
 	async submitUserMessage(input: string | MessagePart[]): Promise<void> {
 		const parts: MessagePart[] =
 			typeof input === "string" ? [{ type: "text", text: input }] : input;

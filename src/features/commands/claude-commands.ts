@@ -106,7 +106,7 @@ export function discoverClaudeCommands(cwd: string): Command[] {
 				// prompt for input first.
 				const prompt = body.trim();
 				if (prompt) {
-					runtime.submitUserMessage(prompt);
+					void runtime.submitMessage(prompt);
 				}
 			},
 		}),
