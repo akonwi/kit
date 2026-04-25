@@ -139,7 +139,7 @@ export function SettingsContent(props: SettingsContentProps) {
 		String(resolveRetrySettings(props.initialSettings.retry).maxDelayMs),
 	);
 	const [themeDraft, setThemeDraft] = createSignal(
-		props.initialSettings.theme ?? "kit",
+		props.initialSettings.theme ?? "system",
 	);
 	const [themeSelectedIndex, setThemeSelectedIndex] = createSignal(0);
 	const [voiceDraft, setVoiceDraft] = createSignal(
@@ -186,7 +186,7 @@ export function SettingsContent(props: SettingsContentProps) {
 					kind: "select",
 					label: "Theme",
 					help: "",
-					value: currentSettings.theme ?? "kit",
+					value: currentSettings.theme ?? "system",
 				},
 				{
 					id: "guidedQuestions",
@@ -295,8 +295,8 @@ export function SettingsContent(props: SettingsContentProps) {
 	function syncDrafts(nextSettings: Settings) {
 		const speech = resolveSpeechSettings(nextSettings.speech);
 		const retry = resolveRetrySettings(nextSettings.retry);
-		setThemeDraft(nextSettings.theme ?? "kit");
-		setThemeSelectedIndex(resolveThemeIndex(nextSettings.theme ?? "kit"));
+		setThemeDraft(nextSettings.theme ?? "system");
+		setThemeSelectedIndex(resolveThemeIndex(nextSettings.theme ?? "system"));
 		setMaxCharsDraft(String(speech.maxChars));
 		setRetryMaxRetriesDraft(String(retry.maxRetries));
 		setRetryBaseDelayDraft(String(retry.baseDelayMs));

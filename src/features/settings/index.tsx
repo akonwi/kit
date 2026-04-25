@@ -34,6 +34,6 @@ export class SettingsPlugin extends Plugin {
 		await saveSettings(settings);
 		this.ctx.settings.settings = settings;
 		this.ctx.runtime.emitSettingsChanged(settings);
-		await resolveAndApplyTheme(settings.theme ?? "kit");
+		await resolveAndApplyTheme(settings.theme ?? "system");
 	}
 }

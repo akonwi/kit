@@ -119,7 +119,7 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 	});
 
 	// Resolve theme before rendering — "system" theme needs the renderer for palette detection
-	const themeName = settings.settings.theme ?? "kit";
+	const themeName = settings.settings.theme ?? "system";
 	await resolveAndApplyTheme(themeName, renderer);
 
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
