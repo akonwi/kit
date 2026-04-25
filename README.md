@@ -51,6 +51,5 @@ bun run build
 ## More documentation
 
 - feature docs: [`docs/features/`](docs/features/)
-- architecture docs: [`docs/architecture/`](docs/architecture/)
-- decision records: [`docs/decisions/`](docs/decisions/)
+- ADRs: [`docs/adrs/`](docs/adrs/)
 - project guidance: [`AGENTS.md`](AGENTS.md)

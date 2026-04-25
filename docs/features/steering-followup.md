@@ -67,4 +67,4 @@ runtime.getPendingMessageCount(): number
 
 ## Related decision
 
-See `../decisions/steering-followup.md`.
+See `../adrs/0012-steering-followup.md`.

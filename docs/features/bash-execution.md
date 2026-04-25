@@ -1,40 +1,48 @@
 # Bash Execution
 
-## Status
+## What this covers
 
-Not currently wired in the active minimum loop.
+Kit supports direct user-triggered bash execution from the composer, in addition to normal agent use of the built-in `bash` tool.
 
-## Goal
+## Current user-facing behavior
 
-Support a direct shell-command UX from the composer and render command execution
-results in the transcript.
+Users can run bash commands directly from the composer with:
 
-## Current relevant pieces
+- `!command` — run the command and include its output in model context
+- `!!command` — run the command without including its output in model context
 
-- the app has a built-in `bash` tool in `src/tools/bash.ts`
-- the transcript already knows how to render `bashExecution` entries via
-  `BashEntry` in `src/shell/TranscriptPane.tsx`
+These commands render into the transcript as `bashExecution` entries.
 
-## Historical / intended UX
+## Transcript behavior
 
-Earlier iterations explored composer prefixes such as:
+Bash executions appear in the transcript immediately when submitted.
 
-- `!command` — run command and include output in context
-- `!!command` — run command without including output in context
+Current behavior:
 
-That UX is **not currently active** in the rebuilt composer flow.
+- a pending transcript entry is added as soon as the command is submitted
+- the entry shows loading or in-progress state while the command is running
+- the pending entry is replaced in place when execution completes
+- completed entries include command, output, and exit status information
 
-## Current caveat
+Pending bash transcript entries are not included in model context.
 
-There is a difference between:
+## Agent tool calls vs direct user execution
 
-- the agent calling the `bash` tool as part of a normal turn, and
-- the user directly invoking ad-hoc shell execution from the composer
+There are two related bash paths in Kit:
 
-The first exists as part of the runtime/tooling foundation.
-The second still needs a deliberate UX decision and wiring work.
+1. **Agent bash tool use**
+   - the agent calls the built-in `bash` tool as part of a normal turn
+
+2. **Direct user bash execution**
+   - the user explicitly runs `!command` or `!!command` from the composer
+   - the runtime injects a synthetic `bashExecution` transcript message
+
+These share low-level bash execution code, but they represent different user flows.
 
 ## Source
 
+- `src/tools/run-bash.ts`
 - `src/tools/bash.ts`
+- `src/runtime/agent-runtime.ts`
+- `src/shell/composer-controller.ts`
 - `src/shell/TranscriptPane.tsx`

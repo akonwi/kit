@@ -1,21 +1,14 @@
 # Docs
 
-This directory records architectural decisions and feature design choices for `kit`.
+This directory contains project documentation for Kit.
 
 ## Structure
 
-- `architecture/` — architecture decisions, compatibility contracts, shell model, and system-level design notes
-- `features/` — feature-specific design notes as we define new shell behavior and port or redesign functionality
-- `decisions/` — smaller focused decisions that do not need a full architecture document
+- `adrs/` — architecture and design decision records
+- `features/` — feature-specific behavior, UX, and implementation notes
 
-## Current key docs
+## Conventions
 
-- `architecture/custom-shell.md` — primary architecture document for the current standalone app
-- `decisions/decouple-from-pi.md` — the app is standalone and no longer targets Pi compatibility
-- `decisions/storage-paths.md` — `~/.kit` is the single storage root
-- `decisions/context-files.md` — how Kit discovers `AGENTS.md` / `CLAUDE.md` guidance
-- `decisions/turn-based-session-model.md` — sessions persist explicit turns with `turnId`-tagged messages
-- `decisions/assistant-message-streaming.md` — assistant text is not streamed; only runtime activity may appear live
-- `decisions/compaction-strategy.md` — future compaction should rewrite persisted history, after context-window visibility exists
-
-As we make decisions in chat, capture them here so the design does not live only in conversation history.
+- Put durable architecture and design decisions in `adrs/`.
+- Put user- or feature-facing behavior docs in `features/`.
+- Capture important decisions in docs instead of leaving them only in chat history.
