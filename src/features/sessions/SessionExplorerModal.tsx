@@ -221,7 +221,14 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 					</box>
 				</Show>
 
-				<HintBar bindings={[{ key: "↑/↓", action: "move" }, { key: "PgUp/PgDn", action: "scroll" }, { key: "Enter", action: "switch" }, { key: "Esc", action: "close" }]} />
+				<HintBar
+					bindings={[
+						{ key: "↑/↓", action: "move" },
+						{ key: "PgUp/PgDn", action: "scroll" },
+						{ key: "Enter", action: "switch" },
+						{ key: "Esc", action: "close" },
+					]}
+				/>
 			</box>
 		</box>
 	);

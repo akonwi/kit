@@ -19,8 +19,16 @@ export type ReviewContentProps = {
 };
 
 const FOCUS_BINDINGS: { [key in "list" | "patch"]: Binding[] } = {
-	list: [{ key: "↑/↓ or j/k", action: "move" }, { key: "Enter", action: "focus patch" }, { key: "Space", action: "collapse/expand" }, { key: "Esc", action: "close" }],
-	patch: [{ key: "↑/↓ or j/k", action: "scroll" }, { key: "Esc", action: "back" }],
+	list: [
+		{ key: "↑/↓ or j/k", action: "move" },
+		{ key: "Enter", action: "focus patch" },
+		{ key: "Space", action: "collapse/expand" },
+		{ key: "Esc", action: "close" },
+	],
+	patch: [
+		{ key: "↑/↓ or j/k", action: "scroll" },
+		{ key: "Esc", action: "back" },
+	],
 };
 
 function statusLabel(file: ReviewFile): string {
@@ -63,7 +71,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			setSelectedIndex(Math.max(0, list.length - 1));
 		}
 	});
-
 
 	createEffect(() => {
 		const list = reviewFiles();
@@ -272,7 +279,9 @@ export function ReviewContent(props: ReviewContentProps) {
 																lineNumberFg={theme.textMuted}
 																lineNumberBg={theme.bg}
 																addedLineNumberBg={theme.diffAddedLineNumberBg}
-																removedLineNumberBg={theme.diffRemovedLineNumberBg}
+																removedLineNumberBg={
+																	theme.diffRemovedLineNumberBg
+																}
 																wrapMode="none"
 															/>
 														</box>
@@ -323,10 +332,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									<scrollbox
 										ref={(value) => {
 											if (value)
-												patchScrollRefs.set(
-													file().id,
-													value as PatchScrollRef,
-												);
+												patchScrollRefs.set(file().id, value as PatchScrollRef);
 										}}
 										flexGrow={1}
 										scrollY
@@ -358,7 +364,6 @@ export function ReviewContent(props: ReviewContentProps) {
 					</Show>
 				</Show>
 			</Show>
-
 		</ScreenLayout>
 	);
 }

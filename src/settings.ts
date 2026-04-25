@@ -107,8 +107,7 @@ function sanitizeSettings(raw: unknown): Settings {
 		return { ...DEFAULTS };
 	}
 
-	const theme =
-		typeof raw.theme === "string" ? raw.theme : undefined;
+	const theme = typeof raw.theme === "string" ? raw.theme : undefined;
 	const bells = typeof raw.bells === "boolean" ? raw.bells : DEFAULTS.bells;
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
 	const guidedQuestions =

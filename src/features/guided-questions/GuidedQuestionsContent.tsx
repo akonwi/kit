@@ -3,13 +3,37 @@ import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
-import type { GuidedQuestionsController, GuidedQuestionsMode } from "./controller";
+import type {
+	GuidedQuestionsController,
+	GuidedQuestionsMode,
+} from "./controller";
 
 const QUESTION_BINDINGS: Record<GuidedQuestionsMode, Binding[]> = {
-	multiselect: [{ key: "↑/↓", action: "move" }, { key: "Space", action: "toggle" }, { key: "Enter", action: "confirm" }, { key: "Shift+Tab", action: "previous" }, { key: "Esc", action: "cancel" }],
-	select: [{ key: "↑/↓", action: "move" }, { key: "Enter", action: "select" }, { key: "Shift+Tab", action: "previous" }, { key: "Esc", action: "cancel" }],
-	otherText: [{ key: "Enter", action: "submit" }, { key: "Shift+Enter", action: "newline" }, { key: "Esc", action: "back" }, { key: "Shift+Tab", action: "previous" }],
-	text: [{ key: "Enter", action: "submit" }, { key: "Shift+Enter", action: "newline" }, { key: "Shift+Tab", action: "previous" }, { key: "Esc", action: "cancel" }],
+	multiselect: [
+		{ key: "↑/↓", action: "move" },
+		{ key: "Space", action: "toggle" },
+		{ key: "Enter", action: "confirm" },
+		{ key: "Shift+Tab", action: "previous" },
+		{ key: "Esc", action: "cancel" },
+	],
+	select: [
+		{ key: "↑/↓", action: "move" },
+		{ key: "Enter", action: "select" },
+		{ key: "Shift+Tab", action: "previous" },
+		{ key: "Esc", action: "cancel" },
+	],
+	otherText: [
+		{ key: "Enter", action: "submit" },
+		{ key: "Shift+Enter", action: "newline" },
+		{ key: "Esc", action: "back" },
+		{ key: "Shift+Tab", action: "previous" },
+	],
+	text: [
+		{ key: "Enter", action: "submit" },
+		{ key: "Shift+Enter", action: "newline" },
+		{ key: "Shift+Tab", action: "previous" },
+		{ key: "Esc", action: "cancel" },
+	],
 };
 
 export type GuidedQuestionsContentProps = {
@@ -262,7 +286,11 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 					</Show>
 
 					<HintBar
-						bindings={QUESTION_BINDINGS[isMultiSelectQuestion() ? "multiselect" : g.mode] ?? QUESTION_BINDINGS.text}
+						bindings={
+							QUESTION_BINDINGS[
+								isMultiSelectQuestion() ? "multiselect" : g.mode
+							] ?? QUESTION_BINDINGS.text
+						}
 					/>
 				</box>
 			</box>

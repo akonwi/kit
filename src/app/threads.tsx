@@ -17,17 +17,25 @@ import {
 	readSession,
 	updateSession,
 } from "../session";
-import { Binding, HintBar } from "../shell/HintBar";
+import { type Binding, HintBar } from "../shell/HintBar";
 import { theme } from "../shell/theme";
 
 type Mode = "navigate" | "rename" | "confirmDelete";
 
-const MODE_BINDINGS: {[key in Mode]: Binding[]} = {
-  "rename": [{ key: "Enter", action: "save" }, { key: "Esc", action: "cancel" }],
-  "confirmDelete": [],
-  "navigate": [{ key: "↑/↓", action: "navigate" }, { key: "Enter", action: "open" }, { key: "r", action: "rename" }, { key: "Ctrl+D", action: "delete" }, { key: "Esc", action: "quit" }]
-}
-
+const MODE_BINDINGS: { [key in Mode]: Binding[] } = {
+	rename: [
+		{ key: "Enter", action: "save" },
+		{ key: "Esc", action: "cancel" },
+	],
+	confirmDelete: [],
+	navigate: [
+		{ key: "↑/↓", action: "navigate" },
+		{ key: "Enter", action: "open" },
+		{ key: "r", action: "rename" },
+		{ key: "Ctrl+D", action: "delete" },
+		{ key: "Esc", action: "quit" },
+	],
+};
 
 function ThreadPicker(props: {
 	initialSessions: SessionSummary[];
@@ -235,9 +243,7 @@ function ThreadPicker(props: {
 			</Show>
 
 			{/* Hints */}
-			<HintBar
-				bindings={MODE_BINDINGS[mode()]}
-			/>
+			<HintBar bindings={MODE_BINDINGS[mode()]} />
 		</box>
 	);
 }

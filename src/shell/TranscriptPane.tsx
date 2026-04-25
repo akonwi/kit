@@ -548,15 +548,11 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 						width="100%"
 					>
 						<box flexDirection="column" alignItems="center" gap={0}>
-							<text fg={theme.textPrimary}>k    i    t</text>
+							<text fg={theme.textPrimary}>k i t</text>
 							<text fg={theme.borderAccent}>━━━━━━━━━━━</text>
 						</box>
-						<text fg={theme.textSecondary}>
-							Ask a question or give a task.
-						</text>
-						<text fg={theme.textPlaceholder}>
-							/ to open commands
-						</text>
+						<text fg={theme.textSecondary}>Ask a question or give a task.</text>
+						<text fg={theme.textPlaceholder}>/ to open commands</text>
 					</box>
 				}
 			>

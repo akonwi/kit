@@ -27,18 +27,14 @@ export function ScreenLayout(props: ScreenLayoutProps) {
 			backgroundColor={props.backgroundColor ?? theme.bg}
 			flexDirection="column"
 		>
-			<Show when={props.header}>
-				{props.header}
-			</Show>
+			<Show when={props.header}>{props.header}</Show>
 
 			<box flexGrow={1} flexDirection="column" overflow="hidden">
 				{props.children}
 			</box>
 
 			<Show when={props.footer}>
-				<box flexShrink={0}>
-					{props.footer}
-				</box>
+				<box flexShrink={0}>{props.footer}</box>
 			</Show>
 		</box>
 	);

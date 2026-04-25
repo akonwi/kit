@@ -6,7 +6,12 @@
  * `syntaxStyle` is a Solid signal accessor — call `syntaxStyle()`.
  */
 
-import { RGBA, SyntaxStyle, type TerminalColors, type ThemeTokenStyle } from "@opentui/core";
+import {
+	RGBA,
+	SyntaxStyle,
+	type TerminalColors,
+	type ThemeTokenStyle,
+} from "@opentui/core";
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { KIT_SYNTAX_PALETTE, KIT_TOKENS } from "./themes/kit";

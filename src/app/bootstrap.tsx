@@ -9,11 +9,11 @@ import {
 import { render } from "@opentui/solid";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
-import { resolveAndApplyTheme } from "../shell/theme";
 import {
 	initTerminalTitle,
 	updateTerminalTitle,
 } from "../shell/terminal-title";
+import { resolveAndApplyTheme } from "../shell/theme";
 import { App } from "./App";
 
 function getInstalledRuntimeDir(): string | null {

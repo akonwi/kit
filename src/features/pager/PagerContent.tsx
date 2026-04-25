@@ -9,8 +9,18 @@ import { syntaxStyle, theme } from "../../shell/theme";
 import type { PagerController } from "./pager-controller";
 
 const MODE_BINDINGS: { [key in "navigate" | "edit"]: Binding[] } = {
-	navigate: [{ key: "←/→", action: "section" }, { key: "j/k", action: "scroll" }, { key: "n", action: "note" }, { key: "Ctrl+Enter", action: "submit" }, { key: "Esc", action: "close" }],
-	edit: [{ key: "Shift+Enter", action: "newline" }, { key: "Esc", action: "back" }, { key: "Ctrl+Enter", action: "submit notes" }],
+	navigate: [
+		{ key: "←/→", action: "section" },
+		{ key: "j/k", action: "scroll" },
+		{ key: "n", action: "note" },
+		{ key: "Ctrl+Enter", action: "submit" },
+		{ key: "Esc", action: "close" },
+	],
+	edit: [
+		{ key: "Shift+Enter", action: "newline" },
+		{ key: "Esc", action: "back" },
+		{ key: "Ctrl+Enter", action: "submit notes" },
+	],
 };
 
 export type PagerContentProps = {
@@ -174,29 +184,33 @@ export function PagerContent(props: PagerContentProps) {
 				}
 				footer={
 					<box flexDirection="column" gap={0}>
-							<Show
-								when={mode() === "edit"}
-								fallback={
-									<MessageComposer
-										placeholder={currentNote() || "press n to add a note"}
-										maxHeight={6}
-										focused={false}
-										showCursor={false}
-									/>
-								}
-							>
+						<Show
+							when={mode() === "edit"}
+							fallback={
 								<MessageComposer
-									ref={(el) => {
-										textareaRef = el as typeof textareaRef;
-									}}
-									initialValue={noteText()}
-									placeholder="Type your note..."
+									placeholder={currentNote() || "press n to add a note"}
 									maxHeight={6}
-									keyBindings={[{ name: "return", shift: true, action: "newline" }]}
-									onContentChange={() => setNoteText(textareaRef?.plainText ?? "")}
-									onPaste={handlePaste}
+									focused={false}
+									showCursor={false}
 								/>
-							</Show>
+							}
+						>
+							<MessageComposer
+								ref={(el) => {
+									textareaRef = el as typeof textareaRef;
+								}}
+								initialValue={noteText()}
+								placeholder="Type your note..."
+								maxHeight={6}
+								keyBindings={[
+									{ name: "return", shift: true, action: "newline" },
+								]}
+								onContentChange={() =>
+									setNoteText(textareaRef?.plainText ?? "")
+								}
+								onPaste={handlePaste}
+							/>
+						</Show>
 						<HintBar bindings={MODE_BINDINGS[mode()]} />
 					</box>
 				}
