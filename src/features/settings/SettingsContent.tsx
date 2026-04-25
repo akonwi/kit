@@ -574,6 +574,14 @@ export function SettingsContent(props: SettingsContentProps) {
 		);
 	}
 
+	function getSelectHeight(
+		row: Extract<SettingsRow, { kind: "select" }>,
+	): number {
+		const isTheme = row.id === "theme";
+		const options = isTheme ? themeOptions : voiceOptions();
+		return Math.min(6, Math.max(2, options.length));
+	}
+
 	function renderSelectValue(
 		row: Extract<SettingsRow, { kind: "select" }>,
 		rowFocused: boolean,
@@ -584,6 +592,7 @@ export function SettingsContent(props: SettingsContentProps) {
 		const isTheme = row.id === "theme";
 		const options = isTheme ? themeOptions : voiceOptions();
 		const selectedIndex = isTheme ? themeSelectedIndex() : voiceSelectedIndex();
+		const selectHeight = getSelectHeight(row);
 		return (
 			<box
 				minWidth={isTheme ? 16 : 28}
@@ -608,7 +617,8 @@ export function SettingsContent(props: SettingsContentProps) {
 				>
 					<select
 						focused
-						height={Math.min(6, Math.max(2, options.length))}
+						height={selectHeight}
+						showDescription={!isTheme}
 						options={options}
 						selectedIndex={selectedIndex}
 						selectedBackgroundColor={theme.pickerFocusedBg}
