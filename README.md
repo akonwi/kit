@@ -1,11 +1,6 @@
 # kit
 
-Standalone `kit` application with:
-
-- its own session storage under `~/.kit/sessions`
-- its own auth storage under `~/.kit/auth.json`
-- its own settings under `~/.kit/settings.json`
-- a custom terminal shell built with OpenTUI Solid
+Kit is a TUI coding agent inspired by [Pi](https://pi.dev).
 
 ## Requirements
 
