@@ -11,6 +11,7 @@ import type { SpeechVoiceDiscovery } from "../notifications/voices";
 
 type SettingsTabId = "general" | "notifications";
 type EditableField =
+	| "theme"
 	| "speech.maxChars"
 	| "speech.voice"
 	| "retry.maxRetries"
@@ -21,6 +22,7 @@ type EditableField =
 type SettingsContentProps = {
 	initialSettings: Settings;
 	speechVoices: SpeechVoiceDiscovery;
+	userThemes: string[];
 	onSave: (settings: Settings) => Promise<void>;
 	onClose: () => void;
 };
@@ -54,7 +56,7 @@ type SettingsRow =
 			disabled?: boolean;
 	  }
 	| {
-			id: "speech.voice";
+			id: "theme" | "speech.voice";
 			kind: "select";
 			label: string;
 			help: string;
@@ -136,10 +138,29 @@ export function SettingsContent(props: SettingsContentProps) {
 	const [retryMaxDelayDraft, setRetryMaxDelayDraft] = createSignal(
 		String(resolveRetrySettings(props.initialSettings.retry).maxDelayMs),
 	);
+	const [themeDraft, setThemeDraft] = createSignal(
+		props.initialSettings.theme ?? "kit",
+	);
+	const [themeSelectedIndex, setThemeSelectedIndex] = createSignal(0);
 	const [voiceDraft, setVoiceDraft] = createSignal(
 		resolveSpeechSettings(props.initialSettings.speech).voice ?? "",
 	);
 	const [voiceSelectedIndex, setVoiceSelectedIndex] = createSignal(0);
+
+	const themeOptions = [
+		{ name: "Kit", description: "", value: "kit" },
+		{ name: "System", description: "", value: "system" },
+		...props.userThemes.map((name) => ({
+			name: name.charAt(0).toUpperCase() + name.slice(1),
+			description: "",
+			value: name,
+		})),
+	];
+
+	function resolveThemeIndex(value: string): number {
+		const index = themeOptions.findIndex((o) => o.value === value);
+		return index >= 0 ? index : 0;
+	}
 
 	const voiceOptions = createMemo(() => [
 		{
@@ -160,6 +181,13 @@ export function SettingsContent(props: SettingsContentProps) {
 		const retry = resolveRetrySettings(currentSettings.retry);
 		if (activeTab() === "general") {
 			return [
+				{
+					id: "theme",
+					kind: "select",
+					label: "Theme",
+					help: "",
+					value: currentSettings.theme ?? "kit",
+				},
 				{
 					id: "guidedQuestions",
 					kind: "boolean",
@@ -267,6 +295,8 @@ export function SettingsContent(props: SettingsContentProps) {
 	function syncDrafts(nextSettings: Settings) {
 		const speech = resolveSpeechSettings(nextSettings.speech);
 		const retry = resolveRetrySettings(nextSettings.retry);
+		setThemeDraft(nextSettings.theme ?? "kit");
+		setThemeSelectedIndex(resolveThemeIndex(nextSettings.theme ?? "kit"));
 		setMaxCharsDraft(String(speech.maxChars));
 		setRetryMaxRetriesDraft(String(retry.maxRetries));
 		setRetryBaseDelayDraft(String(retry.baseDelayMs));
@@ -343,6 +373,15 @@ export function SettingsContent(props: SettingsContentProps) {
 
 	async function commitEdit(field = editingField()): Promise<boolean> {
 		if (!field) return true;
+		if (field === "theme") {
+			const value = themeDraft().trim() || "kit";
+			const ok = await persist({
+				...cloneSettings(settings()),
+				theme: value === "kit" ? undefined : value,
+			});
+			if (ok) setEditingField(null);
+			return ok;
+		}
 		if (
 			field === "speech.maxChars" ||
 			field === "retry.maxRetries" ||
@@ -437,7 +476,11 @@ export function SettingsContent(props: SettingsContentProps) {
 		}
 		setError(null);
 		if (row.kind === "select") {
-			setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
+			if (row.id === "theme") {
+				setThemeSelectedIndex(resolveThemeIndex(themeDraft()));
+			} else {
+				setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
+			}
 		}
 		setEditingField(row.id);
 	}
@@ -516,9 +559,12 @@ export function SettingsContent(props: SettingsContentProps) {
 		const disabled = row.disabled === true;
 		const editing = editingField() === row.id;
 		const display = row.value || row.placeholder || "";
+		const isTheme = row.id === "theme";
+		const options = isTheme ? themeOptions : voiceOptions();
+		const selectedIndex = isTheme ? themeSelectedIndex() : voiceSelectedIndex();
 		return (
 			<box
-				minWidth={28}
+				minWidth={isTheme ? 16 : 28}
 				border
 				borderColor={editing ? theme.borderAccent : rowFocused ? theme.borderFocused : theme.borderDefault}
 				backgroundColor={theme.bgTransparent}
@@ -534,19 +580,30 @@ export function SettingsContent(props: SettingsContentProps) {
 				>
 					<select
 						focused
-						height={Math.min(6, Math.max(2, voiceOptions().length))}
-						options={voiceOptions()}
-						selectedIndex={voiceSelectedIndex()}
+						height={Math.min(6, Math.max(2, options.length))}
+						options={options}
+						selectedIndex={selectedIndex}
 						selectedBackgroundColor={theme.pickerFocusedBg}
 						selectedTextColor={theme.pickerFocusedText}
 						onChange={(index, option) => {
-							setVoiceSelectedIndex(index);
-							setVoiceDraft(String(option?.value ?? ""));
+							if (isTheme) {
+								setThemeSelectedIndex(index);
+								setThemeDraft(String(option?.value ?? "kit"));
+							} else {
+								setVoiceSelectedIndex(index);
+								setVoiceDraft(String(option?.value ?? ""));
+							}
 						}}
 						onSelect={(index, option) => {
-							setVoiceSelectedIndex(index);
-							setVoiceDraft(String(option?.value ?? ""));
-							void commitEdit("speech.voice");
+							if (isTheme) {
+								setThemeSelectedIndex(index);
+								setThemeDraft(String(option?.value ?? "kit"));
+								void commitEdit("theme");
+							} else {
+								setVoiceSelectedIndex(index);
+								setVoiceDraft(String(option?.value ?? ""));
+								void commitEdit("speech.voice");
+							}
 						}}
 					/>
 				</Show>
@@ -694,9 +751,11 @@ export function SettingsContent(props: SettingsContentProps) {
 												if (!disabled()) {
 													setError(null);
 													if (row.kind === "select") {
-														setVoiceSelectedIndex(
-															resolveVoiceIndex(voiceDraft()),
-														);
+														if (row.id === "theme") {
+															setThemeSelectedIndex(resolveThemeIndex(themeDraft()));
+														} else {
+															setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
+														}
 													}
 													setEditingField(row.id);
 												}

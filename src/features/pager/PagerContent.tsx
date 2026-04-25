@@ -225,7 +225,7 @@ export function PagerContent(props: PagerContentProps) {
 						</Show>
 						<markdown
 							content={pager.currentSection?.body ?? ""}
-							syntaxStyle={syntaxStyle}
+							syntaxStyle={syntaxStyle()}
 							conceal
 							fg={theme.textPrimary}
 						/>

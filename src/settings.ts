@@ -4,6 +4,8 @@ import path from "node:path";
 import { getKitPaths, type KitPaths } from "./paths";
 
 export type Settings = {
+	/** Theme name: "kit" (default), "system", or a custom theme from ~/.kit/themes/ */
+	theme?: string;
 	/** Enable terminal bell on turn complete */
 	bells?: boolean;
 	/** Speech settings - can be a boolean or object with options */
@@ -105,6 +107,8 @@ function sanitizeSettings(raw: unknown): Settings {
 		return { ...DEFAULTS };
 	}
 
+	const theme =
+		typeof raw.theme === "string" ? raw.theme : undefined;
 	const bells = typeof raw.bells === "boolean" ? raw.bells : DEFAULTS.bells;
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
 	const guidedQuestions =
@@ -151,7 +155,7 @@ function sanitizeSettings(raw: unknown): Settings {
 		speech = defaultSpeechObject();
 	}
 
-	return { bells, speech, pager, guidedQuestions, sessionNaming, retry };
+	return { theme, bells, speech, pager, guidedQuestions, sessionNaming, retry };
 }
 
 export type LoadedSettings = {

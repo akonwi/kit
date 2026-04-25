@@ -224,7 +224,7 @@ function UserTextEntry(props: { text: string; aborted?: boolean }) {
 		>
 			<markdown
 				content={props.text}
-				syntaxStyle={syntaxStyle}
+				syntaxStyle={syntaxStyle()}
 				conceal
 				fg={props.aborted ? theme.textMuted : theme.textPrimary}
 			/>
@@ -312,7 +312,7 @@ function BashEntry(props: { msg: BashExecutionMessage }) {
 				<code
 					filetype="bash"
 					content={props.msg.command}
-					syntaxStyle={syntaxStyle}
+					syntaxStyle={syntaxStyle()}
 					fg={theme.textPrimary}
 				/>
 				<Show when={hasOutput}>
@@ -451,7 +451,7 @@ function AssistantEntry(props: {
 			<Show when={text.length > 0}>
 				<markdown
 					content={text}
-					syntaxStyle={syntaxStyle}
+					syntaxStyle={syntaxStyle()}
 					conceal
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 				/>

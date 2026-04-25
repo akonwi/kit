@@ -9,6 +9,7 @@ import {
 import { render } from "@opentui/solid";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
+import { resolveAndApplyTheme } from "../shell/theme";
 import {
 	initTerminalTitle,
 	updateTerminalTitle,
@@ -116,6 +117,10 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 			renderer.console.toggle();
 		}
 	});
+
+	// Resolve theme before rendering — "system" theme needs the renderer for palette detection
+	const themeName = settings.settings.theme ?? "kit";
+	await resolveAndApplyTheme(themeName, renderer);
 
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
 	updateTerminalTitle(session.name, process.cwd());

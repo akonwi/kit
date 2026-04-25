@@ -259,7 +259,7 @@ export function ReviewContent(props: ReviewContentProps) {
 																diff={file.rawPatch}
 																view="unified"
 																filetype={file.filetype}
-																syntaxStyle={syntaxStyle}
+																syntaxStyle={syntaxStyle()}
 																showLineNumbers
 																addedBg={theme.diffAddedBg}
 																removedBg={theme.diffRemovedBg}
@@ -335,7 +335,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											diff={file().rawPatch}
 											view="unified"
 											filetype={file().filetype}
-											syntaxStyle={syntaxStyle}
+											syntaxStyle={syntaxStyle()}
 											showLineNumbers
 											addedBg={theme.diffAddedBg}
 											removedBg={theme.diffRemovedBg}
