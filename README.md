@@ -1,27 +1,38 @@
 # kit
 
-Kit is a TUI coding agent inspired by [Pi](https://pi.dev).
+Kit is a TUI coding agent heavily inspired by [Pi](https://pi.dev) and built on top of [`pi-agent-core`](https://github.com/badlogic/pi-mono/tree/main/packages/agent) with [OpenTUI](https://opentui.com/).
 
 ## Requirements
 
-Requires [Bun](https://bun.sh) (>= 1.3.0).
+- [Bun](https://bun.sh) `>= 1.3.0`
 
-## Install for normal use
+## Install
 
 ```bash
 bun install
 bun run build
-
-# Symlink the compiled binary into your PATH
-ln -sf "$(pwd)/dist/kit" ~/.bun/bin/kit
+bun link
 ```
 
-Then run `kit` from any directory.
+The compiled binary is the intended non-development entry point.
+
+## Usage
 
 ```bash
-kit              # opens most recent session for the current directory
-kit -s abc123    # opens a specific session by ID
+kit              # resumes the most recent session for the current directory or starts a new one
+kit -s abc123    # opens a specific session by ID (long or short id)
+kit threads      # launches a session picker
 ```
+
+## What Kit includes
+
+- terminal-first coding agent workflow
+- session restore and persistence
+- slash commands, prompt commands, and skills
+- settings UI and app-owned settings
+- code review tools and diff browser
+
+For feature details, see [`docs/features/`](docs/features/).
 
 ## Development
 
@@ -37,21 +48,9 @@ Build the distributed binary:
 bun run build
 ```
 
-Typecheck:
+## More documentation
 
-```bash
-bun run typecheck
-```
-
-## Notes
-
-- the compiled binary is the intended non-development entry point
-- the old wrapper-based launcher is no longer the recommended install path
-- Kit session, auth, and settings state live under `~/.kit`
-
-## Architecture
-
-See:
-
-- `docs/architecture/custom-shell.md`
-- `AGENTS.md`
+- feature docs: [`docs/features/`](docs/features/)
+- architecture docs: [`docs/architecture/`](docs/architecture/)
+- decision records: [`docs/decisions/`](docs/decisions/)
+- project guidance: [`AGENTS.md`](AGENTS.md)

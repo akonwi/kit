@@ -5,6 +5,9 @@
 	"description": "Standalone kit app with Pi-core compatibility and a custom terminal shell.",
 	"license": "MIT",
 	"type": "module",
+	"bin": {
+		"kit": "./dist/kit"
+	},
 	"scripts": {
 		"check": "biome check --write .",
 		"dev": "bun --preload=@opentui/solid/preload src/app/main.tsx",
