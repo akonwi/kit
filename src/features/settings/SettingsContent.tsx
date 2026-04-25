@@ -66,8 +66,18 @@ type SettingsRow =
 	  };
 
 const SETTINGS_BINDINGS: { editing: Binding[]; browsing: Binding[] } = {
-	editing: [{ key: "Enter", action: "save" }, { key: "Esc", action: "cancel" }, { key: "Click", action: "another tab or row to save" }],
-	browsing: [{ key: "Esc", action: "close" }, { key: "↑/↓", action: "move" }, { key: "←/→", action: "tabs" }, { key: "Enter", action: "edit" }, { key: "Space", action: "toggle" }],
+	editing: [
+		{ key: "Enter", action: "save" },
+		{ key: "Esc", action: "cancel" },
+		{ key: "Click", action: "another tab or row to save" },
+	],
+	browsing: [
+		{ key: "Esc", action: "close" },
+		{ key: "↑/↓", action: "move" },
+		{ key: "←/→", action: "tabs" },
+		{ key: "Enter", action: "edit" },
+		{ key: "Space", action: "toggle" },
+	],
 };
 
 const TABS: Array<{ id: SettingsTabId; label: string }> = [
@@ -377,7 +387,7 @@ export function SettingsContent(props: SettingsContentProps) {
 			const value = themeDraft().trim() || "kit";
 			const ok = await persist({
 				...cloneSettings(settings()),
-				theme: value === "kit" ? undefined : value,
+				theme: value,
 			});
 			if (ok) setEditingField(null);
 			return ok;
@@ -501,7 +511,10 @@ export function SettingsContent(props: SettingsContentProps) {
 		});
 	}
 
-	function renderInputValue(row: Extract<SettingsRow, { kind: "input" }>, rowFocused: boolean) {
+	function renderInputValue(
+		row: Extract<SettingsRow, { kind: "input" }>,
+		rowFocused: boolean,
+	) {
 		const disabled = row.disabled === true;
 		const editing = editingField() === row.id;
 		const value =
@@ -517,7 +530,13 @@ export function SettingsContent(props: SettingsContentProps) {
 			<box
 				minWidth={8}
 				border
-				borderColor={editing ? theme.borderAccent : rowFocused ? theme.borderFocused : theme.borderDefault}
+				borderColor={
+					editing
+						? theme.borderAccent
+						: rowFocused
+							? theme.borderFocused
+							: theme.borderDefault
+				}
 				backgroundColor={theme.bgTransparent}
 				paddingX={1}
 			>
@@ -555,7 +574,10 @@ export function SettingsContent(props: SettingsContentProps) {
 		);
 	}
 
-	function renderSelectValue(row: Extract<SettingsRow, { kind: "select" }>, rowFocused: boolean) {
+	function renderSelectValue(
+		row: Extract<SettingsRow, { kind: "select" }>,
+		rowFocused: boolean,
+	) {
 		const disabled = row.disabled === true;
 		const editing = editingField() === row.id;
 		const display = row.value || row.placeholder || "";
@@ -566,7 +588,13 @@ export function SettingsContent(props: SettingsContentProps) {
 			<box
 				minWidth={isTheme ? 16 : 28}
 				border
-				borderColor={editing ? theme.borderAccent : rowFocused ? theme.borderFocused : theme.borderDefault}
+				borderColor={
+					editing
+						? theme.borderAccent
+						: rowFocused
+							? theme.borderFocused
+							: theme.borderDefault
+				}
 				backgroundColor={theme.bgTransparent}
 				paddingX={editing ? 0 : 1}
 			>
@@ -740,7 +768,9 @@ export function SettingsContent(props: SettingsContentProps) {
 										gap={2}
 										height={3}
 										paddingX={1}
-										backgroundColor={focused() ? theme.bgMuted : theme.bgTransparent}
+										backgroundColor={
+											focused() ? theme.bgMuted : theme.bgTransparent
+										}
 										onMouseUp={() => {
 											void runAfterPendingEdit(async () => {
 												focusRow(index());
@@ -752,9 +782,13 @@ export function SettingsContent(props: SettingsContentProps) {
 													setError(null);
 													if (row.kind === "select") {
 														if (row.id === "theme") {
-															setThemeSelectedIndex(resolveThemeIndex(themeDraft()));
+															setThemeSelectedIndex(
+																resolveThemeIndex(themeDraft()),
+															);
 														} else {
-															setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
+															setVoiceSelectedIndex(
+																resolveVoiceIndex(voiceDraft()),
+															);
 														}
 													}
 													setEditingField(row.id);
@@ -763,7 +797,9 @@ export function SettingsContent(props: SettingsContentProps) {
 										}}
 									>
 										<box flexDirection="column" flexGrow={1} gap={0}>
-											<text fg={disabled() ? theme.textMuted : theme.textPrimary}>
+											<text
+												fg={disabled() ? theme.textMuted : theme.textPrimary}
+											>
 												{row.label}
 											</text>
 											<text fg={theme.textMuted}>
@@ -775,7 +811,9 @@ export function SettingsContent(props: SettingsContentProps) {
 
 										<box flexShrink={0}>
 											{row.kind === "boolean" ? (
-												<box paddingY={1}><Toggle checked={row.checked} disabled={disabled()} /></box>
+												<box paddingY={1}>
+													<Toggle checked={row.checked} disabled={disabled()} />
+												</box>
 											) : row.kind === "input" ? (
 												renderInputValue(row, focused())
 											) : (
@@ -795,7 +833,9 @@ export function SettingsContent(props: SettingsContentProps) {
 					</box>
 				</Show>
 
-				<HintBar bindings={SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]} />
+				<HintBar
+					bindings={SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]}
+				/>
 			</box>
 		</box>
 	);
