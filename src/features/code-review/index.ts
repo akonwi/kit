@@ -1,26 +1,37 @@
 import { Plugin } from "../../plugins/Plugin";
-import type { Command } from "../commands/types";
 import { CodeReviewAttachment } from "./attachment";
 import { codeReviewBrowserHost } from "./browser-host";
-
-const codeReviewCommand: Command = {
-	name: "code-review",
-	description: "Open the browser-backed code review prototype",
-	async execute({ runtime }) {
-		try {
-			await codeReviewBrowserHost.launch(runtime);
-		} catch (error) {
-			runtime.emitError("Code review failed", [String(error)]);
-		}
-	},
-};
+import { resetCodeReviewStatus, updateCodeReviewStatus } from "./state";
 
 export class CodeReviewPlugin extends Plugin {
 	initialize(): void {
-		this.registerCommand(codeReviewCommand);
-		void codeReviewBrowserHost.activate(this.ctx.runtime).catch((error) => {
-			console.warn("[code-review] failed to activate browser host", error);
+		let lastEmittedError: string | null = null;
+		this.registerCommand({
+			name: "code-review",
+			description: "Review + comment on the current diff",
+			execute: async ({ runtime }) => {
+				try {
+					await codeReviewBrowserHost.launch(runtime);
+				} catch {
+					// Host status subscription emits the user-facing error.
+				}
+			},
 		});
+		this.addDisposer(
+			codeReviewBrowserHost.subscribeStatus((status) => {
+				updateCodeReviewStatus(status);
+				if (status.serverState === "error" && status.lastError) {
+					if (status.lastError !== lastEmittedError) {
+						lastEmittedError = status.lastError;
+						this.ctx.runtime.emitError("Code review failed", [
+							status.lastError,
+						]);
+					}
+					return;
+				}
+				if (!status.lastError) lastEmittedError = null;
+			}),
+		);
 		codeReviewBrowserHost.setOnReviewSubmitted((review) => {
 			this.ctx.attachments.attach(
 				new CodeReviewAttachment("code-review", review),
@@ -31,6 +42,7 @@ export class CodeReviewPlugin extends Plugin {
 		});
 		this.addDisposer(() => {
 			codeReviewBrowserHost.dispose();
+			resetCodeReviewStatus();
 		});
 		this.addDisposer(
 			this.ctx.attachments.subscribe((event) => {

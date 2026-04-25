@@ -719,6 +719,7 @@ function renderState(state: CodeReviewBrowserState): void {
 let socket: WebSocket | null = null;
 let reconnectTimer: number | null = null;
 let reconnectAttempt = 0;
+let snapshotRefreshInFlight = false;
 
 function send(message: CodeReviewClientMessage): void {
 	if (!socket || socket.readyState !== WebSocket.OPEN) return;
@@ -729,63 +730,129 @@ const url = new URL(window.location.href);
 const sessionId = url.searchParams.get("sessionId") ?? "";
 const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
 const socketUrl = `${protocol}//${window.location.host}/ws?sessionId=${encodeURIComponent(sessionId)}`;
+const stateUrl = `/state?sessionId=${encodeURIComponent(sessionId)}`;
+const healthUrl = `/health?sessionId=${encodeURIComponent(sessionId)}`;
+
+async function refreshStateSnapshot(reason: string): Promise<boolean> {
+	if (snapshotRefreshInFlight) return false;
+	snapshotRefreshInFlight = true;
+	try {
+		const response = await fetch(stateUrl, { cache: "no-store" });
+		if (!response.ok) return false;
+		const state = (await response.json()) as CodeReviewBrowserState;
+		renderState(state);
+		if (!socket || socket.readyState !== WebSocket.OPEN) {
+			setConnection(reason, theme.warningText);
+		}
+		return true;
+	} catch {
+		return false;
+	} finally {
+		snapshotRefreshInFlight = false;
+	}
+}
+
+async function waitForHostReady(): Promise<boolean> {
+	try {
+		const response = await fetch(healthUrl, { cache: "no-store" });
+		return response.ok;
+	} catch {
+		return false;
+	}
+}
 
 function scheduleReconnect(): void {
 	if (reconnectTimer !== null) return;
 	const delay = Math.min(1000 * 2 ** reconnectAttempt, 5000);
 	reconnectAttempt += 1;
 	setConnection("Reconnecting…", theme.warningText);
+	void refreshStateSnapshot("Snapshot only");
 	reconnectTimer = window.setTimeout(() => {
 		reconnectTimer = null;
 		connectSocket();
 	}, delay);
 }
 
-function connectSocket(): void {
-	if (socket && socket.readyState === WebSocket.OPEN) return;
-	const nextSocket = new WebSocket(socketUrl);
-	socket = nextSocket;
+async function connectSocket(): Promise<void> {
+	if (
+		socket &&
+		(socket.readyState === WebSocket.OPEN ||
+			socket.readyState === WebSocket.CONNECTING)
+	) {
+		return;
+	}
 
-	nextSocket.addEventListener("open", () => {
-		reconnectAttempt = 0;
-		setConnection("Connected", theme.toolText);
-		send({ type: "ready" });
-	});
-
-	nextSocket.addEventListener("close", () => {
-		if (socket === nextSocket) {
-			socket = null;
-		}
+	setConnection(
+		reconnectAttempt > 0 ? "Reconnecting…" : "Connecting…",
+		theme.warningText,
+	);
+	const hostReady = await waitForHostReady();
+	if (!hostReady) {
+		setConnection("Waiting for Kit…", theme.warningText);
+		void refreshStateSnapshot("Waiting for Kit…");
 		scheduleReconnect();
-	});
+		return;
+	}
 
-	nextSocket.addEventListener("error", () => {
-		setConnection("Connection error", theme.errorText);
-	});
+	try {
+		const nextSocket = new WebSocket(socketUrl);
+		socket = nextSocket;
 
-	nextSocket.addEventListener("message", (event) => {
-		const message = JSON.parse(event.data) as CodeReviewServerMessage;
-		if (message.type === "connected") return;
-		if (message.type === "state") {
-			renderState(message.state);
-			return;
-		}
-		if (message.type === "submission_saved") {
-			draft = { fileComments: {}, rangeComments: {} };
-			selectedRange = null;
-			submitStatus.textContent = `Sent ${message.commentCount} comment${message.commentCount === 1 ? "" : "s"} across ${message.fileCount} file${message.fileCount === 1 ? "" : "s"} at ${message.submittedAt}.`;
-			if (currentState) {
-				renderState(currentState);
+		nextSocket.addEventListener("open", () => {
+			reconnectAttempt = 0;
+			setConnection("Connected", theme.toolText);
+			send({ type: "ready" });
+		});
+
+		nextSocket.addEventListener("close", () => {
+			if (socket === nextSocket) {
+				socket = null;
 			}
-			send({ type: "refresh_diff" });
-		}
-	});
+			scheduleReconnect();
+		});
+
+		nextSocket.addEventListener("error", () => {
+			setConnection("Connection error", theme.errorText);
+			void refreshStateSnapshot("Snapshot only");
+		});
+
+		nextSocket.addEventListener("message", (event) => {
+			try {
+				const message = JSON.parse(event.data) as CodeReviewServerMessage;
+				if (message.type === "connected") return;
+				if (message.type === "state") {
+					renderState(message.state);
+					return;
+				}
+				if (message.type === "submission_saved") {
+					draft = { fileComments: {}, rangeComments: {} };
+					selectedRange = null;
+					submitStatus.textContent = `Sent ${message.commentCount} comment${message.commentCount === 1 ? "" : "s"} across ${message.fileCount} file${message.fileCount === 1 ? "" : "s"} at ${message.submittedAt}.`;
+					if (currentState) {
+						renderState(currentState);
+					}
+					send({ type: "refresh_diff" });
+				}
+			} catch {
+				setConnection("Bad server response", theme.errorText);
+			}
+		});
+	} catch {
+		setConnection("Connection error", theme.errorText);
+		void refreshStateSnapshot("Snapshot only");
+		scheduleReconnect();
+	}
 }
 
-connectSocket();
+void refreshStateSnapshot("Loading review…");
+void connectSocket();
 
 refreshButton.addEventListener("click", () => {
-	send({ type: "refresh_diff" });
+	if (socket && socket.readyState === WebSocket.OPEN) {
+		send({ type: "refresh_diff" });
+		return;
+	}
+	void refreshStateSnapshot("Snapshot only");
 });
 
 submitButton.addEventListener("click", () => {

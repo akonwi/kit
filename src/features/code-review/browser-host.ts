@@ -7,6 +7,7 @@ import { openExternal } from "../../shell/open-external";
 import { theme } from "../../shell/theme";
 import { loadReviewFiles } from "../review/model";
 import type { CodeReviewSubmission } from "./attachment";
+import type { CodeReviewHostStatus } from "./state";
 
 type CodeReviewClientMessage =
 	| { type: "ready" }
@@ -103,6 +104,15 @@ function getBrowserTheme(): BrowserTheme {
 
 const SERVER_PORT_BASE = 41000;
 const SERVER_PORT_RANGE = 2000;
+const SERVER_PORT_ATTEMPTS = 12;
+const SERVER_READY_RETRY_DELAYS_MS = [25, 75, 150, 300, 600, 1000];
+const INITIAL_HOST_STATUS: CodeReviewHostStatus = {
+	serverState: "idle",
+	port: null,
+	clientConnected: false,
+	launchInFlight: false,
+	lastError: null,
+};
 
 class CodeReviewBrowserHost {
 	private server: Bun.Server<SocketData> | null = null;
@@ -115,6 +125,10 @@ class CodeReviewBrowserHost {
 	private appBundlePromise: Promise<string> | null = null;
 	private onReviewSubmitted: ((review: CodeReviewSubmission) => void) | null =
 		null;
+	private status: CodeReviewHostStatus = INITIAL_HOST_STATUS;
+	private readonly statusListeners = new Set<
+		(status: CodeReviewHostStatus) => void
+	>();
 
 	setOnReviewSubmitted(
 		handler: ((review: CodeReviewSubmission) => void) | null,
@@ -126,6 +140,20 @@ class CodeReviewBrowserHost {
 		// Pending review attachment state currently lives outside the browser host.
 	}
 
+	getStatus(): CodeReviewHostStatus {
+		return { ...this.status };
+	}
+
+	subscribeStatus(
+		listener: (status: CodeReviewHostStatus) => void,
+	): () => void {
+		this.statusListeners.add(listener);
+		listener(this.getStatus());
+		return () => {
+			this.statusListeners.delete(listener);
+		};
+	}
+
 	dispose(): void {
 		this.unsubscribeRuntime?.();
 		this.unsubscribeRuntime = null;
@@ -135,24 +163,49 @@ class CodeReviewBrowserHost {
 		this.clients.clear();
 		this.activeSessionId = null;
 		this.state = null;
+		this.setStatus(INITIAL_HOST_STATUS);
 	}
 
 	async activate(runtime: AgentRuntime): Promise<void> {
-		this.ensureServer(runtime);
+		await this.ensureServer(runtime);
 		this.attachRuntime(runtime);
 		await this.refreshState(runtime, "activate");
 	}
 
 	async launch(runtime: AgentRuntime): Promise<void> {
-		await this.activate(runtime);
+		this.setStatus({
+			serverState: this.server ? this.status.serverState : "starting",
+			port: this.server?.port ?? null,
+			clientConnected: this.clients.size > 0,
+			launchInFlight: true,
+			lastError: null,
+		});
+		try {
+			await this.activate(runtime);
+			await this.waitForServerReady();
 
-		const url = this.getSessionUrl();
-		await openExternal(url);
-		runtime.emitInfo("Code review opened", [url]);
+			const url = this.getSessionUrl();
+			await openExternal(url);
+			runtime.emitInfo("Code review opened", [url]);
+			this.setStatus({ launchInFlight: false, lastError: null });
+		} catch (error) {
+			this.setStatus({
+				serverState: "error",
+				launchInFlight: false,
+				lastError: String(error),
+			});
+			throw error;
+		}
 	}
 
-	private ensureServer(runtime: AgentRuntime): void {
+	private async ensureServer(runtime: AgentRuntime): Promise<void> {
 		const sessionId = runtime.getSession().id;
+		this.setStatus({
+			serverState: "starting",
+			launchInFlight: this.status.launchInFlight,
+			clientConnected: this.clients.size > 0,
+			lastError: null,
+		});
 		if (this.server && this.activeSessionId === sessionId) {
 			return;
 		}
@@ -160,75 +213,150 @@ class CodeReviewBrowserHost {
 			this.server.stop(true);
 			this.server = null;
 			this.clients.clear();
+			this.setStatus({ clientConnected: false, port: null });
 		}
 		this.activeSessionId = sessionId;
 
-		this.server = Bun.serve<SocketData>({
-			port: this.getSessionPort(sessionId),
-			fetch: async (request, server) => {
-				const url = new URL(request.url);
+		const preferredPort = this.getSessionPort(sessionId);
+		let lastError: unknown = null;
+		for (let offset = 0; offset < SERVER_PORT_ATTEMPTS; offset++) {
+			const port =
+				SERVER_PORT_BASE +
+				((preferredPort - SERVER_PORT_BASE + offset) % SERVER_PORT_RANGE);
+			try {
+				this.server = Bun.serve<SocketData>({
+					port,
+					fetch: async (request, server) => {
+						const url = new URL(request.url);
 
-				if (url.pathname === "/health") {
-					return Response.json({ ok: true });
-				}
+						if (!this.matchesSession(url)) {
+							return new Response("Session not found", { status: 404 });
+						}
 
-				if (!this.matchesSession(url)) {
-					return new Response("Session not found", { status: 404 });
-				}
+						if (url.pathname === "/health") {
+							return Response.json({
+								ok: true,
+								sessionId: this.activeSessionId,
+								hasState: this.state !== null,
+								port: server.port,
+							});
+						}
 
-				if (url.pathname === "/ws") {
-					const upgraded = server.upgrade(request, {
-						data: { connectedAt: new Date().toISOString() },
-					});
-					if (upgraded) return undefined;
-					return new Response("WebSocket upgrade failed", { status: 500 });
-				}
+						if (url.pathname === "/state") {
+							if (!this.state) {
+								return Response.json(
+									{ error: "State not ready" },
+									{ status: 503 },
+								);
+							}
+							return Response.json(this.state, {
+								headers: { "cache-control": "no-store" },
+							});
+						}
 
-				if (url.pathname === "/app.js") {
-					try {
-						return new Response(await this.getAppBundle(), {
-							headers: {
-								"content-type": "text/javascript; charset=utf-8",
-								"cache-control": "no-store",
-							},
-						});
-					} catch (error) {
-						return new Response(String(error), { status: 500 });
-					}
-				}
+						if (url.pathname === "/ws") {
+							const upgraded = server.upgrade(request, {
+								data: { connectedAt: new Date().toISOString() },
+							});
+							if (upgraded) return undefined;
+							return new Response("WebSocket upgrade failed", { status: 500 });
+						}
 
-				if (url.pathname === "/") {
-					return new Response(this.renderHtml(), {
-						headers: {
-							"content-type": "text/html; charset=utf-8",
-							"cache-control": "no-store",
+						if (url.pathname === "/app.js") {
+							try {
+								return new Response(await this.getAppBundle(), {
+									headers: {
+										"content-type": "text/javascript; charset=utf-8",
+										"cache-control": "no-store",
+									},
+								});
+							} catch (error) {
+								return new Response(String(error), { status: 500 });
+							}
+						}
+
+						if (url.pathname === "/") {
+							return new Response(this.renderHtml(), {
+								headers: {
+									"content-type": "text/html; charset=utf-8",
+									"cache-control": "no-store",
+								},
+							});
+						}
+
+						return new Response("Not found", { status: 404 });
+					},
+					websocket: {
+						open: (ws) => {
+							this.clients.add(ws);
+							this.setStatus({ clientConnected: true });
+							this.send(ws, {
+								type: "connected",
+								sessionUrl: this.getSessionUrl(),
+							});
+							this.sendState(ws, "socket_open");
 						},
+						close: (ws) => {
+							this.clients.delete(ws);
+							this.setStatus({ clientConnected: this.clients.size > 0 });
+						},
+						message: (ws, message) => {
+							const text =
+								typeof message === "string"
+									? message
+									: Buffer.from(message).toString("utf8");
+							void this.handleClientMessage(ws, text);
+						},
+					},
+				});
+				this.setStatus({
+					serverState: "ready",
+					port,
+					clientConnected: this.clients.size > 0,
+					lastError: null,
+				});
+				return;
+			} catch (error) {
+				lastError = error;
+				if (!isAddressInUse(error)) {
+					const message = String(error);
+					this.setStatus({
+						serverState: "error",
+						lastError: message,
+						port: null,
+						clientConnected: false,
 					});
+					throw error;
 				}
+			}
+		}
 
-				return new Response("Not found", { status: 404 });
-			},
-			websocket: {
-				open: (ws) => {
-					this.clients.add(ws);
-					this.send(ws, {
-						type: "connected",
-						sessionUrl: this.getSessionUrl(),
-					});
-					this.sendState(ws, "socket_open");
-				},
-				close: (ws) => {
-					this.clients.delete(ws);
-				},
-				message: (ws, message) => {
-					const text =
-						typeof message === "string"
-							? message
-							: Buffer.from(message).toString("utf8");
-					void this.handleClientMessage(ws, text);
-				},
-			},
+		const message = `Unable to start code review browser server after ${SERVER_PORT_ATTEMPTS} port attempts: ${String(lastError)}`;
+		this.setStatus({
+			serverState: "error",
+			port: null,
+			clientConnected: false,
+			lastError: message,
 		});
+		throw new Error(message);
+	}
+
+	private async waitForServerReady(): Promise<void> {
+		const healthUrl = this.getHealthUrl();
+		let lastError: unknown = null;
+		for (const delayMs of SERVER_READY_RETRY_DELAYS_MS) {
+			try {
+				const response = await fetch(healthUrl, { cache: "no-store" });
+				if (response.ok) return;
+				lastError = new Error(`Health check failed with ${response.status}`);
+			} catch (error) {
+				lastError = error;
+			}
+			await sleep(delayMs);
+		}
+		const message = `Code review browser server did not become ready: ${String(lastError)}`;
+		this.setStatus({ serverState: "error", lastError: message });
+		throw new Error(message);
 	}
 
 	private attachRuntime(runtime: AgentRuntime): void {
@@ -423,6 +551,16 @@ class CodeReviewBrowserHost {
 		ws.send(JSON.stringify(message));
 	}
 
+	private setStatus(next: Partial<CodeReviewHostStatus>): void {
+		this.status = {
+			...this.status,
+			...next,
+		};
+		for (const listener of this.statusListeners) {
+			listener(this.getStatus());
+		}
+	}
+
 	private getSessionUrl(): string {
 		const server = this.server;
 		if (!server) {
@@ -433,6 +571,18 @@ class CodeReviewBrowserHost {
 			throw new Error("Code review browser session is not active.");
 		}
 		return `http://127.0.0.1:${server.port}/?sessionId=${encodeURIComponent(sessionId)}`;
+	}
+
+	private getHealthUrl(): string {
+		const server = this.server;
+		if (!server) {
+			throw new Error("Code review browser server has not started.");
+		}
+		const sessionId = this.activeSessionId;
+		if (!sessionId) {
+			throw new Error("Code review browser session is not active.");
+		}
+		return `http://127.0.0.1:${server.port}/health?sessionId=${encodeURIComponent(sessionId)}`;
 	}
 
 	private getSessionPort(sessionId: string): number {
@@ -466,6 +616,20 @@ class CodeReviewBrowserHost {
 </body>
 </html>`;
 	}
+}
+
+function isAddressInUse(error: unknown): boolean {
+	return (
+		error instanceof Error &&
+		(typeof (error as NodeJS.ErrnoException).code === "string"
+			? (error as NodeJS.ErrnoException).code === "EADDRINUSE"
+			: error.message.includes("EADDRINUSE") ||
+				error.message.toLowerCase().includes("address already in use"))
+	);
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export const codeReviewBrowserHost = new CodeReviewBrowserHost();

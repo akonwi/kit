@@ -15,3 +15,5 @@ Delete done items
   - current error: `Error: agent is already processing a prompt. Use steer() or followUp() to queue message, or wait for completion.`
 - [ ] enhancement: bash commands should enter the transcript immediately and show loading state - like tool calls
 - [ ] fix: Select for theme option in settings doesn't display correctly (it's squished), probably because of row below
+- [ ] idea: let shell components query plugin state/capabilities via PluginManager in the component tree instead of importing global feature state
+- [ ] idea: formalize plugin contribution to the status footer
