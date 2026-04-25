@@ -1,4 +1,3 @@
-import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
@@ -7,6 +6,7 @@ import {
 	getTreeSitterClient,
 } from "@opentui/core";
 import { render } from "@opentui/solid";
+import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
 import {
@@ -15,16 +15,6 @@ import {
 } from "../shell/terminal-title";
 import { resolveAndApplyTheme } from "../shell/theme";
 import { App } from "./App";
-
-function getInstalledRuntimeDir(): string | null {
-	try {
-		const execDir = path.dirname(realpathSync(process.execPath));
-		const runtimeDir = path.join(execDir, "runtime");
-		return existsSync(runtimeDir) ? runtimeDir : null;
-	} catch {
-		return null;
-	}
-}
 
 async function loadSession(sessionId?: string): Promise<Session> {
 	// If a session ID is provided directly (e.g. from `kit threads`), use it

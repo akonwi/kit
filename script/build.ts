@@ -16,6 +16,7 @@ if (Bun.semver.order(Bun.version, MIN_BUN_VERSION) < 0) {
 const dir = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(dir, "dist");
 const runtimeDir = path.join(distDir, "runtime");
+const codeReviewRuntimeDir = path.join(runtimeDir, "code-review");
 const binaryPath = path.join(distDir, "kit");
 const parserWorkerPath = path.resolve(
 	dir,
@@ -29,6 +30,7 @@ process.chdir(dir);
 await fs.promises.rm(distDir, { recursive: true, force: true });
 await fs.promises.mkdir(distDir, { recursive: true });
 await fs.promises.mkdir(runtimeDir, { recursive: true });
+await fs.promises.mkdir(codeReviewRuntimeDir, { recursive: true });
 
 console.log("Compiling binary...");
 
@@ -76,6 +78,29 @@ if (process.platform === "darwin") {
 }
 
 console.log("Binary compiled, bundling runtime assets...");
+
+const codeReviewBundle = await Bun.build({
+	entrypoints: ["./src/features/code-review/web/main.ts"],
+	format: "esm",
+	target: "browser",
+	minify: false,
+	splitting: false,
+	write: false,
+});
+
+if (!codeReviewBundle.success || codeReviewBundle.outputs.length === 0) {
+	console.error("Code review bundle failed:");
+	for (const log of codeReviewBundle.logs) {
+		console.error(" ", log);
+	}
+	process.exit(1);
+}
+
+await fs.promises.writeFile(
+	path.join(codeReviewRuntimeDir, "app.js"),
+	await codeReviewBundle.outputs[0].text(),
+	"utf8",
+);
 
 // Step 2: Bundle the tree-sitter worker and copy runtime assets needed by the compiled binary.
 const workerBundle = await Bun.build({

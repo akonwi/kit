@@ -1,8 +1,11 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
 	AgentRuntime,
 	AgentRuntimeEvent,
 } from "../../runtime/agent-runtime";
+import { getInstalledRuntimeDir } from "../../runtime/runtime-dir";
 import { openExternal } from "../../shell/open-external";
 import { theme } from "../../shell/theme";
 import { loadReviewFiles } from "../review/model";
@@ -508,6 +511,23 @@ class CodeReviewBrowserHost {
 	}
 
 	private async buildAppBundle(): Promise<string> {
+		const installedRuntimeDir = getInstalledRuntimeDir();
+		if (installedRuntimeDir) {
+			const bundledPath = path.join(
+				installedRuntimeDir,
+				"code-review",
+				"app.js",
+			);
+			try {
+				return await readFile(bundledPath, "utf8");
+			} catch (error) {
+				console.warn(
+					"[code-review] failed to read prebuilt browser bundle, falling back to runtime build",
+					error,
+				);
+			}
+		}
+
 		const entrypoint = fileURLToPath(new URL("./web/main.ts", import.meta.url));
 		const buildConfig = {
 			entrypoints: [entrypoint],
