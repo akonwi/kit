@@ -11,11 +11,13 @@ declare module "@mariozechner/pi-agent-core" {
 	interface CustomAgentMessages {
 		bashExecution: {
 			role: "bashExecution";
+			id: string;
 			command: string;
 			output: string;
 			exitCode: number | undefined;
 			cancelled: boolean;
 			truncated: boolean;
+			pending?: boolean;
 			/** When true, this message is excluded from LLM context */
 			excludeFromContext: boolean;
 			timestamp: number;

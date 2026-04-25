@@ -144,6 +144,35 @@ export class KitAgent extends Agent {
 		this.appendMessage(message);
 	}
 
+	replaceCustomMessage(
+		predicate: (message: AgentMessage) => boolean,
+		next: AgentMessage,
+	): void {
+		let replaced = false;
+		this._turns = this._turns.map((turn) => ({
+			...turn,
+			messages: turn.messages.map((message) => {
+				if (!predicate(message)) return message;
+				replaced = true;
+				return {
+					...next,
+					turnId: message.turnId,
+				} as KitAgentMessage;
+			}),
+		}));
+		if (!replaced) return;
+		if (this._currentTurn) {
+			const nextTurn = this._turns.find(
+				(turn) => turn.id === this._currentTurn?.id,
+			);
+			if (nextTurn) this._currentTurn = nextTurn;
+		}
+		const messages = this._turns.flatMap(
+			(turn) => turn.messages,
+		) as AgentMessage[];
+		this.replaceMessages(messages);
+	}
+
 	replaceFromTurns(turns: Turn[]): void {
 		this._turns = turns.map((turn) => ({
 			...turn,
@@ -174,7 +203,7 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
 				result.push(msg as Message);
 				break;
 			case "bashExecution": {
-				if (!msg.excludeFromContext) {
+				if (!msg.pending && !msg.excludeFromContext) {
 					const exitInfo =
 						msg.exitCode != null && msg.exitCode !== 0
 							? ` (exit code: ${msg.exitCode})`

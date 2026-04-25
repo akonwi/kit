@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import "./custom-messages";
 import type {
 	AgentEvent,
@@ -837,19 +838,44 @@ export class AgentRuntime {
 		command: string,
 		excludeFromContext = false,
 	): Promise<void> {
+		const id = randomUUID();
+		const timestamp = Date.now();
+		const pendingMessage: AgentMessage = {
+			role: "bashExecution",
+			id,
+			command,
+			output: "",
+			exitCode: undefined,
+			cancelled: false,
+			truncated: false,
+			pending: true,
+			excludeFromContext: true,
+			timestamp,
+		};
+		this.agent.appendCustomMessage(pendingMessage);
+		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+
 		const result = await runBash(command, this.session.cwd);
 
 		const bashMessage: AgentMessage = {
 			role: "bashExecution",
+			id,
 			command,
 			output: result.output,
 			exitCode: result.exitCode,
 			cancelled: false,
 			truncated: false,
+			pending: false,
 			excludeFromContext,
-			timestamp: Date.now(),
+			timestamp,
 		};
-		this.agent.appendCustomMessage(bashMessage);
+		this.agent.replaceCustomMessage(
+			(message) =>
+				message.role === "bashExecution" &&
+				"id" in message &&
+				message.id === id,
+			bashMessage,
+		);
 		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
 	}
 

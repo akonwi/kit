@@ -270,18 +270,25 @@ function UserEntry(props: {
 
 function BashEntry(props: { msg: BashExecutionMessage }) {
 	const [expanded, setExpanded] = createSignal(true);
-	const outputLines = () => props.msg.output.split("\n");
-	const hasOutput = outputLines().length > 0;
-	const prefix = props.msg.cancelled
-		? "⊘"
-		: props.msg.exitCode === 0
-			? "✓"
-			: "✗";
-	const prefixColor = props.msg.cancelled
-		? theme.textMuted
-		: props.msg.exitCode === 0
+	const outputLines = () =>
+		props.msg.output.length > 0 ? props.msg.output.split("\n") : [];
+	const hasOutput = () => outputLines().length > 0;
+	const prefix = () =>
+		props.msg.pending
+			? null
+			: props.msg.cancelled
+				? "⊘"
+				: props.msg.exitCode === 0
+					? "✓"
+					: "✗";
+	const prefixColor = () =>
+		props.msg.pending
 			? theme.toolText
-			: theme.errorText;
+			: props.msg.cancelled
+				? theme.textMuted
+				: props.msg.exitCode === 0
+					? theme.toolText
+					: theme.errorText;
 
 	const displayLines = () => {
 		if (!expanded()) return [];
@@ -306,23 +313,31 @@ function BashEntry(props: { msg: BashExecutionMessage }) {
 			<box
 				flexDirection="row"
 				gap={1}
-				onMouseDown={() => hasOutput && setExpanded(!expanded())}
+				onMouseDown={() => hasOutput() && setExpanded(!expanded())}
 			>
-				<text fg={prefixColor}>{prefix}</text>
+				<Show
+					when={props.msg.pending}
+					fallback={<text fg={prefixColor()}>{prefix()}</text>}
+				>
+					<InlineSpinner />
+				</Show>
 				<code
 					filetype="bash"
 					content={props.msg.command}
 					syntaxStyle={syntaxStyle()}
 					fg={theme.textPrimary}
 				/>
-				<Show when={hasOutput}>
+				<Show when={props.msg.pending}>
+					<text fg={theme.metaText}>running…</text>
+				</Show>
+				<Show when={!props.msg.pending && hasOutput()}>
 					<text fg={theme.metaText}>
 						{expanded() ? "▾" : "▸"} {outputLines().length} line
 						{outputLines().length === 1 ? "" : "s"}
 					</text>
 				</Show>
 			</box>
-			<Show when={expanded()}>
+			<Show when={!props.msg.pending && expanded()}>
 				<box paddingLeft={2} flexDirection="column" gap={0}>
 					<For each={displayLines()}>
 						{(line) => <text fg={theme.textMuted}>{line}</text>}
