@@ -2,7 +2,7 @@
  * Lazy file scanner that walks a directory tree respecting:
  *   - built-in excludes (.git, node_modules, etc.)
  *   - .gitignore files (hierarchical)
- *   - .pi-ignore files
+ *   - .kitignore files
  *
  * Returns relative paths (files as "path/to/file", directories as "path/to/dir/").
  */
@@ -12,7 +12,7 @@ import path from "node:path";
 import ignore, { type Ignore } from "ignore";
 
 const MAX_FILES = 4000;
-const PI_IGNORE_FILE = ".pi-ignore";
+const KIT_IGNORE_FILE = ".kitignore";
 
 /** Directories always excluded regardless of ignore files */
 const BUILT_IN_EXCLUDES = new Set([".git", "node_modules", ".pi", ".agents"]);
@@ -29,7 +29,7 @@ async function tryReadFile(filePath: string): Promise<string | null> {
 
 /**
  * Build an ignore filter for a given directory.
- * Merges rules from .gitignore and .pi-ignore found in that dir.
+ * Merges rules from .gitignore and .kitignore found in that dir.
  * Hierarchy is handled by maintaining a chain of filters at the call-site.
  */
 async function loadIgnoreForDir(dir: string): Promise<Ignore> {
@@ -40,9 +40,9 @@ async function loadIgnoreForDir(dir: string): Promise<Ignore> {
 		ig.add(gitignoreContent);
 	}
 
-	const piIgnoreContent = await tryReadFile(path.join(dir, PI_IGNORE_FILE));
-	if (piIgnoreContent) {
-		ig.add(piIgnoreContent);
+	const kitIgnoreContent = await tryReadFile(path.join(dir, KIT_IGNORE_FILE));
+	if (kitIgnoreContent) {
+		ig.add(kitIgnoreContent);
 	}
 
 	return ig;
@@ -124,7 +124,7 @@ export async function scanFiles(cwd: string): Promise<ScanResult> {
 			if (!entry.isFile()) continue;
 
 			// Skip ignore files and .git (gitlink files in submodules) from results
-			if (name === ".gitignore" || name === PI_IGNORE_FILE || name === ".git")
+			if (name === ".gitignore" || name === KIT_IGNORE_FILE || name === ".git")
 				continue;
 
 			// Check ignore rules
