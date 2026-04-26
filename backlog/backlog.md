@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] fix: session auto-naming isn't working
 - [ ] enhancement: indicate bash mode in composer when using `!` and `!!`
 - [ ] enhancement: better onboarding. the empty state of transcript can mention /login if unauthenticated
 - [ ] enhancement: auto-paging should try to calculate the minimum threshold based on viewport height
@@ -21,7 +20,7 @@ Delete done items.
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
-
-## Detailed items
-- [ ] namespaced runtime events — see `backlog/namespaced-runtime-events.md`
-- [ ] session explorer graph view — see `backlog/session-explorer-graph-view.md`
+- [ ] refactor: namespaced runtime events — see `backlog/namespaced-runtime-events.md`
+- [ ] wip: session explorer graph view — see `backlog/session-explorer-graph-view.md`
+- [ ] [wip] fix: session auto-naming isn't working
+  - added a toast and error throwing to help identify where/why it fails
