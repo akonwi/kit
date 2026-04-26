@@ -2,7 +2,7 @@
 
 ## Status
 
-- [ ] deferred
+Deferred.
 
 ## Context
 
@@ -16,7 +16,7 @@ The linear tree explorer remains the preferred and working session-navigation UI
 - The visual model did not consistently show enough useful branch structure
 - The extra complexity was not yet earning its keep over the linear tree
 
-## If we revisit this
+## Possible direction if we revisit it
 
 Potential next attempt should likely:
 

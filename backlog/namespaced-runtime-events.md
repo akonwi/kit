@@ -2,9 +2,9 @@
 
 ## Status
 
-- [ ] not started
+Deferred.
 
-## Goal
+## Context
 
 Replace the current ad hoc runtime event union with a typed, namespaced event map and prefix-capable subscriptions.
 
@@ -24,7 +24,7 @@ With APIs along the lines of:
 - exact subscriptions by event name
 - prefix subscriptions for grouped listeners
 
-## Why
+## Why this might be useful
 
 Current broad events like `status_changed` and `session_changed` are too coarse for policy-driven reactions like model-switch overflow handling.
 
@@ -37,4 +37,4 @@ A typed namespaced event system would let us:
 
 ## Deferred for now
 
-Short-term, use a simpler additive event such as `session_updated` and keep the larger event-system refactor for later.
+Short-term, prefer smaller additive events such as `session_updated` and keep the larger event-system refactor for later.
