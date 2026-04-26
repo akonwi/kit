@@ -4,24 +4,26 @@ import {
 	type AfterToolCallContext,
 	type AfterToolCallResult,
 	Agent,
-	type AgentEvent,
 	type AgentMessage,
 	type AgentOptions,
 	type AgentState,
 	type AgentTool,
 	type BeforeToolCallContext,
 	type BeforeToolCallResult,
+	type AgentEvent as PiAgentEvent,
 	type StreamFn,
 	type ThinkingLevel,
 	type ToolExecutionMode,
 } from "@mariozechner/pi-agent-core";
 import type {
 	Api,
+	AssistantMessageEvent,
 	ImageContent,
 	Message,
 	Model,
 	TextContent,
 	ThinkingBudgets,
+	ToolResultMessage,
 	Transport,
 	UserMessage,
 } from "@mariozechner/pi-ai";
@@ -36,8 +38,47 @@ export interface KitAgentOptions extends AgentOptions {
 	initialTurns?: Turn[];
 }
 
+export type AgentEvent =
+	| { type: "agent_start" }
+	| { type: "agent_end"; messages: AgentMessage[] }
+	| { type: "turn_start"; turn: Turn }
+	| {
+			type: "turn_end";
+			turn: Turn | null;
+			message: AgentMessage;
+			toolResults: ToolResultMessage[];
+	  }
+	| { type: "message_start"; message: AgentMessage }
+	| {
+			type: "message_update";
+			message: AgentMessage;
+			assistantMessageEvent: AssistantMessageEvent;
+	  }
+	| { type: "message_end"; turn: Turn; message: KitAgentMessage }
+	| {
+			type: "tool_execution_start";
+			toolCallId: string;
+			toolName: string;
+			args: unknown;
+	  }
+	| {
+			type: "tool_execution_update";
+			toolCallId: string;
+			toolName: string;
+			args: unknown;
+			partialResult: unknown;
+	  }
+	| {
+			type: "tool_execution_end";
+			toolCallId: string;
+			toolName: string;
+			result: unknown;
+			isError: boolean;
+	  };
+
 export class KitAgent {
 	private readonly pi: Agent;
+	private readonly listeners = new Set<(event: AgentEvent) => void>();
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
 	private _pendingFollowUps: string[] = [];
@@ -77,29 +118,8 @@ export class KitAgent {
 		}
 
 		this.pi.subscribe((event) => {
-			switch (event.type) {
-				case "turn_start": {
-					this._pendingFollowUps = [];
-					this.startTurn();
-					break;
-				}
-				case "message_end": {
-					const turn = this.ensureCurrentTurn();
-					const tagged: KitAgentMessage = {
-						...event.message,
-						turnId: turn.id,
-					};
-					const updatedTurn: Turn = {
-						...turn,
-						messages: [...turn.messages, tagged],
-					};
-					this._currentTurn = updatedTurn;
-					this._turns = this._turns.map((candidate) =>
-						candidate.id === updatedTurn.id ? updatedTurn : candidate,
-					);
-					break;
-				}
-			}
+			const nextEvent = this.processPiEvent(event);
+			if (nextEvent) this.emit(nextEvent);
 		});
 	}
 
@@ -164,7 +184,8 @@ export class KitAgent {
 	}
 
 	subscribe(fn: (e: AgentEvent) => void): () => void {
-		return this.pi.subscribe(fn);
+		this.listeners.add(fn);
+		return () => this.listeners.delete(fn);
 	}
 
 	setSystemPrompt(v: string): void {
@@ -314,6 +335,51 @@ export class KitAgent {
 	clearPendingFollowUps(): void {
 		this.clearAllQueues();
 		this._pendingFollowUps = [];
+	}
+
+	private emit(event: AgentEvent): void {
+		for (const listener of this.listeners) {
+			listener(event);
+		}
+	}
+
+	private processPiEvent(event: PiAgentEvent): AgentEvent | null {
+		switch (event.type) {
+			case "turn_start": {
+				this._pendingFollowUps = [];
+				const turn = this.startTurn();
+				return { type: "turn_start", turn };
+			}
+			case "message_end": {
+				const turn = this.ensureCurrentTurn();
+				const tagged: KitAgentMessage = {
+					...event.message,
+					turnId: turn.id,
+				};
+				const updatedTurn: Turn = {
+					...turn,
+					messages: [...turn.messages, tagged],
+				};
+				this._currentTurn = updatedTurn;
+				this._turns = this._turns.map((candidate) =>
+					candidate.id === updatedTurn.id ? updatedTurn : candidate,
+				);
+				return {
+					type: "message_end",
+					turn: updatedTurn,
+					message: tagged,
+				};
+			}
+			case "turn_end":
+				return {
+					type: "turn_end",
+					turn: this._currentTurn,
+					message: event.message,
+					toolResults: event.toolResults,
+				};
+			default:
+				return event;
+		}
 	}
 
 	private startTurn(): Turn {

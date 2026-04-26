@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import "./custom-messages";
 import type {
-	AgentEvent,
 	AgentMessage,
 	AgentTool,
 	ThinkingLevel,
@@ -46,7 +45,7 @@ import {
 } from "./context-usage";
 import type { GitInfo } from "./git-info";
 import { GitInfoWatcher } from "./git-info-watcher";
-import { KitAgent } from "./kit-agent";
+import { type AgentEvent, KitAgent } from "./kit-agent";
 import { createSyntheticSummaryMessage } from "./session-summary";
 import { clampThinkingLevel } from "./thinking-levels";
 
@@ -75,7 +74,9 @@ export type RuntimePanelState = {
 };
 
 export type RuntimeEventMap = {
+	// @deprecated in favor of `agent.*` events
 	"session.turns.changed": { turns: Turn[] };
+	"agent.turn.started": { turn: Turn };
 	"runtime.status.changed": { status: RuntimeStatus };
 	"session.changed": { session: Session };
 	"session.updated": { session: Session };
@@ -744,6 +745,7 @@ export class AgentRuntime {
 
 			case "turn_start":
 				this.syncPendingState();
+				this.emit("agent.turn.started", { turn: event.turn });
 				break;
 
 			case "message_start":
@@ -1230,7 +1232,7 @@ export class AgentRuntime {
 	}
 
 	async setSessionName(name: string): Promise<void> {
-	  this.session.name = name
+		this.session.name = name;
 		writeSession(this.session);
 		this.emit("session.name.changed", { name });
 	}
