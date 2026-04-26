@@ -14,6 +14,7 @@ Delete done items.
 ## Active items
 - [ ] feature: squash child sessions into parent context as a concise summary so side-quest work can merge back into the parent thread
 - [ ] enhancement: indicate bash mode in composer when using `!` and `!!`
+- [ ] enhancement: better onboarding. the empty state of transcript can mention /login if unauthenticated
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
 - [ ] idea: formalize plugin contribution to the status footer
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
