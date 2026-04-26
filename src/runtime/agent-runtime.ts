@@ -132,7 +132,6 @@ export class AgentRuntime {
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
 	private lastSessionModel: string | undefined;
-	private lastSessionName: string | undefined;
 	private overflowRecoveryInFlight = false;
 	private lastOverflowRecoveryKey: string | null = null;
 	private retryAbortController: AbortController | null = null;
@@ -153,7 +152,6 @@ export class AgentRuntime {
 		this.session = session;
 		this.settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
-		this.lastSessionName = session.name;
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
@@ -249,9 +247,7 @@ export class AgentRuntime {
 
 	private emitSessionUpdated(): void {
 		const previousModel = this.lastSessionModel;
-		const previousName = this.lastSessionName;
 		this.lastSessionModel = this.session.model;
-		this.lastSessionName = this.session.name;
 		this.emit("session.updated", { session: this.session });
 		if (previousModel !== this.session.model) {
 			this.emit("session.updated.model", {

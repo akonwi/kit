@@ -1,14 +1,28 @@
 import { randomUUID } from "node:crypto";
 import "./custom-messages";
 import {
+	type AfterToolCallContext,
+	type AfterToolCallResult,
 	Agent,
+	type AgentEvent,
 	type AgentMessage,
 	type AgentOptions,
+	type AgentState,
+	type AgentTool,
+	type BeforeToolCallContext,
+	type BeforeToolCallResult,
+	type StreamFn,
+	type ThinkingLevel,
+	type ToolExecutionMode,
 } from "@mariozechner/pi-agent-core";
 import type {
+	Api,
 	ImageContent,
 	Message,
+	Model,
 	TextContent,
+	ThinkingBudgets,
+	Transport,
 	UserMessage,
 } from "@mariozechner/pi-ai";
 import {
@@ -22,7 +36,8 @@ export interface KitAgentOptions extends AgentOptions {
 	initialTurns?: Turn[];
 }
 
-export class KitAgent extends Agent {
+export class KitAgent {
+	private readonly pi: Agent;
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
 	private _pendingFollowUps: string[] = [];
@@ -38,7 +53,7 @@ export class KitAgent extends Agent {
 		const initialTurns = opts?.initialTurns;
 		const initialMessages =
 			initialTurns?.flatMap((turn) => turn.messages) ?? [];
-		super({
+		this.pi = new Agent({
 			...opts,
 			initialState: {
 				systemPrompt: opts?.initialState?.systemPrompt ?? "",
@@ -61,7 +76,7 @@ export class KitAgent extends Agent {
 			}));
 		}
 
-		this.subscribe((event) => {
+		this.pi.subscribe((event) => {
 			switch (event.type) {
 				case "turn_start": {
 					this._pendingFollowUps = [];
@@ -88,8 +103,201 @@ export class KitAgent extends Agent {
 		});
 	}
 
+	get sessionId(): string | undefined {
+		return this.pi.sessionId;
+	}
+
+	set sessionId(value: string | undefined) {
+		this.pi.sessionId = value;
+	}
+
+	get thinkingBudgets(): ThinkingBudgets | undefined {
+		return this.pi.thinkingBudgets;
+	}
+
+	set thinkingBudgets(value: ThinkingBudgets | undefined) {
+		this.pi.thinkingBudgets = value;
+	}
+
+	get transport(): Transport {
+		return this.pi.transport;
+	}
+
+	get maxRetryDelayMs(): number | undefined {
+		return this.pi.maxRetryDelayMs;
+	}
+
+	set maxRetryDelayMs(value: number | undefined) {
+		this.pi.maxRetryDelayMs = value;
+	}
+
+	get toolExecution(): ToolExecutionMode {
+		return this.pi.toolExecution;
+	}
+
+	get state(): AgentState {
+		return this.pi.state;
+	}
+
+	get streamFn(): StreamFn {
+		return this.pi.streamFn;
+	}
+
+	set streamFn(value: StreamFn) {
+		this.pi.streamFn = value;
+	}
+
+	get getApiKey():
+		| ((provider: string) => Promise<string | undefined> | string | undefined)
+		| undefined {
+		return this.pi.getApiKey;
+	}
+
+	set getApiKey(value:
+		| ((provider: string) => Promise<string | undefined> | string | undefined)
+		| undefined,) {
+		this.pi.getApiKey = value;
+	}
+
 	get turns(): Turn[] {
 		return this._turns;
+	}
+
+	subscribe(fn: (e: AgentEvent) => void): () => void {
+		return this.pi.subscribe(fn);
+	}
+
+	setSystemPrompt(v: string): void {
+		this.pi.setSystemPrompt(v);
+	}
+
+	setModel(model: Model<Api>): void {
+		this.pi.setModel(model);
+	}
+
+	setThinkingLevel(level: ThinkingLevel): void {
+		this.pi.setThinkingLevel(level);
+	}
+
+	setSteeringMode(mode: "all" | "one-at-a-time"): void {
+		this.pi.setSteeringMode(mode);
+	}
+
+	getSteeringMode(): "all" | "one-at-a-time" {
+		return this.pi.getSteeringMode();
+	}
+
+	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
+		this.pi.setFollowUpMode(mode);
+	}
+
+	getFollowUpMode(): "all" | "one-at-a-time" {
+		return this.pi.getFollowUpMode();
+	}
+
+	setTools(tools: AgentTool[]): void {
+		this.pi.setTools(tools);
+	}
+
+	replaceMessages(messages: AgentMessage[]): void {
+		this.pi.replaceMessages(messages);
+	}
+
+	appendMessage(message: AgentMessage): void {
+		this.pi.appendMessage(message);
+	}
+
+	steer(message: AgentMessage): void {
+		this.pi.steer(message);
+	}
+
+	followUp(message: AgentMessage): void {
+		this.pi.followUp(message);
+		const text = extractPlainText(message);
+		if (text.trim()) {
+			this._pendingFollowUps = [...this._pendingFollowUps, text];
+		}
+	}
+
+	clearSteeringQueue(): void {
+		this.pi.clearSteeringQueue();
+	}
+
+	clearFollowUpQueue(): void {
+		this.pi.clearFollowUpQueue();
+	}
+
+	clearAllQueues(): void {
+		this.pi.clearAllQueues();
+	}
+
+	hasQueuedMessages(): boolean {
+		return this.pi.hasQueuedMessages();
+	}
+
+	clearMessages(): void {
+		this.pi.clearMessages();
+	}
+
+	abort(): void {
+		this.pi.abort();
+	}
+
+	waitForIdle(): Promise<void> {
+		return this.pi.waitForIdle();
+	}
+
+	reset(): void {
+		this.pi.reset();
+		this._turns = [];
+		this._currentTurn = null;
+		this._pendingFollowUps = [];
+	}
+
+	prompt(message: AgentMessage | AgentMessage[]): Promise<void>;
+	prompt(input: string, images?: ImageContent[]): Promise<void>;
+	prompt(
+		input: AgentMessage | AgentMessage[] | string,
+		images?: ImageContent[],
+	): Promise<void> {
+		if (typeof input === "string") {
+			return this.pi.prompt(input, images);
+		}
+		return this.pi.prompt(input);
+	}
+
+	continue(): Promise<void> {
+		return this.pi.continue();
+	}
+
+	setTransport(value: Transport): void {
+		this.pi.setTransport(value);
+	}
+
+	setToolExecution(value: ToolExecutionMode): void {
+		this.pi.setToolExecution(value);
+	}
+
+	setBeforeToolCall(
+		value:
+			| ((
+					context: BeforeToolCallContext,
+					signal?: AbortSignal,
+			  ) => Promise<BeforeToolCallResult | undefined>)
+			| undefined,
+	): void {
+		this.pi.setBeforeToolCall(value);
+	}
+
+	setAfterToolCall(
+		value:
+			| ((
+					context: AfterToolCallContext,
+					signal?: AbortSignal,
+			  ) => Promise<AfterToolCallResult | undefined>)
+			| undefined,
+	): void {
+		this.pi.setAfterToolCall(value);
 	}
 
 	getPendingFollowUps(): string[] {
@@ -106,14 +314,6 @@ export class KitAgent extends Agent {
 	clearPendingFollowUps(): void {
 		this.clearAllQueues();
 		this._pendingFollowUps = [];
-	}
-
-	override followUp(message: AgentMessage): void {
-		super.followUp(message);
-		const text = extractPlainText(message);
-		if (text.trim()) {
-			this._pendingFollowUps = [...this._pendingFollowUps, text];
-		}
 	}
 
 	private startTurn(): Turn {
@@ -141,7 +341,7 @@ export class KitAgent extends Agent {
 		this._turns = this._turns.map((candidate) =>
 			candidate.id === updatedTurn.id ? updatedTurn : candidate,
 		);
-		this.appendMessage(message);
+		this.pi.appendMessage(message);
 	}
 
 	replaceCustomMessage(
@@ -170,7 +370,7 @@ export class KitAgent extends Agent {
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
-		this.replaceMessages(messages);
+		this.pi.replaceMessages(messages);
 	}
 
 	replaceFromTurns(turns: Turn[]): void {
@@ -183,7 +383,7 @@ export class KitAgent extends Agent {
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
-		this.replaceMessages(messages);
+		this.pi.replaceMessages(messages);
 	}
 }
 

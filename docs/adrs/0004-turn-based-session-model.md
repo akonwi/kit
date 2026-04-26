@@ -40,7 +40,7 @@ interface Turn {
 
 ## Runtime implications
 
-`KitAgent` owns turn tracking.
+`KitAgent` owns Kit turn tracking while delegating the core agent loop to Pi's `Agent`.
 
 - on `turn_start`, it creates a new turn
 - on `message_end`, it tags the committed message with the active `turnId`
