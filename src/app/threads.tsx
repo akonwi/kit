@@ -17,8 +17,9 @@ import {
 	readSession,
 	updateSession,
 } from "../session";
+import { loadSettings } from "../settings";
 import { type Binding, HintBar } from "../shell/HintBar";
-import { theme } from "../shell/theme";
+import { resolveAndApplyTheme, theme } from "../shell/theme";
 
 type Mode = "navigate" | "rename" | "confirmDelete";
 
@@ -277,13 +278,17 @@ function EmptyState(props: { onCancel: () => void }) {
 
 export async function showThreadPicker(): Promise<string | null> {
 	const sessions = await listSessionsForCwd(process.cwd());
+	const footerHeight =
+		sessions.length === 0 ? 5 : Math.max(10, Math.min(sessions.length + 4, 20));
+	const renderer = await createCliRenderer({
+		exitOnCtrlC: sessions.length === 0,
+		screenMode: "split-footer",
+		footerHeight,
+	});
+	const settings = await loadSettings();
+	await resolveAndApplyTheme(settings.settings.theme ?? "system", renderer);
 
 	if (sessions.length === 0) {
-		const renderer = await createCliRenderer({
-			exitOnCtrlC: true,
-			screenMode: "split-footer",
-			footerHeight: 5,
-		});
 		return new Promise<null>((resolve) => {
 			render(
 				() => (
@@ -298,13 +303,6 @@ export async function showThreadPicker(): Promise<string | null> {
 			);
 		});
 	}
-
-	const footerHeight = Math.max(10, Math.min(sessions.length + 4, 20));
-	const renderer = await createCliRenderer({
-		exitOnCtrlC: false,
-		screenMode: "split-footer",
-		footerHeight,
-	});
 
 	return new Promise<string | null>((resolve) => {
 		render(
