@@ -1,6 +1,7 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, Show } from "solid-js";
+import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { MessageComposer } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
@@ -26,6 +27,7 @@ const MODE_BINDINGS: { [key in "navigate" | "edit"]: Binding[] } = {
 export type PagerContentProps = {
 	pager: PagerController;
 	onClose: () => void;
+	surfaceProps?: OverlaySurfaceProps;
 };
 
 export function PagerContent(props: PagerContentProps) {
@@ -163,7 +165,7 @@ export function PagerContent(props: PagerContentProps) {
 	return (
 		<Show when={pager.active}>
 			<ScreenLayout
-				zIndex={1200}
+				surfaceProps={props.surfaceProps}
 				header={
 					<ScreenHeader
 						left={

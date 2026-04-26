@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
+import type { OverlaySurfaceProps } from "../app/overlay-ui";
 import { theme } from "./theme";
 
 export type ScreenLayoutProps = {
@@ -8,6 +9,7 @@ export type ScreenLayoutProps = {
 	children: JSX.Element;
 	zIndex?: number;
 	backgroundColor?: string;
+	surfaceProps?: OverlaySurfaceProps;
 };
 
 /**
@@ -18,12 +20,13 @@ export type ScreenLayoutProps = {
 export function ScreenLayout(props: ScreenLayoutProps) {
 	return (
 		<box
+			{...props.surfaceProps}
 			position="absolute"
 			top={0}
 			left={0}
 			width="100%"
 			height="100%"
-			zIndex={props.zIndex ?? 0}
+			zIndex={props.surfaceProps?.zIndex ?? props.zIndex ?? 0}
 			backgroundColor={props.backgroundColor ?? theme.bg}
 			flexDirection="column"
 		>

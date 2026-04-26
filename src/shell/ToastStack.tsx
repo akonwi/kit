@@ -33,6 +33,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 export type ToastStackProps = {
 	toasts: Toast[];
 	top: number;
+	zIndex: number;
 	onDismiss: (id: number) => void;
 };
 
@@ -43,7 +44,7 @@ export function ToastStack(props: ToastStackProps) {
 			top={props.top}
 			left={2}
 			right={2}
-			zIndex={200}
+			zIndex={props.zIndex}
 			flexDirection="column"
 			gap={0}
 		>

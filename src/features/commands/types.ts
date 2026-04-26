@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import type { OverlayComponentProps } from "../../app/overlay-ui";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { PaletteManager } from "../../state/palette-manager";
 
@@ -7,7 +8,7 @@ export type CommandContext = {
 	palette: PaletteManager;
 	args: string;
 	openCustomOverlay: <T>(
-		component: (props: { done: (result: T) => void }) => JSX.Element,
+		component: (props: OverlayComponentProps<T>) => JSX.Element,
 	) => Promise<T>;
 };
 

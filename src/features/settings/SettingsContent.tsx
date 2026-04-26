@@ -1,5 +1,6 @@
 import { useKeyboard } from "@opentui/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
+import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import {
 	resolveRetrySettings,
 	resolveSpeechSettings,
@@ -25,6 +26,7 @@ type SettingsContentProps = {
 	userThemes: string[];
 	onSave: (settings: Settings) => Promise<void>;
 	onClose: () => void;
+	surfaceProps?: OverlaySurfaceProps;
 };
 
 type SettingsRow =
@@ -710,6 +712,7 @@ export function SettingsContent(props: SettingsContentProps) {
 
 	return (
 		<box
+			{...props.surfaceProps}
 			position="absolute"
 			left={0}
 			top={0}
@@ -717,7 +720,6 @@ export function SettingsContent(props: SettingsContentProps) {
 			width="100%"
 			justifyContent="center"
 			alignItems="center"
-			zIndex={1150}
 			backgroundColor={theme.modalBackdrop}
 		>
 			<box

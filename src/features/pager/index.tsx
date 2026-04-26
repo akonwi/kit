@@ -55,8 +55,15 @@ export class PagerPlugin extends Plugin {
 	}
 
 	private async openPager(): Promise<void> {
-		const component = (props: { done: (result: unknown) => void }) => (
-			<PagerContent pager={this.pager} onClose={() => props.done(undefined)} />
+		const component = (props: {
+			done: (result: unknown) => void;
+			surfaceProps: import("../../app/overlay-ui").OverlaySurfaceProps;
+		}) => (
+			<PagerContent
+				pager={this.pager}
+				onClose={() => props.done(undefined)}
+				surfaceProps={props.surfaceProps}
+			/>
 		);
 		await this.ctx.ui.custom(component);
 	}

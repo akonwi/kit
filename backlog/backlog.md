@@ -12,7 +12,7 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] fix: toasts should have the highest zIndex, so they're always visible
+- [ ] fix: session auto-naming isn't working
 - [ ] enhancement: indicate bash mode in composer when using `!` and `!!`
 - [ ] enhancement: better onboarding. the empty state of transcript can mention /login if unauthenticated
 - [ ] enhancement: auto-paging should try to calculate the minimum threshold based on viewport height

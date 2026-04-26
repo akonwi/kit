@@ -24,6 +24,7 @@ export class SettingsPlugin extends Plugin {
 						userThemes={userThemes}
 						onSave={(settings) => this.persistSettings(settings)}
 						onClose={() => props.done(undefined)}
+						surfaceProps={props.surfaceProps}
 					/>
 				));
 			},

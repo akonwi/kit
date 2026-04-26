@@ -1,6 +1,10 @@
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
-import type { OverlayEntry } from "../app/overlay-ui";
+import {
+	getOverlaySurfaceProps,
+	getToastStackZIndex,
+	type OverlayEntry,
+} from "../app/overlay-ui";
 import type { AppState } from "../state/app-state";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
@@ -70,22 +74,24 @@ export function AppShell(props: AppShellProps) {
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
 
-			<ToastStack
-				toasts={props.state.toasts}
-				top={headerHeight()}
-				onDismiss={props.dismissToast}
-			/>
-
 			<Modal palette={props.controller.palette} />
 			<Show when={props.overlays().length > 0}>
 				<For each={props.overlays()}>
-					{(entry) =>
+					{(entry, index) =>
 						entry.component({
 							done: (result: unknown) => entry.resolve(result),
+							surfaceProps: getOverlaySurfaceProps(index()),
 						})
 					}
 				</For>
 			</Show>
+
+			<ToastStack
+				toasts={props.state.toasts}
+				top={headerHeight()}
+				zIndex={getToastStackZIndex(props.overlays().length)}
+				onDismiss={props.dismissToast}
+			/>
 		</box>
 	);
 }

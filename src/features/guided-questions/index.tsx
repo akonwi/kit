@@ -29,6 +29,7 @@ export class GuidedQuestionsPlugin extends Plugin {
 					<GuidedQuestionsContent
 						guidedQuestions={this.controller}
 						onClose={() => props.done(undefined)}
+						surfaceProps={props.surfaceProps}
 					/>
 				));
 			}

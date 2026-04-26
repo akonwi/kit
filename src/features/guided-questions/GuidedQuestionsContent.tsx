@@ -1,6 +1,7 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
+import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type {
@@ -39,6 +40,7 @@ const QUESTION_BINDINGS: Record<GuidedQuestionsMode, Binding[]> = {
 export type GuidedQuestionsContentProps = {
 	guidedQuestions: GuidedQuestionsController;
 	onClose: () => void;
+	surfaceProps?: OverlaySurfaceProps;
 };
 
 export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
@@ -172,6 +174,7 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 	return (
 		<Show when={g.active}>
 			<box
+				{...props.surfaceProps}
 				position="absolute"
 				left={0}
 				top={0}
@@ -179,7 +182,6 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 				width="100%"
 				justifyContent="center"
 				alignItems="center"
-				zIndex={1100}
 				backgroundColor={theme.modalBackdrop}
 			>
 				<box

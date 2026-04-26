@@ -3,6 +3,7 @@ import { access, readFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PasteEvent } from "@opentui/core";
+import type { OverlayComponentProps } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { ImageAttachment } from "../features/images/attachment";
@@ -30,9 +31,9 @@ export type ComposerControllerDeps = {
 	threadIndex: ThreadIndex | null;
 	attachments: AttachmentsController;
 	openCustomOverlay: <T>(
-		component: (props: {
-			done: (result: T) => void;
-		}) => import("solid-js").JSX.Element,
+		component: (
+			props: OverlayComponentProps<T>,
+		) => import("solid-js").JSX.Element,
 	) => Promise<T>;
 };
 
