@@ -183,30 +183,30 @@ export function createAppState(
 
 	runtime?.subscribe((event) => {
 		switch (event.type) {
-			case "turns_changed":
+			case "session.turns.changed":
 				setState("turns", event.turns);
 				for (const timer of toastTimers.values()) clearTimeout(timer);
 				toastTimers.clear();
 				setState("toasts", []);
 				break;
-			case "status_changed":
+			case "runtime.status.changed":
 				setState(
 					"footerStatus",
 					applyRuntimeStatus(state.footerStatus, event.status),
 				);
 				break;
-			case "session_changed":
-			case "session_updated":
+			case "session.changed":
+			case "session.updated":
 				setState("sessionMeta", buildSessionMeta(event.session as Session));
 				threadIndex?.invalidate();
 				break;
-			case "panel":
+			case "runtime.panel.changed":
 				setState("panel", event.panel);
 				break;
-			case "pending_changed":
+			case "runtime.pending.changed":
 				setState("footerStatus", "pendingMessages", event.count);
 				break;
-			case "settings_changed":
+			case "settings.changed":
 				setState(
 					"footerStatus",
 					"bellsEnabled",
@@ -218,21 +218,26 @@ export function createAppState(
 					resolveSpeechEnabled(event.settings),
 				);
 				break;
-			case "pending_messages_changed":
+			case "runtime.pending.messages.changed":
 				setState("pendingMessages", event.messages);
 				break;
-			case "tool_completed":
+			case "tool.completed":
 				toolCompletionCount++;
 				if (toolCompletionCount >= FILE_INDEX_INVALIDATE_INTERVAL) {
 					toolCompletionCount = 0;
 					fileIndex.invalidate();
 				}
 				break;
-			case "error":
-			case "warning":
-			case "info":
+			case "notification.error":
+			case "notification.warning":
+			case "notification.info":
 				showToast({
-					variant: event.type,
+					variant:
+						event.type === "notification.error"
+							? "error"
+							: event.type === "notification.warning"
+								? "warning"
+								: "info",
 					title: event.title,
 					lines: event.lines,
 				});

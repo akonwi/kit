@@ -96,11 +96,12 @@ export function App(props: AppProps) {
 		openCustomOverlay,
 	});
 
-	// Update terminal title on session change
-	runtime.subscribe((event) => {
-		if (event.type === "session_changed") {
-			props.updateTerminalTitle((event.session as Session).name, process.cwd());
-		}
+	// Update terminal title on session changes and renames
+	runtime.subscribe("session.changed", (event) => {
+		props.updateTerminalTitle(event.session.name, process.cwd());
+	});
+	runtime.subscribe("session.updated.name", (event) => {
+		props.updateTerminalTitle(event.name, process.cwd());
 	});
 
 	return (

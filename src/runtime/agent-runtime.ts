@@ -74,20 +74,38 @@ export type RuntimePanelState = {
 	title: string;
 };
 
-export type AgentRuntimeEvent =
-	| { type: "turns_changed"; turns: Turn[] }
-	| { type: "status_changed"; status: RuntimeStatus }
-	| { type: "session_changed"; session: Session }
-	| { type: "session_updated"; session: Session }
-	| { type: "panel"; panel: RuntimePanelState }
-	| { type: "tool_completed" }
-	| { type: "turn_complete"; turn: Turn | null }
-	| { type: "pending_changed"; count: number }
-	| { type: "pending_messages_changed"; messages: string[] }
-	| { type: "settings_changed"; settings: Settings }
-	| { type: "error"; title: string; lines: string[] }
-	| { type: "warning"; title: string; lines: string[] }
-	| { type: "info"; title: string; lines: string[] };
+export type RuntimeEventMap = {
+	"session.turns.changed": { turns: Turn[] };
+	"runtime.status.changed": { status: RuntimeStatus };
+	"session.changed": { session: Session };
+	"session.updated": { session: Session };
+	"session.updated.name": { session: Session; name: string | undefined };
+	"session.updated.model": { session: Session; modelId: string | undefined };
+	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
+	"runtime.panel.changed": { panel: RuntimePanelState };
+	"tool.completed": Record<string, never>;
+	"turn.completed": { turn: Turn | null };
+	"runtime.pending.changed": { count: number };
+	"runtime.pending.messages.changed": { messages: string[] };
+	"settings.changed": { settings: Settings };
+	"notification.error": { title: string; lines: string[] };
+	"notification.warning": { title: string; lines: string[] };
+	"notification.info": { title: string; lines: string[] };
+};
+
+export type RuntimeEventName = keyof RuntimeEventMap;
+
+export type AgentRuntimeEvent<K extends RuntimeEventName = RuntimeEventName> =
+	K extends RuntimeEventName ? { type: K } & RuntimeEventMap[K] : never;
+
+export type RuntimeEventNameMatchingPrefix<P extends string> = Extract<
+	RuntimeEventName,
+	`${P}${string}`
+>;
+
+export type RuntimeEventPrefixSubscription<P extends string> = {
+	prefix: P;
+};
 
 export class AgentRuntime {
 	private session: Session;
@@ -97,6 +115,14 @@ export class AgentRuntime {
 	private extraTools: AgentTool<any>[];
 	private systemPromptAdditions: string[];
 	private listeners = new Set<(event: AgentRuntimeEvent) => void>();
+	private readonly exactListeners = new Map<
+		RuntimeEventName,
+		Set<(event: AgentRuntimeEvent) => void>
+	>();
+	private readonly prefixListeners: Array<{
+		prefix: string;
+		listener: (event: AgentRuntimeEvent) => void;
+	}> = [];
 	private quitHandler: (() => void) | null = null;
 	private pendingCount = 0;
 	private isCompacting = false;
@@ -106,6 +132,7 @@ export class AgentRuntime {
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
 	private lastSessionModel: string | undefined;
+	private lastSessionName: string | undefined;
 	private overflowRecoveryInFlight = false;
 	private lastOverflowRecoveryKey: string | null = null;
 	private retryAbortController: AbortController | null = null;
@@ -126,6 +153,7 @@ export class AgentRuntime {
 		this.session = session;
 		this.settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
+		this.lastSessionName = session.name;
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
@@ -197,20 +225,45 @@ export class AgentRuntime {
 		this.gitWatcher?.dispose();
 		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (git) => {
 			this.gitInfo = git;
-			this.emit({ type: "status_changed", status: this.snapshotStatus() });
+			const status = this.snapshotStatus();
+			this.emit("runtime.updated.git", { git, status });
+			this.emit("runtime.status.changed", { status });
 		});
 		this.gitInfo = this.gitWatcher.getCurrent();
 	}
 
-	private emit(event: AgentRuntimeEvent) {
+	private emit<K extends RuntimeEventName>(
+		type: K,
+		payload: RuntimeEventMap[K],
+	): void {
+		const event = { type, ...payload } as AgentRuntimeEvent<K>;
 		for (const listener of this.listeners) listener(event);
+		const exactListeners = this.exactListeners.get(type);
+		if (exactListeners) {
+			for (const listener of exactListeners) listener(event);
+		}
+		for (const { prefix, listener } of this.prefixListeners) {
+			if (type.startsWith(prefix)) listener(event);
+		}
 	}
 
 	private emitSessionUpdated(): void {
 		const previousModel = this.lastSessionModel;
+		const previousName = this.lastSessionName;
 		this.lastSessionModel = this.session.model;
-		this.emit({ type: "session_updated", session: this.session });
+		this.lastSessionName = this.session.name;
+		this.emit("session.updated", { session: this.session });
+		if (previousName !== this.session.name) {
+			this.emit("session.updated.name", {
+				session: this.session,
+				name: this.session.name,
+			});
+		}
 		if (previousModel !== this.session.model) {
+			this.emit("session.updated.model", {
+				session: this.session,
+				modelId: this.session.model,
+			});
 			void this.maybeHandleModelSwitchOverflow();
 		}
 	}
@@ -235,7 +288,7 @@ export class AgentRuntime {
 				thinkingLevel: level,
 				updatedAt: new Date().toISOString(),
 			};
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			return;
 		}
@@ -243,11 +296,10 @@ export class AgentRuntime {
 			this.session = await updateSession(this.session, {
 				thinkingLevel: level,
 			});
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 		} catch (err) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Session save failed",
 				lines: [String(err)],
 			});
@@ -312,9 +364,8 @@ export class AgentRuntime {
 
 	private syncPendingState() {
 		this.pendingCount = this.agent.getPendingFollowUps().length;
-		this.emit({ type: "pending_changed", count: this.pendingCount });
-		this.emit({
-			type: "pending_messages_changed",
+		this.emit("runtime.pending.changed", { count: this.pendingCount });
+		this.emit("runtime.pending.messages.changed", {
 			messages: this.agent.getPendingFollowUps(),
 		});
 	}
@@ -349,8 +400,7 @@ export class AgentRuntime {
 		if (!model || !shouldAutoCompact(contextUsage?.percent)) return;
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Auto-compaction failed",
 				lines: [`No API key available for ${model.provider}.`],
 			});
@@ -358,8 +408,7 @@ export class AgentRuntime {
 		}
 
 		this.isCompacting = true;
-		this.emit({
-			type: "panel",
+		this.emit("runtime.panel.changed", {
 			panel: {
 				pending: true,
 				title: `Compacting session… (${contextUsage?.percent ?? 0}%)`,
@@ -380,8 +429,7 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit({
-				type: "info",
+			this.emit("notification.info", {
 				title: "Session compacted",
 				lines: [
 					`Context reached ${contextUsage?.percent ?? 0}%; compacted ${result.compactedTurnCount} turns into 1 summary turn.`,
@@ -389,8 +437,7 @@ export class AgentRuntime {
 				],
 			});
 		} catch (error) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Auto-compaction failed",
 				lines: [error instanceof Error ? error.message : String(error)],
 			});
@@ -408,8 +455,7 @@ export class AgentRuntime {
 			});
 			return true;
 		} catch (err) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Session save failed",
 				lines: [String(err)],
 			});
@@ -432,22 +478,23 @@ export class AgentRuntime {
 			nextTurns.push(nextLastTurn);
 		}
 		this.agent.replaceFromTurns(nextTurns);
-		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 	}
 
 	private scheduleContinue(): void {
 		setTimeout(() => {
 			void this.agent.continue().catch((error) => {
-				this.emit({
-					type: "error",
+				this.emit("notification.error", {
 					title: "Retry failed",
 					lines: [error instanceof Error ? error.message : String(error)],
 				});
 				this.retryAttempt = 0;
 				this.retryAbortController = null;
 				this.overflowRecoveryAttempted = false;
-				this.emit({ type: "panel", panel: { pending: false, title: "" } });
+				this.emit("runtime.panel.changed", {
+					panel: { pending: false, title: "" },
+				});
 				this.resolveRecovery();
 			});
 		}, 0);
@@ -483,8 +530,7 @@ export class AgentRuntime {
 
 		this.removeTerminalAssistantErrorFromLiveState();
 		const delayMs = settings.baseDelayMs * 2 ** (this.retryAttempt - 1);
-		this.emit({
-			type: "panel",
+		this.emit("runtime.panel.changed", {
 			panel: {
 				pending: true,
 				title: `Retrying (${this.retryAttempt}/${settings.maxRetries}) in ${Math.ceil(delayMs / 1000)}s…`,
@@ -496,7 +542,9 @@ export class AgentRuntime {
 		} catch {
 			this.retryAttempt = 0;
 			this.retryAbortController = null;
-			this.emit({ type: "panel", panel: { pending: false, title: "" } });
+			this.emit("runtime.panel.changed", {
+				panel: { pending: false, title: "" },
+			});
 			this.resolveRecovery();
 			return true;
 		}
@@ -511,8 +559,7 @@ export class AgentRuntime {
 		const model = this.agent.state.model;
 		if (!model) return false;
 		if (this.overflowRecoveryAttempted) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Context overflow recovery failed",
 				lines: [
 					"Kit already attempted one compact-and-retry recovery for this overflow.",
@@ -530,8 +577,7 @@ export class AgentRuntime {
 
 		this.overflowRecoveryAttempted = true;
 		this.removeTerminalAssistantErrorFromLiveState();
-		this.emit({
-			type: "panel",
+		this.emit("runtime.panel.changed", {
 			panel: { pending: true, title: `Compacting session for retry…` },
 		});
 		try {
@@ -550,12 +596,11 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
-			this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-			this.emit({ type: "status_changed", status: this.snapshotStatus() });
-			this.emit({
-				type: "info",
+			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+			this.emit("notification.info", {
 				title: "Session compacted",
 				lines: [
 					`Recovered from a context overflow by compacting ${result.compactedTurnCount} turns into 1 summary turn.`,
@@ -565,8 +610,7 @@ export class AgentRuntime {
 			this.scheduleContinue();
 			return true;
 		} catch (error) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Context overflow recovery failed",
 				lines: [error instanceof Error ? error.message : String(error)],
 			});
@@ -589,14 +633,15 @@ export class AgentRuntime {
 			}
 		}
 		await this.maybeAutoCompact();
-		this.emit({ type: "session_changed", session: this.session });
+		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
-		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
-		this.emit({ type: "panel", panel: { pending: false, title: "" } });
+		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("runtime.panel.changed", {
+			panel: { pending: false, title: "" },
+		});
 		const completedTurn = this.agent.turns.at(-1) ?? null;
-		this.emit({
-			type: "turn_complete",
+		this.emit("turn.completed", {
 			turn: completedTurn,
 		});
 		this.syncPendingState();
@@ -621,8 +666,7 @@ export class AgentRuntime {
 
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Model too small for session",
 				lines: [
 					`No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
@@ -633,8 +677,7 @@ export class AgentRuntime {
 		}
 
 		this.overflowRecoveryInFlight = true;
-		this.emit({
-			type: "panel",
+		this.emit("runtime.panel.changed", {
 			panel: {
 				pending: true,
 				title: `Adapting session to ${model.name ?? model.id}… (${contextUsage.percent}%)`,
@@ -648,8 +691,7 @@ export class AgentRuntime {
 				apiKey,
 			});
 			if (!result) {
-				this.emit({
-					type: "error",
+				this.emit("notification.error", {
 					title: "Model too small for session",
 					lines: [
 						`${model.name ?? model.id} cannot fit this session, even after optimized compaction.`,
@@ -665,18 +707,17 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
-			this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-			this.emit({ type: "status_changed", status: this.snapshotStatus() });
+			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
 			const nextUsage = getRuntimeContextUsage(
 				this.agent.state.messages,
 				model,
 			);
 			if (nextUsage && nextUsage.percent > 100) {
-				this.emit({
-					type: "error",
+				this.emit("notification.error", {
 					title: "Model too small for session",
 					lines: [
 						`${model.name ?? model.id} is still over capacity after compaction (${nextUsage.percent}%).`,
@@ -685,8 +726,7 @@ export class AgentRuntime {
 				});
 			}
 		} catch (error) {
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Model switch compaction failed",
 				lines: [
 					error instanceof Error ? error.message : String(error),
@@ -695,7 +735,9 @@ export class AgentRuntime {
 			});
 		} finally {
 			this.overflowRecoveryInFlight = false;
-			this.emit({ type: "panel", panel: { pending: false, title: "" } });
+			this.emit("runtime.panel.changed", {
+				panel: { pending: false, title: "" },
+			});
 		}
 	}
 
@@ -703,12 +745,11 @@ export class AgentRuntime {
 		this.createRecoveryPromiseForAgentEnd(event);
 		switch (event.type) {
 			case "agent_start":
-				this.emit({
-					type: "panel",
+				this.emit("runtime.panel.changed", {
 					panel: { pending: true, title: "Working…" },
 				});
-				this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-				this.emit({ type: "status_changed", status: this.snapshotStatus() });
+				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
 			case "turn_start":
@@ -717,8 +758,7 @@ export class AgentRuntime {
 
 			case "message_start":
 				if (event.message.role === "assistant") {
-					this.emit({
-						type: "panel",
+					this.emit("runtime.panel.changed", {
 						panel: { pending: true, title: "Thinking…" },
 					});
 				}
@@ -732,8 +772,7 @@ export class AgentRuntime {
 					typeof ame.delta === "string" &&
 					ame.delta.trim()
 				) {
-					this.emit({
-						type: "panel",
+					this.emit("runtime.panel.changed", {
 						panel: {
 							pending: true,
 							title: ame.delta.replace(/\s+/g, " ").trim(),
@@ -744,12 +783,12 @@ export class AgentRuntime {
 			}
 
 			case "message_end":
-				this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
-				this.emit({ type: "status_changed", status: this.snapshotStatus() });
+				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
 			case "tool_execution_end":
-				this.emit({ type: "tool_completed" });
+				this.emit("tool.completed", {});
 				break;
 
 			case "agent_end":
@@ -757,12 +796,13 @@ export class AgentRuntime {
 					this.retryAttempt = 0;
 					this.overflowRecoveryAttempted = false;
 					this.resolveRecovery();
-					this.emit({
-						type: "error",
+					this.emit("notification.error", {
 						title: "Session save failed",
 						lines: [error instanceof Error ? error.message : String(error)],
 					});
-					this.emit({ type: "panel", panel: { pending: false, title: "" } });
+					this.emit("runtime.panel.changed", {
+						panel: { pending: false, title: "" },
+					});
 				});
 				break;
 		}
@@ -780,8 +820,7 @@ export class AgentRuntime {
 			const error = new Error(
 				"Attachments not supported in queued follow-ups. Wait for the current turn to finish before sending attached reviews.",
 			);
-			this.emit({
-				type: "error",
+			this.emit("notification.error", {
 				title: "Queued follow-up unsupported",
 				lines: [error.message],
 			});
@@ -807,7 +846,10 @@ export class AgentRuntime {
 			await this.agent.prompt(message as unknown as AgentMessage);
 			await this.waitForRecovery();
 		} catch (err) {
-			this.emit({ type: "error", title: "Agent error", lines: [String(err)] });
+			this.emit("notification.error", {
+				title: "Agent error",
+				lines: [String(err)],
+			});
 			throw err;
 		}
 	}
@@ -862,7 +904,7 @@ export class AgentRuntime {
 			timestamp,
 		};
 		this.agent.appendCustomMessage(pendingMessage);
-		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 
 		const result = await runBash(command, this.session.cwd);
 
@@ -885,7 +927,7 @@ export class AgentRuntime {
 				message.id === id,
 			bashMessage,
 		);
-		this.emit({ type: "turns_changed", turns: [...this.agent.turns] });
+		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 	}
 
 	sendFollowUp(text: string): void {
@@ -930,7 +972,7 @@ export class AgentRuntime {
 		}
 		this.syncPendingState();
 		if (drained.length > 0) {
-			this.emit({ type: "info", title: "Steering", lines: [] });
+			this.emit("notification.info", { title: "Steering", lines: [] });
 		}
 	}
 
@@ -985,10 +1027,10 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit({ type: "session_changed", session: this.session });
+		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
-		this.emit({ type: "turns_changed", turns: [] });
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit("session.turns.changed", { turns: [] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 	}
 
 	async handoffSession(firstMessage?: string): Promise<Session> {
@@ -1025,10 +1067,10 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(child);
 		this.syncPendingState();
-		this.emit({ type: "session_changed", session: this.session });
+		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
-		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit("session.turns.changed", { turns: [...this.session.turns] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
 		const prompt = firstMessage?.trim();
 		if (prompt) {
@@ -1052,10 +1094,10 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit({ type: "session_changed", session: this.session });
+		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
-		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit("session.turns.changed", { turns: [...this.session.turns] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		return true;
 	}
 
@@ -1151,14 +1193,13 @@ export class AgentRuntime {
 					"Failed to save merged summary into the parent session.",
 				);
 			}
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
-			this.emit({ type: "turns_changed", turns: [...this.session.turns] });
-			this.emit({ type: "status_changed", status: this.snapshotStatus() });
+			this.emit("session.turns.changed", { turns: [...this.session.turns] });
+			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
 			await deleteSession(child.id);
-			this.emit({
-				type: "info",
+			this.emit("notification.info", {
 				title: "Session squashed",
 				lines: [
 					`Merged ${child.name?.trim() || child.id.slice(0, 8)} into ${this.session.name?.trim() || this.session.id.slice(0, 8)}.`,
@@ -1186,12 +1227,11 @@ export class AgentRuntime {
 		}
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit({ type: "session_changed", session: this.session });
+		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
-		this.emit({ type: "turns_changed", turns: [...this.session.turns] });
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
-		this.emit({
-			type: "info",
+		this.emit("session.turns.changed", { turns: [...this.session.turns] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("notification.info", {
 			title: "Session reloaded",
 			lines: [
 				"Reloaded session state, context files, tools, and runtime status.",
@@ -1206,12 +1246,12 @@ export class AgentRuntime {
 				name,
 				updatedAt: new Date().toISOString(),
 			};
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			return;
 		}
 		this.session = await updateSession(this.session, { name });
-		this.emit({ type: "session_changed", session: this.session });
+		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 	}
 
@@ -1250,7 +1290,7 @@ export class AgentRuntime {
 
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
 		if (this.isEmpty()) {
 			this.session = {
@@ -1258,7 +1298,7 @@ export class AgentRuntime {
 				model: model.id,
 				updatedAt: new Date().toISOString(),
 			};
-			this.emit({ type: "session_changed", session: this.session });
+			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			return;
 		}
@@ -1266,12 +1306,11 @@ export class AgentRuntime {
 		void updateSession(this.session, { model: model.id })
 			.then((updated) => {
 				this.session = updated;
-				this.emit({ type: "session_changed", session: this.session });
+				this.emit("session.changed", { session: this.session });
 				this.emitSessionUpdated();
 			})
 			.catch((err) => {
-				this.emit({
-					type: "error",
+				this.emit("notification.error", {
 					title: "Session save failed",
 					lines: [String(err)],
 				});
@@ -1285,34 +1324,38 @@ export class AgentRuntime {
 			...this.session,
 			thinkingLevel: clamped,
 		};
-		this.emit({ type: "status_changed", status: this.snapshotStatus() });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		void this.persistSessionThinkingLevel(clamped);
 	}
 
 	showPanel(title: string): void {
-		this.emit({ type: "panel", panel: { pending: true, title } });
+		this.emit("runtime.panel.changed", {
+			panel: { pending: true, title },
+		});
 	}
 
 	hidePanel(): void {
-		this.emit({ type: "panel", panel: { pending: false, title: "" } });
+		this.emit("runtime.panel.changed", {
+			panel: { pending: false, title: "" },
+		});
 	}
 
 	emitError(title: string, lines: string[]): void {
-		this.emit({ type: "error", title, lines });
+		this.emit("notification.error", { title, lines });
 	}
 
 	emitInfo(title: string, lines: string[]): void {
-		this.emit({ type: "info", title, lines });
+		this.emit("notification.info", { title, lines });
 	}
 
 	emitWarning(title: string, lines: string[]): void {
-		this.emit({ type: "warning", title, lines });
+		this.emit("notification.warning", { title, lines });
 	}
 
 	emitSettingsChanged(settings: Settings): void {
 		this.settings = settings;
 		this.agent.maxRetryDelayMs = this.getRetrySettings().maxDelayMs;
-		this.emit({ type: "settings_changed", settings });
+		this.emit("settings.changed", { settings });
 	}
 
 	onQuit(handler: () => void): void {
@@ -1323,9 +1366,55 @@ export class AgentRuntime {
 		this.quitHandler?.();
 	}
 
-	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void {
-		this.listeners.add(listener);
-		return () => this.listeners.delete(listener);
+	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
+	subscribe<K extends RuntimeEventName>(
+		type: K,
+		listener: (event: AgentRuntimeEvent<K>) => void,
+	): () => void;
+	subscribe<P extends string>(
+		options: RuntimeEventPrefixSubscription<P>,
+		listener: (
+			event: AgentRuntimeEvent<RuntimeEventNameMatchingPrefix<P>>,
+		) => void,
+	): () => void;
+	subscribe<K extends RuntimeEventName, P extends string>(
+		typeOrListener:
+			| K
+			| RuntimeEventPrefixSubscription<P>
+			| ((event: AgentRuntimeEvent) => void),
+		maybeListener?:
+			| ((event: AgentRuntimeEvent<K>) => void)
+			| ((event: AgentRuntimeEvent<RuntimeEventNameMatchingPrefix<P>>) => void),
+	): () => void {
+		if (typeof typeOrListener === "function") {
+			const listener = typeOrListener;
+			this.listeners.add(listener);
+			return () => this.listeners.delete(listener);
+		}
+
+		const listener = maybeListener as (event: AgentRuntimeEvent) => void;
+		if (typeof typeOrListener === "object" && typeOrListener !== null) {
+			const entry = {
+				prefix: typeOrListener.prefix,
+				listener,
+			};
+			this.prefixListeners.push(entry);
+			return () => {
+				const index = this.prefixListeners.indexOf(entry);
+				if (index >= 0) this.prefixListeners.splice(index, 1);
+			};
+		}
+
+		const type = typeOrListener;
+		const listeners = this.exactListeners.get(type) ?? new Set();
+		listeners.add(listener);
+		this.exactListeners.set(type, listeners);
+		return () => {
+			const current = this.exactListeners.get(type);
+			if (!current) return;
+			current.delete(listener);
+			if (current.size === 0) this.exactListeners.delete(type);
+		};
 	}
 
 	dispose(): void {
@@ -1334,6 +1423,8 @@ export class AgentRuntime {
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
 		this.listeners.clear();
+		this.exactListeners.clear();
+		this.prefixListeners.length = 0;
 	}
 }
 

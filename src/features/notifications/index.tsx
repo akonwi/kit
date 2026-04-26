@@ -1,5 +1,4 @@
 import { Plugin } from "../../plugins/Plugin";
-import type { AgentRuntimeEvent } from "../../runtime/agent-runtime";
 import type { Turn } from "../../session/types";
 import {
 	type ResolvedSpeechSettings,
@@ -40,11 +39,9 @@ export class NotificationsPlugin extends Plugin {
 	}
 
 	override initialize(): void {
-		// Subscribe to turn_complete for notifications
-		this.subscribeRuntime((event: AgentRuntimeEvent) => {
-			if (event.type === "turn_complete") {
-				this.notifyTurnComplete(event.turn);
-			}
+		// Subscribe to turn completion for notifications
+		this.subscribeRuntimeEvent("turn.completed", (event) => {
+			this.notifyTurnComplete(event.turn);
 		});
 
 		// Register /bells command

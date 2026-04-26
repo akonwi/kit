@@ -379,9 +379,9 @@ class CodeReviewBrowserHost {
 		if (this.activeRuntime !== runtime) return;
 
 		if (
-			event.type === "session_changed" ||
-			event.type === "session_updated" ||
-			event.type === "turn_complete"
+			event.type === "session.changed" ||
+			event.type === "session.updated" ||
+			event.type === "turn.completed"
 		) {
 			await this.refreshState(runtime, event.type);
 		}

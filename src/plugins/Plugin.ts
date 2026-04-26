@@ -1,7 +1,11 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { TSchema } from "@sinclair/typebox";
 import type { Command } from "../features/commands/types";
-import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
+import type {
+	AgentRuntimeEvent,
+	RuntimeEventName,
+	RuntimeEventNameMatchingPrefix,
+} from "../runtime/agent-runtime";
 import type { PluginContext } from "./types";
 
 export abstract class Plugin {
@@ -15,6 +19,28 @@ export abstract class Plugin {
 		handler: (event: AgentRuntimeEvent) => void | Promise<void>,
 	): void {
 		const unsubscribe = this.ctx.runtime.subscribe((event) => {
+			void handler(event);
+		});
+		this.disposers.push(unsubscribe);
+	}
+
+	protected subscribeRuntimeEvent<K extends RuntimeEventName>(
+		type: K,
+		handler: (event: AgentRuntimeEvent<K>) => void | Promise<void>,
+	): void {
+		const unsubscribe = this.ctx.runtime.subscribe(type, (event) => {
+			void handler(event);
+		});
+		this.disposers.push(unsubscribe);
+	}
+
+	protected subscribeRuntimePrefix<P extends string>(
+		prefix: P,
+		handler: (
+			event: AgentRuntimeEvent<RuntimeEventNameMatchingPrefix<P>>,
+		) => void | Promise<void>,
+	): void {
+		const unsubscribe = this.ctx.runtime.subscribe({ prefix }, (event) => {
 			void handler(event);
 		});
 		this.disposers.push(unsubscribe);
