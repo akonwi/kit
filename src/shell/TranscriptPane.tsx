@@ -13,6 +13,7 @@ import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { formatTimeAgo } from "../features/commands/utils";
 import { openImagePart } from "../features/images/open";
 import type {
 	CodeReviewMessagePart,
@@ -20,7 +21,7 @@ import type {
 	MessagePart,
 	UserMultipartMessage,
 } from "../messages/parts";
-import type { Turn } from "../session/types";
+import type { KitAgentMessage, Turn } from "../session/types";
 import { syntaxStyle, theme } from "./theme";
 
 type BashExecutionMessage = CustomAgentMessages["bashExecution"];
@@ -130,6 +131,23 @@ function formatToolArgs(args?: Record<string, unknown>): string {
 	}
 	if ("path" in args && typeof args.path === "string") return ` ${args.path}`;
 	return "";
+}
+
+type HandoffSummaryMessage = AssistantMessage & {
+	timestamp: number;
+	synthetic?: {
+		kind: "handoff-summary";
+		sourceSessionName?: string;
+	};
+};
+
+function isHandoffSummaryMessage(
+	message: AgentMessage,
+): message is HandoffSummaryMessage {
+	return (
+		message.role === "assistant" &&
+		(message as KitAgentMessage).synthetic?.kind === "handoff-summary"
+	);
 }
 
 function isAssistantError(msg: AssistantMessage): boolean {
@@ -427,6 +445,57 @@ function CompletedToolCall(props: {
 	);
 }
 
+function HandoffSummaryEntry(props: {
+	msg: HandoffSummaryMessage;
+	aborted?: boolean;
+}) {
+	const [expanded, setExpanded] = createSignal(false);
+	const renderer = useRenderer();
+	const { text } = extractAssistantParts(props.msg);
+	const lines = () => text.split("\n");
+	const sourceLabel = () => props.msg.synthetic?.sourceSessionName?.trim();
+	const timestampLabel = () => formatTimeAgo(new Date(props.msg.timestamp));
+
+	return (
+		<box flexDirection="column" gap={1} width="100%">
+			<box
+				flexDirection="row"
+				gap={0}
+				width="100%"
+				onMouseDown={() => {
+					if (renderer.getSelection()?.getSelectedText()) return;
+					setExpanded(!expanded());
+				}}
+			>
+				<text fg={theme.textMuted}>────── </text>
+				<text fg={theme.textSecondary}>
+					{expanded() ? "▾" : "▸"} merged handoff summary
+				</text>
+				<Show when={sourceLabel()}>
+					{(source) => <text fg={theme.textMuted}> · {source()}</text>}
+				</Show>
+				<text fg={theme.textMuted}> · {timestampLabel()}</text>
+			</box>
+			<Show when={expanded()}>
+				<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
+					<For each={lines()}>
+						{(line) => {
+							const trimmed = line.trim();
+							if (trimmed.length === 0) {
+								return <text fg={theme.textSecondary}>{""}</text>;
+							}
+							if (trimmed.startsWith("## ")) {
+								return <text fg={theme.textPrimary}>{trimmed.slice(3)}</text>;
+							}
+							return <text fg={theme.textSecondary}>{line}</text>;
+						}}
+					</For>
+				</box>
+			</Show>
+		</box>
+	);
+}
+
 function AssistantEntry(props: {
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
@@ -485,6 +554,9 @@ function TurnEntryItem(props: {
 	const role = props.msg.role as string;
 	switch (role) {
 		case "assistant":
+			if (isHandoffSummaryMessage(props.msg)) {
+				return <HandoffSummaryEntry msg={props.msg} aborted={props.aborted} />;
+			}
 			return (
 				<AssistantEntry
 					msg={props.msg as AssistantMessage}

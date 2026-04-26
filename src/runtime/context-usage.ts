@@ -1,9 +1,10 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Api, Model, Usage } from "@mariozechner/pi-ai";
 import { messagePartToPromptText } from "../messages/parts";
+import type { SyntheticSummaryKind } from "../session/types";
 
-type SyntheticCompactionSummaryMessage = AgentMessage & {
-	synthetic?: { kind: "compaction-summary" };
+type SyntheticSummaryMessage = AgentMessage & {
+	synthetic?: { kind: SyntheticSummaryKind; sourceSessionName?: string };
 };
 
 export type RuntimeContextUsage = {
@@ -22,15 +23,14 @@ export function calculateContextTokens(usage: Usage): number {
 	);
 }
 
-function isSyntheticCompactionSummary(
+function isSyntheticSummary(
 	message: AgentMessage,
-): message is SyntheticCompactionSummaryMessage {
+): message is SyntheticSummaryMessage {
 	return (
 		typeof message === "object" &&
 		message !== null &&
 		"synthetic" in message &&
-		(message as SyntheticCompactionSummaryMessage).synthetic?.kind ===
-			"compaction-summary"
+		typeof (message as SyntheticSummaryMessage).synthetic?.kind === "string"
 	);
 }
 
@@ -53,7 +53,7 @@ function getAssistantUsage(
 	model: Model<Api> | undefined,
 ): Usage | undefined {
 	if (message.role !== "assistant") return undefined;
-	if (isSyntheticCompactionSummary(message)) return undefined;
+	if (isSyntheticSummary(message)) return undefined;
 	if (message.stopReason === "aborted" || message.stopReason === "error") {
 		return undefined;
 	}

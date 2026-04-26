@@ -10,10 +10,13 @@ import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 export const SESSION_VERSION = 1;
 
 /** AgentMessage tagged with the turn it belongs to. */
+export type SyntheticSummaryKind = "compaction-summary" | "handoff-summary";
+
 export type KitAgentMessage = AgentMessage & {
 	turnId: string;
 	synthetic?: {
-		kind: "compaction-summary";
+		kind: SyntheticSummaryKind;
+		sourceSessionName?: string;
 	};
 };
 
