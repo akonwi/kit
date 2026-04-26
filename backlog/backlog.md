@@ -12,9 +12,10 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] feature: squash child sessions into parent context as a concise summary so side-quest work can merge back into the parent thread
+- [ ] fix: toasts should have the highest zIndex, so they're always visible
 - [ ] enhancement: indicate bash mode in composer when using `!` and `!!`
 - [ ] enhancement: better onboarding. the empty state of transcript can mention /login if unauthenticated
+- [ ] enhancement: auto-paging should try to calculate the minimum threshold based on viewport height
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
 - [ ] idea: formalize plugin contribution to the status footer
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
