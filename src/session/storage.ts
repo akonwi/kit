@@ -68,6 +68,7 @@ export function toSummary(session: Session): SessionSummary {
 		id: session.id,
 		cwd: session.cwd,
 		parentSessionId: session.parentSessionId,
+		forkedFromTurnId: session.forkedFromTurnId,
 		name: session.name,
 		model: session.model,
 		thinkingLevel: session.thinkingLevel,

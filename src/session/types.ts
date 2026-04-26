@@ -31,6 +31,8 @@ export interface Session {
 	cwd: string;
 	/** Parent session ID when this session was forked/handed off */
 	parentSessionId?: string;
+	/** Parent turn boundary captured at handoff time */
+	forkedFromTurnId?: string;
 	/** User-assigned display name */
 	name?: string;
 	/** Model ID at time of last message, e.g. "claude-sonnet-4" */
@@ -47,6 +49,7 @@ export interface SessionSummary {
 	id: string;
 	cwd: string;
 	parentSessionId?: string;
+	forkedFromTurnId?: string;
 	name?: string;
 	model?: string;
 	thinkingLevel?: ThinkingLevel;

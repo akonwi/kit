@@ -988,6 +988,7 @@ export class AgentRuntime {
 		}
 
 		const parentName = this.session.name?.trim() || "Untitled";
+		const forkedFromTurnId = this.session.turns.at(-1)?.id;
 		const now = new Date().toISOString();
 		const child: Session = {
 			...(await createSession(
@@ -996,6 +997,7 @@ export class AgentRuntime {
 				this.agent.state.thinkingLevel,
 			)),
 			parentSessionId: this.session.id,
+			forkedFromTurnId,
 			name: `handoff: ${parentName}`,
 			model: this.agent.state.model?.id ?? this.session.model,
 			thinkingLevel: this.agent.state.thinkingLevel,
