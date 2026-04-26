@@ -30,7 +30,7 @@ export type AppShellProps = {
 	showToast: (toast: {
 		title: string;
 		lines: string[];
-		variant: "info" | "error";
+		variant: "info" | "warning" | "error";
 	}) => void;
 };
 

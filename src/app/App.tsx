@@ -33,7 +33,7 @@ export function App(props: AppProps) {
 		| ((toast: {
 				title: string;
 				lines: string[];
-				variant: "info" | "error";
+				variant: "info" | "warning" | "error";
 		  }) => void)
 		| null = null;
 
@@ -45,7 +45,7 @@ export function App(props: AppProps) {
 			showToast?.({
 				title: message,
 				lines: [],
-				variant: variant === "warning" ? "info" : variant,
+				variant,
 			});
 		},
 		custom: openCustomOverlay,

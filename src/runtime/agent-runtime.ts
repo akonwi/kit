@@ -86,6 +86,7 @@ export type AgentRuntimeEvent =
 	| { type: "pending_messages_changed"; messages: string[] }
 	| { type: "settings_changed"; settings: Settings }
 	| { type: "error"; title: string; lines: string[] }
+	| { type: "warning"; title: string; lines: string[] }
 	| { type: "info"; title: string; lines: string[] };
 
 export class AgentRuntime {
@@ -1302,6 +1303,10 @@ export class AgentRuntime {
 
 	emitInfo(title: string, lines: string[]): void {
 		this.emit({ type: "info", title, lines });
+	}
+
+	emitWarning(title: string, lines: string[]): void {
+		this.emit({ type: "warning", title, lines });
 	}
 
 	emitSettingsChanged(settings: Settings): void {

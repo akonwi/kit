@@ -4,7 +4,11 @@ import { theme } from "./theme";
 
 function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 	const color = () =>
-		props.toast.variant === "error" ? theme.errorText : theme.textSecondary;
+		props.toast.variant === "error"
+			? theme.errorText
+			: props.toast.variant === "warning"
+				? theme.warningText
+				: theme.textSecondary;
 	const label = () =>
 		props.toast.lines.length > 0
 			? `${props.toast.title}: ${props.toast.lines.join(" ")}`

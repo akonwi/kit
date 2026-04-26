@@ -33,7 +33,7 @@ export type SessionMeta = {
 
 export type Toast = {
 	id: number;
-	variant: "error" | "info";
+	variant: "error" | "warning" | "info";
 	title: string;
 	lines: string[];
 };
@@ -229,6 +229,7 @@ export function createAppState(
 				}
 				break;
 			case "error":
+			case "warning":
 			case "info":
 				showToast({
 					variant: event.type,

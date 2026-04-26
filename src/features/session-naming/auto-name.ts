@@ -87,10 +87,16 @@ async function generateTitleWithCurrentModel(
 	prompt: string,
 ): Promise<string> {
 	const model = runtime.getCurrentModel();
-	if (!model) return "";
+	if (!model) {
+		throw new Error("No current model available for session auto-naming.");
+	}
 
 	const apiKey = await getApiKey(model.provider);
-	if (!apiKey) return "";
+	if (!apiKey) {
+		throw new Error(
+			`No API key available for ${model.provider} session auto-naming.`,
+		);
+	}
 
 	const response = await completeSimple(
 		model as Model<Api>,
@@ -109,6 +115,10 @@ async function generateTitleWithCurrentModel(
 			...(model.reasoning ? { reasoning: "minimal" as const } : {}),
 		},
 	);
+
+	if (response.stopReason === "error" || response.stopReason === "aborted") {
+		throw new Error(response.errorMessage || "Session auto-naming failed.");
+	}
 
 	return response.content
 		.filter(
@@ -155,17 +165,23 @@ export async function maybeAutoNameSession(
 	].join("\n");
 
 	try {
-		const title = sanitizeGeneratedTitle(
-			await generateTitleWithCurrentModel(runtime, prompt),
-		);
-		if (!title) return;
+		const rawTitle = await generateTitleWithCurrentModel(runtime, prompt);
+		const title = sanitizeGeneratedTitle(rawTitle);
+		if (!title) {
+			runtime.emitWarning("Session auto-name failed", [
+				"The model did not return a usable session title.",
+			]);
+			return;
+		}
 
 		const currentSession = runtime.getSession();
 		if (currentSession.id !== sessionId) return;
 		if (currentSession.name?.trim()) return;
 
-		runtime.setSessionName(title);
-	} catch {
-		// Best effort only.
+		await runtime.setSessionName(title);
+	} catch (error) {
+		runtime.emitWarning("Session auto-name failed", [
+			error instanceof Error ? error.message : String(error),
+		]);
 	}
 }
