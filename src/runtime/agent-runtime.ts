@@ -79,7 +79,7 @@ export type RuntimeEventMap = {
 	"runtime.status.changed": { status: RuntimeStatus };
 	"session.changed": { session: Session };
 	"session.updated": { session: Session };
-	"session.updated.name": { session: Session; name: string | undefined };
+	"session.name.changed": { name: string };
 	"session.updated.model": { session: Session; modelId: string | undefined };
 	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
 	"runtime.panel.changed": { panel: RuntimePanelState };
@@ -253,12 +253,6 @@ export class AgentRuntime {
 		this.lastSessionModel = this.session.model;
 		this.lastSessionName = this.session.name;
 		this.emit("session.updated", { session: this.session });
-		if (previousName !== this.session.name) {
-			this.emit("session.updated.name", {
-				session: this.session,
-				name: this.session.name,
-			});
-		}
 		if (previousModel !== this.session.model) {
 			this.emit("session.updated.model", {
 				session: this.session,
@@ -1240,19 +1234,9 @@ export class AgentRuntime {
 	}
 
 	async setSessionName(name: string): Promise<void> {
-		if (this.isEmpty()) {
-			this.session = {
-				...this.session,
-				name,
-				updatedAt: new Date().toISOString(),
-			};
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			return;
-		}
-		this.session = await updateSession(this.session, { name });
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
+	  this.session.name = name
+		writeSession(this.session);
+		this.emit("session.name.changed", { name });
 	}
 
 	async listAllSessions(): Promise<SessionSummary[]> {

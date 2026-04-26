@@ -200,6 +200,12 @@ export function createAppState(
 				setState("sessionMeta", buildSessionMeta(event.session as Session));
 				threadIndex?.invalidate();
 				break;
+			case "session.name.changed":
+				setState("sessionMeta", (meta) => ({
+					...meta,
+					sessionName: event.name,
+				}));
+				break;
 			case "runtime.panel.changed":
 				setState("panel", event.panel);
 				break;
