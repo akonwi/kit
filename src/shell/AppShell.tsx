@@ -5,6 +5,7 @@ import {
 	getToastStackZIndex,
 	type OverlayEntry,
 } from "../app/overlay-ui";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { AppState } from "../state/app-state";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
@@ -23,6 +24,7 @@ const STATUS_BAR_HEIGHT = 1;
 
 export type AppShellProps = {
 	state: AppState;
+	runtime: AgentRuntime;
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	overlays: () => OverlayEntry[];
@@ -57,7 +59,7 @@ export function AppShell(props: AppShellProps) {
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot
-					panel={props.state.panel}
+					runtime={props.runtime}
 					pendingMessages={props.state.pendingMessages}
 				/>
 				<ComposerDock

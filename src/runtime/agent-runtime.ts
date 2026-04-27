@@ -77,6 +77,9 @@ export type RuntimeEventMap = {
 	// @deprecated in favor of `agent.*` events
 	"session.turns.changed": { turns: Turn[] };
 	"agent.turn.started": { turn: Turn };
+	"agent.thinking.started": { turn: Turn };
+	"agent.thinking.updated": { turn: Turn; delta: string };
+	"agent.thinking.completed": { turn: Turn };
 	"runtime.status.changed": { status: RuntimeStatus };
 	"session.changed": { session: Session };
 	"session.updated": { session: Session };
@@ -754,6 +757,21 @@ export class AgentRuntime {
 						panel: { pending: true, title: "Thinking…" },
 					});
 				}
+				break;
+
+			case "agent_thinking_started":
+				this.emit("agent.thinking.started", { turn: event.turn });
+				break;
+
+			case "agent_thinking_updated":
+				this.emit("agent.thinking.updated", {
+					turn: event.turn,
+					delta: event.delta,
+				});
+				break;
+
+			case "agent_thinking_completed":
+				this.emit("agent.thinking.completed", { turn: event.turn });
 				break;
 
 			case "message_update": {

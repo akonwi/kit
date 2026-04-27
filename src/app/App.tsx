@@ -110,6 +110,7 @@ export function App(props: AppProps) {
 	return (
 		<AppShell
 			state={app.state}
+			runtime={runtime}
 			controller={controller}
 			attachments={attachments}
 			overlays={overlays}

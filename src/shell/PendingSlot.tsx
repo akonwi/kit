@@ -1,12 +1,12 @@
 import { createSignal, onCleanup, Show } from "solid-js";
-import type { PanelState } from "../state/app-state";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import { theme } from "./theme";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
 
 export type PanelHostProps = {
-	panel: PanelState;
+	runtime: AgentRuntime;
 	pendingMessages: string[];
 };
 
@@ -20,7 +20,45 @@ function Spinner() {
 	return <text fg={theme.panelText}>{SPINNER_FRAMES[frame()]}</text>;
 }
 
+function normalizeThinkingText(text: string): string {
+	return text.replace(/\s+/g, " ").trim();
+}
+
 export function PendingSlot(props: PanelHostProps) {
+	const [isThinking, setIsThinking] = createSignal(false);
+	const [thinkingText, setThinkingText] = createSignal("");
+
+	const unsubscribeStarted = props.runtime.subscribe(
+		"agent.thinking.started",
+		() => {
+			setIsThinking(true);
+			setThinkingText("Thinking…");
+		},
+	);
+	const unsubscribeUpdated = props.runtime.subscribe(
+		"agent.thinking.updated",
+		(event) => {
+			setThinkingText((current) => {
+				const prefix = current === "Thinking…" ? "" : current;
+				const next = normalizeThinkingText(`${prefix}${event.delta}`);
+				return next.length > 0 ? next : "Thinking…";
+			});
+		},
+	);
+	const unsubscribeCompleted = props.runtime.subscribe(
+		"agent.thinking.completed",
+		() => {
+			setIsThinking(false);
+			setThinkingText("");
+		},
+	);
+
+	onCleanup(() => {
+		unsubscribeStarted();
+		unsubscribeUpdated();
+		unsubscribeCompleted();
+	});
+
 	return (
 		<box flexShrink={0} flexDirection="column" gap={0}>
 			<Show when={props.pendingMessages.length > 0}>
@@ -41,11 +79,11 @@ export function PendingSlot(props: PanelHostProps) {
 				paddingLeft={1}
 				paddingRight={1}
 				flexDirection="row"
-				gap={1}
+				gap={2}
 			>
-				<Show when={props.panel.pending}>
+				<Show when={isThinking()}>
 					<Spinner />
-					<text fg={theme.panelText}>{props.panel.title}</text>
+					<text fg={theme.panelText}>{thinkingText()}</text>
 				</Show>
 			</box>
 		</box>

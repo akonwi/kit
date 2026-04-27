@@ -55,6 +55,9 @@ export type AgentEvent =
 			assistantMessageEvent: AssistantMessageEvent;
 	  }
 	| { type: "message_end"; turn: Turn; message: KitAgentMessage }
+	| { type: "agent_thinking_started"; turn: Turn }
+	| { type: "agent_thinking_updated"; turn: Turn; delta: string }
+	| { type: "agent_thinking_completed"; turn: Turn }
 	| {
 			type: "tool_execution_start";
 			toolCallId: string;
@@ -118,8 +121,9 @@ export class KitAgent {
 		}
 
 		this.pi.subscribe((event) => {
-			const nextEvent = this.processPiEvent(event);
-			if (nextEvent) this.emit(nextEvent);
+			for (const nextEvent of this.processPiEvent(event)) {
+				this.emit(nextEvent);
+			}
 		});
 	}
 
@@ -343,12 +347,28 @@ export class KitAgent {
 		}
 	}
 
-	private processPiEvent(event: PiAgentEvent): AgentEvent | null {
+	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
 		switch (event.type) {
 			case "turn_start": {
 				this._pendingFollowUps = [];
 				const turn = this.startTurn();
-				return { type: "turn_start", turn };
+				return [{ type: "turn_start", turn }];
+			}
+			case "message_start": {
+				if (event.message.role !== "assistant") return [event];
+				const turn = this.ensureCurrentTurn();
+				return [event, { type: "agent_thinking_started", turn }];
+			}
+			case "message_update": {
+				const delta =
+					event.assistantMessageEvent?.type === "thinking_delta" &&
+					"delta" in event.assistantMessageEvent &&
+					typeof event.assistantMessageEvent.delta === "string"
+						? event.assistantMessageEvent.delta
+						: null;
+				if (!delta) return [event];
+				const turn = this.ensureCurrentTurn();
+				return [event, { type: "agent_thinking_updated", turn, delta }];
 			}
 			case "message_end": {
 				const turn = this.ensureCurrentTurn();
@@ -364,21 +384,32 @@ export class KitAgent {
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
-				return {
-					type: "message_end",
-					turn: updatedTurn,
-					message: tagged,
-				};
+				const events: AgentEvent[] = [
+					{
+						type: "message_end",
+						turn: updatedTurn,
+						message: tagged,
+					},
+				];
+				if (tagged.role === "assistant") {
+					events.unshift({
+						type: "agent_thinking_completed",
+						turn: updatedTurn,
+					});
+				}
+				return events;
 			}
 			case "turn_end":
-				return {
-					type: "turn_end",
-					turn: this._currentTurn,
-					message: event.message,
-					toolResults: event.toolResults,
-				};
+				return [
+					{
+						type: "turn_end",
+						turn: this._currentTurn,
+						message: event.message,
+						toolResults: event.toolResults,
+					},
+				];
 			default:
-				return event;
+				return [event];
 		}
 	}
 
