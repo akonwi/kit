@@ -27,17 +27,21 @@ Runtime events use a typed namespaced event map.
 
 The runtime now defines a `RuntimeEventMap` keyed by namespaced event names such as:
 
+- `session.active.changed`
+- `session.state.changed`
+- `session.state.name.changed`
+- `session.state.model.changed`
 - `session.turns.changed`
 - `runtime.status.changed`
-- `session.changed`
-- `session.updated`
-- `session.updated.name`
-- `session.updated.model`
-- `runtime.updated.git`
-- `turn.completed`
-- `notification.info`
-- `notification.warning`
-- `notification.error`
+- `runtime.followups.count.changed`
+- `runtime.followups.messages.changed`
+- `vcs.status.changed`
+- `execution.turn.completed`
+- `execution.tool.completed`
+- `ui.panel.changed`
+- `ui.notification.info`
+- `ui.notification.warning`
+- `ui.notification.error`
 
 `AgentRuntimeEvent` is derived from that map rather than hand-written as a separate ad hoc union.
 
@@ -58,8 +62,8 @@ Subscriptions support three forms:
 The runtime exposes:
 
 - `runtime.subscribe(listener)`
-- `runtime.subscribe("turn.completed", listener)`
-- `runtime.subscribe({ prefix: "session.updated." }, listener)`
+- `runtime.subscribe("execution.turn.completed", listener)`
+- `runtime.subscribe({ prefix: "session.state." }, listener)`
 
 The plugin base class also exposes convenience helpers for exact and prefix subscriptions.
 
@@ -69,8 +73,8 @@ This refactor does not require every consumer to use only highly specific events
 
 Kit keeps both:
 
-- coarse but namespaced events such as `session.changed` and `session.updated`
-- finer additive events such as `session.updated.name`, `session.updated.model`, and `runtime.updated.git`
+- coarse but namespaced events such as `session.active.changed` and `session.state.changed`
+- finer additive events such as `session.state.name.changed`, `session.state.model.changed`, and `vcs.status.changed`
 
 This keeps migration practical while enabling more specific policy-driven reactions over time.
 
@@ -100,9 +104,9 @@ Consumers should prefer:
 
 Examples:
 
-- plugins reacting to `turn.completed`
-- title updates reacting to `session.changed` and `session.updated.name`
-- future grouped listeners reacting to prefixes like `notification.` or `session.updated.`
+- plugins reacting to `execution.turn.completed`
+- title updates reacting to `session.active.changed` and `session.state.name.changed`
+- future grouped listeners reacting to prefixes like `ui.notification.` or `session.state.`
 
 ## Related
 
