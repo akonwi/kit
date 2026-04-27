@@ -25,13 +25,20 @@ function normalizeThinkingText(text: string): string {
 }
 
 export function PendingSlot(props: PanelHostProps) {
-	const [isThinking, setIsThinking] = createSignal(false);
+	const [isPending, setIsPending] = createSignal(false);
 	const [thinkingText, setThinkingText] = createSignal("");
 
+	const unsubscribeTurnStarted = props.runtime.subscribe(
+		"agent.turn.started",
+		() => {
+			setIsPending(true);
+			setThinkingText("Working…");
+		},
+	);
 	const unsubscribeStarted = props.runtime.subscribe(
 		"agent.thinking.started",
 		() => {
-			setIsThinking(true);
+			setIsPending(true);
 			setThinkingText("Thinking…");
 		},
 	);
@@ -45,18 +52,27 @@ export function PendingSlot(props: PanelHostProps) {
 			});
 		},
 	);
-	const unsubscribeCompleted = props.runtime.subscribe(
+	const unsubscribeThinkingCompleted = props.runtime.subscribe(
 		"agent.thinking.completed",
 		() => {
-			setIsThinking(false);
+			setIsPending(true);
+			setThinkingText("Working…");
+		},
+	);
+	const unsubscribeTurnCompleted = props.runtime.subscribe(
+		"agent.turn.completed",
+		() => {
+			setIsPending(false);
 			setThinkingText("");
 		},
 	);
 
 	onCleanup(() => {
+		unsubscribeTurnStarted();
 		unsubscribeStarted();
 		unsubscribeUpdated();
-		unsubscribeCompleted();
+		unsubscribeThinkingCompleted();
+		unsubscribeTurnCompleted();
 	});
 
 	return (
@@ -81,7 +97,7 @@ export function PendingSlot(props: PanelHostProps) {
 				flexDirection="row"
 				gap={2}
 			>
-				<Show when={isThinking()}>
+				<Show when={isPending()}>
 					<Spinner />
 					<text fg={theme.panelText}>{thinkingText()}</text>
 				</Show>

@@ -77,6 +77,7 @@ export type RuntimeEventMap = {
 	// @deprecated in favor of `agent.*` events
 	"session.turns.changed": { turns: Turn[] };
 	"agent.turn.started": { turn: Turn };
+	"agent.turn.completed": { turn: Turn | null };
 	"agent.thinking.started": { turn: Turn };
 	"agent.thinking.updated": { turn: Turn; delta: string };
 	"agent.thinking.completed": { turn: Turn };
@@ -749,6 +750,10 @@ export class AgentRuntime {
 			case "turn_start":
 				this.syncPendingState();
 				this.emit("agent.turn.started", { turn: event.turn });
+				break;
+
+			case "turn_end":
+				this.emit("agent.turn.completed", { turn: event.turn });
 				break;
 
 			case "message_start":
