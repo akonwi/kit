@@ -24,28 +24,33 @@ function normalizeThinkingText(text: string): string {
 	return text.replace(/\s+/g, " ").trim();
 }
 
+function showPending(setMessage: (value: string) => void, text: string): void {
+	setMessage(text);
+}
+
+function clearPending(setMessage: (value: string) => void): void {
+	setMessage("");
+}
+
 export function PendingSlot(props: PanelHostProps) {
-	const [isPending, setIsPending] = createSignal(false);
-	const [thinkingText, setThinkingText] = createSignal("");
+	const [message, setMessage] = createSignal("");
 
 	const unsubscribeTurnStarted = props.runtime.subscribe(
 		"agent.turn.started",
 		() => {
-			setIsPending(true);
-			setThinkingText("Working…");
+			showPending(setMessage, "Working…");
 		},
 	);
 	const unsubscribeStarted = props.runtime.subscribe(
 		"agent.thinking.started",
 		() => {
-			setIsPending(true);
-			setThinkingText("Thinking…");
+			showPending(setMessage, "Thinking…");
 		},
 	);
 	const unsubscribeUpdated = props.runtime.subscribe(
 		"agent.thinking.updated",
 		(event) => {
-			setThinkingText((current) => {
+			setMessage((current) => {
 				const prefix = current === "Thinking…" ? "" : current;
 				const next = normalizeThinkingText(`${prefix}${event.delta}`);
 				return next.length > 0 ? next : "Thinking…";
@@ -55,15 +60,85 @@ export function PendingSlot(props: PanelHostProps) {
 	const unsubscribeThinkingCompleted = props.runtime.subscribe(
 		"agent.thinking.completed",
 		() => {
-			setIsPending(true);
-			setThinkingText("Working…");
+			showPending(setMessage, "Working…");
 		},
 	);
 	const unsubscribeTurnCompleted = props.runtime.subscribe(
 		"agent.turn.completed",
 		() => {
-			setIsPending(false);
-			setThinkingText("");
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeRetryStarted = props.runtime.subscribe(
+		"agent.retry.started",
+		(event) => {
+			showPending(
+				setMessage,
+				`Retrying (${event.attempt}/${event.maxAttempts}) in ${Math.ceil(event.delayMs / 1000)}s…`,
+			);
+		},
+	);
+	const unsubscribeRetryFailed = props.runtime.subscribe(
+		"agent.retry.failed",
+		() => {
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeAutoCompactionStarted = props.runtime.subscribe(
+		"session.compaction.started.auto",
+		(event) => {
+			showPending(setMessage, `Compacting session… (${event.contextPercent}%)`);
+		},
+	);
+	const unsubscribeAutoCompactionCompleted = props.runtime.subscribe(
+		"session.compaction.completed.auto",
+		() => {
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeAutoCompactionFailed = props.runtime.subscribe(
+		"session.compaction.failed.auto",
+		() => {
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeRecoveryCompactionStarted = props.runtime.subscribe(
+		"session.compaction.started.recovery",
+		() => {
+			showPending(setMessage, "Compacting session for retry…");
+		},
+	);
+	const unsubscribeRecoveryCompactionCompleted = props.runtime.subscribe(
+		"session.compaction.completed.recovery",
+		() => {
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeRecoveryCompactionFailed = props.runtime.subscribe(
+		"session.compaction.failed.recovery",
+		() => {
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeAdaptationCompactionStarted = props.runtime.subscribe(
+		"session.compaction.started.adaptation",
+		(event) => {
+			showPending(
+				setMessage,
+				`Adapting session to ${event.modelName ?? event.modelId}… (${event.contextPercent}%)`,
+			);
+		},
+	);
+	const unsubscribeAdaptationCompactionCompleted = props.runtime.subscribe(
+		"session.compaction.completed.adaptation",
+		() => {
+			clearPending(setMessage);
+		},
+	);
+	const unsubscribeAdaptationCompactionFailed = props.runtime.subscribe(
+		"session.compaction.failed.adaptation",
+		() => {
+			clearPending(setMessage);
 		},
 	);
 
@@ -73,6 +148,17 @@ export function PendingSlot(props: PanelHostProps) {
 		unsubscribeUpdated();
 		unsubscribeThinkingCompleted();
 		unsubscribeTurnCompleted();
+		unsubscribeRetryStarted();
+		unsubscribeRetryFailed();
+		unsubscribeAutoCompactionStarted();
+		unsubscribeAutoCompactionCompleted();
+		unsubscribeAutoCompactionFailed();
+		unsubscribeRecoveryCompactionStarted();
+		unsubscribeRecoveryCompactionCompleted();
+		unsubscribeRecoveryCompactionFailed();
+		unsubscribeAdaptationCompactionStarted();
+		unsubscribeAdaptationCompactionCompleted();
+		unsubscribeAdaptationCompactionFailed();
 	});
 
 	return (
@@ -97,9 +183,9 @@ export function PendingSlot(props: PanelHostProps) {
 				flexDirection="row"
 				gap={2}
 			>
-				<Show when={isPending()}>
+				<Show when={message().length > 0}>
 					<Spinner />
-					<text fg={theme.panelText}>{thinkingText()}</text>
+					<text fg={theme.panelText}>{message()}</text>
 				</Show>
 			</box>
 		</box>

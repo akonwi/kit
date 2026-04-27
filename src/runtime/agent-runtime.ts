@@ -81,6 +81,50 @@ export type RuntimeEventMap = {
 	"agent.thinking.started": { turn: Turn };
 	"agent.thinking.updated": { turn: Turn; delta: string };
 	"agent.thinking.completed": { turn: Turn };
+	"agent.retry.started": {
+		attempt: number;
+		maxAttempts: number;
+		delayMs: number;
+	};
+	"agent.retry.failed": {
+		attempt: number;
+		maxAttempts: number;
+		error: string;
+	};
+	"session.compaction.started.auto": { contextPercent: number };
+	"session.compaction.completed.auto": {
+		compactedTurnCount: number;
+		keptTurnCount: number;
+	};
+	"session.compaction.failed.auto": {
+		error: string;
+	};
+	"session.compaction.started.recovery": { reason: "overflow" };
+	"session.compaction.completed.recovery": {
+		reason: "overflow";
+		compactedTurnCount: number;
+		keptTurnCount: number;
+	};
+	"session.compaction.failed.recovery": {
+		reason: "overflow";
+		error: string;
+	};
+	"session.compaction.started.adaptation": {
+		modelId: string;
+		modelName: string | undefined;
+		contextPercent: number;
+	};
+	"session.compaction.completed.adaptation": {
+		modelId: string;
+		modelName: string | undefined;
+		compactedTurnCount: number;
+		keptTurnCount: number;
+	};
+	"session.compaction.failed.adaptation": {
+		modelId: string;
+		modelName: string | undefined;
+		error: string;
+	};
 	"runtime.status.changed": { status: RuntimeStatus };
 	"session.changed": { session: Session };
 	"session.updated": { session: Session };
@@ -402,6 +446,9 @@ export class AgentRuntime {
 		}
 
 		this.isCompacting = true;
+		this.emit("session.compaction.started.auto", {
+			contextPercent: contextUsage?.percent ?? 0,
+		});
 		this.emit("runtime.panel.changed", {
 			panel: {
 				pending: true,
@@ -423,6 +470,10 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
+			this.emit("session.compaction.completed.auto", {
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+			});
 			this.emit("notification.info", {
 				title: "Session compacted",
 				lines: [
@@ -431,6 +482,9 @@ export class AgentRuntime {
 				],
 			});
 		} catch (error) {
+			this.emit("session.compaction.failed.auto", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 			this.emit("notification.error", {
 				title: "Auto-compaction failed",
 				lines: [error instanceof Error ? error.message : String(error)],
@@ -479,6 +533,11 @@ export class AgentRuntime {
 	private scheduleContinue(): void {
 		setTimeout(() => {
 			void this.agent.continue().catch((error) => {
+				this.emit("agent.retry.failed", {
+					attempt: this.retryAttempt,
+					maxAttempts: this.getRetrySettings().maxRetries,
+					error: error instanceof Error ? error.message : String(error),
+				});
 				this.emit("notification.error", {
 					title: "Retry failed",
 					lines: [error instanceof Error ? error.message : String(error)],
@@ -524,6 +583,11 @@ export class AgentRuntime {
 
 		this.removeTerminalAssistantErrorFromLiveState();
 		const delayMs = settings.baseDelayMs * 2 ** (this.retryAttempt - 1);
+		this.emit("agent.retry.started", {
+			attempt: this.retryAttempt,
+			maxAttempts: settings.maxRetries,
+			delayMs,
+		});
 		this.emit("runtime.panel.changed", {
 			panel: {
 				pending: true,
@@ -534,6 +598,11 @@ export class AgentRuntime {
 		try {
 			await this.sleepWithAbort(delayMs, this.retryAbortController.signal);
 		} catch {
+			this.emit("agent.retry.failed", {
+				attempt: this.retryAttempt,
+				maxAttempts: settings.maxRetries,
+				error: "Retry cancelled before continue.",
+			});
 			this.retryAttempt = 0;
 			this.retryAbortController = null;
 			this.emit("runtime.panel.changed", {
@@ -571,6 +640,9 @@ export class AgentRuntime {
 
 		this.overflowRecoveryAttempted = true;
 		this.removeTerminalAssistantErrorFromLiveState();
+		this.emit("session.compaction.started.recovery", {
+			reason: "overflow",
+		});
 		this.emit("runtime.panel.changed", {
 			panel: { pending: true, title: `Compacting session for retry…` },
 		});
@@ -594,6 +666,11 @@ export class AgentRuntime {
 			this.emitSessionUpdated();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+			this.emit("session.compaction.completed.recovery", {
+				reason: "overflow",
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+			});
 			this.emit("notification.info", {
 				title: "Session compacted",
 				lines: [
@@ -604,6 +681,10 @@ export class AgentRuntime {
 			this.scheduleContinue();
 			return true;
 		} catch (error) {
+			this.emit("session.compaction.failed.recovery", {
+				reason: "overflow",
+				error: error instanceof Error ? error.message : String(error),
+			});
 			this.emit("notification.error", {
 				title: "Context overflow recovery failed",
 				lines: [error instanceof Error ? error.message : String(error)],
@@ -667,6 +748,11 @@ export class AgentRuntime {
 		}
 
 		this.overflowRecoveryInFlight = true;
+		this.emit("session.compaction.started.adaptation", {
+			modelId: model.id,
+			modelName: model.name,
+			contextPercent: contextUsage.percent,
+		});
 		this.emit("runtime.panel.changed", {
 			panel: {
 				pending: true,
@@ -702,6 +788,12 @@ export class AgentRuntime {
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
+			this.emit("session.compaction.completed.adaptation", {
+				modelId: model.id,
+				modelName: model.name,
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+			});
 			const nextUsage = getRuntimeContextUsage(
 				this.agent.state.messages,
 				model,
@@ -716,6 +808,11 @@ export class AgentRuntime {
 				});
 			}
 		} catch (error) {
+			this.emit("session.compaction.failed.adaptation", {
+				modelId: model.id,
+				modelName: model.name,
+				error: error instanceof Error ? error.message : String(error),
+			});
 			this.emit("notification.error", {
 				title: "Model switch compaction failed",
 				lines: [
