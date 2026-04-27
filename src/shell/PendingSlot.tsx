@@ -69,6 +69,18 @@ export function PendingSlot(props: PanelHostProps) {
 			clearPending(setMessage);
 		},
 	);
+	const unsubscribeMergeStarted = props.runtime.subscribe(
+		"session.merge.started",
+		() => {
+			showPending(setMessage, "Merging child session into parent…");
+		},
+	);
+	const unsubscribeMergeEnded = props.runtime.subscribe(
+		"session.merge.ended",
+		() => {
+			clearPending(setMessage);
+		},
+	);
 	const unsubscribeRetryStarted = props.runtime.subscribe(
 		"agent.retry.started",
 		(event) => {
@@ -148,6 +160,8 @@ export function PendingSlot(props: PanelHostProps) {
 		unsubscribeUpdated();
 		unsubscribeThinkingCompleted();
 		unsubscribeTurnCompleted();
+		unsubscribeMergeStarted();
+		unsubscribeMergeEnded();
 		unsubscribeRetryStarted();
 		unsubscribeRetryFailed();
 		unsubscribeAutoCompactionStarted();
