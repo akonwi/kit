@@ -7,11 +7,6 @@ import type { Session } from "../session";
 import type { Turn } from "../session/types";
 import type { LoadedSettings, Settings } from "../settings";
 
-export type PanelState = {
-	pending: boolean;
-	title: string;
-};
-
 export type FooterStatusState = {
 	cwd: string;
 	model: string;
@@ -41,7 +36,6 @@ export type Toast = {
 export type AppState = {
 	turns: Turn[];
 	toasts: Toast[];
-	panel: PanelState;
 	pendingMessages: string[];
 	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
@@ -141,7 +135,6 @@ export function createAppState(
 	const [state, setState] = createStore<AppState>({
 		turns,
 		toasts: [],
-		panel: { pending: false, title: "" },
 		pendingMessages: runtime ? runtime.getPendingMessages() : [],
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
 		sessionMeta: buildSessionMeta(session),
@@ -205,9 +198,6 @@ export function createAppState(
 					...meta,
 					sessionName: event.name,
 				}));
-				break;
-			case "runtime.panel.changed":
-				setState("panel", event.panel);
 				break;
 			case "runtime.pending.changed":
 				setState("footerStatus", "pendingMessages", event.count);

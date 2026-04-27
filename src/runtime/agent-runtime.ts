@@ -68,11 +68,6 @@ export type RuntimeStatus = {
 	contextUsage: RuntimeContextUsage | null;
 };
 
-export type RuntimePanelState = {
-	pending: boolean;
-	title: string;
-};
-
 export type RuntimeEventMap = {
 	// @deprecated in favor of `agent.*` events
 	"session.turns.changed": { turns: Turn[] };
@@ -131,7 +126,6 @@ export type RuntimeEventMap = {
 	"session.name.changed": { name: string };
 	"session.updated.model": { session: Session; modelId: string | undefined };
 	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
-	"runtime.panel.changed": { panel: RuntimePanelState };
 	"tool.completed": Record<string, never>;
 	"runtime.pending.changed": { count: number };
 	"runtime.pending.messages.changed": { messages: string[] };
@@ -449,12 +443,6 @@ export class AgentRuntime {
 		this.emit("session.compaction.started.auto", {
 			contextPercent: contextUsage?.percent ?? 0,
 		});
-		this.emit("runtime.panel.changed", {
-			panel: {
-				pending: true,
-				title: `Compacting session… (${contextUsage?.percent ?? 0}%)`,
-			},
-		});
 
 		try {
 			const result = await compactSessionTurns({
@@ -545,9 +533,6 @@ export class AgentRuntime {
 				this.retryAttempt = 0;
 				this.retryAbortController = null;
 				this.overflowRecoveryAttempted = false;
-				this.emit("runtime.panel.changed", {
-					panel: { pending: false, title: "" },
-				});
 				this.resolveRecovery();
 			});
 		}, 0);
@@ -588,12 +573,6 @@ export class AgentRuntime {
 			maxAttempts: settings.maxRetries,
 			delayMs,
 		});
-		this.emit("runtime.panel.changed", {
-			panel: {
-				pending: true,
-				title: `Retrying (${this.retryAttempt}/${settings.maxRetries}) in ${Math.ceil(delayMs / 1000)}s…`,
-			},
-		});
 		this.retryAbortController = new AbortController();
 		try {
 			await this.sleepWithAbort(delayMs, this.retryAbortController.signal);
@@ -605,9 +584,6 @@ export class AgentRuntime {
 			});
 			this.retryAttempt = 0;
 			this.retryAbortController = null;
-			this.emit("runtime.panel.changed", {
-				panel: { pending: false, title: "" },
-			});
 			this.resolveRecovery();
 			return true;
 		}
@@ -642,9 +618,6 @@ export class AgentRuntime {
 		this.removeTerminalAssistantErrorFromLiveState();
 		this.emit("session.compaction.started.recovery", {
 			reason: "overflow",
-		});
-		this.emit("runtime.panel.changed", {
-			panel: { pending: true, title: `Compacting session for retry…` },
 		});
 		try {
 			const result = await compactSessionTurns({
@@ -712,9 +685,6 @@ export class AgentRuntime {
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
-		this.emit("runtime.panel.changed", {
-			panel: { pending: false, title: "" },
-		});
 		this.syncPendingState();
 		this.retryAttempt = 0;
 		this.overflowRecoveryAttempted = false;
@@ -752,12 +722,6 @@ export class AgentRuntime {
 			modelId: model.id,
 			modelName: model.name,
 			contextPercent: contextUsage.percent,
-		});
-		this.emit("runtime.panel.changed", {
-			panel: {
-				pending: true,
-				title: `Adapting session to ${model.name ?? model.id}… (${contextUsage.percent}%)`,
-			},
 		});
 
 		try {
@@ -822,9 +786,6 @@ export class AgentRuntime {
 			});
 		} finally {
 			this.overflowRecoveryInFlight = false;
-			this.emit("runtime.panel.changed", {
-				panel: { pending: false, title: "" },
-			});
 		}
 	}
 
@@ -832,9 +793,6 @@ export class AgentRuntime {
 		this.createRecoveryPromiseForAgentEnd(event);
 		switch (event.type) {
 			case "agent_start":
-				this.emit("runtime.panel.changed", {
-					panel: { pending: true, title: "Working…" },
-				});
 				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
@@ -846,14 +804,6 @@ export class AgentRuntime {
 
 			case "turn_end":
 				this.emit("agent.turn.completed", { turn: event.turn });
-				break;
-
-			case "message_start":
-				if (event.message.role === "assistant") {
-					this.emit("runtime.panel.changed", {
-						panel: { pending: true, title: "Thinking…" },
-					});
-				}
 				break;
 
 			case "agent_thinking_started":
@@ -870,24 +820,6 @@ export class AgentRuntime {
 			case "agent_thinking_completed":
 				this.emit("agent.thinking.completed", { turn: event.turn });
 				break;
-
-			case "message_update": {
-				const ame = event.assistantMessageEvent;
-				if (
-					ame?.type === "thinking_delta" &&
-					"delta" in ame &&
-					typeof ame.delta === "string" &&
-					ame.delta.trim()
-				) {
-					this.emit("runtime.panel.changed", {
-						panel: {
-							pending: true,
-							title: ame.delta.replace(/\s+/g, " ").trim(),
-						},
-					});
-				}
-				break;
-			}
 
 			case "message_end":
 				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
@@ -906,9 +838,6 @@ export class AgentRuntime {
 					this.emit("notification.error", {
 						title: "Session save failed",
 						lines: [error instanceof Error ? error.message : String(error)],
-					});
-					this.emit("runtime.panel.changed", {
-						panel: { pending: false, title: "" },
 					});
 				});
 				break;
@@ -1272,49 +1201,46 @@ export class AgentRuntime {
 			.filter((line): line is string => typeof line === "string")
 			.join("\n");
 
-		this.showPanel("Merging child session into parent…");
-		try {
-			const summaryMessage = await createSyntheticSummaryMessage({
-				messages: messagesToSummarize,
-				model: currentModel,
-				apiKey,
-				systemPrompt: MERGE_UP_SYSTEM_PROMPT,
-				userPrompt: mergePrompt,
-				kind: "handoff-summary",
-				sourceSessionName: child.name?.trim() || undefined,
-			});
-			const summaryTurn: Turn = {
-				id: summaryMessage.turnId,
-				messages: [summaryMessage],
-			};
+		this.emit("notification.info", {
+			title: "Merging child session into parent…",
+			lines: [],
+		});
+		const summaryMessage = await createSyntheticSummaryMessage({
+			messages: messagesToSummarize,
+			model: currentModel,
+			apiKey,
+			systemPrompt: MERGE_UP_SYSTEM_PROMPT,
+			userPrompt: mergePrompt,
+			kind: "handoff-summary",
+			sourceSessionName: child.name?.trim() || undefined,
+		});
+		const summaryTurn: Turn = {
+			id: summaryMessage.turnId,
+			messages: [summaryMessage],
+		};
 
-			const switched = await this.switchSession(parent.id);
-			if (!switched) {
-				throw new Error("Failed to switch back to the parent session.");
-			}
-
-			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
-			const saved = await this.persistTurns();
-			if (!saved) {
-				throw new Error(
-					"Failed to save merged summary into the parent session.",
-				);
-			}
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			this.emit("session.turns.changed", { turns: [...this.session.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
-
-			await deleteSession(child.id);
-			this.emit("notification.info", {
-				title: "Session squashed",
-				lines: [
-					`Merged ${child.name?.trim() || child.id.slice(0, 8)} into ${this.session.name?.trim() || this.session.id.slice(0, 8)}.`,
-				],
-			});
-		} finally {
-			this.hidePanel();
+		const switched = await this.switchSession(parent.id);
+		if (!switched) {
+			throw new Error("Failed to switch back to the parent session.");
 		}
+
+		this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
+		const saved = await this.persistTurns();
+		if (!saved) {
+			throw new Error("Failed to save merged summary into the parent session.");
+		}
+		this.emit("session.changed", { session: this.session });
+		this.emitSessionUpdated();
+		this.emit("session.turns.changed", { turns: [...this.session.turns] });
+		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+
+		await deleteSession(child.id);
+		this.emit("notification.info", {
+			title: "Session squashed",
+			lines: [
+				`Merged ${child.name?.trim() || child.id.slice(0, 8)} into ${this.session.name?.trim() || this.session.id.slice(0, 8)}.`,
+			],
+		});
 	}
 
 	async reloadSession(): Promise<void> {
@@ -1423,18 +1349,6 @@ export class AgentRuntime {
 		};
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		void this.persistSessionThinkingLevel(clamped);
-	}
-
-	showPanel(title: string): void {
-		this.emit("runtime.panel.changed", {
-			panel: { pending: true, title },
-		});
-	}
-
-	hidePanel(): void {
-		this.emit("runtime.panel.changed", {
-			panel: { pending: false, title: "" },
-		});
 	}
 
 	emitError(title: string, lines: string[]): void {

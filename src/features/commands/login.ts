@@ -47,17 +47,19 @@ export const loginCommand: Command = {
 
 		// Step 2: run OAuth flow
 		console.log("[login] starting OAuth flow for:", provider.name);
-		runtime.showPanel(`Logging in to ${provider.name}…`);
+		runtime.emitInfo(`Logging in to ${provider.name}…`, []);
 		try {
 			const credentials = await provider.login({
 				onAuth({ url, instructions: _instructions }: OAuthAuthInfo) {
 					console.log("[login] onAuth called, url:", url?.slice(0, 60));
 					exec(`open "${url}"`);
-					runtime.showPanel(`Browser opened — complete login then return here`);
+					runtime.emitInfo("Browser opened", [
+						"Complete login then return here.",
+					]);
 				},
 
 				onProgress(msg: string) {
-					runtime.showPanel(msg);
+					runtime.emitInfo(msg, []);
 				},
 
 				onPrompt: (prompt: OAuthPrompt) =>
@@ -96,11 +98,9 @@ export const loginCommand: Command = {
 			auth[provider.id] = { ...credentials, type: "oauth" };
 			await writeAuthFile(auth);
 
-			runtime.hidePanel();
 			runtime.emitInfo("Login successful", [`Logged in to ${provider.name}.`]);
 		} catch (err) {
 			console.log("[login] error:", err);
-			runtime.hidePanel();
 			runtime.emitError("Login failed", [String(err)]);
 		}
 	},
