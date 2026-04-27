@@ -1238,12 +1238,6 @@ export class AgentRuntime {
 
 			await deleteSession(child.id);
 			this.emit("session.merge.ended", {});
-			this.emit("notification.info", {
-				title: "Session squashed",
-				lines: [
-					`Merged ${child.name?.trim() || child.id.slice(0, 8)} into ${this.session.name?.trim() || this.session.id.slice(0, 8)}.`,
-				],
-			});
 		} catch (error) {
 			this.emit("session.merge.ended", {
 				error: error instanceof Error ? error.message : String(error),
