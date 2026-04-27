@@ -12,7 +12,7 @@ import type {
 import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { formatTimeAgo } from "../features/commands/utils";
 import { openImagePart } from "../features/images/open";
 import type {
@@ -21,14 +21,23 @@ import type {
 	MessagePart,
 	UserMultipartMessage,
 } from "../messages/parts";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Turn } from "../session/types";
 import { syntaxStyle, theme } from "./theme";
+import {
+	extractToolProgressLines,
+	type LiveToolExecutionMap,
+	type LiveToolsForTurn,
+	reconcileLiveTools,
+	upsertLiveTool,
+} from "./transcript-live-tools";
 
 type BashExecutionMessage = CustomAgentMessages["bashExecution"];
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
 export type TranscriptPaneProps = {
+	runtime: AgentRuntime;
 	turns: Turn[];
 	showToast: (toast: {
 		title: string;
@@ -386,6 +395,86 @@ function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 	);
 }
 
+function LiveToolCall(props: {
+	tc: ToolCall;
+	args?: unknown;
+	partialResult?: unknown | null;
+	result?: unknown | null;
+	isError?: boolean | null;
+	state: "started" | "updated" | "ended";
+	aborted?: boolean;
+}) {
+	const [expanded, setExpanded] = createSignal(false);
+	const renderer = useRenderer();
+	const lines = () =>
+		extractToolProgressLines(props.result ?? props.partialResult ?? null);
+	const hasOutput = () => lines().length > 0;
+	const displayLines = () => {
+		if (!expanded()) return [];
+		if (lines().length > 40) {
+			return [
+				...lines().slice(0, 38),
+				`  ... (${lines().length - 38} more lines)`,
+			];
+		}
+		return lines();
+	};
+	const prefix = () => {
+		if (props.aborted) return "⊘";
+		if (props.state !== "ended") return null;
+		return props.isError ? "✗" : "✓";
+	};
+	const headerColor = () => {
+		if (props.aborted) return theme.textMuted;
+		if (props.state !== "ended") return theme.toolText;
+		return props.isError ? theme.errorText : theme.toolText;
+	};
+	const toolArgs = () =>
+		typeof props.args === "object" && props.args !== null
+			? (props.args as Record<string, unknown>)
+			: props.tc.arguments;
+
+	return (
+		<box flexDirection="column" gap={0} width="100%">
+			<box
+				flexDirection="row"
+				gap={1}
+				onMouseDown={() => {
+					if (renderer.getSelection()?.getSelectedText()) return;
+					if (hasOutput()) setExpanded(!expanded());
+				}}
+			>
+				<Show when={prefix()} fallback={<InlineSpinner />}>
+					{(value) => <text fg={headerColor()}>{value()}</text>}
+				</Show>
+				<text
+					fg={headerColor()}
+					attributes={props.aborted ? ABORTED_ATTRS : undefined}
+				>
+					{props.tc.name}
+					{formatToolArgs(toolArgs())}
+				</text>
+				<Show when={props.state !== "ended"}>
+					<text fg={theme.metaText}>running…</text>
+				</Show>
+				<Show when={hasOutput() && !props.aborted}>
+					<text fg={theme.metaText}>
+						{expanded() ? "▾" : "▸"} {lines().length} line
+						{lines().length === 1 ? "" : "s"}
+					</text>
+				</Show>
+			</box>
+			<Show when={expanded()}>
+				<box paddingLeft={2} flexDirection="column" gap={0}>
+					<For each={displayLines()}>
+						{(line) => <text fg={theme.textMuted}>{line}</text>}
+					</For>
+				</box>
+			</Show>
+		</box>
+	);
+}
+
 function CompletedToolCall(props: {
 	tc: ToolCall;
 	result: ToolResultMessage;
@@ -499,6 +588,7 @@ function HandoffSummaryEntry(props: {
 function AssistantEntry(props: {
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
 }) {
 	if (isAssistantError(props.msg)) {
@@ -516,10 +606,28 @@ function AssistantEntry(props: {
 			<For each={toolCalls}>
 				{(tc) => {
 					const result = () => props.toolResults.get(tc.id);
+					const liveTool = () => props.liveTools[tc.id];
 					return (
 						<Show
 							when={result()}
-							fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}
+							fallback={
+								<Show
+									when={liveTool()}
+									fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}
+								>
+									{(live) => (
+										<LiveToolCall
+											tc={tc}
+											args={live().args}
+											partialResult={live().partialResult}
+											result={live().result}
+											isError={live().isError}
+											state={live().state}
+											aborted={props.aborted}
+										/>
+									)}
+								</Show>
+							}
 						>
 							{(r) => (
 								<CompletedToolCall
@@ -547,6 +655,7 @@ function AssistantEntry(props: {
 function TurnEntryItem(props: {
 	msg: AgentMessage;
 	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
 	aborted: boolean;
 }) {
 	if (!("role" in props.msg)) return null;
@@ -561,6 +670,7 @@ function TurnEntryItem(props: {
 				<AssistantEntry
 					msg={props.msg as AssistantMessage}
 					toolResults={props.toolResults}
+					liveTools={props.liveTools}
 					aborted={props.aborted}
 				/>
 			);
@@ -573,6 +683,7 @@ function TurnEntryItem(props: {
 
 function TurnEntry(props: {
 	turn: TranscriptTurn;
+	liveTools: LiveToolsForTurn;
 	showToast: TranscriptPaneProps["showToast"];
 }) {
 	return (
@@ -595,6 +706,7 @@ function TurnEntry(props: {
 					<TurnEntryItem
 						msg={msg}
 						toolResults={props.turn.toolResults}
+						liveTools={props.liveTools}
 						aborted={props.turn.aborted}
 					/>
 				)}
@@ -604,7 +716,72 @@ function TurnEntry(props: {
 }
 
 export function TranscriptPane(props: TranscriptPaneProps) {
+	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
 	const turns = () => props.turns.map(toTranscriptTurn);
+
+	createEffect(() => {
+		setLiveTools((prev) => reconcileLiveTools(prev, props.turns));
+	});
+
+	const unsubscribeStarted = props.runtime.subscribe(
+		"agent.tool.started",
+		(event) => {
+			setLiveTools((prev) =>
+				upsertLiveTool(prev, {
+					turnId: event.turn.id,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: null,
+					result: null,
+					isError: null,
+					state: "started",
+				}),
+			);
+		},
+	);
+	const unsubscribeUpdated = props.runtime.subscribe(
+		"agent.tool.updated",
+		(event) => {
+			setLiveTools((prev) => {
+				const existing = prev[event.turn.id]?.[event.toolCallId] ?? null;
+				return upsertLiveTool(prev, {
+					turnId: event.turn.id,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: event.partialResult,
+					result: existing?.result ?? null,
+					isError: existing?.isError ?? null,
+					state: "updated",
+				});
+			});
+		},
+	);
+	const unsubscribeEnded = props.runtime.subscribe(
+		"agent.tool.ended",
+		(event) => {
+			setLiveTools((prev) => {
+				const existing = prev[event.turn.id]?.[event.toolCallId] ?? null;
+				return upsertLiveTool(prev, {
+					turnId: event.turn.id,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: existing?.partialResult ?? null,
+					result: event.result,
+					isError: event.isError,
+					state: "ended",
+				});
+			});
+		},
+	);
+
+	onCleanup(() => {
+		unsubscribeStarted();
+		unsubscribeUpdated();
+		unsubscribeEnded();
+	});
 
 	return (
 		<scrollbox
@@ -645,7 +822,13 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 			>
 				<box flexDirection="column" gap={1} width="100%">
 					<For each={turns()}>
-						{(turn) => <TurnEntry turn={turn} showToast={props.showToast} />}
+						{(turn) => (
+							<TurnEntry
+								turn={turn}
+								liveTools={liveTools()[turn.id] ?? {}}
+								showToast={props.showToast}
+							/>
+						)}
 					</For>
 				</box>
 			</Show>
