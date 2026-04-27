@@ -59,22 +59,26 @@ export type AgentEvent =
 	| { type: "agent_thinking_updated"; turn: Turn; delta: string }
 	| { type: "agent_thinking_completed"; turn: Turn }
 	| {
-			type: "tool_execution_start";
+			type: "agent_tool_started";
+			turn: Turn;
 			toolCallId: string;
 			toolName: string;
 			args: unknown;
 	  }
 	| {
-			type: "tool_execution_update";
+			type: "agent_tool_updated";
+			turn: Turn;
 			toolCallId: string;
 			toolName: string;
 			args: unknown;
 			partialResult: unknown;
 	  }
 	| {
-			type: "tool_execution_end";
+			type: "agent_tool_ended";
+			turn: Turn;
 			toolCallId: string;
 			toolName: string;
+			args: unknown;
 			result: unknown;
 			isError: boolean;
 	  };
@@ -82,6 +86,7 @@ export type AgentEvent =
 export class KitAgent {
 	private readonly pi: Agent;
 	private readonly listeners = new Set<(event: AgentEvent) => void>();
+	private readonly toolArgsById = new Map<string, unknown>();
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
 	private _pendingFollowUps: string[] = [];
@@ -274,6 +279,7 @@ export class KitAgent {
 
 	reset(): void {
 		this.pi.reset();
+		this.toolArgsById.clear();
 		this._turns = [];
 		this._currentTurn = null;
 		this._pendingFollowUps = [];
@@ -399,6 +405,49 @@ export class KitAgent {
 				}
 				return events;
 			}
+			case "tool_execution_start": {
+				const turn = this.ensureCurrentTurn();
+				this.toolArgsById.set(event.toolCallId, event.args);
+				return [
+					{
+						type: "agent_tool_started",
+						turn,
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						args: event.args,
+					},
+				];
+			}
+			case "tool_execution_update": {
+				const turn = this.ensureCurrentTurn();
+				this.toolArgsById.set(event.toolCallId, event.args);
+				return [
+					{
+						type: "agent_tool_updated",
+						turn,
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						args: event.args,
+						partialResult: event.partialResult,
+					},
+				];
+			}
+			case "tool_execution_end": {
+				const turn = this.ensureCurrentTurn();
+				const args = this.toolArgsById.get(event.toolCallId);
+				this.toolArgsById.delete(event.toolCallId);
+				return [
+					{
+						type: "agent_tool_ended",
+						turn,
+						toolCallId: event.toolCallId,
+						toolName: event.toolName,
+						args,
+						result: event.result,
+						isError: event.isError,
+					},
+				];
+			}
 			case "turn_end":
 				return [
 					{
@@ -477,6 +526,7 @@ export class KitAgent {
 		}));
 		this._currentTurn = null;
 		this._pendingFollowUps = [];
+		this.toolArgsById.clear();
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];

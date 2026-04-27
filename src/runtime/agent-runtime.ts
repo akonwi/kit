@@ -128,7 +128,27 @@ export type RuntimeEventMap = {
 	"session.name.changed": { name: string };
 	"session.updated.model": { session: Session; modelId: string | undefined };
 	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
-	"tool.completed": Record<string, never>;
+	"agent.tool.started": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+	};
+	"agent.tool.updated": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+		partialResult: unknown;
+	};
+	"agent.tool.ended": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+		result: unknown;
+		isError: boolean;
+	};
 	"runtime.pending.changed": { count: number };
 	"runtime.pending.messages.changed": { messages: string[] };
 	"settings.changed": { settings: Settings };
@@ -828,8 +848,34 @@ export class AgentRuntime {
 				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
-			case "tool_execution_end":
-				this.emit("tool.completed", {});
+			case "agent_tool_started":
+				this.emit("agent.tool.started", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+				});
+				break;
+
+			case "agent_tool_updated":
+				this.emit("agent.tool.updated", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: event.partialResult,
+				});
+				break;
+
+			case "agent_tool_ended":
+				this.emit("agent.tool.ended", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					result: event.result,
+					isError: event.isError,
+				});
 				break;
 
 			case "agent_end":

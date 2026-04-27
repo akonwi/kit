@@ -217,7 +217,7 @@ export function createAppState(
 			case "runtime.pending.messages.changed":
 				setState("pendingMessages", event.messages);
 				break;
-			case "tool.completed":
+			case "agent.tool.ended":
 				toolCompletionCount++;
 				if (toolCompletionCount >= FILE_INDEX_INVALIDATE_INTERVAL) {
 					toolCompletionCount = 0;
