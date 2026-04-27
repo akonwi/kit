@@ -19,7 +19,7 @@ export class PagerPlugin extends Plugin {
 
 		// Auto-activate pager on turn completion if the assistant response is long.
 		// Respects the `pager` setting; `/pager` always works regardless.
-		this.subscribeRuntimeEvent("turn.completed", async () => {
+		this.subscribeRuntimeEvent("agent.turn.completed", async () => {
 			if (this.ctx.settings.settings.pager === false) return;
 			if (this.pager.active) return;
 			if (this.pager.tryActivate(this.ctx.runtime.getMessages())) {

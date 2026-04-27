@@ -89,7 +89,6 @@ export type RuntimeEventMap = {
 	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
 	"runtime.panel.changed": { panel: RuntimePanelState };
 	"tool.completed": Record<string, never>;
-	"turn.completed": { turn: Turn | null };
 	"runtime.pending.changed": { count: number };
 	"runtime.pending.messages.changed": { messages: string[] };
 	"settings.changed": { settings: Settings };
@@ -634,10 +633,6 @@ export class AgentRuntime {
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		this.emit("runtime.panel.changed", {
 			panel: { pending: false, title: "" },
-		});
-		const completedTurn = this.agent.turns.at(-1) ?? null;
-		this.emit("turn.completed", {
-			turn: completedTurn,
 		});
 		this.syncPendingState();
 		this.retryAttempt = 0;

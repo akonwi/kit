@@ -381,7 +381,7 @@ class CodeReviewBrowserHost {
 		if (
 			event.type === "session.changed" ||
 			event.type === "session.updated" ||
-			event.type === "turn.completed"
+			event.type === "agent.turn.completed"
 		) {
 			await this.refreshState(runtime, event.type);
 		}
