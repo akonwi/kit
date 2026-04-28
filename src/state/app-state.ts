@@ -4,7 +4,6 @@ import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
 import type { Session } from "../session";
-import type { Turn } from "../session/types";
 import type { LoadedSettings, Settings } from "../settings";
 
 export type FooterStatusState = {
@@ -34,7 +33,6 @@ export type Toast = {
 };
 
 export type AppState = {
-	turns: Turn[];
 	toasts: Toast[];
 	pendingMessages: string[];
 	footerStatus: FooterStatusState;
@@ -129,11 +127,9 @@ export function createAppState(
 	session: Session | null,
 	runtime: AgentRuntime | null,
 ) {
-	const turns = runtime ? runtime.getTurns() : [];
 	const footer = deriveFooterStatus(runtime, loaded.settings);
 
 	const [state, setState] = createStore<AppState>({
-		turns,
 		toasts: [],
 		pendingMessages: runtime ? runtime.getPendingMessages() : [],
 		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
@@ -176,12 +172,6 @@ export function createAppState(
 
 	runtime?.subscribe((event) => {
 		switch (event.type) {
-			case "session.turns.changed":
-				setState("turns", event.turns);
-				for (const timer of toastTimers.values()) clearTimeout(timer);
-				toastTimers.clear();
-				setState("toasts", []);
-				break;
 			case "runtime.status.changed":
 				setState(
 					"footerStatus",

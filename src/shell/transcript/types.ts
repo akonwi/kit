@@ -7,8 +7,11 @@ export type TranscriptToast = {
 	variant: "info" | "warning" | "error";
 };
 
-export type TranscriptPaneProps = {
+export type TranscriptProps = {
 	runtime: AgentRuntime;
-	turns: Turn[];
 	showToast: (toast: TranscriptToast) => void;
+};
+
+export type TranscriptPaneProps = TranscriptProps & {
+	turns: Turn[];
 };

@@ -1,6 +1,7 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { KitAgentMessage, Turn } from "../../session/types";
-import { TranscriptPane, type TranscriptPaneProps } from "./pane";
+import { TranscriptPane } from "./pane";
+import type { TranscriptProps } from "./types";
 
 function appendTurnMessage(
 	prev: Turn[],
@@ -50,10 +51,10 @@ function replaceTurnMessage(
 	return replaced ? next : appendOrCreateTurnMessage(prev, turnId, message);
 }
 
-export type { TranscriptPaneProps } from "./pane";
+export type { TranscriptProps } from "./types";
 
-export function Transcript(props: TranscriptPaneProps) {
-	const [turns, setTurns] = createSignal(props.turns);
+export function Transcript(props: TranscriptProps) {
+	const [turns, setTurns] = createSignal(props.runtime.getTurns());
 	let lastSessionId = props.runtime.getSession().id;
 
 	const unsubscribeTurnStarted = props.runtime.subscribe(

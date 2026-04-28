@@ -55,11 +55,7 @@ export function AppShell(props: AppShellProps) {
 				onHeightChange={setHeaderHeight}
 			/>
 
-			<Transcript
-				runtime={props.runtime}
-				turns={props.state.turns}
-				showToast={props.showToast}
-			/>
+			<Transcript runtime={props.runtime} showToast={props.showToast} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot
