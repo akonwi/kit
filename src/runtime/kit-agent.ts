@@ -39,6 +39,17 @@ export interface KitAgentOptions extends AgentOptions {
 	initialTurns?: Turn[];
 }
 
+export type AppendedCustomMessage = {
+	turn: Turn;
+	message: KitAgentMessage;
+	createdTurn: boolean;
+};
+
+export type ReplacedCustomMessage = {
+	turn: Turn;
+	message: KitAgentMessage;
+};
+
 export type AgentEvent =
 	| { type: "agent_start" }
 	| { type: "agent_end"; messages: AgentMessage[] }
@@ -530,8 +541,18 @@ export class KitAgent {
 		return this._currentTurn ?? this.startTurn();
 	}
 
-	appendCustomMessage(message: AgentMessage): void {
-		const turn = this.ensureCurrentTurn();
+	private ensureCurrentTurnWithCreation(): {
+		turn: Turn;
+		createdTurn: boolean;
+	} {
+		if (this._currentTurn) {
+			return { turn: this._currentTurn, createdTurn: false };
+		}
+		return { turn: this.startTurn(), createdTurn: true };
+	}
+
+	appendCustomMessage(message: AgentMessage): AppendedCustomMessage {
+		const { turn, createdTurn } = this.ensureCurrentTurnWithCreation();
 		const tagged: KitAgentMessage = {
 			...message,
 			turnId: turn.id,
@@ -545,12 +566,17 @@ export class KitAgent {
 			candidate.id === updatedTurn.id ? updatedTurn : candidate,
 		);
 		this.pi.appendMessage(message);
+		return {
+			turn: updatedTurn,
+			message: tagged,
+			createdTurn,
+		};
 	}
 
 	replaceCustomMessage(
 		predicate: (message: AgentMessage) => boolean,
 		next: AgentMessage,
-	): void {
+	): ReplacedCustomMessage | null {
 		let replaced = false;
 		this._turns = this._turns.map((turn) => ({
 			...turn,
@@ -563,7 +589,7 @@ export class KitAgent {
 				} as KitAgentMessage;
 			}),
 		}));
-		if (!replaced) return;
+		if (!replaced) return null;
 		if (this._currentTurn) {
 			const nextTurn = this._turns.find(
 				(turn) => turn.id === this._currentTurn?.id,
@@ -574,6 +600,16 @@ export class KitAgent {
 			(turn) => turn.messages,
 		) as AgentMessage[];
 		this.pi.replaceMessages(messages);
+		for (const turn of this._turns) {
+			const message = turn.messages.find((candidate) => predicate(candidate));
+			if (message) {
+				return {
+					turn,
+					message,
+				};
+			}
+		}
+		return null;
 	}
 
 	replaceFromTurns(turns: Turn[]): void {

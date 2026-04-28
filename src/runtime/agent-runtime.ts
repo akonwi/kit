@@ -77,6 +77,14 @@ export type RuntimeEventMap = {
 		turn: Turn;
 		message: Extract<KitAgentMessage, { role: "user" }>;
 	};
+	"bash.command.started": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "bashExecution" }>;
+	};
+	"bash.command.completed": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "bashExecution" }>;
+	};
 	"agent.message.started": {
 		turn: Turn;
 		message: Extract<AgentMessage, { role: "assistant" }>;
@@ -1031,7 +1039,14 @@ export class AgentRuntime {
 			excludeFromContext: true,
 			timestamp,
 		};
-		this.agent.appendCustomMessage(pendingMessage);
+		const appended = this.agent.appendCustomMessage(pendingMessage);
+		this.emit("bash.command.started", {
+			turn: appended.turn,
+			message: appended.message as Extract<
+				KitAgentMessage,
+				{ role: "bashExecution" }
+			>,
+		});
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 
 		const result = await runBash(command, this.session.cwd);
@@ -1048,13 +1063,22 @@ export class AgentRuntime {
 			excludeFromContext,
 			timestamp,
 		};
-		this.agent.replaceCustomMessage(
+		const replaced = this.agent.replaceCustomMessage(
 			(message) =>
 				message.role === "bashExecution" &&
 				"id" in message &&
 				message.id === id,
 			bashMessage,
 		);
+		if (replaced) {
+			this.emit("bash.command.completed", {
+				turn: replaced.turn,
+				message: replaced.message as Extract<
+					KitAgentMessage,
+					{ role: "bashExecution" }
+				>,
+			});
+		}
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 	}
 
