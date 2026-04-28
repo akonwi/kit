@@ -17,10 +17,12 @@ import { Modal } from "./Modal";
 import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
+import { Transcript } from "./Transcript";
 import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
 
 const STATUS_BAR_HEIGHT = 1;
+const EXPERIMENTAL_TRANSCRIPT = process.env.EXPERIMENTAL === "true";
 
 export type AppShellProps = {
 	state: AppState;
@@ -55,11 +57,22 @@ export function AppShell(props: AppShellProps) {
 				onHeightChange={setHeaderHeight}
 			/>
 
-			<TranscriptPane
-				runtime={props.runtime}
-				turns={props.state.turns}
-				showToast={props.showToast}
-			/>
+			<Show
+				when={EXPERIMENTAL_TRANSCRIPT}
+				fallback={
+					<TranscriptPane
+						runtime={props.runtime}
+						turns={props.state.turns}
+						showToast={props.showToast}
+					/>
+				}
+			>
+				<Transcript
+					runtime={props.runtime}
+					turns={props.state.turns}
+					showToast={props.showToast}
+				/>
+			</Show>
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot
