@@ -18,8 +18,8 @@ import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { Transcript } from "./Transcript";
-import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
+import { TranscriptPane } from "./transcript/index";
 
 const STATUS_BAR_HEIGHT = 1;
 const EXPERIMENTAL_TRANSCRIPT = process.env.EXPERIMENTAL === "true";

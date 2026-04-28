@@ -1,6 +1,6 @@
 import { createSignal, ErrorBoundary, onCleanup } from "solid-js";
 import type { KitAgentMessage, Turn } from "../session/types";
-import { TranscriptPane, type TranscriptPaneProps } from "./TranscriptPane";
+import { TranscriptPane, type TranscriptPaneProps } from "./transcript/index";
 
 function appendTurnMessage(
 	prev: Turn[],
