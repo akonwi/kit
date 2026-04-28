@@ -17,6 +17,7 @@ import {
 } from "@mariozechner/pi-agent-core";
 import type {
 	Api,
+	AssistantMessage,
 	AssistantMessageEvent,
 	ImageContent,
 	Message,
@@ -55,9 +56,24 @@ export type AgentEvent =
 			assistantMessageEvent: AssistantMessageEvent;
 	  }
 	| {
+			type: "assistant_message_started";
+			turn: Turn;
+			message: Extract<AssistantMessage, { role: "assistant" }>;
+	  }
+	| {
+			type: "assistant_message_updated";
+			turn: Turn;
+			message: Extract<AssistantMessage, { role: "assistant" }>;
+	  }
+	| {
 			type: "user_message_created";
 			turn: Turn;
 			message: Extract<KitAgentMessage, { role: "user" }>;
+	  }
+	| {
+			type: "assistant_message_ended";
+			turn: Turn;
+			message: Extract<KitAgentMessage, { role: "assistant" }>;
 	  }
 	| { type: "message_end"; turn: Turn; message: KitAgentMessage }
 	| { type: "agent_thinking_started"; turn: Turn }
@@ -368,18 +384,43 @@ export class KitAgent {
 			case "message_start": {
 				if (event.message.role !== "assistant") return [event];
 				const turn = this.ensureCurrentTurn();
-				return [event, { type: "agent_thinking_started", turn }];
+				return [
+					event,
+					{
+						type: "assistant_message_started",
+						turn,
+						message: event.message as Extract<
+							AssistantMessage,
+							{ role: "assistant" }
+						>,
+					},
+					{ type: "agent_thinking_started", turn },
+				];
 			}
 			case "message_update": {
+				if (event.message.role !== "assistant") return [event];
+				const turn = this.ensureCurrentTurn();
+				const events: AgentEvent[] = [
+					event,
+					{
+						type: "assistant_message_updated",
+						turn,
+						message: event.message as Extract<
+							AssistantMessage,
+							{ role: "assistant" }
+						>,
+					},
+				];
 				const delta =
 					event.assistantMessageEvent?.type === "thinking_delta" &&
 					"delta" in event.assistantMessageEvent &&
 					typeof event.assistantMessageEvent.delta === "string"
 						? event.assistantMessageEvent.delta
 						: null;
-				if (!delta) return [event];
-				const turn = this.ensureCurrentTurn();
-				return [event, { type: "agent_thinking_updated", turn, delta }];
+				if (delta) {
+					events.push({ type: "agent_thinking_updated", turn, delta });
+				}
+				return events;
 			}
 			case "message_end": {
 				const turn = this.ensureCurrentTurn();
@@ -400,6 +441,11 @@ export class KitAgent {
 					events.push({
 						type: "agent_thinking_completed",
 						turn: updatedTurn,
+					});
+					events.push({
+						type: "assistant_message_ended",
+						turn: updatedTurn,
+						message: tagged as Extract<KitAgentMessage, { role: "assistant" }>,
 					});
 				}
 				if (tagged.role === "user") {

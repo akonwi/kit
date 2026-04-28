@@ -77,6 +77,18 @@ export type RuntimeEventMap = {
 		turn: Turn;
 		message: Extract<KitAgentMessage, { role: "user" }>;
 	};
+	"agent.message.started": {
+		turn: Turn;
+		message: Extract<AgentMessage, { role: "assistant" }>;
+	};
+	"agent.message.updated": {
+		turn: Turn;
+		message: Extract<AgentMessage, { role: "assistant" }>;
+	};
+	"agent.message.ended": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "assistant" }>;
+	};
 	"agent.thinking.started": { turn: Turn };
 	"agent.thinking.updated": { turn: Turn; delta: string };
 	"agent.thinking.completed": { turn: Turn };
@@ -834,6 +846,27 @@ export class AgentRuntime {
 
 			case "user_message_created":
 				this.emit("user.message.created", {
+					turn: event.turn,
+					message: event.message,
+				});
+				break;
+
+			case "assistant_message_started":
+				this.emit("agent.message.started", {
+					turn: event.turn,
+					message: event.message,
+				});
+				break;
+
+			case "assistant_message_updated":
+				this.emit("agent.message.updated", {
+					turn: event.turn,
+					message: event.message,
+				});
+				break;
+
+			case "assistant_message_ended":
+				this.emit("agent.message.ended", {
 					turn: event.turn,
 					message: event.message,
 				});
