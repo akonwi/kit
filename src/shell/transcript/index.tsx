@@ -1,134 +1,117 @@
-import "../../runtime/custom-messages";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { theme } from "../theme";
-import {
-	type LiveToolExecutionMap,
-	reconcileLiveTools,
-	upsertLiveTool,
-} from "../transcript-live-tools";
-import { TurnEntry } from "./turn-entry";
-import { toTranscriptTurn } from "./turns";
-import type { TranscriptPaneProps } from "./types";
+import { createSignal, onCleanup } from "solid-js";
+import type { KitAgentMessage, Turn } from "../../session/types";
+import { TranscriptPane, type TranscriptPaneProps } from "./pane";
 
-export type { TranscriptPaneProps } from "./types";
+function appendTurnMessage(
+	prev: Turn[],
+	turnId: string,
+	message: KitAgentMessage,
+): Turn[] {
+	return prev.map((turn) =>
+		turn.id === turnId
+			? { ...turn, messages: [...turn.messages, message] }
+			: turn,
+	);
+}
 
-export function TranscriptPane(props: TranscriptPaneProps) {
-	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
-	const turns = () => props.turns.map(toTranscriptTurn);
+function appendOrCreateTurnMessage(
+	prev: Turn[],
+	turnId: string,
+	message: KitAgentMessage,
+): Turn[] {
+	const hasTurn = prev.some((turn) => turn.id === turnId);
+	if (!hasTurn) {
+		return [...prev, { id: turnId, messages: [message] }];
+	}
+	return appendTurnMessage(prev, turnId, message);
+}
 
-	createEffect(() => {
-		setLiveTools((prev) => reconcileLiveTools(prev, props.turns));
-	});
+function replaceTurnMessage(
+	prev: Turn[],
+	turnId: string,
+	message: KitAgentMessage,
+): Turn[] {
+	let replaced = false;
+	const next = prev.map((turn) =>
+		turn.id === turnId
+			? {
+					...turn,
+					messages: turn.messages.map((candidate) => {
+						const match =
+							"id" in candidate &&
+							"id" in message &&
+							candidate.id === message.id;
+						if (match) replaced = true;
+						return match ? message : candidate;
+					}),
+				}
+			: turn,
+	);
+	return replaced ? next : appendOrCreateTurnMessage(prev, turnId, message);
+}
 
-	const unsubscribeStarted = props.runtime.subscribe(
-		"agent.tool.started",
+export type { TranscriptPaneProps } from "./pane";
+
+export function Transcript(props: TranscriptPaneProps) {
+	const [turns, setTurns] = createSignal(props.turns);
+	let lastSessionId = props.runtime.getSession().id;
+
+	const unsubscribeTurnStarted = props.runtime.subscribe(
+		"agent.turn.started",
 		(event) => {
-			setLiveTools((prev) =>
-				upsertLiveTool(prev, {
-					turnId: event.turn.id,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					args: event.args,
-					partialResult: null,
-					result: null,
-					isError: null,
-					state: "started",
-				}),
+			setTurns((prev) => [...prev, { id: event.turn.id, messages: [] }]);
+		},
+	);
+
+	const unsubscribeUserMessageCreated = props.runtime.subscribe(
+		"user.message.created",
+		(event) => {
+			setTurns((prev) => appendTurnMessage(prev, event.turn.id, event.message));
+		},
+	);
+
+	const unsubscribeAgentMessageEnded = props.runtime.subscribe(
+		"agent.message.ended",
+		(event) => {
+			setTurns((prev) => appendTurnMessage(prev, event.turn.id, event.message));
+		},
+	);
+
+	const unsubscribeBashCommandStarted = props.runtime.subscribe(
+		"bash.command.started",
+		(event) => {
+			setTurns((prev) =>
+				appendOrCreateTurnMessage(prev, event.turn.id, event.message),
 			);
 		},
 	);
-	const unsubscribeUpdated = props.runtime.subscribe(
-		"agent.tool.updated",
+
+	const unsubscribeBashCommandCompleted = props.runtime.subscribe(
+		"bash.command.completed",
 		(event) => {
-			setLiveTools((prev) => {
-				const existing = prev[event.turn.id]?.[event.toolCallId] ?? null;
-				return upsertLiveTool(prev, {
-					turnId: event.turn.id,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					args: event.args,
-					partialResult: event.partialResult,
-					result: existing?.result ?? null,
-					isError: existing?.isError ?? null,
-					state: "updated",
-				});
-			});
+			setTurns((prev) =>
+				replaceTurnMessage(prev, event.turn.id, event.message),
+			);
 		},
 	);
-	const unsubscribeEnded = props.runtime.subscribe(
-		"agent.tool.ended",
+
+	const unsubscribeSessionChanged = props.runtime.subscribe(
+		"session.changed",
 		(event) => {
-			setLiveTools((prev) => {
-				const existing = prev[event.turn.id]?.[event.toolCallId] ?? null;
-				return upsertLiveTool(prev, {
-					turnId: event.turn.id,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					args: event.args,
-					partialResult: existing?.partialResult ?? null,
-					result: event.result,
-					isError: event.isError,
-					state: "ended",
-				});
-			});
+			if (event.session.id === lastSessionId) return;
+			lastSessionId = event.session.id;
+			setTurns(props.runtime.getTurns());
 		},
 	);
 
 	onCleanup(() => {
-		unsubscribeStarted();
-		unsubscribeUpdated();
-		unsubscribeEnded();
+		unsubscribeTurnStarted();
+		unsubscribeUserMessageCreated();
+		unsubscribeAgentMessageEnded();
+		unsubscribeBashCommandStarted();
+		unsubscribeBashCommandCompleted();
+		unsubscribeSessionChanged();
 	});
 
-	return (
-		<scrollbox
-			flexGrow={1}
-			height="100%"
-			scrollY
-			stickyStart="bottom"
-			stickyScroll
-			padding={1}
-			style={{
-				scrollbarOptions: {
-					trackOptions: {
-						foregroundColor: theme.scrollbarFg,
-						backgroundColor: theme.scrollbarBg,
-					},
-				},
-			}}
-		>
-			<Show
-				when={props.turns.length > 0}
-				fallback={
-					<box
-						flexGrow={1}
-						flexDirection="column"
-						justifyContent="center"
-						alignItems="center"
-						gap={1}
-						width="100%"
-					>
-						<box flexDirection="column" alignItems="center" gap={0}>
-							<text fg={theme.textPrimary}>k i t</text>
-							<text fg={theme.borderAccent}>━━━━━━━━━━━</text>
-						</box>
-						<text fg={theme.textSecondary}>Ask a question or give a task.</text>
-						<text fg={theme.textPlaceholder}>/ to open commands</text>
-					</box>
-				}
-			>
-				<box flexDirection="column" gap={1} width="100%">
-					<For each={turns()}>
-						{(turn) => (
-							<TurnEntry
-								turn={turn}
-								liveTools={liveTools()[turn.id] ?? {}}
-								showToast={props.showToast}
-							/>
-						)}
-					</For>
-				</box>
-			</Show>
-		</scrollbox>
-	);
+	return <TranscriptPane {...props} turns={turns()} />;
 }
