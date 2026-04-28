@@ -34,7 +34,7 @@ import {
 	updateSession,
 	writeSession,
 } from "../session";
-import type { Turn } from "../session/types";
+import type { KitAgentMessage, Turn } from "../session/types";
 import { resolveRetrySettings, type Settings } from "../settings";
 import { createDefaultTools } from "../tools";
 import { runBash } from "../tools/run-bash";
@@ -73,6 +73,10 @@ export type RuntimeEventMap = {
 	"session.turns.changed": { turns: Turn[] };
 	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
+	"user.message.created": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "user" }>;
+	};
 	"agent.thinking.started": { turn: Turn };
 	"agent.thinking.updated": { turn: Turn; delta: string };
 	"agent.thinking.completed": { turn: Turn };
@@ -826,6 +830,13 @@ export class AgentRuntime {
 
 			case "turn_end":
 				this.emit("agent.turn.completed", { turn: event.turn });
+				break;
+
+			case "user_message_created":
+				this.emit("user.message.created", {
+					turn: event.turn,
+					message: event.message,
+				});
 				break;
 
 			case "agent_thinking_started":

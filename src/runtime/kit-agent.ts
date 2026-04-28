@@ -54,6 +54,11 @@ export type AgentEvent =
 			message: AgentMessage;
 			assistantMessageEvent: AssistantMessageEvent;
 	  }
+	| {
+			type: "user_message_created";
+			turn: Turn;
+			message: Extract<KitAgentMessage, { role: "user" }>;
+	  }
 	| { type: "message_end"; turn: Turn; message: KitAgentMessage }
 	| { type: "agent_thinking_started"; turn: Turn }
 	| { type: "agent_thinking_updated"; turn: Turn; delta: string }
@@ -390,19 +395,25 @@ export class KitAgent {
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
-				const events: AgentEvent[] = [
-					{
-						type: "message_end",
-						turn: updatedTurn,
-						message: tagged,
-					},
-				];
+				const events: AgentEvent[] = [];
 				if (tagged.role === "assistant") {
-					events.unshift({
+					events.push({
 						type: "agent_thinking_completed",
 						turn: updatedTurn,
 					});
 				}
+				if (tagged.role === "user") {
+					events.push({
+						type: "user_message_created",
+						turn: updatedTurn,
+						message: tagged as Extract<KitAgentMessage, { role: "user" }>,
+					});
+				}
+				events.push({
+					type: "message_end",
+					turn: updatedTurn,
+					message: tagged,
+				});
 				return events;
 			}
 			case "tool_execution_start": {
