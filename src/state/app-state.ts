@@ -8,8 +8,6 @@ import type { LoadedSettings, Settings } from "../settings";
 
 export type FooterStatusState = {
 	cwd: string;
-	model: string;
-	thinkingLevel: string;
 	contextPct: string;
 	gitBranch: string | null;
 	gitDirty: boolean;
@@ -65,8 +63,6 @@ function deriveFooterStatus(
 	if (runtime) {
 		const status = runtime.getStatus();
 		return {
-			model: status.model,
-			thinkingLevel: status.thinkingLevel,
 			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 			gitBranch: status.git.branch,
 			gitDirty: status.git.dirty,
@@ -76,8 +72,6 @@ function deriveFooterStatus(
 		};
 	}
 	return {
-		model: "no-model",
-		thinkingLevel: "off",
 		contextPct: "–",
 		gitBranch: null,
 		gitDirty: false,
@@ -94,8 +88,6 @@ function applyRuntimeStatus(
 	return {
 		...current,
 		cwd: formatCwd(process.cwd()),
-		model: status.model,
-		thinkingLevel: status.thinkingLevel,
 		contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 		gitBranch: status.git.branch,
 		gitDirty: status.git.dirty,
@@ -178,6 +170,9 @@ export function createAppState(
 					applyRuntimeStatus(state.footerStatus, event.status),
 				);
 				break;
+      case "session.active.changed":
+        setState("sessionMeta", buildSessionMeta(event.session));
+        break;
 			case "session.changed":
 			case "session.updated":
 				setState("sessionMeta", buildSessionMeta(event.session as Session));

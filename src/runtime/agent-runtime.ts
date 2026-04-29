@@ -71,6 +71,7 @@ export type RuntimeStatus = {
 export type RuntimeEventMap = {
 	// @deprecated in favor of `agent.*` events
 	"session.turns.changed": { turns: Turn[] };
+	"agent.model.changed": { model: Model<Api>, thinkingLevel: ThinkingLevel },
 	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
 	"user.message.created": {
@@ -147,6 +148,7 @@ export type RuntimeEventMap = {
 		error: string;
 	};
 	"runtime.status.changed": { status: RuntimeStatus };
+	"session.active.changed": { session: Session };
 	"session.changed": { session: Session };
 	"session.updated": { session: Session };
 	"session.name.changed": { name: string };
@@ -1179,6 +1181,7 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
+		this.emit("session.active.changed", { session: this.session });
 		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [] });
@@ -1430,7 +1433,7 @@ export class AgentRuntime {
 
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("agent.model.changed", { model, thinkingLevel: this.agent.state.thinkingLevel });
 
 		if (this.isEmpty()) {
 			this.session = {
@@ -1460,12 +1463,16 @@ export class AgentRuntime {
 	setThinkingLevel(level: ThinkingLevel): void {
 		const clamped = clampThinkingLevel(level, this.agent.state.model);
 		this.agent.setThinkingLevel(clamped);
+		this.emit("agent.model.changed", { model:this.agent.state.model, thinkingLevel: this.agent.state.thinkingLevel });
 		this.session = {
 			...this.session,
 			thinkingLevel: clamped,
 		};
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		void this.persistSessionThinkingLevel(clamped);
+	}
+
+  get agentInfo() {
+    return { model: this.agent.state.model, thinkingLevel: this.agent.state.thinkingLevel }
 	}
 
 	emitError(title: string, lines: string[]): void {

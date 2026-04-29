@@ -50,6 +50,7 @@ export function AppShell(props: AppShellProps) {
 			onMouseUp={() => copySelection(renderer)}
 		>
 			<HeaderBar
+			  runtime={props.runtime}
 				sessionName={props.state.sessionMeta.sessionName}
 				status={props.state.footerStatus}
 				onHeightChange={setHeaderHeight}
