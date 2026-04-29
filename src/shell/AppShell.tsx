@@ -50,7 +50,7 @@ export function AppShell(props: AppShellProps) {
 			onMouseUp={() => copySelection(renderer)}
 		>
 			<HeaderBar
-			  runtime={props.runtime}
+				runtime={props.runtime}
 				sessionName={props.state.sessionMeta.name}
 				status={props.state.footerStatus}
 				onHeightChange={setHeaderHeight}
@@ -69,7 +69,10 @@ export function AppShell(props: AppShellProps) {
 					locked={props.overlays().length > 0}
 					onHeightChange={setDockHeight}
 				/>
-				<BottomStatusBar cwd={props.state.sessionMeta.cwd} runtime={props.runtime} status={props.state.footerStatus} />
+				<BottomStatusBar
+					cwd={props.state.sessionMeta.cwd}
+					runtime={props.runtime}
+				/>
 			</box>
 
 			<InlinePicker

@@ -160,9 +160,9 @@ export function createAppState(
 					applyRuntimeStatus(state.footerStatus, event.status),
 				);
 				break;
-      case "session.active.changed":
-        setState("sessionMeta", buildSessionMeta(event.session));
-        break;
+			case "session.active.changed":
+				setState("sessionMeta", buildSessionMeta(event.session));
+				break;
 			case "session.changed":
 			case "session.updated":
 				setState("sessionMeta", buildSessionMeta(event.session as Session));

@@ -1,9 +1,9 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import { codeReviewStatus } from "../features/code-review/state";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { FooterStatusState } from "../state/app-state";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
-import { AgentRuntime } from "../runtime/agent-runtime";
 
 // TODO: Replace this direct global feature-state import once plugins can expose
 // header/footer contributions or plugin state can be queried through
@@ -19,7 +19,7 @@ export type HeaderBarProps = {
 	sessionName: string | undefined;
 	status: FooterStatusState;
 	onHeightChange?: (height: number) => void;
-	runtime: AgentRuntime
+	runtime: AgentRuntime;
 };
 
 export function HeaderBar(props: HeaderBarProps) {
@@ -49,12 +49,15 @@ export function HeaderBar(props: HeaderBarProps) {
 		return theme.textMuted;
 	};
 
-	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo)
-	const unsubscribeAgentInfo = props.runtime.subscribe("agent.model.changed", e => setAgentInfo(e))
+	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo);
+	const unsubscribeAgentInfo = props.runtime.subscribe(
+		"agent.model.changed",
+		(e) => setAgentInfo(e),
+	);
 
-  onCleanup(() => {
-    unsubscribeAgentInfo()
-	})
+	onCleanup(() => {
+		unsubscribeAgentInfo();
+	});
 
 	return (
 		<ScreenHeader

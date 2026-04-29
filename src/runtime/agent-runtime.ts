@@ -71,7 +71,7 @@ export type RuntimeStatus = {
 export type RuntimeEventMap = {
 	// @deprecated in favor of `agent.*` events
 	"session.turns.changed": { turns: Turn[] };
-	"agent.model.changed": { model: Model<Api>, thinkingLevel: ThinkingLevel },
+	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
 	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
 	"user.message.created": {
@@ -181,7 +181,7 @@ export type RuntimeEventMap = {
 	"notification.error": { title: string; lines: string[] };
 	"notification.warning": { title: string; lines: string[] };
 	"notification.info": { title: string; lines: string[] };
-  "vcs.updated": { branch: string | null, dirty: boolean };
+	"vcs.updated": { branch: string | null; dirty: boolean };
 };
 
 export type RuntimeEventName = keyof RuntimeEventMap;
@@ -222,8 +222,8 @@ export class AgentRuntime {
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
-  get vcsInfo() {
-    return this.gitInfo
+	get vcsInfo() {
+		return this.gitInfo;
 	}
 	private lastSessionModel: string | undefined;
 	private overflowRecoveryInFlight = false;
@@ -1425,7 +1425,10 @@ export class AgentRuntime {
 
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
-		this.emit("agent.model.changed", { model, thinkingLevel: this.agent.state.thinkingLevel });
+		this.emit("agent.model.changed", {
+			model,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		});
 
 		if (this.isEmpty()) {
 			this.session = {
@@ -1455,7 +1458,10 @@ export class AgentRuntime {
 	setThinkingLevel(level: ThinkingLevel): void {
 		const clamped = clampThinkingLevel(level, this.agent.state.model);
 		this.agent.setThinkingLevel(clamped);
-		this.emit("agent.model.changed", { model:this.agent.state.model, thinkingLevel: this.agent.state.thinkingLevel });
+		this.emit("agent.model.changed", {
+			model: this.agent.state.model,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		});
 		this.session = {
 			...this.session,
 			thinkingLevel: clamped,
@@ -1463,8 +1469,11 @@ export class AgentRuntime {
 		void this.persistSessionThinkingLevel(clamped);
 	}
 
-  get agentInfo() {
-    return { model: this.agent.state.model, thinkingLevel: this.agent.state.thinkingLevel }
+	get agentInfo() {
+		return {
+			model: this.agent.state.model,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		};
 	}
 
 	emitError(title: string, lines: string[]): void {
