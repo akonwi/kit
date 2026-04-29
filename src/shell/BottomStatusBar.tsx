@@ -1,18 +1,28 @@
-import { Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import type { FooterStatusState } from "../state/app-state";
 import { theme } from "./theme";
+import { AgentRuntime } from "../runtime/agent-runtime";
 
 export type BottomStatusBarProps = {
+  runtime: AgentRuntime
 	status: FooterStatusState;
+	cwd: string
 };
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
 	const pending = () =>
 		props.status.pendingMessages > 0 ? `📬${props.status.pendingMessages}` : "";
+	const [vcs, setVcs] = createSignal(props.runtime.vcsInfo)
+	const unsubscribeVcs = props.runtime.subscribe("vcs.updated", e => setVcs(e))
+	const branch = () => vcs().branch
 	const location = () =>
-		props.status.gitBranch
-			? `${props.status.cwd} (${props.status.gitBranch}${props.status.gitDirty ? " ●" : " ○"})`
-			: props.status.cwd;
+		branch() != null
+			? `${props.cwd} (${branch()}${vcs().dirty ? " ●" : " ○"})`
+			: props.cwd;
+
+  onCleanup(() => {
+    unsubscribeVcs()
+	})
 
 	return (
 		<box

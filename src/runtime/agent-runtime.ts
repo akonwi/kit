@@ -181,6 +181,7 @@ export type RuntimeEventMap = {
 	"notification.error": { title: string; lines: string[] };
 	"notification.warning": { title: string; lines: string[] };
 	"notification.info": { title: string; lines: string[] };
+  "vcs.updated": { branch: string | null, dirty: boolean };
 };
 
 export type RuntimeEventName = keyof RuntimeEventMap;
@@ -221,6 +222,9 @@ export class AgentRuntime {
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
+  get vcsInfo() {
+    return this.gitInfo
+	}
 	private lastSessionModel: string | undefined;
 	private overflowRecoveryInFlight = false;
 	private lastOverflowRecoveryKey: string | null = null;
@@ -254,16 +258,6 @@ export class AgentRuntime {
 			thinkingLevel: initialThinkingLevel,
 		};
 		this.contextFiles = discoverContextFiles(session.cwd);
-
-		console.log(
-			"[runtime] model:",
-			defaultModel.id,
-			"provider:",
-			defaultModel.provider,
-			"api:",
-			defaultModel.api,
-		);
-
 		this.agent = KitAgent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
@@ -311,11 +305,9 @@ export class AgentRuntime {
 
 	private resetGitWatcher(): void {
 		this.gitWatcher?.dispose();
-		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (git) => {
-			this.gitInfo = git;
-			const status = this.snapshotStatus();
-			this.emit("runtime.updated.git", { git, status });
-			this.emit("runtime.status.changed", { status });
+		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (gitInfo) => {
+			this.gitInfo = gitInfo;
+			this.emit("vcs.updated", this.gitInfo);
 		});
 		this.gitInfo = this.gitWatcher.getCurrent();
 	}

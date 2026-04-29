@@ -7,19 +7,16 @@ import type { Session } from "../session";
 import type { LoadedSettings, Settings } from "../settings";
 
 export type FooterStatusState = {
-	cwd: string;
 	contextPct: string;
-	gitBranch: string | null;
-	gitDirty: boolean;
 	bellsEnabled: boolean;
 	speechEnabled: boolean;
 	pendingMessages: number;
 };
 
 export type SessionMeta = {
-	sessionId: string;
-	sessionName: string | undefined;
-	sessionCwd: string;
+	id: string;
+	name: string | undefined;
+	cwd: string;
 	hasSession: boolean;
 };
 
@@ -64,8 +61,6 @@ function deriveFooterStatus(
 		const status = runtime.getStatus();
 		return {
 			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
-			gitBranch: status.git.branch,
-			gitDirty: status.git.dirty,
 			bellsEnabled: resolveBellsEnabled(settings),
 			speechEnabled: resolveSpeechEnabled(settings),
 			pendingMessages: runtime.getPendingMessageCount(),
@@ -73,8 +68,6 @@ function deriveFooterStatus(
 	}
 	return {
 		contextPct: "–",
-		gitBranch: null,
-		gitDirty: false,
 		bellsEnabled: resolveBellsEnabled(settings),
 		speechEnabled: resolveSpeechEnabled(settings),
 		pendingMessages: 0,
@@ -87,10 +80,7 @@ function applyRuntimeStatus(
 ): FooterStatusState {
 	return {
 		...current,
-		cwd: formatCwd(process.cwd()),
 		contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
-		gitBranch: status.git.branch,
-		gitDirty: status.git.dirty,
 		pendingMessages: current.pendingMessages,
 	};
 }
@@ -98,16 +88,16 @@ function applyRuntimeStatus(
 function buildSessionMeta(session: Session | null): SessionMeta {
 	if (session) {
 		return {
-			sessionId: session.id,
-			sessionName: session.name,
-			sessionCwd: session.cwd,
+			id: session.id,
+			name: session.name,
+			cwd: formatCwd(session.cwd),
 			hasSession: true,
 		};
 	}
 	return {
-		sessionId: "",
-		sessionName: undefined,
-		sessionCwd: process.cwd(),
+		id: "",
+		name: undefined,
+		cwd: formatCwd(process.cwd()),
 		hasSession: false,
 	};
 }
@@ -124,7 +114,7 @@ export function createAppState(
 	const [state, setState] = createStore<AppState>({
 		toasts: [],
 		pendingMessages: runtime ? runtime.getPendingMessages() : [],
-		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
+		footerStatus: { ...footer },
 		sessionMeta: buildSessionMeta(session),
 		debugEntry: null,
 	});
@@ -181,7 +171,7 @@ export function createAppState(
 			case "session.name.changed":
 				setState("sessionMeta", (meta) => ({
 					...meta,
-					sessionName: event.name,
+					name: event.name,
 				}));
 				break;
 			case "runtime.pending.changed":
