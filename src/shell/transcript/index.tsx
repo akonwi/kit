@@ -1,6 +1,7 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { KitAgentMessage, Turn } from "../../session/types";
 import { TranscriptPane } from "./pane";
+import { extractAssistantParts } from "./turns";
 import type { TranscriptProps } from "./types";
 
 function appendTurnMessage(
@@ -51,10 +52,25 @@ function replaceTurnMessage(
 	return replaced ? next : appendOrCreateTurnMessage(prev, turnId, message);
 }
 
+function finalizeBufferedAssistantMessage(
+	bufferedText: string,
+	message: Extract<KitAgentMessage, { role: "assistant" }>,
+): Extract<KitAgentMessage, { role: "assistant" }> {
+	if (bufferedText.length === 0) return message;
+	return {
+		...message,
+		content: [
+			{ type: "text", text: bufferedText },
+			...message.content.filter((block) => block.type !== "text"),
+		],
+	};
+}
+
 export type { TranscriptProps } from "./types";
 
 export function Transcript(props: TranscriptProps) {
 	const [turns, setTurns] = createSignal(props.runtime.getTurns());
+	const [pendingAssistantText, setPendingAssistantText] = createSignal("");
 	let lastSessionId = props.runtime.getSession().id;
 
 	const unsubscribeTurnStarted = props.runtime.subscribe(
@@ -71,10 +87,34 @@ export function Transcript(props: TranscriptProps) {
 		},
 	);
 
+	const unsubscribeAgentMessageStarted = props.runtime.subscribe(
+		"agent.message.started",
+		(event) => {
+			setPendingAssistantText(extractAssistantParts(event.message).text);
+		},
+	);
+
+	const unsubscribeAgentMessageUpdated = props.runtime.subscribe(
+		"agent.message.updated",
+		(event) => {
+			setPendingAssistantText(extractAssistantParts(event.message).text);
+		},
+	);
+
 	const unsubscribeAgentMessageEnded = props.runtime.subscribe(
 		"agent.message.ended",
 		(event) => {
-			setTurns((prev) => appendTurnMessage(prev, event.turn.id, event.message));
+			setTurns((prev) =>
+				appendTurnMessage(
+					prev,
+					event.turn.id,
+					finalizeBufferedAssistantMessage(
+						pendingAssistantText(),
+						event.message,
+					),
+				),
+			);
+			setPendingAssistantText("");
 		},
 	);
 
@@ -101,6 +141,7 @@ export function Transcript(props: TranscriptProps) {
 		(event) => {
 			if (event.session.id === lastSessionId) return;
 			lastSessionId = event.session.id;
+			setPendingAssistantText("");
 			setTurns(props.runtime.getTurns());
 		},
 	);
@@ -108,6 +149,8 @@ export function Transcript(props: TranscriptProps) {
 	onCleanup(() => {
 		unsubscribeTurnStarted();
 		unsubscribeUserMessageCreated();
+		unsubscribeAgentMessageStarted();
+		unsubscribeAgentMessageUpdated();
 		unsubscribeAgentMessageEnded();
 		unsubscribeBashCommandStarted();
 		unsubscribeBashCommandCompleted();
