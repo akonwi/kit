@@ -98,9 +98,7 @@ export function createAppState(runtime: AgentRuntime | null) {
 			case "session.active.changed":
 				setState("sessionMeta", buildSessionMeta(event.session));
 				break;
-			case "session.changed":
 			case "session.updated":
-				setState("sessionMeta", buildSessionMeta(event.session as Session));
 				threadIndex?.invalidate();
 				break;
 			case "session.name.changed":
