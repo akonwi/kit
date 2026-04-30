@@ -1,6 +1,5 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import type { FooterStatusState } from "../state/app-state";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
@@ -13,7 +12,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 		props.runtime.getPendingMessageCount(),
 	);
 	const unsubscribePendingMessageCount = props.runtime.subscribe(
-		"runtime.pending.changed",
+		"chat.message-queue.changed",
 		(e) => setPendingMessageCount(e.count),
 	);
 

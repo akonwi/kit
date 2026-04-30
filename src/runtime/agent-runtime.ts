@@ -175,8 +175,7 @@ export type RuntimeEventMap = {
 		result: unknown;
 		isError: boolean;
 	};
-	"runtime.pending.changed": { count: number };
-	"runtime.pending.messages.changed": { messages: string[] };
+	"chat.message-queue.changed": { count: number };
 	"settings.changed": { settings: Settings };
 	"notification.error": { title: string; lines: string[] };
 	"notification.warning": { title: string; lines: string[] };
@@ -215,7 +214,6 @@ export class AgentRuntime {
 		listener: (event: AgentRuntimeEvent) => void;
 	}> = [];
 	private quitHandler: (() => void) | null = null;
-	private pendingCount = 0;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
@@ -435,11 +433,8 @@ export class AgentRuntime {
 	}
 
 	private syncPendingState() {
-		this.pendingCount = this.agent.getPendingFollowUps().length;
-		this.emit("runtime.pending.changed", { count: this.pendingCount });
-		this.emit("runtime.pending.messages.changed", {
-			messages: this.agent.getPendingFollowUps(),
-		});
+		const count = this.agent.getPendingFollowUps().length;
+		this.emit("chat.message-queue.changed", { count });
 	}
 
 	private snapshotStatus(): RuntimeStatus {

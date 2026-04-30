@@ -10,7 +10,6 @@ export type FooterStatusState = {
 	contextPct: string;
 	bellsEnabled: boolean;
 	speechEnabled: boolean;
-	pendingMessages: number;
 };
 
 export type SessionMeta = {
@@ -63,14 +62,12 @@ function deriveFooterStatus(
 			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 			bellsEnabled: resolveBellsEnabled(settings),
 			speechEnabled: resolveSpeechEnabled(settings),
-			pendingMessages: runtime.getPendingMessageCount(),
 		};
 	}
 	return {
 		contextPct: "–",
 		bellsEnabled: resolveBellsEnabled(settings),
 		speechEnabled: resolveSpeechEnabled(settings),
-		pendingMessages: 0,
 	};
 }
 
@@ -81,7 +78,6 @@ function applyRuntimeStatus(
 	return {
 		...current,
 		contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
-		pendingMessages: current.pendingMessages,
 	};
 }
 
@@ -174,9 +170,6 @@ export function createAppState(
 					name: event.name,
 				}));
 				break;
-			case "runtime.pending.changed":
-				setState("footerStatus", "pendingMessages", event.count);
-				break;
 			case "settings.changed":
 				setState(
 					"footerStatus",
@@ -188,9 +181,6 @@ export function createAppState(
 					"speechEnabled",
 					resolveSpeechEnabled(event.settings),
 				);
-				break;
-			case "runtime.pending.messages.changed":
-				setState("pendingMessages", event.messages);
 				break;
 			case "agent.tool.ended":
 				toolCompletionCount++;
