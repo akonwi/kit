@@ -200,7 +200,7 @@ export type RuntimeEventPrefixSubscription<P extends string> = {
 export class AgentRuntime {
 	private session: Session;
 	private agent: KitAgent;
-	private settings: Settings;
+	private _settings: Settings;
 	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 	private extraTools: AgentTool<any>[];
 	private systemPromptAdditions: string[];
@@ -242,7 +242,7 @@ export class AgentRuntime {
 		},
 	) {
 		this.session = session;
-		this.settings = options?.settings ?? {};
+		this._settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
@@ -264,7 +264,7 @@ export class AgentRuntime {
 				tools: [...createDefaultTools(session.cwd), ...this.extraTools],
 			},
 			getApiKey: (provider) => getApiKey(provider),
-			maxRetryDelayMs: resolveRetrySettings(this.settings.retry).maxDelayMs,
+			maxRetryDelayMs: resolveRetrySettings(this._settings.retry).maxDelayMs,
 		});
 		this.agent.sessionId = session.id;
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
@@ -278,6 +278,10 @@ export class AgentRuntime {
 			this.agent.state.messages,
 			this.agent.state.model,
 		);
+	}
+
+	get settings() {
+		return this._settings;
 	}
 
 	private getEffectiveSystemPrompt(): string {
@@ -346,7 +350,7 @@ export class AgentRuntime {
 	}
 
 	private getRetrySettings() {
-		return resolveRetrySettings(this.settings.retry);
+		return resolveRetrySettings(this._settings.retry);
 	}
 
 	private getRestoredThinkingLevel(
@@ -1491,7 +1495,7 @@ export class AgentRuntime {
 	}
 
 	emitSettingsChanged(settings: Settings): void {
-		this.settings = settings;
+		this._settings = settings;
 		this.agent.maxRetryDelayMs = this.getRetrySettings().maxDelayMs;
 		this.emit("settings.changed", { settings });
 	}

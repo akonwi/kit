@@ -52,7 +52,6 @@ export function AppShell(props: AppShellProps) {
 			<HeaderBar
 				runtime={props.runtime}
 				sessionName={props.state.sessionMeta.name}
-				status={props.state.footerStatus}
 				onHeightChange={setHeaderHeight}
 			/>
 

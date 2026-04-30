@@ -2,14 +2,8 @@ import { homedir } from "node:os";
 import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
-import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
-import type { LoadedSettings, Settings } from "../settings";
-
-export type FooterStatusState = {
-	bellsEnabled: boolean;
-	speechEnabled: boolean;
-};
 
 export type SessionMeta = {
 	id: string;
@@ -28,7 +22,6 @@ export type Toast = {
 export type AppState = {
 	toasts: Toast[];
 	pendingMessages: string[];
-	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
 	debugEntry: string | null;
 };
@@ -38,42 +31,6 @@ export type AppState = {
 function formatCwd(rawCwd: string): string {
 	const home = homedir();
 	return rawCwd.startsWith(home) ? `~${rawCwd.slice(home.length)}` : rawCwd;
-}
-
-function resolveBellsEnabled(settings: Settings): boolean {
-	return settings.bells ?? true;
-}
-
-function resolveSpeechEnabled(settings: Settings): boolean {
-	const s = settings.speech;
-	if (typeof s === "boolean") return s;
-	if (s && typeof s === "object") return s.enabled ?? true;
-	return true;
-}
-
-function deriveFooterStatus(
-	runtime: AgentRuntime | null,
-	settings: Settings,
-): Omit<FooterStatusState, "cwd"> {
-	if (runtime) {
-		return {
-			bellsEnabled: resolveBellsEnabled(settings),
-			speechEnabled: resolveSpeechEnabled(settings),
-		};
-	}
-	return {
-		bellsEnabled: resolveBellsEnabled(settings),
-		speechEnabled: resolveSpeechEnabled(settings),
-	};
-}
-
-function applyRuntimeStatus(
-	current: FooterStatusState,
-	_status: RuntimeStatus,
-): FooterStatusState {
-	return {
-		...current,
-	};
 }
 
 function buildSessionMeta(session: Session | null): SessionMeta {
@@ -96,16 +53,12 @@ function buildSessionMeta(session: Session | null): SessionMeta {
 // ── App state factory ──────────────────────────────────────────────
 
 export function createAppState(
-	loaded: LoadedSettings,
 	session: Session | null,
 	runtime: AgentRuntime | null,
 ) {
-	const footer = deriveFooterStatus(runtime, loaded.settings);
-
 	const [state, setState] = createStore<AppState>({
 		toasts: [],
 		pendingMessages: runtime ? runtime.getPendingMessages() : [],
-		footerStatus: { ...footer },
 		sessionMeta: buildSessionMeta(session),
 		debugEntry: null,
 	});
@@ -145,12 +98,6 @@ export function createAppState(
 
 	runtime?.subscribe((event) => {
 		switch (event.type) {
-			case "runtime.status.changed":
-				setState(
-					"footerStatus",
-					applyRuntimeStatus(state.footerStatus, event.status),
-				);
-				break;
 			case "session.active.changed":
 				setState("sessionMeta", buildSessionMeta(event.session));
 				break;
@@ -164,18 +111,6 @@ export function createAppState(
 					...meta,
 					name: event.name,
 				}));
-				break;
-			case "settings.changed":
-				setState(
-					"footerStatus",
-					"bellsEnabled",
-					resolveBellsEnabled(event.settings),
-				);
-				setState(
-					"footerStatus",
-					"speechEnabled",
-					resolveSpeechEnabled(event.settings),
-				);
 				break;
 			case "agent.tool.ended":
 				toolCompletionCount++;

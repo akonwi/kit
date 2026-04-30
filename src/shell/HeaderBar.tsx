@@ -1,7 +1,6 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import { codeReviewStatus } from "../features/code-review/state";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import type { FooterStatusState } from "../state/app-state";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
 
@@ -17,7 +16,6 @@ function progressColor(pct: number): string {
 
 export type HeaderBarProps = {
 	sessionName: string | undefined;
-	status: FooterStatusState;
 	onHeightChange?: (height: number) => void;
 	runtime: AgentRuntime;
 };
@@ -35,8 +33,18 @@ export function HeaderBar(props: HeaderBarProps) {
 	const formattedContextUsage = () =>
 		contexStats() ? `${contextUsage()}%` : "–";
 
-	const bell = () => (props.status.bellsEnabled ? "🔔" : "🔕");
-	const speech = () => (props.status.speechEnabled ? "🗣" : "🤫");
+	const [settings, setSettings] = createSignal(props.runtime.settings);
+	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
+		setSettings(e.settings),
+	);
+	const bell = () => (settings().bells ? "🔔" : "🔕");
+	const speech = () => {
+		const value = settings().speech;
+		const on =
+			(typeof value === "boolean" && value) ||
+			(typeof value === "object" && "enabled" in value && value.enabled);
+		return on ? "🗣" : "🤫";
+	};
 	const reviewVisible = () =>
 		codeReviewStatus.launchInFlight ||
 		codeReviewStatus.serverState === "ready" ||
@@ -64,6 +72,7 @@ export function HeaderBar(props: HeaderBarProps) {
 
 	onCleanup(() => {
 		unsubscribeTurns();
+		unsubscribeSettings();
 		unsubscribeAgentInfo();
 	});
 
