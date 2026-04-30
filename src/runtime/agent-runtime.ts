@@ -273,6 +273,13 @@ export class AgentRuntime {
 		this.resetGitWatcher();
 	}
 
+	get contextStats(): RuntimeContextUsage | null {
+		return getRuntimeContextUsage(
+			this.agent.state.messages,
+			this.agent.state.model,
+		);
+	}
+
 	private getEffectiveSystemPrompt(): string {
 		const basePrompt = [DEFAULT_SYSTEM_PROMPT, ...this.systemPromptAdditions]
 			.filter((value) => value.trim().length > 0)

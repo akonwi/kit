@@ -7,7 +7,6 @@ import type { Session } from "../session";
 import type { LoadedSettings, Settings } from "../settings";
 
 export type FooterStatusState = {
-	contextPct: string;
 	bellsEnabled: boolean;
 	speechEnabled: boolean;
 };
@@ -57,15 +56,12 @@ function deriveFooterStatus(
 	settings: Settings,
 ): Omit<FooterStatusState, "cwd"> {
 	if (runtime) {
-		const status = runtime.getStatus();
 		return {
-			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 			bellsEnabled: resolveBellsEnabled(settings),
 			speechEnabled: resolveSpeechEnabled(settings),
 		};
 	}
 	return {
-		contextPct: "–",
 		bellsEnabled: resolveBellsEnabled(settings),
 		speechEnabled: resolveSpeechEnabled(settings),
 	};
@@ -73,11 +69,10 @@ function deriveFooterStatus(
 
 function applyRuntimeStatus(
 	current: FooterStatusState,
-	status: RuntimeStatus,
+	_status: RuntimeStatus,
 ): FooterStatusState {
 	return {
 		...current,
-		contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
 	};
 }
 

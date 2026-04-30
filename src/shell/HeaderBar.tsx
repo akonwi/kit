@@ -23,10 +23,17 @@ export type HeaderBarProps = {
 };
 
 export function HeaderBar(props: HeaderBarProps) {
-	const pct = () => {
-		const n = parseInt(props.status.contextPct, 10);
-		return Number.isNaN(n) ? 0 : n;
-	};
+	const [contexStats, setContextStats] = createSignal(
+		props.runtime.contextStats,
+	);
+	const unsubscribeTurns = props.runtime.subscribe(
+		"agent.turn.completed",
+		(_) => setContextStats(props.runtime.contextStats),
+	);
+
+	const contextUsage = () => contexStats()?.percent ?? 0;
+	const formattedContextUsage = () =>
+		contexStats() ? `${contextUsage()}%` : "–";
 
 	const bell = () => (props.status.bellsEnabled ? "🔔" : "🔕");
 	const speech = () => (props.status.speechEnabled ? "🗣" : "🤫");
@@ -56,6 +63,7 @@ export function HeaderBar(props: HeaderBarProps) {
 	);
 
 	onCleanup(() => {
+		unsubscribeTurns();
 		unsubscribeAgentInfo();
 	});
 
@@ -74,14 +82,16 @@ export function HeaderBar(props: HeaderBarProps) {
 					<text fg={theme.textMuted}>
 						{agentInfo().model?.name ?? "model?"} ({agentInfo().thinkingLevel})
 					</text>
-					<text fg={progressColor(pct())}>{props.status.contextPct}</text>
+					<text fg={progressColor(contextUsage())}>
+						{formattedContextUsage()}
+					</text>
 					<text fg={theme.textMuted}>
 						{bell()} {speech()}
 					</text>
 				</box>
 			}
-			progress={pct()}
-			progressColor={progressColor(pct())}
+			progress={contextUsage()}
+			progressColor={progressColor(contextUsage())}
 			onHeightChange={props.onHeightChange}
 		/>
 	);
