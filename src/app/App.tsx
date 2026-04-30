@@ -72,7 +72,7 @@ export function App(props: AppProps) {
 	pluginManager.initialize();
 
 	// Create app state (provides showToast implementation)
-	const app = createAppState(props.session, runtime);
+	const app = createAppState(runtime);
 	showToast = app.showToast;
 
 	runtime.onQuit(() => {

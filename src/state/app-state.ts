@@ -52,14 +52,11 @@ function buildSessionMeta(session: Session | null): SessionMeta {
 
 // ── App state factory ──────────────────────────────────────────────
 
-export function createAppState(
-	session: Session | null,
-	runtime: AgentRuntime | null,
-) {
+export function createAppState(runtime: AgentRuntime | null) {
 	const [state, setState] = createStore<AppState>({
 		toasts: [],
 		pendingMessages: runtime ? runtime.getPendingMessages() : [],
-		sessionMeta: buildSessionMeta(session),
+		sessionMeta: buildSessionMeta(runtime?.getSession() ?? null),
 		debugEntry: null,
 	});
 
