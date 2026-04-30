@@ -99,7 +99,7 @@ export function App(props: AppProps) {
 	// Update terminal title on session changes and renames
 	runtime.subscribe({ prefix: "session" }, (event) => {
 		if (
-			event.type === "session.changed" ||
+			event.type === "session.active.changed" ||
 			event.type === "session.name.changed"
 		) {
 			const name = "session" in event ? event.session.name : event.name;

@@ -149,7 +149,6 @@ export type RuntimeEventMap = {
 	};
 	"runtime.status.changed": { status: RuntimeStatus };
 	"session.active.changed": { session: Session };
-	"session.changed": { session: Session };
 	"session.updated": { session: Session };
 	"session.name.changed": { name: string };
 	"session.updated.model": { session: Session; modelId: string | undefined };
@@ -369,7 +368,6 @@ export class AgentRuntime {
 				thinkingLevel: level,
 				updatedAt: new Date().toISOString(),
 			};
-			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			return;
 		}
@@ -377,7 +375,6 @@ export class AgentRuntime {
 			this.session = await updateSession(this.session, {
 				thinkingLevel: level,
 			});
-			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 		} catch (err) {
 			this.emit("notification.error", {
@@ -681,7 +678,6 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -727,7 +723,6 @@ export class AgentRuntime {
 			}
 		}
 		await this.maybeAutoCompact();
-		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -793,7 +788,6 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -1180,7 +1174,6 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit("session.active.changed", { session: this.session });
-		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -1220,7 +1213,6 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(child);
 		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -1247,7 +1239,6 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -1346,7 +1337,6 @@ export class AgentRuntime {
 					"Failed to save merged summary into the parent session.",
 				);
 			}
-			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			this.emit("session.turns.changed", { turns: [...this.session.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -1378,7 +1368,6 @@ export class AgentRuntime {
 		}
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
 		this.emitSessionUpdated();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
@@ -1442,7 +1431,6 @@ export class AgentRuntime {
 				model: model.id,
 				updatedAt: new Date().toISOString(),
 			};
-			this.emit("session.changed", { session: this.session });
 			this.emitSessionUpdated();
 			return;
 		}
@@ -1450,7 +1438,6 @@ export class AgentRuntime {
 		void updateSession(this.session, { model: model.id })
 			.then((updated) => {
 				this.session = updated;
-				this.emit("session.changed", { session: this.session });
 				this.emitSessionUpdated();
 			})
 			.catch((err) => {
