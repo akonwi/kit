@@ -71,7 +71,6 @@ export type { TranscriptProps } from "./types";
 export function Transcript(props: TranscriptProps) {
 	const [turns, setTurns] = createSignal(props.runtime.getTurns());
 	const [pendingAssistantText, setPendingAssistantText] = createSignal("");
-	let lastSessionId = props.runtime.getSession().id;
 
 	const unsubscribeTurnStarted = props.runtime.subscribe(
 		"agent.turn.started",
@@ -137,11 +136,16 @@ export function Transcript(props: TranscriptProps) {
 	);
 
 	const unsubscribeSessionChanged = props.runtime.subscribe(
-		"session.changed",
-		(event) => {
-			if (event.session.id === lastSessionId) return;
-			lastSessionId = event.session.id;
+		"session.active.changed",
+		(_) => {
 			setPendingAssistantText("");
+			setTurns(props.runtime.getTurns());
+		},
+	);
+
+	const unsubscribeCompacted = props.runtime.subscribe(
+		{ prefix: "session.compaction.completed" },
+		(_) => {
 			setTurns(props.runtime.getTurns());
 		},
 	);
@@ -155,6 +159,7 @@ export function Transcript(props: TranscriptProps) {
 		unsubscribeBashCommandStarted();
 		unsubscribeBashCommandCompleted();
 		unsubscribeSessionChanged();
+		unsubscribeCompacted();
 	});
 
 	return <TranscriptPane {...props} turns={turns()} />;
