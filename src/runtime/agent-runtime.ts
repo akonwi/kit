@@ -1176,7 +1176,7 @@ export class AgentRuntime {
 			this.agent.state.model,
 		);
 		this.agent.setThinkingLevel(restoredThinkingLevel);
-		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
+		this.session.thinkingLevel = restoredThinkingLevel;
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit("session.active.changed", { session: this.session });

@@ -28,6 +28,10 @@ export function HeaderBar(props: HeaderBarProps) {
 		"agent.turn.completed",
 		(_) => setContextStats(props.runtime.contextStats),
 	);
+	const unsubscribeSessionChange = props.runtime.subscribe(
+		"session.active.changed",
+		(_) => setContextStats(props.runtime.contextStats),
+	);
 
 	const contextUsage = () => contexStats()?.percent ?? 0;
 	const formattedContextUsage = () =>
@@ -74,6 +78,7 @@ export function HeaderBar(props: HeaderBarProps) {
 		unsubscribeTurns();
 		unsubscribeSettings();
 		unsubscribeAgentInfo();
+		unsubscribeSessionChange();
 	});
 
 	return (
