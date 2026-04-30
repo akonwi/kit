@@ -31,7 +31,6 @@ import {
 	readSession,
 	type Session,
 	type SessionSummary,
-	updateSession,
 	writeSession,
 } from "../session";
 import type { KitAgentMessage, Turn } from "../session/types";
@@ -215,6 +214,7 @@ export class AgentRuntime {
 	private quitHandler: (() => void) | null = null;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
+	private unsubscribePersistence: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
@@ -270,6 +270,7 @@ export class AgentRuntime {
 			this.handleAgentEvent(event),
 		);
 		this.resetGitWatcher();
+		this.registerPersistence();
 	}
 
 	get contextStats(): RuntimeContextUsage | null {
@@ -281,6 +282,51 @@ export class AgentRuntime {
 
 	get settings() {
 		return this._settings;
+	}
+
+	private registerPersistence(): void {
+		this.unsubscribePersistence = this.subscribe((event) => {
+			switch (event.type) {
+				case "agent.turn.completed":
+				case "session.name.changed":
+				case "session.compaction.completed.recovery":
+				case "session.compaction.completed.adaptation":
+					this.persistSessionToDisk();
+					break;
+				case "session.merge.ended":
+					if (!event.error) this.persistSessionToDisk();
+					break;
+			}
+		});
+	}
+
+	private touchSession(
+		changes: Partial<
+			Pick<Session, "name" | "model" | "thinkingLevel" | "turns">
+		>,
+	): void {
+		this.session = {
+			...this.session,
+			...changes,
+			updatedAt: new Date().toISOString(),
+		};
+	}
+
+	private syncSessionFromAgentState(): void {
+		this.touchSession({
+			turns: this.agent.turns,
+			model: this.agent.state.model?.id,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		});
+	}
+
+	private persistSessionToDisk(): void {
+		void writeSession(this.session).catch((err) => {
+			this.emit("notification.error", {
+				title: "Session save failed",
+				lines: [String(err)],
+			});
+		});
 	}
 
 	private getEffectiveSystemPrompt(): string {
@@ -358,30 +404,10 @@ export class AgentRuntime {
 		return clampThinkingLevel(this.session.thinkingLevel, model);
 	}
 
-	private async persistSessionThinkingLevel(
-		level: ThinkingLevel,
-	): Promise<void> {
+	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
-		if (this.isEmpty()) {
-			this.session = {
-				...this.session,
-				thinkingLevel: level,
-				updatedAt: new Date().toISOString(),
-			};
-			this.emitSessionUpdated();
-			return;
-		}
-		try {
-			this.session = await updateSession(this.session, {
-				thinkingLevel: level,
-			});
-			this.emitSessionUpdated();
-		} catch (err) {
-			this.emit("notification.error", {
-				title: "Session save failed",
-				lines: [String(err)],
-			});
-		}
+		this.touchSession({ thinkingLevel: level });
+		this.emitSessionUpdated();
 	}
 
 	private resolveRecovery(): void {
@@ -461,10 +487,6 @@ export class AgentRuntime {
 		};
 	}
 
-	private isEmpty(): boolean {
-		return this.session.turns.length === 0;
-	}
-
 	private async maybeAutoCompact() {
 		if (this.isCompacting || this.overflowRecoveryInFlight) return;
 		const model = this.agent.state.model;
@@ -496,11 +518,12 @@ export class AgentRuntime {
 			if (!result) return;
 
 			this.agent.replaceFromTurns(result.turns);
-			this.session = await updateSession(this.session, {
+			this.touchSession({
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
+			this.emitSessionUpdated();
 			this.emit("session.compaction.completed.auto", {
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
@@ -525,21 +548,9 @@ export class AgentRuntime {
 		}
 	}
 
-	private async persistTurns(): Promise<boolean> {
-		try {
-			this.session = await updateSession(this.session, {
-				turns: this.agent.turns,
-				model: this.agent.state.model?.id,
-				thinkingLevel: this.agent.state.thinkingLevel,
-			});
-			return true;
-		} catch (err) {
-			this.emit("notification.error", {
-				title: "Session save failed",
-				lines: [String(err)],
-			});
-			return false;
-		}
+	private persistTurns(): boolean {
+		this.syncSessionFromAgentState();
+		return true;
 	}
 
 	private removeTerminalAssistantErrorFromLiveState(): void {
@@ -673,7 +684,7 @@ export class AgentRuntime {
 				return false;
 			}
 			this.agent.replaceFromTurns(result.turns);
-			this.session = await updateSession(this.session, {
+			this.touchSession({
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
@@ -710,7 +721,7 @@ export class AgentRuntime {
 	}
 
 	private async finalizeAgentRun(messages: AgentMessage[]): Promise<void> {
-		await this.persistTurns();
+		this.persistTurns();
 		const assistant = this.findLastAssistantMessage(messages);
 		if (assistant?.stopReason === "error") {
 			if (this.isContextOverflowError(assistant)) {
@@ -724,6 +735,9 @@ export class AgentRuntime {
 		}
 		await this.maybeAutoCompact();
 		this.emitSessionUpdated();
+		this.emit("agent.turn.completed", {
+			turn: this.agent.turns.at(-1) ?? null,
+		});
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		this.syncPendingState();
@@ -783,7 +797,7 @@ export class AgentRuntime {
 			}
 
 			this.agent.replaceFromTurns(result.turns);
-			this.session = await updateSession(this.session, {
+			this.touchSession({
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
@@ -843,7 +857,6 @@ export class AgentRuntime {
 				break;
 
 			case "turn_end":
-				this.emit("agent.turn.completed", { turn: event.turn });
 				break;
 
 			case "user_message_created":
@@ -1065,6 +1078,7 @@ export class AgentRuntime {
 			bashMessage,
 		);
 		if (replaced) {
+			this.syncSessionFromAgentState();
 			this.emit("bash.command.completed", {
 				turn: replaced.turn,
 				message: replaced.message as Extract<
@@ -1331,7 +1345,7 @@ export class AgentRuntime {
 			}
 
 			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
-			const saved = await this.persistTurns();
+			const saved = this.persistTurns();
 			if (!saved) {
 				throw new Error(
 					"Failed to save merged summary into the parent session.",
@@ -1380,9 +1394,10 @@ export class AgentRuntime {
 	}
 
 	async setSessionName(name: string): Promise<void> {
-		this.session.name = name;
-		writeSession(this.session);
+		if (this.session.name === name) return;
+		this.touchSession({ name });
 		this.emit("session.name.changed", { name });
+		this.emitSessionUpdated();
 	}
 
 	async listAllSessions(): Promise<SessionSummary[]> {
@@ -1420,46 +1435,22 @@ export class AgentRuntime {
 
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
+		this.touchSession({ model: model.id });
 		this.emit("agent.model.changed", {
 			model,
 			thinkingLevel: this.agent.state.thinkingLevel,
 		});
-
-		if (this.isEmpty()) {
-			this.session = {
-				...this.session,
-				model: model.id,
-				updatedAt: new Date().toISOString(),
-			};
-			this.emitSessionUpdated();
-			return;
-		}
-
-		void updateSession(this.session, { model: model.id })
-			.then((updated) => {
-				this.session = updated;
-				this.emitSessionUpdated();
-			})
-			.catch((err) => {
-				this.emit("notification.error", {
-					title: "Session save failed",
-					lines: [String(err)],
-				});
-			});
+		this.emitSessionUpdated();
 	}
 
 	setThinkingLevel(level: ThinkingLevel): void {
 		const clamped = clampThinkingLevel(level, this.agent.state.model);
 		this.agent.setThinkingLevel(clamped);
+		this.persistSessionThinkingLevel(clamped);
 		this.emit("agent.model.changed", {
 			model: this.agent.state.model,
 			thinkingLevel: this.agent.state.thinkingLevel,
 		});
-		this.session = {
-			...this.session,
-			thinkingLevel: clamped,
-		};
-		void this.persistSessionThinkingLevel(clamped);
 	}
 
 	get agentInfo() {
@@ -1549,6 +1540,8 @@ export class AgentRuntime {
 	dispose(): void {
 		this.unsubscribeAgent?.();
 		this.unsubscribeAgent = null;
+		this.unsubscribePersistence?.();
+		this.unsubscribePersistence = null;
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
 		this.listeners.clear();
