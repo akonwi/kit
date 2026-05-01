@@ -1210,7 +1210,6 @@ export class AgentRuntime {
 			turns: structuredClone(this.session.turns),
 		};
 
-		await writeSession(child);
 		this.session = child;
 		this.agent.replaceFromTurns(child.turns);
 		const restoredThinkingLevel = this.getRestoredThinkingLevel(
@@ -1221,8 +1220,7 @@ export class AgentRuntime {
 		this.applySessionContext(child);
 		this.syncPendingState();
 		this.handleSessionChanged();
-		this.emit("session.turns.changed", { turns: [...this.session.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("session.active.changed", { session: this.session });
 
 		const prompt = firstMessage?.trim();
 		if (prompt) {
@@ -1247,8 +1245,7 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.handleSessionChanged();
-		this.emit("session.turns.changed", { turns: [...this.session.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("session.active.changed", { session: this.session });
 		return true;
 	}
 
