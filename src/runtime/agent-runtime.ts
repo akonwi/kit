@@ -146,7 +146,6 @@ export type RuntimeEventMap = {
 	};
 	"session.active.changed": { session: Session };
 	"session.name.changed": { name: string };
-	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
 	"agent.tool.started": {
 		turn: Turn;
 		toolCallId: string;
