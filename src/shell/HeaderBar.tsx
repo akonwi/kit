@@ -21,21 +21,26 @@ export type HeaderBarProps = {
 };
 
 export function HeaderBar(props: HeaderBarProps) {
-	const [contexStats, setContextStats] = createSignal(
+	const [contextStats, setContextStats] = createSignal(
 		props.runtime.contextStats,
 	);
+	const refreshContextStats = () => setContextStats(props.runtime.contextStats);
 	const unsubscribeTurns = props.runtime.subscribe(
 		"agent.turn.completed",
-		(_) => setContextStats(props.runtime.contextStats),
+		refreshContextStats,
 	);
 	const unsubscribeSessionChange = props.runtime.subscribe(
 		"session.active.changed",
-		(_) => setContextStats(props.runtime.contextStats),
+		refreshContextStats,
+	);
+	const unsubscribeCompactionCompleted = props.runtime.subscribe(
+		{ prefix: "session.compaction.completed" },
+		refreshContextStats,
 	);
 
-	const contextUsage = () => contexStats()?.percent ?? 0;
+	const contextUsage = () => contextStats()?.percent ?? 0;
 	const formattedContextUsage = () =>
-		contexStats() ? `${contextUsage()}%` : "–";
+		contextStats() ? `${contextUsage()}%` : "–";
 
 	const [settings, setSettings] = createSignal(props.runtime.settings);
 	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
@@ -71,7 +76,10 @@ export function HeaderBar(props: HeaderBarProps) {
 	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo);
 	const unsubscribeAgentInfo = props.runtime.subscribe(
 		"agent.model.changed",
-		(e) => setAgentInfo(e),
+		(e) => {
+			setAgentInfo(e);
+			refreshContextStats();
+		},
 	);
 
 	onCleanup(() => {
@@ -79,6 +87,7 @@ export function HeaderBar(props: HeaderBarProps) {
 		unsubscribeSettings();
 		unsubscribeAgentInfo();
 		unsubscribeSessionChange();
+		unsubscribeCompactionCompleted();
 	});
 
 	return (
