@@ -129,14 +129,8 @@ export function App(props: AppProps) {
 	});
 
 	// Update terminal title on session changes and renames
-	runtime.subscribe({ prefix: "session" }, (event) => {
-		if (
-			event.type === "session.active.changed" ||
-			event.type === "session.name.changed"
-		) {
-			const name = "session" in event ? event.session.name : event.name;
-			props.updateTerminalTitle(name, process.cwd());
-		}
+	runtime.subscribe("session.active.changed", (event) => {
+		props.updateTerminalTitle(event.session.name, process.cwd());
 	});
 
 	return (

@@ -98,12 +98,6 @@ export function createAppState(runtime: AgentRuntime | null) {
 			case "session.active.changed":
 				setState("sessionMeta", buildSessionMeta(event.session));
 				break;
-			case "session.name.changed":
-				setState("sessionMeta", (meta) => ({
-					...meta,
-					name: event.name,
-				}));
-				break;
 			case "agent.tool.ended":
 				toolCompletionCount++;
 				if (toolCompletionCount >= FILE_INDEX_INVALIDATE_INTERVAL) {

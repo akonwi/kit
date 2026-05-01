@@ -145,7 +145,6 @@ export type RuntimeEventMap = {
 		error: string;
 	};
 	"session.active.changed": { session: Session };
-	"session.name.changed": { name: string };
 	"agent.tool.started": {
 		turn: Turn;
 		toolCallId: string;
@@ -282,7 +281,6 @@ export class AgentRuntime {
 		this.unsubscribePersistence = this.subscribe((event) => {
 			switch (event.type) {
 				case "agent.turn.completed":
-				case "session.name.changed":
 				case "session.compaction.completed.recovery":
 				case "session.compaction.completed.adaptation":
 					this.persistSessionToDisk();
@@ -1360,7 +1358,7 @@ export class AgentRuntime {
 	async setSessionName(name: string): Promise<void> {
 		if (this.session.name === name) return;
 		this.touchSession({ name });
-		this.emit("session.name.changed", { name });
+		this.emit("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 	}
 
