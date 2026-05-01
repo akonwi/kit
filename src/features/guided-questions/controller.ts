@@ -34,6 +34,7 @@ export function createGuidedQuestionsController() {
 
 	let resolveGuidedQuestions: ((result: GuidedQuestionsResult) => void) | null =
 		null;
+	const listeners = new Set<(active: boolean) => void>();
 
 	const currentQuestion = createMemo(() => {
 		const qs = questions();
@@ -295,6 +296,16 @@ export function createGuidedQuestionsController() {
 
 	// ── Lifecycle ─────────────────────────────────────────────────
 
+	function notifyActiveChanged(): void {
+		const value = active();
+		for (const listener of listeners) listener(value);
+	}
+
+	function subscribe(listener: (active: boolean) => void): () => void {
+		listeners.add(listener);
+		return () => listeners.delete(listener);
+	}
+
 	function activate(
 		params: GuidedQuestionsInput,
 	): Promise<GuidedQuestionsResult> {
@@ -310,6 +321,7 @@ export function createGuidedQuestionsController() {
 		setSelectIndex(0);
 		setAnswers({});
 		setActive(true);
+		notifyActiveChanged();
 		loadQuestionState(qs[0] ?? null);
 
 		return new Promise<GuidedQuestionsResult>((resolve) => {
@@ -323,6 +335,7 @@ export function createGuidedQuestionsController() {
 			answers: answers(),
 		};
 		setActive(false);
+		notifyActiveChanged();
 		resolveGuidedQuestions?.(result);
 		resolveGuidedQuestions = null;
 	}
@@ -363,6 +376,7 @@ export function createGuidedQuestionsController() {
 			return answeredCount();
 		},
 		getSelectOptions,
+		subscribe,
 		activate,
 		cancel,
 		selectOption,

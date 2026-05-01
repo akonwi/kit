@@ -988,12 +988,21 @@ export class AgentRuntime {
 		this.agent.abort();
 	}
 
-	addTool(tool: AgentTool): void {
+	addTool(tool: AgentTool): () => void {
 		this.extraTools.push(tool);
 		this.agent.setTools([
 			...createDefaultTools(this.session.cwd),
 			...this.extraTools,
 		]);
+		return () => {
+			this.extraTools = this.extraTools.filter(
+				(candidate) => candidate !== tool,
+			);
+			this.agent.setTools([
+				...createDefaultTools(this.session.cwd),
+				...this.extraTools,
+			]);
+		};
 	}
 
 	/**
@@ -1001,11 +1010,17 @@ export class AgentRuntime {
 	 * Intended for plugins that own a feature-specific policy or tool guidelines
 	 * that should be part of the system prompt without being baked into `App.tsx`.
 	 */
-	addSystemPromptAddition(text: string): void {
+	addSystemPromptAddition(text: string): () => void {
 		const trimmed = text.trim();
-		if (!trimmed) return;
+		if (!trimmed) return () => {};
 		this.systemPromptAdditions.push(trimmed);
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		return () => {
+			const index = this.systemPromptAdditions.indexOf(trimmed);
+			if (index < 0) return;
+			this.systemPromptAdditions.splice(index, 1);
+			this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		};
 	}
 
 	/**
@@ -1142,8 +1157,11 @@ export class AgentRuntime {
 	 * Register a named section of debug lines.
 	 * Plugins call this so `/debug` can display their state.
 	 */
-	setDebugSection(key: string, lines: string[]): void {
+	setDebugSection(key: string, lines: string[]): () => void {
 		this.debugSections.set(key, lines);
+		return () => {
+			this.debugSections.delete(key);
+		};
 	}
 
 	getDebugSections(): Map<string, string[]> {
@@ -1346,30 +1364,8 @@ export class AgentRuntime {
 		}
 	}
 
-	async reloadSession(): Promise<void> {
-		const reloaded =
-			(await findSessionById(this.session.id)) ??
-			(await readSession(this.session.id));
-		if (reloaded) {
-			this.session = reloaded;
-			this.agent.replaceFromTurns(this.session.turns);
-			const model = this.findModelById(this.session.model);
-			if (model) this.agent.setModel(model);
-			const restoredThinkingLevel = this.getRestoredThinkingLevel(
-				this.agent.state.model,
-			);
-			this.agent.setThinkingLevel(restoredThinkingLevel);
-			this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
-		}
+	async reloadSession() {
 		this.applySessionContext(this.session);
-		this.syncPendingState();
-		this.handleSessionChanged();
-		this.emit("notification.info", {
-			title: "Session reloaded",
-			lines: [
-				"Reloaded session state, context files, tools, and runtime status.",
-			],
-		});
 	}
 
 	async setSessionName(name: string): Promise<void> {

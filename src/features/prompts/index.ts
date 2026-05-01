@@ -28,7 +28,7 @@ export class PromptsPlugin extends Plugin {
 		}
 
 		// Register debug info
-		this.ctx.runtime.setDebugSection(
+		this.setDebugSection(
 			"Prompt commands",
 			this.templates.length > 0
 				? this.templates.map((t) => `- /${t.name} (${t.source}) ${t.filePath}`)

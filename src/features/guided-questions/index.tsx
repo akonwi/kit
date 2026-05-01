@@ -1,4 +1,3 @@
-import { createEffect } from "solid-js";
 import { Plugin } from "../../plugins/Plugin";
 import {
 	createGuidedQuestionsController,
@@ -22,9 +21,9 @@ export class GuidedQuestionsPlugin extends Plugin {
 		const tool = createGuidedQuestionsTool(this.controller, this.ctx);
 		this.registerTool(tool as import("@mariozechner/pi-agent-core").AgentTool);
 
-		// Watch for activation and show overlay
-		createEffect(() => {
-			if (this.controller.active) {
+		this.addDisposer(
+			this.controller.subscribe((active) => {
+				if (!active) return;
 				void this.ctx.ui.custom((props) => (
 					<GuidedQuestionsContent
 						guidedQuestions={this.controller}
@@ -32,7 +31,7 @@ export class GuidedQuestionsPlugin extends Plugin {
 						surfaceProps={props.surfaceProps}
 					/>
 				));
-			}
-		});
+			}),
+		);
 	}
 }

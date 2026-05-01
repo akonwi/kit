@@ -30,6 +30,7 @@ export type ComposerControllerDeps = {
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 	attachments: AttachmentsController;
+	_reload: () => Promise<void>;
 	openCustomOverlay: <T>(
 		component: (
 			props: OverlayComponentProps<T>,
@@ -44,6 +45,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		fileIndex,
 		threadIndex,
 		attachments,
+		_reload,
 		openCustomOverlay,
 	} = deps;
 	const palette: PaletteManager = createPaletteManager();
@@ -90,6 +92,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 						runtime,
 						palette,
 						args: currentArgs,
+						_reload,
 						openCustomOverlay,
 					});
 				},
@@ -319,6 +322,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				runtime,
 				palette,
 				args: slashCommand.args,
+				_reload,
 				openCustomOverlay,
 			});
 			return;

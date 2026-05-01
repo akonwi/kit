@@ -75,6 +75,37 @@ export function App(props: AppProps) {
 	const app = createAppState(runtime);
 	showToast = app.showToast;
 
+	async function _reload(): Promise<void> {
+		pluginManager.dispose();
+		try {
+			await runtime.reloadSession();
+		} catch (error) {
+			pluginManager.initialize();
+			showToast?.({
+				title: "Reload failed",
+				lines: [error instanceof Error ? error.message : String(error)],
+				variant: "error",
+			});
+			return;
+		}
+
+		try {
+			pluginManager.initialize();
+			showToast?.({
+				title: "Session reloaded",
+				lines: ["Reloaded session context and plugin state."],
+				variant: "info",
+			});
+		} catch (error) {
+			pluginManager.dispose();
+			showToast?.({
+				title: "Reload failed",
+				lines: [error instanceof Error ? error.message : String(error)],
+				variant: "error",
+			});
+		}
+	}
+
 	runtime.onQuit(() => {
 		pluginManager.dispose();
 		runtime.dispose();
@@ -93,6 +124,7 @@ export function App(props: AppProps) {
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
 		attachments,
+		_reload,
 		openCustomOverlay,
 	});
 
