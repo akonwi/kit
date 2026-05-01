@@ -27,6 +27,23 @@ function threadTitle(session: SessionSummary): string {
 export function createThreadIndex(runtime: AgentRuntime) {
 	let cached: SessionSummary[] | null = null;
 	let fetching: Promise<SessionSummary[]> | null = null;
+	let completedTurnCount = 0;
+
+	const unsubscribe = runtime.subscribe((event) => {
+		switch (event.type) {
+			case "agent.turn.completed":
+				completedTurnCount += 1;
+				if (completedTurnCount >= 5) {
+					completedTurnCount = 0;
+					invalidate();
+				}
+				break;
+			case "session.active.changed":
+				completedTurnCount = 0;
+				invalidate();
+				break;
+		}
+	});
 
 	async function doFetch(): Promise<SessionSummary[]> {
 		const all = await runtime.listAllSessions();
@@ -81,7 +98,11 @@ export function createThreadIndex(runtime: AgentRuntime) {
 		fetching = null;
 	}
 
-	return { suggest, invalidate, ensureLoaded };
+	function dispose() {
+		unsubscribe();
+	}
+
+	return { suggest, ensureLoaded, dispose };
 }
 
 export type ThreadIndex = ReturnType<typeof createThreadIndex>;
