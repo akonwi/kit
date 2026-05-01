@@ -148,9 +148,7 @@ export type RuntimeEventMap = {
 	};
 	"runtime.status.changed": { status: RuntimeStatus };
 	"session.active.changed": { session: Session };
-	"session.updated": { session: Session };
 	"session.name.changed": { name: string };
-	"session.updated.model": { session: Session; modelId: string | undefined };
 	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
 	"agent.tool.started": {
 		turn: Turn;
@@ -381,15 +379,10 @@ export class AgentRuntime {
 		}
 	}
 
-	private emitSessionUpdated(): void {
+	private handleSessionChanged(): void {
 		const previousModel = this.lastSessionModel;
 		this.lastSessionModel = this.session.model;
-		this.emit("session.updated", { session: this.session });
 		if (previousModel !== this.session.model) {
-			this.emit("session.updated.model", {
-				session: this.session,
-				modelId: this.session.model,
-			});
 			void this.maybeHandleModelSwitchOverflow();
 		}
 	}
@@ -407,7 +400,7 @@ export class AgentRuntime {
 	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
 		this.touchSession({ thinkingLevel: level });
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 	}
 
 	private resolveRecovery(): void {
@@ -523,7 +516,7 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emitSessionUpdated();
+			this.handleSessionChanged();
 			this.emit("session.compaction.completed.auto", {
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
@@ -689,7 +682,7 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emitSessionUpdated();
+			this.handleSessionChanged();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 			this.emit("session.compaction.completed.recovery", {
@@ -734,7 +727,7 @@ export class AgentRuntime {
 			}
 		}
 		await this.maybeAutoCompact();
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 		this.emit("agent.turn.completed", {
 			turn: this.agent.turns.at(-1) ?? null,
 		});
@@ -802,7 +795,7 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emitSessionUpdated();
+			this.handleSessionChanged();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
@@ -1188,7 +1181,7 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.emit("session.active.changed", { session: this.session });
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 		this.emit("session.turns.changed", { turns: [] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 	}
@@ -1227,7 +1220,7 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(child);
 		this.syncPendingState();
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
@@ -1253,7 +1246,7 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		return true;
@@ -1351,7 +1344,7 @@ export class AgentRuntime {
 					"Failed to save merged summary into the parent session.",
 				);
 			}
-			this.emitSessionUpdated();
+			this.handleSessionChanged();
 			this.emit("session.turns.changed", { turns: [...this.session.turns] });
 			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
@@ -1382,7 +1375,7 @@ export class AgentRuntime {
 		}
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		this.emit("notification.info", {
@@ -1397,7 +1390,7 @@ export class AgentRuntime {
 		if (this.session.name === name) return;
 		this.touchSession({ name });
 		this.emit("session.name.changed", { name });
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 	}
 
 	async listAllSessions(): Promise<SessionSummary[]> {
@@ -1440,7 +1433,7 @@ export class AgentRuntime {
 			model,
 			thinkingLevel: this.agent.state.thinkingLevel,
 		});
-		this.emitSessionUpdated();
+		this.handleSessionChanged();
 	}
 
 	setThinkingLevel(level: ThinkingLevel): void {
