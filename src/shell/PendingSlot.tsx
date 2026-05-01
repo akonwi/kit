@@ -195,7 +195,7 @@ export function PendingSlot(props: PanelHostProps) {
 				paddingLeft={1}
 				paddingRight={1}
 				flexDirection="row"
-				gap={2}
+				gap={1}
 			>
 				<Show when={message().length > 0}>
 					<Spinner />
