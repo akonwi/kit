@@ -1,5 +1,6 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
+import { createEffect, createSignal } from "solid-js";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { MessageComposer } from "./MessageComposer";
@@ -10,11 +11,36 @@ export type ComposerDockProps = {
 	attachments: AttachmentsController;
 	locked?: boolean;
 	onHeightChange?: (height: number) => void;
+	onModeChange?: (mode: ComposerInputMode) => void;
 };
+
+export type ComposerInputMode = "normal" | "bash" | "bash-excluded";
+
+function getComposerInputMode(text: string): ComposerInputMode {
+	if (text.startsWith("!!")) return "bash-excluded";
+	if (text.startsWith("!")) return "bash";
+	return "normal";
+}
 
 export function ComposerDock(props: ComposerDockProps) {
 	let dockRef: { width: number; height: number } | undefined;
 	const palette = props.controller.palette;
+	const [composerText, setComposerText] = createSignal(
+		props.controller.getTextareaText(),
+	);
+	const composerMode = () => getComposerInputMode(composerText());
+	const composerBorderColor = () =>
+		composerMode() === "bash"
+			? theme.composerBashBorder
+			: composerMode() === "bash-excluded"
+				? theme.composerBashExcludedBorder
+				: theme.borderFocused;
+	const syncComposerText = () =>
+		setComposerText(props.controller.getTextareaText());
+
+	createEffect(() => {
+		props.onModeChange?.(composerMode());
+	});
 
 	useKeyboard((e: KeyEvent) => {
 		if (props.locked) return;
@@ -29,6 +55,7 @@ export function ComposerDock(props: ComposerDockProps) {
 			const text = props.controller.getTextareaText();
 			if (text.trim()) {
 				props.controller.setTextareaText("");
+				syncComposerText();
 				return;
 			}
 			// Empty composer — quit the app
@@ -71,6 +98,7 @@ export function ComposerDock(props: ComposerDockProps) {
 			if (!props.controller.restorePendingMessages()) {
 				props.controller.recallLastUserMessage();
 			}
+			syncComposerText();
 			return;
 		}
 
@@ -154,6 +182,7 @@ export function ComposerDock(props: ComposerDockProps) {
 				placeholder={placeholder()}
 				focused={!palette.visible && !props.locked}
 				showCursor={!palette.visible && !props.locked}
+				borderColor={composerBorderColor()}
 				keyBindings={
 					palette.visible || props.locked
 						? []
@@ -163,16 +192,21 @@ export function ComposerDock(props: ComposerDockProps) {
 								{ name: "return", shift: true, action: "newline" },
 							]
 				}
-				onContentChange={() => props.controller.handleTextChange()}
+				onContentChange={() => {
+					props.controller.handleTextChange();
+					syncComposerText();
+				}}
 				onPaste={(event: PasteEvent) => {
 					console.log("[composer-dock] textarea onPaste fired", {
 						mimeType: event.metadata?.mimeType,
 						kind: event.metadata?.kind,
 						byteLength: event.bytes.length,
 					});
-					void props.controller.handlePaste(event);
+					void props.controller.handlePaste(event).finally(syncComposerText);
 				}}
-				onSubmit={() => props.controller.handleSubmit()}
+				onSubmit={() => {
+					void props.controller.handleSubmit().finally(syncComposerText);
+				}}
 			/>
 		</box>
 	);

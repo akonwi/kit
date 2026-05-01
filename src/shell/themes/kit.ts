@@ -38,6 +38,8 @@ export const KIT_TOKENS: ThemeTokens = {
 	borderAccent: blue,
 	borderDebug: purple,
 	borderStatus: midGray,
+	composerBashBorder: green,
+	composerBashExcludedBorder: cyan,
 
 	// Text
 	textPrimary: offWhite,

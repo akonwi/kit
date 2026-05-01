@@ -9,7 +9,7 @@ import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { AppState } from "../state/app-state";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
-import { ComposerDock } from "./ComposerDock";
+import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
 import { HeaderBar } from "./HeaderBar";
 import { InlinePicker } from "./InlinePicker";
@@ -39,6 +39,8 @@ export type AppShellProps = {
 export function AppShell(props: AppShellProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
+	const [composerMode, setComposerMode] =
+		createSignal<ComposerInputMode>("normal");
 	const renderer = useRenderer();
 
 	return (
@@ -67,10 +69,12 @@ export function AppShell(props: AppShellProps) {
 					attachments={props.attachments}
 					locked={props.overlays().length > 0}
 					onHeightChange={setDockHeight}
+					onModeChange={setComposerMode}
 				/>
 				<BottomStatusBar
 					cwd={props.state.sessionMeta.cwd}
 					runtime={props.runtime}
+					composerMode={composerMode()}
 				/>
 			</box>
 

@@ -1,10 +1,12 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import type { ComposerInputMode } from "./ComposerDock";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
 	cwd: string;
+	composerMode: ComposerInputMode;
 };
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
@@ -18,6 +20,23 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 
 	const pending = () =>
 		pendingMessageCount() > 0 ? `📬${pendingMessageCount()}` : "";
+	const composerModeLabel = () => {
+		switch (props.composerMode) {
+			case "bash":
+				return "bash command · result will be added to context";
+			case "bash-excluded":
+				return "bash command · result excluded from context";
+			default:
+				return "";
+		}
+	};
+	const leftText = () => composerModeLabel() || pending();
+	const leftColor = () =>
+		props.composerMode === "bash"
+			? theme.composerBashBorder
+			: props.composerMode === "bash-excluded"
+				? theme.composerBashExcludedBorder
+				: theme.textMuted;
 	const [vcs, setVcs] = createSignal(props.runtime.vcsInfo);
 	const unsubscribeVcs = props.runtime.subscribe("vcs.updated", (e) =>
 		setVcs(e),
@@ -43,8 +62,8 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			flexDirection="row"
 			justifyContent="space-between"
 		>
-			<Show when={pending()} fallback={<text />}>
-				<text fg={theme.textMuted}>{pending()}</text>
+			<Show when={leftText()} fallback={<text />}>
+				<text fg={leftColor()}>{leftText()}</text>
 			</Show>
 			<text fg={theme.textMuted}>{location()}</text>
 		</box>

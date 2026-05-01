@@ -18,6 +18,7 @@ export type MessageComposerProps = {
 	focused?: boolean;
 	showCursor?: boolean;
 	maxHeight?: number;
+	borderColor?: string;
 	keyBindings?: KeyBinding[];
 	onContentChange?: () => void;
 	onPaste?: (event: PasteEvent) => void;
@@ -33,7 +34,7 @@ export function MessageComposer(props: MessageComposerProps) {
 		<box
 			width="100%"
 			border
-			borderColor={theme.borderFocused}
+			borderColor={props.borderColor ?? theme.borderFocused}
 			paddingLeft={1}
 			paddingRight={1}
 			paddingBottom={1}

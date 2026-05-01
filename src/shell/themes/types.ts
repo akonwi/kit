@@ -16,6 +16,8 @@ export type ThemeTokens = {
 	borderAccent: string;
 	borderDebug: string;
 	borderStatus: string;
+	composerBashBorder: string;
+	composerBashExcludedBorder: string;
 
 	// Text
 	textPrimary: string;
