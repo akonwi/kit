@@ -1364,7 +1364,6 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.handleSessionChanged();
-		this.emit("session.turns.changed", { turns: [...this.session.turns] });
 		this.emit("notification.info", {
 			title: "Session reloaded",
 			lines: [
