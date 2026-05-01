@@ -146,7 +146,6 @@ export type RuntimeEventMap = {
 		modelName: string | undefined;
 		error: string;
 	};
-	"runtime.status.changed": { status: RuntimeStatus };
 	"session.active.changed": { session: Session };
 	"session.name.changed": { name: string };
 	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
@@ -562,7 +561,6 @@ export class AgentRuntime {
 		}
 		this.agent.replaceFromTurns(nextTurns);
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 	}
 
 	private scheduleContinue(): void {
@@ -684,7 +682,6 @@ export class AgentRuntime {
 			});
 			this.handleSessionChanged();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 			this.emit("session.compaction.completed.recovery", {
 				reason: "overflow",
 				compactedTurnCount: result.compactedTurnCount,
@@ -732,7 +729,6 @@ export class AgentRuntime {
 			turn: this.agent.turns.at(-1) ?? null,
 		});
 		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		this.syncPendingState();
 		this.retryAttempt = 0;
 		this.overflowRecoveryAttempted = false;
@@ -797,7 +793,6 @@ export class AgentRuntime {
 			});
 			this.handleSessionChanged();
 			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
 			this.emit("session.compaction.completed.adaptation", {
 				modelId: model.id,
@@ -841,7 +836,6 @@ export class AgentRuntime {
 		switch (event.type) {
 			case "agent_start":
 				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
 			case "turn_start":
@@ -897,7 +891,6 @@ export class AgentRuntime {
 
 			case "message_end":
 				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
 			case "agent_tool_started":
@@ -1183,7 +1176,6 @@ export class AgentRuntime {
 		this.emit("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 		this.emit("session.turns.changed", { turns: [] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 	}
 
 	async handoffSession(firstMessage?: string): Promise<Session> {
@@ -1343,7 +1335,6 @@ export class AgentRuntime {
 			}
 			this.handleSessionChanged();
 			this.emit("session.turns.changed", { turns: [...this.session.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 
 			await deleteSession(child.id);
 			this.emit("session.merge.ended", {});
@@ -1374,7 +1365,6 @@ export class AgentRuntime {
 		this.syncPendingState();
 		this.handleSessionChanged();
 		this.emit("session.turns.changed", { turns: [...this.session.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 		this.emit("notification.info", {
 			title: "Session reloaded",
 			lines: [
