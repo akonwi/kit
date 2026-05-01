@@ -1,5 +1,5 @@
 import type { AgentRuntime } from "../../runtime/agent-runtime";
-import type { Turn } from "../../session/types";
+import type { TranscriptItem } from "./turns";
 
 export type TranscriptToast = {
 	title: string;
@@ -13,5 +13,5 @@ export type TranscriptProps = {
 };
 
 export type TranscriptPaneProps = TranscriptProps & {
-	turns: Turn[];
+	items: TranscriptItem[];
 };

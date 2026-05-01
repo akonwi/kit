@@ -1,55 +1,27 @@
 import { createSignal, onCleanup } from "solid-js";
-import type { KitAgentMessage, Turn } from "../../session/types";
+import type { KitAgentMessage } from "../../session/types";
 import { TranscriptPane } from "./pane";
-import { extractAssistantParts } from "./turns";
+import {
+	buildAssistantTranscriptItem,
+	buildBashTranscriptItem,
+	buildUserTranscriptItem,
+	extractAssistantParts,
+	flattenTurnsToTranscriptItems,
+	type TranscriptItem,
+} from "./turns";
 import type { TranscriptProps } from "./types";
 
-function appendTurnMessage(
-	prev: Turn[],
-	turnId: string,
-	message: KitAgentMessage,
-): Turn[] {
-	return prev.map((turn) =>
-		turn.id === turnId
-			? { ...turn, messages: [...turn.messages, message] }
-			: turn,
-	);
-}
-
-function appendOrCreateTurnMessage(
-	prev: Turn[],
-	turnId: string,
-	message: KitAgentMessage,
-): Turn[] {
-	const hasTurn = prev.some((turn) => turn.id === turnId);
-	if (!hasTurn) {
-		return [...prev, { id: turnId, messages: [message] }];
-	}
-	return appendTurnMessage(prev, turnId, message);
-}
-
-function replaceTurnMessage(
-	prev: Turn[],
-	turnId: string,
-	message: KitAgentMessage,
-): Turn[] {
+function replaceTranscriptItem(
+	prev: TranscriptItem[],
+	item: TranscriptItem,
+): TranscriptItem[] {
 	let replaced = false;
-	const next = prev.map((turn) =>
-		turn.id === turnId
-			? {
-					...turn,
-					messages: turn.messages.map((candidate) => {
-						const match =
-							"id" in candidate &&
-							"id" in message &&
-							candidate.id === message.id;
-						if (match) replaced = true;
-						return match ? message : candidate;
-					}),
-				}
-			: turn,
-	);
-	return replaced ? next : appendOrCreateTurnMessage(prev, turnId, message);
+	const next = prev.map((candidate) => {
+		if (candidate.id !== item.id) return candidate;
+		replaced = true;
+		return item;
+	});
+	return replaced ? next : [...prev, item];
 }
 
 function finalizeBufferedAssistantMessage(
@@ -69,20 +41,15 @@ function finalizeBufferedAssistantMessage(
 export type { TranscriptProps } from "./types";
 
 export function Transcript(props: TranscriptProps) {
-	const [turns, setTurns] = createSignal(props.runtime.getTurns());
-	const [pendingAssistantText, setPendingAssistantText] = createSignal("");
-
-	const unsubscribeTurnStarted = props.runtime.subscribe(
-		"agent.turn.started",
-		(event) => {
-			setTurns((prev) => [...prev, { id: event.turn.id, messages: [] }]);
-		},
+	const [items, setItems] = createSignal(
+		flattenTurnsToTranscriptItems(props.runtime.getTurns()),
 	);
+	const [pendingAssistantText, setPendingAssistantText] = createSignal("");
 
 	const unsubscribeUserMessageCreated = props.runtime.subscribe(
 		"user.message.created",
 		(event) => {
-			setTurns((prev) => appendTurnMessage(prev, event.turn.id, event.message));
+			setItems((prev) => [...prev, buildUserTranscriptItem(event.message)]);
 		},
 	);
 
@@ -103,16 +70,16 @@ export function Transcript(props: TranscriptProps) {
 	const unsubscribeAgentMessageEnded = props.runtime.subscribe(
 		"agent.message.ended",
 		(event) => {
-			setTurns((prev) =>
-				appendTurnMessage(
-					prev,
-					event.turn.id,
+			setItems((prev) => [
+				...prev,
+				buildAssistantTranscriptItem(
+					event.turn,
 					finalizeBufferedAssistantMessage(
 						pendingAssistantText(),
 						event.message,
 					),
 				),
-			);
+			]);
 			setPendingAssistantText("");
 		},
 	);
@@ -120,18 +87,24 @@ export function Transcript(props: TranscriptProps) {
 	const unsubscribeBashCommandStarted = props.runtime.subscribe(
 		"bash.command.started",
 		(event) => {
-			setTurns((prev) =>
-				appendOrCreateTurnMessage(prev, event.turn.id, event.message),
-			);
+			setItems((prev) => [...prev, buildBashTranscriptItem(event.message)]);
 		},
 	);
 
 	const unsubscribeBashCommandCompleted = props.runtime.subscribe(
 		"bash.command.completed",
 		(event) => {
-			setTurns((prev) =>
-				replaceTurnMessage(prev, event.turn.id, event.message),
+			setItems((prev) =>
+				replaceTranscriptItem(prev, buildBashTranscriptItem(event.message)),
 			);
+		},
+	);
+
+	const unsubscribeTurnCompleted = props.runtime.subscribe(
+		"agent.turn.completed",
+		(_) => {
+			setPendingAssistantText("");
+			setItems(flattenTurnsToTranscriptItems(props.runtime.getTurns()));
 		},
 	);
 
@@ -139,28 +112,28 @@ export function Transcript(props: TranscriptProps) {
 		"session.active.changed",
 		(_) => {
 			setPendingAssistantText("");
-			setTurns(props.runtime.getTurns());
+			setItems(flattenTurnsToTranscriptItems(props.runtime.getTurns()));
 		},
 	);
 
 	const unsubscribeCompacted = props.runtime.subscribe(
 		{ prefix: "session.compaction.completed" },
 		(_) => {
-			setTurns(props.runtime.getTurns());
+			setItems(flattenTurnsToTranscriptItems(props.runtime.getTurns()));
 		},
 	);
 
 	onCleanup(() => {
-		unsubscribeTurnStarted();
 		unsubscribeUserMessageCreated();
 		unsubscribeAgentMessageStarted();
 		unsubscribeAgentMessageUpdated();
 		unsubscribeAgentMessageEnded();
 		unsubscribeBashCommandStarted();
 		unsubscribeBashCommandCompleted();
+		unsubscribeTurnCompleted();
 		unsubscribeSessionChanged();
 		unsubscribeCompacted();
 	});
 
-	return <TranscriptPane {...props} turns={turns()} />;
+	return <TranscriptPane {...props} items={items()} />;
 }

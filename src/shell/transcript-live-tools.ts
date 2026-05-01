@@ -1,4 +1,4 @@
-import type { Turn } from "../session/types";
+import { extractAssistantParts, type TranscriptItem } from "./transcript/turns";
 
 export type LiveToolState = "started" | "updated" | "ended";
 
@@ -20,45 +20,41 @@ export type LiveToolExecutionMap = Record<
 
 export type LiveToolsForTurn = Record<string, LiveToolExecution>;
 
-function assistantToolCallIds(turn: Turn): Set<string> {
-	const ids = new Set<string>();
-	for (const message of turn.messages) {
-		if (!("role" in message) || message.role !== "assistant") continue;
-		for (const block of message.content) {
-			if (block.type === "toolCall" && "id" in block) {
-				ids.add(block.id);
-			}
-		}
-	}
-	return ids;
-}
-
-function committedToolResultIds(turn: Turn): Set<string> {
-	const ids = new Set<string>();
-	for (const message of turn.messages) {
-		if (!("role" in message) || message.role !== "toolResult") continue;
-		ids.add(message.toolCallId);
-	}
-	return ids;
-}
-
 export function reconcileLiveTools(
 	prev: LiveToolExecutionMap,
-	turns: Turn[],
+	items: TranscriptItem[],
 ): LiveToolExecutionMap {
+	const toolCallIdsByTurn = new Map<string, Set<string>>();
+	const committedIdsByTurn = new Map<string, Set<string>>();
+
+	for (const item of items) {
+		if (item.kind !== "assistant") continue;
+		const toolCallIds = toolCallIdsByTurn.get(item.turnId) ?? new Set<string>();
+		for (const toolCall of extractAssistantParts(item.message).toolCalls) {
+			toolCallIds.add(toolCall.id);
+		}
+		toolCallIdsByTurn.set(item.turnId, toolCallIds);
+
+		const committedIds =
+			committedIdsByTurn.get(item.turnId) ?? new Set<string>();
+		for (const toolCallId of item.toolResults.keys()) {
+			committedIds.add(toolCallId);
+		}
+		committedIdsByTurn.set(item.turnId, committedIds);
+	}
+
 	const next: LiveToolExecutionMap = {};
-	for (const turn of turns) {
-		const existing = prev[turn.id];
-		if (!existing) continue;
-		const toolCallIds = assistantToolCallIds(turn);
-		const committedIds = committedToolResultIds(turn);
+	for (const [turnId, existing] of Object.entries(prev)) {
+		const toolCallIds = toolCallIdsByTurn.get(turnId);
+		if (!toolCallIds) continue;
+		const committedIds = committedIdsByTurn.get(turnId) ?? new Set<string>();
 		const keptEntries = Object.entries(existing).filter(([toolCallId]) => {
 			if (!toolCallIds.has(toolCallId)) return false;
 			if (committedIds.has(toolCallId)) return false;
 			return true;
 		});
 		if (keptEntries.length > 0) {
-			next[turn.id] = Object.fromEntries(keptEntries);
+			next[turnId] = Object.fromEntries(keptEntries);
 		}
 	}
 	return next;

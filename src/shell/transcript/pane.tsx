@@ -7,17 +7,15 @@ import {
 	upsertLiveTool,
 } from "../transcript-live-tools";
 import { TurnEntry } from "./turn-entry";
-import { toTranscriptTurn } from "./turns";
 import type { TranscriptPaneProps } from "./types";
 
 export type { TranscriptPaneProps } from "./types";
 
 export function TranscriptPane(props: TranscriptPaneProps) {
 	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
-	const turns = () => props.turns.map(toTranscriptTurn);
 
 	createEffect(() => {
-		setLiveTools((prev) => reconcileLiveTools(prev, props.turns));
+		setLiveTools((prev) => reconcileLiveTools(prev, props.items));
 	});
 
 	const unsubscribeStarted = props.runtime.subscribe(
@@ -98,7 +96,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 			}}
 		>
 			<Show
-				when={props.turns.length > 0}
+				when={props.items.length > 0}
 				fallback={
 					<box
 						flexGrow={1}
@@ -118,11 +116,11 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				}
 			>
 				<box flexDirection="column" gap={1} width="100%">
-					<For each={turns()}>
-						{(turn) => (
+					<For each={props.items}>
+						{(item) => (
 							<TurnEntry
-								turn={turn}
-								liveTools={liveTools()[turn.id] ?? {}}
+								item={item}
+								liveTools={liveTools()[item.turnId] ?? {}}
 								showToast={props.showToast}
 							/>
 						)}
