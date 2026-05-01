@@ -119,6 +119,7 @@ export async function writeSession(session: Session): Promise<void> {
 	await rename(tmp, path);
 }
 
+// persisting to disk should be a side-effect
 export async function updateSession(
 	session: Session,
 	changes: Partial<Pick<Session, "name" | "model" | "thinkingLevel" | "turns">>,

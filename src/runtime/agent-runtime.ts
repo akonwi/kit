@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import "./custom-messages";
 import type {
-	AgentEvent,
 	AgentMessage,
 	AgentTool,
 	ThinkingLevel,
@@ -32,10 +31,9 @@ import {
 	readSession,
 	type Session,
 	type SessionSummary,
-	updateSession,
 	writeSession,
 } from "../session";
-import type { Turn } from "../session/types";
+import type { KitAgentMessage, Turn } from "../session/types";
 import { resolveRetrySettings, type Settings } from "../settings";
 import { createDefaultTools } from "../tools";
 import { runBash } from "../tools/run-bash";
@@ -46,7 +44,7 @@ import {
 } from "./context-usage";
 import type { GitInfo } from "./git-info";
 import { GitInfoWatcher } from "./git-info-watcher";
-import { KitAgent } from "./kit-agent";
+import { type AgentEvent, KitAgent } from "./kit-agent";
 import { createSyntheticSummaryMessage } from "./session-summary";
 import { clampThinkingLevel } from "./thinking-levels";
 
@@ -69,28 +67,111 @@ export type RuntimeStatus = {
 	contextUsage: RuntimeContextUsage | null;
 };
 
-export type RuntimePanelState = {
-	pending: boolean;
-	title: string;
-};
-
 export type RuntimeEventMap = {
-	"session.turns.changed": { turns: Turn[] };
-	"runtime.status.changed": { status: RuntimeStatus };
-	"session.changed": { session: Session };
-	"session.updated": { session: Session };
-	"session.updated.name": { session: Session; name: string | undefined };
-	"session.updated.model": { session: Session; modelId: string | undefined };
-	"runtime.updated.git": { git: GitInfo; status: RuntimeStatus };
-	"runtime.panel.changed": { panel: RuntimePanelState };
-	"tool.completed": Record<string, never>;
-	"turn.completed": { turn: Turn | null };
-	"runtime.pending.changed": { count: number };
-	"runtime.pending.messages.changed": { messages: string[] };
+	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
+	"agent.turn.started": { turn: Turn };
+	"agent.turn.completed": { turn: Turn | null };
+	"user.message.created": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "user" }>;
+	};
+	"bash.command.started": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "bashExecution" }>;
+	};
+	"bash.command.completed": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "bashExecution" }>;
+	};
+	"agent.message.started": {
+		turn: Turn;
+		message: Extract<AgentMessage, { role: "assistant" }>;
+	};
+	"agent.message.updated": {
+		turn: Turn;
+		message: Extract<AgentMessage, { role: "assistant" }>;
+	};
+	"agent.message.ended": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "assistant" }>;
+	};
+	"agent.thinking.started": { turn: Turn };
+	"agent.thinking.updated": { turn: Turn; delta: string };
+	"agent.thinking.completed": { turn: Turn };
+	"agent.retry.started": {
+		attempt: number;
+		maxAttempts: number;
+		delayMs: number;
+	};
+	"agent.retry.failed": {
+		attempt: number;
+		maxAttempts: number;
+		error: string;
+	};
+	"session.merge.started": Record<string, never>;
+	"session.merge.ended": { error?: string };
+	"session.compaction.started.auto": { contextPercent: number };
+	"session.compaction.completed.auto": {
+		compactedTurnCount: number;
+		keptTurnCount: number;
+	};
+	"session.compaction.failed.auto": {
+		error: string;
+	};
+	"session.compaction.started.recovery": { reason: "overflow" };
+	"session.compaction.completed.recovery": {
+		reason: "overflow";
+		compactedTurnCount: number;
+		keptTurnCount: number;
+	};
+	"session.compaction.failed.recovery": {
+		reason: "overflow";
+		error: string;
+	};
+	"session.compaction.started.adaptation": {
+		modelId: string;
+		modelName: string | undefined;
+		contextPercent: number;
+	};
+	"session.compaction.completed.adaptation": {
+		modelId: string;
+		modelName: string | undefined;
+		compactedTurnCount: number;
+		keptTurnCount: number;
+	};
+	"session.compaction.failed.adaptation": {
+		modelId: string;
+		modelName: string | undefined;
+		error: string;
+	};
+	"session.active.changed": { session: Session };
+	"agent.tool.started": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+	};
+	"agent.tool.updated": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+		partialResult: unknown;
+	};
+	"agent.tool.ended": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+		result: unknown;
+		isError: boolean;
+	};
+	"chat.message-queue.changed": { count: number };
 	"settings.changed": { settings: Settings };
 	"notification.error": { title: string; lines: string[] };
 	"notification.warning": { title: string; lines: string[] };
 	"notification.info": { title: string; lines: string[] };
+	"vcs.updated": { branch: string | null; dirty: boolean };
 };
 
 export type RuntimeEventName = keyof RuntimeEventMap;
@@ -110,7 +191,7 @@ export type RuntimeEventPrefixSubscription<P extends string> = {
 export class AgentRuntime {
 	private session: Session;
 	private agent: KitAgent;
-	private settings: Settings;
+	private _settings: Settings;
 	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 	private extraTools: AgentTool<any>[];
 	private systemPromptAdditions: string[];
@@ -124,15 +205,17 @@ export class AgentRuntime {
 		listener: (event: AgentRuntimeEvent) => void;
 	}> = [];
 	private quitHandler: (() => void) | null = null;
-	private pendingCount = 0;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
+	private unsubscribePersistence: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
+	get vcsInfo() {
+		return this.gitInfo;
+	}
 	private lastSessionModel: string | undefined;
-	private lastSessionName: string | undefined;
 	private overflowRecoveryInFlight = false;
 	private lastOverflowRecoveryKey: string | null = null;
 	private retryAbortController: AbortController | null = null;
@@ -151,9 +234,8 @@ export class AgentRuntime {
 		},
 	) {
 		this.session = session;
-		this.settings = options?.settings ?? {};
+		this._settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
-		this.lastSessionName = session.name;
 		this.extraTools = options?.extraTools ?? [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
@@ -166,16 +248,6 @@ export class AgentRuntime {
 			thinkingLevel: initialThinkingLevel,
 		};
 		this.contextFiles = discoverContextFiles(session.cwd);
-
-		console.log(
-			"[runtime] model:",
-			defaultModel.id,
-			"provider:",
-			defaultModel.provider,
-			"api:",
-			defaultModel.api,
-		);
-
 		this.agent = KitAgent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
@@ -184,13 +256,69 @@ export class AgentRuntime {
 				tools: [...createDefaultTools(session.cwd), ...this.extraTools],
 			},
 			getApiKey: (provider) => getApiKey(provider),
-			maxRetryDelayMs: resolveRetrySettings(this.settings.retry).maxDelayMs,
+			maxRetryDelayMs: resolveRetrySettings(this._settings.retry).maxDelayMs,
 		});
 		this.agent.sessionId = session.id;
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
 			this.handleAgentEvent(event),
 		);
 		this.resetGitWatcher();
+		this.registerPersistence();
+	}
+
+	get contextStats(): RuntimeContextUsage | null {
+		return getRuntimeContextUsage(
+			this.agent.state.messages,
+			this.agent.state.model,
+		);
+	}
+
+	get settings() {
+		return this._settings;
+	}
+
+	private registerPersistence(): void {
+		this.unsubscribePersistence = this.subscribe((event) => {
+			switch (event.type) {
+				case "agent.turn.completed":
+				case "session.compaction.completed.recovery":
+				case "session.compaction.completed.adaptation":
+					this.persistSessionToDisk();
+					break;
+				case "session.merge.ended":
+					if (!event.error) this.persistSessionToDisk();
+					break;
+			}
+		});
+	}
+
+	private touchSession(
+		changes: Partial<
+			Pick<Session, "name" | "model" | "thinkingLevel" | "turns">
+		>,
+	): void {
+		this.session = {
+			...this.session,
+			...changes,
+			updatedAt: new Date().toISOString(),
+		};
+	}
+
+	private syncSessionFromAgentState(): void {
+		this.touchSession({
+			turns: this.agent.turns,
+			model: this.agent.state.model?.id,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		});
+	}
+
+	private persistSessionToDisk(): void {
+		void writeSession(this.session).catch((err) => {
+			this.emit("notification.error", {
+				title: "Session save failed",
+				lines: [String(err)],
+			});
+		});
 	}
 
 	private getEffectiveSystemPrompt(): string {
@@ -223,11 +351,9 @@ export class AgentRuntime {
 
 	private resetGitWatcher(): void {
 		this.gitWatcher?.dispose();
-		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (git) => {
-			this.gitInfo = git;
-			const status = this.snapshotStatus();
-			this.emit("runtime.updated.git", { git, status });
-			this.emit("runtime.status.changed", { status });
+		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (gitInfo) => {
+			this.gitInfo = gitInfo;
+			this.emit("vcs.updated", this.gitInfo);
 		});
 		this.gitInfo = this.gitWatcher.getCurrent();
 	}
@@ -247,29 +373,16 @@ export class AgentRuntime {
 		}
 	}
 
-	private emitSessionUpdated(): void {
+	private handleSessionChanged(): void {
 		const previousModel = this.lastSessionModel;
-		const previousName = this.lastSessionName;
 		this.lastSessionModel = this.session.model;
-		this.lastSessionName = this.session.name;
-		this.emit("session.updated", { session: this.session });
-		if (previousName !== this.session.name) {
-			this.emit("session.updated.name", {
-				session: this.session,
-				name: this.session.name,
-			});
-		}
 		if (previousModel !== this.session.model) {
-			this.emit("session.updated.model", {
-				session: this.session,
-				modelId: this.session.model,
-			});
 			void this.maybeHandleModelSwitchOverflow();
 		}
 	}
 
 	private getRetrySettings() {
-		return resolveRetrySettings(this.settings.retry);
+		return resolveRetrySettings(this._settings.retry);
 	}
 
 	private getRestoredThinkingLevel(
@@ -278,32 +391,10 @@ export class AgentRuntime {
 		return clampThinkingLevel(this.session.thinkingLevel, model);
 	}
 
-	private async persistSessionThinkingLevel(
-		level: ThinkingLevel,
-	): Promise<void> {
+	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
-		if (this.isEmpty()) {
-			this.session = {
-				...this.session,
-				thinkingLevel: level,
-				updatedAt: new Date().toISOString(),
-			};
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			return;
-		}
-		try {
-			this.session = await updateSession(this.session, {
-				thinkingLevel: level,
-			});
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-		} catch (err) {
-			this.emit("notification.error", {
-				title: "Session save failed",
-				lines: [String(err)],
-			});
-		}
+		this.touchSession({ thinkingLevel: level });
+		this.handleSessionChanged();
 	}
 
 	private resolveRecovery(): void {
@@ -363,11 +454,8 @@ export class AgentRuntime {
 	}
 
 	private syncPendingState() {
-		this.pendingCount = this.agent.getPendingFollowUps().length;
-		this.emit("runtime.pending.changed", { count: this.pendingCount });
-		this.emit("runtime.pending.messages.changed", {
-			messages: this.agent.getPendingFollowUps(),
-		});
+		const count = this.agent.getPendingFollowUps().length;
+		this.emit("chat.message-queue.changed", { count });
 	}
 
 	private snapshotStatus(): RuntimeStatus {
@@ -384,10 +472,6 @@ export class AgentRuntime {
 				this.agent.state.model,
 			),
 		};
-	}
-
-	private isEmpty(): boolean {
-		return this.session.turns.length === 0;
 	}
 
 	private async maybeAutoCompact() {
@@ -408,11 +492,8 @@ export class AgentRuntime {
 		}
 
 		this.isCompacting = true;
-		this.emit("runtime.panel.changed", {
-			panel: {
-				pending: true,
-				title: `Compacting session… (${contextUsage?.percent ?? 0}%)`,
-			},
+		this.emit("session.compaction.started.auto", {
+			contextPercent: contextUsage?.percent ?? 0,
 		});
 
 		try {
@@ -424,10 +505,15 @@ export class AgentRuntime {
 			if (!result) return;
 
 			this.agent.replaceFromTurns(result.turns);
-			this.session = await updateSession(this.session, {
+			this.touchSession({
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
+			});
+			this.handleSessionChanged();
+			this.emit("session.compaction.completed.auto", {
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
 			});
 			this.emit("notification.info", {
 				title: "Session compacted",
@@ -437,6 +523,9 @@ export class AgentRuntime {
 				],
 			});
 		} catch (error) {
+			this.emit("session.compaction.failed.auto", {
+				error: error instanceof Error ? error.message : String(error),
+			});
 			this.emit("notification.error", {
 				title: "Auto-compaction failed",
 				lines: [error instanceof Error ? error.message : String(error)],
@@ -446,21 +535,9 @@ export class AgentRuntime {
 		}
 	}
 
-	private async persistTurns(): Promise<boolean> {
-		try {
-			this.session = await updateSession(this.session, {
-				turns: this.agent.turns,
-				model: this.agent.state.model?.id,
-				thinkingLevel: this.agent.state.thinkingLevel,
-			});
-			return true;
-		} catch (err) {
-			this.emit("notification.error", {
-				title: "Session save failed",
-				lines: [String(err)],
-			});
-			return false;
-		}
+	private persistTurns(): boolean {
+		this.syncSessionFromAgentState();
+		return true;
 	}
 
 	private removeTerminalAssistantErrorFromLiveState(): void {
@@ -478,13 +555,17 @@ export class AgentRuntime {
 			nextTurns.push(nextLastTurn);
 		}
 		this.agent.replaceFromTurns(nextTurns);
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("session.active.changed", { session: this.session });
 	}
 
 	private scheduleContinue(): void {
 		setTimeout(() => {
 			void this.agent.continue().catch((error) => {
+				this.emit("agent.retry.failed", {
+					attempt: this.retryAttempt,
+					maxAttempts: this.getRetrySettings().maxRetries,
+					error: error instanceof Error ? error.message : String(error),
+				});
 				this.emit("notification.error", {
 					title: "Retry failed",
 					lines: [error instanceof Error ? error.message : String(error)],
@@ -492,9 +573,6 @@ export class AgentRuntime {
 				this.retryAttempt = 0;
 				this.retryAbortController = null;
 				this.overflowRecoveryAttempted = false;
-				this.emit("runtime.panel.changed", {
-					panel: { pending: false, title: "" },
-				});
 				this.resolveRecovery();
 			});
 		}, 0);
@@ -530,21 +608,22 @@ export class AgentRuntime {
 
 		this.removeTerminalAssistantErrorFromLiveState();
 		const delayMs = settings.baseDelayMs * 2 ** (this.retryAttempt - 1);
-		this.emit("runtime.panel.changed", {
-			panel: {
-				pending: true,
-				title: `Retrying (${this.retryAttempt}/${settings.maxRetries}) in ${Math.ceil(delayMs / 1000)}s…`,
-			},
+		this.emit("agent.retry.started", {
+			attempt: this.retryAttempt,
+			maxAttempts: settings.maxRetries,
+			delayMs,
 		});
 		this.retryAbortController = new AbortController();
 		try {
 			await this.sleepWithAbort(delayMs, this.retryAbortController.signal);
 		} catch {
+			this.emit("agent.retry.failed", {
+				attempt: this.retryAttempt,
+				maxAttempts: settings.maxRetries,
+				error: "Retry cancelled before continue.",
+			});
 			this.retryAttempt = 0;
 			this.retryAbortController = null;
-			this.emit("runtime.panel.changed", {
-				panel: { pending: false, title: "" },
-			});
 			this.resolveRecovery();
 			return true;
 		}
@@ -577,8 +656,8 @@ export class AgentRuntime {
 
 		this.overflowRecoveryAttempted = true;
 		this.removeTerminalAssistantErrorFromLiveState();
-		this.emit("runtime.panel.changed", {
-			panel: { pending: true, title: `Compacting session for retry…` },
+		this.emit("session.compaction.started.recovery", {
+			reason: "overflow",
 		});
 		try {
 			const result = await compactSessionTurns({
@@ -591,15 +670,17 @@ export class AgentRuntime {
 				return false;
 			}
 			this.agent.replaceFromTurns(result.turns);
-			this.session = await updateSession(this.session, {
+			this.touchSession({
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+			this.handleSessionChanged();
+			this.emit("session.compaction.completed.recovery", {
+				reason: "overflow",
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+			});
 			this.emit("notification.info", {
 				title: "Session compacted",
 				lines: [
@@ -610,6 +691,10 @@ export class AgentRuntime {
 			this.scheduleContinue();
 			return true;
 		} catch (error) {
+			this.emit("session.compaction.failed.recovery", {
+				reason: "overflow",
+				error: error instanceof Error ? error.message : String(error),
+			});
 			this.emit("notification.error", {
 				title: "Context overflow recovery failed",
 				lines: [error instanceof Error ? error.message : String(error)],
@@ -620,7 +705,7 @@ export class AgentRuntime {
 	}
 
 	private async finalizeAgentRun(messages: AgentMessage[]): Promise<void> {
-		await this.persistTurns();
+		this.persistTurns();
 		const assistant = this.findLastAssistantMessage(messages);
 		if (assistant?.stopReason === "error") {
 			if (this.isContextOverflowError(assistant)) {
@@ -633,16 +718,9 @@ export class AgentRuntime {
 			}
 		}
 		await this.maybeAutoCompact();
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
-		this.emit("runtime.panel.changed", {
-			panel: { pending: false, title: "" },
-		});
-		const completedTurn = this.agent.turns.at(-1) ?? null;
-		this.emit("turn.completed", {
-			turn: completedTurn,
+		this.handleSessionChanged();
+		this.emit("agent.turn.completed", {
+			turn: this.agent.turns.at(-1) ?? null,
 		});
 		this.syncPendingState();
 		this.retryAttempt = 0;
@@ -677,11 +755,10 @@ export class AgentRuntime {
 		}
 
 		this.overflowRecoveryInFlight = true;
-		this.emit("runtime.panel.changed", {
-			panel: {
-				pending: true,
-				title: `Adapting session to ${model.name ?? model.id}… (${contextUsage.percent}%)`,
-			},
+		this.emit("session.compaction.started.adaptation", {
+			modelId: model.id,
+			modelName: model.name,
+			contextPercent: contextUsage.percent,
 		});
 
 		try {
@@ -702,16 +779,19 @@ export class AgentRuntime {
 			}
 
 			this.agent.replaceFromTurns(result.turns);
-			this.session = await updateSession(this.session, {
+			this.touchSession({
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+			this.handleSessionChanged();
 
+			this.emit("session.compaction.completed.adaptation", {
+				modelId: model.id,
+				modelName: model.name,
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+			});
 			const nextUsage = getRuntimeContextUsage(
 				this.agent.state.messages,
 				model,
@@ -726,6 +806,11 @@ export class AgentRuntime {
 				});
 			}
 		} catch (error) {
+			this.emit("session.compaction.failed.adaptation", {
+				modelId: model.id,
+				modelName: model.name,
+				error: error instanceof Error ? error.message : String(error),
+			});
 			this.emit("notification.error", {
 				title: "Model switch compaction failed",
 				lines: [
@@ -735,9 +820,6 @@ export class AgentRuntime {
 			});
 		} finally {
 			this.overflowRecoveryInFlight = false;
-			this.emit("runtime.panel.changed", {
-				panel: { pending: false, title: "" },
-			});
 		}
 	}
 
@@ -745,50 +827,90 @@ export class AgentRuntime {
 		this.createRecoveryPromiseForAgentEnd(event);
 		switch (event.type) {
 			case "agent_start":
-				this.emit("runtime.panel.changed", {
-					panel: { pending: true, title: "Working…" },
-				});
-				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
 			case "turn_start":
 				this.syncPendingState();
+				this.emit("agent.turn.started", { turn: event.turn });
 				break;
 
-			case "message_start":
-				if (event.message.role === "assistant") {
-					this.emit("runtime.panel.changed", {
-						panel: { pending: true, title: "Thinking…" },
-					});
-				}
+			case "turn_end":
 				break;
 
-			case "message_update": {
-				const ame = event.assistantMessageEvent;
-				if (
-					ame?.type === "thinking_delta" &&
-					"delta" in ame &&
-					typeof ame.delta === "string" &&
-					ame.delta.trim()
-				) {
-					this.emit("runtime.panel.changed", {
-						panel: {
-							pending: true,
-							title: ame.delta.replace(/\s+/g, " ").trim(),
-						},
-					});
-				}
+			case "user_message_created":
+				this.emit("user.message.created", {
+					turn: event.turn,
+					message: event.message,
+				});
 				break;
-			}
+
+			case "assistant_message_started":
+				this.emit("agent.message.started", {
+					turn: event.turn,
+					message: event.message,
+				});
+				break;
+
+			case "assistant_message_updated":
+				this.emit("agent.message.updated", {
+					turn: event.turn,
+					message: event.message,
+				});
+				break;
+
+			case "assistant_message_ended":
+				this.emit("agent.message.ended", {
+					turn: event.turn,
+					message: event.message,
+				});
+				break;
+
+			case "agent_thinking_started":
+				this.emit("agent.thinking.started", { turn: event.turn });
+				break;
+
+			case "agent_thinking_updated":
+				this.emit("agent.thinking.updated", {
+					turn: event.turn,
+					delta: event.delta,
+				});
+				break;
+
+			case "agent_thinking_completed":
+				this.emit("agent.thinking.completed", { turn: event.turn });
+				break;
 
 			case "message_end":
-				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
-				this.emit("runtime.status.changed", { status: this.snapshotStatus() });
 				break;
 
-			case "tool_execution_end":
-				this.emit("tool.completed", {});
+			case "agent_tool_started":
+				this.emit("agent.tool.started", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+				});
+				break;
+
+			case "agent_tool_updated":
+				this.emit("agent.tool.updated", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: event.partialResult,
+				});
+				break;
+
+			case "agent_tool_ended":
+				this.emit("agent.tool.ended", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					result: event.result,
+					isError: event.isError,
+				});
 				break;
 
 			case "agent_end":
@@ -799,9 +921,6 @@ export class AgentRuntime {
 					this.emit("notification.error", {
 						title: "Session save failed",
 						lines: [error instanceof Error ? error.message : String(error)],
-					});
-					this.emit("runtime.panel.changed", {
-						panel: { pending: false, title: "" },
 					});
 				});
 				break;
@@ -859,12 +978,21 @@ export class AgentRuntime {
 		this.agent.abort();
 	}
 
-	addTool(tool: AgentTool): void {
+	addTool(tool: AgentTool): () => void {
 		this.extraTools.push(tool);
 		this.agent.setTools([
 			...createDefaultTools(this.session.cwd),
 			...this.extraTools,
 		]);
+		return () => {
+			this.extraTools = this.extraTools.filter(
+				(candidate) => candidate !== tool,
+			);
+			this.agent.setTools([
+				...createDefaultTools(this.session.cwd),
+				...this.extraTools,
+			]);
+		};
 	}
 
 	/**
@@ -872,11 +1000,17 @@ export class AgentRuntime {
 	 * Intended for plugins that own a feature-specific policy or tool guidelines
 	 * that should be part of the system prompt without being baked into `App.tsx`.
 	 */
-	addSystemPromptAddition(text: string): void {
+	addSystemPromptAddition(text: string): () => void {
 		const trimmed = text.trim();
-		if (!trimmed) return;
+		if (!trimmed) return () => {};
 		this.systemPromptAdditions.push(trimmed);
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		return () => {
+			const index = this.systemPromptAdditions.indexOf(trimmed);
+			if (index < 0) return;
+			this.systemPromptAdditions.splice(index, 1);
+			this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		};
 	}
 
 	/**
@@ -903,8 +1037,14 @@ export class AgentRuntime {
 			excludeFromContext: true,
 			timestamp,
 		};
-		this.agent.appendCustomMessage(pendingMessage);
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+		const appended = this.agent.appendCustomMessage(pendingMessage);
+		this.emit("bash.command.started", {
+			turn: appended.turn,
+			message: appended.message as Extract<
+				KitAgentMessage,
+				{ role: "bashExecution" }
+			>,
+		});
 
 		const result = await runBash(command, this.session.cwd);
 
@@ -920,14 +1060,23 @@ export class AgentRuntime {
 			excludeFromContext,
 			timestamp,
 		};
-		this.agent.replaceCustomMessage(
+		const replaced = this.agent.replaceCustomMessage(
 			(message) =>
 				message.role === "bashExecution" &&
 				"id" in message &&
 				message.id === id,
 			bashMessage,
 		);
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+		if (replaced) {
+			this.syncSessionFromAgentState();
+			this.emit("bash.command.completed", {
+				turn: replaced.turn,
+				message: replaced.message as Extract<
+					KitAgentMessage,
+					{ role: "bashExecution" }
+				>,
+			});
+		}
 	}
 
 	sendFollowUp(text: string): void {
@@ -996,8 +1145,11 @@ export class AgentRuntime {
 	 * Register a named section of debug lines.
 	 * Plugins call this so `/debug` can display their state.
 	 */
-	setDebugSection(key: string, lines: string[]): void {
+	setDebugSection(key: string, lines: string[]): () => void {
 		this.debugSections.set(key, lines);
+		return () => {
+			this.debugSections.delete(key);
+		};
 	}
 
 	getDebugSections(): Map<string, string[]> {
@@ -1024,13 +1176,11 @@ export class AgentRuntime {
 			this.agent.state.model,
 		);
 		this.agent.setThinkingLevel(restoredThinkingLevel);
-		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
+		this.session.thinkingLevel = restoredThinkingLevel;
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
-		this.emit("session.turns.changed", { turns: [] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.emit("session.active.changed", { session: this.session });
+		this.handleSessionChanged();
 	}
 
 	async handoffSession(firstMessage?: string): Promise<Session> {
@@ -1057,7 +1207,6 @@ export class AgentRuntime {
 			turns: structuredClone(this.session.turns),
 		};
 
-		await writeSession(child);
 		this.session = child;
 		this.agent.replaceFromTurns(child.turns);
 		const restoredThinkingLevel = this.getRestoredThinkingLevel(
@@ -1067,10 +1216,8 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(child);
 		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
-		this.emit("session.turns.changed", { turns: [...this.session.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.handleSessionChanged();
+		this.emit("session.active.changed", { session: this.session });
 
 		const prompt = firstMessage?.trim();
 		if (prompt) {
@@ -1094,79 +1241,77 @@ export class AgentRuntime {
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
-		this.emit("session.turns.changed", { turns: [...this.session.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+		this.handleSessionChanged();
+		this.emit("session.active.changed", { session: this.session });
 		return true;
 	}
 
 	async mergeUp(): Promise<void> {
-		const child = this.session;
-		if (!child.parentSessionId) {
-			throw new Error("Current session is not a child session.");
-		}
-		const parent =
-			(await findSessionById(child.parentSessionId)) ??
-			(await readSession(child.parentSessionId));
-		if (!parent) {
-			throw new Error("Parent session could not be found.");
-		}
-
-		const currentModel = this.getCurrentModel();
-		if (!currentModel) {
-			throw new Error("No active model available for merge summary.");
-		}
-		const apiKey = await getApiKey(currentModel.provider);
-		if (!apiKey) {
-			throw new Error(`No API key available for ${currentModel.provider}.`);
-		}
-
-		const boundaryIndex = child.forkedFromTurnId
-			? child.turns.findIndex((turn) => turn.id === child.forkedFromTurnId)
-			: -1;
-		const turnsToSummarize =
-			boundaryIndex >= 0 ? child.turns.slice(boundaryIndex + 1) : child.turns;
-		const messagesToSummarize = turnsToSummarize.flatMap(
-			(turn) => turn.messages,
-		);
-		if (messagesToSummarize.length === 0) {
-			throw new Error("Nothing new to merge from this child session.");
-		}
-
-		const mergePrompt = [
-			"Summarize this child session so its useful work can be merged back into the parent session.",
-			boundaryIndex >= 0
-				? "The conversation below contains only work that happened after the child branched from the parent."
-				: "The original fork boundary could not be found, so the conversation below contains the full child session.",
-			child.name?.trim()
-				? `Child session name: ${child.name.trim()}`
-				: undefined,
-			"",
-			"Use this exact structure:",
-			"",
-			"## Branch goal",
-			"[what this side quest was trying to accomplish]",
-			"",
-			"## Progress / outcomes",
-			"- [important progress made in the child session]",
-			"",
-			"## Key decisions / changes",
-			"- [important decisions, code changes, or findings the parent should know]",
-			"",
-			"## Remaining issues",
-			"- [unfinished work, risks, or follow-up items]",
-			"",
-			"## Context to preserve",
-			"- [specific details the parent should retain before continuing]",
-			"",
-			"Be concise but specific. Focus on what the parent needs to resume accurately.",
-		]
-			.filter((line): line is string => typeof line === "string")
-			.join("\n");
-
-		this.showPanel("Merging child session into parent…");
+		this.emit("session.merge.started", {});
 		try {
+			const child = this.session;
+			if (!child.parentSessionId) {
+				throw new Error("Current session is not a child session.");
+			}
+			const parent =
+				(await findSessionById(child.parentSessionId)) ??
+				(await readSession(child.parentSessionId));
+			if (!parent) {
+				throw new Error("Parent session could not be found.");
+			}
+
+			const currentModel = this.getCurrentModel();
+			if (!currentModel) {
+				throw new Error("No active model available for merge summary.");
+			}
+			const apiKey = await getApiKey(currentModel.provider);
+			if (!apiKey) {
+				throw new Error(`No API key available for ${currentModel.provider}.`);
+			}
+
+			const boundaryIndex = child.forkedFromTurnId
+				? child.turns.findIndex((turn) => turn.id === child.forkedFromTurnId)
+				: -1;
+			const turnsToSummarize =
+				boundaryIndex >= 0 ? child.turns.slice(boundaryIndex + 1) : child.turns;
+			const messagesToSummarize = turnsToSummarize.flatMap(
+				(turn) => turn.messages,
+			);
+			if (messagesToSummarize.length === 0) {
+				throw new Error("Nothing new to merge from this child session.");
+			}
+
+			const mergePrompt = [
+				"Summarize this child session so its useful work can be merged back into the parent session.",
+				boundaryIndex >= 0
+					? "The conversation below contains only work that happened after the child branched from the parent."
+					: "The original fork boundary could not be found, so the conversation below contains the full child session.",
+				child.name?.trim()
+					? `Child session name: ${child.name.trim()}`
+					: undefined,
+				"",
+				"Use this exact structure:",
+				"",
+				"## Branch goal",
+				"[what this side quest was trying to accomplish]",
+				"",
+				"## Progress / outcomes",
+				"- [important progress made in the child session]",
+				"",
+				"## Key decisions / changes",
+				"- [important decisions, code changes, or findings the parent should know]",
+				"",
+				"## Remaining issues",
+				"- [unfinished work, risks, or follow-up items]",
+				"",
+				"## Context to preserve",
+				"- [specific details the parent should retain before continuing]",
+				"",
+				"Be concise but specific. Focus on what the parent needs to resume accurately.",
+			]
+				.filter((line): line is string => typeof line === "string")
+				.join("\n");
+
 			const summaryMessage = await createSyntheticSummaryMessage({
 				messages: messagesToSummarize,
 				model: currentModel,
@@ -1187,72 +1332,34 @@ export class AgentRuntime {
 			}
 
 			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
-			const saved = await this.persistTurns();
+			const saved = this.persistTurns();
 			if (!saved) {
 				throw new Error(
 					"Failed to save merged summary into the parent session.",
 				);
 			}
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			this.emit("session.turns.changed", { turns: [...this.session.turns] });
-			this.emit("runtime.status.changed", { status: this.snapshotStatus() });
+			this.handleSessionChanged();
+			this.emit("session.active.changed", { session: this.session });
 
 			await deleteSession(child.id);
-			this.emit("notification.info", {
-				title: "Session squashed",
-				lines: [
-					`Merged ${child.name?.trim() || child.id.slice(0, 8)} into ${this.session.name?.trim() || this.session.id.slice(0, 8)}.`,
-				],
+			this.emit("session.merge.ended", {});
+		} catch (error) {
+			this.emit("session.merge.ended", {
+				error: error instanceof Error ? error.message : String(error),
 			});
-		} finally {
-			this.hidePanel();
+			throw error;
 		}
 	}
 
-	async reloadSession(): Promise<void> {
-		const reloaded =
-			(await findSessionById(this.session.id)) ??
-			(await readSession(this.session.id));
-		if (reloaded) {
-			this.session = reloaded;
-			this.agent.replaceFromTurns(this.session.turns);
-			const model = this.findModelById(this.session.model);
-			if (model) this.agent.setModel(model);
-			const restoredThinkingLevel = this.getRestoredThinkingLevel(
-				this.agent.state.model,
-			);
-			this.agent.setThinkingLevel(restoredThinkingLevel);
-			this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
-		}
+	async reloadSession() {
 		this.applySessionContext(this.session);
-		this.syncPendingState();
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
-		this.emit("session.turns.changed", { turns: [...this.session.turns] });
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
-		this.emit("notification.info", {
-			title: "Session reloaded",
-			lines: [
-				"Reloaded session state, context files, tools, and runtime status.",
-			],
-		});
 	}
 
 	async setSessionName(name: string): Promise<void> {
-		if (this.isEmpty()) {
-			this.session = {
-				...this.session,
-				name,
-				updatedAt: new Date().toISOString(),
-			};
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			return;
-		}
-		this.session = await updateSession(this.session, { name });
-		this.emit("session.changed", { session: this.session });
-		this.emitSessionUpdated();
+		if (this.session.name === name) return;
+		this.touchSession({ name });
+		this.emit("session.active.changed", { session: this.session });
+		this.handleSessionChanged();
 	}
 
 	async listAllSessions(): Promise<SessionSummary[]> {
@@ -1290,54 +1397,29 @@ export class AgentRuntime {
 
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
-
-		if (this.isEmpty()) {
-			this.session = {
-				...this.session,
-				model: model.id,
-				updatedAt: new Date().toISOString(),
-			};
-			this.emit("session.changed", { session: this.session });
-			this.emitSessionUpdated();
-			return;
-		}
-
-		void updateSession(this.session, { model: model.id })
-			.then((updated) => {
-				this.session = updated;
-				this.emit("session.changed", { session: this.session });
-				this.emitSessionUpdated();
-			})
-			.catch((err) => {
-				this.emit("notification.error", {
-					title: "Session save failed",
-					lines: [String(err)],
-				});
-			});
+		this.touchSession({ model: model.id });
+		this.emit("agent.model.changed", {
+			model,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		});
+		this.handleSessionChanged();
 	}
 
 	setThinkingLevel(level: ThinkingLevel): void {
 		const clamped = clampThinkingLevel(level, this.agent.state.model);
 		this.agent.setThinkingLevel(clamped);
-		this.session = {
-			...this.session,
-			thinkingLevel: clamped,
+		this.persistSessionThinkingLevel(clamped);
+		this.emit("agent.model.changed", {
+			model: this.agent.state.model,
+			thinkingLevel: this.agent.state.thinkingLevel,
+		});
+	}
+
+	get agentInfo() {
+		return {
+			model: this.agent.state.model,
+			thinkingLevel: this.agent.state.thinkingLevel,
 		};
-		this.emit("runtime.status.changed", { status: this.snapshotStatus() });
-		void this.persistSessionThinkingLevel(clamped);
-	}
-
-	showPanel(title: string): void {
-		this.emit("runtime.panel.changed", {
-			panel: { pending: true, title },
-		});
-	}
-
-	hidePanel(): void {
-		this.emit("runtime.panel.changed", {
-			panel: { pending: false, title: "" },
-		});
 	}
 
 	emitError(title: string, lines: string[]): void {
@@ -1353,7 +1435,7 @@ export class AgentRuntime {
 	}
 
 	emitSettingsChanged(settings: Settings): void {
-		this.settings = settings;
+		this._settings = settings;
 		this.agent.maxRetryDelayMs = this.getRetrySettings().maxDelayMs;
 		this.emit("settings.changed", { settings });
 	}
@@ -1420,6 +1502,8 @@ export class AgentRuntime {
 	dispose(): void {
 		this.unsubscribeAgent?.();
 		this.unsubscribeAgent = null;
+		this.unsubscribePersistence?.();
+		this.unsubscribePersistence = null;
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
 		this.listeners.clear();

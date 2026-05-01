@@ -7,6 +7,7 @@ export type CommandContext = {
 	runtime: AgentRuntime;
 	palette: PaletteManager;
 	args: string;
+	_reload: () => Promise<void>;
 	openCustomOverlay: <T>(
 		component: (props: OverlayComponentProps<T>) => JSX.Element,
 	) => Promise<T>;

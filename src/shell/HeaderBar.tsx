@@ -1,6 +1,6 @@
-import { Show } from "solid-js";
+import { createSignal, onCleanup, Show } from "solid-js";
 import { codeReviewStatus } from "../features/code-review/state";
-import type { FooterStatusState } from "../state/app-state";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
 
@@ -16,18 +16,44 @@ function progressColor(pct: number): string {
 
 export type HeaderBarProps = {
 	sessionName: string | undefined;
-	status: FooterStatusState;
 	onHeightChange?: (height: number) => void;
+	runtime: AgentRuntime;
 };
 
 export function HeaderBar(props: HeaderBarProps) {
-	const pct = () => {
-		const n = parseInt(props.status.contextPct, 10);
-		return Number.isNaN(n) ? 0 : n;
-	};
+	const [contextStats, setContextStats] = createSignal(
+		props.runtime.contextStats,
+	);
+	const refreshContextStats = () => setContextStats(props.runtime.contextStats);
+	const unsubscribeTurns = props.runtime.subscribe(
+		"agent.turn.completed",
+		refreshContextStats,
+	);
+	const unsubscribeSessionChange = props.runtime.subscribe(
+		"session.active.changed",
+		refreshContextStats,
+	);
+	const unsubscribeCompactionCompleted = props.runtime.subscribe(
+		{ prefix: "session.compaction.completed" },
+		refreshContextStats,
+	);
 
-	const bell = () => (props.status.bellsEnabled ? "🔔" : "🔕");
-	const speech = () => (props.status.speechEnabled ? "🗣" : "🤫");
+	const contextUsage = () => contextStats()?.percent ?? 0;
+	const formattedContextUsage = () =>
+		contextStats() ? `${contextUsage()}%` : "–";
+
+	const [settings, setSettings] = createSignal(props.runtime.settings);
+	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
+		setSettings(e.settings),
+	);
+	const bell = () => (settings().bells ? "🔔" : "🔕");
+	const speech = () => {
+		const value = settings().speech;
+		const on =
+			(typeof value === "boolean" && value) ||
+			(typeof value === "object" && "enabled" in value && value.enabled);
+		return on ? "🗣" : "🤫";
+	};
 	const reviewVisible = () =>
 		codeReviewStatus.launchInFlight ||
 		codeReviewStatus.serverState === "ready" ||
@@ -47,6 +73,23 @@ export function HeaderBar(props: HeaderBarProps) {
 		return theme.textMuted;
 	};
 
+	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo);
+	const unsubscribeAgentInfo = props.runtime.subscribe(
+		"agent.model.changed",
+		(e) => {
+			setAgentInfo(e);
+			refreshContextStats();
+		},
+	);
+
+	onCleanup(() => {
+		unsubscribeTurns();
+		unsubscribeSettings();
+		unsubscribeAgentInfo();
+		unsubscribeSessionChange();
+		unsubscribeCompactionCompleted();
+	});
+
 	return (
 		<ScreenHeader
 			left={
@@ -60,16 +103,18 @@ export function HeaderBar(props: HeaderBarProps) {
 						<text fg={reviewColor()}>{reviewLabel()}</text>
 					</Show>
 					<text fg={theme.textMuted}>
-						{props.status.model} ({props.status.thinkingLevel})
+						{agentInfo().model?.name ?? "model?"} ({agentInfo().thinkingLevel})
 					</text>
-					<text fg={progressColor(pct())}>{props.status.contextPct}</text>
+					<text fg={progressColor(contextUsage())}>
+						{formattedContextUsage()}
+					</text>
 					<text fg={theme.textMuted}>
 						{bell()} {speech()}
 					</text>
 				</box>
 			}
-			progress={pct()}
-			progressColor={progressColor(pct())}
+			progress={contextUsage()}
+			progressColor={progressColor(contextUsage())}
 			onHeightChange={props.onHeightChange}
 		/>
 	);

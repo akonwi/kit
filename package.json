@@ -10,6 +10,7 @@
 	},
 	"scripts": {
 		"check": "biome check --write .",
+		"lint:staged": "biome check --write --staged --unsafe .",
 		"dev": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"start": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"build": "bun run script/build.ts",

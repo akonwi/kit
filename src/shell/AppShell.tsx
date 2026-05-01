@@ -5,6 +5,7 @@ import {
 	getToastStackZIndex,
 	type OverlayEntry,
 } from "../app/overlay-ui";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { AppState } from "../state/app-state";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
@@ -16,13 +17,14 @@ import { Modal } from "./Modal";
 import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
-import { TranscriptPane } from "./TranscriptPane";
 import { theme } from "./theme";
+import { Transcript } from "./transcript";
 
 const STATUS_BAR_HEIGHT = 1;
 
 export type AppShellProps = {
 	state: AppState;
+	runtime: AgentRuntime;
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	overlays: () => OverlayEntry[];
@@ -48,16 +50,16 @@ export function AppShell(props: AppShellProps) {
 			onMouseUp={() => copySelection(renderer)}
 		>
 			<HeaderBar
-				sessionName={props.state.sessionMeta.sessionName}
-				status={props.state.footerStatus}
+				runtime={props.runtime}
+				sessionName={props.state.sessionMeta.name}
 				onHeightChange={setHeaderHeight}
 			/>
 
-			<TranscriptPane turns={props.state.turns} showToast={props.showToast} />
+			<Transcript runtime={props.runtime} showToast={props.showToast} />
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot
-					panel={props.state.panel}
+					runtime={props.runtime}
 					pendingMessages={props.state.pendingMessages}
 				/>
 				<ComposerDock
@@ -66,7 +68,10 @@ export function AppShell(props: AppShellProps) {
 					locked={props.overlays().length > 0}
 					onHeightChange={setDockHeight}
 				/>
-				<BottomStatusBar status={props.state.footerStatus} />
+				<BottomStatusBar
+					cwd={props.state.sessionMeta.cwd}
+					runtime={props.runtime}
+				/>
 			</box>
 
 			<InlinePicker

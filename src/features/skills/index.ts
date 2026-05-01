@@ -31,7 +31,7 @@ export class SkillsPlugin extends Plugin {
 		}
 
 		// Register debug info for /debug command
-		this.ctx.runtime.setDebugSection(
+		this.setDebugSection(
 			"Skills",
 			skills.length > 0
 				? skills.map((s) => `- ${s.name} (${s.source}) ${s.filePath}`)

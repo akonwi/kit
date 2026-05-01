@@ -40,7 +40,7 @@ export class NotificationsPlugin extends Plugin {
 
 	override initialize(): void {
 		// Subscribe to turn completion for notifications
-		this.subscribeRuntimeEvent("turn.completed", (event) => {
+		this.subscribeRuntimeEvent("agent.turn.completed", (event) => {
 			this.notifyTurnComplete(event.turn);
 		});
 

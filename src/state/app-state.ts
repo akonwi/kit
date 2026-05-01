@@ -2,32 +2,13 @@ import { homedir } from "node:os";
 import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
-import type { AgentRuntime, RuntimeStatus } from "../runtime/agent-runtime";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
-import type { Turn } from "../session/types";
-import type { LoadedSettings, Settings } from "../settings";
-
-export type PanelState = {
-	pending: boolean;
-	title: string;
-};
-
-export type FooterStatusState = {
-	cwd: string;
-	model: string;
-	thinkingLevel: string;
-	contextPct: string;
-	gitBranch: string | null;
-	gitDirty: boolean;
-	bellsEnabled: boolean;
-	speechEnabled: boolean;
-	pendingMessages: number;
-};
 
 export type SessionMeta = {
-	sessionId: string;
-	sessionName: string | undefined;
-	sessionCwd: string;
+	id: string;
+	name: string | undefined;
+	cwd: string;
 	hasSession: boolean;
 };
 
@@ -39,11 +20,8 @@ export type Toast = {
 };
 
 export type AppState = {
-	turns: Turn[];
 	toasts: Toast[];
-	panel: PanelState;
 	pendingMessages: string[];
-	footerStatus: FooterStatusState;
 	sessionMeta: SessionMeta;
 	debugEntry: string | null;
 };
@@ -55,96 +33,30 @@ function formatCwd(rawCwd: string): string {
 	return rawCwd.startsWith(home) ? `~${rawCwd.slice(home.length)}` : rawCwd;
 }
 
-function resolveBellsEnabled(settings: Settings): boolean {
-	return settings.bells ?? true;
-}
-
-function resolveSpeechEnabled(settings: Settings): boolean {
-	const s = settings.speech;
-	if (typeof s === "boolean") return s;
-	if (s && typeof s === "object") return s.enabled ?? true;
-	return true;
-}
-
-function deriveFooterStatus(
-	runtime: AgentRuntime | null,
-	settings: Settings,
-): Omit<FooterStatusState, "cwd"> {
-	if (runtime) {
-		const status = runtime.getStatus();
-		return {
-			model: status.model,
-			thinkingLevel: status.thinkingLevel,
-			contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
-			gitBranch: status.git.branch,
-			gitDirty: status.git.dirty,
-			bellsEnabled: resolveBellsEnabled(settings),
-			speechEnabled: resolveSpeechEnabled(settings),
-			pendingMessages: runtime.getPendingMessageCount(),
-		};
-	}
-	return {
-		model: "no-model",
-		thinkingLevel: "off",
-		contextPct: "–",
-		gitBranch: null,
-		gitDirty: false,
-		bellsEnabled: resolveBellsEnabled(settings),
-		speechEnabled: resolveSpeechEnabled(settings),
-		pendingMessages: 0,
-	};
-}
-
-function applyRuntimeStatus(
-	current: FooterStatusState,
-	status: RuntimeStatus,
-): FooterStatusState {
-	return {
-		...current,
-		cwd: formatCwd(process.cwd()),
-		model: status.model,
-		thinkingLevel: status.thinkingLevel,
-		contextPct: status.contextUsage ? `${status.contextUsage.percent}%` : "–",
-		gitBranch: status.git.branch,
-		gitDirty: status.git.dirty,
-		pendingMessages: current.pendingMessages,
-	};
-}
-
 function buildSessionMeta(session: Session | null): SessionMeta {
 	if (session) {
 		return {
-			sessionId: session.id,
-			sessionName: session.name,
-			sessionCwd: session.cwd,
+			id: session.id,
+			name: session.name,
+			cwd: formatCwd(session.cwd),
 			hasSession: true,
 		};
 	}
 	return {
-		sessionId: "",
-		sessionName: undefined,
-		sessionCwd: process.cwd(),
+		id: "",
+		name: undefined,
+		cwd: formatCwd(process.cwd()),
 		hasSession: false,
 	};
 }
 
 // ── App state factory ──────────────────────────────────────────────
 
-export function createAppState(
-	loaded: LoadedSettings,
-	session: Session | null,
-	runtime: AgentRuntime | null,
-) {
-	const turns = runtime ? runtime.getTurns() : [];
-	const footer = deriveFooterStatus(runtime, loaded.settings);
-
+export function createAppState(runtime: AgentRuntime | null) {
 	const [state, setState] = createStore<AppState>({
-		turns,
 		toasts: [],
-		panel: { pending: false, title: "" },
 		pendingMessages: runtime ? runtime.getPendingMessages() : [],
-		footerStatus: { cwd: formatCwd(process.cwd()), ...footer },
-		sessionMeta: buildSessionMeta(session),
+		sessionMeta: buildSessionMeta(runtime?.getSession() ?? null),
 		debugEntry: null,
 	});
 
@@ -183,45 +95,10 @@ export function createAppState(
 
 	runtime?.subscribe((event) => {
 		switch (event.type) {
-			case "session.turns.changed":
-				setState("turns", event.turns);
-				for (const timer of toastTimers.values()) clearTimeout(timer);
-				toastTimers.clear();
-				setState("toasts", []);
+			case "session.active.changed":
+				setState("sessionMeta", buildSessionMeta(event.session));
 				break;
-			case "runtime.status.changed":
-				setState(
-					"footerStatus",
-					applyRuntimeStatus(state.footerStatus, event.status),
-				);
-				break;
-			case "session.changed":
-			case "session.updated":
-				setState("sessionMeta", buildSessionMeta(event.session as Session));
-				threadIndex?.invalidate();
-				break;
-			case "runtime.panel.changed":
-				setState("panel", event.panel);
-				break;
-			case "runtime.pending.changed":
-				setState("footerStatus", "pendingMessages", event.count);
-				break;
-			case "settings.changed":
-				setState(
-					"footerStatus",
-					"bellsEnabled",
-					resolveBellsEnabled(event.settings),
-				);
-				setState(
-					"footerStatus",
-					"speechEnabled",
-					resolveSpeechEnabled(event.settings),
-				);
-				break;
-			case "runtime.pending.messages.changed":
-				setState("pendingMessages", event.messages);
-				break;
-			case "tool.completed":
+			case "agent.tool.ended":
 				toolCompletionCount++;
 				if (toolCompletionCount >= FILE_INDEX_INVALIDATE_INTERVAL) {
 					toolCompletionCount = 0;

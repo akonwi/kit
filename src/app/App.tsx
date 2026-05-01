@@ -72,8 +72,39 @@ export function App(props: AppProps) {
 	pluginManager.initialize();
 
 	// Create app state (provides showToast implementation)
-	const app = createAppState(props.settings, props.session, runtime);
+	const app = createAppState(runtime);
 	showToast = app.showToast;
+
+	async function _reload(): Promise<void> {
+		pluginManager.dispose();
+		try {
+			await runtime.reloadSession();
+		} catch (error) {
+			pluginManager.initialize();
+			showToast?.({
+				title: "Reload failed",
+				lines: [error instanceof Error ? error.message : String(error)],
+				variant: "error",
+			});
+			return;
+		}
+
+		try {
+			pluginManager.initialize();
+			showToast?.({
+				title: "Session reloaded",
+				lines: ["Reloaded session context and plugin state."],
+				variant: "info",
+			});
+		} catch (error) {
+			pluginManager.dispose();
+			showToast?.({
+				title: "Reload failed",
+				lines: [error instanceof Error ? error.message : String(error)],
+				variant: "error",
+			});
+		}
+	}
 
 	runtime.onQuit(() => {
 		pluginManager.dispose();
@@ -93,20 +124,19 @@ export function App(props: AppProps) {
 		fileIndex: app.fileIndex,
 		threadIndex: app.threadIndex,
 		attachments,
+		_reload,
 		openCustomOverlay,
 	});
 
 	// Update terminal title on session changes and renames
-	runtime.subscribe("session.changed", (event) => {
+	runtime.subscribe("session.active.changed", (event) => {
 		props.updateTerminalTitle(event.session.name, process.cwd());
-	});
-	runtime.subscribe("session.updated.name", (event) => {
-		props.updateTerminalTitle(event.name, process.cwd());
 	});
 
 	return (
 		<AppShell
 			state={app.state}
+			runtime={runtime}
 			controller={controller}
 			attachments={attachments}
 			overlays={overlays}

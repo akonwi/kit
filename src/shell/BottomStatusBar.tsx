@@ -1,18 +1,37 @@
-import { Show } from "solid-js";
-import type { FooterStatusState } from "../state/app-state";
+import { createSignal, onCleanup, Show } from "solid-js";
+import type { AgentRuntime } from "../runtime/agent-runtime";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
-	status: FooterStatusState;
+	runtime: AgentRuntime;
+	cwd: string;
 };
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
+	const [pendingMessageCount, setPendingMessageCount] = createSignal(
+		props.runtime.getPendingMessageCount(),
+	);
+	const unsubscribePendingMessageCount = props.runtime.subscribe(
+		"chat.message-queue.changed",
+		(e) => setPendingMessageCount(e.count),
+	);
+
 	const pending = () =>
-		props.status.pendingMessages > 0 ? `📬${props.status.pendingMessages}` : "";
+		pendingMessageCount() > 0 ? `📬${pendingMessageCount()}` : "";
+	const [vcs, setVcs] = createSignal(props.runtime.vcsInfo);
+	const unsubscribeVcs = props.runtime.subscribe("vcs.updated", (e) =>
+		setVcs(e),
+	);
+	const branch = () => vcs().branch;
 	const location = () =>
-		props.status.gitBranch
-			? `${props.status.cwd} (${props.status.gitBranch}${props.status.gitDirty ? " ●" : " ○"})`
-			: props.status.cwd;
+		branch() != null
+			? `${props.cwd} (${branch()}${vcs().dirty ? " ●" : " ○"})`
+			: props.cwd;
+
+	onCleanup(() => {
+		unsubscribePendingMessageCount();
+		unsubscribeVcs();
+	});
 
 	return (
 		<box

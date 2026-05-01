@@ -54,13 +54,18 @@ export abstract class Plugin {
 	protected registerTool<TParameters extends TSchema, TDetails>(
 		tool: AgentTool<TParameters, TDetails>,
 	): void {
-		this.ctx.runtime.addTool(tool as unknown as AgentTool);
-		// Note: tools registered this way persist for the session lifetime.
-		// If unregistration is needed, we'd need a different mechanism.
+		const unregister = this.ctx.runtime.addTool(tool as unknown as AgentTool);
+		this.disposers.push(unregister);
 	}
 
 	protected addSystemPromptAddition(text: string): void {
-		this.ctx.runtime.addSystemPromptAddition(text);
+		const remove = this.ctx.runtime.addSystemPromptAddition(text);
+		this.disposers.push(remove);
+	}
+
+	protected setDebugSection(key: string, lines: string[]): void {
+		const clear = this.ctx.runtime.setDebugSection(key, lines);
+		this.disposers.push(clear);
 	}
 
 	protected addDisposer(disposer: () => void): void {
