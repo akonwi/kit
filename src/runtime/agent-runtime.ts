@@ -68,8 +68,6 @@ export type RuntimeStatus = {
 };
 
 export type RuntimeEventMap = {
-	// @deprecated in favor of `agent.*` events
-	"session.turns.changed": { turns: Turn[] };
 	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
 	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
@@ -560,7 +558,7 @@ export class AgentRuntime {
 			nextTurns.push(nextLastTurn);
 		}
 		this.agent.replaceFromTurns(nextTurns);
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
+		this.emit("session.active.changed", { session: this.session });
 	}
 
 	private scheduleContinue(): void {
@@ -681,7 +679,6 @@ export class AgentRuntime {
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.handleSessionChanged();
-			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 			this.emit("session.compaction.completed.recovery", {
 				reason: "overflow",
 				compactedTurnCount: result.compactedTurnCount,
@@ -728,7 +725,6 @@ export class AgentRuntime {
 		this.emit("agent.turn.completed", {
 			turn: this.agent.turns.at(-1) ?? null,
 		});
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 		this.syncPendingState();
 		this.retryAttempt = 0;
 		this.overflowRecoveryAttempted = false;
@@ -792,7 +788,6 @@ export class AgentRuntime {
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.handleSessionChanged();
-			this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 
 			this.emit("session.compaction.completed.adaptation", {
 				modelId: model.id,
@@ -835,7 +830,6 @@ export class AgentRuntime {
 		this.createRecoveryPromiseForAgentEnd(event);
 		switch (event.type) {
 			case "agent_start":
-				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 				break;
 
 			case "turn_start":
@@ -890,7 +884,6 @@ export class AgentRuntime {
 				break;
 
 			case "message_end":
-				this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 				break;
 
 			case "agent_tool_started":
@@ -1055,7 +1048,6 @@ export class AgentRuntime {
 				{ role: "bashExecution" }
 			>,
 		});
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 
 		const result = await runBash(command, this.session.cwd);
 
@@ -1088,7 +1080,6 @@ export class AgentRuntime {
 				>,
 			});
 		}
-		this.emit("session.turns.changed", { turns: [...this.agent.turns] });
 	}
 
 	sendFollowUp(text: string): void {
@@ -1193,7 +1184,6 @@ export class AgentRuntime {
 		this.syncPendingState();
 		this.emit("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
-		this.emit("session.turns.changed", { turns: [] });
 	}
 
 	async handoffSession(firstMessage?: string): Promise<Session> {
@@ -1352,7 +1342,7 @@ export class AgentRuntime {
 				);
 			}
 			this.handleSessionChanged();
-			this.emit("session.turns.changed", { turns: [...this.session.turns] });
+			this.emit("session.active.changed", { session: this.session });
 
 			await deleteSession(child.id);
 			this.emit("session.merge.ended", {});
