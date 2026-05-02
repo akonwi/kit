@@ -19,7 +19,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	);
 
 	const pending = () =>
-		pendingMessageCount() > 0 ? `📬${pendingMessageCount()}` : "";
+		pendingMessageCount() > 0 ? `◉ queue:${pendingMessageCount()}` : "";
 	const composerModeLabel = () => {
 		switch (props.composerMode) {
 			case "bash":

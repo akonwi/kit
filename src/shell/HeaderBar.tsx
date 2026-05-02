@@ -46,13 +46,13 @@ export function HeaderBar(props: HeaderBarProps) {
 	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
 		setSettings(e.settings),
 	);
-	const bell = () => (settings().bells ? "🔔" : "🔕");
+	const bell = () => (settings().bells ? "◉ bell" : "◌ bell");
 	const speech = () => {
 		const value = settings().speech;
 		const on =
 			(typeof value === "boolean" && value) ||
 			(typeof value === "object" && "enabled" in value && value.enabled);
-		return on ? "🗣" : "🤫";
+		return on ? "◉ speech" : "◌ speech";
 	};
 	const reviewVisible = () =>
 		codeReviewStatus.launchInFlight ||

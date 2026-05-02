@@ -40,7 +40,7 @@ function CodeReviewPartEntry(props: {
 				fg={props.aborted ? theme.textMuted : theme.attachmentText}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
-				🧐 {summary}
+				◌ {summary}
 			</text>
 		</box>
 	);

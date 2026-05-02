@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] style: replace emojis with better (terminal native, text?) glyphs. more like the indicator for the code-review server status
 - [ ] chore: upgrade OpenTUI from `0.1.102` to `0.2.2` — see `backlog/opentui-upgrade-plan.md`
 - [ ] AgentRuntime should not know about `notifications`
 - [ ] improvement: serialize or throttle session persistence writes to avoid overlapping save races
