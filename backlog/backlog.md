@@ -12,12 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
-- [ ] idea: formalize plugin contribution to the status footer
-- [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
-  - https://github.com/Ataraxy-Labs/sem
-  - https://github.com/Ataraxy-Labs/inspect
-- [ ] wip: session explorer graph view — see `backlog/session-explorer-graph-view.md`
 - [ ] [wip] fix: session auto-naming isn't working
   - added a toast and error throwing to help identify where/why it fails
   - error seen in a toast is
@@ -33,3 +27,9 @@ Delete done items.
 - [ ] improvement: serialize or throttle session persistence writes to avoid overlapping save races
 - [ ] improvement: migrate session persistence from `.json` to `.jsonl` so appends do not require rewriting the full session on each save
 - [ ] new: markdown formatting for thinking text
+- [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
+- [ ] idea: formalize plugin contribution to the status footer
+- [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
+  - https://github.com/Ataraxy-Labs/sem
+  - https://github.com/Ataraxy-Labs/inspect
+- [ ] feat: support in-TUI code review by using modals for commenting UX
