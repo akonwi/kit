@@ -232,32 +232,18 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 										const meta = () =>
 											`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
 										const labelColor = () =>
-											row.isCurrent
-												? theme.borderAccent
-												: focused()
-													? theme.pickerFocusedText
-													: theme.textPrimary;
+											row.isCurrent ? theme.borderAccent : theme.textPrimary;
 										return (
 											<box
 												backgroundColor={
-													focused()
-														? theme.pickerFocusedBg
-														: theme.bgTransparent
+													focused() ? theme.bgMuted : theme.bgTransparent
 												}
 											>
 												<text fg={labelColor()}>
 													{row.isCurrent ? "• " : "  "}
 													{label()}
 												</text>
-												<text
-													fg={
-														focused()
-															? theme.pickerFocusedText
-															: theme.textMuted
-													}
-												>
-													{meta()}
-												</text>
+												<text fg={theme.textMuted}>{meta()}</text>
 											</box>
 										);
 									}}
