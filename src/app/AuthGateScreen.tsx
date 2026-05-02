@@ -15,7 +15,6 @@ import { createPaletteManager } from "../state/palette-manager";
 
 const AUTH_GATE_BINDINGS: Binding[] = [
 	{ key: "Enter", action: "log in" },
-	{ key: "L", action: "log in" },
 	{ key: "Esc", action: "quit" },
 ];
 
@@ -107,7 +106,7 @@ export function AuthGateScreen(props: AuthGateScreenProps) {
 		}
 
 		if (palette.visible) return;
-		if (event.name === "return" || event.name === "l") {
+		if (event.name === "return") {
 			event.preventDefault();
 			void handleLogin();
 			return;
@@ -146,7 +145,7 @@ export function AuthGateScreen(props: AuthGateScreenProps) {
 					<text fg={theme.textSecondary}>
 						Log in to an AI provider to get started.
 					</text>
-					<text fg={theme.textPlaceholder}>/login</text>
+					<text fg={theme.textPlaceholder}>Press Enter to log in</text>
 				</box>
 			</box>
 
