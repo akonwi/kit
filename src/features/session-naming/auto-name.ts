@@ -112,7 +112,6 @@ async function generateTitleWithCurrentModel(
 		{
 			apiKey,
 			maxTokens: AUTO_TITLE_MAX_TOKENS,
-			...(model.reasoning ? { reasoning: "minimal" as const } : {}),
 		},
 	);
 

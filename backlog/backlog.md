@@ -12,12 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] [wip] fix: session auto-naming isn't working
-  - added a toast and error throwing to help identify where/why it fails
-  - error seen in a toast is
-  ```
-  Session auto-name failed: 400 Error from provider: 3 request validation errors: Input should be 'low', 'medium', 'high' or 'none', field: 'reasoning_effort.literal['low','medium','high','none']', value: 'minimal'; Input should be a valid integer, unable to parse string as an integer, field: 'reasoning_effort.int', value: 'minimal'; Input should be a valid boolean, unable to interpret input, field: 'reasoning_effort.bool', value: 'minimal'
-  ```
 - [ ] code review web app doesn't seem to refresh and reflect current diffs
 - [ ] wip: transcript rendering from events — see `backlog/transcript-rendering-events.md`
 - [ ] fix: don't ignore .agents directories by default
