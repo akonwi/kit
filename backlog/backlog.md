@@ -25,3 +25,7 @@ Delete done items.
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
 - [ ] feat: support in-TUI code review by using modals for commenting UX
+- [ ] feat: setting for "zen" mode. minimal transcript
+  - don't show tool calls in transcript
+- [ ] ux: lean into command palette instead of slash picker
+  - keep picker UX for file and thread references
