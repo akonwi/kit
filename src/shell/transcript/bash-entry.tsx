@@ -63,14 +63,8 @@ export function BashEntry(props: { msg: BashExecutionMessage }) {
 					syntaxStyle={syntaxStyle()}
 					fg={theme.textPrimary}
 				/>
-				<Show when={props.msg.pending}>
-					<text fg={theme.metaText}>running…</text>
-				</Show>
 				<Show when={!props.msg.pending && hasOutput()}>
-					<text fg={theme.metaText}>
-						{expanded() ? "▾" : "▸"} {outputLines().length} line
-						{outputLines().length === 1 ? "" : "s"}
-					</text>
+					<text fg={theme.metaText}>{expanded() ? "▾" : "▸"}</text>
 				</Show>
 			</box>
 			<Show when={!props.msg.pending && expanded()}>

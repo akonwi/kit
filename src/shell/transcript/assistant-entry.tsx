@@ -98,14 +98,8 @@ function LiveToolCall(props: {
 					{props.tc.name}
 					{formatToolArgs(toolArgs())}
 				</text>
-				<Show when={props.state !== "ended"}>
-					<text fg={theme.metaText}>running…</text>
-				</Show>
 				<Show when={hasOutput() && !props.aborted}>
-					<text fg={theme.metaText}>
-						{expanded() ? "▾" : "▸"} {lines().length} line
-						{lines().length === 1 ? "" : "s"}
-					</text>
+					<text fg={theme.metaText}>{expanded() ? "▾" : "▸"}</text>
 				</Show>
 			</box>
 			<Show when={expanded()}>
@@ -161,10 +155,7 @@ function CompletedToolCall(props: {
 					{formatToolArgs(props.tc.arguments)}
 				</text>
 				<Show when={hasOutput && !props.aborted}>
-					<text fg={theme.metaText}>
-						{expanded() ? "▾" : "▸"} {lines.length} line
-						{lines.length === 1 ? "" : "s"}
-					</text>
+					<text fg={theme.metaText}>{expanded() ? "▾" : "▸"}</text>
 				</Show>
 			</box>
 			<Show when={expanded()}>
