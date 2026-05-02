@@ -12,8 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] code review web app doesn't seem to refresh and reflect current diffs
-- [ ] wip: transcript rendering from events — see `backlog/transcript-rendering-events.md`
 - [ ] fix: don't ignore .agents directories by default
 - [ ] enhancement: don't need to show number of lines in tool call results. that's not useful
 - [ ] style: replace emojis with better (terminal native, text?) glyphs. more like the indicator for the code-review server status
