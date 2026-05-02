@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
+import { readSession, updateSession } from "../../session";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import { formatTimeAgo } from "../commands/utils";
@@ -29,14 +30,24 @@ export type SessionExplorerModalProps = {
 
 const MAX_VISIBLE_ROWS = 18;
 
-const BASE_BINDINGS: Binding[] = [
+type Mode = "navigate" | "rename" | "confirmDelete" | "confirmSquash";
+
+const NAVIGATE_BINDINGS: Binding[] = [
 	{ key: "↑/↓", action: "move" },
 	{ key: "PgUp/PgDn", action: "scroll" },
 	{ key: "Enter", action: "switch" },
+	{ key: "r", action: "rename" },
 	{ key: "Esc", action: "close" },
 ];
 
-const CONFIRM_SQUASH_BINDINGS: Binding[] = [
+const DELETE_BINDING: Binding = { key: "Ctrl+D", action: "delete" };
+
+const RENAME_BINDINGS: Binding[] = [
+	{ key: "Enter", action: "save" },
+	{ key: "Esc", action: "cancel" },
+];
+
+const CONFIRM_BINDINGS: Binding[] = [
 	{ key: "Enter", action: "confirm" },
 	{ key: "Esc", action: "cancel" },
 ];
@@ -49,9 +60,27 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	>(null);
 	const [confirmSquashSession, setConfirmSquashSession] =
 		createSignal<SessionSummary | null>(null);
-	const [sessions] = createResource(async () =>
+	const [renameSession, setRenameSession] = createSignal<SessionSummary | null>(
+		null,
+	);
+	const [deleteSession, setDeleteSession] = createSignal<SessionSummary | null>(
+		null,
+	);
+	const [renameText, setRenameText] = createSignal("");
+	const [sessions, { mutate }] = createResource(async () =>
 		props.runtime.listAllSessions(),
 	);
+
+	let renameRef:
+		| { plainText: string; setText: (value: string) => void }
+		| undefined;
+
+	const mode = createMemo<Mode>(() => {
+		if (confirmSquashSession()) return "confirmSquash";
+		if (deleteSession()) return "confirmDelete";
+		if (renameSession()) return "rename";
+		return "navigate";
+	});
 
 	const rows = createMemo(() => {
 		const list = sessions() ?? [];
@@ -68,12 +97,25 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	const selectedSessionCanSquash = createMemo(() =>
 		Boolean(selectedRow()?.isCurrent && selectedRow()?.session.parentSessionId),
 	);
+	const selectedSessionCanDelete = createMemo(() =>
+		Boolean(selectedRow() && !selectedRow()?.isCurrent),
+	);
 	const bindings = createMemo<Binding[]>(() => {
-		if (confirmSquashSession()) return CONFIRM_SQUASH_BINDINGS;
-		return [
-			...BASE_BINDINGS,
-			...(selectedSessionCanSquash() ? [{ key: "s", action: "squash" }] : []),
-		];
+		switch (mode()) {
+			case "rename":
+				return RENAME_BINDINGS;
+			case "confirmDelete":
+			case "confirmSquash":
+				return CONFIRM_BINDINGS;
+			default:
+				return [
+					...NAVIGATE_BINDINGS,
+					...(selectedSessionCanDelete() ? [DELETE_BINDING] : []),
+					...(selectedSessionCanSquash()
+						? [{ key: "s", action: "squash" }]
+						: []),
+				];
+		}
 	});
 	const visibleSlice = createMemo(() => {
 		const allRows = rows();
@@ -110,8 +152,67 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		);
 	});
 
+	function clampIndex(nextCount: number) {
+		setSelectedIndex((index) => Math.max(0, Math.min(index, nextCount - 1)));
+	}
+
+	function beginRename() {
+		const session = selectedRow()?.session;
+		if (!session) return;
+		setRenameSession(session);
+		setRenameText(session.name ?? "");
+		setTimeout(() => renameRef?.setText(session.name ?? ""), 0);
+	}
+
+	function beginDelete() {
+		const session = selectedRow()?.session;
+		if (!session) return;
+		if (session.id === currentSessionId()) {
+			props.runtime.emitWarning("Cannot delete active session", [
+				"Switch to another session before deleting this one.",
+			]);
+			return;
+		}
+		setDeleteSession(session);
+	}
+
+	async function handleRenameSubmit() {
+		const target = renameSession();
+		if (!target) return;
+		const newName = renameText().trim();
+		setRenameSession(null);
+		if (!newName) return;
+		const session = await readSession(target.id);
+		if (!session) {
+			props.runtime.emitError("Rename failed", ["Session could not be found."]);
+			return;
+		}
+		await updateSession(session, { name: newName });
+		mutate((current) =>
+			(current ?? []).map((item) =>
+				item.id === target.id ? { ...item, name: newName } : item,
+			),
+		);
+	}
+
+	async function handleDeleteConfirm() {
+		const target = deleteSession();
+		if (!target) return;
+		setDeleteSession(null);
+		try {
+			await props.runtime.deleteSession(target.id);
+			mutate((current) => {
+				const next = (current ?? []).filter((item) => item.id !== target.id);
+				clampIndex(next.length);
+				return next;
+			});
+		} catch (error) {
+			props.runtime.emitError("Delete failed", [String(error)]);
+		}
+	}
+
 	useKeyboard((e: KeyEvent) => {
-		if (confirmSquashSession()) {
+		if (mode() === "confirmSquash") {
 			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
 				e.preventDefault();
 				setConfirmSquashSession(null);
@@ -124,6 +225,34 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				void props.runtime.mergeUp().catch((error) => {
 					props.runtime.emitError("Squash failed", [String(error)]);
 				});
+				return;
+			}
+			return;
+		}
+
+		if (mode() === "confirmDelete") {
+			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
+				e.preventDefault();
+				setDeleteSession(null);
+				return;
+			}
+			if (e.name === "return" || e.name === "enter") {
+				e.preventDefault();
+				void handleDeleteConfirm();
+				return;
+			}
+			return;
+		}
+
+		if (mode() === "rename") {
+			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
+				e.preventDefault();
+				setRenameSession(null);
+				return;
+			}
+			if (e.name === "return" || e.name === "enter") {
+				e.preventDefault();
+				void handleRenameSubmit();
 				return;
 			}
 			return;
@@ -161,6 +290,16 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			setSelectedIndex((index) =>
 				Math.min(rows().length - 1, index + MAX_VISIBLE_ROWS),
 			);
+			return;
+		}
+		if (e.name === "r") {
+			e.preventDefault();
+			beginRename();
+			return;
+		}
+		if (e.ctrl && e.name === "d") {
+			e.preventDefault();
+			if (selectedSessionCanDelete()) beginDelete();
 			return;
 		}
 		if (e.name === "s" && selectedSessionCanSquash()) {
@@ -278,6 +417,94 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 
 				<HintBar bindings={bindings()} />
 
+				<Show when={renameSession()}>
+					{(session) => (
+						<box
+							position="absolute"
+							left={0}
+							top={0}
+							width="100%"
+							height="100%"
+							justifyContent="center"
+							alignItems="center"
+							backgroundColor={theme.modalBackdrop}
+						>
+							<box
+								width="70%"
+								maxWidth={80}
+								minWidth={48}
+								border
+								borderStyle="double"
+								borderColor={theme.borderFocused}
+								backgroundColor={theme.bgSurface}
+								padding={1}
+								flexDirection="column"
+								gap={1}
+							>
+								<text fg={theme.textPrimary}>
+									Rename "{session().name?.trim() || session().id.slice(0, 8)}"
+								</text>
+								<textarea
+									ref={(el) => {
+										renameRef = el as typeof renameRef;
+									}}
+									minHeight={1}
+									maxHeight={1}
+									placeholder="Enter new session name..."
+									placeholderColor={theme.textPlaceholder}
+									backgroundColor={theme.bg}
+									focusedBackgroundColor={theme.bgSurface}
+									textColor={theme.textPrimary}
+									focusedTextColor={theme.textPrimary}
+									cursorColor={theme.cursor}
+									showCursor
+									focused
+									onContentChange={() =>
+										setRenameText(renameRef?.plainText ?? "")
+									}
+								/>
+								<HintBar bindings={RENAME_BINDINGS} />
+							</box>
+						</box>
+					)}
+				</Show>
+
+				<Show when={deleteSession()}>
+					{(session) => (
+						<box
+							position="absolute"
+							left={0}
+							top={0}
+							width="100%"
+							height="100%"
+							justifyContent="center"
+							alignItems="center"
+							backgroundColor={theme.modalBackdrop}
+						>
+							<box
+								width="70%"
+								maxWidth={80}
+								minWidth={48}
+								border
+								borderStyle="double"
+								borderColor={theme.borderFocused}
+								backgroundColor={theme.bgSurface}
+								padding={1}
+								flexDirection="column"
+								gap={1}
+							>
+								<text fg={theme.textPrimary}>
+									Delete "{session().name?.trim() || session().id.slice(0, 8)}"?
+								</text>
+								<text fg={theme.errorText}>
+									This permanently removes the saved session.
+								</text>
+								<HintBar bindings={CONFIRM_BINDINGS} />
+							</box>
+						</box>
+					)}
+				</Show>
+
 				<Show when={confirmSquashSession()}>
 					{(session) => (
 						<box
@@ -313,9 +540,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 									<text fg={theme.textMuted}>• switch back to the parent</text>
 									<text fg={theme.textMuted}>• delete the child session</text>
 								</box>
-								<text fg={theme.textMuted}>
-									Press Enter to confirm or Esc to cancel.
-								</text>
+								<HintBar bindings={CONFIRM_BINDINGS} />
 							</box>
 						</box>
 					)}
