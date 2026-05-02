@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] fix: don't ignore .agents directories by default
 - [ ] enhancement: don't need to show number of lines in tool call results. that's not useful
 - [ ] style: replace emojis with better (terminal native, text?) glyphs. more like the indicator for the code-review server status
 - [ ] AgentRuntime should not know about `notifications`

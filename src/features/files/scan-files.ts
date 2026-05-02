@@ -15,7 +15,7 @@ const MAX_FILES = 4000;
 const KIT_IGNORE_FILE = ".kitignore";
 
 /** Directories always excluded regardless of ignore files */
-const BUILT_IN_EXCLUDES = new Set([".git", "node_modules", ".pi", ".agents"]);
+const BUILT_IN_EXCLUDES = new Set([".git", "node_modules"]);
 
 // ── Ignore file loading ─────────────────────────────────────────────
 
