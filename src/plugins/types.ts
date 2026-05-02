@@ -4,6 +4,7 @@ import type { CommandRegistry } from "../features/commands";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { LoadedSettings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
+import type { ToastInput } from "../state/toasts";
 
 export type TranscriptViewport = {
 	width: number;
@@ -11,7 +12,7 @@ export type TranscriptViewport = {
 };
 
 export type PluginUI = {
-	notify: (message: string, type?: "info" | "warning" | "error") => void;
+	toast: (toast: ToastInput) => void;
 	custom: <T>(
 		component: (props: OverlayComponentProps<T>) => JSX.Element,
 	) => Promise<T>;

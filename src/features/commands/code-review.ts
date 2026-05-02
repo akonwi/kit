@@ -4,11 +4,15 @@ import type { Command } from "./types";
 export const codeReviewCommand: Command = {
 	name: "code-review",
 	description: "Open the browser-backed code review prototype",
-	async execute({ runtime }) {
+	async execute({ runtime, toast }) {
 		try {
-			await codeReviewBrowserHost.launch(runtime);
+			await codeReviewBrowserHost.launch(runtime, toast);
 		} catch (error) {
-			runtime.emitError("Code review failed", [String(error)]);
+			toast({
+				title: "Code review failed",
+				lines: [String(error)],
+				variant: "error",
+			});
 		}
 	},
 };

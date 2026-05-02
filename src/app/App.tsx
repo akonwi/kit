@@ -20,6 +20,7 @@ import { AppShell } from "../shell/AppShell";
 import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";
+import type { ToastInput } from "../state/toasts";
 import { AuthGateScreen } from "./AuthGateScreen";
 import { FatalScreen } from "./FatalScreen";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
@@ -52,22 +53,13 @@ export function App(props: AppProps) {
 	const openCustomOverlay = createCustomOverlayHandler(setOverlays);
 	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
 
-	let showToast:
-		| ((toast: {
-				title: string;
-				lines: string[];
-				variant: "info" | "warning" | "error";
-		  }) => void)
-		| null = null;
+	let showToast: ((toast: ToastInput) => void) | null = null;
+	const toast = (nextToast: ToastInput) => {
+		showToast?.(nextToast);
+	};
 
 	const ui: PluginUI = {
-		notify: (message, variant = "info") => {
-			showToast?.({
-				title: message,
-				lines: [],
-				variant,
-			});
-		},
+		toast,
 		custom: openCustomOverlay,
 		getTranscriptViewport: () => transcriptViewport(),
 	};
@@ -102,7 +94,7 @@ export function App(props: AppProps) {
 				await runtime.reloadSession();
 			} catch (error) {
 				pluginManager.initialize();
-				showToast?.({
+				toast({
 					title: "Reload failed",
 					lines: [error instanceof Error ? error.message : String(error)],
 					variant: "error",
@@ -112,14 +104,14 @@ export function App(props: AppProps) {
 
 			try {
 				pluginManager.initialize();
-				showToast?.({
+				toast({
 					title: "Session reloaded",
 					lines: ["Reloaded session context and plugin state."],
 					variant: "info",
 				});
 			} catch (error) {
 				pluginManager.dispose();
-				showToast?.({
+				toast({
 					title: "Reload failed",
 					lines: [error instanceof Error ? error.message : String(error)],
 					variant: "error",
@@ -133,6 +125,7 @@ export function App(props: AppProps) {
 			fileIndex: app.fileIndex,
 			threadIndex: app.threadIndex,
 			attachments,
+			toast,
 			_reload,
 			openCustomOverlay,
 		});

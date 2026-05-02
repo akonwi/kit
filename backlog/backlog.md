@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] AgentRuntime should not know about `notifications`
 - [ ] feat: mcp support. perhaps with mcp-porter as a gateway 
 - [ ] feat: self-extensibility like Pi
   - Kit knowing how to create themes, change settings, write skills, prompts, etc

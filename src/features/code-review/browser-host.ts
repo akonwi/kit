@@ -8,6 +8,7 @@ import type {
 import { getInstalledRuntimeDir } from "../../runtime/runtime-dir";
 import { openExternal } from "../../shell/open-external";
 import { theme } from "../../shell/theme";
+import type { ToastInput } from "../../state/toasts";
 import { loadReviewFiles } from "../review/model";
 import type { CodeReviewSubmission } from "./attachment";
 import type { CodeReviewHostStatus } from "./state";
@@ -175,7 +176,10 @@ class CodeReviewBrowserHost {
 		await this.refreshState(runtime, "activate");
 	}
 
-	async launch(runtime: AgentRuntime): Promise<void> {
+	async launch(
+		runtime: AgentRuntime,
+		toast?: (toast: ToastInput) => void,
+	): Promise<void> {
 		this.setStatus({
 			serverState: this.server ? this.status.serverState : "starting",
 			port: this.server?.port ?? null,
@@ -189,7 +193,11 @@ class CodeReviewBrowserHost {
 
 			const url = this.getSessionUrl();
 			await openExternal(url);
-			runtime.emitInfo("Code review opened", [url]);
+			toast?.({
+				title: "Code review opened",
+				lines: [url],
+				variant: "info",
+			});
 			this.setStatus({ launchInFlight: false, lastError: null });
 		} catch (error) {
 			this.setStatus({

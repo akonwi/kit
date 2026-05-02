@@ -2,6 +2,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { type Api, completeSimple, type Model } from "@mariozechner/pi-ai";
 import { getApiKey } from "../../auth";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import type { ToastInput } from "../../state/toasts";
 
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
@@ -130,6 +131,7 @@ async function generateTitleWithCurrentModel(
 export async function maybeAutoNameSession(
 	runtime: AgentRuntime,
 	messages: AgentMessage[],
+	toast: (toast: ToastInput) => void,
 ): Promise<void> {
 	if (AUTO_TITLE_DISABLED) return;
 	if (lastAssistantFailed(messages)) return;
@@ -167,9 +169,11 @@ export async function maybeAutoNameSession(
 		const rawTitle = await generateTitleWithCurrentModel(runtime, prompt);
 		const title = sanitizeGeneratedTitle(rawTitle);
 		if (!title) {
-			runtime.emitWarning("Session auto-name failed", [
-				"The model did not return a usable session title.",
-			]);
+			toast({
+				title: "Session auto-name failed",
+				lines: ["The model did not return a usable session title."],
+				variant: "warning",
+			});
 			return;
 		}
 
@@ -179,8 +183,10 @@ export async function maybeAutoNameSession(
 
 		await runtime.setSessionName(title);
 	} catch (error) {
-		runtime.emitWarning("Session auto-name failed", [
-			error instanceof Error ? error.message : String(error),
-		]);
+		toast({
+			title: "Session auto-name failed",
+			lines: [error instanceof Error ? error.message : String(error)],
+			variant: "warning",
+		});
 	}
 }

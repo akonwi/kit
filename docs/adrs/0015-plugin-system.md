@@ -85,7 +85,11 @@ Initial scope:
 
 ```ts
 interface PluginUI {
-  notify(message: string, type?: "info" | "warning" | "error"): void;
+  toast(input: {
+    title: string;
+    lines: string[];
+    variant: "info" | "warning" | "error";
+  }): void;
   custom<T>(
     component: (props: { done: (result: T) => void }) => JSX.Element,
   ): Promise<T>;

@@ -14,7 +14,15 @@ export class PagerPlugin extends Plugin {
 	override initialize(): void {
 		// Wire pager feedback submission to runtime
 		this.pager.setSubmitCallback(async (msg) => {
-			await this.ctx.runtime.submitMessage(msg);
+			try {
+				await this.ctx.runtime.submitMessage(msg);
+			} catch (error) {
+				this.ctx.ui.toast({
+					title: "Pager feedback failed",
+					lines: [error instanceof Error ? error.message : String(error)],
+					variant: "error",
+				});
+			}
 		});
 
 		// Auto-activate pager when the last assistant response substantially
@@ -43,7 +51,11 @@ export class PagerPlugin extends Plugin {
 					return;
 				}
 				if (!this.pager.tryActivate(ctx.runtime.getMessages())) {
-					this.ctx.ui.notify("No assistant response to paginate.", "warning");
+					this.ctx.ui.toast({
+						title: "No assistant response to paginate.",
+						lines: [],
+						variant: "warning",
+					});
 					return;
 				}
 				await this.openPager();

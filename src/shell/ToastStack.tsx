@@ -1,5 +1,5 @@
 import { For } from "solid-js";
-import type { Toast } from "../state/app-state";
+import type { Toast } from "../state/toasts";
 import { theme } from "./theme";
 
 function ToastItem(props: { toast: Toast; onDismiss: () => void }) {

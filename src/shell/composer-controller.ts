@@ -15,6 +15,7 @@ import {
 	createPaletteManager,
 	type PaletteManager,
 } from "../state/palette-manager";
+import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
 
 export type TextareaHandle = {
@@ -30,6 +31,7 @@ export type ComposerControllerDeps = {
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 	attachments: AttachmentsController;
+	toast: (toast: ToastInput) => void;
 	_reload: () => Promise<void>;
 	openCustomOverlay: <T>(
 		component: (
@@ -45,6 +47,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		fileIndex,
 		threadIndex,
 		attachments,
+		toast,
 		_reload,
 		openCustomOverlay,
 	} = deps;
@@ -72,6 +75,25 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		prevTextLength = textareaRef.plainText.length;
 	}
 
+	async function executeCommand(command: Command, args: string): Promise<void> {
+		try {
+			await command.execute({
+				runtime,
+				palette,
+				args,
+				toast,
+				_reload,
+				openCustomOverlay,
+			});
+		} catch (error) {
+			toast({
+				title: `/${command.name} failed`,
+				lines: [error instanceof Error ? error.message : String(error)],
+				variant: "error",
+			});
+		}
+	}
+
 	function openSlashCommands() {
 		let resolvedCommandName: string | null = null;
 		let currentArgs = "";
@@ -88,13 +110,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 					textareaRef?.setText("");
 					prevTextLength = 0;
 					ctx.dismiss();
-					cmd.execute({
-						runtime,
-						palette,
-						args: currentArgs,
-						_reload,
-						openCustomOverlay,
-					});
+					void executeCommand(cmd, currentArgs);
 				},
 			}));
 		const findOption = (name: string) =>
@@ -303,7 +319,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	async function prepareMessageText(text: string): Promise<string | null> {
 		const result = await expandThreadReferences(text, runtime.getSession().id);
 		if (result.errors.length > 0) {
-			runtime.emitError("Thread references", result.errors);
+			toast({
+				title: "Thread references",
+				lines: result.errors,
+				variant: "error",
+			});
 			return null;
 		}
 		return result.text;
@@ -322,13 +342,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (slashCommand) {
 			textareaRef?.setText("");
 			prevTextLength = 0;
-			await slashCommand.command.execute({
-				runtime,
-				palette,
-				args: slashCommand.args,
-				_reload,
-				openCustomOverlay,
-			});
+			await executeCommand(slashCommand.command, slashCommand.args);
 			return;
 		}
 		if (!text.trim() && pendingAttachments.length === 0) {
@@ -353,9 +367,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				try {
 					await runtime.executeBash(command, excludeFromContext);
 				} catch (error) {
-					runtime.emitError("Bash failed", [
-						error instanceof Error ? error.message : String(error),
-					]);
+					toast({
+						title: "Bash failed",
+						lines: [error instanceof Error ? error.message : String(error)],
+						variant: "error",
+					});
 				}
 				return;
 			}
@@ -373,9 +389,13 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 		if (runtime.getStatus().isStreaming) {
 			if (pendingAttachments.length > 0) {
-				runtime.emitError("Attachments not supported in queued follow-ups", [
-					"Wait for the current turn to finish before sending attached reviews.",
-				]);
+				toast({
+					title: "Attachments not supported in queued follow-ups",
+					lines: [
+						"Wait for the current turn to finish before sending attached reviews.",
+					],
+					variant: "error",
+				});
 				textareaRef?.setText(text);
 				prevTextLength = text.length;
 				return;
@@ -402,6 +422,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			for (const attachment of pendingAttachments) {
 				attachments.attach(attachment);
 			}
+			toast({
+				title: "Agent error",
+				lines: [error instanceof Error ? error.message : String(error)],
+				variant: "error",
+			});
 			console.error(error);
 			textareaRef?.setText(text);
 			prevTextLength = text.length;

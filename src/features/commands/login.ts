@@ -16,14 +16,18 @@ async function openLoginModal(
 export const loginCommand: Command = {
 	name: "login",
 	description: "Log in to an AI provider",
-	async execute({ runtime, openCustomOverlay }) {
+	async execute({ toast, openCustomOverlay }) {
 		const result = await openLoginModal(openCustomOverlay);
 		if (!result.didAuthenticate) return;
 
-		runtime.emitInfo("Login successful", [
-			result.providerName
-				? `Logged in to ${result.providerName}.`
-				: "Credentials saved.",
-		]);
+		toast({
+			title: "Login successful",
+			lines: [
+				result.providerName
+					? `Logged in to ${result.providerName}.`
+					: "Credentials saved.",
+			],
+			variant: "info",
+		});
 	},
 };

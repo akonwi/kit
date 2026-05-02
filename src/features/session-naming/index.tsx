@@ -8,6 +8,7 @@ export class SessionNamingPlugin extends Plugin {
 			await maybeAutoNameSession(
 				this.ctx.runtime,
 				this.ctx.runtime.getMessages(),
+				this.ctx.ui.toast,
 			);
 		});
 	}

@@ -6,10 +6,14 @@ import { formatSessionOption, formatTimeAgo } from "./utils";
 export const sessionsManageCommand: Command = {
 	name: "sessions",
 	description: "Browse, switch, or delete sessions",
-	async execute({ runtime, palette }) {
+	async execute({ runtime, palette, toast }) {
 		const sessions = await runtime.listAllSessions();
 		if (sessions.length === 0) {
-			runtime.emitInfo("Sessions", ["No saved sessions found."]);
+			toast({
+				title: "Sessions",
+				lines: ["No saved sessions found."],
+				variant: "info",
+			});
 			return;
 		}
 
@@ -52,7 +56,11 @@ export const sessionsManageCommand: Command = {
 						try {
 							await runtime.switchSession(session.id);
 						} catch (error) {
-							runtime.emitError("Session switch failed", [String(error)]);
+							toast({
+								title: "Session switch failed",
+								lines: [String(error)],
+								variant: "error",
+							});
 						}
 						ctx.dismiss();
 					},
@@ -71,9 +79,11 @@ export const sessionsManageCommand: Command = {
 					"ctrl+d": async (option, ctx) => {
 						const session = option.value as SessionSummary;
 						if (session.id === currentSessionId) {
-							runtime.emitInfo("Sessions", [
-								"Cannot delete the active session.",
-							]);
+							toast({
+								title: "Sessions",
+								lines: ["Cannot delete the active session."],
+								variant: "info",
+							});
 							return;
 						}
 						try {
@@ -83,12 +93,20 @@ export const sessionsManageCommand: Command = {
 							);
 							ctx.dismiss();
 							if (visibleSessions.length === 0) {
-								runtime.emitInfo("Sessions", ["No saved sessions remaining."]);
+								toast({
+									title: "Sessions",
+									lines: ["No saved sessions remaining."],
+									variant: "info",
+								});
 								return;
 							}
 							open();
 						} catch (error) {
-							runtime.emitError("Session delete failed", [String(error)]);
+							toast({
+								title: "Session delete failed",
+								lines: [String(error)],
+								variant: "error",
+							});
 						}
 					},
 				},

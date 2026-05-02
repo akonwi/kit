@@ -11,7 +11,7 @@ export class CodeReviewPlugin extends Plugin {
 			description: "Review + comment on the current diff",
 			execute: async ({ runtime }) => {
 				try {
-					await codeReviewBrowserHost.launch(runtime);
+					await codeReviewBrowserHost.launch(runtime, this.ctx.ui.toast);
 				} catch {
 					// Host status subscription emits the user-facing error.
 				}
@@ -23,9 +23,11 @@ export class CodeReviewPlugin extends Plugin {
 				if (status.serverState === "error" && status.lastError) {
 					if (status.lastError !== lastEmittedError) {
 						lastEmittedError = status.lastError;
-						this.ctx.runtime.emitError("Code review failed", [
-							status.lastError,
-						]);
+						this.ctx.ui.toast({
+							title: "Code review failed",
+							lines: [status.lastError],
+							variant: "error",
+						});
 					}
 					return;
 				}

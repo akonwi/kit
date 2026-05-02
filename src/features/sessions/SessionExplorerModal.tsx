@@ -13,6 +13,7 @@ import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
+import type { ToastInput } from "../../state/toasts";
 import { formatTimeAgo } from "../commands/utils";
 import {
 	buildRelatedSessionTree,
@@ -24,6 +25,7 @@ import {
 
 export type SessionExplorerModalProps = {
 	runtime: AgentRuntime;
+	toast: (toast: ToastInput) => void;
 	onClose: () => void;
 	onSelect: (sessionId: string | null) => void;
 };
@@ -168,9 +170,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		const session = selectedRow()?.session;
 		if (!session) return;
 		if (session.id === currentSessionId()) {
-			props.runtime.emitWarning("Cannot delete active session", [
-				"Switch to another session before deleting this one.",
-			]);
+			props.toast({
+				title: "Cannot delete active session",
+				lines: ["Switch to another session before deleting this one."],
+				variant: "warning",
+			});
 			return;
 		}
 		setDeleteSession(session);
@@ -184,7 +188,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		if (!newName) return;
 		const session = await readSession(target.id);
 		if (!session) {
-			props.runtime.emitError("Rename failed", ["Session could not be found."]);
+			props.toast({
+				title: "Rename failed",
+				lines: ["Session could not be found."],
+				variant: "error",
+			});
 			return;
 		}
 		await updateSession(session, { name: newName });
@@ -207,7 +215,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				return next;
 			});
 		} catch (error) {
-			props.runtime.emitError("Delete failed", [String(error)]);
+			props.toast({
+				title: "Delete failed",
+				lines: [String(error)],
+				variant: "error",
+			});
 		}
 	}
 
@@ -223,7 +235,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				setConfirmSquashSession(null);
 				props.onClose();
 				void props.runtime.mergeUp().catch((error) => {
-					props.runtime.emitError("Squash failed", [String(error)]);
+					props.toast({
+						title: "Squash failed",
+						lines: [String(error)],
+						variant: "error",
+					});
 				});
 				return;
 			}

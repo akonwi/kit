@@ -115,10 +115,12 @@ export type RuntimeEventMap = {
 		maxAttempts: number;
 		error: string;
 	};
+	"agent.run.failed": { error: string };
 	"session.merge.started": Record<string, never>;
 	"session.merge.ended": { error?: string };
 	"session.compaction.started.auto": { contextPercent: number };
 	"session.compaction.completed.auto": {
+		contextPercent: number;
 		compactedTurnCount: number;
 		keptTurnCount: number;
 	};
@@ -149,6 +151,11 @@ export type RuntimeEventMap = {
 	"session.compaction.failed.adaptation": {
 		modelId: string;
 		modelName: string | undefined;
+		cause:
+			| "missing-api-key"
+			| "cannot-fit"
+			| "still-over-capacity"
+			| "compaction-error";
 		error: string;
 	};
 	"session.active.changed": { session: Session };
@@ -174,10 +181,9 @@ export type RuntimeEventMap = {
 		isError: boolean;
 	};
 	"chat.message-queue.changed": { count: number };
+	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
-	"notification.error": { title: string; lines: string[] };
-	"notification.warning": { title: string; lines: string[] };
-	"notification.info": { title: string; lines: string[] };
+	"session.persistence.failed": { error: string };
 	"vcs.updated": { branch: string | null; dirty: boolean };
 };
 
@@ -321,9 +327,8 @@ export class AgentRuntime {
 
 	private persistSessionToDisk(): void {
 		void writeSession(this.session).catch((err) => {
-			this.emit("notification.error", {
-				title: "Session save failed",
-				lines: [String(err)],
+			this.emit("session.persistence.failed", {
+				error: String(err),
 			});
 		});
 	}
@@ -491,9 +496,8 @@ export class AgentRuntime {
 		if (!model || !shouldAutoCompact(contextUsage?.percent)) return;
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			this.emit("notification.error", {
-				title: "Auto-compaction failed",
-				lines: [`No API key available for ${model.provider}.`],
+			this.emit("session.compaction.failed.auto", {
+				error: `No API key available for ${model.provider}.`,
 			});
 			return;
 		}
@@ -519,23 +523,13 @@ export class AgentRuntime {
 			});
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.auto", {
+				contextPercent: contextUsage?.percent ?? 0,
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
-			});
-			this.emit("notification.info", {
-				title: "Session compacted",
-				lines: [
-					`Context reached ${contextUsage?.percent ?? 0}%; compacted ${result.compactedTurnCount} turns into 1 summary turn.`,
-					`Kept ${result.keptTurnCount} recent turns unchanged.`,
-				],
 			});
 		} catch (error) {
 			this.emit("session.compaction.failed.auto", {
 				error: error instanceof Error ? error.message : String(error),
-			});
-			this.emit("notification.error", {
-				title: "Auto-compaction failed",
-				lines: [error instanceof Error ? error.message : String(error)],
 			});
 		} finally {
 			this.isCompacting = false;
@@ -572,10 +566,6 @@ export class AgentRuntime {
 					attempt: this.retryAttempt,
 					maxAttempts: this.getRetrySettings().maxRetries,
 					error: error instanceof Error ? error.message : String(error),
-				});
-				this.emit("notification.error", {
-					title: "Retry failed",
-					lines: [error instanceof Error ? error.message : String(error)],
 				});
 				this.retryAttempt = 0;
 				this.retryAbortController = null;
@@ -645,13 +635,13 @@ export class AgentRuntime {
 		const model = this.agent.state.model;
 		if (!model) return false;
 		if (this.overflowRecoveryAttempted) {
-			this.emit("notification.error", {
-				title: "Context overflow recovery failed",
-				lines: [
+			this.emit("session.compaction.failed.recovery", {
+				reason: "overflow",
+				error: [
 					"Kit already attempted one compact-and-retry recovery for this overflow.",
 					message.errorMessage ??
 						"Start a new session or switch to a larger-context model.",
-				],
+				].join(" "),
 			});
 			this.overflowRecoveryAttempted = false;
 			this.resolveRecovery();
@@ -688,23 +678,12 @@ export class AgentRuntime {
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
 			});
-			this.emit("notification.info", {
-				title: "Session compacted",
-				lines: [
-					`Recovered from a context overflow by compacting ${result.compactedTurnCount} turns into 1 summary turn.`,
-					`Kept ${result.keptTurnCount} recent turns unchanged.`,
-				],
-			});
 			this.scheduleContinue();
 			return true;
 		} catch (error) {
 			this.emit("session.compaction.failed.recovery", {
 				reason: "overflow",
 				error: error instanceof Error ? error.message : String(error),
-			});
-			this.emit("notification.error", {
-				title: "Context overflow recovery failed",
-				lines: [error instanceof Error ? error.message : String(error)],
 			});
 			this.resolveRecovery();
 			return false;
@@ -751,12 +730,11 @@ export class AgentRuntime {
 
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			this.emit("notification.error", {
-				title: "Model too small for session",
-				lines: [
-					`No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
-					"Start a new session or hand off to continue with this model.",
-				],
+			this.emit("session.compaction.failed.adaptation", {
+				modelId: model.id,
+				modelName: model.name,
+				cause: "missing-api-key",
+				error: `No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
 			});
 			return;
 		}
@@ -775,12 +753,11 @@ export class AgentRuntime {
 				apiKey,
 			});
 			if (!result) {
-				this.emit("notification.error", {
-					title: "Model too small for session",
-					lines: [
-						`${model.name ?? model.id} cannot fit this session, even after optimized compaction.`,
-						"Start a new session or hand off to continue with this model.",
-					],
+				this.emit("session.compaction.failed.adaptation", {
+					modelId: model.id,
+					modelName: model.name,
+					cause: "cannot-fit",
+					error: `${model.name ?? model.id} cannot fit this session, even after optimized compaction.`,
 				});
 				return;
 			}
@@ -804,26 +781,19 @@ export class AgentRuntime {
 				model,
 			);
 			if (nextUsage && nextUsage.percent > 100) {
-				this.emit("notification.error", {
-					title: "Model too small for session",
-					lines: [
-						`${model.name ?? model.id} is still over capacity after compaction (${nextUsage.percent}%).`,
-						"Start a new session or hand off to continue with this model.",
-					],
+				this.emit("session.compaction.failed.adaptation", {
+					modelId: model.id,
+					modelName: model.name,
+					cause: "still-over-capacity",
+					error: `${model.name ?? model.id} is still over capacity after compaction (${nextUsage.percent}%).`,
 				});
 			}
 		} catch (error) {
 			this.emit("session.compaction.failed.adaptation", {
 				modelId: model.id,
 				modelName: model.name,
+				cause: "compaction-error",
 				error: error instanceof Error ? error.message : String(error),
-			});
-			this.emit("notification.error", {
-				title: "Model switch compaction failed",
-				lines: [
-					error instanceof Error ? error.message : String(error),
-					"Start a new session or hand off to continue with this model.",
-				],
 			});
 		} finally {
 			this.overflowRecoveryInFlight = false;
@@ -925,9 +895,8 @@ export class AgentRuntime {
 					this.retryAttempt = 0;
 					this.overflowRecoveryAttempted = false;
 					this.resolveRecovery();
-					this.emit("notification.error", {
-						title: "Session save failed",
-						lines: [error instanceof Error ? error.message : String(error)],
+					this.emit("agent.run.failed", {
+						error: error instanceof Error ? error.message : String(error),
 					});
 				});
 				break;
@@ -943,14 +912,9 @@ export class AgentRuntime {
 		}
 		const textOnly = parts.every((part) => part.type === "text");
 		if (!textOnly) {
-			const error = new Error(
+			throw new Error(
 				"Attachments not supported in queued follow-ups. Wait for the current turn to finish before sending attached reviews.",
 			);
-			this.emit("notification.error", {
-				title: "Queued follow-up unsupported",
-				lines: [error.message],
-			});
-			throw error;
 		}
 		const queuedText = parts
 			.map((part) => (part.type === "text" ? part.text : ""))
@@ -968,16 +932,8 @@ export class AgentRuntime {
 			content: parts,
 			timestamp: Date.now(),
 		};
-		try {
-			await this.agent.prompt(message as unknown as AgentMessage);
-			await this.waitForRecovery();
-		} catch (err) {
-			this.emit("notification.error", {
-				title: "Agent error",
-				lines: [String(err)],
-			});
-			throw err;
-		}
+		await this.agent.prompt(message as unknown as AgentMessage);
+		await this.waitForRecovery();
 	}
 
 	abort(): void {
@@ -1128,7 +1084,7 @@ export class AgentRuntime {
 		}
 		this.syncPendingState();
 		if (drained.length > 0) {
-			this.emit("notification.info", { title: "Steering", lines: [] });
+			this.emit("chat.followups.promoted", { count: drained.length });
 		}
 	}
 
@@ -1427,18 +1383,6 @@ export class AgentRuntime {
 			model: this.agent.state.model,
 			thinkingLevel: this.agent.state.thinkingLevel,
 		};
-	}
-
-	emitError(title: string, lines: string[]): void {
-		this.emit("notification.error", { title, lines });
-	}
-
-	emitInfo(title: string, lines: string[]): void {
-		this.emit("notification.info", { title, lines });
-	}
-
-	emitWarning(title: string, lines: string[]): void {
-		this.emit("notification.warning", { title, lines });
 	}
 
 	emitSettingsChanged(settings: Settings): void {
