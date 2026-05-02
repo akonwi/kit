@@ -1,39 +1,75 @@
 import { useRenderer } from "@opentui/solid";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Show } from "solid-js";
 import { formatTimeAgo } from "../../features/commands/utils";
 import { theme } from "../theme";
 import { extractAssistantParts, type HandoffSummaryMessage } from "./turns";
+
+const HORIZONTAL_PADDING = 1;
 
 export function HandoffSummaryEntry(props: {
 	msg: HandoffSummaryMessage;
 	aborted?: boolean;
 }) {
 	const [expanded, setExpanded] = createSignal(false);
+	const [rowWidth, setRowWidth] = createSignal(0);
 	const renderer = useRenderer();
+	let rowRef: { width: number; height: number } | undefined;
 	const { text } = extractAssistantParts(props.msg);
 	const lines = () => text.split("\n");
 	const sourceLabel = () => props.msg.synthetic?.sourceSessionName?.trim();
 	const timestampLabel = () => formatTimeAgo(new Date(props.msg.timestamp));
+	const centerLabel = createMemo(() => {
+		const parts = [`${expanded() ? "▾" : "▸"} merged handoff summary`];
+		const source = sourceLabel();
+		if (source) parts.push(source);
+		parts.push(timestampLabel());
+		return parts.join(" · ");
+	});
+	const divider = createMemo(() => {
+		const contentWidth = Math.max(0, rowWidth() - HORIZONTAL_PADDING * 2);
+		const sideWidth = Math.max(
+			0,
+			Math.floor((contentWidth - centerLabel().length - 2) / 2),
+		);
+		return "─".repeat(sideWidth);
+	});
 
 	return (
 		<box flexDirection="column" gap={1} width="100%">
 			<box
+				ref={(value) => {
+					rowRef = value as typeof rowRef;
+					if (rowRef) setRowWidth(rowRef.width);
+				}}
+				onSizeChange={() => {
+					if (rowRef) setRowWidth(rowRef.width);
+				}}
 				flexDirection="row"
-				gap={0}
+				gap={1}
+				alignItems="center"
+				justifyContent="center"
 				width="100%"
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
 					setExpanded(!expanded());
 				}}
 			>
-				<text fg={theme.textMuted}>────── </text>
-				<text fg={theme.textSecondary}>
-					{expanded() ? "▾" : "▸"} merged handoff summary
-				</text>
-				<Show when={sourceLabel()}>
-					{(source) => <text fg={theme.textMuted}> · {source()}</text>}
-				</Show>
-				<text fg={theme.textMuted}> · {timestampLabel()}</text>
+				<text fg={theme.borderDefault}>{divider()}</text>
+				<box
+					flexDirection="row"
+					justifyContent="center"
+					gap={0}
+					paddingX={HORIZONTAL_PADDING}
+				>
+					<text fg={theme.textSecondary}>
+						{expanded() ? "▾" : "▸"} merged handoff summary
+					</text>
+					<Show when={sourceLabel()}>
+						{(source) => <text fg={theme.textMuted}> · {source()}</text>}
+					</Show>
+					<text fg={theme.textMuted}> · {timestampLabel()}</text>
+				</box>
+				<text fg={theme.borderDefault}>{divider()}</text>
 			</box>
 			<Show when={expanded()}>
 				<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
