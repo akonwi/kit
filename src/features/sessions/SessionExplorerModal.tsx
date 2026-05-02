@@ -17,7 +17,8 @@ import {
 	buildRelatedSessionTree,
 	findSessionRowIndex,
 	flattenSessionTree,
-	formatSessionTreeLabel,
+	formatSessionTreePrefix,
+	getSessionTreeTitle,
 } from "./tree";
 
 export type SessionExplorerModalProps = {
@@ -203,7 +204,10 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				flexDirection="column"
 				gap={1}
 			>
-				<text fg={theme.textPrimary}>Session Explorer</text>
+				<box flexShrink={0} flexDirection="row" justifyContent="space-between">
+					<text fg={theme.textPrimary}>Session Explorer</text>
+					<text fg={theme.textMuted}>{rows().length} related</text>
+				</box>
 
 				<Show
 					when={!sessions.loading}
@@ -216,42 +220,58 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 						padding={1}
 						flexDirection="column"
 					>
-						<text fg={theme.textPrimary}>Related sessions</text>
 						<Show
 							when={rows().length > 0}
 							fallback={
 								<text fg={theme.textMuted}>No related sessions found.</text>
 							}
 						>
-							<box flexDirection="column" flexGrow={1}>
-								<For each={visibleSlice().rows}>
-									{(row, idx) => {
-										const absoluteIndex = () => visibleSlice().offset + idx();
-										const focused = () => absoluteIndex() === selectedIndex();
-										const label = () => formatSessionTreeLabel(row);
-										const meta = () =>
-											`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
-										const labelColor = () =>
-											row.isCurrent ? theme.borderAccent : theme.textPrimary;
-										return (
-											<box
-												backgroundColor={
-													focused() ? theme.bgMuted : theme.bgTransparent
-												}
-											>
-												<text fg={labelColor()}>
-													{row.isCurrent ? "• " : "  "}
-													{label()}
-												</text>
-												<text fg={theme.textMuted}>{meta()}</text>
-											</box>
-										);
-									}}
-								</For>
-								<Show when={treeFooter()}>
-									<text fg={theme.textMuted}>{treeFooter()}</text>
-								</Show>
-							</box>
+							<scrollbox
+								flexGrow={1}
+								scrollY
+								style={{
+									scrollbarOptions: {
+										trackOptions: {
+											foregroundColor: theme.scrollbarFg,
+											backgroundColor: theme.scrollbarBg,
+										},
+									},
+								}}
+							>
+								<box flexDirection="column" gap={0} width="100%">
+									<For each={visibleSlice().rows}>
+										{(row, idx) => {
+											const absoluteIndex = () => visibleSlice().offset + idx();
+											const focused = () => absoluteIndex() === selectedIndex();
+											const label = () => getSessionTreeTitle(row);
+											const treePrefix = () => formatSessionTreePrefix(row);
+											const meta = () =>
+												`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
+											const labelColor = () =>
+												row.isCurrent ? theme.borderAccent : theme.textPrimary;
+											return (
+												<box
+													paddingX={1}
+													flexDirection="row"
+													backgroundColor={
+														focused() ? theme.bgMuted : theme.bgTransparent
+													}
+												>
+													<text fg={labelColor()}>
+														{row.isCurrent ? "• " : "  "}
+														{treePrefix()}
+														{label()}
+													</text>
+													<text fg={theme.textMuted}>{` · ${meta()}`}</text>
+												</box>
+											);
+										}}
+									</For>
+								</box>
+							</scrollbox>
+							<Show when={treeFooter()}>
+								<text fg={theme.textMuted}>{treeFooter()}</text>
+							</Show>
 						</Show>
 					</box>
 				</Show>
@@ -268,6 +288,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							height="100%"
 							justifyContent="center"
 							alignItems="center"
+							backgroundColor={theme.modalBackdrop}
 						>
 							<box
 								width="70%"

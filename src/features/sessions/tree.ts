@@ -113,17 +113,25 @@ export function findSessionRowIndex(
 	return rows.findIndex((row) => row.session.id === sessionId);
 }
 
-export function formatSessionTreeLabel(row: SessionTreeRow): string {
-	const title =
+export function getSessionTreeTitle(row: SessionTreeRow): string {
+	return (
 		row.session.name?.trim() ||
 		row.session.firstMessage?.trim() ||
-		row.session.id.slice(0, 8);
-	if (row.depth === 0) return title;
+		row.session.id.slice(0, 8)
+	);
+}
+
+export function formatSessionTreePrefix(row: SessionTreeRow): string {
+	if (row.depth === 0) return "";
 
 	const columns = row.ancestorHasNextSibling
 		.slice(1)
 		.map((hasNext) => (hasNext ? "│  " : "   "))
 		.join("");
 	const branch = row.isLastChild ? "└─ " : "├─ ";
-	return `${columns}${branch}${title}`;
+	return `${columns}${branch}`;
+}
+
+export function formatSessionTreeLabel(row: SessionTreeRow): string {
+	return `${formatSessionTreePrefix(row)}${getSessionTreeTitle(row)}`;
 }
