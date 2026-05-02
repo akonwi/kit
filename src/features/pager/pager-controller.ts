@@ -7,7 +7,15 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
 import { type PagerSection, splitSections } from "./split-sections";
 
-const LONGFORM_MIN_CHARS = 500;
+const AUTO_PAGE_MIN_OVERFLOW_ROWS = 8;
+const AUTO_PAGE_VIEWPORT_MULTIPLIER = 1.35;
+const TRANSCRIPT_HORIZONTAL_CHROME = 4;
+const MIN_WRAP_WIDTH = 20;
+
+export type PagerViewport = {
+	width: number;
+	height: number;
+};
 
 function extractAssistantText(msg: AgentMessage): string {
 	const content: unknown = (msg as { content?: unknown }).content;
@@ -23,6 +31,33 @@ function extractAssistantText(msg: AgentMessage): string {
 		.filter(Boolean)
 		.join("\n")
 		.trim();
+}
+
+function estimateWrappedRows(text: string, viewportWidth: number): number {
+	const usableWidth = Math.max(
+		MIN_WRAP_WIDTH,
+		viewportWidth - TRANSCRIPT_HORIZONTAL_CHROME,
+	);
+	const normalized = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+	return normalized.split("\n").reduce((total, rawLine) => {
+		const expandedLine = rawLine.replace(/\t/g, "    ");
+		const visualLength = Array.from(expandedLine).length;
+		return total + Math.max(1, Math.ceil(visualLength / usableWidth));
+	}, 0);
+}
+
+function getAutoPageThreshold(viewportHeight: number): number {
+	return Math.max(
+		viewportHeight + AUTO_PAGE_MIN_OVERFLOW_ROWS,
+		Math.ceil(viewportHeight * AUTO_PAGE_VIEWPORT_MULTIPLIER),
+	);
+}
+
+function shouldAutoPage(text: string, viewport: PagerViewport | null): boolean {
+	if (!viewport) return false;
+	if (viewport.width <= 0 || viewport.height <= 0) return false;
+	const estimatedRows = estimateWrappedRows(text, viewport.width);
+	return estimatedRows >= getAutoPageThreshold(viewport.height);
 }
 
 function formatFeedbackMessage(
@@ -49,6 +84,24 @@ function formatFeedbackMessage(
 		"",
 		"Please use this section-specific feedback in your revision or reply.",
 	].join("\n");
+}
+
+function activateSections(
+	text: string,
+	setSections: (value: PagerSection[]) => void,
+	setTitle: (value: string) => void,
+	setCurrentIndex: (value: number) => void,
+	setNotes: (value: Map<number, string>) => void,
+	setActive: (value: boolean) => void,
+): boolean {
+	const result = splitSections(text);
+	if (result.length === 0) return false;
+	setSections(result);
+	setTitle(result[0]?.title ?? "");
+	setCurrentIndex(0);
+	setNotes(new Map());
+	setActive(true);
+	return true;
 }
 
 export function createPagerController() {
@@ -98,7 +151,7 @@ export function createPagerController() {
 	}
 
 	/**
-	 * Try to activate the pager for the last assistant message.
+	 * Open the pager for the last assistant message, regardless of size.
 	 * Returns true if the pager was activated.
 	 */
 	function tryActivate(messages: AgentMessage[]): boolean {
@@ -107,17 +160,44 @@ export function createPagerController() {
 			if (msg.role !== "assistant") continue;
 
 			const text = extractAssistantText(msg);
-			if (!text || text.length < LONGFORM_MIN_CHARS) break;
+			if (!text) break;
 
-			const result = splitSections(text);
-			if (result.length <= 3) break;
+			return activateSections(
+				text,
+				setSections,
+				setTitle,
+				setCurrentIndex,
+				setNotes,
+				setActive,
+			);
+		}
+		return false;
+	}
 
-			setSections(result);
-			setTitle(result[0]?.title ?? "");
-			setCurrentIndex(0);
-			setNotes(new Map());
-			setActive(true);
-			return true;
+	/**
+	 * Auto-open the pager when the last assistant response substantially
+	 * overflows the visible transcript viewport.
+	 */
+	function tryAutoActivate(
+		messages: AgentMessage[],
+		viewport: PagerViewport | null,
+	): boolean {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const msg = messages[i];
+			if (msg.role !== "assistant") continue;
+
+			const text = extractAssistantText(msg);
+			if (!text) break;
+			if (!shouldAutoPage(text, viewport)) break;
+
+			return activateSections(
+				text,
+				setSections,
+				setTitle,
+				setCurrentIndex,
+				setNotes,
+				setActive,
+			);
 		}
 		return false;
 	}
@@ -214,6 +294,7 @@ export function createPagerController() {
 		setSubmitCallback,
 		activateWithContent,
 		tryActivate,
+		tryAutoActivate,
 		close,
 		nextSection,
 		prevSection,

@@ -17,12 +17,18 @@ export class PagerPlugin extends Plugin {
 			await this.ctx.runtime.submitMessage(msg);
 		});
 
-		// Auto-activate pager on turn completion if the assistant response is long.
+		// Auto-activate pager when the last assistant response substantially
+		// overflows the visible transcript viewport.
 		// Respects the `pager` setting; `/pager` always works regardless.
 		this.subscribeRuntimeEvent("agent.turn.completed", async () => {
 			if (this.ctx.settings.settings.pager === false) return;
 			if (this.pager.active) return;
-			if (this.pager.tryActivate(this.ctx.runtime.getMessages())) {
+			if (
+				this.pager.tryAutoActivate(
+					this.ctx.runtime.getMessages(),
+					this.ctx.ui.getTranscriptViewport(),
+				)
+			) {
 				await this.openPager();
 			}
 		});
@@ -37,10 +43,7 @@ export class PagerPlugin extends Plugin {
 					return;
 				}
 				if (!this.pager.tryActivate(ctx.runtime.getMessages())) {
-					this.ctx.ui.notify(
-						"No long assistant response to paginate.",
-						"warning",
-					);
+					this.ctx.ui.notify("No assistant response to paginate.", "warning");
 					return;
 				}
 				await this.openPager();

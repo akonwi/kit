@@ -29,6 +29,10 @@ export type AppShellProps = {
 	attachments: AttachmentsController;
 	overlays: () => OverlayEntry[];
 	dismissToast: (id: number) => void;
+	onTranscriptViewportChange: (viewport: {
+		width: number;
+		height: number;
+	}) => void;
 	showToast: (toast: {
 		title: string;
 		lines: string[];
@@ -42,6 +46,7 @@ export function AppShell(props: AppShellProps) {
 	const [composerMode, setComposerMode] =
 		createSignal<ComposerInputMode>("normal");
 	const renderer = useRenderer();
+	let transcriptRef: { width: number; height: number } | undefined;
 
 	return (
 		<box
@@ -57,7 +62,21 @@ export function AppShell(props: AppShellProps) {
 				onHeightChange={setHeaderHeight}
 			/>
 
-			<Transcript runtime={props.runtime} showToast={props.showToast} />
+			<box
+				flexGrow={1}
+				ref={(value) => {
+					transcriptRef = value as typeof transcriptRef;
+				}}
+				onSizeChange={() => {
+					if (!transcriptRef) return;
+					props.onTranscriptViewportChange({
+						width: transcriptRef.width,
+						height: transcriptRef.height,
+					});
+				}}
+			>
+				<Transcript runtime={props.runtime} showToast={props.showToast} />
+			</box>
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
 				<PendingSlot

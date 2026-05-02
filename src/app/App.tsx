@@ -9,6 +9,7 @@ import {
 	PluginManager,
 	type PluginUI,
 } from "../plugins";
+import type { TranscriptViewport } from "../plugins/types";
 import {
 	AgentRuntime,
 	AuthenticationRequiredError,
@@ -46,6 +47,8 @@ type RootState =
 
 export function App(props: AppProps) {
 	const [overlays, setOverlays] = createSignal<OverlayEntry[]>([]);
+	const [transcriptViewport, setTranscriptViewport] =
+		createSignal<TranscriptViewport | null>(null);
 	const openCustomOverlay = createCustomOverlayHandler(setOverlays);
 	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
 
@@ -66,6 +69,7 @@ export function App(props: AppProps) {
 			});
 		},
 		custom: openCustomOverlay,
+		getTranscriptViewport: () => transcriptViewport(),
 	};
 
 	function buildReadyState(): ReadyState {
@@ -225,6 +229,7 @@ export function App(props: AppProps) {
 							attachments={current.attachments}
 							overlays={overlays}
 							dismissToast={current.app.dismissToast}
+							onTranscriptViewportChange={setTranscriptViewport}
 							showToast={current.app.showToast}
 						/>
 					);

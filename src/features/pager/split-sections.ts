@@ -1,7 +1,8 @@
 /**
- * Split markdown text into sections at heading boundaries.
- * Nested headings (e.g. ### under ##) inherit the parent heading
- * as a persistent section title.
+ * Split markdown text into pages at heading boundaries.
+ * When headings are present, every heading starts a new page and content
+ * stays attached to the nearest heading above it.
+ * Nested headings inherit their immediate parent heading as section context.
  */
 
 export type PagerSection = {
@@ -46,51 +47,33 @@ function parseHeadingChunks(text: string): HeadingChunk[] {
 
 export function splitSections(text: string): PagerSection[] {
 	const chunks = parseHeadingChunks(text);
-
 	if (chunks.length === 0) return [];
-	if (chunks.length === 1) {
-		return [{ title: chunks[0].title, sectionTitle: "", body: chunks[0].body }];
-	}
 
-	// Find the split level: the most common heading level, preferring deeper
-	const levels = chunks.filter((c) => c.level > 0).map((c) => c.level);
-	if (levels.length === 0) {
-		// No headings — fall back to paragraph splitting
+	const hasHeadings = chunks.some((chunk) => chunk.level > 0);
+	if (!hasHeadings) {
 		return fallbackParagraphSplit(text);
 	}
 
-	// Determine the primary (parent) and split (child) heading levels.
-	const uniqueLevels = [...new Set(levels)].sort((a, b) => a - b);
-
-	if (uniqueLevels.length === 1) {
-		// All headings are the same level — no parent/child distinction
-		return chunks.map((c) => ({
-			title: c.title,
-			sectionTitle: "",
-			body: c.body,
-		}));
-	}
-
-	// Parent level = shallowest, split happens at all deeper levels
-	const parentLevel = uniqueLevels[0];
-
-	const sections: PagerSection[] = [];
-	let currentParentTitle = "";
-
-	for (const chunk of chunks) {
-		if (chunk.level > 0 && chunk.level <= parentLevel) {
-			// This is a parent-level heading — update the running parent title
-			currentParentTitle = chunk.title;
+	const headingStack: string[] = [];
+	return chunks.map((chunk) => {
+		if (chunk.level <= 0) {
+			return {
+				title: chunk.title,
+				sectionTitle: "",
+				body: chunk.body,
+			};
 		}
 
-		sections.push({
-			title: chunk.title,
-			sectionTitle: chunk.level > parentLevel ? currentParentTitle : "",
-			body: chunk.body,
-		});
-	}
+		headingStack.length = Math.max(0, chunk.level - 1);
+		const parentTitle = headingStack[chunk.level - 2] ?? "";
+		headingStack[chunk.level - 1] = chunk.title;
 
-	return sections;
+		return {
+			title: chunk.title,
+			sectionTitle: parentTitle,
+			body: chunk.body,
+		};
+	});
 }
 
 function fallbackParagraphSplit(text: string): PagerSection[] {
