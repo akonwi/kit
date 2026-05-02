@@ -14,6 +14,9 @@ Delete done items.
 ## Active items
 - [ ] chore: upgrade OpenTUI from `0.1.102` to `0.2.2` — see `backlog/opentui-upgrade-plan.md`
 - [ ] AgentRuntime should not know about `notifications`
+- [ ] feat: mcp support. perhaps with mcp-porter as a gateway 
+- [ ] feat: self-extensibility like Pi
+  - Kit knowing how to create themes, change settings, write skills, prompts, etc
 - [ ] improvement: serialize or throttle session persistence writes to avoid overlapping save races
 - [ ] improvement: migrate session persistence from `.json` to `.jsonl` so appends do not require rewriting the full session on each save
 - [ ] new: markdown formatting for thinking text
