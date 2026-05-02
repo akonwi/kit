@@ -215,12 +215,24 @@ export function extractToolResultLines(msg: ToolResultMessage): string[] {
 	return lines;
 }
 
+const MAX_TOOL_ARG_SUMMARY_LENGTH = 80;
+
+function summarizeToolArg(value: string): string {
+	const singleLine = value.replace(/\s+/g, " ").trim();
+	if (singleLine.length <= MAX_TOOL_ARG_SUMMARY_LENGTH) {
+		return singleLine;
+	}
+	return `${singleLine.slice(0, MAX_TOOL_ARG_SUMMARY_LENGTH - 3)}...`;
+}
+
 export function formatToolArgs(args?: Record<string, unknown>): string {
 	if (!args) return "";
 	if ("command" in args && typeof args.command === "string") {
-		return ` ${args.command}`;
+		return ` ${summarizeToolArg(args.command)}`;
 	}
-	if ("path" in args && typeof args.path === "string") return ` ${args.path}`;
+	if ("path" in args && typeof args.path === "string") {
+		return ` ${summarizeToolArg(args.path)}`;
+	}
 	return "";
 }
 
