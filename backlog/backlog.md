@@ -34,3 +34,4 @@ Delete done items.
 - [ ] AgentRuntime should not know about `notifications`
 - [ ] improvement: serialize or throttle session persistence writes to avoid overlapping save races
 - [ ] improvement: migrate session persistence from `.json` to `.jsonl` so appends do not require rewriting the full session on each save
+- [ ] new: markdown formatting for thinking text
