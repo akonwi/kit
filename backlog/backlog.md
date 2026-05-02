@@ -12,7 +12,7 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] chore: upgrade OpenTUI from `0.1.102` to `0.2.2` — see `backlog/opentui-upgrade-plan.md`
+- [ ] chore: finish OpenTUI `0.2.2` validation and rollout — see `backlog/opentui-upgrade-plan.md`
 - [ ] fix: pasting images still pastes the filepath as text
 - [ ] fix: some tool calls show results even when collapsed
 - [ ] AgentRuntime should not know about `notifications`

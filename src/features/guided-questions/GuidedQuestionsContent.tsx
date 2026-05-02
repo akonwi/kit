@@ -259,7 +259,6 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 						<Show when={g.mode === "otherText"}>
 							<text fg={theme.borderAccent}>Specify Other:</text>
 						</Show>
-						{/* @ts-ignore onPaste supported but not typed */}
 						<textarea
 							ref={(value) => {
 								textareaRef = value as typeof textareaRef;

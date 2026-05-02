@@ -19,11 +19,11 @@
 	"dependencies": {
 		"@mariozechner/pi-agent-core": "^0.62.0",
 		"@mariozechner/pi-ai": "^0.62.0",
-		"@opentui/core": "0.1.102",
-		"@opentui/solid": "0.1.102",
+		"@opentui/core": "0.2.2",
+		"@opentui/solid": "0.2.2",
 		"@pierre/diffs": "^1.1.16",
 		"ignore": "^7.0.5",
-		"solid-js": "^1.9.0",
+		"solid-js": "1.9.12",
 		"web-tree-sitter": "0.25.10",
 		"yaml": "^2.8.3"
 	},

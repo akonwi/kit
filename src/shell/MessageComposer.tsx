@@ -41,7 +41,6 @@ export function MessageComposer(props: MessageComposerProps) {
 			flexDirection="column"
 			gap={0}
 		>
-			{/* @ts-ignore onPaste supported but not typed */}
 			<textarea
 				ref={(value: unknown) => {
 					const ref = value as TextareaRef | undefined;
