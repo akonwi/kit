@@ -10,112 +10,141 @@ import type { PaletteContext } from "../../state/palette";
 import type { PaletteManager } from "../../state/palette-manager";
 import type { Command } from "./types";
 
+export type LoginOutcome = {
+	didAuthenticate: boolean;
+	providerName?: string;
+};
+
+export type LoginNotifier = {
+	info?: (title: string, lines: string[]) => void;
+	error?: (title: string, lines: string[]) => void;
+};
+
+export async function runLoginFlow(
+	palette: PaletteManager,
+	notify: LoginNotifier = {},
+): Promise<LoginOutcome> {
+	const providers = getOAuthProviders();
+
+	if (providers.length === 0) {
+		const saved = await promptApiKey(palette);
+		return {
+			didAuthenticate: saved,
+			providerName: saved ? "Anthropic" : undefined,
+		};
+	}
+
+	const provider = await selectProvider(palette, providers);
+	if (!provider) return { didAuthenticate: false };
+
+	notify.info?.(`Logging in to ${provider.name}…`, []);
+
+	try {
+		const credentials = await provider.login({
+			onAuth({ url, instructions: _instructions }: OAuthAuthInfo) {
+				console.log("[login] onAuth called, url:", url?.slice(0, 60));
+				exec(`open "${url}"`);
+				notify.info?.("Browser opened", ["Complete login then return here."]);
+			},
+
+			onProgress(message: string) {
+				notify.info?.(message, []);
+			},
+
+			onPrompt: (prompt: OAuthPrompt) =>
+				promptForValue(palette, prompt.message),
+
+			onManualCodeInput: () =>
+				promptForValue(
+					palette,
+					"Paste the redirect URL (or leave blank to wait for browser callback)",
+				),
+		});
+
+		if (palette.isInputMode) palette.pop();
+
+		const auth = await readAuthFile();
+		auth[provider.id] = { ...credentials, type: "oauth" };
+		await writeAuthFile(auth);
+
+		return { didAuthenticate: true, providerName: provider.name };
+	} catch (error) {
+		console.log("[login] error:", error);
+		notify.error?.("Login failed", [String(error)]);
+		return { didAuthenticate: false };
+	}
+}
+
 export const loginCommand: Command = {
 	name: "login",
 	description: "Log in to an AI provider",
 	async execute({ palette, runtime }) {
-		const providers = getOAuthProviders();
+		const result = await runLoginFlow(palette, {
+			info: (title, lines) => runtime.emitInfo(title, lines),
+			error: (title, lines) => runtime.emitError(title, lines),
+		});
 
-		if (providers.length === 0) {
-			await promptApiKey(palette);
-			return;
-		}
+		if (!result.didAuthenticate) return;
 
-		// Step 1: pick provider
-		const provider = await new Promise<OAuthProviderInterface | null>(
-			(resolve) => {
-				let selected: OAuthProviderInterface | null = null;
-				palette.show({
-					filterable: false,
-					hint: "Select a provider",
-					onDismiss: () => resolve(selected),
-					options: providers.map((p: OAuthProviderInterface) => ({
-						name: p.name,
-						description: p.id,
-						value: p,
-						action: (ctx: PaletteContext) => {
-							selected = p;
-							ctx.dismiss();
-						},
-					})),
-				});
-			},
-		);
-
-		console.log("[login] provider selected:", provider?.id);
-		if (!provider) return;
-
-		// Step 2: run OAuth flow
-		console.log("[login] starting OAuth flow for:", provider.name);
-		runtime.emitInfo(`Logging in to ${provider.name}…`, []);
-		try {
-			const credentials = await provider.login({
-				onAuth({ url, instructions: _instructions }: OAuthAuthInfo) {
-					console.log("[login] onAuth called, url:", url?.slice(0, 60));
-					exec(`open "${url}"`);
-					runtime.emitInfo("Browser opened", [
-						"Complete login then return here.",
-					]);
-				},
-
-				onProgress(msg: string) {
-					runtime.emitInfo(msg, []);
-				},
-
-				onPrompt: (prompt: OAuthPrompt) =>
-					new Promise<string>((resolve) => {
-						palette.show({
-							mode: "input",
-							label: prompt.message,
-							onDismiss: () => resolve(""),
-							onSubmit: (value: string, ctx: PaletteContext) => {
-								ctx.dismiss();
-								resolve(value);
-							},
-						});
-					}),
-
-				onManualCodeInput: () =>
-					new Promise<string>((resolveInput) => {
-						palette.show({
-							mode: "input",
-							label:
-								"Paste the redirect URL (or leave blank to wait for browser callback)",
-							onDismiss: () => resolveInput(""),
-							onSubmit: (value: string, ctx: PaletteContext) => {
-								ctx.dismiss();
-								resolveInput(value);
-							},
-						});
-					}),
-			});
-
-			// Dismiss the manual URL input if still open
-			if (palette.isInputMode) palette.pop();
-
-			// Persist credentials with type field so getApiKey can read them
-			const auth = await readAuthFile();
-			auth[provider.id] = { ...credentials, type: "oauth" };
-			await writeAuthFile(auth);
-
-			runtime.emitInfo("Login successful", [`Logged in to ${provider.name}.`]);
-		} catch (err) {
-			console.log("[login] error:", err);
-			runtime.emitError("Login failed", [String(err)]);
-		}
+		runtime.emitInfo("Login successful", [
+			result.providerName
+				? `Logged in to ${result.providerName}.`
+				: "Credentials saved.",
+		]);
 	},
 };
 
-async function promptApiKey(palette: PaletteManager): Promise<void> {
-	await new Promise<void>((resolve) => {
+async function selectProvider(
+	palette: PaletteManager,
+	providers: OAuthProviderInterface[],
+): Promise<OAuthProviderInterface | null> {
+	return new Promise<OAuthProviderInterface | null>((resolve) => {
+		let selected: OAuthProviderInterface | null = null;
+		palette.show({
+			filterable: false,
+			hint: "Select a provider",
+			onDismiss: () => resolve(selected),
+			options: providers.map((provider) => ({
+				name: provider.name,
+				description: provider.id,
+				value: provider,
+				action: (ctx: PaletteContext) => {
+					selected = provider;
+					ctx.dismiss();
+				},
+			})),
+		});
+	});
+}
+
+async function promptForValue(
+	palette: PaletteManager,
+	label: string,
+): Promise<string> {
+	return new Promise<string>((resolve) => {
+		palette.show({
+			mode: "input",
+			label,
+			onDismiss: () => resolve(""),
+			onSubmit: (value: string, ctx: PaletteContext) => {
+				ctx.dismiss();
+				resolve(value);
+			},
+		});
+	});
+}
+
+async function promptApiKey(palette: PaletteManager): Promise<boolean> {
+	return new Promise<boolean>((resolve) => {
 		palette.show({
 			mode: "input",
 			label: "Enter API key (e.g. ANTHROPIC_API_KEY)",
-			onDismiss: resolve,
+			onDismiss: () => resolve(false),
 			onSubmit: (key: string, ctx: PaletteContext) => {
-				if (key.trim()) process.env.ANTHROPIC_API_KEY = key.trim();
+				const trimmed = key.trim();
+				if (trimmed) process.env.ANTHROPIC_API_KEY = trimmed;
 				ctx.dismiss();
-				resolve();
+				resolve(trimmed.length > 0);
 			},
 		});
 	});

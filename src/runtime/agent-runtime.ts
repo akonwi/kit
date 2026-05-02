@@ -50,6 +50,13 @@ import { clampThinkingLevel } from "./thinking-levels";
 
 registerBuiltInApiProviders();
 
+export class AuthenticationRequiredError extends Error {
+	constructor(message = "No authenticated providers found. Run /login first.") {
+		super(message);
+		this.name = "AuthenticationRequiredError";
+	}
+}
+
 const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
 You have access to tools to read and modify files, run commands, search code, and more.
 Be concise and direct. Prefer surgical edits over full rewrites when practical.`;
@@ -1524,7 +1531,7 @@ function resolveDefaultModel(preferredModelId?: string): Model<Api> {
 	const providers = getAuthenticatedProviders();
 
 	if (providers.length === 0) {
-		throw new Error("No authenticated providers found. Run /login first.");
+		throw new AuthenticationRequiredError();
 	}
 
 	if (preferredModelId) {
