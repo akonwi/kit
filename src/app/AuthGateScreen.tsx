@@ -1,17 +1,14 @@
 import { homedir } from "node:os";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
-import { createSignal } from "solid-js";
-import { runLoginFlow } from "../features/commands/login";
+import { createSignal, Show } from "solid-js";
+import { LoginModal, type LoginOutcome } from "../features/login/LoginModal";
 import type { Session } from "../session";
 import { type Binding, HintBar } from "../shell/HintBar";
-import { InlinePicker } from "../shell/InlinePicker";
-import { Modal } from "../shell/Modal";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { ToastStack } from "../shell/ToastStack";
 import { theme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
-import { createPaletteManager } from "../state/palette-manager";
 
 const AUTH_GATE_BINDINGS: Binding[] = [
 	{ key: "Enter", action: "log in" },
@@ -31,84 +28,33 @@ export type AuthGateScreenProps = {
 
 export function AuthGateScreen(props: AuthGateScreenProps) {
 	const app = createAppState(null);
-	const palette = createPaletteManager();
 	const [headerHeight, setHeaderHeight] = createSignal(1);
-	const [isLoggingIn, setIsLoggingIn] = createSignal(false);
+	const [loginOpen, setLoginOpen] = createSignal(false);
 
-	async function handleLogin() {
-		if (isLoggingIn()) return;
-		setIsLoggingIn(true);
-		try {
-			const result = await runLoginFlow(palette, {
-				info: (title, lines) =>
-					app.showToast({ title, lines, variant: "info" }),
-				error: (title, lines) =>
-					app.showToast({ title, lines, variant: "error" }),
+	async function handleLoginResult(result: LoginOutcome) {
+		setLoginOpen(false);
+		if (!result.didAuthenticate) return;
+
+		const didEnterReadyState = await props.onAuthenticated(result.providerName);
+		if (!didEnterReadyState) {
+			app.showToast({
+				title: "Login complete",
+				lines: ["Credentials were saved, but no model is available yet."],
+				variant: "warning",
 			});
-
-			if (!result.didAuthenticate) return;
-
-			const didEnterReadyState = await props.onAuthenticated(
-				result.providerName,
-			);
-			if (!didEnterReadyState) {
-				app.showToast({
-					title: "Login complete",
-					lines: ["Credentials were saved, but no model is available yet."],
-					variant: "warning",
-				});
-			}
-		} finally {
-			setIsLoggingIn(false);
 		}
 	}
 
 	useKeyboard((event: KeyEvent) => {
+		if (loginOpen()) return;
 		if (event.ctrl && event.name === "c") {
 			event.preventDefault();
-			if (palette.visible) {
-				palette.clear();
-				return;
-			}
 			props.onQuit();
 			return;
 		}
-
-		if (palette.visible && !palette.isFilterable && !palette.isInputMode) {
-			if (event.name === "up") {
-				event.preventDefault();
-				palette.moveUp();
-				return;
-			}
-			if (event.name === "down") {
-				event.preventDefault();
-				palette.moveDown();
-				return;
-			}
-			if (event.name === "escape") {
-				event.preventDefault();
-				palette.pop();
-				return;
-			}
-			if (event.name === "return") {
-				event.preventDefault();
-				palette.selectCurrent();
-				return;
-			}
-			if (event.ctrl && event.name) {
-				const key = `ctrl+${event.name}`;
-				if (palette.handleKeyBinding(key)) {
-					event.preventDefault();
-					return;
-				}
-			}
-			return;
-		}
-
-		if (palette.visible) return;
 		if (event.name === "return") {
 			event.preventDefault();
-			void handleLogin();
+			setLoginOpen(true);
 			return;
 		}
 		if (event.name === "escape" || (event.ctrl && event.name === "d")) {
@@ -150,12 +96,18 @@ export function AuthGateScreen(props: AuthGateScreenProps) {
 			</box>
 
 			<HintBar bindings={AUTH_GATE_BINDINGS} />
-			<InlinePicker palette={palette} bottomOffset={3} />
-			<Modal palette={palette} />
+			<Show when={loginOpen()}>
+				<LoginModal
+					surfaceProps={{ zIndex: 300 }}
+					onClose={(result) => {
+						void handleLoginResult(result);
+					}}
+				/>
+			</Show>
 			<ToastStack
 				toasts={app.state.toasts}
 				top={headerHeight()}
-				zIndex={200}
+				zIndex={400}
 				onDismiss={app.dismissToast}
 			/>
 		</box>
