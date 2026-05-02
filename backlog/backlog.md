@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] fix: pasting images still pastes the filepath as text
 - [ ] fix: some tool calls show results even when collapsed
 - [ ] AgentRuntime should not know about `notifications`
 - [ ] feat: mcp support. perhaps with mcp-porter as a gateway 

@@ -237,11 +237,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 
 		if (candidatePaths.length > 0) {
+			event.preventDefault();
+			event.stopPropagation();
 			const attachedFromPaths =
 				await attachImagesFromPastedPaths(candidatePaths);
 			if (attachedFromPaths > 0) {
-				event.preventDefault();
-				event.stopPropagation();
 				console.log("[composer] attached images from pasted path(s)", {
 					count: attachedFromPaths,
 				});
@@ -250,6 +250,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			console.log(
 				"[composer] path-like paste did not resolve to images; falling back to text paste",
 			);
+			if (pastedText.length > 0) {
+				insertText(pastedText);
+				return;
+			}
 		}
 
 		if (pastedText.length > 0) {
