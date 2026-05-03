@@ -1,0 +1,1 @@
+export { McpPlugin } from "./plugin";
