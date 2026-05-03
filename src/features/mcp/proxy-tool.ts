@@ -173,7 +173,10 @@ export function MCP_PROXY_POLICY(): string {
 	].join("\n");
 }
 
-export function createMcpProxyTool(manager: McpManager) {
+export function createMcpProxyTool(
+	manager: McpManager,
+	options: { onError?: (error: unknown) => void } = {},
+) {
 	return {
 		name: "mcp",
 		label: "MCP",
@@ -200,7 +203,7 @@ export function createMcpProxyTool(manager: McpManager) {
 							: undefined;
 						const targetServer = input.server ?? canonicalServer;
 						if (targetServer && manager.getDefinition(targetServer)) {
-							await manager.ensureTools(targetServer).catch(() => undefined);
+							await manager.ensureTools(targetServer);
 							allTools = manager.getKnownTools();
 							resolved = findTool(input.tool, allTools, input.server);
 						} else {
@@ -235,7 +238,7 @@ export function createMcpProxyTool(manager: McpManager) {
 					let allTools = manager.getKnownTools();
 					let resolved = findTool(input.describe, allTools, input.server);
 					if (!resolved.tool && input.server) {
-						await manager.ensureTools(input.server).catch(() => undefined);
+						await manager.ensureTools(input.server);
 						allTools = manager.getKnownTools();
 						resolved = findTool(input.describe, allTools, input.server);
 					}
@@ -288,7 +291,7 @@ export function createMcpProxyTool(manager: McpManager) {
 				if (input.server) {
 					let tools = manager.getKnownTools(input.server);
 					if (tools.length === 0) {
-						tools = await manager.ensureTools(input.server).catch(() => []);
+						tools = await manager.ensureTools(input.server);
 					}
 					const state = manager
 						.getRuntimeStates()
@@ -322,6 +325,7 @@ export function createMcpProxyTool(manager: McpManager) {
 
 				return textResult(renderStatus(manager), { mode: "status" });
 			} catch (error) {
+				options.onError?.(error);
 				return textResult(
 					error instanceof Error ? error.message : String(error),
 					{ error: "execution_failed" },

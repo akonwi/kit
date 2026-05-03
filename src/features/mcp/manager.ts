@@ -37,6 +37,10 @@ export type McpManagerOptions = {
 		serverName: string,
 		authorizationUrl: URL,
 	) => Promise<string>;
+	onRecoverableAuthError?: (
+		serverName: string,
+		message: string,
+	) => Promise<void> | void;
 };
 
 function toCanonicalToolName(serverName: string, toolName: string): string {
@@ -259,6 +263,47 @@ export class McpManager {
 		return this.options.authorizeOAuthServer(name, new URL(rawUrl));
 	}
 
+	private async runConnectedOperation<T>(
+		name: string,
+		operation: (connection: ManagedConnection) => Promise<T>,
+	): Promise<{ connection: ManagedConnection; result: T }> {
+		const definition = this.definitions.get(name);
+		if (!definition) throw new Error(`Unknown MCP server: ${name}`);
+		let retriedAfterAuthReset = false;
+
+		while (true) {
+			await this.connectServer(name);
+			const connection = this.connections.get(name);
+			if (!connection || connection.status !== "connected") {
+				throw new Error(`MCP server ${name} is not connected.`);
+			}
+			try {
+				return {
+					connection,
+					result: await operation(connection),
+				};
+			} catch (error) {
+				if (
+					!retriedAfterAuthReset &&
+					error instanceof UnauthorizedError &&
+					isOAuthHttpServer(definition)
+				) {
+					retriedAfterAuthReset = true;
+					await this.options.onRecoverableAuthError?.(
+						name,
+						`Saved authorization for ${name} expired or was rejected. Clearing saved auth and retrying login automatically.`,
+					);
+					await this.clearOAuthSession(name);
+					continue;
+				}
+				connection.status = "error";
+				connection.lastError = this.toConnectionError(name, error);
+				this.options.onStateChange?.();
+				throw error;
+			}
+		}
+	}
+
 	async connectServer(
 		name: string,
 		connectOptions?: ConnectOptions,
@@ -353,32 +398,23 @@ export class McpManager {
 		const definition = this.definitions.get(name);
 		if (!definition) throw new Error(`Unknown MCP server: ${name}`);
 		if (definition.disabled) return [];
-		await this.connectServer(name);
-		const connection = this.connections.get(name);
-		if (!connection || connection.status !== "connected") {
-			throw new Error(`MCP server ${name} is not connected.`);
-		}
-		try {
-			const result = await connection.client.listTools();
-			connection.tools = (result.tools ?? []).map((tool) => ({
-				serverName: name,
-				name: tool.name,
-				canonicalName: toCanonicalToolName(name, tool.name),
-				description: tool.description ?? "",
-				inputSchema:
-					tool.inputSchema && typeof tool.inputSchema === "object"
-						? (tool.inputSchema as Record<string, unknown>)
-						: undefined,
-			}));
-			this.cachedTools.set(name, connection.tools);
-			this.options.onStateChange?.();
-			return connection.tools;
-		} catch (error) {
-			connection.status = "error";
-			connection.lastError = this.toConnectionError(name, error);
-			this.options.onStateChange?.();
-			throw error;
-		}
+		const { connection, result } = await this.runConnectedOperation(
+			name,
+			(next) => next.client.listTools(),
+		);
+		connection.tools = (result.tools ?? []).map((tool) => ({
+			serverName: name,
+			name: tool.name,
+			canonicalName: toCanonicalToolName(name, tool.name),
+			description: tool.description ?? "",
+			inputSchema:
+				tool.inputSchema && typeof tool.inputSchema === "object"
+					? (tool.inputSchema as Record<string, unknown>)
+					: undefined,
+		}));
+		this.cachedTools.set(name, connection.tools);
+		this.options.onStateChange?.();
+		return connection.tools;
 	}
 
 	async ensureAllTools(): Promise<McpToolMetadata[]> {
@@ -416,21 +452,14 @@ export class McpManager {
 		toolName: string,
 		args?: Record<string, unknown>,
 	): Promise<unknown> {
-		await this.connectServer(serverName);
-		const connection = this.connections.get(serverName);
-		if (!connection || connection.status !== "connected") {
-			throw new Error(`MCP server ${serverName} is not connected.`);
-		}
-		try {
-			return connection.client.callTool({
-				name: toolName,
-				arguments: args ?? {},
-			});
-		} catch (error) {
-			connection.status = "error";
-			connection.lastError = this.toConnectionError(serverName, error);
-			this.options.onStateChange?.();
-			throw error;
-		}
+		const { result } = await this.runConnectedOperation(
+			serverName,
+			(connection) =>
+				connection.client.callTool({
+					name: toolName,
+					arguments: args ?? {},
+				}),
+		);
+		return result;
 	}
 }

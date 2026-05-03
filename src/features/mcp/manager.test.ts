@@ -11,6 +11,8 @@ type MockBehavior = {
 		description?: string;
 		inputSchema?: Record<string, unknown>;
 	}>;
+	unauthorizedOnListToolsCount?: number;
+	unauthorizedOnCallToolCount?: number;
 	callResult?: unknown;
 	calls: Array<{ name: string; arguments: Record<string, unknown> }>;
 };
@@ -93,7 +95,15 @@ class MockClient {
 	}
 
 	async listTools(): Promise<{ tools: MockBehavior["tools"] }> {
-		return { tools: this.behavior?.tools ?? [] };
+		if (!this.behavior) throw new Error("Client not connected");
+		const unauthorizedOnListToolsCount =
+			this.behavior.unauthorizedOnListToolsCount ?? 0;
+		if (unauthorizedOnListToolsCount > 0) {
+			this.behavior.unauthorizedOnListToolsCount =
+				unauthorizedOnListToolsCount - 1;
+			throw new MockUnauthorizedError("Unauthorized during listTools");
+		}
+		return { tools: this.behavior.tools ?? [] };
 	}
 
 	async callTool(input: {
@@ -101,6 +111,13 @@ class MockClient {
 		arguments: Record<string, unknown>;
 	}): Promise<unknown> {
 		if (!this.behavior) throw new Error("Client not connected");
+		const unauthorizedOnCallToolCount =
+			this.behavior.unauthorizedOnCallToolCount ?? 0;
+		if (unauthorizedOnCallToolCount > 0) {
+			this.behavior.unauthorizedOnCallToolCount =
+				unauthorizedOnCallToolCount - 1;
+			throw new MockUnauthorizedError("Unauthorized during callTool");
+		}
 		this.behavior.calls.push(input);
 		return this.behavior.callResult ?? { content: [] };
 	}
@@ -288,6 +305,85 @@ describe("McpManager", () => {
 			manager.getPersistentOAuthStore().servers.secure?.tokens,
 		).toMatchObject({
 			access_token: "token-code-123",
+			token_type: "Bearer",
+		});
+	});
+
+	test("clears saved OAuth state and reauthorizes automatically after unauthorized tool discovery", async () => {
+		const definition: McpServerDefinition = {
+			name: "secure",
+			type: "http",
+			url: "https://secure.example.com/mcp",
+			headers: {},
+			description: "Secure server",
+			disabled: false,
+			auth: { type: "oauth" },
+			source: "kit-project",
+			filePath: ".agents/mcp.json",
+		};
+		behaviors.set(keyForDefinition(definition), {
+			requireAuth: true,
+			authorizationUrl: "https://auth.example.com/authorize",
+			connectAttempts: 0,
+			calls: [],
+			unauthorizedOnListToolsCount: 1,
+			tools: [
+				{
+					name: "search",
+					description: "Search",
+					inputSchema: { type: "object" },
+				},
+			],
+		});
+		const authRequests: Array<{ serverName: string; url: string }> = [];
+		const recoveryMessages: string[] = [];
+		const manager = new McpManager(
+			[definition],
+			createEmptyCache(),
+			{
+				version: 1,
+				servers: {
+					secure: {
+						tokens: {
+							access_token: "stale-token",
+							token_type: "Bearer",
+						},
+					},
+				},
+			},
+			{
+				authorizeOAuthServer: async (serverName, authorizationUrl) => {
+					authRequests.push({
+						serverName,
+						url: authorizationUrl.toString(),
+					});
+					return "code-456";
+				},
+				onRecoverableAuthError: (_serverName, message) => {
+					recoveryMessages.push(message);
+				},
+			},
+		);
+
+		const tools = await manager.ensureTools("secure");
+
+		expect(tools[0]?.canonicalName).toBe("secure.search");
+		expect(recoveryMessages).toEqual([
+			"Saved authorization for secure expired or was rejected. Clearing saved auth and retrying login automatically.",
+		]);
+		expect(authRequests).toEqual([
+			{
+				serverName: "secure",
+				url: "https://auth.example.com/authorize",
+			},
+		]);
+		expect(behaviors.get(keyForDefinition(definition))?.connectAttempts).toBe(
+			3,
+		);
+		expect(
+			manager.getPersistentOAuthStore().servers.secure?.tokens,
+		).toMatchObject({
+			access_token: "token-code-456",
 			token_type: "Bearer",
 		});
 	});

@@ -145,9 +145,18 @@ export class McpPlugin extends Plugin {
 			},
 			authorizeOAuthServer: (serverName, authorizationUrl) =>
 				this.authorizeOAuthServer(serverName, authorizationUrl),
+			onRecoverableAuthError: (serverName, message) => {
+				this.ctx.ui.toast({
+					title: `MCP reauthorizing: ${serverName}`,
+					lines: [message],
+					variant: "warning",
+				});
+			},
 		});
 		if (enabledServers.length > 0) {
-			const tool = createMcpProxyTool(this.manager);
+			const tool = createMcpProxyTool(this.manager, {
+				onError: (error) => this.toastMcpError("MCP error", error),
+			});
 			this.unregisterTool = this.ctx.runtime.addTool(tool as AgentTool);
 			this.removePolicy = this.ctx.runtime.addSystemPromptAddition(
 				MCP_PROXY_POLICY(),
@@ -165,6 +174,7 @@ export class McpPlugin extends Plugin {
 		let callbackServer: Awaited<
 			ReturnType<typeof startMcpOAuthCallbackServer>
 		> | null = null;
+		let timeoutId: ReturnType<typeof setTimeout> | null = null;
 		try {
 			callbackServer = await startMcpOAuthCallbackServer();
 			try {
@@ -187,16 +197,44 @@ export class McpPlugin extends Plugin {
 					variant: "warning",
 				});
 			}
-			const code = await callbackServer.waitForCode();
+			const code = await Promise.race([
+				callbackServer.waitForCode(),
+				new Promise<string>((_resolve, reject) => {
+					timeoutId = setTimeout(() => {
+						reject(
+							new Error(
+								`Timed out waiting for MCP authorization for ${serverName} after 1 minute.`,
+							),
+						);
+					}, 60_000);
+				}),
+			]);
 			this.ctx.ui.toast({
 				title: "MCP authorized",
 				lines: [`Authorization complete for ${serverName}.`],
 				variant: "info",
 			});
 			return code;
+		} catch (error) {
+			this.toastMcpError("MCP login failed", error);
+			const tagged = error instanceof Error ? error : new Error(String(error));
+			(tagged as Error & { mcpToastShown?: boolean }).mcpToastShown = true;
+			throw tagged;
 		} finally {
+			if (timeoutId) clearTimeout(timeoutId);
 			await callbackServer?.close().catch(() => undefined);
 		}
+	}
+
+	private toastMcpError(title: string, error: unknown): void {
+		if ((error as { mcpToastShown?: boolean } | undefined)?.mcpToastShown) {
+			return;
+		}
+		this.ctx.ui.toast({
+			title,
+			lines: [error instanceof Error ? error.message : String(error)],
+			variant: "error",
+		});
 	}
 
 	private async persistCache(): Promise<void> {
