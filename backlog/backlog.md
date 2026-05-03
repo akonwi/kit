@@ -12,9 +12,9 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] feat: mcp support. perhaps with mcp-porter as a gateway 
 - [ ] feat: self-extensibility like Pi
-  - Kit knowing how to create themes, change settings, write skills, prompts, etc
+  - point to its source repo in system prompt
+  - so it can create themes, change settings, write skills, prompts, etc
 - [ ] improvement: serialize or throttle session persistence writes to avoid overlapping save races
 - [ ] improvement: migrate session persistence from `.json` to `.jsonl` so appends do not require rewriting the full session on each save
 - [ ] new: markdown formatting for thinking text
