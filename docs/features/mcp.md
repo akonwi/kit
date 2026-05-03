@@ -51,9 +51,10 @@ Kit persists discovered MCP tool metadata to a Kit-owned cache file so search, l
 
 ## OAuth
 
-For HTTP MCP servers configured with `auth: "oauth"`, Kit persists OAuth client and token state in a Kit-owned auth file and exposes an explicit login flow:
+For HTTP MCP servers configured with `auth: "oauth"`, Kit persists OAuth client and token state in a Kit-owned auth file and exposes explicit auth management commands:
 
 - `/mcp-login <server>`
+- `/mcp-logout <server>`
 
 Normal MCP use does not automatically open a browser. If a server requires authorization, Kit reports that and you can complete the flow explicitly with `/mcp-login`.
 

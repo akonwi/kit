@@ -79,6 +79,21 @@ export class McpManager {
 		return this.pendingAuthorizationUrls.get(name);
 	}
 
+	hasOAuthSession(name: string): boolean {
+		return this.oauthSessions.has(name);
+	}
+
+	async clearOAuthSession(name: string): Promise<void> {
+		if (!this.definitions.has(name)) {
+			throw new Error(`Unknown MCP server: ${name}`);
+		}
+		await this.closeExistingConnection(name);
+		this.connections.delete(name);
+		this.oauthSessions.delete(name);
+		this.pendingAuthorizationUrls.delete(name);
+		this.onStateChange?.();
+	}
+
 	getRuntimeStates(): McpServerRuntimeState[] {
 		return this.getDefinitions().map((definition) => {
 			const existing = this.connections.get(definition.name);

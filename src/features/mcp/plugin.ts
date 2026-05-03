@@ -198,6 +198,63 @@ export class McpPlugin extends Plugin {
 			},
 		});
 
+		this.registerCommand({
+			name: "mcp-logout",
+			argName: "server",
+			description: "Clear Kit's saved OAuth state for one MCP server",
+			execute: async (ctx: CommandContext) => {
+				const serverName = ctx.args.trim();
+				if (!serverName) {
+					ctx.toast({
+						title: "MCP logout",
+						lines: [
+							"Provide a server name, for example: /mcp-logout my-server",
+						],
+						variant: "warning",
+					});
+					return;
+				}
+				if (!this.manager) {
+					ctx.toast({
+						title: "MCP logout",
+						lines: ["No MCP servers are currently configured."],
+						variant: "warning",
+					});
+					return;
+				}
+				const definition = this.manager.getDefinition(serverName);
+				if (!definition) {
+					ctx.toast({
+						title: "MCP logout",
+						lines: [`Unknown MCP server: ${serverName}`],
+						variant: "warning",
+					});
+					return;
+				}
+				if (definition.type !== "http" || definition.auth?.type !== "oauth") {
+					ctx.toast({
+						title: "MCP logout",
+						lines: [`${serverName} does not have Kit-managed OAuth state.`],
+						variant: "warning",
+					});
+					return;
+				}
+				const hadSession = this.manager.hasOAuthSession(serverName);
+				await this.manager.clearOAuthSession(serverName);
+				this.updateDebugSection();
+				ctx.toast({
+					title: "MCP logout",
+					lines: hadSession
+						? [
+								`Cleared saved OAuth state for ${serverName}.`,
+								"Run /mcp-login again to re-authorize.",
+							]
+						: [`No saved OAuth state existed for ${serverName}.`],
+					variant: "info",
+				});
+			},
+		});
+
 		void this.refresh();
 	}
 
@@ -280,7 +337,10 @@ export class McpPlugin extends Plugin {
 							: state.status === "disabled"
 								? "⊘"
 								: "○";
-			return `${prefix} ${state.name} (${state.type})${state.toolCount > 0 ? ` · ${state.toolCount} tools` : ""}${state.cached ? " · cached" : ""}${state.lastError ? ` · ${state.lastError}` : ""}`;
+			const oauth = this.manager?.hasOAuthSession(state.name)
+				? " · oauth saved"
+				: "";
+			return `${prefix} ${state.name} (${state.type})${state.toolCount > 0 ? ` · ${state.toolCount} tools` : ""}${state.cached ? " · cached" : ""}${oauth}${state.lastError ? ` · ${state.lastError}` : ""}`;
 		});
 	}
 
@@ -305,8 +365,11 @@ export class McpPlugin extends Plugin {
 		if (states.length > 0) {
 			lines.push("Servers:");
 			for (const state of states) {
+				const oauth = this.manager?.hasOAuthSession(state.name)
+					? " · oauth saved"
+					: "";
 				lines.push(
-					`- ${state.name} · ${state.status} · ${state.type} · ${state.toolCount} tools${state.cached ? " · cached" : ""}${state.lastError ? ` · ${state.lastError}` : ""}`,
+					`- ${state.name} · ${state.status} · ${state.type} · ${state.toolCount} tools${state.cached ? " · cached" : ""}${oauth}${state.lastError ? ` · ${state.lastError}` : ""}`,
 				);
 				const authorizationUrl = this.manager?.getPendingAuthorizationUrl(
 					state.name,

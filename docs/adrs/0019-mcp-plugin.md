@@ -38,7 +38,7 @@ The MVP supports:
 - lazy connection and persistent metadata caching
 - minimal OAuth handling for auth-required HTTP servers
 - one proxy tool named `mcp`
-- status/reload/connect/login commands
+- status/reload/connect/login/logout commands
 - `/debug` visibility
 
 The MVP does **not** support:
