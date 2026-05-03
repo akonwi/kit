@@ -191,145 +191,154 @@ export function createMcpProxyTool(manager: McpManager) {
 			_toolCallId: string,
 			input: ProxyInput,
 		): Promise<AgentToolResult<Record<string, unknown>>> {
-			if (input.tool) {
-				let allTools = manager.getKnownTools();
-				let resolved = findTool(input.tool, allTools, input.server);
-				if (!resolved.tool) {
-					const canonicalServer = input.tool.includes(".")
-						? input.tool.slice(0, input.tool.indexOf("."))
-						: undefined;
-					const targetServer = input.server ?? canonicalServer;
-					if (targetServer && manager.getDefinition(targetServer)) {
-						await manager.ensureTools(targetServer).catch(() => undefined);
-						allTools = manager.getKnownTools();
-						resolved = findTool(input.tool, allTools, input.server);
-					} else {
-						allTools = await manager.ensureAllTools();
-						resolved = findTool(input.tool, allTools, input.server);
+			try {
+				if (input.tool) {
+					let allTools = manager.getKnownTools();
+					let resolved = findTool(input.tool, allTools, input.server);
+					if (!resolved.tool) {
+						const canonicalServer = input.tool.includes(".")
+							? input.tool.slice(0, input.tool.indexOf("."))
+							: undefined;
+						const targetServer = input.server ?? canonicalServer;
+						if (targetServer && manager.getDefinition(targetServer)) {
+							await manager.ensureTools(targetServer).catch(() => undefined);
+							allTools = manager.getKnownTools();
+							resolved = findTool(input.tool, allTools, input.server);
+						} else {
+							allTools = await manager.ensureAllTools();
+							resolved = findTool(input.tool, allTools, input.server);
+						}
 					}
+					if (!resolved.tool) {
+						return textResult(resolved.error ?? "Tool not found.", {
+							mode: "call",
+							error: "tool_not_found",
+						});
+					}
+					const args = parseJsonArgs(input.args);
+					const result = (await manager.callTool(
+						resolved.tool.serverName,
+						resolved.tool.name,
+						args,
+					)) as { content?: unknown; isError?: boolean };
+					const content = transformContent(result.content ?? []);
+					return {
+						content,
+						details: {
+							mode: "call",
+							tool: resolveCanonicalName(resolved.tool),
+							isError: result.isError === true,
+						},
+					};
 				}
-				if (!resolved.tool) {
-					return textResult(resolved.error ?? "Tool not found.", {
-						mode: "call",
-						error: "tool_not_found",
-					});
-				}
-				const args = parseJsonArgs(input.args);
-				const result = (await manager.callTool(
-					resolved.tool.serverName,
-					resolved.tool.name,
-					args,
-				)) as { content?: unknown; isError?: boolean };
-				const content = transformContent(result.content ?? []);
-				return {
-					content,
-					details: {
-						mode: "call",
-						tool: resolveCanonicalName(resolved.tool),
-						isError: result.isError === true,
-					},
-				};
-			}
 
-			if (input.connect) {
-				const state = await manager.connectServer(input.connect);
-				const tools = await manager.ensureTools(input.connect).catch(() => []);
+				if (input.connect) {
+					const state = await manager.connectServer(input.connect);
+					const tools = await manager
+						.ensureTools(input.connect)
+						.catch(() => []);
+					return textResult(
+						`${state.name} is ${state.status}.${tools.length > 0 ? ` Loaded ${tools.length} tools.` : ""}`,
+						{ mode: "connect", server: state.name, toolCount: tools.length },
+					);
+				}
+
+				if (input.describe) {
+					let allTools = manager.getKnownTools();
+					let resolved = findTool(input.describe, allTools, input.server);
+					if (!resolved.tool && input.server) {
+						await manager.ensureTools(input.server).catch(() => undefined);
+						allTools = manager.getKnownTools();
+						resolved = findTool(input.describe, allTools, input.server);
+					}
+					if (!resolved.tool) {
+						return textResult(resolved.error ?? "Tool not found.", {
+							mode: "describe",
+							error: "tool_not_found",
+						});
+					}
+					return textResult(
+						[
+							resolved.tool.canonicalName,
+							resolved.tool.description || "(no description)",
+							"",
+							"Input schema:",
+							formatSchema(resolved.tool.inputSchema),
+						].join("\n"),
+						{ mode: "describe", tool: resolved.tool.canonicalName },
+					);
+				}
+
+				if (input.search) {
+					const allTools = manager.getKnownTools();
+					const matches = searchTools(
+						input.search,
+						input.server
+							? allTools.filter((tool) => tool.serverName === input.server)
+							: allTools,
+					);
+					if (matches.length === 0) {
+						return textResult(`No MCP tools matched "${input.search}".`, {
+							mode: "search",
+							count: 0,
+						});
+					}
+					return textResult(
+						[
+							`Found ${matches.length} MCP tool${matches.length === 1 ? "" : "s"}:`,
+							"",
+							...matches.map((tool) =>
+								tool.description
+									? `- ${tool.canonicalName} — ${tool.description}`
+									: `- ${tool.canonicalName}`,
+							),
+						].join("\n"),
+						{ mode: "search", count: matches.length },
+					);
+				}
+
+				if (input.server) {
+					let tools = manager.getKnownTools(input.server);
+					if (tools.length === 0) {
+						tools = await manager.ensureTools(input.server).catch(() => []);
+					}
+					const state = manager
+						.getRuntimeStates()
+						.find((next) => next.name === input.server);
+					if (!state) {
+						return textResult(`Unknown MCP server: ${input.server}`, {
+							mode: "list",
+							error: "server_not_found",
+						});
+					}
+					if (tools.length === 0) {
+						return textResult(`${state.name} has no tools.`, {
+							mode: "list",
+							server: state.name,
+							count: 0,
+						});
+					}
+					return textResult(
+						[
+							`${state.name} (${tools.length} tools${state.cached ? ", cached" : ""})`,
+							"",
+							...tools.map((tool) =>
+								tool.description
+									? `- ${tool.name} — ${tool.description}`
+									: `- ${tool.name}`,
+							),
+						].join("\n"),
+						{ mode: "list", server: state.name, count: tools.length },
+					);
+				}
+
+				return textResult(renderStatus(manager), { mode: "status" });
+			} catch (error) {
 				return textResult(
-					`${state.name} is ${state.status}.${tools.length > 0 ? ` Loaded ${tools.length} tools.` : ""}`,
-					{ mode: "connect", server: state.name, toolCount: tools.length },
+					error instanceof Error ? error.message : String(error),
+					{ error: "execution_failed" },
 				);
 			}
-
-			if (input.describe) {
-				let allTools = manager.getKnownTools();
-				let resolved = findTool(input.describe, allTools, input.server);
-				if (!resolved.tool && input.server) {
-					await manager.ensureTools(input.server).catch(() => undefined);
-					allTools = manager.getKnownTools();
-					resolved = findTool(input.describe, allTools, input.server);
-				}
-				if (!resolved.tool) {
-					return textResult(resolved.error ?? "Tool not found.", {
-						mode: "describe",
-						error: "tool_not_found",
-					});
-				}
-				return textResult(
-					[
-						resolved.tool.canonicalName,
-						resolved.tool.description || "(no description)",
-						"",
-						"Input schema:",
-						formatSchema(resolved.tool.inputSchema),
-					].join("\n"),
-					{ mode: "describe", tool: resolved.tool.canonicalName },
-				);
-			}
-
-			if (input.search) {
-				const allTools = manager.getKnownTools();
-				const matches = searchTools(
-					input.search,
-					input.server
-						? allTools.filter((tool) => tool.serverName === input.server)
-						: allTools,
-				);
-				if (matches.length === 0) {
-					return textResult(`No MCP tools matched "${input.search}".`, {
-						mode: "search",
-						count: 0,
-					});
-				}
-				return textResult(
-					[
-						`Found ${matches.length} MCP tool${matches.length === 1 ? "" : "s"}:`,
-						"",
-						...matches.map((tool) =>
-							tool.description
-								? `- ${tool.canonicalName} — ${tool.description}`
-								: `- ${tool.canonicalName}`,
-						),
-					].join("\n"),
-					{ mode: "search", count: matches.length },
-				);
-			}
-
-			if (input.server) {
-				let tools = manager.getKnownTools(input.server);
-				if (tools.length === 0) {
-					tools = await manager.ensureTools(input.server).catch(() => []);
-				}
-				const state = manager
-					.getRuntimeStates()
-					.find((next) => next.name === input.server);
-				if (!state) {
-					return textResult(`Unknown MCP server: ${input.server}`, {
-						mode: "list",
-						error: "server_not_found",
-					});
-				}
-				if (tools.length === 0) {
-					return textResult(`${state.name} has no tools.`, {
-						mode: "list",
-						server: state.name,
-						count: 0,
-					});
-				}
-				return textResult(
-					[
-						`${state.name} (${tools.length} tools${state.cached ? ", cached" : ""})`,
-						"",
-						...tools.map((tool) =>
-							tool.description
-								? `- ${tool.name} — ${tool.description}`
-								: `- ${tool.name}`,
-						),
-					].join("\n"),
-					{ mode: "list", server: state.name, count: tools.length },
-				);
-			}
-
-			return textResult(renderStatus(manager), { mode: "status" });
 		},
 	};
 }

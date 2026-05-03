@@ -36,8 +36,9 @@ The MVP supports:
 - stdio transport
 - HTTP transport
 - lazy connection and persistent metadata caching
+- minimal OAuth handling for auth-required HTTP servers
 - one proxy tool named `mcp`
-- status/reload/connect commands
+- status/reload/connect/login commands
 - `/debug` visibility
 
 The MVP does **not** support:
@@ -115,16 +116,15 @@ OAuth should remain minimal in the first implementation and follow the same prod
 
 - the proxy tool is less convenient than direct tools for some workflows
 - metadata caching and lifecycle logic add complexity to the plugin
-- OAuth and advanced MCP features are deferred rather than solved up front
+- OAuth handling remains intentionally minimal rather than a full auth management UI
 
 ## Follow-up direction
 
 Likely next phases after MVP:
 
-1. minimal OAuth flow
-2. selective direct tools
-3. richer MCP status UI
-4. resource/prompt support if still desirable
+1. selective direct tools
+2. richer MCP status UI
+3. resource/prompt support if still desirable
 
 ## Related
 

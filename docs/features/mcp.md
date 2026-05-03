@@ -40,6 +40,7 @@ The current MCP feature is focused on:
 - stdio and HTTP transports
 - lazy connection
 - persistent tool metadata cache
+- minimal OAuth handling for auth-required HTTP servers
 - MCP status/debug visibility
 
 It does not yet aim to provide full MCP coverage for prompts, resources, or MCP UI integrations.
@@ -48,8 +49,16 @@ It does not yet aim to provide full MCP coverage for prompts, resources, or MCP 
 
 Kit persists discovered MCP tool metadata to a Kit-owned cache file so search, list, and describe can still work after restart without immediately reconnecting every server.
 
+## OAuth
+
+For HTTP MCP servers configured with `auth: "oauth"`, Kit persists OAuth client and token state in a Kit-owned auth file and exposes an explicit login flow:
+
+- `/mcp-login <server>`
+
+Normal MCP use does not automatically open a browser. If a server requires authorization, Kit reports that and you can complete the flow explicitly with `/mcp-login`.
+
 ## Commands and debugging
 
-The MCP plugin may register commands for status, reload, and server connection flows.
+The MCP plugin may register commands for status, reload, connect, and login flows.
 
 Run `/debug` to inspect the plugin's current server/config state.
