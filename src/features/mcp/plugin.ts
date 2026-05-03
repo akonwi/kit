@@ -28,10 +28,9 @@ export class McpPlugin extends Plugin {
 			name: "mcp-status",
 			description: "Show a short MCP server status summary",
 			execute: async (ctx: CommandContext) => {
-				const summary = this.getStatusSummary();
 				ctx.toast({
 					title: "MCP status",
-					lines: summary,
+					lines: this.getStatusSummary(),
 					variant: "info",
 				});
 			},
@@ -47,154 +46,6 @@ export class McpPlugin extends Plugin {
 					lines: this.getStatusSummary(),
 					variant: "info",
 				});
-			},
-		});
-
-		this.registerCommand({
-			name: "mcp-connect",
-			argName: "server",
-			description: "Connect to one configured MCP server and load its tools",
-			execute: async (ctx: CommandContext) => {
-				const serverName = ctx.args.trim();
-				if (!serverName) {
-					ctx.toast({
-						title: "MCP connect",
-						lines: [
-							"Provide a server name, for example: /mcp-connect chrome-devtools",
-						],
-						variant: "warning",
-					});
-					return;
-				}
-				if (!this.manager) {
-					ctx.toast({
-						title: "MCP connect",
-						lines: ["No MCP servers are currently configured."],
-						variant: "warning",
-					});
-					return;
-				}
-				try {
-					await this.manager.connectServer(serverName);
-					const tools = await this.manager.ensureTools(serverName);
-					this.updateDebugSection();
-					ctx.toast({
-						title: "MCP connected",
-						lines: [
-							`${serverName} connected.`,
-							`Loaded ${tools.length} tools.`,
-						],
-						variant: "info",
-					});
-				} catch (error) {
-					ctx.toast({
-						title: "MCP connect failed",
-						lines: [error instanceof Error ? error.message : String(error)],
-						variant: "error",
-					});
-				}
-			},
-		});
-
-		this.registerCommand({
-			name: "mcp-login",
-			argName: "server",
-			description: "Authorize one OAuth-protected HTTP MCP server",
-			execute: async (ctx: CommandContext) => {
-				const serverName = ctx.args.trim();
-				if (!serverName) {
-					ctx.toast({
-						title: "MCP login",
-						lines: ["Provide a server name, for example: /mcp-login my-server"],
-						variant: "warning",
-					});
-					return;
-				}
-				if (!this.manager) {
-					ctx.toast({
-						title: "MCP login",
-						lines: ["No MCP servers are currently configured."],
-						variant: "warning",
-					});
-					return;
-				}
-
-				const definition = this.manager.getDefinition(serverName);
-				if (!definition) {
-					ctx.toast({
-						title: "MCP login",
-						lines: [`Unknown MCP server: ${serverName}`],
-						variant: "warning",
-					});
-					return;
-				}
-				if (definition.type !== "http" || definition.auth?.type !== "oauth") {
-					ctx.toast({
-						title: "MCP login",
-						lines: [
-							`${serverName} is not configured as an OAuth-protected HTTP MCP server.`,
-						],
-						variant: "warning",
-					});
-					return;
-				}
-
-				let callbackServer: Awaited<
-					ReturnType<typeof startMcpOAuthCallbackServer>
-				> | null = null;
-				let authorizationUrl: string | null = null;
-				try {
-					callbackServer = await startMcpOAuthCallbackServer();
-					const activeCallbackServer = callbackServer;
-					const state = await this.manager.connectServer(serverName, {
-						onAuthorizationUrl: async (url) => {
-							authorizationUrl = url.toString();
-							try {
-								await openExternal(authorizationUrl);
-							} catch {
-								ctx.toast({
-									title: "MCP login",
-									lines: [
-										"Open this authorization URL in your browser:",
-										authorizationUrl,
-									],
-									variant: "warning",
-								});
-							}
-						},
-						getAuthorizationCode: () => activeCallbackServer.waitForCode(),
-					});
-					const tools = await this.manager
-						.ensureTools(serverName)
-						.catch(() => []);
-					this.updateDebugSection();
-					ctx.toast({
-						title: "MCP authorized",
-						lines: [
-							state.status === "connected"
-								? `${serverName} connected.`
-								: `${serverName} is ${state.status}.`,
-							authorizationUrl
-								? "OAuth authorization completed."
-								: "Existing OAuth session reused.",
-							`Loaded ${tools.length} tools.`,
-						],
-						variant: "info",
-					});
-				} catch (error) {
-					ctx.toast({
-						title: "MCP login failed",
-						lines: [
-							error instanceof Error ? error.message : String(error),
-							...(authorizationUrl
-								? ["Authorization URL:", authorizationUrl]
-								: []),
-						],
-						variant: "error",
-					});
-				} finally {
-					await callbackServer?.close().catch(() => undefined);
-				}
 			},
 		});
 
@@ -247,7 +98,7 @@ export class McpPlugin extends Plugin {
 					lines: hadSession
 						? [
 								`Cleared saved OAuth state for ${serverName}.`,
-								"Run /mcp-login again to re-authorize.",
+								"Kit will re-authorize automatically on next use.",
 							]
 						: [`No saved OAuth state existed for ${serverName}.`],
 					variant: "info",
@@ -286,10 +137,14 @@ export class McpPlugin extends Plugin {
 		await this.manager?.dispose();
 
 		const enabledServers = config.servers.filter((server) => !server.disabled);
-		this.manager = new McpManager(config.servers, cache, oauthStore, () => {
-			this.updateDebugSection();
-			void this.persistCache();
-			void this.persistAuth();
+		this.manager = new McpManager(config.servers, cache, oauthStore, {
+			onStateChange: () => {
+				this.updateDebugSection();
+				void this.persistCache();
+				void this.persistAuth();
+			},
+			authorizeOAuthServer: (serverName, authorizationUrl) =>
+				this.authorizeOAuthServer(serverName, authorizationUrl),
 		});
 		if (enabledServers.length > 0) {
 			const tool = createMcpProxyTool(this.manager);
@@ -301,6 +156,47 @@ export class McpPlugin extends Plugin {
 
 		this.updateDebugSection();
 		await Promise.all([this.persistCache(), this.persistAuth()]);
+	}
+
+	private async authorizeOAuthServer(
+		serverName: string,
+		authorizationUrl: URL,
+	): Promise<string> {
+		let callbackServer: Awaited<
+			ReturnType<typeof startMcpOAuthCallbackServer>
+		> | null = null;
+		try {
+			callbackServer = await startMcpOAuthCallbackServer();
+			try {
+				await openExternal(authorizationUrl.toString());
+				this.ctx.ui.toast({
+					title: "MCP login required",
+					lines: [
+						`Complete login for ${serverName} in your browser.`,
+						"Kit will continue automatically when authorization finishes.",
+					],
+					variant: "info",
+				});
+			} catch {
+				this.ctx.ui.toast({
+					title: "MCP login required",
+					lines: [
+						`Open this authorization URL for ${serverName}:`,
+						authorizationUrl.toString(),
+					],
+					variant: "warning",
+				});
+			}
+			const code = await callbackServer.waitForCode();
+			this.ctx.ui.toast({
+				title: "MCP authorized",
+				lines: [`Authorization complete for ${serverName}.`],
+				variant: "info",
+			});
+			return code;
+		} finally {
+			await callbackServer?.close().catch(() => undefined);
+		}
 	}
 
 	private async persistCache(): Promise<void> {
@@ -324,8 +220,9 @@ export class McpPlugin extends Plugin {
 	private getStatusSummary(): string[] {
 		if (!this.manager) return ["No MCP servers are currently configured."];
 		const states = this.manager.getRuntimeStates();
-		if (states.length === 0)
+		if (states.length === 0) {
 			return ["No MCP servers are currently configured."];
+		}
 		return states.map((state) => {
 			const prefix =
 				state.status === "connected"

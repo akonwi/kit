@@ -31,6 +31,14 @@ type ConnectOptions = {
 	getAuthorizationCode?: () => Promise<string>;
 };
 
+export type McpManagerOptions = {
+	onStateChange?: () => void;
+	authorizeOAuthServer?: (
+		serverName: string,
+		authorizationUrl: URL,
+	) => Promise<string>;
+};
+
 function toCanonicalToolName(serverName: string, toolName: string): string {
 	return `${serverName}.${toolName}`;
 }
@@ -52,7 +60,7 @@ export class McpManager {
 		definitions: McpServerDefinition[],
 		cache: McpMetadataCache,
 		oauthStore: McpOAuthStore,
-		private readonly onStateChange?: () => void,
+		private readonly options: McpManagerOptions = {},
 	) {
 		for (const definition of definitions) {
 			this.definitions.set(definition.name, definition);
@@ -91,7 +99,7 @@ export class McpManager {
 		this.connections.delete(name);
 		this.oauthSessions.delete(name);
 		this.pendingAuthorizationUrls.delete(name);
-		this.onStateChange?.();
+		this.options.onStateChange?.();
 	}
 
 	getRuntimeStates(): McpServerRuntimeState[] {
@@ -124,12 +132,12 @@ export class McpManager {
 			}
 		}
 		this.connections.clear();
-		this.onStateChange?.();
+		this.options.onStateChange?.();
 	}
 
 	private createTransport(
 		definition: McpServerDefinition,
-		options?: ConnectOptions,
+		connectOptions?: ConnectOptions,
 	): ManagedTransport {
 		if (definition.type === "stdio") {
 			return new StdioClientTransport({
@@ -151,8 +159,8 @@ export class McpManager {
 					(session) => this.saveOAuthSession(definition.name, session),
 					async (url) => {
 						this.pendingAuthorizationUrls.set(definition.name, url.toString());
-						this.onStateChange?.();
-						await options?.onAuthorizationUrl?.(url);
+						this.options.onStateChange?.();
+						await connectOptions?.onAuthorizationUrl?.(url);
 					},
 				)
 			: undefined;
@@ -174,7 +182,7 @@ export class McpManager {
 		} else {
 			this.oauthSessions.set(serverName, session);
 		}
-		this.onStateChange?.();
+		this.options.onStateChange?.();
 	}
 
 	private async closeExistingConnection(
@@ -204,7 +212,7 @@ export class McpManager {
 			lastError: undefined,
 		};
 		this.connections.set(definition.name, pending);
-		this.onStateChange?.();
+		this.options.onStateChange?.();
 		return pending;
 	}
 
@@ -216,7 +224,7 @@ export class McpManager {
 
 	private toConnectionError(serverName: string, error: unknown): string {
 		if (error instanceof UnauthorizedError) {
-			return `Authorization required. Run /mcp-login ${serverName}.`;
+			return `Authorization failed while connecting to ${serverName}.`;
 		}
 		return error instanceof Error ? error.message : String(error);
 	}
@@ -233,13 +241,27 @@ export class McpManager {
 		} catch {
 			// best effort
 		}
-		this.onStateChange?.();
+		this.options.onStateChange?.();
 		throw error;
+	}
+
+	private async getAuthorizationCode(
+		name: string,
+		connectOptions?: ConnectOptions,
+	): Promise<string | undefined> {
+		if (connectOptions?.getAuthorizationCode) {
+			return connectOptions.getAuthorizationCode();
+		}
+		const rawUrl = this.pendingAuthorizationUrls.get(name);
+		if (!rawUrl || !this.options.authorizeOAuthServer) {
+			return undefined;
+		}
+		return this.options.authorizeOAuthServer(name, new URL(rawUrl));
 	}
 
 	async connectServer(
 		name: string,
-		options?: ConnectOptions,
+		connectOptions?: ConnectOptions,
 	): Promise<McpServerRuntimeState> {
 		const definition = this.definitions.get(name);
 		if (!definition) throw new Error(`Unknown MCP server: ${name}`);
@@ -258,11 +280,14 @@ export class McpManager {
 		}
 
 		const existing = this.connections.get(name);
-		if (existing?.status === "connected" && !options?.getAuthorizationCode) {
+		if (
+			existing?.status === "connected" &&
+			!connectOptions?.getAuthorizationCode
+		) {
 			return this.getStateOrThrow(name);
 		}
 		const closed = await this.closeExistingConnection(name);
-		const transport = this.createTransport(definition, options);
+		const transport = this.createTransport(definition, connectOptions);
 		const pending = this.createPendingConnection(definition, transport, closed);
 		this.pendingAuthorizationUrls.delete(name);
 
@@ -271,25 +296,29 @@ export class McpManager {
 			pending.status = "connected";
 			pending.lastError = undefined;
 			this.pendingAuthorizationUrls.delete(name);
-			this.onStateChange?.();
+			this.options.onStateChange?.();
 			return this.getStateOrThrow(name);
 		} catch (error) {
 			if (
 				error instanceof UnauthorizedError &&
-				transport instanceof StreamableHTTPClientTransport &&
-				options?.getAuthorizationCode
+				transport instanceof StreamableHTTPClientTransport
 			) {
-				try {
-					const authorizationCode = await options.getAuthorizationCode();
-					await transport.finishAuth(authorizationCode);
-					await pending.client.connect(transport);
-					pending.status = "connected";
-					pending.lastError = undefined;
-					this.pendingAuthorizationUrls.delete(name);
-					this.onStateChange?.();
-					return this.getStateOrThrow(name);
-				} catch (authError) {
-					return this.failConnection(name, pending, authError);
+				const authorizationCode = await this.getAuthorizationCode(
+					name,
+					connectOptions,
+				);
+				if (authorizationCode) {
+					try {
+						await transport.finishAuth(authorizationCode);
+						await pending.client.connect(transport);
+						pending.status = "connected";
+						pending.lastError = undefined;
+						this.pendingAuthorizationUrls.delete(name);
+						this.options.onStateChange?.();
+						return this.getStateOrThrow(name);
+					} catch (authError) {
+						return this.failConnection(name, pending, authError);
+					}
 				}
 			}
 			return this.failConnection(name, pending, error);
@@ -342,12 +371,12 @@ export class McpManager {
 						: undefined,
 			}));
 			this.cachedTools.set(name, connection.tools);
-			this.onStateChange?.();
+			this.options.onStateChange?.();
 			return connection.tools;
 		} catch (error) {
 			connection.status = "error";
 			connection.lastError = this.toConnectionError(name, error);
-			this.onStateChange?.();
+			this.options.onStateChange?.();
 			throw error;
 		}
 	}
@@ -400,7 +429,7 @@ export class McpManager {
 		} catch (error) {
 			connection.status = "error";
 			connection.lastError = this.toConnectionError(serverName, error);
-			this.onStateChange?.();
+			this.options.onStateChange?.();
 			throw error;
 		}
 	}

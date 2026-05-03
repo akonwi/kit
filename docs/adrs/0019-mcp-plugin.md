@@ -37,8 +37,9 @@ The MVP supports:
 - HTTP transport
 - lazy connection and persistent metadata caching
 - minimal OAuth handling for auth-required HTTP servers
+- automatic connection and automatic auth flow when needed
 - one proxy tool named `mcp`
-- status/reload/connect/login/logout commands
+- status/reload/logout commands
 - `/debug` visibility
 
 The MVP does **not** support:
@@ -75,7 +76,6 @@ The proxy tool supports:
 - list server tools
 - search tools
 - describe tool schema
-- connect to a server
 - call a tool
 
 This keeps prompt cost bounded even when the configured MCP ecosystem is large.
@@ -100,7 +100,7 @@ The first pass should support both transports when practical:
 - stdio
 - HTTP
 
-OAuth should remain minimal in the first implementation and follow the same product philosophy as current provider login flows: enough to work, not a full auth platform.
+OAuth should remain minimal in the first implementation and follow the same product philosophy as current provider login flows: enough to work, not a full auth platform. Authorization should happen automatically when the user actually tries to use a protected MCP server.
 
 ## Consequences
 

@@ -17,9 +17,6 @@ const parameters = Type.Object({
 			description: "Show the schema and details for one MCP tool",
 		}),
 	),
-	connect: Type.Optional(
-		Type.String({ description: "Connect to a specific MCP server" }),
-	),
 	tool: Type.Optional(
 		Type.String({
 			description: "Call one MCP tool by canonical name like server.tool",
@@ -170,6 +167,7 @@ function findTool(
 export function MCP_PROXY_POLICY(): string {
 	return [
 		"Use the mcp tool to discover and call external MCP tools when built-in tools are insufficient.",
+		"MCP servers connect automatically when needed.",
 		"Prefer mcp search or describe before calling an unfamiliar MCP tool.",
 		"When calling an MCP tool, pass args as a JSON object string.",
 	].join("\n");
@@ -182,6 +180,7 @@ export function createMcpProxyTool(manager: McpManager) {
 		description:
 			"Discover configured MCP servers, inspect their tools, connect lazily, and call MCP tools through one proxy interface.",
 		promptGuidelines: [
+			"MCP servers connect automatically when needed.",
 			"Use search or describe before calling an unfamiliar MCP tool.",
 			"Use canonical tool names like server.tool when there may be name collisions.",
 			"Pass args as a JSON object string.",
@@ -230,17 +229,6 @@ export function createMcpProxyTool(manager: McpManager) {
 							isError: result.isError === true,
 						},
 					};
-				}
-
-				if (input.connect) {
-					const state = await manager.connectServer(input.connect);
-					const tools = await manager
-						.ensureTools(input.connect)
-						.catch(() => []);
-					return textResult(
-						`${state.name} is ${state.status}.${tools.length > 0 ? ` Loaded ${tools.length} tools.` : ""}`,
-						{ mode: "connect", server: state.name, toolCount: tools.length },
-					);
 				}
 
 				if (input.describe) {

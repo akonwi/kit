@@ -13,7 +13,6 @@ Instead of registering every MCP tool directly into the model tool list, Kit exp
 That tool can be used to:
 
 - inspect configured servers
-- connect to a server
 - list tools
 - search tools
 - describe a tool
@@ -51,15 +50,16 @@ Kit persists discovered MCP tool metadata to a Kit-owned cache file so search, l
 
 ## OAuth
 
-For HTTP MCP servers configured with `auth: "oauth"`, Kit persists OAuth client and token state in a Kit-owned auth file and exposes explicit auth management commands:
+For HTTP MCP servers configured with `auth: "oauth"`, Kit persists OAuth client and token state in a Kit-owned auth file.
 
-- `/mcp-login <server>`
+When a protected server is actually needed, Kit automatically starts the browser-based authorization flow and continues once the callback completes.
+
+If you want to clear saved MCP OAuth state, use:
+
 - `/mcp-logout <server>`
-
-Normal MCP use does not automatically open a browser. If a server requires authorization, Kit reports that and you can complete the flow explicitly with `/mcp-login`.
 
 ## Commands and debugging
 
-The MCP plugin may register commands for status, reload, connect, and login flows.
+The MCP plugin may register commands for status, reload, and logout flows.
 
 Run `/debug` to inspect the plugin's current server/config state.
