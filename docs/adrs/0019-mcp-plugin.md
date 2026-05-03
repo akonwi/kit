@@ -39,14 +39,13 @@ The MVP supports:
 - minimal OAuth handling for auth-required HTTP servers
 - automatic connection and automatic auth flow when needed
 - one proxy tool named `mcp`
-- status/reload/logout commands
-- `/debug` visibility
+- status/logout commands plus `/debug` visibility
+- lightweight MCP status UI
 
 The MVP does **not** support:
 
 - MCP prompts
 - MCP resources as first-class features
-- MCP UI integrations
 - direct-tool registration by default
 - rich onboarding or management UI
 
@@ -100,7 +99,7 @@ The first pass should support both transports when practical:
 - stdio
 - HTTP
 
-OAuth should remain minimal in the first implementation and follow the same product philosophy as current provider login flows: enough to work, not a full auth platform. Authorization should happen automatically when the user actually tries to use a protected MCP server.
+OAuth should remain minimal in the first implementation and follow the same product philosophy as current provider login flows: enough to work, not a full auth platform. Authorization should happen automatically when the user actually tries to use a protected MCP server, with lightweight feedback and automatic recovery for expired saved auth.
 
 ## Consequences
 
@@ -123,8 +122,8 @@ OAuth should remain minimal in the first implementation and follow the same prod
 Likely next phases after MVP:
 
 1. selective direct tools
-2. richer MCP status UI
-3. resource/prompt support if still desirable
+2. resource/prompt support if still desirable
+3. broader MCP management UI if still needed
 
 ## Related
 

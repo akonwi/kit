@@ -44,19 +44,6 @@ export class McpPlugin extends Plugin {
 		});
 
 		this.registerCommand({
-			name: "mcp-reload",
-			description: "Reload MCP config and rebuild the MCP plugin state",
-			execute: async (ctx: CommandContext) => {
-				await this.refresh();
-				ctx.toast({
-					title: "MCP reloaded",
-					lines: this.getStatusSummary(),
-					variant: "info",
-				});
-			},
-		});
-
-		this.registerCommand({
 			name: "mcp-logout",
 			argName: "server",
 			description: "Clear Kit's saved OAuth state for one MCP server",
@@ -260,30 +247,6 @@ export class McpPlugin extends Plugin {
 			.catch(() => undefined)
 			.then(() => saveMcpOAuthStore(snapshot));
 		await this.saveAuthPromise;
-	}
-
-	private getStatusSummary(): string[] {
-		if (!this.manager) return ["No MCP servers are currently configured."];
-		const states = this.manager.getRuntimeStates();
-		if (states.length === 0) {
-			return ["No MCP servers are currently configured."];
-		}
-		return states.map((state) => {
-			const prefix =
-				state.status === "connected"
-					? "✓"
-					: state.status === "connecting"
-						? "◌"
-						: state.status === "error"
-							? "✗"
-							: state.status === "disabled"
-								? "⊘"
-								: "○";
-			const oauth = this.manager?.hasOAuthSession(state.name)
-				? " · oauth saved"
-				: "";
-			return `${prefix} ${state.name} (${state.type})${state.toolCount > 0 ? ` · ${state.toolCount} tools` : ""}${state.cached ? " · cached" : ""}${oauth}${state.lastError ? ` · ${state.lastError}` : ""}`;
-		});
 	}
 
 	private updateDebugSection(): void {

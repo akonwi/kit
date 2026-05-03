@@ -39,10 +39,10 @@ The current MCP feature is focused on:
 - stdio and HTTP transports
 - lazy connection
 - persistent tool metadata cache
-- minimal OAuth handling for auth-required HTTP servers
-- MCP status/debug visibility
+- automatic OAuth handling for auth-required HTTP servers
+- lightweight MCP status/debug UI
 
-It does not yet aim to provide full MCP coverage for prompts, resources, or MCP UI integrations.
+It does not yet aim to provide full MCP coverage for prompts, resources, or broader MCP management UI.
 
 ## Metadata cache
 
@@ -54,12 +54,23 @@ For HTTP MCP servers configured with `auth: "oauth"`, Kit persists OAuth client 
 
 When a protected server is actually needed, Kit automatically starts the browser-based authorization flow and continues once the callback completes.
 
-If you want to clear saved MCP OAuth state, use:
+Current behavior includes:
+
+- automatic browser-based auth on first protected use
+- a 1 minute authorization timeout
+- error toasts when auth fails
+- automatic clear-and-reauthorize retry once when saved auth has expired or is rejected
+
+If you want to clear saved MCP OAuth state manually, use:
 
 - `/mcp-logout <server>`
 
-## Commands and debugging
+## Status and debugging
 
-The MCP plugin may register commands for status, reload, and logout flows.
+The MCP plugin currently provides:
 
-Run `/debug` to inspect the plugin's current server/config state.
+- `/mcp-status` — opens a modal showing configured servers, statuses, tool counts, saved OAuth state, warnings, and last errors
+- `/mcp-logout <server>` — clears saved MCP OAuth state for one server
+- `/debug` — shows the MCP debug section with config files, warnings, and server state
+
+Use the app-level `/reload` command if you need to fully reload plugins and refresh MCP state.
