@@ -1,8 +1,10 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import { createComponent } from "solid-js";
 import { Plugin } from "../../plugins/Plugin";
 import { openExternal } from "../../shell/open-external";
 import type { CommandContext } from "../commands/types";
 import { loadMcpConfig } from "./config";
+import { McpStatusModal } from "./McpStatusModal";
 import { McpManager } from "./manager";
 import { loadMcpMetadataCache, saveMcpMetadataCache } from "./metadata-cache";
 import { startMcpOAuthCallbackServer } from "./oauth-callback";
@@ -26,13 +28,18 @@ export class McpPlugin extends Plugin {
 
 		this.registerCommand({
 			name: "mcp-status",
-			description: "Show a short MCP server status summary",
+			description: "Open a modal showing configured MCP server status",
 			execute: async (ctx: CommandContext) => {
-				ctx.toast({
-					title: "MCP status",
-					lines: this.getStatusSummary(),
-					variant: "info",
-				});
+				await ctx.openCustomOverlay<void>((props) =>
+					createComponent(McpStatusModal, {
+						surfaceProps: props.surfaceProps,
+						states: this.manager?.getRuntimeStates() ?? [],
+						config: this.lastConfig,
+						hasOAuthSession: (serverName: string) =>
+							this.manager?.hasOAuthSession(serverName) ?? false,
+						onClose: () => props.done(undefined),
+					}),
+				);
 			},
 		});
 
