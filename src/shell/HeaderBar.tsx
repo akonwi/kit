@@ -39,8 +39,6 @@ export function HeaderBar(props: HeaderBarProps) {
 	);
 
 	const contextUsage = () => contextStats()?.percent ?? 0;
-	const formattedContextUsage = () =>
-		contextStats() ? `${contextUsage()}%` : "–";
 
 	const [settings, setSettings] = createSignal(props.runtime.settings);
 	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
@@ -104,9 +102,6 @@ export function HeaderBar(props: HeaderBarProps) {
 					</Show>
 					<text fg={theme.textMuted}>
 						{agentInfo().model?.name ?? "model?"} ({agentInfo().thinkingLevel})
-					</text>
-					<text fg={progressColor(contextUsage())}>
-						{formattedContextUsage()}
 					</text>
 					<text fg={theme.textMuted}>
 						{bell()} {speech()}
