@@ -4,6 +4,8 @@ import {
 	StdioClientTransport,
 } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { McpMetadataCache } from "./metadata-cache";
+import { getServerFingerprint } from "./metadata-cache";
 import type {
 	McpServerDefinition,
 	McpServerRuntimeState,
@@ -26,13 +28,19 @@ function toCanonicalToolName(serverName: string, toolName: string): string {
 export class McpManager {
 	private readonly definitions = new Map<string, McpServerDefinition>();
 	private readonly connections = new Map<string, ManagedConnection>();
+	private readonly cachedTools = new Map<string, McpToolMetadata[]>();
 
 	constructor(
 		definitions: McpServerDefinition[],
+		cache: McpMetadataCache,
 		private readonly onStateChange?: () => void,
 	) {
 		for (const definition of definitions) {
 			this.definitions.set(definition.name, definition);
+			const cached = cache.servers[definition.name];
+			if (!cached) continue;
+			if (cached.fingerprint !== getServerFingerprint(definition)) continue;
+			this.cachedTools.set(definition.name, cached.tools);
 		}
 	}
 
@@ -47,6 +55,7 @@ export class McpManager {
 	getRuntimeStates(): McpServerRuntimeState[] {
 		return this.getDefinitions().map((definition) => {
 			const existing = this.connections.get(definition.name);
+			const cachedTools = this.cachedTools.get(definition.name) ?? [];
 			return {
 				name: definition.name,
 				status: definition.disabled
@@ -56,9 +65,10 @@ export class McpManager {
 				description: definition.description,
 				source: definition.source,
 				filePath: definition.filePath,
-				toolCount: existing?.tools.length ?? 0,
+				toolCount: existing?.tools.length ?? cachedTools.length,
 				lastError: existing?.lastError,
 				disabled: definition.disabled,
+				cached: !existing && cachedTools.length > 0,
 			};
 		});
 	}
@@ -108,6 +118,7 @@ export class McpManager {
 				filePath: definition.filePath,
 				toolCount: 0,
 				disabled: true,
+				cached: false,
 			};
 		}
 
@@ -160,6 +171,20 @@ export class McpManager {
 		}
 	}
 
+	getPersistentCache(): McpMetadataCache {
+		const servers: McpMetadataCache["servers"] = {};
+		for (const definition of this.getDefinitions()) {
+			const tools = this.cachedTools.get(definition.name) ?? [];
+			if (tools.length === 0) continue;
+			servers[definition.name] = {
+				fingerprint: getServerFingerprint(definition),
+				tools,
+				updatedAt: new Date().toISOString(),
+			};
+		}
+		return { version: 1, servers };
+	}
+
 	async ensureTools(name: string): Promise<McpToolMetadata[]> {
 		const definition = this.definitions.get(name);
 		if (!definition) throw new Error(`Unknown MCP server: ${name}`);
@@ -180,6 +205,7 @@ export class McpManager {
 					? (tool.inputSchema as Record<string, unknown>)
 					: undefined,
 		}));
+		this.cachedTools.set(name, connection.tools);
 		this.onStateChange?.();
 		return connection.tools;
 	}
@@ -197,13 +223,21 @@ export class McpManager {
 		return all;
 	}
 
-	getCachedTools(serverName?: string): McpToolMetadata[] {
+	getKnownTools(serverName?: string): McpToolMetadata[] {
 		if (serverName) {
-			return this.connections.get(serverName)?.tools ?? [];
+			const live = this.connections.get(serverName)?.tools;
+			if (live && live.length > 0) return live;
+			return this.cachedTools.get(serverName) ?? [];
 		}
-		return [...this.connections.values()].flatMap(
-			(connection) => connection.tools,
-		);
+		const allNames = new Set<string>([
+			...this.cachedTools.keys(),
+			...this.connections.keys(),
+		]);
+		const all: McpToolMetadata[] = [];
+		for (const name of allNames) {
+			all.push(...this.getKnownTools(name));
+		}
+		return all;
 	}
 
 	async callTool(

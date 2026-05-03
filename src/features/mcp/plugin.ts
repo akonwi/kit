@@ -3,6 +3,7 @@ import { Plugin } from "../../plugins/Plugin";
 import type { CommandContext } from "../commands/types";
 import { loadMcpConfig } from "./config";
 import { McpManager } from "./manager";
+import { loadMcpMetadataCache, saveMcpMetadataCache } from "./metadata-cache";
 import { createMcpProxyTool, MCP_PROXY_POLICY } from "./proxy-tool";
 import type { LoadMcpConfigResult } from "./types";
 
@@ -12,6 +13,7 @@ export class McpPlugin extends Plugin {
 	private removePolicy: (() => void) | null = null;
 	private clearDebugSection: (() => void) | null = null;
 	private lastConfig: LoadMcpConfigResult | null = null;
+	private saveCachePromise = Promise.resolve();
 
 	override initialize(): void {
 		this.subscribeRuntimeEvent("session.active.changed", async () => {
@@ -96,7 +98,10 @@ export class McpPlugin extends Plugin {
 
 	private async refresh(): Promise<void> {
 		const cwd = this.ctx.runtime.getSession().cwd;
-		const config = await loadMcpConfig(cwd);
+		const [config, cache] = await Promise.all([
+			loadMcpConfig(cwd),
+			loadMcpMetadataCache(),
+		]);
 		this.lastConfig = config;
 
 		this.unregisterTool?.();
@@ -106,9 +111,10 @@ export class McpPlugin extends Plugin {
 		await this.manager?.dispose();
 
 		const enabledServers = config.servers.filter((server) => !server.disabled);
-		this.manager = new McpManager(config.servers, () =>
-			this.updateDebugSection(),
-		);
+		this.manager = new McpManager(config.servers, cache, () => {
+			this.updateDebugSection();
+			void this.persistCache();
+		});
 		if (enabledServers.length > 0) {
 			const tool = createMcpProxyTool(this.manager);
 			this.unregisterTool = this.ctx.runtime.addTool(tool as AgentTool);
@@ -118,6 +124,16 @@ export class McpPlugin extends Plugin {
 		}
 
 		this.updateDebugSection();
+		await this.persistCache();
+	}
+
+	private async persistCache(): Promise<void> {
+		if (!this.manager) return;
+		const snapshot = this.manager.getPersistentCache();
+		this.saveCachePromise = this.saveCachePromise
+			.catch(() => undefined)
+			.then(() => saveMcpMetadataCache(snapshot));
+		await this.saveCachePromise;
 	}
 
 	private getStatusSummary(): string[] {
@@ -136,7 +152,7 @@ export class McpPlugin extends Plugin {
 							: state.status === "disabled"
 								? "⊘"
 								: "○";
-			return `${prefix} ${state.name} (${state.type})${state.toolCount > 0 ? ` · ${state.toolCount} tools` : ""}${state.lastError ? ` · ${state.lastError}` : ""}`;
+			return `${prefix} ${state.name} (${state.type})${state.toolCount > 0 ? ` · ${state.toolCount} tools` : ""}${state.cached ? " · cached" : ""}${state.lastError ? ` · ${state.lastError}` : ""}`;
 		});
 	}
 
@@ -162,7 +178,7 @@ export class McpPlugin extends Plugin {
 			lines.push("Servers:");
 			for (const state of states) {
 				lines.push(
-					`- ${state.name} · ${state.status} · ${state.type} · ${state.toolCount} tools${state.lastError ? ` · ${state.lastError}` : ""}`,
+					`- ${state.name} · ${state.status} · ${state.type} · ${state.toolCount} tools${state.cached ? " · cached" : ""}${state.lastError ? ` · ${state.lastError}` : ""}`,
 				);
 			}
 		}

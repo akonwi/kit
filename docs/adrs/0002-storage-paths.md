@@ -16,6 +16,8 @@ All app-owned state lives under a single storage root:
 ```text
 ~/.kit/
   auth.json
+  mcp-cache.json
+  mcp.json
   notifications.json
   settings.json
   sessions/
@@ -43,6 +45,17 @@ All app-owned state lives under a single storage root:
 ```text
 ~/.kit/notifications.json
 ```
+
+### MCP
+
+```text
+~/.kit/mcp.json
+~/.kit/mcp-cache.json
+```
+
+`mcp.json` is a Kit-owned MCP override config.
+
+`mcp-cache.json` stores cached MCP server tool metadata.
 
 ### Sessions
 

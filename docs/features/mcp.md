@@ -39,9 +39,14 @@ The current MCP feature is focused on:
 - tools
 - stdio and HTTP transports
 - lazy connection
+- persistent tool metadata cache
 - MCP status/debug visibility
 
 It does not yet aim to provide full MCP coverage for prompts, resources, or MCP UI integrations.
+
+## Metadata cache
+
+Kit persists discovered MCP tool metadata to a Kit-owned cache file so search, list, and describe can still work after restart without immediately reconnecting every server.
 
 ## Commands and debugging
 

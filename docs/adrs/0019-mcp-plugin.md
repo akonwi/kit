@@ -35,7 +35,7 @@ The MVP supports:
 - Kit-specific MCP override files
 - stdio transport
 - HTTP transport
-- lazy connection and in-session metadata caching
+- lazy connection and persistent metadata caching
 - one proxy tool named `mcp`
 - status/reload/connect commands
 - `/debug` visibility
@@ -121,11 +121,10 @@ OAuth should remain minimal in the first implementation and follow the same prod
 
 Likely next phases after MVP:
 
-1. persistent metadata cache
-2. minimal OAuth flow
-3. selective direct tools
-4. richer MCP status UI
-5. resource/prompt support if still desirable
+1. minimal OAuth flow
+2. selective direct tools
+3. richer MCP status UI
+4. resource/prompt support if still desirable
 
 ## Related
 

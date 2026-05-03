@@ -6,6 +6,8 @@ export type KitPaths = {
 	kitRoot: string;
 	settingsPath: string;
 	notificationConfigPath: string;
+	mcpConfigPath: string;
+	mcpCachePath: string;
 	themesDir: string;
 };
 
@@ -19,6 +21,8 @@ export function getKitPaths(home = homedir()): KitPaths {
 		kitRoot,
 		settingsPath: path.join(kitRoot, "settings.json"),
 		notificationConfigPath: path.join(kitRoot, "notifications.json"),
+		mcpConfigPath: path.join(kitRoot, "mcp.json"),
+		mcpCachePath: path.join(kitRoot, "mcp-cache.json"),
 		themesDir: path.join(kitRoot, "themes"),
 	};
 	return _cached;

@@ -197,7 +197,7 @@ export async function loadMcpConfig(cwd: string): Promise<LoadMcpConfigResult> {
 			source: "shared-user",
 			filePath: path.join(homedir(), ".config", "mcp", "mcp.json"),
 		},
-		{ source: "kit-user", filePath: path.join(kitPaths.kitRoot, "mcp.json") },
+		{ source: "kit-user", filePath: kitPaths.mcpConfigPath },
 		{ source: "shared-project", filePath: path.join(cwd, ".mcp.json") },
 		{ source: "kit-project", filePath: path.join(cwd, ".agents", "mcp.json") },
 	];

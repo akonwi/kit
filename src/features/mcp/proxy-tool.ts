@@ -86,7 +86,8 @@ function renderStatus(manager: McpManager): string {
 								: "○";
 			const tail = state.lastError ? ` · ${state.lastError}` : "";
 			const count = state.toolCount > 0 ? ` · ${state.toolCount} tools` : "";
-			return `${status} ${state.name} (${state.type})${count}${tail}`;
+			const cache = state.cached ? " · cached" : "";
+			return `${status} ${state.name} (${state.type})${count}${cache}${tail}`;
 		}),
 	];
 	return lines.join("\n");
@@ -191,8 +192,22 @@ export function createMcpProxyTool(manager: McpManager) {
 			input: ProxyInput,
 		): Promise<AgentToolResult<Record<string, unknown>>> {
 			if (input.tool) {
-				const allTools = await manager.ensureAllTools();
-				const resolved = findTool(input.tool, allTools, input.server);
+				let allTools = manager.getKnownTools();
+				let resolved = findTool(input.tool, allTools, input.server);
+				if (!resolved.tool) {
+					const canonicalServer = input.tool.includes(".")
+						? input.tool.slice(0, input.tool.indexOf("."))
+						: undefined;
+					const targetServer = input.server ?? canonicalServer;
+					if (targetServer && manager.getDefinition(targetServer)) {
+						await manager.ensureTools(targetServer).catch(() => undefined);
+						allTools = manager.getKnownTools();
+						resolved = findTool(input.tool, allTools, input.server);
+					} else {
+						allTools = await manager.ensureAllTools();
+						resolved = findTool(input.tool, allTools, input.server);
+					}
+				}
 				if (!resolved.tool) {
 					return textResult(resolved.error ?? "Tool not found.", {
 						mode: "call",
@@ -226,8 +241,13 @@ export function createMcpProxyTool(manager: McpManager) {
 			}
 
 			if (input.describe) {
-				const allTools = await manager.ensureAllTools();
-				const resolved = findTool(input.describe, allTools, input.server);
+				let allTools = manager.getKnownTools();
+				let resolved = findTool(input.describe, allTools, input.server);
+				if (!resolved.tool && input.server) {
+					await manager.ensureTools(input.server).catch(() => undefined);
+					allTools = manager.getKnownTools();
+					resolved = findTool(input.describe, allTools, input.server);
+				}
 				if (!resolved.tool) {
 					return textResult(resolved.error ?? "Tool not found.", {
 						mode: "describe",
@@ -247,7 +267,7 @@ export function createMcpProxyTool(manager: McpManager) {
 			}
 
 			if (input.search) {
-				const allTools = await manager.ensureAllTools();
+				const allTools = manager.getKnownTools();
 				const matches = searchTools(
 					input.search,
 					input.server
@@ -275,7 +295,10 @@ export function createMcpProxyTool(manager: McpManager) {
 			}
 
 			if (input.server) {
-				const tools = await manager.ensureTools(input.server);
+				let tools = manager.getKnownTools(input.server);
+				if (tools.length === 0) {
+					tools = await manager.ensureTools(input.server).catch(() => []);
+				}
 				const state = manager
 					.getRuntimeStates()
 					.find((next) => next.name === input.server);
@@ -294,7 +317,7 @@ export function createMcpProxyTool(manager: McpManager) {
 				}
 				return textResult(
 					[
-						`${state.name} (${tools.length} tools)`,
+						`${state.name} (${tools.length} tools${state.cached ? ", cached" : ""})`,
 						"",
 						...tools.map((tool) =>
 							tool.description

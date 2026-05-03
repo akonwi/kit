@@ -67,4 +67,5 @@ export type McpServerRuntimeState = {
 	toolCount: number;
 	lastError?: string;
 	disabled: boolean;
+	cached: boolean;
 };
