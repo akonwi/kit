@@ -14,6 +14,7 @@
 		"dev": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"start": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"build": "bun run script/build.ts",
+		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
