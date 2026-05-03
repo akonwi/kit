@@ -19,6 +19,7 @@
 	"dependencies": {
 		"@mariozechner/pi-agent-core": "^0.62.0",
 		"@mariozechner/pi-ai": "^0.62.0",
+		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@opentui/core": "0.2.2",
 		"@opentui/solid": "0.2.2",
 		"@pierre/diffs": "^1.1.16",

@@ -1,5 +1,6 @@
 import { CodeReviewPlugin } from "../features/code-review";
 import { GuidedQuestionsPlugin } from "../features/guided-questions";
+import { McpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
 import { PagerPlugin } from "../features/pager";
 import { PromptsPlugin } from "../features/prompts";
@@ -12,6 +13,7 @@ import type { PluginClass } from "./PluginManager";
 export const BUILT_IN_PLUGIN_CLASSES: PluginClass[] = [
 	SkillsPlugin,
 	PromptsPlugin,
+	McpPlugin,
 	PagerPlugin,
 	GuidedQuestionsPlugin,
 	NotificationsPlugin,
