@@ -8,6 +8,15 @@ const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
 const AUTO_TITLE_MAX_TOKENS = 32;
 const AUTO_TITLE_DISABLED = process.env.KIT_NO_AUTO_TITLE === "1";
+const AUTO_TITLE_SYSTEM_PROMPT = [
+	"You generate concise conversation titles.",
+	"Return title only.",
+	"No quotes.",
+	"No markdown.",
+	"Maximum 5 words.",
+	"Focus on the concrete task or topic.",
+	"If the topic is unclear, return Untitled.",
+].join(" ");
 const lastAutoTitleAttemptBySession = new Map<string, number>();
 
 function clip(text: string, maxChars: number): string {
@@ -102,6 +111,7 @@ async function generateTitleWithCurrentModel(
 	const response = await completeSimple(
 		model as Model<Api>,
 		{
+			systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
 			messages: [
 				{
 					role: "user",
@@ -153,17 +163,7 @@ export async function maybeAutoNameSession(
 
 	lastAutoTitleAttemptBySession.set(sessionId, now);
 
-	const prompt = [
-		"Generate a concise conversation title.",
-		"Rules:",
-		"- Return title only, no quotes, no markdown.",
-		"- Max 5 words.",
-		"- Focus on concrete task/topic.",
-		"- If unclear, return Untitled.",
-		"",
-		"Conversation summary:",
-		summary,
-	].join("\n");
+	const prompt = ["Conversation summary:", summary].join("\n\n");
 
 	try {
 		const rawTitle = await generateTitleWithCurrentModel(runtime, prompt);
