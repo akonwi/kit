@@ -1,6 +1,6 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { theme } from "./theme";
+import { syntaxStyle, theme } from "./theme";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
@@ -8,6 +8,10 @@ const SPINNER_INTERVAL = 80;
 export type PanelHostProps = {
 	runtime: AgentRuntime;
 	pendingMessages: string[];
+};
+
+type PendingState = {
+	content: string;
 };
 
 function Spinner() {
@@ -21,71 +25,83 @@ function Spinner() {
 }
 
 function normalizeThinkingText(text: string): string {
-	return text.replace(/\s+/g, " ").trim();
+	return text
+		.replace(/\r\n?/g, "\n")
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.join("\n")
+		.trimStart();
 }
 
-function showPending(setMessage: (value: string) => void, text: string): void {
-	setMessage(text);
+function showPending(
+	setPending: (value: PendingState) => void,
+	content: string,
+): void {
+	setPending({ content });
 }
 
-function clearPending(setMessage: (value: string) => void): void {
-	setMessage("");
+function clearPending(setPending: (value: PendingState) => void): void {
+	setPending({ content: "" });
 }
 
 export function PendingSlot(props: PanelHostProps) {
-	const [message, setMessage] = createSignal("");
+	const [pending, setPending] = createSignal<PendingState>({
+		content: "",
+	});
 
 	const unsubscribeTurnStarted = props.runtime.subscribe(
 		"agent.turn.started",
 		() => {
-			showPending(setMessage, "Working…");
+			showPending(setPending, "Working…");
 		},
 	);
 	const unsubscribeStarted = props.runtime.subscribe(
 		"agent.thinking.started",
 		() => {
-			showPending(setMessage, "Thinking…");
+			showPending(setPending, "Thinking…");
 		},
 	);
 	const unsubscribeUpdated = props.runtime.subscribe(
 		"agent.thinking.updated",
 		(event) => {
-			setMessage((current) => {
-				const prefix = current === "Thinking…" ? "" : current;
+			setPending((current) => {
+				const prefix = current.content === "Thinking…" ? "" : current.content;
 				const next = normalizeThinkingText(`${prefix}${event.delta}`);
-				return next.length > 0 ? next : "Thinking…";
+				return {
+					content: next.length > 0 ? next : "Thinking…",
+				};
 			});
 		},
 	);
 	const unsubscribeThinkingCompleted = props.runtime.subscribe(
 		"agent.thinking.completed",
 		() => {
-			showPending(setMessage, "Working…");
+			showPending(setPending, "Working…");
 		},
 	);
 	const unsubscribeTurnCompleted = props.runtime.subscribe(
 		"agent.turn.completed",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeMergeStarted = props.runtime.subscribe(
 		"session.merge.started",
 		() => {
-			showPending(setMessage, "Merging child session into parent…");
+			showPending(setPending, "Merging child session into parent…");
 		},
 	);
 	const unsubscribeMergeEnded = props.runtime.subscribe(
 		"session.merge.ended",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeRetryStarted = props.runtime.subscribe(
 		"agent.retry.started",
 		(event) => {
 			showPending(
-				setMessage,
+				setPending,
 				`Retrying (${event.attempt}/${event.maxAttempts}) in ${Math.ceil(event.delayMs / 1000)}s…`,
 			);
 		},
@@ -93,50 +109,50 @@ export function PendingSlot(props: PanelHostProps) {
 	const unsubscribeRetryFailed = props.runtime.subscribe(
 		"agent.retry.failed",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeAutoCompactionStarted = props.runtime.subscribe(
 		"session.compaction.started.auto",
 		(event) => {
-			showPending(setMessage, `Compacting session… (${event.contextPercent}%)`);
+			showPending(setPending, `Compacting session… (${event.contextPercent}%)`);
 		},
 	);
 	const unsubscribeAutoCompactionCompleted = props.runtime.subscribe(
 		"session.compaction.completed.auto",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeAutoCompactionFailed = props.runtime.subscribe(
 		"session.compaction.failed.auto",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeRecoveryCompactionStarted = props.runtime.subscribe(
 		"session.compaction.started.recovery",
 		() => {
-			showPending(setMessage, "Compacting session for retry…");
+			showPending(setPending, "Compacting session for retry…");
 		},
 	);
 	const unsubscribeRecoveryCompactionCompleted = props.runtime.subscribe(
 		"session.compaction.completed.recovery",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeRecoveryCompactionFailed = props.runtime.subscribe(
 		"session.compaction.failed.recovery",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeAdaptationCompactionStarted = props.runtime.subscribe(
 		"session.compaction.started.adaptation",
 		(event) => {
 			showPending(
-				setMessage,
+				setPending,
 				`Adapting session to ${event.modelName ?? event.modelId}… (${event.contextPercent}%)`,
 			);
 		},
@@ -144,13 +160,13 @@ export function PendingSlot(props: PanelHostProps) {
 	const unsubscribeAdaptationCompactionCompleted = props.runtime.subscribe(
 		"session.compaction.completed.adaptation",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 	const unsubscribeAdaptationCompactionFailed = props.runtime.subscribe(
 		"session.compaction.failed.adaptation",
 		() => {
-			clearPending(setMessage);
+			clearPending(setPending);
 		},
 	);
 
@@ -197,9 +213,16 @@ export function PendingSlot(props: PanelHostProps) {
 				flexDirection="row"
 				gap={1}
 			>
-				<Show when={message().length > 0}>
+				<Show when={pending().content.length > 0}>
 					<Spinner />
-					<text fg={theme.panelText}>{message()}</text>
+					<box flexGrow={1} height={1} overflow="hidden">
+						<markdown
+							content={pending().content}
+							syntaxStyle={syntaxStyle()}
+							conceal
+							fg={theme.panelText}
+						/>
+					</box>
 				</Show>
 			</box>
 		</box>
