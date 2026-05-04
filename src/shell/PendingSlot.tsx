@@ -29,8 +29,7 @@ function normalizeThinkingText(text: string): string {
 		.replace(/\r\n?/g, "\n")
 		.split("\n")
 		.map((line) => line.trimEnd())
-		.join("\n")
-		.trimStart();
+		.join("\n");
 }
 
 function showPending(

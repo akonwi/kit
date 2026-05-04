@@ -39,7 +39,7 @@ export const KIT_TOKENS: ThemeTokens = {
 	borderDebug: purple,
 	borderStatus: midGray,
 	composerBashBorder: green,
-	composerBashExcludedBorder: cyan,
+	composerBashExcludedBorder: green,
 
 	// Text
 	textPrimary: offWhite,

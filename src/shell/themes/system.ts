@@ -105,7 +105,7 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 			borderDebug: magenta,
 			borderStatus: bgMuted,
 			composerBashBorder: green,
-			composerBashExcludedBorder: cyan,
+			composerBashExcludedBorder: green,
 
 			textPrimary: fg,
 			textSecondary,
