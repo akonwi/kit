@@ -12,8 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] improvement: migrate session persistence from `.json` to `.jsonl` so appends do not require rewriting the full session on each save
-- [ ] improvement: serialize or throttle session persistence writes to avoid overlapping save races
 - [ ] new: markdown formatting for thinking text
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
 - [ ] idea: formalize plugin contribution to the status footer

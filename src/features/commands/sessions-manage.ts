@@ -1,7 +1,7 @@
 import type { SessionSummary } from "../../session";
 import type { PaletteContext } from "../../state/palette";
 import type { Command } from "./types";
-import { formatSessionOption, formatTimeAgo } from "./utils";
+import { formatSessionOption } from "./utils";
 
 export const sessionsManageCommand: Command = {
 	name: "sessions",
@@ -23,26 +23,9 @@ export const sessionsManageCommand: Command = {
 				new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
 		);
 
-		const home = process.env.HOME || process.env.USERPROFILE || "";
-		const widths = visibleSessions.reduce(
-			(acc, session) => {
-				const cwd = session.cwd.startsWith(home)
-					? `~${session.cwd.slice(home.length)}`
-					: session.cwd;
-				const updatedAt = formatTimeAgo(new Date(session.updatedAt));
-				const messageCount = `${session.messageCount} msgs`;
-				return {
-					cwd: Math.max(acc.cwd, cwd.length),
-					updatedAt: Math.max(acc.updatedAt, updatedAt.length),
-					messageCount: Math.max(acc.messageCount, messageCount.length),
-				};
-			},
-			{ cwd: 0, updatedAt: 0, messageCount: 0 },
-		);
-
 		function buildOptions(list: SessionSummary[]) {
 			return list.map((session) => {
-				const { label, description } = formatSessionOption(session, widths);
+				const { label, description } = formatSessionOption(session);
 				const isCurrent = session.id === currentSessionId;
 				return {
 					name: isCurrent ? `${label} ✓` : label,

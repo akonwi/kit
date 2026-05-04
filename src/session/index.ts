@@ -1,4 +1,10 @@
 export {
+	appendCompaction,
+	appendHandoffSummary,
+	appendModelChange,
+	appendSessionInfo,
+	appendThinkingLevelChange,
+	appendTurn,
 	createSession,
 	deleteSession,
 	findSessionById,
@@ -11,5 +17,19 @@ export {
 	updateSession,
 	writeSession,
 } from "./storage";
-export type { Session, SessionSummary } from "./types";
+export type {
+	PersistedKitAgentMessage,
+	Session,
+	SessionCompactionEntry,
+	SessionEntry,
+	SessionFileEntry,
+	SessionHandoffSummaryEntry,
+	SessionHeader,
+	SessionInfoEntry,
+	SessionMessageEntry,
+	SessionModelChangeEntry,
+	SessionSummary,
+	SessionThinkingLevelChangeEntry,
+	Turn,
+} from "./types";
 export { SESSION_VERSION } from "./types";

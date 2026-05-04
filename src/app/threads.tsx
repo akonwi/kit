@@ -62,14 +62,12 @@ function ThreadPicker(props: {
 					? `~${session.cwd.slice(home.length)}`
 					: session.cwd;
 				const updatedAt = formatTimeAgo(new Date(session.updatedAt));
-				const messageCount = `${session.messageCount} msgs`;
 				return {
 					cwd: Math.max(acc.cwd, cwd.length),
 					updatedAt: Math.max(acc.updatedAt, updatedAt.length),
-					messageCount: Math.max(acc.messageCount, messageCount.length),
 				};
 			},
-			{ cwd: 0, updatedAt: 0, messageCount: 0 },
+			{ cwd: 0, updatedAt: 0 },
 		);
 
 	const options = () =>
