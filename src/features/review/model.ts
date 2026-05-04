@@ -12,6 +12,8 @@ import { parsePatchFiles } from "@pierre/diffs";
 export type ReviewLine = {
 	kind: "add" | "context" | "delete";
 	text: string;
+	additionLineNumber?: number;
+	deletionLineNumber?: number;
 };
 
 export type ReviewHunk = {
@@ -168,23 +170,45 @@ function inferFiletype(path: string): string | undefined {
 function contextLines(
 	block: ContextContent,
 	file: FileDiffMetadata,
+	additionLineNumber: number,
+	deletionLineNumber: number,
 ): ReviewLine[] {
 	return file.additionLines
 		.slice(block.additionLineIndex, block.additionLineIndex + block.lines)
-		.map((text) => ({ kind: "context" as const, text }));
+		.map((text, index) => ({
+			kind: "context" as const,
+			text,
+			additionLineNumber: additionLineNumber + index,
+			deletionLineNumber: deletionLineNumber + index,
+		}));
 }
 
-function changeLines(
+function deletedLines(
 	block: ChangeContent,
 	file: FileDiffMetadata,
+	deletionLineNumber: number,
 ): ReviewLine[] {
-	const deleted = file.deletionLines
+	return file.deletionLines
 		.slice(block.deletionLineIndex, block.deletionLineIndex + block.deletions)
-		.map((text) => ({ kind: "delete" as const, text }));
-	const added = file.additionLines
+		.map((text, index) => ({
+			kind: "delete" as const,
+			text,
+			deletionLineNumber: deletionLineNumber + index,
+		}));
+}
+
+function addedLines(
+	block: ChangeContent,
+	file: FileDiffMetadata,
+	additionLineNumber: number,
+): ReviewLine[] {
+	return file.additionLines
 		.slice(block.additionLineIndex, block.additionLineIndex + block.additions)
-		.map((text) => ({ kind: "add" as const, text }));
-	return [...deleted, ...added];
+		.map((text, index) => ({
+			kind: "add" as const,
+			text,
+			additionLineNumber: additionLineNumber + index,
+		}));
 }
 
 function getRenderedUnifiedLineCount(hunk: Hunk): number {
@@ -202,11 +226,28 @@ function hunkToReviewHunk(
 	renderedStartLine: number,
 	rawPatch: string,
 ): ReviewHunk {
-	const lines = hunk.hunkContent.flatMap((block) =>
-		block.type === "context"
-			? contextLines(block, file)
-			: changeLines(block, file),
-	);
+	const lines: ReviewLine[] = [];
+	let nextAdditionLineNumber = hunk.additionStart;
+	let nextDeletionLineNumber = hunk.deletionStart;
+	for (const block of hunk.hunkContent) {
+		if (block.type === "context") {
+			lines.push(
+				...contextLines(
+					block,
+					file,
+					nextAdditionLineNumber,
+					nextDeletionLineNumber,
+				),
+			);
+			nextAdditionLineNumber += block.lines;
+			nextDeletionLineNumber += block.lines;
+			continue;
+		}
+		lines.push(...deletedLines(block, file, nextDeletionLineNumber));
+		lines.push(...addedLines(block, file, nextAdditionLineNumber));
+		nextDeletionLineNumber += block.deletions;
+		nextAdditionLineNumber += block.additions;
+	}
 	const changeCount = lines.filter((line) => line.kind !== "context").length;
 	const noteKey = `${fileNoteKey}:${hunk.hunkSpecs ?? `hunk-${index + 1}`}:${index}`;
 	const header = hunk.hunkSpecs ?? `Hunk ${index + 1}`;

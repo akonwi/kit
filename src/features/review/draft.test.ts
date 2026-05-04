@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { buildReviewSubmission, countDraftNotes } from "./draft";
+import {
+	buildRangeNoteKey,
+	buildReviewSubmission,
+	countDraftNotes,
+} from "./draft";
 import type { ReviewFile } from "./model";
 
 function makeFile(): ReviewFile {
@@ -24,8 +28,8 @@ function makeFile(): ReviewFile {
 				header: "@@ -1,2 +1,2 @@",
 				context: "",
 				lines: [
-					{ kind: "delete", text: "before" },
-					{ kind: "add", text: "after" },
+					{ kind: "delete", text: "before", deletionLineNumber: 1 },
+					{ kind: "add", text: "after", additionLineNumber: 1 },
 				],
 				changeCount: 2,
 				rawPatch: [
@@ -49,23 +53,33 @@ function makeFile(): ReviewFile {
 }
 
 describe("review draft", () => {
-	test("counts non-empty file and hunk notes", () => {
+	test("counts non-empty file and range notes", () => {
 		expect(
 			countDraftNotes({
 				fileNotes: new Map([
 					["file", "file note"],
 					["empty", "   "],
 				]),
-				hunkNotes: new Map([["hunk", "hunk note"]]),
+				rangeNotes: new Map([["range", "line note"]]),
 			}),
 		).toBe(2);
 	});
 
-	test("builds review submission from file and hunk notes", () => {
+	test("builds review submission from file and range notes", () => {
 		const file = makeFile();
 		const review = buildReviewSubmission([file], {
 			fileNotes: new Map([[file.noteKey, "Look at this file"]]),
-			hunkNotes: new Map([[file.hunks[0].noteKey, "Watch this hunk"]]),
+			rangeNotes: new Map([
+				[
+					buildRangeNoteKey({
+						path: file.path,
+						side: "deletions",
+						startLine: 1,
+						endLine: 1,
+					}),
+					"Watch this removed line",
+				],
+			]),
 		});
 
 		expect(review).not.toBeNull();
@@ -75,10 +89,10 @@ describe("review draft", () => {
 			fileComment: "Look at this file",
 			ranges: [
 				{
-					side: "additions",
+					side: "deletions",
 					startLine: 1,
 					endLine: 1,
-					comment: "Watch this hunk",
+					comment: "Watch this removed line",
 				},
 			],
 		});
@@ -89,7 +103,7 @@ describe("review draft", () => {
 		expect(
 			buildReviewSubmission([file], {
 				fileNotes: new Map(),
-				hunkNotes: new Map(),
+				rangeNotes: new Map(),
 			}),
 		).toBeNull();
 	});
