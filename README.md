@@ -36,6 +36,8 @@ For feature details, see [`docs/features/`](docs/features/).
 
 ## Development
 
+Commit messages in this repo should use [Conventional Commits](https://www.conventionalcommits.org/), preferably in the form `type(scope): summary`.
+
 Run from source:
 
 ```bash

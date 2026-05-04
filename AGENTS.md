@@ -21,6 +21,23 @@ Kit's UI design language is documented in `.agents/skills/design/SKILL.md`. All 
 - When we make an architectural or feature design decision, capture it under `docs/`.
 - When we identify outstanding work or defer something, capture it under `backlog/`.
 
+## Commit conventions
+
+- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
+- Preferred format: `type(scope): summary`
+- Scope is optional when it does not add clarity: `type: summary`
+- Keep summaries concise and imperative.
+- Common types in this repo:
+  - `feat`
+  - `fix`
+  - `refactor`
+  - `docs`
+  - `test`
+  - `chore`
+  - `perf`
+  - `build`
+  - `ci`
+
 ## Pre-commit checklist
 
 Before asking to commit, always:
