@@ -22,7 +22,7 @@ All app-owned state lives under a single storage root:
   notifications.json
   settings.json
   sessions/
-    <id>.json
+    <id>.jsonl
   themes/
     <name>.json
 ```
@@ -64,12 +64,12 @@ All app-owned state lives under a single storage root:
 ### Sessions
 
 ```text
-~/.kit/sessions/<id>.json
+~/.kit/sessions/<id>.jsonl
 ```
 
-Sessions are stored as one JSON file per session.
+Sessions are stored as one JSONL file per session.
 
-The session format is turn-based. At a high level, a session contains top-level metadata plus an ordered list of turns, and each turn contains its messages.
+Runtime sessions remain turn-based, but persisted storage is an append-only entry log that reconstructs turns from message entries.
 
 ### Themes
 

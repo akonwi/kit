@@ -1,6 +1,6 @@
 import type { Api, Model } from "@mariozechner/pi-ai";
 import type { Session } from "../session";
-import type { Turn } from "../session/types";
+import type { KitAgentMessage, Turn } from "../session/types";
 import { estimateTokens } from "./context-usage";
 import { createSyntheticSummaryMessage } from "./session-summary";
 
@@ -34,6 +34,7 @@ Use this exact structure:
 Be concise but specific. Focus on information needed to continue the work accurately.`;
 
 export type CompactionResult = {
+	summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	turns: Turn[];
 	compactedTurnCount: number;
 	keptTurnCount: number;
@@ -103,6 +104,7 @@ export async function compactSessionTurns(options: {
 	};
 
 	return {
+		summaryMessage,
 		turns: [summaryTurn, ...keptTurns],
 		compactedTurnCount: compactedTurns.length,
 		keptTurnCount: keptTurns.length,

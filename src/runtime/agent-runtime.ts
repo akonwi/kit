@@ -23,6 +23,12 @@ import {
 } from "../context/agents";
 import type { MessagePart, UserMultipartMessage } from "../messages/parts";
 import {
+	appendCompaction,
+	appendHandoffSummary,
+	appendModelChange,
+	appendSessionInfo,
+	appendThinkingLevelChange,
+	appendTurn,
 	createSession,
 	deleteSession,
 	findSessionById,
@@ -257,6 +263,13 @@ export class AgentRuntime {
 	private recoveryPromise: Promise<void> | null = null;
 	private recoveryResolve: (() => void) | null = null;
 	private overflowRecoveryAttempted = false;
+	private pendingAutoCompaction: {
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
+		compactedTurnCount: number;
+		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+	} | null = null;
 
 	constructor(
 		session: Session,
@@ -315,12 +328,7 @@ export class AgentRuntime {
 		this.unsubscribePersistence = this.subscribe((event) => {
 			switch (event.type) {
 				case "agent.turn.completed":
-				case "session.compaction.completed.recovery":
-				case "session.compaction.completed.adaptation":
-					this.persistSessionToDisk();
-					break;
-				case "session.merge.ended":
-					if (!event.error) this.persistSessionToDisk();
+					if (event.turn) this.persistTurnToDisk(event.turn);
 					break;
 			}
 		});
@@ -346,11 +354,29 @@ export class AgentRuntime {
 		});
 	}
 
-	private persistSessionToDisk(): void {
-		void writeSession(this.session).catch((err) => {
-			this.emit("session.persistence.failed", {
-				error: String(err),
-			});
+	private emitPersistenceFailure(error: unknown): void {
+		this.emit("session.persistence.failed", {
+			error: error instanceof Error ? error.message : String(error),
+		});
+	}
+
+	private persistTurnToDisk(turn: Turn): void {
+		void (async () => {
+			await appendTurn(this.session, turn);
+			if (this.pendingAutoCompaction) {
+				const pending = this.pendingAutoCompaction;
+				this.pendingAutoCompaction = null;
+				await appendCompaction({
+					session: this.session,
+					summaryMessage: pending.summaryMessage,
+					firstKeptTurnId: pending.firstKeptTurnId,
+					compactedTurnCount: pending.compactedTurnCount,
+					keptTurnCount: pending.keptTurnCount,
+					tokensBefore: pending.tokensBefore,
+				});
+			}
+		})().catch((error) => {
+			this.emitPersistenceFailure(error);
 		});
 	}
 
@@ -427,6 +453,9 @@ export class AgentRuntime {
 	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
 		this.touchSession({ thinkingLevel: level });
+		void appendThinkingLevelChange(this.session).catch((error) => {
+			this.emitPersistenceFailure(error);
+		});
 		this.handleSessionChanged();
 	}
 
@@ -542,6 +571,16 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
+			this.pendingAutoCompaction = {
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+			};
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.auto", {
 				contextPercent: contextUsage?.percent ?? 0,
@@ -560,6 +599,12 @@ export class AgentRuntime {
 	private persistTurns(): boolean {
 		this.syncSessionFromAgentState();
 		return true;
+	}
+
+	private async persistKeptTurnsForCompaction(turns: Turn[]): Promise<void> {
+		for (const turn of turns.slice(1)) {
+			await appendTurn(this.session, turn);
+		}
 	}
 
 	private removeTerminalAssistantErrorFromLiveState(): void {
@@ -693,6 +738,18 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
+			await this.persistKeptTurnsForCompaction(result.turns);
+			await appendCompaction({
+				session: this.session,
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+			});
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.recovery", {
 				reason: "overflow",
@@ -788,6 +845,18 @@ export class AgentRuntime {
 				turns: result.turns,
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
+			});
+			await this.persistKeptTurnsForCompaction(result.turns);
+			await appendCompaction({
+				session: this.session,
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
 			});
 			this.handleSessionChanged();
 
@@ -1198,6 +1267,10 @@ export class AgentRuntime {
 		);
 		this.agent.setThinkingLevel(restoredThinkingLevel);
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
+		// Handoff creates a new child session pre-seeded with copied history.
+		// Persist it immediately so the child exists on disk even before the
+		// next appended turn or metadata event.
+		await writeSession(this.session);
 		this.applySessionContext(child);
 		this.syncPendingState();
 		this.handleSessionChanged();
@@ -1316,12 +1389,8 @@ export class AgentRuntime {
 			}
 
 			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
-			const saved = this.persistTurns();
-			if (!saved) {
-				throw new Error(
-					"Failed to save merged summary into the parent session.",
-				);
-			}
+			this.syncSessionFromAgentState();
+			await appendHandoffSummary(this.session, summaryMessage);
 			this.handleSessionChanged();
 			this.emit("session.active.changed", { session: this.session });
 
@@ -1342,6 +1411,11 @@ export class AgentRuntime {
 	async setSessionName(name: string): Promise<void> {
 		if (this.session.name === name) return;
 		this.touchSession({ name });
+		try {
+			await appendSessionInfo(this.session, name);
+		} catch (error) {
+			this.emitPersistenceFailure(error);
+		}
 		this.emit("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 	}
@@ -1382,6 +1456,9 @@ export class AgentRuntime {
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
 		this.touchSession({ model: model.id });
+		void appendModelChange(this.session).catch((error) => {
+			this.emitPersistenceFailure(error);
+		});
 		this.emit("agent.model.changed", {
 			model,
 			thinkingLevel: this.agent.state.thinkingLevel,

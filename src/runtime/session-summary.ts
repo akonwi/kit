@@ -105,7 +105,7 @@ export async function createSyntheticSummaryMessage(options: {
 	kind: SyntheticSummaryKind;
 	sourceSessionName?: string;
 	signal?: AbortSignal;
-}): Promise<KitAgentMessage> {
+}): Promise<Extract<KitAgentMessage, { role: "assistant" }>> {
 	const {
 		messages,
 		model,
@@ -146,5 +146,5 @@ export async function createSyntheticSummaryMessage(options: {
 			kind,
 			...(sourceSessionName ? { sourceSessionName } : {}),
 		},
-	};
+	} as Extract<KitAgentMessage, { role: "assistant" }>;
 }

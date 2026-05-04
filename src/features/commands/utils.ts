@@ -17,12 +17,10 @@ export function formatSessionOption(
 		id: string;
 		cwd: string;
 		updatedAt: string;
-		messageCount?: number;
 	},
 	widths?: {
 		cwd: number;
 		updatedAt: number;
-		messageCount: number;
 	},
 ): { label: string; description: string } {
 	const home = process.env.HOME || process.env.USERPROFILE || "";
@@ -34,17 +32,16 @@ export function formatSessionOption(
 		? `~${session.cwd.slice(home.length)}`
 		: session.cwd;
 	const ago = formatTimeAgo(new Date(session.updatedAt));
-	const messageCount = `${session.messageCount ?? 0} msgs`;
 
 	if (!widths) {
 		return {
 			label,
-			description: `${cwd}  ${ago}  ${messageCount}`,
+			description: `${cwd}  ${ago}`,
 		};
 	}
 
 	return {
 		label,
-		description: `${cwd.padStart(widths.cwd)}  ${ago.padStart(widths.updatedAt)}  ${messageCount.padStart(widths.messageCount)}`,
+		description: `${cwd.padStart(widths.cwd)}  ${ago.padStart(widths.updatedAt)}`,
 	};
 }

@@ -8,7 +8,7 @@ function threadTitle(session: Session): string {
 }
 
 function sessionPath(id: string): string {
-	const fullPath = join(homedir(), ".kit", "sessions", `${id}.json`);
+	const fullPath = join(homedir(), ".kit", "sessions", `${id}.jsonl`);
 	const home = homedir();
 	return fullPath.startsWith(home)
 		? `~${fullPath.slice(home.length)}`
