@@ -2,7 +2,7 @@
 
 Kit provides two different diff-review surfaces:
 
-- `/diff` — a terminal-native review modal for quick inspection and lightweight in-TUI commenting
+- `/diff` — a terminal-native in-TUI code review surface for whole-file diff browsing and structured file/line comments
 - `/code-review` — a browser-backed review flow for richer comment authoring
 
 `/code-review` launches the system browser and connects that browser UI back to Kit through a localhost review host.
@@ -35,4 +35,4 @@ Run:
 /code-review
 ```
 
-Use `/diff` instead if you want to stay entirely in the terminal and inspect the current working-tree diff there.
+Use `/diff` instead if you want to stay entirely in the terminal and review the current working-tree diff there.

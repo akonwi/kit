@@ -24,3 +24,9 @@ Delete done items.
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
+- [ ] review: make saved gutter comment markers respect segmented same-side ranges
+  - see `backlog/review-gutter-comment-markers.md`
+- [ ] review: make overlapping saved gutter comment markers distinguishable
+  - see `backlog/review-gutter-comment-markers.md`
+- [ ] review: explore an alternative split-diff view for in-TUI review
+  - see `backlog/review-split-diff-view.md`

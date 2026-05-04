@@ -1,20 +1,67 @@
-# Diff Viewer
+# In-TUI Code Review
 
-Kit includes a terminal-native diff viewer for inspecting the current working-tree diff.
+Kit includes a terminal-native code review surface inside `/diff`.
 
-The diff viewer is separate from browser-backed `/code-review`. It is for quick inspection inside the terminal rather than structured browser review.
+This is the in-terminal counterpart to browser-backed `/code-review`.
+It lets you inspect the current working-tree diff, add structured review comments,
+and submit that review back into Kit as a code-review attachment.
 
-Current behavior:
+## Current behavior
 
-- it shows the current working-tree diff for the active repository
-- that includes staged changes, unstaged changes, and untracked files that can be represented as patches
-- it opens as a terminal overlay
-- it shows a file list and hunk-focused patch view
-- files can be expanded or collapsed
-- file comments can be authored in-terminal
-- hunk comments can be authored in-terminal
-- submitting review attaches a structured code-review payload to the composer
-- if there are no uncommitted changes, it shows an empty-state message
+`/diff`:
+
+- shows the current working-tree diff for the active repository
+- includes staged changes, unstaged changes, and untracked files that can be represented as patches
+- opens as a terminal overlay
+- shows a file list and a whole-file scrollable unified diff for the selected file
+- uses change groups as navigation landmarks inside the selected file
+- supports file-level review notes
+- supports same-side line comments and line-range comments
+- shows gutter markers for active selection and saved comments
+- submits the result as the existing structured code-review attachment type used by browser review
+- shows an empty state when there are no uncommitted changes
+
+The in-TUI review flow reuses the same underlying review attachment model as `/code-review` rather than introducing a separate terminal-only payload format.
+
+## Interaction model
+
+### File list mode
+
+In the file list:
+
+- move with `↑/↓` or `j/k`
+- `Enter` focuses the selected file's diff
+- `Space` collapses or expands the selected file
+- `f` opens a file note editor
+- `x` clears the selected file note
+- `s` submits the current draft review
+- `Esc` closes `/diff`
+
+### Patch focus mode
+
+When focused on a file diff:
+
+- the whole file diff remains visible in one scrollable pane
+- `↑/↓` or `j/k` move the active line cursor
+- moving past the top or bottom of a change group continues into the previous or next change group when possible
+- `Tab` jumps to the next change group
+- `Shift+Tab` jumps to the previous change group
+- `Enter` comments the selected line, or confirms the current range selection
+- `Ctrl+Enter` starts a same-side line-range selection from the current line
+- `x` clears the selected saved line/range note, or cancels an active range selection
+- `f` opens a file note editor
+- `s` submits the current draft review
+- `Esc` cancels an active range selection first, then returns to the file list
+
+## Review notes
+
+Current in-TUI review drafts support:
+
+- file notes
+- line notes
+- same-side line-range notes
+
+Submitted reviews are attached back into the composer as structured code-review context rather than inserted as a standalone plain-text message.
 
 ## How to access it
 
@@ -23,3 +70,5 @@ Run:
 ```text
 /diff
 ```
+
+Use `/code-review` instead if you want the browser-backed review UI.
