@@ -1,12 +1,7 @@
-import { createSignal, onCleanup, Show } from "solid-js";
-import { codeReviewStatus } from "../features/code-review/state";
+import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
-
-// TODO: Replace this direct global feature-state import once plugins can expose
-// header/footer contributions or plugin state can be queried through
-// PluginManager in the component tree.
 
 function progressColor(pct: number): string {
 	if (pct > 90) return theme.progressCritical;
@@ -52,25 +47,6 @@ export function HeaderBar(props: HeaderBarProps) {
 			(typeof value === "object" && "enabled" in value && value.enabled);
 		return on ? "◉ speech" : "◌ speech";
 	};
-	const reviewVisible = () =>
-		codeReviewStatus.launchInFlight ||
-		codeReviewStatus.serverState === "ready" ||
-		codeReviewStatus.serverState === "error";
-	const reviewLabel = () => {
-		if (codeReviewStatus.serverState === "error") return "✗ review";
-		if (codeReviewStatus.launchInFlight) return "◌ review…";
-		if (codeReviewStatus.clientConnected) {
-			return `◉ review${codeReviewStatus.port ? ` :${codeReviewStatus.port}` : ""}`;
-		}
-		return `◌ review${codeReviewStatus.port ? ` :${codeReviewStatus.port}` : ""}`;
-	};
-	const reviewColor = () => {
-		if (codeReviewStatus.serverState === "error") return theme.errorText;
-		if (codeReviewStatus.launchInFlight) return theme.warningText;
-		if (codeReviewStatus.clientConnected) return theme.toolText;
-		return theme.textMuted;
-	};
-
 	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo);
 	const unsubscribeAgentInfo = props.runtime.subscribe(
 		"agent.model.changed",
@@ -97,9 +73,6 @@ export function HeaderBar(props: HeaderBarProps) {
 			}
 			right={
 				<box flexDirection="row" gap={1}>
-					<Show when={reviewVisible()}>
-						<text fg={reviewColor()}>{reviewLabel()}</text>
-					</Show>
 					<text fg={theme.textMuted}>
 						{agentInfo().model?.name ?? "model?"} ({agentInfo().thinkingLevel})
 					</text>

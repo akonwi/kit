@@ -1,5 +1,5 @@
 import type { CodeReviewFileComment } from "../../messages/parts";
-import type { CodeReviewSubmission } from "../code-review/attachment";
+import type { CodeReviewSubmission } from "./attachment";
 import type { ReviewFile } from "./model";
 
 export type ReviewDraftState = {

@@ -8,7 +8,7 @@ import { nameCommand } from "./name";
 import { newCommand } from "./new";
 import { quitCommand } from "./quit";
 import { reloadCommand } from "./reload";
-import { diffCommand } from "./review";
+import { codeReviewCommand } from "./review";
 import { sessionCommand } from "./session";
 import { sessionsManageCommand } from "./sessions-manage";
 import { thinkingCommand } from "./thinking";
@@ -22,7 +22,7 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	nameCommand,
 	newCommand,
 	reloadCommand,
-	diffCommand,
+	codeReviewCommand,
 	sessionCommand,
 	sessionsManageCommand,
 	treeCommand,

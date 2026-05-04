@@ -2,7 +2,7 @@
 
 ## Context
 
-The current in-TUI review flow uses a unified diff view for whole-file browsing and line/range comments.
+The current in-TUI review flow uses a unified diff view inside `/code-review` for whole-file browsing and line/range comments.
 
 Unified diff is compact and works well for linear scanning, but some review tasks are easier in a split-diff presentation where deletions and additions are shown side by side.
 
@@ -23,7 +23,7 @@ This may be especially useful for:
 
 ## Open questions
 
-- should split diff be an alternate toggle inside `/diff` or a separate review mode?
+- should split diff be an alternate toggle inside `/code-review` or a separate review mode?
 - should unified remain the default?
 - how should line/range comments map into split presentation while keeping the same attachment schema?
 - how should saved comment gutter markers work in split mode?

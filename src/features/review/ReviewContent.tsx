@@ -15,7 +15,7 @@ import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
 import { syntaxStyle, theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
-import { CodeReviewAttachment } from "../code-review/attachment";
+import { CodeReviewAttachment } from "./attachment";
 import {
 	buildRangeNoteKey,
 	buildReviewSubmission,
@@ -57,6 +57,12 @@ type CommentableLine = {
 type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
+};
+
+type SavedCommentMarker = {
+	key: string;
+	top: number;
+	height: number;
 };
 
 const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
@@ -163,6 +169,12 @@ function lineRangeLabel(range: ReviewRangeDraft): string {
 
 function buildRangeMarker(height: number): string {
 	return Array.from({ length: Math.max(1, height) }, () => "┆").join("\n");
+}
+
+function buildCommentMarker(height: number): string {
+	const clamped = Math.max(1, height);
+	if (clamped === 1) return "✎";
+	return ["✎", ...Array.from({ length: clamped - 1 }, () => "┆")].join("\n");
 }
 
 function buildLineSelection(
@@ -367,6 +379,49 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		if (startIndex == null || endIndex == null) return null;
 		return { startIndex, endIndex };
+	});
+	const savedCommentMarkers = createMemo<SavedCommentMarker[]>(() => {
+		const file = selectedFile();
+		if (!file) return [];
+		const markers: SavedCommentMarker[] = [];
+		for (const [key, value] of rangeNotes()) {
+			if (!value.trim()) continue;
+			const range = parseRangeNoteKey(key);
+			if (!range || range.path !== file.path) continue;
+			for (const hunk of file.hunks) {
+				let startIndex: number | null = null;
+				let endIndex: number | null = null;
+				for (const [index, line] of hunk.lines.entries()) {
+					const side =
+						line.kind === "add"
+							? "additions"
+							: line.kind === "delete"
+								? "deletions"
+								: undefined;
+					const lineNumber =
+						line.kind === "add"
+							? line.additionLineNumber
+							: line.kind === "delete"
+								? line.deletionLineNumber
+								: undefined;
+					if (!side || lineNumber == null || side !== range.side) continue;
+					if (lineNumber < range.startLine || lineNumber > range.endLine) {
+						continue;
+					}
+					if (startIndex == null) startIndex = index;
+					endIndex = index;
+				}
+				if (startIndex != null && endIndex != null) {
+					markers.push({
+						key,
+						top: hunk.patchStartLine + startIndex,
+						height: endIndex - startIndex + 1,
+					});
+					break;
+				}
+			}
+		}
+		return markers;
 	});
 
 	createEffect(() => {
@@ -737,7 +792,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			zIndex={1200}
 			header={
 				<ScreenHeader
-					left={<text fg={theme.textMuted}>Review diff</text>}
+					left={<text fg={theme.textMuted}>Code review</text>}
 					right={
 						<text fg={theme.textMuted}>
 							{reviewFiles().length} file{reviewFiles().length === 1 ? "" : "s"}
@@ -754,7 +809,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				when={!files.loading}
 				fallback={
 					<box flexGrow={1} padding={1}>
-						<text fg={theme.textMuted}>Loading diff…</text>
+						<text fg={theme.textMuted}>Loading code review…</text>
 					</box>
 				}
 			>
@@ -944,7 +999,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											flexGrow={1}
 											scrollY
 										>
-											<box position="relative" paddingLeft={1}>
+											<box position="relative" paddingLeft={2}>
 												<diff
 													diff={file().rawPatch}
 													view="unified"
@@ -965,6 +1020,21 @@ export function ReviewContent(props: ReviewContentProps) {
 													removedLineNumberBg={theme.diffRemovedLineNumberBg}
 													wrapMode="none"
 												/>
+												<For each={savedCommentMarkers()}>
+													{(marker) => (
+														<box
+															position="absolute"
+															left={1}
+															top={marker.top}
+															height={marker.height}
+															width={1}
+														>
+															<text fg={theme.reviewText}>
+																{buildCommentMarker(marker.height)}
+															</text>
+														</box>
+													)}
+												</For>
 												<Show when={lineCursorState()}>
 													{(cursor) => (
 														<>

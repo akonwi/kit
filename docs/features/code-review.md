@@ -1,14 +1,13 @@
-# In-TUI Code Review
+# Code Review
 
-Kit includes a terminal-native code review surface inside `/diff`.
+Kit includes a terminal-native code review surface exposed through `/code-review`.
 
-This is the in-terminal counterpart to browser-backed `/code-review`.
 It lets you inspect the current working-tree diff, add structured review comments,
 and submit that review back into Kit as a code-review attachment.
 
 ## Current behavior
 
-`/diff`:
+`/code-review`:
 
 - shows the current working-tree diff for the active repository
 - includes staged changes, unstaged changes, and untracked files that can be represented as patches
@@ -18,10 +17,10 @@ and submit that review back into Kit as a code-review attachment.
 - supports file-level review notes
 - supports same-side line comments and line-range comments
 - shows gutter markers for active selection and saved comments
-- submits the result as the existing structured code-review attachment type used by browser review
+- submits the result as a structured code-review attachment
 - shows an empty state when there are no uncommitted changes
 
-The in-TUI review flow reuses the same underlying review attachment model as `/code-review` rather than introducing a separate terminal-only payload format.
+The in-TUI review flow uses the existing structured code-review attachment model rather than introducing a separate terminal-only review payload format.
 
 ## Interaction model
 
@@ -35,7 +34,7 @@ In the file list:
 - `f` opens a file note editor
 - `x` clears the selected file note
 - `s` submits the current draft review
-- `Esc` closes `/diff`
+- `Esc` closes `/code-review`
 
 ### Patch focus mode
 
@@ -68,7 +67,5 @@ Submitted reviews are attached back into the composer as structured code-review 
 Run:
 
 ```text
-/diff
+/code-review
 ```
-
-Use `/code-review` instead if you want the browser-backed review UI.

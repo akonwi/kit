@@ -17,7 +17,6 @@ Core commands currently include:
 - `/name`
 - `/new`
 - `/reload`
-- `/diff`
 - `/debug`
 - `/sessions`
 - `/tree`

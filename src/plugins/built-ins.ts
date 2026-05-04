@@ -1,4 +1,3 @@
-import { CodeReviewPlugin } from "../features/code-review";
 import { GuidedQuestionsPlugin } from "../features/guided-questions";
 import { McpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
@@ -19,5 +18,4 @@ export const BUILT_IN_PLUGIN_CLASSES: PluginClass[] = [
 	NotificationsPlugin,
 	SessionNamingPlugin,
 	SettingsPlugin,
-	CodeReviewPlugin,
 ];
