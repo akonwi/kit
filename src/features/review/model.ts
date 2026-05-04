@@ -21,6 +21,7 @@ export type ReviewHunk = {
 	context: string;
 	lines: ReviewLine[];
 	changeCount: number;
+	rawPatch: string;
 	patchStartLine: number;
 	patchLineCount: number;
 	additionStart: number;
@@ -199,6 +200,7 @@ function hunkToReviewHunk(
 	fileNoteKey: string,
 	index: number,
 	renderedStartLine: number,
+	rawPatch: string,
 ): ReviewHunk {
 	const lines = hunk.hunkContent.flatMap((block) =>
 		block.type === "context"
@@ -216,6 +218,7 @@ function hunkToReviewHunk(
 		context: hunk.hunkContext ?? "",
 		lines,
 		changeCount,
+		rawPatch,
 		patchStartLine: renderedStartLine,
 		patchLineCount,
 		additionStart: hunk.additionStart,
@@ -225,12 +228,34 @@ function hunkToReviewHunk(
 	};
 }
 
+function splitRawPatchIntoHunks(rawPatch: string): string[] {
+	const lines = rawPatch.replace(/\r\n/g, "\n").split("\n");
+	const firstHunkIndex = lines.findIndex((line) => line.startsWith("@@ "));
+	if (firstHunkIndex < 0) return [];
+	const headerLines = lines.slice(0, firstHunkIndex);
+	const hunks: string[] = [];
+	let current: string[] = [];
+	for (const line of lines.slice(firstHunkIndex)) {
+		if (line.startsWith("@@ ") && current.length > 0) {
+			hunks.push([...headerLines, ...current].join("\n"));
+			current = [line];
+			continue;
+		}
+		current.push(line);
+	}
+	if (current.length > 0) {
+		hunks.push([...headerLines, ...current].join("\n"));
+	}
+	return hunks;
+}
+
 function fileToReviewFile(
 	file: FileDiffMetadata,
 	rawPatch: string,
 	index: number,
 ): ReviewFile {
 	const noteKey = `${file.prevName ?? ""}->${file.name}`;
+	const rawHunks = splitRawPatchIntoHunks(rawPatch);
 	let renderedStartLine = 0;
 	const hunks = file.hunks.map((hunk, hunkIndex) => {
 		const reviewHunk = hunkToReviewHunk(
@@ -239,6 +264,7 @@ function fileToReviewFile(
 			noteKey,
 			hunkIndex,
 			renderedStartLine,
+			rawHunks[hunkIndex] ?? rawPatch,
 		);
 		renderedStartLine += getRenderedUnifiedLineCount(hunk);
 		return reviewHunk;

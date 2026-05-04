@@ -9,9 +9,11 @@ Current behavior:
 - it shows the current working-tree diff for the active repository
 - that includes staged changes, unstaged changes, and untracked files that can be represented as patches
 - it opens as a terminal overlay
-- it shows a file list and patch view
+- it shows a file list and hunk-focused patch view
 - files can be expanded or collapsed
-- a selected patch can be focused for scrolling
+- file comments can be authored in-terminal
+- hunk comments can be authored in-terminal
+- submitting review attaches a structured code-review payload to the composer
 - if there are no uncommitted changes, it shows an empty-state message
 
 ## How to access it

@@ -82,6 +82,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				palette,
 				args,
 				toast,
+				attachments,
 				_reload,
 				openCustomOverlay,
 			});

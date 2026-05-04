@@ -2,7 +2,7 @@
 
 Kit provides two different diff-review surfaces:
 
-- `/diff` — a terminal-native diff viewer for quick inspection
+- `/diff` — a terminal-native review modal for quick inspection and lightweight in-TUI commenting
 - `/code-review` — a browser-backed review flow for richer comment authoring
 
 `/code-review` launches the system browser and connects that browser UI back to Kit through a localhost review host.
