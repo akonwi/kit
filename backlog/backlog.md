@@ -12,8 +12,7 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] feat: setting for "zen" mode. minimal transcript
-  - don't show tool calls in transcript
+- [ ] feat: sub-agents (borrow from pi-subagents)
 - [ ] ux: lean into command palette instead of slash picker
   - keep picker UX for file and thread references
 - [ ] idea: explore useful Unicode text glyphs for TUI affordances and status labels
@@ -30,3 +29,5 @@ Delete done items.
   - see `backlog/review-gutter-comment-markers.md`
 - [ ] review: explore an alternative split-diff view for in-TUI review
   - see `backlog/review-split-diff-view.md`
+- [ ] feat: setting for "zen" mode. minimal transcript
+  - don't show tool calls in transcript
