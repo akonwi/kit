@@ -22,9 +22,15 @@ export function ScreenHeader(props: ScreenHeaderProps) {
 	let ref: { width: number; height: number } | undefined;
 
 	const innerWidth = () => Math.max(0, barWidth() - 2);
-	const filled = () => {
+	const clampedProgress = () => {
 		const pct = props.progress ?? 0;
-		return Math.round((pct / 100) * innerWidth());
+		return Math.max(0, Math.min(100, pct));
+	};
+	const filled = () => {
+		return Math.min(
+			innerWidth(),
+			Math.round((clampedProgress() / 100) * innerWidth()),
+		);
 	};
 
 	return (
