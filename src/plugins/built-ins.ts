@@ -1,3 +1,4 @@
+import { ClaudeCompatibilityPlugin } from "../features/claude-compat";
 import { GuidedQuestionsPlugin } from "../features/guided-questions";
 import { McpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
@@ -12,6 +13,7 @@ import type { PluginClass } from "./PluginManager";
 export const BUILT_IN_PLUGIN_CLASSES: PluginClass[] = [
 	SkillsPlugin,
 	PromptsPlugin,
+	ClaudeCompatibilityPlugin,
 	McpPlugin,
 	PagerPlugin,
 	GuidedQuestionsPlugin,

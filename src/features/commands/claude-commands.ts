@@ -11,12 +11,14 @@
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { parseCommandArgs, substituteArgs } from "../prompts/substitute";
 import type { Command } from "./types";
 
 interface ClaudeCommandMeta {
 	name: string;
 	filePath: string;
 	description: string;
+	argName?: string;
 }
 
 function parseFrontmatter(content: string): {
@@ -38,7 +40,7 @@ function parseFrontmatter(content: string): {
 	return { attributes, body: match[2] };
 }
 
-function discoverCommandFiles(cwd: string): ClaudeCommandMeta[] {
+export function discoverClaudeCommandFiles(cwd: string): ClaudeCommandMeta[] {
 	const commandsDir = path.join(cwd, ".claude", "commands");
 	if (!existsSync(commandsDir)) return [];
 
@@ -69,8 +71,9 @@ function discoverCommandFiles(cwd: string): ClaudeCommandMeta[] {
 					?.trim()
 					.slice(0, 80) ||
 				name;
+			const argName = attributes["argument-hint"]?.trim() || undefined;
 
-			commands.push({ name, filePath, description });
+			commands.push({ name, filePath, description, argName });
 		} catch {
 			// Skip unreadable files
 		}
@@ -85,13 +88,14 @@ function discoverCommandFiles(cwd: string): ClaudeCommandMeta[] {
  * picked up without restart.
  */
 export function discoverClaudeCommands(cwd: string): Command[] {
-	const metas = discoverCommandFiles(cwd);
+	const metas = discoverClaudeCommandFiles(cwd);
 
 	return metas.map(
 		(meta): Command => ({
 			name: `cc:${meta.name}`,
 			description: meta.description,
-			execute({ runtime }) {
+			...(meta.argName ? { argName: meta.argName } : {}),
+			execute({ runtime, args }) {
 				let raw: string;
 				try {
 					raw = readFileSync(meta.filePath, "utf8");
@@ -100,11 +104,8 @@ export function discoverClaudeCommands(cwd: string): Command[] {
 				}
 
 				const { body } = parseFrontmatter(raw);
-				// $ARGUMENTS and $@ are not substituted here — the user sends
-				// the command without args via the slash picker, so we send the
-				// body as-is. If arg support is needed later, the palette could
-				// prompt for input first.
-				const prompt = body.trim();
+				const parsedArgs = parseCommandArgs(args);
+				const prompt = substituteArgs(body, parsedArgs).trim();
 				if (prompt) {
 					void runtime.submitMessage(prompt);
 				}

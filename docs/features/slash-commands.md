@@ -2,7 +2,7 @@
 
 Slash commands are exposed through the composer slash picker.
 
-The command surface is composed from built-in commands, plugin-registered commands, and prompt commands discovered from prompt directories.
+The command surface is composed from built-in commands, plugin-registered commands, prompt commands discovered from prompt directories, and Claude Code compatibility commands discovered from `.claude/commands/`.
 
 Core commands currently include:
 
@@ -24,6 +24,10 @@ Core commands currently include:
 - `/quit`
 
 Additional prompt commands can appear at runtime based on discovered prompt files.
+
+Claude Code compatibility commands can also appear at runtime from project-local `.claude/commands/*.md` files. These are exposed with a `/cc:` prefix, for example:
+
+- `.claude/commands/draft-pr.md` → `/cc:draft-pr`
 
 Current behavior:
 

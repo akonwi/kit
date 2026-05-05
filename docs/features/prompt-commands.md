@@ -67,6 +67,25 @@ Usage: `/review focus on error handling`
 
 Submits: `Review the recent code changes and provide feedback. focus on error handling`
 
+## Claude Code compatibility
+
+Kit also discovers Claude Code-style markdown commands from:
+
+- `.claude/commands/*.md`
+
+These are exposed as slash commands with a `/cc:` prefix to avoid collisions with built-in commands and prompt command files.
+
+Example:
+
+- `.claude/commands/draft-pr.md` → `/cc:draft-pr`
+
+Claude command files support frontmatter fields such as:
+
+- `description`
+- `argument-hint`
+
+Their bodies support the same argument placeholders Kit prompt commands support, including `$1`, `$@`, `$ARGUMENTS`, and `${@:N}` forms.
+
 ## Debugging
 
-Run `/debug` to see all discovered prompt commands with their source and file path.
+Run `/debug` to see all discovered prompt commands and Claude compatibility commands with their source and file path.
