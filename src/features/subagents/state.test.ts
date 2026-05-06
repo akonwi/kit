@@ -34,10 +34,21 @@ const agents: SubagentDefinition[] = [
 	},
 ];
 
-function assistantMessage(text: string) {
+function assistantMessage(
+	text: string,
+	content?: Array<
+		| { type: "text"; text: string }
+		| {
+				type: "toolCall";
+				id: string;
+				name: string;
+				arguments: Record<string, unknown>;
+		  }
+	>,
+) {
 	return {
 		role: "assistant" as const,
-		content: [{ type: "text" as const, text }],
+		content: content ?? [{ type: "text" as const, text }],
 		api: "anthropic-messages",
 		provider: "anthropic",
 		model: "claude-haiku-4-5",
@@ -188,6 +199,109 @@ describe("SubagentManager", () => {
 			agentName: "scout",
 			status: "idle",
 			latestMessage: "delegated answer",
+		});
+	});
+
+	test("reconstructs prior tool results into history turns for continued runs", async () => {
+		const persisted: SessionEntry[] = [
+			{
+				type: "subagent_started",
+				id: "1",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:00.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				model: "claude-haiku-4-5",
+				description: "Fast reconnaissance",
+			},
+			{
+				type: "subagent_prompt",
+				id: "2",
+				parentId: "1",
+				timestamp: "2025-01-01T00:00:01.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "inspect auth",
+			},
+			{
+				type: "subagent_message_completed",
+				id: "3",
+				parentId: "2",
+				timestamp: "2025-01-01T00:00:02.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				messageId: "msg-1",
+				message: assistantMessage("", [
+					{
+						type: "toolCall",
+						id: "tool-1",
+						name: "grep",
+						arguments: { path: "src", pattern: "auth" },
+					},
+				]),
+			},
+			{
+				type: "subagent_tool_completed",
+				id: "4",
+				parentId: "3",
+				timestamp: "2025-01-01T00:00:03.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				toolCallId: "tool-1",
+				toolName: "grep",
+				result: {
+					content: [{ type: "text", text: "src/auth/index.ts" }],
+					details: { matches: 1 },
+				},
+				isError: false,
+			},
+			{
+				type: "subagent_message_completed",
+				id: "5",
+				parentId: "4",
+				timestamp: "2025-01-01T00:00:04.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				messageId: "msg-2",
+				message: assistantMessage("found auth entry point"),
+			},
+		];
+		let capturedTurns: Session["turns"] = [];
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => persisted,
+			appendEntries: async () => [],
+			createRuntime: async (options) => {
+				capturedTurns = options.historyTurns;
+				return {
+					async run() {
+						return { status: "completed" as const, message: "continued" };
+					},
+					abort() {},
+					dispose() {},
+				};
+			},
+		});
+
+		await manager.hydrate();
+		await manager.run("scout", "continue with oauth state");
+
+		expect(capturedTurns).toHaveLength(1);
+		expect(capturedTurns[0]?.messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+			"toolResult",
+			"assistant",
+		]);
+		const toolResult = capturedTurns[0]?.messages[2];
+		expect(toolResult).toMatchObject({
+			role: "toolResult",
+			toolCallId: "tool-1",
+			toolName: "grep",
+			isError: false,
 		});
 	});
 });

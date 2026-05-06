@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { ImageContent, TextContent } from "@mariozechner/pi-ai";
 import { getApiKey } from "../../auth";
 import { buildSystemPrompt } from "../../context/agents";
 import {
@@ -147,6 +148,43 @@ function maybeTextDelta(
 	return deltaEvent.delta;
 }
 
+function normalizeToolResultContent(result: unknown): {
+	content: (TextContent | ImageContent)[];
+	details?: unknown;
+} {
+	if (result && typeof result === "object") {
+		const candidate = result as { content?: unknown; details?: unknown };
+		if (Array.isArray(candidate.content)) {
+			const content = candidate.content.filter(
+				(block): block is TextContent | ImageContent =>
+					Boolean(block) &&
+					typeof block === "object" &&
+					"type" in block &&
+					(((block as { type?: unknown }).type === "text" &&
+						typeof (block as { text?: unknown }).text === "string") ||
+						(block as { type?: unknown }).type === "image"),
+			);
+			if (content.length > 0) {
+				return { content, details: candidate.details };
+			}
+		}
+	}
+
+	const text =
+		typeof result === "string"
+			? result
+			: result === undefined
+				? ""
+				: (JSON.stringify(result, null, 2) ?? String(result));
+	return {
+		content: text.trim().length > 0 ? [{ type: "text", text }] : [],
+		details:
+			result && typeof result === "object" && "details" in result
+				? (result as { details?: unknown }).details
+				: undefined,
+	};
+}
+
 function buildHistoryTurns(
 	entries: SessionEntry[],
 	subagentConversationId: string,
@@ -187,6 +225,22 @@ function buildHistoryTurns(
 			}
 			currentTurn.messages.push({
 				...entry.message,
+				turnId: currentTurn.id,
+			});
+			continue;
+		}
+
+		if (entry.type === "subagent_tool_completed") {
+			if (!currentTurn) continue;
+			const normalized = normalizeToolResultContent(entry.result);
+			currentTurn.messages.push({
+				role: "toolResult",
+				toolCallId: entry.toolCallId,
+				toolName: entry.toolName,
+				content: normalized.content,
+				details: normalized.details,
+				isError: entry.isError,
+				timestamp: new Date(entry.timestamp).getTime(),
 				turnId: currentTurn.id,
 			});
 		}

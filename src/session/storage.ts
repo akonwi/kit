@@ -29,6 +29,8 @@ import {
 	type SessionModelChangeEntry,
 	type SessionSummary,
 	type SessionThinkingLevelChangeEntry,
+	type SubagentPromptEntry,
+	type SubagentStartedEntry,
 	type Turn,
 } from "./types";
 
@@ -126,6 +128,70 @@ function summaryTurnFromPersistedMessage(
 	};
 }
 
+function subagentDelegationTurnFromEntries(
+	prompt: SubagentPromptEntry,
+	started?: SubagentStartedEntry,
+): Turn {
+	const timestamp = new Date(prompt.timestamp).getTime();
+	const toolCallId = `subagent:${prompt.id}`;
+	return {
+		id: prompt.id,
+		messages: [
+			{
+				role: "assistant",
+				content: [
+					{
+						type: "toolCall",
+						id: toolCallId,
+						name: "subagent",
+						arguments: {
+							action: "run",
+							agent: prompt.agentName,
+							message: prompt.prompt,
+						},
+					},
+				],
+				api: "openai-completions",
+				provider: "kit",
+				model: started?.model ?? "subagent",
+				usage: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					totalTokens: 0,
+					cost: {
+						input: 0,
+						output: 0,
+						cacheRead: 0,
+						cacheWrite: 0,
+						total: 0,
+					},
+				},
+				stopReason: "toolUse",
+				timestamp,
+				synthetic: {
+					kind: "subagent-delegation",
+					subagentName: prompt.agentName,
+					subagentDescription: started?.description,
+					subagentPrompt: prompt.prompt,
+					subagentSource: prompt.source,
+				},
+				turnId: prompt.id,
+			} as KitAgentMessage,
+			{
+				role: "toolResult",
+				toolCallId,
+				toolName: "subagent",
+				content: [],
+				isError: false,
+				timestamp,
+				turnId: prompt.id,
+			} as KitAgentMessage,
+		],
+	};
+}
+
 function firstUserMessage(turns: Turn[]): string | undefined {
 	for (const turn of turns) {
 		for (const msg of turn.messages) {
@@ -218,6 +284,9 @@ function serializeSessionEntries(session: Session): SessionEntry[] {
 				message: stripTurnId(message),
 				timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
 			});
+			continue;
+		}
+		if (isSummaryTurn(turn, "subagent-delegation")) {
 			continue;
 		}
 		for (const message of turn.messages) {
@@ -372,6 +441,8 @@ function buildSessionFromState(state: SessionStorageState): Session {
 		);
 	}
 
+	const subagentStartsByConversation = new Map<string, SubagentStartedEntry>();
+
 	for (const entry of visibleEntries) {
 		if (latestCompaction && entry.id === latestCompaction.id) continue;
 		if (entry.type === "message") {
@@ -382,6 +453,19 @@ function buildSessionFromState(state: SessionStorageState): Session {
 			} else {
 				turns.push({ id: entry.turnId, messages: [restored] });
 			}
+			continue;
+		}
+		if (entry.type === "subagent_started") {
+			subagentStartsByConversation.set(entry.subagentConversationId, entry);
+			continue;
+		}
+		if (entry.type === "subagent_prompt") {
+			turns.push(
+				subagentDelegationTurnFromEntries(
+					entry,
+					subagentStartsByConversation.get(entry.subagentConversationId),
+				),
+			);
 			continue;
 		}
 		if (entry.type === "handoff_summary" || entry.type === "compaction") {

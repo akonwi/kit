@@ -115,12 +115,8 @@ Do not add a separate `subagent_result` event in v1.
 
 ## Remaining implementation tasks
 
-- add sub-agent definition discovery and validation
-- add the built-in `subagent` tool and tool prompt guidance
-- add thin per-session active conversation management
-- define and persist sub-agent session entry types in JSONL
-- update session replay/hydration to rebuild active sub-agent state from the main log
-- decide first-pass transcript rendering for sub-agent events in the main session UI
+- polish transcript rendering and replay behavior for delegated runs
+- improve post-reload continuation fidelity where resumed delegated runs still differ from uninterrupted in-memory execution
 - ensure low-level sub-agent events do not automatically bloat the main agent's prompt context
 
 ## Why this is not `/handoff`

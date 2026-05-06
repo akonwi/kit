@@ -10,21 +10,27 @@ import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 export const SESSION_VERSION = 2;
 
 /** AgentMessage tagged with the turn it belongs to. */
-export type SyntheticSummaryKind = "compaction-summary" | "handoff-summary";
+export type SyntheticSummaryKind =
+	| "compaction-summary"
+	| "handoff-summary"
+	| "subagent-delegation";
+
+export type SyntheticMessageMetadata = {
+	kind: SyntheticSummaryKind;
+	sourceSessionName?: string;
+	subagentName?: string;
+	subagentDescription?: string;
+	subagentPrompt?: string;
+	subagentSource?: SubagentEventSource;
+};
 
 export type KitAgentMessage = AgentMessage & {
 	turnId: string;
-	synthetic?: {
-		kind: SyntheticSummaryKind;
-		sourceSessionName?: string;
-	};
+	synthetic?: SyntheticMessageMetadata;
 };
 
 export type PersistedKitAgentMessage = AgentMessage & {
-	synthetic?: {
-		kind: SyntheticSummaryKind;
-		sourceSessionName?: string;
-	};
+	synthetic?: SyntheticMessageMetadata;
 };
 
 /** A single agent turn: one user prompt + all resulting messages. */

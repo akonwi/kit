@@ -321,6 +321,10 @@ The important split is:
 - render selectively for UX
 - include narrowly in the main model context
 
+For the initial transcript UX, replay should show a compact tool-call-style delegation marker for each persisted `subagent_prompt`, enriched by the matching `subagent_started` metadata when available.
+
+That means the main session transcript should show that delegation happened without replaying the full internal sub-agent transcript by default.
+
 ## Relationship to `/handoff`
 
 Kit already has `/handoff`, which creates a linked child session and switches the user into it.
