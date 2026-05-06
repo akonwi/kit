@@ -1,6 +1,7 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Plugin } from "../../plugins/Plugin";
 import { loadSubagents, type SubagentDefinition } from "./discovery";
+import { formatSubagentsForPrompt } from "./format";
 import { SubagentManager } from "./state";
 import { createSubagentTool } from "./tool";
 
@@ -10,6 +11,7 @@ export type {
 	SubagentSource,
 } from "./discovery";
 export { loadSubagents } from "./discovery";
+export { formatSubagentsForPrompt } from "./format";
 export type {
 	ActiveSubagentConversationState,
 	ActiveSubagentStatus,
@@ -21,6 +23,7 @@ export { createSubagentTool } from "./tool";
 export class SubagentsPlugin extends Plugin {
 	private clearDebugSection: (() => void) | null = null;
 	private unregisterTool: (() => void) | null = null;
+	private removePromptAddition: (() => void) | null = null;
 	private readonly manager = new SubagentManager({
 		runtime: this.ctx.runtime,
 		getAgents: () => this.agents,
@@ -40,6 +43,8 @@ export class SubagentsPlugin extends Plugin {
 		this.clearDebugSection = null;
 		this.unregisterTool?.();
 		this.unregisterTool = null;
+		this.removePromptAddition?.();
+		this.removePromptAddition = null;
 		super.dispose();
 	}
 
@@ -55,7 +60,14 @@ export class SubagentsPlugin extends Plugin {
 
 		this.unregisterTool?.();
 		this.unregisterTool = null;
+		this.removePromptAddition?.();
+		this.removePromptAddition = null;
 		const active = this.manager.listActive();
+		const promptAddition = formatSubagentsForPrompt(agents);
+		if (promptAddition) {
+			this.removePromptAddition =
+				this.ctx.runtime.addSystemPromptAddition(promptAddition);
+		}
 		if (agents.length > 0 || active.length > 0) {
 			const tool = createSubagentTool({
 				getAgents: () => this.agents,
