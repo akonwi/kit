@@ -176,12 +176,8 @@ export function InlinePicker(props: InlinePickerProps) {
 												</Show>
 											</box>
 											<Show when={entry.option.description.length > 0}>
-												<box
-													flexGrow={1}
-													flexShrink={1}
-													height={1}
-													overflow="hidden"
-												>
+												<box flexGrow={1} flexShrink={1} />
+												<box flexShrink={1} height={1} overflow="hidden">
 													<text fg={fg()} bg={bg()}>
 														{entry.option.description}
 													</text>
