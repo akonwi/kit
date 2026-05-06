@@ -292,7 +292,7 @@ async function createLiveSubagentRuntime(
 		maxRetryDelayMs: resolveRetrySettings(options.runtime.settings.retry)
 			.maxDelayMs,
 	});
-	agent.sessionId = options.runtime.getSession().id;
+	agent.sessionId = options.subagentConversationId;
 
 	let writeChain = Promise.resolve();
 	let currentMessageId: string | undefined;

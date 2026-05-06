@@ -115,7 +115,6 @@ Do not add a separate `subagent_result` event in v1.
 
 ## Remaining implementation tasks
 
-- polish transcript rendering and replay behavior for delegated runs
 - improve post-reload continuation fidelity where resumed delegated runs still differ from uninterrupted in-memory execution
 - ensure low-level sub-agent events do not automatically bloat the main agent's prompt context
 

@@ -14,6 +14,7 @@ Delete done items.
 ## Active items
 - [ ] feat: sub-agents (borrow from pi-subagents)
   - discovery, runtime, persistence, and compact transcript replay are in place
+  - delegated replay now preserves failed/aborted runs, avoids duplicate synthetic tool calls, and uses isolated provider session ids
   - see `backlog/subagents.md`
 - [ ] feat: explicit `read_thread` tool for agent to react to thread references
 - [ ] ux: lean into command palette instead of slash picker

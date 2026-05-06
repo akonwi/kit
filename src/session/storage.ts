@@ -29,6 +29,8 @@ import {
 	type SessionModelChangeEntry,
 	type SessionSummary,
 	type SessionThinkingLevelChangeEntry,
+	type SubagentAbortedEntry,
+	type SubagentFailedEntry,
 	type SubagentPromptEntry,
 	type SubagentStartedEntry,
 	type Turn,
@@ -128,6 +130,52 @@ function summaryTurnFromPersistedMessage(
 	};
 }
 
+function subagentDelegationSignature(
+	agentName: string,
+	message: string,
+): string {
+	return `${agentName}\u0000${message}`;
+}
+
+function countRealSubagentRunToolCalls(
+	entries: SessionEntry[],
+): Map<string, number> {
+	const counts = new Map<string, number>();
+	for (const entry of entries) {
+		if (entry.type !== "message" || entry.message.role !== "assistant")
+			continue;
+		for (const block of entry.message.content) {
+			if (block.type !== "toolCall" || block.name !== "subagent") continue;
+			const args =
+				typeof block.arguments === "object" && block.arguments !== null
+					? (block.arguments as Record<string, unknown>)
+					: null;
+			if (!args || args.action !== "run") continue;
+			if (typeof args.agent !== "string" || typeof args.message !== "string") {
+				continue;
+			}
+			const signature = subagentDelegationSignature(args.agent, args.message);
+			counts.set(signature, (counts.get(signature) ?? 0) + 1);
+		}
+	}
+	return counts;
+}
+
+function consumeRealSubagentRunToolCall(
+	counts: Map<string, number>,
+	prompt: SubagentPromptEntry,
+): boolean {
+	const signature = subagentDelegationSignature(
+		prompt.agentName,
+		prompt.prompt,
+	);
+	const count = counts.get(signature) ?? 0;
+	if (count <= 0) return false;
+	if (count === 1) counts.delete(signature);
+	else counts.set(signature, count - 1);
+	return true;
+}
+
 function subagentDelegationTurnFromEntries(
 	prompt: SubagentPromptEntry,
 	started?: SubagentStartedEntry,
@@ -190,6 +238,37 @@ function subagentDelegationTurnFromEntries(
 			} as KitAgentMessage,
 		],
 	};
+}
+
+function setSubagentDelegationTurnFailure(
+	turn: Turn,
+	failure: SubagentFailedEntry,
+): void {
+	const assistant = turn.messages[0];
+	const toolResult = turn.messages[1];
+	if (assistant?.role !== "assistant" || toolResult?.role !== "toolResult") {
+		return;
+	}
+	toolResult.isError = true;
+	toolResult.timestamp = new Date(failure.timestamp).getTime();
+	toolResult.content = [{ type: "text", text: failure.error }];
+}
+
+function setSubagentDelegationTurnAborted(
+	turn: Turn,
+	aborted: SubagentAbortedEntry,
+): void {
+	const assistant = turn.messages[0];
+	const toolResult = turn.messages[1];
+	if (assistant?.role !== "assistant" || toolResult?.role !== "toolResult") {
+		return;
+	}
+	assistant.stopReason = "aborted";
+	assistant.timestamp = new Date(aborted.timestamp).getTime();
+	toolResult.timestamp = new Date(aborted.timestamp).getTime();
+	toolResult.content = aborted.reason
+		? [{ type: "text", text: aborted.reason }]
+		: [];
 }
 
 function firstUserMessage(turns: Turn[]): string | undefined {
@@ -442,6 +521,9 @@ function buildSessionFromState(state: SessionStorageState): Session {
 	}
 
 	const subagentStartsByConversation = new Map<string, SubagentStartedEntry>();
+	const realSubagentRunToolCalls =
+		countRealSubagentRunToolCalls(visibleEntries);
+	const syntheticDelegationTurnByConversation = new Map<string, Turn>();
 
 	for (const entry of visibleEntries) {
 		if (latestCompaction && entry.id === latestCompaction.id) continue;
@@ -460,11 +542,40 @@ function buildSessionFromState(state: SessionStorageState): Session {
 			continue;
 		}
 		if (entry.type === "subagent_prompt") {
-			turns.push(
-				subagentDelegationTurnFromEntries(
-					entry,
-					subagentStartsByConversation.get(entry.subagentConversationId),
-				),
+			if (consumeRealSubagentRunToolCall(realSubagentRunToolCalls, entry)) {
+				syntheticDelegationTurnByConversation.delete(
+					entry.subagentConversationId,
+				);
+				continue;
+			}
+			const turn = subagentDelegationTurnFromEntries(
+				entry,
+				subagentStartsByConversation.get(entry.subagentConversationId),
+			);
+			turns.push(turn);
+			syntheticDelegationTurnByConversation.set(
+				entry.subagentConversationId,
+				turn,
+			);
+			continue;
+		}
+		if (entry.type === "subagent_failed") {
+			const turn = syntheticDelegationTurnByConversation.get(
+				entry.subagentConversationId,
+			);
+			if (turn) setSubagentDelegationTurnFailure(turn, entry);
+			continue;
+		}
+		if (entry.type === "subagent_aborted") {
+			const turn = syntheticDelegationTurnByConversation.get(
+				entry.subagentConversationId,
+			);
+			if (turn) setSubagentDelegationTurnAborted(turn, entry);
+			continue;
+		}
+		if (entry.type === "subagent_dismissed") {
+			syntheticDelegationTurnByConversation.delete(
+				entry.subagentConversationId,
 			);
 			continue;
 		}
