@@ -200,6 +200,40 @@ describe("session storage", () => {
 		).rejects.toThrow(/Compaction boundary could not be resolved/);
 	});
 
+	test("persists and reads custom session entries alongside turn entries", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await storage.appendSessionEntries(session, [
+			{
+				type: "subagent_started",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				description: "Fast reconnaissance",
+			},
+			{
+				type: "subagent_prompt",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "find auth entry points",
+			},
+		]);
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries.map((entry) => entry.type)).toEqual([
+			"subagent_started",
+			"subagent_prompt",
+		]);
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toEqual([]);
+	});
+
 	test("migrates legacy .json sessions to .jsonl on load", async () => {
 		const legacy: Session = {
 			id: "legacy-session",

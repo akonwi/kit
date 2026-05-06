@@ -32,6 +32,12 @@ import {
 	type Turn,
 } from "./types";
 
+export type AppendableSessionEntry = SessionEntry extends infer T
+	? T extends SessionEntry
+		? Omit<T, "id" | "parentId">
+		: never
+	: never;
+
 export const SESSIONS_DIR = path.join(getKitPaths().kitRoot, "sessions");
 
 type LegacySession = Session;
@@ -586,6 +592,15 @@ export async function readSession(id: string): Promise<Session | null> {
 	return migrateLegacySession(id);
 }
 
+export async function readSessionEntries(id: string): Promise<SessionEntry[]> {
+	const state = await ensureState(id);
+	if (state) return [...state.entries];
+	const migrated = await migrateLegacySession(id);
+	if (!migrated) return [];
+	const migratedState = await ensureState(id);
+	return migratedState ? [...migratedState.entries] : [];
+}
+
 export async function writeSession(session: Session): Promise<void> {
 	const state = createStateFromSession(session, { flushed: true });
 	await ensureSessionsDir();
@@ -594,6 +609,30 @@ export async function writeSession(session: Session): Promise<void> {
 		await rm(state.legacyFilePath, { force: true });
 	}
 	stateBySessionId.set(session.id, state);
+}
+
+export async function appendSessionEntries(
+	session: Session,
+	entries: AppendableSessionEntry[],
+): Promise<SessionEntry[]> {
+	let state = await ensureState(session.id);
+	if (!state) {
+		state = createStateFromSession({ ...session, turns: [] });
+		stateBySessionId.set(session.id, state);
+	}
+	const prepared: SessionEntry[] = [];
+	let parentId = state.entries.at(-1)?.id ?? null;
+	for (const entry of entries) {
+		const next = {
+			...entry,
+			id: makeEntryId(),
+			parentId,
+		} as SessionEntry;
+		prepared.push(next);
+		parentId = next.id;
+	}
+	await appendEntries(state, prepared);
+	return prepared;
 }
 
 export async function appendTurn(session: Session, turn: Turn): Promise<void> {

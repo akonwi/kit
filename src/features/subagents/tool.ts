@@ -1,16 +1,26 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@sinclair/typebox";
 import type { SubagentDefinition } from "./discovery";
-import type { ActiveSubagentStatus, SubagentManager } from "./state";
+import {
+	type ActiveSubagentStatus,
+	type SubagentManager,
+	SubagentManagerError,
+} from "./state";
 
 const parameters = Type.Object({
 	action: Type.Union([
 		Type.Literal("list_agents"),
+		Type.Literal("run"),
 		Type.Literal("status"),
 		Type.Literal("dismiss"),
 	]),
 	agent: Type.Optional(
-		Type.String({ description: "Name of the sub-agent to inspect or dismiss" }),
+		Type.String({
+			description: "Name of the sub-agent to run, inspect, or dismiss",
+		}),
+	),
+	message: Type.Optional(
+		Type.String({ description: "Message to send to the named sub-agent" }),
 	),
 });
 
@@ -52,19 +62,47 @@ function requireAgent(input: Parameters): string | null {
 	return agent.length > 0 ? agent : null;
 }
 
+function requireMessage(input: Parameters): string | null {
+	if (typeof input.message !== "string") return null;
+	const message = input.message.trim();
+	return message.length > 0 ? message : null;
+}
+
+function toolError(
+	action: Parameters["action"],
+	error: unknown,
+): AgentToolResult<Record<string, unknown>> {
+	if (error instanceof SubagentManagerError) {
+		return textResult(error.message, {
+			ok: false,
+			action,
+			code: error.code,
+			message: error.message,
+		});
+	}
+	const message = error instanceof Error ? error.message : String(error);
+	return textResult(message, {
+		ok: false,
+		action,
+		code: "RUNTIME_ERROR",
+		message,
+	});
+}
+
 export function createSubagentTool(options: {
 	getAgents: () => SubagentDefinition[];
-	manager: SubagentManager;
+	manager: Pick<SubagentManager, "dismiss" | "getActive" | "run">;
 }) {
 	return {
 		name: "subagent",
 		label: "Sub-agent",
 		description:
-			"List available sub-agents and inspect or dismiss active delegated sub-agent conversations.",
+			"List available sub-agents and run, inspect, or dismiss active delegated sub-agent conversations.",
 		promptSnippet:
-			"Inspect available sub-agents or the current active state of a named sub-agent.",
+			"Delegate work to a named sub-agent, inspect its active state, or reset it.",
 		promptGuidelines: [
 			"Use list_agents to discover available named sub-agents before relying on one.",
+			"Use run to send a message to a named sub-agent. It creates a new active conversation when needed and otherwise continues the active one.",
 			"Use status to inspect whether a named sub-agent currently has an active delegated conversation.",
 			"Use dismiss to reset an active delegated conversation when you explicitly want to discard its active state.",
 		],
@@ -115,6 +153,39 @@ export function createSubagentTool(options: {
 				});
 			}
 
+			if (input.action === "run") {
+				const message = requireMessage(input);
+				if (!message) {
+					return textResult("Provide a sub-agent message.", {
+						ok: false,
+						action: "run",
+						code: "INVALID_INPUT",
+						message: "Provide a sub-agent message.",
+					});
+				}
+				try {
+					const result = await options.manager.run(agent, message);
+					return textResult(
+						result.status === "completed"
+							? result.message?.trim() ||
+									`Sub-agent "${agent}" completed without a text response.`
+							: result.error ||
+									result.message ||
+									`Sub-agent "${agent}" ${result.status}.`,
+						{
+							ok: true,
+							action: "run",
+							agent,
+							status: result.status,
+							...(result.message ? { message: result.message } : {}),
+							...(result.error ? { error: result.error } : {}),
+						},
+					);
+				} catch (error) {
+					return toolError("run", error);
+				}
+			}
+
 			if (input.action === "status") {
 				const active = options.manager.getActive(agent);
 				if (!active) {
@@ -134,6 +205,9 @@ export function createSubagentTool(options: {
 						`Status: ${renderStatus(active.status)}`,
 						...(active.model ? [`Model: ${active.model}`] : []),
 						`Last activity: ${active.lastActivityAt}`,
+						...(active.latestMessage
+							? ["", `Latest message:\n${active.latestMessage}`]
+							: []),
 					].join("\n"),
 					{
 						ok: true,
@@ -143,22 +217,29 @@ export function createSubagentTool(options: {
 						status: active.status,
 						model: active.model,
 						lastActivityAt: active.lastActivityAt,
+						...(active.latestMessage
+							? { latestMessage: active.latestMessage }
+							: {}),
 					},
 				);
 			}
 
-			const dismissed = options.manager.dismiss(agent);
-			return textResult(
-				dismissed
-					? `Dismissed active sub-agent conversation for "${agent}".`
-					: `No active delegated conversation for sub-agent "${agent}".`,
-				{
-					ok: true,
-					action: "dismiss",
-					agent,
-					dismissed,
-				},
-			);
+			try {
+				const dismissed = await options.manager.dismiss(agent);
+				return textResult(
+					dismissed
+						? `Dismissed active sub-agent conversation for "${agent}".`
+						: `No active delegated conversation for sub-agent "${agent}".`,
+					{
+						ok: true,
+						action: "dismiss",
+						agent,
+						dismissed,
+					},
+				);
+			} catch (error) {
+				return toolError("dismiss", error);
+			}
 		},
 	};
 }

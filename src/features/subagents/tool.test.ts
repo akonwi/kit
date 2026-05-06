@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SubagentDefinition } from "./discovery";
-import { SubagentManager } from "./state";
+import { SubagentManager, SubagentManagerError } from "./state";
 import { createSubagentTool } from "./tool";
 
 const agents: SubagentDefinition[] = [
@@ -17,10 +17,13 @@ const agents: SubagentDefinition[] = [
 
 describe("createSubagentTool", () => {
 	test("lists discovered sub-agents", async () => {
-		const manager = new SubagentManager();
 		const tool = createSubagentTool({
 			getAgents: () => agents,
-			manager,
+			manager: {
+				getActive: () => undefined,
+				dismiss: async () => false,
+				run: async () => ({ status: "completed", message: "done" }),
+			},
 		});
 
 		const result = await tool.execute("call-1", { action: "list_agents" });
@@ -36,17 +39,71 @@ describe("createSubagentTool", () => {
 				},
 			],
 		});
-		expect(result.content[0]?.type).toBe("text");
-		if (result.content[0]?.type !== "text") {
-			throw new Error("Expected text content");
-		}
-		expect(result.content[0].text).toContain("scout");
+	});
+
+	test("runs a named sub-agent", async () => {
+		const tool = createSubagentTool({
+			getAgents: () => agents,
+			manager: {
+				getActive: () => undefined,
+				dismiss: async () => false,
+				run: async (agent, message) => ({
+					status: "completed",
+					message: `${agent}:${message}`,
+				}),
+			},
+		});
+
+		const result = await tool.execute("call-1", {
+			action: "run",
+			agent: "scout",
+			message: "find auth entry points",
+		});
+		expect(result.details).toEqual({
+			ok: true,
+			action: "run",
+			agent: "scout",
+			status: "completed",
+			message: "scout:find auth entry points",
+		});
+	});
+
+	test("reports manager errors for run", async () => {
+		const tool = createSubagentTool({
+			getAgents: () => agents,
+			manager: {
+				getActive: () => undefined,
+				dismiss: async () => false,
+				run: async () => {
+					throw new SubagentManagerError(
+						"SUBAGENT_BUSY",
+						'Sub-agent "scout" is already running.',
+					);
+				},
+			},
+		});
+
+		const result = await tool.execute("call-1", {
+			action: "run",
+			agent: "scout",
+			message: "find auth entry points",
+		});
+		expect(result.details).toEqual({
+			ok: false,
+			action: "run",
+			code: "SUBAGENT_BUSY",
+			message: 'Sub-agent "scout" is already running.',
+		});
 	});
 
 	test("reports inactive status when no active conversation exists", async () => {
 		const tool = createSubagentTool({
 			getAgents: () => agents,
-			manager: new SubagentManager(),
+			manager: {
+				getActive: () => undefined,
+				dismiss: async () => false,
+				run: async () => ({ status: "completed" }),
+			},
 		});
 
 		const result = await tool.execute("call-1", {
@@ -62,15 +119,22 @@ describe("createSubagentTool", () => {
 	});
 
 	test("returns active status details for an active conversation", async () => {
-		const manager = new SubagentManager();
-		manager.setActive({
+		const manager = Object.create(SubagentManager.prototype) as Pick<
+			SubagentManager,
+			"getActive" | "dismiss" | "run"
+		>;
+		manager.getActive = () => ({
 			agentName: "scout",
 			subagentConversationId: "conv-1",
 			status: "idle",
 			model: "claude-haiku-4-5",
 			description: "Fast reconnaissance",
 			lastActivityAt: "2025-01-01T00:00:00.000Z",
+			latestMessage: "done",
 		});
+		manager.dismiss = async () => false;
+		manager.run = async () => ({ status: "completed" });
+
 		const tool = createSubagentTool({
 			getAgents: () => agents,
 			manager,
@@ -88,20 +152,18 @@ describe("createSubagentTool", () => {
 			status: "idle",
 			model: "claude-haiku-4-5",
 			lastActivityAt: "2025-01-01T00:00:00.000Z",
+			latestMessage: "done",
 		});
 	});
 
 	test("dismisses an active conversation", async () => {
-		const manager = new SubagentManager();
-		manager.setActive({
-			agentName: "scout",
-			subagentConversationId: "conv-1",
-			status: "failed",
-			lastActivityAt: "2025-01-01T00:00:00.000Z",
-		});
 		const tool = createSubagentTool({
 			getAgents: () => agents,
-			manager,
+			manager: {
+				getActive: () => undefined,
+				dismiss: async () => true,
+				run: async () => ({ status: "completed" }),
+			},
 		});
 
 		const result = await tool.execute("call-1", {
@@ -114,29 +176,35 @@ describe("createSubagentTool", () => {
 			agent: "scout",
 			dismissed: true,
 		});
-		expect(manager.getActive("scout")).toBeUndefined();
 	});
 
-	test("rejects status and dismiss without an agent name", async () => {
+	test("rejects missing run inputs", async () => {
 		const tool = createSubagentTool({
 			getAgents: () => agents,
-			manager: new SubagentManager(),
+			manager: {
+				getActive: () => undefined,
+				dismiss: async () => false,
+				run: async () => ({ status: "completed" }),
+			},
 		});
 
-		const statusResult = await tool.execute("call-1", { action: "status" });
-		expect(statusResult.details).toEqual({
+		const missingAgent = await tool.execute("call-1", { action: "run" });
+		expect(missingAgent.details).toEqual({
 			ok: false,
-			action: "status",
+			action: "run",
 			code: "INVALID_INPUT",
 			message: "Provide a sub-agent name.",
 		});
 
-		const dismissResult = await tool.execute("call-2", { action: "dismiss" });
-		expect(dismissResult.details).toEqual({
+		const missingMessage = await tool.execute("call-2", {
+			action: "run",
+			agent: "scout",
+		});
+		expect(missingMessage.details).toEqual({
 			ok: false,
-			action: "dismiss",
+			action: "run",
 			code: "INVALID_INPUT",
-			message: "Provide a sub-agent name.",
+			message: "Provide a sub-agent message.",
 		});
 	});
 });

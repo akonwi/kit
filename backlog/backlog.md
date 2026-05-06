@@ -33,3 +33,5 @@ Delete done items.
   - see `backlog/review-split-diff-view.md`
 - [ ] feat: setting for "zen" mode. minimal transcript
   - don't show tool calls in transcript
+- [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
+  - see `backlog/agent-runtime-extraction-for-subagents.md`

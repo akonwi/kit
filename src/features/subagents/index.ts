@@ -13,25 +13,29 @@ export { loadSubagents } from "./discovery";
 export type {
 	ActiveSubagentConversationState,
 	ActiveSubagentStatus,
+	SubagentRunResult,
 } from "./state";
-export { SubagentManager } from "./state";
+export { SubagentManager, SubagentManagerError } from "./state";
 export { createSubagentTool } from "./tool";
 
 export class SubagentsPlugin extends Plugin {
 	private clearDebugSection: (() => void) | null = null;
 	private unregisterTool: (() => void) | null = null;
-	private readonly manager = new SubagentManager();
+	private readonly manager = new SubagentManager({
+		runtime: this.ctx.runtime,
+		getAgents: () => this.agents,
+	});
 	private agents: SubagentDefinition[] = [];
 
 	override initialize(): void {
 		this.subscribeRuntimeEvent("session.active.changed", async () => {
-			this.manager.reset();
-			this.refresh();
+			await this.refresh();
 		});
-		this.refresh();
+		void this.refresh();
 	}
 
 	override dispose(): void {
+		this.manager.reset();
 		this.clearDebugSection?.();
 		this.clearDebugSection = null;
 		this.unregisterTool?.();
@@ -39,10 +43,11 @@ export class SubagentsPlugin extends Plugin {
 		super.dispose();
 	}
 
-	private refresh(): void {
+	private async refresh(): Promise<void> {
 		const cwd = this.ctx.runtime.getSession().cwd;
 		const { agents, warnings } = loadSubagents(cwd);
 		this.agents = agents;
+		await this.manager.hydrate(this.ctx.runtime.getSession());
 
 		for (const warning of warnings) {
 			console.warn(`[subagents] ${warning}`);
@@ -50,7 +55,8 @@ export class SubagentsPlugin extends Plugin {
 
 		this.unregisterTool?.();
 		this.unregisterTool = null;
-		if (agents.length > 0) {
+		const active = this.manager.listActive();
+		if (agents.length > 0 || active.length > 0) {
 			const tool = createSubagentTool({
 				getAgents: () => this.agents,
 				manager: this.manager,
@@ -65,8 +71,18 @@ export class SubagentsPlugin extends Plugin {
 							`- ${agent.name} (${agent.source}) ${agent.filePath}${agent.model ? ` · ${agent.model}` : ""}`,
 					)
 				: ["(none)"]),
+			...(active.length > 0
+				? [
+						"",
+						"Active conversations:",
+						...active.map(
+							(conversation) =>
+								`- ${conversation.agentName} · ${conversation.status} · ${conversation.lastActivityAt}`,
+						),
+					]
+				: []),
 			...(warnings.length > 0
-				? ["Warnings:", ...warnings.map((warning) => `- ${warning}`)]
+				? ["", "Warnings:", ...warnings.map((warning) => `- ${warning}`)]
 				: []),
 		];
 
