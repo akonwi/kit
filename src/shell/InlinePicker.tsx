@@ -153,22 +153,39 @@ export function InlinePicker(props: InlinePickerProps) {
 										<box
 											flexDirection="row"
 											width="100%"
+											height={1}
+											overflow="hidden"
+											gap={1}
 											backgroundColor={bg()}
 										>
-											<box flexGrow={1} flexDirection="row">
+											<box
+												flexShrink={0}
+												flexDirection="row"
+												height={1}
+												overflow="hidden"
+											>
 												<text fg={fg()} bg={bg()}>
 													{entry.option.name}
 												</text>
 												<Show when={entry.option.argHint}>
-													<text fg={theme.textMuted} bg={bg()}>
-														{` [${entry.option.argHint}]`}
-													</text>
+													<box flexShrink={1} height={1} overflow="hidden">
+														<text fg={theme.textMuted} bg={bg()}>
+															{` [${entry.option.argHint}]`}
+														</text>
+													</box>
 												</Show>
 											</box>
 											<Show when={entry.option.description.length > 0}>
-												<text flexShrink={0} fg={fg()} bg={bg()}>
-													{entry.option.description}
-												</text>
+												<box
+													flexGrow={1}
+													flexShrink={1}
+													height={1}
+													overflow="hidden"
+												>
+													<text fg={fg()} bg={bg()}>
+														{entry.option.description}
+													</text>
+												</box>
 											</Show>
 										</box>
 									);
