@@ -12,7 +12,7 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] feat: sub-agents (borrow from pi-subagents)
+- [ ] feat: explicit `read_thread` tool for agent to react to thread references
 - [ ] ux: lean into command palette instead of slash picker
   - keep picker UX for file and thread references
 - [ ] idea: explore useful Unicode text glyphs for TUI affordances and status labels
@@ -31,3 +31,5 @@ Delete done items.
   - see `backlog/review-split-diff-view.md`
 - [ ] feat: setting for "zen" mode. minimal transcript
   - don't show tool calls in transcript
+- [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
+  - see `backlog/agent-runtime-extraction-for-subagents.md`

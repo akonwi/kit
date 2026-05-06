@@ -10,21 +10,27 @@ import type { AgentMessage, ThinkingLevel } from "@mariozechner/pi-agent-core";
 export const SESSION_VERSION = 2;
 
 /** AgentMessage tagged with the turn it belongs to. */
-export type SyntheticSummaryKind = "compaction-summary" | "handoff-summary";
+export type SyntheticSummaryKind =
+	| "compaction-summary"
+	| "handoff-summary"
+	| "subagent-delegation";
+
+export type SyntheticMessageMetadata = {
+	kind: SyntheticSummaryKind;
+	sourceSessionName?: string;
+	subagentName?: string;
+	subagentDescription?: string;
+	subagentPrompt?: string;
+	subagentSource?: SubagentEventSource;
+};
 
 export type KitAgentMessage = AgentMessage & {
 	turnId: string;
-	synthetic?: {
-		kind: SyntheticSummaryKind;
-		sourceSessionName?: string;
-	};
+	synthetic?: SyntheticMessageMetadata;
 };
 
 export type PersistedKitAgentMessage = AgentMessage & {
-	synthetic?: {
-		kind: SyntheticSummaryKind;
-		sourceSessionName?: string;
-	};
+	synthetic?: SyntheticMessageMetadata;
 };
 
 /** A single agent turn: one user prompt + all resulting messages. */
@@ -120,9 +126,98 @@ export interface SessionCompactionEntry extends SessionEntryBase {
 	message: PersistedKitAgentMessage;
 }
 
+export type SubagentEventSource = "manual" | "agent";
+
+export interface SubagentEntryBase extends SessionEntryBase {
+	agentName: string;
+	subagentConversationId: string;
+}
+
 export interface SessionHandoffSummaryEntry extends SessionEntryBase {
 	type: "handoff_summary";
 	message: PersistedKitAgentMessage;
+}
+
+export interface SubagentStartedEntry extends SubagentEntryBase {
+	type: "subagent_started";
+	source: SubagentEventSource;
+	model?: string;
+	description?: string;
+}
+
+export interface SubagentDismissedEntry extends SubagentEntryBase {
+	type: "subagent_dismissed";
+}
+
+export interface SubagentPromptEntry extends SubagentEntryBase {
+	type: "subagent_prompt";
+	source: SubagentEventSource;
+	prompt: string;
+}
+
+export interface SubagentMessageStartedEntry extends SubagentEntryBase {
+	type: "subagent_message_started";
+	messageId: string;
+}
+
+export interface SubagentMessageDeltaEntry extends SubagentEntryBase {
+	type: "subagent_message_delta";
+	messageId: string;
+	delta: string;
+}
+
+export interface SubagentMessageCompletedEntry extends SubagentEntryBase {
+	type: "subagent_message_completed";
+	messageId: string;
+	message: PersistedKitAgentMessage;
+}
+
+export interface SubagentThinkingStartedEntry extends SubagentEntryBase {
+	type: "subagent_thinking_started";
+	messageId: string;
+}
+
+export interface SubagentThinkingDeltaEntry extends SubagentEntryBase {
+	type: "subagent_thinking_delta";
+	messageId: string;
+	delta: string;
+}
+
+export interface SubagentThinkingCompletedEntry extends SubagentEntryBase {
+	type: "subagent_thinking_completed";
+	messageId: string;
+}
+
+export interface SubagentToolStartedEntry extends SubagentEntryBase {
+	type: "subagent_tool_started";
+	toolCallId: string;
+	toolName: string;
+	args: unknown;
+}
+
+export interface SubagentToolUpdatedEntry extends SubagentEntryBase {
+	type: "subagent_tool_updated";
+	toolCallId: string;
+	toolName: string;
+	partialResult: unknown;
+}
+
+export interface SubagentToolCompletedEntry extends SubagentEntryBase {
+	type: "subagent_tool_completed";
+	toolCallId: string;
+	toolName: string;
+	result: unknown;
+	isError: boolean;
+}
+
+export interface SubagentFailedEntry extends SubagentEntryBase {
+	type: "subagent_failed";
+	error: string;
+}
+
+export interface SubagentAbortedEntry extends SubagentEntryBase {
+	type: "subagent_aborted";
+	reason?: string;
 }
 
 export type SessionEntry =
@@ -131,6 +226,20 @@ export type SessionEntry =
 	| SessionModelChangeEntry
 	| SessionThinkingLevelChangeEntry
 	| SessionCompactionEntry
-	| SessionHandoffSummaryEntry;
+	| SessionHandoffSummaryEntry
+	| SubagentStartedEntry
+	| SubagentPromptEntry
+	| SubagentMessageStartedEntry
+	| SubagentMessageDeltaEntry
+	| SubagentMessageCompletedEntry
+	| SubagentThinkingStartedEntry
+	| SubagentThinkingDeltaEntry
+	| SubagentThinkingCompletedEntry
+	| SubagentToolStartedEntry
+	| SubagentToolUpdatedEntry
+	| SubagentToolCompletedEntry
+	| SubagentDismissedEntry
+	| SubagentFailedEntry
+	| SubagentAbortedEntry;
 
 export type SessionFileEntry = SessionHeader | SessionEntry;

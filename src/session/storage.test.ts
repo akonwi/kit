@@ -200,6 +200,214 @@ describe("session storage", () => {
 		).rejects.toThrow(/Compaction boundary could not be resolved/);
 	});
 
+	test("replays compact sub-agent delegation turns from persisted entries", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await storage.appendSessionEntries(session, [
+			{
+				type: "subagent_started",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				description: "Fast reconnaissance",
+			},
+			{
+				type: "subagent_prompt",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "find auth entry points",
+			},
+			{
+				type: "subagent_message_completed",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				messageId: "msg-1",
+				message: assistantMessage("delegated", "auth is in src/auth/index.ts"),
+			},
+		]);
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries.map((entry) => entry.type)).toEqual([
+			"subagent_started",
+			"subagent_prompt",
+			"subagent_message_completed",
+		]);
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toHaveLength(1);
+		expect(restored?.turns[0]?.messages.map((message) => message.role)).toEqual(
+			["assistant", "toolResult"],
+		);
+		expect(restored?.turns[0]?.messages[0]).toMatchObject({
+			role: "assistant",
+			stopReason: "toolUse",
+			synthetic: {
+				kind: "subagent-delegation",
+				subagentName: "scout",
+				subagentDescription: "Fast reconnaissance",
+				subagentPrompt: "find auth entry points",
+			},
+			content: [
+				{
+					type: "toolCall",
+					name: "subagent",
+					arguments: {
+						action: "run",
+						agent: "scout",
+						message: "find auth entry points",
+					},
+				},
+			],
+		});
+	});
+
+	test("replays delegated failures and aborts without marking them successful", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await storage.appendSessionEntries(session, [
+			{
+				type: "subagent_started",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+			},
+			{
+				type: "subagent_prompt",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "first run",
+			},
+			{
+				type: "subagent_failed",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				error: "boom",
+			},
+			{
+				type: "subagent_prompt",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "second run",
+			},
+			{
+				type: "subagent_aborted",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				reason: "Dismissed",
+			},
+		]);
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toHaveLength(2);
+		expect(restored?.turns[0]?.messages[0]).toMatchObject({
+			role: "assistant",
+			stopReason: "toolUse",
+		});
+		expect(restored?.turns[0]?.messages[1]).toMatchObject({
+			role: "toolResult",
+			toolName: "subagent",
+			isError: true,
+			content: [{ type: "text", text: "boom" }],
+		});
+		expect(restored?.turns[1]?.messages[0]).toMatchObject({
+			role: "assistant",
+			stopReason: "aborted",
+		});
+	});
+
+	test("skips synthetic delegation replay when a real subagent tool call exists", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		const turn: Turn = {
+			id: "turn-1",
+			messages: [
+				{
+					role: "assistant",
+					content: [
+						{
+							type: "toolCall",
+							id: "call-1",
+							name: "subagent",
+							arguments: {
+								action: "run",
+								agent: "scout",
+								message: "find auth entry points",
+							},
+						},
+					],
+					api: "anthropic-messages",
+					provider: "anthropic",
+					model: "claude-sonnet-4-5",
+					usage: {
+						input: 1,
+						output: 1,
+						cacheRead: 0,
+						cacheWrite: 0,
+						totalTokens: 2,
+						cost: {
+							input: 0,
+							output: 0,
+							cacheRead: 0,
+							cacheWrite: 0,
+							total: 0,
+						},
+					},
+					stopReason: "toolUse",
+					timestamp: Date.now(),
+					turnId: "turn-1",
+				},
+				{
+					role: "toolResult",
+					toolCallId: "call-1",
+					toolName: "subagent",
+					content: [],
+					isError: false,
+					timestamp: Date.now(),
+					turnId: "turn-1",
+				},
+			],
+		};
+		await storage.appendTurn(session, turn);
+		await storage.appendSessionEntries(session, [
+			{
+				type: "subagent_started",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+			},
+			{
+				type: "subagent_prompt",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "find auth entry points",
+			},
+		]);
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toHaveLength(1);
+		expect(restored?.turns[0]?.id).toBe("turn-1");
+	});
+
 	test("migrates legacy .json sessions to .jsonl on load", async () => {
 		const legacy: Session = {
 			id: "legacy-session",

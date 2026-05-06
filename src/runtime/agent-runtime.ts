@@ -63,7 +63,7 @@ export class AuthenticationRequiredError extends Error {
 	}
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
+export const DEFAULT_SYSTEM_PROMPT = `You are kit, a coding assistant running in the terminal.
 You have access to tools to read and modify files, run commands, search code, and more.
 Be concise and direct. Prefer surgical edits over full rewrites when practical.
 
@@ -1211,6 +1211,14 @@ export class AgentRuntime {
 
 	getMessages(): AgentMessage[] {
 		return this.agent.turns.flatMap((turn) => turn.messages);
+	}
+
+	getTools(): AgentTool[] {
+		return [...createDefaultTools(this.session.cwd), ...this.extraTools];
+	}
+
+	getSystemPromptAdditions(): string[] {
+		return [...this.systemPromptAdditions];
 	}
 
 	getTurns(): Turn[] {

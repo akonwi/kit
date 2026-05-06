@@ -233,6 +233,9 @@ export function formatToolArgs(args?: Record<string, unknown>): string {
 	if ("path" in args && typeof args.path === "string") {
 		return ` ${summarizeToolArg(args.path)}`;
 	}
+	if ("agent" in args && typeof args.agent === "string") {
+		return ` ${summarizeToolArg(args.agent)}`;
+	}
 	return "";
 }
 
