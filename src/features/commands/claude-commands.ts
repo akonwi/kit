@@ -107,7 +107,11 @@ export function discoverClaudeCommands(cwd: string): Command[] {
 				const parsedArgs = parseCommandArgs(args);
 				const prompt = substituteArgs(body, parsedArgs).trim();
 				if (prompt) {
-					void runtime.submitMessage(prompt);
+					void runtime.submitPromptCommandMessage(
+						`cc:${meta.name}`,
+						args,
+						prompt,
+					);
 				}
 			},
 		}),

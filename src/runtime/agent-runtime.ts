@@ -1026,6 +1026,40 @@ export class AgentRuntime {
 		await this.waitForRecovery();
 	}
 
+	async submitPromptCommandMessage(
+		command: string,
+		args: string,
+		expandedPrompt: string,
+	): Promise<void> {
+		const promptText = expandedPrompt.trim();
+		if (!promptText) return;
+
+		if (this.agent.state.isStreaming) {
+			this.sendFollowUp(promptText);
+			return;
+		}
+
+		const message: UserMultipartMessage & {
+			synthetic: {
+				kind: "prompt-command";
+				command: string;
+				args?: string;
+			};
+		} = {
+			role: "user",
+			content: [{ type: "text", text: promptText }],
+			timestamp: Date.now(),
+			synthetic: {
+				kind: "prompt-command",
+				command,
+				...(args.trim().length > 0 ? { args: args.trim() } : {}),
+			},
+		};
+
+		await this.agent.prompt(message as unknown as AgentMessage);
+		await this.waitForRecovery();
+	}
+
 	abort(): void {
 		this.retryAbortController?.abort();
 		this.agent.abort();

@@ -9,7 +9,11 @@ import type {
 	UserMultipartMessage,
 } from "../../messages/parts";
 import { syntaxStyle, theme } from "../theme";
-import { extractUserCustomParts, extractUserText } from "./turns";
+import {
+	extractPromptCommandSynthetic,
+	extractUserCustomParts,
+	extractUserText,
+} from "./turns";
 import type { TranscriptToast } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
@@ -99,17 +103,53 @@ function UserTextEntry(props: { text: string; aborted?: boolean }) {
 	);
 }
 
+function PromptCommandEntry(props: {
+	command: string;
+	args?: string;
+	aborted?: boolean;
+}) {
+	const suffix = props.args?.trim().length ? ` ${props.args?.trim()}` : "";
+	return (
+		<box
+			border={["left" as BorderSides]}
+			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
+			paddingLeft={1}
+			flexDirection="column"
+			gap={0}
+			width="100%"
+		>
+			<text fg={props.aborted ? theme.textMuted : theme.textPrimary}>
+				{`/${props.command}${suffix}`}
+			</text>
+		</box>
+	);
+}
+
 export function UserEntry(props: {
 	msg: UserMessage | UserMultipartMessage;
 	aborted?: boolean;
 	showToast: (toast: TranscriptToast) => void;
 }) {
+	const promptCommand = extractPromptCommandSynthetic(props.msg);
 	const text = extractUserText(props.msg);
 	const parts = extractUserCustomParts(props.msg);
 	return (
 		<box flexDirection="column" gap={1} width="100%">
-			<Show when={text.trim().length > 0}>
-				<UserTextEntry text={text} aborted={props.aborted} />
+			<Show
+				when={promptCommand}
+				fallback={
+					<Show when={text.trim().length > 0}>
+						<UserTextEntry text={text} aborted={props.aborted} />
+					</Show>
+				}
+			>
+				{(prompt) => (
+					<PromptCommandEntry
+						command={prompt().command}
+						args={prompt().args}
+						aborted={props.aborted}
+					/>
+				)}
 			</Show>
 			<For each={parts}>
 				{(part) => {

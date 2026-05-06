@@ -22,7 +22,11 @@ export class PromptsPlugin extends Plugin {
 				execute: async (ctx: CommandContext) => {
 					const args = parseCommandArgs(ctx.args);
 					const expanded = substituteArgs(template.content, args);
-					await this.ctx.runtime.submitMessage(expanded);
+					await this.ctx.runtime.submitPromptCommandMessage(
+						template.name,
+						ctx.args,
+						expanded,
+					);
 				},
 			});
 		}

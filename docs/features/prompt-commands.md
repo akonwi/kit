@@ -4,6 +4,9 @@ Prompt commands are markdown files that become slash commands. Each `.md` file
 in a prompts directory registers a `/filename` command. When invoked, the file's
 content is expanded with any arguments and submitted as a user message.
 
+In the transcript, Kit renders these as compact slash-command entries (for example
+`/review api layer`) instead of showing the full expanded template body verbatim.
+
 ## Discovery
 
 Kit scans these directories for `.md` files (non-recursive, first-loaded wins

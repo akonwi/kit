@@ -189,6 +189,41 @@ export function extractUserCustomParts(
 	return getUserParts(msg).filter((part) => part.type !== "text");
 }
 
+export type PromptCommandSynthetic = {
+	kind: "prompt-command";
+	command: string;
+	args?: string;
+};
+
+export function extractPromptCommandSynthetic(
+	msg: UserMessage | UserMultipartMessage,
+): PromptCommandSynthetic | null {
+	const synthetic = (msg as { synthetic?: unknown }).synthetic;
+	if (!synthetic || typeof synthetic !== "object") return null;
+	const candidate = synthetic as {
+		kind?: unknown;
+		command?: unknown;
+		args?: unknown;
+	};
+	if (candidate.kind !== "prompt-command") return null;
+	if (
+		typeof candidate.command !== "string" ||
+		candidate.command.trim().length === 0
+	) {
+		return null;
+	}
+	if (candidate.args !== undefined && typeof candidate.args !== "string") {
+		return null;
+	}
+	return {
+		kind: "prompt-command",
+		command: candidate.command,
+		...(typeof candidate.args === "string" && candidate.args.trim().length > 0
+			? { args: candidate.args }
+			: {}),
+	};
+}
+
 export function extractAssistantParts(msg: AssistantMessage): {
 	text: string;
 	toolCalls: ToolCall[];
