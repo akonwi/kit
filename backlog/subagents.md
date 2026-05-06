@@ -113,10 +113,11 @@ Persist the full sub-agent event stream, including:
 
 Do not add a separate `subagent_result` event in v1.
 
-## Remaining implementation tasks
+## Status
 
-- improve post-reload continuation fidelity where resumed delegated runs still differ from uninterrupted in-memory execution
-- ensure low-level sub-agent events do not automatically bloat the main agent's prompt context
+Sub-agents are complete enough for v1.
+
+Follow-up work, if we choose to pursue it later, is non-blocking and should be tracked as separate backlog items rather than as part of the v1 sub-agents feature.
 
 ## Why this is not `/handoff`
 
