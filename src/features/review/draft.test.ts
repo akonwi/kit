@@ -12,6 +12,7 @@ function makeFile(): ReviewFile {
 		noteKey: "src/test.ts",
 		path: "src/test.ts",
 		status: "modify" as ReviewFile["status"],
+		source: "unstaged",
 		filetype: "typescript",
 		rawPatch: [
 			"diff --git a/src/test.ts b/src/test.ts",
@@ -46,8 +47,10 @@ function makeFile(): ReviewFile {
 				additionCount: 1,
 				deletionStart: 1,
 				deletionCount: 1,
+				collapsedBefore: 0,
 			},
 		],
+		skippedSections: [],
 		changeCount: 2,
 	};
 }

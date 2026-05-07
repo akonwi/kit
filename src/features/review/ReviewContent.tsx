@@ -30,6 +30,7 @@ import {
 	type ReviewFile,
 	type ReviewHunk,
 	type ReviewLine,
+	type ReviewSkippedSection,
 } from "./model";
 import { ReviewNoteModal } from "./ReviewNoteModal";
 
@@ -76,8 +77,9 @@ const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
 		{ key: "Esc", action: "close" },
 	],
 	patch: [
-		{ key: "↑/↓ or j/k", action: "move line" },
+		{ key: "↑/↓ or j/k", action: "move cursor" },
 		{ key: "Tab / Shift+Tab", action: "change group" },
+		{ key: "Space", action: "toggle skipped section" },
 		{ key: "Enter", action: "comment line / confirm range" },
 		{ key: "Ctrl+Enter", action: "start range" },
 		{ key: "x", action: "clear line note" },
@@ -113,6 +115,41 @@ type PatchScrollRef = {
 
 function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
+}
+
+function sourceLabel(file: ReviewFile): string {
+	switch (file.source) {
+		case "staged":
+			return "staged";
+		case "unstaged":
+			return "unstaged";
+		case "untracked":
+			return "untracked";
+	}
+}
+
+function formatSkippedSectionSummary(
+	sectionCount: number,
+	lineCount: number,
+): string {
+	if (sectionCount === 0 || lineCount === 0) return "";
+	return `${sectionCount} skipped section${sectionCount === 1 ? "" : "s"} · ${lineCount} unchanged line${lineCount === 1 ? "" : "s"}`;
+}
+
+function getSkippedSection(
+	file: ReviewFile,
+	beforeHunkIndex: number,
+): ReviewSkippedSection | undefined {
+	return file.skippedSections.find(
+		(section) => section.beforeHunkIndex === beforeHunkIndex,
+	);
+}
+
+function skippedSectionLineLabel(section: ReviewSkippedSection): string {
+	const start =
+		section.additionStart > 0 ? section.additionStart : section.deletionStart;
+	const end = start + section.lineCount - 1;
+	return start === end ? `line ${start}` : `lines ${start}-${end}`;
 }
 
 function setMapValue(
@@ -238,6 +275,12 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [selectedLineIndices, setSelectedLineIndices] = createSignal<
 		Map<string, number>
 	>(new Map());
+	const [selectedSectionIds, setSelectedSectionIds] = createSignal<
+		Map<string, string>
+	>(new Map());
+	const [expandedSectionIds, setExpandedSectionIds] = createSignal<Set<string>>(
+		new Set(),
+	);
 	const [rangeAnchor, setRangeAnchor] = createSignal<RangeAnchor | null>(null);
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
@@ -266,12 +309,22 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (!file || !hunk) return -1;
 		return file.hunks.findIndex((candidate) => candidate.id === hunk.id);
 	});
+	const selectedSkippedSection = createMemo(() => {
+		const file = selectedFile();
+		if (!file) return null;
+		const sectionId = selectedSectionIds().get(file.id);
+		if (!sectionId) return null;
+		return (
+			file.skippedSections.find((section) => section.id === sectionId) ?? null
+		);
+	});
 	const selectedCommentableLines = createMemo(() => {
 		const hunk = selectedHunk();
 		if (!hunk) return [];
 		return getCommentableLines(hunk, rangeAnchor()?.side);
 	});
 	const selectedLine = createMemo(() => {
+		if (selectedSkippedSection()) return null;
 		const hunk = selectedHunk();
 		if (!hunk) return null;
 		const lines = selectedCommentableLines();
@@ -323,6 +376,28 @@ export function ReviewContent(props: ReviewContentProps) {
 			return `Selecting ${lineRangeLabel(range)} · press Enter to comment`;
 		}
 		return `Selected ${lineRangeLabel(range)} · press Ctrl+Enter to start a range`;
+	});
+	const hiddenContextStatus = createMemo(() => {
+		const file = selectedFile();
+		if (!file || mode() !== "patch") return "";
+		const selectedSection = selectedSkippedSection();
+		if (selectedSection) {
+			const expanded = expandedSectionIds().has(selectedSection.id);
+			return `${skippedSectionLineLabel(selectedSection)} · ${selectedSection.lineCount} unchanged line${selectedSection.lineCount === 1 ? "" : "s"} ${expanded ? "shown" : "hidden"} · press Space to ${expanded ? "collapse" : "expand"}`;
+		}
+		const hiddenSections = file.skippedSections.filter(
+			(section) => !expandedSectionIds().has(section.id),
+		);
+		const summary = formatSkippedSectionSummary(
+			hiddenSections.length,
+			hiddenSections.reduce((sum, section) => sum + section.lineCount, 0),
+		);
+		if (summary.length === 0) {
+			return file.skippedSections.length > 0
+				? "All skipped sections shown · use ↑/↓ to select one"
+				: "";
+		}
+		return `${summary} hidden · use ↑/↓ to select one`;
 	});
 	const lineCursorState = createMemo(() => {
 		const hunk = selectedHunk();
@@ -380,49 +455,53 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (startIndex == null || endIndex == null) return null;
 		return { startIndex, endIndex };
 	});
-	const savedCommentMarkers = createMemo<SavedCommentMarker[]>(() => {
-		const file = selectedFile();
-		if (!file) return [];
-		const markers: SavedCommentMarker[] = [];
-		for (const [key, value] of rangeNotes()) {
-			if (!value.trim()) continue;
-			const range = parseRangeNoteKey(key);
-			if (!range || range.path !== file.path) continue;
-			for (const hunk of file.hunks) {
-				let startIndex: number | null = null;
-				let endIndex: number | null = null;
-				for (const [index, line] of hunk.lines.entries()) {
-					const side =
-						line.kind === "add"
-							? "additions"
-							: line.kind === "delete"
-								? "deletions"
-								: undefined;
-					const lineNumber =
-						line.kind === "add"
-							? line.additionLineNumber
-							: line.kind === "delete"
-								? line.deletionLineNumber
-								: undefined;
-					if (!side || lineNumber == null || side !== range.side) continue;
-					if (lineNumber < range.startLine || lineNumber > range.endLine) {
-						continue;
+	const savedCommentMarkers = createMemo<Map<string, SavedCommentMarker[]>>(
+		() => {
+			const file = selectedFile();
+			const markers = new Map<string, SavedCommentMarker[]>();
+			if (!file) return markers;
+			for (const [key, value] of rangeNotes()) {
+				if (!value.trim()) continue;
+				const range = parseRangeNoteKey(key);
+				if (!range || range.path !== file.path) continue;
+				for (const hunk of file.hunks) {
+					let startIndex: number | null = null;
+					let endIndex: number | null = null;
+					for (const [index, line] of hunk.lines.entries()) {
+						const side =
+							line.kind === "add"
+								? "additions"
+								: line.kind === "delete"
+									? "deletions"
+									: undefined;
+						const lineNumber =
+							line.kind === "add"
+								? line.additionLineNumber
+								: line.kind === "delete"
+									? line.deletionLineNumber
+									: undefined;
+						if (!side || lineNumber == null || side !== range.side) continue;
+						if (lineNumber < range.startLine || lineNumber > range.endLine) {
+							continue;
+						}
+						if (startIndex == null) startIndex = index;
+						endIndex = index;
 					}
-					if (startIndex == null) startIndex = index;
-					endIndex = index;
-				}
-				if (startIndex != null && endIndex != null) {
-					markers.push({
-						key,
-						top: hunk.patchStartLine + startIndex,
-						height: endIndex - startIndex + 1,
-					});
-					break;
+					if (startIndex != null && endIndex != null) {
+						const existing = markers.get(hunk.id) ?? [];
+						existing.push({
+							key,
+							top: startIndex,
+							height: endIndex - startIndex + 1,
+						});
+						markers.set(hunk.id, existing);
+						break;
+					}
 				}
 			}
-		}
-		return markers;
-	});
+			return markers;
+		},
+	);
 
 	createEffect(() => {
 		const list = reviewFiles();
@@ -435,6 +514,8 @@ export function ReviewContent(props: ReviewContentProps) {
 		const list = reviewFiles();
 		if (list.length === 0) {
 			setExpandedKeys(new Set<string>());
+			setSelectedSectionIds(new Map<string, string>());
+			setExpandedSectionIds(new Set<string>());
 			setMode("list");
 			setRangeAnchor(null);
 			return;
@@ -443,6 +524,18 @@ export function ReviewContent(props: ReviewContentProps) {
 			if (prev.size > 0) return prev;
 			return new Set<string>(list.map((file) => file.id));
 		});
+	});
+
+	createEffect(() => {
+		const file = selectedFile();
+		if (!file) return;
+		const sectionId = selectedSectionIds().get(file.id);
+		if (
+			sectionId &&
+			!file.skippedSections.some((section) => section.id === sectionId)
+		) {
+			setSelectedSectionId(file.id, null);
+		}
 	});
 
 	createEffect(() => {
@@ -482,16 +575,43 @@ export function ReviewContent(props: ReviewContentProps) {
 		}, 0);
 	});
 
+	createEffect(() => {
+		if (mode() !== "patch") return;
+		const section = selectedSkippedSection();
+		const file = selectedFile();
+		if (!section || !file) return;
+		if (patchCursorScrollTimeout) clearTimeout(patchCursorScrollTimeout);
+		patchCursorScrollTimeout = setTimeout(() => {
+			patchScrollRefs
+				.get(file.id)
+				?.scrollChildIntoView?.(`review-skipped-section-${section.id}`);
+		}, 0);
+	});
+
 	function selectedFileNote(file: ReviewFile): string {
 		return fileNotes().get(file.noteKey)?.trim() ?? "";
 	}
 
-	function setSelectedHunkIndex(fileId: string, index: number) {
+	function setSelectedSectionId(fileId: string, sectionId: string | null) {
+		setSelectedSectionIds((prev) => {
+			const next = new Map(prev);
+			if (sectionId) next.set(fileId, sectionId);
+			else next.delete(fileId);
+			return next;
+		});
+	}
+
+	function setActiveHunkIndex(fileId: string, index: number) {
 		setSelectedHunkIndices((prev) => {
 			const next = new Map(prev);
 			next.set(fileId, index);
 			return next;
 		});
+	}
+
+	function setSelectedHunkIndex(fileId: string, index: number) {
+		setActiveHunkIndex(fileId, index);
+		setSelectedSectionId(fileId, null);
 		const hunk = selectedFile()?.hunks[index];
 		if (hunk) {
 			setSelectedLineIndex(hunk.id, 0);
@@ -505,6 +625,49 @@ export function ReviewContent(props: ReviewContentProps) {
 			next.set(hunkId, index);
 			return next;
 		});
+	}
+
+	function focusSkippedSection(
+		file: ReviewFile,
+		section: ReviewSkippedSection,
+	) {
+		setSelectedSectionId(file.id, section.id);
+		if (file.hunks.length > 0) {
+			setActiveHunkIndex(
+				file.id,
+				Math.max(0, Math.min(file.hunks.length - 1, section.beforeHunkIndex)),
+			);
+		}
+	}
+
+	function focusHunkLine(
+		file: ReviewFile,
+		hunkIndex: number,
+		lineIndex: number,
+	) {
+		const hunk = file.hunks[hunkIndex];
+		if (!hunk) return;
+		setActiveHunkIndex(file.id, hunkIndex);
+		setSelectedSectionId(file.id, null);
+		setSelectedLineIndex(hunk.id, lineIndex);
+	}
+
+	function findAdjacentHunkWithLines(
+		file: ReviewFile,
+		startIndex: number,
+		direction: 1 | -1,
+	) {
+		for (
+			let hunkIndex = startIndex;
+			hunkIndex >= 0 && hunkIndex < file.hunks.length;
+			hunkIndex += direction
+		) {
+			const hunk = file.hunks[hunkIndex];
+			const lines = getCommentableLines(hunk);
+			if (lines.length === 0) continue;
+			return { hunkIndex, lines };
+		}
+		return null;
 	}
 
 	function cycleHunk(delta: number) {
@@ -522,9 +685,30 @@ export function ReviewContent(props: ReviewContentProps) {
 	function moveSelectedLine(delta: number) {
 		if (delta === 0) return;
 		const file = selectedFile();
+		if (!file) return;
+
+		const selectedSection = selectedSkippedSection();
+		if (selectedSection) {
+			const direction: 1 | -1 = delta > 0 ? 1 : -1;
+			const adjacent = findAdjacentHunkWithLines(
+				file,
+				direction > 0
+					? selectedSection.beforeHunkIndex
+					: selectedSection.beforeHunkIndex - 1,
+				direction,
+			);
+			if (!adjacent) return;
+			focusHunkLine(
+				file,
+				adjacent.hunkIndex,
+				direction > 0 ? 0 : adjacent.lines.length - 1,
+			);
+			return;
+		}
+
 		const hunk = selectedHunk();
 		const lines = selectedCommentableLines();
-		if (!file || !hunk || lines.length === 0) return;
+		if (!hunk || lines.length === 0) return;
 		const currentLine = selectedLine();
 		const current = currentLine ? lines.indexOf(currentLine) : -1;
 		const nextIndex = (current >= 0 ? current : 0) + delta;
@@ -535,22 +719,27 @@ export function ReviewContent(props: ReviewContentProps) {
 
 		if (rangeAnchor()) return;
 
-		const direction = delta > 0 ? 1 : -1;
-		for (
-			let hunkIndex = selectedHunkIndex() + direction;
-			hunkIndex >= 0 && hunkIndex < file.hunks.length;
-			hunkIndex += direction
-		) {
-			const candidate = file.hunks[hunkIndex];
-			const candidateLines = getCommentableLines(candidate);
-			if (candidateLines.length === 0) continue;
-			setSelectedHunkIndex(file.id, hunkIndex);
-			setSelectedLineIndex(
-				candidate.id,
-				direction > 0 ? 0 : candidateLines.length - 1,
-			);
+		const direction: 1 | -1 = delta > 0 ? 1 : -1;
+		const boundarySection = getSkippedSection(
+			file,
+			direction > 0 ? selectedHunkIndex() + 1 : selectedHunkIndex(),
+		);
+		if (boundarySection) {
+			focusSkippedSection(file, boundarySection);
 			return;
 		}
+
+		const adjacent = findAdjacentHunkWithLines(
+			file,
+			selectedHunkIndex() + direction,
+			direction,
+		);
+		if (!adjacent) return;
+		focusHunkLine(
+			file,
+			adjacent.hunkIndex,
+			direction > 0 ? 0 : adjacent.lines.length - 1,
+		);
 	}
 
 	function toggleExpanded(fileId: string) {
@@ -567,6 +756,206 @@ export function ReviewContent(props: ReviewContentProps) {
 			}
 			return next;
 		});
+	}
+
+	function toggleExpandedContext(sectionId: string) {
+		setExpandedSectionIds((prev) => {
+			const next = new Set(prev);
+			if (next.has(sectionId)) next.delete(sectionId);
+			else next.add(sectionId);
+			return next;
+		});
+	}
+
+	function renderDiffBlock(rawPatch: string, filetype?: string) {
+		return (
+			<diff
+				diff={rawPatch}
+				view="unified"
+				filetype={filetype}
+				syntaxStyle={syntaxStyle()}
+				showLineNumbers
+				addedBg={theme.diffAddedBg}
+				removedBg={theme.diffRemovedBg}
+				contextBg={theme.bgSurface}
+				addedContentBg={theme.diffAddedContentBg}
+				removedContentBg={theme.diffRemovedContentBg}
+				contextContentBg={theme.bgSurface}
+				addedSignColor={theme.toolText}
+				removedSignColor={theme.errorText}
+				lineNumberFg={theme.textMuted}
+				lineNumberBg={theme.bg}
+				addedLineNumberBg={theme.diffAddedLineNumberBg}
+				removedLineNumberBg={theme.diffRemovedLineNumberBg}
+				wrapMode="none"
+			/>
+		);
+	}
+
+	function renderSkippedSectionRow(
+		section: ReviewSkippedSection,
+		options: {
+			interactive: boolean;
+			selected: () => boolean;
+			expanded: () => boolean;
+		},
+	) {
+		return (
+			<box
+				id={`review-skipped-section-${section.id}`}
+				paddingX={1}
+				paddingY={0}
+				flexDirection="row"
+				justifyContent="space-between"
+				backgroundColor={options.selected() ? theme.bgMuted : theme.bgSurface}
+			>
+				<text fg={options.selected() ? theme.metaText : theme.textMuted}>
+					{options.expanded() ? "▾" : "▸"} {section.lineCount} unchanged line
+					{section.lineCount === 1 ? "" : "s"}{" "}
+					{options.expanded() ? "shown" : "hidden"}
+				</text>
+				<text
+					fg={options.selected() ? theme.textSecondary : theme.textPlaceholder}
+				>
+					{skippedSectionLineLabel(section)}
+					{options.interactive && options.selected()
+						? ` · Space ${options.expanded() ? "collapse" : "expand"}`
+						: ""}
+				</text>
+			</box>
+		);
+	}
+
+	function renderHunkBlock(
+		file: ReviewFile,
+		hunk: ReviewHunk,
+		interactive: boolean,
+	) {
+		const markers = () => savedCommentMarkers().get(hunk.id) ?? [];
+		const cursor = () => lineCursorState();
+		const showCursor = () => interactive && cursor()?.hunk.id === hunk.id;
+		return (
+			<box position="relative" paddingLeft={2}>
+				{renderDiffBlock(hunk.rawPatch, file.filetype)}
+				<Show when={interactive}>
+					<box position="absolute" left={0} top={0}>
+						<For each={markers()}>
+							{(marker) => (
+								<box
+									position="absolute"
+									left={1}
+									top={marker.top}
+									height={marker.height}
+									width={1}
+								>
+									<text fg={theme.reviewText}>
+										{buildCommentMarker(marker.height)}
+									</text>
+								</box>
+							)}
+						</For>
+						<Show when={showCursor()}>
+							<box position="absolute" left={0} top={0}>
+								<Show when={activeRangeLineBounds()}>
+									{(bounds) => (
+										<box
+											position="absolute"
+											left={0}
+											top={bounds().startIndex}
+											height={bounds().endIndex - bounds().startIndex + 1}
+											width={1}
+										>
+											<text fg={theme.borderAccent}>
+												{buildRangeMarker(
+													bounds().endIndex - bounds().startIndex + 1,
+												)}
+											</text>
+										</box>
+									)}
+								</Show>
+								<Show when={anchorLineIndex() !== null}>
+									<box
+										position="absolute"
+										left={0}
+										top={anchorLineIndex() ?? 0}
+										height={1}
+										width={1}
+									>
+										<text fg={theme.borderFocused}>◆</text>
+									</box>
+								</Show>
+								<box
+									id={`review-line-cursor-${hunk.id}-${cursor()?.line.index ?? 0}`}
+									position="absolute"
+									left={0}
+									top={cursor()?.line.index ?? 0}
+									height={1}
+									width={1}
+								>
+									<text fg={theme.borderAccent}>▎</text>
+								</box>
+							</box>
+						</Show>
+					</box>
+				</Show>
+			</box>
+		);
+	}
+
+	function renderFileDiffContent(file: ReviewFile, interactive: boolean) {
+		if (file.hunks.length === 0) {
+			return renderDiffBlock(file.rawPatch, file.filetype);
+		}
+		return (
+			<box flexDirection="column" gap={0}>
+				<For each={file.hunks}>
+					{(hunk, hunkIndex) => (
+						<>
+							<Show when={getSkippedSection(file, hunkIndex())}>
+								{(section) => {
+									const expanded = () => expandedSectionIds().has(section().id);
+									const selected = () =>
+										interactive &&
+										selectedSkippedSection()?.id === section().id;
+									return (
+										<>
+											{renderSkippedSectionRow(section(), {
+												interactive,
+												selected,
+												expanded,
+											})}
+											<Show when={expanded()}>
+												{renderDiffBlock(section().rawPatch, file.filetype)}
+											</Show>
+										</>
+									);
+								}}
+							</Show>
+							{renderHunkBlock(file, hunk, interactive)}
+						</>
+					)}
+				</For>
+				<Show when={getSkippedSection(file, file.hunks.length)}>
+					{(section) => {
+						const expanded = () => expandedSectionIds().has(section().id);
+						const selected = () =>
+							interactive && selectedSkippedSection()?.id === section().id;
+						return (
+							<>
+								{renderSkippedSectionRow(section(), {
+									interactive,
+									selected,
+									expanded,
+								})}
+								<Show when={expanded()}>
+									{renderDiffBlock(section().rawPatch, file.filetype)}
+								</Show>
+							</>
+						);
+					}}
+				</Show>
+			</box>
+		);
 	}
 
 	async function openFileNoteEditor(file: ReviewFile) {
@@ -701,6 +1090,14 @@ export function ReviewContent(props: ReviewContentProps) {
 			if (e.name === "j" || e.name === "down") {
 				e.preventDefault();
 				moveSelectedLine(1);
+				return;
+			}
+			if (e.name === "space") {
+				e.preventDefault();
+				const section = selectedSkippedSection();
+				if (section) {
+					toggleExpandedContext(section.id);
+				}
 				return;
 			}
 			if (e.name === "return" || e.name === "enter") {
@@ -875,7 +1272,7 @@ export function ReviewContent(props: ReviewContentProps) {
 															</Show>
 														</box>
 														<text fg={theme.textMuted}>
-															{file.hunks.length} hunk
+															{sourceLabel(file)} · {file.hunks.length} hunk
 															{file.hunks.length === 1 ? "" : "s"} ·{" "}
 															{file.changeCount} changed line
 															{file.changeCount === 1 ? "" : "s"}
@@ -888,28 +1285,7 @@ export function ReviewContent(props: ReviewContentProps) {
 															flexDirection="column"
 															gap={0}
 														>
-															<diff
-																diff={file.rawPatch}
-																view="unified"
-																filetype={file.filetype}
-																syntaxStyle={syntaxStyle()}
-																showLineNumbers
-																addedBg={theme.diffAddedBg}
-																removedBg={theme.diffRemovedBg}
-																contextBg={theme.bgSurface}
-																addedContentBg={theme.diffAddedContentBg}
-																removedContentBg={theme.diffRemovedContentBg}
-																contextContentBg={theme.bgSurface}
-																addedSignColor={theme.toolText}
-																removedSignColor={theme.errorText}
-																lineNumberFg={theme.textMuted}
-																lineNumberBg={theme.bg}
-																addedLineNumberBg={theme.diffAddedLineNumberBg}
-																removedLineNumberBg={
-																	theme.diffRemovedLineNumberBg
-																}
-																wrapMode="none"
-															/>
+															{renderFileDiffContent(file, false)}
 														</box>
 													</Show>
 												</box>
@@ -947,8 +1323,12 @@ export function ReviewContent(props: ReviewContentProps) {
 											<Show when={activeLineStatus().length > 0}>
 												<text fg={theme.textMuted}>{activeLineStatus()}</text>
 											</Show>
+											<Show when={hiddenContextStatus().length > 0}>
+												<text fg={theme.metaText}>{hiddenContextStatus()}</text>
+											</Show>
 										</box>
 										<text fg={theme.textMuted}>
+											{sourceLabel(file())} ·{" "}
 											{currentHunk()
 												? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
 												: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}
@@ -999,102 +1379,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											flexGrow={1}
 											scrollY
 										>
-											<box position="relative" paddingLeft={2}>
-												<diff
-													diff={file().rawPatch}
-													view="unified"
-													filetype={file().filetype}
-													syntaxStyle={syntaxStyle()}
-													showLineNumbers
-													addedBg={theme.diffAddedBg}
-													removedBg={theme.diffRemovedBg}
-													contextBg={theme.bgSurface}
-													addedContentBg={theme.diffAddedContentBg}
-													removedContentBg={theme.diffRemovedContentBg}
-													contextContentBg={theme.bgSurface}
-													addedSignColor={theme.toolText}
-													removedSignColor={theme.errorText}
-													lineNumberFg={theme.textMuted}
-													lineNumberBg={theme.bg}
-													addedLineNumberBg={theme.diffAddedLineNumberBg}
-													removedLineNumberBg={theme.diffRemovedLineNumberBg}
-													wrapMode="none"
-												/>
-												<For each={savedCommentMarkers()}>
-													{(marker) => (
-														<box
-															position="absolute"
-															left={1}
-															top={marker.top}
-															height={marker.height}
-															width={1}
-														>
-															<text fg={theme.reviewText}>
-																{buildCommentMarker(marker.height)}
-															</text>
-														</box>
-													)}
-												</For>
-												<Show when={lineCursorState()}>
-													{(cursor) => (
-														<>
-															<Show when={activeRangeLineBounds()}>
-																{(bounds) => (
-																	<box
-																		position="absolute"
-																		left={0}
-																		top={
-																			cursor().hunk.patchStartLine +
-																			bounds().startIndex
-																		}
-																		height={
-																			bounds().endIndex -
-																			bounds().startIndex +
-																			1
-																		}
-																		width={1}
-																	>
-																		<text fg={theme.borderAccent}>
-																			{buildRangeMarker(
-																				bounds().endIndex -
-																					bounds().startIndex +
-																					1,
-																			)}
-																		</text>
-																	</box>
-																)}
-															</Show>
-															<Show when={anchorLineIndex() !== null}>
-																<box
-																	position="absolute"
-																	left={0}
-																	top={
-																		cursor().hunk.patchStartLine +
-																		(anchorLineIndex() ?? 0)
-																	}
-																	height={1}
-																	width={1}
-																>
-																	<text fg={theme.borderFocused}>◆</text>
-																</box>
-															</Show>
-															<box
-																id={`review-line-cursor-${cursor().hunk.id}-${cursor().line.index}`}
-																position="absolute"
-																left={0}
-																top={
-																	cursor().hunk.patchStartLine +
-																	cursor().line.index
-																}
-																height={1}
-																width={1}
-															>
-																<text fg={theme.borderAccent}>▎</text>
-															</box>
-														</>
-													)}
-												</Show>
-											</box>
+											{renderFileDiffContent(file(), true)}
 										</scrollbox>
 									</box>
 								</box>

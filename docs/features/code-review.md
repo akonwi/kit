@@ -13,6 +13,8 @@ and submit that review back into Kit as a code-review attachment.
 - includes staged changes, unstaged changes, and untracked files that can be represented as patches
 - opens as a terminal overlay
 - shows a file list and a whole-file scrollable unified diff for the selected file
+- clearly marks skipped unchanged sections between change groups
+- lets you navigate to skipped-section rows and expand or collapse them individually while reviewing a file
 - uses change groups as navigation landmarks inside the selected file
 - supports file-level review notes
 - supports same-side line comments and line-range comments
@@ -45,6 +47,8 @@ When focused on a file diff:
 - moving past the top or bottom of a change group continues into the previous or next change group when possible
 - `Tab` jumps to the next change group
 - `Shift+Tab` jumps to the previous change group
+- `↑/↓` can land on skipped-section rows between change groups
+- `Space` expands or collapses the selected skipped section
 - `Enter` comments the selected line, or confirms the current range selection
 - `Ctrl+Enter` starts a same-side line-range selection from the current line
 - `x` clears the selected saved line/range note, or cancels an active range selection

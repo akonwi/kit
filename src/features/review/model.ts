@@ -9,6 +9,8 @@ import type {
 } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 
+export type ReviewDiffSource = "staged" | "unstaged" | "untracked";
+
 export type ReviewLine = {
 	kind: "add" | "context" | "delete";
 	text: string;
@@ -30,6 +32,16 @@ export type ReviewHunk = {
 	additionCount: number;
 	deletionStart: number;
 	deletionCount: number;
+	collapsedBefore: number;
+};
+
+export type ReviewSkippedSection = {
+	id: string;
+	beforeHunkIndex: number;
+	rawPatch: string;
+	lineCount: number;
+	additionStart: number;
+	deletionStart: number;
 };
 
 export type ReviewFile = {
@@ -38,9 +50,11 @@ export type ReviewFile = {
 	path: string;
 	prevPath?: string;
 	status: FileDiffMetadata["type"];
+	source: ReviewDiffSource;
 	filetype?: string;
 	rawPatch: string;
 	hunks: ReviewHunk[];
+	skippedSections: ReviewSkippedSection[];
 	changeCount: number;
 };
 
@@ -56,8 +70,14 @@ function runGit(
 	return result.stdout;
 }
 
-function getWorkingTreeDiff(cwd?: string): string {
-	const staged = runGit(
+function tryRunGit(cwd: string | undefined, args: string[]): string | null {
+	const result = spawnSync("git", args, { encoding: "utf8", cwd });
+	if (result.status !== 0) return null;
+	return result.stdout;
+}
+
+function getStagedDiff(cwd?: string): string {
+	return runGit(
 		cwd,
 		[
 			"diff",
@@ -69,18 +89,14 @@ function getWorkingTreeDiff(cwd?: string): string {
 		],
 		"Failed to read staged diff.",
 	);
+}
 
-	const unstaged = runGit(
+function getUnstagedDiff(cwd?: string): string {
+	return runGit(
 		cwd,
 		["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--unified=3"],
 		"Failed to read unstaged diff.",
 	);
-
-	const untracked = getUntrackedDiff(cwd);
-
-	return [staged, unstaged, untracked]
-		.filter((value) => value.trim().length > 0)
-		.join("\n");
 }
 
 function getUntrackedDiff(cwd?: string): string {
@@ -117,8 +133,7 @@ function buildUntrackedFilePatch(
 	}
 	if (content.includes("\0")) return null;
 
-	const normalized = content.replace(/\r\n/g, "\n");
-	const lines = normalized.length === 0 ? [] : normalized.split("\n");
+	const lines = splitFileLines(content);
 	const lineCount = lines.length;
 	const displayPath = relativePath.replace(/\\/g, "/");
 	const body = lines.map((line) => `+${line}`).join("\n");
@@ -165,6 +180,83 @@ function inferFiletype(path: string): string | undefined {
 	if (normalized.endsWith(".go")) return "go";
 	if (normalized.endsWith(".py")) return "python";
 	return undefined;
+}
+
+function splitFileLines(content: string): string[] {
+	const normalized = content.replace(/\r\n/g, "\n");
+	if (normalized.length === 0) return [];
+	const lines = normalized.split("\n");
+	if (lines[lines.length - 1] === "") lines.pop();
+	return lines;
+}
+
+function readWorkingTreeLines(
+	repoRoot: string,
+	relativePath: string,
+): string[] | null {
+	const absolutePath = path.join(repoRoot, relativePath);
+	if (!existsSync(absolutePath)) return null;
+	try {
+		return splitFileLines(readFileSync(absolutePath, "utf8"));
+	} catch {
+		return null;
+	}
+}
+
+function readGitRevisionLines(
+	cwd: string | undefined,
+	revision: string,
+	relativePath: string,
+): string[] | null {
+	const output = tryRunGit(cwd, ["show", `${revision}:${relativePath}`]);
+	if (output === null) return null;
+	return splitFileLines(output);
+}
+
+function readGitIndexLines(
+	cwd: string | undefined,
+	relativePath: string,
+): string[] | null {
+	const output = tryRunGit(cwd, ["show", `:${relativePath}`]);
+	if (output === null) return null;
+	return splitFileLines(output);
+}
+
+function loadDisplayLines(options: {
+	cwd?: string;
+	repoRoot: string;
+	file: FileDiffMetadata;
+	source: ReviewDiffSource;
+}): string[] {
+	const beforePath = options.file.prevName ?? options.file.name;
+	const afterPath = options.file.name;
+
+	switch (options.source) {
+		case "staged": {
+			const afterLines =
+				options.file.type === "deleted"
+					? null
+					: readGitIndexLines(options.cwd, afterPath);
+			const beforeLines =
+				options.file.type === "new"
+					? null
+					: readGitRevisionLines(options.cwd, "HEAD", beforePath);
+			return afterLines ?? beforeLines ?? [];
+		}
+		case "unstaged": {
+			const afterLines =
+				options.file.type === "deleted"
+					? null
+					: readWorkingTreeLines(options.repoRoot, afterPath);
+			const beforeLines =
+				options.file.type === "new"
+					? null
+					: readGitIndexLines(options.cwd, beforePath);
+			return afterLines ?? beforeLines ?? [];
+		}
+		case "untracked":
+			return readWorkingTreeLines(options.repoRoot, afterPath) ?? [];
+	}
 }
 
 function contextLines(
@@ -266,6 +358,7 @@ function hunkToReviewHunk(
 		additionCount: hunk.additionCount,
 		deletionStart: hunk.deletionStart,
 		deletionCount: hunk.deletionCount,
+		collapsedBefore: hunk.collapsedBefore,
 	};
 }
 
@@ -290,12 +383,104 @@ function splitRawPatchIntoHunks(rawPatch: string): string[] {
 	return hunks;
 }
 
+function extractRawPatchHeader(rawPatch: string): string[] {
+	const lines = rawPatch.replace(/\r\n/g, "\n").split("\n");
+	const firstHunkIndex = lines.findIndex((line) => line.startsWith("@@ "));
+	if (firstHunkIndex < 0) return lines;
+	return lines.slice(0, firstHunkIndex);
+}
+
+function formatHunkSpan(start: number, count: number): string {
+	return count === 1 ? `${start}` : `${start},${count}`;
+}
+
+function buildSkippedSectionPatch(
+	headerLines: string[],
+	lines: string[],
+	additionStart: number,
+	deletionStart: number,
+): string {
+	const count = lines.length;
+	return [
+		...headerLines,
+		`@@ -${formatHunkSpan(deletionStart, count)} +${formatHunkSpan(additionStart, count)} @@`,
+		...lines.map((line) => ` ${line}`),
+	].join("\n");
+}
+
+export function buildSkippedSectionsForFile(
+	fileId: string,
+	rawPatch: string,
+	hunks: ReviewHunk[],
+	displayLines: string[],
+): ReviewSkippedSection[] {
+	if (hunks.length === 0 || displayLines.length === 0) return [];
+	const headerLines = extractRawPatchHeader(rawPatch);
+	const sections: ReviewSkippedSection[] = [];
+
+	for (const [index, hunk] of hunks.entries()) {
+		if (hunk.collapsedBefore <= 0) continue;
+		const additionStart = hunk.additionStart - hunk.collapsedBefore;
+		const deletionStart = hunk.deletionStart - hunk.collapsedBefore;
+		const displayStart = additionStart > 0 ? additionStart : deletionStart;
+		const gapLines = displayLines.slice(
+			Math.max(0, displayStart - 1),
+			Math.max(0, displayStart - 1) + hunk.collapsedBefore,
+		);
+		if (gapLines.length === 0) continue;
+		sections.push({
+			id: `${fileId}:gap:${index}`,
+			beforeHunkIndex: index,
+			rawPatch: buildSkippedSectionPatch(
+				headerLines,
+				gapLines,
+				additionStart,
+				deletionStart,
+			),
+			lineCount: gapLines.length,
+			additionStart,
+			deletionStart,
+		});
+	}
+
+	const lastHunk = hunks[hunks.length - 1];
+	const trailingAdditionStart = lastHunk.additionStart + lastHunk.additionCount;
+	const trailingDeletionStart = lastHunk.deletionStart + lastHunk.deletionCount;
+	const trailingDisplayStart =
+		trailingAdditionStart > 0 ? trailingAdditionStart : trailingDeletionStart;
+	const trailingLines = displayLines.slice(
+		Math.max(0, trailingDisplayStart - 1),
+	);
+	if (trailingLines.length > 0) {
+		sections.push({
+			id: `${fileId}:gap:${hunks.length}`,
+			beforeHunkIndex: hunks.length,
+			rawPatch: buildSkippedSectionPatch(
+				headerLines,
+				trailingLines,
+				trailingAdditionStart,
+				trailingDeletionStart,
+			),
+			lineCount: trailingLines.length,
+			additionStart: trailingAdditionStart,
+			deletionStart: trailingDeletionStart,
+		});
+	}
+
+	return sections;
+}
+
 function fileToReviewFile(
 	file: FileDiffMetadata,
 	rawPatch: string,
 	index: number,
+	options: {
+		cwd?: string;
+		repoRoot: string;
+		source: ReviewDiffSource;
+	},
 ): ReviewFile {
-	const noteKey = `${file.prevName ?? ""}->${file.name}`;
+	const noteKey = `${options.source}:${file.prevName ?? ""}->${file.name}`;
 	const rawHunks = splitRawPatchIntoHunks(rawPatch);
 	let renderedStartLine = 0;
 	const hunks = file.hunks.map((hunk, hunkIndex) => {
@@ -311,26 +496,84 @@ function fileToReviewFile(
 		return reviewHunk;
 	});
 	const changeCount = hunks.reduce((sum, hunk) => sum + hunk.changeCount, 0);
+	const id = `${noteKey}:${index}`;
+	const displayLines = loadDisplayLines({
+		cwd: options.cwd,
+		repoRoot: options.repoRoot,
+		file,
+		source: options.source,
+	});
 	return {
-		id: `${noteKey}:${index}`,
+		id,
 		noteKey,
 		path: file.name,
 		prevPath: file.prevName,
 		status: file.type,
+		source: options.source,
 		filetype: inferFiletype(file.name),
 		rawPatch,
 		hunks,
+		skippedSections: buildSkippedSectionsForFile(
+			id,
+			rawPatch,
+			hunks,
+			displayLines,
+		),
 		changeCount,
 	};
 }
 
-export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
-	const diff = getWorkingTreeDiff(cwd);
-	if (!diff.trim()) return [];
+type ReviewPatchSet = {
+	source: ReviewDiffSource;
+	files: FileDiffMetadata[];
+	rawFiles: string[];
+};
+
+function parseReviewPatchSet(
+	diff: string,
+	source: ReviewDiffSource,
+): ReviewPatchSet | null {
+	if (!diff.trim()) return null;
 	const parsed = parsePatchFiles(diff, "review", true);
-	const rawFiles = splitRawDiffIntoFiles(diff);
-	const files = parsed.flatMap((patch) => patch.files);
-	return files.map((file, index) =>
-		fileToReviewFile(file, rawFiles[index] ?? "", index),
-	);
+	return {
+		source,
+		files: parsed.flatMap((patch) => patch.files),
+		rawFiles: splitRawDiffIntoFiles(diff),
+	};
+}
+
+export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
+	const staged = getStagedDiff(cwd);
+	const unstaged = getUnstagedDiff(cwd);
+	const untracked = getUntrackedDiff(cwd);
+	const patchSets = [
+		parseReviewPatchSet(staged, "staged"),
+		parseReviewPatchSet(unstaged, "unstaged"),
+		parseReviewPatchSet(untracked, "untracked"),
+	].filter((value): value is ReviewPatchSet => value !== null);
+	if (patchSets.length === 0) return [];
+
+	const repoRoot = runGit(
+		cwd,
+		["rev-parse", "--show-toplevel"],
+		"Failed to resolve repository root.",
+	).trim();
+	const reviewFiles: ReviewFile[] = [];
+	for (const patchSet of patchSets) {
+		for (const [index, file] of patchSet.files.entries()) {
+			reviewFiles.push(
+				fileToReviewFile(
+					file,
+					patchSet.rawFiles[index] ?? "",
+					reviewFiles.length,
+					{
+						cwd,
+						repoRoot,
+						source: patchSet.source,
+					},
+				),
+			);
+		}
+	}
+	return reviewFiles;
 }
