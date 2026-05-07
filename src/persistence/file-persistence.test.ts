@@ -193,6 +193,53 @@ describe("FilePersistence", () => {
 		persistence.dispose();
 	});
 
+	test("keeps a failed write queued for a later retry", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-6",
+		);
+		const turn: Turn = {
+			id: "turn-retry",
+			messages: [userMessage("turn-retry", "retry me")],
+		};
+		let failNextAppend = true;
+		const failures: string[] = [];
+		const runtime = new FakeRuntime(session);
+		const persistence = new FilePersistence(runtime, {
+			appendCompaction: storage.appendCompaction,
+			appendHandoffSummary: storage.appendHandoffSummary,
+			appendMessage: async (...args) => {
+				if (failNextAppend) {
+					failNextAppend = false;
+					throw new Error("simulated write failure");
+				}
+				await storage.appendMessage(...args);
+			},
+			appendModelChange: storage.appendModelChange,
+			appendSessionInfo: storage.appendSessionInfo,
+			appendThinkingLevelChange: storage.appendThinkingLevelChange,
+			appendTurn: storage.appendTurn,
+		});
+		persistence.onFailure((event) => failures.push(event.error));
+
+		runtime.emit({
+			type: "session.message.appended",
+			session,
+			turn,
+			message: turn.messages[0],
+		});
+		await persistence.flush();
+		expect(failures).toEqual(["simulated write failure"]);
+		expect((await storage.readSession(session.id))?.turns).toHaveLength(0);
+
+		await persistence.flush();
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns.map((candidate) => candidate.id)).toEqual([
+			"turn-retry",
+		]);
+		persistence.dispose();
+	});
+
 	test("persists metadata changes observed from runtime events", async () => {
 		let session = await storage.createSession(
 			projectDir,

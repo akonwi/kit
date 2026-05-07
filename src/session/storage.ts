@@ -631,7 +631,7 @@ async function enqueueFlush(state: SessionStorageState): Promise<void> {
 			state.flushedEntryCount = state.entries.length;
 		}
 		if (existsSync(state.legacyFilePath)) {
-			await rm(state.legacyFilePath, { force: true });
+			await rm(state.legacyFilePath, { force: true }).catch(() => {});
 		}
 	});
 	writeChains.set(
@@ -641,34 +641,78 @@ async function enqueueFlush(state: SessionStorageState): Promise<void> {
 	await next;
 }
 
-function appendEntries(
+function applyEntryToState(
+	state: SessionStorageState,
+	entry: SessionEntry,
+): void {
+	state.entries.push(entry);
+	if (entry.type === "message") {
+		if (!state.firstEntryIdByTurnId.has(entry.turnId)) {
+			state.firstEntryIdByTurnId.set(entry.turnId, entry.id);
+		}
+		if (entry.message.role === "assistant" && "model" in entry.message) {
+			state.model = entry.message.model;
+		}
+		return;
+	}
+	if (entry.type === "session_info") {
+		state.name = entry.name?.trim() || undefined;
+		return;
+	}
+	if (entry.type === "model_change") {
+		state.model = entry.modelId;
+		return;
+	}
+	if (entry.type === "thinking_level_change") {
+		state.thinkingLevel = entry.thinkingLevel;
+	}
+}
+
+type SessionStorageSnapshot = Pick<
+	SessionStorageState,
+	"flushedEntryCount" | "name" | "model" | "thinkingLevel"
+> & {
+	entryCount: number;
+	firstEntryIdByTurnId: Map<string, string>;
+};
+
+function snapshotState(state: SessionStorageState): SessionStorageSnapshot {
+	return {
+		entryCount: state.entries.length,
+		flushedEntryCount: state.flushedEntryCount,
+		firstEntryIdByTurnId: new Map(state.firstEntryIdByTurnId),
+		name: state.name,
+		model: state.model,
+		thinkingLevel: state.thinkingLevel,
+	};
+}
+
+function restoreState(
+	state: SessionStorageState,
+	snapshot: SessionStorageSnapshot,
+): void {
+	state.entries.length = snapshot.entryCount;
+	state.flushedEntryCount = snapshot.flushedEntryCount;
+	state.firstEntryIdByTurnId = snapshot.firstEntryIdByTurnId;
+	state.name = snapshot.name;
+	state.model = snapshot.model;
+	state.thinkingLevel = snapshot.thinkingLevel;
+}
+
+async function appendEntries(
 	state: SessionStorageState,
 	entries: SessionEntry[],
 ): Promise<void> {
-	for (const entry of entries) {
-		state.entries.push(entry);
-		if (entry.type === "message") {
-			if (!state.firstEntryIdByTurnId.has(entry.turnId)) {
-				state.firstEntryIdByTurnId.set(entry.turnId, entry.id);
-			}
-			if (entry.message.role === "assistant" && "model" in entry.message) {
-				state.model = entry.message.model;
-			}
-			continue;
+	const snapshot = snapshotState(state);
+	try {
+		for (const entry of entries) {
+			applyEntryToState(state, entry);
 		}
-		if (entry.type === "session_info") {
-			state.name = entry.name?.trim() || undefined;
-			continue;
-		}
-		if (entry.type === "model_change") {
-			state.model = entry.modelId;
-			continue;
-		}
-		if (entry.type === "thinking_level_change") {
-			state.thinkingLevel = entry.thinkingLevel;
-		}
+		await enqueueFlush(state);
+	} catch (error) {
+		restoreState(state, snapshot);
+		throw error;
 	}
-	return enqueueFlush(state);
 }
 
 function createStateFromSession(

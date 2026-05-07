@@ -16,6 +16,26 @@ type RuntimeEventSource = {
 	getSession(): Session;
 };
 
+type FilePersistenceStorage = {
+	appendCompaction: typeof appendCompaction;
+	appendHandoffSummary: typeof appendHandoffSummary;
+	appendMessage: typeof appendMessage;
+	appendModelChange: typeof appendModelChange;
+	appendSessionInfo: typeof appendSessionInfo;
+	appendThinkingLevelChange: typeof appendThinkingLevelChange;
+	appendTurn: typeof appendTurn;
+};
+
+const defaultStorage: FilePersistenceStorage = {
+	appendCompaction,
+	appendHandoffSummary,
+	appendMessage,
+	appendModelChange,
+	appendSessionInfo,
+	appendThinkingLevelChange,
+	appendTurn,
+};
+
 type CompactionPersistence = {
 	summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	firstKeptTurnId?: string;
@@ -32,14 +52,20 @@ export type FilePersistenceFailureEvent = {
 
 export class FilePersistence {
 	private readonly runtime: RuntimeEventSource;
+	private readonly storage: FilePersistenceStorage;
 	private readonly failureListeners = new Set<
 		(event: FilePersistenceFailureEvent) => void
 	>();
 	private unsubscribeRuntime: (() => void) | null = null;
-	private writeChain: Promise<void> = Promise.resolve();
+	private queue: Array<() => Promise<void>> = [];
+	private flushInFlight: Promise<void> | null = null;
 
-	constructor(runtime: RuntimeEventSource) {
+	constructor(
+		runtime: RuntimeEventSource,
+		storage: FilePersistenceStorage = defaultStorage,
+	) {
 		this.runtime = runtime;
+		this.storage = storage;
 		this.unsubscribeRuntime = runtime.subscribe((event) => {
 			this.handleRuntimeEvent(event);
 		});
@@ -53,7 +79,7 @@ export class FilePersistence {
 	}
 
 	flush(): Promise<void> {
-		return this.writeChain;
+		return this.flushQueue();
 	}
 
 	dispose(): void {
@@ -66,7 +92,11 @@ export class FilePersistence {
 		switch (event.type) {
 			case "session.message.appended":
 				this.enqueueWrite(() =>
-					appendMessage(event.session, event.turn.id, event.message),
+					this.storage.appendMessage(
+						event.session,
+						event.turn.id,
+						event.message,
+					),
 				);
 				break;
 			case "session.compaction.completed.auto": {
@@ -86,27 +116,58 @@ export class FilePersistence {
 			}
 			case "session.handoff_summary.appended":
 				this.enqueueWrite(() =>
-					appendHandoffSummary(event.session, event.summaryMessage),
+					this.storage.appendHandoffSummary(
+						event.session,
+						event.summaryMessage,
+					),
 				);
 				break;
 			case "session.name.changed":
-				this.enqueueWrite(() => appendSessionInfo(event.session, event.name));
+				this.enqueueWrite(() =>
+					this.storage.appendSessionInfo(event.session, event.name),
+				);
 				break;
 			case "session.model.changed":
-				this.enqueueWrite(() => appendModelChange(event.session));
+				this.enqueueWrite(() => this.storage.appendModelChange(event.session));
 				break;
 			case "session.thinking_level.changed":
-				this.enqueueWrite(() => appendThinkingLevelChange(event.session));
+				this.enqueueWrite(() =>
+					this.storage.appendThinkingLevelChange(event.session),
+				);
 				break;
 		}
 	}
 
 	private enqueueWrite(operation: () => Promise<void>): void {
-		const next = this.writeChain.then(operation);
-		this.writeChain = next.catch(() => {});
-		void next.catch((error) => {
-			this.emitFailure(error);
-		});
+		this.queue.push(operation);
+		void this.flushQueue();
+	}
+
+	private flushQueue(): Promise<void> {
+		if (this.flushInFlight) return this.flushInFlight;
+		let stoppedAfterFailure = false;
+		this.flushInFlight = (async () => {
+			try {
+				while (this.queue.length > 0) {
+					const operation = this.queue[0];
+					if (!operation) break;
+					try {
+						await operation();
+						this.queue.shift();
+					} catch (error) {
+						stoppedAfterFailure = true;
+						this.emitFailure(error);
+						return;
+					}
+				}
+			} finally {
+				this.flushInFlight = null;
+				if (this.queue.length > 0 && !stoppedAfterFailure) {
+					void this.flushQueue();
+				}
+			}
+		})();
+		return this.flushInFlight;
 	}
 
 	private async persistCompaction(
@@ -114,9 +175,9 @@ export class FilePersistence {
 		compaction: CompactionPersistence,
 	): Promise<void> {
 		for (const turn of compaction.keptTurns) {
-			await appendTurn(session, turn);
+			await this.storage.appendTurn(session, turn);
 		}
-		await appendCompaction({
+		await this.storage.appendCompaction({
 			session,
 			summaryMessage: compaction.summaryMessage,
 			firstKeptTurnId: compaction.firstKeptTurnId,
