@@ -122,6 +122,8 @@ export class KitAgent {
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
 	private _pendingFollowUps: string[] = [];
+	private _queuedFollowUps: AgentMessage[] = [];
+	private nextPromptStartsNewTurn = false;
 
 	static fromSession(session: Session, opts?: KitAgentOptions): KitAgent {
 		return new KitAgent({
@@ -275,6 +277,7 @@ export class KitAgent {
 
 	followUp(message: AgentMessage): void {
 		this.pi.followUp(message);
+		this._queuedFollowUps = [...this._queuedFollowUps, message];
 		const text = extractPlainText(message);
 		if (text.trim()) {
 			this._pendingFollowUps = [...this._pendingFollowUps, text];
@@ -287,10 +290,14 @@ export class KitAgent {
 
 	clearFollowUpQueue(): void {
 		this.pi.clearFollowUpQueue();
+		this._queuedFollowUps = [];
+		this._pendingFollowUps = [];
 	}
 
 	clearAllQueues(): void {
 		this.pi.clearAllQueues();
+		this._queuedFollowUps = [];
+		this._pendingFollowUps = [];
 	}
 
 	hasQueuedMessages(): boolean {
@@ -315,6 +322,8 @@ export class KitAgent {
 		this._turns = [];
 		this._currentTurn = null;
 		this._pendingFollowUps = [];
+		this._queuedFollowUps = [];
+		this.nextPromptStartsNewTurn = false;
 	}
 
 	prompt(message: AgentMessage | AgentMessage[]): Promise<void>;
@@ -323,10 +332,15 @@ export class KitAgent {
 		input: AgentMessage | AgentMessage[] | string,
 		images?: ImageContent[],
 	): Promise<void> {
-		if (typeof input === "string") {
-			return this.pi.prompt(input, images);
-		}
-		return this.pi.prompt(input);
+		this.nextPromptStartsNewTurn = true;
+		const run =
+			typeof input === "string"
+				? this.pi.prompt(input, images)
+				: this.pi.prompt(input);
+		void run.catch(() => {
+			this.nextPromptStartsNewTurn = false;
+		});
+		return run;
 	}
 
 	continue(): Promise<void> {
@@ -370,13 +384,11 @@ export class KitAgent {
 	drainPendingFollowUps(): string[] {
 		const drained = [...this._pendingFollowUps];
 		this.clearAllQueues();
-		this._pendingFollowUps = [];
 		return drained;
 	}
 
 	clearPendingFollowUps(): void {
 		this.clearAllQueues();
-		this._pendingFollowUps = [];
 	}
 
 	private emit(event: AgentEvent): void {
@@ -388,9 +400,12 @@ export class KitAgent {
 	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
 		switch (event.type) {
 			case "turn_start": {
-				this._pendingFollowUps = [];
-				const turn = this.startTurn();
-				return [{ type: "turn_start", turn }];
+				if (this.nextPromptStartsNewTurn || this._currentTurn === null) {
+					this.nextPromptStartsNewTurn = false;
+					const turn = this.startTurn();
+					return [{ type: "turn_start", turn }];
+				}
+				return [];
 			}
 			case "message_start": {
 				if (event.message.role !== "assistant") return [event];
@@ -434,7 +449,12 @@ export class KitAgent {
 				return events;
 			}
 			case "message_end": {
-				const turn = this.ensureCurrentTurn();
+				const startsFollowUpTurn =
+					event.message.role === "user" &&
+					this.consumeQueuedFollowUp(event.message);
+				const turn = startsFollowUpTurn
+					? this.startTurn()
+					: this.ensureCurrentTurn();
 				const tagged: KitAgentMessage = {
 					...event.message,
 					turnId: turn.id,
@@ -447,7 +467,9 @@ export class KitAgent {
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
-				const events: AgentEvent[] = [];
+				const events: AgentEvent[] = startsFollowUpTurn
+					? [{ type: "turn_start", turn: updatedTurn }]
+					: [];
 				if (tagged.role === "assistant") {
 					events.push({
 						type: "agent_thinking_completed",
@@ -528,6 +550,20 @@ export class KitAgent {
 			default:
 				return [event];
 		}
+	}
+
+	private consumeQueuedFollowUp(message: AgentMessage): boolean {
+		const index = this._queuedFollowUps.findIndex((candidate) =>
+			isSameAgentMessage(candidate, message),
+		);
+		if (index < 0) return false;
+		this._queuedFollowUps = this._queuedFollowUps.filter(
+			(_, candidateIndex) => candidateIndex !== index,
+		);
+		this._pendingFollowUps = this._pendingFollowUps.filter(
+			(_, candidateIndex) => candidateIndex !== index,
+		);
+		return true;
 	}
 
 	private startTurn(): Turn {
@@ -619,12 +655,26 @@ export class KitAgent {
 		}));
 		this._currentTurn = null;
 		this._pendingFollowUps = [];
+		this._queuedFollowUps = [];
+		this.nextPromptStartsNewTurn = false;
 		this.toolArgsById.clear();
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
 		this.pi.state.messages = messages;
 	}
+}
+
+function isSameAgentMessage(a: AgentMessage, b: AgentMessage): boolean {
+	return (
+		a.role === b.role &&
+		"timestamp" in a &&
+		"timestamp" in b &&
+		a.timestamp === b.timestamp &&
+		"content" in a &&
+		"content" in b &&
+		JSON.stringify(a.content) === JSON.stringify(b.content)
+	);
 }
 
 function convertToLlm(messages: AgentMessage[]): Message[] {
