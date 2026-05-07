@@ -64,6 +64,19 @@ function toolResultMessage(
 }
 
 describe("KitAgent user-facing turn boundaries", () => {
+	test("records structured prompt user messages before provider events", async () => {
+		const agent = new KitAgent({});
+		(agent as unknown as { pi: { prompt: () => Promise<void> } }).pi.prompt =
+			async () => {};
+
+		await agent.prompt(userMessage("persist me"));
+
+		expect(agent.turns).toHaveLength(1);
+		expect(agent.turns[0]?.messages.map((message) => message.role)).toEqual([
+			"user",
+		]);
+	});
+
 	test("keeps tool-loop Pi turns inside one Kit turn", () => {
 		const agent = new KitAgent({});
 		const user = userMessage("review this");

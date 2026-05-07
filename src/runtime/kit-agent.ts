@@ -332,15 +332,55 @@ export class KitAgent {
 		input: AgentMessage | AgentMessage[] | string,
 		images?: ImageContent[],
 	): Promise<void> {
-		this.nextPromptStartsNewTurn = true;
-		const run =
-			typeof input === "string"
-				? this.pi.prompt(input, images)
-				: this.pi.prompt(input);
-		void run.catch(() => {
-			this.nextPromptStartsNewTurn = false;
-		});
-		return run;
+		if (typeof input === "string") {
+			this.nextPromptStartsNewTurn = true;
+			const run = this.pi.prompt(input, images);
+			void run.catch(() => {
+				this.nextPromptStartsNewTurn = false;
+			});
+			return run;
+		}
+
+		this.recordSubmittedUserMessages(input);
+		return this.pi.prompt(input);
+	}
+
+	private recordSubmittedUserMessages(
+		input: AgentMessage | AgentMessage[],
+	): void {
+		const messages = Array.isArray(input) ? input : [input];
+		const userMessages = messages.filter(
+			(message): message is Extract<AgentMessage, { role: "user" }> =>
+				message.role === "user",
+		);
+		if (userMessages.length === 0) return;
+
+		let turn = this.startTurn();
+		this.emit({ type: "turn_start", turn });
+		for (const message of userMessages) {
+			const tagged = {
+				...message,
+				turnId: turn.id,
+			} as KitAgentMessage;
+			turn = {
+				...turn,
+				messages: [...turn.messages, tagged],
+			};
+			this._currentTurn = turn;
+			this._turns = this._turns.map((candidate) =>
+				candidate.id === turn.id ? turn : candidate,
+			);
+			this.emit({
+				type: "user_message_created",
+				turn,
+				message: tagged as Extract<KitAgentMessage, { role: "user" }>,
+			});
+			this.emit({
+				type: "message_end",
+				turn,
+				message: tagged,
+			});
+		}
 	}
 
 	continue(): Promise<void> {
@@ -459,10 +499,18 @@ export class KitAgent {
 					...event.message,
 					turnId: turn.id,
 				};
-				const updatedTurn: Turn = {
-					...turn,
-					messages: [...turn.messages, tagged],
-				};
+				const isDuplicateSubmittedUser =
+					tagged.role === "user" &&
+					turn.messages.some(
+						(message) =>
+							message.role === "user" && isSameAgentMessage(message, tagged),
+					);
+				const updatedTurn: Turn = isDuplicateSubmittedUser
+					? turn
+					: {
+							...turn,
+							messages: [...turn.messages, tagged],
+						};
 				this._currentTurn = updatedTurn;
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
@@ -481,18 +529,20 @@ export class KitAgent {
 						message: tagged as Extract<KitAgentMessage, { role: "assistant" }>,
 					});
 				}
-				if (tagged.role === "user") {
+				if (tagged.role === "user" && !isDuplicateSubmittedUser) {
 					events.push({
 						type: "user_message_created",
 						turn: updatedTurn,
 						message: tagged as Extract<KitAgentMessage, { role: "user" }>,
 					});
 				}
-				events.push({
-					type: "message_end",
-					turn: updatedTurn,
-					message: tagged,
-				});
+				if (!isDuplicateSubmittedUser) {
+					events.push({
+						type: "message_end",
+						turn: updatedTurn,
+						message: tagged,
+					});
+				}
 				return events;
 			}
 			case "tool_execution_start": {
