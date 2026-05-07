@@ -42,23 +42,23 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 			: props.toast.title;
 
 	return (
-		<box position="relative" left={offset()}>
-			<box
-				paddingX={2}
-				backgroundColor={theme.bgSurface}
-				border
-				borderColor={color()}
-				flexDirection="row"
-				gap={1}
-				maxWidth="50%"
-			>
-				<text fg={color()}>{icon()}</text>
-				<text flexGrow={1} fg={color()}>
-					{label()}
-				</text>
-				<box onMouseUp={props.onDismiss}>
-					<text fg={theme.textMuted}>✕</text>
-				</box>
+		<box
+			position="relative"
+			left={offset()}
+			paddingX={2}
+			backgroundColor={theme.bg}
+			border
+			borderColor={color()}
+			flexDirection="row"
+			gap={1}
+			maxWidth="50%"
+		>
+			<text fg={color()}>{icon()}</text>
+			<text flexGrow={1} fg={color()}>
+				{label()}
+			</text>
+			<box onMouseUp={props.onDismiss}>
+				<text fg={theme.textMuted}>✕</text>
 			</box>
 		</box>
 	);
