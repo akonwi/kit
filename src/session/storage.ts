@@ -608,37 +608,29 @@ function serializeFile(state: SessionStorageState): string {
 		.concat("\n");
 }
 
-async function enqueueFlush(state: SessionStorageState): Promise<void> {
-	const existing = writeChains.get(state.header.id) ?? Promise.resolve();
-	const next = existing.then(async () => {
-		await ensureSessionsDir();
-		const pendingEntries = state.entries.slice(state.flushedEntryCount);
-		if (pendingEntries.length === 0 && state.flushedEntryCount > 0) {
-			return;
-		}
-		if (state.flushedEntryCount === 0) {
-			await writeFile(state.filePath, serializeFile(state), "utf8");
-			state.flushedEntryCount = state.entries.length;
-		} else if (pendingEntries.length > 0) {
-			await appendFile(
-				state.filePath,
-				pendingEntries
-					.map((entry) => JSON.stringify(entry))
-					.join("\n")
-					.concat("\n"),
-				"utf8",
-			);
-			state.flushedEntryCount = state.entries.length;
-		}
-		if (existsSync(state.legacyFilePath)) {
-			await rm(state.legacyFilePath, { force: true }).catch(() => {});
-		}
-	});
-	writeChains.set(
-		state.header.id,
-		next.catch(() => {}),
-	);
-	await next;
+async function flushStateToDisk(state: SessionStorageState): Promise<void> {
+	await ensureSessionsDir();
+	const pendingEntries = state.entries.slice(state.flushedEntryCount);
+	if (pendingEntries.length === 0 && state.flushedEntryCount > 0) {
+		return;
+	}
+	if (state.flushedEntryCount === 0) {
+		await writeFile(state.filePath, serializeFile(state), "utf8");
+		state.flushedEntryCount = state.entries.length;
+	} else if (pendingEntries.length > 0) {
+		await appendFile(
+			state.filePath,
+			pendingEntries
+				.map((entry) => JSON.stringify(entry))
+				.join("\n")
+				.concat("\n"),
+			"utf8",
+		);
+		state.flushedEntryCount = state.entries.length;
+	}
+	if (existsSync(state.legacyFilePath)) {
+		await rm(state.legacyFilePath, { force: true }).catch(() => {});
+	}
 }
 
 function applyEntryToState(
@@ -699,20 +691,39 @@ function restoreState(
 	state.thinkingLevel = snapshot.thinkingLevel;
 }
 
-async function appendEntries(
+type PreparedAppend<T> = {
+	entries: SessionEntry[];
+	result: T;
+};
+
+async function appendEntries<T>(
 	state: SessionStorageState,
-	entries: SessionEntry[],
-): Promise<void> {
-	const snapshot = snapshotState(state);
-	try {
-		for (const entry of entries) {
-			applyEntryToState(state, entry);
+	prepare: () => PreparedAppend<T> | Promise<PreparedAppend<T>>,
+): Promise<T> {
+	const existing = writeChains.get(state.header.id) ?? Promise.resolve();
+	const next = existing.then(async () => {
+		const snapshot = snapshotState(state);
+		try {
+			const { entries, result } = await prepare();
+			if (entries.length === 0) return result;
+			for (const entry of entries) {
+				applyEntryToState(state, entry);
+			}
+			await flushStateToDisk(state);
+			return result;
+		} catch (error) {
+			restoreState(state, snapshot);
+			throw error;
 		}
-		await enqueueFlush(state);
-	} catch (error) {
-		restoreState(state, snapshot);
-		throw error;
-	}
+	});
+	writeChains.set(
+		state.header.id,
+		next.then(
+			() => {},
+			() => {},
+		),
+	);
+	return next;
 }
 
 function createStateFromSession(
@@ -859,19 +870,20 @@ export async function appendSessionEntries(
 		state = createStateFromSession({ ...session, turns: [] });
 		stateBySessionId.set(session.id, state);
 	}
-	const prepared: SessionEntry[] = [];
-	let parentId = state.entries.at(-1)?.id ?? null;
-	for (const entry of entries) {
-		const next = {
-			...entry,
-			id: makeEntryId(),
-			parentId,
-		} as SessionEntry;
-		prepared.push(next);
-		parentId = next.id;
-	}
-	await appendEntries(state, prepared);
-	return prepared;
+	return appendEntries(state, () => {
+		const prepared: SessionEntry[] = [];
+		let parentId = state.entries.at(-1)?.id ?? null;
+		for (const entry of entries) {
+			const next = {
+				...entry,
+				id: makeEntryId(),
+				parentId,
+			} as SessionEntry;
+			prepared.push(next);
+			parentId = next.id;
+		}
+		return { entries: prepared, result: prepared };
+	});
 }
 
 export async function appendMessage(
@@ -884,15 +896,17 @@ export async function appendMessage(
 		state = createStateFromSession({ ...session, turns: [] });
 		stateBySessionId.set(session.id, state);
 	}
-	const entry: SessionMessageEntry = {
-		type: "message",
-		id: makeEntryId(),
-		parentId: state.entries.at(-1)?.id ?? null,
-		timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
-		turnId,
-		message: stripTurnId(message),
-	};
-	await appendEntries(state, [entry]);
+	await appendEntries(state, () => {
+		const entry: SessionMessageEntry = {
+			type: "message",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
+			turnId,
+			message: stripTurnId(message),
+		};
+		return { entries: [entry], result: undefined };
+	});
 }
 
 export async function appendTurn(session: Session, turn: Turn): Promise<void> {
@@ -901,23 +915,27 @@ export async function appendTurn(session: Session, turn: Turn): Promise<void> {
 		state = createStateFromSession({ ...session, turns: [] });
 		stateBySessionId.set(session.id, state);
 	}
-	if (state.firstEntryIdByTurnId.has(turn.id)) return;
+	await appendEntries(state, () => {
+		if (state.firstEntryIdByTurnId.has(turn.id)) {
+			return { entries: [], result: undefined };
+		}
 
-	const entries: SessionMessageEntry[] = [];
-	let parentId = state.entries.at(-1)?.id ?? null;
-	for (const message of turn.messages) {
-		const entry: SessionMessageEntry = {
-			type: "message",
-			id: makeEntryId(),
-			parentId,
-			timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
-			turnId: turn.id,
-			message: stripTurnId(message),
-		};
-		entries.push(entry);
-		parentId = entry.id;
-	}
-	await appendEntries(state, entries);
+		const entries: SessionMessageEntry[] = [];
+		let parentId = state.entries.at(-1)?.id ?? null;
+		for (const message of turn.messages) {
+			const entry: SessionMessageEntry = {
+				type: "message",
+				id: makeEntryId(),
+				parentId,
+				timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
+				turnId: turn.id,
+				message: stripTurnId(message),
+			};
+			entries.push(entry);
+			parentId = entry.id;
+		}
+		return { entries, result: undefined };
+	});
 }
 
 export async function appendSessionInfo(
@@ -929,16 +947,18 @@ export async function appendSessionInfo(
 		state = createStateFromSession(session);
 		stateBySessionId.set(session.id, state);
 	}
-	const normalized = name?.trim() || undefined;
-	if (state.name === normalized) return;
-	const entry: SessionInfoEntry = {
-		type: "session_info",
-		id: makeEntryId(),
-		parentId: state.entries.at(-1)?.id ?? null,
-		timestamp: session.updatedAt,
-		name: normalized,
-	};
-	await appendEntries(state, [entry]);
+	await appendEntries(state, () => {
+		const normalized = name?.trim() || undefined;
+		if (state.name === normalized) return { entries: [], result: undefined };
+		const entry: SessionInfoEntry = {
+			type: "session_info",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: session.updatedAt,
+			name: normalized,
+		};
+		return { entries: [entry], result: undefined };
+	});
 }
 
 export async function appendModelChange(session: Session): Promise<void> {
@@ -947,15 +967,19 @@ export async function appendModelChange(session: Session): Promise<void> {
 		state = createStateFromSession(session);
 		stateBySessionId.set(session.id, state);
 	}
-	if (state.model === session.model) return;
-	const entry: SessionModelChangeEntry = {
-		type: "model_change",
-		id: makeEntryId(),
-		parentId: state.entries.at(-1)?.id ?? null,
-		timestamp: session.updatedAt,
-		modelId: session.model,
-	};
-	await appendEntries(state, [entry]);
+	await appendEntries(state, () => {
+		if (state.model === session.model) {
+			return { entries: [], result: undefined };
+		}
+		const entry: SessionModelChangeEntry = {
+			type: "model_change",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: session.updatedAt,
+			modelId: session.model,
+		};
+		return { entries: [entry], result: undefined };
+	});
 }
 
 export async function appendThinkingLevelChange(
@@ -966,15 +990,19 @@ export async function appendThinkingLevelChange(
 		state = createStateFromSession(session);
 		stateBySessionId.set(session.id, state);
 	}
-	if (state.thinkingLevel === session.thinkingLevel) return;
-	const entry: SessionThinkingLevelChangeEntry = {
-		type: "thinking_level_change",
-		id: makeEntryId(),
-		parentId: state.entries.at(-1)?.id ?? null,
-		timestamp: session.updatedAt,
-		thinkingLevel: session.thinkingLevel,
-	};
-	await appendEntries(state, [entry]);
+	await appendEntries(state, () => {
+		if (state.thinkingLevel === session.thinkingLevel) {
+			return { entries: [], result: undefined };
+		}
+		const entry: SessionThinkingLevelChangeEntry = {
+			type: "thinking_level_change",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: session.updatedAt,
+			thinkingLevel: session.thinkingLevel,
+		};
+		return { entries: [entry], result: undefined };
+	});
 }
 
 export async function appendCompaction(options: {
@@ -998,26 +1026,28 @@ export async function appendCompaction(options: {
 		state = createStateFromSession(session);
 		stateBySessionId.set(session.id, state);
 	}
-	const firstKeptEntryId = firstKeptTurnId
-		? state.firstEntryIdByTurnId.get(firstKeptTurnId)
-		: undefined;
-	if (firstKeptTurnId && !firstKeptEntryId) {
-		throw new Error(
-			`Compaction boundary could not be resolved for kept turn ${firstKeptTurnId}. Persist kept turns before appending compaction.`,
-		);
-	}
-	const entry: SessionCompactionEntry = {
-		type: "compaction",
-		id: makeEntryId(),
-		parentId: state.entries.at(-1)?.id ?? null,
-		timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
-		firstKeptEntryId,
-		compactedTurnCount,
-		keptTurnCount,
-		tokensBefore,
-		message: stripTurnId(summaryMessage),
-	};
-	await appendEntries(state, [entry]);
+	await appendEntries(state, () => {
+		const firstKeptEntryId = firstKeptTurnId
+			? state.firstEntryIdByTurnId.get(firstKeptTurnId)
+			: undefined;
+		if (firstKeptTurnId && !firstKeptEntryId) {
+			throw new Error(
+				`Compaction boundary could not be resolved for kept turn ${firstKeptTurnId}. Persist kept turns before appending compaction.`,
+			);
+		}
+		const entry: SessionCompactionEntry = {
+			type: "compaction",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
+			firstKeptEntryId,
+			compactedTurnCount,
+			keptTurnCount,
+			tokensBefore,
+			message: stripTurnId(summaryMessage),
+		};
+		return { entries: [entry], result: undefined };
+	});
 }
 
 export async function appendHandoffSummary(
@@ -1029,14 +1059,16 @@ export async function appendHandoffSummary(
 		state = createStateFromSession(session);
 		stateBySessionId.set(session.id, state);
 	}
-	const entry: SessionHandoffSummaryEntry = {
-		type: "handoff_summary",
-		id: makeEntryId(),
-		parentId: state.entries.at(-1)?.id ?? null,
-		timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
-		message: stripTurnId(summaryMessage),
-	};
-	await appendEntries(state, [entry]);
+	await appendEntries(state, () => {
+		const entry: SessionHandoffSummaryEntry = {
+			type: "handoff_summary",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
+			message: stripTurnId(summaryMessage),
+		};
+		return { entries: [entry], result: undefined };
+	});
 }
 
 // persisting to disk should be a side-effect

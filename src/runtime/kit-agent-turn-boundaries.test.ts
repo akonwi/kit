@@ -179,10 +179,14 @@ describe("KitAgent user-facing turn boundaries", () => {
 		});
 
 		const followUp = userMessage("follow up");
+		const secondFollowUp = userMessage("follow up again");
 		agent.followUp(followUp);
+		agent.followUp(secondFollowUp);
 		drive(agent, { type: "turn_start" });
 		drive(agent, { type: "message_start", message: followUp });
 		drive(agent, { type: "message_end", message: followUp });
+		drive(agent, { type: "message_start", message: secondFollowUp });
+		drive(agent, { type: "message_end", message: secondFollowUp });
 		drive(agent, {
 			type: "message_end",
 			message: assistantMessage("follow-up response"),
@@ -194,12 +198,10 @@ describe("KitAgent user-facing turn boundaries", () => {
 				.filter((message) => message.role === "user")
 				.map((message) => message.content),
 		).toEqual(["initial", "steer"]);
-		const firstFollowUpMessage = agent.turns[1]?.messages[0];
-		expect(firstFollowUpMessage?.role).toBe("user");
 		expect(
-			firstFollowUpMessage?.role === "user"
-				? firstFollowUpMessage.content
-				: undefined,
-		).toBe("follow up");
+			agent.turns[1]?.messages
+				.filter((message) => message.role === "user")
+				.map((message) => message.content),
+		).toEqual(["follow up", "follow up again"]);
 	});
 });

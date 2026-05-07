@@ -121,6 +121,7 @@ export class KitAgent {
 	private readonly toolArgsById = new Map<string, unknown>();
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
+	private _activeFollowUpTurn: Turn | null = null;
 	private _pendingFollowUps: string[] = [];
 	private _queuedFollowUps: AgentMessage[] = [];
 	private nextPromptStartsNewTurn = false;
@@ -321,6 +322,7 @@ export class KitAgent {
 		this.toolArgsById.clear();
 		this._turns = [];
 		this._currentTurn = null;
+		this._activeFollowUpTurn = null;
 		this._pendingFollowUps = [];
 		this._queuedFollowUps = [];
 		this.nextPromptStartsNewTurn = false;
@@ -440,6 +442,7 @@ export class KitAgent {
 	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
 		switch (event.type) {
 			case "turn_start": {
+				this._activeFollowUpTurn = null;
 				if (this.nextPromptStartsNewTurn || this._currentTurn === null) {
 					this.nextPromptStartsNewTurn = false;
 					const turn = this.startTurn();
@@ -489,11 +492,13 @@ export class KitAgent {
 				return events;
 			}
 			case "message_end": {
-				const startsFollowUpTurn =
+				const isQueuedFollowUp =
 					event.message.role === "user" &&
 					this.consumeQueuedFollowUp(event.message);
-				const turn = startsFollowUpTurn
-					? this.startTurn()
+				const startsFollowUpTurn =
+					isQueuedFollowUp && this._activeFollowUpTurn === null;
+				const turn = isQueuedFollowUp
+					? (this._activeFollowUpTurn ?? this.startTurn())
 					: this.ensureCurrentTurn();
 				const tagged: KitAgentMessage = {
 					...event.message,
@@ -512,6 +517,7 @@ export class KitAgent {
 							messages: [...turn.messages, tagged],
 						};
 				this._currentTurn = updatedTurn;
+				if (isQueuedFollowUp) this._activeFollowUpTurn = updatedTurn;
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
@@ -589,6 +595,7 @@ export class KitAgent {
 				];
 			}
 			case "turn_end":
+				this._activeFollowUpTurn = null;
 				return [
 					{
 						type: "turn_end",
@@ -704,6 +711,7 @@ export class KitAgent {
 			messages: [...turn.messages],
 		}));
 		this._currentTurn = null;
+		this._activeFollowUpTurn = null;
 		this._pendingFollowUps = [];
 		this._queuedFollowUps = [];
 		this.nextPromptStartsNewTurn = false;

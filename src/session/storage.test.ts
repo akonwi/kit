@@ -163,6 +163,34 @@ describe("session storage", () => {
 		);
 	});
 
+	test("serializes concurrent appends into a single parent chain", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await Promise.all([
+			storage.appendSessionEntries(session, [
+				{
+					type: "session_info",
+					timestamp: new Date().toISOString(),
+					name: "first",
+				},
+			]),
+			storage.appendSessionEntries(session, [
+				{
+					type: "model_change",
+					timestamp: new Date().toISOString(),
+					modelId: "second-model",
+				},
+			]),
+		]);
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]?.parentId).toBeNull();
+		expect(entries[1]?.parentId).toBe(entries[0]?.id);
+	});
+
 	test("reconstructs latest compaction as a synthetic summary plus kept turns", async () => {
 		const session = await storage.createSession(
 			projectDir,
