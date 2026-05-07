@@ -7,10 +7,7 @@ import type {
 } from "@mariozechner/pi-agent-core";
 import {
 	type Api,
-	getEnvApiKey,
 	getModels,
-	getProviders,
-	type KnownProvider,
 	type Model,
 	registerBuiltInApiProviders,
 	type UserMessage,
@@ -51,6 +48,10 @@ import {
 import type { GitInfo } from "./git-info";
 import { GitInfoWatcher } from "./git-info-watcher";
 import { type AgentEvent, KitAgent } from "./kit-agent";
+import {
+	listRegisteredAuthenticatedProviders,
+	resolveDefaultAuthenticatedModel,
+} from "./provider-selection";
 import { createSyntheticSummaryMessage } from "./session-summary";
 import { clampThinkingLevel } from "./thinking-levels";
 
@@ -400,8 +401,10 @@ export class AgentRuntime {
 
 	private findModelById(modelId: string | undefined): Model<Api> | undefined {
 		if (!modelId) return undefined;
-		for (const provider of getAuthenticatedProviders()) {
-			for (const model of getModels(provider as KnownProvider)) {
+		for (const provider of listRegisteredAuthenticatedProviders(
+			getAuthenticatedProviderIds(),
+		)) {
+			for (const model of getModels(provider)) {
 				if (model.id === modelId) return model;
 			}
 		}
@@ -1482,9 +1485,9 @@ export class AgentRuntime {
 	}
 
 	getAvailableModels(): Array<Model<Api>> {
-		return getAuthenticatedProviders().flatMap((provider) =>
-			getModels(provider as KnownProvider),
-		);
+		return listRegisteredAuthenticatedProviders(
+			getAuthenticatedProviderIds(),
+		).flatMap((provider) => getModels(provider));
 	}
 
 	getCurrentModelId(): string | undefined {
@@ -1603,33 +1606,13 @@ export class AgentRuntime {
 	}
 }
 
-function getAuthenticatedProviders(): string[] {
-	const fromAuth = getAuthenticatedProviderIds();
-	const fromEnv = getProviders().filter(
-		(p) => !fromAuth.includes(p) && getEnvApiKey(p) != null,
-	);
-	return [...fromAuth, ...fromEnv];
-}
-
 function resolveDefaultModel(preferredModelId?: string): Model<Api> {
-	const providers = getAuthenticatedProviders();
-
-	if (providers.length === 0) {
+	const model = resolveDefaultAuthenticatedModel(
+		getAuthenticatedProviderIds(),
+		preferredModelId,
+	);
+	if (!model) {
 		throw new AuthenticationRequiredError();
 	}
-
-	if (preferredModelId) {
-		for (const provider of providers) {
-			for (const model of getModels(provider as KnownProvider)) {
-				if (model.id === preferredModelId) return model;
-			}
-		}
-	}
-
-	for (const provider of providers) {
-		const models = getModels(provider as KnownProvider);
-		if (models[0]) return models[0];
-	}
-
-	throw new Error("No models available for authenticated providers.");
+	return model;
 }
