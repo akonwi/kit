@@ -1000,11 +1000,6 @@ export class AgentRuntime {
 		const promptText = expandedPrompt.trim();
 		if (!promptText) return;
 
-		if (this.agent.state.isStreaming) {
-			this.sendFollowUp(promptText);
-			return;
-		}
-
 		const message: UserMultipartMessage & {
 			synthetic: {
 				kind: "prompt-command";
@@ -1021,6 +1016,12 @@ export class AgentRuntime {
 				...(args.trim().length > 0 ? { args: args.trim() } : {}),
 			},
 		};
+
+		if (this.agent.state.isStreaming) {
+			this.agent.followUp(message as unknown as AgentMessage);
+			this.syncPendingState();
+			return;
+		}
 
 		await this.agent.prompt(message as unknown as AgentMessage);
 		await this.waitForRecovery();
