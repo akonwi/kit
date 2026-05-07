@@ -100,6 +100,11 @@ export type RuntimeEventMap = {
 	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
 	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
+	"session.message.appended": {
+		session: Session;
+		turn: Turn;
+		message: KitAgentMessage;
+	};
 	"user.message.created": {
 		turn: Turn;
 		message: Extract<KitAgentMessage, { role: "user" }>;
@@ -903,6 +908,12 @@ export class AgentRuntime {
 				break;
 
 			case "message_end":
+				this.syncSessionFromAgentState();
+				this.emit("session.message.appended", {
+					session: this.session,
+					turn: event.turn,
+					message: event.message,
+				});
 				break;
 
 			case "agent_tool_started":
@@ -1111,12 +1122,18 @@ export class AgentRuntime {
 		);
 		if (replaced) {
 			this.syncSessionFromAgentState();
+			const message = replaced.message as Extract<
+				KitAgentMessage,
+				{ role: "bashExecution" }
+			>;
 			this.emit("bash.command.completed", {
 				turn: replaced.turn,
-				message: replaced.message as Extract<
-					KitAgentMessage,
-					{ role: "bashExecution" }
-				>,
+				message,
+			});
+			this.emit("session.message.appended", {
+				session: this.session,
+				turn: replaced.turn,
+				message,
 			});
 		}
 	}

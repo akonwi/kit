@@ -111,7 +111,7 @@ describe("FilePersistence", () => {
 		if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
 	});
 
-	test("persists completed turns observed from runtime events", async () => {
+	test("persists appended messages observed from runtime events", async () => {
 		const session = await storage.createSession(
 			projectDir,
 			"claude-sonnet-4-6",
@@ -126,7 +126,14 @@ describe("FilePersistence", () => {
 		const runtime = new FakeRuntime(session);
 		const persistence = new FilePersistence(runtime);
 
-		runtime.emit({ type: "agent.turn.completed", turn });
+		for (const message of turn.messages) {
+			runtime.emit({
+				type: "session.message.appended",
+				session,
+				turn,
+				message,
+			});
+		}
 		await persistence.flush();
 
 		const restored = await storage.readSession(session.id);
@@ -136,6 +143,53 @@ describe("FilePersistence", () => {
 		expect(restored?.turns[0]?.messages.map((message) => message.role)).toEqual(
 			["user", "assistant"],
 		);
+		persistence.dispose();
+	});
+
+	test("persists messages from every Pi loop turn before the final completed turn", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-6",
+		);
+		const userTurn: Turn = {
+			id: "turn-user",
+			messages: [
+				userMessage("turn-user", "/review"),
+				assistantMessage("turn-user", "using tools"),
+			],
+		};
+		const finalTurn: Turn = {
+			id: "turn-final",
+			messages: [assistantMessage("turn-final", "final answer")],
+		};
+		const runtime = new FakeRuntime(session);
+		const persistence = new FilePersistence(runtime);
+
+		for (const turn of [userTurn, finalTurn]) {
+			for (const message of turn.messages) {
+				runtime.emit({
+					type: "session.message.appended",
+					session,
+					turn,
+					message,
+				});
+			}
+		}
+		// The final runtime completion references only the last Pi loop turn.
+		// FilePersistence must not rely on that event to discover what to save.
+		runtime.emit({ type: "agent.turn.completed", turn: finalTurn });
+		await persistence.flush();
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns.map((turn) => turn.id)).toEqual([
+			"turn-user",
+			"turn-final",
+		]);
+		expect(
+			restored?.turns
+				.flatMap((turn) => turn.messages)
+				.filter((message) => message.role === "user"),
+		).toHaveLength(1);
 		persistence.dispose();
 	});
 

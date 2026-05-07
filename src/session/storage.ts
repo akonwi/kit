@@ -830,6 +830,27 @@ export async function appendSessionEntries(
 	return prepared;
 }
 
+export async function appendMessage(
+	session: Session,
+	turnId: string,
+	message: KitAgentMessage,
+): Promise<void> {
+	let state = await ensureState(session.id);
+	if (!state) {
+		state = createStateFromSession({ ...session, turns: [] });
+		stateBySessionId.set(session.id, state);
+	}
+	const entry: SessionMessageEntry = {
+		type: "message",
+		id: makeEntryId(),
+		parentId: state.entries.at(-1)?.id ?? null,
+		timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
+		turnId,
+		message: stripTurnId(message),
+	};
+	await appendEntries(state, [entry]);
+}
+
 export async function appendTurn(session: Session, turn: Turn): Promise<void> {
 	let state = await ensureState(session.id);
 	if (!state) {

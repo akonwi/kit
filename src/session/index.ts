@@ -2,6 +2,7 @@ export type { AppendableSessionEntry } from "./storage";
 export {
 	appendCompaction,
 	appendHandoffSummary,
+	appendMessage,
 	appendModelChange,
 	appendSessionEntries,
 	appendSessionInfo,

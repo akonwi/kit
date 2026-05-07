@@ -139,6 +139,30 @@ describe("session storage", () => {
 		]);
 	});
 
+	test("appends messages incrementally and reconstructs their turn", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await storage.appendMessage(
+			session,
+			"turn-incremental",
+			userMessage("turn-incremental", "hello"),
+		);
+		await storage.appendMessage(
+			session,
+			"turn-incremental",
+			assistantMessage("turn-incremental", "hi"),
+		);
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toHaveLength(1);
+		expect(restored?.turns[0]?.id).toBe("turn-incremental");
+		expect(restored?.turns[0]?.messages.map((message) => message.role)).toEqual(
+			["user", "assistant"],
+		);
+	});
+
 	test("reconstructs latest compaction as a synthetic summary plus kept turns", async () => {
 		const session = await storage.createSession(
 			projectDir,

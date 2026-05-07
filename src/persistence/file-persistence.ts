@@ -2,6 +2,7 @@ import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
 import {
 	appendCompaction,
 	appendHandoffSummary,
+	appendMessage,
 	appendModelChange,
 	appendSessionInfo,
 	appendThinkingLevelChange,
@@ -63,11 +64,11 @@ export class FilePersistence {
 
 	private handleRuntimeEvent(event: AgentRuntimeEvent): void {
 		switch (event.type) {
-			case "agent.turn.completed": {
-				const session = this.runtime.getSession();
-				this.enqueueWrite(() => this.persistCompletedTurn(session, event.turn));
+			case "session.message.appended":
+				this.enqueueWrite(() =>
+					appendMessage(event.session, event.turn.id, event.message),
+				);
 				break;
-			}
 			case "session.compaction.completed.auto": {
 				const session = this.runtime.getSession();
 				this.enqueueWrite(() => this.persistCompaction(session, event));
@@ -106,15 +107,6 @@ export class FilePersistence {
 		void next.catch((error) => {
 			this.emitFailure(error);
 		});
-	}
-
-	private async persistCompletedTurn(
-		session: Session,
-		turn: Turn | null,
-	): Promise<void> {
-		if (turn) {
-			await appendTurn(session, turn);
-		}
 	}
 
 	private async persistCompaction(
