@@ -151,6 +151,9 @@ export type RuntimeEventMap = {
 		contextPercent: number;
 		compactedTurnCount: number;
 		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.auto": {
 		error: string;
@@ -248,7 +251,6 @@ export class AgentRuntime {
 	private quitHandler: (() => void) | null = null;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
-	private unsubscribePersistence: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
@@ -264,13 +266,6 @@ export class AgentRuntime {
 	private recoveryPromise: Promise<void> | null = null;
 	private recoveryResolve: (() => void) | null = null;
 	private overflowRecoveryAttempted = false;
-	private pendingAutoCompaction: {
-		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
-		compactedTurnCount: number;
-		keptTurnCount: number;
-		tokensBefore: number;
-		firstKeptTurnId?: string;
-	} | null = null;
 
 	constructor(
 		session: Session,
@@ -311,7 +306,6 @@ export class AgentRuntime {
 			this.handleAgentEvent(event),
 		);
 		this.resetGitWatcher();
-		this.registerPersistence();
 	}
 
 	get contextStats(): RuntimeContextUsage | null {
@@ -323,16 +317,6 @@ export class AgentRuntime {
 
 	get settings() {
 		return this._settings;
-	}
-
-	private registerPersistence(): void {
-		this.unsubscribePersistence = this.subscribe((event) => {
-			switch (event.type) {
-				case "agent.turn.completed":
-					if (event.turn) this.persistTurnToDisk(event.turn);
-					break;
-			}
-		});
 	}
 
 	private touchSession(
@@ -358,26 +342,6 @@ export class AgentRuntime {
 	private emitPersistenceFailure(error: unknown): void {
 		this.emit("session.persistence.failed", {
 			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-
-	private persistTurnToDisk(turn: Turn): void {
-		void (async () => {
-			await appendTurn(this.session, turn);
-			if (this.pendingAutoCompaction) {
-				const pending = this.pendingAutoCompaction;
-				this.pendingAutoCompaction = null;
-				await appendCompaction({
-					session: this.session,
-					summaryMessage: pending.summaryMessage,
-					firstKeptTurnId: pending.firstKeptTurnId,
-					compactedTurnCount: pending.compactedTurnCount,
-					keptTurnCount: pending.keptTurnCount,
-					tokensBefore: pending.tokensBefore,
-				});
-			}
-		})().catch((error) => {
-			this.emitPersistenceFailure(error);
 		});
 	}
 
@@ -574,21 +538,17 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.pendingAutoCompaction = {
-				summaryMessage: result.summaryMessage as Extract<
-					KitAgentMessage,
-					{ role: "assistant" }
-				>,
-				compactedTurnCount: result.compactedTurnCount,
-				keptTurnCount: result.keptTurnCount,
-				tokensBefore: result.tokensBefore,
-				firstKeptTurnId: result.turns.at(1)?.id,
-			};
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.auto", {
 				contextPercent: contextUsage?.percent ?? 0,
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
 			});
 		} catch (error) {
 			this.emit("session.compaction.failed.auto", {
@@ -1596,8 +1556,6 @@ export class AgentRuntime {
 	dispose(): void {
 		this.unsubscribeAgent?.();
 		this.unsubscribeAgent = null;
-		this.unsubscribePersistence?.();
-		this.unsubscribePersistence = null;
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
 		this.listeners.clear();
