@@ -271,6 +271,11 @@ export class AgentRuntime {
 		tokensBefore: number;
 		firstKeptTurnId?: string;
 	} | null = null;
+	// In-memory FIFO buffer of turn ids waiting to be persisted. Survives
+	// transient append failures so we never silently drop a completed turn.
+	private persistenceQueue: string[] = [];
+	private persistenceQueueSet = new Set<string>();
+	private isPersistenceFlushInFlight = false;
 
 	constructor(
 		session: Session,
@@ -329,7 +334,10 @@ export class AgentRuntime {
 		this.unsubscribePersistence = this.subscribe((event) => {
 			switch (event.type) {
 				case "agent.turn.completed":
-					if (event.turn) this.persistTurnToDisk(event.turn);
+					if (event.turn) {
+						this.enqueueTurnForPersistence(event.turn.id);
+						this.scheduleFlushPersistence();
+					}
 					break;
 			}
 		});
@@ -361,24 +369,63 @@ export class AgentRuntime {
 		});
 	}
 
-	private persistTurnToDisk(turn: Turn): void {
-		void (async () => {
-			await appendTurn(this.session, turn);
+	private enqueueTurnForPersistence(turnId: string): void {
+		if (this.persistenceQueueSet.has(turnId)) return;
+		this.persistenceQueue.push(turnId);
+		this.persistenceQueueSet.add(turnId);
+	}
+
+	private scheduleFlushPersistence(): void {
+		void this.flushPersistenceQueue();
+	}
+
+	private async flushPersistenceQueue(): Promise<void> {
+		if (this.isPersistenceFlushInFlight) return;
+		this.isPersistenceFlushInFlight = true;
+		try {
+			while (this.persistenceQueue.length > 0) {
+				const turnId = this.persistenceQueue[0];
+				if (!turnId) break;
+				const turn = this.session.turns.find(
+					(candidate) => candidate.id === turnId,
+				);
+				if (!turn) {
+					// Stale id (e.g. compaction discarded it); drop and move on.
+					this.persistenceQueue.shift();
+					this.persistenceQueueSet.delete(turnId);
+					continue;
+				}
+				try {
+					await appendTurn(this.session, turn);
+					this.persistenceQueue.shift();
+					this.persistenceQueueSet.delete(turnId);
+				} catch (error) {
+					// Keep failed turn at the head for retry on next trigger.
+					this.emitPersistenceFailure(error);
+					return;
+				}
+			}
 			if (this.pendingAutoCompaction) {
 				const pending = this.pendingAutoCompaction;
-				this.pendingAutoCompaction = null;
-				await appendCompaction({
-					session: this.session,
-					summaryMessage: pending.summaryMessage,
-					firstKeptTurnId: pending.firstKeptTurnId,
-					compactedTurnCount: pending.compactedTurnCount,
-					keptTurnCount: pending.keptTurnCount,
-					tokensBefore: pending.tokensBefore,
-				});
+				try {
+					await appendCompaction({
+						session: this.session,
+						summaryMessage: pending.summaryMessage,
+						firstKeptTurnId: pending.firstKeptTurnId,
+						compactedTurnCount: pending.compactedTurnCount,
+						keptTurnCount: pending.keptTurnCount,
+						tokensBefore: pending.tokensBefore,
+					});
+					if (this.pendingAutoCompaction === pending) {
+						this.pendingAutoCompaction = null;
+					}
+				} catch (error) {
+					this.emitPersistenceFailure(error);
+				}
 			}
-		})().catch((error) => {
-			this.emitPersistenceFailure(error);
-		});
+		} finally {
+			this.isPersistenceFlushInFlight = false;
+		}
 	}
 
 	private getEffectiveSystemPrompt(): string {
@@ -1037,11 +1084,6 @@ export class AgentRuntime {
 		const promptText = expandedPrompt.trim();
 		if (!promptText) return;
 
-		if (this.agent.state.isStreaming) {
-			this.sendFollowUp(promptText);
-			return;
-		}
-
 		const message: UserMultipartMessage & {
 			synthetic: {
 				kind: "prompt-command";
@@ -1058,6 +1100,12 @@ export class AgentRuntime {
 				...(args.trim().length > 0 ? { args: args.trim() } : {}),
 			},
 		};
+
+		if (this.agent.state.isStreaming) {
+			this.agent.followUp(message as unknown as AgentMessage);
+			this.syncPendingState();
+			return;
+		}
 
 		await this.agent.prompt(message as unknown as AgentMessage);
 		await this.waitForRecovery();

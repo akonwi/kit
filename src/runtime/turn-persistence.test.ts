@@ -200,6 +200,9 @@ describe("KitAgent — turn assembly contract", () => {
 type PersistenceTestRuntime = {
 	session: Session;
 	pendingAutoCompaction: null;
+	persistenceQueue: string[];
+	persistenceQueueSet: Set<string>;
+	isPersistenceFlushInFlight: boolean;
 	emitPersistenceFailure: (error: unknown) => void;
 	subscribe: (
 		listener: (event: { type: string; turn: Turn | null }) => void,
@@ -219,6 +222,9 @@ function buildPersistenceRuntime(
 	) as PersistenceTestRuntime;
 	runtime.session = session;
 	runtime.pendingAutoCompaction = null;
+	runtime.persistenceQueue = [];
+	runtime.persistenceQueueSet = new Set<string>();
+	runtime.isPersistenceFlushInFlight = false;
 	runtime.emitPersistenceFailure = options?.onFailure ?? (() => {});
 	const listeners: Array<(event: { type: string; turn: Turn | null }) => void> =
 		[];

@@ -326,7 +326,69 @@ export class KitAgent {
 		if (typeof input === "string") {
 			return this.pi.prompt(input, images);
 		}
+		// KitAgent owns user-input lifecycle. Record submitted user messages
+		// into the active turn synchronously so turn assembly does not depend
+		// on whether the provider stream emits a matching `message_end`.
+		this.recordPromptedUserMessages(input);
 		return this.pi.prompt(input);
+	}
+
+	private recordPromptedUserMessages(
+		input: AgentMessage | AgentMessage[],
+	): void {
+		const messages = Array.isArray(input) ? input : [input];
+		for (const message of messages) {
+			if (message.role !== "user") continue;
+			this.appendPromptedUserMessage(
+				message as UserMessage | UserMultipartMessage,
+			);
+		}
+	}
+
+	private appendPromptedUserMessage(
+		message: UserMessage | UserMultipartMessage,
+	): void {
+		const turn = this.ensureCurrentTurnForPrompt();
+		const tagged = {
+			...message,
+			turnId: turn.id,
+		} as unknown as Extract<KitAgentMessage, { role: "user" }>;
+		if (
+			turn.messages.some(
+				(existing) =>
+					existing.role === "user" &&
+					isSameUserMessage(
+						existing as Extract<KitAgentMessage, { role: "user" }>,
+						tagged,
+					),
+			)
+		) {
+			return;
+		}
+		const updatedTurn: Turn = {
+			...turn,
+			messages: [...turn.messages, tagged],
+		};
+		this._currentTurn = updatedTurn;
+		this._turns = this._turns.map((candidate) =>
+			candidate.id === updatedTurn.id ? updatedTurn : candidate,
+		);
+		this.emit({
+			type: "user_message_created",
+			turn: updatedTurn,
+			message: tagged,
+		});
+	}
+
+	private ensureCurrentTurnForPrompt(): Turn {
+		// Re-use the current turn only if it was freshly opened (no messages yet)
+		// or only contains user messages we just recorded. Otherwise we must
+		// start a new turn so a new submission becomes its own turn boundary.
+		const current = this._currentTurn;
+		if (current?.messages.every((message) => message.role === "user")) {
+			return current;
+		}
+		return this.startTurn();
 	}
 
 	continue(): Promise<void> {
@@ -389,7 +451,15 @@ export class KitAgent {
 		switch (event.type) {
 			case "turn_start": {
 				this._pendingFollowUps = [];
-				const turn = this.startTurn();
+				// If `prompt()` already opened a turn for this submission and only
+				// recorded user messages so far, reuse it. Otherwise this is a new
+				// turn boundary (initial run, tool-loop iteration, follow-up, etc.).
+				const current = this._currentTurn;
+				const reuse =
+					current !== null &&
+					current.messages.length > 0 &&
+					current.messages.every((message) => message.role === "user");
+				const turn = reuse ? current : this.startTurn();
 				return [{ type: "turn_start", turn }];
 			}
 			case "message_start": {
@@ -439,10 +509,22 @@ export class KitAgent {
 					...event.message,
 					turnId: turn.id,
 				};
-				const updatedTurn: Turn = {
-					...turn,
-					messages: [...turn.messages, tagged],
-				};
+				const isDuplicatePromptedUser =
+					tagged.role === "user" &&
+					turn.messages.some(
+						(existing) =>
+							existing.role === "user" &&
+							isSameUserMessage(
+								existing as Extract<KitAgentMessage, { role: "user" }>,
+								tagged as Extract<KitAgentMessage, { role: "user" }>,
+							),
+					);
+				const updatedTurn: Turn = isDuplicatePromptedUser
+					? turn
+					: {
+							...turn,
+							messages: [...turn.messages, tagged],
+						};
 				this._currentTurn = updatedTurn;
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
@@ -459,7 +541,7 @@ export class KitAgent {
 						message: tagged as Extract<KitAgentMessage, { role: "assistant" }>,
 					});
 				}
-				if (tagged.role === "user") {
+				if (tagged.role === "user" && !isDuplicatePromptedUser) {
 					events.push({
 						type: "user_message_created",
 						turn: updatedTurn,
@@ -516,15 +598,20 @@ export class KitAgent {
 					},
 				];
 			}
-			case "turn_end":
+			case "turn_end": {
+				const turn = this._currentTurn;
+				// Clear current turn so the next prompt() / steer() / followUp()
+				// (or pi turn_start for a tool-loop iteration) opens a fresh one.
+				this._currentTurn = null;
 				return [
 					{
 						type: "turn_end",
-						turn: this._currentTurn,
+						turn,
 						message: event.message,
 						toolResults: event.toolResults,
 					},
 				];
+			}
 			default:
 				return [event];
 		}
@@ -625,6 +712,16 @@ export class KitAgent {
 		) as AgentMessage[];
 		this.pi.state.messages = messages;
 	}
+}
+
+function isSameUserMessage(
+	a: Extract<KitAgentMessage, { role: "user" }>,
+	b: Extract<KitAgentMessage, { role: "user" }>,
+): boolean {
+	return (
+		a.timestamp === b.timestamp &&
+		JSON.stringify(a.content) === JSON.stringify(b.content)
+	);
 }
 
 function convertToLlm(messages: AgentMessage[]): Message[] {
