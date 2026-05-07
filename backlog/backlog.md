@@ -14,7 +14,6 @@ Delete done items.
 ## Active items
 - [ ] ux: lean into command palette instead of slash picker
   - keep picker UX for file and thread references
-- [ ] style: toasts are pretty ugly
 - [ ] idea: explore useful Unicode text glyphs for TUI affordances and status labels
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
   - see `backlog/plugin-chrome-and-capabilities.md`
