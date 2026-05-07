@@ -1,5 +1,13 @@
 import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
-import { appendCompaction, appendTurn, type Session } from "../session";
+import {
+	appendCompaction,
+	appendHandoffSummary,
+	appendModelChange,
+	appendSessionInfo,
+	appendThinkingLevelChange,
+	appendTurn,
+	type Session,
+} from "../session";
 import type { KitAgentMessage, Turn } from "../session/types";
 
 type RuntimeEventSource = {
@@ -7,12 +15,13 @@ type RuntimeEventSource = {
 	getSession(): Session;
 };
 
-type AutoCompactionPersistence = {
+type CompactionPersistence = {
 	summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	firstKeptTurnId?: string;
 	compactedTurnCount: number;
 	keptTurnCount: number;
 	tokensBefore: number;
+	keptTurns: Turn[];
 };
 
 export type FilePersistenceFailureEvent = {
@@ -27,7 +36,6 @@ export class FilePersistence {
 	>();
 	private unsubscribeRuntime: (() => void) | null = null;
 	private writeChain: Promise<void> = Promise.resolve();
-	private pendingAutoCompaction: AutoCompactionPersistence | null = null;
 
 	constructor(runtime: RuntimeEventSource) {
 		this.runtime = runtime;
@@ -55,17 +63,39 @@ export class FilePersistence {
 
 	private handleRuntimeEvent(event: AgentRuntimeEvent): void {
 		switch (event.type) {
-			case "session.compaction.completed.auto":
-				this.pendingAutoCompaction = {
-					summaryMessage: event.summaryMessage,
-					firstKeptTurnId: event.firstKeptTurnId,
-					compactedTurnCount: event.compactedTurnCount,
-					keptTurnCount: event.keptTurnCount,
-					tokensBefore: event.tokensBefore,
-				};
+			case "agent.turn.completed": {
+				const session = this.runtime.getSession();
+				this.enqueueWrite(() => this.persistCompletedTurn(session, event.turn));
 				break;
-			case "agent.turn.completed":
-				this.enqueueWrite(() => this.persistCompletedTurn(event.turn));
+			}
+			case "session.compaction.completed.auto": {
+				const session = this.runtime.getSession();
+				this.enqueueWrite(() => this.persistCompaction(session, event));
+				break;
+			}
+			case "session.compaction.completed.recovery": {
+				const session = this.runtime.getSession();
+				this.enqueueWrite(() => this.persistCompaction(session, event));
+				break;
+			}
+			case "session.compaction.completed.adaptation": {
+				const session = this.runtime.getSession();
+				this.enqueueWrite(() => this.persistCompaction(session, event));
+				break;
+			}
+			case "session.handoff_summary.appended":
+				this.enqueueWrite(() =>
+					appendHandoffSummary(event.session, event.summaryMessage),
+				);
+				break;
+			case "session.name.changed":
+				this.enqueueWrite(() => appendSessionInfo(event.session, event.name));
+				break;
+			case "session.model.changed":
+				this.enqueueWrite(() => appendModelChange(event.session));
+				break;
+			case "session.thinking_level.changed":
+				this.enqueueWrite(() => appendThinkingLevelChange(event.session));
 				break;
 		}
 	}
@@ -78,25 +108,30 @@ export class FilePersistence {
 		});
 	}
 
-	private async persistCompletedTurn(turn: Turn | null): Promise<void> {
-		const session = this.runtime.getSession();
+	private async persistCompletedTurn(
+		session: Session,
+		turn: Turn | null,
+	): Promise<void> {
 		if (turn) {
 			await appendTurn(session, turn);
 		}
-		if (!this.pendingAutoCompaction) return;
+	}
 
-		const pending = this.pendingAutoCompaction;
+	private async persistCompaction(
+		session: Session,
+		compaction: CompactionPersistence,
+	): Promise<void> {
+		for (const turn of compaction.keptTurns) {
+			await appendTurn(session, turn);
+		}
 		await appendCompaction({
 			session,
-			summaryMessage: pending.summaryMessage,
-			firstKeptTurnId: pending.firstKeptTurnId,
-			compactedTurnCount: pending.compactedTurnCount,
-			keptTurnCount: pending.keptTurnCount,
-			tokensBefore: pending.tokensBefore,
+			summaryMessage: compaction.summaryMessage,
+			firstKeptTurnId: compaction.firstKeptTurnId,
+			compactedTurnCount: compaction.compactedTurnCount,
+			keptTurnCount: compaction.keptTurnCount,
+			tokensBefore: compaction.tokensBefore,
 		});
-		if (this.pendingAutoCompaction === pending) {
-			this.pendingAutoCompaction = null;
-		}
 	}
 
 	private emitFailure(error: unknown): void {

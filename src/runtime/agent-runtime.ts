@@ -20,12 +20,6 @@ import {
 } from "../context/agents";
 import type { MessagePart, UserMultipartMessage } from "../messages/parts";
 import {
-	appendCompaction,
-	appendHandoffSummary,
-	appendModelChange,
-	appendSessionInfo,
-	appendThinkingLevelChange,
-	appendTurn,
 	createSession,
 	deleteSession,
 	findSessionById,
@@ -153,6 +147,7 @@ export type RuntimeEventMap = {
 		keptTurnCount: number;
 		tokensBefore: number;
 		firstKeptTurnId?: string;
+		keptTurns: Turn[];
 		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.auto": {
@@ -163,6 +158,10 @@ export type RuntimeEventMap = {
 		reason: "overflow";
 		compactedTurnCount: number;
 		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		keptTurns: Turn[];
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.recovery": {
 		reason: "overflow";
@@ -178,6 +177,10 @@ export type RuntimeEventMap = {
 		modelName: string | undefined;
 		compactedTurnCount: number;
 		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		keptTurns: Turn[];
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.adaptation": {
 		modelId: string;
@@ -190,6 +193,16 @@ export type RuntimeEventMap = {
 		error: string;
 	};
 	"session.active.changed": { session: Session };
+	"session.name.changed": { session: Session; name?: string };
+	"session.model.changed": { session: Session; modelId?: string };
+	"session.thinking_level.changed": {
+		session: Session;
+		thinkingLevel?: ThinkingLevel;
+	};
+	"session.handoff_summary.appended": {
+		session: Session;
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
+	};
 	"agent.tool.started": {
 		turn: Turn;
 		toolCallId: string;
@@ -214,7 +227,6 @@ export type RuntimeEventMap = {
 	"chat.message-queue.changed": { count: number };
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
-	"session.persistence.failed": { error: string };
 	"vcs.updated": { branch: string | null; dirty: boolean };
 };
 
@@ -339,12 +351,6 @@ export class AgentRuntime {
 		});
 	}
 
-	private emitPersistenceFailure(error: unknown): void {
-		this.emit("session.persistence.failed", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-
 	private getEffectiveSystemPrompt(): string {
 		const basePrompt = [DEFAULT_SYSTEM_PROMPT, ...this.systemPromptAdditions]
 			.filter((value) => value.trim().length > 0)
@@ -420,8 +426,9 @@ export class AgentRuntime {
 	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
 		this.touchSession({ thinkingLevel: level });
-		void appendThinkingLevelChange(this.session).catch((error) => {
-			this.emitPersistenceFailure(error);
+		this.emit("session.thinking_level.changed", {
+			session: this.session,
+			thinkingLevel: level,
 		});
 		this.handleSessionChanged();
 	}
@@ -545,6 +552,7 @@ export class AgentRuntime {
 				keptTurnCount: result.keptTurnCount,
 				tokensBefore: result.tokensBefore,
 				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
 				summaryMessage: result.summaryMessage as Extract<
 					KitAgentMessage,
 					{ role: "assistant" }
@@ -562,12 +570,6 @@ export class AgentRuntime {
 	private persistTurns(): boolean {
 		this.syncSessionFromAgentState();
 		return true;
-	}
-
-	private async persistKeptTurnsForCompaction(turns: Turn[]): Promise<void> {
-		for (const turn of turns.slice(1)) {
-			await appendTurn(this.session, turn);
-		}
 	}
 
 	private removeTerminalAssistantErrorFromLiveState(): void {
@@ -701,23 +703,18 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			await this.persistKeptTurnsForCompaction(result.turns);
-			await appendCompaction({
-				session: this.session,
-				summaryMessage: result.summaryMessage as Extract<
-					KitAgentMessage,
-					{ role: "assistant" }
-				>,
-				firstKeptTurnId: result.turns.at(1)?.id,
-				compactedTurnCount: result.compactedTurnCount,
-				keptTurnCount: result.keptTurnCount,
-				tokensBefore: result.tokensBefore,
-			});
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.recovery", {
 				reason: "overflow",
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
 			});
 			this.scheduleContinue();
 			return true;
@@ -809,18 +806,6 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			await this.persistKeptTurnsForCompaction(result.turns);
-			await appendCompaction({
-				session: this.session,
-				summaryMessage: result.summaryMessage as Extract<
-					KitAgentMessage,
-					{ role: "assistant" }
-				>,
-				firstKeptTurnId: result.turns.at(1)?.id,
-				compactedTurnCount: result.compactedTurnCount,
-				keptTurnCount: result.keptTurnCount,
-				tokensBefore: result.tokensBefore,
-			});
 			this.handleSessionChanged();
 
 			this.emit("session.compaction.completed.adaptation", {
@@ -828,6 +813,13 @@ export class AgentRuntime {
 				modelName: model.name,
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
 			});
 			const nextUsage = getRuntimeContextUsage(
 				this.agent.state.messages,
@@ -1395,7 +1387,10 @@ export class AgentRuntime {
 
 			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
 			this.syncSessionFromAgentState();
-			await appendHandoffSummary(this.session, summaryMessage);
+			this.emit("session.handoff_summary.appended", {
+				session: this.session,
+				summaryMessage,
+			});
 			this.handleSessionChanged();
 			this.emit("session.active.changed", { session: this.session });
 
@@ -1416,11 +1411,7 @@ export class AgentRuntime {
 	async setSessionName(name: string): Promise<void> {
 		if (this.session.name === name) return;
 		this.touchSession({ name });
-		try {
-			await appendSessionInfo(this.session, name);
-		} catch (error) {
-			this.emitPersistenceFailure(error);
-		}
+		this.emit("session.name.changed", { session: this.session, name });
 		this.emit("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 	}
@@ -1461,8 +1452,9 @@ export class AgentRuntime {
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
 		this.touchSession({ model: model.id });
-		void appendModelChange(this.session).catch((error) => {
-			this.emitPersistenceFailure(error);
+		this.emit("session.model.changed", {
+			session: this.session,
+			modelId: model.id,
 		});
 		this.emit("agent.model.changed", {
 			model,

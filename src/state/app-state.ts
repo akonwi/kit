@@ -99,13 +99,6 @@ export function createAppState(runtime: AgentRuntime | null) {
 					fileIndex.invalidate();
 				}
 				break;
-			case "session.persistence.failed":
-				showToast({
-					title: "Session save failed",
-					lines: [event.error],
-					variant: "error",
-				});
-				break;
 			case "chat.followups.promoted":
 				showToast({
 					title: "Steering",

@@ -66,6 +66,13 @@ function assistantMessage(
 	};
 }
 
+function withUpdatedTimestamp(session: Session): Session {
+	return {
+		...session,
+		updatedAt: new Date().toISOString(),
+	};
+}
+
 class FakeRuntime {
 	private readonly listeners = new Set<(event: AgentRuntimeEvent) => void>();
 
@@ -132,7 +139,43 @@ describe("FilePersistence", () => {
 		persistence.dispose();
 	});
 
-	test("persists pending auto-compaction after the completed turn boundary exists", async () => {
+	test("persists metadata changes observed from runtime events", async () => {
+		let session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-6",
+			"medium",
+		);
+		const runtime = new FakeRuntime(session);
+		const persistence = new FilePersistence(runtime);
+
+		session = withUpdatedTimestamp({ ...session, name: "Named session" });
+		runtime.emit({
+			type: "session.name.changed",
+			session,
+			name: session.name,
+		});
+		session = withUpdatedTimestamp({ ...session, model: "other-model" });
+		runtime.emit({
+			type: "session.model.changed",
+			session,
+			modelId: session.model,
+		});
+		session = withUpdatedTimestamp({ ...session, thinkingLevel: "high" });
+		runtime.emit({
+			type: "session.thinking_level.changed",
+			session,
+			thinkingLevel: session.thinkingLevel,
+		});
+		await persistence.flush();
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.name).toBe("Named session");
+		expect(restored?.model).toBe("other-model");
+		expect(restored?.thinkingLevel).toBe("high");
+		persistence.dispose();
+	});
+
+	test("persists compaction by writing kept turns before the compaction entry", async () => {
 		const session = await storage.createSession(
 			projectDir,
 			"claude-sonnet-4-6",
@@ -157,9 +200,9 @@ describe("FilePersistence", () => {
 			keptTurnCount: 1,
 			tokensBefore: 123,
 			firstKeptTurnId: keptTurn.id,
+			keptTurns: [keptTurn],
 			summaryMessage,
 		});
-		runtime.emit({ type: "agent.turn.completed", turn: keptTurn });
 		await persistence.flush();
 
 		const restored = await storage.readSession(session.id);
@@ -168,6 +211,32 @@ describe("FilePersistence", () => {
 			"compaction-summary",
 		);
 		expect(restored?.turns[1]?.id).toBe("turn-kept");
+		persistence.dispose();
+	});
+
+	test("persists handoff summaries observed from runtime events", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-6",
+		);
+		const summaryMessage = assistantMessage("summary", "handoff summary", {
+			synthetic: { kind: "handoff-summary" },
+		});
+		const runtime = new FakeRuntime(session);
+		const persistence = new FilePersistence(runtime);
+
+		runtime.emit({
+			type: "session.handoff_summary.appended",
+			session,
+			summaryMessage,
+		});
+		await persistence.flush();
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toHaveLength(1);
+		expect(restored?.turns[0]?.messages[0]?.synthetic?.kind).toBe(
+			"handoff-summary",
+		);
 		persistence.dispose();
 	});
 });
