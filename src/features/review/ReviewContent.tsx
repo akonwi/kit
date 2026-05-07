@@ -371,11 +371,8 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 	const activeLineStatus = createMemo(() => {
 		const range = selectedRange();
-		if (!range || mode() !== "patch") return "";
-		if (rangeAnchor()) {
-			return `Selecting ${lineRangeLabel(range)} · press Enter to comment`;
-		}
-		return `Selected ${lineRangeLabel(range)} · press Ctrl+Enter to start a range`;
+		if (!range || mode() !== "patch" || !rangeAnchor()) return "";
+		return `Selecting ${lineRangeLabel(range)} · press Enter to comment`;
 	});
 	const hiddenContextStatus = createMemo(() => {
 		const file = selectedFile();
