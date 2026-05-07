@@ -279,6 +279,65 @@ describe("AgentRuntime — persistence buffer contract", () => {
 		).toEqual(["user", "assistant", "user", "assistant"]);
 	});
 
+	test("persists every turn from a multi-turn agent run, not only the last one", async () => {
+		// Real-world failure mode: a single user submission can produce many
+		// turns when the assistant uses tools (each tool-loop iteration is a
+		// separate pi turn). The user message lives in the FIRST turn; the
+		// final assistant response lives in the LAST. If only the last turn
+		// is persisted, the user message disappears from the JSONL.
+		const baseSession = await sessionStorage.createSession(
+			projectDir,
+			"claude-sonnet-4-6",
+		);
+		const userTurn: Turn = {
+			id: "turn-user",
+			messages: [
+				{
+					...makeUserMessage("Please review the auth flow.", {
+						synthetic: {
+							kind: "prompt-command",
+							command: "review",
+						},
+					}),
+					turnId: "turn-user",
+				},
+				{ ...makeAssistantMessage("using tools"), turnId: "turn-user" },
+			],
+		};
+		const toolTurn1: Turn = {
+			id: "turn-tool-1",
+			messages: [
+				{ ...makeAssistantMessage("reading file"), turnId: "turn-tool-1" },
+			],
+		};
+		const toolTurn2: Turn = {
+			id: "turn-tool-2",
+			messages: [
+				{ ...makeAssistantMessage("final feedback"), turnId: "turn-tool-2" },
+			],
+		};
+
+		const { emitTurnCompleted } = buildPersistenceRuntime({
+			...baseSession,
+			turns: [userTurn, toolTurn1, toolTurn2],
+		});
+
+		// agent.turn.completed fires once per agent run with the LAST turn.
+		emitTurnCompleted(toolTurn2);
+		await new Promise((resolve) => setTimeout(resolve, 25));
+
+		const restored = await sessionStorage.readSession(baseSession.id);
+		expect(restored?.turns.map((t) => t.id)).toEqual([
+			"turn-user",
+			"turn-tool-1",
+			"turn-tool-2",
+		]);
+		const userMessages = restored?.turns
+			.flatMap((t) => t.messages)
+			.filter((m) => m.role === "user");
+		expect(userMessages).toHaveLength(1);
+	});
+
 	test("if a turn append fails, the buffer keeps it and a later trigger persists it", async () => {
 		const baseSession = await sessionStorage.createSession(
 			projectDir,

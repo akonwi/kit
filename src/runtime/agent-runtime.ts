@@ -334,10 +334,14 @@ export class AgentRuntime {
 		this.unsubscribePersistence = this.subscribe((event) => {
 			switch (event.type) {
 				case "agent.turn.completed":
-					if (event.turn) {
-						this.enqueueTurnForPersistence(event.turn.id);
-						this.scheduleFlushPersistence();
+					// Enqueue every turn from the active session, not just the
+					// most recently completed one. A single agent run can create
+					// multiple turns (tool-loop iterations, follow-ups), and we
+					// must persist all of them; appendTurn is idempotent by id.
+					for (const turn of this.session.turns) {
+						this.enqueueTurnForPersistence(turn.id);
 					}
+					this.scheduleFlushPersistence();
 					break;
 			}
 		});
