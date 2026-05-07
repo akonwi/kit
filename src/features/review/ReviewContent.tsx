@@ -9,6 +9,7 @@ import {
 	Show,
 } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
+import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { ScreenHeader } from "../../shell/ScreenHeader";
@@ -43,6 +44,7 @@ export type ReviewContentProps = {
 			props: OverlayComponentProps<T>,
 		) => import("solid-js").JSX.Element,
 	) => Promise<T>;
+	defaultDiffView: ReviewDiffView;
 	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
 };
 
@@ -62,6 +64,18 @@ type RangeAnchor = {
 
 type SavedCommentMarker = {
 	key: string;
+	side: ReviewSide;
+	top: number;
+	height: number;
+};
+
+type SplitVisualRow = {
+	top: number;
+	deletion?: CommentableLine;
+	addition?: CommentableLine;
+};
+
+type VisualBounds = {
 	top: number;
 	height: number;
 };
@@ -73,6 +87,7 @@ const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
 		{ key: "Space", action: "collapse/expand" },
 		{ key: "f", action: "file note" },
 		{ key: "x", action: "clear file note" },
+		{ key: "v", action: "toggle view" },
 		{ key: "s", action: "submit" },
 		{ key: "Esc", action: "close" },
 	],
@@ -84,6 +99,7 @@ const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
 		{ key: "Ctrl+Enter", action: "start range" },
 		{ key: "x", action: "clear line note" },
 		{ key: "f", action: "file note" },
+		{ key: "v", action: "toggle view" },
 		{ key: "s", action: "submit" },
 		{ key: "Esc", action: "cancel range / back" },
 	],
@@ -115,6 +131,10 @@ type PatchScrollRef = {
 
 function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
+}
+
+function diffViewLabel(view: ReviewDiffView): string {
+	return view === "split" ? "split" : "unified";
 }
 
 function sourceLabel(file: ReviewFile): string {
@@ -163,10 +183,77 @@ function setMapValue(
 	return next;
 }
 
+function buildSplitVisualRows(hunk: ReviewHunk): SplitVisualRow[] {
+	const rows: SplitVisualRow[] = [];
+	let top = 0;
+	let index = 0;
+	while (index < hunk.lines.length) {
+		const line = hunk.lines[index];
+		if (line.kind === "context") {
+			top += 1;
+			index += 1;
+			continue;
+		}
+
+		const deletions: CommentableLine[] = [];
+		const additions: CommentableLine[] = [];
+		while (index < hunk.lines.length) {
+			const current = hunk.lines[index];
+			if (current.kind === "context") break;
+			if (current.kind === "delete" && current.deletionLineNumber != null) {
+				deletions.push({
+					index,
+					side: "deletions",
+					lineNumber: current.deletionLineNumber,
+					text: current.text,
+					kind: "delete",
+				});
+			} else if (current.kind === "add" && current.additionLineNumber != null) {
+				additions.push({
+					index,
+					side: "additions",
+					lineNumber: current.additionLineNumber,
+					text: current.text,
+					kind: "add",
+				});
+			}
+			index += 1;
+		}
+
+		for (
+			let rowIndex = 0;
+			rowIndex < Math.max(deletions.length, additions.length);
+			rowIndex += 1
+		) {
+			rows.push({
+				top,
+				deletion: deletions[rowIndex],
+				addition: additions[rowIndex],
+			});
+			top += 1;
+		}
+	}
+	return rows;
+}
+
 function getCommentableLines(
 	hunk: ReviewHunk,
 	side?: ReviewSide,
+	diffView: ReviewDiffView = "unified",
 ): CommentableLine[] {
+	if (diffView === "split") {
+		const lines: CommentableLine[] = [];
+		for (const row of buildSplitVisualRows(hunk)) {
+			if ((!side || side === "deletions") && row.deletion) {
+				lines.push(row.deletion);
+			}
+			if ((!side || side === "additions") && row.addition) {
+				lines.push(row.addition);
+			}
+		}
+		return lines;
+	}
+
 	const lines: CommentableLine[] = [];
 	for (const [index, line] of hunk.lines.entries()) {
 		if (line.kind === "add" && line.additionLineNumber != null) {
@@ -194,6 +281,51 @@ function getCommentableLines(
 		}
 	}
 	return lines;
+}
+
+function getCommentableLineTop(
+	hunk: ReviewHunk,
+	lineIndex: number,
+	diffView: ReviewDiffView,
+): number {
+	if (diffView === "unified") return lineIndex;
+	for (const row of buildSplitVisualRows(hunk)) {
+		if (
+			row.deletion?.index === lineIndex ||
+			row.addition?.index === lineIndex
+		) {
+			return row.top;
+		}
+	}
+	return lineIndex;
+}
+
+function getVisualBoundsForRange(
+	hunk: ReviewHunk,
+	range: ReviewRangeDraft,
+	diffView: ReviewDiffView,
+): VisualBounds | null {
+	const tops = hunk.lines.flatMap((line, index) => {
+		const side =
+			line.kind === "add"
+				? "additions"
+				: line.kind === "delete"
+					? "deletions"
+					: null;
+		const lineNumber =
+			line.kind === "add"
+				? line.additionLineNumber
+				: line.kind === "delete"
+					? line.deletionLineNumber
+					: null;
+		if (!side || lineNumber == null || side !== range.side) return [];
+		if (lineNumber < range.startLine || lineNumber > range.endLine) return [];
+		return [getCommentableLineTop(hunk, index, diffView)];
+	});
+	if (tops.length === 0) return null;
+	const top = Math.min(...tops);
+	const bottom = Math.max(...tops);
+	return { top, height: bottom - top + 1 };
 }
 
 function lineRangeLabel(range: ReviewRangeDraft): string {
@@ -281,6 +413,9 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [expandedSectionIds, setExpandedSectionIds] = createSignal<Set<string>>(
 		new Set(),
 	);
+	const [diffView, setDiffView] = createSignal<ReviewDiffView>(
+		props.defaultDiffView,
+	);
 	const [rangeAnchor, setRangeAnchor] = createSignal<RangeAnchor | null>(null);
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
@@ -321,7 +456,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	const selectedCommentableLines = createMemo(() => {
 		const hunk = selectedHunk();
 		if (!hunk) return [];
-		return getCommentableLines(hunk, rangeAnchor()?.side);
+		return getCommentableLines(hunk, rangeAnchor()?.side, diffView());
 	});
 	const selectedLine = createMemo(() => {
 		if (selectedSkippedSection()) return null;
@@ -402,7 +537,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (mode() !== "patch" || !hunk || !line) return null;
 		return { hunk, line };
 	});
-	const anchorLineIndex = createMemo(() => {
+	const anchorLineTop = createMemo(() => {
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
 		if (!anchor || !hunk) return null;
@@ -419,8 +554,9 @@ export function ReviewContent(props: ReviewContentProps) {
 					: line.kind === "delete"
 						? line.deletionLineNumber
 						: undefined;
-			if (side === anchor.side && lineNumber === anchor.lineNumber)
-				return index;
+			if (side === anchor.side && lineNumber === anchor.lineNumber) {
+				return getCommentableLineTop(hunk, index, diffView());
+			}
 		}
 		return null;
 	});
@@ -429,28 +565,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
 		if (!range || !anchor || !hunk) return null;
-		let startIndex: number | null = null;
-		let endIndex: number | null = null;
-		for (const [index, line] of hunk.lines.entries()) {
-			const side =
-				line.kind === "add"
-					? "additions"
-					: line.kind === "delete"
-						? "deletions"
-						: undefined;
-			const lineNumber =
-				line.kind === "add"
-					? line.additionLineNumber
-					: line.kind === "delete"
-						? line.deletionLineNumber
-						: undefined;
-			if (!side || lineNumber == null || side !== range.side) continue;
-			if (lineNumber < range.startLine || lineNumber > range.endLine) continue;
-			if (startIndex == null) startIndex = index;
-			endIndex = index;
-		}
-		if (startIndex == null || endIndex == null) return null;
-		return { startIndex, endIndex };
+		return getVisualBoundsForRange(hunk, range, diffView());
 	});
 	const savedCommentMarkers = createMemo<Map<string, SavedCommentMarker[]>>(
 		() => {
@@ -462,38 +577,17 @@ export function ReviewContent(props: ReviewContentProps) {
 				const range = parseRangeNoteKey(key);
 				if (!range || range.path !== file.path) continue;
 				for (const hunk of file.hunks) {
-					let startIndex: number | null = null;
-					let endIndex: number | null = null;
-					for (const [index, line] of hunk.lines.entries()) {
-						const side =
-							line.kind === "add"
-								? "additions"
-								: line.kind === "delete"
-									? "deletions"
-									: undefined;
-						const lineNumber =
-							line.kind === "add"
-								? line.additionLineNumber
-								: line.kind === "delete"
-									? line.deletionLineNumber
-									: undefined;
-						if (!side || lineNumber == null || side !== range.side) continue;
-						if (lineNumber < range.startLine || lineNumber > range.endLine) {
-							continue;
-						}
-						if (startIndex == null) startIndex = index;
-						endIndex = index;
-					}
-					if (startIndex != null && endIndex != null) {
-						const existing = markers.get(hunk.id) ?? [];
-						existing.push({
-							key,
-							top: startIndex,
-							height: endIndex - startIndex + 1,
-						});
-						markers.set(hunk.id, existing);
-						break;
-					}
+					const bounds = getVisualBoundsForRange(hunk, range, diffView());
+					if (!bounds) continue;
+					const existing = markers.get(hunk.id) ?? [];
+					existing.push({
+						key,
+						side: range.side,
+						top: bounds.top,
+						height: bounds.height,
+					});
+					markers.set(hunk.id, existing);
+					break;
 				}
 			}
 			return markers;
@@ -660,7 +754,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			hunkIndex += direction
 		) {
 			const hunk = file.hunks[hunkIndex];
-			const lines = getCommentableLines(hunk);
+			const lines = getCommentableLines(hunk, undefined, diffView());
 			if (lines.length === 0) continue;
 			return { hunkIndex, lines };
 		}
@@ -764,11 +858,26 @@ export function ReviewContent(props: ReviewContentProps) {
 		});
 	}
 
+	function toggleDiffView() {
+		const hunk = selectedHunk();
+		const line = selectedLine();
+		const nextView = diffView() === "unified" ? "split" : "unified";
+		setDiffView(nextView);
+		if (!hunk || !line) return;
+		const nextLines = getCommentableLines(hunk, rangeAnchor()?.side, nextView);
+		const nextIndex = nextLines.findIndex(
+			(candidate) => candidate.index === line.index,
+		);
+		if (nextIndex >= 0) {
+			setSelectedLineIndex(hunk.id, nextIndex);
+		}
+	}
+
 	function renderDiffBlock(rawPatch: string, filetype?: string) {
 		return (
 			<diff
 				diff={rawPatch}
-				view="unified"
+				view={diffView()}
 				filetype={filetype}
 				syntaxStyle={syntaxStyle()}
 				showLineNumbers
@@ -830,70 +939,107 @@ export function ReviewContent(props: ReviewContentProps) {
 	) {
 		const markers = () => savedCommentMarkers().get(hunk.id) ?? [];
 		const cursor = () => lineCursorState();
-		const showCursor = () => interactive && cursor()?.hunk.id === hunk.id;
+		const cursorTop = () => {
+			const current = cursor();
+			if (!interactive || current?.hunk.id !== hunk.id) return null;
+			return getCommentableLineTop(hunk, current.line.index, diffView());
+		};
+		const cursorSide = () => {
+			const current = cursor();
+			if (!interactive || current?.hunk.id !== hunk.id) return null;
+			return current.line.side;
+		};
+		const rangeBounds = () => activeRangeLineBounds();
+		const anchorTop = () => anchorLineTop();
+		const splitView = () => diffView() === "split";
+		const cursorId = () =>
+			`review-line-cursor-${hunk.id}-${cursor()?.line.index ?? 0}`;
+		const renderOverlayLane = (side?: ReviewSide) => (
+			<>
+				<For
+					each={
+						side
+							? markers().filter((marker) => marker.side === side)
+							: markers()
+					}
+				>
+					{(marker) => (
+						<box
+							position="absolute"
+							left={1}
+							top={marker.top}
+							height={marker.height}
+							width={1}
+						>
+							<text fg={theme.reviewText}>
+								{buildCommentMarker(marker.height)}
+							</text>
+						</box>
+					)}
+				</For>
+				<Show when={cursorTop() !== null && (!side || cursorSide() === side)}>
+					<Show when={rangeBounds()}>
+						{(bounds) => (
+							<box
+								position="absolute"
+								left={0}
+								top={bounds().top}
+								height={bounds().height}
+								width={1}
+							>
+								<text fg={theme.borderAccent}>
+									{buildRangeMarker(bounds().height)}
+								</text>
+							</box>
+						)}
+					</Show>
+					<Show
+						when={
+							anchorTop() !== null && (!side || rangeAnchor()?.side === side)
+						}
+					>
+						<box
+							position="absolute"
+							left={0}
+							top={anchorTop() ?? 0}
+							height={1}
+							width={1}
+						>
+							<text fg={theme.borderFocused}>◆</text>
+						</box>
+					</Show>
+					<box
+						id={cursorId()}
+						position="absolute"
+						left={0}
+						top={cursorTop() ?? 0}
+						height={1}
+						width={1}
+					>
+						<text fg={theme.borderAccent}>▎</text>
+					</box>
+				</Show>
+			</>
+		);
 		return (
 			<box position="relative" paddingLeft={2}>
 				{renderDiffBlock(hunk.rawPatch, file.filetype)}
 				<Show when={interactive}>
-					<box position="absolute" left={0} top={0}>
-						<For each={markers()}>
-							{(marker) => (
-								<box
-									position="absolute"
-									left={1}
-									top={marker.top}
-									height={marker.height}
-									width={1}
-								>
-									<text fg={theme.reviewText}>
-										{buildCommentMarker(marker.height)}
-									</text>
-								</box>
-							)}
-						</For>
-						<Show when={showCursor()}>
+					<Show
+						when={splitView()}
+						fallback={
 							<box position="absolute" left={0} top={0}>
-								<Show when={activeRangeLineBounds()}>
-									{(bounds) => (
-										<box
-											position="absolute"
-											left={0}
-											top={bounds().startIndex}
-											height={bounds().endIndex - bounds().startIndex + 1}
-											width={1}
-										>
-											<text fg={theme.borderAccent}>
-												{buildRangeMarker(
-													bounds().endIndex - bounds().startIndex + 1,
-												)}
-											</text>
-										</box>
-									)}
-								</Show>
-								<Show when={anchorLineIndex() !== null}>
-									<box
-										position="absolute"
-										left={0}
-										top={anchorLineIndex() ?? 0}
-										height={1}
-										width={1}
-									>
-										<text fg={theme.borderFocused}>◆</text>
-									</box>
-								</Show>
-								<box
-									id={`review-line-cursor-${hunk.id}-${cursor()?.line.index ?? 0}`}
-									position="absolute"
-									left={0}
-									top={cursor()?.line.index ?? 0}
-									height={1}
-									width={1}
-								>
-									<text fg={theme.borderAccent}>▎</text>
-								</box>
+								{renderOverlayLane()}
 							</box>
-						</Show>
-					</box>
+						}
+					>
+						<box position="absolute" left={0} top={0} width="50%">
+							{renderOverlayLane("deletions")}
+						</box>
+						<box position="absolute" left="50%" top={0} width="50%">
+							{renderOverlayLane("additions")}
+						</box>
+					</Show>
 				</Show>
 			</box>
 		);
@@ -1113,6 +1259,11 @@ export function ReviewContent(props: ReviewContentProps) {
 				void openFileNoteEditor(file);
 				return;
 			}
+			if (e.name === "v") {
+				e.preventDefault();
+				toggleDiffView();
+				return;
+			}
 			if (e.name === "x") {
 				e.preventDefault();
 				clearOrCancelLineSelection();
@@ -1169,6 +1320,11 @@ export function ReviewContent(props: ReviewContentProps) {
 			void openFileNoteEditor(file);
 			return;
 		}
+		if (e.name === "v") {
+			e.preventDefault();
+			toggleDiffView();
+			return;
+		}
 		if (e.name === "x") {
 			e.preventDefault();
 			clearSelectedFileNote();
@@ -1189,7 +1345,8 @@ export function ReviewContent(props: ReviewContentProps) {
 					left={<text fg={theme.textMuted}>Code review</text>}
 					right={
 						<text fg={theme.textMuted}>
-							{reviewFiles().length} file{reviewFiles().length === 1 ? "" : "s"}
+							{diffViewLabel(diffView())} view · {reviewFiles().length} file
+							{reviewFiles().length === 1 ? "" : "s"}
 							{totalDraftNotes() > 0
 								? ` · ${formatNoteCount(totalDraftNotes())}`
 								: ""}
@@ -1325,7 +1482,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											</Show>
 										</box>
 										<text fg={theme.textMuted}>
-											{sourceLabel(file())} ·{" "}
+											{sourceLabel(file())} · {diffViewLabel(diffView())} view ·{" "}
 											{currentHunk()
 												? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
 												: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}

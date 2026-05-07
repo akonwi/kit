@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getKitPaths, type KitPaths } from "./paths";
 
+export type ReviewDiffView = "unified" | "split";
+
 export type Settings = {
 	/** Theme name: "kit" (default), "system", or a custom theme from ~/.kit/themes/ */
 	theme?: string;
@@ -22,6 +24,10 @@ export type Settings = {
 	guidedQuestions?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
 	sessionNaming?: boolean;
+	/** Default diff rendering settings */
+	diffs?: {
+		view?: ReviewDiffView;
+	};
 	/** Retry settings for transient model/provider errors */
 	retry?: {
 		enabled?: boolean;
@@ -44,12 +50,17 @@ export type ResolvedRetrySettings = {
 	maxDelayMs: number;
 };
 
+export type ResolvedDiffSettings = {
+	view: ReviewDiffView;
+};
+
 const DEFAULTS: Settings = {
 	bells: true,
 	speech: { enabled: true, maxChars: 220 },
 	pager: true,
 	guidedQuestions: true,
 	sessionNaming: true,
+	diffs: { view: "unified" },
 	retry: {
 		enabled: true,
 		maxRetries: 3,
@@ -68,6 +79,10 @@ function defaultSpeechObject(): ResolvedSpeechSettings {
 
 function defaultRetryObject(): ResolvedRetrySettings {
 	return { enabled: true, maxRetries: 3, baseDelayMs: 2000, maxDelayMs: 60000 };
+}
+
+function defaultDiffObject(): ResolvedDiffSettings {
+	return { view: "unified" };
 }
 
 export function resolveSpeechSettings(
@@ -102,6 +117,17 @@ export function resolveRetrySettings(
 	return defaultRetryObject();
 }
 
+export function resolveDiffSettings(
+	diffs: Settings["diffs"],
+): ResolvedDiffSettings {
+	if (diffs && typeof diffs === "object") {
+		return {
+			view: diffs.view === "split" ? "split" : "unified",
+		};
+	}
+	return defaultDiffObject();
+}
+
 function sanitizeSettings(raw: unknown): Settings {
 	if (!isRecord(raw)) {
 		return { ...DEFAULTS };
@@ -118,6 +144,11 @@ function sanitizeSettings(raw: unknown): Settings {
 		typeof raw.sessionNaming === "boolean"
 			? raw.sessionNaming
 			: DEFAULTS.sessionNaming;
+	const diffs: Settings["diffs"] = isRecord(raw.diffs)
+		? {
+				view: raw.diffs.view === "split" ? "split" : "unified",
+			}
+		: defaultDiffObject();
 
 	const retry = isRecord(raw.retry)
 		? {
@@ -154,7 +185,16 @@ function sanitizeSettings(raw: unknown): Settings {
 		speech = defaultSpeechObject();
 	}
 
-	return { theme, bells, speech, pager, guidedQuestions, sessionNaming, retry };
+	return {
+		theme,
+		bells,
+		speech,
+		pager,
+		guidedQuestions,
+		sessionNaming,
+		diffs,
+		retry,
+	};
 }
 
 export type LoadedSettings = {

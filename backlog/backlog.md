@@ -27,8 +27,6 @@ Delete done items.
   - see `backlog/review-gutter-comment-markers.md`
 - [ ] review: make overlapping saved gutter comment markers distinguishable
   - see `backlog/review-gutter-comment-markers.md`
-- [ ] review: explore an alternative split-diff view for in-TUI review
-  - see `backlog/review-split-diff-view.md`
 - [ ] feat: setting for "zen" mode. minimal transcript
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery

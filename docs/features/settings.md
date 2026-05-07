@@ -12,6 +12,7 @@ Current behavior:
 The current settings UI exposes:
 
 - theme selection
+- code review diff view default (`diffs.view`)
 - guided questions
 - automatic session naming
 - automatic pager opening

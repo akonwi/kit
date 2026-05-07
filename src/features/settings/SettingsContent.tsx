@@ -2,6 +2,8 @@ import { useKeyboard } from "@opentui/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import {
+	type ReviewDiffView,
+	resolveDiffSettings,
 	resolveRetrySettings,
 	resolveSpeechSettings,
 	type Settings,
@@ -13,6 +15,7 @@ import type { SpeechVoiceDiscovery } from "../notifications/voices";
 type SettingsTabId = "general" | "notifications";
 type EditableField =
 	| "theme"
+	| "diffs.view"
 	| "speech.maxChars"
 	| "speech.voice"
 	| "retry.maxRetries"
@@ -58,7 +61,7 @@ type SettingsRow =
 			disabled?: boolean;
 	  }
 	| {
-			id: "theme" | "speech.voice";
+			id: "theme" | "diffs.view" | "speech.voice";
 			kind: "select";
 			label: string;
 			help: string;
@@ -100,6 +103,10 @@ function cloneSettings(settings: Settings): Settings {
 			typeof settings.speech === "object" && settings.speech !== null
 				? { ...settings.speech }
 				: settings.speech,
+		diffs:
+			typeof settings.diffs === "object" && settings.diffs !== null
+				? { ...settings.diffs }
+				: settings.diffs,
 	};
 }
 
@@ -154,6 +161,12 @@ export function SettingsContent(props: SettingsContentProps) {
 		props.initialSettings.theme ?? "system",
 	);
 	const [themeSelectedIndex, setThemeSelectedIndex] = createSignal(0);
+	const [reviewDiffViewDraft, setReviewDiffViewDraft] =
+		createSignal<ReviewDiffView>(
+			resolveDiffSettings(props.initialSettings.diffs).view,
+		);
+	const [reviewDiffViewSelectedIndex, setReviewDiffViewSelectedIndex] =
+		createSignal(0);
 	const [voiceDraft, setVoiceDraft] = createSignal(
 		resolveSpeechSettings(props.initialSettings.speech).voice ?? "",
 	);
@@ -168,9 +181,22 @@ export function SettingsContent(props: SettingsContentProps) {
 			value: name,
 		})),
 	];
+	const reviewDiffViewOptions = [
+		{ name: "Unified", description: "", value: "unified" },
+		{ name: "Split", description: "", value: "split" },
+	] satisfies Array<{
+		name: string;
+		description: string;
+		value: ReviewDiffView;
+	}>;
 
 	function resolveThemeIndex(value: string): number {
 		const index = themeOptions.findIndex((o) => o.value === value);
+		return index >= 0 ? index : 0;
+	}
+
+	function resolveReviewDiffViewIndex(value: ReviewDiffView): number {
+		const index = reviewDiffViewOptions.findIndex((o) => o.value === value);
 		return index >= 0 ? index : 0;
 	}
 
@@ -190,6 +216,7 @@ export function SettingsContent(props: SettingsContentProps) {
 	const rows = createMemo<SettingsRow[]>(() => {
 		const currentSettings = settings();
 		const speech = resolveSpeechSettings(currentSettings.speech);
+		const diffs = resolveDiffSettings(currentSettings.diffs);
 		const retry = resolveRetrySettings(currentSettings.retry);
 		if (activeTab() === "general") {
 			return [
@@ -199,6 +226,13 @@ export function SettingsContent(props: SettingsContentProps) {
 					label: "Theme",
 					help: "",
 					value: currentSettings.theme ?? "system",
+				},
+				{
+					id: "diffs.view",
+					kind: "select",
+					label: "Code Review Diff View",
+					help: "Default view for /code-review.",
+					value: diffs.view,
 				},
 				{
 					id: "guidedQuestions",
@@ -306,9 +340,12 @@ export function SettingsContent(props: SettingsContentProps) {
 
 	function syncDrafts(nextSettings: Settings) {
 		const speech = resolveSpeechSettings(nextSettings.speech);
+		const diffs = resolveDiffSettings(nextSettings.diffs);
 		const retry = resolveRetrySettings(nextSettings.retry);
 		setThemeDraft(nextSettings.theme ?? "system");
 		setThemeSelectedIndex(resolveThemeIndex(nextSettings.theme ?? "system"));
+		setReviewDiffViewDraft(diffs.view);
+		setReviewDiffViewSelectedIndex(resolveReviewDiffViewIndex(diffs.view));
 		setMaxCharsDraft(String(speech.maxChars));
 		setRetryMaxRetriesDraft(String(retry.maxRetries));
 		setRetryBaseDelayDraft(String(retry.baseDelayMs));
@@ -390,6 +427,14 @@ export function SettingsContent(props: SettingsContentProps) {
 			const ok = await persist({
 				...cloneSettings(settings()),
 				theme: value,
+			});
+			if (ok) setEditingField(null);
+			return ok;
+		}
+		if (field === "diffs.view") {
+			const ok = await persist({
+				...cloneSettings(settings()),
+				diffs: { view: reviewDiffViewDraft() },
 			});
 			if (ok) setEditingField(null);
 			return ok;
@@ -490,6 +535,10 @@ export function SettingsContent(props: SettingsContentProps) {
 		if (row.kind === "select") {
 			if (row.id === "theme") {
 				setThemeSelectedIndex(resolveThemeIndex(themeDraft()));
+			} else if (row.id === "diffs.view") {
+				setReviewDiffViewSelectedIndex(
+					resolveReviewDiffViewIndex(reviewDiffViewDraft()),
+				);
 			} else {
 				setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
 			}
@@ -579,8 +628,12 @@ export function SettingsContent(props: SettingsContentProps) {
 	function getSelectHeight(
 		row: Extract<SettingsRow, { kind: "select" }>,
 	): number {
-		const isTheme = row.id === "theme";
-		const options = isTheme ? themeOptions : voiceOptions();
+		const options =
+			row.id === "theme"
+				? themeOptions
+				: row.id === "diffs.view"
+					? reviewDiffViewOptions
+					: voiceOptions();
 		return Math.min(6, Math.max(2, options.length));
 	}
 
@@ -592,12 +645,21 @@ export function SettingsContent(props: SettingsContentProps) {
 		const editing = editingField() === row.id;
 		const display = row.value || row.placeholder || "";
 		const isTheme = row.id === "theme";
-		const options = isTheme ? themeOptions : voiceOptions();
-		const selectedIndex = isTheme ? themeSelectedIndex() : voiceSelectedIndex();
+		const isReviewDiffView = row.id === "diffs.view";
+		const options = isTheme
+			? themeOptions
+			: isReviewDiffView
+				? reviewDiffViewOptions
+				: voiceOptions();
+		const selectedIndex = isTheme
+			? themeSelectedIndex()
+			: isReviewDiffView
+				? reviewDiffViewSelectedIndex()
+				: voiceSelectedIndex();
 		const selectHeight = getSelectHeight(row);
 		return (
 			<box
-				minWidth={isTheme ? 16 : 28}
+				minWidth={isTheme || isReviewDiffView ? 16 : 28}
 				border
 				borderColor={
 					editing
@@ -620,7 +682,7 @@ export function SettingsContent(props: SettingsContentProps) {
 					<select
 						focused
 						height={selectHeight}
-						showDescription={!isTheme}
+						showDescription={!isTheme && !isReviewDiffView}
 						options={options}
 						selectedIndex={selectedIndex}
 						selectedBackgroundColor={theme.pickerFocusedBg}
@@ -629,6 +691,11 @@ export function SettingsContent(props: SettingsContentProps) {
 							if (isTheme) {
 								setThemeSelectedIndex(index);
 								setThemeDraft(String(option?.value ?? "kit"));
+							} else if (isReviewDiffView) {
+								setReviewDiffViewSelectedIndex(index);
+								setReviewDiffViewDraft(
+									option?.value === "split" ? "split" : "unified",
+								);
 							} else {
 								setVoiceSelectedIndex(index);
 								setVoiceDraft(String(option?.value ?? ""));
@@ -639,6 +706,12 @@ export function SettingsContent(props: SettingsContentProps) {
 								setThemeSelectedIndex(index);
 								setThemeDraft(String(option?.value ?? "kit"));
 								void commitEdit("theme");
+							} else if (isReviewDiffView) {
+								setReviewDiffViewSelectedIndex(index);
+								setReviewDiffViewDraft(
+									option?.value === "split" ? "split" : "unified",
+								);
+								void commitEdit("diffs.view");
 							} else {
 								setVoiceSelectedIndex(index);
 								setVoiceDraft(String(option?.value ?? ""));
@@ -796,6 +869,12 @@ export function SettingsContent(props: SettingsContentProps) {
 														if (row.id === "theme") {
 															setThemeSelectedIndex(
 																resolveThemeIndex(themeDraft()),
+															);
+														} else if (row.id === "diffs.view") {
+															setReviewDiffViewSelectedIndex(
+																resolveReviewDiffViewIndex(
+																	reviewDiffViewDraft(),
+																),
 															);
 														} else {
 															setVoiceSelectedIndex(
