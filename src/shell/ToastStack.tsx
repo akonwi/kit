@@ -45,10 +45,10 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 		<box
 			position="relative"
 			left={offset()}
-			paddingX={2}
-			backgroundColor={theme.bg}
 			border
 			borderColor={color()}
+			backgroundColor={theme.bg}
+			paddingX={1}
 			flexDirection="row"
 			gap={1}
 			maxWidth="50%"

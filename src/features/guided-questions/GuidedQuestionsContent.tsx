@@ -184,115 +184,116 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 				alignItems="center"
 				backgroundColor={theme.modalBackdrop}
 			>
-				<box
-					width="70%"
-					maxWidth={96}
-					minWidth={48}
-					border
-					borderStyle="double"
-					borderColor={theme.borderFocused}
-					backgroundColor={theme.bgSurface}
-					padding={1}
-					flexDirection="column"
-					gap={1}
-				>
-					<text fg={theme.textPrimary}>{g.title}</text>
-					<Show when={g.intro}>
-						<text fg={theme.textMuted}>{g.intro}</text>
-					</Show>
-					<text fg={theme.textMuted}>
-						{g.currentIndex + 1}/{g.questions.length} · {g.answeredCount}{" "}
-						answered
-					</text>
+				<box width="70%" maxWidth={96} minWidth={48} flexDirection="column">
+					<box
+						backgroundColor={theme.bgSurface}
+						padding={1}
+						flexDirection="column"
+						gap={1}
+						flexGrow={1}
+					>
+						<text fg={theme.textPrimary}>{g.title}</text>
+						<Show when={g.intro}>
+							<text fg={theme.textMuted}>{g.intro}</text>
+						</Show>
+						<text fg={theme.textMuted}>
+							{g.currentIndex + 1}/{g.questions.length} · {g.answeredCount}{" "}
+							answered
+						</text>
 
-					<Show when={g.currentQuestion}>
-						<box flexDirection="column" gap={0}>
-							<text fg={theme.textPrimary}>{g.currentQuestion?.label}</text>
-							<Show when={g.currentQuestion?.help}>
-								<text fg={theme.textMuted}>{g.currentQuestion?.help}</text>
-							</Show>
-						</box>
-					</Show>
+						<Show when={g.currentQuestion}>
+							<box flexDirection="column" gap={0}>
+								<text fg={theme.textPrimary}>{g.currentQuestion?.label}</text>
+								<Show when={g.currentQuestion?.help}>
+									<text fg={theme.textMuted}>{g.currentQuestion?.help}</text>
+								</Show>
+							</box>
+						</Show>
 
-					<Show when={g.mode === "select" || isMultiSelectQuestion()}>
-						<box flexDirection="column">
-							<For each={selectOptions()}>
-								{(option, idx) => {
-									const isFocused = () => idx() === focusedIndex();
-									const isSelected = () =>
-										isMultiSelectQuestion()
-											? g.isOptionSelected(option)
-											: false;
-									return (
-										<box
-											backgroundColor={
-												isFocused()
-													? theme.pickerFocusedBg
-													: theme.bgTransparent
-											}
-										>
-											<text
-												fg={
-													isFocused()
-														? theme.pickerFocusedText
-														: theme.textPrimary
-												}
-												bg={
+						<Show when={g.mode === "select" || isMultiSelectQuestion()}>
+							<box flexDirection="column">
+								<For each={selectOptions()}>
+									{(option, idx) => {
+										const isFocused = () => idx() === focusedIndex();
+										const isSelected = () =>
+											isMultiSelectQuestion()
+												? g.isOptionSelected(option)
+												: false;
+										return (
+											<box
+												backgroundColor={
 													isFocused()
 														? theme.pickerFocusedBg
 														: theme.bgTransparent
 												}
 											>
-												{isFocused() ? "› " : "  "}
-												{isMultiSelectQuestion()
-													? `${isSelected() ? "[x]" : "[ ]"} ${option}`
-													: option}
-											</text>
-										</box>
-									);
-								}}
-							</For>
-						</box>
-					</Show>
-
-					<Show when={g.mode === "text" || g.mode === "otherText"}>
-						<Show when={g.mode === "otherText"}>
-							<text fg={theme.borderAccent}>Specify Other:</text>
+												<text
+													fg={
+														isFocused()
+															? theme.pickerFocusedText
+															: theme.textPrimary
+													}
+													bg={
+														isFocused()
+															? theme.pickerFocusedBg
+															: theme.bgTransparent
+													}
+												>
+													{isFocused() ? "› " : "  "}
+													{isMultiSelectQuestion()
+														? `${isSelected() ? "[x]" : "[ ]"} ${option}`
+														: option}
+												</text>
+											</box>
+										);
+									}}
+								</For>
+							</box>
 						</Show>
-						<textarea
-							ref={(value) => {
-								textareaRef = value as typeof textareaRef;
-								try {
-									textareaRef?.setText(textValue());
-								} catch {
-									textareaRef = undefined;
-								}
-							}}
-							minHeight={3}
-							maxHeight={8}
-							placeholder={placeholder()}
-							placeholderColor={theme.textPlaceholder}
-							backgroundColor={theme.bg}
-							focusedBackgroundColor={theme.bg}
-							textColor={theme.textPrimary}
-							focusedTextColor={theme.textPrimary}
-							cursorColor={theme.cursor}
-							showCursor
-							wrapMode="word"
-							focused={g.active}
-							keyBindings={[{ name: "return", shift: true, action: "newline" }]}
-							onContentChange={() => setTextValue(textareaRef?.plainText ?? "")}
-							onPaste={handlePaste}
-						/>
-					</Show>
 
-					<HintBar
-						bindings={
-							QUESTION_BINDINGS[
-								isMultiSelectQuestion() ? "multiselect" : g.mode
-							] ?? QUESTION_BINDINGS.text
-						}
-					/>
+						<Show when={g.mode === "text" || g.mode === "otherText"}>
+							<Show when={g.mode === "otherText"}>
+								<text fg={theme.borderAccent}>Specify Other:</text>
+							</Show>
+							<textarea
+								ref={(value) => {
+									textareaRef = value as typeof textareaRef;
+									try {
+										textareaRef?.setText(textValue());
+									} catch {
+										textareaRef = undefined;
+									}
+								}}
+								minHeight={3}
+								maxHeight={8}
+								placeholder={placeholder()}
+								placeholderColor={theme.textPlaceholder}
+								backgroundColor={theme.bg}
+								focusedBackgroundColor={theme.bg}
+								textColor={theme.textPrimary}
+								focusedTextColor={theme.textPrimary}
+								cursorColor={theme.cursor}
+								showCursor
+								wrapMode="word"
+								focused={g.active}
+								keyBindings={[
+									{ name: "return", shift: true, action: "newline" },
+								]}
+								onContentChange={() =>
+									setTextValue(textareaRef?.plainText ?? "")
+								}
+								onPaste={handlePaste}
+							/>
+						</Show>
+
+						<HintBar
+							bindings={
+								QUESTION_BINDINGS[
+									isMultiSelectQuestion() ? "multiselect" : g.mode
+								] ?? QUESTION_BINDINGS.text
+							}
+						/>
+					</box>
 				</box>
 			</box>
 		</Show>

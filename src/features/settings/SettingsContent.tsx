@@ -800,133 +800,140 @@ export function SettingsContent(props: SettingsContentProps) {
 				maxWidth={104}
 				minWidth={64}
 				height="70%"
-				border
-				borderStyle="double"
-				borderColor={theme.borderFocused}
-				backgroundColor={theme.bgSurface}
-				padding={1}
 				flexDirection="column"
-				gap={1}
 			>
-				<box flexShrink={0} flexDirection="column" gap={0}>
-					<box flexDirection="row" justifyContent="space-between">
-						<text fg={theme.textPrimary}>Settings</text>
-						<text fg={theme.textMuted}>~/.kit/settings.json</text>
+				<box
+					backgroundColor={theme.bgSurface}
+					padding={1}
+					flexDirection="column"
+					gap={1}
+					flexGrow={1}
+				>
+					<box flexShrink={0} flexDirection="column" gap={0}>
+						<box flexDirection="row" justifyContent="space-between">
+							<text fg={theme.textPrimary}>Settings</text>
+							<text fg={theme.textMuted}>~/.kit/settings.json</text>
+						</box>
 					</box>
-				</box>
 
-				<box flexShrink={0} flexDirection="row" gap={1}>
-					<For each={TABS}>
-						{(tab) => {
-							const selected = () => tab.id === activeTab();
-							return (
-								<box
-									paddingX={2}
-									border
-									borderColor={
-										selected() ? theme.borderAccent : theme.borderDefault
-									}
-									onMouseUp={() => {
-										void switchTab(tab.id);
-									}}
-								>
-									<text fg={selected() ? theme.textPrimary : theme.textMuted}>
-										{tab.label}
-									</text>
-								</box>
-							);
-						}}
-					</For>
-				</box>
-
-				<scrollbox flexGrow={1} scrollY>
-					<box flexDirection="column" gap={1}>
-						<For each={rows()}>
-							{(row, index) => {
-								const focused = () => index() === focusedRowIndex();
-								const disabled = () => row.disabled === true;
+					<box flexShrink={0} flexDirection="row" gap={1}>
+						<For each={TABS}>
+							{(tab) => {
+								const selected = () => tab.id === activeTab();
 								return (
 									<box
-										flexDirection="row"
-										justifyContent="space-between"
-										alignItems="flex-start"
-										gap={2}
-										height={3}
-										paddingX={1}
-										backgroundColor={
-											focused() ? theme.bgMuted : theme.bgTransparent
+										paddingX={2}
+										border
+										borderColor={
+											selected() ? theme.borderAccent : theme.borderDefault
 										}
 										onMouseUp={() => {
-											void runAfterPendingEdit(async () => {
-												focusRow(index());
-												if (row.kind === "boolean") {
-													if (!disabled()) await toggleBoolean(row.id);
-													return;
-												}
-												if (!disabled()) {
-													setError(null);
-													if (row.kind === "select") {
-														if (row.id === "theme") {
-															setThemeSelectedIndex(
-																resolveThemeIndex(themeDraft()),
-															);
-														} else if (row.id === "diffs.view") {
-															setReviewDiffViewSelectedIndex(
-																resolveReviewDiffViewIndex(
-																	reviewDiffViewDraft(),
-																),
-															);
-														} else {
-															setVoiceSelectedIndex(
-																resolveVoiceIndex(voiceDraft()),
-															);
-														}
-													}
-													setEditingField(row.id);
-												}
-											});
+											void switchTab(tab.id);
 										}}
 									>
-										<box flexDirection="column" flexGrow={1} gap={0}>
-											<text
-												fg={disabled() ? theme.textMuted : theme.textPrimary}
-											>
-												{row.label}
-											</text>
-											<text fg={theme.textMuted}>
-												{row.help.length > 55
-													? `${row.help.slice(0, 54)}…`
-													: row.help}
-											</text>
-										</box>
-
-										<box flexShrink={0}>
-											{row.kind === "boolean" ? (
-												<box paddingY={1}>
-													<Toggle checked={row.checked} disabled={disabled()} />
-												</box>
-											) : row.kind === "input" ? (
-												renderInputValue(row, focused())
-											) : (
-												renderSelectValue(row, focused())
-											)}
-										</box>
+										<text fg={selected() ? theme.textPrimary : theme.textMuted}>
+											{tab.label}
+										</text>
 									</box>
 								);
 							}}
 						</For>
 					</box>
-				</scrollbox>
 
-				<Show when={error()}>
-					<box border borderColor={theme.errorText} paddingX={1}>
-						<text fg={theme.errorText}>{error()}</text>
-					</box>
-				</Show>
+					<scrollbox flexGrow={1} scrollY>
+						<box flexDirection="column" gap={1}>
+							<For each={rows()}>
+								{(row, index) => {
+									const focused = () => index() === focusedRowIndex();
+									const disabled = () => row.disabled === true;
+									return (
+										<box
+											flexDirection="row"
+											justifyContent="space-between"
+											alignItems="flex-start"
+											gap={2}
+											height={3}
+											paddingX={1}
+											backgroundColor={
+												focused() ? theme.bgMuted : theme.bgTransparent
+											}
+											onMouseUp={() => {
+												void runAfterPendingEdit(async () => {
+													focusRow(index());
+													if (row.kind === "boolean") {
+														if (!disabled()) await toggleBoolean(row.id);
+														return;
+													}
+													if (!disabled()) {
+														setError(null);
+														if (row.kind === "select") {
+															if (row.id === "theme") {
+																setThemeSelectedIndex(
+																	resolveThemeIndex(themeDraft()),
+																);
+															} else if (row.id === "diffs.view") {
+																setReviewDiffViewSelectedIndex(
+																	resolveReviewDiffViewIndex(
+																		reviewDiffViewDraft(),
+																	),
+																);
+															} else {
+																setVoiceSelectedIndex(
+																	resolveVoiceIndex(voiceDraft()),
+																);
+															}
+														}
+														setEditingField(row.id);
+													}
+												});
+											}}
+										>
+											<box flexDirection="column" flexGrow={1} gap={0}>
+												<text
+													fg={disabled() ? theme.textMuted : theme.textPrimary}
+												>
+													{row.label}
+												</text>
+												<text fg={theme.textMuted}>
+													{row.help.length > 55
+														? `${row.help.slice(0, 54)}…`
+														: row.help}
+												</text>
+											</box>
 
-				<HintBar
-					bindings={SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]}
-				/>
+											<box flexShrink={0}>
+												{row.kind === "boolean" ? (
+													<box paddingY={1}>
+														<Toggle
+															checked={row.checked}
+															disabled={disabled()}
+														/>
+													</box>
+												) : row.kind === "input" ? (
+													renderInputValue(row, focused())
+												) : (
+													renderSelectValue(row, focused())
+												)}
+											</box>
+										</box>
+									);
+								}}
+							</For>
+						</box>
+					</scrollbox>
+
+					<Show when={error()}>
+						<box border borderColor={theme.errorText} paddingX={1}>
+							<text fg={theme.errorText}>{error()}</text>
+						</box>
+					</Show>
+
+					<HintBar
+						bindings={
+							SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]
+						}
+					/>
+				</box>
 			</box>
 		</box>
 	);

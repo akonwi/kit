@@ -27,13 +27,7 @@ export function Modal(props: ModalProps) {
 					width="70%"
 					maxWidth={96}
 					minWidth={40}
-					border
-					borderStyle="double"
-					borderColor={theme.borderFocused}
-					backgroundColor={theme.bgSurface}
-					padding={1}
 					flexDirection="column"
-					gap={1}
 					focusable
 					focused
 					onKeyDown={(e: KeyEvent) => {
@@ -43,13 +37,21 @@ export function Modal(props: ModalProps) {
 						}
 					}}
 				>
-					<text fg={theme.textPrimary}>{modal().modalTitle}</text>
-					<box flexDirection="column" gap={0} width="100%">
-						{modal().modalLines.map((line) => (
-							<text fg={theme.textSecondary}>{line}</text>
-						))}
+					<box
+						backgroundColor={theme.bgSurface}
+						padding={1}
+						flexDirection="column"
+						gap={1}
+						flexGrow={1}
+					>
+						<text fg={theme.textPrimary}>{modal().modalTitle}</text>
+						<box flexDirection="column" gap={0} width="100%">
+							{modal().modalLines.map((line) => (
+								<text fg={theme.textSecondary}>{line}</text>
+							))}
+						</box>
+						<text fg={theme.textMuted}>Enter/Esc to close</text>
 					</box>
-					<text fg={theme.textMuted}>Enter/Esc to close</text>
 				</box>
 			</box>
 		</Show>
