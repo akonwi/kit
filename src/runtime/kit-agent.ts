@@ -230,43 +230,43 @@ export class KitAgent {
 	}
 
 	setSystemPrompt(v: string): void {
-		this.pi.setSystemPrompt(v);
+		this.pi.state.systemPrompt = v;
 	}
 
 	setModel(model: Model<Api>): void {
-		this.pi.setModel(model);
+		this.pi.state.model = model;
 	}
 
 	setThinkingLevel(level: ThinkingLevel): void {
-		this.pi.setThinkingLevel(level);
+		this.pi.state.thinkingLevel = level;
 	}
 
 	setSteeringMode(mode: "all" | "one-at-a-time"): void {
-		this.pi.setSteeringMode(mode);
+		this.pi.steeringMode = mode;
 	}
 
 	getSteeringMode(): "all" | "one-at-a-time" {
-		return this.pi.getSteeringMode();
+		return this.pi.steeringMode;
 	}
 
 	setFollowUpMode(mode: "all" | "one-at-a-time"): void {
-		this.pi.setFollowUpMode(mode);
+		this.pi.followUpMode = mode;
 	}
 
 	getFollowUpMode(): "all" | "one-at-a-time" {
-		return this.pi.getFollowUpMode();
+		return this.pi.followUpMode;
 	}
 
 	setTools(tools: AgentTool[]): void {
-		this.pi.setTools(tools);
+		this.pi.state.tools = tools;
 	}
 
 	replaceMessages(messages: AgentMessage[]): void {
-		this.pi.replaceMessages(messages);
+		this.pi.state.messages = messages;
 	}
 
 	appendMessage(message: AgentMessage): void {
-		this.pi.appendMessage(message);
+		this.pi.state.messages = [...this.pi.state.messages, message];
 	}
 
 	steer(message: AgentMessage): void {
@@ -298,7 +298,7 @@ export class KitAgent {
 	}
 
 	clearMessages(): void {
-		this.pi.clearMessages();
+		this.pi.state.messages = [];
 	}
 
 	abort(): void {
@@ -334,11 +334,11 @@ export class KitAgent {
 	}
 
 	setTransport(value: Transport): void {
-		this.pi.setTransport(value);
+		this.pi.transport = value;
 	}
 
 	setToolExecution(value: ToolExecutionMode): void {
-		this.pi.setToolExecution(value);
+		this.pi.toolExecution = value;
 	}
 
 	setBeforeToolCall(
@@ -349,7 +349,7 @@ export class KitAgent {
 			  ) => Promise<BeforeToolCallResult | undefined>)
 			| undefined,
 	): void {
-		this.pi.setBeforeToolCall(value);
+		this.pi.beforeToolCall = value;
 	}
 
 	setAfterToolCall(
@@ -360,7 +360,7 @@ export class KitAgent {
 			  ) => Promise<AfterToolCallResult | undefined>)
 			| undefined,
 	): void {
-		this.pi.setAfterToolCall(value);
+		this.pi.afterToolCall = value;
 	}
 
 	getPendingFollowUps(): string[] {
@@ -565,7 +565,7 @@ export class KitAgent {
 		this._turns = this._turns.map((candidate) =>
 			candidate.id === updatedTurn.id ? updatedTurn : candidate,
 		);
-		this.pi.appendMessage(message);
+		this.pi.state.messages = [...this.pi.state.messages, message];
 		return {
 			turn: updatedTurn,
 			message: tagged,
@@ -599,7 +599,7 @@ export class KitAgent {
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
-		this.pi.replaceMessages(messages);
+		this.pi.state.messages = messages;
 		for (const turn of this._turns) {
 			const message = turn.messages.find((candidate) => predicate(candidate));
 			if (message) {
@@ -623,7 +623,7 @@ export class KitAgent {
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
-		this.pi.replaceMessages(messages);
+		this.pi.state.messages = messages;
 	}
 }
 

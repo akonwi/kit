@@ -1,5 +1,5 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { TSchema } from "@sinclair/typebox";
+import type { TSchema } from "@mariozechner/pi-ai";
 import type { Command } from "../features/commands/types";
 import type {
 	AgentRuntimeEvent,

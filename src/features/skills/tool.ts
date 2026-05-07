@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { type Static, Type } from "@sinclair/typebox";
+import { type Static, Type } from "@mariozechner/pi-ai";
 import type { Skill } from "./discovery";
 
 const parameters = Type.Object({

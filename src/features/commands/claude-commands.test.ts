@@ -62,7 +62,11 @@ describe("Claude Code command discovery", () => {
 		const command = discoverClaudeCommands(root)[0];
 		let submitted = "";
 		const runtime = {
-			submitMessage: async (message: string) => {
+			submitPromptCommandMessage: async (
+				_command: string,
+				_args: string,
+				message: string,
+			) => {
 				submitted = message;
 			},
 		} as CommandContext["runtime"];

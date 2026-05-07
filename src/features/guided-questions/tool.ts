@@ -4,7 +4,7 @@
  */
 
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
-import { type Static, Type } from "@sinclair/typebox";
+import { type Static, Type } from "@mariozechner/pi-ai";
 import type { PluginContext } from "../../plugins/types";
 import { ringBell } from "../notifications/notifications";
 import type { GuidedQuestionsController } from "./controller";
