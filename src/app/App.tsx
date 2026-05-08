@@ -4,7 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import { FilePersistence } from "../persistence";
+import { FilePersistence } from "../file-persistence";
 import {
 	BUILT_IN_PLUGIN_CLASSES,
 	PluginManager,

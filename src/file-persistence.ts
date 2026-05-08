@@ -1,4 +1,4 @@
-import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
+import type { AgentRuntimeEvent } from "./runtime/agent-runtime";
 import {
 	appendCompaction,
 	appendHandoffSummary,
@@ -8,8 +8,8 @@ import {
 	appendThinkingLevelChange,
 	appendTurn,
 	type Session,
-} from "../session";
-import type { KitAgentMessage, Turn } from "../session/types";
+} from "./session";
+import type { KitAgentMessage, Turn } from "./session/types";
 
 type RuntimeEventSource = {
 	subscribe(listener: (event: AgentRuntimeEvent) => void): () => void;
