@@ -11,6 +11,8 @@
  * - ~/.kit/skills/       (user-global)
  * - .agents/skills/      (project-local, relative to cwd)
  * - ~/.pi/agent/skills/  (Pi compat)
+ * - ~/.claude/skills/    (Claude compat, user-global)
+ * - .claude/skills/      (Claude compat, project-local)
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -27,7 +29,7 @@ export interface Skill {
 	description: string;
 	filePath: string;
 	baseDir: string;
-	source: "user" | "project" | "pi-compat";
+	source: "user" | "project" | "pi-compat" | "claude-compat";
 	disableModelInvocation: boolean;
 }
 
@@ -191,6 +193,14 @@ export function loadSkills(cwd: string): LoadSkillsResult {
 		{
 			dir: path.join(homedir(), ".pi", "agent", "skills"),
 			source: "pi-compat",
+		},
+		{
+			dir: path.join(homedir(), ".claude", "skills"),
+			source: "claude-compat",
+		},
+		{
+			dir: path.resolve(cwd, ".claude", "skills"),
+			source: "claude-compat",
 		},
 	];
 

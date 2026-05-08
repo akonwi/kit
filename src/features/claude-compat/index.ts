@@ -3,6 +3,7 @@ import {
 	discoverClaudeCommandFiles,
 	readClaudeCommandPrompt,
 } from "../commands/claude-commands";
+import { loadSkills } from "../skills/discovery";
 
 export function ClaudeCompatibilityPlugin(kit: PluginAPI): void {
 	const cwd = kit.system.cwd;
@@ -25,6 +26,18 @@ export function ClaudeCompatibilityPlugin(kit: PluginAPI): void {
 					);
 				}
 			},
+		);
+
+		// Skill discovery is centralized in SkillsPlugin; here we just surface
+		// which skills came from Claude-compat locations for debugging.
+		const claudeSkills = loadSkills(cwd).skills.filter(
+			(s) => s.source === "claude-compat",
+		);
+		this.setDebugSection(
+			"Claude skills",
+			claudeSkills.length > 0
+				? claudeSkills.map((s) => `- ${s.name} ${s.filePath}`)
+				: ["(none)"],
 		);
 	}
 
