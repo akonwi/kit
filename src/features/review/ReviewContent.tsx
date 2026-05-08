@@ -1190,13 +1190,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		props.attachments.attach(
 			new CodeReviewAttachment("code-review", submission),
 		);
-		props.toast({
-			title: "Code review attached",
-			lines: [
-				`Attached ${formatNoteCount(totalDraftNotes())} across ${submission.files.length} file${submission.files.length === 1 ? "" : "s"}.`,
-			],
-			variant: "info",
-		});
 		props.onClose();
 	}
 
