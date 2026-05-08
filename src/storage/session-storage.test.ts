@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir as originalHomedir, tmpdir } from "node:os";
 import path from "node:path";
-import type { Session, Turn } from "./types";
+import type { Session, Turn } from "../session/types";
 
 const originalHome = process.env.HOME;
 const originalCwd = process.cwd();
@@ -14,7 +14,7 @@ mock.module("node:os", () => ({
 	tmpdir,
 }));
 
-const storage = await import("./storage");
+const storage = await import("./session-storage");
 
 let tempRoot = "";
 let homeDir = "";
@@ -137,6 +137,58 @@ describe("session storage", () => {
 			"turn-2",
 			"turn-2",
 		]);
+	});
+
+	test("appends messages incrementally and reconstructs their turn", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await storage.appendMessage(
+			session,
+			"turn-incremental",
+			userMessage("turn-incremental", "hello"),
+		);
+		await storage.appendMessage(
+			session,
+			"turn-incremental",
+			assistantMessage("turn-incremental", "hi"),
+		);
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns).toHaveLength(1);
+		expect(restored?.turns[0]?.id).toBe("turn-incremental");
+		expect(restored?.turns[0]?.messages.map((message) => message.role)).toEqual(
+			["user", "assistant"],
+		);
+	});
+
+	test("serializes concurrent appends into a single parent chain", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-5",
+		);
+		await Promise.all([
+			storage.appendSessionEntries(session, [
+				{
+					type: "session_info",
+					timestamp: new Date().toISOString(),
+					name: "first",
+				},
+			]),
+			storage.appendSessionEntries(session, [
+				{
+					type: "model_change",
+					timestamp: new Date().toISOString(),
+					modelId: "second-model",
+				},
+			]),
+		]);
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]?.parentId).toBeNull();
+		expect(entries[1]?.parentId).toBe(entries[0]?.id);
 	});
 
 	test("reconstructs latest compaction as a synthetic summary plus kept turns", async () => {

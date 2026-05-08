@@ -20,12 +20,6 @@ import {
 } from "../context/agents";
 import type { MessagePart, UserMultipartMessage } from "../messages/parts";
 import {
-	appendCompaction,
-	appendHandoffSummary,
-	appendModelChange,
-	appendSessionInfo,
-	appendThinkingLevelChange,
-	appendTurn,
 	createSession,
 	deleteSession,
 	findSessionById,
@@ -106,6 +100,11 @@ export type RuntimeEventMap = {
 	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
 	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
+	"session.message.appended": {
+		session: Session;
+		turn: Turn;
+		message: KitAgentMessage;
+	};
 	"user.message.created": {
 		turn: Turn;
 		message: Extract<KitAgentMessage, { role: "user" }>;
@@ -151,6 +150,10 @@ export type RuntimeEventMap = {
 		contextPercent: number;
 		compactedTurnCount: number;
 		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		keptTurns: Turn[];
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.auto": {
 		error: string;
@@ -160,6 +163,10 @@ export type RuntimeEventMap = {
 		reason: "overflow";
 		compactedTurnCount: number;
 		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		keptTurns: Turn[];
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.recovery": {
 		reason: "overflow";
@@ -175,6 +182,10 @@ export type RuntimeEventMap = {
 		modelName: string | undefined;
 		compactedTurnCount: number;
 		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		keptTurns: Turn[];
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
 	"session.compaction.failed.adaptation": {
 		modelId: string;
@@ -187,6 +198,16 @@ export type RuntimeEventMap = {
 		error: string;
 	};
 	"session.active.changed": { session: Session };
+	"session.name.changed": { session: Session; name?: string };
+	"session.model.changed": { session: Session; modelId?: string };
+	"session.thinking_level.changed": {
+		session: Session;
+		thinkingLevel?: ThinkingLevel;
+	};
+	"session.handoff_summary.appended": {
+		session: Session;
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
+	};
 	"agent.tool.started": {
 		turn: Turn;
 		toolCallId: string;
@@ -211,7 +232,6 @@ export type RuntimeEventMap = {
 	"chat.message-queue.changed": { count: number };
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
-	"session.persistence.failed": { error: string };
 	"vcs.updated": { branch: string | null; dirty: boolean };
 };
 
@@ -248,7 +268,6 @@ export class AgentRuntime {
 	private quitHandler: (() => void) | null = null;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
-	private unsubscribePersistence: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
 	private gitWatcher: GitInfoWatcher | null = null;
@@ -264,13 +283,6 @@ export class AgentRuntime {
 	private recoveryPromise: Promise<void> | null = null;
 	private recoveryResolve: (() => void) | null = null;
 	private overflowRecoveryAttempted = false;
-	private pendingAutoCompaction: {
-		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
-		compactedTurnCount: number;
-		keptTurnCount: number;
-		tokensBefore: number;
-		firstKeptTurnId?: string;
-	} | null = null;
 
 	constructor(
 		session: Session,
@@ -311,7 +323,6 @@ export class AgentRuntime {
 			this.handleAgentEvent(event),
 		);
 		this.resetGitWatcher();
-		this.registerPersistence();
 	}
 
 	get contextStats(): RuntimeContextUsage | null {
@@ -323,16 +334,6 @@ export class AgentRuntime {
 
 	get settings() {
 		return this._settings;
-	}
-
-	private registerPersistence(): void {
-		this.unsubscribePersistence = this.subscribe((event) => {
-			switch (event.type) {
-				case "agent.turn.completed":
-					if (event.turn) this.persistTurnToDisk(event.turn);
-					break;
-			}
-		});
 	}
 
 	private touchSession(
@@ -352,32 +353,6 @@ export class AgentRuntime {
 			turns: this.agent.turns,
 			model: this.agent.state.model?.id,
 			thinkingLevel: this.agent.state.thinkingLevel,
-		});
-	}
-
-	private emitPersistenceFailure(error: unknown): void {
-		this.emit("session.persistence.failed", {
-			error: error instanceof Error ? error.message : String(error),
-		});
-	}
-
-	private persistTurnToDisk(turn: Turn): void {
-		void (async () => {
-			await appendTurn(this.session, turn);
-			if (this.pendingAutoCompaction) {
-				const pending = this.pendingAutoCompaction;
-				this.pendingAutoCompaction = null;
-				await appendCompaction({
-					session: this.session,
-					summaryMessage: pending.summaryMessage,
-					firstKeptTurnId: pending.firstKeptTurnId,
-					compactedTurnCount: pending.compactedTurnCount,
-					keptTurnCount: pending.keptTurnCount,
-					tokensBefore: pending.tokensBefore,
-				});
-			}
-		})().catch((error) => {
-			this.emitPersistenceFailure(error);
 		});
 	}
 
@@ -456,8 +431,9 @@ export class AgentRuntime {
 	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
 		this.touchSession({ thinkingLevel: level });
-		void appendThinkingLevelChange(this.session).catch((error) => {
-			this.emitPersistenceFailure(error);
+		this.emit("session.thinking_level.changed", {
+			session: this.session,
+			thinkingLevel: level,
 		});
 		this.handleSessionChanged();
 	}
@@ -574,21 +550,18 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			this.pendingAutoCompaction = {
-				summaryMessage: result.summaryMessage as Extract<
-					KitAgentMessage,
-					{ role: "assistant" }
-				>,
-				compactedTurnCount: result.compactedTurnCount,
-				keptTurnCount: result.keptTurnCount,
-				tokensBefore: result.tokensBefore,
-				firstKeptTurnId: result.turns.at(1)?.id,
-			};
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.auto", {
 				contextPercent: contextUsage?.percent ?? 0,
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
 			});
 		} catch (error) {
 			this.emit("session.compaction.failed.auto", {
@@ -602,12 +575,6 @@ export class AgentRuntime {
 	private persistTurns(): boolean {
 		this.syncSessionFromAgentState();
 		return true;
-	}
-
-	private async persistKeptTurnsForCompaction(turns: Turn[]): Promise<void> {
-		for (const turn of turns.slice(1)) {
-			await appendTurn(this.session, turn);
-		}
 	}
 
 	private removeTerminalAssistantErrorFromLiveState(): void {
@@ -741,23 +708,18 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			await this.persistKeptTurnsForCompaction(result.turns);
-			await appendCompaction({
-				session: this.session,
-				summaryMessage: result.summaryMessage as Extract<
-					KitAgentMessage,
-					{ role: "assistant" }
-				>,
-				firstKeptTurnId: result.turns.at(1)?.id,
-				compactedTurnCount: result.compactedTurnCount,
-				keptTurnCount: result.keptTurnCount,
-				tokensBefore: result.tokensBefore,
-			});
 			this.handleSessionChanged();
 			this.emit("session.compaction.completed.recovery", {
 				reason: "overflow",
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
 			});
 			this.scheduleContinue();
 			return true;
@@ -849,18 +811,6 @@ export class AgentRuntime {
 				model: model.id,
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
-			await this.persistKeptTurnsForCompaction(result.turns);
-			await appendCompaction({
-				session: this.session,
-				summaryMessage: result.summaryMessage as Extract<
-					KitAgentMessage,
-					{ role: "assistant" }
-				>,
-				firstKeptTurnId: result.turns.at(1)?.id,
-				compactedTurnCount: result.compactedTurnCount,
-				keptTurnCount: result.keptTurnCount,
-				tokensBefore: result.tokensBefore,
-			});
 			this.handleSessionChanged();
 
 			this.emit("session.compaction.completed.adaptation", {
@@ -868,6 +818,13 @@ export class AgentRuntime {
 				modelName: model.name,
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
 			});
 			const nextUsage = getRuntimeContextUsage(
 				this.agent.state.messages,
@@ -951,6 +908,12 @@ export class AgentRuntime {
 				break;
 
 			case "message_end":
+				this.syncSessionFromAgentState();
+				this.emit("session.message.appended", {
+					session: this.session,
+					turn: event.turn,
+					message: event.message,
+				});
 				break;
 
 			case "agent_tool_started":
@@ -1037,11 +1000,6 @@ export class AgentRuntime {
 		const promptText = expandedPrompt.trim();
 		if (!promptText) return;
 
-		if (this.agent.state.isStreaming) {
-			this.sendFollowUp(promptText);
-			return;
-		}
-
 		const message: UserMultipartMessage & {
 			synthetic: {
 				kind: "prompt-command";
@@ -1058,6 +1016,12 @@ export class AgentRuntime {
 				...(args.trim().length > 0 ? { args: args.trim() } : {}),
 			},
 		};
+
+		if (this.agent.state.isStreaming) {
+			this.agent.followUp(message as unknown as AgentMessage);
+			this.syncPendingState();
+			return;
+		}
 
 		await this.agent.prompt(message as unknown as AgentMessage);
 		await this.waitForRecovery();
@@ -1159,12 +1123,18 @@ export class AgentRuntime {
 		);
 		if (replaced) {
 			this.syncSessionFromAgentState();
+			const message = replaced.message as Extract<
+				KitAgentMessage,
+				{ role: "bashExecution" }
+			>;
 			this.emit("bash.command.completed", {
 				turn: replaced.turn,
-				message: replaced.message as Extract<
-					KitAgentMessage,
-					{ role: "bashExecution" }
-				>,
+				message,
+			});
+			this.emit("session.message.appended", {
+				session: this.session,
+				turn: replaced.turn,
+				message,
 			});
 		}
 	}
@@ -1435,7 +1405,10 @@ export class AgentRuntime {
 
 			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
 			this.syncSessionFromAgentState();
-			await appendHandoffSummary(this.session, summaryMessage);
+			this.emit("session.handoff_summary.appended", {
+				session: this.session,
+				summaryMessage,
+			});
 			this.handleSessionChanged();
 			this.emit("session.active.changed", { session: this.session });
 
@@ -1456,11 +1429,7 @@ export class AgentRuntime {
 	async setSessionName(name: string): Promise<void> {
 		if (this.session.name === name) return;
 		this.touchSession({ name });
-		try {
-			await appendSessionInfo(this.session, name);
-		} catch (error) {
-			this.emitPersistenceFailure(error);
-		}
+		this.emit("session.name.changed", { session: this.session, name });
 		this.emit("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 	}
@@ -1501,8 +1470,9 @@ export class AgentRuntime {
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
 		this.touchSession({ model: model.id });
-		void appendModelChange(this.session).catch((error) => {
-			this.emitPersistenceFailure(error);
+		this.emit("session.model.changed", {
+			session: this.session,
+			modelId: model.id,
 		});
 		this.emit("agent.model.changed", {
 			model,
@@ -1596,8 +1566,6 @@ export class AgentRuntime {
 	dispose(): void {
 		this.unsubscribeAgent?.();
 		this.unsubscribeAgent = null;
-		this.unsubscribePersistence?.();
-		this.unsubscribePersistence = null;
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
 		this.listeners.clear();

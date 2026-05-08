@@ -21,6 +21,7 @@ import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
+import { FilePersistence } from "../storage/file-persistence";
 import { AuthGateScreen } from "./AuthGateScreen";
 import { FatalScreen } from "./FatalScreen";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
@@ -69,8 +70,16 @@ export function App(props: AppProps) {
 		const runtime = new AgentRuntime(props.session, {
 			settings: props.settings.settings,
 		});
+		const persistence = new FilePersistence(runtime);
 		const app = createAppState(runtime);
 		showToast = app.showToast;
+		persistence.onFailure((event) => {
+			toast({
+				title: "Session save failed",
+				lines: [event.error],
+				variant: "error",
+			});
+		});
 
 		const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {
 			runtime,
@@ -84,6 +93,7 @@ export function App(props: AppProps) {
 			pluginManager.initialize();
 		} catch (error) {
 			pluginManager.dispose();
+			persistence.dispose();
 			runtime.dispose();
 			throw error;
 		}
@@ -139,6 +149,7 @@ export function App(props: AppProps) {
 			if (disposed) return;
 			disposed = true;
 			pluginManager.dispose();
+			persistence.dispose();
 			runtime.dispose();
 		};
 

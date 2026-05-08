@@ -121,7 +121,10 @@ export class KitAgent {
 	private readonly toolArgsById = new Map<string, unknown>();
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
+	private _activeFollowUpTurn: Turn | null = null;
 	private _pendingFollowUps: string[] = [];
+	private _queuedFollowUps: AgentMessage[] = [];
+	private nextPromptStartsNewTurn = false;
 
 	static fromSession(session: Session, opts?: KitAgentOptions): KitAgent {
 		return new KitAgent({
@@ -275,6 +278,7 @@ export class KitAgent {
 
 	followUp(message: AgentMessage): void {
 		this.pi.followUp(message);
+		this._queuedFollowUps = [...this._queuedFollowUps, message];
 		const text = extractPlainText(message);
 		if (text.trim()) {
 			this._pendingFollowUps = [...this._pendingFollowUps, text];
@@ -287,10 +291,14 @@ export class KitAgent {
 
 	clearFollowUpQueue(): void {
 		this.pi.clearFollowUpQueue();
+		this._queuedFollowUps = [];
+		this._pendingFollowUps = [];
 	}
 
 	clearAllQueues(): void {
 		this.pi.clearAllQueues();
+		this._queuedFollowUps = [];
+		this._pendingFollowUps = [];
 	}
 
 	hasQueuedMessages(): boolean {
@@ -314,7 +322,10 @@ export class KitAgent {
 		this.toolArgsById.clear();
 		this._turns = [];
 		this._currentTurn = null;
+		this._activeFollowUpTurn = null;
 		this._pendingFollowUps = [];
+		this._queuedFollowUps = [];
+		this.nextPromptStartsNewTurn = false;
 	}
 
 	prompt(message: AgentMessage | AgentMessage[]): Promise<void>;
@@ -324,9 +335,54 @@ export class KitAgent {
 		images?: ImageContent[],
 	): Promise<void> {
 		if (typeof input === "string") {
-			return this.pi.prompt(input, images);
+			this.nextPromptStartsNewTurn = true;
+			const run = this.pi.prompt(input, images);
+			void run.catch(() => {
+				this.nextPromptStartsNewTurn = false;
+			});
+			return run;
 		}
+
+		this.recordSubmittedUserMessages(input);
 		return this.pi.prompt(input);
+	}
+
+	private recordSubmittedUserMessages(
+		input: AgentMessage | AgentMessage[],
+	): void {
+		const messages = Array.isArray(input) ? input : [input];
+		const userMessages = messages.filter(
+			(message): message is Extract<AgentMessage, { role: "user" }> =>
+				message.role === "user",
+		);
+		if (userMessages.length === 0) return;
+
+		let turn = this.startTurn();
+		this.emit({ type: "turn_start", turn });
+		for (const message of userMessages) {
+			const tagged = {
+				...message,
+				turnId: turn.id,
+			} as KitAgentMessage;
+			turn = {
+				...turn,
+				messages: [...turn.messages, tagged],
+			};
+			this._currentTurn = turn;
+			this._turns = this._turns.map((candidate) =>
+				candidate.id === turn.id ? turn : candidate,
+			);
+			this.emit({
+				type: "user_message_created",
+				turn,
+				message: tagged as Extract<KitAgentMessage, { role: "user" }>,
+			});
+			this.emit({
+				type: "message_end",
+				turn,
+				message: tagged,
+			});
+		}
 	}
 
 	continue(): Promise<void> {
@@ -370,13 +426,11 @@ export class KitAgent {
 	drainPendingFollowUps(): string[] {
 		const drained = [...this._pendingFollowUps];
 		this.clearAllQueues();
-		this._pendingFollowUps = [];
 		return drained;
 	}
 
 	clearPendingFollowUps(): void {
 		this.clearAllQueues();
-		this._pendingFollowUps = [];
 	}
 
 	private emit(event: AgentEvent): void {
@@ -388,9 +442,13 @@ export class KitAgent {
 	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
 		switch (event.type) {
 			case "turn_start": {
-				this._pendingFollowUps = [];
-				const turn = this.startTurn();
-				return [{ type: "turn_start", turn }];
+				this._activeFollowUpTurn = null;
+				if (this.nextPromptStartsNewTurn || this._currentTurn === null) {
+					this.nextPromptStartsNewTurn = false;
+					const turn = this.startTurn();
+					return [{ type: "turn_start", turn }];
+				}
+				return [];
 			}
 			case "message_start": {
 				if (event.message.role !== "assistant") return [event];
@@ -434,20 +492,38 @@ export class KitAgent {
 				return events;
 			}
 			case "message_end": {
-				const turn = this.ensureCurrentTurn();
+				const isQueuedFollowUp =
+					event.message.role === "user" &&
+					this.consumeQueuedFollowUp(event.message);
+				const startsFollowUpTurn =
+					isQueuedFollowUp && this._activeFollowUpTurn === null;
+				const turn = isQueuedFollowUp
+					? (this._activeFollowUpTurn ?? this.startTurn())
+					: this.ensureCurrentTurn();
 				const tagged: KitAgentMessage = {
 					...event.message,
 					turnId: turn.id,
 				};
-				const updatedTurn: Turn = {
-					...turn,
-					messages: [...turn.messages, tagged],
-				};
+				const isDuplicateSubmittedUser =
+					tagged.role === "user" &&
+					turn.messages.some(
+						(message) =>
+							message.role === "user" && isSameAgentMessage(message, tagged),
+					);
+				const updatedTurn: Turn = isDuplicateSubmittedUser
+					? turn
+					: {
+							...turn,
+							messages: [...turn.messages, tagged],
+						};
 				this._currentTurn = updatedTurn;
+				if (isQueuedFollowUp) this._activeFollowUpTurn = updatedTurn;
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
-				const events: AgentEvent[] = [];
+				const events: AgentEvent[] = startsFollowUpTurn
+					? [{ type: "turn_start", turn: updatedTurn }]
+					: [];
 				if (tagged.role === "assistant") {
 					events.push({
 						type: "agent_thinking_completed",
@@ -459,18 +535,20 @@ export class KitAgent {
 						message: tagged as Extract<KitAgentMessage, { role: "assistant" }>,
 					});
 				}
-				if (tagged.role === "user") {
+				if (tagged.role === "user" && !isDuplicateSubmittedUser) {
 					events.push({
 						type: "user_message_created",
 						turn: updatedTurn,
 						message: tagged as Extract<KitAgentMessage, { role: "user" }>,
 					});
 				}
-				events.push({
-					type: "message_end",
-					turn: updatedTurn,
-					message: tagged,
-				});
+				if (!isDuplicateSubmittedUser) {
+					events.push({
+						type: "message_end",
+						turn: updatedTurn,
+						message: tagged,
+					});
+				}
 				return events;
 			}
 			case "tool_execution_start": {
@@ -517,6 +595,7 @@ export class KitAgent {
 				];
 			}
 			case "turn_end":
+				this._activeFollowUpTurn = null;
 				return [
 					{
 						type: "turn_end",
@@ -528,6 +607,20 @@ export class KitAgent {
 			default:
 				return [event];
 		}
+	}
+
+	private consumeQueuedFollowUp(message: AgentMessage): boolean {
+		const index = this._queuedFollowUps.findIndex((candidate) =>
+			isSameAgentMessage(candidate, message),
+		);
+		if (index < 0) return false;
+		this._queuedFollowUps = this._queuedFollowUps.filter(
+			(_, candidateIndex) => candidateIndex !== index,
+		);
+		this._pendingFollowUps = this._pendingFollowUps.filter(
+			(_, candidateIndex) => candidateIndex !== index,
+		);
+		return true;
 	}
 
 	private startTurn(): Turn {
@@ -618,13 +711,28 @@ export class KitAgent {
 			messages: [...turn.messages],
 		}));
 		this._currentTurn = null;
+		this._activeFollowUpTurn = null;
 		this._pendingFollowUps = [];
+		this._queuedFollowUps = [];
+		this.nextPromptStartsNewTurn = false;
 		this.toolArgsById.clear();
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
 		this.pi.state.messages = messages;
 	}
+}
+
+function isSameAgentMessage(a: AgentMessage, b: AgentMessage): boolean {
+	return (
+		a.role === b.role &&
+		"timestamp" in a &&
+		"timestamp" in b &&
+		a.timestamp === b.timestamp &&
+		"content" in a &&
+		"content" in b &&
+		JSON.stringify(a.content) === JSON.stringify(b.content)
+	);
 }
 
 function convertToLlm(messages: AgentMessage[]): Message[] {
