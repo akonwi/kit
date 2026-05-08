@@ -102,11 +102,15 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 			sizePercent: 30,
 		},
 	});
-	renderer.keyInput.on("keypress", (key) => {
-		if (key.ctrl && key.name === "d") {
-			renderer.console.toggle();
-		}
-	});
+	// Dev console toggle is opt-in — only enable when DEBUG is set,
+	// otherwise Ctrl+D is left free for other key handlers.
+	if (process.env.DEBUG) {
+		renderer.keyInput.on("keypress", (key) => {
+			if (key.ctrl && key.name === "d") {
+				renderer.console.toggle();
+			}
+		});
+	}
 
 	// Resolve theme before rendering — "system" theme needs the renderer for palette detection
 	const themeName = settings.settings.theme ?? "system";
