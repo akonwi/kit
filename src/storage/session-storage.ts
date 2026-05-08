@@ -34,7 +34,7 @@ import {
 	type SubagentPromptEntry,
 	type SubagentStartedEntry,
 	type Turn,
-} from "./types";
+} from "../session/types";
 
 export type AppendableSessionEntry = SessionEntry extends infer T
 	? T extends SessionEntry

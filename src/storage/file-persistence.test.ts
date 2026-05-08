@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { homedir as originalHomedir, tmpdir } from "node:os";
 import path from "node:path";
-import type { AgentRuntimeEvent } from "./runtime/agent-runtime";
-import type { Session, Turn } from "./session";
+import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
+import type { Session, Turn } from "../session";
 
 const originalHome = process.env.HOME;
 const originalCwd = process.cwd();
@@ -14,7 +14,7 @@ mock.module("node:os", () => ({
 	tmpdir,
 }));
 
-const storage = await import("./session/storage");
+const storage = await import("./session-storage");
 const { FilePersistence } = await import("./file-persistence");
 
 let tempRoot = "";

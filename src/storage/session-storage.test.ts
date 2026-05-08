@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir as originalHomedir, tmpdir } from "node:os";
 import path from "node:path";
-import type { Session, Turn } from "./types";
+import type { Session, Turn } from "../session/types";
 
 const originalHome = process.env.HOME;
 const originalCwd = process.cwd();
@@ -14,7 +14,7 @@ mock.module("node:os", () => ({
 	tmpdir,
 }));
 
-const storage = await import("./storage");
+const storage = await import("./session-storage");
 
 let tempRoot = "";
 let homeDir = "";

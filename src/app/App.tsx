@@ -4,7 +4,6 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import { FilePersistence } from "../file-persistence";
 import {
 	BUILT_IN_PLUGIN_CLASSES,
 	PluginManager,
@@ -22,6 +21,7 @@ import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
+import { FilePersistence } from "../storage/file-persistence";
 import { AuthGateScreen } from "./AuthGateScreen";
 import { FatalScreen } from "./FatalScreen";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";

@@ -119,4 +119,4 @@ When a legacy session is loaded, Kit may rewrite it into the new `.jsonl` format
 - `docs/adrs/0002-storage-paths.md`
 - `docs/adrs/0004-turn-based-session-model.md`
 - `docs/adrs/0009-compaction-strategy.md`
-- `src/session/storage.ts`
+- `src/storage/session-storage.ts`

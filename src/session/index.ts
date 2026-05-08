@@ -1,4 +1,4 @@
-export type { AppendableSessionEntry } from "./storage";
+export type { AppendableSessionEntry } from "../storage/session-storage";
 export {
 	appendCompaction,
 	appendHandoffSummary,
@@ -20,7 +20,7 @@ export {
 	toSummary,
 	updateSession,
 	writeSession,
-} from "./storage";
+} from "../storage/session-storage";
 export type {
 	PersistedKitAgentMessage,
 	Session,
