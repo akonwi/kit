@@ -1,9 +1,11 @@
+import type { BoxProps } from "@opentui/solid";
 import { theme } from "./theme";
 
 export type Binding = { key: string; action: string };
 
 export type HintBarProps = {
 	bindings: Binding[];
+	borderless?: boolean;
 };
 
 /**
@@ -14,9 +16,18 @@ export type HintBarProps = {
 export function HintBar(props: HintBarProps) {
 	const text = () =>
 		props.bindings.map((b) => `${b.key} ${b.action}`).join(" · ");
+	const styles: BoxProps = props.borderless
+		? {
+				paddingY: 1,
+			}
+		: {
+				border: true,
+				borderColor: theme.borderDefault,
+				paddingX: 1,
+			};
 
 	return (
-		<box flexShrink={0} border borderColor={theme.borderDefault} paddingX={1}>
+		<box {...styles} flexShrink={0}>
 			<text fg={theme.textMuted}>{text()}</text>
 		</box>
 	);

@@ -33,7 +33,7 @@ export function InlinePicker(props: InlinePickerProps) {
 					<Picker.Header />
 					<Picker.Body />
 					<Picker.Footer>
-						<HintBar bindings={BINDINGS} />
+						<HintBar borderless bindings={BINDINGS} />
 					</Picker.Footer>
 				</Picker.Root>
 			</box>
