@@ -1,6 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { createMemo, For, Show } from "solid-js";
 import type { PaletteManager } from "../state/palette-manager";
+import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
 const MAX_VISIBLE = 10;
@@ -9,18 +10,6 @@ export type InlinePickerProps = {
 	palette: PaletteManager;
 	bottomOffset: number;
 };
-
-function computeScrollbar(total: number, visible: number, offset: number) {
-	if (total <= visible) return null;
-	const thumbSize = Math.max(1, Math.round((visible / total) * visible));
-	const maxOffset = total - visible;
-	const thumbOffset = Math.round((offset / maxOffset) * (visible - thumbSize));
-	const track: boolean[] = [];
-	for (let i = 0; i < visible; i++) {
-		track.push(i >= thumbOffset && i < thumbOffset + thumbSize);
-	}
-	return track;
-}
 
 export function InlinePicker(props: InlinePickerProps) {
 	const palette = () => props.palette.current();

@@ -1,0 +1,247 @@
+import type { KeyEvent } from "@opentui/core";
+import { createMemo, For, Show } from "solid-js";
+import type { PaletteManager } from "../state/palette-manager";
+import { type Binding, HintBar } from "./HintBar";
+import { computeScrollbar } from "./scrollbar";
+import { theme } from "./theme";
+
+const MAX_VISIBLE = 12;
+
+const LIST_BINDINGS: Binding[] = [
+	{ key: "↑/↓", action: "move" },
+	{ key: "Enter", action: "run" },
+	{ key: "Esc", action: "close" },
+];
+
+const INPUT_BINDINGS: Binding[] = [
+	{ key: "Enter", action: "submit" },
+	{ key: "Esc", action: "cancel" },
+];
+
+export type CommandPaletteProps = {
+	palette: PaletteManager;
+};
+
+export function CommandPalette(props: CommandPaletteProps) {
+	const palette = () => props.palette.current();
+
+	const visibleSlice = createMemo(() => {
+		const p = palette();
+		const options = p.options;
+		const count = options.length;
+		const selected = p.selectedIndex;
+
+		if (count <= MAX_VISIBLE) {
+			return {
+				items: options.map((o, i) => ({ option: o, index: i })),
+				offset: 0,
+			};
+		}
+
+		let offset = selected - Math.floor(MAX_VISIBLE / 2);
+		offset = Math.max(0, Math.min(offset, count - MAX_VISIBLE));
+
+		const items = options
+			.slice(offset, offset + MAX_VISIBLE)
+			.map((o, i) => ({ option: o, index: offset + i }));
+
+		return { items, offset };
+	});
+
+	const scrollbar = createMemo(() =>
+		computeScrollbar(
+			palette().options.length,
+			MAX_VISIBLE,
+			visibleSlice().offset,
+		),
+	);
+
+	function handleListKeyDown(e: KeyEvent) {
+		if (e.name === "up") {
+			e.preventDefault();
+			props.palette.moveUp();
+		} else if (e.name === "down") {
+			e.preventDefault();
+			props.palette.moveDown();
+		} else if (e.name === "tab") {
+			if (props.palette.handleKeyBinding("tab")) {
+				e.preventDefault();
+			}
+		} else if (e.name === "return") {
+			e.preventDefault();
+			props.palette.selectCurrent();
+		} else if (e.name === "escape") {
+			e.preventDefault();
+			props.palette.pop();
+		} else if (e.ctrl && e.name) {
+			const key = `ctrl+${e.name}`;
+			if (props.palette.handleKeyBinding(key)) {
+				e.preventDefault();
+			}
+		}
+	}
+
+	const bindings = () =>
+		palette().mode === "input" ? INPUT_BINDINGS : LIST_BINDINGS;
+
+	return (
+		<Show when={palette().visible && palette().mode !== "modal"}>
+			<box
+				position="absolute"
+				left={0}
+				top={0}
+				width="100%"
+				height="100%"
+				justifyContent="flex-start"
+				alignItems="center"
+				zIndex={1100}
+				backgroundColor={theme.modalBackdrop}
+			>
+				<box
+					width="80%"
+					maxWidth={80}
+					minWidth={40}
+					height={MAX_VISIBLE + 5}
+					marginTop={12}
+					flexDirection="column"
+					backgroundColor={theme.bgSurface}
+					border
+					borderColor={theme.borderFocused}
+					paddingX={1}
+				>
+					{/* Input mode */}
+					<Show when={palette().mode === "input"}>
+						<text fg={theme.textMuted}>{palette().label}</text>
+						<box flexDirection="row" gap={1} width="100%">
+							<text flexBasis={1} fg={theme.textPrimary}>
+								{">"}
+							</text>
+							<input
+								flexGrow={1}
+								focused
+								value={palette().inputValue}
+								onInput={(value: string) => props.palette.setInputValue(value)}
+								onKeyDown={(e: KeyEvent) => {
+									if (e.name === "return") {
+										e.preventDefault();
+										props.palette.submitInput();
+									} else if (e.name === "escape") {
+										e.preventDefault();
+										props.palette.pop();
+									}
+								}}
+							/>
+						</box>
+					</Show>
+
+					{/* List mode */}
+					<Show when={palette().mode === "list"}>
+						<box flexGrow={1} flexDirection="column" overflow="hidden">
+							<Show
+								when={palette().filterable}
+								fallback={
+									<box focusable focused onKeyDown={handleListKeyDown} />
+								}
+							>
+								<box flexDirection="row" gap={1} width="100%">
+									<text flexBasis={1} fg={theme.textPrimary}>
+										{">"}
+									</text>
+									<input
+										flexGrow={1}
+										focused
+										value={palette().filterText}
+										onInput={(value: string) => props.palette.filter(value)}
+										onKeyDown={handleListKeyDown}
+									/>
+								</box>
+							</Show>
+
+							<Show when={palette().options.length === 0}>
+								<text fg={theme.textMuted}>No results</text>
+							</Show>
+
+							<box flexDirection="row">
+								<box flexGrow={1} flexDirection="column">
+									<For each={visibleSlice().items}>
+										{(entry) => {
+											const isFocused = () =>
+												entry.index === palette().selectedIndex;
+											const fg = () =>
+												isFocused()
+													? theme.pickerFocusedText
+													: theme.pickerItemText;
+											const bg = () =>
+												isFocused()
+													? theme.pickerFocusedBg
+													: theme.bgTransparent;
+											return (
+												<box
+													flexDirection="row"
+													width="100%"
+													height={1}
+													overflow="hidden"
+													gap={1}
+													backgroundColor={bg()}
+												>
+													<box
+														flexShrink={0}
+														flexDirection="row"
+														height={1}
+														overflow="hidden"
+													>
+														<text fg={fg()} bg={bg()}>
+															{entry.option.name}
+														</text>
+														<Show when={entry.option.argHint}>
+															<box flexShrink={1} height={1} overflow="hidden">
+																<text fg={theme.textMuted} bg={bg()}>
+																	{` [${entry.option.argHint}]`}
+																</text>
+															</box>
+														</Show>
+													</box>
+													<Show when={entry.option.description.length > 0}>
+														<box flexGrow={1} flexShrink={1} />
+														<box flexShrink={1} height={1} overflow="hidden">
+															<text fg={fg()} bg={bg()}>
+																{entry.option.description}
+															</text>
+														</box>
+													</Show>
+												</box>
+											);
+										}}
+									</For>
+								</box>
+								<Show when={scrollbar()}>
+									{(track) => (
+										<box flexShrink={0} width={1} flexDirection="column">
+											<For each={track()}>
+												{(isThumb) => (
+													<text
+														fg={
+															isThumb
+																? theme.pickerScrollThumb
+																: theme.pickerScrollTrack
+														}
+													>
+														{isThumb ? "█" : "│"}
+													</text>
+												)}
+											</For>
+										</box>
+									)}
+								</Show>
+							</box>
+						</box>
+					</Show>
+
+					<box flexShrink={0}>
+						<HintBar bindings={bindings()} />
+					</box>
+				</box>
+			</box>
+		</Show>
+	);
+}

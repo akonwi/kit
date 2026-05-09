@@ -52,6 +52,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		openCustomOverlay,
 	} = deps;
 	const palette: PaletteManager = createPaletteManager();
+	const commandPalette: PaletteManager = createPaletteManager();
 
 	let textareaRef: TextareaHandle | undefined;
 	let prevTextLength = 0;
@@ -79,7 +80,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		try {
 			await command.execute({
 				runtime,
-				palette,
+				palette: commandPalette,
 				args,
 				toast,
 				attachments,
@@ -95,7 +96,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 	}
 
-	function openSlashCommands() {
+	function openCommandPalette() {
+		if (commandPalette.visible) return;
 		let resolvedCommandName: string | null = null;
 		let currentArgs = "";
 		const availableCommands = commands.getAll();
@@ -108,8 +110,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				argHint: cmd.argName,
 				value: cmd,
 				action: (ctx: PaletteContext) => {
-					textareaRef?.setText("");
-					prevTextLength = 0;
 					ctx.dismiss();
 					void executeCommand(cmd, currentArgs);
 				},
@@ -117,10 +117,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const findOption = (name: string) =>
 			options.find((option) => option.name === name);
 
-		palette.show(
+		commandPalette.show(
 			{
 				filterable: true,
-				hint: "Tab complete · Enter run · Esc close",
 				options,
 				onFilterChange: (text) => {
 					const trimmed = text.trimStart();
@@ -158,7 +157,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 					if (!cmd) return;
 					resolvedCommandName = cmd.name;
 					currentArgs = "";
-					palette.filter(`${cmd.name} `);
+					commandPalette.filter(`${cmd.name} `);
 				},
 			},
 		);
@@ -302,11 +301,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const grew = text.length > prevTextLength;
 		prevTextLength = text.length;
 
-		if (text.trimStart() === "/" && !palette.visible && grew) {
-			openSlashCommands();
-			return;
-		}
-
 		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
 			void openThreadReferences();
 			return;
@@ -331,6 +325,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	async function handleSubmit() {
+		if (commandPalette.visible) return;
 		if (palette.visible && !palette.isFilterable) {
 			palette.selectCurrent();
 			return;
@@ -339,13 +334,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 		const text = textareaRef?.plainText ?? "";
 		const pendingAttachments = attachments.attachments();
-		const slashCommand = parseSlashCommand(text, commands.getAll());
-		if (slashCommand) {
-			textareaRef?.setText("");
-			prevTextLength = 0;
-			await executeCommand(slashCommand.command, slashCommand.args);
-			return;
-		}
 		if (!text.trim() && pendingAttachments.length === 0) {
 			if (
 				runtime.getStatus().isStreaming &&
@@ -510,6 +498,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	return {
 		palette,
+		commandPalette,
+		openCommandPalette,
 		setTextarea,
 		handlePaste,
 		handleTextChange,
@@ -605,26 +595,4 @@ function inferImageMimeType(path: string): string | null {
 	if (lower.endsWith(".bmp")) return "image/bmp";
 	if (lower.endsWith(".svg")) return "image/svg+xml";
 	return null;
-}
-
-function parseSlashCommand(
-	text: string,
-	commands: Command[],
-): { command: Command; args: string } | null {
-	const trimmed = text.trim();
-	if (!trimmed.startsWith("/")) return null;
-
-	const withoutSlash = trimmed.slice(1);
-	const firstSpace = withoutSlash.search(/\s/);
-	const name = (
-		firstSpace === -1 ? withoutSlash : withoutSlash.slice(0, firstSpace)
-	).trim();
-	if (!name) return null;
-
-	const command = commands.find((candidate) => candidate.name === name);
-	if (!command) return null;
-
-	const args =
-		firstSpace === -1 ? "" : withoutSlash.slice(firstSpace + 1).trim();
-	return { command, args };
 }

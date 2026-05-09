@@ -25,6 +25,7 @@ function getComposerInputMode(text: string): ComposerInputMode {
 export function ComposerDock(props: ComposerDockProps) {
 	let dockRef: { width: number; height: number } | undefined;
 	const palette = props.controller.palette;
+	const commandPaletteVisible = () => props.controller.commandPalette.visible;
 	const [composerText, setComposerText] = createSignal(
 		props.controller.getTextareaText(),
 	);
@@ -44,6 +45,8 @@ export function ComposerDock(props: ComposerDockProps) {
 
 	useKeyboard((e: KeyEvent) => {
 		if (props.locked) return;
+		// Skip composer keyboard handling while the command palette is open
+		if (commandPaletteVisible()) return;
 
 		// Ctrl+C — clear composer if it has content, otherwise quit
 		if (e.ctrl && e.name === "c") {
@@ -180,11 +183,13 @@ export function ComposerDock(props: ComposerDockProps) {
 					props.controller.setTextarea(value as TextareaHandle | undefined);
 				}}
 				placeholder={placeholder()}
-				focused={!palette.visible && !props.locked}
-				showCursor={!palette.visible && !props.locked}
+				focused={!palette.visible && !commandPaletteVisible() && !props.locked}
+				showCursor={
+					!palette.visible && !commandPaletteVisible() && !props.locked
+				}
 				borderColor={composerBorderColor()}
 				keyBindings={
-					palette.visible || props.locked
+					palette.visible || commandPaletteVisible() || props.locked
 						? []
 						: [
 								{ name: "return", action: "submit" },
