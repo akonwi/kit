@@ -1,21 +1,21 @@
 import type { KeyEvent } from "@opentui/core";
 import { createMemo, For, Show } from "solid-js";
-import type { PaletteManager } from "../state/palette-manager";
+import type { PickerManager } from "../state/picker-manager";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
 const MAX_VISIBLE = 10;
 
 export type InlinePickerProps = {
-	palette: PaletteManager;
+	picker: PickerManager;
 	bottomOffset: number;
 };
 
 export function InlinePicker(props: InlinePickerProps) {
-	const palette = () => props.palette.current();
+	const snapshot = () => props.picker.current();
 
 	const visibleSlice = createMemo(() => {
-		const p = palette();
+		const p = snapshot();
 		const options = p.options;
 		const count = options.length;
 		const selected = p.selectedIndex;
@@ -39,14 +39,14 @@ export function InlinePicker(props: InlinePickerProps) {
 
 	const scrollbar = createMemo(() =>
 		computeScrollbar(
-			palette().options.length,
+			snapshot().options.length,
 			MAX_VISIBLE,
 			visibleSlice().offset,
 		),
 	);
 
 	return (
-		<Show when={palette().visible}>
+		<Show when={snapshot().visible}>
 			<box
 				position="absolute"
 				bottom={props.bottomOffset}
@@ -59,8 +59,8 @@ export function InlinePicker(props: InlinePickerProps) {
 				paddingX={1}
 				flexDirection="column"
 			>
-				<Show when={palette().mode === "input"}>
-					<text fg={theme.textMuted}>{palette().label}</text>
+				<Show when={snapshot().mode === "input"}>
+					<text fg={theme.textMuted}>{snapshot().label}</text>
 					<box flexDirection="row" gap={1} width="100%">
 						<text flexBasis={1} fg={theme.textPrimary}>
 							{">"}
@@ -68,23 +68,23 @@ export function InlinePicker(props: InlinePickerProps) {
 						<input
 							flexGrow={1}
 							focused
-							value={palette().inputValue}
-							onInput={(value: string) => props.palette.setInputValue(value)}
+							value={snapshot().inputValue}
+							onInput={(value: string) => props.picker.setInputValue(value)}
 							onKeyDown={(e: KeyEvent) => {
 								if (e.name === "return") {
 									e.preventDefault();
-									props.palette.submitInput();
+									props.picker.submitInput();
 								} else if (e.name === "escape") {
 									e.preventDefault();
-									props.palette.pop();
+									props.picker.pop();
 								}
 							}}
 						/>
 					</box>
 				</Show>
 
-				<Show when={palette().mode === "list"}>
-					<Show when={palette().filterable}>
+				<Show when={snapshot().mode === "list"}>
+					<Show when={snapshot().filterable}>
 						<box flexDirection="row" gap={1} width="100%">
 							<text flexBasis={1} fg={theme.textPrimary}>
 								{">"}
@@ -92,28 +92,28 @@ export function InlinePicker(props: InlinePickerProps) {
 							<input
 								flexGrow={1}
 								focused
-								value={palette().filterText}
-								onInput={(value: string) => props.palette.filter(value)}
+								value={snapshot().filterText}
+								onInput={(value: string) => props.picker.filter(value)}
 								onKeyDown={(e: KeyEvent) => {
 									if (e.name === "up") {
 										e.preventDefault();
-										props.palette.moveUp();
+										props.picker.moveUp();
 									} else if (e.name === "down") {
 										e.preventDefault();
-										props.palette.moveDown();
+										props.picker.moveDown();
 									} else if (e.name === "tab") {
-										if (props.palette.handleKeyBinding("tab")) {
+										if (props.picker.handleKeyBinding("tab")) {
 											e.preventDefault();
 										}
 									} else if (e.name === "return") {
 										e.preventDefault();
-										props.palette.selectCurrent();
+										props.picker.selectCurrent();
 									} else if (e.name === "escape") {
 										e.preventDefault();
-										props.palette.pop();
+										props.picker.pop();
 									} else if (e.ctrl && e.name) {
 										const key = `ctrl+${e.name}`;
-										if (props.palette.handleKeyBinding(key)) {
+										if (props.picker.handleKeyBinding(key)) {
 											e.preventDefault();
 										}
 									}
@@ -122,7 +122,7 @@ export function InlinePicker(props: InlinePickerProps) {
 						</box>
 					</Show>
 
-					<Show when={palette().options.length === 0}>
+					<Show when={snapshot().options.length === 0}>
 						<text fg={theme.textMuted}>No results</text>
 					</Show>
 
@@ -131,7 +131,7 @@ export function InlinePicker(props: InlinePickerProps) {
 							<For each={visibleSlice().items}>
 								{(entry) => {
 									const isFocused = () =>
-										entry.index === palette().selectedIndex;
+										entry.index === snapshot().selectedIndex;
 									const fg = () =>
 										isFocused()
 											? theme.pickerFocusedText
@@ -198,8 +198,8 @@ export function InlinePicker(props: InlinePickerProps) {
 						</Show>
 					</box>
 
-					<Show when={palette().hint && palette().hint !== "__commands__"}>
-						<text fg={theme.textMuted}>{palette().hint}</text>
+					<Show when={snapshot().hint && snapshot().hint !== "__commands__"}>
+						<text fg={theme.textMuted}>{snapshot().hint}</text>
 					</Show>
 				</Show>
 			</box>

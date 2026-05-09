@@ -1,12 +1,12 @@
 import type { SessionSummary } from "../../session";
-import type { PaletteContext } from "../../state/palette";
+import type { PickerContext } from "../../state/picker";
 import type { Command } from "./types";
 import { formatSessionOption } from "./utils";
 
 export const sessionsManageCommand: Command = {
 	name: "sessions",
 	description: "Browse, switch, or delete sessions",
-	async execute({ runtime, palette, toast }) {
+	async execute({ runtime, picker, toast }) {
 		const sessions = await runtime.listAllSessions();
 		if (sessions.length === 0) {
 			toast({
@@ -31,7 +31,7 @@ export const sessionsManageCommand: Command = {
 					name: isCurrent ? `${label} ✓` : label,
 					description,
 					value: session,
-					action: async (ctx: PaletteContext) => {
+					action: async (ctx: PickerContext) => {
 						if (isCurrent) {
 							ctx.dismiss();
 							return;
@@ -52,7 +52,7 @@ export const sessionsManageCommand: Command = {
 		}
 
 		function open() {
-			palette.show(
+			picker.show(
 				{
 					options: buildOptions(visibleSessions),
 					filterable: true,

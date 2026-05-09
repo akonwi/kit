@@ -10,11 +10,11 @@ import { ImageAttachment } from "../features/images/attachment";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { MessagePart } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import type { PaletteContext } from "../state/palette";
+import type { PickerContext } from "../state/picker";
 import {
-	createPaletteManager,
-	type PaletteManager,
-} from "../state/palette-manager";
+	createPickerManager,
+	type PickerManager,
+} from "../state/picker-manager";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
 
@@ -51,8 +51,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		_reload,
 		openCustomOverlay,
 	} = deps;
-	const palette: PaletteManager = createPaletteManager();
-	const commandPalette: PaletteManager = createPaletteManager();
+	const picker: PickerManager = createPickerManager();
+	const commandPalette: PickerManager = createPickerManager();
 
 	let textareaRef: TextareaHandle | undefined;
 	let prevTextLength = 0;
@@ -80,7 +80,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		try {
 			await command.execute({
 				runtime,
-				palette: commandPalette,
+				picker: commandPalette,
 				args,
 				toast,
 				attachments,
@@ -109,7 +109,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				description: cmd.description,
 				argHint: cmd.argName,
 				value: cmd,
-				action: (ctx: PaletteContext) => {
+				action: (ctx: PickerContext) => {
 					ctx.dismiss();
 					void executeCommand(cmd, currentArgs);
 				},
@@ -165,7 +165,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	async function openFileReferences(initialQuery = "") {
 		const entries = await fileIndex.ensureLoaded();
-		palette.show({
+		picker.show({
 			filterable: true,
 			hint: "Enter insert · Esc close",
 			options: entries.map((entry) => ({
@@ -180,14 +180,14 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			})),
 		});
 		if (initialQuery) {
-			palette.filter(initialQuery);
+			picker.filter(initialQuery);
 		}
 	}
 
 	async function openThreadReferences(initialQuery = "") {
 		if (!threadIndex) return;
 		const suggestions = await threadIndex.suggest(initialQuery);
-		palette.show({
+		picker.show({
 			filterable: true,
 			hint: "Enter insert · Esc close",
 			options: suggestions.map((entry) => ({
@@ -201,7 +201,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			})),
 		});
 		if (initialQuery) {
-			palette.filter(initialQuery);
+			picker.filter(initialQuery);
 		}
 	}
 
@@ -301,12 +301,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const grew = text.length > prevTextLength;
 		prevTextLength = text.length;
 
-		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
+		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
 			void openThreadReferences();
 			return;
 		}
 
-		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "@") {
+		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "@") {
 			void openFileReferences();
 		}
 	}
@@ -326,11 +326,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	async function handleSubmit() {
 		if (commandPalette.visible) return;
-		if (palette.visible && !palette.isFilterable) {
-			palette.selectCurrent();
+		if (picker.visible && !picker.isFilterable) {
+			picker.selectCurrent();
 			return;
 		}
-		if (palette.visible) return;
+		if (picker.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
 		const pendingAttachments = attachments.attachments();
@@ -497,7 +497,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	return {
-		palette,
+		picker,
 		commandPalette,
 		openCommandPalette,
 		setTextarea,

@@ -1,6 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { createMemo, For, Show } from "solid-js";
-import type { PaletteManager } from "../state/palette-manager";
+import type { PickerManager } from "../state/picker-manager";
 import { type Binding, HintBar } from "./HintBar";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
@@ -19,14 +19,14 @@ const INPUT_BINDINGS: Binding[] = [
 ];
 
 export type CommandPaletteProps = {
-	palette: PaletteManager;
+	picker: PickerManager;
 };
 
 export function CommandPalette(props: CommandPaletteProps) {
-	const palette = () => props.palette.current();
+	const snapshot = () => props.picker.current();
 
 	const visibleSlice = createMemo(() => {
-		const p = palette();
+		const p = snapshot();
 		const options = p.options;
 		const count = options.length;
 		const selected = p.selectedIndex;
@@ -50,7 +50,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 
 	const scrollbar = createMemo(() =>
 		computeScrollbar(
-			palette().options.length,
+			snapshot().options.length,
 			MAX_VISIBLE,
 			visibleSlice().offset,
 		),
@@ -59,33 +59,33 @@ export function CommandPalette(props: CommandPaletteProps) {
 	function handleListKeyDown(e: KeyEvent) {
 		if (e.name === "up") {
 			e.preventDefault();
-			props.palette.moveUp();
+			props.picker.moveUp();
 		} else if (e.name === "down") {
 			e.preventDefault();
-			props.palette.moveDown();
+			props.picker.moveDown();
 		} else if (e.name === "tab") {
-			if (props.palette.handleKeyBinding("tab")) {
+			if (props.picker.handleKeyBinding("tab")) {
 				e.preventDefault();
 			}
 		} else if (e.name === "return") {
 			e.preventDefault();
-			props.palette.selectCurrent();
+			props.picker.selectCurrent();
 		} else if (e.name === "escape") {
 			e.preventDefault();
-			props.palette.pop();
+			props.picker.pop();
 		} else if (e.ctrl && e.name) {
 			const key = `ctrl+${e.name}`;
-			if (props.palette.handleKeyBinding(key)) {
+			if (props.picker.handleKeyBinding(key)) {
 				e.preventDefault();
 			}
 		}
 	}
 
 	const bindings = () =>
-		palette().mode === "input" ? INPUT_BINDINGS : LIST_BINDINGS;
+		snapshot().mode === "input" ? INPUT_BINDINGS : LIST_BINDINGS;
 
 	return (
-		<Show when={palette().visible && palette().mode !== "modal"}>
+		<Show when={snapshot().visible && snapshot().mode !== "modal"}>
 			<box
 				position="absolute"
 				left={0}
@@ -110,8 +110,8 @@ export function CommandPalette(props: CommandPaletteProps) {
 					paddingX={1}
 				>
 					{/* Input mode */}
-					<Show when={palette().mode === "input"}>
-						<text fg={theme.textMuted}>{palette().label}</text>
+					<Show when={snapshot().mode === "input"}>
+						<text fg={theme.textMuted}>{snapshot().label}</text>
 						<box flexDirection="row" gap={1} width="100%">
 							<text flexBasis={1} fg={theme.textPrimary}>
 								{">"}
@@ -119,15 +119,15 @@ export function CommandPalette(props: CommandPaletteProps) {
 							<input
 								flexGrow={1}
 								focused
-								value={palette().inputValue}
-								onInput={(value: string) => props.palette.setInputValue(value)}
+								value={snapshot().inputValue}
+								onInput={(value: string) => props.picker.setInputValue(value)}
 								onKeyDown={(e: KeyEvent) => {
 									if (e.name === "return") {
 										e.preventDefault();
-										props.palette.submitInput();
+										props.picker.submitInput();
 									} else if (e.name === "escape") {
 										e.preventDefault();
-										props.palette.pop();
+										props.picker.pop();
 									}
 								}}
 							/>
@@ -135,10 +135,10 @@ export function CommandPalette(props: CommandPaletteProps) {
 					</Show>
 
 					{/* List mode */}
-					<Show when={palette().mode === "list"}>
+					<Show when={snapshot().mode === "list"}>
 						<box flexGrow={1} flexDirection="column" overflow="hidden">
 							<Show
-								when={palette().filterable}
+								when={snapshot().filterable}
 								fallback={
 									<box focusable focused onKeyDown={handleListKeyDown} />
 								}
@@ -150,14 +150,14 @@ export function CommandPalette(props: CommandPaletteProps) {
 									<input
 										flexGrow={1}
 										focused
-										value={palette().filterText}
-										onInput={(value: string) => props.palette.filter(value)}
+										value={snapshot().filterText}
+										onInput={(value: string) => props.picker.filter(value)}
 										onKeyDown={handleListKeyDown}
 									/>
 								</box>
 							</Show>
 
-							<Show when={palette().options.length === 0}>
+							<Show when={snapshot().options.length === 0}>
 								<text fg={theme.textMuted}>No results</text>
 							</Show>
 
@@ -166,7 +166,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 									<For each={visibleSlice().items}>
 										{(entry) => {
 											const isFocused = () =>
-												entry.index === palette().selectedIndex;
+												entry.index === snapshot().selectedIndex;
 											const fg = () =>
 												isFocused()
 													? theme.pickerFocusedText

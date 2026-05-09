@@ -1,14 +1,14 @@
 import type { KeyEvent } from "@opentui/core";
 import { Show } from "solid-js";
-import type { PaletteManager } from "../state/palette-manager";
+import type { PickerManager } from "../state/picker-manager";
 import { theme } from "./theme";
 
 export type ModalProps = {
-	palette: PaletteManager;
+	picker: PickerManager;
 };
 
 export function Modal(props: ModalProps) {
-	const modal = () => props.palette.current();
+	const modal = () => props.picker.current();
 
 	return (
 		<Show when={modal().visible && modal().mode === "modal"}>
@@ -33,7 +33,7 @@ export function Modal(props: ModalProps) {
 					onKeyDown={(e: KeyEvent) => {
 						if (e.name === "escape" || e.name === "return") {
 							e.preventDefault();
-							props.palette.pop();
+							props.picker.pop();
 						}
 					}}
 				>
