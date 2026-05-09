@@ -11,6 +11,14 @@ import {
 import type { OverlayComponentProps } from "../../app/overlay-ui";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
+import {
+	GLYPH_COLLAPSED,
+	GLYPH_COMMENT,
+	GLYPH_EDIT,
+	GLYPH_EXPANDED,
+	GLYPH_NOTE_CONTINUATION,
+	GLYPH_RANGE_BAR,
+} from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
@@ -337,13 +345,19 @@ function lineRangeLabel(range: ReviewRangeDraft): string {
 }
 
 function buildRangeMarker(height: number): string {
-	return Array.from({ length: Math.max(1, height) }, () => "┆").join("\n");
+	return Array.from(
+		{ length: Math.max(1, height) },
+		() => GLYPH_NOTE_CONTINUATION,
+	).join("\n");
 }
 
 function buildCommentMarker(height: number): string {
 	const clamped = Math.max(1, height);
-	if (clamped === 1) return "✎";
-	return ["✎", ...Array.from({ length: clamped - 1 }, () => "┆")].join("\n");
+	if (clamped === 1) return GLYPH_EDIT;
+	return [
+		GLYPH_EDIT,
+		...Array.from({ length: clamped - 1 }, () => GLYPH_NOTE_CONTINUATION),
+	].join("\n");
 }
 
 function buildLineSelection(
@@ -916,7 +930,8 @@ export function ReviewContent(props: ReviewContentProps) {
 				backgroundColor={options.selected() ? theme.bgMuted : theme.bgSurface}
 			>
 				<text fg={options.selected() ? theme.metaText : theme.textMuted}>
-					{options.expanded() ? "▾" : "▸"} {section.lineCount} unchanged line
+					{options.expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}{" "}
+					{section.lineCount} unchanged line
 					{section.lineCount === 1 ? "" : "s"}{" "}
 					{options.expanded() ? "shown" : "hidden"}
 				</text>
@@ -1005,7 +1020,7 @@ export function ReviewContent(props: ReviewContentProps) {
 							height={1}
 							width={1}
 						>
-							<text fg={theme.borderFocused}>◆</text>
+							<text fg={theme.borderFocused}>{GLYPH_COMMENT}</text>
 						</box>
 					</Show>
 					<box
@@ -1016,7 +1031,7 @@ export function ReviewContent(props: ReviewContentProps) {
 						height={1}
 						width={1}
 					>
-						<text fg={theme.borderAccent}>▎</text>
+						<text fg={theme.borderAccent}>{GLYPH_RANGE_BAR}</text>
 					</box>
 				</Show>
 			</>
@@ -1413,10 +1428,10 @@ export function ReviewContent(props: ReviewContentProps) {
 																		: theme.textSecondary
 																}
 															>
-																{expanded() ? "▾" : "▸"} {statusLabel(file)}{" "}
-																{file.path}
+																{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}{" "}
+																{statusLabel(file)} {file.path}
 																{noteCount() > 0
-																	? ` · ✎ ${formatNoteCount(noteCount())}`
+																	? ` · ${GLYPH_EDIT} ${formatNoteCount(noteCount())}`
 																	: ""}
 															</text>
 															<Show when={file.prevPath}>

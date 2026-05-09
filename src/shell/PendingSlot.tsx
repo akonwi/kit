@@ -1,8 +1,8 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import { SPINNER_FRAMES } from "./glyphs";
 import { syntaxStyle, theme } from "./theme";
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
 
 export type PanelHostProps = {

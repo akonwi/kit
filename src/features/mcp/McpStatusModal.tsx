@@ -2,6 +2,12 @@ import type { KeyEvent } from "@opentui/core";
 import { For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { DialogFrame } from "../../shell/DialogFrame";
+import {
+	GLYPH_ABORTED,
+	GLYPH_ERROR,
+	GLYPH_INACTIVE,
+	GLYPH_SUCCESS,
+} from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { LoadMcpConfigResult, McpServerRuntimeState } from "./types";
@@ -18,14 +24,14 @@ const BINDINGS: Binding[] = [{ key: "Esc/Enter", action: "close" }];
 
 function statusPrefix(state: McpServerRuntimeState): string {
 	return state.status === "connected"
-		? "✓"
+		? GLYPH_SUCCESS
 		: state.status === "connecting"
-			? "◌"
+			? GLYPH_INACTIVE
 			: state.status === "error"
-				? "✗"
+				? GLYPH_ERROR
 				: state.status === "disabled"
-					? "⊘"
-					: "○";
+					? GLYPH_ABORTED
+					: GLYPH_INACTIVE;
 }
 
 export function McpStatusModal(props: McpStatusModalProps) {

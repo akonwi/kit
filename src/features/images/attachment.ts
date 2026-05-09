@@ -4,7 +4,7 @@ import type { Attachment } from "../../shell/attachments-controller";
 
 export class ImageAttachment implements Attachment {
 	readonly type = "image";
-	readonly icon = "🖼️";
+	readonly icon = "";
 	readonly summary: string;
 
 	constructor(

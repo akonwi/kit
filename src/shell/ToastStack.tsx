@@ -1,6 +1,7 @@
 import { useTimeline } from "@opentui/solid";
 import { createSignal, For, onMount } from "solid-js";
 import type { Toast } from "../state/toasts";
+import { GLYPH_ACTIVE, GLYPH_ERROR } from "./glyphs";
 import { theme } from "./theme";
 
 function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
@@ -31,10 +32,10 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 
 	const icon = () =>
 		props.toast.variant === "error"
-			? "✗"
+			? GLYPH_ERROR
 			: props.toast.variant === "warning"
 				? "▲"
-				: "●";
+				: GLYPH_ACTIVE;
 
 	const label = () =>
 		props.toast.lines.length > 0

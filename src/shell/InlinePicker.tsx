@@ -1,6 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { createMemo, For, Show } from "solid-js";
 import type { PickerManager } from "../state/picker-manager";
+import { GLYPH_SCROLL_THUMB, GLYPH_SCROLL_TRACK } from "./glyphs";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
@@ -187,7 +188,7 @@ export function InlinePicker(props: InlinePickerProps) {
 														: theme.pickerScrollTrack
 												}
 											>
-												{isThumb ? "█" : "│"}
+												{isThumb ? GLYPH_SCROLL_THUMB : GLYPH_SCROLL_TRACK}
 											</text>
 										)}
 									</For>

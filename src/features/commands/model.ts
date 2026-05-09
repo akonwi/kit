@@ -1,3 +1,4 @@
+import { GLYPH_SUCCESS } from "../../shell/glyphs";
 import type { PickerContext } from "../../state/picker";
 import type { Command } from "./types";
 
@@ -24,7 +25,10 @@ export const modelCommand: Command = {
 					resolve();
 				},
 				options: models.map((m) => ({
-					name: m.id === currentId ? `${m.name ?? m.id} ✓` : (m.name ?? m.id),
+					name:
+						m.id === currentId
+							? `${m.name ?? m.id} ${GLYPH_SUCCESS}`
+							: (m.name ?? m.id),
 					description: m.provider,
 					value: m,
 					action: (ctx: PickerContext) => {

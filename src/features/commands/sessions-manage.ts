@@ -1,4 +1,5 @@
 import type { SessionSummary } from "../../session";
+import { GLYPH_SUCCESS } from "../../shell/glyphs";
 import type { PickerContext } from "../../state/picker";
 import type { Command } from "./types";
 import { formatSessionOption } from "./utils";
@@ -28,7 +29,7 @@ export const sessionsManageCommand: Command = {
 				const { label, description } = formatSessionOption(session);
 				const isCurrent = session.id === currentSessionId;
 				return {
-					name: isCurrent ? `${label} ✓` : label,
+					name: isCurrent ? `${label} ${GLYPH_SUCCESS}` : label,
 					description,
 					value: session,
 					action: async (ctx: PickerContext) => {

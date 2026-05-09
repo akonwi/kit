@@ -1,11 +1,11 @@
 import { useRenderer } from "@opentui/solid";
 import { createMemo, createSignal, For, Show } from "solid-js";
 import { formatTimeAgo } from "../../features/commands/utils";
+import { GLYPH_COLLAPSED, GLYPH_EXPANDED, GLYPH_HORIZONTAL } from "../glyphs";
 import { theme } from "../theme";
 import { extractAssistantParts, type HandoffSummaryMessage } from "./turns";
 
 const HORIZONTAL_PADDING = 1;
-const DIVIDER_CHAR = "─";
 
 export function HandoffSummaryEntry(props: {
 	msg: HandoffSummaryMessage;
@@ -20,7 +20,9 @@ export function HandoffSummaryEntry(props: {
 	const sourceLabel = () => props.msg.synthetic?.sourceSessionName?.trim();
 	const timestampLabel = () => formatTimeAgo(new Date(props.msg.timestamp));
 	const centerLabel = createMemo(() => {
-		const parts = [`${expanded() ? "▾" : "▸"} merged handoff summary`];
+		const parts = [
+			`${expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED} merged handoff summary`,
+		];
 		const source = sourceLabel();
 		if (source) parts.push(source);
 		parts.push(timestampLabel());
@@ -32,7 +34,7 @@ export function HandoffSummaryEntry(props: {
 			0,
 			Math.floor((contentWidth - centerLabel().length - 2) / 2),
 		);
-		return DIVIDER_CHAR.repeat(sideWidth);
+		return GLYPH_HORIZONTAL.repeat(sideWidth);
 	});
 
 	return (
@@ -63,7 +65,8 @@ export function HandoffSummaryEntry(props: {
 					paddingX={HORIZONTAL_PADDING}
 				>
 					<text fg={theme.textSecondary}>
-						{expanded() ? "▾" : "▸"} merged handoff summary
+						{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED} merged handoff
+						summary
 					</text>
 					<Show when={sourceLabel()}>
 						{(source) => <text fg={theme.textMuted}> · {source()}</text>}

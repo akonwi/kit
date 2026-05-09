@@ -3,6 +3,7 @@ import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal } from "solid-js";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
+import { GLYPH_DISMISS } from "./glyphs";
 import { MessageComposer } from "./MessageComposer";
 import { theme } from "./theme";
 
@@ -167,13 +168,15 @@ export function ComposerDock(props: ComposerDockProps) {
 						alignItems="center"
 					>
 						<text fg={theme.attachmentText}>
-							{attachment.icon} {attachment.summary}
+							{attachment.icon
+								? `${attachment.icon} ${attachment.summary}`
+								: attachment.summary}
 						</text>
 						<text
 							fg={theme.textMuted}
 							onMouseUp={() => props.attachments.detach(attachment.id)}
 						>
-							×
+							{GLYPH_DISMISS}
 						</text>
 					</box>
 				))}

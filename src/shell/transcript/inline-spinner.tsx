@@ -1,7 +1,7 @@
 import { createSignal, onCleanup } from "solid-js";
+import { SPINNER_FRAMES } from "../glyphs";
 import { theme } from "../theme";
 
-const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const SPINNER_INTERVAL = 80;
 
 export function InlineSpinner() {

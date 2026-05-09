@@ -1,5 +1,11 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
+import {
+	GLYPH_ABORTED,
+	GLYPH_ERROR,
+	GLYPH_INACTIVE,
+	GLYPH_SUCCESS,
+} from "../../shell/glyphs";
 import type { McpManager } from "./manager";
 import type { McpToolMetadata } from "./types";
 
@@ -73,14 +79,14 @@ function renderStatus(manager: McpManager): string {
 		...states.map((state) => {
 			const status =
 				state.status === "connected"
-					? "✓"
+					? GLYPH_SUCCESS
 					: state.status === "connecting"
-						? "◌"
+						? GLYPH_INACTIVE
 						: state.status === "error"
-							? "✗"
+							? GLYPH_ERROR
 							: state.status === "disabled"
-								? "⊘"
-								: "○";
+								? GLYPH_ABORTED
+								: GLYPH_INACTIVE;
 			const tail = state.lastError ? ` · ${state.lastError}` : "";
 			const count = state.toolCount > 0 ? ` · ${state.toolCount} tools` : "";
 			const cache = state.cached ? " · cached" : "";

@@ -6,6 +6,13 @@ import type {
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
+import {
+	GLYPH_ABORTED,
+	GLYPH_COLLAPSED,
+	GLYPH_ERROR,
+	GLYPH_EXPANDED,
+	GLYPH_SUCCESS,
+} from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
@@ -24,7 +31,7 @@ function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 		<box flexDirection="row" gap={1}>
 			<Show
 				when={!props.aborted}
-				fallback={<text fg={theme.textMuted}>⊘</text>}
+				fallback={<text fg={theme.textMuted}>{GLYPH_ABORTED}</text>}
 			>
 				<InlineSpinner />
 			</Show>
@@ -64,9 +71,9 @@ function LiveToolCall(props: {
 		return lines();
 	};
 	const prefix = () => {
-		if (props.aborted) return "⊘";
+		if (props.aborted) return GLYPH_ABORTED;
 		if (props.state !== "ended") return null;
-		return props.isError ? "✗" : "✓";
+		return props.isError ? GLYPH_ERROR : GLYPH_SUCCESS;
 	};
 	const headerColor = () => {
 		if (props.aborted) return theme.textMuted;
@@ -99,7 +106,9 @@ function LiveToolCall(props: {
 					{formatToolArgs(toolArgs())}
 				</text>
 				<Show when={hasOutput() && !props.aborted}>
-					<text fg={theme.metaText}>{expanded() ? "▾" : "▸"}</text>
+					<text fg={theme.metaText}>
+						{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}
+					</text>
 				</Show>
 			</box>
 			<Show when={expanded()}>
@@ -121,7 +130,11 @@ function CompletedToolCall(props: {
 	const [expanded, setExpanded] = createSignal(false);
 	const renderer = useRenderer();
 	const lines = extractToolResultLines(props.result);
-	const prefix = props.aborted ? "⊘" : props.result.isError ? "✗" : "✓";
+	const prefix = props.aborted
+		? GLYPH_ABORTED
+		: props.result.isError
+			? GLYPH_ERROR
+			: GLYPH_SUCCESS;
 	const headerColor = props.aborted
 		? theme.textMuted
 		: props.result.isError
@@ -155,7 +168,9 @@ function CompletedToolCall(props: {
 					{formatToolArgs(props.tc.arguments)}
 				</text>
 				<Show when={hasOutput && !props.aborted}>
-					<text fg={theme.metaText}>{expanded() ? "▾" : "▸"}</text>
+					<text fg={theme.metaText}>
+						{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}
+					</text>
 				</Show>
 			</box>
 			<Show when={expanded()}>

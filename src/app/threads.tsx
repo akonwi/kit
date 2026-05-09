@@ -18,6 +18,7 @@ import {
 	updateSession,
 } from "../session";
 import { loadSettings } from "../settings";
+import { GLYPH_FOCUS } from "../shell/glyphs";
 import { type Binding, HintBar } from "../shell/HintBar";
 import { resolveAndApplyTheme, theme } from "../shell/theme";
 
@@ -198,7 +199,7 @@ function ThreadPicker(props: {
 								<text
 									fg={focused() ? theme.pickerFocusedText : theme.textPrimary}
 								>
-									{focused() ? "› " : "  "}
+									{focused() ? `${GLYPH_FOCUS} ` : "  "}
 									{opt.label} {opt.description}
 								</text>
 							</box>

@@ -1,8 +1,7 @@
 import type { JSX } from "solid-js";
 import { createSignal, Show } from "solid-js";
+import { GLYPH_HORIZONTAL } from "./glyphs";
 import { theme } from "./theme";
-
-const BORDER_CHAR = "─";
 
 export type ScreenHeaderProps = {
 	left: JSX.Element;
@@ -65,7 +64,7 @@ export function ScreenHeader(props: ScreenHeaderProps) {
 					left={1}
 					fg={props.progressColor ?? theme.borderAccent}
 				>
-					{BORDER_CHAR.repeat(filled())}
+					{GLYPH_HORIZONTAL.repeat(filled())}
 				</text>
 			</Show>
 		</box>
