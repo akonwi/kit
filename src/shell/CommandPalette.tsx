@@ -105,8 +105,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 					marginTop={12}
 					flexDirection="column"
 					backgroundColor={theme.bgSurface}
-					border
-					borderColor={theme.borderFocused}
+					paddingTop={1}
 					paddingX={1}
 				>
 					{/* Input mode */}

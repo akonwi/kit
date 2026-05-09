@@ -53,8 +53,6 @@ export function InlinePicker(props: InlinePickerProps) {
 				left={0}
 				width="100%"
 				zIndex={100}
-				border
-				borderColor={theme.pickerBorder}
 				backgroundColor={theme.pickerBg}
 				paddingX={1}
 				flexDirection="column"
