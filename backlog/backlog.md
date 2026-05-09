@@ -13,6 +13,13 @@ Delete done items.
 
 ## Active items
 - [ ] idea: explore useful Unicode text glyphs for TUI affordances and status labels
+- [ ] feat: configuration for tool calls that require approval
+  - global + project level
+  - would be similar to guided_questions modal and ask for yes/no , like an AlertDialog in shadcn
+- [ ] refactor: decompose `SettingsContent` into composed row components per field type
+  - extract `BooleanSettingsRow`, `InputSettingsRow`, `SelectSettingsRow`
+  - lift editing state into a settings context
+- [ ] refactor: shift the plugin API to be more like [Amp](https://ampcode.com/manual#plugins) and Pi
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
   - see `backlog/plugin-chrome-and-capabilities.md`
 - [ ] idea: formalize plugin contribution to the status footer
@@ -28,4 +35,3 @@ Delete done items.
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
   - see `backlog/agent-runtime-extraction-for-subagents.md`
-- [ ] refactor: shift the plugin API to be more like [Amp](https://ampcode.com/manual#plugins) and Pi

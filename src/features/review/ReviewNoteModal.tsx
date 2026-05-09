@@ -2,6 +2,7 @@ import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createSignal } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import { DialogFrame } from "../../shell/DialogFrame";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { MessageComposer } from "../../shell/MessageComposer";
 import { theme } from "../../shell/theme";
@@ -43,46 +44,31 @@ export function ReviewNoteModal(props: ReviewNoteModalProps) {
 	});
 
 	return (
-		<box
-			{...props.surfaceProps}
-			position="absolute"
-			left={0}
-			top={0}
-			width="100%"
-			height="100%"
-			justifyContent="center"
-			alignItems="center"
-			backgroundColor={theme.modalBackdrop}
+		<DialogFrame
+			width="72%"
+			maxWidth={96}
+			minWidth={52}
+			surfaceProps={props.surfaceProps}
 		>
-			<box width="72%" maxWidth={96} minWidth={52} flexDirection="column">
-				<box
-					backgroundColor={theme.bgSurface}
-					padding={1}
-					flexDirection="column"
-					gap={1}
-					flexGrow={1}
-				>
-					<text fg={theme.textPrimary}>{props.title}</text>
-					{props.subtitle ? (
-						<text fg={theme.textMuted}>{props.subtitle}</text>
-					) : null}
-					<MessageComposer
-						ref={(value) => {
-							textareaRef = value as typeof textareaRef;
-						}}
-						initialValue={props.initialValue ?? ""}
-						placeholder={props.placeholder ?? "Type your review note..."}
-						maxHeight={10}
-						keyBindings={[
-							{ name: "return", action: "submit" },
-							{ name: "return", shift: true, action: "newline" },
-						]}
-						onContentChange={() => setValue(textareaRef?.plainText ?? "")}
-						onSubmit={save}
-					/>
-					<HintBar bindings={BINDINGS} />
-				</box>
-			</box>
-		</box>
+			<text fg={theme.textPrimary}>{props.title}</text>
+			{props.subtitle ? (
+				<text fg={theme.textMuted}>{props.subtitle}</text>
+			) : null}
+			<MessageComposer
+				ref={(value) => {
+					textareaRef = value as typeof textareaRef;
+				}}
+				initialValue={props.initialValue ?? ""}
+				placeholder={props.placeholder ?? "Type your review note..."}
+				maxHeight={10}
+				keyBindings={[
+					{ name: "return", action: "submit" },
+					{ name: "return", shift: true, action: "newline" },
+				]}
+				onContentChange={() => setValue(textareaRef?.plainText ?? "")}
+				onSubmit={save}
+			/>
+			<HintBar bindings={BINDINGS} />
+		</DialogFrame>
 	);
 }

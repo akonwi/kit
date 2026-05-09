@@ -5,6 +5,7 @@ import { theme } from "../theme";
 import { extractAssistantParts, type HandoffSummaryMessage } from "./turns";
 
 const HORIZONTAL_PADDING = 1;
+const DIVIDER_CHAR = "─";
 
 export function HandoffSummaryEntry(props: {
 	msg: HandoffSummaryMessage;
@@ -31,7 +32,7 @@ export function HandoffSummaryEntry(props: {
 			0,
 			Math.floor((contentWidth - centerLabel().length - 2) / 2),
 		);
-		return "─".repeat(sideWidth);
+		return DIVIDER_CHAR.repeat(sideWidth);
 	});
 
 	return (
