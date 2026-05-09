@@ -27,7 +27,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 		snapshot().mode === "input" ? INPUT_BINDINGS : LIST_BINDINGS;
 
 	return (
-		<Show when={snapshot().visible && snapshot().mode !== "modal"}>
+		<Show when={snapshot().visible}>
 			<DialogFrame
 				width="80%"
 				maxWidth={80}

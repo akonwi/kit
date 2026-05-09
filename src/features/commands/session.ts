@@ -1,9 +1,11 @@
+import { createComponent } from "solid-js";
+import { DebugModal } from "./DebugModal";
 import type { Command } from "./types";
 
 export const sessionCommand: Command = {
 	name: "debug",
 	description: "Show runtime and session debug details",
-	execute({ runtime, picker }) {
+	async execute({ runtime, openCustomOverlay }) {
 		const session = runtime.getSession();
 		const turns = runtime.getTurns();
 		const messages = runtime.getMessages();
@@ -32,30 +34,34 @@ export const sessionCommand: Command = {
 			pluginLines.push(...lines);
 		}
 
-		picker.show({
-			mode: "modal",
-			title: "Debug",
-			lines: [
-				`ID: ${session.id}`,
-				`Name: ${session.name || "(unnamed)"}`,
-				`Parent: ${session.parentSessionId ?? "(none)"}`,
-				...(session.forkedFromTurnId
-					? [`Forked from turn: ${session.forkedFromTurnId}`]
-					: []),
-				`CWD: ${session.cwd}`,
-				`Model: ${runtime.getCurrentModelId() ?? "none"}`,
-				`Thinking: ${status.thinkingLevel}`,
-				contextLine,
-				`Streaming: ${status.isStreaming ? "yes" : "no"}`,
-				`Pending queued messages: ${pending}`,
-				`Turns: ${turns.length}`,
-				`Messages: ${messages.length} total (${userCount} user, ${assistantCount} assistant, ${toolResultCount} tool results)`,
-				`Context files: ${contextFiles.length}`,
-				...contextFiles.map((file) => `- ${file.path}`),
-				...pluginLines,
-				`Created: ${new Date(session.createdAt).toLocaleString()}`,
-				`Updated: ${new Date(session.updatedAt).toLocaleString()}`,
-			],
-		});
+		const lines = [
+			`ID: ${session.id}`,
+			`Name: ${session.name || "(unnamed)"}`,
+			`Parent: ${session.parentSessionId ?? "(none)"}`,
+			...(session.forkedFromTurnId
+				? [`Forked from turn: ${session.forkedFromTurnId}`]
+				: []),
+			`CWD: ${session.cwd}`,
+			`Model: ${runtime.getCurrentModelId() ?? "none"}`,
+			`Thinking: ${status.thinkingLevel}`,
+			contextLine,
+			`Streaming: ${status.isStreaming ? "yes" : "no"}`,
+			`Pending queued messages: ${pending}`,
+			`Turns: ${turns.length}`,
+			`Messages: ${messages.length} total (${userCount} user, ${assistantCount} assistant, ${toolResultCount} tool results)`,
+			`Context files: ${contextFiles.length}`,
+			...contextFiles.map((file) => `- ${file.path}`),
+			...pluginLines,
+			`Created: ${new Date(session.createdAt).toLocaleString()}`,
+			`Updated: ${new Date(session.updatedAt).toLocaleString()}`,
+		];
+
+		await openCustomOverlay<void>((props) =>
+			createComponent(DebugModal, {
+				title: "Debug",
+				lines,
+				onClose: () => props.done(),
+			}),
+		);
 	},
 };

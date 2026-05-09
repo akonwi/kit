@@ -47,13 +47,6 @@ export type PickerConfig =
 			onSubmit: (value: string, ctx: PickerContext) => void;
 			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
-	  }
-	| {
-			mode: "modal";
-			title: string;
-			lines: string[];
-			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
-			onDismiss?: () => void;
 	  };
 
 /** Internal entry stored on the stack */
@@ -78,17 +71,12 @@ export type PickerEntry = {
 			inputValue: string;
 			onSubmit: (value: string, ctx: PickerContext) => void;
 	  }
-	| {
-			mode: "modal";
-			title: string;
-			lines: string[];
-	  }
 );
 
 /** Derived view for rendering — strips functions and internal state from entries */
 export type PickerSnapshot = {
 	visible: boolean;
-	mode: "list" | "input" | "modal";
+	mode: "list" | "input";
 	// list mode
 	options: Array<{ name: string; description: string; argHint?: string }>;
 	selectedIndex: number;
@@ -98,9 +86,6 @@ export type PickerSnapshot = {
 	// input mode
 	label: string;
 	inputValue: string;
-	// modal mode
-	modalTitle: string;
-	modalLines: string[];
 };
 
 export const emptySnapshot: PickerSnapshot = {
@@ -113,8 +98,6 @@ export const emptySnapshot: PickerSnapshot = {
 	hint: "",
 	label: "",
 	inputValue: "",
-	modalTitle: "",
-	modalLines: [],
 };
 
 export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
@@ -129,23 +112,6 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 			hint: "",
 			label: entry.label,
 			inputValue: entry.inputValue,
-			modalTitle: "",
-			modalLines: [],
-		};
-	}
-	if (entry.mode === "modal") {
-		return {
-			visible: true,
-			mode: "modal",
-			options: [],
-			selectedIndex: 0,
-			filterable: false,
-			filterText: "",
-			hint: "",
-			label: "",
-			inputValue: "",
-			modalTitle: entry.title,
-			modalLines: entry.lines,
 		};
 	}
 	return {
@@ -162,7 +128,5 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 		hint: entry.hint,
 		label: "",
 		inputValue: "",
-		modalTitle: "",
-		modalLines: [],
 	};
 }

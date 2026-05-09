@@ -16,7 +16,6 @@ import type { ComposerController } from "./composer-controller";
 import { HeaderBar } from "./HeaderBar";
 import { InlinePicker } from "./InlinePicker";
 import { PendingSlot } from "./PendingSlot";
-import { PickerModal } from "./PickerModal";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
@@ -112,8 +111,7 @@ export function AppShell(props: AppShellProps) {
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
 
-			{/* Composer picker only serves @/# references — modals come from commandPalette */}
-			<PickerModal picker={props.controller.commandPalette} />
+			{/* Composer picker only serves @/# references */}
 			<CommandPalette picker={props.controller.commandPalette} />
 			<Show when={props.overlays().length > 0}>
 				<For each={props.overlays()}>

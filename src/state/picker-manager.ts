@@ -70,16 +70,8 @@ export function createPickerManager() {
 				inputValue: config.inputValue ?? "",
 				onSubmit: config.onSubmit,
 			};
-		} else if ("mode" in config && config.mode === "modal") {
-			entry = {
-				id,
-				onDismiss: config.onDismiss,
-				mode: "modal",
-				title: config.title,
-				lines: config.lines,
-			};
 		} else {
-			const opts = config as Exclude<PickerConfig, { mode: "input" | "modal" }>;
+			const opts = config as Exclude<PickerConfig, { mode: "input" }>;
 			entry = {
 				id,
 				onDismiss: opts.onDismiss,
