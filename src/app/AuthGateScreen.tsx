@@ -4,7 +4,7 @@ import { useKeyboard } from "@opentui/solid";
 import { createSignal, Show } from "solid-js";
 import { LoginModal, type LoginOutcome } from "../features/login/LoginModal";
 import type { Session } from "../session";
-import { GLYPH_HORIZONTAL_HEAVY } from "../shell/glyphs";
+import { HEAVY_LINE } from "../shell/glyphs";
 import { type Binding, HintBar } from "../shell/HintBar";
 import { ScreenHeader } from "../shell/ScreenHeader";
 import { ToastStack } from "../shell/ToastStack";
@@ -87,9 +87,7 @@ export function AuthGateScreen(props: AuthGateScreenProps) {
 				<box flexDirection="column" alignItems="center" gap={1}>
 					<box flexDirection="column" alignItems="center" gap={0}>
 						<text fg={theme.textPrimary}>k i t</text>
-						<text fg={theme.borderAccent}>
-							{GLYPH_HORIZONTAL_HEAVY.repeat(11)}
-						</text>
+						<text fg={theme.borderAccent}>{HEAVY_LINE.repeat(11)}</text>
 					</box>
 					<text fg={theme.textSecondary}>
 						Log in to an AI provider to get started.

@@ -1,9 +1,7 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { SPINNER_FRAMES } from "./glyphs";
+import { Spinner } from "./Spinner";
 import { syntaxStyle, theme } from "./theme";
-
-const SPINNER_INTERVAL = 80;
 
 export type PanelHostProps = {
 	runtime: AgentRuntime;
@@ -13,16 +11,6 @@ export type PanelHostProps = {
 type PendingState = {
 	content: string;
 };
-
-function Spinner() {
-	const [frame, setFrame] = createSignal(0);
-	const timer = setInterval(() => {
-		setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
-	}, SPINNER_INTERVAL);
-	onCleanup(() => clearInterval(timer));
-
-	return <text fg={theme.panelText}>{SPINNER_FRAMES[frame()]}</text>;
-}
 
 function normalizeThinkingText(text: string): string {
 	return text
@@ -213,7 +201,7 @@ export function PendingSlot(props: PanelHostProps) {
 				gap={1}
 			>
 				<Show when={pending().content.length > 0}>
-					<Spinner />
+					<Spinner fg={theme.panelText} />
 					<box flexGrow={1} height={1} overflow="hidden">
 						<markdown
 							content={pending().content}

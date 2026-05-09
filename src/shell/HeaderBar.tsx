@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { GLYPH_ACTIVE, GLYPH_INACTIVE } from "./glyphs";
+import { CIRCLE_EMPTY, CIRCLE_FILLED } from "./glyphs";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
 
@@ -41,13 +41,13 @@ export function HeaderBar(props: HeaderBarProps) {
 		setSettings(e.settings),
 	);
 	const bell = () =>
-		settings().bells ? `${GLYPH_ACTIVE} bell` : `${GLYPH_INACTIVE} bell`;
+		settings().bells ? `${CIRCLE_FILLED} bell` : `${CIRCLE_EMPTY} bell`;
 	const speech = () => {
 		const value = settings().speech;
 		const on =
 			(typeof value === "boolean" && value) ||
 			(typeof value === "object" && "enabled" in value && value.enabled);
-		return on ? `${GLYPH_ACTIVE} speech` : `${GLYPH_INACTIVE} speech`;
+		return on ? `${CIRCLE_FILLED} speech` : `${CIRCLE_EMPTY} speech`;
 	};
 	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo);
 	const unsubscribeAgentInfo = props.runtime.subscribe(

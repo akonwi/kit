@@ -127,12 +127,19 @@ Extract binding arrays into top-level constants keyed by mode (see `threads.tsx`
 - **Picker/list selection**: Inverted colors (`pickerFocusedBg`/`pickerFocusedText`).
 
 ### Status Indicators
-- `✓` (green) — success
-- `✗` (red) — error
-- `⊘` (muted) — aborted/cancelled
-- Braille spinner `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` at 80ms — loading/pending
-- `▸`/`▾` — collapsed/expanded
-- `●`/`○` — dirty/clean (git state)
+
+All glyphs are defined in `src/shell/glyphs.ts`. Import named constants; never use inline Unicode strings in components.
+
+- `CHECK` (`✓`) — success, current selection
+- `CROSS` (`✗`) — error, failure
+- `CIRCLE_SLASH` (`⊘`) — aborted/cancelled
+- `CIRCLE_FILLED` (`●`) — on, active, dirty
+- `CIRCLE_EMPTY` (`○`) — off, inactive, clean, idle
+- `TRIANGLE_RIGHT`/`TRIANGLE_DOWN` (`▸`/`▾`) — collapsed/expanded
+- `CHEVRON_RIGHT` (`›`) — focused item indicator
+- `TIMES` (`×`) — close/dismiss
+- `MIDDLE_DOT` (`·`) — inline metadata separator
+- `SPINNER_FRAMES` — braille spinner at 80ms
 
 ### Empty States
 - Centered vertically and horizontally in the content area
@@ -144,6 +151,7 @@ Extract binding arrays into top-level constants keyed by mode (see `threads.tsx`
 
 - **Too much chrome**: If a view has more than 2-3 layers of nested borders visible at once, strip the inner ones. Let the outermost container do the framing.
 - **Hardcoded colors**: Every color string must come from `theme.ts`. No inline hex values.
+- **Hardcoded glyphs**: Every Unicode glyph must come from `src/shell/glyphs.ts`. No inline Unicode strings in components.
 - **Hardcoded widths**: Use `width="100%"` or measured refs, never magic numbers like `"─".repeat(80)`.
 - **Inconsistent hint bars**: Always use the `HintBar` component. Never render keyboard hints as bare text.
 - **Oversized settings rows**: Settings rows should have uniform fixed height with truncated descriptions.

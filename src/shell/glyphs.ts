@@ -3,65 +3,72 @@
  *
  * All glyphs used in the UI should be defined here. Components import
  * named constants rather than scattering inline Unicode strings.
+ *
+ * Constants are named after what the glyph IS, not how it's used.
  */
 
-// ── Status indicators ───────────────────────────────────────────────
+// ── Marks ───────────────────────────────────────────────────────────
 
-/** Success / completed */
-export const GLYPH_SUCCESS = "✓";
-/** Error / failure */
-export const GLYPH_ERROR = "✗";
-/** Aborted / cancelled */
-export const GLYPH_ABORTED = "⊘";
-/** Active / on / dirty */
-export const GLYPH_ACTIVE = "●";
-/** Inactive / off / clean / idle */
-export const GLYPH_INACTIVE = "○";
+/** ✓ */
+export const CHECK = "✓";
+/** ✗ */
+export const CROSS = "✗";
+/** ⊘ */
+export const CIRCLE_SLASH = "⊘";
+/** ✎ */
+export const PENCIL = "✎";
+/** ◆ */
+export const DIAMOND = "◆";
 
-// ── Expand / collapse ───────────────────────────────────────────────
+// ── Circles ─────────────────────────────────────────────────────────
 
-/** Collapsed (right-pointing) */
-export const GLYPH_COLLAPSED = "▸";
-/** Expanded (down-pointing) */
-export const GLYPH_EXPANDED = "▾";
+/** ● */
+export const CIRCLE_FILLED = "●";
+/** ○ */
+export const CIRCLE_EMPTY = "○";
 
-// ── Structural ──────────────────────────────────────────────────────
+// ── Triangles ───────────────────────────────────────────────────────
 
-/** Horizontal rule / border */
-export const GLYPH_HORIZONTAL = "─";
-/** Heavy horizontal (accent underline) */
-export const GLYPH_HORIZONTAL_HEAVY = "━";
-/** Middle dot separator */
-export const GLYPH_SEPARATOR = "·";
-/** Focused item indicator */
-export const GLYPH_FOCUS = "›";
-/** Dismiss / close */
-export const GLYPH_DISMISS = "×";
+/** ▸ */
+export const TRIANGLE_RIGHT = "▸";
+/** ▾ */
+export const TRIANGLE_DOWN = "▾";
+/** ▲ */
+export const TRIANGLE_UP = "▲";
 
-// ── Review ──────────────────────────────────────────────────────────
+// ── Lines ───────────────────────────────────────────────────────────
 
-/** Edit / note marker */
-export const GLYPH_EDIT = "✎";
-/** Saved comment marker */
-export const GLYPH_COMMENT = "◆";
-/** Range anchor bar */
-export const GLYPH_RANGE_BAR = "▎";
-/** Multi-line note continuation */
-export const GLYPH_NOTE_CONTINUATION = "┆";
+/** ─ */
+export const HORIZONTAL_LINE = "─";
+/** ━ */
+export const HEAVY_LINE = "━";
+/** │ */
+export const VERTICAL_LINE = "│";
+/** ▎ */
+export const THIN_BAR = "▎";
+/** ┆ */
+export const DASHED_VERTICAL = "┆";
 
-// ── Scrollbar ───────────────────────────────────────────────────────
+// ── Punctuation / separators ────────────────────────────────────────
 
-/** Scrollbar thumb (filled) */
-export const GLYPH_SCROLL_THUMB = "█";
-/** Scrollbar track */
-export const GLYPH_SCROLL_TRACK = "│";
+/** · */
+export const MIDDLE_DOT = "·";
+/** › */
+export const CHEVRON_RIGHT = "›";
+/** × */
+export const TIMES = "×";
 
-// ── Tree ────────────────────────────────────────────────────────────
+// ── Blocks ──────────────────────────────────────────────────────────
 
-/** Tree branch (non-last child) */
-export const GLYPH_TREE_BRANCH = "├─ ";
-/** Tree branch (last child) */
-export const GLYPH_TREE_LAST = "└─ ";
+/** █ */
+export const FULL_BLOCK = "█";
+
+// ── Tree connectors ─────────────────────────────────────────────────
+
+/** ├─  */
+export const TREE_BRANCH = "├─ ";
+/** └─  */
+export const TREE_CORNER = "└─ ";
 
 // ── Spinner ─────────────────────────────────────────────────────────
 

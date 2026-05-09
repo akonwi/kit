@@ -1,11 +1,11 @@
 import type { BorderSides } from "@opentui/core";
 import { createSignal, For, Show } from "solid-js";
 import {
-	GLYPH_ABORTED,
-	GLYPH_COLLAPSED,
-	GLYPH_ERROR,
-	GLYPH_EXPANDED,
-	GLYPH_SUCCESS,
+	CHECK,
+	CIRCLE_SLASH,
+	CROSS,
+	TRIANGLE_DOWN,
+	TRIANGLE_RIGHT,
 } from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import { InlineSpinner } from "./inline-spinner";
@@ -20,10 +20,10 @@ export function BashEntry(props: { msg: BashExecutionMessage }) {
 		props.msg.pending
 			? null
 			: props.msg.cancelled
-				? GLYPH_ABORTED
+				? CIRCLE_SLASH
 				: props.msg.exitCode === 0
-					? GLYPH_SUCCESS
-					: GLYPH_ERROR;
+					? CHECK
+					: CROSS;
 	const prefixColor = () =>
 		props.msg.pending
 			? theme.toolText
@@ -72,7 +72,7 @@ export function BashEntry(props: { msg: BashExecutionMessage }) {
 				/>
 				<Show when={!props.msg.pending && hasOutput()}>
 					<text fg={theme.metaText}>
-						{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}
+						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>

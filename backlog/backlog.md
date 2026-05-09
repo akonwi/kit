@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] idea: explore useful Unicode text glyphs for TUI affordances and status labels
 - [ ] feat: configuration for tool calls that require approval
   - global + project level
   - would be similar to guided_questions modal and ask for yes/no , like an AlertDialog in shadcn

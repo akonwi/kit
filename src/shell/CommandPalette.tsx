@@ -1,7 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { createMemo, For, Show } from "solid-js";
 import type { PickerManager } from "../state/picker-manager";
-import { GLYPH_SCROLL_THUMB, GLYPH_SCROLL_TRACK } from "./glyphs";
+import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
 import { type Binding, HintBar } from "./HintBar";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
@@ -226,7 +226,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 																: theme.pickerScrollTrack
 														}
 													>
-														{isThumb ? GLYPH_SCROLL_THUMB : GLYPH_SCROLL_TRACK}
+														{isThumb ? FULL_BLOCK : VERTICAL_LINE}
 													</text>
 												)}
 											</For>

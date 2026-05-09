@@ -1,5 +1,5 @@
 import { getAvailableThinkingLevels } from "../../runtime/thinking-levels";
-import { GLYPH_SUCCESS } from "../../shell/glyphs";
+import { CHECK } from "../../shell/glyphs";
 import type { PickerContext } from "../../state/picker";
 import type { Command } from "./types";
 
@@ -18,7 +18,7 @@ export const thinkingCommand: Command = {
 			filterable: false,
 			hint: "Select a thinking level",
 			options: availableLevels.map((level) => ({
-				name: level === current ? `${level} ${GLYPH_SUCCESS}` : level,
+				name: level === current ? `${level} ${CHECK}` : level,
 				description: level === current ? "Current" : "",
 				value: level,
 				action: (ctx: PickerContext) => {

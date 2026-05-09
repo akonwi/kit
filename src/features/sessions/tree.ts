@@ -1,5 +1,5 @@
 import type { SessionSummary } from "../../session";
-import { GLYPH_TREE_BRANCH, GLYPH_TREE_LAST } from "../../shell/glyphs";
+import { TREE_BRANCH, TREE_CORNER } from "../../shell/glyphs";
 
 export type SessionTreeNode = {
 	session: SessionSummary;
@@ -129,7 +129,7 @@ export function formatSessionTreePrefix(row: SessionTreeRow): string {
 		.slice(1)
 		.map((hasNext) => (hasNext ? "│  " : "   "))
 		.join("");
-	const branch = row.isLastChild ? GLYPH_TREE_LAST : GLYPH_TREE_BRANCH;
+	const branch = row.isLastChild ? TREE_CORNER : TREE_BRANCH;
 	return `${columns}${branch}`;
 }
 

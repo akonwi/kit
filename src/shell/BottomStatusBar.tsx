@@ -1,7 +1,7 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { ComposerInputMode } from "./ComposerDock";
-import { GLYPH_ACTIVE, GLYPH_INACTIVE } from "./glyphs";
+import { CIRCLE_EMPTY, CIRCLE_FILLED } from "./glyphs";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
@@ -20,7 +20,9 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	);
 
 	const pending = () =>
-		pendingMessageCount() > 0 ? `queue:${pendingMessageCount()}` : "";
+		pendingMessageCount() > 0
+			? `queued messages: ${pendingMessageCount()}`
+			: "";
 	const composerModeLabel = () => {
 		switch (props.composerMode) {
 			case "bash":
@@ -45,7 +47,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	const branch = () => vcs().branch;
 	const location = () =>
 		branch() != null
-			? `${props.cwd} (${branch()}${vcs().dirty ? ` ${GLYPH_ACTIVE}` : ` ${GLYPH_INACTIVE}`})`
+			? `${props.cwd} (${branch()}${vcs().dirty ? ` ${CIRCLE_FILLED}` : ` ${CIRCLE_EMPTY}`})`
 			: props.cwd;
 
 	onCleanup(() => {

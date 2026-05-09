@@ -8,7 +8,7 @@ import type {
 	ImageMessagePart,
 	UserMultipartMessage,
 } from "../../messages/parts";
-import { GLYPH_INACTIVE } from "../glyphs";
+import { CIRCLE_EMPTY } from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import {
 	extractPromptCommandSynthetic,
@@ -45,7 +45,7 @@ function CodeReviewPartEntry(props: {
 				fg={props.aborted ? theme.textMuted : theme.attachmentText}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
-				{GLYPH_INACTIVE} {summary}
+				{CIRCLE_EMPTY} {summary}
 			</text>
 		</box>
 	);
@@ -78,7 +78,7 @@ function ImagePartEntry(props: {
 			}}
 		>
 			<text fg={props.aborted ? theme.textMuted : theme.attachmentText}>
-				{label}
+				🖼️ {label}
 			</text>
 		</box>
 	);

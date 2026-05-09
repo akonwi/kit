@@ -13,7 +13,7 @@ export type CodeReviewSubmission = {
 
 export class CodeReviewAttachment implements Attachment {
 	readonly type = "code-review";
-	readonly icon = "";
+	readonly icon = "✎";
 	readonly summary: string;
 
 	constructor(

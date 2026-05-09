@@ -1,6 +1,6 @@
 import "../../runtime/custom-messages";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { GLYPH_HORIZONTAL_HEAVY } from "../glyphs";
+import { HEAVY_LINE } from "../glyphs";
 import { theme } from "../theme";
 import {
 	type LiveToolExecutionMap,
@@ -109,9 +109,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 					>
 						<box flexDirection="column" alignItems="center" gap={0}>
 							<text fg={theme.textPrimary}>k i t</text>
-							<text fg={theme.borderAccent}>
-								{GLYPH_HORIZONTAL_HEAVY.repeat(11)}
-							</text>
+							<text fg={theme.borderAccent}>{HEAVY_LINE.repeat(11)}</text>
 						</box>
 						<text fg={theme.textSecondary}>Ask a question or give a task.</text>
 						<text fg={theme.textPlaceholder}>/ to open commands</text>

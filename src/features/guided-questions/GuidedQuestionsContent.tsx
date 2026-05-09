@@ -3,7 +3,7 @@ import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { DialogFrame } from "../../shell/DialogFrame";
-import { GLYPH_FOCUS } from "../../shell/glyphs";
+import { CHEVRON_RIGHT } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type {
@@ -218,7 +218,7 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 													: theme.bgTransparent
 											}
 										>
-											{isFocused() ? `${GLYPH_FOCUS} ` : "  "}
+											{isFocused() ? `${CHEVRON_RIGHT} ` : "  "}
 											{isMultiSelectQuestion()
 												? `${isSelected() ? "[x]" : "[ ]"} ${option}`
 												: option}

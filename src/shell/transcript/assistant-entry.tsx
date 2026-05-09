@@ -7,11 +7,11 @@ import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
 import {
-	GLYPH_ABORTED,
-	GLYPH_COLLAPSED,
-	GLYPH_ERROR,
-	GLYPH_EXPANDED,
-	GLYPH_SUCCESS,
+	CHECK,
+	CIRCLE_SLASH,
+	CROSS,
+	TRIANGLE_DOWN,
+	TRIANGLE_RIGHT,
 } from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
@@ -31,7 +31,7 @@ function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 		<box flexDirection="row" gap={1}>
 			<Show
 				when={!props.aborted}
-				fallback={<text fg={theme.textMuted}>{GLYPH_ABORTED}</text>}
+				fallback={<text fg={theme.textMuted}>{CIRCLE_SLASH}</text>}
 			>
 				<InlineSpinner />
 			</Show>
@@ -71,9 +71,9 @@ function LiveToolCall(props: {
 		return lines();
 	};
 	const prefix = () => {
-		if (props.aborted) return GLYPH_ABORTED;
+		if (props.aborted) return CIRCLE_SLASH;
 		if (props.state !== "ended") return null;
-		return props.isError ? GLYPH_ERROR : GLYPH_SUCCESS;
+		return props.isError ? CROSS : CHECK;
 	};
 	const headerColor = () => {
 		if (props.aborted) return theme.textMuted;
@@ -107,7 +107,7 @@ function LiveToolCall(props: {
 				</text>
 				<Show when={hasOutput() && !props.aborted}>
 					<text fg={theme.metaText}>
-						{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}
+						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
@@ -131,10 +131,10 @@ function CompletedToolCall(props: {
 	const renderer = useRenderer();
 	const lines = extractToolResultLines(props.result);
 	const prefix = props.aborted
-		? GLYPH_ABORTED
+		? CIRCLE_SLASH
 		: props.result.isError
-			? GLYPH_ERROR
-			: GLYPH_SUCCESS;
+			? CROSS
+			: CHECK;
 	const headerColor = props.aborted
 		? theme.textMuted
 		: props.result.isError
@@ -169,7 +169,7 @@ function CompletedToolCall(props: {
 				</text>
 				<Show when={hasOutput && !props.aborted}>
 					<text fg={theme.metaText}>
-						{expanded() ? GLYPH_EXPANDED : GLYPH_COLLAPSED}
+						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>

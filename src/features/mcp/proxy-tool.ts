@@ -1,11 +1,6 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
-import {
-	GLYPH_ABORTED,
-	GLYPH_ERROR,
-	GLYPH_INACTIVE,
-	GLYPH_SUCCESS,
-} from "../../shell/glyphs";
+import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import type { McpManager } from "./manager";
 import type { McpToolMetadata } from "./types";
 
@@ -79,14 +74,14 @@ function renderStatus(manager: McpManager): string {
 		...states.map((state) => {
 			const status =
 				state.status === "connected"
-					? GLYPH_SUCCESS
+					? CHECK
 					: state.status === "connecting"
-						? GLYPH_INACTIVE
+						? CIRCLE_EMPTY
 						: state.status === "error"
-							? GLYPH_ERROR
+							? CROSS
 							: state.status === "disabled"
-								? GLYPH_ABORTED
-								: GLYPH_INACTIVE;
+								? CIRCLE_SLASH
+								: CIRCLE_EMPTY;
 			const tail = state.lastError ? ` · ${state.lastError}` : "";
 			const count = state.toolCount > 0 ? ` · ${state.toolCount} tools` : "";
 			const cache = state.cached ? " · cached" : "";
