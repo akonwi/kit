@@ -1,4 +1,4 @@
-import type { KeyEvent } from "@opentui/core";
+import { useKeyboard } from "@opentui/solid";
 import { DialogFrame } from "../../shell/DialogFrame";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
@@ -12,20 +12,17 @@ export type DebugModalProps = {
 const BINDINGS: Binding[] = [{ key: "Enter/Esc", action: "close" }];
 
 export function DebugModal(props: DebugModalProps) {
+	useKeyboard((e) => {
+		if (e.name === "escape" || e.name === "return") {
+			e.preventDefault();
+			props.onClose();
+		}
+	});
+
 	return (
-		<DialogFrame>
-			<box
-				focusable
-				focused
-				onKeyDown={(e: KeyEvent) => {
-					if (e.name === "escape" || e.name === "return") {
-						e.preventDefault();
-						props.onClose();
-					}
-				}}
-			/>
+		<DialogFrame height="70%">
 			<text fg={theme.textPrimary}>{props.title}</text>
-			<scrollbox flexGrow={1} scrollY>
+			<scrollbox flexGrow={1} scrollY focused>
 				<box flexDirection="column" gap={0} width="100%">
 					{props.lines.map((line) => (
 						<text fg={theme.textSecondary}>{line}</text>
