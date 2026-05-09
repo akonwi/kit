@@ -3,7 +3,7 @@ import type { Command } from "./types";
 export const sessionCommand: Command = {
 	name: "debug",
 	description: "Show runtime and session debug details",
-	execute({ runtime, palette }) {
+	execute({ runtime, picker }) {
 		const session = runtime.getSession();
 		const turns = runtime.getTurns();
 		const messages = runtime.getMessages();
@@ -32,7 +32,7 @@ export const sessionCommand: Command = {
 			pluginLines.push(...lines);
 		}
 
-		palette.show({
+		picker.show({
 			mode: "modal",
 			title: "Debug",
 			lines: [

@@ -10,11 +10,11 @@ import { ImageAttachment } from "../features/images/attachment";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import type { MessagePart } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import type { PaletteContext } from "../state/palette";
+import type { PickerContext } from "../state/picker";
 import {
-	createPaletteManager,
-	type PaletteManager,
-} from "../state/palette-manager";
+	createPickerManager,
+	type PickerManager,
+} from "../state/picker-manager";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
 
@@ -51,7 +51,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		_reload,
 		openCustomOverlay,
 	} = deps;
-	const palette: PaletteManager = createPaletteManager();
+	const picker: PickerManager = createPickerManager();
+	const commandPalette: PickerManager = createPickerManager();
 
 	let textareaRef: TextareaHandle | undefined;
 	let prevTextLength = 0;
@@ -79,7 +80,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		try {
 			await command.execute({
 				runtime,
-				palette,
+				picker: commandPalette,
 				args,
 				toast,
 				attachments,
@@ -95,7 +96,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 	}
 
-	function openSlashCommands() {
+	function openCommandPalette() {
+		if (commandPalette.visible) return;
 		let resolvedCommandName: string | null = null;
 		let currentArgs = "";
 		const availableCommands = commands.getAll();
@@ -107,9 +109,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				description: cmd.description,
 				argHint: cmd.argName,
 				value: cmd,
-				action: (ctx: PaletteContext) => {
-					textareaRef?.setText("");
-					prevTextLength = 0;
+				action: (ctx: PickerContext) => {
 					ctx.dismiss();
 					void executeCommand(cmd, currentArgs);
 				},
@@ -117,10 +117,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const findOption = (name: string) =>
 			options.find((option) => option.name === name);
 
-		palette.show(
+		commandPalette.show(
 			{
 				filterable: true,
-				hint: "Tab complete · Enter run · Esc close",
 				options,
 				onFilterChange: (text) => {
 					const trimmed = text.trimStart();
@@ -158,7 +157,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 					if (!cmd) return;
 					resolvedCommandName = cmd.name;
 					currentArgs = "";
-					palette.filter(`${cmd.name} `);
+					commandPalette.filter(`${cmd.name} `);
 				},
 			},
 		);
@@ -166,7 +165,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	async function openFileReferences(initialQuery = "") {
 		const entries = await fileIndex.ensureLoaded();
-		palette.show({
+		picker.show({
 			filterable: true,
 			hint: "Enter insert · Esc close",
 			options: entries.map((entry) => ({
@@ -181,14 +180,14 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			})),
 		});
 		if (initialQuery) {
-			palette.filter(initialQuery);
+			picker.filter(initialQuery);
 		}
 	}
 
 	async function openThreadReferences(initialQuery = "") {
 		if (!threadIndex) return;
 		const suggestions = await threadIndex.suggest(initialQuery);
-		palette.show({
+		picker.show({
 			filterable: true,
 			hint: "Enter insert · Esc close",
 			options: suggestions.map((entry) => ({
@@ -202,7 +201,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			})),
 		});
 		if (initialQuery) {
-			palette.filter(initialQuery);
+			picker.filter(initialQuery);
 		}
 	}
 
@@ -302,17 +301,24 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const grew = text.length > prevTextLength;
 		prevTextLength = text.length;
 
-		if (text.trimStart() === "/" && !palette.visible && grew) {
-			openSlashCommands();
+		if (
+			text.trimStart() === "/" &&
+			!picker.visible &&
+			!commandPalette.visible &&
+			grew
+		) {
+			textareaRef?.setText("");
+			prevTextLength = 0;
+			openCommandPalette();
 			return;
 		}
 
-		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
+		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
 			void openThreadReferences();
 			return;
 		}
 
-		if (!palette.visible && grew && cursor > 0 && text[cursor - 1] === "@") {
+		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "@") {
 			void openFileReferences();
 		}
 	}
@@ -331,21 +337,15 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	async function handleSubmit() {
-		if (palette.visible && !palette.isFilterable) {
-			palette.selectCurrent();
+		if (commandPalette.visible) return;
+		if (picker.visible && !picker.isFilterable) {
+			picker.selectCurrent();
 			return;
 		}
-		if (palette.visible) return;
+		if (picker.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
 		const pendingAttachments = attachments.attachments();
-		const slashCommand = parseSlashCommand(text, commands.getAll());
-		if (slashCommand) {
-			textareaRef?.setText("");
-			prevTextLength = 0;
-			await executeCommand(slashCommand.command, slashCommand.args);
-			return;
-		}
 		if (!text.trim() && pendingAttachments.length === 0) {
 			if (
 				runtime.getStatus().isStreaming &&
@@ -509,7 +509,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	return {
-		palette,
+		picker,
+		commandPalette,
+		openCommandPalette,
 		setTextarea,
 		handlePaste,
 		handleTextChange,
@@ -605,26 +607,4 @@ function inferImageMimeType(path: string): string | null {
 	if (lower.endsWith(".bmp")) return "image/bmp";
 	if (lower.endsWith(".svg")) return "image/svg+xml";
 	return null;
-}
-
-function parseSlashCommand(
-	text: string,
-	commands: Command[],
-): { command: Command; args: string } | null {
-	const trimmed = text.trim();
-	if (!trimmed.startsWith("/")) return null;
-
-	const withoutSlash = trimmed.slice(1);
-	const firstSpace = withoutSlash.search(/\s/);
-	const name = (
-		firstSpace === -1 ? withoutSlash : withoutSlash.slice(0, firstSpace)
-	).trim();
-	if (!name) return null;
-
-	const command = commands.find((candidate) => candidate.name === name);
-	if (!command) return null;
-
-	const args =
-		firstSpace === -1 ? "" : withoutSlash.slice(firstSpace + 1).trim();
-	return { command, args };
 }

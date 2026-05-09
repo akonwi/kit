@@ -74,7 +74,7 @@ describe("Claude Code command discovery", () => {
 		await command?.execute({
 			runtime,
 			args: '"auth module" thoroughly',
-			palette: {} as CommandContext["palette"],
+			picker: {} as CommandContext["picker"],
 			toast: () => {},
 			attachments: {} as CommandContext["attachments"],
 			_reload: async () => {},

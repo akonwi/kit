@@ -2,18 +2,18 @@ import { createMemo, createSignal } from "solid-js";
 import { scoreMatch } from "../features/files/score";
 import {
 	emptySnapshot,
-	type PaletteConfig,
-	type PaletteContext,
-	type PaletteEntry,
-	type PaletteKeyBinding,
-	type PaletteOption,
+	type PickerConfig,
+	type PickerContext,
+	type PickerEntry,
+	type PickerKeyBinding,
+	type PickerOption,
 	snapshotFromEntry,
-} from "./palette";
+} from "./picker";
 
 let nextId = 0;
 
-export function createPaletteManager() {
-	const [stack, setStack] = createSignal<PaletteEntry[]>([]);
+export function createPickerManager() {
+	const [stack, setStack] = createSignal<PickerEntry[]>([]);
 
 	const current = createMemo(() => {
 		const s = stack();
@@ -21,11 +21,11 @@ export function createPaletteManager() {
 		return t ? snapshotFromEntry(t) : emptySnapshot;
 	});
 
-	function top(): PaletteEntry | undefined {
+	function top(): PickerEntry | undefined {
 		return stack().at(-1);
 	}
 
-	function updateTop(fn: (entry: PaletteEntry) => PaletteEntry) {
+	function updateTop(fn: (entry: PickerEntry) => PickerEntry) {
 		setStack((s) => {
 			if (s.length === 0) return s;
 			const updated = fn(s[s.length - 1]);
@@ -33,14 +33,14 @@ export function createPaletteManager() {
 		});
 	}
 
-	function ctxFor(id: number): PaletteContext {
+	function ctxFor(id: number): PickerContext {
 		return {
 			dismiss() {
-				console.log("[palette] ctx.dismiss() called for id:", id);
+				console.log("[picker] ctx.dismiss() called for id:", id);
 				setStack((s) => {
 					const entry = s.find((e) => e.id === id);
 					console.log(
-						"[palette] found entry:",
+						"[picker] found entry:",
 						!!entry,
 						"calling onDismiss:",
 						!!entry?.onDismiss,
@@ -55,11 +55,11 @@ export function createPaletteManager() {
 	// ── Public API ──────────────────────────────────────────────────
 
 	function show(
-		config: PaletteConfig,
-		keyBindings?: Record<string, PaletteKeyBinding>,
+		config: PickerConfig,
+		keyBindings?: Record<string, PickerKeyBinding>,
 	) {
 		const id = nextId++;
-		let entry: PaletteEntry;
+		let entry: PickerEntry;
 
 		if ("mode" in config && config.mode === "input") {
 			entry = {
@@ -79,10 +79,7 @@ export function createPaletteManager() {
 				lines: config.lines,
 			};
 		} else {
-			const opts = config as Exclude<
-				PaletteConfig,
-				{ mode: "input" | "modal" }
-			>;
+			const opts = config as Exclude<PickerConfig, { mode: "input" | "modal" }>;
 			entry = {
 				id,
 				onDismiss: opts.onDismiss,
@@ -153,7 +150,7 @@ export function createPaletteManager() {
 		let override:
 			| {
 					query?: string;
-					options?: PaletteOption[];
+					options?: PickerOption[];
 					selectedIndex?: number;
 			  }
 			| undefined;
@@ -245,4 +242,4 @@ export function createPaletteManager() {
 	return self;
 }
 
-export type PaletteManager = ReturnType<typeof createPaletteManager>;
+export type PickerManager = ReturnType<typeof createPickerManager>;

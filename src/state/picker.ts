@@ -1,82 +1,82 @@
 /**
- * Command palette — a stack-based overlay that can show lists or input prompts.
+ * Picker — a stack-based overlay that can show lists or input prompts.
  * Only the top entry renders. Actions control their own lifecycle via ctx.dismiss().
  */
 
-export type PaletteContext = {
-	/** Pop this palette from the stack */
+export type PickerContext = {
+	/** Pop this picker from the stack */
 	dismiss: () => void;
 };
 
-export type PaletteOption = {
+export type PickerOption = {
 	name: string;
 	description: string;
 	argHint?: string;
 	value?: unknown;
-	action: (ctx: PaletteContext) => void;
+	action: (ctx: PickerContext) => void;
 };
 
-export type PaletteKeyBinding = (
-	option: PaletteOption,
-	ctx: PaletteContext,
+export type PickerKeyBinding = (
+	option: PickerOption,
+	ctx: PickerContext,
 ) => void;
 
-export type PaletteFilterChangeResult =
+export type PickerFilterChangeResult =
 	| boolean
 	| {
 			query?: string;
-			options?: PaletteOption[];
+			options?: PickerOption[];
 			selectedIndex?: number;
 	  }
 	| undefined;
 
-export type PaletteConfig =
+export type PickerConfig =
 	| {
-			options: PaletteOption[];
+			options: PickerOption[];
 			filterable?: boolean;
 			hint?: string;
-			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
 			/** Called when the filter text changes. Return false to intercept; or override query/options. */
-			onFilterChange?: (text: string) => PaletteFilterChangeResult;
+			onFilterChange?: (text: string) => PickerFilterChangeResult;
 	  }
 	| {
 			mode: "input";
 			label?: string;
 			inputValue?: string;
-			onSubmit: (value: string, ctx: PaletteContext) => void;
-			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+			onSubmit: (value: string, ctx: PickerContext) => void;
+			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
 	  }
 	| {
 			mode: "modal";
 			title: string;
 			lines: string[];
-			/** Called when the palette entry is removed from the stack (escape, dismiss, or pop). */
+			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
 			onDismiss?: () => void;
 	  };
 
 /** Internal entry stored on the stack */
-export type PaletteEntry = {
+export type PickerEntry = {
 	id: number;
 	onDismiss?: () => void;
-	onFilterChange?: (text: string) => PaletteFilterChangeResult;
+	onFilterChange?: (text: string) => PickerFilterChangeResult;
 } & (
 	| {
 			mode: "list";
-			options: PaletteOption[];
-			allOptions: PaletteOption[];
+			options: PickerOption[];
+			allOptions: PickerOption[];
 			selectedIndex: number;
 			filterable: boolean;
 			filterText: string;
 			hint: string;
-			keyBindings: Record<string, PaletteKeyBinding>;
+			keyBindings: Record<string, PickerKeyBinding>;
 	  }
 	| {
 			mode: "input";
 			label: string;
 			inputValue: string;
-			onSubmit: (value: string, ctx: PaletteContext) => void;
+			onSubmit: (value: string, ctx: PickerContext) => void;
 	  }
 	| {
 			mode: "modal";
@@ -86,7 +86,7 @@ export type PaletteEntry = {
 );
 
 /** Derived view for rendering — strips functions and internal state from entries */
-export type PaletteSnapshot = {
+export type PickerSnapshot = {
 	visible: boolean;
 	mode: "list" | "input" | "modal";
 	// list mode
@@ -103,7 +103,7 @@ export type PaletteSnapshot = {
 	modalLines: string[];
 };
 
-export const emptySnapshot: PaletteSnapshot = {
+export const emptySnapshot: PickerSnapshot = {
 	visible: false,
 	mode: "list",
 	options: [],
@@ -117,7 +117,7 @@ export const emptySnapshot: PaletteSnapshot = {
 	modalLines: [],
 };
 
-export function snapshotFromEntry(entry: PaletteEntry): PaletteSnapshot {
+export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 	if (entry.mode === "input") {
 		return {
 			visible: true,

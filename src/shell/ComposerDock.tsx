@@ -24,7 +24,8 @@ function getComposerInputMode(text: string): ComposerInputMode {
 
 export function ComposerDock(props: ComposerDockProps) {
 	let dockRef: { width: number; height: number } | undefined;
-	const palette = props.controller.palette;
+	const picker = props.controller.picker;
+	const commandPaletteVisible = () => props.controller.commandPalette.visible;
 	const [composerText, setComposerText] = createSignal(
 		props.controller.getTextareaText(),
 	);
@@ -44,12 +45,14 @@ export function ComposerDock(props: ComposerDockProps) {
 
 	useKeyboard((e: KeyEvent) => {
 		if (props.locked) return;
+		// Skip composer keyboard handling while the command palette is open
+		if (commandPaletteVisible()) return;
 
 		// Ctrl+C — clear composer if it has content, otherwise quit
 		if (e.ctrl && e.name === "c") {
 			e.preventDefault();
-			if (palette.visible) {
-				palette.clear();
+			if (picker.visible) {
+				picker.clear();
 				return;
 			}
 			const text = props.controller.getTextareaText();
@@ -66,7 +69,7 @@ export function ComposerDock(props: ComposerDockProps) {
 		// Escape — abort agent when composer is empty and agent is working
 		if (
 			e.name === "escape" &&
-			!palette.visible &&
+			!picker.visible &&
 			!props.controller.getTextareaText().trim() &&
 			props.controller.isStreaming()
 		) {
@@ -78,7 +81,7 @@ export function ComposerDock(props: ComposerDockProps) {
 		// Enter in empty composer while streaming with queued follow-ups — promote to steering
 		if (
 			(e.name === "return" || e.name === "enter") &&
-			!palette.visible &&
+			!picker.visible &&
 			!props.controller.getTextareaText().trim() &&
 			props.controller.isStreaming() &&
 			props.controller.getPendingMessageCount() > 0
@@ -91,7 +94,7 @@ export function ComposerDock(props: ComposerDockProps) {
 		// Up arrow in empty composer — restore queued follow-ups first, then recall last user message
 		if (
 			e.name === "up" &&
-			!palette.visible &&
+			!picker.visible &&
 			!props.controller.getTextareaText().trim()
 		) {
 			e.preventDefault();
@@ -102,34 +105,34 @@ export function ComposerDock(props: ComposerDockProps) {
 			return;
 		}
 
-		// Non-filterable palette navigation
-		if (!palette.visible) return;
-		if (palette.isFilterable || palette.isInputMode) return;
+		// Non-filterable picker navigation
+		if (!picker.visible) return;
+		if (picker.isFilterable || picker.isInputMode) return;
 
 		if (e.name === "up") {
 			e.preventDefault();
-			palette.moveUp();
+			picker.moveUp();
 			return;
 		}
 		if (e.name === "down") {
 			e.preventDefault();
-			palette.moveDown();
+			picker.moveDown();
 			return;
 		}
 		if (e.name === "escape") {
 			e.preventDefault();
-			palette.pop();
+			picker.pop();
 			return;
 		}
 		if (e.name === "return") {
 			e.preventDefault();
-			palette.selectCurrent();
+			picker.selectCurrent();
 			return;
 		}
 
 		if (e.ctrl && e.name) {
 			const key = `ctrl+${e.name}`;
-			if (palette.handleKeyBinding(key)) {
+			if (picker.handleKeyBinding(key)) {
 				e.preventDefault();
 				return;
 			}
@@ -180,11 +183,13 @@ export function ComposerDock(props: ComposerDockProps) {
 					props.controller.setTextarea(value as TextareaHandle | undefined);
 				}}
 				placeholder={placeholder()}
-				focused={!palette.visible && !props.locked}
-				showCursor={!palette.visible && !props.locked}
+				focused={!picker.visible && !commandPaletteVisible() && !props.locked}
+				showCursor={
+					!picker.visible && !commandPaletteVisible() && !props.locked
+				}
 				borderColor={composerBorderColor()}
 				keyBindings={
-					palette.visible || props.locked
+					picker.visible || commandPaletteVisible() || props.locked
 						? []
 						: [
 								{ name: "return", action: "submit" },

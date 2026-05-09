@@ -1,4 +1,5 @@
-import { useRenderer } from "@opentui/solid";
+import type { KeyEvent } from "@opentui/core";
+import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
 import {
 	getOverlaySurfaceProps,
@@ -9,6 +10,7 @@ import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { AppState } from "../state/app-state";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
+import { CommandPalette } from "./CommandPalette";
 import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
 import { HeaderBar } from "./HeaderBar";
@@ -47,6 +49,14 @@ export function AppShell(props: AppShellProps) {
 		createSignal<ComposerInputMode>("normal");
 	const renderer = useRenderer();
 	let transcriptRef: { width: number; height: number } | undefined;
+
+	useKeyboard((e: KeyEvent) => {
+		if (e.ctrl && e.name === "p") {
+			if (props.overlays().length > 0) return;
+			e.preventDefault();
+			props.controller.openCommandPalette();
+		}
+	});
 
 	return (
 		<box
@@ -98,11 +108,13 @@ export function AppShell(props: AppShellProps) {
 			</box>
 
 			<InlinePicker
-				palette={props.controller.palette}
+				picker={props.controller.picker}
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
 
-			<Modal palette={props.controller.palette} />
+			{/* Composer picker only serves @/# references — modals come from commandPalette */}
+			<Modal picker={props.controller.commandPalette} />
+			<CommandPalette picker={props.controller.commandPalette} />
 			<Show when={props.overlays().length > 0}>
 				<For each={props.overlays()}>
 					{(entry, index) =>
