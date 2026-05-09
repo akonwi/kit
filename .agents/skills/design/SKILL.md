@@ -45,16 +45,17 @@ Kit's aesthetic is **utilitarian, pleasant, and intuitive**. The UI should feel 
 Three tiers, each with a distinct visual signature:
 
 ### Tier 1 — Transient (picker, toast)
-- Single border, `pickerBorder` color
+- No border, `pickerBg` background
 - No backdrop
 - Float on top of existing content
 - Highest interaction frequency, lowest visual weight
 
 ### Tier 2 — Dialog (modal, settings, session explorer, guided questions)
-- Double border (`borderStyle="double"`), `borderFocused` color
+- No outer border — `bgSurface` fill against the backdrop provides the visual edge
 - Semi-transparent backdrop (`RGBA(10, 10, 10, 180)`)
 - Centered, sized to content with percentage width and fixed height
 - `flexShrink={0}` on header, tabs, and hint bar to prevent content squishing
+- Note: OpenTUI's `drawBox` renders border cells with the box's `backgroundColor`, producing an inset look on filled overlays. Avoid `border` on boxes that also have a `backgroundColor`.
 
 ### Tier 3 — Screen (main shell, pager, review)
 - Full-viewport takeover, no outer border
