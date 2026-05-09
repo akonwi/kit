@@ -9,6 +9,7 @@ import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { readAuthFile, writeAuthFile } from "../../auth";
+import { DialogFrame } from "../../shell/DialogFrame";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { openExternal } from "../../shell/open-external";
 import { copySelection } from "../../shell/selection";
@@ -270,140 +271,116 @@ export function LoginModal(props: LoginModalProps) {
 	};
 
 	return (
-		<box
-			{...props.surfaceProps}
-			position="absolute"
-			left={0}
-			top={0}
-			bottom={0}
-			width="100%"
-			justifyContent="center"
-			alignItems="center"
-			backgroundColor={theme.modalBackdrop}
-		>
-			<box width="70%" maxWidth={96} minWidth={48} flexDirection="column">
-				<box
-					backgroundColor={theme.bgSurface}
-					padding={1}
-					flexDirection="column"
-					gap={1}
-					flexGrow={1}
-				>
-					<box
-						flexShrink={0}
-						flexDirection="row"
-						justifyContent="space-between"
-					>
-						<text fg={theme.textPrimary}>{title()}</text>
-						<text fg={theme.textMuted}>{subtitle()}</text>
-					</box>
-
-					<Show when={errorLines().length > 0}>
-						<box flexDirection="column" gap={0}>
-							<For each={errorLines()}>
-								{(line) => <text fg={theme.errorText}>{line}</text>}
-							</For>
-						</box>
-					</Show>
-
-					<Show when={step() === "select"}>
-						<box flexDirection="column" gap={0}>
-							<For each={providers}>
-								{(provider, index) => {
-									const focused = () => index() === selectedIndex();
-									return (
-										<box
-											paddingX={1}
-											backgroundColor={
-												focused() ? theme.bgMuted : theme.bgTransparent
-											}
-										>
-											<text
-												fg={focused() ? theme.textPrimary : theme.textSecondary}
-											>
-												{provider.name}
-											</text>
-										</box>
-									);
-								}}
-							</For>
-						</box>
-					</Show>
-
-					<Show when={step() === "waiting"}>
-						<box flexDirection="column" gap={1}>
-							<text fg={theme.textSecondary}>
-								Complete authentication in your browser. If a provider asks for
-								a code, use the instructions shown below.
-							</text>
-							<Show when={authDetailsLines().length > 0}>
-								<box
-									border
-									borderColor={theme.borderAccent}
-									paddingX={1}
-									flexDirection="column"
-									gap={0}
-									onMouseUp={() => copySelection(renderer)}
-								>
-									<For each={authDetailsLines()}>
-										{(line, index) => (
-											<text
-												fg={index() === 0 ? theme.metaText : theme.textPrimary}
-												selectable
-											>
-												{line}
-											</text>
-										)}
-									</For>
-								</box>
-							</Show>
-							<Show when={progressLines().length > 0}>
-								<box flexDirection="column" gap={0}>
-									<For each={progressLines()}>
-										{(line) => <text fg={theme.textMuted}>{line}</text>}
-									</For>
-								</box>
-							</Show>
-						</box>
-					</Show>
-
-					<Show when={step() === "prompt" || step() === "apiKey"}>
-						<box flexDirection="column" gap={1}>
-							<text fg={theme.textPrimary}>
-								{step() === "apiKey"
-									? "Enter API key (e.g. ANTHROPIC_API_KEY)"
-									: (promptState()?.label ?? "")}
-							</text>
-							<box
-								border
-								borderColor={theme.borderDefault}
-								paddingX={1}
-								backgroundColor={theme.bgTransparent}
-							>
-								<input
-									focused
-									width="100%"
-									value={inputValue()}
-									placeholder={
-										step() === "apiKey"
-											? "sk-..."
-											: (promptState()?.placeholder ?? "")
-									}
-									placeholderColor={theme.textPlaceholder}
-									backgroundColor={theme.bgTransparent}
-									focusedBackgroundColor={theme.bgTransparent}
-									textColor={theme.textPrimary}
-									focusedTextColor={theme.textPrimary}
-									cursorColor={theme.cursor}
-									onInput={(value: string) => setInputValue(value)}
-								/>
-							</box>
-						</box>
-					</Show>
-
-					<HintBar bindings={bindings()} />
-				</box>
+		<DialogFrame surfaceProps={props.surfaceProps}>
+			<box flexShrink={0} flexDirection="row" justifyContent="space-between">
+				<text fg={theme.textPrimary}>{title()}</text>
+				<text fg={theme.textMuted}>{subtitle()}</text>
 			</box>
-		</box>
+
+			<Show when={errorLines().length > 0}>
+				<box flexDirection="column" gap={0}>
+					<For each={errorLines()}>
+						{(line) => <text fg={theme.errorText}>{line}</text>}
+					</For>
+				</box>
+			</Show>
+
+			<Show when={step() === "select"}>
+				<box flexDirection="column" gap={0}>
+					<For each={providers}>
+						{(provider, index) => {
+							const focused = () => index() === selectedIndex();
+							return (
+								<box
+									paddingX={1}
+									backgroundColor={
+										focused() ? theme.bgMuted : theme.bgTransparent
+									}
+								>
+									<text
+										fg={focused() ? theme.textPrimary : theme.textSecondary}
+									>
+										{provider.name}
+									</text>
+								</box>
+							);
+						}}
+					</For>
+				</box>
+			</Show>
+
+			<Show when={step() === "waiting"}>
+				<box flexDirection="column" gap={1}>
+					<text fg={theme.textSecondary}>
+						Complete authentication in your browser. If a provider asks for a
+						code, use the instructions shown below.
+					</text>
+					<Show when={authDetailsLines().length > 0}>
+						<box
+							border
+							borderColor={theme.borderAccent}
+							paddingX={1}
+							flexDirection="column"
+							gap={0}
+							onMouseUp={() => copySelection(renderer)}
+						>
+							<For each={authDetailsLines()}>
+								{(line, index) => (
+									<text
+										fg={index() === 0 ? theme.metaText : theme.textPrimary}
+										selectable
+									>
+										{line}
+									</text>
+								)}
+							</For>
+						</box>
+					</Show>
+					<Show when={progressLines().length > 0}>
+						<box flexDirection="column" gap={0}>
+							<For each={progressLines()}>
+								{(line) => <text fg={theme.textMuted}>{line}</text>}
+							</For>
+						</box>
+					</Show>
+				</box>
+			</Show>
+
+			<Show when={step() === "prompt" || step() === "apiKey"}>
+				<box flexDirection="column" gap={1}>
+					<text fg={theme.textPrimary}>
+						{step() === "apiKey"
+							? "Enter API key (e.g. ANTHROPIC_API_KEY)"
+							: (promptState()?.label ?? "")}
+					</text>
+					<box
+						border
+						borderColor={theme.borderDefault}
+						paddingX={1}
+						backgroundColor={theme.bgTransparent}
+					>
+						<input
+							focused
+							width="100%"
+							value={inputValue()}
+							placeholder={
+								step() === "apiKey"
+									? "sk-..."
+									: (promptState()?.placeholder ?? "")
+							}
+							placeholderColor={theme.textPlaceholder}
+							backgroundColor={theme.bgTransparent}
+							focusedBackgroundColor={theme.bgTransparent}
+							textColor={theme.textPrimary}
+							focusedTextColor={theme.textPrimary}
+							cursorColor={theme.cursor}
+							onInput={(value: string) => setInputValue(value)}
+						/>
+					</box>
+				</box>
+			</Show>
+
+			<HintBar bindings={bindings()} />
+		</DialogFrame>
 	);
 }

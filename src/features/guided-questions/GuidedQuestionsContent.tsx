@@ -2,6 +2,7 @@ import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import { DialogFrame } from "../../shell/DialogFrame";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type {
@@ -173,129 +174,100 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 
 	return (
 		<Show when={g.active}>
-			<box
-				{...props.surfaceProps}
-				position="absolute"
-				left={0}
-				top={0}
-				bottom={0}
-				width="100%"
-				justifyContent="center"
-				alignItems="center"
-				backgroundColor={theme.modalBackdrop}
-			>
-				<box width="70%" maxWidth={96} minWidth={48} flexDirection="column">
-					<box
-						backgroundColor={theme.bgSurface}
-						padding={1}
-						flexDirection="column"
-						gap={1}
-						flexGrow={1}
-					>
-						<text fg={theme.textPrimary}>{g.title}</text>
-						<Show when={g.intro}>
-							<text fg={theme.textMuted}>{g.intro}</text>
-						</Show>
-						<text fg={theme.textMuted}>
-							{g.currentIndex + 1}/{g.questions.length} · {g.answeredCount}{" "}
-							answered
-						</text>
+			<DialogFrame surfaceProps={props.surfaceProps}>
+				<text fg={theme.textPrimary}>{g.title}</text>
+				<Show when={g.intro}>
+					<text fg={theme.textMuted}>{g.intro}</text>
+				</Show>
+				<text fg={theme.textMuted}>
+					{g.currentIndex + 1}/{g.questions.length} · {g.answeredCount} answered
+				</text>
 
-						<Show when={g.currentQuestion}>
-							<box flexDirection="column" gap={0}>
-								<text fg={theme.textPrimary}>{g.currentQuestion?.label}</text>
-								<Show when={g.currentQuestion?.help}>
-									<text fg={theme.textMuted}>{g.currentQuestion?.help}</text>
-								</Show>
-							</box>
+				<Show when={g.currentQuestion}>
+					<box flexDirection="column" gap={0}>
+						<text fg={theme.textPrimary}>{g.currentQuestion?.label}</text>
+						<Show when={g.currentQuestion?.help}>
+							<text fg={theme.textMuted}>{g.currentQuestion?.help}</text>
 						</Show>
-
-						<Show when={g.mode === "select" || isMultiSelectQuestion()}>
-							<box flexDirection="column">
-								<For each={selectOptions()}>
-									{(option, idx) => {
-										const isFocused = () => idx() === focusedIndex();
-										const isSelected = () =>
-											isMultiSelectQuestion()
-												? g.isOptionSelected(option)
-												: false;
-										return (
-											<box
-												backgroundColor={
-													isFocused()
-														? theme.pickerFocusedBg
-														: theme.bgTransparent
-												}
-											>
-												<text
-													fg={
-														isFocused()
-															? theme.pickerFocusedText
-															: theme.textPrimary
-													}
-													bg={
-														isFocused()
-															? theme.pickerFocusedBg
-															: theme.bgTransparent
-													}
-												>
-													{isFocused() ? "› " : "  "}
-													{isMultiSelectQuestion()
-														? `${isSelected() ? "[x]" : "[ ]"} ${option}`
-														: option}
-												</text>
-											</box>
-										);
-									}}
-								</For>
-							</box>
-						</Show>
-
-						<Show when={g.mode === "text" || g.mode === "otherText"}>
-							<Show when={g.mode === "otherText"}>
-								<text fg={theme.borderAccent}>Specify Other:</text>
-							</Show>
-							<textarea
-								ref={(value) => {
-									textareaRef = value as typeof textareaRef;
-									try {
-										textareaRef?.setText(textValue());
-									} catch {
-										textareaRef = undefined;
-									}
-								}}
-								minHeight={3}
-								maxHeight={8}
-								placeholder={placeholder()}
-								placeholderColor={theme.textPlaceholder}
-								backgroundColor={theme.bg}
-								focusedBackgroundColor={theme.bg}
-								textColor={theme.textPrimary}
-								focusedTextColor={theme.textPrimary}
-								cursorColor={theme.cursor}
-								showCursor
-								wrapMode="word"
-								focused={g.active}
-								keyBindings={[
-									{ name: "return", shift: true, action: "newline" },
-								]}
-								onContentChange={() =>
-									setTextValue(textareaRef?.plainText ?? "")
-								}
-								onPaste={handlePaste}
-							/>
-						</Show>
-
-						<HintBar
-							bindings={
-								QUESTION_BINDINGS[
-									isMultiSelectQuestion() ? "multiselect" : g.mode
-								] ?? QUESTION_BINDINGS.text
-							}
-						/>
 					</box>
-				</box>
-			</box>
+				</Show>
+
+				<Show when={g.mode === "select" || isMultiSelectQuestion()}>
+					<box flexDirection="column">
+						<For each={selectOptions()}>
+							{(option, idx) => {
+								const isFocused = () => idx() === focusedIndex();
+								const isSelected = () =>
+									isMultiSelectQuestion() ? g.isOptionSelected(option) : false;
+								return (
+									<box
+										backgroundColor={
+											isFocused() ? theme.pickerFocusedBg : theme.bgTransparent
+										}
+									>
+										<text
+											fg={
+												isFocused()
+													? theme.pickerFocusedText
+													: theme.textPrimary
+											}
+											bg={
+												isFocused()
+													? theme.pickerFocusedBg
+													: theme.bgTransparent
+											}
+										>
+											{isFocused() ? "› " : "  "}
+											{isMultiSelectQuestion()
+												? `${isSelected() ? "[x]" : "[ ]"} ${option}`
+												: option}
+										</text>
+									</box>
+								);
+							}}
+						</For>
+					</box>
+				</Show>
+
+				<Show when={g.mode === "text" || g.mode === "otherText"}>
+					<Show when={g.mode === "otherText"}>
+						<text fg={theme.borderAccent}>Specify Other:</text>
+					</Show>
+					<textarea
+						ref={(value) => {
+							textareaRef = value as typeof textareaRef;
+							try {
+								textareaRef?.setText(textValue());
+							} catch {
+								textareaRef = undefined;
+							}
+						}}
+						minHeight={3}
+						maxHeight={8}
+						placeholder={placeholder()}
+						placeholderColor={theme.textPlaceholder}
+						backgroundColor={theme.bg}
+						focusedBackgroundColor={theme.bg}
+						textColor={theme.textPrimary}
+						focusedTextColor={theme.textPrimary}
+						cursorColor={theme.cursor}
+						showCursor
+						wrapMode="word"
+						focused={g.active}
+						keyBindings={[{ name: "return", shift: true, action: "newline" }]}
+						onContentChange={() => setTextValue(textareaRef?.plainText ?? "")}
+						onPaste={handlePaste}
+					/>
+				</Show>
+
+				<HintBar
+					bindings={
+						QUESTION_BINDINGS[
+							isMultiSelectQuestion() ? "multiselect" : g.mode
+						] ?? QUESTION_BINDINGS.text
+					}
+				/>
+			</DialogFrame>
 		</Show>
 	);
 }

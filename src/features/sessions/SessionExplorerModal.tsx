@@ -11,6 +11,7 @@ import {
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
+import { DialogFrame } from "../../shell/DialogFrame";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
@@ -335,256 +336,141 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	});
 
 	return (
-		<box
-			position="absolute"
-			left={0}
-			top={0}
-			width="100%"
-			height="100%"
-			justifyContent="center"
-			alignItems="center"
-			zIndex={1100}
-			backgroundColor={theme.modalBackdrop}
-		>
-			<box
-				width="85%"
-				maxWidth={120}
-				minWidth={64}
-				height="80%"
-				flexDirection="column"
+		<DialogFrame width="85%" maxWidth={120} minWidth={64} height="80%">
+			<box flexShrink={0} flexDirection="row" justifyContent="space-between">
+				<text fg={theme.textPrimary}>Session Explorer</text>
+				<text fg={theme.textMuted}>{rows().length} related</text>
+			</box>
+
+			<Show
+				when={!sessions.loading}
+				fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
 			>
 				<box
-					backgroundColor={theme.bgSurface}
+					flexGrow={1}
+					border
+					borderColor={theme.borderDefault}
 					padding={1}
 					flexDirection="column"
-					gap={1}
-					flexGrow={1}
 				>
-					<box
-						flexShrink={0}
-						flexDirection="row"
-						justifyContent="space-between"
-					>
-						<text fg={theme.textPrimary}>Session Explorer</text>
-						<text fg={theme.textMuted}>{rows().length} related</text>
-					</box>
-
 					<Show
-						when={!sessions.loading}
-						fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
+						when={rows().length > 0}
+						fallback={
+							<text fg={theme.textMuted}>No related sessions found.</text>
+						}
 					>
-						<box
+						<scrollbox
 							flexGrow={1}
-							border
-							borderColor={theme.borderDefault}
-							padding={1}
-							flexDirection="column"
+							scrollY
+							style={{
+								scrollbarOptions: {
+									trackOptions: {
+										foregroundColor: theme.scrollbarFg,
+										backgroundColor: theme.scrollbarBg,
+									},
+								},
+							}}
 						>
-							<Show
-								when={rows().length > 0}
-								fallback={
-									<text fg={theme.textMuted}>No related sessions found.</text>
-								}
-							>
-								<scrollbox
-									flexGrow={1}
-									scrollY
-									style={{
-										scrollbarOptions: {
-											trackOptions: {
-												foregroundColor: theme.scrollbarFg,
-												backgroundColor: theme.scrollbarBg,
-											},
-										},
+							<box flexDirection="column" gap={0} width="100%">
+								<For each={visibleSlice().rows}>
+									{(row, idx) => {
+										const absoluteIndex = () => visibleSlice().offset + idx();
+										const focused = () => absoluteIndex() === selectedIndex();
+										const label = () => getSessionTreeTitle(row);
+										const treePrefix = () => formatSessionTreePrefix(row);
+										const meta = () =>
+											`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
+										const labelColor = () =>
+											row.isCurrent ? theme.borderAccent : theme.textPrimary;
+										return (
+											<box
+												paddingX={1}
+												flexDirection="row"
+												backgroundColor={
+													focused() ? theme.bgMuted : theme.bgTransparent
+												}
+											>
+												<text fg={labelColor()}>
+													{row.isCurrent ? "• " : "  "}
+													{treePrefix()}
+													{label()}
+												</text>
+												<text fg={theme.textMuted}>{` · ${meta()}`}</text>
+											</box>
+										);
 									}}
-								>
-									<box flexDirection="column" gap={0} width="100%">
-										<For each={visibleSlice().rows}>
-											{(row, idx) => {
-												const absoluteIndex = () =>
-													visibleSlice().offset + idx();
-												const focused = () =>
-													absoluteIndex() === selectedIndex();
-												const label = () => getSessionTreeTitle(row);
-												const treePrefix = () => formatSessionTreePrefix(row);
-												const meta = () =>
-													`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
-												const labelColor = () =>
-													row.isCurrent
-														? theme.borderAccent
-														: theme.textPrimary;
-												return (
-													<box
-														paddingX={1}
-														flexDirection="row"
-														backgroundColor={
-															focused() ? theme.bgMuted : theme.bgTransparent
-														}
-													>
-														<text fg={labelColor()}>
-															{row.isCurrent ? "• " : "  "}
-															{treePrefix()}
-															{label()}
-														</text>
-														<text fg={theme.textMuted}>{` · ${meta()}`}</text>
-													</box>
-												);
-											}}
-										</For>
-									</box>
-								</scrollbox>
-								<Show when={treeFooter()}>
-									<text fg={theme.textMuted}>{treeFooter()}</text>
-								</Show>
-							</Show>
-						</box>
-					</Show>
-
-					<HintBar bindings={bindings()} />
-
-					<Show when={renameSession()}>
-						{(session) => (
-							<box
-								position="absolute"
-								left={0}
-								top={0}
-								width="100%"
-								height="100%"
-								justifyContent="center"
-								alignItems="center"
-								backgroundColor={theme.modalBackdrop}
-							>
-								<box
-									width="70%"
-									maxWidth={80}
-									minWidth={48}
-									flexDirection="column"
-								>
-									<box
-										backgroundColor={theme.bgSurface}
-										padding={1}
-										flexDirection="column"
-										gap={1}
-										flexGrow={1}
-									>
-										<text fg={theme.textPrimary}>
-											Rename "
-											{session().name?.trim() || session().id.slice(0, 8)}"
-										</text>
-										<textarea
-											ref={(el) => {
-												renameRef = el as typeof renameRef;
-											}}
-											minHeight={1}
-											maxHeight={1}
-											placeholder="Enter new session name..."
-											placeholderColor={theme.textPlaceholder}
-											backgroundColor={theme.bg}
-											focusedBackgroundColor={theme.bgSurface}
-											textColor={theme.textPrimary}
-											focusedTextColor={theme.textPrimary}
-											cursorColor={theme.cursor}
-											showCursor
-											focused
-											onContentChange={() =>
-												setRenameText(renameRef?.plainText ?? "")
-											}
-										/>
-										<HintBar bindings={RENAME_BINDINGS} />
-									</box>
-								</box>
+								</For>
 							</box>
-						)}
-					</Show>
-
-					<Show when={deleteSession()}>
-						{(session) => (
-							<box
-								position="absolute"
-								left={0}
-								top={0}
-								width="100%"
-								height="100%"
-								justifyContent="center"
-								alignItems="center"
-								backgroundColor={theme.modalBackdrop}
-							>
-								<box
-									width="70%"
-									maxWidth={80}
-									minWidth={48}
-									flexDirection="column"
-								>
-									<box
-										backgroundColor={theme.bgSurface}
-										padding={1}
-										flexDirection="column"
-										gap={1}
-										flexGrow={1}
-									>
-										<text fg={theme.textPrimary}>
-											Delete "
-											{session().name?.trim() || session().id.slice(0, 8)}"?
-										</text>
-										<text fg={theme.errorText}>
-											This permanently removes the saved session.
-										</text>
-										<HintBar bindings={CONFIRM_BINDINGS} />
-									</box>
-								</box>
-							</box>
-						)}
-					</Show>
-
-					<Show when={confirmSquashSession()}>
-						{(session) => (
-							<box
-								position="absolute"
-								left={0}
-								top={0}
-								width="100%"
-								height="100%"
-								justifyContent="center"
-								alignItems="center"
-								backgroundColor={theme.modalBackdrop}
-							>
-								<box
-									width="70%"
-									maxWidth={80}
-									minWidth={48}
-									flexDirection="column"
-								>
-									<box
-										backgroundColor={theme.bgSurface}
-										padding={1}
-										flexDirection="column"
-										gap={1}
-										flexGrow={1}
-									>
-										<text fg={theme.textPrimary}>
-											Squash "
-											{session().name?.trim() || session().id.slice(0, 8)}" into
-											its parent?
-										</text>
-										<box flexDirection="column" gap={0} paddingLeft={1}>
-											<text fg={theme.textMuted}>
-												• append a summary into the parent
-											</text>
-											<text fg={theme.textMuted}>
-												• switch back to the parent
-											</text>
-											<text fg={theme.textMuted}>
-												• delete the child session
-											</text>
-										</box>
-										<HintBar bindings={CONFIRM_BINDINGS} />
-									</box>
-								</box>
-							</box>
-						)}
+						</scrollbox>
+						<Show when={treeFooter()}>
+							<text fg={theme.textMuted}>{treeFooter()}</text>
+						</Show>
 					</Show>
 				</box>
-			</box>
-		</box>
+			</Show>
+
+			<HintBar bindings={bindings()} />
+
+			<Show when={renameSession()}>
+				{(session) => (
+					<DialogFrame maxWidth={80}>
+						<text fg={theme.textPrimary}>
+							Rename "{session().name?.trim() || session().id.slice(0, 8)}"
+						</text>
+						<textarea
+							ref={(el) => {
+								renameRef = el as typeof renameRef;
+							}}
+							minHeight={1}
+							maxHeight={1}
+							placeholder="Enter new session name..."
+							placeholderColor={theme.textPlaceholder}
+							backgroundColor={theme.bg}
+							focusedBackgroundColor={theme.bgSurface}
+							textColor={theme.textPrimary}
+							focusedTextColor={theme.textPrimary}
+							cursorColor={theme.cursor}
+							showCursor
+							focused
+							onContentChange={() => setRenameText(renameRef?.plainText ?? "")}
+						/>
+						<HintBar bindings={RENAME_BINDINGS} />
+					</DialogFrame>
+				)}
+			</Show>
+
+			<Show when={deleteSession()}>
+				{(session) => (
+					<DialogFrame maxWidth={80}>
+						<text fg={theme.textPrimary}>
+							Delete "{session().name?.trim() || session().id.slice(0, 8)}"?
+						</text>
+						<text fg={theme.errorText}>
+							This permanently removes the saved session.
+						</text>
+						<HintBar bindings={CONFIRM_BINDINGS} />
+					</DialogFrame>
+				)}
+			</Show>
+
+			<Show when={confirmSquashSession()}>
+				{(session) => (
+					<DialogFrame maxWidth={80}>
+						<text fg={theme.textPrimary}>
+							Squash "{session().name?.trim() || session().id.slice(0, 8)}" into
+							its parent?
+						</text>
+						<box flexDirection="column" gap={0} paddingLeft={1}>
+							<text fg={theme.textMuted}>
+								• append a summary into the parent
+							</text>
+							<text fg={theme.textMuted}>• switch back to the parent</text>
+							<text fg={theme.textMuted}>• delete the child session</text>
+						</box>
+						<HintBar bindings={CONFIRM_BINDINGS} />
+					</DialogFrame>
+				)}
+			</Show>
+		</DialogFrame>
 	);
 }
