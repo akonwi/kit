@@ -4,10 +4,11 @@ import { theme } from "./theme";
 
 export type DialogFrameProps = {
 	children: JSX.Element;
-	width?: `${number}%`;
+	width?: number | `${number}%`;
 	maxWidth?: number;
 	minWidth?: number;
-	height?: `${number}%`;
+	height?: number | `${number}%`;
+	padding?: number;
 	surfaceProps?: OverlaySurfaceProps;
 };
 
@@ -49,7 +50,7 @@ export function DialogFrame(props: DialogFrameProps) {
 			>
 				<box
 					backgroundColor={theme.bgSurface}
-					padding={1}
+					padding={props.padding ?? 1}
 					flexDirection="column"
 					gap={1}
 					flexGrow={1}
