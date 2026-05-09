@@ -11,7 +11,7 @@ import {
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
@@ -336,11 +336,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	});
 
 	return (
-		<DialogFrame width="85%" maxWidth={120} minWidth={64} height="80%">
-			<box flexShrink={0} flexDirection="row" justifyContent="space-between">
-				<text fg={theme.textPrimary}>Session Explorer</text>
-				<text fg={theme.textMuted}>{rows().length} related</text>
-			</box>
+		<Dialog.Root width="85%" maxWidth={120} minWidth={64} height="80%">
+			<Dialog.Header>
+				<Dialog.Title>Session Explorer</Dialog.Title>
+				<Dialog.Meta>{rows().length} related</Dialog.Meta>
+			</Dialog.Header>
 
 			<Show
 				when={!sessions.loading}
@@ -409,14 +409,18 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				</box>
 			</Show>
 
-			<HintBar bindings={bindings()} />
+			<Dialog.Footer>
+				<HintBar bindings={bindings()} />
+			</Dialog.Footer>
 
 			<Show when={renameSession()}>
 				{(session) => (
-					<DialogFrame maxWidth={80}>
-						<text fg={theme.textPrimary}>
-							Rename "{session().name?.trim() || session().id.slice(0, 8)}"
-						</text>
+					<Dialog.Root maxWidth={80}>
+						<Dialog.Header>
+							<Dialog.Title>
+								Rename "{session().name?.trim() || session().id.slice(0, 8)}"
+							</Dialog.Title>
+						</Dialog.Header>
 						<textarea
 							ref={(el) => {
 								renameRef = el as typeof renameRef;
@@ -434,32 +438,40 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							focused
 							onContentChange={() => setRenameText(renameRef?.plainText ?? "")}
 						/>
-						<HintBar bindings={RENAME_BINDINGS} />
-					</DialogFrame>
+						<Dialog.Footer>
+							<HintBar bindings={RENAME_BINDINGS} />
+						</Dialog.Footer>
+					</Dialog.Root>
 				)}
 			</Show>
 
 			<Show when={deleteSession()}>
 				{(session) => (
-					<DialogFrame maxWidth={80}>
-						<text fg={theme.textPrimary}>
-							Delete "{session().name?.trim() || session().id.slice(0, 8)}"?
-						</text>
+					<Dialog.Root maxWidth={80}>
+						<Dialog.Header>
+							<Dialog.Title>
+								Delete "{session().name?.trim() || session().id.slice(0, 8)}"?
+							</Dialog.Title>
+						</Dialog.Header>
 						<text fg={theme.errorText}>
 							This permanently removes the saved session.
 						</text>
-						<HintBar bindings={CONFIRM_BINDINGS} />
-					</DialogFrame>
+						<Dialog.Footer>
+							<HintBar bindings={CONFIRM_BINDINGS} />
+						</Dialog.Footer>
+					</Dialog.Root>
 				)}
 			</Show>
 
 			<Show when={confirmSquashSession()}>
 				{(session) => (
-					<DialogFrame maxWidth={80}>
-						<text fg={theme.textPrimary}>
-							Squash "{session().name?.trim() || session().id.slice(0, 8)}" into
-							its parent?
-						</text>
+					<Dialog.Root maxWidth={80}>
+						<Dialog.Header>
+							<Dialog.Title>
+								Squash "{session().name?.trim() || session().id.slice(0, 8)}"
+								into its parent?
+							</Dialog.Title>
+						</Dialog.Header>
 						<box flexDirection="column" gap={0} paddingLeft={1}>
 							<text fg={theme.textMuted}>
 								• append a summary into the parent
@@ -467,10 +479,12 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							<text fg={theme.textMuted}>• switch back to the parent</text>
 							<text fg={theme.textMuted}>• delete the child session</text>
 						</box>
-						<HintBar bindings={CONFIRM_BINDINGS} />
-					</DialogFrame>
+						<Dialog.Footer>
+							<HintBar bindings={CONFIRM_BINDINGS} />
+						</Dialog.Footer>
+					</Dialog.Root>
 				)}
 			</Show>
-		</DialogFrame>
+		</Dialog.Root>
 	);
 }

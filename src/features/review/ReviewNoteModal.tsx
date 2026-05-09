@@ -2,10 +2,9 @@ import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createSignal } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { MessageComposer } from "../../shell/MessageComposer";
-import { theme } from "../../shell/theme";
 
 const BINDINGS: Binding[] = [
 	{ key: "Enter", action: "save" },
@@ -44,16 +43,16 @@ export function ReviewNoteModal(props: ReviewNoteModalProps) {
 	});
 
 	return (
-		<DialogFrame
+		<Dialog.Root
 			width="72%"
 			maxWidth={96}
 			minWidth={52}
 			surfaceProps={props.surfaceProps}
 		>
-			<text fg={theme.textPrimary}>{props.title}</text>
-			{props.subtitle ? (
-				<text fg={theme.textMuted}>{props.subtitle}</text>
-			) : null}
+			<Dialog.Header>
+				<Dialog.Title>{props.title}</Dialog.Title>
+				{props.subtitle ? <Dialog.Meta>{props.subtitle}</Dialog.Meta> : null}
+			</Dialog.Header>
 			<MessageComposer
 				ref={(value) => {
 					textareaRef = value as typeof textareaRef;
@@ -68,7 +67,9 @@ export function ReviewNoteModal(props: ReviewNoteModalProps) {
 				onContentChange={() => setValue(textareaRef?.plainText ?? "")}
 				onSubmit={save}
 			/>
-			<HintBar bindings={BINDINGS} />
-		</DialogFrame>
+			<Dialog.Footer>
+				<HintBar bindings={BINDINGS} />
+			</Dialog.Footer>
+		</Dialog.Root>
 	);
 }

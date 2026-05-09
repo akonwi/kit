@@ -1,6 +1,6 @@
 import { Show } from "solid-js";
 import type { PickerManager } from "../state/picker-manager";
-import { DialogFrame } from "./DialogFrame";
+import { Dialog } from "./Dialog";
 import { type Binding, HintBar } from "./HintBar";
 import { Picker } from "./Picker";
 
@@ -28,7 +28,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 
 	return (
 		<Show when={snapshot().visible}>
-			<DialogFrame
+			<Dialog.Root
 				width="80%"
 				maxWidth={80}
 				minWidth={40}
@@ -44,7 +44,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 						</Picker.Footer>
 					</Picker.Root>
 				</box>
-			</DialogFrame>
+			</Dialog.Root>
 		</Show>
 	);
 }

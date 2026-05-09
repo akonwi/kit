@@ -2,7 +2,7 @@ import type { KeyEvent, PasteEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { CHEVRON_RIGHT } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
@@ -175,8 +175,10 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 
 	return (
 		<Show when={g.active}>
-			<DialogFrame surfaceProps={props.surfaceProps}>
-				<text fg={theme.textPrimary}>{g.title}</text>
+			<Dialog.Root surfaceProps={props.surfaceProps}>
+				<Dialog.Header>
+					<Dialog.Title>{g.title}</Dialog.Title>
+				</Dialog.Header>
 				<Show when={g.intro}>
 					<text fg={theme.textMuted}>{g.intro}</text>
 				</Show>
@@ -261,14 +263,16 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 					/>
 				</Show>
 
-				<HintBar
-					bindings={
-						QUESTION_BINDINGS[
-							isMultiSelectQuestion() ? "multiselect" : g.mode
-						] ?? QUESTION_BINDINGS.text
-					}
-				/>
-			</DialogFrame>
+				<Dialog.Footer>
+					<HintBar
+						bindings={
+							QUESTION_BINDINGS[
+								isMultiSelectQuestion() ? "multiselect" : g.mode
+							] ?? QUESTION_BINDINGS.text
+						}
+					/>
+				</Dialog.Footer>
+			</Dialog.Root>
 		</Show>
 	);
 }

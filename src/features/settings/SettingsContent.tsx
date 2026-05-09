@@ -8,7 +8,7 @@ import {
 	resolveSpeechSettings,
 	type Settings,
 } from "../../settings";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { SpeechVoiceDiscovery } from "../notifications/voices";
@@ -785,19 +785,17 @@ export function SettingsContent(props: SettingsContentProps) {
 	});
 
 	return (
-		<DialogFrame
+		<Dialog.Root
 			width="74%"
 			maxWidth={104}
 			minWidth={64}
 			height="70%"
 			surfaceProps={props.surfaceProps}
 		>
-			<box flexShrink={0} flexDirection="column" gap={0}>
-				<box flexDirection="row" justifyContent="space-between">
-					<text fg={theme.textPrimary}>Settings</text>
-					<text fg={theme.textMuted}>~/.kit/settings.json</text>
-				</box>
-			</box>
+			<Dialog.Header>
+				<Dialog.Title>Settings</Dialog.Title>
+				<Dialog.Meta>~/.kit/settings.json</Dialog.Meta>
+			</Dialog.Header>
 
 			<box flexShrink={0} flexDirection="row" gap={1}>
 				<For each={TABS}>
@@ -904,9 +902,11 @@ export function SettingsContent(props: SettingsContentProps) {
 				</box>
 			</Show>
 
-			<HintBar
-				bindings={SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]}
-			/>
-		</DialogFrame>
+			<Dialog.Footer>
+				<HintBar
+					bindings={SETTINGS_BINDINGS[editingField() ? "editing" : "browsing"]}
+				/>
+			</Dialog.Footer>
+		</Dialog.Root>
 	);
 }

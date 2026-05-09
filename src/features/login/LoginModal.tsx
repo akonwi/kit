@@ -9,7 +9,7 @@ import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { readAuthFile, writeAuthFile } from "../../auth";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { openExternal } from "../../shell/open-external";
 import { copySelection } from "../../shell/selection";
@@ -271,11 +271,11 @@ export function LoginModal(props: LoginModalProps) {
 	};
 
 	return (
-		<DialogFrame surfaceProps={props.surfaceProps}>
-			<box flexShrink={0} flexDirection="row" justifyContent="space-between">
-				<text fg={theme.textPrimary}>{title()}</text>
-				<text fg={theme.textMuted}>{subtitle()}</text>
-			</box>
+		<Dialog.Root surfaceProps={props.surfaceProps}>
+			<Dialog.Header>
+				<Dialog.Title>{title()}</Dialog.Title>
+				<Dialog.Meta>{subtitle()}</Dialog.Meta>
+			</Dialog.Header>
 
 			<Show when={errorLines().length > 0}>
 				<box flexDirection="column" gap={0}>
@@ -380,7 +380,9 @@ export function LoginModal(props: LoginModalProps) {
 				</box>
 			</Show>
 
-			<HintBar bindings={bindings()} />
-		</DialogFrame>
+			<Dialog.Footer>
+				<HintBar bindings={bindings()} />
+			</Dialog.Footer>
+		</Dialog.Root>
 	);
 }

@@ -1,7 +1,7 @@
 import type { KeyEvent } from "@opentui/core";
 import { For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
@@ -31,7 +31,7 @@ function statusPrefix(state: McpServerRuntimeState): string {
 
 export function McpStatusModal(props: McpStatusModalProps) {
 	return (
-		<DialogFrame
+		<Dialog.Root
 			width="78%"
 			maxWidth={110}
 			minWidth={56}
@@ -48,10 +48,10 @@ export function McpStatusModal(props: McpStatusModalProps) {
 					}
 				}}
 			/>
-			<box flexShrink={0} flexDirection="row" justifyContent="space-between">
-				<text fg={theme.textPrimary}>MCP status</text>
-				<text fg={theme.textMuted}>{props.states.length} configured</text>
-			</box>
+			<Dialog.Header>
+				<Dialog.Title>MCP status</Dialog.Title>
+				<Dialog.Meta>{props.states.length} configured</Dialog.Meta>
+			</Dialog.Header>
 
 			<box
 				flexGrow={1}
@@ -138,7 +138,9 @@ export function McpStatusModal(props: McpStatusModalProps) {
 				</Show>
 			</box>
 
-			<HintBar bindings={BINDINGS} />
-		</DialogFrame>
+			<Dialog.Footer>
+				<HintBar bindings={BINDINGS} />
+			</Dialog.Footer>
+		</Dialog.Root>
 	);
 }

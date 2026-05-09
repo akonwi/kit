@@ -1,5 +1,5 @@
 import { useKeyboard } from "@opentui/solid";
-import { DialogFrame } from "../../shell/DialogFrame";
+import { Dialog } from "../../shell/Dialog";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 
@@ -20,16 +20,22 @@ export function DebugModal(props: DebugModalProps) {
 	});
 
 	return (
-		<DialogFrame height="70%">
-			<text fg={theme.textPrimary}>{props.title}</text>
-			<scrollbox flexGrow={1} scrollY focused>
-				<box flexDirection="column" gap={0} width="100%">
-					{props.lines.map((line) => (
-						<text fg={theme.textSecondary}>{line}</text>
-					))}
-				</box>
-			</scrollbox>
-			<HintBar bindings={BINDINGS} />
-		</DialogFrame>
+		<Dialog.Root height="70%">
+			<Dialog.Header>
+				<Dialog.Title>{props.title}</Dialog.Title>
+			</Dialog.Header>
+			<Dialog.Body>
+				<scrollbox flexGrow={1} scrollY focused>
+					<box flexDirection="column" gap={0} width="100%">
+						{props.lines.map((line) => (
+							<text fg={theme.textSecondary}>{line}</text>
+						))}
+					</box>
+				</scrollbox>
+			</Dialog.Body>
+			<Dialog.Footer>
+				<HintBar bindings={BINDINGS} />
+			</Dialog.Footer>
+		</Dialog.Root>
 	);
 }
