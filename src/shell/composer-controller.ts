@@ -301,6 +301,18 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const grew = text.length > prevTextLength;
 		prevTextLength = text.length;
 
+		if (
+			text.trimStart() === "/" &&
+			!picker.visible &&
+			!commandPalette.visible &&
+			grew
+		) {
+			textareaRef?.setText("");
+			prevTextLength = 0;
+			openCommandPalette();
+			return;
+		}
+
 		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
 			void openThreadReferences();
 			return;
