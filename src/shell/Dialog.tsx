@@ -1,3 +1,4 @@
+import type { BoxProps } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import type { OverlaySurfaceProps } from "../app/overlay-ui";
 import { theme } from "./theme";
@@ -106,12 +107,12 @@ function Body(props: BodyProps) {
 
 // ── Footer ──────────────────────────────────────────────────────────
 
-type FooterProps = {
-	children: JSX.Element;
-};
-
-function Footer(props: FooterProps) {
-	return <box flexShrink={0}>{props.children}</box>;
+function Footer(props: BoxProps) {
+	return (
+		<box {...props} flexShrink={0}>
+			{props.children}
+		</box>
+	);
 }
 
 // ── Export ───────────────────────────────────────────────────────────

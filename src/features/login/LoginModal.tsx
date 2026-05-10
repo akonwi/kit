@@ -381,7 +381,7 @@ export function LoginModal(props: LoginModalProps) {
 			</Show>
 
 			<Dialog.Footer>
-				<HintBar bindings={bindings()} />
+				<HintBar borderless bindings={bindings()} />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);

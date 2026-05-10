@@ -32,7 +32,7 @@ export function InlinePicker(props: InlinePickerProps) {
 				<Picker.Root picker={props.picker}>
 					<Picker.Header />
 					<Picker.Body />
-					<Picker.Footer>
+          <Picker.Footer paddingY={1}>
 						<HintBar borderless bindings={BINDINGS} />
 					</Picker.Footer>
 				</Picker.Root>

@@ -17,9 +17,7 @@ export function HintBar(props: HintBarProps) {
 	const text = () =>
 		props.bindings.map((b) => `${b.key} ${b.action}`).join(" · ");
 	const styles: BoxProps = props.borderless
-		? {
-				paddingY: 1,
-			}
+		? {}
 		: {
 				border: true,
 				borderColor: theme.borderDefault,

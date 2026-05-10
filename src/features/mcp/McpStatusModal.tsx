@@ -46,12 +46,7 @@ export function McpStatusModal(props: McpStatusModalProps) {
 	});
 
 	return (
-		<Dialog.Root
-			width="40%"
-			height="50%"
-			surfaceProps={props.surfaceProps}
-
-		>
+		<Dialog.Root width="40%" height="50%" surfaceProps={props.surfaceProps}>
 			<Dialog.Header>
 				<Dialog.Title>MCP status</Dialog.Title>
 			</Dialog.Header>
@@ -143,8 +138,8 @@ export function McpStatusModal(props: McpStatusModalProps) {
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer>
-				<HintBar bindings={BINDINGS} />
+			<Dialog.Footer paddingBottom={1}>
+				<HintBar borderless bindings={BINDINGS} />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);

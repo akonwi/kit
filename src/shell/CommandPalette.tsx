@@ -39,7 +39,7 @@ export function CommandPalette(props: CommandPaletteProps) {
 					<Picker.Root picker={props.picker} maxVisible={MAX_VISIBLE}>
 						<Picker.Header />
 						<Picker.Body />
-						<Picker.Footer>
+						<Picker.Footer paddingY={1}>
 							<HintBar borderless bindings={bindings()} />
 						</Picker.Footer>
 					</Picker.Root>

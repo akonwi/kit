@@ -265,6 +265,7 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 
 				<Dialog.Footer>
 					<HintBar
+						borderless
 						bindings={
 							QUESTION_BINDINGS[
 								isMultiSelectQuestion() ? "multiselect" : g.mode

@@ -33,8 +33,8 @@ export function DebugModal(props: DebugModalProps) {
 					</box>
 				</scrollbox>
 			</Dialog.Body>
-			<Dialog.Footer>
-				<HintBar bindings={BINDINGS} />
+			<Dialog.Footer paddingBottom={1}>
+				<HintBar borderless bindings={BINDINGS} />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);

@@ -1,10 +1,10 @@
 import type { KeyEvent } from "@opentui/core";
+import type { BoxProps } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import { createContext, createMemo, For, Show, useContext } from "solid-js";
 import type { PickerSnapshot } from "../state/picker";
 import type { PickerManager } from "../state/picker-manager";
 import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
-
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
@@ -254,12 +254,12 @@ function Body() {
 
 // ── Footer ──────────────────────────────────────────────────────────
 
-export type FooterProps = {
-	children: JSX.Element;
-};
-
-function Footer(props: FooterProps) {
-	return <box flexShrink={0}>{props.children}</box>;
+function Footer(props: BoxProps) {
+	return (
+		<box {...props} flexShrink={0}>
+			{props.children}
+		</box>
+	);
 }
 
 // ── Export ───────────────────────────────────────────────────────────
