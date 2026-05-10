@@ -375,7 +375,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 										const meta = () =>
 											`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
 										const labelColor = () =>
-											row.isCurrent ? theme.borderAccent : theme.textPrimary;
+											row.isCurrent ? theme.userText : theme.textPrimary;
 										return (
 											<box
 												paddingX={1}
