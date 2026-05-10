@@ -47,13 +47,13 @@ export function McpStatusModal(props: McpStatusModalProps) {
 
 	return (
 		<Dialog.Root
-			width="60%"
-			height="60%"
+			width="40%"
+			height="50%"
 			surfaceProps={props.surfaceProps}
+
 		>
 			<Dialog.Header>
 				<Dialog.Title>MCP status</Dialog.Title>
-				<Dialog.Meta>{props.states.length} configured</Dialog.Meta>
 			</Dialog.Header>
 
 			<Dialog.Body>

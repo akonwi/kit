@@ -11,6 +11,12 @@ type RootProps = {
 	minWidth?: number;
 	height?: number | `${number}%`;
 	padding?: number;
+	paddingX?: number;
+	paddingY?: number;
+	paddingTop?: number;
+	paddingBottom?: number;
+	paddingLeft?: number;
+	paddingRight?: number;
 	surfaceProps?: OverlaySurfaceProps;
 };
 
@@ -32,17 +38,19 @@ function Root(props: RootProps) {
 				maxWidth={props.maxWidth ?? 96}
 				minWidth={props.minWidth ?? 48}
 				height={props.height}
+				backgroundColor={theme.bgSurface}
+				padding={props.padding ?? 1}
+				paddingX={props.paddingX}
+				paddingY={props.paddingY}
+				paddingTop={props.paddingTop}
+				paddingBottom={props.paddingBottom}
+				paddingLeft={props.paddingLeft}
+				paddingRight={props.paddingRight}
 				flexDirection="column"
+				gap={1}
+				overflow="hidden"
 			>
-				<box
-					backgroundColor={theme.bgSurface}
-					padding={props.padding ?? 1}
-					flexDirection="column"
-					gap={1}
-					flexGrow={1}
-				>
-					{props.children}
-				</box>
+				{props.children}
 			</box>
 		</box>
 	);
