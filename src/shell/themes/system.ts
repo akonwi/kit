@@ -114,6 +114,7 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 			textDebug: textSecondary,
 
 			userText: blue,
+			userTextFocused: tint(bg, blue, 0.55),
 			userBorder: blue,
 			assistantText: fg,
 			toolText: green,

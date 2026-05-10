@@ -50,6 +50,7 @@ export const KIT_TOKENS: ThemeTokens = {
 
 	// Semantic (message roles)
 	userText: brightBlue,
+	userTextFocused: blue,
 	userBorder: blue,
 	assistantText: offWhite,
 	toolText: green,

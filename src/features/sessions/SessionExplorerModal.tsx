@@ -383,23 +383,31 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 										const prefix = formatSessionTreePrefix(row);
 										const focused = () =>
 											row.session.id === selectedSessionId();
+										const rowBg = () =>
+											focused() ? theme.pickerFocusedBg : theme.bgTransparent;
 										const labelColor = () =>
-											row.isCurrent ? theme.userText : theme.textPrimary;
+											row.isCurrent
+												? focused()
+													? theme.userTextFocused
+													: theme.userText
+												: focused()
+													? theme.pickerFocusedText
+													: theme.textPrimary;
+										const metaColor = () =>
+											focused() ? theme.pickerFocusedText : theme.textMuted;
 										return (
-											<box
-												flexDirection="row"
-												backgroundColor={
-													focused() ? theme.bgMuted : theme.bgTransparent
-												}
-											>
+											<box flexDirection="row" backgroundColor={rowBg()}>
 												<Show when={prefix.length > 0}>
-													<text fg={theme.textMuted}>{prefix}</text>
+													<text fg={metaColor()} bg={rowBg()}>
+														{prefix}
+													</text>
 												</Show>
-												<text fg={labelColor()}>
+												<text fg={labelColor()} bg={rowBg()}>
 													{getSessionTreeTitle(row)}
 												</text>
 												<text
-													fg={theme.textMuted}
+													fg={metaColor()}
+													bg={rowBg()}
 												>{` ${MIDDLE_DOT} ${sessionMeta(row.session)}`}</text>
 											</box>
 										);

@@ -28,6 +28,7 @@ export type ThemeTokens = {
 
 	// Semantic (message roles)
 	userText: string;
+	userTextFocused: string;
 	userBorder: string;
 	assistantText: string;
 	toolText: string;
