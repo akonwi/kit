@@ -47,10 +47,8 @@ export function McpStatusModal(props: McpStatusModalProps) {
 
 	return (
 		<Dialog.Root
-			width="78%"
-			maxWidth={110}
-			minWidth={56}
-			height="75%"
+			width="60%"
+			height="60%"
 			surfaceProps={props.surfaceProps}
 		>
 			<Dialog.Header>
