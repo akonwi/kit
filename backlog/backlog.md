@@ -12,9 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] feat: configuration for tool calls that require approval
-  - global + project level
-  - would be similar to guided_questions modal and ask for yes/no , like an AlertDialog in shadcn
 - [ ] refactor: decompose `SettingsContent` into composed row components per field type
   - extract `BooleanSettingsRow`, `InputSettingsRow`, `SelectSettingsRow`
   - lift editing state into a settings context
@@ -34,3 +31,5 @@ Delete done items.
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
   - see `backlog/agent-runtime-extraction-for-subagents.md`
+- [ ] feat: configuration for tool calls that require approval
+  - see `backlog/tool-call-approvals.md`
