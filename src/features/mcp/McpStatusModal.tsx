@@ -53,14 +53,7 @@ export function McpStatusModal(props: McpStatusModalProps) {
 				<Dialog.Meta>{props.states.length} configured</Dialog.Meta>
 			</Dialog.Header>
 
-			<box
-				flexGrow={1}
-				border
-				borderColor={theme.borderDefault}
-				paddingX={1}
-				paddingY={0}
-				flexDirection="column"
-			>
+			<Dialog.Body>
 				<Show
 					when={props.states.length > 0}
 					fallback={
@@ -86,13 +79,7 @@ export function McpStatusModal(props: McpStatusModalProps) {
 								{(state) => {
 									const oauth = () => props.hasOAuthSession(state.name);
 									return (
-										<box
-											border
-											borderColor={theme.borderDefault}
-											paddingX={1}
-											flexDirection="column"
-											gap={0}
-										>
+										<box flexDirection="column" gap={0}>
 											<box flexDirection="row" justifyContent="space-between">
 												<text fg={theme.textPrimary}>
 													{statusPrefix(state)} {state.name}
@@ -136,7 +123,7 @@ export function McpStatusModal(props: McpStatusModalProps) {
 						</box>
 					</scrollbox>
 				</Show>
-			</box>
+			</Dialog.Body>
 
 			<Dialog.Footer>
 				<HintBar bindings={BINDINGS} />
