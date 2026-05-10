@@ -385,10 +385,8 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 													focused() ? theme.bgMuted : theme.bgTransparent
 												}
 											>
-												<text fg={labelColor()}>
-													{treePrefix()}
-													{label()}
-												</text>
+												<text fg={theme.textMuted}>{treePrefix()}</text>
+												<text fg={labelColor()}>{label()}</text>
 												<text
 													fg={theme.textMuted}
 												>{` ${MIDDLE_DOT} ${meta()}`}</text>
