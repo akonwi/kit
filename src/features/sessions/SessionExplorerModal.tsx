@@ -343,11 +343,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				<Dialog.Meta>{rows().length} related</Dialog.Meta>
 			</Dialog.Header>
 
-			<Show
-				when={!sessions.loading}
-				fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
-			>
-				<box flexGrow={1} flexDirection="column">
+			<Dialog.Body>
+				<Show
+					when={!sessions.loading}
+					fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
+				>
 					<Show
 						when={rows().length > 0}
 						fallback={
@@ -400,8 +400,8 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							<text fg={theme.textMuted}>{treeFooter()}</text>
 						</Show>
 					</Show>
-				</box>
-			</Show>
+				</Show>
+			</Dialog.Body>
 
 			<Dialog.Footer>
 				<HintBar bindings={bindings()} />
