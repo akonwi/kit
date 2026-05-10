@@ -12,6 +12,7 @@ import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
 import { Dialog } from "../../shell/Dialog";
+import { MIDDLE_DOT } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
@@ -373,7 +374,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 										const label = () => getSessionTreeTitle(row);
 										const treePrefix = () => formatSessionTreePrefix(row);
 										const meta = () =>
-											`${row.session.id.slice(0, 8)} · ${formatTimeAgo(new Date(row.session.updatedAt))}`;
+											`${row.session.id.slice(0, 8)} ${MIDDLE_DOT} ${formatTimeAgo(new Date(row.session.updatedAt))}`;
 										const labelColor = () =>
 											row.isCurrent ? theme.userText : theme.textPrimary;
 										return (
@@ -388,7 +389,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 													{treePrefix()}
 													{label()}
 												</text>
-												<text fg={theme.textMuted}>{` · ${meta()}`}</text>
+												<text
+													fg={theme.textMuted}
+												>{` ${MIDDLE_DOT} ${meta()}`}</text>
 											</box>
 										);
 									}}
