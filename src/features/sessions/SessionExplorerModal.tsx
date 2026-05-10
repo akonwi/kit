@@ -346,13 +346,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				when={!sessions.loading}
 				fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
 			>
-				<box
-					flexGrow={1}
-					border
-					borderColor={theme.borderDefault}
-					padding={1}
-					flexDirection="column"
-				>
+				<box flexGrow={1} flexDirection="column">
 					<Show
 						when={rows().length > 0}
 						fallback={
