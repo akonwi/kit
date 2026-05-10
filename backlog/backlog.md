@@ -13,6 +13,7 @@ Delete done items.
 
 ## Active items
 - [ ] refactor: shift the plugin API to be more like [Amp](https://ampcode.com/manual#plugins) and Pi
+  - see `backlog/plugin-api-refactor.md`
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
   - see `backlog/plugin-chrome-and-capabilities.md`
 - [ ] idea: formalize plugin contribution to the status footer
