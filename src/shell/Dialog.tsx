@@ -1,5 +1,5 @@
-import type { BoxProps } from "@opentui/solid";
-import type { JSX } from "solid-js";
+import type { BoxProps, TextProps } from "@opentui/solid";
+import { type JSX, splitProps } from "solid-js";
 import type { OverlaySurfaceProps } from "../app/overlay-ui";
 import { theme } from "./theme";
 
@@ -71,14 +71,14 @@ function Header(props: HeaderProps) {
 	);
 }
 
-// ── Title ───────────────────────────────────────────────────────────
-
-type TitleProps = {
-	children: JSX.Element;
-};
-
-function Title(props: TitleProps) {
-	return <text fg={theme.textPrimary}>{props.children}</text>;
+function Title(props: TextProps) {
+	const [picked, ...rest] = splitProps(props, ["fg"]);
+	const fg = picked.fg ?? theme.textPrimary;
+	return (
+		<text fg={fg} {...rest}>
+			{props.children}
+		</text>
+	);
 }
 
 // ── Meta ────────────────────────────────────────────────────────────

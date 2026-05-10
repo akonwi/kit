@@ -410,13 +410,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	});
 
 	return (
-		<Dialog.Root
-			width="85%"
-			maxWidth={120}
-			minWidth={44}
-			height="55%"
-			paddingBottom={0}
-		>
+		<Dialog.Root width="85%" maxWidth={120} minWidth={44} height="55%">
 			<Dialog.Header>
 				<Dialog.Title>Session Explorer</Dialog.Title>
 				<Dialog.Meta>{sessionCount(rows().length)}</Dialog.Meta>
@@ -584,7 +578,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							onContentChange={() => setRenameText(renameRef?.plainText ?? "")}
 						/>
 						<Dialog.Footer>
-							<HintBar bindings={RENAME_BINDINGS} />
+							<HintBar borderless bindings={RENAME_BINDINGS} />
 						</Dialog.Footer>
 					</Dialog.Root>
 				)}
@@ -594,15 +588,12 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				{(session) => (
 					<Dialog.Root maxWidth={80}>
 						<Dialog.Header>
-							<Dialog.Title>
+							<Dialog.Title fg={theme.errorText}>
 								Delete "{session().name?.trim() || session().id.slice(0, 8)}"?
 							</Dialog.Title>
 						</Dialog.Header>
-						<text fg={theme.errorText}>
-							This permanently removes the saved session.
-						</text>
 						<Dialog.Footer>
-							<HintBar bindings={CONFIRM_BINDINGS} />
+							<HintBar borderless bindings={CONFIRM_BINDINGS} />
 						</Dialog.Footer>
 					</Dialog.Root>
 				)}
@@ -617,15 +608,13 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 								into its parent?
 							</Dialog.Title>
 						</Dialog.Header>
-						<box flexDirection="column" gap={0} paddingLeft={1}>
-							<text fg={theme.textMuted}>
-								• append a summary into the parent
+						<box flexDirection="column">
+							<text fg={theme.textPrimary}>
+								The session will be summarized into the parent and deleted.
 							</text>
-							<text fg={theme.textMuted}>• switch back to the parent</text>
-							<text fg={theme.textMuted}>• delete the child session</text>
 						</box>
 						<Dialog.Footer>
-							<HintBar bindings={CONFIRM_BINDINGS} />
+							<HintBar borderless bindings={CONFIRM_BINDINGS} />
 						</Dialog.Footer>
 					</Dialog.Root>
 				)}
