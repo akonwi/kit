@@ -101,14 +101,19 @@ export function McpStatusModal(props: McpStatusModalProps) {
 												</box>
 												<text fg={theme.textMuted}>{state.type}</text>
 											</box>
-											<text fg={theme.textSecondary}>
-												status: {state.status}
-												{state.toolCount > 0
-													? ` · ${state.toolCount} tools`
-													: ""}
-												{state.cached ? " · cached" : ""}
-												{oauth() ? " · oauth saved" : ""}
-											</text>
+											<Show
+												when={state.toolCount > 0 || state.cached || oauth()}
+											>
+												<text fg={theme.textSecondary}>
+													{[
+														state.toolCount > 0 && `${state.toolCount} tools`,
+														state.cached && "cached",
+														oauth() && "oauth saved",
+													]
+														.filter(Boolean)
+														.join(" · ")}
+												</text>
+											</Show>
 											<Show when={state.description}>
 												<text fg={theme.textSecondary}>
 													{state.description}
