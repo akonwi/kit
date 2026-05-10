@@ -4,6 +4,7 @@ import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { Dialog } from "../../shell/Dialog";
 import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
+import { Spinner } from "../../shell/Spinner";
 import { theme } from "../../shell/theme";
 import type { LoadMcpConfigResult, McpServerRuntimeState } from "./types";
 
@@ -17,16 +18,23 @@ export type McpStatusModalProps = {
 
 const BINDINGS: Binding[] = [{ key: "Esc/Enter", action: "close" }];
 
-function statusPrefix(state: McpServerRuntimeState): string {
-	return state.status === "connected"
-		? CHECK
-		: state.status === "connecting"
-			? CIRCLE_EMPTY
-			: state.status === "error"
-				? CROSS
-				: state.status === "disabled"
-					? CIRCLE_SLASH
-					: CIRCLE_EMPTY;
+function statusIndicator(state: McpServerRuntimeState): {
+	glyph: string | null;
+	color: string;
+	spinning: boolean;
+} {
+	switch (state.status) {
+		case "connected":
+			return { glyph: CHECK, color: theme.toolText, spinning: false };
+		case "connecting":
+			return { glyph: null, color: theme.toolText, spinning: true };
+		case "error":
+			return { glyph: CROSS, color: theme.errorText, spinning: false };
+		case "disabled":
+			return { glyph: CIRCLE_SLASH, color: theme.textMuted, spinning: false };
+		default:
+			return { glyph: CIRCLE_EMPTY, color: theme.textMuted, spinning: false };
+	}
 }
 
 export function McpStatusModal(props: McpStatusModalProps) {
@@ -78,9 +86,19 @@ export function McpStatusModal(props: McpStatusModalProps) {
 									return (
 										<box flexDirection="column" gap={0}>
 											<box flexDirection="row" justifyContent="space-between">
-												<text fg={theme.textPrimary}>
-													{statusPrefix(state)} {state.name}
-												</text>
+												<box flexDirection="row" gap={1}>
+													<Show
+														when={!statusIndicator(state).spinning}
+														fallback={
+															<Spinner fg={statusIndicator(state).color} />
+														}
+													>
+														<text fg={statusIndicator(state).color}>
+															{statusIndicator(state).glyph}
+														</text>
+													</Show>
+													<text fg={theme.textPrimary}>{state.name}</text>
+												</box>
 												<text fg={theme.textMuted}>{state.type}</text>
 											</box>
 											<text fg={theme.textSecondary}>
