@@ -12,7 +12,7 @@ import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
 import { Dialog } from "../../shell/Dialog";
-import { MIDDLE_DOT } from "../../shell/glyphs";
+import { ELLIPSIS, MIDDLE_DOT } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
@@ -33,6 +33,7 @@ export type SessionExplorerModalProps = {
 };
 
 const MAX_VISIBLE_ROWS = 18;
+const MAX_SESSION_TITLE_LENGTH = 48;
 
 type Mode = "navigate" | "rename" | "confirmDelete" | "confirmSquash";
 
@@ -51,6 +52,11 @@ function sessionMeta(session: SessionSummary): string {
 
 function sessionCount(count: number): string {
 	return `${count} session${count === 1 ? "" : "s"}`;
+}
+
+function truncateSessionTitle(title: string): string {
+	if (title.length <= MAX_SESSION_TITLE_LENGTH) return title;
+	return `${title.slice(0, MAX_SESSION_TITLE_LENGTH - 1)}${ELLIPSIS}`;
 }
 
 const NAVIGATE_BINDINGS: Binding[] = [
@@ -396,19 +402,35 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 										const metaColor = () =>
 											focused() ? theme.pickerFocusedText : theme.textMuted;
 										return (
-											<box flexDirection="row" backgroundColor={rowBg()}>
-												<Show when={prefix.length > 0}>
-													<text fg={metaColor()} bg={rowBg()}>
-														{prefix}
+											<box
+												flexDirection="row"
+												width="100%"
+												height={1}
+												overflow="hidden"
+												gap={1}
+												backgroundColor={rowBg()}
+											>
+												<box
+													flexShrink={0}
+													flexDirection="row"
+													height={1}
+													overflow="hidden"
+												>
+													<Show when={prefix.length > 0}>
+														<text fg={metaColor()} bg={rowBg()}>
+															{prefix}
+														</text>
+													</Show>
+													<text fg={labelColor()} bg={rowBg()}>
+														{truncateSessionTitle(getSessionTreeTitle(row))}
 													</text>
-												</Show>
-												<text fg={labelColor()} bg={rowBg()}>
-													{getSessionTreeTitle(row)}
-												</text>
-												<text
-													fg={metaColor()}
-													bg={rowBg()}
-												>{` ${MIDDLE_DOT} ${sessionMeta(row.session)}`}</text>
+												</box>
+												<box flexGrow={1} flexShrink={1} />
+												<box flexShrink={1} height={1} overflow="hidden">
+													<text fg={metaColor()} bg={rowBg()}>
+														{sessionMeta(row.session)}
+													</text>
+												</box>
 											</box>
 										);
 									}}

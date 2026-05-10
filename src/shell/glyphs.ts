@@ -51,6 +51,8 @@ export const DASHED_VERTICAL = "┆";
 
 // ── Punctuation / separators ────────────────────────────────────────
 
+/** … */
+export const ELLIPSIS = "…";
 /** · */
 export const MIDDLE_DOT = "·";
 /** › */
