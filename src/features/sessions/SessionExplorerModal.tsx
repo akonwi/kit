@@ -12,7 +12,7 @@ import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
 import { Dialog } from "../../shell/Dialog";
-import { ELLIPSIS, MIDDLE_DOT } from "../../shell/glyphs";
+import { ELLIPSIS } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
@@ -33,7 +33,18 @@ export type SessionExplorerModalProps = {
 };
 
 const MAX_VISIBLE_ROWS = 18;
-const MAX_SESSION_TITLE_LENGTH = 48;
+const TITLE_COLUMN_WIDTH = 48;
+const MIN_TITLE_COLUMN_WIDTH = 24;
+const SESSION_ID_COLUMN_WIDTH = 8;
+const UPDATED_COLUMN_WIDTH = 10;
+const CWD_COLUMN_WIDTH = 34;
+const MIN_CWD_COLUMN_WIDTH = 20;
+const DEFAULT_ROW_WIDTH =
+	TITLE_COLUMN_WIDTH +
+	SESSION_ID_COLUMN_WIDTH +
+	UPDATED_COLUMN_WIDTH +
+	CWD_COLUMN_WIDTH +
+	3;
 
 type Mode = "navigate" | "rename" | "confirmDelete" | "confirmSquash";
 
@@ -42,21 +53,29 @@ function formatCwd(cwd: string): string {
 	return home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
 }
 
-function sessionMeta(session: SessionSummary): string {
-	return [
-		session.id.slice(0, 8),
-		formatTimeAgo(new Date(session.updatedAt)),
-		formatCwd(session.cwd),
-	].join(` ${MIDDLE_DOT} `);
+function sessionId(session: SessionSummary): string {
+	return session.id.slice(0, SESSION_ID_COLUMN_WIDTH);
+}
+
+function sessionUpdated(session: SessionSummary): string {
+	return formatTimeAgo(new Date(session.updatedAt));
 }
 
 function sessionCount(count: number): string {
 	return `${count} session${count === 1 ? "" : "s"}`;
 }
 
-function truncateSessionTitle(title: string): string {
-	if (title.length <= MAX_SESSION_TITLE_LENGTH) return title;
-	return `${title.slice(0, MAX_SESSION_TITLE_LENGTH - 1)}${ELLIPSIS}`;
+function truncateText(text: string, maxLength: number): string {
+	if (text.length <= maxLength) return text;
+	return `${text.slice(0, Math.max(0, maxLength - 1))}${ELLIPSIS}`;
+}
+
+function countVisibleColumns(columns: boolean[]): number {
+	return columns.filter(Boolean).length;
+}
+
+function visibleColumnWidth(show: boolean, width: number): number {
+	return show ? width : 0;
 }
 
 const NAVIGATE_BINDINGS: Binding[] = [
@@ -104,6 +123,13 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	let scrollRef:
 		| { scrollTo: (opts: { x?: number; y?: number } | number) => void }
 		| undefined;
+	let listRef: { width: number } | undefined;
+	const [listWidth, setListWidth] = createSignal(DEFAULT_ROW_WIDTH);
+
+	function syncListWidth() {
+		const width = listRef?.width ?? 0;
+		if (width > 0) setListWidth(width);
+	}
 
 	const mode = createMemo<Mode>(() => {
 		if (confirmSquashSession()) return "confirmSquash";
@@ -128,6 +154,43 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	const selectedSessionCanDelete = createMemo(() =>
 		Boolean(selectedRow() && !selectedRow()?.isCurrent),
 	);
+	const rowColumns = createMemo(() => {
+		const width = listWidth();
+		const showCwd = width >= 80;
+		const showId = width >= 52;
+		const showUpdated = width >= 40;
+		const cwdWidth = showCwd
+			? Math.min(
+					CWD_COLUMN_WIDTH,
+					Math.max(
+						MIN_CWD_COLUMN_WIDTH,
+						width -
+							MIN_TITLE_COLUMN_WIDTH -
+							visibleColumnWidth(showId, SESSION_ID_COLUMN_WIDTH) -
+							visibleColumnWidth(showUpdated, UPDATED_COLUMN_WIDTH) -
+							3,
+					),
+				)
+			: 0;
+		const visibleMetadataColumns = countVisibleColumns([
+			showId,
+			showUpdated,
+			showCwd,
+		]);
+		const metadataWidth =
+			visibleColumnWidth(showId, SESSION_ID_COLUMN_WIDTH) +
+			visibleColumnWidth(showUpdated, UPDATED_COLUMN_WIDTH) +
+			cwdWidth;
+
+		return {
+			showCwd,
+			showId,
+			showUpdated,
+			cwdWidth,
+			titleWidth: Math.max(1, width - metadataWidth - visibleMetadataColumns),
+		};
+	});
+
 	const bindings = createMemo<Binding[]>(() => {
 		switch (mode()) {
 			case "rename":
@@ -350,7 +413,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		<Dialog.Root
 			width="85%"
 			maxWidth={120}
-			minWidth={64}
+			minWidth={44}
 			height="55%"
 			paddingBottom={0}
 		>
@@ -383,10 +446,25 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 								},
 							}}
 						>
-							<box flexDirection="column" gap={0} width="100%">
+							<box
+								ref={(el) => {
+									listRef = el as typeof listRef;
+									queueMicrotask(syncListWidth);
+								}}
+								onSizeChange={syncListWidth}
+								flexDirection="column"
+								gap={0}
+								width="100%"
+							>
 								<For each={rows()}>
 									{(row) => {
 										const prefix = formatSessionTreePrefix(row);
+										const titleWidth = () =>
+											Math.max(
+												1,
+												Math.min(TITLE_COLUMN_WIDTH, rowColumns().titleWidth) -
+													prefix.length,
+											);
 										const focused = () =>
 											row.session.id === selectedSessionId();
 										const rowBg = () =>
@@ -411,7 +489,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 												backgroundColor={rowBg()}
 											>
 												<box
-													flexShrink={0}
+													flexGrow={1}
+													flexShrink={1}
+													minWidth={MIN_TITLE_COLUMN_WIDTH}
 													flexDirection="row"
 													height={1}
 													overflow="hidden"
@@ -422,15 +502,48 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 														</text>
 													</Show>
 													<text fg={labelColor()} bg={rowBg()}>
-														{truncateSessionTitle(getSessionTreeTitle(row))}
+														{truncateText(
+															getSessionTreeTitle(row),
+															titleWidth(),
+														)}
 													</text>
 												</box>
-												<box flexGrow={1} flexShrink={1} />
-												<box flexShrink={1} height={1} overflow="hidden">
-													<text fg={metaColor()} bg={rowBg()}>
-														{sessionMeta(row.session)}
-													</text>
-												</box>
+												<Show when={rowColumns().showId}>
+													<box
+														flexShrink={0}
+														width={SESSION_ID_COLUMN_WIDTH}
+														height={1}
+													>
+														<text fg={metaColor()} bg={rowBg()}>
+															{sessionId(row.session)}
+														</text>
+													</box>
+												</Show>
+												<Show when={rowColumns().showUpdated}>
+													<box
+														flexShrink={0}
+														width={UPDATED_COLUMN_WIDTH}
+														height={1}
+														justifyContent="flex-end"
+													>
+														<text fg={metaColor()} bg={rowBg()}>
+															{sessionUpdated(row.session)}
+														</text>
+													</box>
+												</Show>
+												<Show when={rowColumns().showCwd}>
+													<box
+														flexShrink={1}
+														width={rowColumns().cwdWidth}
+														height={1}
+														overflow="hidden"
+														justifyContent="flex-end"
+													>
+														<text fg={metaColor()} bg={rowBg()}>
+															{formatCwd(row.session.cwd)}
+														</text>
+													</box>
+												</Show>
 											</box>
 										);
 									}}
