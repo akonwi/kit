@@ -1,4 +1,4 @@
-import type { KeyEvent } from "@opentui/core";
+import { useKeyboard } from "@opentui/solid";
 import { For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { Dialog } from "../../shell/Dialog";
@@ -30,6 +30,13 @@ function statusPrefix(state: McpServerRuntimeState): string {
 }
 
 export function McpStatusModal(props: McpStatusModalProps) {
+	useKeyboard((e) => {
+		if (e.name === "escape" || e.name === "return") {
+			e.preventDefault();
+			props.onClose();
+		}
+	});
+
 	return (
 		<Dialog.Root
 			width="78%"
@@ -38,16 +45,6 @@ export function McpStatusModal(props: McpStatusModalProps) {
 			height="75%"
 			surfaceProps={props.surfaceProps}
 		>
-			<box
-				focusable
-				focused
-				onKeyDown={(event: KeyEvent) => {
-					if (event.name === "escape" || event.name === "return") {
-						event.preventDefault();
-						props.onClose();
-					}
-				}}
-			/>
 			<Dialog.Header>
 				<Dialog.Title>MCP status</Dialog.Title>
 				<Dialog.Meta>{props.states.length} configured</Dialog.Meta>
