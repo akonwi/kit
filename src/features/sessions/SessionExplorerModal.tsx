@@ -396,14 +396,14 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 								</For>
 							</box>
 						</scrollbox>
-						<Show when={treeFooter()}>
-							<text fg={theme.textMuted}>{treeFooter()}</text>
-						</Show>
 					</Show>
 				</Show>
 			</Dialog.Body>
 
 			<Dialog.Footer>
+				<Show when={treeFooter()}>
+					<text fg={theme.textMuted}>{treeFooter()}</text>
+				</Show>
 				<HintBar bindings={bindings()} />
 			</Dialog.Footer>
 
