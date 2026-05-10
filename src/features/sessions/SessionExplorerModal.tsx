@@ -337,7 +337,13 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	});
 
 	return (
-		<Dialog.Root width="85%" maxWidth={120} minWidth={64} height="80%">
+		<Dialog.Root
+			width="85%"
+			maxWidth={120}
+			minWidth={64}
+			height="55%"
+			paddingBottom={0}
+		>
 			<Dialog.Header>
 				<Dialog.Title>Session Explorer</Dialog.Title>
 				<Dialog.Meta>{rows().length} related</Dialog.Meta>
@@ -404,7 +410,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				<Show when={treeFooter()}>
 					<text fg={theme.textMuted}>{treeFooter()}</text>
 				</Show>
-				<HintBar bindings={bindings()} />
+				<HintBar borderless bindings={bindings()} />
 			</Dialog.Footer>
 
 			<Show when={renameSession()}>
