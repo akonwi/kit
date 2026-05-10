@@ -89,14 +89,17 @@ Bordered header bar with left/right content slots and an optional progress bar o
 ```
 
 ### Hint Bar (`HintBar`)
-Standardized keyboard shortcut bar. Accepts structured bindings, renders as `key action · key action · ...` in a bordered box.
+Standardized keyboard shortcut bar. Renders bindings as `key action · key action · ...`.
+
+- **Borderless by default** — used in Tier 2 dialogs and Tier 1 pickers where the surrounding container already provides framing.
+- **`bordered`** — use at Tier 3 screen footers (pager, auth gate, main transcript, review) where the hint bar is the outermost structural element.
 
 ```tsx
-<HintBar bindings={[
-  { key: "↑/↓", action: "move" },
-  { key: "Enter", action: "select" },
-  { key: "Esc", action: "close" },
-]} />
+// Dialog / picker footer (default, borderless)
+<HintBar bindings={bindings} />
+
+// Screen footer (bordered)
+<HintBar bordered bindings={bindings} />
 ```
 
 Extract binding arrays into top-level constants keyed by mode (see `threads.tsx` for the pattern).
