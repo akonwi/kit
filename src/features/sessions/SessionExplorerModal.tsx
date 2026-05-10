@@ -385,7 +385,6 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 												}
 											>
 												<text fg={labelColor()}>
-													{row.isCurrent ? "• " : "  "}
 													{treePrefix()}
 													{label()}
 												</text>
