@@ -25,7 +25,7 @@ The merge flow is defined as follows:
 - handoff children persist lineage metadata:
   - `parentSessionId`
   - `forkedFromTurnId`
-- merge-up is initiated from `/tree`, not from a top-level slash command
+- merge-up is initiated from the session explorer exposed by `/sessions`, not from a dedicated squash command
 - squash is only available when the selected row is the current session and that session is a child
 - merge logic operates on the current session only via `runtime.mergeUp()`
 - merge boundaries use `forkedFromTurnId`, not shared-prefix heuristics or turn counts
@@ -61,15 +61,15 @@ This decision intentionally avoids reconstructing boundaries from shared prefixe
 
 ## UI entry point
 
-The merge action belongs to `/tree`.
+The merge action belongs to the session explorer exposed by `/sessions`.
 
 Rationale:
 
 - squash is a session-lineage operation
-- `/tree` already provides the relevant session context
+- the session explorer presents saved sessions as a unified forest rooted at top-level sessions
 - this avoids adding another top-level slash command for a specialized workflow
 
-Because merge deletes the child after success, the `/tree` flow requires confirmation before continuing.
+Because merge deletes the child after success, the `/sessions` flow requires confirmation before continuing.
 
 ## Parent transcript behavior
 

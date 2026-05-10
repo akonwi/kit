@@ -30,8 +30,8 @@ This captures the most useful workflow without introducing full in-session tree 
 
 ## Trade-offs
 
-- no `/tree`-style navigation within a single session
-- no visual lineage browser yet
+- no in-session tree navigation within a single session
+- cross-session lineage is browsed from the `/sessions` session explorer
 - copied handoff sessions retain full context instead of reducing it automatically
 
 ## Future

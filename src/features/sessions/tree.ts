@@ -72,8 +72,77 @@ export function buildRelatedSessionTree(
 	return buildNode(root, new Set());
 }
 
-export function flattenSessionTree(
-	root: SessionTreeNode,
+function latestUpdatedAt(node: SessionTreeNode): number {
+	return Math.max(
+		new Date(node.session.updatedAt).getTime(),
+		...node.children.map(latestUpdatedAt),
+	);
+}
+
+function compareSessionNodes(a: SessionTreeNode, b: SessionTreeNode): number {
+	return (
+		latestUpdatedAt(b) - latestUpdatedAt(a) ||
+		compareSessions(a.session, b.session)
+	);
+}
+
+export function buildSessionForest(
+	sessions: SessionSummary[],
+): SessionTreeNode[] {
+	const byId = new Map(sessions.map((session) => [session.id, session]));
+	const childrenByParent = new Map<string, SessionSummary[]>();
+
+	for (const session of sessions) {
+		const parentId = session.parentSessionId;
+		if (!parentId || parentId === session.id || !byId.has(parentId)) continue;
+		const children = childrenByParent.get(parentId) ?? [];
+		children.push(session);
+		childrenByParent.set(parentId, children);
+	}
+
+	for (const children of childrenByParent.values()) {
+		children.sort(compareSessions);
+	}
+
+	const visited = new Set<string>();
+	const buildNode = (
+		session: SessionSummary,
+		path: Set<string>,
+	): SessionTreeNode => {
+		visited.add(session.id);
+		const nextPath = new Set(path);
+		nextPath.add(session.id);
+		return {
+			session,
+			children: (childrenByParent.get(session.id) ?? [])
+				.filter((child) => !visited.has(child.id) && !nextPath.has(child.id))
+				.map((child) => buildNode(child, nextPath)),
+		};
+	};
+
+	const rootSessions = sessions
+		.filter(
+			(session) =>
+				!session.parentSessionId ||
+				session.parentSessionId === session.id ||
+				!byId.has(session.parentSessionId),
+		)
+		.sort(compareSessions);
+	const roots: SessionTreeNode[] = [];
+
+	for (const session of rootSessions) {
+		if (!visited.has(session.id)) roots.push(buildNode(session, new Set()));
+	}
+
+	for (const session of [...sessions].sort(compareSessions)) {
+		if (!visited.has(session.id)) roots.push(buildNode(session, new Set()));
+	}
+
+	return roots.sort(compareSessionNodes);
+}
+
+function flattenSessionNodes(
+	roots: SessionTreeNode[],
 	currentSessionId: string,
 ): SessionTreeRow[] {
 	const rows: SessionTreeRow[] = [];
@@ -103,8 +172,24 @@ export function flattenSessionTree(
 		});
 	};
 
-	visit(root, 0, [], true);
+	roots.forEach((root, index) => {
+		visit(root, 0, [], index === roots.length - 1);
+	});
 	return rows;
+}
+
+export function flattenSessionTree(
+	root: SessionTreeNode,
+	currentSessionId: string,
+): SessionTreeRow[] {
+	return flattenSessionNodes([root], currentSessionId);
+}
+
+export function flattenSessionForest(
+	roots: SessionTreeNode[],
+	currentSessionId: string,
+): SessionTreeRow[] {
+	return flattenSessionNodes(roots, currentSessionId);
 }
 
 export function findSessionRowIndex(

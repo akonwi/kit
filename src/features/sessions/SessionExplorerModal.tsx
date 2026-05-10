@@ -18,9 +18,9 @@ import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
 import { formatTimeAgo } from "../commands/utils";
 import {
-	buildRelatedSessionTree,
+	buildSessionForest,
 	findSessionRowIndex,
-	flattenSessionTree,
+	flattenSessionForest,
 	formatSessionTreePrefix,
 	getSessionTreeTitle,
 } from "./tree";
@@ -35,6 +35,23 @@ export type SessionExplorerModalProps = {
 const MAX_VISIBLE_ROWS = 18;
 
 type Mode = "navigate" | "rename" | "confirmDelete" | "confirmSquash";
+
+function formatCwd(cwd: string): string {
+	const home = process.env.HOME || process.env.USERPROFILE || "";
+	return home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd;
+}
+
+function sessionMeta(session: SessionSummary): string {
+	return [
+		session.id.slice(0, 8),
+		formatTimeAgo(new Date(session.updatedAt)),
+		formatCwd(session.cwd),
+	].join(` ${MIDDLE_DOT} `);
+}
+
+function sessionCount(count: number): string {
+	return `${count} session${count === 1 ? "" : "s"}`;
+}
 
 const NAVIGATE_BINDINGS: Binding[] = [
 	{ key: "↑/↓", action: "move" },
@@ -78,6 +95,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	let renameRef:
 		| { plainText: string; setText: (value: string) => void }
 		| undefined;
+	let scrollRef:
+		| { scrollTo: (opts: { x?: number; y?: number } | number) => void }
+		| undefined;
 
 	const mode = createMemo<Mode>(() => {
 		if (confirmSquashSession()) return "confirmSquash";
@@ -87,10 +107,8 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	});
 
 	const rows = createMemo(() => {
-		const list = sessions() ?? [];
-		const root = buildRelatedSessionTree(list, currentSessionId());
-		if (!root) return [];
-		return flattenSessionTree(root, currentSessionId());
+		const roots = buildSessionForest(sessions() ?? []);
+		return flattenSessionForest(roots, currentSessionId());
 	});
 
 	const currentSelectionIndex = createMemo(() =>
@@ -121,20 +139,6 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				];
 		}
 	});
-	const visibleSlice = createMemo(() => {
-		const allRows = rows();
-		if (allRows.length <= MAX_VISIBLE_ROWS) {
-			return { rows: allRows, offset: 0 };
-		}
-
-		let offset = selectedIndex() - Math.floor(MAX_VISIBLE_ROWS / 2);
-		offset = Math.max(0, Math.min(offset, allRows.length - MAX_VISIBLE_ROWS));
-		return {
-			rows: allRows.slice(offset, offset + MAX_VISIBLE_ROWS),
-			offset,
-		};
-	});
-
 	createEffect(() => {
 		const allRows = rows();
 		if (allRows.length === 0) {
@@ -154,6 +158,14 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		setSelectedIndex((index) =>
 			Math.max(0, Math.min(index, allRows.length - 1)),
 		);
+	});
+
+	createEffect(() => {
+		rows();
+		scrollRef?.scrollTo({
+			x: 0,
+			y: Math.max(0, selectedIndex() - Math.floor(MAX_VISIBLE_ROWS / 2)),
+		});
 	});
 
 	function clampIndex(nextCount: number) {
@@ -328,14 +340,6 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		}
 	});
 
-	const treeFooter = createMemo(() => {
-		const allRows = rows();
-		if (allRows.length <= MAX_VISIBLE_ROWS) return null;
-		const start = visibleSlice().offset + 1;
-		const end = visibleSlice().offset + visibleSlice().rows.length;
-		return `Showing ${start}-${end} of ${allRows.length}`;
-	});
-
 	return (
 		<Dialog.Root
 			width="85%"
@@ -346,7 +350,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		>
 			<Dialog.Header>
 				<Dialog.Title>Session Explorer</Dialog.Title>
-				<Dialog.Meta>{rows().length} related</Dialog.Meta>
+				<Dialog.Meta>{sessionCount(rows().length)}</Dialog.Meta>
 			</Dialog.Header>
 
 			<Dialog.Body>
@@ -356,11 +360,12 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				>
 					<Show
 						when={rows().length > 0}
-						fallback={
-							<text fg={theme.textMuted}>No related sessions found.</text>
-						}
+						fallback={<text fg={theme.textMuted}>No sessions found.</text>}
 					>
 						<scrollbox
+							ref={(el) => {
+								scrollRef = el as typeof scrollRef;
+							}}
 							flexGrow={1}
 							scrollY
 							style={{
@@ -373,29 +378,29 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							}}
 						>
 							<box flexDirection="column" gap={0} width="100%">
-								<For each={visibleSlice().rows}>
-									{(row, idx) => {
-										const absoluteIndex = () => visibleSlice().offset + idx();
-										const focused = () => absoluteIndex() === selectedIndex();
-										const label = () => getSessionTreeTitle(row);
-										const treePrefix = () => formatSessionTreePrefix(row);
-										const meta = () =>
-											`${row.session.id.slice(0, 8)} ${MIDDLE_DOT} ${formatTimeAgo(new Date(row.session.updatedAt))}`;
+								<For each={rows()}>
+									{(row) => {
+										const prefix = formatSessionTreePrefix(row);
+										const focused = () =>
+											row.session.id === selectedSessionId();
 										const labelColor = () =>
 											row.isCurrent ? theme.userText : theme.textPrimary;
 										return (
 											<box
-												paddingX={1}
 												flexDirection="row"
 												backgroundColor={
 													focused() ? theme.bgMuted : theme.bgTransparent
 												}
 											>
-												<text fg={theme.textMuted}>{treePrefix()}</text>
-												<text fg={labelColor()}>{label()}</text>
+												<Show when={prefix.length > 0}>
+													<text fg={theme.textMuted}>{prefix}</text>
+												</Show>
+												<text fg={labelColor()}>
+													{getSessionTreeTitle(row)}
+												</text>
 												<text
 													fg={theme.textMuted}
-												>{` ${MIDDLE_DOT} ${meta()}`}</text>
+												>{` ${MIDDLE_DOT} ${sessionMeta(row.session)}`}</text>
 											</box>
 										);
 									}}
@@ -406,10 +411,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer>
-				<Show when={treeFooter()}>
-					<text fg={theme.textMuted}>{treeFooter()}</text>
-				</Show>
+			<Dialog.Footer paddingTop={1}>
 				<HintBar borderless bindings={bindings()} />
 			</Dialog.Footer>
 
