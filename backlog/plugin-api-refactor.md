@@ -150,14 +150,18 @@ type PluginDefinition = PluginClass | PluginInitializer;
    - [x] `PromptsPlugin`
    - [x] `NotificationsPlugin`
 4. Migrate medium/heavier built-ins:
-   - `SkillsPlugin`
-   - `SubagentsPlugin`
+   - [x] `SkillsPlugin`
+   - [ ] `SubagentsPlugin`
    - `PagerPlugin`
    - `GuidedQuestionsPlugin`
    - `SettingsPlugin`
    - `McpPlugin`
 5. Remove or fully internalize the class-based plugin API once built-ins are migrated.
 6. Add dynamic loading of user/project plugins as the last step.
+
+### API cleanup follow-ups
+
+- [ ] Stop exposing `AgentTool` from `@mariozechner/pi-agent-core` in the public plugin API. Kit plugins should register tools through a Kit-owned tool definition/type so the plugin API is not coupled to Pi internals beyond the `KitAgent` integration layer.
 
 ### Dynamic plugin loading, later
 
