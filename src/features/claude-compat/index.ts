@@ -33,7 +33,7 @@ export function ClaudeCompatibilityPlugin(kit: PluginAPI): void {
 		const claudeSkills = loadSkills(cwd).skills.filter(
 			(s) => s.source === "claude-compat",
 		);
-		this.setDebugSection(
+		kit.addDebugSection(
 			"Claude skills",
 			claudeSkills.length > 0
 				? claudeSkills.map((s) => `- ${s.name} ${s.filePath}`)
