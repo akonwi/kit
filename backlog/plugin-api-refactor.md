@@ -148,7 +148,7 @@ type PluginDefinition = PluginClass | PluginInitializer;
    - [x] `SessionNamingPlugin`
    - [x] `ClaudeCompatibilityPlugin`
    - [x] `PromptsPlugin`
-   - [ ] `NotificationsPlugin`
+   - [x] `NotificationsPlugin`
 4. Migrate medium/heavier built-ins:
    - `SkillsPlugin`
    - `SubagentsPlugin`

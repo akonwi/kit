@@ -1,11 +1,6 @@
-import { Plugin } from "../../plugins/Plugin";
+import type { PluginAPI } from "../../plugins";
 import type { Turn } from "../../session/types";
-import {
-	type ResolvedSpeechSettings,
-	resolveSpeechSettings,
-	type Settings,
-	saveSettings,
-} from "../../settings";
+import { resolveSpeechSettings } from "../../settings";
 import { ringBell, speak } from "./notifications";
 
 function getLastAssistantText(messages: Turn["messages"]): string | null {
@@ -33,71 +28,52 @@ function getLastAssistantText(messages: Turn["messages"]): string | null {
 	return null;
 }
 
-export class NotificationsPlugin extends Plugin {
-	private getSettings(): Settings {
-		return this.ctx.settings.settings;
-	}
+function notifyTurnComplete(kit: PluginAPI, turn: Turn | null): void {
+	if (!turn) return;
+	const settings = kit.settings.get();
+	const isError = turn.messages.some(
+		(message: { role: string; stopReason?: string }) =>
+			message.role === "assistant" && message.stopReason === "error",
+	);
+	ringBell(isError, settings.bells ?? true);
 
-	override initialize(): void {
-		// Subscribe to turn completion for notifications
-		this.subscribeRuntimeEvent("agent.turn.completed", (event) => {
-			this.notifyTurnComplete(event.turn);
-		});
+	const speech = resolveSpeechSettings(settings.speech);
+	if (!speech.enabled) return;
+	const assistantText = getLastAssistantText(turn.messages);
+	if (!assistantText) return;
+	const sessionId = kit.session.get().id;
+	speak(assistantText, sessionId, {
+		maxChars: speech.maxChars,
+		voice: speech.voice,
+	});
+}
 
-		// Register /bells command
-		this.registerCommand({
-			name: "bells",
-			description: "Toggle audible notification sounds on/off",
-			execute: async () => {
-				const bells = !this.getBells();
-				await this.saveSettings({ ...this.getSettings(), bells });
-			},
-		});
+export function NotificationsPlugin(kit: PluginAPI): void {
+	// Subscribe to turn completion for notifications
+	kit.on("agent.turn.completed", (event) => {
+		notifyTurnComplete(kit, event.turn);
+	});
 
-		// Register /speech command
-		this.registerCommand({
-			name: "speech",
-			description: "Toggle the agent's speech notifications",
-			execute: async () => {
-				const speech = this.getSpeech();
-				await this.saveSettings({
-					...this.getSettings(),
-					speech: { ...speech, enabled: !speech.enabled },
-				});
-			},
-		});
-	}
+	// Register /bells command
+	kit.registerCommand(
+		"bells",
+		{ description: "Toggle audible notification sounds on/off" },
+		async () => {
+			const settings = kit.settings.get();
+			await kit.settings.update({ bells: !(settings.bells ?? true) });
+		},
+	);
 
-	private getBells(): boolean {
-		return this.getSettings().bells ?? true;
-	}
-
-	private getSpeech(): ResolvedSpeechSettings {
-		return resolveSpeechSettings(this.getSettings().speech);
-	}
-
-	private async saveSettings(settings: Settings): Promise<void> {
-		await saveSettings(settings);
-		this.ctx.settings.settings = settings;
-		this.ctx.runtime.emitSettingsChanged(settings);
-	}
-
-	private notifyTurnComplete(turn: Turn | null): void {
-		if (!turn) return;
-		const isError = turn.messages.some(
-			(message: { role: string; stopReason?: string }) =>
-				message.role === "assistant" && message.stopReason === "error",
-		);
-		ringBell(isError, this.getBells());
-
-		const speech = this.getSpeech();
-		if (!speech.enabled) return;
-		const assistantText = getLastAssistantText(turn.messages);
-		if (!assistantText) return;
-		const sessionId = this.ctx.runtime.getSession().id;
-		speak(assistantText, sessionId, {
-			maxChars: speech.maxChars,
-			voice: speech.voice,
-		});
-	}
+	// Register /speech command
+	kit.registerCommand(
+		"speech",
+		{ description: "Toggle the agent's speech notifications" },
+		async () => {
+			const settings = kit.settings.get();
+			const speech = resolveSpeechSettings(settings.speech);
+			await kit.settings.update({
+				speech: { ...speech, enabled: !speech.enabled },
+			});
+		},
+	);
 }
