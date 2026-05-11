@@ -1,5 +1,5 @@
 import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
-import type { TSchema } from "@mariozechner/pi-ai";
+import type { Api, Model, TSchema } from "@mariozechner/pi-ai";
 import type { JSX } from "solid-js";
 import type { OverlayComponentProps } from "../app/overlay-ui";
 import type { CommandRegistry } from "../features/commands";
@@ -47,6 +47,7 @@ export type PluginLogger = {
 export type PluginSessionAPI = {
 	get: () => Session;
 	getMessages: () => AgentMessage[];
+	setName: (name: string) => Promise<void>;
 	submitMessage: (input: string | MessagePart[]) => Promise<void>;
 	submitPromptCommandMessage: (
 		command: string,
@@ -60,6 +61,10 @@ export type PluginSettingsAPI = {
 	update: (patch: Partial<Settings>) => Promise<void>;
 };
 
+export type PluginModelAPI = {
+	getCurrent: () => Model<Api> | undefined;
+};
+
 export type PluginSystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
@@ -70,6 +75,7 @@ export type PluginEventContext = {
 	ui: PluginUI;
 	session: PluginSessionAPI;
 	settings: PluginSettingsAPI;
+	model: PluginModelAPI;
 	system: PluginSystemAPI;
 };
 
@@ -95,6 +101,7 @@ export interface PluginAPI {
 	ui: PluginUI;
 	session: PluginSessionAPI;
 	settings: PluginSettingsAPI;
+	model: PluginModelAPI;
 	system: PluginSystemAPI;
 	on(handler: PluginEventHandler): PluginSubscription;
 	on<K extends RuntimeEventName>(

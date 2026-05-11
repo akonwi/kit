@@ -44,6 +44,7 @@ export function createPluginAPI(
 	const session = {
 		get: () => ctx.runtime.getSession(),
 		getMessages: () => ctx.runtime.getMessages(),
+		setName: (name: string) => ctx.runtime.setSessionName(name),
 		submitMessage: (input: Parameters<typeof ctx.runtime.submitMessage>[0]) =>
 			ctx.runtime.submitMessage(input),
 		submitPromptCommandMessage: (
@@ -63,6 +64,10 @@ export function createPluginAPI(
 		},
 	};
 
+	const model = {
+		getCurrent: () => ctx.runtime.getCurrentModel(),
+	};
+
 	const system = {
 		get cwd() {
 			return ctx.runtime.getSession().cwd;
@@ -78,6 +83,7 @@ export function createPluginAPI(
 			ui: ctx.ui,
 			session,
 			settings,
+			model,
 			system,
 		};
 	}
@@ -146,6 +152,7 @@ export function createPluginAPI(
 		ui: ctx.ui,
 		session,
 		settings,
+		model,
 		system,
 		on,
 		registerCommand,

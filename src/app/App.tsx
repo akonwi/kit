@@ -4,11 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import {
-	BUILT_IN_PLUGIN_CLASSES,
-	PluginManager,
-	type PluginUI,
-} from "../plugins";
+import { BUILT_IN_PLUGINS, PluginManager, type PluginUI } from "../plugins";
 import type { TranscriptViewport } from "../plugins/types";
 import {
 	AgentRuntime,
@@ -81,7 +77,7 @@ export function App(props: AppProps) {
 			});
 		});
 
-		const pluginManager = new PluginManager(BUILT_IN_PLUGIN_CLASSES, {
+		const pluginManager = new PluginManager(BUILT_IN_PLUGINS, {
 			runtime,
 			commands,
 			settings: props.settings,

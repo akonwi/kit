@@ -145,10 +145,10 @@ type PluginDefinition = PluginClass | PluginInitializer;
 1. Introduce `PluginAPI` and function plugin support inside `PluginManager`.
 2. Keep current class built-ins loading as-is through the compatibility path.
 3. Migrate simple built-ins first:
-   - `SessionNamingPlugin`
-   - `ClaudeCompatibilityPlugin`
-   - `PromptsPlugin`
-   - `NotificationsPlugin`
+   - [x] `SessionNamingPlugin`
+   - [ ] `ClaudeCompatibilityPlugin`
+   - [ ] `PromptsPlugin`
+   - [ ] `NotificationsPlugin`
 4. Migrate medium/heavier built-ins:
    - `SkillsPlugin`
    - `SubagentsPlugin`

@@ -1,4 +1,4 @@
-export { BUILT_IN_PLUGIN_CLASSES } from "./built-ins";
+export { BUILT_IN_PLUGINS } from "./built-ins";
 export { Plugin } from "./Plugin";
 export {
 	type PluginClass,
@@ -13,6 +13,7 @@ export type {
 	PluginDispose,
 	PluginEventContext,
 	PluginInitializer,
+	PluginModelAPI,
 	PluginSubscription,
 	PluginUI,
 } from "./types";
