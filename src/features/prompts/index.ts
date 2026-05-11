@@ -1,42 +1,38 @@
-import { Plugin } from "../../plugins/Plugin";
-import type { CommandContext } from "../commands/types";
-import { loadPromptTemplates, type PromptTemplate } from "./discovery";
+import type { PluginAPI } from "../../plugins";
+import { loadPromptTemplates } from "./discovery";
 import { parseCommandArgs, substituteArgs } from "./substitute";
 
 export type { PromptTemplate } from "./discovery";
 export { loadPromptTemplates } from "./discovery";
 
-export class PromptsPlugin extends Plugin {
-	private templates: PromptTemplate[] = [];
+export function PromptsPlugin(kit: PluginAPI): void {
+	const templates = loadPromptTemplates(kit.system.cwd);
 
-	override initialize(): void {
-		const cwd = this.ctx.runtime.getSession().cwd;
-		this.templates = loadPromptTemplates(cwd);
-
-		// Register each template as a slash command
-		for (const template of this.templates) {
-			this.registerCommand({
-				name: template.name,
+	// Register each template as a slash command
+	for (const template of templates) {
+		kit.registerCommand(
+			template.name,
+			{
 				description: template.description || template.filePath,
 				argName: "args",
-				execute: async (ctx: CommandContext) => {
-					const args = parseCommandArgs(ctx.args);
-					const expanded = substituteArgs(template.content, args);
-					await this.ctx.runtime.submitPromptCommandMessage(
-						template.name,
-						ctx.args,
-						expanded,
-					);
-				},
-			});
-		}
-
-		// Register debug info
-		this.setDebugSection(
-			"Prompt commands",
-			this.templates.length > 0
-				? this.templates.map((t) => `- /${t.name} (${t.source}) ${t.filePath}`)
-				: ["(none)"],
+			},
+			async (ctx) => {
+				const args = parseCommandArgs(ctx.args);
+				const expanded = substituteArgs(template.content, args);
+				await ctx.session.submitPromptCommandMessage(
+					template.name,
+					ctx.args,
+					expanded,
+				);
+			},
 		);
 	}
+
+	// Register debug info
+	kit.addDebugSection(
+		"Prompt commands",
+		templates.length > 0
+			? templates.map((t) => `- /${t.name} (${t.source}) ${t.filePath}`)
+			: ["(none)"],
+	);
 }

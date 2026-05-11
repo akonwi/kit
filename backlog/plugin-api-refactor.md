@@ -147,7 +147,7 @@ type PluginDefinition = PluginClass | PluginInitializer;
 3. Migrate simple built-ins first:
    - [x] `SessionNamingPlugin`
    - [x] `ClaudeCompatibilityPlugin`
-   - [ ] `PromptsPlugin`
+   - [x] `PromptsPlugin`
    - [ ] `NotificationsPlugin`
 4. Migrate medium/heavier built-ins:
    - `SkillsPlugin`
