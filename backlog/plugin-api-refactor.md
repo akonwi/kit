@@ -13,7 +13,7 @@ The immediate goal is to migrate built-in plugins onto the new API. Dynamic load
 Plugins should be functions that receive a `PluginAPI` object:
 
 ```ts
-import type { PluginAPI } from "@kit/plugin";
+import type { PluginAPI } from "@akonwi/kit/plugin";
 
 export default function plugin(kit: PluginAPI) {
 	kit.on("agent.turn.completed", async (event, ctx) => {

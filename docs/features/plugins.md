@@ -25,10 +25,10 @@ A failed user/project plugin does not stop Kit from starting. Kit shows a persis
 
 ## Writing a plugin
 
-A plugin is a TypeScript file with a default function export. Import public SDK types from `@kit/plugin`; do not import from Kit source paths such as `src/plugins`.
+A plugin is a TypeScript file with a default function export. Import public SDK types from `@akonwi/kit/plugin`; do not import from Kit source paths such as `src/plugins`.
 
 ```ts
-import type { PluginAPI } from "@kit/plugin";
+import type { PluginAPI } from "@akonwi/kit/plugin";
 
 export default function MyPlugin(kit: PluginAPI) {
 	kit.registerCommand(
@@ -48,7 +48,7 @@ export default function MyPlugin(kit: PluginAPI) {
 Plugin functions may return a disposer for resources not registered through Kit:
 
 ```ts
-import type { PluginAPI } from "@kit/plugin";
+import type { PluginAPI } from "@akonwi/kit/plugin";
 
 export default function WatchPlugin(kit: PluginAPI) {
 	const timer = setInterval(() => {
@@ -67,4 +67,4 @@ Use `/reload` after editing plugin files. Kit re-discovers plugin files and relo
 
 Plugin modules are loaded synchronously, so top-level `await` is not supported in plugin files. Async command, event, and tool handlers are supported.
 
-`@kit/plugin` is a type-only SDK surface in v1. Use `import type`; value imports from `@kit/plugin` are not part of the public runtime API.
+`@akonwi/kit/plugin` is a type-only SDK surface in v1. Use `import type`; value imports from `@akonwi/kit/plugin` are not part of the public runtime API.

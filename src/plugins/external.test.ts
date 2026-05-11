@@ -61,7 +61,7 @@ describe("external plugin loading", () => {
 		await writeFile(
 			path.join(home, ".kit", "plugins", "user.ts"),
 			[
-				'import type { PluginAPI } from "@kit/plugin";',
+				'import type { PluginAPI } from "@akonwi/kit/plugin";',
 				"export default function UserPlugin(kit: PluginAPI) { kit.logger.log('user') }",
 				"",
 			].join("\n"),
@@ -69,7 +69,7 @@ describe("external plugin loading", () => {
 		await writeFile(
 			path.join(cwd, ".kit", "plugins", "project.ts"),
 			[
-				'import type { PluginAPI } from "@kit/plugin";',
+				'import type { PluginAPI } from "@akonwi/kit/plugin";',
 				"export default function ProjectPlugin(kit: PluginAPI) { kit.logger.log('project') }",
 				"",
 			].join("\n"),
