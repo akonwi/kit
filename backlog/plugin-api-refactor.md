@@ -152,8 +152,9 @@ type PluginDefinition = PluginClass | PluginInitializer;
 4. Migrate medium/heavier built-ins:
    - [x] `SkillsPlugin`
    - [ ] `SubagentsPlugin`
-   - `PagerPlugin`
-   - `GuidedQuestionsPlugin`
+     - defer until we can migrate it without expanding the public plugin API around runtime/sub-agent internals
+   - [x] `PagerPlugin`
+   - [ ] `GuidedQuestionsPlugin`
    - `SettingsPlugin`
    - `McpPlugin`
 5. Remove or fully internalize the class-based plugin API once built-ins are migrated.
