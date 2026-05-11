@@ -121,7 +121,7 @@ export interface PluginAPI {
 		tool: AgentTool<TParameters, TDetails>,
 	) => PluginSubscription;
 	addSystemPrompt: (text: string) => PluginSubscription;
-	setDebugSection: (key: string, lines: string[]) => PluginSubscription;
+	addDebugSection: (key: string, lines: string[]) => PluginSubscription;
 }
 
 // biome-ignore lint/suspicious/noConfusingVoidType: plugin initializers may omit a return value or return a disposer.

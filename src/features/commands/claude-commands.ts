@@ -14,7 +14,7 @@ import path from "node:path";
 import { parseCommandArgs, substituteArgs } from "../prompts/substitute";
 import type { Command } from "./types";
 
-interface ClaudeCommandMeta {
+export interface ClaudeCommandMeta {
 	name: string;
 	filePath: string;
 	description: string;
@@ -87,6 +87,23 @@ export function discoverClaudeCommandFiles(cwd: string): ClaudeCommandMeta[] {
  * Each command re-reads its file at invocation time so edits are
  * picked up without restart.
  */
+export function readClaudeCommandPrompt(
+	filePath: string,
+	args: string,
+): string | null {
+	let raw: string;
+	try {
+		raw = readFileSync(filePath, "utf8");
+	} catch {
+		return null;
+	}
+
+	const { body } = parseFrontmatter(raw);
+	const parsedArgs = parseCommandArgs(args);
+	const prompt = substituteArgs(body, parsedArgs).trim();
+	return prompt || null;
+}
+
 export function discoverClaudeCommands(cwd: string): Command[] {
 	const metas = discoverClaudeCommandFiles(cwd);
 
@@ -96,16 +113,7 @@ export function discoverClaudeCommands(cwd: string): Command[] {
 			description: meta.description,
 			...(meta.argName ? { argName: meta.argName } : {}),
 			execute({ runtime, args }) {
-				let raw: string;
-				try {
-					raw = readFileSync(meta.filePath, "utf8");
-				} catch {
-					return;
-				}
-
-				const { body } = parseFrontmatter(raw);
-				const parsedArgs = parseCommandArgs(args);
-				const prompt = substituteArgs(body, parsedArgs).trim();
+				const prompt = readClaudeCommandPrompt(meta.filePath, args);
 				if (prompt) {
 					void runtime.submitPromptCommandMessage(
 						`cc:${meta.name}`,

@@ -57,7 +57,7 @@ Expose stable capabilities instead. Candidate public surfaces:
 - `kit.registerCommand(...)`
 - `kit.registerTool(...)`
 - `kit.addSystemPrompt(...)`
-- `kit.setDebugSection(...)`
+- `kit.addDebugSection(...)`
 - `kit.ui.toast(...)`
 - session helpers such as `kit.session.get()` and `kit.session.getMessages()`
 - settings helpers such as `kit.settings.get()` and `kit.settings.update(...)`
@@ -146,7 +146,7 @@ type PluginDefinition = PluginClass | PluginInitializer;
 2. Keep current class built-ins loading as-is through the compatibility path.
 3. Migrate simple built-ins first:
    - [x] `SessionNamingPlugin`
-   - [ ] `ClaudeCompatibilityPlugin`
+   - [x] `ClaudeCompatibilityPlugin`
    - [ ] `PromptsPlugin`
    - [ ] `NotificationsPlugin`
 4. Migrate medium/heavier built-ins:

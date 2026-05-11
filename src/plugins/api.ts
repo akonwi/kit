@@ -158,7 +158,7 @@ export function createPluginAPI(
 		registerCommand,
 		registerTool,
 		addSystemPrompt: (text) => track(ctx.runtime.addSystemPromptAddition(text)),
-		setDebugSection: (key, lines) =>
+		addDebugSection: (key, lines) =>
 			track(ctx.runtime.setDebugSection(key, lines)),
 	};
 }
