@@ -154,8 +154,8 @@ type PluginDefinition = PluginClass | PluginInitializer;
    - [ ] `SubagentsPlugin`
      - defer until we can migrate it without expanding the public plugin API around runtime/sub-agent internals
    - [x] `PagerPlugin`
-   - [ ] `GuidedQuestionsPlugin`
-   - `SettingsPlugin`
+   - [x] `GuidedQuestionsPlugin`
+   - [ ] `SettingsPlugin`
    - `McpPlugin`
 5. Remove or fully internalize the class-based plugin API once built-ins are migrated.
 6. Add dynamic loading of user/project plugins as the last step.

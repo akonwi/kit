@@ -5,7 +5,7 @@
 
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
-import type { PluginContext } from "../../plugins/types";
+import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";
 import type { GuidedQuestionsController } from "./controller";
 import { type GuidedQuestionsInput, normalizeQuestion } from "./types";
@@ -57,9 +57,13 @@ const parameters = Type.Object({
 	),
 });
 
+export type GuidedQuestionsToolOptions = {
+	getSettings: () => Settings;
+};
+
 export function createGuidedQuestionsTool(
 	guidedQuestions: GuidedQuestionsController,
-	ctx: PluginContext,
+	options: GuidedQuestionsToolOptions,
 ) {
 	return {
 		name: "guided_questions",
@@ -86,7 +90,8 @@ export function createGuidedQuestionsTool(
 				questions: (input.questions || []).map(normalizeQuestion),
 			};
 
-			if (ctx.settings.settings.guidedQuestions === false) {
+			const settings = options.getSettings();
+			if (settings.guidedQuestions === false) {
 				return {
 					content: [
 						{
@@ -103,7 +108,7 @@ export function createGuidedQuestionsTool(
 				};
 			}
 
-			ringBell(false, ctx.settings.settings.bells !== false);
+			ringBell(false, settings.bells !== false);
 			const result = await guidedQuestions.activate(params);
 			const title =
 				typeof params.title === "string" && params.title.trim()

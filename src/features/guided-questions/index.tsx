@@ -1,37 +1,34 @@
-import { Plugin } from "../../plugins/Plugin";
-import {
-	createGuidedQuestionsController,
-	type GuidedQuestionsController,
-} from "./controller";
+import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { PluginAPI } from "../../plugins";
+import { createGuidedQuestionsController } from "./controller";
 import { GuidedQuestionsContent } from "./GuidedQuestionsContent";
 import { createGuidedQuestionsTool, GUIDED_QUESTIONS_POLICY } from "./tool";
 
-export class GuidedQuestionsPlugin extends Plugin {
-	private readonly controller: GuidedQuestionsController =
-		createGuidedQuestionsController();
+export function GuidedQuestionsPlugin(kit: PluginAPI): () => void {
+	const controller = createGuidedQuestionsController();
 
-	override initialize(): void {
-		// Append the policy to the system prompt so the model knows when to use
-		// the tool. Plugin owns the policy — App.tsx no longer needs to import it.
-		this.addSystemPromptAddition(GUIDED_QUESTIONS_POLICY);
+	// Append the policy to the system prompt so the model knows when to use
+	// the tool. Plugin owns the policy — App.tsx no longer needs to import it.
+	kit.addSystemPrompt(GUIDED_QUESTIONS_POLICY);
 
-		// Register the guided_questions tool. The tool reads the current
-		// `guidedQuestions` setting on every invocation, so toggling the setting
-		// takes effect immediately (next tool call returns a disabled response).
-		const tool = createGuidedQuestionsTool(this.controller, this.ctx);
-		this.registerTool(tool as import("@mariozechner/pi-agent-core").AgentTool);
+	// Register the guided_questions tool. The tool reads the current
+	// `guidedQuestions` setting on every invocation, so toggling the setting
+	// takes effect immediately (next tool call returns a disabled response).
+	const tool = createGuidedQuestionsTool(controller, {
+		getSettings: () => kit.settings.get(),
+	});
+	kit.registerTool(tool as AgentTool);
 
-		this.addDisposer(
-			this.controller.subscribe((active) => {
-				if (!active) return;
-				void this.ctx.ui.custom((props) => (
-					<GuidedQuestionsContent
-						guidedQuestions={this.controller}
-						onClose={() => props.done(undefined)}
-						surfaceProps={props.surfaceProps}
-					/>
-				));
-			}),
-		);
-	}
+	const unsubscribe = controller.subscribe((active) => {
+		if (!active) return;
+		void kit.ui.custom((props) => (
+			<GuidedQuestionsContent
+				guidedQuestions={controller}
+				onClose={() => props.done(undefined)}
+				surfaceProps={props.surfaceProps}
+			/>
+		));
+	});
+
+	return unsubscribe;
 }
