@@ -177,3 +177,4 @@ These should be added only when concrete feature needs exist.
 ## Related
 
 - `docs/adrs/0003-custom-shell.md`
+- `docs/adrs/0022-function-plugin-api.md`

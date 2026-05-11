@@ -124,5 +124,5 @@ export interface PluginAPI {
 	addDebugSection: (key: string, lines: string[]) => PluginSubscription;
 }
 
-// biome-ignore lint/suspicious/noConfusingVoidType: plugin initializers may omit a return value or return a disposer.
-export type PluginInitializer = (kit: PluginAPI) => void | PluginDispose;
+// biome-ignore lint/suspicious/noConfusingVoidType: plugin definitions may omit a return value or return a disposer.
+export type PluginDefinition = (kit: PluginAPI) => void | PluginDispose;

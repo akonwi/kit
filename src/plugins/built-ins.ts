@@ -7,19 +7,21 @@ import { PromptsPlugin } from "../features/prompts";
 import { SessionNamingPlugin } from "../features/session-naming";
 import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
-import { SubagentsPlugin } from "../features/subagents";
-import type { PluginDefinition } from "./PluginManager";
+import { createSubagentsPlugin } from "../features/subagents";
+import type { PluginContext, PluginDefinition } from "./types";
 
 // Built-in plugins that are always enabled as core features.
-export const BUILT_IN_PLUGINS: PluginDefinition[] = [
-	SkillsPlugin,
-	SubagentsPlugin,
-	PromptsPlugin,
-	ClaudeCompatibilityPlugin,
-	McpPlugin,
-	PagerPlugin,
-	GuidedQuestionsPlugin,
-	NotificationsPlugin,
-	SessionNamingPlugin,
-	SettingsPlugin,
-];
+export function createBuiltInPlugins(ctx: PluginContext): PluginDefinition[] {
+	return [
+		SkillsPlugin,
+		createSubagentsPlugin({ runtime: ctx.runtime }),
+		PromptsPlugin,
+		ClaudeCompatibilityPlugin,
+		McpPlugin,
+		PagerPlugin,
+		GuidedQuestionsPlugin,
+		NotificationsPlugin,
+		SessionNamingPlugin,
+		SettingsPlugin,
+	];
+}

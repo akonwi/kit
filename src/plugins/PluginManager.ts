@@ -1,22 +1,10 @@
 import { createPluginAPI } from "./api";
-import { Plugin } from "./Plugin";
-import type { PluginContext, PluginDispose, PluginInitializer } from "./types";
-
-export type PluginClass = new (ctx: PluginContext) => Plugin;
-export type PluginDefinition = PluginClass | PluginInitializer;
+import type { PluginContext, PluginDefinition, PluginDispose } from "./types";
 
 type ManagedPlugin = {
 	name: string;
 	dispose: () => void;
 };
-
-function isPluginClass(
-	definition: PluginDefinition,
-): definition is PluginClass {
-	return (
-		typeof definition === "function" && definition.prototype instanceof Plugin
-	);
-}
 
 function requirePluginName(name: string | undefined): string {
 	const trimmed = name?.trim();
@@ -36,14 +24,6 @@ export class PluginManager {
 
 	initialize(): void {
 		for (const definition of this.pluginDefinitions) {
-			if (isPluginClass(definition)) {
-				const name = requirePluginName(definition.name);
-				const plugin = new definition(this.ctx);
-				this.plugins.push({ name, dispose: () => plugin.dispose() });
-				plugin.initialize();
-				continue;
-			}
-
 			this.initializeFunctionPlugin(definition.name, definition);
 		}
 	}
@@ -57,15 +37,17 @@ export class PluginManager {
 
 	private initializeFunctionPlugin(
 		name: string | undefined,
-		initializer: PluginInitializer,
+		initializer: PluginDefinition,
 	): void {
 		const pluginName = requirePluginName(name);
-		const disposers: PluginDispose[] = [];
+		const disposers = new Set<PluginDispose>();
 		let returnedDispose: PluginDispose | undefined;
 		const managed: ManagedPlugin = {
 			name: pluginName,
 			dispose: () => {
-				for (const disposer of disposers.splice(0).reverse()) {
+				const remainingDisposers = [...disposers].reverse();
+				disposers.clear();
+				for (const disposer of remainingDisposers) {
 					disposer();
 				}
 				returnedDispose?.();
@@ -76,7 +58,12 @@ export class PluginManager {
 		this.plugins.push(managed);
 		const api = createPluginAPI(this.ctx, {
 			name: pluginName,
-			addDisposer: (disposer) => disposers.push(disposer),
+			addDisposer: (disposer) => {
+				disposers.add(disposer);
+				return () => {
+					disposers.delete(disposer);
+				};
+			},
 		});
 		returnedDispose = initializer(api) ?? undefined;
 	}

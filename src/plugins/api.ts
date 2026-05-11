@@ -21,17 +21,19 @@ export function createPluginAPI(
 	ctx: PluginContext,
 	options: {
 		name: string;
-		addDisposer: (disposer: PluginDispose) => void;
+		addDisposer: (disposer: PluginDispose) => PluginDispose;
 	},
 ): PluginAPI {
 	function track(disposer: PluginDispose): PluginSubscription {
 		let active = true;
+		let removeTrackedDisposer: PluginDispose = () => {};
 		const wrapped = () => {
 			if (!active) return;
 			active = false;
+			removeTrackedDisposer();
 			disposer();
 		};
-		options.addDisposer(wrapped);
+		removeTrackedDisposer = options.addDisposer(wrapped);
 		return wrapped;
 	}
 

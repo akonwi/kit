@@ -12,7 +12,9 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] refactor: shift the plugin API to be more like [Amp](https://ampcode.com/manual#plugins) and Pi
+- [ ] feat: dynamically load user/project function plugins
+  - see `backlog/plugin-api-refactor.md`
+- [ ] refactor: replace Pi `AgentTool` exposure in the public plugin API
   - see `backlog/plugin-api-refactor.md`
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
   - see `backlog/plugin-chrome-and-capabilities.md`

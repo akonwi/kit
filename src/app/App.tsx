@@ -4,8 +4,9 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import { BUILT_IN_PLUGINS, PluginManager, type PluginUI } from "../plugins";
-import type { TranscriptViewport } from "../plugins/types";
+import { createBuiltInPlugins } from "../plugins/built-ins";
+import { PluginManager } from "../plugins/PluginManager";
+import type { PluginUI, TranscriptViewport } from "../plugins/types";
 import {
 	AgentRuntime,
 	AuthenticationRequiredError,
@@ -77,13 +78,17 @@ export function App(props: AppProps) {
 			});
 		});
 
-		const pluginManager = new PluginManager(BUILT_IN_PLUGINS, {
+		const pluginContext = {
 			runtime,
 			commands,
 			settings: props.settings,
 			ui,
 			attachments,
-		});
+		};
+		const pluginManager = new PluginManager(
+			createBuiltInPlugins(pluginContext),
+			pluginContext,
+		);
 
 		try {
 			pluginManager.initialize();

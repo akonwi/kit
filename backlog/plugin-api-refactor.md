@@ -123,27 +123,35 @@ Registration APIs should auto-register their own cleanup with the manager. Retur
 
 ## Migration strategy
 
-### Compatibility layer
+### Internal-only dependencies
 
-Keep the existing class-based `Plugin` API temporarily as an internal migration adapter for built-ins.
+The class-based `Plugin` API has been removed. `PluginManager` now manages function plugins only.
 
-Public/user-facing plugins should only use the function API once dynamic loading is added.
+Built-ins that need Kit internals should receive them through internal factory closures, not through the public `PluginAPI`. For example, sub-agents need runtime internals to spawn isolated agent runtimes, so the built-in list creates that plugin with an internal factory:
 
-During migration, `PluginManager` can support both shapes internally. Function plugins should use named functions so every plugin has a stable name. Dynamic file loading can later require named default exports or derive names from discovered plugin files before registration.
+```ts
+function createBuiltInPlugins(ctx: PluginContext): PluginDefinition[] {
+	return [
+		SkillsPlugin,
+		createSubagentsPlugin({ runtime: ctx.runtime }),
+		PromptsPlugin,
+	];
+}
+```
+
+Public/user-facing plugins should only receive `PluginAPI` once dynamic loading is added. Function plugins should use named functions so every plugin has a stable name. Dynamic file loading can later require named default exports or derive names from discovered plugin files before registration.
 
 ```ts
 type PluginDispose = () => void | Promise<void>;
-type PluginInitializer = (
+type PluginDefinition = (
 	kit: PluginAPI,
 ) => void | PluginDispose | Promise<void | PluginDispose>;
-
-type PluginDefinition = PluginClass | PluginInitializer;
 ```
 
 ### Rollout order
 
 1. Introduce `PluginAPI` and function plugin support inside `PluginManager`.
-2. Keep current class built-ins loading as-is through the compatibility path.
+2. ~~Keep current class built-ins loading as-is through the compatibility path.~~ Done; class plugin support has been removed.
 3. Migrate simple built-ins first:
    - [x] `SessionNamingPlugin`
    - [x] `ClaudeCompatibilityPlugin`
@@ -151,14 +159,14 @@ type PluginDefinition = PluginClass | PluginInitializer;
    - [x] `NotificationsPlugin`
 4. Migrate medium/heavier built-ins:
    - [x] `SkillsPlugin`
-   - [ ] `SubagentsPlugin`
-     - defer until we can migrate it without expanding the public plugin API around runtime/sub-agent internals
+   - [x] `SubagentsPlugin`
+     - migrated with an internal factory closure so runtime/sub-agent internals stay out of the public plugin API
    - [x] `PagerPlugin`
    - [x] `GuidedQuestionsPlugin`
    - [x] `SettingsPlugin`
    - [x] `McpPlugin`
-5. Remove or fully internalize the class-based plugin API once built-ins are migrated.
-6. Add dynamic loading of user/project plugins as the last step.
+5. [x] Remove the class-based plugin API once built-ins are migrated.
+6. [ ] Add dynamic loading of user/project plugins as the last step.
 
 ### API cleanup follow-ups
 
