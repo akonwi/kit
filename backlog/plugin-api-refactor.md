@@ -156,7 +156,7 @@ type PluginDefinition = PluginClass | PluginInitializer;
    - [x] `PagerPlugin`
    - [x] `GuidedQuestionsPlugin`
    - [x] `SettingsPlugin`
-   - [ ] `McpPlugin`
+   - [x] `McpPlugin`
 5. Remove or fully internalize the class-based plugin API once built-ins are migrated.
 6. Add dynamic loading of user/project plugins as the last step.
 

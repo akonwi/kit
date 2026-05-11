@@ -174,10 +174,7 @@ export function MCP_PROXY_POLICY(): string {
 	].join("\n");
 }
 
-export function createMcpProxyTool(
-	manager: McpManager,
-	options: { onError?: (error: unknown) => void } = {},
-) {
+export function createMcpProxyTool(manager: McpManager) {
 	return {
 		name: "mcp",
 		label: "MCP",
@@ -326,7 +323,6 @@ export function createMcpProxyTool(
 
 				return textResult(renderStatus(manager), { mode: "status" });
 			} catch (error) {
-				options.onError?.(error);
 				return textResult(
 					error instanceof Error ? error.message : String(error),
 					{ error: "execution_failed" },
