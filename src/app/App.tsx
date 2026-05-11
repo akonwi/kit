@@ -5,6 +5,10 @@ import {
 	createCommandRegistry,
 } from "../features/commands";
 import { createBuiltInPlugins } from "../plugins/built-ins";
+import {
+	type ExternalPluginFailure,
+	loadExternalPlugins,
+} from "../plugins/external";
 import { PluginManager } from "../plugins/PluginManager";
 import type { PluginUI, TranscriptViewport } from "../plugins/types";
 import {
@@ -85,26 +89,71 @@ export function App(props: AppProps) {
 			ui,
 			attachments,
 		};
-		const pluginManager = new PluginManager(
-			createBuiltInPlugins(pluginContext),
-			pluginContext,
-		);
+		let pluginReloadCount = 0;
+		let pluginManager: PluginManager | null = null;
+
+		function disposePluginManager(manager: PluginManager | null): void {
+			manager?.dispose();
+		}
+
+		function showPluginFailures(failures: ExternalPluginFailure[]): void {
+			if (failures.length === 0) return;
+			const visibleFailures = failures.slice(0, 5).map(formatPluginFailure);
+			const remaining = failures.length - visibleFailures.length;
+			toast({
+				title:
+					failures.length === 1
+						? "Plugin failed to load"
+						: `${failures.length} plugins failed to load`,
+				lines:
+					remaining > 0
+						? [...visibleFailures, `...and ${remaining} more.`]
+						: visibleFailures,
+				variant: "error",
+				persistent: true,
+			});
+		}
+
+		function createPluginManager(
+			failures: ExternalPluginFailure[],
+		): PluginManager {
+			const external = loadExternalPlugins(runtime.getSession().cwd, {
+				reloadId: `${Date.now()}-${pluginReloadCount++}`,
+				onFailure: (failure) => failures.push(failure),
+			});
+			return new PluginManager(
+				[...createBuiltInPlugins(pluginContext), ...external.plugins],
+				pluginContext,
+			);
+		}
+
+		function initializePluginManager(): ExternalPluginFailure[] {
+			const failures: ExternalPluginFailure[] = [];
+			pluginManager = createPluginManager(failures);
+			pluginManager.initialize();
+			return failures;
+		}
 
 		try {
-			pluginManager.initialize();
+			showPluginFailures(initializePluginManager());
 		} catch (error) {
-			pluginManager.dispose();
+			disposePluginManager(pluginManager);
 			persistence.dispose();
 			runtime.dispose();
 			throw error;
 		}
 
 		async function _reload(): Promise<void> {
-			pluginManager.dispose();
+			disposePluginManager(pluginManager);
 			try {
 				await runtime.reloadSession();
 			} catch (error) {
-				pluginManager.initialize();
+				try {
+					showPluginFailures(initializePluginManager());
+				} catch {
+					disposePluginManager(pluginManager);
+					// Preserve the original reload error below.
+				}
 				toast({
 					title: "Reload failed",
 					lines: [error instanceof Error ? error.message : String(error)],
@@ -114,14 +163,14 @@ export function App(props: AppProps) {
 			}
 
 			try {
-				pluginManager.initialize();
+				showPluginFailures(initializePluginManager());
 				toast({
 					title: "Session reloaded",
 					lines: ["Reloaded session context and plugin state."],
 					variant: "info",
 				});
 			} catch (error) {
-				pluginManager.dispose();
+				disposePluginManager(pluginManager);
 				toast({
 					title: "Reload failed",
 					lines: [error instanceof Error ? error.message : String(error)],
@@ -149,7 +198,7 @@ export function App(props: AppProps) {
 		const dispose = () => {
 			if (disposed) return;
 			disposed = true;
-			pluginManager.dispose();
+			disposePluginManager(pluginManager);
 			persistence.dispose();
 			runtime.dispose();
 		};
@@ -181,6 +230,10 @@ export function App(props: AppProps) {
 				error: error instanceof Error ? error.message : String(error),
 			};
 		}
+	}
+
+	function formatPluginFailure(failure: ExternalPluginFailure): string {
+		return `${failure.filePath} (${failure.phase}): ${failure.message}`;
 	}
 
 	const [root, setRoot] = createSignal<RootState>(buildRootState());

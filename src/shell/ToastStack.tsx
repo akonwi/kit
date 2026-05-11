@@ -1,7 +1,7 @@
 import { useTimeline } from "@opentui/solid";
 import { createSignal, For, onMount } from "solid-js";
 import type { Toast } from "../state/toasts";
-import { CIRCLE_FILLED, CROSS } from "./glyphs";
+import { CIRCLE_FILLED, CROSS, TIMES, TRIANGLE_UP } from "./glyphs";
 import { theme } from "./theme";
 
 function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
@@ -34,7 +34,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 		props.toast.variant === "error"
 			? CROSS
 			: props.toast.variant === "warning"
-				? "▲"
+				? TRIANGLE_UP
 				: CIRCLE_FILLED;
 
 	const label = () =>
@@ -59,7 +59,7 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 				{label()}
 			</text>
 			<box onMouseUp={props.onDismiss}>
-				<text fg={theme.textMuted}>✕</text>
+				<text fg={theme.textMuted}>{TIMES}</text>
 			</box>
 		</box>
 	);

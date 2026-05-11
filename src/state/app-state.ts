@@ -76,10 +76,12 @@ export function createAppState(runtime: AgentRuntime | null) {
 	function showToast(toast: ToastInput) {
 		const id = nextToastId++;
 		setState("toasts", (prev) => [...prev, { ...toast, id }]);
-		toastTimers.set(
-			id,
-			setTimeout(() => dismissToast(id), 10_000),
-		);
+		if (!toast.persistent) {
+			toastTimers.set(
+				id,
+				setTimeout(() => dismissToast(id), 10_000),
+			);
+		}
 	}
 
 	// ── Runtime subscription ───────────────────────────────────────

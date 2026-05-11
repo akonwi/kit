@@ -166,30 +166,34 @@ type PluginDefinition = (
    - [x] `SettingsPlugin`
    - [x] `McpPlugin`
 5. [x] Remove the class-based plugin API once built-ins are migrated.
-6. [ ] Add dynamic loading of user/project plugins as the last step.
+6. [x] Add dynamic loading of user/project plugins as the last step.
 
 ### API cleanup follow-ups
 
 - [x] Stop exposing `AgentTool` from `@mariozechner/pi-agent-core` in the public plugin API. Kit plugins register tools through Kit-owned tool types and the plugin layer adapts them to Pi internally.
 
-### Dynamic plugin loading, later
+### Dynamic plugin loading
 
-Defer dynamic user/project plugin loading until after built-ins are migrated.
+Dynamic user/project plugin loading is implemented for Kit-specific plugin directories.
 
-When implemented, preferred locations are:
+Plugins are discovered only from Kit-specific locations:
 
 - user plugins: `~/.kit/plugins/*.ts`
-- project plugins: `.agents/plugins/*.ts`
+- project plugins: `.kit/plugins/*.ts`
 
-Initial load order should be:
+Do not use `.agents/plugins/` for Kit plugins. Plugins execute code and are Kit-specific functionality, unlike the compatibility-oriented `.agents/` resources such as skills, prompts, and MCP config.
+
+Load order is:
 
 1. built-ins
 2. user plugins
 3. project plugins
 
-Project plugins load last because they are most local. Avoid override semantics in v1; command/tool/debug collisions should have explicit behavior, likely fail or skip with a visible warning.
+Project plugins load last because they are most local. Avoid override semantics in v1; command, tool, and debug-section collisions fail the external plugin and are reported through the persistent plugin failure toast.
 
 Dynamic imports need cache busting so `/reload` picks up edited plugin files.
+
+Failed user/project plugins should not be added to `/debug`. Show a persistent toast that requires manual dismissal instead. The toast should summarize failed plugins and include enough file/error detail for the user to fix them.
 
 ## Non-goals for v1
 

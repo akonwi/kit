@@ -16,13 +16,16 @@ import type { LoadedSettings, Settings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
 import type { ToastInput } from "../state/toasts";
 
+export type PluginToastInput = ToastInput;
+export type PluginToastVariant = ToastInput["variant"];
+
 export type TranscriptViewport = {
 	width: number;
 	height: number;
 };
 
 export type PluginUI = {
-	toast: (toast: ToastInput) => void;
+	toast: (toast: PluginToastInput) => void;
 	custom: <T>(
 		component: (props: OverlayComponentProps<T>) => JSX.Element,
 	) => Promise<T>;

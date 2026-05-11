@@ -46,6 +46,7 @@ export function createPluginAPI(
 	ctx: PluginContext,
 	options: {
 		name: string;
+		checkContributionConflicts?: boolean;
 		addDisposer: (disposer: PluginDispose) => PluginDispose;
 	},
 ): PluginAPI {
@@ -160,6 +161,12 @@ export function createPluginAPI(
 		commandOptions,
 		handler,
 	) => {
+		if (
+			options.checkContributionConflicts &&
+			ctx.commands.getAll().some((command) => command.name === id)
+		) {
+			throw new Error(`Command /${id} is already registered.`);
+		}
 		const command: Command = {
 			name: id,
 			description: commandOptions.description ?? commandOptions.title ?? "",
@@ -171,8 +178,15 @@ export function createPluginAPI(
 		return track(ctx.commands.register(command));
 	};
 
-	const registerTool: PluginAPI["registerTool"] = (tool) =>
-		track(ctx.runtime.addTool(toAgentTool(tool)));
+	const registerTool: PluginAPI["registerTool"] = (tool) => {
+		if (
+			options.checkContributionConflicts &&
+			ctx.runtime.getTools().some((candidate) => candidate.name === tool.name)
+		) {
+			throw new Error(`Tool ${tool.name} is already registered.`);
+		}
+		return track(ctx.runtime.addTool(toAgentTool(tool)));
+	};
 
 	return {
 		logger,
@@ -185,7 +199,14 @@ export function createPluginAPI(
 		registerCommand,
 		registerTool,
 		addSystemPrompt: (text) => track(ctx.runtime.addSystemPromptAddition(text)),
-		addDebugSection: (key, lines) =>
-			track(ctx.runtime.setDebugSection(key, lines)),
+		addDebugSection: (key, lines) => {
+			if (
+				options.checkContributionConflicts &&
+				ctx.runtime.getDebugSections().has(key)
+			) {
+				throw new Error(`Debug section ${key} is already registered.`);
+			}
+			return track(ctx.runtime.setDebugSection(key, lines));
+		},
 	};
 }
