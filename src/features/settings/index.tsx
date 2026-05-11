@@ -1,40 +1,39 @@
-import { Plugin } from "../../plugins/Plugin";
-import { type Settings, saveSettings } from "../../settings";
+import type { PluginAPI } from "../../plugins";
+import type { Settings } from "../../settings";
 import { resolveAndApplyTheme } from "../../shell/theme";
 import { listUserThemes } from "../../shell/themes/loader";
 import { discoverSpeechVoices } from "../notifications/voices";
 import { SettingsContent } from "./SettingsContent";
 
-export class SettingsPlugin extends Plugin {
-	private speechVoicesPromise = discoverSpeechVoices();
+async function persistSettings(
+	kit: PluginAPI,
+	settings: Settings,
+): Promise<void> {
+	await kit.settings.update(settings);
+	await resolveAndApplyTheme(settings.theme ?? "system");
+}
 
-	override initialize(): void {
-		this.registerCommand({
-			name: "settings",
-			description: "Open application settings",
-			execute: async () => {
-				const [speechVoices, userThemes] = await Promise.all([
-					this.speechVoicesPromise,
-					listUserThemes(),
-				]);
-				await this.ctx.ui.custom((props) => (
-					<SettingsContent
-						initialSettings={this.ctx.settings.settings}
-						speechVoices={speechVoices}
-						userThemes={userThemes}
-						onSave={(settings) => this.persistSettings(settings)}
-						onClose={() => props.done(undefined)}
-						surfaceProps={props.surfaceProps}
-					/>
-				));
-			},
-		});
-	}
+export function SettingsPlugin(kit: PluginAPI): void {
+	const speechVoicesPromise = discoverSpeechVoices();
 
-	private async persistSettings(settings: Settings): Promise<void> {
-		await saveSettings(settings);
-		this.ctx.settings.settings = settings;
-		this.ctx.runtime.emitSettingsChanged(settings);
-		await resolveAndApplyTheme(settings.theme ?? "system");
-	}
+	kit.registerCommand(
+		"settings",
+		{ description: "Open application settings" },
+		async () => {
+			const [speechVoices, userThemes] = await Promise.all([
+				speechVoicesPromise,
+				listUserThemes(),
+			]);
+			await kit.ui.custom((props) => (
+				<SettingsContent
+					initialSettings={kit.settings.get()}
+					speechVoices={speechVoices}
+					userThemes={userThemes}
+					onSave={(settings) => persistSettings(kit, settings)}
+					onClose={() => props.done(undefined)}
+					surfaceProps={props.surfaceProps}
+				/>
+			));
+		},
+	);
 }
