@@ -32,7 +32,7 @@ function createBuiltInPlugins(ctx: PluginContext): PluginDefinition[] {
 }
 ```
 
-The public `PluginAPI` remains capability-based and does not expose raw `AgentRuntime`, `CommandRegistry`, attachments, or shell/app internals.
+The public `PluginAPI` remains capability-based and does not expose raw `AgentRuntime`, `CommandRegistry`, attachments, shell/app internals, or Pi `AgentTool` types. Plugins register tools with Kit-owned `PluginToolDefinition` / `PluginToolResult` types, and the plugin layer adapts them to Pi internally.
 
 Dynamic user/project plugin loading is deferred until after the built-in class API removal is complete.
 

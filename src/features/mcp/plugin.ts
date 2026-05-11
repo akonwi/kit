@@ -1,4 +1,3 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { createComponent } from "solid-js";
 import type { PluginAPI } from "../../plugins";
 import { loadMcpConfig } from "./config";
@@ -169,7 +168,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 		});
 		if (enabledServers.length > 0) {
 			const tool = createMcpProxyTool(manager);
-			unregisterTool = kit.registerTool(tool as AgentTool);
+			unregisterTool = kit.registerTool(tool);
 			removePolicy = kit.addSystemPrompt(MCP_PROXY_POLICY());
 		}
 

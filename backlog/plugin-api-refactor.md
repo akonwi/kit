@@ -170,7 +170,7 @@ type PluginDefinition = (
 
 ### API cleanup follow-ups
 
-- [ ] Stop exposing `AgentTool` from `@mariozechner/pi-agent-core` in the public plugin API. Kit plugins should register tools through a Kit-owned tool definition/type so the plugin API is not coupled to Pi internals beyond the `KitAgent` integration layer.
+- [x] Stop exposing `AgentTool` from `@mariozechner/pi-agent-core` in the public plugin API. Kit plugins register tools through Kit-owned tool types and the plugin layer adapts them to Pi internally.
 
 ### Dynamic plugin loading, later
 

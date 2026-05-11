@@ -1,4 +1,3 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { PluginAPI } from "../../plugins";
 import { loadSkills } from "./discovery";
 import { formatSkillsForPrompt } from "./format";
@@ -22,7 +21,7 @@ export function SkillsPlugin(kit: PluginAPI): void {
 
 		// Register the activate_skill tool for on-demand skill activation.
 		const tool = createActivateSkillTool(() => skills);
-		kit.registerTool(tool as AgentTool);
+		kit.registerTool(tool);
 	}
 
 	// Register debug info for /debug command

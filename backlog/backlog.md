@@ -14,8 +14,6 @@ Delete done items.
 ## Active items
 - [ ] feat: dynamically load user/project function plugins
   - see `backlog/plugin-api-refactor.md`
-- [ ] refactor: replace Pi `AgentTool` exposure in the public plugin API
-  - see `backlog/plugin-api-refactor.md`
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
   - see `backlog/plugin-chrome-and-capabilities.md`
 - [ ] idea: formalize plugin contribution to the status footer

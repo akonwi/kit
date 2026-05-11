@@ -3,8 +3,8 @@
  * can invoke it to ask the user structured questions.
  */
 
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
+import type { PluginToolDefinition, PluginToolResult } from "../../plugins";
 import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";
 import type { GuidedQuestionsController } from "./controller";
@@ -64,7 +64,7 @@ export type GuidedQuestionsToolOptions = {
 export function createGuidedQuestionsTool(
 	guidedQuestions: GuidedQuestionsController,
 	options: GuidedQuestionsToolOptions,
-) {
+): PluginToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
 		name: "guided_questions",
 		label: "Guided Questions",
@@ -83,7 +83,7 @@ export function createGuidedQuestionsTool(
 			input: Static<typeof parameters>,
 			_signal: AbortSignal | undefined,
 			_onUpdate: unknown,
-		): Promise<AgentToolResult<Record<string, unknown>>> {
+		): Promise<PluginToolResult<Record<string, unknown>>> {
 			const params: GuidedQuestionsInput = {
 				title: input.title,
 				intro: input.intro,

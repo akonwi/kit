@@ -1,4 +1,5 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { Static, TSchema } from "@mariozechner/pi-ai";
 import type { Command } from "../features/commands/types";
 import type {
 	AgentRuntimeEvent,
@@ -15,7 +16,31 @@ import type {
 	PluginEventContext,
 	PluginEventHandler,
 	PluginSubscription,
+	PluginToolDefinition,
 } from "./types";
+
+function toAgentTool<TParameters extends TSchema, TDetails>(
+	tool: PluginToolDefinition<TParameters, TDetails>,
+): AgentTool<TParameters, TDetails> {
+	const agentTool: AgentTool<TParameters, TDetails> = {
+		name: tool.name,
+		label: tool.label ?? tool.name,
+		description: tool.description,
+		parameters: tool.parameters,
+		prepareArguments: tool.prepareArguments,
+		executionMode: tool.executionMode,
+		execute: (
+			toolCallId: string,
+			params: Static<TParameters>,
+			signal?: AbortSignal,
+			onUpdate?: Parameters<AgentTool<TParameters, TDetails>["execute"]>[3],
+		) => tool.execute(toolCallId, params, signal, onUpdate),
+	};
+	return Object.assign(agentTool, {
+		promptSnippet: tool.promptSnippet,
+		promptGuidelines: tool.promptGuidelines,
+	});
+}
 
 export function createPluginAPI(
 	ctx: PluginContext,
@@ -147,7 +172,7 @@ export function createPluginAPI(
 	};
 
 	const registerTool: PluginAPI["registerTool"] = (tool) =>
-		track(ctx.runtime.addTool(tool as unknown as AgentTool));
+		track(ctx.runtime.addTool(toAgentTool(tool)));
 
 	return {
 		logger,

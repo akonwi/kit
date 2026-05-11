@@ -1,5 +1,5 @@
-import type { AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
-import type { Api, Model, TSchema } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { Api, Model, Static, TSchema } from "@mariozechner/pi-ai";
 import type { JSX } from "solid-js";
 import type { OverlayComponentProps } from "../app/overlay-ui";
 import type { CommandRegistry } from "../features/commands";
@@ -39,6 +39,42 @@ export type PluginContext = {
 
 export type PluginSubscription = () => void;
 export type PluginDispose = () => void;
+
+export type PluginToolExecutionMode = "sequential" | "parallel";
+
+export type PluginToolResultContentBlock =
+	| { type: "text"; text: string }
+	| { type: "image"; data: string; mimeType: string };
+
+export type PluginToolResult<TDetails = unknown> = {
+	content: PluginToolResultContentBlock[];
+	details: TDetails;
+	terminate?: boolean;
+};
+
+export type PluginToolUpdateCallback<TDetails = unknown> = (
+	partialResult: PluginToolResult<TDetails>,
+) => void;
+
+export type PluginToolDefinition<
+	TParameters extends TSchema = TSchema,
+	TDetails = unknown,
+> = {
+	name: string;
+	label?: string;
+	description: string;
+	promptSnippet?: string;
+	promptGuidelines?: string[];
+	parameters: TParameters;
+	prepareArguments?: (args: unknown) => Static<TParameters>;
+	execute: (
+		toolCallId: string,
+		params: Static<TParameters>,
+		signal?: AbortSignal,
+		onUpdate?: PluginToolUpdateCallback<TDetails>,
+	) => Promise<PluginToolResult<TDetails>>;
+	executionMode?: PluginToolExecutionMode;
+};
 
 export type PluginLogger = {
 	log: (...args: unknown[]) => void;
@@ -118,7 +154,7 @@ export interface PluginAPI {
 		handler: (ctx: PluginCommandContext) => void | Promise<void>,
 	) => PluginSubscription;
 	registerTool: <TParameters extends TSchema, TDetails>(
-		tool: AgentTool<TParameters, TDetails>,
+		tool: PluginToolDefinition<TParameters, TDetails>,
 	) => PluginSubscription;
 	addSystemPrompt: (text: string) => PluginSubscription;
 	addDebugSection: (key: string, lines: string[]) => PluginSubscription;

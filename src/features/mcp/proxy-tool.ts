@@ -1,5 +1,5 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
+import type { PluginToolDefinition, PluginToolResult } from "../../plugins";
 import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import type { McpManager } from "./manager";
 import type { McpToolMetadata } from "./types";
@@ -39,7 +39,7 @@ type ImageBlock = { type: "image"; data: string; mimeType: string };
 function textResult(
 	text: string,
 	details: Record<string, unknown> = {},
-): AgentToolResult<Record<string, unknown>> {
+): PluginToolResult<Record<string, unknown>> {
 	return {
 		content: [{ type: "text", text }],
 		details,
@@ -174,7 +174,9 @@ export function MCP_PROXY_POLICY(): string {
 	].join("\n");
 }
 
-export function createMcpProxyTool(manager: McpManager) {
+export function createMcpProxyTool(
+	manager: McpManager,
+): PluginToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
 		name: "mcp",
 		label: "MCP",
@@ -190,7 +192,7 @@ export function createMcpProxyTool(manager: McpManager) {
 		async execute(
 			_toolCallId: string,
 			input: ProxyInput,
-		): Promise<AgentToolResult<Record<string, unknown>>> {
+		): Promise<PluginToolResult<Record<string, unknown>>> {
 			try {
 				if (input.tool) {
 					let allTools = manager.getKnownTools();

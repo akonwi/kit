@@ -7,5 +7,10 @@ export type {
 	PluginEventContext,
 	PluginModelAPI,
 	PluginSubscription,
+	PluginToolDefinition,
+	PluginToolExecutionMode,
+	PluginToolResult,
+	PluginToolResultContentBlock,
+	PluginToolUpdateCallback,
 	PluginUI,
 } from "./types";

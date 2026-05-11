@@ -1,4 +1,3 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { PluginAPI } from "../../plugins";
 import { createGuidedQuestionsController } from "./controller";
 import { GuidedQuestionsContent } from "./GuidedQuestionsContent";
@@ -17,7 +16,7 @@ export function GuidedQuestionsPlugin(kit: PluginAPI): () => void {
 	const tool = createGuidedQuestionsTool(controller, {
 		getSettings: () => kit.settings.get(),
 	});
-	kit.registerTool(tool as AgentTool);
+	kit.registerTool(tool);
 
 	const unsubscribe = controller.subscribe((active) => {
 		if (!active) return;

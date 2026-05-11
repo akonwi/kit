@@ -5,15 +5,17 @@
  */
 
 import { readFileSync } from "node:fs";
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
+import type { PluginToolDefinition, PluginToolResult } from "../../plugins";
 import type { Skill } from "./discovery";
 
 const parameters = Type.Object({
 	name: Type.String({ description: "Name of the skill to load" }),
 });
 
-export function createActivateSkillTool(getSkills: () => Skill[]) {
+export function createActivateSkillTool(
+	getSkills: () => Skill[],
+): PluginToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
 		name: "activate_skill",
 		label: "Activate Skill",
@@ -31,7 +33,7 @@ export function createActivateSkillTool(getSkills: () => Skill[]) {
 			input: Static<typeof parameters>,
 			_signal: AbortSignal | undefined,
 			_onUpdate: unknown,
-		): Promise<AgentToolResult<Record<string, unknown>>> {
+		): Promise<PluginToolResult<Record<string, unknown>>> {
 			const skills = getSkills();
 			const skill = skills.find((s) => s.name === input.name);
 

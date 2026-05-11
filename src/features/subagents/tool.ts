@@ -1,5 +1,5 @@
-import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@mariozechner/pi-ai";
+import type { PluginToolDefinition, PluginToolResult } from "../../plugins";
 import type { SubagentDefinition } from "./discovery";
 import {
 	type ActiveSubagentStatus,
@@ -36,7 +36,7 @@ type ListedSubagent = {
 function textResult(
 	text: string,
 	details: Record<string, unknown>,
-): AgentToolResult<Record<string, unknown>> {
+): PluginToolResult<Record<string, unknown>> {
 	return {
 		content: [{ type: "text" as const, text }],
 		details,
@@ -71,7 +71,7 @@ function requireMessage(input: Parameters): string | null {
 function toolError(
 	action: Parameters["action"],
 	error: unknown,
-): AgentToolResult<Record<string, unknown>> {
+): PluginToolResult<Record<string, unknown>> {
 	if (error instanceof SubagentManagerError) {
 		return textResult(error.message, {
 			ok: false,
@@ -92,7 +92,7 @@ function toolError(
 export function createSubagentTool(options: {
 	getAgents: () => SubagentDefinition[];
 	manager: Pick<SubagentManager, "dismiss" | "getActive" | "run">;
-}) {
+}): PluginToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
 		name: "subagent",
 		label: "Sub-agent",
@@ -110,7 +110,7 @@ export function createSubagentTool(options: {
 		async execute(
 			_toolCallId: string,
 			input: Parameters,
-		): Promise<AgentToolResult<Record<string, unknown>>> {
+		): Promise<PluginToolResult<Record<string, unknown>>> {
 			if (input.action === "list_agents") {
 				const agents = options.getAgents().map<ListedSubagent>((agent) => ({
 					name: agent.name,

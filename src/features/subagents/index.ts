@@ -1,4 +1,3 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { PluginAPI, PluginDefinition } from "../../plugins";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { loadSubagents, type SubagentDefinition } from "./discovery";
@@ -60,7 +59,7 @@ export function createSubagentsPlugin(options: {
 					getAgents: () => agents,
 					manager,
 				});
-				unregisterTool = kit.registerTool(tool as AgentTool);
+				unregisterTool = kit.registerTool(tool);
 			}
 
 			const lines = [
