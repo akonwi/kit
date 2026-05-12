@@ -8,13 +8,21 @@ Kit is a TUI coding agent heavily inspired by [Pi](https://pi.dev) and built on 
 
 ## Install
 
+From npm:
+
+```bash
+bun install --global @akonwi/kit
+```
+
+From a checkout:
+
 ```bash
 bun install
 bun run build
 bun link
 ```
 
-The compiled binary is the intended non-development entry point.
+The packaged CLI uses the compiled binary as its non-development entry point.
 
 ## Usage
 
@@ -48,6 +56,12 @@ Build the distributed binary:
 
 ```bash
 bun run build
+```
+
+Preview the npm package contents:
+
+```bash
+bun run pack:dry
 ```
 
 ## More documentation

@@ -1,12 +1,41 @@
 {
 	"name": "@akonwi/kit",
 	"version": "0.1.0",
-	"private": true,
+	"author": "Akonwi Ngoh <akonwi@gmail.com>",
 	"description": "Standalone kit app with Pi-core compatibility and a custom terminal shell.",
 	"license": "MIT",
 	"type": "module",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/akonwi/kit.git"
+	},
+	"homepage": "https://github.com/akonwi/kit#readme",
+	"bugs": {
+		"url": "https://github.com/akonwi/kit/issues"
+	},
 	"bin": {
-		"kit": "./dist/kit"
+		"kit": "dist/kit"
+	},
+	"exports": {
+		"./plugin": {
+			"types": "./dist/plugin.d.ts",
+			"default": "./dist/plugin.js"
+		}
+	},
+	"typesVersions": {
+		"*": {
+			"plugin": [
+				"dist/plugin.d.ts"
+			]
+		}
+	},
+	"files": [
+		"dist/",
+		"docs/features/plugins.md",
+		"README.md"
+	],
+	"publishConfig": {
+		"access": "public"
 	},
 	"scripts": {
 		"check": "biome check --write .",
@@ -14,6 +43,9 @@
 		"dev": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"start": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"build": "bun run script/build.ts",
+		"pack:dry": "npm pack --dry-run",
+		"prepack": "bun run build",
+		"prepublishOnly": "bun run typecheck && bun test",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},

@@ -7,8 +7,6 @@ export type {
 	PluginEventContext,
 	PluginModelAPI,
 	PluginSubscription,
-	PluginToastInput,
-	PluginToastVariant,
 	PluginToolDefinition,
 	PluginToolExecutionMode,
 	PluginToolResult,

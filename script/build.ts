@@ -17,6 +17,11 @@ const dir = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(dir, "dist");
 const runtimeDir = path.join(distDir, "runtime");
 const binaryPath = path.join(distDir, "kit");
+const pluginRuntimePath = path.join(distDir, "plugin.js");
+const pluginTypesPath = path.join(distDir, "plugin.d.ts");
+const pluginTypesSourcePath = path.join(dir, "src/plugins/sdk.ts");
+const toastTypesPath = path.join(distDir, "toasts.d.ts");
+const toastTypesSourcePath = path.join(dir, "src/state/toasts.ts");
 const parserWorkerPath = path.resolve(
 	dir,
 	"node_modules/@opentui/core/parser.worker.js",
@@ -114,5 +119,26 @@ if (bundledWasm) {
 await fs.promises.cp(coreAssetsPath, path.join(runtimeDir, "assets"), {
 	recursive: true,
 });
+
+await fs.promises.writeFile(
+	pluginRuntimePath,
+	[
+		"// Runtime placeholder for the type-only @akonwi/kit/plugin SDK.",
+		"// Use `import type` when consuming plugin API types.",
+		"export {};",
+		"",
+	].join("\n"),
+	"utf8",
+);
+const pluginTypesSource = await fs.promises.readFile(
+	pluginTypesSourcePath,
+	"utf8",
+);
+await fs.promises.writeFile(
+	pluginTypesPath,
+	pluginTypesSource.replace('from "../state/toasts"', 'from "./toasts"'),
+	"utf8",
+);
+await fs.promises.copyFile(toastTypesSourcePath, toastTypesPath);
 
 console.log(`Built ${binaryPath}`);

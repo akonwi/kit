@@ -1,7 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Api, Model, Static, TSchema } from "@mariozechner/pi-ai";
-import type { JSX } from "solid-js";
-import type { OverlayComponentProps } from "../app/overlay-ui";
+import type { Api, Model, TSchema } from "@mariozechner/pi-ai";
 import type { CommandRegistry } from "../features/commands";
 import type { MessagePart } from "../messages/parts";
 import type {
@@ -14,23 +12,35 @@ import type {
 import type { Session } from "../session";
 import type { LoadedSettings, Settings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
-import type { ToastInput } from "../state/toasts";
+import type {
+	PluginDispose,
+	PluginLogger,
+	PluginSubscription,
+	PluginToolDefinition,
+	PluginUI,
+} from "./sdk";
 
-export type PluginToastInput = ToastInput;
-export type PluginToastVariant = ToastInput["variant"];
+export type {
+	PluginDispose,
+	PluginLogger,
+	PluginMessagePart,
+	PluginOverlayComponentProps,
+	PluginOverlaySurfaceProps,
+	PluginReviewDiffView,
+	PluginRuntimeEvent,
+	PluginSession,
+	PluginSubscription,
+	PluginToolDefinition,
+	PluginToolExecutionMode,
+	PluginToolResult,
+	PluginToolResultContentBlock,
+	PluginToolUpdateCallback,
+	PluginUI,
+} from "./sdk";
 
-export type TranscriptViewport = {
-	width: number;
-	height: number;
-};
-
-export type PluginUI = {
-	toast: (toast: PluginToastInput) => void;
-	custom: <T>(
-		component: (props: OverlayComponentProps<T>) => JSX.Element,
-	) => Promise<T>;
-	getTranscriptViewport: () => TranscriptViewport | null;
-};
+export type TranscriptViewport = NonNullable<
+	ReturnType<PluginUI["getTranscriptViewport"]>
+>;
 
 export type PluginContext = {
 	runtime: AgentRuntime;
@@ -38,49 +48,6 @@ export type PluginContext = {
 	settings: LoadedSettings;
 	ui: PluginUI;
 	attachments: AttachmentsController;
-};
-
-export type PluginSubscription = () => void;
-export type PluginDispose = () => void;
-
-export type PluginToolExecutionMode = "sequential" | "parallel";
-
-export type PluginToolResultContentBlock =
-	| { type: "text"; text: string }
-	| { type: "image"; data: string; mimeType: string };
-
-export type PluginToolResult<TDetails = unknown> = {
-	content: PluginToolResultContentBlock[];
-	details: TDetails;
-	terminate?: boolean;
-};
-
-export type PluginToolUpdateCallback<TDetails = unknown> = (
-	partialResult: PluginToolResult<TDetails>,
-) => void;
-
-export type PluginToolDefinition<
-	TParameters extends TSchema = TSchema,
-	TDetails = unknown,
-> = {
-	name: string;
-	label?: string;
-	description: string;
-	promptSnippet?: string;
-	promptGuidelines?: string[];
-	parameters: TParameters;
-	prepareArguments?: (args: unknown) => Static<TParameters>;
-	execute: (
-		toolCallId: string,
-		params: Static<TParameters>,
-		signal?: AbortSignal,
-		onUpdate?: PluginToolUpdateCallback<TDetails>,
-	) => Promise<PluginToolResult<TDetails>>;
-	executionMode?: PluginToolExecutionMode;
-};
-
-export type PluginLogger = {
-	log: (...args: unknown[]) => void;
 };
 
 export type PluginSessionAPI = {
