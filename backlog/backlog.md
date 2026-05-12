@@ -12,6 +12,9 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
+- [ ] chore: update `glob` to non-deprecated version
+- [ ] chore: update pi deps to new earendil/ namespace
+- [ ] fix: /reload doesn't pick up theme files
 - [ ] idea: let shell components query plugin state/capabilities via `PluginManager` in the component tree instead of importing global feature state
   - see `backlog/plugin-chrome-and-capabilities.md`
 - [ ] idea: formalize plugin contribution to the status footer
