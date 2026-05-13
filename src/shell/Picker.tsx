@@ -90,6 +90,9 @@ function Header() {
 					<input
 						flexGrow={1}
 						focused
+						textColor={theme.textPrimary}
+						focusedTextColor={theme.textPrimary}
+						cursorColor={theme.cursor}
 						value={snapshot().inputValue}
 						onInput={(value: string) => picker.setInputValue(value)}
 						onKeyDown={(e: KeyEvent) => {
@@ -124,6 +127,9 @@ function Header() {
 						<input
 							flexGrow={1}
 							focused
+							textColor={theme.textPrimary}
+							focusedTextColor={theme.textPrimary}
+							cursorColor={theme.cursor}
 							value={snapshot().filterText}
 							onInput={(value: string) => picker.filter(value)}
 							onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
