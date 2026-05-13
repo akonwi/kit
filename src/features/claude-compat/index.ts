@@ -1,11 +1,11 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import {
 	discoverClaudeCommandFiles,
 	readClaudeCommandPrompt,
 } from "../commands/claude-commands";
 import { loadSkills } from "../skills/discovery";
 
-export function ClaudeCompatibilityPlugin(kit: PluginAPI): void {
+export function ClaudeCompatibilityPlugin(kit: InternalPluginAPI): void {
 	const cwd = kit.system.cwd;
 	const metas = discoverClaudeCommandFiles(cwd);
 

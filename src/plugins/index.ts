@@ -1,4 +1,6 @@
 export type {
+	InternalPluginAPI,
+	InternalPluginDefinition,
 	PluginAPI,
 	PluginCommandContext,
 	PluginCommandOptions,
@@ -13,4 +15,7 @@ export type {
 	PluginToolResultContentBlock,
 	PluginToolUpdateCallback,
 	PluginUI,
+	ToolCall,
+	ToolCallDecision,
+	ToolCallHandler,
 } from "./types";

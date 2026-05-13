@@ -10,7 +10,7 @@ import {
 	loadExternalPlugins,
 } from "../plugins/external";
 import { PluginManager } from "../plugins/PluginManager";
-import type { PluginUI, TranscriptViewport } from "../plugins/types";
+import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
 import {
 	AgentRuntime,
 	AuthenticationRequiredError,
@@ -61,7 +61,7 @@ export function App(props: AppProps) {
 		showToast?.(nextToast);
 	};
 
-	const ui: PluginUI = createPluginUI({
+	const ui: InternalPluginUI = createPluginUI({
 		toast,
 		custom: openCustomOverlay,
 		getTranscriptViewport: () => transcriptViewport(),

@@ -2,6 +2,10 @@
 
 Status: deferred
 
+## Progress
+
+- Runtime support now exists for awaited plugin tool-call hooks via `kit.onToolCall(...)`; handlers can allow or reject a pending call before execution. Remaining work is the settings-backed policy, matcher, and built-in approval UI.
+
 ## Goal
 
 Support user-configured approval prompts before matching tool calls execute.
@@ -138,5 +142,5 @@ Implementation likely needs an `AgentRuntime` API for registering/composing befo
 2. Extend settings types/sanitization with `toolApprovals`.
 3. Add a rule matcher module with tests.
 4. Add a tool approval controller/dialog using `Dialog.*` and `HintBar`.
-5. Wire the controller into the runtime before-tool-call path.
+5. Use the existing `kit.onToolCall(...)` runtime hook path to block matching calls while approval is pending.
 6. Add docs for the settings shape and precedence.

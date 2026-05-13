@@ -1,4 +1,4 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import type { Turn } from "../../session/types";
 import { resolveSpeechSettings } from "../../settings";
 import { ringBell, speak } from "./notifications";
@@ -28,7 +28,7 @@ function getLastAssistantText(messages: Turn["messages"]): string | null {
 	return null;
 }
 
-function notifyTurnComplete(kit: PluginAPI, turn: Turn | null): void {
+function notifyTurnComplete(kit: InternalPluginAPI, turn: Turn | null): void {
 	if (!turn) return;
 	const settings = kit.settings.get();
 	const isError = turn.messages.some(
@@ -48,7 +48,7 @@ function notifyTurnComplete(kit: PluginAPI, turn: Turn | null): void {
 	});
 }
 
-export function NotificationsPlugin(kit: PluginAPI): void {
+export function NotificationsPlugin(kit: InternalPluginAPI): void {
 	// Subscribe to turn completion for notifications
 	kit.on("agent.turn.completed", (event) => {
 		notifyTurnComplete(kit, event.turn);

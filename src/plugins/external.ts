@@ -1,7 +1,7 @@
 import { type Dirent, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { getKitPaths } from "../paths";
-import type { PluginRegistration } from "./PluginManager";
+import type { ExternalPluginRegistration } from "./PluginManager";
 import type { PluginDefinition } from "./types";
 
 export type ExternalPluginSource = "user" | "project";
@@ -17,7 +17,7 @@ export type ExternalPluginFailure = {
 };
 
 export type LoadExternalPluginsResult = {
-	plugins: PluginRegistration[];
+	plugins: ExternalPluginRegistration[];
 	failures: ExternalPluginFailure[];
 };
 
@@ -109,7 +109,7 @@ export function loadExternalPlugins(
 	cwd: string,
 	options: LoadExternalPluginsOptions,
 ): LoadExternalPluginsResult {
-	const plugins: PluginRegistration[] = [];
+	const plugins: ExternalPluginRegistration[] = [];
 	const failures: ExternalPluginFailure[] = [];
 
 	for (const file of discoverPluginFiles(cwd, options.home)) {

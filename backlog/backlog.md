@@ -31,4 +31,5 @@ Delete done items.
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
   - see `backlog/agent-runtime-extraction-for-subagents.md`
 - [ ] feat: configuration for tool calls that require approval
+  - runtime hook is implemented; settings-backed policy remains
   - see `backlog/tool-call-approvals.md`

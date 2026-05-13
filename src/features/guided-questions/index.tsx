@@ -1,9 +1,9 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { createGuidedQuestionsController } from "./controller";
 import { GuidedQuestionsContent } from "./GuidedQuestionsContent";
 import { createGuidedQuestionsTool, GUIDED_QUESTIONS_POLICY } from "./tool";
 
-export function GuidedQuestionsPlugin(kit: PluginAPI): () => void {
+export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	const controller = createGuidedQuestionsController();
 
 	// Append the policy to the system prompt so the model knows when to use

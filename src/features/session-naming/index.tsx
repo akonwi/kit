@@ -1,7 +1,7 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { type Api, completeSimple, type Model } from "@mariozechner/pi-ai";
 import { getApiKey } from "../../auth";
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
@@ -18,7 +18,7 @@ const AUTO_TITLE_SYSTEM_PROMPT = [
 ].join(" ");
 const lastAutoTitleAttemptBySession = new Map<string, number>();
 
-export function SessionNamingPlugin(kit: PluginAPI): void {
+export function SessionNamingPlugin(kit: InternalPluginAPI): void {
 	kit.on("agent.turn.completed", async () => {
 		if (kit.settings.get().sessionNaming === false) return;
 		await maybeAutoNameSession(kit);
@@ -143,7 +143,7 @@ async function generateTitleWithCurrentModel(
 		.join("\n");
 }
 
-async function maybeAutoNameSession(kit: PluginAPI): Promise<void> {
+async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 	const messages = kit.session.getMessages();
 	if (AUTO_TITLE_DISABLED) return;
 	if (lastAssistantFailed(messages)) return;

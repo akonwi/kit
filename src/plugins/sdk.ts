@@ -1,218 +1,9 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Api, Model, Static, TSchema } from "@mariozechner/pi-ai";
-import type { JSX } from "solid-js";
 import type { ToastInput } from "../state/toasts";
 
 export type PluginSubscription = () => void;
 export type PluginDispose = () => void;
-
-export type PluginOverlaySurfaceProps = {
-	zIndex?: number;
-};
-
-export type PluginOverlayComponentProps<T> = {
-	done: (result: T) => void;
-	surfaceProps: PluginOverlaySurfaceProps;
-	active: boolean;
-};
-
-export type PluginSurfaceSize = number | `${number}%`;
-
-export type PluginSurfaceTone =
-	| "primary"
-	| "secondary"
-	| "muted"
-	| "placeholder"
-	| "accent"
-	| "success"
-	| "warning"
-	| "error";
-
-export type PluginSurfaceBinding = { key: string; action: string };
-
-export type PluginSurfaceKeyEvent = {
-	name: string;
-	ctrl: boolean;
-	shift: boolean;
-	alt: boolean;
-	meta: boolean;
-	option: boolean;
-	preventDefault: () => void;
-};
-
-export type PluginSurfaceContext<T> = {
-	readonly active: boolean;
-	invalidate: () => void;
-	close: (result: T) => void;
-};
-
-export type PluginSurfaceChild =
-	| PluginSurfaceNode
-	| string
-	| null
-	| undefined
-	| false;
-
-export type PluginSurfaceTextNode = {
-	type: "text";
-	text: string;
-	tone?: PluginSurfaceTone;
-	bold?: boolean;
-};
-
-export type PluginSurfaceMarkdownNode = {
-	type: "markdown";
-	content: string;
-	tone?: PluginSurfaceTone;
-};
-
-export type PluginSurfaceContainerNode = {
-	type: "row" | "column" | "box";
-	children: PluginSurfaceChild[];
-	gap?: number;
-	grow?: boolean;
-	shrink?: boolean;
-	width?: PluginSurfaceSize;
-	height?: PluginSurfaceSize;
-	padding?: number;
-	paddingX?: number;
-	paddingY?: number;
-	overflow?: "hidden" | "visible";
-};
-
-export type PluginSurfaceScrollNode = {
-	type: "scroll";
-	child: PluginSurfaceChild;
-	paddingX?: number;
-	paddingY?: number;
-};
-
-export type PluginSurfaceHintBarNode = {
-	type: "hintBar";
-	bindings: PluginSurfaceBinding[];
-	borderless?: boolean;
-};
-
-export type PluginSurfaceListItem = {
-	label: string;
-	description?: string;
-};
-
-export type PluginSurfaceListNode = {
-	type: "list";
-	items: PluginSurfaceListItem[];
-	selectedIndex?: number;
-	maxVisible?: number;
-};
-
-export type PluginSurfaceInputNode = {
-	type: "input";
-	value: string;
-	placeholder?: string;
-	focused?: boolean;
-	onInput?: (value: string) => void;
-};
-
-export type PluginSurfaceTextareaNode = {
-	type: "textarea";
-	value: string;
-	placeholder?: string;
-	focused?: boolean;
-	maxHeight?: number;
-	onInput?: (value: string) => void;
-};
-
-export type PluginSurfaceDialogNode = {
-	type: "dialog";
-	title: string;
-	body: PluginSurfaceChild;
-	footer?: PluginSurfaceChild;
-	width?: PluginSurfaceSize;
-	maxWidth?: number;
-	minWidth?: number;
-	height?: PluginSurfaceSize;
-};
-
-export type PluginSurfaceScreenNode = {
-	type: "screen";
-	title: string;
-	body: PluginSurfaceChild;
-	footer?: PluginSurfaceChild;
-	right?: string;
-	progress?: number;
-};
-
-export type PluginSurfaceNode =
-	| PluginSurfaceTextNode
-	| PluginSurfaceMarkdownNode
-	| PluginSurfaceContainerNode
-	| PluginSurfaceScrollNode
-	| PluginSurfaceHintBarNode
-	| PluginSurfaceListNode
-	| PluginSurfaceInputNode
-	| PluginSurfaceTextareaNode
-	| PluginSurfaceDialogNode
-	| PluginSurfaceScreenNode;
-
-export type PluginSurfaceDefinition<T> = {
-	render: () => PluginSurfaceNode;
-	onKey?: (
-		event: PluginSurfaceKeyEvent,
-		ctx: PluginSurfaceContext<T>,
-	) => void | Promise<void>;
-};
-
-export type PluginSurfaceUI = {
-	text: (
-		text: string,
-		options?: Omit<PluginSurfaceTextNode, "type" | "text">,
-	) => PluginSurfaceTextNode;
-	markdown: (
-		content: string,
-		options?: Omit<PluginSurfaceMarkdownNode, "type" | "content">,
-	) => PluginSurfaceMarkdownNode;
-	row: (
-		children: PluginSurfaceChild[],
-		options?: Omit<PluginSurfaceContainerNode, "type" | "children">,
-	) => PluginSurfaceContainerNode;
-	column: (
-		children: PluginSurfaceChild[],
-		options?: Omit<PluginSurfaceContainerNode, "type" | "children">,
-	) => PluginSurfaceContainerNode;
-	box: (
-		children: PluginSurfaceChild[],
-		options?: Omit<PluginSurfaceContainerNode, "type" | "children">,
-	) => PluginSurfaceContainerNode;
-	scroll: (
-		child: PluginSurfaceChild,
-		options?: Omit<PluginSurfaceScrollNode, "type" | "child">,
-	) => PluginSurfaceScrollNode;
-	hintBar: (
-		bindings: PluginSurfaceBinding[],
-		options?: Omit<PluginSurfaceHintBarNode, "type" | "bindings">,
-	) => PluginSurfaceHintBarNode;
-	list: (
-		items: PluginSurfaceListItem[],
-		options?: Omit<PluginSurfaceListNode, "type" | "items">,
-	) => PluginSurfaceListNode;
-	input: (
-		options: Omit<PluginSurfaceInputNode, "type">,
-	) => PluginSurfaceInputNode;
-	textarea: (
-		options: Omit<PluginSurfaceTextareaNode, "type">,
-	) => PluginSurfaceTextareaNode;
-	dialog: (
-		options: Omit<PluginSurfaceDialogNode, "type">,
-	) => PluginSurfaceDialogNode;
-	screen: (
-		options: Omit<PluginSurfaceScreenNode, "type">,
-	) => PluginSurfaceScreenNode;
-};
-
-export type PluginSurfaceFactory<T> = (
-	ctx: PluginSurfaceContext<T>,
-	ui: PluginSurfaceUI,
-) => PluginSurfaceDefinition<T>;
 
 export interface PluginUI {
 	toast: (toast: ToastInput) => void;
@@ -243,14 +34,28 @@ export interface PluginUI {
 		cancelLabel?: string;
 		defaultValue?: boolean;
 	}): Promise<boolean>;
-	surface: <T = void>(factory: PluginSurfaceFactory<T>) => Promise<T>;
-	custom: <T>(
-		component: (props: PluginOverlayComponentProps<T>) => JSX.Element,
-	) => Promise<T>;
-	getTranscriptViewport: () => { width: number; height: number } | null;
 }
 
 export type PluginToolExecutionMode = "sequential" | "parallel";
+
+export type ToolCall = {
+	id: string;
+	name: string;
+	input: Record<string, unknown>;
+};
+
+export type ToolCallDecision =
+	| { action: "allow" }
+	| { action: "reject-and-continue"; message?: string }
+	| undefined
+	// biome-ignore lint/suspicious/noConfusingVoidType: tool call handlers may omit a return value to allow the call.
+	| void;
+
+export type ToolCallHandler = (
+	toolCall: ToolCall,
+	ctx: PluginEventContext,
+	signal?: AbortSignal,
+) => ToolCallDecision | Promise<ToolCallDecision>;
 
 export type PluginToolResultContentBlock =
 	| { type: "text"; text: string }
@@ -415,6 +220,7 @@ export interface PluginAPI {
 	registerTool: <TParameters extends TSchema, TDetails>(
 		tool: PluginToolDefinition<TParameters, TDetails>,
 	) => PluginSubscription;
+	onToolCall: (handler: ToolCallHandler) => PluginSubscription;
 	addSystemPrompt: (text: string) => PluginSubscription;
 	addDebugSection: (key: string, lines: string[]) => PluginSubscription;
 }

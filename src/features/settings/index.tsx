@@ -1,4 +1,4 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import type { Settings } from "../../settings";
 import { resolveAndApplyTheme } from "../../shell/theme";
 import { listUserThemes } from "../../shell/themes/loader";
@@ -6,14 +6,14 @@ import { discoverSpeechVoices } from "../notifications/voices";
 import { SettingsContent } from "./SettingsContent";
 
 async function persistSettings(
-	kit: PluginAPI,
+	kit: InternalPluginAPI,
 	settings: Settings,
 ): Promise<void> {
 	await kit.settings.update(settings);
 	await resolveAndApplyTheme(settings.theme ?? "system");
 }
 
-export function SettingsPlugin(kit: PluginAPI): void {
+export function SettingsPlugin(kit: InternalPluginAPI): void {
 	const speechVoicesPromise = discoverSpeechVoices();
 
 	kit.registerCommand(

@@ -63,7 +63,7 @@ Registrations made through `kit` are cleaned up automatically on `/reload`.
 
 ## UI helpers
 
-`kit.ui.toast({ title, subtitle, variant })` remains the lightweight notification API. For small interactive flows, Kit also provides app-owned UI primitives so plugins do not need to render custom OpenTUI/Solid surfaces:
+`kit.ui.toast({ title, subtitle, variant })` remains the lightweight notification API. For small interactive flows, Kit also provides app-owned UI primitives:
 
 ```ts
 const picked = await kit.ui.select({
@@ -87,45 +87,33 @@ const ok = await kit.ui.confirm({
 });
 ```
 
-These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape.
+These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, and `confirm` so Kit can keep ownership of rendering, focus, theme, and compatibility.
 
-For richer UI, `kit.ui.surface(...)` opens a Kit-owned composable surface. Plugins keep local state, render with Kit primitives, and call `ctx.invalidate()` after state changes:
+## Tool approval hooks
+
+Plugins can register a callback that runs before a tool executes. Return `{ action: "allow" }` or no value to run the tool; return `{ action: "reject-and-continue", message }` to block it and let the agent continue.
 
 ```ts
-await kit.ui.surface((ctx, ui) => {
-	let selected = 0;
-	const items = ["Issues", "Pull requests"];
+kit.onToolCall(async (toolCall, ctx) => {
+	if (toolCall.name !== "bash") return { action: "allow" };
+	const command = toolCall.input.command;
+	if (typeof command !== "string" || !command.includes("rm")) {
+		return { action: "allow" };
+	}
 
-	return {
-		render: () =>
-			ui.dialog({
-				title: "GitHub manager",
-				body: ui.column([
-					ui.list(
-						items.map((label) => ({ label })),
-						{ selectedIndex: selected },
-					),
-				]),
-				footer: ui.hintBar([
-					{ key: "↑/↓", action: "move" },
-					{ key: "Esc", action: "close" },
-				]),
-			}),
-		onKey: (event) => {
-			if (event.name === "down") {
-				event.preventDefault();
-				selected = Math.min(selected + 1, items.length - 1);
-				ctx.invalidate();
-			}
-			if (event.name === "escape") ctx.close(undefined);
-		},
-	};
+	const approved = await ctx.ui.confirm({
+		title: "Approve bash?",
+		message: command,
+		confirmLabel: "Allow",
+		cancelLabel: "Block",
+		defaultValue: false,
+	});
+
+	return approved
+		? { action: "allow" }
+		: { action: "reject-and-continue", message: "User denied bash." };
 });
 ```
-
-Surface primitives currently include `dialog`, `screen`, `text`, `markdown`, `row`, `column`, `box`, `scroll`, `list`, `input`, `textarea`, and `hintBar`.
-
-If you use `kit.ui.custom`, only handle global keyboard input while `props.active` is true; stacked overlays may remain mounted behind the topmost surface.
 
 ## Reloading
 

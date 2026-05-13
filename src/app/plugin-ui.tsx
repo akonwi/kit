@@ -8,14 +8,17 @@ import {
 	type JSX,
 	Show,
 } from "solid-js";
-import type { PluginUI, TranscriptViewport } from "../plugins/types";
+import type {
+	InternalPluginUI,
+	PluginUI,
+	TranscriptViewport,
+} from "../plugins/types";
 import { Dialog } from "../shell/Dialog";
 import { CHEVRON_RIGHT } from "../shell/glyphs";
 import { type Binding, HintBar } from "../shell/HintBar";
 import { theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
-import { PluginSurfaceOverlay } from "./plugin-surface";
 
 const SELECT_MAX_VISIBLE = 8;
 
@@ -85,7 +88,9 @@ export type CreatePluginUIOptions = {
 	getTranscriptViewport: () => TranscriptViewport | null;
 };
 
-export function createPluginUI(options: CreatePluginUIOptions): PluginUI {
+export function createPluginUI(
+	options: CreatePluginUIOptions,
+): InternalPluginUI {
 	const select = ((input: SelectInput<unknown>) =>
 		options.custom<unknown | undefined>((props) => (
 			<PluginSelectOverlay {...props} input={input} />
@@ -101,10 +106,6 @@ export function createPluginUI(options: CreatePluginUIOptions): PluginUI {
 		confirm: (input) =>
 			options.custom<boolean>((props) => (
 				<PluginConfirmOverlay {...props} input={input} />
-			)),
-		surface: (factory) =>
-			options.custom((props) => (
-				<PluginSurfaceOverlay {...props} factory={factory} />
 			)),
 		custom: options.custom,
 		getTranscriptViewport: options.getTranscriptViewport,

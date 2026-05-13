@@ -1,5 +1,5 @@
 import { createComponent } from "solid-js";
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { loadMcpConfig } from "./config";
 import { McpAuthorizationUrlModal } from "./McpAuthorizationUrlModal";
 import { McpStatusModal } from "./McpStatusModal";
@@ -10,7 +10,7 @@ import { loadMcpOAuthStore, saveMcpOAuthStore } from "./oauth-store";
 import { createMcpProxyTool, MCP_PROXY_POLICY } from "./proxy-tool";
 import type { LoadMcpConfigResult } from "./types";
 
-export function McpPlugin(kit: PluginAPI): () => void {
+export function McpPlugin(kit: InternalPluginAPI): () => void {
 	let manager: McpManager | null = null;
 	let unregisterTool: (() => void) | null = null;
 	let removePolicy: (() => void) | null = null;

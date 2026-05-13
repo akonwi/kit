@@ -1,4 +1,4 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { PagerContent } from "./PagerContent";
 import {
 	createPagerController,
@@ -7,7 +7,7 @@ import {
 
 export type { PagerController } from "./pager-controller";
 
-export function PagerPlugin(kit: PluginAPI): () => void {
+export function PagerPlugin(kit: InternalPluginAPI): () => void {
 	const pager: PagerController = createPagerController();
 
 	async function openPager(): Promise<void> {

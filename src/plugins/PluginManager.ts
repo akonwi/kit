@@ -1,18 +1,36 @@
 import { createPluginAPI } from "./api";
-import type { PluginContext, PluginDefinition, PluginDispose } from "./types";
+import type {
+	InternalPluginDefinition,
+	PluginContext,
+	PluginDefinition,
+	PluginDispose,
+} from "./types";
 
 export type PluginErrorHandler = (input: {
 	name: string;
 	error: unknown;
 }) => void;
 
-export type PluginRegistration = {
+type BasePluginRegistration = {
 	name: string;
-	initialize: PluginDefinition;
 	continueOnError?: boolean;
 	onError?: PluginErrorHandler;
 	checkContributionConflicts?: boolean;
 };
+
+export type ExternalPluginRegistration = BasePluginRegistration & {
+	initialize: PluginDefinition;
+	internalUi?: false;
+};
+
+export type InternalPluginRegistration = BasePluginRegistration & {
+	initialize: InternalPluginDefinition;
+	internalUi: true;
+};
+
+export type PluginRegistration =
+	| ExternalPluginRegistration
+	| InternalPluginRegistration;
 
 export type PluginManagerInput = PluginDefinition | PluginRegistration;
 
@@ -81,18 +99,30 @@ export class PluginManager {
 		};
 
 		this.plugins.push(managed);
-		const api = createPluginAPI(this.ctx, {
+		const commonOptions = {
 			name: pluginName,
 			checkContributionConflicts: registration.checkContributionConflicts,
-			addDisposer: (disposer) => {
+			addDisposer: (disposer: PluginDispose) => {
 				disposers.add(disposer);
 				return () => {
 					disposers.delete(disposer);
 				};
 			},
-		});
+		};
 		try {
-			returnedDispose = registration.initialize(api) ?? undefined;
+			if (registration.internalUi) {
+				const api = createPluginAPI(this.ctx, {
+					...commonOptions,
+					exposeInternalUi: true,
+				});
+				returnedDispose = registration.initialize(api) ?? undefined;
+			} else {
+				const api = createPluginAPI(this.ctx, {
+					...commonOptions,
+					exposeInternalUi: false,
+				});
+				returnedDispose = registration.initialize(api) ?? undefined;
+			}
 		} catch (error) {
 			managed.dispose();
 			const index = this.plugins.indexOf(managed);
