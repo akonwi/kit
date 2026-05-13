@@ -15,6 +15,7 @@ import { type Binding, HintBar } from "../shell/HintBar";
 import { theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
+import { PluginSurfaceOverlay } from "./plugin-surface";
 
 const SELECT_MAX_VISIBLE = 8;
 
@@ -100,6 +101,10 @@ export function createPluginUI(options: CreatePluginUIOptions): PluginUI {
 		confirm: (input) =>
 			options.custom<boolean>((props) => (
 				<PluginConfirmOverlay {...props} input={input} />
+			)),
+		surface: (factory) =>
+			options.custom((props) => (
+				<PluginSurfaceOverlay {...props} factory={factory} />
 			)),
 		custom: options.custom,
 		getTranscriptViewport: options.getTranscriptViewport,

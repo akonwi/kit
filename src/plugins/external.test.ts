@@ -27,6 +27,7 @@ function createMockKit(logs: string[]): PluginAPI {
 			select: async () => undefined,
 			input: async () => undefined,
 			confirm: async () => false,
+			surface: async () => undefined as never,
 			custom: async () => undefined as never,
 			getTranscriptViewport: () => null,
 		},

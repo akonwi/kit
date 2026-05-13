@@ -89,6 +89,42 @@ const ok = await kit.ui.confirm({
 
 These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape.
 
+For richer UI, `kit.ui.surface(...)` opens a Kit-owned composable surface. Plugins keep local state, render with Kit primitives, and call `ctx.invalidate()` after state changes:
+
+```ts
+await kit.ui.surface((ctx, ui) => {
+	let selected = 0;
+	const items = ["Issues", "Pull requests"];
+
+	return {
+		render: () =>
+			ui.dialog({
+				title: "GitHub manager",
+				body: ui.column([
+					ui.list(
+						items.map((label) => ({ label })),
+						{ selectedIndex: selected },
+					),
+				]),
+				footer: ui.hintBar([
+					{ key: "↑/↓", action: "move" },
+					{ key: "Esc", action: "close" },
+				]),
+			}),
+		onKey: (event) => {
+			if (event.name === "down") {
+				event.preventDefault();
+				selected = Math.min(selected + 1, items.length - 1);
+				ctx.invalidate();
+			}
+			if (event.name === "escape") ctx.close(undefined);
+		},
+	};
+});
+```
+
+Surface primitives currently include `dialog`, `screen`, `text`, `markdown`, `row`, `column`, `box`, `scroll`, `list`, `input`, `textarea`, and `hintBar`.
+
 If you use `kit.ui.custom`, only handle global keyboard input while `props.active` is true; stacked overlays may remain mounted behind the topmost surface.
 
 ## Reloading
