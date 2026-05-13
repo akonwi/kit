@@ -19,7 +19,6 @@ export default function plugin(kit: PluginAPI) {
 	kit.on("agent.turn.completed", async (event, ctx) => {
 		ctx.ui.toast({
 			title: "Turn complete",
-			lines: [],
 			variant: "info",
 		});
 	});
@@ -94,7 +93,7 @@ kit.registerCommand(
 		argName: "name",
 	},
 	async (ctx) => {
-		ctx.ui.toast({ title: "Hello", lines: [], variant: "info" });
+		ctx.ui.toast({ title: "Hello", variant: "info" });
 	},
 );
 ```

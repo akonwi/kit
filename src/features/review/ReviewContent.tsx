@@ -1182,7 +1182,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (!submission) {
 			props.toast({
 				title: "No review notes",
-				lines: ["Add a file or line note before submitting review."],
+				subtitle: "Add a file or line note before submitting review.",
 				variant: "warning",
 			});
 			return;

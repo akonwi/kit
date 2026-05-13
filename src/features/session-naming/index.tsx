@@ -176,7 +176,7 @@ async function maybeAutoNameSession(kit: PluginAPI): Promise<void> {
 		if (!title) {
 			kit.ui.toast({
 				title: "Session auto-name failed",
-				lines: ["The model did not return a usable session title."],
+				subtitle: "The model did not return a usable session title.",
 				variant: "warning",
 			});
 			return;
@@ -190,7 +190,7 @@ async function maybeAutoNameSession(kit: PluginAPI): Promise<void> {
 	} catch (error) {
 		kit.ui.toast({
 			title: "Session auto-name failed",
-			lines: [error instanceof Error ? error.message : String(error)],
+			subtitle: error instanceof Error ? error.message : String(error),
 			variant: "warning",
 		});
 	}

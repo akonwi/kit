@@ -71,7 +71,7 @@ function ImagePartEntry(props: {
 					if (result.ok) return;
 					props.showToast({
 						title: "Could not open image",
-						lines: [result.message],
+						subtitle: result.message,
 						variant: "error",
 					});
 				});

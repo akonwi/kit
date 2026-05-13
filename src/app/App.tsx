@@ -26,6 +26,7 @@ import { FilePersistence } from "../storage/file-persistence";
 import { AuthGateScreen } from "./AuthGateScreen";
 import { FatalScreen } from "./FatalScreen";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
+import { createPluginUI } from "./plugin-ui";
 
 export type AppProps = {
 	settings: LoadedSettings;
@@ -60,11 +61,11 @@ export function App(props: AppProps) {
 		showToast?.(nextToast);
 	};
 
-	const ui: PluginUI = {
+	const ui: PluginUI = createPluginUI({
 		toast,
 		custom: openCustomOverlay,
 		getTranscriptViewport: () => transcriptViewport(),
-	};
+	});
 
 	function buildReadyState(): ReadyState {
 		const attachments = createAttachmentsController();
@@ -77,7 +78,7 @@ export function App(props: AppProps) {
 		persistence.onFailure((event) => {
 			toast({
 				title: "Session save failed",
-				lines: [event.error],
+				subtitle: event.error,
 				variant: "error",
 			});
 		});
@@ -98,17 +99,17 @@ export function App(props: AppProps) {
 
 		function showPluginFailures(failures: ExternalPluginFailure[]): void {
 			if (failures.length === 0) return;
-			const visibleFailures = failures.slice(0, 5).map(formatPluginFailure);
-			const remaining = failures.length - visibleFailures.length;
+			const firstFailure = formatPluginFailure(failures[0]);
+			const remaining = failures.length - 1;
 			toast({
 				title:
 					failures.length === 1
 						? "Plugin failed to load"
 						: `${failures.length} plugins failed to load`,
-				lines:
+				subtitle:
 					remaining > 0
-						? [...visibleFailures, `...and ${remaining} more.`]
-						: visibleFailures,
+						? `${firstFailure} · ${remaining} more failure${remaining === 1 ? "" : "s"}`
+						: firstFailure,
 				variant: "error",
 				persistent: true,
 			});
@@ -156,7 +157,7 @@ export function App(props: AppProps) {
 				}
 				toast({
 					title: "Reload failed",
-					lines: [error instanceof Error ? error.message : String(error)],
+					subtitle: error instanceof Error ? error.message : String(error),
 					variant: "error",
 				});
 				return;
@@ -166,14 +167,14 @@ export function App(props: AppProps) {
 				showPluginFailures(initializePluginManager());
 				toast({
 					title: "Session reloaded",
-					lines: ["Reloaded session context and plugin state."],
+					subtitle: "Reloaded session context and plugin state.",
 					variant: "info",
 				});
 			} catch (error) {
 				disposePluginManager(pluginManager);
 				toast({
 					title: "Reload failed",
-					lines: [error instanceof Error ? error.message : String(error)],
+					subtitle: error instanceof Error ? error.message : String(error),
 					variant: "error",
 				});
 			}
@@ -252,9 +253,9 @@ export function App(props: AppProps) {
 			replaceRootState(next);
 			next.app.showToast({
 				title: "Login successful",
-				lines: [
-					providerName ? `Logged in to ${providerName}.` : "Credentials saved.",
-				],
+				subtitle: providerName
+					? `Logged in to ${providerName}.`
+					: "Credentials saved.",
 				variant: "info",
 			});
 			return true;

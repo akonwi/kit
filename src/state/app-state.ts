@@ -75,7 +75,20 @@ export function createAppState(runtime: AgentRuntime | null) {
 
 	function showToast(toast: ToastInput) {
 		const id = nextToastId++;
-		setState("toasts", (prev) => [...prev, { ...toast, id }]);
+		const legacyLines = (toast as ToastInput & { lines?: string[] }).lines;
+		const subtitle =
+			toast.subtitle ??
+			legacyLines?.filter((line) => line.length > 0).join(" · ");
+		setState("toasts", (prev) => [
+			...prev,
+			{
+				id,
+				title: toast.title,
+				subtitle: subtitle || undefined,
+				variant: toast.variant,
+				persistent: toast.persistent,
+			},
+		]);
 		if (!toast.persistent) {
 			toastTimers.set(
 				id,
@@ -104,44 +117,38 @@ export function createAppState(runtime: AgentRuntime | null) {
 			case "chat.followups.promoted":
 				showToast({
 					title: "Steering",
-					lines:
+					subtitle:
 						event.count === 1
-							? ["Promoted 1 queued follow-up into steering."]
-							: [`Promoted ${event.count} queued follow-ups into steering.`],
+							? "Promoted 1 queued follow-up into steering."
+							: `Promoted ${event.count} queued follow-ups into steering.`,
 					variant: "info",
 				});
 				break;
 			case "session.compaction.completed.auto":
 				showToast({
 					title: "Session compacted",
-					lines: [
-						`Context reached ${event.contextPercent}%; compacted ${event.compactedTurnCount} turns into 1 summary turn.`,
-						`Kept ${event.keptTurnCount} recent turns unchanged.`,
-					],
+					subtitle: `Context reached ${event.contextPercent}%; compacted ${event.compactedTurnCount} turns into 1 summary turn. Kept ${event.keptTurnCount} recent turns unchanged.`,
 					variant: "info",
 				});
 				break;
 			case "session.compaction.failed.auto":
 				showToast({
 					title: "Auto-compaction failed",
-					lines: [event.error],
+					subtitle: event.error,
 					variant: "error",
 				});
 				break;
 			case "session.compaction.completed.recovery":
 				showToast({
 					title: "Session compacted",
-					lines: [
-						`Recovered from a context overflow by compacting ${event.compactedTurnCount} turns into 1 summary turn.`,
-						`Kept ${event.keptTurnCount} recent turns unchanged.`,
-					],
+					subtitle: `Recovered from a context overflow by compacting ${event.compactedTurnCount} turns into 1 summary turn. Kept ${event.keptTurnCount} recent turns unchanged.`,
 					variant: "info",
 				});
 				break;
 			case "session.compaction.failed.recovery":
 				showToast({
 					title: "Context overflow recovery failed",
-					lines: [event.error],
+					subtitle: event.error,
 					variant: "error",
 				});
 				break;
@@ -151,16 +158,7 @@ export function createAppState(runtime: AgentRuntime | null) {
 						event.cause === "compaction-error"
 							? "Model switch compaction failed"
 							: "Model too small for session",
-					lines:
-						event.cause === "compaction-error"
-							? [
-									event.error,
-									"Start a new session or hand off to continue with this model.",
-								]
-							: [
-									event.error,
-									"Start a new session or hand off to continue with this model.",
-								],
+					subtitle: `${event.error} Start a new session or hand off to continue with this model.`,
 					variant: "error",
 				});
 				break;
@@ -168,14 +166,14 @@ export function createAppState(runtime: AgentRuntime | null) {
 				if (event.error === "Retry cancelled before continue.") break;
 				showToast({
 					title: "Retry failed",
-					lines: [event.error],
+					subtitle: event.error,
 					variant: "error",
 				});
 				break;
 			case "agent.run.failed":
 				showToast({
 					title: "Agent run failed",
-					lines: [event.error],
+					subtitle: event.error,
 					variant: "error",
 				});
 				break;

@@ -13,15 +13,43 @@ export type PluginOverlaySurfaceProps = {
 export type PluginOverlayComponentProps<T> = {
 	done: (result: T) => void;
 	surfaceProps: PluginOverlaySurfaceProps;
+	active: boolean;
 };
 
-export type PluginUI = {
+export interface PluginUI {
 	toast: (toast: ToastInput) => void;
+	select(input: {
+		title: string;
+		message?: string;
+		options: string[];
+		filterable?: boolean;
+		placeholder?: string;
+	}): Promise<string | undefined>;
+	select<T>(input: {
+		title: string;
+		message?: string;
+		options: Array<{ label: string; value: T; description?: string }>;
+		filterable?: boolean;
+		placeholder?: string;
+	}): Promise<T | undefined>;
+	input(input: {
+		title: string;
+		message?: string;
+		placeholder?: string;
+		initialValue?: string;
+	}): Promise<string | undefined>;
+	confirm(input: {
+		title: string;
+		message?: string;
+		confirmLabel?: string;
+		cancelLabel?: string;
+		defaultValue?: boolean;
+	}): Promise<boolean>;
 	custom: <T>(
 		component: (props: PluginOverlayComponentProps<T>) => JSX.Element,
 	) => Promise<T>;
 	getTranscriptViewport: () => { width: number; height: number } | null;
-};
+}
 
 export type PluginToolExecutionMode = "sequential" | "parallel";
 

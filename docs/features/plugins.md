@@ -37,7 +37,7 @@ export default function MyPlugin(kit: PluginAPI) {
 		async (ctx) => {
 			ctx.ui.toast({
 				title: "Hello plugin",
-				lines: ["Loaded from a Kit plugin."],
+				subtitle: "Loaded from a Kit plugin.",
 				variant: "info",
 			});
 		},
@@ -60,6 +60,36 @@ export default function WatchPlugin(kit: PluginAPI) {
 ```
 
 Registrations made through `kit` are cleaned up automatically on `/reload`.
+
+## UI helpers
+
+`kit.ui.toast({ title, subtitle, variant })` remains the lightweight notification API. For small interactive flows, Kit also provides app-owned UI primitives so plugins do not need to render custom OpenTUI/Solid surfaces:
+
+```ts
+const picked = await kit.ui.select({
+	title: "Choose target",
+	options: [
+		{ label: "Current file", value: "file", description: "Use the active context" },
+		{ label: "Whole project", value: "project" },
+	],
+	filterable: true,
+});
+
+const name = await kit.ui.input({
+	title: "Name this run",
+	placeholder: "experiment name",
+});
+
+const ok = await kit.ui.confirm({
+	title: "Continue?",
+	message: "This will submit a follow-up message.",
+	confirmLabel: "Continue",
+});
+```
+
+These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape.
+
+If you use `kit.ui.custom`, only handle global keyboard input while `props.active` is true; stacked overlays may remain mounted behind the topmost surface.
 
 ## Reloading
 

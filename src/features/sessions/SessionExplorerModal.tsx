@@ -255,7 +255,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		if (session.id === currentSessionId()) {
 			props.toast({
 				title: "Cannot delete active session",
-				lines: ["Switch to another session before deleting this one."],
+				subtitle: "Switch to another session before deleting this one.",
 				variant: "warning",
 			});
 			return;
@@ -273,7 +273,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		if (!session) {
 			props.toast({
 				title: "Rename failed",
-				lines: ["Session could not be found."],
+				subtitle: "Session could not be found.",
 				variant: "error",
 			});
 			return;
@@ -300,7 +300,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		} catch (error) {
 			props.toast({
 				title: "Delete failed",
-				lines: [String(error)],
+				subtitle: String(error),
 				variant: "error",
 			});
 		}
@@ -320,7 +320,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 				void props.runtime.mergeUp().catch((error) => {
 					props.toast({
 						title: "Squash failed",
-						lines: [String(error)],
+						subtitle: String(error),
 						variant: "error",
 					});
 				});

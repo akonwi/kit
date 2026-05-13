@@ -24,6 +24,9 @@ function createMockKit(logs: string[]): PluginAPI {
 		logger: { log: (...args) => logs.push(args.join(" ")) },
 		ui: {
 			toast: () => {},
+			select: async () => undefined,
+			input: async () => undefined,
+			confirm: async () => false,
 			custom: async () => undefined as never,
 			getTranscriptViewport: () => null,
 		},

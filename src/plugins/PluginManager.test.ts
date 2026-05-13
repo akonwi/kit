@@ -19,6 +19,9 @@ function createPluginContext(commands: Command[]): PluginContext {
 		settings: { settings: {}, paths: {} as PluginContext["settings"]["paths"] },
 		ui: {
 			toast: () => {},
+			select: async () => undefined,
+			input: async () => undefined,
+			confirm: async () => false,
 			custom: async () => undefined as never,
 			getTranscriptViewport: () => null,
 		},

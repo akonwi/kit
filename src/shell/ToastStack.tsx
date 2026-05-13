@@ -1,5 +1,5 @@
 import { useTimeline } from "@opentui/solid";
-import { createSignal, For, onMount } from "solid-js";
+import { createSignal, For, onMount, Show } from "solid-js";
 import type { Toast } from "../state/toasts";
 import { CIRCLE_FILLED, CROSS, TIMES, TRIANGLE_UP } from "./glyphs";
 import { theme } from "./theme";
@@ -37,11 +37,6 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 				? TRIANGLE_UP
 				: CIRCLE_FILLED;
 
-	const label = () =>
-		props.toast.lines.length > 0
-			? `${props.toast.title}: ${props.toast.lines.join(" ")}`
-			: props.toast.title;
-
 	return (
 		<box
 			position="relative"
@@ -52,13 +47,24 @@ function ToastItem(props: { toast: Toast; onDismiss: () => void }) {
 			paddingX={1}
 			flexDirection="row"
 			gap={1}
-			maxWidth="50%"
+			maxWidth="60%"
 		>
-			<text fg={color()}>{icon()}</text>
-			<text flexGrow={1} fg={color()}>
-				{label()}
+			<text flexShrink={0} fg={color()}>
+				{icon()}
 			</text>
-			<box onMouseUp={props.onDismiss}>
+			<box flexGrow={1} flexShrink={1} flexDirection="column" overflow="hidden">
+				<box height={1} overflow="hidden">
+					<text fg={color()}>{props.toast.title}</text>
+				</box>
+				<Show when={props.toast.subtitle}>
+					{(subtitle) => (
+						<box height={1} overflow="hidden">
+							<text fg={theme.textSecondary}>{subtitle()}</text>
+						</box>
+					)}
+				</Show>
+			</box>
+			<box flexShrink={0} onMouseUp={props.onDismiss}>
 				<text fg={theme.textMuted}>{TIMES}</text>
 			</box>
 		</box>

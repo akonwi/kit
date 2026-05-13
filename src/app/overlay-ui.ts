@@ -8,6 +8,7 @@ export type OverlaySurfaceProps = Pick<BoxProps, "zIndex">;
 export type OverlayComponentProps<T> = {
 	done: (result: T) => void;
 	surfaceProps: OverlaySurfaceProps;
+	active: boolean;
 };
 
 export type OverlayEntry = {
