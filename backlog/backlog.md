@@ -12,6 +12,8 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
+- [ ] review: iterate on the custom code review diff viewer
+  - see `backlog/custom-review-diff-view.md`
 - [ ] fix: `WebSocket closed 1006 Connection ended` error should be retryable
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem

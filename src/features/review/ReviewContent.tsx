@@ -22,7 +22,7 @@ import {
 import { type Binding, HintBar } from "../../shell/HintBar";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { syntaxStyle, theme } from "../../shell/theme";
+import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
 import { CodeReviewAttachment } from "./attachment";
 import {
@@ -41,6 +41,7 @@ import {
 	type ReviewLine,
 	type ReviewSkippedSection,
 } from "./model";
+import { ReviewDiffBlock } from "./ReviewDiffBlock";
 import { ReviewNoteModal } from "./ReviewNoteModal";
 
 export type ReviewContentProps = {
@@ -887,27 +888,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	}
 
-	function renderDiffBlock(rawPatch: string, filetype?: string) {
+	function renderRawDiffBlock(rawPatch: string, filetype?: string) {
 		return (
-			<diff
-				diff={rawPatch}
+			<ReviewDiffBlock
+				rawPatch={rawPatch}
 				view={diffView()}
 				filetype={filetype}
-				syntaxStyle={syntaxStyle()}
-				showLineNumbers
-				addedBg={theme.diffAddedBg}
-				removedBg={theme.diffRemovedBg}
-				contextBg={theme.bgSurface}
-				addedContentBg={theme.diffAddedContentBg}
-				removedContentBg={theme.diffRemovedContentBg}
-				contextContentBg={theme.bgSurface}
-				addedSignColor={theme.toolText}
-				removedSignColor={theme.errorText}
-				lineNumberFg={theme.textMuted}
-				lineNumberBg={theme.bg}
-				addedLineNumberBg={theme.diffAddedLineNumberBg}
-				removedLineNumberBg={theme.diffRemovedLineNumberBg}
-				wrapMode="none"
 			/>
 		);
 	}
@@ -1037,32 +1023,50 @@ export function ReviewContent(props: ReviewContentProps) {
 			</>
 		);
 		return (
-			<box position="relative" paddingLeft={2}>
-				{renderDiffBlock(hunk.rawPatch, file.filetype)}
-				<Show when={interactive}>
-					<Show
-						when={splitView()}
-						fallback={
-							<box position="absolute" left={0} top={0}>
-								{renderOverlayLane()}
+			<box flexDirection="column" gap={0}>
+				<box
+					paddingLeft={2}
+					paddingX={1}
+					backgroundColor={theme.bgMuted}
+					height={1}
+					flexShrink={0}
+				>
+					<text fg={theme.metaText} bg={theme.bgMuted}>
+						{hunk.header}
+						{hunk.context ? ` ${hunk.context}` : ""}
+					</text>
+				</box>
+				<box position="relative" paddingLeft={2}>
+					<ReviewDiffBlock
+						hunk={hunk}
+						view={diffView()}
+						filetype={file.filetype}
+					/>
+					<Show when={interactive}>
+						<Show
+							when={splitView()}
+							fallback={
+								<box position="absolute" left={0} top={0}>
+									{renderOverlayLane()}
+								</box>
+							}
+						>
+							<box position="absolute" left={0} top={0} width="50%">
+								{renderOverlayLane("deletions")}
 							</box>
-						}
-					>
-						<box position="absolute" left={0} top={0} width="50%">
-							{renderOverlayLane("deletions")}
-						</box>
-						<box position="absolute" left="50%" top={0} width="50%">
-							{renderOverlayLane("additions")}
-						</box>
+							<box position="absolute" left="50%" top={0} width="50%">
+								{renderOverlayLane("additions")}
+							</box>
+						</Show>
 					</Show>
-				</Show>
+				</box>
 			</box>
 		);
 	}
 
 	function renderFileDiffContent(file: ReviewFile, interactive: boolean) {
 		if (file.hunks.length === 0) {
-			return renderDiffBlock(file.rawPatch, file.filetype);
+			return renderRawDiffBlock(file.rawPatch, file.filetype);
 		}
 		return (
 			<box flexDirection="column" gap={0}>
@@ -1083,7 +1087,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												expanded,
 											})}
 											<Show when={expanded()}>
-												{renderDiffBlock(section().rawPatch, file.filetype)}
+												{renderRawDiffBlock(section().rawPatch, file.filetype)}
 											</Show>
 										</>
 									);
@@ -1106,7 +1110,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									expanded,
 								})}
 								<Show when={expanded()}>
-									{renderDiffBlock(section().rawPatch, file.filetype)}
+									{renderRawDiffBlock(section().rawPatch, file.filetype)}
 								</Show>
 							</>
 						);
