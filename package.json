@@ -1,6 +1,6 @@
 {
 	"name": "@akonwi/kit",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"author": "Akonwi Ngoh <akonwi@gmail.com>",
 	"description": "Standalone kit app with Pi-core compatibility and a custom terminal shell.",
 	"license": "MIT",
