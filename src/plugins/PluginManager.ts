@@ -1,9 +1,9 @@
 import { createPluginAPI } from "./api";
 import type {
+	Disposer,
 	InternalPluginDefinition,
+	Plugin,
 	PluginContext,
-	PluginDefinition,
-	PluginDispose,
 } from "./types";
 
 export type PluginErrorHandler = (input: {
@@ -19,7 +19,7 @@ type BasePluginRegistration = {
 };
 
 export type ExternalPluginRegistration = BasePluginRegistration & {
-	initialize: PluginDefinition;
+	initialize: Plugin;
 	internalUi?: false;
 };
 
@@ -32,7 +32,7 @@ export type PluginRegistration =
 	| ExternalPluginRegistration
 	| InternalPluginRegistration;
 
-export type PluginManagerInput = PluginDefinition | PluginRegistration;
+export type PluginManagerInput = Plugin | PluginRegistration;
 
 type ManagedPlugin = {
 	name: string;
@@ -83,8 +83,8 @@ export class PluginManager {
 
 	private initializePlugin(registration: PluginRegistration): void {
 		const pluginName = registration.name;
-		const disposers = new Set<PluginDispose>();
-		let returnedDispose: PluginDispose | undefined;
+		const disposers = new Set<Disposer>();
+		let returnedDispose: Disposer | undefined;
 		const managed: ManagedPlugin = {
 			name: pluginName,
 			dispose: () => {
@@ -102,7 +102,7 @@ export class PluginManager {
 		const commonOptions = {
 			name: pluginName,
 			checkContributionConflicts: registration.checkContributionConflicts,
-			addDisposer: (disposer: PluginDispose) => {
+			addDisposer: (disposer: Disposer) => {
 				disposers.add(disposer);
 				return () => {
 					disposers.delete(disposer);

@@ -2,10 +2,9 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Api, Model, Static, TSchema } from "@mariozechner/pi-ai";
 import type { ToastInput } from "../state/toasts";
 
-export type PluginSubscription = () => void;
-export type PluginDispose = () => void;
+export type Disposer = () => void;
 
-export interface PluginUI {
+interface UI {
 	toast: (toast: ToastInput) => void;
 	select(input: {
 		title: string;
@@ -36,7 +35,7 @@ export interface PluginUI {
 	}): Promise<boolean>;
 }
 
-export type PluginToolExecutionMode = "sequential" | "parallel";
+export type ToolExecutionMode = "sequential" | "parallel";
 
 export type ToolCall = {
 	id: string;
@@ -53,25 +52,25 @@ export type ToolCallDecision =
 
 export type ToolCallHandler = (
 	toolCall: ToolCall,
-	ctx: PluginEventContext,
+	ctx: EventContext,
 	signal?: AbortSignal,
 ) => ToolCallDecision | Promise<ToolCallDecision>;
 
-export type PluginToolResultContentBlock =
+export type ToolResultContent =
 	| { type: "text"; text: string }
 	| { type: "image"; data: string; mimeType: string };
 
-export type PluginToolResult<TDetails = unknown> = {
-	content: PluginToolResultContentBlock[];
+export type ToolResult<TDetails = unknown> = {
+	content: ToolResultContent[];
 	details: TDetails;
 	terminate?: boolean;
 };
 
-export type PluginToolUpdateCallback<TDetails = unknown> = (
-	partialResult: PluginToolResult<TDetails>,
+export type ToolUpdateCallback<TDetails = unknown> = (
+	partialResult: ToolResult<TDetails>,
 ) => void;
 
-export type PluginToolDefinition<
+export type ToolDefinition<
 	TParameters extends TSchema = TSchema,
 	TDetails = unknown,
 > = {
@@ -86,21 +85,21 @@ export type PluginToolDefinition<
 		toolCallId: string,
 		params: Static<TParameters>,
 		signal?: AbortSignal,
-		onUpdate?: PluginToolUpdateCallback<TDetails>,
-	) => Promise<PluginToolResult<TDetails>>;
-	executionMode?: PluginToolExecutionMode;
+		onUpdate?: ToolUpdateCallback<TDetails>,
+	) => Promise<ToolResult<TDetails>>;
+	executionMode?: ToolExecutionMode;
 };
 
-export type PluginLogger = {
+type Logger = {
 	log: (...args: unknown[]) => void;
 };
 
-export type PluginMessagePart = {
+export type MessagePart = {
 	type: string;
 	[key: string]: unknown;
 };
 
-export type PluginSession = {
+export type Session = {
 	id: string;
 	cwd: string;
 	name?: string;
@@ -114,11 +113,11 @@ export type PluginSession = {
 	[key: string]: unknown;
 };
 
-export type PluginSessionAPI = {
-	get: () => PluginSession;
+type SessionAPI = {
+	get: () => Session;
 	getMessages: () => AgentMessage[];
 	setName: (name: string) => Promise<void>;
-	submitMessage: (input: string | PluginMessagePart[]) => Promise<void>;
+	submitMessage: (input: string | MessagePart[]) => Promise<void>;
 	submitPromptCommandMessage: (
 		command: string,
 		args: string,
@@ -126,9 +125,7 @@ export type PluginSessionAPI = {
 	) => Promise<void>;
 };
 
-export type PluginReviewDiffView = "unified" | "split";
-
-export type PluginSettings = {
+export type Settings = {
 	theme?: string;
 	bells?: boolean;
 	speech?:
@@ -142,7 +139,7 @@ export type PluginSettings = {
 	guidedQuestions?: boolean;
 	sessionNaming?: boolean;
 	diffs?: {
-		view?: PluginReviewDiffView;
+		view?: "unified" | "split";
 	};
 	retry?: {
 		enabled?: boolean;
@@ -153,77 +150,76 @@ export type PluginSettings = {
 	[key: string]: unknown;
 };
 
-export type PluginSettingsAPI = {
-	get: () => PluginSettings;
-	update: (patch: Partial<PluginSettings>) => Promise<void>;
+type SettingsAPI = {
+	get: () => Settings;
+	update: (patch: Partial<Settings>) => Promise<void>;
 };
 
-export type PluginModelAPI = {
+type ModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
-export type PluginSystemAPI = {
+type SystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
 };
 
-export type PluginEventContext = {
-	logger: PluginLogger;
-	ui: PluginUI;
-	session: PluginSessionAPI;
-	settings: PluginSettingsAPI;
-	model: PluginModelAPI;
-	system: PluginSystemAPI;
+export type EventContext = {
+	logger: Logger;
+	ui: UI;
+	session: SessionAPI;
+	settings: SettingsAPI;
+	model: ModelAPI;
+	system: SystemAPI;
 };
 
-export type PluginCommandContext = PluginEventContext & {
+export type CommandContext = EventContext & {
 	args: string;
 };
 
-export type PluginCommandOptions = {
+export type CommandOptions = {
 	title?: string;
 	description?: string;
 	argName?: string;
 	category?: string;
 };
 
-export type PluginRuntimeEvent<Type extends string = string> = {
+export type RuntimeEvent<Type extends string = string> = {
 	type: Type;
 } & Record<string, unknown>;
 
-export type PluginEventHandler<Type extends string = string> = (
-	event: PluginRuntimeEvent<Type>,
-	ctx: PluginEventContext,
+export type EventHandler<Type extends string = string> = (
+	event: RuntimeEvent<Type>,
+	ctx: EventContext,
 ) => void | Promise<void>;
 
 export interface PluginAPI {
-	logger: PluginLogger;
-	ui: PluginUI;
-	session: PluginSessionAPI;
-	settings: PluginSettingsAPI;
-	model: PluginModelAPI;
-	system: PluginSystemAPI;
-	on(handler: PluginEventHandler): PluginSubscription;
-	on<Type extends string>(
-		type: Type,
-		handler: PluginEventHandler<Type>,
-	): PluginSubscription;
+	logger: Logger;
+	ui: UI;
+	session: SessionAPI;
+	settings: SettingsAPI;
+	model: ModelAPI;
+	system: SystemAPI;
+	on(handler: EventHandler): Disposer;
+	on<Type extends string>(type: Type, handler: EventHandler<Type>): Disposer;
 	on<Prefix extends string>(
 		options: { prefix: Prefix },
-		handler: PluginEventHandler<`${Prefix}${string}`>,
-	): PluginSubscription;
+		handler: EventHandler<`${Prefix}${string}`>,
+	): Disposer;
 	registerCommand: (
 		id: string,
-		options: PluginCommandOptions,
-		handler: (ctx: PluginCommandContext) => void | Promise<void>,
-	) => PluginSubscription;
+		options: CommandOptions,
+		handler: (ctx: CommandContext) => void | Promise<void>,
+	) => Disposer;
 	registerTool: <TParameters extends TSchema, TDetails>(
-		tool: PluginToolDefinition<TParameters, TDetails>,
-	) => PluginSubscription;
-	onToolCall: (handler: ToolCallHandler) => PluginSubscription;
-	addSystemPrompt: (text: string) => PluginSubscription;
-	addDebugSection: (key: string, lines: string[]) => PluginSubscription;
+		tool: ToolDefinition<TParameters, TDetails>,
+	) => Disposer;
+	onToolCall: (handler: ToolCallHandler) => Disposer;
+	addSystemPrompt: (text: string) => Disposer;
+	addDebugSection: (key: string, lines: string[]) => Disposer;
 }
 
-// biome-ignore lint/suspicious/noConfusingVoidType: plugin definitions may omit a return value or return a disposer.
-export type PluginDefinition = (kit: PluginAPI) => void | PluginDispose;
+export type Plugin = (
+	kit: PluginAPI,
+	// biome-ignore lint/suspicious/noConfusingVoidType: plugin definitions may omit a return value or return a disposer.
+) => void | Disposer;

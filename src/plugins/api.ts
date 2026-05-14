@@ -10,23 +10,21 @@ import type {
 import { saveSettings } from "../settings";
 import { openExternal } from "../shell/open-external";
 import type {
+	CommandContext,
+	Disposer,
+	EventContext,
 	InternalPluginAPI,
 	InternalPluginCommandContext,
 	InternalPluginEventContext,
 	PluginAPI,
-	PluginCommandContext,
 	PluginContext,
-	PluginDispose,
-	PluginEventContext,
-	PluginSubscription,
-	PluginToolDefinition,
-	PluginUI,
 	ToolCall,
 	ToolCallDecision,
+	ToolDefinition,
 } from "./types";
 
 function toAgentTool<TParameters extends TSchema, TDetails>(
-	tool: PluginToolDefinition<TParameters, TDetails>,
+	tool: ToolDefinition<TParameters, TDetails>,
 ): AgentTool<TParameters, TDetails> {
 	const agentTool: AgentTool<TParameters, TDetails> = {
 		name: tool.name,
@@ -48,7 +46,7 @@ function toAgentTool<TParameters extends TSchema, TDetails>(
 	});
 }
 
-function toPublicPluginUI(ui: PluginContext["ui"]): PluginUI {
+function toPublicPluginUI(ui: PluginContext["ui"]): PluginAPI["ui"] {
 	return {
 		toast: ui.toast,
 		select: ui.select,
@@ -82,7 +80,7 @@ function toToolApprovalDecision(decision: ToolCallDecision) {
 type CreatePluginAPIBaseOptions = {
 	name: string;
 	checkContributionConflicts?: boolean;
-	addDisposer: (disposer: PluginDispose) => PluginDispose;
+	addDisposer: (disposer: Disposer) => Disposer;
 };
 
 type CreatePublicPluginAPIOptions = CreatePluginAPIBaseOptions & {
@@ -105,9 +103,9 @@ export function createPluginAPI(
 	ctx: PluginContext,
 	options: CreatePluginAPIBaseOptions & { exposeInternalUi?: boolean },
 ): PluginAPI | InternalPluginAPI {
-	function track(disposer: PluginDispose): PluginSubscription {
+	function track(disposer: Disposer): Disposer {
 		let active = true;
-		let removeTrackedDisposer: PluginDispose = () => {};
+		let removeTrackedDisposer: Disposer = () => {};
 		const wrapped = () => {
 			if (!active) return;
 			active = false;
@@ -163,7 +161,7 @@ export function createPluginAPI(
 	const publicUi = toPublicPluginUI(ctx.ui);
 	const ui = options.exposeInternalUi ? ctx.ui : publicUi;
 
-	function createPublicEventContext(): PluginEventContext {
+	function createPublicEventContext(): EventContext {
 		return {
 			logger,
 			ui: publicUi,
@@ -171,7 +169,7 @@ export function createPluginAPI(
 			settings,
 			model,
 			system,
-		} as unknown as PluginEventContext;
+		} as unknown as EventContext;
 	}
 
 	function createInternalEventContext(): InternalPluginEventContext {
@@ -185,9 +183,7 @@ export function createPluginAPI(
 		};
 	}
 
-	function createEventContext():
-		| PluginEventContext
-		| InternalPluginEventContext {
+	function createEventContext(): EventContext | InternalPluginEventContext {
 		return options.exposeInternalUi
 			? createInternalEventContext()
 			: createPublicEventContext();
@@ -195,7 +191,7 @@ export function createPluginAPI(
 
 	function createCommandContext(
 		args: string,
-	): PluginCommandContext | InternalPluginCommandContext {
+	): CommandContext | InternalPluginCommandContext {
 		return {
 			...createEventContext(),
 			args,
@@ -204,7 +200,7 @@ export function createPluginAPI(
 
 	type AnyPluginEventHandler = (
 		event: AgentRuntimeEvent,
-		ctx: PluginEventContext | InternalPluginEventContext,
+		ctx: EventContext | InternalPluginEventContext,
 	) => void | Promise<void>;
 
 	const on = ((typeOrHandler: unknown, maybeHandler?: unknown) => {
@@ -241,7 +237,7 @@ export function createPluginAPI(
 	}) as PluginAPI["on"] & InternalPluginAPI["on"];
 
 	type AnyCommandHandler = (
-		ctx: PluginCommandContext | InternalPluginCommandContext,
+		ctx: CommandContext | InternalPluginCommandContext,
 	) => void | Promise<void>;
 
 	const registerCommand = ((
@@ -279,7 +275,7 @@ export function createPluginAPI(
 
 	type AnyToolCallHandler = (
 		toolCall: ToolCall,
-		ctx: PluginEventContext | InternalPluginEventContext,
+		ctx: EventContext | InternalPluginEventContext,
 		signal?: AbortSignal,
 	) => ToolCallDecision | Promise<ToolCallDecision>;
 

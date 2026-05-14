@@ -2,7 +2,7 @@ import { type Dirent, existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { getKitPaths } from "../paths";
 import type { ExternalPluginRegistration } from "./PluginManager";
-import type { PluginDefinition } from "./types";
+import type { Plugin } from "./types";
 
 export type ExternalPluginSource = "user" | "project";
 
@@ -92,17 +92,14 @@ function discoverPluginFiles(cwd: string, home?: string): PluginFile[] {
 	];
 }
 
-function loadPluginInitializer(
-	file: PluginFile,
-	reloadId: string,
-): PluginDefinition {
+function loadPluginInitializer(file: PluginFile, reloadId: string): Plugin {
 	const moduleExports = require(
 		`${file.filePath}?kitReload=${encodeURIComponent(reloadId)}`,
 	) as { default?: unknown };
 	if (typeof moduleExports.default !== "function") {
 		throw new Error("Plugin default export must be a function.");
 	}
-	return moduleExports.default as PluginDefinition;
+	return moduleExports.default as Plugin;
 }
 
 export function loadExternalPlugins(
@@ -114,7 +111,7 @@ export function loadExternalPlugins(
 
 	for (const file of discoverPluginFiles(cwd, options.home)) {
 		const pluginName = pluginNameForFile(file.source, file.filePath);
-		let initialize: PluginDefinition;
+		let initialize: Plugin;
 		try {
 			initialize = loadPluginInitializer(file, options.reloadId);
 		} catch (error) {

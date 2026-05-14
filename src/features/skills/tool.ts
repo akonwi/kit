@@ -6,7 +6,7 @@
 
 import { readFileSync } from "node:fs";
 import { type Static, Type } from "@mariozechner/pi-ai";
-import type { PluginToolDefinition, PluginToolResult } from "../../plugins";
+import type { ToolDefinition, ToolResult } from "../../plugins";
 import type { Skill } from "./discovery";
 
 const parameters = Type.Object({
@@ -15,7 +15,7 @@ const parameters = Type.Object({
 
 export function createActivateSkillTool(
 	getSkills: () => Skill[],
-): PluginToolDefinition<typeof parameters, Record<string, unknown>> {
+): ToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
 		name: "activate_skill",
 		label: "Activate Skill",
@@ -33,7 +33,7 @@ export function createActivateSkillTool(
 			input: Static<typeof parameters>,
 			_signal: AbortSignal | undefined,
 			_onUpdate: unknown,
-		): Promise<PluginToolResult<Record<string, unknown>>> {
+		): Promise<ToolResult<Record<string, unknown>>> {
 			const skills = getSkills();
 			const skill = skills.find((s) => s.name === input.name);
 

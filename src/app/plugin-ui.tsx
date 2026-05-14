@@ -8,11 +8,7 @@ import {
 	type JSX,
 	Show,
 } from "solid-js";
-import type {
-	InternalPluginUI,
-	PluginUI,
-	TranscriptViewport,
-} from "../plugins/types";
+import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
 import { Dialog } from "../shell/Dialog";
 import { CHEVRON_RIGHT } from "../shell/glyphs";
 import { type Binding, HintBar } from "../shell/HintBar";
@@ -94,7 +90,7 @@ export function createPluginUI(
 	const select = ((input: SelectInput<unknown>) =>
 		options.custom<unknown | undefined>((props) => (
 			<PluginSelectOverlay {...props} input={input} />
-		))) as PluginUI["select"];
+		))) as InternalPluginUI["select"];
 
 	return {
 		toast: options.toast,
