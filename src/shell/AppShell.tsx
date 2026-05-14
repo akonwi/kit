@@ -8,6 +8,7 @@ import {
 } from "../app/overlay-ui";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { AppState } from "../state/app-state";
+import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
 import { BottomStatusBar } from "./BottomStatusBar";
 import { CommandPalette } from "./CommandPalette";
@@ -34,11 +35,7 @@ export type AppShellProps = {
 		width: number;
 		height: number;
 	}) => void;
-	showToast: (toast: {
-		title: string;
-		lines: string[];
-		variant: "info" | "warning" | "error";
-	}) => void;
+	showToast: (toast: ToastInput) => void;
 };
 
 export function AppShell(props: AppShellProps) {
@@ -119,6 +116,9 @@ export function AppShell(props: AppShellProps) {
 						entry.component({
 							done: (result: unknown) => entry.resolve(result),
 							surfaceProps: getOverlaySurfaceProps(index()),
+							get active() {
+								return index() === props.overlays().length - 1;
+							},
 						})
 					}
 				</For>

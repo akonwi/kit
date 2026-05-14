@@ -30,5 +30,3 @@ Delete done items.
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
   - see `backlog/agent-runtime-extraction-for-subagents.md`
-- [ ] feat: configuration for tool calls that require approval
-  - see `backlog/tool-call-approvals.md`

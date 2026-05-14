@@ -22,11 +22,9 @@ export const loginCommand: Command = {
 
 		toast({
 			title: "Login successful",
-			lines: [
-				result.providerName
-					? `Logged in to ${result.providerName}.`
-					: "Credentials saved.",
-			],
+			subtitle: result.providerName
+				? `Logged in to ${result.providerName}.`
+				: "Credentials saved.",
 			variant: "info",
 		});
 	},

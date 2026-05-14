@@ -3,7 +3,7 @@ export type ToastVariant = "error" | "warning" | "info";
 export type ToastInput = {
 	variant: ToastVariant;
 	title: string;
-	lines: string[];
+	subtitle?: string;
 	persistent?: boolean;
 };
 

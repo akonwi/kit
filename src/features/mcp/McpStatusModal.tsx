@@ -13,6 +13,7 @@ export type McpStatusModalProps = {
 	states: McpServerRuntimeState[];
 	config: LoadMcpConfigResult | null;
 	hasOAuthSession: (serverName: string) => boolean;
+	active?: boolean;
 	onClose: () => void;
 };
 
@@ -39,6 +40,7 @@ function statusIndicator(state: McpServerRuntimeState): {
 
 export function McpStatusModal(props: McpStatusModalProps) {
 	useKeyboard((e) => {
+		if (props.active === false) return;
 		if (e.name === "escape" || e.name === "return") {
 			e.preventDefault();
 			props.onClose();

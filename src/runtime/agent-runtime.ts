@@ -3,6 +3,8 @@ import "./custom-messages";
 import type {
 	AgentMessage,
 	AgentTool,
+	BeforeToolCallContext,
+	BeforeToolCallResult,
 	ThinkingLevel,
 } from "@mariozechner/pi-agent-core";
 import {
@@ -249,6 +251,24 @@ export type RuntimeEventPrefixSubscription<P extends string> = {
 	prefix: P;
 };
 
+export type ToolApprovalRequest = {
+	toolCallId: string;
+	toolName: string;
+	args: unknown;
+};
+
+export type ToolApprovalDecision =
+	| boolean
+	| { approved: boolean; reason?: string }
+	| undefined
+	// biome-ignore lint/suspicious/noConfusingVoidType: approval handlers may omit a return value.
+	| void;
+
+export type ToolApprovalHandler = (
+	request: ToolApprovalRequest,
+	signal?: AbortSignal,
+) => ToolApprovalDecision | Promise<ToolApprovalDecision>;
+
 export class AgentRuntime {
 	private session: Session;
 	private agent: KitAgent;
@@ -270,6 +290,7 @@ export class AgentRuntime {
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
+	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
 	private gitWatcher: GitInfoWatcher | null = null;
 	private gitInfo: GitInfo = { branch: null, dirty: false };
 	get vcsInfo() {
@@ -318,6 +339,9 @@ export class AgentRuntime {
 			getApiKey: (provider) => getApiKey(provider),
 			maxRetryDelayMs: resolveRetrySettings(this._settings.retry).maxDelayMs,
 		});
+		this.agent.setBeforeToolCall((context, signal) =>
+			this.handleBeforeToolCall(context, signal),
+		);
 		this.agent.sessionId = session.id;
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
 			this.handleAgentEvent(event),
@@ -1030,6 +1054,51 @@ export class AgentRuntime {
 	abort(): void {
 		this.retryAbortController?.abort();
 		this.agent.abort();
+	}
+
+	addToolApprovalHandler(handler: ToolApprovalHandler): () => void {
+		this.toolApprovalHandlers.add(handler);
+		return () => {
+			this.toolApprovalHandlers.delete(handler);
+		};
+	}
+
+	private async handleBeforeToolCall(
+		context: BeforeToolCallContext,
+		signal?: AbortSignal,
+	): Promise<BeforeToolCallResult | undefined> {
+		if (this.toolApprovalHandlers.size === 0) return undefined;
+		const request: ToolApprovalRequest = {
+			toolCallId: context.toolCall.id,
+			toolName: context.toolCall.name,
+			args: context.args,
+		};
+
+		for (const handler of [...this.toolApprovalHandlers]) {
+			if (signal?.aborted) {
+				return { block: true, reason: "Tool call aborted before approval." };
+			}
+			try {
+				const decision = await handler(request, signal);
+				const structuredDecision =
+					decision && typeof decision === "object" ? decision : undefined;
+				const blocked =
+					decision === false || structuredDecision?.approved === false;
+				if (blocked) {
+					return {
+						block: true,
+						reason:
+							structuredDecision?.reason ?? `User denied ${request.toolName}.`,
+					};
+				}
+			} catch (error) {
+				return {
+					block: true,
+					reason: `Tool approval failed: ${error instanceof Error ? error.message : String(error)}`,
+				};
+			}
+		}
+		return undefined;
 	}
 
 	addTool(tool: AgentTool): () => void {

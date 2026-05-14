@@ -40,7 +40,7 @@ export function AuthGateScreen(props: AuthGateScreenProps) {
 		if (!didEnterReadyState) {
 			app.showToast({
 				title: "Login complete",
-				lines: ["Credentials were saved, but no model is available yet."],
+				subtitle: "Credentials were saved, but no model is available yet.",
 				variant: "warning",
 			});
 		}

@@ -8,20 +8,31 @@ import { SessionNamingPlugin } from "../features/session-naming";
 import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
 import { createSubagentsPlugin } from "../features/subagents";
-import type { PluginContext, PluginDefinition } from "./types";
+import type { PluginManagerInput } from "./PluginManager";
+import type { InternalPluginDefinition, PluginContext } from "./types";
+
+function internalPlugin(
+	initialize: InternalPluginDefinition,
+): PluginManagerInput {
+	return {
+		name: initialize.name,
+		initialize,
+		internalUi: true,
+	};
+}
 
 // Built-in plugins that are always enabled as core features.
-export function createBuiltInPlugins(ctx: PluginContext): PluginDefinition[] {
+export function createBuiltInPlugins(ctx: PluginContext): PluginManagerInput[] {
 	return [
-		SkillsPlugin,
-		createSubagentsPlugin({ runtime: ctx.runtime }),
-		PromptsPlugin,
-		ClaudeCompatibilityPlugin,
-		McpPlugin,
-		PagerPlugin,
-		GuidedQuestionsPlugin,
-		NotificationsPlugin,
-		SessionNamingPlugin,
-		SettingsPlugin,
+		internalPlugin(SkillsPlugin),
+		internalPlugin(createSubagentsPlugin({ runtime: ctx.runtime })),
+		internalPlugin(PromptsPlugin),
+		internalPlugin(ClaudeCompatibilityPlugin),
+		internalPlugin(McpPlugin),
+		internalPlugin(PagerPlugin),
+		internalPlugin(GuidedQuestionsPlugin),
+		internalPlugin(NotificationsPlugin),
+		internalPlugin(SessionNamingPlugin),
+		internalPlugin(SettingsPlugin),
 	];
 }

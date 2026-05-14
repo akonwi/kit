@@ -87,7 +87,7 @@ Initial scope:
 interface PluginUI {
   toast(input: {
     title: string;
-    lines: string[];
+    subtitle?: string;
     variant: "info" | "warning" | "error";
   }): void;
   custom<T>(

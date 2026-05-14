@@ -10,7 +10,7 @@ export const handoffCommand: Command = {
 		} catch (error) {
 			toast({
 				title: "Handoff failed",
-				lines: [error instanceof Error ? error.message : String(error)],
+				subtitle: error instanceof Error ? error.message : String(error),
 				variant: "error",
 			});
 		}

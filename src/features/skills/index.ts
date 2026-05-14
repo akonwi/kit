@@ -1,4 +1,4 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { loadSkills } from "./discovery";
 import { formatSkillsForPrompt } from "./format";
 import { createActivateSkillTool } from "./tool";
@@ -7,7 +7,7 @@ export type { Skill } from "./discovery";
 export { loadSkills } from "./discovery";
 export { formatSkillsForPrompt } from "./format";
 
-export function SkillsPlugin(kit: PluginAPI): void {
+export function SkillsPlugin(kit: InternalPluginAPI): void {
 	const { skills, warnings } = loadSkills(kit.system.cwd);
 
 	for (const warning of warnings) {

@@ -1,11 +1,11 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { loadPromptTemplates } from "./discovery";
 import { parseCommandArgs, substituteArgs } from "./substitute";
 
 export type { PromptTemplate } from "./discovery";
 export { loadPromptTemplates } from "./discovery";
 
-export function PromptsPlugin(kit: PluginAPI): void {
+export function PromptsPlugin(kit: InternalPluginAPI): void {
 	const templates = loadPromptTemplates(kit.system.cwd);
 
 	// Register each template as a slash command

@@ -24,8 +24,9 @@ function createMockKit(logs: string[]): PluginAPI {
 		logger: { log: (...args) => logs.push(args.join(" ")) },
 		ui: {
 			toast: () => {},
-			custom: async () => undefined as never,
-			getTranscriptViewport: () => null,
+			select: async () => undefined,
+			input: async () => undefined,
+			confirm: async () => false,
 		},
 		session: {
 			get: () => ({}) as ReturnType<PluginAPI["session"]["get"]>,
@@ -46,6 +47,7 @@ function createMockKit(logs: string[]): PluginAPI {
 		on: () => () => {},
 		registerCommand: () => () => {},
 		registerTool: () => () => {},
+		onToolCall: () => () => {},
 		addSystemPrompt: () => () => {},
 		addDebugSection: () => () => {},
 	};

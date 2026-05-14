@@ -20,7 +20,7 @@ export const sessionsManageCommand: Command = {
 		} catch (error) {
 			toast({
 				title: "Session switch failed",
-				lines: [String(error)],
+				subtitle: String(error),
 				variant: "error",
 			});
 		}

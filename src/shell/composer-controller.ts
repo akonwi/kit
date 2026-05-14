@@ -90,7 +90,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		} catch (error) {
 			toast({
 				title: `/${command.name} failed`,
-				lines: [error instanceof Error ? error.message : String(error)],
+				subtitle: error instanceof Error ? error.message : String(error),
 				variant: "error",
 			});
 		}
@@ -328,7 +328,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (result.errors.length > 0) {
 			toast({
 				title: "Thread references",
-				lines: result.errors,
+				subtitle: result.errors.join(" · "),
 				variant: "error",
 			});
 			return null;
@@ -370,7 +370,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				} catch (error) {
 					toast({
 						title: "Bash failed",
-						lines: [error instanceof Error ? error.message : String(error)],
+						subtitle: error instanceof Error ? error.message : String(error),
 						variant: "error",
 					});
 				}
@@ -392,9 +392,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			if (pendingAttachments.length > 0) {
 				toast({
 					title: "Attachments not supported in queued follow-ups",
-					lines: [
+					subtitle:
 						"Wait for the current turn to finish before sending attached reviews.",
-					],
 					variant: "error",
 				});
 				textareaRef?.setText(text);
@@ -425,7 +424,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			}
 			toast({
 				title: "Agent error",
-				lines: [error instanceof Error ? error.message : String(error)],
+				subtitle: error instanceof Error ? error.message : String(error),
 				variant: "error",
 			});
 			console.error(error);

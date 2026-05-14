@@ -3,7 +3,7 @@ import type { TranscriptItem } from "./turns";
 
 export type TranscriptToast = {
 	title: string;
-	lines: string[];
+	subtitle?: string;
 	variant: "info" | "warning" | "error";
 };
 

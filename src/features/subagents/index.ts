@@ -1,4 +1,7 @@
-import type { PluginAPI, PluginDefinition } from "../../plugins";
+import type {
+	InternalPluginAPI,
+	InternalPluginDefinition,
+} from "../../plugins";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { loadSubagents, type SubagentDefinition } from "./discovery";
 import { formatSubagentsForPrompt } from "./format";
@@ -22,8 +25,8 @@ export { createSubagentTool } from "./tool";
 
 export function createSubagentsPlugin(options: {
 	runtime: AgentRuntime;
-}): PluginDefinition {
-	return function SubagentsPlugin(kit: PluginAPI): () => void {
+}): InternalPluginDefinition {
+	return function SubagentsPlugin(kit: InternalPluginAPI): () => void {
 		let clearDebugSection: (() => void) | null = null;
 		let unregisterTool: (() => void) | null = null;
 		let removePromptAddition: (() => void) | null = null;

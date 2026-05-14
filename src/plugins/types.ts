@@ -1,7 +1,8 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Api, Model, TSchema } from "@mariozechner/pi-ai";
+import type { JSX } from "solid-js";
 import type { CommandRegistry } from "../features/commands";
-import type { MessagePart } from "../messages/parts";
+import type { MessagePart as KitMessagePart } from "../messages/parts";
 import type {
 	AgentRuntime,
 	AgentRuntimeEvent,
@@ -9,52 +10,72 @@ import type {
 	RuntimeEventNameMatchingPrefix,
 	RuntimeEventPrefixSubscription,
 } from "../runtime/agent-runtime";
-import type { Session } from "../session";
-import type { LoadedSettings, Settings } from "../settings";
+import type { Session as KitSession } from "../session";
+import type { Settings as KitSettings, LoadedSettings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
 import type {
-	PluginDispose,
-	PluginLogger,
-	PluginSubscription,
-	PluginToolDefinition,
-	PluginUI,
+	CommandOptions,
+	Disposer,
+	PluginAPI,
+	ToolCall,
+	ToolCallDecision,
+	ToolDefinition,
 } from "./sdk";
 
 export type {
-	PluginDispose,
-	PluginLogger,
-	PluginMessagePart,
-	PluginOverlayComponentProps,
-	PluginOverlaySurfaceProps,
-	PluginReviewDiffView,
-	PluginRuntimeEvent,
-	PluginSession,
-	PluginSubscription,
-	PluginToolDefinition,
-	PluginToolExecutionMode,
-	PluginToolResult,
-	PluginToolResultContentBlock,
-	PluginToolUpdateCallback,
-	PluginUI,
+	CommandContext,
+	CommandOptions,
+	Disposer,
+	EventContext,
+	EventHandler,
+	MessagePart,
+	Plugin,
+	PluginAPI,
+	RuntimeEvent,
+	Session,
+	Settings,
+	ToolCall,
+	ToolCallDecision,
+	ToolCallHandler,
+	ToolDefinition,
+	ToolExecutionMode,
+	ToolResult,
+	ToolResultContent,
+	ToolUpdateCallback,
 } from "./sdk";
 
-export type TranscriptViewport = NonNullable<
-	ReturnType<PluginUI["getTranscriptViewport"]>
->;
+export type TranscriptViewport = { width: number; height: number };
+
+export type InternalPluginOverlaySurfaceProps = {
+	zIndex?: number;
+};
+
+export type InternalPluginOverlayComponentProps<T> = {
+	done: (result: T) => void;
+	surfaceProps: InternalPluginOverlaySurfaceProps;
+	active: boolean;
+};
+
+export type InternalPluginUI = PluginAPI["ui"] & {
+	custom: <T>(
+		component: (props: InternalPluginOverlayComponentProps<T>) => JSX.Element,
+	) => Promise<T>;
+	getTranscriptViewport: () => TranscriptViewport | null;
+};
 
 export type PluginContext = {
 	runtime: AgentRuntime;
 	commands: CommandRegistry;
 	settings: LoadedSettings;
-	ui: PluginUI;
+	ui: InternalPluginUI;
 	attachments: AttachmentsController;
 };
 
-export type PluginSessionAPI = {
-	get: () => Session;
+export type InternalPluginSessionAPI = {
+	get: () => KitSession;
 	getMessages: () => AgentMessage[];
 	setName: (name: string) => Promise<void>;
-	submitMessage: (input: string | MessagePart[]) => Promise<void>;
+	submitMessage: (input: string | KitMessagePart[]) => Promise<void>;
 	submitPromptCommandMessage: (
 		command: string,
 		args: string,
@@ -62,73 +83,76 @@ export type PluginSessionAPI = {
 	) => Promise<void>;
 };
 
-export type PluginSettingsAPI = {
-	get: () => Settings;
-	update: (patch: Partial<Settings>) => Promise<void>;
+export type InternalPluginSettingsAPI = {
+	get: () => KitSettings;
+	update: (patch: Partial<KitSettings>) => Promise<void>;
 };
 
-export type PluginModelAPI = {
+export type InternalPluginModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
-export type PluginSystemAPI = {
+export type InternalPluginSystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
 };
 
-export type PluginEventContext = {
-	logger: PluginLogger;
-	ui: PluginUI;
-	session: PluginSessionAPI;
-	settings: PluginSettingsAPI;
-	model: PluginModelAPI;
-	system: PluginSystemAPI;
+export type InternalPluginEventContext = {
+	logger: PluginAPI["logger"];
+	ui: InternalPluginUI;
+	session: InternalPluginSessionAPI;
+	settings: InternalPluginSettingsAPI;
+	model: InternalPluginModelAPI;
+	system: InternalPluginSystemAPI;
 };
 
-export type PluginCommandContext = PluginEventContext & {
+export type InternalPluginCommandContext = InternalPluginEventContext & {
 	args: string;
 };
 
-export type PluginCommandOptions = {
-	title?: string;
-	description?: string;
-	argName?: string;
-	category?: string;
-};
+export type InternalPluginEventHandler<
+	K extends RuntimeEventName = RuntimeEventName,
+> = (
+	event: AgentRuntimeEvent<K>,
+	ctx: InternalPluginEventContext,
+) => void | Promise<void>;
 
-export type PluginEventHandler<K extends RuntimeEventName = RuntimeEventName> =
-	(
-		event: AgentRuntimeEvent<K>,
-		ctx: PluginEventContext,
-	) => void | Promise<void>;
+export type InternalToolCallHandler = (
+	toolCall: ToolCall,
+	ctx: InternalPluginEventContext,
+	signal?: AbortSignal,
+) => ToolCallDecision | Promise<ToolCallDecision>;
 
-export interface PluginAPI {
-	logger: PluginLogger;
-	ui: PluginUI;
-	session: PluginSessionAPI;
-	settings: PluginSettingsAPI;
-	model: PluginModelAPI;
-	system: PluginSystemAPI;
-	on(handler: PluginEventHandler): PluginSubscription;
+export interface InternalPluginAPI {
+	logger: PluginAPI["logger"];
+	ui: InternalPluginUI;
+	session: InternalPluginSessionAPI;
+	settings: InternalPluginSettingsAPI;
+	model: InternalPluginModelAPI;
+	system: InternalPluginSystemAPI;
+	on(handler: InternalPluginEventHandler): Disposer;
 	on<K extends RuntimeEventName>(
 		type: K,
-		handler: PluginEventHandler<K>,
-	): PluginSubscription;
+		handler: InternalPluginEventHandler<K>,
+	): Disposer;
 	on<P extends string>(
 		options: RuntimeEventPrefixSubscription<P>,
-		handler: PluginEventHandler<RuntimeEventNameMatchingPrefix<P>>,
-	): PluginSubscription;
+		handler: InternalPluginEventHandler<RuntimeEventNameMatchingPrefix<P>>,
+	): Disposer;
 	registerCommand: (
 		id: string,
-		options: PluginCommandOptions,
-		handler: (ctx: PluginCommandContext) => void | Promise<void>,
-	) => PluginSubscription;
+		options: CommandOptions,
+		handler: (ctx: InternalPluginCommandContext) => void | Promise<void>,
+	) => Disposer;
 	registerTool: <TParameters extends TSchema, TDetails>(
-		tool: PluginToolDefinition<TParameters, TDetails>,
-	) => PluginSubscription;
-	addSystemPrompt: (text: string) => PluginSubscription;
-	addDebugSection: (key: string, lines: string[]) => PluginSubscription;
+		tool: ToolDefinition<TParameters, TDetails>,
+	) => Disposer;
+	onToolCall: (handler: InternalToolCallHandler) => Disposer;
+	addSystemPrompt: (text: string) => Disposer;
+	addDebugSection: (key: string, lines: string[]) => Disposer;
 }
 
-// biome-ignore lint/suspicious/noConfusingVoidType: plugin definitions may omit a return value or return a disposer.
-export type PluginDefinition = (kit: PluginAPI) => void | PluginDispose;
+export type InternalPluginDefinition = (
+	kit: InternalPluginAPI,
+	// biome-ignore lint/suspicious/noConfusingVoidType: plugin definitions may omit a return value or return a disposer.
+) => void | Disposer;

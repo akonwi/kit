@@ -5,22 +5,26 @@ import type {
 	AgentRuntimeEvent,
 	RuntimeEventName,
 	RuntimeEventPrefixSubscription,
+	ToolApprovalRequest,
 } from "../runtime/agent-runtime";
 import { saveSettings } from "../settings";
 import { openExternal } from "../shell/open-external";
 import type {
+	CommandContext,
+	Disposer,
+	EventContext,
+	InternalPluginAPI,
+	InternalPluginCommandContext,
+	InternalPluginEventContext,
 	PluginAPI,
-	PluginCommandContext,
 	PluginContext,
-	PluginDispose,
-	PluginEventContext,
-	PluginEventHandler,
-	PluginSubscription,
-	PluginToolDefinition,
+	ToolCall,
+	ToolCallDecision,
+	ToolDefinition,
 } from "./types";
 
 function toAgentTool<TParameters extends TSchema, TDetails>(
-	tool: PluginToolDefinition<TParameters, TDetails>,
+	tool: ToolDefinition<TParameters, TDetails>,
 ): AgentTool<TParameters, TDetails> {
 	const agentTool: AgentTool<TParameters, TDetails> = {
 		name: tool.name,
@@ -42,17 +46,66 @@ function toAgentTool<TParameters extends TSchema, TDetails>(
 	});
 }
 
+function toPublicPluginUI(ui: PluginContext["ui"]): PluginAPI["ui"] {
+	return {
+		toast: ui.toast,
+		select: ui.select,
+		input: ui.input,
+		confirm: ui.confirm,
+	};
+}
+
+function toRecord(value: unknown): Record<string, unknown> {
+	return value && typeof value === "object"
+		? (value as Record<string, unknown>)
+		: {};
+}
+
+function toToolCall(request: ToolApprovalRequest): ToolCall {
+	return {
+		id: request.toolCallId,
+		name: request.toolName,
+		input: toRecord(request.args),
+	};
+}
+
+function toToolApprovalDecision(decision: ToolCallDecision) {
+	if (!decision || decision.action === "allow") return true;
+	return {
+		approved: false,
+		reason: decision.message,
+	};
+}
+
+type CreatePluginAPIBaseOptions = {
+	name: string;
+	checkContributionConflicts?: boolean;
+	addDisposer: (disposer: Disposer) => Disposer;
+};
+
+type CreatePublicPluginAPIOptions = CreatePluginAPIBaseOptions & {
+	exposeInternalUi?: false;
+};
+
+type CreateInternalPluginAPIOptions = CreatePluginAPIBaseOptions & {
+	exposeInternalUi: true;
+};
+
 export function createPluginAPI(
 	ctx: PluginContext,
-	options: {
-		name: string;
-		checkContributionConflicts?: boolean;
-		addDisposer: (disposer: PluginDispose) => PluginDispose;
-	},
-): PluginAPI {
-	function track(disposer: PluginDispose): PluginSubscription {
+	options: CreateInternalPluginAPIOptions,
+): InternalPluginAPI;
+export function createPluginAPI(
+	ctx: PluginContext,
+	options: CreatePublicPluginAPIOptions,
+): PluginAPI;
+export function createPluginAPI(
+	ctx: PluginContext,
+	options: CreatePluginAPIBaseOptions & { exposeInternalUi?: boolean },
+): PluginAPI | InternalPluginAPI {
+	function track(disposer: Disposer): Disposer {
 		let active = true;
-		let removeTrackedDisposer: PluginDispose = () => {};
+		let removeTrackedDisposer: Disposer = () => {};
 		const wrapped = () => {
 			if (!active) return;
 			active = false;
@@ -105,7 +158,21 @@ export function createPluginAPI(
 		},
 	};
 
-	function createEventContext(): PluginEventContext {
+	const publicUi = toPublicPluginUI(ctx.ui);
+	const ui = options.exposeInternalUi ? ctx.ui : publicUi;
+
+	function createPublicEventContext(): EventContext {
+		return {
+			logger,
+			ui: publicUi,
+			session,
+			settings,
+			model,
+			system,
+		} as unknown as EventContext;
+	}
+
+	function createInternalEventContext(): InternalPluginEventContext {
 		return {
 			logger,
 			ui: ctx.ui,
@@ -116,16 +183,29 @@ export function createPluginAPI(
 		};
 	}
 
-	function createCommandContext(args: string): PluginCommandContext {
+	function createEventContext(): EventContext | InternalPluginEventContext {
+		return options.exposeInternalUi
+			? createInternalEventContext()
+			: createPublicEventContext();
+	}
+
+	function createCommandContext(
+		args: string,
+	): CommandContext | InternalPluginCommandContext {
 		return {
 			...createEventContext(),
 			args,
 		};
 	}
 
+	type AnyPluginEventHandler = (
+		event: AgentRuntimeEvent,
+		ctx: EventContext | InternalPluginEventContext,
+	) => void | Promise<void>;
+
 	const on = ((typeOrHandler: unknown, maybeHandler?: unknown) => {
 		if (typeof typeOrHandler === "function") {
-			const handler = typeOrHandler as PluginEventHandler;
+			const handler = typeOrHandler as AnyPluginEventHandler;
 			return track(
 				ctx.runtime.subscribe((event) => {
 					void handler(event, createEventContext());
@@ -137,7 +217,7 @@ export function createPluginAPI(
 			throw new Error("kit.on requires an event handler");
 		}
 
-		const handler = maybeHandler as PluginEventHandler;
+		const handler = maybeHandler as AnyPluginEventHandler;
 		if (typeof typeOrHandler === "object" && typeOrHandler !== null) {
 			const subscription =
 				typeOrHandler as RuntimeEventPrefixSubscription<string>;
@@ -154,12 +234,16 @@ export function createPluginAPI(
 				void handler(event, createEventContext());
 			}),
 		);
-	}) as PluginAPI["on"];
+	}) as PluginAPI["on"] & InternalPluginAPI["on"];
 
-	const registerCommand: PluginAPI["registerCommand"] = (
-		id,
-		commandOptions,
-		handler,
+	type AnyCommandHandler = (
+		ctx: CommandContext | InternalPluginCommandContext,
+	) => void | Promise<void>;
+
+	const registerCommand = ((
+		id: string,
+		commandOptions: Parameters<PluginAPI["registerCommand"]>[1],
+		handler: AnyCommandHandler,
 	) => {
 		if (
 			options.checkContributionConflicts &&
@@ -176,9 +260,10 @@ export function createPluginAPI(
 			},
 		};
 		return track(ctx.commands.register(command));
-	};
+	}) as PluginAPI["registerCommand"] & InternalPluginAPI["registerCommand"];
 
-	const registerTool: PluginAPI["registerTool"] = (tool) => {
+	const registerTool: PluginAPI["registerTool"] &
+		InternalPluginAPI["registerTool"] = (tool) => {
 		if (
 			options.checkContributionConflicts &&
 			ctx.runtime.getTools().some((candidate) => candidate.name === tool.name)
@@ -188,9 +273,27 @@ export function createPluginAPI(
 		return track(ctx.runtime.addTool(toAgentTool(tool)));
 	};
 
+	type AnyToolCallHandler = (
+		toolCall: ToolCall,
+		ctx: EventContext | InternalPluginEventContext,
+		signal?: AbortSignal,
+	) => ToolCallDecision | Promise<ToolCallDecision>;
+
+	const onToolCall = ((handler: AnyToolCallHandler) =>
+		track(
+			ctx.runtime.addToolApprovalHandler(async (request, signal) => {
+				const decision = await handler(
+					toToolCall(request),
+					createEventContext(),
+					signal,
+				);
+				return toToolApprovalDecision(decision);
+			}),
+		)) as PluginAPI["onToolCall"] & InternalPluginAPI["onToolCall"];
+
 	return {
 		logger,
-		ui: ctx.ui,
+		ui,
 		session,
 		settings,
 		model,
@@ -198,8 +301,10 @@ export function createPluginAPI(
 		on,
 		registerCommand,
 		registerTool,
-		addSystemPrompt: (text) => track(ctx.runtime.addSystemPromptAddition(text)),
-		addDebugSection: (key, lines) => {
+		onToolCall,
+		addSystemPrompt: (text: string) =>
+			track(ctx.runtime.addSystemPromptAddition(text)),
+		addDebugSection: (key: string, lines: string[]) => {
 			if (
 				options.checkContributionConflicts &&
 				ctx.runtime.getDebugSections().has(key)
@@ -208,5 +313,5 @@ export function createPluginAPI(
 			}
 			return track(ctx.runtime.setDebugSection(key, lines));
 		},
-	};
+	} as unknown as PluginAPI | InternalPluginAPI;
 }

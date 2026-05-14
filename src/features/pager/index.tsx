@@ -1,4 +1,4 @@
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { PagerContent } from "./PagerContent";
 import {
 	createPagerController,
@@ -7,7 +7,7 @@ import {
 
 export type { PagerController } from "./pager-controller";
 
-export function PagerPlugin(kit: PluginAPI): () => void {
+export function PagerPlugin(kit: InternalPluginAPI): () => void {
 	const pager: PagerController = createPagerController();
 
 	async function openPager(): Promise<void> {
@@ -27,7 +27,7 @@ export function PagerPlugin(kit: PluginAPI): () => void {
 		} catch (error) {
 			kit.ui.toast({
 				title: "Pager feedback failed",
-				lines: [error instanceof Error ? error.message : String(error)],
+				subtitle: error instanceof Error ? error.message : String(error),
 				variant: "error",
 			});
 		}
@@ -61,7 +61,6 @@ export function PagerPlugin(kit: PluginAPI): () => void {
 			if (!pager.tryActivate(kit.session.getMessages())) {
 				kit.ui.toast({
 					title: "No assistant response to paginate.",
-					lines: [],
 					variant: "warning",
 				});
 				return;

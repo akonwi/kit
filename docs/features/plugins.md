@@ -37,7 +37,7 @@ export default function MyPlugin(kit: PluginAPI) {
 		async (ctx) => {
 			ctx.ui.toast({
 				title: "Hello plugin",
-				lines: ["Loaded from a Kit plugin."],
+				subtitle: "Loaded from a Kit plugin.",
 				variant: "info",
 			});
 		},
@@ -45,7 +45,7 @@ export default function MyPlugin(kit: PluginAPI) {
 }
 ```
 
-Plugin functions may return a disposer for resources not registered through Kit:
+Plugin functions may return a `Disposer` for resources not registered through Kit:
 
 ```ts
 import type { PluginAPI } from "@akonwi/kit/plugin";
@@ -60,6 +60,64 @@ export default function WatchPlugin(kit: PluginAPI) {
 ```
 
 Registrations made through `kit` are cleaned up automatically on `/reload`.
+
+Common exported SDK types include `PluginAPI`, `Plugin`, `Disposer`, `CommandContext`, `CommandOptions`, `RuntimeEvent`, `EventContext`, `ToolDefinition`, `ToolResult`, `ToolCall`, and `ToolCallDecision`.
+
+## UI helpers
+
+`kit.ui.toast({ title, subtitle, variant })` remains the lightweight notification API. For small interactive flows, Kit also provides app-owned UI primitives:
+
+```ts
+const picked = await kit.ui.select({
+	title: "Choose target",
+	options: [
+		{ label: "Current file", value: "file", description: "Use the active context" },
+		{ label: "Whole project", value: "project" },
+	],
+	filterable: true,
+});
+
+const name = await kit.ui.input({
+	title: "Name this run",
+	placeholder: "experiment name",
+});
+
+const ok = await kit.ui.confirm({
+	title: "Continue?",
+	message: "This will submit a follow-up message.",
+	confirmLabel: "Continue",
+});
+```
+
+These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, and `confirm` so Kit can keep ownership of rendering, focus, theme, and compatibility.
+
+## Tool approval hooks
+
+Plugins can register a callback that runs before a tool executes. Return `{ action: "allow" }` or no value to run the tool; return `{ action: "reject-and-continue", message }` to block it and let the agent continue.
+
+If multiple plugins register tool-call handlers, Kit evaluates them in registration order. `allow` does not short-circuit; the first rejection blocks the call.
+
+```ts
+kit.onToolCall(async (toolCall, ctx) => {
+	if (toolCall.name !== "bash") return { action: "allow" };
+	const command = toolCall.input.command;
+	if (typeof command !== "string" || !command.includes("rm")) {
+		return { action: "allow" };
+	}
+
+	const approved = await ctx.ui.confirm({
+		title: "Approve bash?",
+		message: command,
+		confirmLabel: "Allow",
+		cancelLabel: "Block",
+		defaultValue: false,
+	});
+
+	return approved
+		? { action: "allow" }
+		: { action: "reject-and-continue", message: "User denied bash." };
+});
+```
 
 ## Reloading
 

@@ -1,6 +1,7 @@
 import { createComponent } from "solid-js";
-import type { PluginAPI } from "../../plugins";
+import type { InternalPluginAPI } from "../../plugins";
 import { loadMcpConfig } from "./config";
+import { McpAuthorizationUrlModal } from "./McpAuthorizationUrlModal";
 import { McpStatusModal } from "./McpStatusModal";
 import { McpManager } from "./manager";
 import { loadMcpMetadataCache, saveMcpMetadataCache } from "./metadata-cache";
@@ -9,7 +10,7 @@ import { loadMcpOAuthStore, saveMcpOAuthStore } from "./oauth-store";
 import { createMcpProxyTool, MCP_PROXY_POLICY } from "./proxy-tool";
 import type { LoadMcpConfigResult } from "./types";
 
-export function McpPlugin(kit: PluginAPI): () => void {
+export function McpPlugin(kit: InternalPluginAPI): () => void {
 	let manager: McpManager | null = null;
 	let unregisterTool: (() => void) | null = null;
 	let removePolicy: (() => void) | null = null;
@@ -18,6 +19,23 @@ export function McpPlugin(kit: PluginAPI): () => void {
 	let saveCachePromise = Promise.resolve();
 	let saveAuthPromise = Promise.resolve();
 	let disposed = false;
+
+	async function showAuthorizationUrlModal(
+		serverName: string,
+		authorizationUrl: URL,
+	): Promise<void> {
+		await kit.ui.custom<void>((props) =>
+			createComponent(McpAuthorizationUrlModal, {
+				serverName,
+				authorizationUrl,
+				get active() {
+					return props.active;
+				},
+				surfaceProps: props.surfaceProps,
+				onClose: () => props.done(undefined),
+			}),
+		);
+	}
 
 	async function authorizeOAuthServer(
 		serverName: string,
@@ -33,21 +51,11 @@ export function McpPlugin(kit: PluginAPI): () => void {
 				await kit.system.open(authorizationUrl);
 				kit.ui.toast({
 					title: "MCP login required",
-					lines: [
-						`Complete login for ${serverName} in your browser.`,
-						"Kit will continue automatically when authorization finishes.",
-					],
+					subtitle: `Complete login for ${serverName} in your browser. Kit will continue automatically when authorization finishes.`,
 					variant: "info",
 				});
 			} catch {
-				kit.ui.toast({
-					title: "MCP login required",
-					lines: [
-						`Open this authorization URL for ${serverName}:`,
-						authorizationUrl.toString(),
-					],
-					variant: "warning",
-				});
+				await showAuthorizationUrlModal(serverName, authorizationUrl);
 			}
 			const code = await Promise.race([
 				callbackServer.waitForCode(),
@@ -63,7 +71,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			]);
 			kit.ui.toast({
 				title: "MCP authorized",
-				lines: [`Authorization complete for ${serverName}.`],
+				subtitle: `Authorization complete for ${serverName}.`,
 				variant: "info",
 			});
 			return code;
@@ -161,7 +169,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			onRecoverableAuthError: (serverName, message) => {
 				kit.ui.toast({
 					title: `MCP reauthorizing: ${serverName}`,
-					lines: [message],
+					subtitle: message,
 					variant: "warning",
 				});
 			},
@@ -191,6 +199,9 @@ export function McpPlugin(kit: PluginAPI): () => void {
 					config: lastConfig,
 					hasOAuthSession: (serverName: string) =>
 						manager?.hasOAuthSession(serverName) ?? false,
+					get active() {
+						return props.active;
+					},
 					onClose: () => props.done(undefined),
 				}),
 			);
@@ -208,7 +219,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			if (!serverName) {
 				ctx.ui.toast({
 					title: "MCP logout",
-					lines: ["Provide a server name, for example: /mcp-logout my-server"],
+					subtitle: "Provide a server name, for example: /mcp-logout my-server",
 					variant: "warning",
 				});
 				return;
@@ -216,7 +227,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			if (!manager) {
 				ctx.ui.toast({
 					title: "MCP logout",
-					lines: ["No MCP servers are currently configured."],
+					subtitle: "No MCP servers are currently configured.",
 					variant: "warning",
 				});
 				return;
@@ -225,7 +236,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			if (!definition) {
 				ctx.ui.toast({
 					title: "MCP logout",
-					lines: [`Unknown MCP server: ${serverName}`],
+					subtitle: `Unknown MCP server: ${serverName}`,
 					variant: "warning",
 				});
 				return;
@@ -233,7 +244,7 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			if (definition.type !== "http" || definition.auth?.type !== "oauth") {
 				ctx.ui.toast({
 					title: "MCP logout",
-					lines: [`${serverName} does not have Kit-managed OAuth state.`],
+					subtitle: `${serverName} does not have Kit-managed OAuth state.`,
 					variant: "warning",
 				});
 				return;
@@ -243,12 +254,9 @@ export function McpPlugin(kit: PluginAPI): () => void {
 			updateDebugSection();
 			ctx.ui.toast({
 				title: "MCP logout",
-				lines: hadSession
-					? [
-							`Cleared saved OAuth state for ${serverName}.`,
-							"Kit will re-authorize automatically on next use.",
-						]
-					: [`No saved OAuth state existed for ${serverName}.`],
+				subtitle: hadSession
+					? `Cleared saved OAuth state for ${serverName}. Kit will re-authorize automatically on next use.`
+					: `No saved OAuth state existed for ${serverName}.`,
 				variant: "info",
 			});
 		},

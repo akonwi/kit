@@ -1,20 +1,38 @@
 import { createPluginAPI } from "./api";
-import type { PluginContext, PluginDefinition, PluginDispose } from "./types";
+import type {
+	Disposer,
+	InternalPluginDefinition,
+	Plugin,
+	PluginContext,
+} from "./types";
 
 export type PluginErrorHandler = (input: {
 	name: string;
 	error: unknown;
 }) => void;
 
-export type PluginRegistration = {
+type BasePluginRegistration = {
 	name: string;
-	initialize: PluginDefinition;
 	continueOnError?: boolean;
 	onError?: PluginErrorHandler;
 	checkContributionConflicts?: boolean;
 };
 
-export type PluginManagerInput = PluginDefinition | PluginRegistration;
+export type ExternalPluginRegistration = BasePluginRegistration & {
+	initialize: Plugin;
+	internalUi?: false;
+};
+
+export type InternalPluginRegistration = BasePluginRegistration & {
+	initialize: InternalPluginDefinition;
+	internalUi: true;
+};
+
+export type PluginRegistration =
+	| ExternalPluginRegistration
+	| InternalPluginRegistration;
+
+export type PluginManagerInput = Plugin | PluginRegistration;
 
 type ManagedPlugin = {
 	name: string;
@@ -65,8 +83,8 @@ export class PluginManager {
 
 	private initializePlugin(registration: PluginRegistration): void {
 		const pluginName = registration.name;
-		const disposers = new Set<PluginDispose>();
-		let returnedDispose: PluginDispose | undefined;
+		const disposers = new Set<Disposer>();
+		let returnedDispose: Disposer | undefined;
 		const managed: ManagedPlugin = {
 			name: pluginName,
 			dispose: () => {
@@ -81,18 +99,30 @@ export class PluginManager {
 		};
 
 		this.plugins.push(managed);
-		const api = createPluginAPI(this.ctx, {
+		const commonOptions = {
 			name: pluginName,
 			checkContributionConflicts: registration.checkContributionConflicts,
-			addDisposer: (disposer) => {
+			addDisposer: (disposer: Disposer) => {
 				disposers.add(disposer);
 				return () => {
 					disposers.delete(disposer);
 				};
 			},
-		});
+		};
 		try {
-			returnedDispose = registration.initialize(api) ?? undefined;
+			if (registration.internalUi) {
+				const api = createPluginAPI(this.ctx, {
+					...commonOptions,
+					exposeInternalUi: true,
+				});
+				returnedDispose = registration.initialize(api) ?? undefined;
+			} else {
+				const api = createPluginAPI(this.ctx, {
+					...commonOptions,
+					exposeInternalUi: false,
+				});
+				returnedDispose = registration.initialize(api) ?? undefined;
+			}
 		} catch (error) {
 			managed.dispose();
 			const index = this.plugins.indexOf(managed);
