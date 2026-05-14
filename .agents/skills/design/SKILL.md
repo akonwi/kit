@@ -51,11 +51,11 @@ Three tiers, each with a distinct visual signature:
 - Highest interaction frequency, lowest visual weight
 
 ### Tier 2 — Dialog (modal, settings, session explorer, guided questions)
-- No outer border — `bgSurface` fill against the backdrop provides the visual edge
+- `borderDefault` outer border on the content box
 - Semi-transparent backdrop (`RGBA(10, 10, 10, 180)`)
 - Centered, sized to content with percentage width and fixed height
 - `flexShrink={0}` on header, tabs, and hint bar to prevent content squishing
-- Note: OpenTUI's `drawBox` renders border cells with the box's `backgroundColor`, producing an inset look on filled overlays. Avoid `border` on boxes that also have a `backgroundColor`.
+- Note: OpenTUI's `drawBox` renders border cells with the box's `backgroundColor`, producing an inset look on filled overlays. This is acceptable — the border still reads as a visible frame.
 
 ### Tier 3 — Screen (main shell, pager, review)
 - Full-viewport takeover, no outer border

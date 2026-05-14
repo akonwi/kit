@@ -39,6 +39,8 @@ function Root(props: RootProps) {
 				maxWidth={props.maxWidth ?? 96}
 				minWidth={props.minWidth ?? 48}
 				height={props.height}
+				border
+				borderColor={theme.borderDefault}
 				backgroundColor={theme.bgSurface}
 				padding={props.padding ?? 1}
 				paddingX={props.paddingX}
