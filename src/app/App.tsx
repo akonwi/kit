@@ -16,10 +16,11 @@ import {
 	AuthenticationRequiredError,
 } from "../runtime/agent-runtime";
 import type { Session } from "../session";
-import type { LoadedSettings } from "../settings";
+import { type LoadedSettings, loadSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
 import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
+import { resolveAndApplyTheme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import { FilePersistence } from "../storage/file-persistence";
@@ -68,9 +69,10 @@ export function App(props: AppProps) {
 	});
 
 	function buildReadyState(): ReadyState {
+		let currentSettings = props.settings;
 		const attachments = createAttachmentsController();
 		const runtime = new AgentRuntime(props.session, {
-			settings: props.settings.settings,
+			settings: currentSettings.settings,
 		});
 		const persistence = new FilePersistence(runtime);
 		const app = createAppState(runtime);
@@ -86,7 +88,7 @@ export function App(props: AppProps) {
 		const pluginContext = {
 			runtime,
 			commands,
-			settings: props.settings,
+			settings: currentSettings,
 			ui,
 			attachments,
 		};
@@ -144,9 +146,17 @@ export function App(props: AppProps) {
 			throw error;
 		}
 
+		async function reloadSettingsAndTheme(): Promise<void> {
+			currentSettings = await loadSettings();
+			pluginContext.settings = currentSettings;
+			runtime.emitSettingsChanged(currentSettings.settings);
+			await resolveAndApplyTheme(currentSettings.settings.theme ?? "system");
+		}
+
 		async function _reload(): Promise<void> {
 			disposePluginManager(pluginManager);
 			try {
+				await reloadSettingsAndTheme();
 				await runtime.reloadSession();
 			} catch (error) {
 				try {
@@ -167,7 +177,6 @@ export function App(props: AppProps) {
 				showPluginFailures(initializePluginManager());
 				toast({
 					title: "Session reloaded",
-					subtitle: "Reloaded session context and plugin state.",
 					variant: "info",
 				});
 			} catch (error) {
