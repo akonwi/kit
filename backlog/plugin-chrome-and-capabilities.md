@@ -1,95 +1,62 @@
-# Plugin chrome and capabilities
+# Plugin status footer contributions
 
 ## Summary
 
-Generalize the current plugin-shell integration idea beyond the footer.
-
-The real need is an app-owned way for shell components to read plugin-owned
-state/capabilities and for plugins to contribute structured status items to
-shared shell chrome such as the header and footer.
+Formalize an app-owned way for plugins to contribute structured status items to
+Kit's shared status footer.
 
 ## Why
 
-Current header/footer integration is inconsistent:
+Footer status should stay consistent with Kit's layout, theme, and interaction
+patterns while still allowing plugins to expose useful runtime state.
 
-- `HeaderBar` directly imports feature-global state for code review
-- shell components cannot query plugin-owned state through the component tree
-- footer-specific thinking is too narrow because the same problem already exists
-  in the header
+A small structured contribution API avoids ad hoc footer wiring and keeps
+rendering owned by the shell.
 
 ## Direction
 
-Introduce an app-owned shell chrome/capabilities surface that is available in
-the component tree.
+Provide a plugin registration surface for status footer items.
 
-This should support two related needs:
-
-1. **Query plugin-owned state/capabilities**
-   - shell components should be able to read plugin-derived state without
-     importing feature-global stores
-2. **Contribute structured chrome items**
-   - plugins should be able to register status items for shared shell chrome
-     slots such as header and footer
+The shell should render those items from an app-owned registry instead of
+accepting arbitrary plugin JSX.
 
 ## Scope
 
-Treat this as a shared shell chrome problem, not a footer-only problem.
+Initial target:
 
-Initial target areas:
+- status footer contributions
 
-- header
-- footer
+Out of scope for now:
 
-Possible later areas:
-
-- composer-adjacent status
-- pending area
-- other shell widgets/slots
+- header contributions
+- arbitrary plugin-rendered chrome
+- general plugin capability querying from shell components
 
 ## Design constraints
 
 - keep rendering app-owned
 - avoid coupling shell components to concrete plugin classes
 - avoid arbitrary plugin-owned JSX as the first API
-- prefer structured status items over custom rendering at first
+- prefer structured status items over custom rendering
+- registrations should clean up with the plugin lifecycle and `/reload`
 
 ## Preferred shape
 
-### In plugin context
+In plugin context, provide a registration API such as:
 
-Provide an app-owned registration surface for shell chrome and/or capabilities.
+- `status.registerItem(...)`
 
-Examples of concepts, not final API:
-
-- `chrome.registerItem(...)`
-- `capabilities.set(...)`
-
-### In the component tree
-
-Expose a read-only view/facade that shell components can query.
-
-Examples of concepts, not final API:
-
-- `useChromeSlot("header-right")`
-- `useChromeSlot("footer-left")`
-- `usePluginCapability("code-review")`
-
-## Structured item bias
-
-Prefer structured contributions first, e.g. items with fields like:
+Exact API is TBD, but structured items should likely include fields like:
 
 - `id`
-- `slot`
 - `label`
-- `tone` / `color`
-- `priority` / `order`
+- `tone` / semantic color
+- `priority` / order
 - visibility rules
-
-That keeps layout, theme, and rendering consistent across plugins.
 
 ## Suggested rollout
 
-1. expose a read-only plugin chrome/capabilities view in the component tree
-2. move code review header state off direct global-store imports
-3. support footer contributions through the same registry
-4. expand to richer slots only if concrete needs appear
+1. Add a small status item registry owned by the app shell.
+2. Expose registration through plugin context.
+3. Render registered items in the footer using existing theme tokens.
+4. Migrate concrete footer status needs onto the registry.
