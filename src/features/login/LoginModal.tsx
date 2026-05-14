@@ -3,7 +3,7 @@ import {
 	type OAuthAuthInfo,
 	type OAuthPrompt,
 	type OAuthProviderInterface,
-} from "@mariozechner/pi-ai/oauth";
+} from "@earendil-works/pi-ai/oauth";
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard, useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";

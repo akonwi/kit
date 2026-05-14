@@ -3,7 +3,7 @@
  * and feedback submission for long assistant responses.
  */
 
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
 import { type PagerSection, splitSections } from "./split-sections";
 

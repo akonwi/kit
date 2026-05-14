@@ -1,6 +1,6 @@
 # kit
 
-Kit is a TUI coding agent heavily inspired by [Pi](https://pi.dev) and built on top of [`pi-agent-core`](https://github.com/badlogic/pi-mono/tree/main/packages/agent) with [OpenTUI](https://opentui.com/).
+Kit is a TUI coding agent heavily inspired by [Pi](https://pi.dev) and built on top of [`pi-agent-core`](https://github.com/earendil-works/pi-mono/tree/main/packages/agent) with [OpenTUI](https://opentui.com/).
 
 ## Requirements
 

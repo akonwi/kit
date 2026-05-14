@@ -3,7 +3,7 @@
  * can invoke it to ask the user structured questions.
  */
 
-import { type Static, Type } from "@mariozechner/pi-ai";
+import { type Static, Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition, ToolResult } from "../../plugins";
 import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";

@@ -14,7 +14,7 @@ import {
 	type StreamFn,
 	type ThinkingLevel,
 	type ToolExecutionMode,
-} from "@mariozechner/pi-agent-core";
+} from "@earendil-works/pi-agent-core";
 import type {
 	Api,
 	AssistantMessage,
@@ -27,7 +27,7 @@ import type {
 	ToolResultMessage,
 	Transport,
 	UserMessage,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import {
 	type MessagePart,
 	messagePartToPromptText,

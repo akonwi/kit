@@ -1,5 +1,5 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { Static, TSchema } from "@mariozechner/pi-ai";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { Static, TSchema } from "@earendil-works/pi-ai";
 import type { Command } from "../features/commands/types";
 import type {
 	AgentRuntimeEvent,

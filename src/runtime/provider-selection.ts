@@ -5,7 +5,7 @@ import {
 	getProviders,
 	type KnownProvider,
 	type Model,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 
 type ProviderSelectionOptions<
 	TProvider extends string,

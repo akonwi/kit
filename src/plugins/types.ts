@@ -1,5 +1,5 @@
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { Api, Model, TSchema } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { Api, Model, TSchema } from "@earendil-works/pi-ai";
 import type { JSX } from "solid-js";
 import type { CommandRegistry } from "../features/commands";
 import type { MessagePart as KitMessagePart } from "../messages/parts";

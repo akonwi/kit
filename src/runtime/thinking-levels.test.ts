@@ -3,7 +3,7 @@ import {
 	getModels,
 	getProviders,
 	getSupportedThinkingLevels,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import {
 	clampThinkingLevel,
 	DEFAULT_THINKING_LEVEL,

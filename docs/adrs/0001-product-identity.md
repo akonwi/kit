@@ -22,8 +22,8 @@ Kit owns its own:
 - built-in tools
 
 Kit may continue to use lower-level libraries when they are the right technical foundation, including:
-- `@mariozechner/pi-agent-core`
-- `@mariozechner/pi-ai`
+- `@earendil-works/pi-agent-core`
+- `@earendil-works/pi-ai`
 - `@opentui/core`
 - `@opentui/solid`
 

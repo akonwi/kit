@@ -1,13 +1,13 @@
 import type {
 	AgentMessage,
 	CustomAgentMessages,
-} from "@mariozechner/pi-agent-core";
+} from "@earendil-works/pi-agent-core";
 import type {
 	AssistantMessage,
 	ToolCall,
 	ToolResultMessage,
 	UserMessage,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import type { MessagePart, UserMultipartMessage } from "../../messages/parts";
 import type { KitAgentMessage, Turn } from "../../session/types";
 

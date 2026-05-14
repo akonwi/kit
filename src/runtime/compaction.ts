@@ -1,4 +1,4 @@
-import type { Api, Model } from "@mariozechner/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 import type { Session } from "../session";
 import type { KitAgentMessage, Turn } from "../session/types";
 import { estimateTokens } from "./context-usage";

@@ -6,14 +6,14 @@ import type {
 	BeforeToolCallContext,
 	BeforeToolCallResult,
 	ThinkingLevel,
-} from "@mariozechner/pi-agent-core";
+} from "@earendil-works/pi-agent-core";
 import {
 	type Api,
 	getModels,
 	type Model,
 	registerBuiltInApiProviders,
 	type UserMessage,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
 	buildSystemPrompt,

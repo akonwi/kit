@@ -1,4 +1,4 @@
-import type { UserMessage } from "@mariozechner/pi-ai";
+import type { UserMessage } from "@earendil-works/pi-ai";
 import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { For, Show } from "solid-js";

@@ -2,7 +2,7 @@ import type {
 	AssistantMessage,
 	ToolCall,
 	ToolResultMessage,
-} from "@mariozechner/pi-ai";
+} from "@earendil-works/pi-ai";
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";

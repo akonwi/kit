@@ -1,4 +1,4 @@
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { createBashTool } from "./bash";
 import { createEditTool } from "./edit";
 import { createFindTool } from "./find";
