@@ -1198,8 +1198,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function beginRangeSelection() {
+		const hunk = selectedHunk();
 		const line = selectedLine();
-		if (!line) return;
+		if (!hunk || !line) return;
+		const sameSideIndex = getCommentableLines(
+			hunk,
+			line.side,
+			diffView(),
+		).findIndex((candidate) => candidate.index === line.index);
+		if (sameSideIndex >= 0) {
+			setSelectedLineIndex(hunk.id, sameSideIndex);
+		}
 		setRangeAnchor({ side: line.side, lineNumber: line.lineNumber });
 	}
 
