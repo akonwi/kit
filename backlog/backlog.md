@@ -12,8 +12,7 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] idea: formalize plugin contribution to the status footer
-  - see `backlog/plugin-chrome-and-capabilities.md`
+- [ ] feat: add support for opencode providers
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
@@ -25,3 +24,5 @@ Delete done items.
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
   - see `backlog/agent-runtime-extraction-for-subagents.md`
+- [ ] idea: formalize plugin contribution to the status footer
+  - see `backlog/plugin-chrome-and-capabilities.md`
