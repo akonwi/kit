@@ -45,7 +45,7 @@ export default function MyPlugin(kit: PluginAPI) {
 }
 ```
 
-Plugin functions may return a disposer for resources not registered through Kit:
+Plugin functions may return a `Disposer` for resources not registered through Kit:
 
 ```ts
 import type { PluginAPI } from "@akonwi/kit/plugin";
@@ -60,6 +60,8 @@ export default function WatchPlugin(kit: PluginAPI) {
 ```
 
 Registrations made through `kit` are cleaned up automatically on `/reload`.
+
+Common exported SDK types include `PluginAPI`, `Plugin`, `Disposer`, `CommandContext`, `CommandOptions`, `RuntimeEvent`, `EventContext`, `ToolDefinition`, `ToolResult`, `ToolCall`, and `ToolCallDecision`.
 
 ## UI helpers
 
@@ -92,6 +94,8 @@ These helpers use Kit-owned dialogs and return `undefined` when selection/input 
 ## Tool approval hooks
 
 Plugins can register a callback that runs before a tool executes. Return `{ action: "allow" }` or no value to run the tool; return `{ action: "reject-and-continue", message }` to block it and let the agent continue.
+
+If multiple plugins register tool-call handlers, Kit evaluates them in registration order. `allow` does not short-circuit; the first rejection blocks the call.
 
 ```ts
 kit.onToolCall(async (toolCall, ctx) => {

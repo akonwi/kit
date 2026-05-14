@@ -14,33 +14,27 @@ One remaining built-in, sub-agents, needs access to Kit internals to spawn and m
 Kit plugins are function initializers:
 
 ```ts
-type PluginDispose = () => void;
-type PluginDefinition = (kit: PluginAPI) => void | PluginDispose;
+type Disposer = () => void;
+type Plugin = (kit: PluginAPI) => void | Disposer;
 ```
 
 `PluginManager` manages function plugins only. The class-based `Plugin` API is removed.
 
-Built-ins that need internal dependencies use internal factory closures:
+Built-ins that need internal capabilities receive an explicit internal API instead of expanding the public API:
 
 ```ts
-function createBuiltInPlugins(ctx: PluginContext): PluginDefinition[] {
-	return [
-		SkillsPlugin,
-		createSubagentsPlugin({ runtime: ctx.runtime }),
-		PromptsPlugin,
-	];
-}
+type InternalPluginDefinition = (kit: InternalPluginAPI) => void | Disposer;
 ```
 
-The public `PluginAPI` remains capability-based and does not expose raw `AgentRuntime`, `CommandRegistry`, attachments, shell/app internals, or Pi `AgentTool` types. Plugins register tools with Kit-owned `PluginToolDefinition` / `PluginToolResult` types, and the plugin layer adapts them to Pi internally.
+The public `PluginAPI` remains capability-based and does not expose raw `AgentRuntime`, `CommandRegistry`, attachments, shell/app internals, internal UI surfaces, or Pi `AgentTool` types. Plugins register tools with Kit-owned `ToolDefinition` / `ToolResult` types, and the plugin layer adapts them to Pi internally.
 
 Dynamic user/project plugin loading uses Kit-specific plugin directories: `~/.kit/plugins/*.ts` and `.kit/plugins/*.ts`.
 
 ## Consequences
 
-- there is one plugin shape in `PluginManager`
+- plugins remain function initializers managed by `PluginManager`
 - public plugins receive only stable capabilities
-- internal built-ins can still depend on Kit internals without making those internals public
+- internal built-ins can still depend on Kit internals through `InternalPluginAPI` without making those internals public
 - sub-agents stay inside plugin lifecycle/reload cleanup without preserving inheritance
 
 ## Related
