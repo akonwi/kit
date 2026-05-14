@@ -202,34 +202,30 @@ function PluginSelectOverlay(
 			width="70%"
 			maxWidth={80}
 			minWidth={40}
-			height={
-				props.input.filterable ? SELECT_MAX_VISIBLE + 7 : SELECT_MAX_VISIBLE + 6
-			}
-			padding={0}
 		>
-			<box flexGrow={1} flexDirection="column" paddingX={1}>
-				<Dialog.Header>
-					<Dialog.Title>{props.input.title}</Dialog.Title>
-				</Dialog.Header>
-				<Show when={props.input.message}>
-					<text fg={theme.textMuted}>{props.input.message}</text>
-				</Show>
-				<Show when={props.input.filterable}>
-					<box flexDirection="row" gap={1} width="100%">
-						<text flexBasis={1} fg={theme.textPrimary}>
-							{">"}
-						</text>
-						<input
-							flexGrow={1}
-							focused={props.active}
-							value={filter()}
-							placeholder={props.input.placeholder ?? "Filter..."}
-							placeholderColor={theme.textPlaceholder}
-							onInput={(value: string) => setFilter(value)}
-						/>
-					</box>
-				</Show>
-				<box flexGrow={1} flexDirection="column" overflow="hidden">
+			<Dialog.Header>
+				<Dialog.Title>{props.input.title}</Dialog.Title>
+			</Dialog.Header>
+			<Show when={props.input.message}>
+				<text fg={theme.textMuted}>{props.input.message}</text>
+			</Show>
+			<Show when={props.input.filterable}>
+				<box flexDirection="row" gap={1} width="100%">
+					<text flexBasis={1} fg={theme.textPrimary}>
+						{">"}
+					</text>
+					<input
+						flexGrow={1}
+						focused={props.active}
+						value={filter()}
+						placeholder={props.input.placeholder ?? "Filter..."}
+						placeholderColor={theme.textPlaceholder}
+						onInput={(value: string) => setFilter(value)}
+					/>
+				</box>
+			</Show>
+			<Dialog.Body>
+				<box flexDirection="column" overflow="hidden">
 					<Show when={filteredOptions().length === 0}>
 						<text fg={theme.textMuted}>No options</text>
 					</Show>
@@ -268,10 +264,10 @@ function PluginSelectOverlay(
 						}}
 					</For>
 				</box>
-				<Dialog.Footer paddingY={1}>
-					<HintBar borderless bindings={SELECT_BINDINGS} />
-				</Dialog.Footer>
-			</box>
+			</Dialog.Body>
+			<Dialog.Footer>
+				<HintBar borderless bindings={SELECT_BINDINGS} />
+			</Dialog.Footer>
 		</Dialog.Root>
 	);
 }
@@ -306,31 +302,26 @@ function PluginInputOverlay(
 			width="60%"
 			maxWidth={72}
 			minWidth={40}
-			height={8}
-			padding={0}
 		>
-			<box flexGrow={1} flexDirection="column" paddingX={1}>
-				<Dialog.Header>
-					<Dialog.Title>{props.input.title}</Dialog.Title>
-				</Dialog.Header>
-				<Show when={props.input.message}>
-					<text fg={theme.textMuted}>{props.input.message}</text>
-				</Show>
-				<box border borderColor={theme.borderAccent} paddingX={1} width="100%">
-					<input
-						flexGrow={1}
-						focused={props.active}
-						value={value()}
-						placeholder={props.input.placeholder ?? ""}
-						placeholderColor={theme.textPlaceholder}
-						onInput={(next: string) => setValue(next)}
-					/>
-				</box>
-				<box flexGrow={1} />
-				<Dialog.Footer paddingY={1}>
-					<HintBar borderless bindings={INPUT_BINDINGS} />
-				</Dialog.Footer>
+			<Dialog.Header>
+				<Dialog.Title>{props.input.title}</Dialog.Title>
+			</Dialog.Header>
+			<Show when={props.input.message}>
+				<text fg={theme.textMuted}>{props.input.message}</text>
+			</Show>
+			<box border borderColor={theme.borderAccent} paddingX={1} width="100%">
+				<input
+					flexGrow={1}
+					focused={props.active}
+					value={value()}
+					placeholder={props.input.placeholder ?? ""}
+					placeholderColor={theme.textPlaceholder}
+					onInput={(next: string) => setValue(next)}
+				/>
 			</box>
+			<Dialog.Footer>
+				<HintBar borderless bindings={INPUT_BINDINGS} />
+			</Dialog.Footer>
 		</Dialog.Root>
 	);
 }
@@ -397,25 +388,21 @@ function PluginConfirmOverlay(
 			width="50%"
 			maxWidth={64}
 			minWidth={36}
-			height={7}
-			padding={0}
 		>
-			<box flexGrow={1} flexDirection="column" paddingX={1}>
-				<Dialog.Header>
-					<Dialog.Title>{props.input.title}</Dialog.Title>
-				</Dialog.Header>
-				<Show when={props.input.message}>
-					<text fg={theme.textMuted}>{props.input.message}</text>
-				</Show>
-				<box flexGrow={1} />
-				<box flexDirection="row" justifyContent="flex-end" gap={1}>
-					{option(cancelLabel(), 0)}
-					{option(confirmLabel(), 1)}
-				</box>
-				<Dialog.Footer paddingY={1}>
-					<HintBar borderless bindings={CONFIRM_BINDINGS} />
-				</Dialog.Footer>
+			<Dialog.Header>
+				<Dialog.Title>{props.input.title}</Dialog.Title>
+			</Dialog.Header>
+			<Show when={props.input.message}>
+				<text fg={theme.textMuted}>{props.input.message}</text>
+			</Show>
+			<box flexGrow={1} />
+			<box flexDirection="row" justifyContent="flex-end" gap={1}>
+				{option(cancelLabel(), 0)}
+				{option(confirmLabel(), 1)}
 			</box>
+			<Dialog.Footer>
+				<HintBar borderless bindings={CONFIRM_BINDINGS} />
+			</Dialog.Footer>
 		</Dialog.Root>
 	);
 }
