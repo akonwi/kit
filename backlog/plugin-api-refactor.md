@@ -205,4 +205,3 @@ Failed user/project plugins should not be added to `/debug`. Show a persistent t
 ## Related backlog items
 
 - `backlog/plugin-chrome-and-capabilities.md`
-- `backlog/tool-call-approvals.md`
