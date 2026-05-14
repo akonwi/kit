@@ -40,4 +40,3 @@ Dynamic user/project plugin loading uses Kit-specific plugin directories: `~/.ki
 ## Related
 
 - `docs/adrs/0015-plugin-system.md`
-- `backlog/plugin-api-refactor.md`
