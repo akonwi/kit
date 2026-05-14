@@ -5,6 +5,7 @@ import type {
 } from "../../messages/parts";
 import { messagePartToPromptText } from "../../messages/parts";
 import type { Attachment } from "../../shell/attachments-controller";
+import { PENCIL } from "../../shell/glyphs";
 
 export type CodeReviewSubmission = {
 	submittedAt: string;
@@ -13,7 +14,7 @@ export type CodeReviewSubmission = {
 
 export class CodeReviewAttachment implements Attachment {
 	readonly type = "code-review";
-	readonly icon = "✎";
+	readonly icon = PENCIL;
 	readonly summary: string;
 
 	constructor(
