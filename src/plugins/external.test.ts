@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { utimesSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -81,7 +82,10 @@ describe("external plugin loading", () => {
 			"export default function IgnoredPlugin(kit) { kit.logger.log('ignored') }\n",
 		);
 
-		const result = loadExternalPlugins(cwd, { reloadId: "initial", home });
+		const result = await loadExternalPlugins(cwd, {
+			reloadId: "initial",
+			home,
+		});
 		expect(result.failures).toEqual([]);
 		expect(result.plugins.map((plugin) => plugin.name)).toEqual([
 			"user:user",
@@ -92,6 +96,52 @@ describe("external plugin loading", () => {
 		const kit = createMockKit(logs);
 		for (const plugin of result.plugins) plugin.initialize(kit);
 		expect(logs).toEqual(["user", "project"]);
+	});
+
+	test("loads plugin dependencies from the plugin directory", async () => {
+		const home = await makeTempDir();
+		const cwd = await makeTempDir();
+		const pluginsDir = path.join(home, ".kit", "plugins");
+		const depDir = path.join(pluginsDir, "node_modules", "plugin-local-dep");
+		await mkdir(depDir, { recursive: true });
+		await writeFile(
+			path.join(pluginsDir, "package.json"),
+			JSON.stringify({
+				private: true,
+				dependencies: { "plugin-local-dep": "1.0.0" },
+			}),
+		);
+		await writeFile(
+			path.join(depDir, "package.json"),
+			JSON.stringify({
+				name: "plugin-local-dep",
+				version: "1.0.0",
+				type: "module",
+			}),
+		);
+		await writeFile(
+			path.join(depDir, "index.js"),
+			"export function message() { return 'from plugin dependency' }\n",
+		);
+		await writeFile(
+			path.join(pluginsDir, "uses-dep.ts"),
+			[
+				'import { Type } from "@akonwi/kit/plugin";',
+				'import { message } from "plugin-local-dep";',
+				"export default function UsesDepPlugin(kit) { kit.logger.log(message() + ' ' + typeof Type.Object) }",
+				"",
+			].join("\n"),
+		);
+
+		const result = await loadExternalPlugins(cwd, { reloadId: "deps", home });
+		expect(result.failures).toEqual([]);
+		expect(result.plugins.map((plugin) => plugin.name)).toEqual([
+			"user:uses-dep",
+		]);
+
+		const logs: string[] = [];
+		result.plugins[0]?.initialize(createMockKit(logs));
+		expect(logs).toEqual(["from plugin dependency function"]);
 	});
 
 	test("reports load failures and reloads changed plugin files", async () => {
@@ -109,7 +159,7 @@ describe("external plugin loading", () => {
 			"export default function DynamicPlugin(kit) { kit.logger.log('one') }\n",
 		);
 
-		const first = loadExternalPlugins(cwd, { reloadId: "one", home });
+		const first = await loadExternalPlugins(cwd, { reloadId: "one", home });
 		expect(first.failures).toHaveLength(1);
 		expect(first.failures[0]?.phase).toBe("load");
 		expect(first.plugins.map((plugin) => plugin.name)).toEqual([
@@ -124,7 +174,9 @@ describe("external plugin loading", () => {
 			pluginPath,
 			"export default function DynamicPlugin(kit) { kit.logger.log('two') }\n",
 		);
-		const second = loadExternalPlugins(cwd, { reloadId: "two", home });
+		const future = new Date(Date.now() + 2000);
+		utimesSync(pluginPath, future, future);
+		const second = await loadExternalPlugins(cwd, { reloadId: "two", home });
 		const secondLogs: string[] = [];
 		second.plugins[0]?.initialize(createMockKit(secondLogs));
 		expect(secondLogs).toEqual(["two"]);

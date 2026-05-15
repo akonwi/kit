@@ -1,4 +1,4 @@
-import { createSignal, Match, onCleanup, Switch } from "solid-js";
+import { createSignal, Match, onCleanup, onMount, Switch } from "solid-js";
 import {
 	BUILT_IN_COMMANDS,
 	type CommandRegistry,
@@ -47,6 +47,7 @@ type ReadyState = {
 
 type RootState =
 	| ReadyState
+	| { kind: "loading" }
 	| { kind: "unauthenticated" }
 	| { kind: "fatal"; error: string };
 
@@ -68,7 +69,7 @@ export function App(props: AppProps) {
 		getTranscriptViewport: () => transcriptViewport(),
 	});
 
-	function buildReadyState(): ReadyState {
+	async function buildReadyState(): Promise<ReadyState> {
 		let currentSettings = props.settings;
 		const attachments = createAttachmentsController();
 		const runtime = new AgentRuntime(props.session, {
@@ -117,10 +118,10 @@ export function App(props: AppProps) {
 			});
 		}
 
-		function createPluginManager(
+		async function createPluginManager(
 			failures: ExternalPluginFailure[],
-		): PluginManager {
-			const external = loadExternalPlugins(runtime.getSession().cwd, {
+		): Promise<PluginManager> {
+			const external = await loadExternalPlugins(runtime.getSession().cwd, {
 				reloadId: `${Date.now()}-${pluginReloadCount++}`,
 				onFailure: (failure) => failures.push(failure),
 			});
@@ -130,15 +131,15 @@ export function App(props: AppProps) {
 			);
 		}
 
-		function initializePluginManager(): ExternalPluginFailure[] {
+		async function initializePluginManager(): Promise<ExternalPluginFailure[]> {
 			const failures: ExternalPluginFailure[] = [];
-			pluginManager = createPluginManager(failures);
+			pluginManager = await createPluginManager(failures);
 			pluginManager.initialize();
 			return failures;
 		}
 
 		try {
-			showPluginFailures(initializePluginManager());
+			showPluginFailures(await initializePluginManager());
 		} catch (error) {
 			disposePluginManager(pluginManager);
 			persistence.dispose();
@@ -160,7 +161,7 @@ export function App(props: AppProps) {
 				await runtime.reloadSession();
 			} catch (error) {
 				try {
-					showPluginFailures(initializePluginManager());
+					showPluginFailures(await initializePluginManager());
 				} catch {
 					disposePluginManager(pluginManager);
 					// Preserve the original reload error below.
@@ -174,7 +175,7 @@ export function App(props: AppProps) {
 			}
 
 			try {
-				showPluginFailures(initializePluginManager());
+				showPluginFailures(await initializePluginManager());
 				toast({
 					title: "Session reloaded",
 					variant: "info",
@@ -228,9 +229,9 @@ export function App(props: AppProps) {
 		};
 	}
 
-	function buildRootState(): RootState {
+	async function buildRootState(): Promise<RootState> {
 		try {
-			return buildReadyState();
+			return await buildReadyState();
 		} catch (error) {
 			if (error instanceof AuthenticationRequiredError) {
 				return { kind: "unauthenticated" };
@@ -246,7 +247,7 @@ export function App(props: AppProps) {
 		return `${failure.filePath} (${failure.phase}): ${failure.message}`;
 	}
 
-	const [root, setRoot] = createSignal<RootState>(buildRootState());
+	const [root, setRoot] = createSignal<RootState>({ kind: "loading" });
 
 	function replaceRootState(next: RootState) {
 		const previous = root();
@@ -257,7 +258,7 @@ export function App(props: AppProps) {
 	}
 
 	async function handleAuthenticated(providerName?: string): Promise<boolean> {
-		const next = buildRootState();
+		const next = await buildRootState();
 		if (next.kind === "ready") {
 			replaceRootState(next);
 			next.app.showToast({
@@ -275,6 +276,12 @@ export function App(props: AppProps) {
 		}
 		return false;
 	}
+
+	onMount(() => {
+		void (async () => {
+			replaceRootState(await buildRootState());
+		})();
+	});
 
 	onCleanup(() => {
 		const current = root();
@@ -303,6 +310,11 @@ export function App(props: AppProps) {
 					);
 				})()}
 			</Match>
+			<Match when={root().kind === "loading"}>
+				<box flexGrow={1} alignItems="center" justifyContent="center">
+					<text>Loading Kit…</text>
+				</box>
+			</Match>
 			<Match when={root().kind === "fatal"}>
 				{(() => {
 					const current = root();
@@ -311,7 +323,7 @@ export function App(props: AppProps) {
 					) : null;
 				})()}
 			</Match>
-			<Match when={true}>
+			<Match when={root().kind === "unauthenticated"}>
 				<AuthGateScreen
 					session={props.session}
 					onAuthenticated={handleAuthenticated}

@@ -123,9 +123,9 @@ await fs.promises.cp(coreAssetsPath, path.join(runtimeDir, "assets"), {
 await fs.promises.writeFile(
 	pluginRuntimePath,
 	[
-		"// Runtime placeholder for the type-only @akonwi/kit/plugin SDK.",
-		"// Use `import type` when consuming plugin API types.",
-		"export {};",
+		"// Runtime surface for the public @akonwi/kit/plugin SDK.",
+		"// Plugin API shapes are type-only; runtime helpers are explicitly exported here.",
+		'export { Type } from "typebox";',
 		"",
 	].join("\n"),
 	"utf8",
