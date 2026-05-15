@@ -1,6 +1,6 @@
 import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
-import { For, Show } from "solid-js";
+import { type Accessor, createMemo, createSelector, For, Show } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { syntaxStyle, theme } from "../../shell/theme";
@@ -71,6 +71,7 @@ export type ReviewDiffBlockProps = {
 		onChange: (value: string) => void;
 		onSubmit: () => void;
 	};
+	activeLine?: ReviewDiffCommentableLine;
 	onLineMouseDown?: (
 		line: ReviewDiffCommentableLine,
 		event: TuiMouseEvent,
@@ -402,6 +403,17 @@ export function getReviewDiffRangeBounds(
 	return { top, height: bottom - top + 1 };
 }
 
+function cursorBackgroundForKind(kind: DiffCellKind): string {
+	switch (kind) {
+		case "add":
+			return theme.diffCursorAddedBg;
+		case "delete":
+			return theme.diffCursorRemovedBg;
+		default:
+			return theme.diffCursorBg;
+	}
+}
+
 function backgroundForKind(kind: DiffCellKind): string {
 	switch (kind) {
 		case "add":
@@ -449,8 +461,9 @@ function renderContentText(
 	text: string,
 	kind: DiffCellKind,
 	filetype: string | undefined,
+	backgroundColor?: Accessor<string>,
 ) {
-	const bg = () => contentBackgroundForKind(kind);
+	const bg = () => backgroundColor?.() ?? contentBackgroundForKind(kind);
 	if (filetype && kind !== "metadata" && kind !== "empty") {
 		return (
 			<code
@@ -586,9 +599,17 @@ function renderUnifiedRow(
 	lineNumberWidth: number,
 	filetype: string | undefined,
 	hunk?: ReviewHunk,
+	isActiveLine?: (key: string) => boolean,
 	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"],
 ) {
-	const bg = () => backgroundForKind(row.kind);
+	const activeKey = () =>
+		row.lineIndex == null ? null : `line:${row.lineIndex}`;
+	const active = () => {
+		const key = activeKey();
+		return key != null && (isActiveLine?.(key) ?? false);
+	};
+	const bg = () =>
+		active() ? cursorBackgroundForKind(row.kind) : backgroundForKind(row.kind);
 	const commentableLine = () =>
 		hunk && row.lineIndex != null
 			? toCommentableLine(hunk.lines[row.lineIndex], row.lineIndex)
@@ -600,23 +621,34 @@ function renderUnifiedRow(
 	};
 	return (
 		<box
+			id={
+				active() && hunk && row.lineIndex != null
+					? `review-line-cursor-${hunk.id}-${row.lineIndex}`
+					: undefined
+			}
 			flexDirection="row"
 			backgroundColor={bg()}
 			height={1}
 			flexShrink={0}
 			onMouseDown={handleMouseDown}
 		>
-			<text fg={theme.textMuted} bg={bg()}>
+			<text
+				fg={theme.textMuted}
+				bg={active() ? theme.diffCursorGutterBg : bg()}
+			>
 				{formatLineNumber(row.deletionLineNumber, lineNumberWidth)}
 			</text>
-			<text fg={theme.textMuted} bg={bg()}>
+			<text
+				fg={theme.textMuted}
+				bg={active() ? theme.diffCursorGutterBg : bg()}
+			>
 				{" "}
 				{formatLineNumber(row.additionLineNumber, lineNumberWidth)}
 			</text>
 			<text fg={signColorForKind(row.kind)} bg={bg()}>
 				{row.sign}{" "}
 			</text>
-			{renderContentText(row.text, row.kind, filetype)}
+			{renderContentText(row.text, row.kind, filetype, bg)}
 		</box>
 	);
 }
@@ -626,13 +658,24 @@ function renderSplitCell(
 	lineNumberWidth: number,
 	filetype: string | undefined,
 	hunk: ReviewHunk,
+	isActiveLine?: (key: string) => boolean,
 	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"],
 ) {
-	const bg = () => backgroundForKind(cell.kind);
 	const commentableLine = () =>
 		cell.lineIndex != null
 			? toCommentableLine(hunk.lines[cell.lineIndex], cell.lineIndex)
 			: null;
+	const active = () => {
+		const line = commentableLine();
+		return (
+			line != null &&
+			(isActiveLine?.(`line:${line.index}:${line.side}`) ?? false)
+		);
+	};
+	const bg = () =>
+		active()
+			? cursorBackgroundForKind(cell.kind)
+			: backgroundForKind(cell.kind);
 	const handleMouseDown = (event: TuiMouseEvent) => {
 		const line = commentableLine();
 		if (!line) return;
@@ -640,6 +683,9 @@ function renderSplitCell(
 	};
 	return (
 		<box
+			id={
+				active() ? `review-line-cursor-${hunk.id}-${cell.lineIndex}` : undefined
+			}
 			width="50%"
 			flexDirection="row"
 			backgroundColor={bg()}
@@ -647,13 +693,16 @@ function renderSplitCell(
 			flexShrink={0}
 			onMouseDown={handleMouseDown}
 		>
-			<text fg={theme.textMuted} bg={bg()}>
+			<text
+				fg={theme.textMuted}
+				bg={active() ? theme.diffCursorGutterBg : bg()}
+			>
 				{formatLineNumber(cell.lineNumber, lineNumberWidth)}
 			</text>
 			<text fg={signColorForKind(cell.kind)} bg={bg()}>
 				{cell.sign}{" "}
 			</text>
-			{renderContentText(cell.text, cell.kind, filetype)}
+			{renderContentText(cell.text, cell.kind, filetype, bg)}
 		</box>
 	);
 }
@@ -690,6 +739,16 @@ function rawPatchRows(rawPatch: string): UnifiedRow[] {
 
 export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 	const annotations = () => props.annotations ?? [];
+	const activeUnifiedLineKey = createMemo(() =>
+		props.activeLine ? `line:${props.activeLine.index}` : null,
+	);
+	const activeSplitLineKey = createMemo(() =>
+		props.activeLine
+			? `line:${props.activeLine.index}:${props.activeLine.side}`
+			: null,
+	);
+	const isActiveUnifiedLine = createSelector(activeUnifiedLineKey);
+	const isActiveSplitLine = createSelector(activeSplitLineKey);
 	return (
 		<Show
 			when={props.hunk}
@@ -717,6 +776,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 												lineNumberWidth(),
 												props.filetype,
 												currentHunk(),
+												isActiveUnifiedLine,
 												props.onLineMouseDown,
 											)}
 											<For
@@ -754,6 +814,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 												lineNumberWidth(),
 												props.filetype,
 												currentHunk(),
+												isActiveSplitLine,
 												props.onLineMouseDown,
 											)}
 											{renderSplitCell(
@@ -761,6 +822,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 												lineNumberWidth(),
 												props.filetype,
 												currentHunk(),
+												isActiveSplitLine,
 												props.onLineMouseDown,
 											)}
 										</box>

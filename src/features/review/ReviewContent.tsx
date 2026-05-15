@@ -16,7 +16,6 @@ import {
 	DASHED_VERTICAL,
 	DIAMOND,
 	PENCIL,
-	THIN_BAR,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../../shell/glyphs";
@@ -888,8 +887,11 @@ export function ReviewContent(props: ReviewContentProps) {
 		const rangeBounds = () => activeRangeLineBounds();
 		const anchorTop = () => anchorLineTop();
 		const splitView = () => diffView() === "split";
-		const cursorId = () =>
-			`review-line-cursor-${hunk.id}-${cursor()?.line.index ?? 0}`;
+		const activeLine = () => {
+			const current = cursor();
+			if (!interactive || current?.hunk.id !== hunk.id) return undefined;
+			return current.line;
+		};
 		const renderOverlayLane = (side?: ReviewSide) => (
 			<>
 				<Show when={cursorTop() !== null && (!side || cursorSide() === side)}>
@@ -923,16 +925,6 @@ export function ReviewContent(props: ReviewContentProps) {
 							<text fg={theme.borderFocused}>{DIAMOND}</text>
 						</box>
 					</Show>
-					<box
-						id={cursorId()}
-						position="absolute"
-						left={0}
-						top={cursorTop() ?? 0}
-						height={1}
-						width={1}
-					>
-						<text fg={theme.borderAccent}>{THIN_BAR}</text>
-					</box>
 				</Show>
 			</>
 		);
@@ -956,6 +948,7 @@ export function ReviewContent(props: ReviewContentProps) {
 						view={diffView()}
 						filetype={file.filetype}
 						annotations={annotations()}
+						activeLine={activeLine()}
 						annotationEditor={
 							editingRange()
 								? {

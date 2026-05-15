@@ -75,6 +75,10 @@ export type ThemeTokens = {
 	diffRemovedContentBg: string;
 	diffAddedLineNumberBg: string;
 	diffRemovedLineNumberBg: string;
+	diffCursorBg: string;
+	diffCursorGutterBg: string;
+	diffCursorAddedBg: string;
+	diffCursorRemovedBg: string;
 };
 
 /** Named color slots for syntax highlighting rules. */
