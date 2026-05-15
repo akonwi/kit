@@ -1,5 +1,7 @@
 import { type Dirent, existsSync, readdirSync, statSync } from "node:fs";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { getKitPaths } from "../paths";
 import type { ExternalPluginRegistration } from "./PluginManager";
 import type { Plugin } from "./types";
@@ -42,6 +44,10 @@ function pluginNameForFile(
 ): string {
 	const baseName = path.basename(filePath).replace(/\.ts$/, "");
 	return `${source}:${baseName}`;
+}
+
+function sanitizeFileName(value: string): string {
+	return value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
 }
 
 function recordFailure(
@@ -92,28 +98,216 @@ function discoverPluginFiles(cwd: string, home?: string): PluginFile[] {
 	];
 }
 
-function loadPluginInitializer(file: PluginFile, reloadId: string): Plugin {
-	const moduleExports = require(
-		`${file.filePath}?kitReload=${encodeURIComponent(reloadId)}`,
-	) as { default?: unknown };
+async function findTypeboxEntry(): Promise<string | null> {
+	const candidates: string[] = [];
+
+	// Source/dev checkout: src/plugins/external.ts -> repo/node_modules/typebox.
+	candidates.push(
+		path.resolve(import.meta.dirname, "../../node_modules/typebox"),
+	);
+
+	let current = path.dirname(process.execPath);
+	while (true) {
+		candidates.push(path.join(current, "node_modules", "typebox"));
+		const parent = path.dirname(current);
+		if (parent === current) break;
+		current = parent;
+	}
+
+	for (const packageRoot of candidates) {
+		const packagePath = path.join(packageRoot, "package.json");
+		if (!existsSync(packagePath)) continue;
+		try {
+			const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
+				module?: string;
+			};
+			return path.join(packageRoot, packageJson.module ?? "build/index.mjs");
+		} catch {
+			return path.join(packageRoot, "build/index.mjs");
+		}
+	}
+
+	return null;
+}
+
+async function writePluginSdkShim(outdir: string): Promise<string> {
+	const typeboxEntry = await findTypeboxEntry();
+	if (!typeboxEntry) {
+		throw new Error(
+			"Unable to locate Kit's bundled typebox dependency for @akonwi/kit/plugin.",
+		);
+	}
+	const shimPath = path.join(outdir, "kit-plugin-sdk.mjs");
+	await writeFile(
+		shimPath,
+		`export { Type } from ${JSON.stringify(typeboxEntry)};\n`,
+		"utf8",
+	);
+	return shimPath;
+}
+
+async function installPluginDependencies(pluginDir: string): Promise<void> {
+	if (!existsSync(path.join(pluginDir, "package.json"))) return;
+	const pm = Bun.which("bun") ? "bun" : Bun.which("npm") ? "npm" : null;
+	if (!pm) {
+		throw new Error(
+			`Cannot install plugin dependencies in ${pluginDir}: neither bun nor npm found in PATH.`,
+		);
+	}
+	const proc = Bun.spawn([pm, "install"], {
+		cwd: pluginDir,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [exitCode, stdoutText, stderrText] = await Promise.all([
+		proc.exited,
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+	]);
+	if (exitCode !== 0) {
+		const details = [stderrText.trim(), stdoutText.trim()]
+			.filter(Boolean)
+			.join("\n");
+		throw new Error(
+			`Failed to install plugin dependencies in ${pluginDir}${details ? `:\n${details}` : "."}`,
+		);
+	}
+}
+
+function bundleFailureMessage(result: Bun.BuildOutput): string {
+	return (
+		result.logs.map((log) => String(log)).join("\n") || "Unknown build error"
+	);
+}
+
+async function bundlePlugin(
+	file: PluginFile,
+	options: {
+		pluginName: string;
+		reloadId: string;
+		home?: string;
+	},
+): Promise<string> {
+	const cacheRoot = path.join(
+		getKitPaths(options.home).kitRoot,
+		"plugin-cache",
+	);
+	const outdir = path.join(
+		cacheRoot,
+		sanitizeFileName(options.reloadId),
+		sanitizeFileName(options.pluginName),
+	);
+	await rm(outdir, { force: true, recursive: true });
+	await mkdir(outdir, { recursive: true });
+
+	let pluginSdkShim: string | null = null;
+	const result = await Bun.build({
+		entrypoints: [file.filePath],
+		outdir,
+		target: "bun",
+		format: "esm",
+		plugins: [
+			{
+				name: "kit-plugin-sdk",
+				setup(build) {
+					build.onResolve({ filter: /^@akonwi\/kit\/plugin$/ }, async () => {
+						pluginSdkShim ??= await writePluginSdkShim(outdir);
+						return { path: pluginSdkShim };
+					});
+				},
+			},
+		],
+	});
+
+	if (!result.success) {
+		throw new Error(bundleFailureMessage(result));
+	}
+
+	const output = result.outputs.find(
+		(artifact) => artifact.kind === "entry-point",
+	);
+	if (!output) {
+		throw new Error("Plugin build did not produce an entry point.");
+	}
+	return output.path;
+}
+
+async function loadPluginInitializer(
+	file: PluginFile,
+	options: {
+		pluginName: string;
+		reloadId: string;
+		home?: string;
+	},
+): Promise<Plugin> {
+	// Bundle external plugins before importing them. This makes user/project
+	// plugins behave like complete packages: imports are resolved from the plugin
+	// file's directory, so ~/.kit/plugins/package.json and .kit/plugins/package.json
+	// can declare dependencies Kit itself does not ship. Importing the bundled
+	// artifact also avoids Bun compiled-binary limitations around requiring
+	// arbitrary external TypeScript files with cache-busting query strings.
+	// Dependencies are installed before this point by loadExternalPlugins.
+	const bundledPath = await bundlePlugin(file, options);
+	const url = pathToFileURL(bundledPath);
+	url.searchParams.set("kitReload", options.reloadId);
+	const moduleExports = (await import(url.href)) as { default?: unknown };
 	if (typeof moduleExports.default !== "function") {
 		throw new Error("Plugin default export must be a function.");
 	}
 	return moduleExports.default as Plugin;
 }
 
-export function loadExternalPlugins(
+export async function loadExternalPlugins(
 	cwd: string,
 	options: LoadExternalPluginsOptions,
-): LoadExternalPluginsResult {
+): Promise<LoadExternalPluginsResult> {
 	const plugins: ExternalPluginRegistration[] = [];
 	const failures: ExternalPluginFailure[] = [];
+	await rm(path.join(getKitPaths(options.home).kitRoot, "plugin-cache"), {
+		force: true,
+		recursive: true,
+	});
 
-	for (const file of discoverPluginFiles(cwd, options.home)) {
+	const files = discoverPluginFiles(cwd, options.home);
+
+	// Install dependencies once per unique plugin directory before bundling.
+	const installedDirs = new Set<string>();
+	const failedDirs = new Map<string, string>();
+	for (const file of files) {
+		const pluginDir = path.dirname(file.filePath);
+		if (installedDirs.has(pluginDir) || failedDirs.has(pluginDir)) continue;
+		try {
+			await installPluginDependencies(pluginDir);
+			installedDirs.add(pluginDir);
+		} catch (error) {
+			failedDirs.set(pluginDir, formatError(error));
+		}
+	}
+
+	for (const file of files) {
 		const pluginName = pluginNameForFile(file.source, file.filePath);
+		const installError = failedDirs.get(path.dirname(file.filePath));
+		if (installError) {
+			recordFailure(
+				failures,
+				{
+					source: file.source,
+					phase: "load",
+					pluginName,
+					filePath: file.filePath,
+					message: installError,
+				},
+				options.onFailure,
+			);
+			continue;
+		}
 		let initialize: Plugin;
 		try {
-			initialize = loadPluginInitializer(file, options.reloadId);
+			initialize = await loadPluginInitializer(file, {
+				pluginName,
+				reloadId: options.reloadId,
+				home: options.home,
+			});
 		} catch (error) {
 			recordFailure(
 				failures,

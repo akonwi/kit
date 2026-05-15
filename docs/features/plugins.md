@@ -17,6 +17,28 @@ If an external plugin registers a command, tool, or debug section that already e
 
 Kit does **not** load plugins from `.agents/plugins/`. Plugins execute code and are Kit-specific functionality, while `.agents/` is reserved for compatibility-oriented resources such as prompts, skills, and MCP config.
 
+## Plugin dependencies
+
+Plugin directories may have their own `package.json`, lockfile, and `node_modules`:
+
+```text
+~/.kit/plugins/
+  package.json
+  bun.lock
+  node_modules/
+  my-plugin.ts
+
+project/.kit/plugins/
+  package.json
+  bun.lock
+  node_modules/
+  project-plugin.ts
+```
+
+Kit automatically installs dependencies for each plugin directory before bundling. It uses `bun install` when the `bun` CLI is available and falls back to `npm install` otherwise.
+
+Kit bundles each plugin from its absolute file path before loading it, so package imports resolve from the plugin file's directory and then walk up through normal Bun/Node module resolution. This lets user and project plugins depend on packages that Kit itself does not ship.
+
 ## Trust model
 
 Plugins execute local code in the Kit process. Only use plugins from people and projects you trust.
@@ -28,7 +50,7 @@ A failed user/project plugin does not stop Kit from starting. Kit shows a persis
 A plugin is a TypeScript file with a default function export. Import public SDK types from `@akonwi/kit/plugin`; do not import from Kit source paths such as `src/plugins`.
 
 ```ts
-import type { PluginAPI } from "@akonwi/kit/plugin";
+import { Type, type PluginAPI } from "@akonwi/kit/plugin";
 
 export default function MyPlugin(kit: PluginAPI) {
 	kit.registerCommand(
@@ -42,6 +64,18 @@ export default function MyPlugin(kit: PluginAPI) {
 			});
 		},
 	);
+
+	kit.registerTool({
+		name: "echo_plugin",
+		description: "Echo text from a plugin tool.",
+		parameters: Type.Object({ text: Type.String() }),
+		async execute(_id, params) {
+			return {
+				content: [{ type: "text", text: params.text }],
+				details: {},
+			};
+		},
+	});
 }
 ```
 
@@ -121,8 +155,8 @@ kit.onToolCall(async (toolCall, ctx) => {
 
 ## Reloading
 
-Use `/reload` after editing plugin files. Kit re-discovers plugin files and reloads them with cache busting so changed `.ts` contents are picked up.
+Use `/reload` after editing plugin files. Kit re-discovers plugin files, re-bundles them into Kit's plugin cache, and imports the fresh bundles so changed `.ts` contents are picked up.
 
 Plugin modules are loaded synchronously, so top-level `await` is not supported in plugin files. Async command, event, and tool handlers are supported.
 
-`@akonwi/kit/plugin` is a type-only SDK surface in v1. Use `import type`; value imports from `@akonwi/kit/plugin` are not part of the public runtime API.
+`@akonwi/kit/plugin` exports plugin API types and the runtime `Type` schema helper. Use `import type` for types such as `PluginAPI`, and use the value import `Type` when defining tool parameter schemas.
