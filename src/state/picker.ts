@@ -79,6 +79,7 @@ export type PickerSnapshot = {
 	mode: "list" | "input";
 	// list mode
 	options: Array<{ name: string; description: string; argHint?: string }>;
+	allOptions: Array<{ name: string; description: string; argHint?: string }>;
 	selectedIndex: number;
 	filterable: boolean;
 	filterText: string;
@@ -92,6 +93,7 @@ export const emptySnapshot: PickerSnapshot = {
 	visible: false,
 	mode: "list",
 	options: [],
+	allOptions: [],
 	selectedIndex: 0,
 	filterable: false,
 	filterText: "",
@@ -106,6 +108,7 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 			visible: true,
 			mode: "input",
 			options: [],
+			allOptions: [],
 			selectedIndex: 0,
 			filterable: false,
 			filterText: "",
@@ -118,6 +121,11 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 		visible: true,
 		mode: "list",
 		options: entry.options.map((o) => ({
+			name: o.name,
+			description: o.description,
+			argHint: o.argHint,
+		})),
+		allOptions: entry.allOptions.map((o) => ({
 			name: o.name,
 			description: o.description,
 			argHint: o.argHint,

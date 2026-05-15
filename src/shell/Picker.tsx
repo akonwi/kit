@@ -177,6 +177,10 @@ function Body() {
 		),
 	);
 
+	const maxNameWidth = createMemo(() =>
+		Math.max(0, ...snapshot().allOptions.map((o) => o.name.length)),
+	);
+
 	return (
 		<Show when={snapshot().mode === "list"}>
 			<box flexGrow={1} flexDirection="column" overflow="hidden">
@@ -203,15 +207,15 @@ function Body() {
 										gap={1}
 										backgroundColor={bg()}
 									>
-										<text fg={fg()} bg={bg()}>
-											{entry.option.name}
-										</text>
+										<box width={maxNameWidth()} flexShrink={0}>
+											<text fg={fg()} bg={bg()}>
+												{entry.option.name}
+											</text>
+										</box>
 										<Show when={entry.option.argHint}>
-											<box flexShrink={1} height={1} overflow="hidden">
-												<text fg={theme.textMuted} bg={bg()}>
-													{` [${entry.option.argHint}]`}
-												</text>
-											</box>
+											<text fg={theme.textMuted} bg={bg()}>
+												{`[${entry.option.argHint}]`}
+											</text>
 										</Show>
 									</box>
 								);
