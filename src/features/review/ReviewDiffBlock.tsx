@@ -47,11 +47,10 @@ export type ReviewDiffVisualBounds = {
 
 export type ReviewDiffAnnotationMetadata = {
 	key: string;
-};
-
-export type ReviewDiffAnnotationMarker = ReviewDiffVisualBounds & {
-	key: string;
+	comment: string;
 	side: ReviewDiffSide;
+	startLine: number;
+	endLine: number;
 };
 
 export type ReviewDiffLineRange = {
@@ -65,6 +64,7 @@ export type ReviewDiffBlockProps = {
 	hunk?: ReviewHunk;
 	rawPatch?: string;
 	filetype?: string;
+	annotations?: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[];
 	onLineMouseDown?: (
 		line: ReviewDiffCommentableLine,
 		event: TuiMouseEvent,
@@ -241,24 +241,108 @@ export function getReviewDiffCommentableLines(
 	});
 }
 
+const COMMENT_ANNOTATION_HEIGHT = 3;
+
+type SplitAnnotationGroup = {
+	deletions: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[];
+	additions: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[];
+};
+
+function annotationLineIndex(
+	hunk: ReviewHunk,
+	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata>,
+): number | null {
+	const line = getReviewDiffCommentableLines(hunk, annotation.side).find(
+		(candidate) => candidate.lineNumber === annotation.lineNumber,
+	);
+	return line?.index ?? null;
+}
+
+function getUnifiedAnnotationsAfterRow(
+	row: UnifiedRow,
+	hunk: ReviewHunk,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
+): DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] {
+	if (row.lineIndex == null) return [];
+	return annotations.filter(
+		(annotation) => annotationLineIndex(hunk, annotation) === row.lineIndex,
+	);
+}
+
+function getSplitAnnotationsAfterRow(
+	row: SplitRow,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
+): SplitAnnotationGroup {
+	return {
+		deletions: annotations.filter(
+			(annotation) =>
+				annotation.side === "deletions" &&
+				row.deletion.lineNumber === annotation.lineNumber,
+		),
+		additions: annotations.filter(
+			(annotation) =>
+				annotation.side === "additions" &&
+				row.addition.lineNumber === annotation.lineNumber,
+		),
+	};
+}
+
+function unifiedAnnotationOffsetBeforeLine(
+	hunk: ReviewHunk,
+	lineIndex: number,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
+): number {
+	return annotations.filter((annotation) => {
+		const annotatedLineIndex = annotationLineIndex(hunk, annotation);
+		return annotatedLineIndex != null && annotatedLineIndex < lineIndex;
+	}).length;
+}
+
+function splitAnnotationOffsetBeforeRow(
+	rows: SplitRow[],
+	rowIndex: number,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
+): number {
+	let annotationRows = 0;
+	for (const row of rows.slice(0, rowIndex)) {
+		const group = getSplitAnnotationsAfterRow(row, annotations);
+		annotationRows += Math.max(group.deletions.length, group.additions.length);
+	}
+	return annotationRows;
+}
+
 export function getReviewDiffLineTop(
 	hunk: ReviewHunk,
 	lineIndex: number,
 	view: ReviewDiffView,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
 ): number {
-	if (view === "unified") return lineIndex;
-	const rowIndex = buildSplitRows(hunk).findIndex(
+	if (view === "unified") {
+		return (
+			lineIndex +
+			unifiedAnnotationOffsetBeforeLine(hunk, lineIndex, annotations) *
+				COMMENT_ANNOTATION_HEIGHT
+		);
+	}
+	const rows = buildSplitRows(hunk);
+	const rowIndex = rows.findIndex(
 		(row) =>
 			row.deletion.lineIndex === lineIndex ||
 			row.addition.lineIndex === lineIndex,
 	);
-	return rowIndex >= 0 ? rowIndex : lineIndex;
+	if (rowIndex < 0) return lineIndex;
+	return (
+		rowIndex +
+		splitAnnotationOffsetBeforeRow(rows, rowIndex, annotations) *
+			COMMENT_ANNOTATION_HEIGHT
+	);
 }
 
 export function getReviewDiffRangeBounds(
 	hunk: ReviewHunk,
 	range: ReviewDiffLineRange,
 	view: ReviewDiffView,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
 ): ReviewDiffVisualBounds | null {
 	const tops = getReviewDiffCommentableLines(hunk, range.side, view).flatMap(
 		(line) => {
@@ -268,43 +352,13 @@ export function getReviewDiffRangeBounds(
 			) {
 				return [];
 			}
-			return [getReviewDiffLineTop(hunk, line.index, view)];
+			return [getReviewDiffLineTop(hunk, line.index, view, annotations)];
 		},
 	);
 	if (tops.length === 0) return null;
 	const top = Math.min(...tops);
 	const bottom = Math.max(...tops);
 	return { top, height: bottom - top + 1 };
-}
-
-export function getReviewDiffAnnotationMarkers(
-	hunk: ReviewHunk,
-	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
-	view: ReviewDiffView,
-): ReviewDiffAnnotationMarker[] {
-	const markerRows = new Map<
-		string,
-		{ side: ReviewDiffSide; rows: number[] }
-	>();
-	for (const annotation of annotations) {
-		const line = getReviewDiffCommentableLines(
-			hunk,
-			annotation.side,
-			view,
-		).find((candidate) => candidate.lineNumber === annotation.lineNumber);
-		if (!line) continue;
-		const existing = markerRows.get(annotation.metadata.key) ?? {
-			side: annotation.side,
-			rows: [],
-		};
-		existing.rows.push(getReviewDiffLineTop(hunk, line.index, view));
-		markerRows.set(annotation.metadata.key, existing);
-	}
-	return Array.from(markerRows.entries()).map(([key, marker]) => {
-		const top = Math.min(...marker.rows);
-		const bottom = Math.max(...marker.rows);
-		return { key, side: marker.side, top, height: bottom - top + 1 };
-	});
 }
 
 function backgroundForKind(kind: DiffCellKind): string {
@@ -381,6 +435,73 @@ function renderContentText(
 		>
 			{text}
 		</text>
+	);
+}
+
+function renderAnnotationContent(
+	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata>,
+) {
+	return (
+		<box
+			border
+			borderColor={theme.borderDefault}
+			backgroundColor={theme.bgSurface}
+			paddingX={1}
+			width="100%"
+			height={COMMENT_ANNOTATION_HEIGHT}
+			flexShrink={0}
+		>
+			<text fg={theme.textPrimary} bg={theme.bgSurface}>
+				{annotation.metadata.comment}
+			</text>
+		</box>
+	);
+}
+
+function renderUnifiedAnnotationRow(
+	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata>,
+) {
+	return (
+		<box height={COMMENT_ANNOTATION_HEIGHT} flexShrink={0} width="100%">
+			{renderAnnotationContent(annotation)}
+		</box>
+	);
+}
+
+function renderSplitAnnotationCell(
+	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata> | undefined,
+) {
+	return (
+		<box width="50%" height={COMMENT_ANNOTATION_HEIGHT} flexShrink={0}>
+			<Show when={annotation}>
+				{(value) => renderAnnotationContent(value())}
+			</Show>
+		</box>
+	);
+}
+
+function renderSplitAnnotationRows(group: SplitAnnotationGroup) {
+	const rows = Array.from(
+		{ length: Math.max(group.deletions.length, group.additions.length) },
+		(_, index) => ({
+			deletion: group.deletions[index],
+			addition: group.additions[index],
+		}),
+	);
+	return (
+		<For each={rows}>
+			{(row) => (
+				<box
+					flexDirection="row"
+					width="100%"
+					height={COMMENT_ANNOTATION_HEIGHT}
+					flexShrink={0}
+				>
+					{renderSplitAnnotationCell(row.deletion)}
+					{renderSplitAnnotationCell(row.addition)}
+				</box>
+			)}
+		</For>
 	);
 }
 
@@ -492,6 +613,7 @@ function rawPatchRows(rawPatch: string): UnifiedRow[] {
 }
 
 export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
+	const annotations = () => props.annotations ?? [];
 	return (
 		<Show
 			when={props.hunk}
@@ -504,50 +626,67 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 			}
 		>
 			{(hunk) => {
-				const lineNumberWidth = () => getLineNumberWidth(hunk());
+				const currentHunk = () => hunk();
+				const lineNumberWidth = () => getLineNumberWidth(currentHunk());
 				return (
 					<Show
 						when={props.view === "split"}
 						fallback={
 							<box flexDirection="column" gap={0}>
-								<For each={buildUnifiedRows(hunk())}>
-									{(row) =>
-										renderUnifiedRow(
-											row,
-											lineNumberWidth(),
-											props.filetype,
-											hunk(),
-											props.onLineMouseDown,
-										)
-									}
+								<For each={buildUnifiedRows(currentHunk())}>
+									{(row) => (
+										<>
+											{renderUnifiedRow(
+												row,
+												lineNumberWidth(),
+												props.filetype,
+												currentHunk(),
+												props.onLineMouseDown,
+											)}
+											<For
+												each={getUnifiedAnnotationsAfterRow(
+													row,
+													currentHunk(),
+													annotations(),
+												)}
+											>
+												{(annotation) => renderUnifiedAnnotationRow(annotation)}
+											</For>
+										</>
+									)}
 								</For>
 							</box>
 						}
 					>
 						<box flexDirection="column" gap={0}>
-							<For each={buildSplitRows(hunk())}>
+							<For each={buildSplitRows(currentHunk())}>
 								{(row) => (
-									<box
-										flexDirection="row"
-										width="100%"
-										height={1}
-										flexShrink={0}
-									>
-										{renderSplitCell(
-											row.deletion,
-											lineNumberWidth(),
-											props.filetype,
-											hunk(),
-											props.onLineMouseDown,
+									<>
+										<box
+											flexDirection="row"
+											width="100%"
+											height={1}
+											flexShrink={0}
+										>
+											{renderSplitCell(
+												row.deletion,
+												lineNumberWidth(),
+												props.filetype,
+												currentHunk(),
+												props.onLineMouseDown,
+											)}
+											{renderSplitCell(
+												row.addition,
+												lineNumberWidth(),
+												props.filetype,
+												currentHunk(),
+												props.onLineMouseDown,
+											)}
+										</box>
+										{renderSplitAnnotationRows(
+											getSplitAnnotationsAfterRow(row, annotations()),
 										)}
-										{renderSplitCell(
-											row.addition,
-											lineNumberWidth(),
-											props.filetype,
-											hunk(),
-											props.onLineMouseDown,
-										)}
-									</box>
+									</>
 								)}
 							</For>
 						</box>

@@ -42,7 +42,6 @@ import {
 	type ReviewSkippedSection,
 } from "./model";
 import {
-	getReviewDiffAnnotationMarkers,
 	getReviewDiffCommentableLines,
 	getReviewDiffLineTop,
 	getReviewDiffRangeBounds,
@@ -71,13 +70,6 @@ type CommentableLine = ReviewDiffCommentableLine;
 type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
-};
-
-type SavedCommentMarker = {
-	key: string;
-	side: ReviewSide;
-	top: number;
-	height: number;
 };
 
 const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
@@ -196,16 +188,18 @@ function getCommentableLineTop(
 	hunk: ReviewHunk,
 	lineIndex: number,
 	diffView: ReviewDiffView,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
 ): number {
-	return getReviewDiffLineTop(hunk, lineIndex, diffView);
+	return getReviewDiffLineTop(hunk, lineIndex, diffView, annotations);
 }
 
 function getVisualBoundsForRange(
 	hunk: ReviewHunk,
 	range: ReviewRangeDraft,
 	diffView: ReviewDiffView,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
 ) {
-	return getReviewDiffRangeBounds(hunk, range, diffView);
+	return getReviewDiffRangeBounds(hunk, range, diffView, annotations);
 }
 
 function lineRangeLabel(range: ReviewRangeDraft): string {
@@ -221,15 +215,6 @@ function buildRangeMarker(height: number): string {
 		{ length: Math.max(1, height) },
 		() => DASHED_VERTICAL,
 	).join("\n");
-}
-
-function buildCommentMarker(height: number): string {
-	const clamped = Math.max(1, height);
-	if (clamped === 1) return PENCIL;
-	return [
-		PENCIL,
-		...Array.from({ length: clamped - 1 }, () => DASHED_VERTICAL),
-	].join("\n");
 }
 
 function buildLineSelection(
@@ -255,17 +240,17 @@ function buildSavedCommentAnnotations(
 		if (!value.trim()) continue;
 		const range = parseRangeNoteKey(key);
 		if (!range || range.path !== path) continue;
-		for (
-			let lineNumber = range.startLine;
-			lineNumber <= range.endLine;
-			lineNumber += 1
-		) {
-			annotations.push({
+		annotations.push({
+			side: range.side,
+			lineNumber: range.endLine,
+			metadata: {
+				key,
+				comment: value.trim(),
 				side: range.side,
-				lineNumber,
-				metadata: { key },
-			});
-		}
+				startLine: range.startLine,
+				endLine: range.endLine,
+			},
+		});
 	}
 	return annotations;
 }
@@ -447,6 +432,10 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (mode() !== "patch" || !hunk || !line) return null;
 		return { hunk, line };
 	});
+	const selectedFileCommentAnnotations = createMemo(() => {
+		const file = selectedFile();
+		return file ? buildSavedCommentAnnotations(file.path, rangeNotes()) : [];
+	});
 	const anchorLineTop = createMemo(() => {
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
@@ -454,32 +443,27 @@ export function ReviewContent(props: ReviewContentProps) {
 		const line = getCommentableLines(hunk, anchor.side, diffView()).find(
 			(candidate) => candidate.lineNumber === anchor.lineNumber,
 		);
-		return line ? getCommentableLineTop(hunk, line.index, diffView()) : null;
+		return line
+			? getCommentableLineTop(
+					hunk,
+					line.index,
+					diffView(),
+					selectedFileCommentAnnotations(),
+				)
+			: null;
 	});
 	const activeRangeLineBounds = createMemo(() => {
 		const range = selectedRange();
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
 		if (!range || !anchor || !hunk) return null;
-		return getVisualBoundsForRange(hunk, range, diffView());
+		return getVisualBoundsForRange(
+			hunk,
+			range,
+			diffView(),
+			selectedFileCommentAnnotations(),
+		);
 	});
-	const savedCommentMarkers = createMemo<Map<string, SavedCommentMarker[]>>(
-		() => {
-			const file = selectedFile();
-			const markers = new Map<string, SavedCommentMarker[]>();
-			if (!file) return markers;
-			const annotations = buildSavedCommentAnnotations(file.path, rangeNotes());
-			for (const hunk of file.hunks) {
-				const hunkMarkers = getReviewDiffAnnotationMarkers(
-					hunk,
-					annotations,
-					diffView(),
-				);
-				if (hunkMarkers.length > 0) markers.set(hunk.id, hunkMarkers);
-			}
-			return markers;
-		},
-	);
 
 	createEffect(() => {
 		const list = reviewFiles();
@@ -810,12 +794,18 @@ export function ReviewContent(props: ReviewContentProps) {
 		hunk: ReviewHunk,
 		interactive: boolean,
 	) {
-		const markers = () => savedCommentMarkers().get(hunk.id) ?? [];
+		const annotations = () =>
+			interactive ? selectedFileCommentAnnotations() : [];
 		const cursor = () => lineCursorState();
 		const cursorTop = () => {
 			const current = cursor();
 			if (!interactive || current?.hunk.id !== hunk.id) return null;
-			return getCommentableLineTop(hunk, current.line.index, diffView());
+			return getCommentableLineTop(
+				hunk,
+				current.line.index,
+				diffView(),
+				annotations(),
+			);
 		};
 		const cursorSide = () => {
 			const current = cursor();
@@ -829,27 +819,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			`review-line-cursor-${hunk.id}-${cursor()?.line.index ?? 0}`;
 		const renderOverlayLane = (side?: ReviewSide) => (
 			<>
-				<For
-					each={
-						side
-							? markers().filter((marker) => marker.side === side)
-							: markers()
-					}
-				>
-					{(marker) => (
-						<box
-							position="absolute"
-							left={1}
-							top={marker.top}
-							height={marker.height}
-							width={1}
-						>
-							<text fg={theme.reviewText}>
-								{buildCommentMarker(marker.height)}
-							</text>
-						</box>
-					)}
-				</For>
 				<Show when={cursorTop() !== null && (!side || cursorSide() === side)}>
 					<Show when={rangeBounds()}>
 						{(bounds) => (
@@ -913,6 +882,7 @@ export function ReviewContent(props: ReviewContentProps) {
 						hunk={hunk}
 						view={diffView()}
 						filetype={file.filetype}
+						annotations={annotations()}
 						onLineMouseDown={
 							interactive
 								? (line, event) =>
