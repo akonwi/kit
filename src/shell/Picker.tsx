@@ -203,28 +203,13 @@ function Body() {
 										gap={1}
 										backgroundColor={bg()}
 									>
-										<box
-											flexShrink={0}
-											flexDirection="row"
-											height={1}
-											overflow="hidden"
-										>
-											<text fg={fg()} bg={bg()}>
-												{entry.option.name}
-											</text>
-											<Show when={entry.option.argHint}>
-												<box flexShrink={1} height={1} overflow="hidden">
-													<text fg={theme.textMuted} bg={bg()}>
-														{` [${entry.option.argHint}]`}
-													</text>
-												</box>
-											</Show>
-										</box>
-										<Show when={entry.option.description.length > 0}>
-											<box flexGrow={1} flexShrink={1} />
+										<text fg={fg()} bg={bg()}>
+											{entry.option.name}
+										</text>
+										<Show when={entry.option.argHint}>
 											<box flexShrink={1} height={1} overflow="hidden">
-												<text fg={fg()} bg={bg()}>
-													{entry.option.description}
+												<text fg={theme.textMuted} bg={bg()}>
+													{` [${entry.option.argHint}]`}
 												</text>
 											</box>
 										</Show>
@@ -258,6 +243,26 @@ function Body() {
 	);
 }
 
+// ── Detail ─────────────────────────────────────────────────────────
+
+function Detail() {
+	const { snapshot } = usePickerContext();
+
+	const focusedDescription = createMemo(() => {
+		const p = snapshot();
+		if (p.mode !== "list") return null;
+		return p.options[p.selectedIndex]?.description || null;
+	});
+
+	return (
+		<Show when={snapshot().mode === "list"}>
+			<box flexShrink={0} height={2} paddingBottom={1} overflow="hidden">
+				<text fg={theme.textMuted}>{focusedDescription() ?? ""}</text>
+			</box>
+		</Show>
+	);
+}
+
 // ── Footer ──────────────────────────────────────────────────────────
 
 function Footer(props: BoxProps) {
@@ -274,5 +279,6 @@ export const Picker = {
 	Root,
 	Header,
 	Body,
+	Detail,
 	Footer,
 };
