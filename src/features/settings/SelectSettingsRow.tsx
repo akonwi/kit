@@ -45,8 +45,14 @@ export function SelectSettingsRow(props: SelectSettingsRowProps) {
 						showDescription={settings.showSelectDescription(props.row.id)}
 						options={settings.selectOptions(props.row.id)}
 						selectedIndex={settings.selectSelectedIndex(props.row.id)}
+						backgroundColor={theme.bgTransparent}
+						focusedBackgroundColor={theme.bgTransparent}
+						textColor={theme.pickerItemText}
+						focusedTextColor={theme.pickerItemText}
 						selectedBackgroundColor={theme.pickerFocusedBg}
 						selectedTextColor={theme.pickerFocusedText}
+						descriptionColor={theme.textMuted}
+						selectedDescriptionColor={theme.pickerFocusedText}
 						onChange={(index, option) => {
 							settings.setSelectDraft(props.row.id, index, option?.value);
 						}}
