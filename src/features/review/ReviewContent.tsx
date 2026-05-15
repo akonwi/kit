@@ -7,6 +7,7 @@ import {
 	createResource,
 	createSignal,
 	For,
+	onCleanup,
 	Show,
 } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
@@ -333,6 +334,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
 	let listScrollRef: ScrollRef | undefined;
+	let listCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
 	let patchCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	const reviewFiles = createMemo(() => files() ?? []);
@@ -529,10 +531,16 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 
 	createEffect(() => {
+		clearListCursorScrollTimeout();
 		if (mode() !== "list") return;
 		const file = selectedFile();
+		expandedKeys();
 		if (!file) return;
-		listScrollRef?.scrollChildIntoView(`review-file-${file.id}`);
+		listCursorScrollTimeout = setTimeout(() => {
+			listCursorScrollTimeout = undefined;
+			listScrollRef?.scrollChildIntoView(`review-file-row-${file.id}`);
+		}, 0);
+		onCleanup(clearListCursorScrollTimeout);
 	});
 
 	createEffect(() => {
@@ -577,6 +585,12 @@ export function ReviewContent(props: ReviewContentProps) {
 				?.scrollChildIntoView?.(`review-skipped-section-${section.id}`);
 		}, 0);
 	});
+
+	function clearListCursorScrollTimeout() {
+		if (!listCursorScrollTimeout) return;
+		clearTimeout(listCursorScrollTimeout);
+		listCursorScrollTimeout = undefined;
+	}
 
 	function selectedFileNote(file: ReviewFile): string {
 		return fileNotes().get(file.noteKey)?.trim() ?? "";
@@ -1389,6 +1403,7 @@ export function ReviewContent(props: ReviewContentProps) {
 													}
 												>
 													<box
+														id={`review-file-row-${file.id}`}
 														paddingX={1}
 														paddingY={0}
 														flexDirection="row"
