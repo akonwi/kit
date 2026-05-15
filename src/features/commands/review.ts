@@ -12,7 +12,6 @@ export const codeReviewCommand: Command = {
 				onClose: () => props.done(),
 				attachments,
 				toast,
-				openCustomOverlay,
 				defaultDiffView: resolveDiffSettings(runtime.settings.diffs).view,
 				surfaceProps: props.surfaceProps,
 			}),

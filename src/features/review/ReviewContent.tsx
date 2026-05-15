@@ -55,11 +55,6 @@ export type ReviewContentProps = {
 	onClose: () => void;
 	attachments: AttachmentsController;
 	toast: (toast: ToastInput) => void;
-	openCustomOverlay: <T>(
-		component: (
-			props: OverlayComponentProps<T>,
-		) => import("solid-js").JSX.Element,
-	) => Promise<T>;
 	defaultDiffView: ReviewDiffView;
 	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
 };
