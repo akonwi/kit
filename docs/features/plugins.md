@@ -35,19 +35,7 @@ project/.kit/plugins/
   project-plugin.ts
 ```
 
-Install dependencies from the plugin directory:
-
-```sh
-cd ~/.kit/plugins
-bun install
-```
-
-or, for project plugins:
-
-```sh
-cd .kit/plugins
-bun install
-```
+Kit automatically installs dependencies for each plugin directory before bundling. It uses `bun install` when the `bun` CLI is available and falls back to `npm install` otherwise.
 
 Kit bundles each plugin from its absolute file path before loading it, so package imports resolve from the plugin file's directory and then walk up through normal Bun/Node module resolution. This lets user and project plugins depend on packages that Kit itself does not ship.
 

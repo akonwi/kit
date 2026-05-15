@@ -146,6 +146,34 @@ async function writePluginSdkShim(outdir: string): Promise<string> {
 	return shimPath;
 }
 
+async function installPluginDependencies(pluginDir: string): Promise<void> {
+	if (!existsSync(path.join(pluginDir, "package.json"))) return;
+	const pm = Bun.which("bun") ? "bun" : Bun.which("npm") ? "npm" : null;
+	if (!pm) {
+		throw new Error(
+			`Cannot install plugin dependencies in ${pluginDir}: neither bun nor npm found in PATH.`,
+		);
+	}
+	const proc = Bun.spawn([pm, "install"], {
+		cwd: pluginDir,
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const [exitCode, stdoutText, stderrText] = await Promise.all([
+		proc.exited,
+		new Response(proc.stdout).text(),
+		new Response(proc.stderr).text(),
+	]);
+	if (exitCode !== 0) {
+		const details = [stderrText.trim(), stdoutText.trim()]
+			.filter(Boolean)
+			.join("\n");
+		throw new Error(
+			`Failed to install plugin dependencies in ${pluginDir}${details ? `:\n${details}` : "."}`,
+		);
+	}
+}
+
 function bundleFailureMessage(result: Bun.BuildOutput): string {
 	return (
 		result.logs.map((log) => String(log)).join("\n") || "Unknown build error"
@@ -218,6 +246,7 @@ async function loadPluginInitializer(
 	// can declare dependencies Kit itself does not ship. Importing the bundled
 	// artifact also avoids Bun compiled-binary limitations around requiring
 	// arbitrary external TypeScript files with cache-busting query strings.
+	// Dependencies are installed before this point by loadExternalPlugins.
 	const bundledPath = await bundlePlugin(file, options);
 	const url = pathToFileURL(bundledPath);
 	url.searchParams.set("kitReload", options.reloadId);
@@ -239,8 +268,39 @@ export async function loadExternalPlugins(
 		recursive: true,
 	});
 
-	for (const file of discoverPluginFiles(cwd, options.home)) {
+	const files = discoverPluginFiles(cwd, options.home);
+
+	// Install dependencies once per unique plugin directory before bundling.
+	const installedDirs = new Set<string>();
+	const failedDirs = new Map<string, string>();
+	for (const file of files) {
+		const pluginDir = path.dirname(file.filePath);
+		if (installedDirs.has(pluginDir) || failedDirs.has(pluginDir)) continue;
+		try {
+			await installPluginDependencies(pluginDir);
+			installedDirs.add(pluginDir);
+		} catch (error) {
+			failedDirs.set(pluginDir, formatError(error));
+		}
+	}
+
+	for (const file of files) {
 		const pluginName = pluginNameForFile(file.source, file.filePath);
+		const installError = failedDirs.get(path.dirname(file.filePath));
+		if (installError) {
+			recordFailure(
+				failures,
+				{
+					source: file.source,
+					phase: "load",
+					pluginName,
+					filePath: file.filePath,
+					message: installError,
+				},
+				options.onFailure,
+			);
+			continue;
+		}
 		let initialize: Plugin;
 		try {
 			initialize = await loadPluginInitializer(file, {

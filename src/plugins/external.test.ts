@@ -105,13 +105,6 @@ describe("external plugin loading", () => {
 		const depDir = path.join(pluginsDir, "node_modules", "plugin-local-dep");
 		await mkdir(depDir, { recursive: true });
 		await writeFile(
-			path.join(pluginsDir, "package.json"),
-			JSON.stringify({
-				private: true,
-				dependencies: { "plugin-local-dep": "1.0.0" },
-			}),
-		);
-		await writeFile(
 			path.join(depDir, "package.json"),
 			JSON.stringify({
 				name: "plugin-local-dep",
