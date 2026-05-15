@@ -1,13 +1,15 @@
+import type { DiffLineAnnotation } from "@pierre/diffs";
 import { For, Show } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
 import { syntaxStyle, theme } from "../../shell/theme";
 import type { ReviewHunk, ReviewLine } from "./model";
 
-type ReviewSide = "additions" | "deletions";
+export type ReviewDiffSide = "additions" | "deletions";
 type DiffCellKind = "add" | "context" | "delete" | "empty" | "metadata";
 
 type DiffCell = {
 	kind: DiffCellKind;
+	lineIndex?: number;
 	lineNumber?: number;
 	sign: string;
 	text: string;
@@ -26,6 +28,34 @@ type UnifiedRow = {
 	additionLineNumber?: number;
 	sign: string;
 	text: string;
+};
+
+export type ReviewDiffCommentableLine = {
+	index: number;
+	side: ReviewDiffSide;
+	lineNumber: number;
+	text: string;
+	kind: Extract<ReviewLine["kind"], "add" | "delete">;
+};
+
+export type ReviewDiffVisualBounds = {
+	top: number;
+	height: number;
+};
+
+export type ReviewDiffAnnotationMetadata = {
+	key: string;
+};
+
+export type ReviewDiffAnnotationMarker = ReviewDiffVisualBounds & {
+	key: string;
+	side: ReviewDiffSide;
+};
+
+export type ReviewDiffLineRange = {
+	side: ReviewDiffSide;
+	startLine: number;
+	endLine: number;
 };
 
 export type ReviewDiffBlockProps = {
@@ -55,10 +85,15 @@ function formatLineNumber(
 		: String(lineNumber).padStart(width);
 }
 
-function cellForLine(line: ReviewLine, side: ReviewSide): DiffCell {
+function cellForLine(
+	line: ReviewLine,
+	lineIndex: number,
+	side: ReviewDiffSide,
+): DiffCell {
 	if (line.kind === "context") {
 		return {
 			kind: "context",
+			lineIndex,
 			lineNumber:
 				side === "deletions"
 					? line.deletionLineNumber
@@ -70,6 +105,7 @@ function cellForLine(line: ReviewLine, side: ReviewSide): DiffCell {
 	if (line.kind === "delete") {
 		return {
 			kind: side === "deletions" ? "delete" : "empty",
+			lineIndex: side === "deletions" ? lineIndex : undefined,
 			lineNumber: side === "deletions" ? line.deletionLineNumber : undefined,
 			sign: side === "deletions" ? "-" : " ",
 			text: side === "deletions" ? line.text : "",
@@ -77,6 +113,7 @@ function cellForLine(line: ReviewLine, side: ReviewSide): DiffCell {
 	}
 	return {
 		kind: side === "additions" ? "add" : "empty",
+		lineIndex: side === "additions" ? lineIndex : undefined,
 		lineNumber: side === "additions" ? line.additionLineNumber : undefined,
 		sign: side === "additions" ? "+" : " ",
 		text: side === "additions" ? line.text : "",
@@ -94,6 +131,36 @@ function buildUnifiedRows(hunk: ReviewHunk): UnifiedRow[] {
 	}));
 }
 
+type IndexedReviewLine = {
+	index: number;
+	line: ReviewLine;
+};
+
+function toCommentableLine(
+	line: ReviewLine,
+	index: number,
+): ReviewDiffCommentableLine | null {
+	if (line.kind === "delete" && line.deletionLineNumber != null) {
+		return {
+			index,
+			side: "deletions",
+			lineNumber: line.deletionLineNumber,
+			text: line.text,
+			kind: "delete",
+		};
+	}
+	if (line.kind === "add" && line.additionLineNumber != null) {
+		return {
+			index,
+			side: "additions",
+			lineNumber: line.additionLineNumber,
+			text: line.text,
+			kind: "add",
+		};
+	}
+	return null;
+}
+
 function buildSplitRows(hunk: ReviewHunk): SplitRow[] {
 	const rows: SplitRow[] = [];
 	let index = 0;
@@ -102,21 +169,21 @@ function buildSplitRows(hunk: ReviewHunk): SplitRow[] {
 		if (line.kind === "context") {
 			rows.push({
 				id: `${hunk.id}:split:${index}`,
-				deletion: cellForLine(line, "deletions"),
-				addition: cellForLine(line, "additions"),
+				deletion: cellForLine(line, index, "deletions"),
+				addition: cellForLine(line, index, "additions"),
 			});
 			index += 1;
 			continue;
 		}
 
-		const deletions: ReviewLine[] = [];
-		const additions: ReviewLine[] = [];
+		const deletions: IndexedReviewLine[] = [];
+		const additions: IndexedReviewLine[] = [];
 		const startIndex = index;
 		while (index < hunk.lines.length) {
 			const current = hunk.lines[index];
 			if (current.kind === "context") break;
-			if (current.kind === "delete") deletions.push(current);
-			else additions.push(current);
+			if (current.kind === "delete") deletions.push({ index, line: current });
+			else additions.push({ index, line: current });
 			index += 1;
 		}
 
@@ -130,15 +197,107 @@ function buildSplitRows(hunk: ReviewHunk): SplitRow[] {
 			rows.push({
 				id: `${hunk.id}:split:${startIndex}:${rowIndex}`,
 				deletion: deletion
-					? cellForLine(deletion, "deletions")
+					? cellForLine(deletion.line, deletion.index, "deletions")
 					: { kind: "empty", sign: " ", text: "" },
 				addition: addition
-					? cellForLine(addition, "additions")
+					? cellForLine(addition.line, addition.index, "additions")
 					: { kind: "empty", sign: " ", text: "" },
 			});
 		}
 	}
 	return rows;
+}
+
+export function getReviewDiffCommentableLines(
+	hunk: ReviewHunk,
+	side?: ReviewDiffSide,
+	view: ReviewDiffView = "unified",
+): ReviewDiffCommentableLine[] {
+	if (view === "split") {
+		const lines: ReviewDiffCommentableLine[] = [];
+		for (const row of buildSplitRows(hunk)) {
+			for (const cell of [row.deletion, row.addition]) {
+				if (cell.lineIndex == null || cell.lineNumber == null) continue;
+				const sourceLine = hunk.lines[cell.lineIndex];
+				const line = toCommentableLine(sourceLine, cell.lineIndex);
+				if (!line || (side && line.side !== side)) continue;
+				lines.push(line);
+			}
+		}
+		return lines;
+	}
+
+	return hunk.lines.flatMap((line, index) => {
+		const commentableLine = toCommentableLine(line, index);
+		if (!commentableLine || (side && commentableLine.side !== side)) return [];
+		return [commentableLine];
+	});
+}
+
+export function getReviewDiffLineTop(
+	hunk: ReviewHunk,
+	lineIndex: number,
+	view: ReviewDiffView,
+): number {
+	if (view === "unified") return lineIndex;
+	const rowIndex = buildSplitRows(hunk).findIndex(
+		(row) =>
+			row.deletion.lineIndex === lineIndex ||
+			row.addition.lineIndex === lineIndex,
+	);
+	return rowIndex >= 0 ? rowIndex : lineIndex;
+}
+
+export function getReviewDiffRangeBounds(
+	hunk: ReviewHunk,
+	range: ReviewDiffLineRange,
+	view: ReviewDiffView,
+): ReviewDiffVisualBounds | null {
+	const tops = getReviewDiffCommentableLines(hunk, range.side, view).flatMap(
+		(line) => {
+			if (
+				line.lineNumber < range.startLine ||
+				line.lineNumber > range.endLine
+			) {
+				return [];
+			}
+			return [getReviewDiffLineTop(hunk, line.index, view)];
+		},
+	);
+	if (tops.length === 0) return null;
+	const top = Math.min(...tops);
+	const bottom = Math.max(...tops);
+	return { top, height: bottom - top + 1 };
+}
+
+export function getReviewDiffAnnotationMarkers(
+	hunk: ReviewHunk,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
+	view: ReviewDiffView,
+): ReviewDiffAnnotationMarker[] {
+	const markerRows = new Map<
+		string,
+		{ side: ReviewDiffSide; rows: number[] }
+	>();
+	for (const annotation of annotations) {
+		const line = getReviewDiffCommentableLines(
+			hunk,
+			annotation.side,
+			view,
+		).find((candidate) => candidate.lineNumber === annotation.lineNumber);
+		if (!line) continue;
+		const existing = markerRows.get(annotation.metadata.key) ?? {
+			side: annotation.side,
+			rows: [],
+		};
+		existing.rows.push(getReviewDiffLineTop(hunk, line.index, view));
+		markerRows.set(annotation.metadata.key, existing);
+	}
+	return Array.from(markerRows.entries()).map(([key, marker]) => {
+		const top = Math.min(...marker.rows);
+		const bottom = Math.max(...marker.rows);
+		return { key, side: marker.side, top, height: bottom - top + 1 };
+	});
 }
 
 function backgroundForKind(kind: DiffCellKind): string {

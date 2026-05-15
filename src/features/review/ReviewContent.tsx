@@ -1,5 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
+import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
 	createEffect,
 	createMemo,
@@ -38,10 +39,17 @@ import {
 	loadReviewFiles,
 	type ReviewFile,
 	type ReviewHunk,
-	type ReviewLine,
 	type ReviewSkippedSection,
 } from "./model";
-import { ReviewDiffBlock } from "./ReviewDiffBlock";
+import {
+	getReviewDiffAnnotationMarkers,
+	getReviewDiffCommentableLines,
+	getReviewDiffLineTop,
+	getReviewDiffRangeBounds,
+	type ReviewDiffAnnotationMetadata,
+	ReviewDiffBlock,
+	type ReviewDiffCommentableLine,
+} from "./ReviewDiffBlock";
 import { ReviewNoteModal } from "./ReviewNoteModal";
 
 export type ReviewContentProps = {
@@ -59,13 +67,7 @@ export type ReviewContentProps = {
 
 type ReviewMode = "list" | "patch";
 type ReviewSide = "additions" | "deletions";
-type CommentableLine = {
-	index: number;
-	side: ReviewSide;
-	lineNumber: number;
-	text: string;
-	kind: Extract<ReviewLine["kind"], "add" | "delete">;
-};
+type CommentableLine = ReviewDiffCommentableLine;
 type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
@@ -74,17 +76,6 @@ type RangeAnchor = {
 type SavedCommentMarker = {
 	key: string;
 	side: ReviewSide;
-	top: number;
-	height: number;
-};
-
-type SplitVisualRow = {
-	top: number;
-	deletion?: CommentableLine;
-	addition?: CommentableLine;
-};
-
-type VisualBounds = {
 	top: number;
 	height: number;
 };
@@ -192,104 +183,12 @@ function setMapValue(
 	return next;
 }
 
-function buildSplitVisualRows(hunk: ReviewHunk): SplitVisualRow[] {
-	const rows: SplitVisualRow[] = [];
-	let top = 0;
-	let index = 0;
-	while (index < hunk.lines.length) {
-		const line = hunk.lines[index];
-		if (line.kind === "context") {
-			top += 1;
-			index += 1;
-			continue;
-		}
-
-		const deletions: CommentableLine[] = [];
-		const additions: CommentableLine[] = [];
-		while (index < hunk.lines.length) {
-			const current = hunk.lines[index];
-			if (current.kind === "context") break;
-			if (current.kind === "delete" && current.deletionLineNumber != null) {
-				deletions.push({
-					index,
-					side: "deletions",
-					lineNumber: current.deletionLineNumber,
-					text: current.text,
-					kind: "delete",
-				});
-			} else if (current.kind === "add" && current.additionLineNumber != null) {
-				additions.push({
-					index,
-					side: "additions",
-					lineNumber: current.additionLineNumber,
-					text: current.text,
-					kind: "add",
-				});
-			}
-			index += 1;
-		}
-
-		for (
-			let rowIndex = 0;
-			rowIndex < Math.max(deletions.length, additions.length);
-			rowIndex += 1
-		) {
-			rows.push({
-				top,
-				deletion: deletions[rowIndex],
-				addition: additions[rowIndex],
-			});
-			top += 1;
-		}
-	}
-	return rows;
-}
-
 function getCommentableLines(
 	hunk: ReviewHunk,
 	side?: ReviewSide,
 	diffView: ReviewDiffView = "unified",
 ): CommentableLine[] {
-	if (diffView === "split") {
-		const lines: CommentableLine[] = [];
-		for (const row of buildSplitVisualRows(hunk)) {
-			if ((!side || side === "deletions") && row.deletion) {
-				lines.push(row.deletion);
-			}
-			if ((!side || side === "additions") && row.addition) {
-				lines.push(row.addition);
-			}
-		}
-		return lines;
-	}
-
-	const lines: CommentableLine[] = [];
-	for (const [index, line] of hunk.lines.entries()) {
-		if (line.kind === "add" && line.additionLineNumber != null) {
-			if (!side || side === "additions") {
-				lines.push({
-					index,
-					side: "additions",
-					lineNumber: line.additionLineNumber,
-					text: line.text,
-					kind: "add",
-				});
-			}
-			continue;
-		}
-		if (line.kind === "delete" && line.deletionLineNumber != null) {
-			if (!side || side === "deletions") {
-				lines.push({
-					index,
-					side: "deletions",
-					lineNumber: line.deletionLineNumber,
-					text: line.text,
-					kind: "delete",
-				});
-			}
-		}
-	}
-	return lines;
+	return getReviewDiffCommentableLines(hunk, side, diffView);
 }
 
 function getCommentableLineTop(
@@ -297,44 +196,15 @@ function getCommentableLineTop(
 	lineIndex: number,
 	diffView: ReviewDiffView,
 ): number {
-	if (diffView === "unified") return lineIndex;
-	for (const row of buildSplitVisualRows(hunk)) {
-		if (
-			row.deletion?.index === lineIndex ||
-			row.addition?.index === lineIndex
-		) {
-			return row.top;
-		}
-	}
-	return lineIndex;
+	return getReviewDiffLineTop(hunk, lineIndex, diffView);
 }
 
 function getVisualBoundsForRange(
 	hunk: ReviewHunk,
 	range: ReviewRangeDraft,
 	diffView: ReviewDiffView,
-): VisualBounds | null {
-	const tops = hunk.lines.flatMap((line, index) => {
-		const side =
-			line.kind === "add"
-				? "additions"
-				: line.kind === "delete"
-					? "deletions"
-					: null;
-		const lineNumber =
-			line.kind === "add"
-				? line.additionLineNumber
-				: line.kind === "delete"
-					? line.deletionLineNumber
-					: null;
-		if (!side || lineNumber == null || side !== range.side) return [];
-		if (lineNumber < range.startLine || lineNumber > range.endLine) return [];
-		return [getCommentableLineTop(hunk, index, diffView)];
-	});
-	if (tops.length === 0) return null;
-	const top = Math.min(...tops);
-	const bottom = Math.max(...tops);
-	return { top, height: bottom - top + 1 };
+) {
+	return getReviewDiffRangeBounds(hunk, range, diffView);
 }
 
 function lineRangeLabel(range: ReviewRangeDraft): string {
@@ -373,6 +243,30 @@ function buildLineSelection(
 		startLine: Math.min(anchor.lineNumber, line.lineNumber),
 		endLine: Math.max(anchor.lineNumber, line.lineNumber),
 	};
+}
+
+function buildSavedCommentAnnotations(
+	path: string,
+	rangeNotes: Map<string, string>,
+): DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] {
+	const annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [];
+	for (const [key, value] of rangeNotes) {
+		if (!value.trim()) continue;
+		const range = parseRangeNoteKey(key);
+		if (!range || range.path !== path) continue;
+		for (
+			let lineNumber = range.startLine;
+			lineNumber <= range.endLine;
+			lineNumber += 1
+		) {
+			annotations.push({
+				side: range.side,
+				lineNumber,
+				metadata: { key },
+			});
+		}
+	}
+	return annotations;
 }
 
 function findSavedRangeAtLine(
@@ -556,24 +450,10 @@ export function ReviewContent(props: ReviewContentProps) {
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
 		if (!anchor || !hunk) return null;
-		for (const [index, line] of hunk.lines.entries()) {
-			const side =
-				line.kind === "add"
-					? "additions"
-					: line.kind === "delete"
-						? "deletions"
-						: undefined;
-			const lineNumber =
-				line.kind === "add"
-					? line.additionLineNumber
-					: line.kind === "delete"
-						? line.deletionLineNumber
-						: undefined;
-			if (side === anchor.side && lineNumber === anchor.lineNumber) {
-				return getCommentableLineTop(hunk, index, diffView());
-			}
-		}
-		return null;
+		const line = getCommentableLines(hunk, anchor.side, diffView()).find(
+			(candidate) => candidate.lineNumber === anchor.lineNumber,
+		);
+		return line ? getCommentableLineTop(hunk, line.index, diffView()) : null;
 	});
 	const activeRangeLineBounds = createMemo(() => {
 		const range = selectedRange();
@@ -587,23 +467,14 @@ export function ReviewContent(props: ReviewContentProps) {
 			const file = selectedFile();
 			const markers = new Map<string, SavedCommentMarker[]>();
 			if (!file) return markers;
-			for (const [key, value] of rangeNotes()) {
-				if (!value.trim()) continue;
-				const range = parseRangeNoteKey(key);
-				if (!range || range.path !== file.path) continue;
-				for (const hunk of file.hunks) {
-					const bounds = getVisualBoundsForRange(hunk, range, diffView());
-					if (!bounds) continue;
-					const existing = markers.get(hunk.id) ?? [];
-					existing.push({
-						key,
-						side: range.side,
-						top: bounds.top,
-						height: bounds.height,
-					});
-					markers.set(hunk.id, existing);
-					break;
-				}
+			const annotations = buildSavedCommentAnnotations(file.path, rangeNotes());
+			for (const hunk of file.hunks) {
+				const hunkMarkers = getReviewDiffAnnotationMarkers(
+					hunk,
+					annotations,
+					diffView(),
+				);
+				if (hunkMarkers.length > 0) markers.set(hunk.id, hunkMarkers);
 			}
 			return markers;
 		},
