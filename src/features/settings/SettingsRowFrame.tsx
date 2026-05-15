@@ -24,7 +24,7 @@ export function SettingsRowFrame(props: SettingsRowFrameProps) {
 			justifyContent="space-between"
 			alignItems="flex-start"
 			gap={2}
-			height={3}
+			minHeight={3}
 			paddingX={1}
 			backgroundColor={focused() ? theme.bgMuted : theme.bgTransparent}
 			onMouseUp={() => {
