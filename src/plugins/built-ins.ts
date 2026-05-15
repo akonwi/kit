@@ -8,6 +8,7 @@ import { SessionNamingPlugin } from "../features/session-naming";
 import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
 import { createSubagentsPlugin } from "../features/subagents";
+import { UserInteractionToolsPlugin } from "../features/user-interaction-tools";
 import type { PluginManagerInput } from "./PluginManager";
 import type { InternalPluginDefinition, PluginContext } from "./types";
 
@@ -31,6 +32,7 @@ export function createBuiltInPlugins(ctx: PluginContext): PluginManagerInput[] {
 		internalPlugin(McpPlugin),
 		internalPlugin(PagerPlugin),
 		internalPlugin(GuidedQuestionsPlugin),
+		internalPlugin(UserInteractionToolsPlugin),
 		internalPlugin(NotificationsPlugin),
 		internalPlugin(SessionNamingPlugin),
 		internalPlugin(SettingsPlugin),
