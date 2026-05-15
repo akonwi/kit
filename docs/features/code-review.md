@@ -18,9 +18,9 @@ and submit that review back into Kit as a code-review attachment.
 - supports unified and split diff views
 - uses the saved `diffs.view` setting as the default diff view
 - uses change groups as navigation landmarks inside the selected file
-- supports file-level review notes
-- supports same-side line comments and line-range comments
-- shows gutter markers for active selection and saved comments
+- supports inline file-level review notes
+- supports inline same-side line comments and line-range comments
+- highlights the active diff line and embeds saved comments directly below their target line/range
 - submits the result as a structured code-review attachment
 - shows an empty state when there are no uncommitted changes
 
@@ -35,7 +35,7 @@ In the file list:
 - move with `↑/↓` or `j/k`
 - `Enter` focuses the selected file's diff
 - `Space` collapses or expands the selected file
-- `f` opens a file note editor
+- `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
 - `x` clears the selected file note
 - `s` submits the current draft review
@@ -52,10 +52,10 @@ When focused on a file diff:
 - `Shift+Tab` jumps to the previous change group
 - `↑/↓` can land on skipped-section rows between change groups
 - `Space` expands or collapses the selected skipped section
-- `Enter` comments the selected line, or confirms the current range selection
+- `Enter` opens an inline comment editor for the selected line, or confirms the current range selection
 - `Ctrl+Enter` starts a same-side line-range selection from the current line
 - `x` clears the selected saved line/range note, or cancels an active range selection
-- `f` opens a file note editor
+- `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
 - `s` submits the current draft review
 - `Esc` cancels an active range selection first, then returns to the file list
@@ -67,6 +67,8 @@ Current in-TUI review drafts support:
 - file notes
 - line notes
 - same-side line-range notes
+
+File notes and line/range notes are authored inline. In note editors, `Enter` saves, `Shift+Enter` inserts a newline, and `Esc` cancels editing.
 
 Submitted reviews are attached back into the composer as structured code-review context rather than inserted as a standalone plain-text message.
 

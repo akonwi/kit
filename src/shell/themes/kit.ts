@@ -97,6 +97,10 @@ export const KIT_TOKENS: ThemeTokens = {
 	diffRemovedContentBg: "#2A0808",
 	diffAddedLineNumberBg: "#061A0D",
 	diffRemovedLineNumberBg: "#1F0606",
+	diffCursorBg: "#404040",
+	diffCursorGutterBg: midGray,
+	diffCursorAddedBg: "#163D22",
+	diffCursorRemovedBg: "#4D1212",
 };
 
 // ── Syntax palette ───────────────────────────────────────────────────

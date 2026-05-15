@@ -1,11 +1,13 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, MouseEvent as TuiMouseEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
+import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
 	createEffect,
 	createMemo,
 	createResource,
 	createSignal,
 	For,
+	onCleanup,
 	Show,
 } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
@@ -15,14 +17,14 @@ import {
 	DASHED_VERTICAL,
 	DIAMOND,
 	PENCIL,
-	THIN_BAR,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
+import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { syntaxStyle, theme } from "../../shell/theme";
+import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
 import { CodeReviewAttachment } from "./attachment";
 import {
@@ -38,54 +40,32 @@ import {
 	loadReviewFiles,
 	type ReviewFile,
 	type ReviewHunk,
-	type ReviewLine,
 	type ReviewSkippedSection,
 } from "./model";
-import { ReviewNoteModal } from "./ReviewNoteModal";
+import {
+	getReviewDiffActiveLineId,
+	getReviewDiffCommentableLines,
+	getReviewDiffLineTop,
+	getReviewDiffRangeBounds,
+	type ReviewDiffAnnotationMetadata,
+	ReviewDiffBlock,
+	type ReviewDiffCommentableLine,
+} from "./ReviewDiffBlock";
 
 export type ReviewContentProps = {
 	onClose: () => void;
 	attachments: AttachmentsController;
 	toast: (toast: ToastInput) => void;
-	openCustomOverlay: <T>(
-		component: (
-			props: OverlayComponentProps<T>,
-		) => import("solid-js").JSX.Element,
-	) => Promise<T>;
 	defaultDiffView: ReviewDiffView;
 	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
 };
 
 type ReviewMode = "list" | "patch";
 type ReviewSide = "additions" | "deletions";
-type CommentableLine = {
-	index: number;
-	side: ReviewSide;
-	lineNumber: number;
-	text: string;
-	kind: Extract<ReviewLine["kind"], "add" | "delete">;
-};
+type CommentableLine = ReviewDiffCommentableLine;
 type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
-};
-
-type SavedCommentMarker = {
-	key: string;
-	side: ReviewSide;
-	top: number;
-	height: number;
-};
-
-type SplitVisualRow = {
-	top: number;
-	deletion?: CommentableLine;
-	addition?: CommentableLine;
-};
-
-type VisualBounds = {
-	top: number;
-	height: number;
 };
 
 const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
@@ -100,6 +80,7 @@ const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
 		{ key: "Esc", action: "close" },
 	],
 	patch: [
+		{ key: "Click", action: "comment line" },
 		{ key: "↑/↓ or j/k", action: "move cursor" },
 		{ key: "Tab / Shift+Tab", action: "change group" },
 		{ key: "Space", action: "toggle skipped section" },
@@ -191,149 +172,30 @@ function setMapValue(
 	return next;
 }
 
-function buildSplitVisualRows(hunk: ReviewHunk): SplitVisualRow[] {
-	const rows: SplitVisualRow[] = [];
-	let top = 0;
-	let index = 0;
-	while (index < hunk.lines.length) {
-		const line = hunk.lines[index];
-		if (line.kind === "context") {
-			top += 1;
-			index += 1;
-			continue;
-		}
-
-		const deletions: CommentableLine[] = [];
-		const additions: CommentableLine[] = [];
-		while (index < hunk.lines.length) {
-			const current = hunk.lines[index];
-			if (current.kind === "context") break;
-			if (current.kind === "delete" && current.deletionLineNumber != null) {
-				deletions.push({
-					index,
-					side: "deletions",
-					lineNumber: current.deletionLineNumber,
-					text: current.text,
-					kind: "delete",
-				});
-			} else if (current.kind === "add" && current.additionLineNumber != null) {
-				additions.push({
-					index,
-					side: "additions",
-					lineNumber: current.additionLineNumber,
-					text: current.text,
-					kind: "add",
-				});
-			}
-			index += 1;
-		}
-
-		for (
-			let rowIndex = 0;
-			rowIndex < Math.max(deletions.length, additions.length);
-			rowIndex += 1
-		) {
-			rows.push({
-				top,
-				deletion: deletions[rowIndex],
-				addition: additions[rowIndex],
-			});
-			top += 1;
-		}
-	}
-	return rows;
-}
-
 function getCommentableLines(
 	hunk: ReviewHunk,
 	side?: ReviewSide,
 	diffView: ReviewDiffView = "unified",
 ): CommentableLine[] {
-	if (diffView === "split") {
-		const lines: CommentableLine[] = [];
-		for (const row of buildSplitVisualRows(hunk)) {
-			if ((!side || side === "deletions") && row.deletion) {
-				lines.push(row.deletion);
-			}
-			if ((!side || side === "additions") && row.addition) {
-				lines.push(row.addition);
-			}
-		}
-		return lines;
-	}
-
-	const lines: CommentableLine[] = [];
-	for (const [index, line] of hunk.lines.entries()) {
-		if (line.kind === "add" && line.additionLineNumber != null) {
-			if (!side || side === "additions") {
-				lines.push({
-					index,
-					side: "additions",
-					lineNumber: line.additionLineNumber,
-					text: line.text,
-					kind: "add",
-				});
-			}
-			continue;
-		}
-		if (line.kind === "delete" && line.deletionLineNumber != null) {
-			if (!side || side === "deletions") {
-				lines.push({
-					index,
-					side: "deletions",
-					lineNumber: line.deletionLineNumber,
-					text: line.text,
-					kind: "delete",
-				});
-			}
-		}
-	}
-	return lines;
+	return getReviewDiffCommentableLines(hunk, side, diffView);
 }
 
 function getCommentableLineTop(
 	hunk: ReviewHunk,
 	lineIndex: number,
 	diffView: ReviewDiffView,
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
 ): number {
-	if (diffView === "unified") return lineIndex;
-	for (const row of buildSplitVisualRows(hunk)) {
-		if (
-			row.deletion?.index === lineIndex ||
-			row.addition?.index === lineIndex
-		) {
-			return row.top;
-		}
-	}
-	return lineIndex;
+	return getReviewDiffLineTop(hunk, lineIndex, diffView, annotations);
 }
 
 function getVisualBoundsForRange(
 	hunk: ReviewHunk,
 	range: ReviewRangeDraft,
 	diffView: ReviewDiffView,
-): VisualBounds | null {
-	const tops = hunk.lines.flatMap((line, index) => {
-		const side =
-			line.kind === "add"
-				? "additions"
-				: line.kind === "delete"
-					? "deletions"
-					: null;
-		const lineNumber =
-			line.kind === "add"
-				? line.additionLineNumber
-				: line.kind === "delete"
-					? line.deletionLineNumber
-					: null;
-		if (!side || lineNumber == null || side !== range.side) return [];
-		if (lineNumber < range.startLine || lineNumber > range.endLine) return [];
-		return [getCommentableLineTop(hunk, index, diffView)];
-	});
-	if (tops.length === 0) return null;
-	const top = Math.min(...tops);
-	const bottom = Math.max(...tops);
-	return { top, height: bottom - top + 1 };
+	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
+) {
+	return getReviewDiffRangeBounds(hunk, range, diffView, annotations);
 }
 
 function lineRangeLabel(range: ReviewRangeDraft): string {
@@ -351,15 +213,6 @@ function buildRangeMarker(height: number): string {
 	).join("\n");
 }
 
-function buildCommentMarker(height: number): string {
-	const clamped = Math.max(1, height);
-	if (clamped === 1) return PENCIL;
-	return [
-		PENCIL,
-		...Array.from({ length: clamped - 1 }, () => DASHED_VERTICAL),
-	].join("\n");
-}
-
 function buildLineSelection(
 	path: string,
 	anchor: RangeAnchor,
@@ -372,6 +225,41 @@ function buildLineSelection(
 		startLine: Math.min(anchor.lineNumber, line.lineNumber),
 		endLine: Math.max(anchor.lineNumber, line.lineNumber),
 	};
+}
+
+function rangeToAnnotation(
+	range: ReviewRangeDraft,
+	comment: string,
+	options?: { editing?: boolean },
+): DiffLineAnnotation<ReviewDiffAnnotationMetadata> {
+	const startLine = Math.min(range.startLine, range.endLine);
+	const endLine = Math.max(range.startLine, range.endLine);
+	return {
+		side: range.side,
+		lineNumber: endLine,
+		metadata: {
+			key: buildRangeNoteKey(range),
+			comment,
+			side: range.side,
+			startLine,
+			endLine,
+			...(options?.editing ? { editing: true } : {}),
+		},
+	};
+}
+
+function buildSavedCommentAnnotations(
+	path: string,
+	rangeNotes: Map<string, string>,
+): DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] {
+	const annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [];
+	for (const [key, value] of rangeNotes) {
+		if (!value.trim()) continue;
+		const range = parseRangeNoteKey(key);
+		if (!range || range.path !== path) continue;
+		annotations.push(rangeToAnnotation(range, value.trim()));
+	}
+	return annotations;
 }
 
 function findSavedRangeAtLine(
@@ -431,9 +319,18 @@ export function ReviewContent(props: ReviewContentProps) {
 		props.defaultDiffView,
 	);
 	const [rangeAnchor, setRangeAnchor] = createSignal<RangeAnchor | null>(null);
+	const [editingRange, setEditingRange] = createSignal<ReviewRangeDraft | null>(
+		null,
+	);
+	const [editingRangeValue, setEditingRangeValue] = createSignal("");
+	const [editingFileNoteKey, setEditingFileNoteKey] = createSignal<
+		string | null
+	>(null);
+	const [editingFileNoteValue, setEditingFileNoteValue] = createSignal("");
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
 	let listScrollRef: ScrollRef | undefined;
+	let listCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
 	let patchCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	const reviewFiles = createMemo(() => files() ?? []);
@@ -551,62 +448,48 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (mode() !== "patch" || !hunk || !line) return null;
 		return { hunk, line };
 	});
+	const selectedFileCommentAnnotations = createMemo(() => {
+		const file = selectedFile();
+		if (!file) return [];
+		const editing = editingRange();
+		const editingKey = editing ? buildRangeNoteKey(editing) : null;
+		const saved = buildSavedCommentAnnotations(file.path, rangeNotes()).filter(
+			(annotation) => annotation.metadata.key !== editingKey,
+		);
+		if (!editing || editing.path !== file.path) return saved;
+		return [
+			...saved,
+			rangeToAnnotation(editing, editingRangeValue(), { editing: true }),
+		];
+	});
 	const anchorLineTop = createMemo(() => {
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
 		if (!anchor || !hunk) return null;
-		for (const [index, line] of hunk.lines.entries()) {
-			const side =
-				line.kind === "add"
-					? "additions"
-					: line.kind === "delete"
-						? "deletions"
-						: undefined;
-			const lineNumber =
-				line.kind === "add"
-					? line.additionLineNumber
-					: line.kind === "delete"
-						? line.deletionLineNumber
-						: undefined;
-			if (side === anchor.side && lineNumber === anchor.lineNumber) {
-				return getCommentableLineTop(hunk, index, diffView());
-			}
-		}
-		return null;
+		const line = getCommentableLines(hunk, anchor.side, diffView()).find(
+			(candidate) => candidate.lineNumber === anchor.lineNumber,
+		);
+		return line
+			? getCommentableLineTop(
+					hunk,
+					line.index,
+					diffView(),
+					selectedFileCommentAnnotations(),
+				)
+			: null;
 	});
 	const activeRangeLineBounds = createMemo(() => {
 		const range = selectedRange();
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
 		if (!range || !anchor || !hunk) return null;
-		return getVisualBoundsForRange(hunk, range, diffView());
+		return getVisualBoundsForRange(
+			hunk,
+			range,
+			diffView(),
+			selectedFileCommentAnnotations(),
+		);
 	});
-	const savedCommentMarkers = createMemo<Map<string, SavedCommentMarker[]>>(
-		() => {
-			const file = selectedFile();
-			const markers = new Map<string, SavedCommentMarker[]>();
-			if (!file) return markers;
-			for (const [key, value] of rangeNotes()) {
-				if (!value.trim()) continue;
-				const range = parseRangeNoteKey(key);
-				if (!range || range.path !== file.path) continue;
-				for (const hunk of file.hunks) {
-					const bounds = getVisualBoundsForRange(hunk, range, diffView());
-					if (!bounds) continue;
-					const existing = markers.get(hunk.id) ?? [];
-					existing.push({
-						key,
-						side: range.side,
-						top: bounds.top,
-						height: bounds.height,
-					});
-					markers.set(hunk.id, existing);
-					break;
-				}
-			}
-			return markers;
-		},
-	);
 
 	createEffect(() => {
 		const list = reviewFiles();
@@ -644,10 +527,16 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 
 	createEffect(() => {
+		clearListCursorScrollTimeout();
 		if (mode() !== "list") return;
 		const file = selectedFile();
+		expandedKeys();
 		if (!file) return;
-		listScrollRef?.scrollChildIntoView(`review-file-${file.id}`);
+		listCursorScrollTimeout = setTimeout(() => {
+			listCursorScrollTimeout = undefined;
+			listScrollRef?.scrollChildIntoView(`review-file-row-${file.id}`);
+		}, 0);
+		onCleanup(clearListCursorScrollTimeout);
 	});
 
 	createEffect(() => {
@@ -667,31 +556,39 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 
 	createEffect(() => {
+		clearPatchCursorScrollTimeout();
 		if (mode() !== "patch") return;
+		const file = selectedFile();
+		if (!file) return;
+
+		const section = selectedSkippedSection();
 		const hunk = selectedHunk();
 		const line = selectedLine();
-		const file = selectedFile();
-		if (!hunk || !line || !file) return;
-		if (patchCursorScrollTimeout) clearTimeout(patchCursorScrollTimeout);
+		const childId = section
+			? `review-skipped-section-${section.id}`
+			: hunk && line
+				? getReviewDiffActiveLineId(hunk.id, line.index)
+				: null;
+		if (!childId) return;
+
 		patchCursorScrollTimeout = setTimeout(() => {
-			patchScrollRefs
-				.get(file.id)
-				?.scrollChildIntoView?.(`review-line-cursor-${hunk.id}-${line.index}`);
+			patchCursorScrollTimeout = undefined;
+			patchScrollRefs.get(file.id)?.scrollChildIntoView?.(childId);
 		}, 0);
+		onCleanup(clearPatchCursorScrollTimeout);
 	});
 
-	createEffect(() => {
-		if (mode() !== "patch") return;
-		const section = selectedSkippedSection();
-		const file = selectedFile();
-		if (!section || !file) return;
-		if (patchCursorScrollTimeout) clearTimeout(patchCursorScrollTimeout);
-		patchCursorScrollTimeout = setTimeout(() => {
-			patchScrollRefs
-				.get(file.id)
-				?.scrollChildIntoView?.(`review-skipped-section-${section.id}`);
-		}, 0);
-	});
+	function clearListCursorScrollTimeout() {
+		if (!listCursorScrollTimeout) return;
+		clearTimeout(listCursorScrollTimeout);
+		listCursorScrollTimeout = undefined;
+	}
+
+	function clearPatchCursorScrollTimeout() {
+		if (!patchCursorScrollTimeout) return;
+		clearTimeout(patchCursorScrollTimeout);
+		patchCursorScrollTimeout = undefined;
+	}
 
 	function selectedFileNote(file: ReviewFile): string {
 		return fileNotes().get(file.noteKey)?.trim() ?? "";
@@ -887,27 +784,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	}
 
-	function renderDiffBlock(rawPatch: string, filetype?: string) {
+	function renderRawDiffBlock(rawPatch: string, filetype?: string) {
 		return (
-			<diff
-				diff={rawPatch}
+			<ReviewDiffBlock
+				rawPatch={rawPatch}
 				view={diffView()}
 				filetype={filetype}
-				syntaxStyle={syntaxStyle()}
-				showLineNumbers
-				addedBg={theme.diffAddedBg}
-				removedBg={theme.diffRemovedBg}
-				contextBg={theme.bgSurface}
-				addedContentBg={theme.diffAddedContentBg}
-				removedContentBg={theme.diffRemovedContentBg}
-				contextContentBg={theme.bgSurface}
-				addedSignColor={theme.toolText}
-				removedSignColor={theme.errorText}
-				lineNumberFg={theme.textMuted}
-				lineNumberBg={theme.bg}
-				addedLineNumberBg={theme.diffAddedLineNumberBg}
-				removedLineNumberBg={theme.diffRemovedLineNumberBg}
-				wrapMode="none"
 			/>
 		);
 	}
@@ -947,17 +829,67 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
+	function renderFileNoteBlock(file: ReviewFile) {
+		const editing = () => editingFileNoteKey() === file.noteKey;
+		const note = () => selectedFileNote(file);
+		let textareaRef: TextareaRef | undefined;
+		return (
+			<Show when={editing() || note().length > 0}>
+				<Show
+					when={editing()}
+					fallback={
+						<box
+							border
+							borderColor={theme.borderDefault}
+							backgroundColor={theme.bgSurface}
+							paddingX={1}
+							flexShrink={0}
+						>
+							<text fg={theme.textPrimary} bg={theme.bgSurface}>
+								{note()}
+							</text>
+						</box>
+					}
+				>
+					<MessageComposer
+						ref={(value) => {
+							textareaRef = value;
+						}}
+						initialValue={editingFileNoteValue()}
+						placeholder="Comment on the whole file..."
+						backgroundColor={theme.bgTransparent}
+						focusedBackgroundColor={theme.bgTransparent}
+						keyBindings={[
+							{ name: "return", action: "submit" },
+							{ name: "return", shift: true, action: "newline" },
+						]}
+						onContentChange={() =>
+							setEditingFileNoteValue(textareaRef?.plainText ?? "")
+						}
+						onSubmit={saveFileNoteEditor}
+					/>
+				</Show>
+			</Show>
+		);
+	}
+
 	function renderHunkBlock(
 		file: ReviewFile,
 		hunk: ReviewHunk,
 		interactive: boolean,
 	) {
-		const markers = () => savedCommentMarkers().get(hunk.id) ?? [];
+		const annotations = () =>
+			interactive ? selectedFileCommentAnnotations() : [];
 		const cursor = () => lineCursorState();
 		const cursorTop = () => {
 			const current = cursor();
 			if (!interactive || current?.hunk.id !== hunk.id) return null;
-			return getCommentableLineTop(hunk, current.line.index, diffView());
+			return getCommentableLineTop(
+				hunk,
+				current.line.index,
+				diffView(),
+				annotations(),
+			);
 		};
 		const cursorSide = () => {
 			const current = cursor();
@@ -967,31 +899,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		const rangeBounds = () => activeRangeLineBounds();
 		const anchorTop = () => anchorLineTop();
 		const splitView = () => diffView() === "split";
-		const cursorId = () =>
-			`review-line-cursor-${hunk.id}-${cursor()?.line.index ?? 0}`;
+		const activeLine = () => {
+			const current = cursor();
+			if (!interactive || current?.hunk.id !== hunk.id) return undefined;
+			return current.line;
+		};
 		const renderOverlayLane = (side?: ReviewSide) => (
 			<>
-				<For
-					each={
-						side
-							? markers().filter((marker) => marker.side === side)
-							: markers()
-					}
-				>
-					{(marker) => (
-						<box
-							position="absolute"
-							left={1}
-							top={marker.top}
-							height={marker.height}
-							width={1}
-						>
-							<text fg={theme.reviewText}>
-								{buildCommentMarker(marker.height)}
-							</text>
-						</box>
-					)}
-				</For>
 				<Show when={cursorTop() !== null && (!side || cursorSide() === side)}>
 					<Show when={rangeBounds()}>
 						{(bounds) => (
@@ -1023,46 +937,70 @@ export function ReviewContent(props: ReviewContentProps) {
 							<text fg={theme.borderFocused}>{DIAMOND}</text>
 						</box>
 					</Show>
-					<box
-						id={cursorId()}
-						position="absolute"
-						left={0}
-						top={cursorTop() ?? 0}
-						height={1}
-						width={1}
-					>
-						<text fg={theme.borderAccent}>{THIN_BAR}</text>
-					</box>
 				</Show>
 			</>
 		);
 		return (
-			<box position="relative" paddingLeft={2}>
-				{renderDiffBlock(hunk.rawPatch, file.filetype)}
-				<Show when={interactive}>
-					<Show
-						when={splitView()}
-						fallback={
-							<box position="absolute" left={0} top={0}>
-								{renderOverlayLane()}
-							</box>
+			<box flexDirection="column" gap={0}>
+				<box
+					paddingLeft={2}
+					paddingX={1}
+					backgroundColor={theme.bgMuted}
+					height={1}
+					flexShrink={0}
+				>
+					<text fg={theme.metaText} bg={theme.bgMuted}>
+						{hunk.header}
+						{hunk.context ? ` ${hunk.context}` : ""}
+					</text>
+				</box>
+				<box position="relative" paddingLeft={2}>
+					<ReviewDiffBlock
+						hunk={hunk}
+						view={diffView()}
+						filetype={file.filetype}
+						annotations={annotations()}
+						activeLine={activeLine()}
+						annotationEditor={
+							editingRange()
+								? {
+										onChange: setEditingRangeValue,
+										onSubmit: saveRangeNoteEditor,
+									}
+								: undefined
 						}
-					>
-						<box position="absolute" left={0} top={0} width="50%">
-							{renderOverlayLane("deletions")}
-						</box>
-						<box position="absolute" left="50%" top={0} width="50%">
-							{renderOverlayLane("additions")}
-						</box>
+						onLineMouseDown={
+							interactive
+								? (line, event) =>
+										handleDiffLineMouseDown(file, hunk, line, event)
+								: undefined
+						}
+					/>
+					<Show when={interactive}>
+						<Show
+							when={splitView()}
+							fallback={
+								<box position="absolute" left={0} top={0}>
+									{renderOverlayLane()}
+								</box>
+							}
+						>
+							<box position="absolute" left={0} top={0} width="50%">
+								{renderOverlayLane("deletions")}
+							</box>
+							<box position="absolute" left="50%" top={0} width="50%">
+								{renderOverlayLane("additions")}
+							</box>
+						</Show>
 					</Show>
-				</Show>
+				</box>
 			</box>
 		);
 	}
 
 	function renderFileDiffContent(file: ReviewFile, interactive: boolean) {
 		if (file.hunks.length === 0) {
-			return renderDiffBlock(file.rawPatch, file.filetype);
+			return renderRawDiffBlock(file.rawPatch, file.filetype);
 		}
 		return (
 			<box flexDirection="column" gap={0}>
@@ -1083,7 +1021,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												expanded,
 											})}
 											<Show when={expanded()}>
-												{renderDiffBlock(section().rawPatch, file.filetype)}
+												{renderRawDiffBlock(section().rawPatch, file.filetype)}
 											</Show>
 										</>
 									);
@@ -1106,7 +1044,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									expanded,
 								})}
 								<Show when={expanded()}>
-									{renderDiffBlock(section().rawPatch, file.filetype)}
+									{renderRawDiffBlock(section().rawPatch, file.filetype)}
 								</Show>
 							</>
 						);
@@ -1116,53 +1054,53 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
-	async function openFileNoteEditor(file: ReviewFile) {
+	function openFileNoteEditor(file: ReviewFile) {
+		setExpandedKeys((prev) => {
+			if (prev.has(file.id)) return prev;
+			return new Set([...prev, file.id]);
+		});
+		setEditingFileNoteValue(selectedFileNote(file));
+		setEditingFileNoteKey(file.noteKey);
 		setEditorOpen(true);
-		try {
-			const nextValue = await props.openCustomOverlay<string | null>(
-				(overlayProps) => (
-					<ReviewNoteModal
-						surfaceProps={overlayProps.surfaceProps}
-						title={`File note · ${file.path}`}
-						subtitle={file.prevPath ? `from ${file.prevPath}` : undefined}
-						initialValue={selectedFileNote(file)}
-						placeholder="Comment on the whole file..."
-						onClose={overlayProps.done}
-					/>
-				),
-			);
-			if (nextValue === null) return;
-			setFileNotes((prev) => setMapValue(prev, file.noteKey, nextValue));
-		} finally {
-			setEditorOpen(false);
-		}
+	}
+
+	function closeFileNoteEditor() {
+		setEditingFileNoteKey(null);
+		setEditingFileNoteValue("");
+		setEditorOpen(false);
+	}
+
+	function saveFileNoteEditor() {
+		const key = editingFileNoteKey();
+		if (!key) return;
+		setFileNotes((prev) => setMapValue(prev, key, editingFileNoteValue()));
+		closeFileNoteEditor();
 	}
 
 	async function openRangeNoteEditor(
-		file: ReviewFile,
+		_file: ReviewFile,
 		range: ReviewRangeDraft,
 	) {
+		const key = buildRangeNoteKey(range);
+		setEditingRangeValue(rangeNotes().get(key) ?? "");
+		setEditingRange(range);
 		setEditorOpen(true);
-		try {
-			const key = buildRangeNoteKey(range);
-			const nextValue = await props.openCustomOverlay<string | null>(
-				(overlayProps) => (
-					<ReviewNoteModal
-						surfaceProps={overlayProps.surfaceProps}
-						title={`${range.startLine === range.endLine ? "Line" : "Range"} note · ${file.path}`}
-						subtitle={lineRangeLabel(range)}
-						initialValue={rangeNotes().get(key) ?? ""}
-						placeholder="Comment on the selected line or range..."
-						onClose={overlayProps.done}
-					/>
-				),
-			);
-			if (nextValue === null) return;
-			setRangeNotes((prev) => setMapValue(prev, key, nextValue));
-		} finally {
-			setEditorOpen(false);
-			setRangeAnchor(null);
-		}
+	}
+
+	function closeRangeNoteEditor() {
+		setEditingRange(null);
+		setEditingRangeValue("");
+		setEditorOpen(false);
+		setRangeAnchor(null);
+	}
+
+	function saveRangeNoteEditor() {
+		const range = editingRange();
+		if (!range) return;
+		setRangeNotes((prev) =>
+			setMapValue(prev, buildRangeNoteKey(range), editingRangeValue()),
+		);
+		closeRangeNoteEditor();
 	}
 
 	function clearSelectedFileNote() {
@@ -1194,8 +1132,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function beginRangeSelection() {
+		const hunk = selectedHunk();
 		const line = selectedLine();
-		if (!line) return;
+		if (!hunk || !line) return;
+		const sameSideIndex = getCommentableLines(
+			hunk,
+			line.side,
+			diffView(),
+		).findIndex((candidate) => candidate.index === line.index);
+		if (sameSideIndex >= 0) {
+			setSelectedLineIndex(hunk.id, sameSideIndex);
+		}
 		setRangeAnchor({ side: line.side, lineNumber: line.lineNumber });
 	}
 
@@ -1214,8 +1161,54 @@ export function ReviewContent(props: ReviewContentProps) {
 		void openRangeNoteEditor(file, range);
 	}
 
+	function focusDiffLine(
+		file: ReviewFile,
+		hunk: ReviewHunk,
+		line: CommentableLine,
+		side?: ReviewSide,
+	) {
+		const hunkIndex = file.hunks.findIndex(
+			(candidate) => candidate.id === hunk.id,
+		);
+		if (hunkIndex >= 0) setActiveHunkIndex(file.id, hunkIndex);
+		setSelectedSectionId(file.id, null);
+		setMode("patch");
+		const lines = getCommentableLines(hunk, side, diffView());
+		const lineIndex = lines.findIndex(
+			(candidate) => candidate.index === line.index,
+		);
+		if (lineIndex >= 0) setSelectedLineIndex(hunk.id, lineIndex);
+	}
+
+	function handleDiffLineMouseDown(
+		file: ReviewFile,
+		hunk: ReviewHunk,
+		line: CommentableLine,
+		event: TuiMouseEvent,
+	) {
+		if (editorOpen() || event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+
+		setRangeAnchor(null);
+		focusDiffLine(file, hunk, line);
+		void openRangeNoteEditor(file, {
+			path: file.path,
+			side: line.side,
+			startLine: line.lineNumber,
+			endLine: line.lineNumber,
+		});
+	}
+
 	useKeyboard((e: KeyEvent) => {
-		if (editorOpen()) return;
+		if (editorOpen()) {
+			if (e.name === "escape") {
+				e.preventDefault();
+				if (editingRange()) closeRangeNoteEditor();
+				else if (editingFileNoteKey()) closeFileNoteEditor();
+			}
+			return;
+		}
 		if (mode() === "patch") {
 			if (e.name === "escape") {
 				e.preventDefault();
@@ -1264,7 +1257,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				e.preventDefault();
 				const file = selectedFile();
 				if (!file) return;
-				void openFileNoteEditor(file);
+				openFileNoteEditor(file);
 				return;
 			}
 			if (e.name === "v") {
@@ -1325,7 +1318,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			e.preventDefault();
 			const file = selectedFile();
 			if (!file) return;
-			void openFileNoteEditor(file);
+			openFileNoteEditor(file);
 			return;
 		}
 		if (e.name === "v") {
@@ -1408,6 +1401,7 @@ export function ReviewContent(props: ReviewContentProps) {
 													}
 												>
 													<box
+														id={`review-file-row-${file.id}`}
 														paddingX={1}
 														paddingY={0}
 														flexDirection="row"
@@ -1447,6 +1441,7 @@ export function ReviewContent(props: ReviewContentProps) {
 															flexDirection="column"
 															gap={0}
 														>
+															{renderFileNoteBlock(file)}
 															{renderFileDiffContent(file, false)}
 														</box>
 													</Show>
@@ -1499,27 +1494,30 @@ export function ReviewContent(props: ReviewContentProps) {
 
 									<Show
 										when={
-											fileNote().length > 0 || selectedRangeNote().length > 0
+											editingFileNoteKey() === file().noteKey ||
+											fileNote().length > 0 ||
+											selectedRangeNote().length > 0
 										}
 									>
 										<box
 											flexShrink={0}
 											marginX={1}
-											border
-											borderColor={theme.borderDefault}
-											paddingX={1}
 											flexDirection="column"
 											gap={0}
 										>
-											<Show when={fileNote().length > 0}>
-												<text fg={theme.textPrimary}>
-													File note: {fileNote()}
-												</text>
-											</Show>
+											{renderFileNoteBlock(file())}
 											<Show when={selectedRangeNote().length > 0}>
-												<text fg={theme.textPrimary}>
-													{currentLineNoteLabel()}: {selectedRangeNote()}
-												</text>
+												<box
+													border
+													borderColor={theme.borderDefault}
+													paddingX={1}
+													flexDirection="column"
+													gap={0}
+												>
+													<text fg={theme.textPrimary}>
+														{currentLineNoteLabel()}: {selectedRangeNote()}
+													</text>
+												</box>
 											</Show>
 										</box>
 									</Show>

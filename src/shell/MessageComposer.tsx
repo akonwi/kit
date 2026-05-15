@@ -19,6 +19,8 @@ export type MessageComposerProps = {
 	showCursor?: boolean;
 	maxHeight?: number;
 	borderColor?: string;
+	backgroundColor?: string;
+	focusedBackgroundColor?: string;
 	keyBindings?: KeyBinding[];
 	onContentChange?: () => void;
 	onPaste?: (event: PasteEvent) => void;
@@ -44,7 +46,7 @@ export function MessageComposer(props: MessageComposerProps) {
 			<textarea
 				ref={(value: unknown) => {
 					const ref = value as TextareaRef | undefined;
-					if (ref && props.initialValue) {
+					if (ref && props.initialValue !== undefined) {
 						ref.setText(props.initialValue);
 						ref.cursorOffset = props.initialValue.length;
 					}
@@ -54,8 +56,8 @@ export function MessageComposer(props: MessageComposerProps) {
 				maxHeight={props.maxHeight ?? 10}
 				placeholder={props.placeholder ?? ""}
 				placeholderColor={theme.textPlaceholder}
-				backgroundColor={theme.bg}
-				focusedBackgroundColor={theme.bg}
+				backgroundColor={props.backgroundColor ?? theme.bg}
+				focusedBackgroundColor={props.focusedBackgroundColor ?? theme.bg}
 				textColor={theme.textPrimary}
 				focusedTextColor={theme.textPrimary}
 				cursorColor={theme.cursor}

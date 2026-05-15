@@ -101,6 +101,49 @@ describe("review draft", () => {
 		});
 	});
 
+	test("trims submitted notes and ignores malformed range keys", () => {
+		const file = makeFile();
+		const review = buildReviewSubmission([file], {
+			fileNotes: new Map([[file.noteKey, "  Look at this file  "]]),
+			rangeNotes: new Map([
+				["src/test.ts::additions::not-a-range", "ignore me"],
+				[
+					buildRangeNoteKey({
+						path: "src/other.ts",
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+					}),
+					"ignore other files",
+				],
+				[
+					buildRangeNoteKey({
+						path: file.path,
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+					}),
+					"  Keep this added line  ",
+				],
+			]),
+		});
+
+		expect(review?.files).toEqual([
+			{
+				path: "src/test.ts",
+				fileComment: "Look at this file",
+				ranges: [
+					{
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+						comment: "Keep this added line",
+					},
+				],
+			},
+		]);
+	});
+
 	test("returns null when no notes are present", () => {
 		const file = makeFile();
 		expect(

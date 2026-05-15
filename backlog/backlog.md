@@ -12,13 +12,10 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
+- [ ] fix: `WebSocket closed 1006 Connection ended` error should be retryable
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
-- [ ] review: make saved gutter comment markers respect segmented same-side ranges
-  - see `backlog/review-gutter-comment-markers.md`
-- [ ] review: make overlapping saved gutter comment markers distinguishable
-  - see `backlog/review-gutter-comment-markers.md`
 - [ ] feat: setting for "zen" mode. minimal transcript
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
