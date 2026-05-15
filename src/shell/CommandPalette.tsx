@@ -30,14 +30,13 @@ export function CommandPalette(props: CommandPaletteProps) {
 		<Show when={snapshot().visible}>
 			<Dialog.Root
 				width="80%"
-				minWidth={80}
-				height={MAX_VISIBLE + 7}
+				minWidth={96}
+				height={MAX_VISIBLE + 5}
 				padding={0}
 			>
 				<box flexGrow={1} flexDirection="column" paddingX={1}>
 					<Picker.Root picker={props.picker} maxVisible={MAX_VISIBLE}>
 						<Picker.Header />
-						<Picker.Detail />
 						<Picker.Body />
 						<Picker.Footer paddingTop={1}>
 							<HintBar borderless bindings={bindings()} />

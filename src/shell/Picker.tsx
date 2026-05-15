@@ -181,6 +181,15 @@ function Body() {
 		Math.max(0, ...snapshot().allOptions.map((o) => o.name.length)),
 	);
 
+	const maxArgHintWidth = createMemo(() =>
+		Math.max(
+			0,
+			...snapshot().allOptions.map((o) =>
+				o.argHint ? o.argHint.length + 2 : 0,
+			),
+		),
+	);
+
 	return (
 		<Show when={snapshot().mode === "list"}>
 			<box flexGrow={1} flexDirection="column" overflow="hidden">
@@ -212,10 +221,24 @@ function Body() {
 												{entry.option.name}
 											</text>
 										</box>
-										<Show when={entry.option.argHint}>
-											<text fg={theme.textMuted} bg={bg()}>
-												{`[${entry.option.argHint}]`}
-											</text>
+										<box width={maxArgHintWidth()} flexShrink={0}>
+											<Show when={entry.option.argHint}>
+												<text fg={theme.textMuted} bg={bg()}>
+													{`[${entry.option.argHint}]`}
+												</text>
+											</Show>
+										</box>
+										<Show when={entry.option.description.length > 0}>
+											<box
+												flexGrow={1}
+												flexShrink={1}
+												height={1}
+												overflow="hidden"
+											>
+												<text fg={theme.textMuted} bg={bg()}>
+													{entry.option.description}
+												</text>
+											</box>
 										</Show>
 									</box>
 								);
@@ -247,26 +270,6 @@ function Body() {
 	);
 }
 
-// ── Detail ─────────────────────────────────────────────────────────
-
-function Detail() {
-	const { snapshot } = usePickerContext();
-
-	const focusedDescription = createMemo(() => {
-		const p = snapshot();
-		if (p.mode !== "list") return null;
-		return p.options[p.selectedIndex]?.description || null;
-	});
-
-	return (
-		<Show when={snapshot().mode === "list"}>
-			<box flexShrink={0} height={2} paddingBottom={1} overflow="hidden">
-				<text fg={theme.textMuted}>{focusedDescription() ?? ""}</text>
-			</box>
-		</Show>
-	);
-}
-
 // ── Footer ──────────────────────────────────────────────────────────
 
 function Footer(props: BoxProps) {
@@ -283,6 +286,5 @@ export const Picker = {
 	Root,
 	Header,
 	Body,
-	Detail,
 	Footer,
 };
