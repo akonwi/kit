@@ -555,36 +555,38 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 
 	createEffect(() => {
+		clearPatchCursorScrollTimeout();
 		if (mode() !== "patch") return;
+		const file = selectedFile();
+		if (!file) return;
+
+		const section = selectedSkippedSection();
 		const hunk = selectedHunk();
 		const line = selectedLine();
-		const file = selectedFile();
-		if (!hunk || !line || !file) return;
-		if (patchCursorScrollTimeout) clearTimeout(patchCursorScrollTimeout);
-		patchCursorScrollTimeout = setTimeout(() => {
-			patchScrollRefs
-				.get(file.id)
-				?.scrollChildIntoView?.(`review-line-cursor-${hunk.id}-${line.index}`);
-		}, 0);
-	});
+		const childId = section
+			? `review-skipped-section-${section.id}`
+			: hunk && line
+				? `review-line-cursor-${hunk.id}-${line.index}`
+				: null;
+		if (!childId) return;
 
-	createEffect(() => {
-		if (mode() !== "patch") return;
-		const section = selectedSkippedSection();
-		const file = selectedFile();
-		if (!section || !file) return;
-		if (patchCursorScrollTimeout) clearTimeout(patchCursorScrollTimeout);
 		patchCursorScrollTimeout = setTimeout(() => {
-			patchScrollRefs
-				.get(file.id)
-				?.scrollChildIntoView?.(`review-skipped-section-${section.id}`);
+			patchCursorScrollTimeout = undefined;
+			patchScrollRefs.get(file.id)?.scrollChildIntoView?.(childId);
 		}, 0);
+		onCleanup(clearPatchCursorScrollTimeout);
 	});
 
 	function clearListCursorScrollTimeout() {
 		if (!listCursorScrollTimeout) return;
 		clearTimeout(listCursorScrollTimeout);
 		listCursorScrollTimeout = undefined;
+	}
+
+	function clearPatchCursorScrollTimeout() {
+		if (!patchCursorScrollTimeout) return;
+		clearTimeout(patchCursorScrollTimeout);
+		patchCursorScrollTimeout = undefined;
 	}
 
 	function selectedFileNote(file: ReviewFile): string {
