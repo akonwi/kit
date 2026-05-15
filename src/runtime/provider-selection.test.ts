@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	isDeprecatedModel,
 	listAuthenticatedProviders,
 	selectDefaultModel,
 } from "./provider-selection";
@@ -25,6 +26,18 @@ function createOptions(options: TestOptions) {
 }
 
 describe("provider selection", () => {
+	test("marks retired Anthropic Claude 3-family models as deprecated", () => {
+		expect(
+			isDeprecatedModel("anthropic", { id: "claude-3-sonnet-20240229" }),
+		).toBe(true);
+		expect(
+			isDeprecatedModel("anthropic", { id: "claude-3-5-sonnet-20241022" }),
+		).toBe(true);
+		expect(isDeprecatedModel("anthropic", { id: "claude-sonnet-4-5" })).toBe(
+			false,
+		);
+	});
+
 	test("filters unknown providers and keeps env-backed registered providers", () => {
 		const providers = listAuthenticatedProviders(
 			["legacy-google", "anthropic", "anthropic", "openai"],

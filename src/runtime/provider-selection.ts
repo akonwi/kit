@@ -7,6 +7,34 @@ import {
 	type Model,
 } from "@earendil-works/pi-ai";
 
+const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Partial<
+	Record<KnownProvider, RegExp[]>
+> = {
+	// Anthropic keeps retired Claude 3-family entries in the pi-ai registry.
+	// They can be selected as defaults because pi-ai returns models oldest-first,
+	// but they fail immediately at runtime once Anthropic disables them.
+	anthropic: [/^claude-3(?:-|$)/],
+};
+
+export function isDeprecatedModel(
+	provider: KnownProvider,
+	model: { id: string },
+): boolean {
+	return (
+		DEPRECATED_MODEL_PATTERNS_BY_PROVIDER[provider]?.some((pattern) =>
+			pattern.test(model.id),
+		) === true
+	);
+}
+
+export function getSelectableModels(
+	provider: KnownProvider,
+): Array<Model<Api>> {
+	return getModels(provider).filter(
+		(model) => !isDeprecatedModel(provider, model),
+	);
+}
+
 type ProviderSelectionOptions<
 	TProvider extends string,
 	TModel extends { id: string },
@@ -70,7 +98,8 @@ function getRuntimeProviderSelectionOptions() {
 	return {
 		providerIds: getProviders(),
 		hasEnvApiKey: (provider: KnownProvider) => getEnvApiKey(provider),
-		getModelsForProvider: (provider: KnownProvider) => getModels(provider),
+		getModelsForProvider: (provider: KnownProvider) =>
+			getSelectableModels(provider),
 	};
 }
 

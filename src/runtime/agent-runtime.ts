@@ -9,7 +9,6 @@ import type {
 } from "@earendil-works/pi-agent-core";
 import {
 	type Api,
-	getModels,
 	type Model,
 	registerBuiltInApiProviders,
 	type UserMessage,
@@ -45,6 +44,7 @@ import type { GitInfo } from "./git-info";
 import { GitInfoWatcher } from "./git-info-watcher";
 import { type AgentEvent, KitAgent } from "./kit-agent";
 import {
+	getSelectableModels,
 	listRegisteredAuthenticatedProviders,
 	resolveDefaultAuthenticatedModel,
 } from "./provider-selection";
@@ -410,7 +410,7 @@ export class AgentRuntime {
 		for (const provider of listRegisteredAuthenticatedProviders(
 			getAuthenticatedProviderIds(),
 		)) {
-			for (const model of getModels(provider)) {
+			for (const model of getSelectableModels(provider)) {
 				if (model.id === modelId) return model;
 			}
 		}
@@ -1530,7 +1530,7 @@ export class AgentRuntime {
 	getAvailableModels(): Array<Model<Api>> {
 		return listRegisteredAuthenticatedProviders(
 			getAuthenticatedProviderIds(),
-		).flatMap((provider) => getModels(provider));
+		).flatMap((provider) => getSelectableModels(provider));
 	}
 
 	getCurrentModelId(): string | undefined {
