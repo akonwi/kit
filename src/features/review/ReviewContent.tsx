@@ -43,6 +43,7 @@ import {
 	type ReviewSkippedSection,
 } from "./model";
 import {
+	getReviewDiffActiveLineId,
 	getReviewDiffCommentableLines,
 	getReviewDiffLineTop,
 	getReviewDiffRangeBounds,
@@ -566,7 +567,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		const childId = section
 			? `review-skipped-section-${section.id}`
 			: hunk && line
-				? `review-line-cursor-${hunk.id}-${line.index}`
+				? getReviewDiffActiveLineId(hunk.id, line.index)
 				: null;
 		if (!childId) return;
 
