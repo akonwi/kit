@@ -68,7 +68,9 @@ function Root(props: RootProps) {
 		<PickerContext.Provider
 			value={{ picker: props.picker, snapshot, maxVisible }}
 		>
-			{props.children}
+			<box flexDirection="column" gap={1}>
+				{props.children}
+			</box>
 		</PickerContext.Provider>
 	);
 }
@@ -79,7 +81,7 @@ function Header() {
 	const { picker, snapshot } = usePickerContext();
 
 	return (
-		<box flexDirection="column" paddingY={1}>
+		<box flexDirection="column" paddingTop={1}>
 			{/* Input mode */}
 			<Show when={snapshot().mode === "input"}>
 				<text fg={theme.textMuted}>{snapshot().label}</text>
@@ -177,6 +179,19 @@ function Body() {
 		),
 	);
 
+	const maxNameWidth = createMemo(() =>
+		Math.max(0, ...snapshot().allOptions.map((o) => o.name.length)),
+	);
+
+	const maxArgHintWidth = createMemo(() =>
+		Math.max(
+			0,
+			...snapshot().allOptions.map((o) =>
+				o.argHint ? o.argHint.length + 2 : 0,
+			),
+		),
+	);
+
 	return (
 		<Show when={snapshot().mode === "list"}>
 			<box flexGrow={1} flexDirection="column" overflow="hidden">
@@ -203,27 +218,26 @@ function Body() {
 										gap={1}
 										backgroundColor={bg()}
 									>
-										<box
-											flexShrink={0}
-											flexDirection="row"
-											height={1}
-											overflow="hidden"
-										>
+										<box width={maxNameWidth()} flexShrink={0}>
 											<text fg={fg()} bg={bg()}>
 												{entry.option.name}
 											</text>
+										</box>
+										<box width={maxArgHintWidth()} flexShrink={0}>
 											<Show when={entry.option.argHint}>
-												<box flexShrink={1} height={1} overflow="hidden">
-													<text fg={theme.textMuted} bg={bg()}>
-														{` [${entry.option.argHint}]`}
-													</text>
-												</box>
+												<text fg={theme.textMuted} bg={bg()}>
+													{`[${entry.option.argHint}]`}
+												</text>
 											</Show>
 										</box>
 										<Show when={entry.option.description.length > 0}>
-											<box flexGrow={1} flexShrink={1} />
-											<box flexShrink={1} height={1} overflow="hidden">
-												<text fg={fg()} bg={bg()}>
+											<box
+												flexGrow={1}
+												flexShrink={1}
+												height={1}
+												overflow="hidden"
+											>
+												<text fg={theme.textMuted} bg={bg()}>
 													{entry.option.description}
 												</text>
 											</box>
