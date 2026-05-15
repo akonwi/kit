@@ -21,6 +21,7 @@ import {
 	TRIANGLE_RIGHT,
 } from "../../shell/glyphs";
 import { type Binding, HintBar } from "../../shell/HintBar";
+import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
 import { theme } from "../../shell/theme";
@@ -49,7 +50,6 @@ import {
 	ReviewDiffBlock,
 	type ReviewDiffCommentableLine,
 } from "./ReviewDiffBlock";
-import { ReviewNoteModal } from "./ReviewNoteModal";
 
 export type ReviewContentProps = {
 	onClose: () => void;
@@ -327,6 +327,10 @@ export function ReviewContent(props: ReviewContentProps) {
 		null,
 	);
 	const [editingRangeValue, setEditingRangeValue] = createSignal("");
+	const [editingFileNoteKey, setEditingFileNoteKey] = createSignal<
+		string | null
+	>(null);
+	const [editingFileNoteValue, setEditingFileNoteValue] = createSignal("");
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
 	let listScrollRef: ScrollRef | undefined;
@@ -814,6 +818,50 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
+	function renderFileNoteBlock(file: ReviewFile) {
+		const editing = () => editingFileNoteKey() === file.noteKey;
+		const note = () => selectedFileNote(file);
+		let textareaRef: TextareaRef | undefined;
+		return (
+			<Show when={editing() || note().length > 0}>
+				<Show
+					when={editing()}
+					fallback={
+						<box
+							border
+							borderColor={theme.borderDefault}
+							backgroundColor={theme.bgSurface}
+							paddingX={1}
+							flexShrink={0}
+						>
+							<text fg={theme.textPrimary} bg={theme.bgSurface}>
+								{note()}
+							</text>
+						</box>
+					}
+				>
+					<MessageComposer
+						ref={(value) => {
+							textareaRef = value;
+						}}
+						initialValue={editingFileNoteValue()}
+						placeholder="Comment on the whole file..."
+						backgroundColor={theme.bgTransparent}
+						focusedBackgroundColor={theme.bgTransparent}
+						keyBindings={[
+							{ name: "return", action: "submit" },
+							{ name: "return", shift: true, action: "newline" },
+						]}
+						onContentChange={() =>
+							setEditingFileNoteValue(textareaRef?.plainText ?? "")
+						}
+						onSubmit={saveFileNoteEditor}
+					/>
+				</Show>
+			</Show>
+		);
+	}
+
 	function renderHunkBlock(
 		file: ReviewFile,
 		hunk: ReviewHunk,
@@ -1001,26 +1049,27 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
-	async function openFileNoteEditor(file: ReviewFile) {
+	function openFileNoteEditor(file: ReviewFile) {
+		setExpandedKeys((prev) => {
+			if (prev.has(file.id)) return prev;
+			return new Set([...prev, file.id]);
+		});
+		setEditingFileNoteValue(selectedFileNote(file));
+		setEditingFileNoteKey(file.noteKey);
 		setEditorOpen(true);
-		try {
-			const nextValue = await props.openCustomOverlay<string | null>(
-				(overlayProps) => (
-					<ReviewNoteModal
-						surfaceProps={overlayProps.surfaceProps}
-						title={`File note · ${file.path}`}
-						subtitle={file.prevPath ? `from ${file.prevPath}` : undefined}
-						initialValue={selectedFileNote(file)}
-						placeholder="Comment on the whole file..."
-						onClose={overlayProps.done}
-					/>
-				),
-			);
-			if (nextValue === null) return;
-			setFileNotes((prev) => setMapValue(prev, file.noteKey, nextValue));
-		} finally {
-			setEditorOpen(false);
-		}
+	}
+
+	function closeFileNoteEditor() {
+		setEditingFileNoteKey(null);
+		setEditingFileNoteValue("");
+		setEditorOpen(false);
+	}
+
+	function saveFileNoteEditor() {
+		const key = editingFileNoteKey();
+		if (!key) return;
+		setFileNotes((prev) => setMapValue(prev, key, editingFileNoteValue()));
+		closeFileNoteEditor();
 	}
 
 	async function openRangeNoteEditor(
@@ -1028,8 +1077,8 @@ export function ReviewContent(props: ReviewContentProps) {
 		range: ReviewRangeDraft,
 	) {
 		const key = buildRangeNoteKey(range);
-		setEditingRange(range);
 		setEditingRangeValue(rangeNotes().get(key) ?? "");
+		setEditingRange(range);
 		setEditorOpen(true);
 	}
 
@@ -1148,9 +1197,10 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeyboard((e: KeyEvent) => {
 		if (editorOpen()) {
-			if (editingRange() && e.name === "escape") {
+			if (e.name === "escape") {
 				e.preventDefault();
-				closeRangeNoteEditor();
+				if (editingRange()) closeRangeNoteEditor();
+				else if (editingFileNoteKey()) closeFileNoteEditor();
 			}
 			return;
 		}
@@ -1202,7 +1252,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				e.preventDefault();
 				const file = selectedFile();
 				if (!file) return;
-				void openFileNoteEditor(file);
+				openFileNoteEditor(file);
 				return;
 			}
 			if (e.name === "v") {
@@ -1263,7 +1313,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			e.preventDefault();
 			const file = selectedFile();
 			if (!file) return;
-			void openFileNoteEditor(file);
+			openFileNoteEditor(file);
 			return;
 		}
 		if (e.name === "v") {
@@ -1385,6 +1435,7 @@ export function ReviewContent(props: ReviewContentProps) {
 															flexDirection="column"
 															gap={0}
 														>
+															{renderFileNoteBlock(file)}
 															{renderFileDiffContent(file, false)}
 														</box>
 													</Show>
@@ -1437,27 +1488,30 @@ export function ReviewContent(props: ReviewContentProps) {
 
 									<Show
 										when={
-											fileNote().length > 0 || selectedRangeNote().length > 0
+											editingFileNoteKey() === file().noteKey ||
+											fileNote().length > 0 ||
+											selectedRangeNote().length > 0
 										}
 									>
 										<box
 											flexShrink={0}
 											marginX={1}
-											border
-											borderColor={theme.borderDefault}
-											paddingX={1}
 											flexDirection="column"
 											gap={0}
 										>
-											<Show when={fileNote().length > 0}>
-												<text fg={theme.textPrimary}>
-													File note: {fileNote()}
-												</text>
-											</Show>
+											{renderFileNoteBlock(file())}
 											<Show when={selectedRangeNote().length > 0}>
-												<text fg={theme.textPrimary}>
-													{currentLineNoteLabel()}: {selectedRangeNote()}
-												</text>
+												<box
+													border
+													borderColor={theme.borderDefault}
+													paddingX={1}
+													flexDirection="column"
+													gap={0}
+												>
+													<text fg={theme.textPrimary}>
+														{currentLineNoteLabel()}: {selectedRangeNote()}
+													</text>
+												</box>
 											</Show>
 										</box>
 									</Show>
