@@ -1,3 +1,4 @@
+import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import { For, Show } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
@@ -23,6 +24,7 @@ type SplitRow = {
 
 type UnifiedRow = {
 	id: string;
+	lineIndex?: number;
 	kind: Exclude<DiffCellKind, "empty">;
 	deletionLineNumber?: number;
 	additionLineNumber?: number;
@@ -63,6 +65,10 @@ export type ReviewDiffBlockProps = {
 	hunk?: ReviewHunk;
 	rawPatch?: string;
 	filetype?: string;
+	onLineMouseDown?: (
+		line: ReviewDiffCommentableLine,
+		event: TuiMouseEvent,
+	) => void;
 };
 
 function getLineNumberWidth(hunk: ReviewHunk): number {
@@ -123,6 +129,7 @@ function cellForLine(
 function buildUnifiedRows(hunk: ReviewHunk): UnifiedRow[] {
 	return hunk.lines.map((line, index) => ({
 		id: `${hunk.id}:unified:${index}`,
+		lineIndex: index,
 		kind: line.kind,
 		deletionLineNumber: line.deletionLineNumber,
 		additionLineNumber: line.additionLineNumber,
@@ -381,10 +388,27 @@ function renderUnifiedRow(
 	row: UnifiedRow,
 	lineNumberWidth: number,
 	filetype: string | undefined,
+	hunk?: ReviewHunk,
+	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"],
 ) {
 	const bg = () => backgroundForKind(row.kind);
+	const commentableLine = () =>
+		hunk && row.lineIndex != null
+			? toCommentableLine(hunk.lines[row.lineIndex], row.lineIndex)
+			: null;
+	const handleMouseDown = (event: TuiMouseEvent) => {
+		const line = commentableLine();
+		if (!line) return;
+		onLineMouseDown?.(line, event);
+	};
 	return (
-		<box flexDirection="row" backgroundColor={bg()} height={1} flexShrink={0}>
+		<box
+			flexDirection="row"
+			backgroundColor={bg()}
+			height={1}
+			flexShrink={0}
+			onMouseDown={handleMouseDown}
+		>
 			<text fg={theme.textMuted} bg={bg()}>
 				{formatLineNumber(row.deletionLineNumber, lineNumberWidth)}
 			</text>
@@ -404,8 +428,19 @@ function renderSplitCell(
 	cell: DiffCell,
 	lineNumberWidth: number,
 	filetype: string | undefined,
+	hunk: ReviewHunk,
+	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"],
 ) {
 	const bg = () => backgroundForKind(cell.kind);
+	const commentableLine = () =>
+		cell.lineIndex != null
+			? toCommentableLine(hunk.lines[cell.lineIndex], cell.lineIndex)
+			: null;
+	const handleMouseDown = (event: TuiMouseEvent) => {
+		const line = commentableLine();
+		if (!line) return;
+		onLineMouseDown?.(line, event);
+	};
 	return (
 		<box
 			width="50%"
@@ -413,6 +448,7 @@ function renderSplitCell(
 			backgroundColor={bg()}
 			height={1}
 			flexShrink={0}
+			onMouseDown={handleMouseDown}
 		>
 			<text fg={theme.textMuted} bg={bg()}>
 				{formatLineNumber(cell.lineNumber, lineNumberWidth)}
@@ -476,7 +512,13 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 							<box flexDirection="column" gap={0}>
 								<For each={buildUnifiedRows(hunk())}>
 									{(row) =>
-										renderUnifiedRow(row, lineNumberWidth(), props.filetype)
+										renderUnifiedRow(
+											row,
+											lineNumberWidth(),
+											props.filetype,
+											hunk(),
+											props.onLineMouseDown,
+										)
 									}
 								</For>
 							</box>
@@ -495,11 +537,15 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 											row.deletion,
 											lineNumberWidth(),
 											props.filetype,
+											hunk(),
+											props.onLineMouseDown,
 										)}
 										{renderSplitCell(
 											row.addition,
 											lineNumberWidth(),
 											props.filetype,
+											hunk(),
+											props.onLineMouseDown,
 										)}
 									</box>
 								)}

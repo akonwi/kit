@@ -1,4 +1,4 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, MouseEvent as TuiMouseEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/solid";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
@@ -92,6 +92,7 @@ const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
 		{ key: "Esc", action: "close" },
 	],
 	patch: [
+		{ key: "Click", action: "comment line" },
 		{ key: "↑/↓ or j/k", action: "move cursor" },
 		{ key: "Tab / Shift+Tab", action: "change group" },
 		{ key: "Space", action: "toggle skipped section" },
@@ -912,6 +913,12 @@ export function ReviewContent(props: ReviewContentProps) {
 						hunk={hunk}
 						view={diffView()}
 						filetype={file.filetype}
+						onLineMouseDown={
+							interactive
+								? (line, event) =>
+										handleDiffLineMouseDown(file, hunk, line, event)
+								: undefined
+						}
 					/>
 					<Show when={interactive}>
 						<Show
@@ -1096,6 +1103,45 @@ export function ReviewContent(props: ReviewContentProps) {
 		const range = selectedRange();
 		if (!file || !range) return;
 		void openRangeNoteEditor(file, range);
+	}
+
+	function focusDiffLine(
+		file: ReviewFile,
+		hunk: ReviewHunk,
+		line: CommentableLine,
+		side?: ReviewSide,
+	) {
+		const hunkIndex = file.hunks.findIndex(
+			(candidate) => candidate.id === hunk.id,
+		);
+		if (hunkIndex >= 0) setActiveHunkIndex(file.id, hunkIndex);
+		setSelectedSectionId(file.id, null);
+		setMode("patch");
+		const lines = getCommentableLines(hunk, side, diffView());
+		const lineIndex = lines.findIndex(
+			(candidate) => candidate.index === line.index,
+		);
+		if (lineIndex >= 0) setSelectedLineIndex(hunk.id, lineIndex);
+	}
+
+	function handleDiffLineMouseDown(
+		file: ReviewFile,
+		hunk: ReviewHunk,
+		line: CommentableLine,
+		event: TuiMouseEvent,
+	) {
+		if (editorOpen() || event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+
+		setRangeAnchor(null);
+		focusDiffLine(file, hunk, line);
+		void openRangeNoteEditor(file, {
+			path: file.path,
+			side: line.side,
+			startLine: line.lineNumber,
+			endLine: line.lineNumber,
+		});
 	}
 
 	useKeyboard((e: KeyEvent) => {
