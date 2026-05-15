@@ -2,6 +2,7 @@ import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import { For, Show } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
+import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { syntaxStyle, theme } from "../../shell/theme";
 import type { ReviewHunk, ReviewLine } from "./model";
 
@@ -51,6 +52,7 @@ export type ReviewDiffAnnotationMetadata = {
 	side: ReviewDiffSide;
 	startLine: number;
 	endLine: number;
+	editing?: boolean;
 };
 
 export type ReviewDiffLineRange = {
@@ -65,6 +67,10 @@ export type ReviewDiffBlockProps = {
 	rawPatch?: string;
 	filetype?: string;
 	annotations?: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[];
+	annotationEditor?: {
+		onChange: (value: string) => void;
+		onSubmit: () => void;
+	};
 	onLineMouseDown?: (
 		line: ReviewDiffCommentableLine,
 		event: TuiMouseEvent,
@@ -241,7 +247,35 @@ export function getReviewDiffCommentableLines(
 	});
 }
 
-const COMMENT_ANNOTATION_HEIGHT = 3;
+const COMMENT_ANNOTATION_MIN_HEIGHT = 3;
+const EDITING_COMMENT_MIN_HEIGHT = 4;
+const COMMENT_ANNOTATION_MAX_HEIGHT = 12;
+const ESTIMATED_COMMENT_WRAP_COLUMNS = 72;
+
+function estimateTextLineCount(text: string): number {
+	const lines = text.length > 0 ? text.split("\n") : [""];
+	return lines.reduce(
+		(count, line) =>
+			count +
+			Math.max(1, Math.ceil(line.length / ESTIMATED_COMMENT_WRAP_COLUMNS)),
+		0,
+	);
+}
+
+function annotationHeight(
+	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata> | undefined,
+): number {
+	if (!annotation) return 0;
+	const contentLines = estimateTextLineCount(annotation.metadata.comment);
+	const minHeight = annotation.metadata.editing
+		? EDITING_COMMENT_MIN_HEIGHT
+		: COMMENT_ANNOTATION_MIN_HEIGHT;
+	const chromeHeight = annotation.metadata.editing ? 3 : 2;
+	return Math.min(
+		COMMENT_ANNOTATION_MAX_HEIGHT,
+		Math.max(minHeight, contentLines + chromeHeight),
+	);
+}
 
 type SplitAnnotationGroup = {
 	deletions: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[];
@@ -292,10 +326,13 @@ function unifiedAnnotationOffsetBeforeLine(
 	lineIndex: number,
 	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
 ): number {
-	return annotations.filter((annotation) => {
+	return annotations.reduce((offset, annotation) => {
 		const annotatedLineIndex = annotationLineIndex(hunk, annotation);
-		return annotatedLineIndex != null && annotatedLineIndex < lineIndex;
-	}).length;
+		if (annotatedLineIndex == null || annotatedLineIndex >= lineIndex) {
+			return offset;
+		}
+		return offset + annotationHeight(annotation);
+	}, 0);
 }
 
 function splitAnnotationOffsetBeforeRow(
@@ -303,12 +340,21 @@ function splitAnnotationOffsetBeforeRow(
 	rowIndex: number,
 	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[],
 ): number {
-	let annotationRows = 0;
+	let offset = 0;
 	for (const row of rows.slice(0, rowIndex)) {
 		const group = getSplitAnnotationsAfterRow(row, annotations);
-		annotationRows += Math.max(group.deletions.length, group.additions.length);
+		for (
+			let index = 0;
+			index < Math.max(group.deletions.length, group.additions.length);
+			index += 1
+		) {
+			offset += Math.max(
+				annotationHeight(group.deletions[index]),
+				annotationHeight(group.additions[index]),
+			);
+		}
 	}
-	return annotationRows;
+	return offset;
 }
 
 export function getReviewDiffLineTop(
@@ -320,8 +366,7 @@ export function getReviewDiffLineTop(
 	if (view === "unified") {
 		return (
 			lineIndex +
-			unifiedAnnotationOffsetBeforeLine(hunk, lineIndex, annotations) *
-				COMMENT_ANNOTATION_HEIGHT
+			unifiedAnnotationOffsetBeforeLine(hunk, lineIndex, annotations)
 		);
 	}
 	const rows = buildSplitRows(hunk);
@@ -331,11 +376,7 @@ export function getReviewDiffLineTop(
 			row.addition.lineIndex === lineIndex,
 	);
 	if (rowIndex < 0) return lineIndex;
-	return (
-		rowIndex +
-		splitAnnotationOffsetBeforeRow(rows, rowIndex, annotations) *
-			COMMENT_ANNOTATION_HEIGHT
-	);
+	return rowIndex + splitAnnotationOffsetBeforeRow(rows, rowIndex, annotations);
 }
 
 export function getReviewDiffRangeBounds(
@@ -440,7 +481,28 @@ function renderContentText(
 
 function renderAnnotationContent(
 	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata>,
+	editor?: ReviewDiffBlockProps["annotationEditor"],
 ) {
+	if (annotation.metadata.editing && editor) {
+		let textareaRef: TextareaRef | undefined;
+		return (
+			<MessageComposer
+				ref={(value) => {
+					textareaRef = value;
+				}}
+				initialValue={annotation.metadata.comment}
+				placeholder="Type your review note..."
+				backgroundColor={theme.bgTransparent}
+				focusedBackgroundColor={theme.bgTransparent}
+				keyBindings={[
+					{ name: "return", action: "submit" },
+					{ name: "return", shift: true, action: "newline" },
+				]}
+				onContentChange={() => editor.onChange(textareaRef?.plainText ?? "")}
+				onSubmit={editor.onSubmit}
+			/>
+		);
+	}
 	return (
 		<box
 			border
@@ -448,7 +510,7 @@ function renderAnnotationContent(
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
 			width="100%"
-			height={COMMENT_ANNOTATION_HEIGHT}
+			height={annotationHeight(annotation)}
 			flexShrink={0}
 		>
 			<text fg={theme.textPrimary} bg={theme.bgSurface}>
@@ -460,33 +522,47 @@ function renderAnnotationContent(
 
 function renderUnifiedAnnotationRow(
 	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata>,
+	editor?: ReviewDiffBlockProps["annotationEditor"],
 ) {
 	return (
-		<box height={COMMENT_ANNOTATION_HEIGHT} flexShrink={0} width="100%">
-			{renderAnnotationContent(annotation)}
+		<box height={annotationHeight(annotation)} flexShrink={0} width="100%">
+			{renderAnnotationContent(annotation, editor)}
 		</box>
 	);
 }
 
 function renderSplitAnnotationCell(
 	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata> | undefined,
+	rowHeight: number,
+	editor?: ReviewDiffBlockProps["annotationEditor"],
 ) {
 	return (
-		<box width="50%" height={COMMENT_ANNOTATION_HEIGHT} flexShrink={0}>
+		<box width="50%" height={rowHeight} flexShrink={0}>
 			<Show when={annotation}>
-				{(value) => renderAnnotationContent(value())}
+				{(value) => renderAnnotationContent(value(), editor)}
 			</Show>
 		</box>
 	);
 }
 
-function renderSplitAnnotationRows(group: SplitAnnotationGroup) {
+function renderSplitAnnotationRows(
+	group: SplitAnnotationGroup,
+	editor?: ReviewDiffBlockProps["annotationEditor"],
+) {
 	const rows = Array.from(
 		{ length: Math.max(group.deletions.length, group.additions.length) },
-		(_, index) => ({
-			deletion: group.deletions[index],
-			addition: group.additions[index],
-		}),
+		(_, index) => {
+			const deletion = group.deletions[index];
+			const addition = group.additions[index];
+			return {
+				deletion,
+				addition,
+				height: Math.max(
+					annotationHeight(deletion),
+					annotationHeight(addition),
+				),
+			};
+		},
 	);
 	return (
 		<For each={rows}>
@@ -494,11 +570,11 @@ function renderSplitAnnotationRows(group: SplitAnnotationGroup) {
 				<box
 					flexDirection="row"
 					width="100%"
-					height={COMMENT_ANNOTATION_HEIGHT}
+					height={row.height}
 					flexShrink={0}
 				>
-					{renderSplitAnnotationCell(row.deletion)}
-					{renderSplitAnnotationCell(row.addition)}
+					{renderSplitAnnotationCell(row.deletion, row.height, editor)}
+					{renderSplitAnnotationCell(row.addition, row.height, editor)}
 				</box>
 			)}
 		</For>
@@ -650,7 +726,12 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 													annotations(),
 												)}
 											>
-												{(annotation) => renderUnifiedAnnotationRow(annotation)}
+												{(annotation) =>
+													renderUnifiedAnnotationRow(
+														annotation,
+														props.annotationEditor,
+													)
+												}
 											</For>
 										</>
 									)}
@@ -685,6 +766,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 										</box>
 										{renderSplitAnnotationRows(
 											getSplitAnnotationsAfterRow(row, annotations()),
+											props.annotationEditor,
 										)}
 									</>
 								)}

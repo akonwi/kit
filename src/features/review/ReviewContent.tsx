@@ -231,6 +231,27 @@ function buildLineSelection(
 	};
 }
 
+function rangeToAnnotation(
+	range: ReviewRangeDraft,
+	comment: string,
+	options?: { editing?: boolean },
+): DiffLineAnnotation<ReviewDiffAnnotationMetadata> {
+	const startLine = Math.min(range.startLine, range.endLine);
+	const endLine = Math.max(range.startLine, range.endLine);
+	return {
+		side: range.side,
+		lineNumber: endLine,
+		metadata: {
+			key: buildRangeNoteKey(range),
+			comment,
+			side: range.side,
+			startLine,
+			endLine,
+			...(options?.editing ? { editing: true } : {}),
+		},
+	};
+}
+
 function buildSavedCommentAnnotations(
 	path: string,
 	rangeNotes: Map<string, string>,
@@ -240,17 +261,7 @@ function buildSavedCommentAnnotations(
 		if (!value.trim()) continue;
 		const range = parseRangeNoteKey(key);
 		if (!range || range.path !== path) continue;
-		annotations.push({
-			side: range.side,
-			lineNumber: range.endLine,
-			metadata: {
-				key,
-				comment: value.trim(),
-				side: range.side,
-				startLine: range.startLine,
-				endLine: range.endLine,
-			},
-		});
+		annotations.push(rangeToAnnotation(range, value.trim()));
 	}
 	return annotations;
 }
@@ -312,6 +323,10 @@ export function ReviewContent(props: ReviewContentProps) {
 		props.defaultDiffView,
 	);
 	const [rangeAnchor, setRangeAnchor] = createSignal<RangeAnchor | null>(null);
+	const [editingRange, setEditingRange] = createSignal<ReviewRangeDraft | null>(
+		null,
+	);
+	const [editingRangeValue, setEditingRangeValue] = createSignal("");
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
 	let listScrollRef: ScrollRef | undefined;
@@ -434,7 +449,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 	const selectedFileCommentAnnotations = createMemo(() => {
 		const file = selectedFile();
-		return file ? buildSavedCommentAnnotations(file.path, rangeNotes()) : [];
+		if (!file) return [];
+		const editing = editingRange();
+		const editingKey = editing ? buildRangeNoteKey(editing) : null;
+		const saved = buildSavedCommentAnnotations(file.path, rangeNotes()).filter(
+			(annotation) => annotation.metadata.key !== editingKey,
+		);
+		if (!editing || editing.path !== file.path) return saved;
+		return [
+			...saved,
+			rangeToAnnotation(editing, editingRangeValue(), { editing: true }),
+		];
 	});
 	const anchorLineTop = createMemo(() => {
 		const anchor = rangeAnchor();
@@ -883,6 +908,14 @@ export function ReviewContent(props: ReviewContentProps) {
 						view={diffView()}
 						filetype={file.filetype}
 						annotations={annotations()}
+						annotationEditor={
+							editingRange()
+								? {
+										onChange: setEditingRangeValue,
+										onSubmit: saveRangeNoteEditor,
+									}
+								: undefined
+						}
 						onLineMouseDown={
 							interactive
 								? (line, event) =>
@@ -991,30 +1024,29 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	async function openRangeNoteEditor(
-		file: ReviewFile,
+		_file: ReviewFile,
 		range: ReviewRangeDraft,
 	) {
+		const key = buildRangeNoteKey(range);
+		setEditingRange(range);
+		setEditingRangeValue(rangeNotes().get(key) ?? "");
 		setEditorOpen(true);
-		try {
-			const key = buildRangeNoteKey(range);
-			const nextValue = await props.openCustomOverlay<string | null>(
-				(overlayProps) => (
-					<ReviewNoteModal
-						surfaceProps={overlayProps.surfaceProps}
-						title={`${range.startLine === range.endLine ? "Line" : "Range"} note · ${file.path}`}
-						subtitle={lineRangeLabel(range)}
-						initialValue={rangeNotes().get(key) ?? ""}
-						placeholder="Comment on the selected line or range..."
-						onClose={overlayProps.done}
-					/>
-				),
-			);
-			if (nextValue === null) return;
-			setRangeNotes((prev) => setMapValue(prev, key, nextValue));
-		} finally {
-			setEditorOpen(false);
-			setRangeAnchor(null);
-		}
+	}
+
+	function closeRangeNoteEditor() {
+		setEditingRange(null);
+		setEditingRangeValue("");
+		setEditorOpen(false);
+		setRangeAnchor(null);
+	}
+
+	function saveRangeNoteEditor() {
+		const range = editingRange();
+		if (!range) return;
+		setRangeNotes((prev) =>
+			setMapValue(prev, buildRangeNoteKey(range), editingRangeValue()),
+		);
+		closeRangeNoteEditor();
 	}
 
 	function clearSelectedFileNote() {
@@ -1115,7 +1147,13 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	useKeyboard((e: KeyEvent) => {
-		if (editorOpen()) return;
+		if (editorOpen()) {
+			if (editingRange() && e.name === "escape") {
+				e.preventDefault();
+				closeRangeNoteEditor();
+			}
+			return;
+		}
 		if (mode() === "patch") {
 			if (e.name === "escape") {
 				e.preventDefault();
