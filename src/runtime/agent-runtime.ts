@@ -90,6 +90,13 @@ Do not continue the conversation.
 Do not answer the user's requests.
 Only produce a compact summary of child-session work that should be merged back into the parent session.`;
 
+const RETRYABLE_PROVIDER_ERROR_PATTERN =
+	/overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?ended|connection.?refused|websocket.?closed|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|timed? out|timeout|terminated|retry delay/i;
+
+export function isRetryableProviderErrorMessage(errorMessage: string): boolean {
+	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
+}
+
 export type RuntimeStatus = {
 	model: string;
 	thinkingLevel: string;
@@ -498,9 +505,7 @@ export class AgentRuntime {
 	): boolean {
 		if (message.stopReason !== "error" || !message.errorMessage) return false;
 		if (this.isContextOverflowError(message)) return false;
-		return /overloaded|provider.?returned.?error|rate.?limit|too many requests|429|500|502|503|504|service.?unavailable|server.?error|internal.?error|network.?error|connection.?error|connection.?refused|other side closed|fetch failed|upstream.?connect|reset before headers|socket hang up|timed? out|timeout|terminated|retry delay/i.test(
-			message.errorMessage,
-		);
+		return isRetryableProviderErrorMessage(message.errorMessage);
 	}
 
 	private createRecoveryPromiseForAgentEnd(event: AgentEvent): void {
