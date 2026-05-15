@@ -114,10 +114,16 @@ export type SyntaxPalette = {
 	label: string;
 };
 
+/** A fully resolved theme with all tokens filled in (except modalBackdrop). */
+export type ResolvedTheme = {
+	tokens: Omit<ThemeTokens, "modalBackdrop">;
+	syntaxPalette: SyntaxPalette;
+};
+
 /**
  * A partial theme definition for overrides.
- * User themes and the system theme provide partial overrides
- * that get merged with kit defaults.
+ * User themes provide partial overrides
+ * that get merged on top of the system theme.
  */
 export type ThemeDefinition = {
 	tokens?: Partial<Omit<ThemeTokens, "modalBackdrop">>;

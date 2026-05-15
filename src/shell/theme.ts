@@ -14,14 +14,23 @@ import {
 } from "@opentui/core";
 import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { KIT_SYNTAX_PALETTE, KIT_TOKENS } from "./themes/kit";
 import { loadUserTheme } from "./themes/loader";
-import { buildSystemTheme } from "./themes/system";
-import type { SyntaxPalette, ThemeTokens } from "./themes/types";
+import { buildDefaultTheme, buildSystemTheme, parseHex } from "./themes/system";
+import type { ResolvedTheme, SyntaxPalette, ThemeTokens } from "./themes/types";
 
 // ── Reactive theme store ────────────────────────────────────────────
 
-const [theme, setTheme] = createStore<ThemeTokens>({ ...KIT_TOKENS });
+function modalBackdropFromBg(bg: string): RGBA {
+	const [r, g, b] = parseHex(bg);
+	return RGBA.fromInts(r, g, b, 180);
+}
+
+const initialTheme = buildDefaultTheme();
+
+const [theme, setTheme] = createStore<ThemeTokens>({
+	...initialTheme.tokens,
+	modalBackdrop: modalBackdropFromBg(initialTheme.tokens.bg),
+});
 export { theme };
 
 // ── Syntax style ────────────────────────────────────────────────────
@@ -200,7 +209,7 @@ function buildSyntaxStyle(p: SyntaxPalette): SyntaxStyle {
 }
 
 const [syntaxStyle, setSyntaxStyle] = createSignal<SyntaxStyle>(
-	buildSyntaxStyle(KIT_SYNTAX_PALETTE),
+	buildSyntaxStyle(initialTheme.syntaxPalette),
 );
 export { syntaxStyle };
 
@@ -211,9 +220,47 @@ type PaletteSource = {
 };
 
 let cachedRenderer: PaletteSource | null = null;
+let cachedSystemTheme: ResolvedTheme | null = null;
+let cachedSystemThemePromise: Promise<ResolvedTheme> | null = null;
+
+function cloneResolvedTheme(resolved: ResolvedTheme): ResolvedTheme {
+	return {
+		tokens: { ...resolved.tokens },
+		syntaxPalette: { ...resolved.syntaxPalette },
+	};
+}
+
+async function resolveSystemThemeBase(): Promise<ResolvedTheme> {
+	if (cachedSystemTheme) return cloneResolvedTheme(cachedSystemTheme);
+
+	cachedSystemThemePromise ??= (async () => {
+		if (cachedRenderer) {
+			try {
+				const termColors = await cachedRenderer.getPalette({ timeout: 2000 });
+				return buildSystemTheme(termColors);
+			} catch {
+				// Terminal doesn't support palette queries — use xterm defaults
+				return buildDefaultTheme();
+			}
+		}
+
+		return buildDefaultTheme();
+	})();
+
+	try {
+		cachedSystemTheme = await cachedSystemThemePromise;
+		return cloneResolvedTheme(cachedSystemTheme);
+	} finally {
+		cachedSystemThemePromise = null;
+	}
+}
 
 /**
  * Resolve a theme by name and apply it to the reactive theme store.
+ *
+ * The system theme is always resolved first as the base. User themes
+ * from ~/.kit/themes/ are layered on top as partial overrides.
+ *
  * On first call, pass the renderer so the system theme can query
  * the terminal palette. Subsequent calls reuse the cached renderer.
  */
@@ -221,32 +268,43 @@ export async function resolveAndApplyTheme(
 	themeName: string,
 	renderer?: PaletteSource,
 ): Promise<void> {
-	if (renderer) cachedRenderer = renderer;
+	if (renderer && renderer !== cachedRenderer) {
+		cachedRenderer = renderer;
+		cachedSystemTheme = null;
+		cachedSystemThemePromise = null;
+	}
 
-	let tokenOverrides: Partial<ThemeTokens> = {};
-	let syntaxOverrides: Partial<SyntaxPalette> = {};
+	// Always resolve the system theme as the base
+	let resolved = await resolveSystemThemeBase();
 
-	if (themeName === "system" && cachedRenderer) {
-		try {
-			const termColors = await cachedRenderer.getPalette({ timeout: 2000 });
-			const systemDef = buildSystemTheme(termColors);
-			tokenOverrides = systemDef.tokens ?? {};
-			syntaxOverrides = systemDef.syntaxPalette ?? {};
-		} catch {
-			// Terminal doesn't support palette queries — keep kit defaults
-		}
-	} else if (themeName !== "kit") {
+	// Layer user theme overrides on top of the system theme
+	if (themeName !== "system") {
 		const userDef = await loadUserTheme(themeName);
 		if (userDef) {
-			tokenOverrides = userDef.tokens ?? {};
-			syntaxOverrides = userDef.syntaxPalette ?? {};
+			if (userDef.tokens) {
+				resolved = {
+					...resolved,
+					tokens: { ...resolved.tokens, ...userDef.tokens },
+				};
+			}
+			if (userDef.syntaxPalette) {
+				resolved = {
+					...resolved,
+					syntaxPalette: {
+						...resolved.syntaxPalette,
+						...userDef.syntaxPalette,
+					},
+				};
+			}
 		}
 	}
 
-	// Update reactive store — components re-render automatically
-	setTheme(reconcile({ ...KIT_TOKENS, ...tokenOverrides }));
-
-	// Rebuild syntax style signal
-	const mergedPalette = { ...KIT_SYNTAX_PALETTE, ...syntaxOverrides };
-	setSyntaxStyle(buildSyntaxStyle(mergedPalette));
+	// Apply to reactive stores
+	setTheme(
+		reconcile({
+			...resolved.tokens,
+			modalBackdrop: modalBackdropFromBg(resolved.tokens.bg),
+		}),
+	);
+	setSyntaxStyle(buildSyntaxStyle(resolved.syntaxPalette));
 }

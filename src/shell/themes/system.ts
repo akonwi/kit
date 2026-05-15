@@ -1,6 +1,5 @@
 import type { TerminalColors } from "@opentui/core";
-import { KIT_TOKENS } from "./kit";
-import type { ThemeDefinition } from "./types";
+import type { ResolvedTheme } from "./types";
 
 // ── ANSI 16 palette indices ──────────────────────────────────────────
 
@@ -23,9 +22,43 @@ const ANSI = {
 	BRIGHT_WHITE: 15,
 } as const;
 
+// ── Standard xterm fallback palette ──────────────────────────────────
+
+const XTERM_PALETTE: string[] = [
+	"#000000", // 0  black
+	"#800000", // 1  red
+	"#008000", // 2  green
+	"#808000", // 3  yellow
+	"#000080", // 4  blue
+	"#800080", // 5  magenta
+	"#008080", // 6  cyan
+	"#C0C0C0", // 7  white
+	"#808080", // 8  bright black
+	"#FF0000", // 9  bright red
+	"#00FF00", // 10 bright green
+	"#FFFF00", // 11 bright yellow
+	"#0000FF", // 12 bright blue
+	"#FF00FF", // 13 bright magenta
+	"#00FFFF", // 14 bright cyan
+	"#FFFFFF", // 15 bright white
+];
+
+const DEFAULT_TERMINAL_COLORS: TerminalColors = {
+	palette: XTERM_PALETTE,
+	defaultBackground: "#000000",
+	defaultForeground: "#C0C0C0",
+	cursorColor: "#FFFFFF",
+	mouseForeground: "#000000",
+	mouseBackground: "#FFFFFF",
+	tekForeground: "#000000",
+	tekBackground: "#FFFFFF",
+	highlightBackground: "#C0C0C0",
+	highlightForeground: "#000000",
+};
+
 // ── Color utilities ──────────────────────────────────────────────────
 
-function parseHex(hex: string): [number, number, number] {
+export function parseHex(hex: string): [number, number, number] {
 	const h = hex.replace("#", "");
 	return [
 		parseInt(h.slice(0, 2), 16),
@@ -57,23 +90,42 @@ function tint(base: string, accent: string, opacity: number): string {
 
 // ── System theme builder ─────────────────────────────────────────────
 
-export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
+export function buildSystemTheme(colors: TerminalColors): ResolvedTheme {
 	const p = (index: number): string | null => colors.palette[index] ?? null;
 
-	const bg = colors.defaultBackground ?? p(ANSI.BLACK) ?? KIT_TOKENS.bg;
-	const fg =
-		colors.defaultForeground ?? p(ANSI.WHITE) ?? KIT_TOKENS.textPrimary;
+	const bg = colors.defaultBackground ?? p(ANSI.BLACK) ?? "#000000";
+	const fg = colors.defaultForeground ?? p(ANSI.WHITE) ?? "#C0C0C0";
+	const isDark = luminance(bg) < 0.5;
 
-	const red = p(ANSI.RED) ?? KIT_TOKENS.errorText;
-	const green = p(ANSI.GREEN) ?? KIT_TOKENS.toolText;
-	const yellow = p(ANSI.YELLOW) ?? KIT_TOKENS.warningText;
-	const blue = p(ANSI.BLUE) ?? KIT_TOKENS.userText;
-	const magenta = p(ANSI.MAGENTA) ?? KIT_TOKENS.reviewText;
-	const cyan = p(ANSI.CYAN) ?? KIT_TOKENS.metaText;
+	// On dark backgrounds prefer bright ANSI variants for readability;
+	// on light backgrounds prefer the dim variants.
+	const ansiColor = (
+		dim: number,
+		bright: number,
+		darkFallback: string,
+		lightFallback: string,
+	): string =>
+		(isDark ? (p(bright) ?? p(dim)) : (p(dim) ?? p(bright))) ??
+		(isDark ? darkFallback : lightFallback);
+
+	const red = ansiColor(ANSI.RED, ANSI.BRIGHT_RED, "#FF5555", "#CC0000");
+	const green = ansiColor(ANSI.GREEN, ANSI.BRIGHT_GREEN, "#55FF55", "#005500");
+	const yellow = ansiColor(
+		ANSI.YELLOW,
+		ANSI.BRIGHT_YELLOW,
+		"#FFFF55",
+		"#888800",
+	);
+	const blue = ansiColor(ANSI.BLUE, ANSI.BRIGHT_BLUE, "#5555FF", "#0000CC");
+	const magenta = ansiColor(
+		ANSI.MAGENTA,
+		ANSI.BRIGHT_MAGENTA,
+		"#FF55FF",
+		"#880088",
+	);
+	const cyan = ansiColor(ANSI.CYAN, ANSI.BRIGHT_CYAN, "#55FFFF", "#008888");
 
 	const brightWhite = p(ANSI.BRIGHT_WHITE) ?? fg;
-
-	const isDark = luminance(bg) < 0.5;
 
 	// Grayscale ramp interpolated between bg and fg
 	const bgSurface = lerp(bg, fg, isDark ? 0.05 : 0.03);
@@ -90,6 +142,12 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 	const diffRemovedContentBg = tint(bg, red, 0.08);
 	const diffAddedLineNumberBg = tint(bg, green, 0.06);
 	const diffRemovedLineNumberBg = tint(bg, red, 0.06);
+
+	// Diff cursor — stronger tint for the active line
+	const diffCursorBg = lerp(bg, fg, isDark ? 0.25 : 0.2);
+	const diffCursorGutterBg = bgAccent;
+	const diffCursorAddedBg = tint(bg, green, 0.2);
+	const diffCursorRemovedBg = tint(bg, red, 0.2);
 
 	return {
 		tokens: {
@@ -153,6 +211,10 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 			diffRemovedContentBg,
 			diffAddedLineNumberBg,
 			diffRemovedLineNumberBg,
+			diffCursorBg,
+			diffCursorGutterBg,
+			diffCursorAddedBg,
+			diffCursorRemovedBg,
 		},
 		syntaxPalette: {
 			text: fg,
@@ -186,4 +248,12 @@ export function buildSystemTheme(colors: TerminalColors): ThemeDefinition {
 			label: blue,
 		},
 	};
+}
+
+/**
+ * Build a theme from the standard xterm fallback palette.
+ * Used as the initial store value before the terminal palette is queried.
+ */
+export function buildDefaultTheme(): ResolvedTheme {
+	return buildSystemTheme(DEFAULT_TERMINAL_COLORS);
 }

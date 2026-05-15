@@ -6,7 +6,7 @@ import { getKitPaths, type KitPaths } from "./paths";
 export type ReviewDiffView = "unified" | "split";
 
 export type Settings = {
-	/** Theme name: "kit" (default), "system", or a custom theme from ~/.kit/themes/ */
+	/** Theme name: "system" (default) or a custom theme from ~/.kit/themes/ */
 	theme?: string;
 	/** Enable terminal bell on turn complete */
 	bells?: boolean;

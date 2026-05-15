@@ -127,7 +127,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	const [voiceSelectedIndex, setVoiceSelectedIndex] = createSignal(0);
 
 	const themeOptions: SettingsSelectOption[] = [
-		{ name: "Kit", description: "", value: "kit" },
 		{ name: "System", description: "", value: "system" },
 		...props.userThemes.map((name) => ({
 			name: name.charAt(0).toUpperCase() + name.slice(1),
@@ -430,7 +429,7 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		switch (field) {
 			case "theme":
 				setThemeSelectedIndex(index);
-				setThemeDraft(String(value ?? "kit"));
+				setThemeDraft(String(value ?? "system"));
 				return;
 			case "diffs.view":
 				setReviewDiffViewSelectedIndex(index);
@@ -468,7 +467,7 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	async function commitEdit(field = editingField()): Promise<boolean> {
 		if (!field) return true;
 		if (field === "theme") {
-			const value = themeDraft().trim() || "kit";
+			const value = themeDraft().trim() || "system";
 			const ok = await persist({
 				...cloneSettings(settings()),
 				theme: value,
