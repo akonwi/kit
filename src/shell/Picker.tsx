@@ -68,7 +68,9 @@ function Root(props: RootProps) {
 		<PickerContext.Provider
 			value={{ picker: props.picker, snapshot, maxVisible }}
 		>
-			{props.children}
+			<box flexDirection="column" gap={1}>
+				{props.children}
+			</box>
 		</PickerContext.Provider>
 	);
 }
@@ -79,7 +81,7 @@ function Header() {
 	const { picker, snapshot } = usePickerContext();
 
 	return (
-		<box flexDirection="column" paddingY={1}>
+		<box flexDirection="column" paddingTop={1}>
 			{/* Input mode */}
 			<Show when={snapshot().mode === "input"}>
 				<text fg={theme.textMuted}>{snapshot().label}</text>
