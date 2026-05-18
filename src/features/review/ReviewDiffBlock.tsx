@@ -131,22 +131,44 @@ function textColorForKind(kind: ReviewDiffCellKind): string {
 	return theme.textPrimary;
 }
 
+type ScrollableTextRenderable = {
+	scrollX: number;
+	scrollY: number;
+};
+
+function resetLineTextScroll(ref: ScrollableTextRenderable | undefined) {
+	// OpenTUI dispatches mouse listeners before a text renderable's own
+	// scroll handler, and stopPropagation would block the parent scrollbox.
+	// Defer the reset so the diff scrollbox can scroll while the line-local
+	// text buffer offset is restored after its internal handler runs.
+	queueMicrotask(() => {
+		if (!ref) return;
+		ref.scrollX = 0;
+		ref.scrollY = 0;
+	});
+}
+
 function renderContentText(
 	text: string,
 	kind: ReviewDiffCellKind,
 	filetype: string | undefined,
 	backgroundColor?: Accessor<string>,
 ) {
+	let contentRef: ScrollableTextRenderable | undefined;
 	const bg = () => backgroundColor?.() ?? contentBackgroundForKind(kind);
 	if (filetype && kind !== "metadata" && kind !== "empty") {
 		return (
 			<code
+				ref={(value) => {
+					contentRef = value as ScrollableTextRenderable | undefined;
+				}}
 				content={text}
 				filetype={filetype}
 				syntaxStyle={syntaxStyle()}
 				fg={textColorForKind(kind)}
 				bg={bg()}
 				wrapMode="none"
+				onMouseScroll={() => resetLineTextScroll(contentRef)}
 				flexGrow={1}
 				height={1}
 				flexShrink={0}
@@ -155,8 +177,12 @@ function renderContentText(
 	}
 	return (
 		<text
+			ref={(value) => {
+				contentRef = value as ScrollableTextRenderable | undefined;
+			}}
 			fg={textColorForKind(kind)}
 			bg={bg()}
+			onMouseScroll={() => resetLineTextScroll(contentRef)}
 			flexGrow={1}
 			height={1}
 			flexShrink={0}

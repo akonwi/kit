@@ -160,7 +160,14 @@ Troubleshooting?
 - Text styling not applying -> `components/text-display.md`
 - Input focus/shortcuts -> `keyboard/REFERENCE.md`
 - Layout misalignment -> `layout/REFERENCE.md`
+- Mouse wheel scroll issues in nested scrollboxes -> see note below
 - Flaky snapshots -> `testing/REFERENCE.md`
+
+#### Mouse wheel events and nested scrollboxes
+
+OpenTUI dispatches mouse events to the deepest renderable under the pointer before bubbling to parents. `text` and `code` are text-buffer renderables with their own internal scroll state, so a mouse wheel event over text/code inside a parent `scrollbox` may scroll the line-local text buffer before the parent scrollbox handles the event. This can make single-line content appear to disappear or shift under the cursor.
+
+Do not use `stopPropagation()` if the parent scrollbox still needs to scroll. `preventDefault()` is not checked by the internal text-buffer scroll handler. A targeted workaround is to let the event bubble, then restore the child text/code renderable's local scroll offset after its internal handler runs, for example via `queueMicrotask(() => { ref.scrollX = 0; ref.scrollY = 0; })`.
 
 For component naming differences and text modifiers, see `components/REFERENCE.md`.
 
