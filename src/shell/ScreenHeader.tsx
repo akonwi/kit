@@ -51,10 +51,23 @@ export function ScreenHeader(props: ScreenHeaderProps) {
 				paddingX={1}
 				width="100%"
 				flexDirection="row"
+				flexWrap="wrap"
 				justifyContent="space-between"
+				gap={1}
 			>
-				{props.left}
-				{props.right}
+				<box flexGrow={1} flexShrink={0} maxWidth="100%" overflow="hidden">
+					{props.left}
+				</box>
+				<Show when={props.right}>
+					<box
+						flexShrink={0}
+						maxWidth="100%"
+						overflow="hidden"
+						justifyContent="flex-end"
+					>
+						{props.right}
+					</box>
+				</Show>
 			</box>
 
 			<Show when={props.progress != null && filled() > 0}>

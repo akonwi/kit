@@ -73,12 +73,23 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			paddingX={1}
 			width="100%"
 			flexDirection="row"
+			flexWrap="wrap"
 			justifyContent="space-between"
+			gap={1}
 		>
-			<Show when={leftText()} fallback={<text />}>
-				<text fg={leftColor()}>{leftText()}</text>
+			<box flexGrow={1} flexShrink={0} maxWidth="100%" overflow="hidden">
+				<text fg={leftColor()}>{leftText() || " "}</text>
+			</box>
+			<Show when={rightText()}>
+				<box
+					flexShrink={0}
+					maxWidth="100%"
+					overflow="hidden"
+					justifyContent="flex-end"
+				>
+					<text fg={theme.textMuted}>{rightText()}</text>
+				</box>
 			</Show>
-			<text fg={theme.textMuted}>{rightText()}</text>
 		</box>
 	);
 }
