@@ -30,7 +30,15 @@ function createPluginContext(
 			getTranscriptViewport: () => null,
 		},
 		attachments: {} as PluginContext["attachments"],
-		status: {
+		footer: {
+			setContribution: () => {},
+			clearContribution: () => {},
+			clearNamespace: () => {},
+			hideContribution: () => () => {},
+			getContributions: () => [],
+			subscribe: () => () => {},
+		},
+		header: {
 			setContribution: () => {},
 			clearContribution: () => {},
 			clearNamespace: () => {},

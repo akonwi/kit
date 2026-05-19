@@ -167,11 +167,14 @@ export type FooterStatusOptions = {
 	side?: FooterStatusSide;
 };
 
-type FooterAPI = {
+type ChromeContributionAPI = {
 	set: (id: string, label: string, options?: FooterStatusOptions) => void;
 	clear: (id: string) => void;
 	hide: (id: string) => Disposer;
 };
+
+type FooterAPI = ChromeContributionAPI;
+type HeaderAPI = ChromeContributionAPI;
 
 type SystemAPI = {
 	readonly cwd: string;
@@ -185,6 +188,7 @@ export type EventContext = {
 	settings: SettingsAPI;
 	model: ModelAPI;
 	footer: FooterAPI;
+	header: HeaderAPI;
 	system: SystemAPI;
 };
 
@@ -215,6 +219,7 @@ export interface PluginAPI {
 	settings: SettingsAPI;
 	model: ModelAPI;
 	footer: FooterAPI;
+	header: HeaderAPI;
 	system: SystemAPI;
 	on(handler: EventHandler): Disposer;
 	on<Type extends string>(type: Type, handler: EventHandler<Type>): Disposer;

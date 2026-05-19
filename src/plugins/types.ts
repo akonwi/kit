@@ -15,6 +15,7 @@ import type { Session as KitSession } from "../session";
 import type { Settings as KitSettings, LoadedSettings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
 import type { FooterStatusController } from "../shell/footer-status";
+import type { HeaderStatusController } from "../shell/header-status";
 import type {
 	CommandOptions,
 	Disposer,
@@ -73,7 +74,8 @@ export type PluginContext = {
 	settings: LoadedSettings;
 	ui: InternalPluginUI;
 	attachments: AttachmentsController;
-	status: FooterStatusController;
+	footer: FooterStatusController;
+	header: HeaderStatusController;
 };
 
 export type InternalPluginSessionAPI = {
@@ -102,6 +104,7 @@ export type InternalPluginVcsAPI = {
 };
 
 export type InternalPluginFooterAPI = PluginAPI["footer"];
+export type InternalPluginHeaderAPI = PluginAPI["header"];
 
 export type InternalPluginSystemAPI = {
 	readonly cwd: string;
@@ -116,6 +119,7 @@ export type InternalPluginEventContext = {
 	model: InternalPluginModelAPI;
 	vcs: InternalPluginVcsAPI;
 	footer: InternalPluginFooterAPI;
+	header: InternalPluginHeaderAPI;
 	system: InternalPluginSystemAPI;
 };
 
@@ -144,6 +148,7 @@ export interface InternalPluginAPI {
 	model: InternalPluginModelAPI;
 	vcs: InternalPluginVcsAPI;
 	footer: InternalPluginFooterAPI;
+	header: InternalPluginHeaderAPI;
 	system: InternalPluginSystemAPI;
 	on(handler: InternalPluginEventHandler): Disposer;
 	on<K extends RuntimeEventName>(

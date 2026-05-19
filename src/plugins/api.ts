@@ -153,36 +153,44 @@ export function createPluginAPI(
 		get: () => ctx.runtime.vcsInfo,
 	};
 
-	function requireFooterItemId(id: string): string {
+	function requireChromeItemId(id: string): string {
 		const itemId = id.trim();
-		if (!itemId) throw new Error("Footer item id is required.");
+		if (!itemId) throw new Error("Chrome item id is required.");
 		return itemId;
 	}
 
-	function footerItemId(id: string): string {
-		return `${options.name}:${requireFooterItemId(id)}`;
+	function namespacedChromeItemId(id: string): string {
+		return `${options.name}:${requireChromeItemId(id)}`;
 	}
 
-	const footer = {
-		set: (
-			id: string,
-			label: string,
-			itemOptions?: Parameters<PluginAPI["footer"]["set"]>[2],
-		) => {
-			ctx.status.setContribution({
-				id: footerItemId(id),
-				label,
-				side: itemOptions?.side,
-			});
-		},
-		clear: (id: string) => {
-			ctx.status.clearContribution(footerItemId(id));
-		},
-		hide: (id: string) => {
-			return track(ctx.status.hideContribution(requireFooterItemId(id)));
-		},
-	};
-	track(() => ctx.status.clearNamespace(options.name));
+	function createChromeApi(
+		controller: PluginContext["footer"] | PluginContext["header"],
+	) {
+		return {
+			set: (
+				id: string,
+				label: string,
+				itemOptions?: Parameters<PluginAPI["footer"]["set"]>[2],
+			) => {
+				controller.setContribution({
+					id: namespacedChromeItemId(id),
+					label,
+					side: itemOptions?.side,
+				});
+			},
+			clear: (id: string) => {
+				controller.clearContribution(namespacedChromeItemId(id));
+			},
+			hide: (id: string) => {
+				return track(controller.hideContribution(requireChromeItemId(id)));
+			},
+		};
+	}
+
+	const footer = createChromeApi(ctx.footer);
+	const header = createChromeApi(ctx.header);
+	track(() => ctx.footer.clearNamespace(options.name));
+	track(() => ctx.header.clearNamespace(options.name));
 
 	const system = {
 		get cwd() {
@@ -204,6 +212,7 @@ export function createPluginAPI(
 			settings,
 			model,
 			footer,
+			header,
 			system,
 		} as unknown as EventContext;
 	}
@@ -217,6 +226,7 @@ export function createPluginAPI(
 			model,
 			vcs,
 			footer,
+			header,
 			system,
 		};
 	}
@@ -336,6 +346,7 @@ export function createPluginAPI(
 		settings,
 		model,
 		footer,
+		header,
 		system,
 		on,
 		registerCommand,

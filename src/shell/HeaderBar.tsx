@@ -1,6 +1,7 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { CIRCLE_EMPTY, CIRCLE_FILLED } from "./glyphs";
+import { CIRCLE_EMPTY, CIRCLE_FILLED, MIDDLE_DOT } from "./glyphs";
+import type { HeaderStatusController } from "./header-status";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
 
@@ -14,6 +15,7 @@ export type HeaderBarProps = {
 	sessionName: string | undefined;
 	onHeightChange?: (height: number) => void;
 	runtime: AgentRuntime;
+	header: HeaderStatusController;
 };
 
 export function HeaderBar(props: HeaderBarProps) {
@@ -57,6 +59,27 @@ export function HeaderBar(props: HeaderBarProps) {
 			refreshContextStats();
 		},
 	);
+	const [headerContributions, setHeaderContributions] = createSignal(
+		props.header.getContributions(),
+	);
+	const unsubscribeHeader = props.header.subscribe(() =>
+		setHeaderContributions(props.header.getContributions()),
+	);
+	const contributionLabels = (side: "left" | "right") =>
+		headerContributions()
+			.filter((contribution) => contribution.side === side)
+			.map((contribution) => contribution.label);
+	const leftText = () =>
+		[
+			props.sessionName || "Unnamed session",
+			...contributionLabels("left"),
+		].join(` ${MIDDLE_DOT} `);
+	const rightText = () =>
+		[
+			`${agentInfo().model?.name ?? "model?"} (${agentInfo().thinkingLevel})`,
+			`${bell()} ${speech()}`,
+			...contributionLabels("right"),
+		].join(` ${MIDDLE_DOT} `);
 
 	onCleanup(() => {
 		unsubscribeTurns();
@@ -64,25 +87,13 @@ export function HeaderBar(props: HeaderBarProps) {
 		unsubscribeAgentInfo();
 		unsubscribeSessionChange();
 		unsubscribeCompactionCompleted();
+		unsubscribeHeader();
 	});
 
 	return (
 		<ScreenHeader
-			left={
-				<text fg={theme.textMuted}>
-					{props.sessionName || "Unnamed session"}
-				</text>
-			}
-			right={
-				<box flexDirection="row" gap={1}>
-					<text fg={theme.textMuted}>
-						{agentInfo().model?.name ?? "model?"} ({agentInfo().thinkingLevel})
-					</text>
-					<text fg={theme.textMuted}>
-						{bell()} {speech()}
-					</text>
-				</box>
-			}
+			left={<text fg={theme.textMuted}>{leftText()}</text>}
+			right={<text fg={theme.textMuted}>{rightText()}</text>}
 			progress={contextUsage()}
 			progressColor={progressColor(contextUsage())}
 			onHeightChange={props.onHeightChange}
