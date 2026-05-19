@@ -31,8 +31,10 @@ function createPluginContext(
 		},
 		attachments: {} as PluginContext["attachments"],
 		status: {
-			setVcsContribution: () => {},
-			getVcsContributions: () => [],
+			addContribution: () => {},
+			removeContribution: () => {},
+			clearNamespace: () => {},
+			getContributions: () => [],
 			subscribe: () => () => {},
 		},
 	};

@@ -41,6 +41,7 @@ function createMockKit(logs: string[]): PluginAPI {
 			update: async () => {},
 		},
 		model: { getCurrent: () => undefined },
+		footer: { add: () => () => {}, remove: () => {} },
 		system: {
 			cwd: process.cwd(),
 			open: async () => {},

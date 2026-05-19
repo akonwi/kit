@@ -153,12 +153,35 @@ export function createPluginAPI(
 		get: () => ctx.runtime.vcsInfo,
 	};
 
-	const status = {
-		setVcsBadge: (label: string | null) => {
-			ctx.status.setVcsContribution(options.name, label);
+	let footerContributionSeq = 0;
+
+	function footerItemId(id: string): string {
+		const itemId = id.trim();
+		if (!itemId) throw new Error("Footer item id is required.");
+		return `${options.name}:${itemId}`;
+	}
+
+	const footer = {
+		add: (
+			id: string,
+			label: string,
+			itemOptions?: Parameters<PluginAPI["footer"]["add"]>[2],
+		) => {
+			const namespacedId = footerItemId(id);
+			const key = `${namespacedId}:${footerContributionSeq++}`;
+			ctx.status.addContribution({
+				key,
+				id: namespacedId,
+				label,
+				side: itemOptions?.side,
+			});
+			return () => ctx.status.removeContribution(key);
+		},
+		remove: (id: string) => {
+			ctx.status.clearNamespace(footerItemId(id));
 		},
 	};
-	track(() => ctx.status.setVcsContribution(options.name, null));
+	track(() => ctx.status.clearNamespace(options.name));
 
 	const system = {
 		get cwd() {
@@ -179,6 +202,7 @@ export function createPluginAPI(
 			session,
 			settings,
 			model,
+			footer,
 			system,
 		} as unknown as EventContext;
 	}
@@ -191,7 +215,7 @@ export function createPluginAPI(
 			settings,
 			model,
 			vcs,
-			status,
+			footer,
 			system,
 		};
 	}
@@ -310,6 +334,7 @@ export function createPluginAPI(
 		session,
 		settings,
 		model,
+		footer,
 		system,
 		on,
 		registerCommand,
@@ -329,7 +354,7 @@ export function createPluginAPI(
 	};
 
 	if (options.exposeInternalUi) {
-		return { ...api, vcs, status } as unknown as InternalPluginAPI;
+		return { ...api, vcs } as unknown as InternalPluginAPI;
 	}
 
 	return api as unknown as PluginAPI;

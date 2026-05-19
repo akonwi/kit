@@ -1,5 +1,4 @@
 import { ClaudeCompatibilityPlugin } from "../features/claude-compat";
-import { GitHubPlugin } from "../features/github/plugin";
 import { GuidedQuestionsPlugin } from "../features/guided-questions";
 import { McpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
@@ -10,6 +9,7 @@ import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
 import { createSubagentsPlugin } from "../features/subagents";
 import { UserInteractionToolsPlugin } from "../features/user-interaction-tools";
+import { VcsStatusPlugin } from "../features/vcs/plugin";
 import type { PluginManagerInput } from "./PluginManager";
 import type { InternalPluginDefinition, PluginContext } from "./types";
 
@@ -31,7 +31,7 @@ export function createBuiltInPlugins(ctx: PluginContext): PluginManagerInput[] {
 		internalPlugin(PromptsPlugin),
 		internalPlugin(ClaudeCompatibilityPlugin),
 		internalPlugin(McpPlugin),
-		internalPlugin(GitHubPlugin),
+		internalPlugin(VcsStatusPlugin),
 		internalPlugin(PagerPlugin),
 		internalPlugin(GuidedQuestionsPlugin),
 		internalPlugin(UserInteractionToolsPlugin),

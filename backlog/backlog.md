@@ -19,5 +19,3 @@ Delete done items.
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
   - see `backlog/agent-runtime-extraction-for-subagents.md`
-- [ ] idea: formalize plugin contribution to the status footer
-  - see `backlog/plugin-chrome-and-capabilities.md`

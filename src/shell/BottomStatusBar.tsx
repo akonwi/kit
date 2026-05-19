@@ -7,7 +7,6 @@ import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
-	cwd: string;
 	status: FooterStatusController;
 	composerMode: ComposerInputMode;
 };
@@ -28,47 +27,41 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	const composerModeLabel = () => {
 		switch (props.composerMode) {
 			case "bash":
-				return "bash command · result will be added to context";
+				return ["bash command", "result will be added to context"].join(
+					` ${MIDDLE_DOT} `,
+				);
 			case "bash-excluded":
-				return "bash command · result excluded from context";
+				return ["bash command", "result excluded from context"].join(
+					` ${MIDDLE_DOT} `,
+				);
 			default:
 				return "";
 		}
 	};
-	const leftText = () => composerModeLabel() || pending();
 	const leftColor = () =>
 		props.composerMode === "bash"
 			? theme.composerBashBorder
 			: props.composerMode === "bash-excluded"
 				? theme.composerBashExcludedBorder
 				: theme.textMuted;
-	const [vcs, setVcs] = createSignal(props.runtime.vcsInfo);
-	const [vcsContributions, setVcsContributions] = createSignal(
-		props.status.getVcsContributions(),
-	);
-	const unsubscribeVcs = props.runtime.subscribe("vcs.updated", (e) =>
-		setVcs(e),
+	const [footerContributions, setFooterContributions] = createSignal(
+		props.status.getContributions(),
 	);
 	const unsubscribeStatus = props.status.subscribe(() =>
-		setVcsContributions(props.status.getVcsContributions()),
+		setFooterContributions(props.status.getContributions()),
 	);
-	const branch = () => vcs().branch;
-	const vcsLabel = () => {
-		const currentBranch = branch();
-		if (currentBranch == null) return null;
-		return [
-			`${currentBranch}${vcs().dirty ? "*" : ""}`,
-			...vcsContributions().map((contribution) => contribution.label),
-		].join(` ${MIDDLE_DOT} `);
-	};
-	const location = () => {
-		const label = vcsLabel();
-		return label ? `${props.cwd} (${label})` : props.cwd;
-	};
+	const contributionLabels = (side: "left" | "right") =>
+		footerContributions()
+			.filter((contribution) => contribution.side === side)
+			.map((contribution) => contribution.label);
+	const leftText = () =>
+		[composerModeLabel() || pending(), ...contributionLabels("left")]
+			.filter(Boolean)
+			.join(` ${MIDDLE_DOT} `);
+	const rightText = () => contributionLabels("right").join(` ${MIDDLE_DOT} `);
 
 	onCleanup(() => {
 		unsubscribePendingMessageCount();
-		unsubscribeVcs();
 		unsubscribeStatus();
 	});
 
@@ -85,7 +78,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			<Show when={leftText()} fallback={<text />}>
 				<text fg={leftColor()}>{leftText()}</text>
 			</Show>
-			<text fg={theme.textMuted}>{location()}</text>
+			<text fg={theme.textMuted}>{rightText()}</text>
 		</box>
 	);
 }

@@ -99,7 +99,6 @@ export function AppShell(props: AppShellProps) {
 					onModeChange={setComposerMode}
 				/>
 				<BottomStatusBar
-					cwd={props.state.sessionMeta.cwd}
 					runtime={props.runtime}
 					status={props.status}
 					composerMode={composerMode()}

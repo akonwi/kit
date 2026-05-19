@@ -30,6 +30,8 @@ export type {
 	Disposer,
 	EventContext,
 	EventHandler,
+	FooterStatusOptions,
+	FooterStatusSide,
 	MessagePart,
 	Plugin,
 	PluginAPI,
@@ -99,9 +101,7 @@ export type InternalPluginVcsAPI = {
 	get: () => VcsInfo;
 };
 
-export type InternalPluginStatusAPI = {
-	setVcsBadge: (label: string | null) => void;
-};
+export type InternalPluginFooterAPI = PluginAPI["footer"];
 
 export type InternalPluginSystemAPI = {
 	readonly cwd: string;
@@ -115,7 +115,7 @@ export type InternalPluginEventContext = {
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;
 	vcs: InternalPluginVcsAPI;
-	status: InternalPluginStatusAPI;
+	footer: InternalPluginFooterAPI;
 	system: InternalPluginSystemAPI;
 };
 
@@ -143,7 +143,7 @@ export interface InternalPluginAPI {
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;
 	vcs: InternalPluginVcsAPI;
-	status: InternalPluginStatusAPI;
+	footer: InternalPluginFooterAPI;
 	system: InternalPluginSystemAPI;
 	on(handler: InternalPluginEventHandler): Disposer;
 	on<K extends RuntimeEventName>(

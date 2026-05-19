@@ -161,6 +161,17 @@ type ModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
+export type FooterStatusSide = "left" | "right";
+
+export type FooterStatusOptions = {
+	side?: FooterStatusSide;
+};
+
+type FooterAPI = {
+	add: (id: string, label: string, options?: FooterStatusOptions) => Disposer;
+	remove: (id: string) => void;
+};
+
 type SystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
@@ -172,6 +183,7 @@ export type EventContext = {
 	session: SessionAPI;
 	settings: SettingsAPI;
 	model: ModelAPI;
+	footer: FooterAPI;
 	system: SystemAPI;
 };
 
@@ -201,6 +213,7 @@ export interface PluginAPI {
 	session: SessionAPI;
 	settings: SettingsAPI;
 	model: ModelAPI;
+	footer: FooterAPI;
 	system: SystemAPI;
 	on(handler: EventHandler): Disposer;
 	on<Type extends string>(type: Type, handler: EventHandler<Type>): Disposer;
