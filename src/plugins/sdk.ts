@@ -6,7 +6,26 @@ import type { ToastInput } from "../state/toasts";
 
 export type Disposer = () => void;
 
+export type KitTextStyle = {
+	fg?: string;
+	bg?: string;
+	bold?: boolean;
+	dim?: boolean;
+	italic?: boolean;
+	underline?: boolean;
+	strikethrough?: boolean;
+};
+
+export type KitText = {
+	readonly __kitText: true;
+	readonly text: string;
+	readonly style?: KitTextStyle;
+};
+
+export type KitTextContent = string | KitText | readonly (string | KitText)[];
+
 interface UI {
+	text: (text: string, style?: KitTextStyle) => KitText;
 	toast: (toast: ToastInput) => void;
 	select(input: {
 		title: string;
@@ -161,14 +180,19 @@ type ModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
-export type FooterStatusSide = "left" | "right";
+export type ChromeContributionSide = "left" | "right";
 
-export type FooterStatusOptions = {
-	side?: FooterStatusSide;
+export type ChromeContributionOptions = {
+	side?: ChromeContributionSide;
+	onClick?: () => void | Promise<void>;
 };
 
 type ChromeContributionAPI = {
-	set: (id: string, label: string, options?: FooterStatusOptions) => void;
+	set: (
+		id: string,
+		content: KitTextContent,
+		options?: ChromeContributionOptions,
+	) => void;
 	clear: (id: string) => void;
 	hide: (id: string) => Disposer;
 };

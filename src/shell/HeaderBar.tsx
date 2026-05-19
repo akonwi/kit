@@ -1,10 +1,12 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { CIRCLE_EMPTY, CIRCLE_FILLED, MIDDLE_DOT } from "./glyphs";
-import type {
-	HeaderStatusContribution,
-	HeaderStatusController,
-} from "./header-status";
+import { ChromeContributionLine } from "./ChromeContributionLine";
+import {
+	type ChromeContribution,
+	createChromeTextContent,
+} from "./chrome-contributions";
+import { CIRCLE_EMPTY, CIRCLE_FILLED } from "./glyphs";
+import type { HeaderStatusController } from "./header-status";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
 
@@ -27,6 +29,19 @@ export type HeaderBarProps = {
 	runtime: AgentRuntime;
 	header: HeaderStatusController;
 };
+
+function builtInContribution(input: {
+	id: string;
+	label: string;
+	side: "left" | "right";
+}): ChromeContribution {
+	return {
+		id: input.id,
+		content: createChromeTextContent(input.label),
+		plainText: input.label,
+		side: input.side,
+	};
+}
 
 export function HeaderBar(props: HeaderBarProps) {
 	const [contextStats, setContextStats] = createSignal(
@@ -75,40 +90,37 @@ export function HeaderBar(props: HeaderBarProps) {
 	const unsubscribeHeader = props.header.subscribe(() =>
 		setHeaderContributions(props.header.getContributions()),
 	);
-	const builtInContributions = (): HeaderStatusContribution[] => [
-		{
+	const builtInContributions = (): ChromeContribution[] => [
+		builtInContribution({
 			id: HEADER_CONTRIBUTION_IDS.title,
 			label: props.sessionName || "Unnamed session",
 			side: "left",
-		},
-		{
+		}),
+		builtInContribution({
 			id: HEADER_CONTRIBUTION_IDS.model,
 			label: `${agentInfo().model?.name ?? "model?"} (${agentInfo().thinkingLevel})`,
 			side: "right",
-		},
-		{
+		}),
+		builtInContribution({
 			id: HEADER_CONTRIBUTION_IDS.bell,
 			label: bell(),
 			side: "right",
-		},
-		{
+		}),
+		builtInContribution({
 			id: HEADER_CONTRIBUTION_IDS.speech,
 			label: speech(),
 			side: "right",
-		},
+		}),
 	];
-	const contributionLabels = (side: "left" | "right") =>
-		[
-			...builtInContributions().filter(
-				(contribution) =>
-					contribution.side === side && !props.header.isHidden(contribution.id),
-			),
-			...headerContributions().filter(
-				(contribution) => contribution.side === side,
-			),
-		].map((contribution) => contribution.label);
-	const leftText = () => contributionLabels("left").join(` ${MIDDLE_DOT} `);
-	const rightText = () => contributionLabels("right").join(` ${MIDDLE_DOT} `);
+	const contributions = (side: "left" | "right") => [
+		...builtInContributions().filter(
+			(contribution) =>
+				contribution.side === side && !props.header.isHidden(contribution.id),
+		),
+		...headerContributions().filter(
+			(contribution) => contribution.side === side,
+		),
+	];
 
 	onCleanup(() => {
 		unsubscribeTurns();
@@ -121,8 +133,18 @@ export function HeaderBar(props: HeaderBarProps) {
 
 	return (
 		<ScreenHeader
-			left={<text fg={theme.textMuted}>{leftText()}</text>}
-			right={<text fg={theme.textMuted}>{rightText()}</text>}
+			left={
+				<ChromeContributionLine
+					contributions={contributions("left")}
+					fg={theme.textMuted}
+				/>
+			}
+			right={
+				<ChromeContributionLine
+					contributions={contributions("right")}
+					fg={theme.textMuted}
+				/>
+			}
 			progress={contextUsage()}
 			progressColor={progressColor(contextUsage())}
 			onHeightChange={props.onHeightChange}

@@ -48,6 +48,7 @@ function toAgentTool<TParameters extends TSchema, TDetails>(
 
 function toPublicPluginUI(ui: PluginContext["ui"]): PluginAPI["ui"] {
 	return {
+		text: ui.text,
 		toast: ui.toast,
 		select: ui.select,
 		input: ui.input,
@@ -163,19 +164,38 @@ export function createPluginAPI(
 		return `${options.name}:${requireChromeItemId(id)}`;
 	}
 
+	function createChromeClickHandler(
+		id: string,
+		onClick: (() => void | Promise<void>) | undefined,
+	): (() => Promise<void>) | undefined {
+		if (!onClick) return undefined;
+		return async () => {
+			try {
+				await onClick();
+			} catch (error) {
+				logger.log(`Chrome contribution ${id} click handler failed:`, error);
+			}
+		};
+	}
+
 	function createChromeApi(
 		controller: PluginContext["footer"] | PluginContext["header"],
 	) {
 		return {
 			set: (
 				id: string,
-				label: string,
+				content: Parameters<PluginAPI["footer"]["set"]>[1],
 				itemOptions?: Parameters<PluginAPI["footer"]["set"]>[2],
 			) => {
+				const contributionId = namespacedChromeItemId(id);
 				controller.setContribution({
-					id: namespacedChromeItemId(id),
-					label,
+					id: contributionId,
+					content,
 					side: itemOptions?.side,
+					onClick: createChromeClickHandler(
+						contributionId,
+						itemOptions?.onClick,
+					),
 				});
 			},
 			clear: (id: string) => {

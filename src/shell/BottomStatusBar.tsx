@@ -1,6 +1,9 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import { ChromeContributionLine } from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
+import type { ChromeContribution } from "./chrome-contributions";
+import { createChromeTextContent } from "./chrome-contributions";
 import type { FooterStatusController } from "./footer-status";
 import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
@@ -10,6 +13,19 @@ export type BottomStatusBarProps = {
 	status: FooterStatusController;
 	composerMode: ComposerInputMode;
 };
+
+function builtInContribution(input: {
+	id: string;
+	label: string;
+	side: "left" | "right";
+}): ChromeContribution {
+	return {
+		id: input.id,
+		content: createChromeTextContent(input.label),
+		plainText: input.label,
+		side: input.side,
+	};
+}
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
 	const [pendingMessageCount, setPendingMessageCount] = createSignal(
@@ -50,15 +66,29 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	const unsubscribeStatus = props.status.subscribe(() =>
 		setFooterContributions(props.status.getContributions()),
 	);
-	const contributionLabels = (side: "left" | "right") =>
-		footerContributions()
-			.filter((contribution) => contribution.side === side)
-			.map((contribution) => contribution.label);
-	const leftText = () =>
-		[composerModeLabel() || pending(), ...contributionLabels("left")]
-			.filter(Boolean)
-			.join(` ${MIDDLE_DOT} `);
-	const rightText = () => contributionLabels("right").join(` ${MIDDLE_DOT} `);
+	const builtInLeftContribution = (): ChromeContribution | null => {
+		const label = composerModeLabel() || pending();
+		return label
+			? builtInContribution({
+					id: "BottomStatusBar:status",
+					label,
+					side: "left",
+				})
+			: null;
+	};
+	const leftContributions = () => {
+		const builtIn = builtInLeftContribution();
+		return [
+			...(builtIn ? [builtIn] : []),
+			...footerContributions().filter(
+				(contribution) => contribution.side === "left",
+			),
+		];
+	};
+	const rightContributions = () =>
+		footerContributions().filter(
+			(contribution) => contribution.side === "right",
+		);
 
 	onCleanup(() => {
 		unsubscribePendingMessageCount();
@@ -78,18 +108,23 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			gap={1}
 		>
 			<box flexGrow={1} flexShrink={0} maxWidth="100%" overflow="hidden">
-				<text fg={leftColor()}>{leftText() || " "}</text>
+				<ChromeContributionLine
+					contributions={leftContributions()}
+					fg={leftColor()}
+				/>
 			</box>
-			<Show when={rightText()}>
-				<box
-					flexShrink={0}
-					maxWidth="100%"
-					overflow="hidden"
-					justifyContent="flex-end"
-				>
-					<text fg={theme.textMuted}>{rightText()}</text>
-				</box>
-			</Show>
+			<box
+				flexShrink={0}
+				maxWidth="100%"
+				overflow="hidden"
+				justifyContent="flex-end"
+			>
+				<ChromeContributionLine
+					contributions={rightContributions()}
+					fg={theme.textMuted}
+					fallback=""
+				/>
+			</box>
 		</box>
 	);
 }

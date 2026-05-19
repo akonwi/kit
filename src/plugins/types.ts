@@ -26,13 +26,16 @@ import type {
 } from "./sdk";
 
 export type {
+	ChromeContributionOptions,
+	ChromeContributionSide,
 	CommandContext,
 	CommandOptions,
 	Disposer,
 	EventContext,
 	EventHandler,
-	FooterStatusOptions,
-	FooterStatusSide,
+	KitText,
+	KitTextContent,
+	KitTextStyle,
 	MessagePart,
 	Plugin,
 	PluginAPI,

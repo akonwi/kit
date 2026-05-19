@@ -123,16 +123,29 @@ const ok = await kit.ui.confirm({
 });
 ```
 
-These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, and `confirm` so Kit can keep ownership of rendering, focus, theme, and compatibility.
+These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, `confirm`, and the `text` helper so Kit can keep ownership of rendering, focus, theme, and compatibility.
 
 ## Header and footer status contributions
 
-Plugins can contribute short text items to the header and bottom footer. Kit owns the rendering and layout; plugins provide text only.
+Plugins can contribute short text items to the header and bottom footer. Kit owns the rendering and layout; plugins provide text or styled text chunks.
 
 ```ts
 kit.footer.set("build", "build: passing", { side: "right" });
 kit.footer.set("mode", "watching", { side: "left" });
 kit.header.set("branch", "main", { side: "right" });
+
+kit.footer.set(
+	"ci",
+	[
+		kit.ui.text("✓", { fg: "green", bold: true }),
+		" tests ",
+		kit.ui.text("passing", { fg: "green" }),
+	],
+	{
+		side: "right",
+		onClick: () => kit.system.open("https://github.com/org/repo/actions"),
+	},
+);
 
 // Clear an item
 kit.footer.clear("build");
@@ -147,6 +160,8 @@ showDefaultModel();
 ```
 
 Header/footer item IDs passed to `set`/`clear` are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded. `hide` accepts the full item ID to support replacing known built-in contributions.
+
+Use `kit.ui.text(text, style)` to style part or all of a contribution. Supported style fields are `fg`, `bg`, `bold`, `dim`, `italic`, `underline`, and `strikethrough`. `onClick` is a whole-contribution action; Kit maps it to terminal mouse events and does not expose raw mouse events to plugins.
 
 Built-in header item IDs are `HeaderBar:title`, `HeaderBar:model`, `HeaderBar:bell`, and `HeaderBar:speech`.
 

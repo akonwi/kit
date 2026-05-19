@@ -93,6 +93,7 @@ export function createPluginUI(
 		))) as InternalPluginUI["select"];
 
 	return {
+		text: (text, style) => ({ __kitText: true, text, style }),
 		toast: options.toast,
 		select,
 		input: (input) =>
