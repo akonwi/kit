@@ -56,6 +56,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	let textareaRef: TextareaHandle | undefined;
 	let prevTextLength = 0;
+	let bashHistoryIndex: number | null = null;
+	let bashHistoryDraft = "";
+	let expectedBashHistoryText: string | null = null;
 
 	function setTextarea(ref: TextareaHandle | undefined) {
 		textareaRef = ref;
@@ -297,6 +300,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	function handleTextChange() {
 		const text = textareaRef?.plainText ?? "";
+		if (expectedBashHistoryText === text) {
+			expectedBashHistoryText = null;
+		} else {
+			resetBashHistoryNavigation();
+		}
+
 		const cursor = textareaRef?.cursorOffset ?? text.length;
 		const grew = text.length > prevTextLength;
 		prevTextLength = text.length;
@@ -365,6 +374,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			if (command) {
 				textareaRef?.setText("");
 				prevTextLength = 0;
+				resetBashHistoryNavigation();
 				try {
 					await runtime.executeBash(command, excludeFromContext);
 				} catch (error) {
@@ -380,6 +390,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 		textareaRef?.setText("");
 		prevTextLength = 0;
+		resetBashHistoryNavigation();
 
 		const preparedText = text.trim() ? await prepareMessageText(text) : "";
 		if (text.trim() && !preparedText) {
@@ -456,6 +467,68 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return true;
 	}
 
+	function navigateBashHistory(direction: "older" | "newer"): boolean {
+		const text = textareaRef?.plainText ?? "";
+		if (!text.startsWith("!")) return false;
+
+		const history = getBashExecutionHistory();
+		if (history.length === 0) return false;
+
+		let nextIndex: number;
+		if (bashHistoryIndex === null) {
+			if (direction === "newer") return false;
+			bashHistoryDraft = text;
+			nextIndex = 0;
+		} else {
+			nextIndex =
+				direction === "older" ? bashHistoryIndex + 1 : bashHistoryIndex - 1;
+		}
+
+		if (nextIndex < 0) {
+			applyBashHistoryText(bashHistoryDraft);
+			bashHistoryIndex = null;
+			return true;
+		}
+		if (nextIndex >= history.length) return true;
+
+		const entry = history[nextIndex];
+		const prefix = entry.excludeFromContext ? "!!" : "!";
+		applyBashHistoryText(`${prefix}${entry.command}`);
+		bashHistoryIndex = nextIndex;
+		return true;
+	}
+
+	function applyBashHistoryText(text: string) {
+		expectedBashHistoryText = text;
+		setTextareaText(text);
+		if (textareaRef) textareaRef.cursorOffset = text.length;
+	}
+
+	function resetBashHistoryNavigation() {
+		bashHistoryIndex = null;
+		bashHistoryDraft = "";
+		expectedBashHistoryText = null;
+	}
+
+	function getBashExecutionHistory(): Array<{
+		command: string;
+		excludeFromContext: boolean;
+	}> {
+		const messages = runtime.getMessages();
+		const history: Array<{ command: string; excludeFromContext: boolean }> = [];
+		for (let index = messages.length - 1; index >= 0; index--) {
+			const msg = messages[index];
+			if (msg.role !== "bashExecution" || msg.pending) continue;
+			const command = msg.command.trim();
+			if (!command) continue;
+			history.push({
+				command,
+				excludeFromContext: msg.excludeFromContext,
+			});
+		}
+		return history;
+	}
+
 	function recallLastUserMessage() {
 		const messages = runtime.getMessages();
 		for (let i = messages.length - 1; i >= 0; i--) {
@@ -517,6 +590,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		handleSubmit,
 		handleFollowUp,
 		restorePendingMessages,
+		navigateBashHistory,
 		insertText,
 		getTextareaText,
 		setTextareaText,

@@ -8,6 +8,7 @@ const MAX_VISIBLE = 12;
 
 const LIST_BINDINGS: Binding[] = [
 	{ key: "↑/↓", action: "move" },
+	{ key: "Tab", action: "complete" },
 	{ key: "Enter", action: "run" },
 	{ key: "Esc", action: "close" },
 ];

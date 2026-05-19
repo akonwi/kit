@@ -92,6 +92,22 @@ export function ComposerDock(props: ComposerDockProps) {
 			return;
 		}
 
+		// Up/down in bash mode — navigate previous user-triggered bash executions.
+		if (
+			(e.name === "up" || e.name === "down") &&
+			!picker.visible &&
+			props.controller.getTextareaText().startsWith("!")
+		) {
+			const handled = props.controller.navigateBashHistory(
+				e.name === "up" ? "older" : "newer",
+			);
+			if (handled) {
+				e.preventDefault();
+				syncComposerText();
+				return;
+			}
+		}
+
 		// Up arrow in empty composer — restore queued follow-ups first, then recall last user message
 		if (
 			e.name === "up" &&

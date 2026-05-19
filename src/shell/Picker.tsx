@@ -68,7 +68,7 @@ function Root(props: RootProps) {
 		<PickerContext.Provider
 			value={{ picker: props.picker, snapshot, maxVisible }}
 		>
-			<box flexDirection="column" gap={1}>
+			<box flexGrow={1} height="100%" flexDirection="column" gap={1}>
 				{props.children}
 			</box>
 		</PickerContext.Provider>
@@ -179,16 +179,19 @@ function Body() {
 		),
 	);
 
+	const widthOptions = createMemo(() => [
+		...snapshot().allOptions,
+		...snapshot().options,
+	]);
+
 	const maxNameWidth = createMemo(() =>
-		Math.max(0, ...snapshot().allOptions.map((o) => o.name.length)),
+		Math.max(0, ...widthOptions().map((o) => o.name.length)),
 	);
 
 	const maxArgHintWidth = createMemo(() =>
 		Math.max(
 			0,
-			...snapshot().allOptions.map((o) =>
-				o.argHint ? o.argHint.length + 2 : 0,
-			),
+			...widthOptions().map((o) => (o.argHint ? o.argHint.length + 2 : 0)),
 		),
 	);
 

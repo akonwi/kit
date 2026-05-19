@@ -1142,9 +1142,9 @@ export class AgentRuntime {
 	}
 
 	/**
-	 * Execute a bash command from the user's `!` prefix.
+	 * Execute a user-triggered bash command.
 	 * Injects a synthetic bashExecution message into the transcript.
-	 * When excludeFromContext is true (`!!`), the message is not
+	 * When excludeFromContext is true, the completed message is not
 	 * sent to the model on the next turn.
 	 */
 	async executeBash(
