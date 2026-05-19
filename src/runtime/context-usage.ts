@@ -34,6 +34,40 @@ function isSyntheticSummary(
 	);
 }
 
+function messageTimestamp(message: AgentMessage): number | null {
+	const timestamp = (message as { timestamp?: unknown }).timestamp;
+	return typeof timestamp === "number" ? timestamp : null;
+}
+
+function latestCompactionBoundary(messages: AgentMessage[]): {
+	index: number;
+	timestamp: number | null;
+} | null {
+	for (let index = messages.length - 1; index >= 0; index--) {
+		const message = messages[index];
+		if (
+			!isSyntheticSummary(message) ||
+			message.synthetic?.kind !== "compaction-summary"
+		) {
+			continue;
+		}
+		return { index, timestamp: messageTimestamp(message) };
+	}
+	return null;
+}
+
+function isStaleCompactionUsage(
+	messages: AgentMessage[],
+	index: number,
+	boundary: { index: number; timestamp: number | null } | null,
+): boolean {
+	if (!boundary) return false;
+	if (index <= boundary.index) return true;
+	if (boundary.timestamp == null) return true;
+	const timestamp = messageTimestamp(messages[index]);
+	return timestamp == null || timestamp <= boundary.timestamp;
+}
+
 function isUsageCompatibleWithModel(
 	message: AgentMessage,
 	model: Model<Api> | undefined,
@@ -129,7 +163,9 @@ export function getRuntimeContextUsage(
 ): RuntimeContextUsage | null {
 	if (!model?.contextWindow) return null;
 
+	const compactionBoundary = latestCompactionBoundary(messages);
 	for (let index = messages.length - 1; index >= 0; index--) {
+		if (isStaleCompactionUsage(messages, index, compactionBoundary)) continue;
 		const usage = getAssistantUsage(messages[index], model);
 		if (!usage) continue;
 		const usageTokens = calculateContextTokens(usage);
