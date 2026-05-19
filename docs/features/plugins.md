@@ -13,6 +13,8 @@ Discovery is non-recursive. Only direct `.ts` files in those directories are loa
 
 Project plugins load after user plugins. Built-in plugins load before both.
 
+Built-in plugins initialize during core app setup. User and project plugins load in the background after the shell is ready, so slow dependency installation or bundling does not block basic startup. Commands, tools, and chrome contributions from those external plugins become available once loading finishes.
+
 If an external plugin registers a command, tool, or debug section that already exists, Kit treats that as a plugin failure and reports it with a persistent toast.
 
 Kit does **not** load plugins from `.agents/plugins/`. Plugins execute code and are Kit-specific functionality, while `.agents/` is reserved for compatibility-oriented resources such as prompts, skills, and MCP config.
@@ -199,7 +201,7 @@ kit.onToolCall(async (toolCall, ctx) => {
 
 ## Reloading
 
-Use `/reload` after editing plugin files. Kit re-discovers plugin files, re-bundles them into Kit's plugin cache, and imports the fresh bundles so changed `.ts` contents are picked up.
+Use `/reload` after editing plugin files. Kit re-discovers plugin files, re-bundles them into Kit's plugin cache, and imports the fresh bundles so changed `.ts` contents are picked up. External plugin loading continues in the background after the session reload completes.
 
 Plugin modules are loaded synchronously, so top-level `await` is not supported in plugin files. Async command, event, and tool handlers are supported.
 

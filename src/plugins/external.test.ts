@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { utimesSync } from "node:fs";
+import { existsSync, utimesSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -139,6 +139,25 @@ describe("external plugin loading", () => {
 		const logs: string[] = [];
 		result.plugins[0]?.initialize(createMockKit(logs));
 		expect(logs).toEqual(["from plugin dependency function"]);
+	});
+
+	test("prunes stale plugin cache dirs after loading", async () => {
+		const home = await makeTempDir();
+		const cwd = await makeTempDir();
+		const pluginsDir = path.join(cwd, ".kit", "plugins");
+		await mkdir(pluginsDir, { recursive: true });
+		await writeFile(
+			path.join(pluginsDir, "cached.ts"),
+			"export default function CachedPlugin(kit) { kit.logger.log('cached') }\n",
+		);
+
+		await loadExternalPlugins(cwd, { reloadId: "cache-one", home });
+		const cacheRoot = path.join(home, ".kit", "plugin-cache");
+		expect(existsSync(path.join(cacheRoot, "cache-one"))).toBe(true);
+
+		await loadExternalPlugins(cwd, { reloadId: "cache-two", home });
+		expect(existsSync(path.join(cacheRoot, "cache-one"))).toBe(false);
+		expect(existsSync(path.join(cacheRoot, "cache-two"))).toBe(true);
 	});
 
 	test("reports load failures and reloads changed plugin files", async () => {

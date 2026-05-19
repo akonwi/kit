@@ -1,5 +1,5 @@
 import { type Dirent, existsSync, readdirSync, statSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { getKitPaths } from "../paths";
@@ -48,6 +48,46 @@ function pluginNameForFile(
 
 function sanitizeFileName(value: string): string {
 	return value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
+}
+
+const activePluginCacheReloadIdsByRoot = new Map<string, Set<string>>();
+const retainedPluginCacheReloadIdsByRoot = new Map<string, string>();
+
+function getActivePluginCacheReloadIds(cacheRoot: string): Set<string> {
+	let active = activePluginCacheReloadIdsByRoot.get(cacheRoot);
+	if (!active) {
+		active = new Set<string>();
+		activePluginCacheReloadIdsByRoot.set(cacheRoot, active);
+	}
+	return active;
+}
+
+async function prunePluginCache(cacheRoot: string): Promise<void> {
+	let entries: Dirent[];
+	try {
+		entries = await readdir(cacheRoot, { withFileTypes: true });
+	} catch {
+		return;
+	}
+
+	await Promise.all(
+		entries.map(async (entry) => {
+			const activeReloadIds = activePluginCacheReloadIdsByRoot.get(cacheRoot);
+			const retainedReloadId =
+				retainedPluginCacheReloadIdsByRoot.get(cacheRoot);
+			if (
+				!entry.isDirectory() ||
+				entry.name === retainedReloadId ||
+				activeReloadIds?.has(entry.name)
+			) {
+				return;
+			}
+			await rm(path.join(cacheRoot, entry.name), {
+				force: true,
+				recursive: true,
+			});
+		}),
+	);
 }
 
 function recordFailure(
@@ -263,86 +303,103 @@ export async function loadExternalPlugins(
 ): Promise<LoadExternalPluginsResult> {
 	const plugins: ExternalPluginRegistration[] = [];
 	const failures: ExternalPluginFailure[] = [];
-	await rm(path.join(getKitPaths(options.home).kitRoot, "plugin-cache"), {
-		force: true,
-		recursive: true,
-	});
+	const cacheRoot = path.join(
+		getKitPaths(options.home).kitRoot,
+		"plugin-cache",
+	);
+	const reloadCacheId = sanitizeFileName(options.reloadId);
+	const activeReloadIds = getActivePluginCacheReloadIds(cacheRoot);
+	activeReloadIds.add(reloadCacheId);
 
-	const files = discoverPluginFiles(cwd, options.home);
+	try {
+		await rm(path.join(cacheRoot, reloadCacheId), {
+			force: true,
+			recursive: true,
+		});
 
-	// Install dependencies once per unique plugin directory before bundling.
-	const installedDirs = new Set<string>();
-	const failedDirs = new Map<string, string>();
-	for (const file of files) {
-		const pluginDir = path.dirname(file.filePath);
-		if (installedDirs.has(pluginDir) || failedDirs.has(pluginDir)) continue;
-		try {
-			await installPluginDependencies(pluginDir);
-			installedDirs.add(pluginDir);
-		} catch (error) {
-			failedDirs.set(pluginDir, formatError(error));
-		}
-	}
+		const files = discoverPluginFiles(cwd, options.home);
 
-	for (const file of files) {
-		const pluginName = pluginNameForFile(file.source, file.filePath);
-		const installError = failedDirs.get(path.dirname(file.filePath));
-		if (installError) {
-			recordFailure(
-				failures,
-				{
-					source: file.source,
-					phase: "load",
-					pluginName,
-					filePath: file.filePath,
-					message: installError,
-				},
-				options.onFailure,
-			);
-			continue;
-		}
-		let initialize: Plugin;
-		try {
-			initialize = await loadPluginInitializer(file, {
-				pluginName,
-				reloadId: options.reloadId,
-				home: options.home,
-			});
-		} catch (error) {
-			recordFailure(
-				failures,
-				{
-					source: file.source,
-					phase: "load",
-					pluginName,
-					filePath: file.filePath,
-					message: formatError(error),
-				},
-				options.onFailure,
-			);
-			continue;
+		// Install dependencies once per unique plugin directory before bundling.
+		const installedDirs = new Set<string>();
+		const failedDirs = new Map<string, string>();
+		for (const file of files) {
+			const pluginDir = path.dirname(file.filePath);
+			if (installedDirs.has(pluginDir) || failedDirs.has(pluginDir)) continue;
+			try {
+				await installPluginDependencies(pluginDir);
+				installedDirs.add(pluginDir);
+			} catch (error) {
+				failedDirs.set(pluginDir, formatError(error));
+			}
 		}
 
-		plugins.push({
-			name: pluginName,
-			initialize,
-			continueOnError: true,
-			checkContributionConflicts: true,
-			onError: ({ error }) => {
+		for (const file of files) {
+			const pluginName = pluginNameForFile(file.source, file.filePath);
+			const installError = failedDirs.get(path.dirname(file.filePath));
+			if (installError) {
 				recordFailure(
 					failures,
 					{
 						source: file.source,
-						phase: "initialize",
+						phase: "load",
+						pluginName,
+						filePath: file.filePath,
+						message: installError,
+					},
+					options.onFailure,
+				);
+				continue;
+			}
+			let initialize: Plugin;
+			try {
+				initialize = await loadPluginInitializer(file, {
+					pluginName,
+					reloadId: options.reloadId,
+					home: options.home,
+				});
+			} catch (error) {
+				recordFailure(
+					failures,
+					{
+						source: file.source,
+						phase: "load",
 						pluginName,
 						filePath: file.filePath,
 						message: formatError(error),
 					},
 					options.onFailure,
 				);
-			},
-		});
-	}
+				continue;
+			}
 
-	return { plugins, failures };
+			plugins.push({
+				name: pluginName,
+				initialize,
+				continueOnError: true,
+				checkContributionConflicts: true,
+				onError: ({ error }) => {
+					recordFailure(
+						failures,
+						{
+							source: file.source,
+							phase: "initialize",
+							pluginName,
+							filePath: file.filePath,
+							message: formatError(error),
+						},
+						options.onFailure,
+					);
+				},
+			});
+		}
+
+		retainedPluginCacheReloadIdsByRoot.set(cacheRoot, reloadCacheId);
+		return { plugins, failures };
+	} finally {
+		activeReloadIds.delete(reloadCacheId);
+		await prunePluginCache(cacheRoot);
+		if (activeReloadIds.size === 0) {
+			activePluginCacheReloadIdsByRoot.delete(cacheRoot);
+		}
+	}
 }

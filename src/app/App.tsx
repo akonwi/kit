@@ -103,10 +103,17 @@ export function App(props: AppProps) {
 			header,
 		};
 		let pluginReloadCount = 0;
-		let pluginManager: PluginManager | null = null;
+		let pluginLoadGeneration = 0;
+		let builtInPluginManager: PluginManager | null = null;
+		let externalPluginManager: PluginManager | null = null;
+		let disposed = false;
 
-		function disposePluginManager(manager: PluginManager | null): void {
-			manager?.dispose();
+		function disposePluginManagers(): void {
+			pluginLoadGeneration++;
+			externalPluginManager?.dispose();
+			externalPluginManager = null;
+			builtInPluginManager?.dispose();
+			builtInPluginManager = null;
 		}
 
 		function showPluginFailures(failures: ExternalPluginFailure[]): void {
@@ -127,30 +134,65 @@ export function App(props: AppProps) {
 			});
 		}
 
-		async function createPluginManager(
-			failures: ExternalPluginFailure[],
-		): Promise<PluginManager> {
-			const external = await loadExternalPlugins(runtime.getSession().cwd, {
-				reloadId: `${Date.now()}-${pluginReloadCount++}`,
-				onFailure: (failure) => failures.push(failure),
-			});
-			return new PluginManager(
-				[...createBuiltInPlugins(pluginContext), ...external.plugins],
+		function initializeBuiltInPlugins(): void {
+			builtInPluginManager = new PluginManager(
+				createBuiltInPlugins(pluginContext),
 				pluginContext,
 			);
+			builtInPluginManager.initialize();
 		}
 
-		async function initializePluginManager(): Promise<ExternalPluginFailure[]> {
+		async function initializeExternalPlugins(
+			generation: number,
+		): Promise<void> {
 			const failures: ExternalPluginFailure[] = [];
-			pluginManager = await createPluginManager(failures);
-			pluginManager.initialize();
-			return failures;
+			let manager: PluginManager | null = null;
+			try {
+				const external = await loadExternalPlugins(runtime.getSession().cwd, {
+					reloadId: `${Date.now()}-${pluginReloadCount++}`,
+					onFailure: (failure) => failures.push(failure),
+				});
+				if (disposed || generation !== pluginLoadGeneration) return;
+
+				manager = new PluginManager(external.plugins, pluginContext);
+				manager.initialize();
+				if (disposed || generation !== pluginLoadGeneration) {
+					manager.dispose();
+					return;
+				}
+
+				externalPluginManager?.dispose();
+				externalPluginManager = manager;
+				showPluginFailures(failures);
+			} catch (error) {
+				manager?.dispose();
+				if (disposed || generation !== pluginLoadGeneration) return;
+				toast({
+					title: "Plugin loading failed",
+					subtitle: error instanceof Error ? error.message : String(error),
+					variant: "error",
+					persistent: true,
+				});
+			}
+		}
+
+		function startExternalPluginLoad(): void {
+			const generation = ++pluginLoadGeneration;
+			setTimeout(() => {
+				if (disposed || generation !== pluginLoadGeneration) return;
+				void initializeExternalPlugins(generation);
+			}, 0);
+		}
+
+		function initializePlugins(): void {
+			initializeBuiltInPlugins();
+			startExternalPluginLoad();
 		}
 
 		try {
-			showPluginFailures(await initializePluginManager());
+			initializePlugins();
 		} catch (error) {
-			disposePluginManager(pluginManager);
+			disposePluginManagers();
 			persistence.dispose();
 			runtime.dispose();
 			throw error;
@@ -164,15 +206,15 @@ export function App(props: AppProps) {
 		}
 
 		async function _reload(): Promise<void> {
-			disposePluginManager(pluginManager);
+			disposePluginManagers();
 			try {
 				await reloadSettingsAndTheme();
 				await runtime.reloadSession();
 			} catch (error) {
 				try {
-					showPluginFailures(await initializePluginManager());
+					initializePlugins();
 				} catch {
-					disposePluginManager(pluginManager);
+					disposePluginManagers();
 					// Preserve the original reload error below.
 				}
 				toast({
@@ -184,13 +226,13 @@ export function App(props: AppProps) {
 			}
 
 			try {
-				showPluginFailures(await initializePluginManager());
+				initializePlugins();
 				toast({
 					title: "Session reloaded",
 					variant: "info",
 				});
 			} catch (error) {
-				disposePluginManager(pluginManager);
+				disposePluginManagers();
 				toast({
 					title: "Reload failed",
 					subtitle: error instanceof Error ? error.message : String(error),
@@ -214,11 +256,10 @@ export function App(props: AppProps) {
 			props.updateTerminalTitle(event.session.name, process.cwd());
 		});
 
-		let disposed = false;
 		const dispose = () => {
 			if (disposed) return;
 			disposed = true;
-			disposePluginManager(pluginManager);
+			disposePluginManagers();
 			persistence.dispose();
 			runtime.dispose();
 		};
