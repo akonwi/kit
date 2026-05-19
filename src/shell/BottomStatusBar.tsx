@@ -1,13 +1,31 @@
-import { createSignal, onCleanup, Show } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import { ChromeContributionLine } from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
+import type { ChromeContribution } from "./chrome-contributions";
+import { createChromeTextContent } from "./chrome-contributions";
+import type { FooterStatusController } from "./footer-status";
+import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
-	cwd: string;
+	status: FooterStatusController;
 	composerMode: ComposerInputMode;
 };
+
+function builtInContribution(input: {
+	id: string;
+	label: string;
+	side: "left" | "right";
+}): ChromeContribution {
+	return {
+		id: input.id,
+		content: createChromeTextContent(input.label),
+		plainText: input.label,
+		side: input.side,
+	};
+}
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
 	const [pendingMessageCount, setPendingMessageCount] = createSignal(
@@ -25,33 +43,56 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	const composerModeLabel = () => {
 		switch (props.composerMode) {
 			case "bash":
-				return "bash command · result will be added to context";
+				return ["bash command", "result will be added to context"].join(
+					` ${MIDDLE_DOT} `,
+				);
 			case "bash-excluded":
-				return "bash command · result excluded from context";
+				return ["bash command", "result excluded from context"].join(
+					` ${MIDDLE_DOT} `,
+				);
 			default:
 				return "";
 		}
 	};
-	const leftText = () => composerModeLabel() || pending();
 	const leftColor = () =>
 		props.composerMode === "bash"
 			? theme.composerBashBorder
 			: props.composerMode === "bash-excluded"
 				? theme.composerBashExcludedBorder
 				: theme.textMuted;
-	const [vcs, setVcs] = createSignal(props.runtime.vcsInfo);
-	const unsubscribeVcs = props.runtime.subscribe("vcs.updated", (e) =>
-		setVcs(e),
+	const [footerContributions, setFooterContributions] = createSignal(
+		props.status.getContributions(),
 	);
-	const branch = () => vcs().branch;
-	const location = () =>
-		branch() != null
-			? `${props.cwd} (${branch()}${vcs().dirty ? "*" : ""})`
-			: props.cwd;
+	const unsubscribeStatus = props.status.subscribe(() =>
+		setFooterContributions(props.status.getContributions()),
+	);
+	const builtInLeftContribution = (): ChromeContribution | null => {
+		const label = composerModeLabel() || pending();
+		return label
+			? builtInContribution({
+					id: "BottomStatusBar:status",
+					label,
+					side: "left",
+				})
+			: null;
+	};
+	const leftContributions = () => {
+		const builtIn = builtInLeftContribution();
+		return [
+			...(builtIn ? [builtIn] : []),
+			...footerContributions().filter(
+				(contribution) => contribution.side === "left",
+			),
+		];
+	};
+	const rightContributions = () =>
+		footerContributions().filter(
+			(contribution) => contribution.side === "right",
+		);
 
 	onCleanup(() => {
 		unsubscribePendingMessageCount();
-		unsubscribeVcs();
+		unsubscribeStatus();
 	});
 
 	return (
@@ -62,12 +103,28 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			paddingX={1}
 			width="100%"
 			flexDirection="row"
+			flexWrap="wrap"
 			justifyContent="space-between"
+			gap={1}
 		>
-			<Show when={leftText()} fallback={<text />}>
-				<text fg={leftColor()}>{leftText()}</text>
-			</Show>
-			<text fg={theme.textMuted}>{location()}</text>
+			<box flexGrow={1} flexShrink={0} maxWidth="100%" overflow="hidden">
+				<ChromeContributionLine
+					contributions={leftContributions()}
+					fg={leftColor()}
+				/>
+			</box>
+			<box
+				flexShrink={0}
+				maxWidth="100%"
+				overflow="hidden"
+				justifyContent="flex-end"
+			>
+				<ChromeContributionLine
+					contributions={rightContributions()}
+					fg={theme.textMuted}
+					fallback=""
+				/>
+			</box>
 		</box>
 	);
 }

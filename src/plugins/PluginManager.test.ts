@@ -1,13 +1,25 @@
 import { describe, expect, test } from "bun:test";
 import type { Command } from "../features/commands";
 import type { ToolApprovalHandler } from "../runtime/agent-runtime";
+import { createChromeContributionsController } from "../shell/chrome-contributions";
+import { buildDefaultTheme } from "../shell/themes/system";
 import { PluginManager, type PluginRegistration } from "./PluginManager";
-import type { PluginContext } from "./types";
+import type { PluginContext, ThemeConfig } from "./types";
+
+function createThemeConfig(name = "test"): ThemeConfig {
+	const theme = buildDefaultTheme();
+	return {
+		name,
+		tokens: { ...theme.tokens },
+		syntaxPalette: { ...theme.syntaxPalette },
+	};
+}
 
 function createPluginContext(
 	commands: Command[],
 	runtime: Partial<PluginContext["runtime"]> = {},
 ): PluginContext {
+	const themeConfig = createThemeConfig();
 	return {
 		runtime: runtime as PluginContext["runtime"],
 		commands: {
@@ -22,6 +34,8 @@ function createPluginContext(
 		},
 		settings: { settings: {}, paths: {} as PluginContext["settings"]["paths"] },
 		ui: {
+			text: (text, style) => ({ __kitText: true, text, style }),
+			theme: () => themeConfig,
 			toast: () => {},
 			select: async () => undefined,
 			input: async () => undefined,
@@ -30,6 +44,24 @@ function createPluginContext(
 			getTranscriptViewport: () => null,
 		},
 		attachments: {} as PluginContext["attachments"],
+		footer: {
+			setContribution: () => {},
+			clearContribution: () => {},
+			clearNamespace: () => {},
+			hideContribution: () => () => {},
+			isHidden: () => false,
+			getContributions: () => [],
+			subscribe: () => () => {},
+		},
+		header: {
+			setContribution: () => {},
+			clearContribution: () => {},
+			clearNamespace: () => {},
+			hideContribution: () => () => {},
+			isHidden: () => false,
+			getContributions: () => [],
+			subscribe: () => () => {},
+		},
 	};
 }
 
@@ -75,7 +107,14 @@ describe("PluginManager", () => {
 		const manager = new PluginManager([plugin], createPluginContext([]));
 		manager.initialize();
 
-		expect(uiKeys).toEqual(["confirm", "input", "select", "toast"]);
+		expect(uiKeys).toEqual([
+			"confirm",
+			"input",
+			"select",
+			"text",
+			"theme",
+			"toast",
+		]);
 	});
 
 	test("exposes internal ui to built-in plugins", () => {
@@ -97,8 +136,28 @@ describe("PluginManager", () => {
 			"getTranscriptViewport",
 			"input",
 			"select",
+			"text",
+			"theme",
 			"toast",
 		]);
+	});
+
+	test("exposes theme config through public ui", () => {
+		const expectedTheme = createThemeConfig("plugin-test");
+		let receivedTheme: ThemeConfig | undefined;
+		const plugin: PluginRegistration = {
+			name: "external:theme",
+			initialize: (kit) => {
+				receivedTheme = kit.ui.theme();
+			},
+		};
+		const context = createPluginContext([]);
+		context.ui.theme = () => expectedTheme;
+
+		const manager = new PluginManager([plugin], context);
+		manager.initialize();
+
+		expect(receivedTheme).toEqual(expectedTheme);
 	});
 
 	test("registers tool call handlers with public ui", async () => {
@@ -141,7 +200,84 @@ describe("PluginManager", () => {
 
 		expect(decision).toEqual({ approved: false, reason: "nope" });
 		expect(disposed).toBe(true);
-		expect(uiKeys).toEqual(["confirm", "input", "select", "toast"]);
+		expect(uiKeys).toEqual([
+			"confirm",
+			"input",
+			"select",
+			"text",
+			"theme",
+			"toast",
+		]);
+	});
+
+	test("supports styled clickable chrome contributions", async () => {
+		const footer = createChromeContributionsController();
+		let clicked = false;
+		const plugin: PluginRegistration = {
+			name: "external:chrome",
+			initialize: (kit) => {
+				kit.footer.set(
+					"ci",
+					[kit.ui.text("✓", { fg: "green", bold: true }), " passing"],
+					{
+						side: "right",
+						onClick: () => {
+							clicked = true;
+						},
+					},
+				);
+			},
+		};
+		const context = createPluginContext([]);
+		context.footer = footer;
+
+		const manager = new PluginManager([plugin], context);
+		manager.initialize();
+
+		const [contribution] = footer.getContributions();
+		expect(contribution.id).toBe("external:chrome:ci");
+		expect(contribution.side).toBe("right");
+		expect(contribution.content).toEqual([
+			{ text: "✓", style: { fg: "green", bold: true } },
+			{ text: " passing" },
+		]);
+
+		await contribution.onClick?.();
+		expect(clicked).toBe(true);
+	});
+
+	test("logs chrome contribution click handler errors", async () => {
+		const footer = createChromeContributionsController();
+		const logs: unknown[][] = [];
+		const originalLog = console.log;
+		console.log = (...args: unknown[]) => {
+			logs.push(args);
+		};
+		try {
+			const plugin: PluginRegistration = {
+				name: "external:chrome",
+				initialize: (kit) => {
+					kit.footer.set("bad", "bad", {
+						onClick: () => {
+							throw new Error("nope");
+						},
+					});
+				},
+			};
+			const context = createPluginContext([]);
+			context.footer = footer;
+
+			const manager = new PluginManager([plugin], context);
+			manager.initialize();
+
+			await footer.getContributions()[0].onClick?.();
+		} finally {
+			console.log = originalLog;
+		}
+
+		expect(String(logs[0]?.[1])).toContain(
+			"Chrome contribution external:chrome:bad click handler failed",
+		);
 	});
 
 	test("reports external contribution conflicts as non-fatal plugin errors", () => {

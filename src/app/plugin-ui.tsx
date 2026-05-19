@@ -82,6 +82,7 @@ export type CreatePluginUIOptions = {
 	toast: (toast: ToastInput) => void;
 	custom: OpenOverlay;
 	getTranscriptViewport: () => TranscriptViewport | null;
+	getTheme: InternalPluginUI["theme"];
 };
 
 export function createPluginUI(
@@ -93,6 +94,8 @@ export function createPluginUI(
 		))) as InternalPluginUI["select"];
 
 	return {
+		text: (text, style) => ({ __kitText: true, text, style }),
+		theme: options.getTheme,
 		toast: options.toast,
 		select,
 		input: (input) =>

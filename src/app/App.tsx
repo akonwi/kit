@@ -20,7 +20,9 @@ import { type LoadedSettings, loadSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
 import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
-import { resolveAndApplyTheme } from "../shell/theme";
+import { createFooterStatusController } from "../shell/footer-status";
+import { createHeaderStatusController } from "../shell/header-status";
+import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import { FilePersistence } from "../storage/file-persistence";
@@ -41,6 +43,8 @@ type ReadyState = {
 	runtime: AgentRuntime;
 	controller: ReturnType<typeof createComposerController>;
 	attachments: ReturnType<typeof createAttachmentsController>;
+	footer: ReturnType<typeof createFooterStatusController>;
+	header: ReturnType<typeof createHeaderStatusController>;
 	app: ReturnType<typeof createAppState>;
 	dispose: () => void;
 };
@@ -67,11 +71,14 @@ export function App(props: AppProps) {
 		toast,
 		custom: openCustomOverlay,
 		getTranscriptViewport: () => transcriptViewport(),
+		getTheme: getCurrentThemeConfig,
 	});
 
 	async function buildReadyState(): Promise<ReadyState> {
 		let currentSettings = props.settings;
 		const attachments = createAttachmentsController();
+		const footer = createFooterStatusController();
+		const header = createHeaderStatusController();
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
 		});
@@ -92,6 +99,8 @@ export function App(props: AppProps) {
 			settings: currentSettings,
 			ui,
 			attachments,
+			footer,
+			header,
 		};
 		let pluginReloadCount = 0;
 		let pluginManager: PluginManager | null = null;
@@ -150,8 +159,8 @@ export function App(props: AppProps) {
 		async function reloadSettingsAndTheme(): Promise<void> {
 			currentSettings = await loadSettings();
 			pluginContext.settings = currentSettings;
-			runtime.emitSettingsChanged(currentSettings.settings);
 			await resolveAndApplyTheme(currentSettings.settings.theme ?? "system");
+			runtime.emitSettingsChanged(currentSettings.settings);
 		}
 
 		async function _reload(): Promise<void> {
@@ -224,6 +233,8 @@ export function App(props: AppProps) {
 			runtime,
 			controller,
 			attachments,
+			footer,
+			header,
 			app,
 			dispose,
 		};
@@ -302,6 +313,8 @@ export function App(props: AppProps) {
 							runtime={current.runtime}
 							controller={current.controller}
 							attachments={current.attachments}
+							footer={current.footer}
+							header={current.header}
 							overlays={overlays}
 							dismissToast={current.app.dismissToast}
 							onTranscriptViewportChange={setTranscriptViewport}

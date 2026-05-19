@@ -6,7 +6,7 @@ import {
 	watch,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { type GitInfo, getGitInfo } from "./git-info";
+import { getVcsInfo, type VcsInfo } from "./vcs-info";
 
 type GitPaths = {
 	repoDir: string;
@@ -56,9 +56,9 @@ function findGitPaths(cwd: string): GitPaths | null {
 	}
 }
 
-export class GitInfoWatcher {
+export class VcsInfoWatcher {
 	private readonly cwd: string;
-	private readonly onChange: (info: GitInfo) => void;
+	private readonly onChange: (info: VcsInfo) => void;
 	private readonly gitPaths: GitPaths | null;
 	private readonly watchers: FSWatcher[] = [];
 	private refreshTimer: ReturnType<typeof setTimeout> | null = null;
@@ -66,17 +66,17 @@ export class GitInfoWatcher {
 	private refreshInFlight = false;
 	private refreshPending = false;
 	private disposed = false;
-	private lastInfo: GitInfo;
+	private lastInfo: VcsInfo;
 
-	constructor(cwd: string, onChange: (info: GitInfo) => void) {
+	constructor(cwd: string, onChange: (info: VcsInfo) => void) {
 		this.cwd = cwd;
 		this.onChange = onChange;
 		this.gitPaths = findGitPaths(cwd);
-		this.lastInfo = getGitInfo(cwd);
+		this.lastInfo = getVcsInfo(cwd);
 		this.setupWatchers();
 	}
 
-	getCurrent(): GitInfo {
+	getCurrent(): VcsInfo {
 		return this.lastInfo;
 	}
 
@@ -163,7 +163,7 @@ export class GitInfoWatcher {
 
 		this.refreshInFlight = true;
 		try {
-			const nextInfo = getGitInfo(this.cwd);
+			const nextInfo = getVcsInfo(this.cwd);
 			if (this.disposed) return;
 			if (
 				nextInfo.branch !== this.lastInfo.branch ||

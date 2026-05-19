@@ -9,6 +9,7 @@ import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
 import { createSubagentsPlugin } from "../features/subagents";
 import { UserInteractionToolsPlugin } from "../features/user-interaction-tools";
+import { VcsStatusPlugin } from "../features/vcs/plugin";
 import type { PluginManagerInput } from "./PluginManager";
 import type { InternalPluginDefinition, PluginContext } from "./types";
 
@@ -30,6 +31,7 @@ export function createBuiltInPlugins(ctx: PluginContext): PluginManagerInput[] {
 		internalPlugin(PromptsPlugin),
 		internalPlugin(ClaudeCompatibilityPlugin),
 		internalPlugin(McpPlugin),
+		internalPlugin(VcsStatusPlugin),
 		internalPlugin(PagerPlugin),
 		internalPlugin(GuidedQuestionsPlugin),
 		internalPlugin(UserInteractionToolsPlugin),

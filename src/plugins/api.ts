@@ -9,6 +9,7 @@ import type {
 } from "../runtime/agent-runtime";
 import { saveSettings } from "../settings";
 import { openExternal } from "../shell/open-external";
+import { resolveAndApplyTheme } from "../shell/theme";
 import type {
 	CommandContext,
 	Disposer,
@@ -48,6 +49,8 @@ function toAgentTool<TParameters extends TSchema, TDetails>(
 
 function toPublicPluginUI(ui: PluginContext["ui"]): PluginAPI["ui"] {
 	return {
+		text: ui.text,
+		theme: ui.theme,
 		toast: ui.toast,
 		select: ui.select,
 		input: ui.input,
@@ -138,9 +141,14 @@ export function createPluginAPI(
 	const settings = {
 		get: () => ctx.settings.settings,
 		update: async (patch: Parameters<PluginAPI["settings"]["update"]>[0]) => {
+			const previousTheme = ctx.settings.settings.theme ?? "system";
 			const next = { ...ctx.settings.settings, ...patch };
+			const nextTheme = next.theme ?? "system";
 			await saveSettings(next);
 			ctx.settings.settings = next;
+			if (nextTheme !== previousTheme) {
+				await resolveAndApplyTheme(nextTheme);
+			}
 			ctx.runtime.emitSettingsChanged(next);
 		},
 	};
@@ -148,6 +156,68 @@ export function createPluginAPI(
 	const model = {
 		getCurrent: () => ctx.runtime.getCurrentModel(),
 	};
+
+	const vcs = {
+		get: () => ctx.runtime.vcsInfo,
+	};
+
+	function requireChromeItemId(id: string): string {
+		const itemId = id.trim();
+		if (!itemId) throw new Error("Chrome item id is required.");
+		return itemId;
+	}
+
+	function namespacedChromeItemId(id: string): string {
+		return `${options.name}:${requireChromeItemId(id)}`;
+	}
+
+	function createChromeClickHandler(
+		id: string,
+		onClick: (() => void | Promise<void>) | undefined,
+	): (() => Promise<void>) | undefined {
+		if (!onClick) return undefined;
+		return async () => {
+			try {
+				await onClick();
+			} catch (error) {
+				logger.log(`Chrome contribution ${id} click handler failed:`, error);
+			}
+		};
+	}
+
+	function createChromeApi(
+		controller: PluginContext["footer"] | PluginContext["header"],
+	) {
+		return {
+			set: (
+				id: string,
+				content: Parameters<PluginAPI["footer"]["set"]>[1],
+				itemOptions?: Parameters<PluginAPI["footer"]["set"]>[2],
+			) => {
+				const contributionId = namespacedChromeItemId(id);
+				controller.setContribution({
+					id: contributionId,
+					content,
+					side: itemOptions?.side,
+					onClick: createChromeClickHandler(
+						contributionId,
+						itemOptions?.onClick,
+					),
+				});
+			},
+			clear: (id: string) => {
+				controller.clearContribution(namespacedChromeItemId(id));
+			},
+			hide: (id: string) => {
+				return track(controller.hideContribution(requireChromeItemId(id)));
+			},
+		};
+	}
+
+	const footer = createChromeApi(ctx.footer);
+	const header = createChromeApi(ctx.header);
+	track(() => ctx.footer.clearNamespace(options.name));
+	track(() => ctx.header.clearNamespace(options.name));
 
 	const system = {
 		get cwd() {
@@ -168,6 +238,8 @@ export function createPluginAPI(
 			session,
 			settings,
 			model,
+			footer,
+			header,
 			system,
 		} as unknown as EventContext;
 	}
@@ -179,6 +251,9 @@ export function createPluginAPI(
 			session,
 			settings,
 			model,
+			vcs,
+			footer,
+			header,
 			system,
 		};
 	}
@@ -291,12 +366,14 @@ export function createPluginAPI(
 			}),
 		)) as PluginAPI["onToolCall"] & InternalPluginAPI["onToolCall"];
 
-	return {
+	const api = {
 		logger,
 		ui,
 		session,
 		settings,
 		model,
+		footer,
+		header,
 		system,
 		on,
 		registerCommand,
@@ -313,5 +390,11 @@ export function createPluginAPI(
 			}
 			return track(ctx.runtime.setDebugSection(key, lines));
 		},
-	} as unknown as PluginAPI | InternalPluginAPI;
+	};
+
+	if (options.exposeInternalUi) {
+		return { ...api, vcs } as unknown as InternalPluginAPI;
+	}
+
+	return api as unknown as PluginAPI;
 }

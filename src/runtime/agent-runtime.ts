@@ -40,8 +40,6 @@ import {
 	getRuntimeContextUsage,
 	type RuntimeContextUsage,
 } from "./context-usage";
-import type { GitInfo } from "./git-info";
-import { GitInfoWatcher } from "./git-info-watcher";
 import { type AgentEvent, KitAgent } from "./kit-agent";
 import {
 	getSelectableModels,
@@ -50,6 +48,8 @@ import {
 } from "./provider-selection";
 import { createSyntheticSummaryMessage } from "./session-summary";
 import { clampThinkingLevel } from "./thinking-levels";
+import type { VcsInfo } from "./vcs-info";
+import { VcsInfoWatcher } from "./vcs-info-watcher";
 
 registerBuiltInApiProviders();
 
@@ -101,7 +101,7 @@ export type RuntimeStatus = {
 	model: string;
 	thinkingLevel: string;
 	isStreaming: boolean;
-	git: GitInfo;
+	git: VcsInfo;
 	contextUsage: RuntimeContextUsage | null;
 };
 
@@ -241,7 +241,7 @@ export type RuntimeEventMap = {
 	"chat.message-queue.changed": { count: number };
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
-	"vcs.updated": { branch: string | null; dirty: boolean };
+	"vcs.updated": VcsInfo;
 };
 
 export type RuntimeEventName = keyof RuntimeEventMap;
@@ -298,8 +298,8 @@ export class AgentRuntime {
 	private contextFiles: ContextFile[] = [];
 	private debugSections = new Map<string, string[]>();
 	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
-	private gitWatcher: GitInfoWatcher | null = null;
-	private gitInfo: GitInfo = { branch: null, dirty: false };
+	private gitWatcher: VcsInfoWatcher | null = null;
+	private gitInfo: VcsInfo = { branch: null, dirty: false };
 	get vcsInfo() {
 		return this.gitInfo;
 	}
@@ -419,7 +419,7 @@ export class AgentRuntime {
 
 	private resetGitWatcher(): void {
 		this.gitWatcher?.dispose();
-		this.gitWatcher = new GitInfoWatcher(this.session.cwd, (gitInfo) => {
+		this.gitWatcher = new VcsInfoWatcher(this.session.cwd, (gitInfo) => {
 			this.gitInfo = gitInfo;
 			this.emit("vcs.updated", this.gitInfo);
 		});

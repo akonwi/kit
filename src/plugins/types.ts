@@ -10,9 +10,12 @@ import type {
 	RuntimeEventNameMatchingPrefix,
 	RuntimeEventPrefixSubscription,
 } from "../runtime/agent-runtime";
+import type { VcsInfo } from "../runtime/vcs-info";
 import type { Session as KitSession } from "../session";
 import type { Settings as KitSettings, LoadedSettings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
+import type { FooterStatusController } from "../shell/footer-status";
+import type { HeaderStatusController } from "../shell/header-status";
 import type {
 	CommandOptions,
 	Disposer,
@@ -23,17 +26,25 @@ import type {
 } from "./sdk";
 
 export type {
+	ChromeContributionOptions,
+	ChromeContributionSide,
 	CommandContext,
 	CommandOptions,
 	Disposer,
 	EventContext,
 	EventHandler,
+	KitText,
+	KitTextContent,
+	KitTextStyle,
 	MessagePart,
 	Plugin,
 	PluginAPI,
 	RuntimeEvent,
 	Session,
 	Settings,
+	SyntaxPalette,
+	ThemeConfig,
+	ThemeTokens,
 	ToolCall,
 	ToolCallDecision,
 	ToolCallHandler,
@@ -69,6 +80,8 @@ export type PluginContext = {
 	settings: LoadedSettings;
 	ui: InternalPluginUI;
 	attachments: AttachmentsController;
+	footer: FooterStatusController;
+	header: HeaderStatusController;
 };
 
 export type InternalPluginSessionAPI = {
@@ -92,6 +105,13 @@ export type InternalPluginModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
+export type InternalPluginVcsAPI = {
+	get: () => VcsInfo;
+};
+
+export type InternalPluginFooterAPI = PluginAPI["footer"];
+export type InternalPluginHeaderAPI = PluginAPI["header"];
+
 export type InternalPluginSystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
@@ -103,6 +123,9 @@ export type InternalPluginEventContext = {
 	session: InternalPluginSessionAPI;
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;
+	vcs: InternalPluginVcsAPI;
+	footer: InternalPluginFooterAPI;
+	header: InternalPluginHeaderAPI;
 	system: InternalPluginSystemAPI;
 };
 
@@ -129,6 +152,9 @@ export interface InternalPluginAPI {
 	session: InternalPluginSessionAPI;
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;
+	vcs: InternalPluginVcsAPI;
+	footer: InternalPluginFooterAPI;
+	header: InternalPluginHeaderAPI;
 	system: InternalPluginSystemAPI;
 	on(handler: InternalPluginEventHandler): Disposer;
 	on<K extends RuntimeEventName>(

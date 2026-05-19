@@ -22,6 +22,8 @@ const pluginTypesPath = path.join(distDir, "plugin.d.ts");
 const pluginTypesSourcePath = path.join(dir, "src/plugins/sdk.ts");
 const toastTypesPath = path.join(distDir, "toasts.d.ts");
 const toastTypesSourcePath = path.join(dir, "src/state/toasts.ts");
+const themeTypesPath = path.join(distDir, "themes.d.ts");
+const themeTypesSourcePath = path.join(dir, "src/shell/themes/types.ts");
 const parserWorkerPath = path.resolve(
 	dir,
 	"node_modules/@opentui/core/parser.worker.js",
@@ -136,9 +138,16 @@ const pluginTypesSource = await fs.promises.readFile(
 );
 await fs.promises.writeFile(
 	pluginTypesPath,
-	pluginTypesSource.replace('from "../state/toasts"', 'from "./toasts"'),
+	pluginTypesSource
+		.replace('from "../state/toasts"', 'from "./toasts"')
+		.replace('from "../shell/themes/types"', 'from "./themes"'),
 	"utf8",
 );
 await fs.promises.copyFile(toastTypesSourcePath, toastTypesPath);
+const themeTypesSource = await fs.promises.readFile(
+	themeTypesSourcePath,
+	"utf8",
+);
+await fs.promises.writeFile(themeTypesPath, themeTypesSource, "utf8");
 
 console.log(`Built ${binaryPath}`);

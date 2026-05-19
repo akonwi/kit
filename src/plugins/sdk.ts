@@ -2,11 +2,38 @@ export { Type } from "typebox";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model, Static, TSchema } from "@earendil-works/pi-ai";
+import type {
+	SyntaxPalette,
+	ThemeConfig,
+	ThemeColorTokens as ThemeTokens,
+} from "../shell/themes/types";
 import type { ToastInput } from "../state/toasts";
+
+export type { SyntaxPalette, ThemeConfig, ThemeTokens };
 
 export type Disposer = () => void;
 
+export type KitTextStyle = {
+	fg?: string;
+	bg?: string;
+	bold?: boolean;
+	dim?: boolean;
+	italic?: boolean;
+	underline?: boolean;
+	strikethrough?: boolean;
+};
+
+export type KitText = {
+	readonly __kitText: true;
+	readonly text: string;
+	readonly style?: KitTextStyle;
+};
+
+export type KitTextContent = string | KitText | readonly (string | KitText)[];
+
 interface UI {
+	text: (text: string, style?: KitTextStyle) => KitText;
+	theme: () => ThemeConfig;
 	toast: (toast: ToastInput) => void;
 	select(input: {
 		title: string;
@@ -161,6 +188,26 @@ type ModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
+export type ChromeContributionSide = "left" | "right";
+
+export type ChromeContributionOptions = {
+	side?: ChromeContributionSide;
+	onClick?: () => void | Promise<void>;
+};
+
+type ChromeContributionAPI = {
+	set: (
+		id: string,
+		content: KitTextContent,
+		options?: ChromeContributionOptions,
+	) => void;
+	clear: (id: string) => void;
+	hide: (id: string) => Disposer;
+};
+
+type FooterAPI = ChromeContributionAPI;
+type HeaderAPI = ChromeContributionAPI;
+
 type SystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
@@ -172,6 +219,8 @@ export type EventContext = {
 	session: SessionAPI;
 	settings: SettingsAPI;
 	model: ModelAPI;
+	footer: FooterAPI;
+	header: HeaderAPI;
 	system: SystemAPI;
 };
 
@@ -201,6 +250,8 @@ export interface PluginAPI {
 	session: SessionAPI;
 	settings: SettingsAPI;
 	model: ModelAPI;
+	footer: FooterAPI;
+	header: HeaderAPI;
 	system: SystemAPI;
 	on(handler: EventHandler): Disposer;
 	on<Type extends string>(type: Type, handler: EventHandler<Type>): Disposer;
