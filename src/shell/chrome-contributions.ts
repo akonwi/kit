@@ -105,6 +105,7 @@ export function createChromeContributionsController() {
 		clearContribution,
 		clearNamespace,
 		hideContribution,
+		isHidden,
 		getContributions,
 		subscribe,
 	};

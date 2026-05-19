@@ -1,7 +1,10 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { CIRCLE_EMPTY, CIRCLE_FILLED, MIDDLE_DOT } from "./glyphs";
-import type { HeaderStatusController } from "./header-status";
+import type {
+	HeaderStatusContribution,
+	HeaderStatusController,
+} from "./header-status";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
 
@@ -10,6 +13,13 @@ function progressColor(pct: number): string {
 	if (pct >= 80) return theme.progressWarning;
 	return theme.progressNormal;
 }
+
+export const HEADER_CONTRIBUTION_IDS = {
+	title: "HeaderBar:title",
+	model: "HeaderBar:model",
+	bell: "HeaderBar:bell",
+	speech: "HeaderBar:speech",
+} as const;
 
 export type HeaderBarProps = {
 	sessionName: string | undefined;
@@ -65,21 +75,40 @@ export function HeaderBar(props: HeaderBarProps) {
 	const unsubscribeHeader = props.header.subscribe(() =>
 		setHeaderContributions(props.header.getContributions()),
 	);
+	const builtInContributions = (): HeaderStatusContribution[] => [
+		{
+			id: HEADER_CONTRIBUTION_IDS.title,
+			label: props.sessionName || "Unnamed session",
+			side: "left",
+		},
+		{
+			id: HEADER_CONTRIBUTION_IDS.model,
+			label: `${agentInfo().model?.name ?? "model?"} (${agentInfo().thinkingLevel})`,
+			side: "right",
+		},
+		{
+			id: HEADER_CONTRIBUTION_IDS.bell,
+			label: bell(),
+			side: "right",
+		},
+		{
+			id: HEADER_CONTRIBUTION_IDS.speech,
+			label: speech(),
+			side: "right",
+		},
+	];
 	const contributionLabels = (side: "left" | "right") =>
-		headerContributions()
-			.filter((contribution) => contribution.side === side)
-			.map((contribution) => contribution.label);
-	const leftText = () =>
 		[
-			props.sessionName || "Unnamed session",
-			...contributionLabels("left"),
-		].join(` ${MIDDLE_DOT} `);
-	const rightText = () =>
-		[
-			`${agentInfo().model?.name ?? "model?"} (${agentInfo().thinkingLevel})`,
-			`${bell()} ${speech()}`,
-			...contributionLabels("right"),
-		].join(` ${MIDDLE_DOT} `);
+			...builtInContributions().filter(
+				(contribution) =>
+					contribution.side === side && !props.header.isHidden(contribution.id),
+			),
+			...headerContributions().filter(
+				(contribution) => contribution.side === side,
+			),
+		].map((contribution) => contribution.label);
+	const leftText = () => contributionLabels("left").join(` ${MIDDLE_DOT} `);
+	const rightText = () => contributionLabels("right").join(` ${MIDDLE_DOT} `);
 
 	onCleanup(() => {
 		unsubscribeTurns();

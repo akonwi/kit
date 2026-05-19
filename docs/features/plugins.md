@@ -141,10 +141,14 @@ kit.header.clear("branch");
 // Hide a known item contributed by another plugin or built-in.
 // The disposer restores it.
 const showDefaultLocation = kit.footer.hide("VcsStatusPlugin:location");
+const showDefaultModel = kit.header.hide("HeaderBar:model");
 showDefaultLocation();
+showDefaultModel();
 ```
 
 Header/footer item IDs passed to `set`/`clear` are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded. `hide` accepts the full item ID to support replacing known built-in contributions.
+
+Built-in header item IDs are `HeaderBar:title`, `HeaderBar:model`, `HeaderBar:bell`, and `HeaderBar:speech`.
 
 Built-in internal plugins may use additional app-owned capabilities that are not part of the public plugin SDK. For example, built-ins can read VCS state while the public SDK only exposes chrome contribution rendering.
 
