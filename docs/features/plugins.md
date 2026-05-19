@@ -125,6 +125,8 @@ const ok = await kit.ui.confirm({
 
 These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, and `confirm` so Kit can keep ownership of rendering, focus, theme, and compatibility.
 
+Built-in internal plugins may use additional app-owned capabilities that are not part of the public plugin SDK. For example, built-ins can contribute small VCS badges to the bottom status footer while the shell retains ownership of rendering and layout.
+
 ## Tool approval hooks
 
 Plugins can register a callback that runs before a tool executes. Return `{ action: "allow" }` or no value to run the tool; return `{ action: "reject-and-continue", message }` to block it and let the agent continue.

@@ -1,4 +1,5 @@
 import { ClaudeCompatibilityPlugin } from "../features/claude-compat";
+import { GitHubPlugin } from "../features/github/plugin";
 import { GuidedQuestionsPlugin } from "../features/guided-questions";
 import { McpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
@@ -30,6 +31,7 @@ export function createBuiltInPlugins(ctx: PluginContext): PluginManagerInput[] {
 		internalPlugin(PromptsPlugin),
 		internalPlugin(ClaudeCompatibilityPlugin),
 		internalPlugin(McpPlugin),
+		internalPlugin(GitHubPlugin),
 		internalPlugin(PagerPlugin),
 		internalPlugin(GuidedQuestionsPlugin),
 		internalPlugin(UserInteractionToolsPlugin),

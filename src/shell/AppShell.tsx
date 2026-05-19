@@ -14,6 +14,7 @@ import { BottomStatusBar } from "./BottomStatusBar";
 import { CommandPalette } from "./CommandPalette";
 import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
 import type { ComposerController } from "./composer-controller";
+import type { FooterStatusController } from "./footer-status";
 import { HeaderBar } from "./HeaderBar";
 import { InlinePicker } from "./InlinePicker";
 import { PendingSlot } from "./PendingSlot";
@@ -29,6 +30,7 @@ export type AppShellProps = {
 	runtime: AgentRuntime;
 	controller: ComposerController;
 	attachments: AttachmentsController;
+	status: FooterStatusController;
 	overlays: () => OverlayEntry[];
 	dismissToast: (id: number) => void;
 	onTranscriptViewportChange: (viewport: {
@@ -99,6 +101,7 @@ export function AppShell(props: AppShellProps) {
 				<BottomStatusBar
 					cwd={props.state.sessionMeta.cwd}
 					runtime={props.runtime}
+					status={props.status}
 					composerMode={composerMode()}
 				/>
 			</box>

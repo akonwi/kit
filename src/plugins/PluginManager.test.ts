@@ -30,6 +30,11 @@ function createPluginContext(
 			getTranscriptViewport: () => null,
 		},
 		attachments: {} as PluginContext["attachments"],
+		status: {
+			setVcsContribution: () => {},
+			getVcsContributions: () => [],
+			subscribe: () => () => {},
+		},
 	};
 }
 

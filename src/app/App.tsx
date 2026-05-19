@@ -20,6 +20,7 @@ import { type LoadedSettings, loadSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
 import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
+import { createFooterStatusController } from "../shell/footer-status";
 import { resolveAndApplyTheme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
@@ -41,6 +42,7 @@ type ReadyState = {
 	runtime: AgentRuntime;
 	controller: ReturnType<typeof createComposerController>;
 	attachments: ReturnType<typeof createAttachmentsController>;
+	status: ReturnType<typeof createFooterStatusController>;
 	app: ReturnType<typeof createAppState>;
 	dispose: () => void;
 };
@@ -72,6 +74,7 @@ export function App(props: AppProps) {
 	async function buildReadyState(): Promise<ReadyState> {
 		let currentSettings = props.settings;
 		const attachments = createAttachmentsController();
+		const status = createFooterStatusController();
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
 		});
@@ -92,6 +95,7 @@ export function App(props: AppProps) {
 			settings: currentSettings,
 			ui,
 			attachments,
+			status,
 		};
 		let pluginReloadCount = 0;
 		let pluginManager: PluginManager | null = null;
@@ -224,6 +228,7 @@ export function App(props: AppProps) {
 			runtime,
 			controller,
 			attachments,
+			status,
 			app,
 			dispose,
 		};
@@ -302,6 +307,7 @@ export function App(props: AppProps) {
 							runtime={current.runtime}
 							controller={current.controller}
 							attachments={current.attachments}
+							status={current.status}
 							overlays={overlays}
 							dismissToast={current.app.dismissToast}
 							onTranscriptViewportChange={setTranscriptViewport}

@@ -1,11 +1,14 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { ComposerInputMode } from "./ComposerDock";
+import type { FooterStatusController } from "./footer-status";
+import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
 	cwd: string;
+	status: FooterStatusController;
 	composerMode: ComposerInputMode;
 };
 
@@ -40,18 +43,33 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 				? theme.composerBashExcludedBorder
 				: theme.textMuted;
 	const [vcs, setVcs] = createSignal(props.runtime.vcsInfo);
+	const [vcsContributions, setVcsContributions] = createSignal(
+		props.status.getVcsContributions(),
+	);
 	const unsubscribeVcs = props.runtime.subscribe("vcs.updated", (e) =>
 		setVcs(e),
 	);
+	const unsubscribeStatus = props.status.subscribe(() =>
+		setVcsContributions(props.status.getVcsContributions()),
+	);
 	const branch = () => vcs().branch;
-	const location = () =>
-		branch() != null
-			? `${props.cwd} (${branch()}${vcs().dirty ? "*" : ""})`
-			: props.cwd;
+	const vcsLabel = () => {
+		const currentBranch = branch();
+		if (currentBranch == null) return null;
+		return [
+			`${currentBranch}${vcs().dirty ? "*" : ""}`,
+			...vcsContributions().map((contribution) => contribution.label),
+		].join(` ${MIDDLE_DOT} `);
+	};
+	const location = () => {
+		const label = vcsLabel();
+		return label ? `${props.cwd} (${label})` : props.cwd;
+	};
 
 	onCleanup(() => {
 		unsubscribePendingMessageCount();
 		unsubscribeVcs();
+		unsubscribeStatus();
 	});
 
 	return (

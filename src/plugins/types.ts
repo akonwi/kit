@@ -10,9 +10,11 @@ import type {
 	RuntimeEventNameMatchingPrefix,
 	RuntimeEventPrefixSubscription,
 } from "../runtime/agent-runtime";
+import type { VcsInfo } from "../runtime/vcs-info";
 import type { Session as KitSession } from "../session";
 import type { Settings as KitSettings, LoadedSettings } from "../settings";
 import type { AttachmentsController } from "../shell/attachments-controller";
+import type { FooterStatusController } from "../shell/footer-status";
 import type {
 	CommandOptions,
 	Disposer,
@@ -69,6 +71,7 @@ export type PluginContext = {
 	settings: LoadedSettings;
 	ui: InternalPluginUI;
 	attachments: AttachmentsController;
+	status: FooterStatusController;
 };
 
 export type InternalPluginSessionAPI = {
@@ -92,6 +95,14 @@ export type InternalPluginModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
 };
 
+export type InternalPluginVcsAPI = {
+	get: () => VcsInfo;
+};
+
+export type InternalPluginStatusAPI = {
+	setVcsBadge: (label: string | null) => void;
+};
+
 export type InternalPluginSystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
@@ -103,6 +114,8 @@ export type InternalPluginEventContext = {
 	session: InternalPluginSessionAPI;
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;
+	vcs: InternalPluginVcsAPI;
+	status: InternalPluginStatusAPI;
 	system: InternalPluginSystemAPI;
 };
 
@@ -129,6 +142,8 @@ export interface InternalPluginAPI {
 	session: InternalPluginSessionAPI;
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;
+	vcs: InternalPluginVcsAPI;
+	status: InternalPluginStatusAPI;
 	system: InternalPluginSystemAPI;
 	on(handler: InternalPluginEventHandler): Disposer;
 	on<K extends RuntimeEventName>(

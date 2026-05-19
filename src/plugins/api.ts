@@ -149,6 +149,17 @@ export function createPluginAPI(
 		getCurrent: () => ctx.runtime.getCurrentModel(),
 	};
 
+	const vcs = {
+		get: () => ctx.runtime.vcsInfo,
+	};
+
+	const status = {
+		setVcsBadge: (label: string | null) => {
+			ctx.status.setVcsContribution(options.name, label);
+		},
+	};
+	track(() => ctx.status.setVcsContribution(options.name, null));
+
 	const system = {
 		get cwd() {
 			return ctx.runtime.getSession().cwd;
@@ -179,6 +190,8 @@ export function createPluginAPI(
 			session,
 			settings,
 			model,
+			vcs,
+			status,
 			system,
 		};
 	}
@@ -291,7 +304,7 @@ export function createPluginAPI(
 			}),
 		)) as PluginAPI["onToolCall"] & InternalPluginAPI["onToolCall"];
 
-	return {
+	const api = {
 		logger,
 		ui,
 		session,
@@ -313,5 +326,11 @@ export function createPluginAPI(
 			}
 			return track(ctx.runtime.setDebugSection(key, lines));
 		},
-	} as unknown as PluginAPI | InternalPluginAPI;
+	};
+
+	if (options.exposeInternalUi) {
+		return { ...api, vcs, status } as unknown as InternalPluginAPI;
+	}
+
+	return api as unknown as PluginAPI;
 }

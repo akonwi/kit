@@ -1,4 +1,4 @@
-export type GitInfo = {
+export type VcsInfo = {
 	branch: string | null;
 	dirty: boolean;
 };
@@ -8,14 +8,14 @@ export type GitInfo = {
  * Uses the same status plumbing as `git status` so linked worktrees are
  * resolved against their own HEAD/ref state.
  */
-export function getGitInfo(cwd: string): GitInfo {
+export function getVcsInfo(cwd: string): VcsInfo {
 	try {
 		const result = spawnSync("git", ["status", "--porcelain=2", "--branch"], {
 			cwd,
 			encoding: "utf-8",
 		});
 		if (result.error || result.status !== 0) {
-			return { branch: null, dirty: false };
+			return emptyVcsInfo();
 		}
 
 		let branch: string | null = null;
@@ -44,8 +44,12 @@ export function getGitInfo(cwd: string): GitInfo {
 
 		return { branch, dirty };
 	} catch {
-		return { branch: null, dirty: false };
+		return emptyVcsInfo();
 	}
+}
+
+export function emptyVcsInfo(): VcsInfo {
+	return { branch: null, dirty: false };
 }
 
 function spawnSync(
