@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { loadExternalPlugins } from "./external";
-import type { PluginAPI } from "./types";
+import type { PluginAPI, ThemeConfig } from "./types";
 
 const tempDirs: string[] = [];
 
@@ -25,6 +25,7 @@ function createMockKit(logs: string[]): PluginAPI {
 		logger: { log: (...args) => logs.push(args.join(" ")) },
 		ui: {
 			text: (text, style) => ({ __kitText: true, text, style }),
+			theme: () => ({}) as ThemeConfig,
 			toast: () => {},
 			select: async () => undefined,
 			input: async () => undefined,

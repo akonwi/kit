@@ -2,7 +2,14 @@ export { Type } from "typebox";
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Api, Model, Static, TSchema } from "@earendil-works/pi-ai";
+import type {
+	SyntaxPalette,
+	ThemeConfig,
+	ThemeColorTokens as ThemeTokens,
+} from "../shell/themes/types";
 import type { ToastInput } from "../state/toasts";
+
+export type { SyntaxPalette, ThemeConfig, ThemeTokens };
 
 export type Disposer = () => void;
 
@@ -26,6 +33,7 @@ export type KitTextContent = string | KitText | readonly (string | KitText)[];
 
 interface UI {
 	text: (text: string, style?: KitTextStyle) => KitText;
+	theme: () => ThemeConfig;
 	toast: (toast: ToastInput) => void;
 	select(input: {
 		title: string;

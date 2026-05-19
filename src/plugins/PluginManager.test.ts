@@ -2,13 +2,24 @@ import { describe, expect, test } from "bun:test";
 import type { Command } from "../features/commands";
 import type { ToolApprovalHandler } from "../runtime/agent-runtime";
 import { createChromeContributionsController } from "../shell/chrome-contributions";
+import { buildDefaultTheme } from "../shell/themes/system";
 import { PluginManager, type PluginRegistration } from "./PluginManager";
-import type { PluginContext } from "./types";
+import type { PluginContext, ThemeConfig } from "./types";
+
+function createThemeConfig(name = "test"): ThemeConfig {
+	const theme = buildDefaultTheme();
+	return {
+		name,
+		tokens: { ...theme.tokens },
+		syntaxPalette: { ...theme.syntaxPalette },
+	};
+}
 
 function createPluginContext(
 	commands: Command[],
 	runtime: Partial<PluginContext["runtime"]> = {},
 ): PluginContext {
+	const themeConfig = createThemeConfig();
 	return {
 		runtime: runtime as PluginContext["runtime"],
 		commands: {
@@ -24,6 +35,7 @@ function createPluginContext(
 		settings: { settings: {}, paths: {} as PluginContext["settings"]["paths"] },
 		ui: {
 			text: (text, style) => ({ __kitText: true, text, style }),
+			theme: () => themeConfig,
 			toast: () => {},
 			select: async () => undefined,
 			input: async () => undefined,
@@ -95,7 +107,14 @@ describe("PluginManager", () => {
 		const manager = new PluginManager([plugin], createPluginContext([]));
 		manager.initialize();
 
-		expect(uiKeys).toEqual(["confirm", "input", "select", "text", "toast"]);
+		expect(uiKeys).toEqual([
+			"confirm",
+			"input",
+			"select",
+			"text",
+			"theme",
+			"toast",
+		]);
 	});
 
 	test("exposes internal ui to built-in plugins", () => {
@@ -118,8 +137,27 @@ describe("PluginManager", () => {
 			"input",
 			"select",
 			"text",
+			"theme",
 			"toast",
 		]);
+	});
+
+	test("exposes theme config through public ui", () => {
+		const expectedTheme = createThemeConfig("plugin-test");
+		let receivedTheme: ThemeConfig | undefined;
+		const plugin: PluginRegistration = {
+			name: "external:theme",
+			initialize: (kit) => {
+				receivedTheme = kit.ui.theme();
+			},
+		};
+		const context = createPluginContext([]);
+		context.ui.theme = () => expectedTheme;
+
+		const manager = new PluginManager([plugin], context);
+		manager.initialize();
+
+		expect(receivedTheme).toEqual(expectedTheme);
 	});
 
 	test("registers tool call handlers with public ui", async () => {
@@ -162,7 +200,14 @@ describe("PluginManager", () => {
 
 		expect(decision).toEqual({ approved: false, reason: "nope" });
 		expect(disposed).toBe(true);
-		expect(uiKeys).toEqual(["confirm", "input", "select", "text", "toast"]);
+		expect(uiKeys).toEqual([
+			"confirm",
+			"input",
+			"select",
+			"text",
+			"theme",
+			"toast",
+		]);
 	});
 
 	test("supports styled clickable chrome contributions", async () => {

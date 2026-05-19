@@ -9,6 +9,7 @@ import type {
 } from "../runtime/agent-runtime";
 import { saveSettings } from "../settings";
 import { openExternal } from "../shell/open-external";
+import { resolveAndApplyTheme } from "../shell/theme";
 import type {
 	CommandContext,
 	Disposer,
@@ -49,6 +50,7 @@ function toAgentTool<TParameters extends TSchema, TDetails>(
 function toPublicPluginUI(ui: PluginContext["ui"]): PluginAPI["ui"] {
 	return {
 		text: ui.text,
+		theme: ui.theme,
 		toast: ui.toast,
 		select: ui.select,
 		input: ui.input,
@@ -139,9 +141,14 @@ export function createPluginAPI(
 	const settings = {
 		get: () => ctx.settings.settings,
 		update: async (patch: Parameters<PluginAPI["settings"]["update"]>[0]) => {
+			const previousTheme = ctx.settings.settings.theme ?? "system";
 			const next = { ...ctx.settings.settings, ...patch };
+			const nextTheme = next.theme ?? "system";
 			await saveSettings(next);
 			ctx.settings.settings = next;
+			if (nextTheme !== previousTheme) {
+				await resolveAndApplyTheme(nextTheme);
+			}
 			ctx.runtime.emitSettingsChanged(next);
 		},
 	};

@@ -22,7 +22,7 @@ import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
 import { createFooterStatusController } from "../shell/footer-status";
 import { createHeaderStatusController } from "../shell/header-status";
-import { resolveAndApplyTheme } from "../shell/theme";
+import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import { FilePersistence } from "../storage/file-persistence";
@@ -71,6 +71,7 @@ export function App(props: AppProps) {
 		toast,
 		custom: openCustomOverlay,
 		getTranscriptViewport: () => transcriptViewport(),
+		getTheme: getCurrentThemeConfig,
 	});
 
 	async function buildReadyState(): Promise<ReadyState> {
@@ -158,8 +159,8 @@ export function App(props: AppProps) {
 		async function reloadSettingsAndTheme(): Promise<void> {
 			currentSettings = await loadSettings();
 			pluginContext.settings = currentSettings;
-			runtime.emitSettingsChanged(currentSettings.settings);
 			await resolveAndApplyTheme(currentSettings.settings.theme ?? "system");
+			runtime.emitSettingsChanged(currentSettings.settings);
 		}
 
 		async function _reload(): Promise<void> {

@@ -114,11 +114,17 @@ export type SyntaxPalette = {
 	label: string;
 };
 
+/** Color tokens safe to expose outside the shell. */
+export type ThemeColorTokens = Omit<ThemeTokens, "modalBackdrop">;
+
 /** A fully resolved theme with all tokens filled in (except modalBackdrop). */
 export type ResolvedTheme = {
-	tokens: Omit<ThemeTokens, "modalBackdrop">;
+	tokens: ThemeColorTokens;
 	syntaxPalette: SyntaxPalette;
 };
+
+/** Public resolved theme config exposed to plugins. */
+export type ThemeConfig = ResolvedTheme & { name: string };
 
 /**
  * A partial theme definition for overrides.
@@ -126,6 +132,6 @@ export type ResolvedTheme = {
  * that get merged on top of the system theme.
  */
 export type ThemeDefinition = {
-	tokens?: Partial<Omit<ThemeTokens, "modalBackdrop">>;
+	tokens?: Partial<ThemeColorTokens>;
 	syntaxPalette?: Partial<SyntaxPalette>;
 };

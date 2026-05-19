@@ -16,7 +16,12 @@ import { createSignal } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
 import { loadUserTheme } from "./themes/loader";
 import { buildDefaultTheme, buildSystemTheme, parseHex } from "./themes/system";
-import type { ResolvedTheme, SyntaxPalette, ThemeTokens } from "./themes/types";
+import type {
+	ResolvedTheme,
+	SyntaxPalette,
+	ThemeConfig,
+	ThemeTokens,
+} from "./themes/types";
 
 // ── Reactive theme store ────────────────────────────────────────────
 
@@ -26,6 +31,12 @@ function modalBackdropFromBg(bg: string): RGBA {
 }
 
 const initialTheme = buildDefaultTheme();
+
+let currentThemeConfig: ThemeConfig = {
+	name: "system",
+	tokens: { ...initialTheme.tokens },
+	syntaxPalette: { ...initialTheme.syntaxPalette },
+};
 
 const [theme, setTheme] = createStore<ThemeTokens>({
 	...initialTheme.tokens,
@@ -230,6 +241,14 @@ function cloneResolvedTheme(resolved: ResolvedTheme): ResolvedTheme {
 	};
 }
 
+export function getCurrentThemeConfig(): ThemeConfig {
+	return {
+		name: currentThemeConfig.name,
+		tokens: { ...currentThemeConfig.tokens },
+		syntaxPalette: { ...currentThemeConfig.syntaxPalette },
+	};
+}
+
 async function resolveSystemThemeBase(): Promise<ResolvedTheme> {
 	if (cachedSystemTheme) return cloneResolvedTheme(cachedSystemTheme);
 
@@ -298,6 +317,12 @@ export async function resolveAndApplyTheme(
 			}
 		}
 	}
+
+	currentThemeConfig = {
+		name: themeName,
+		tokens: { ...resolved.tokens },
+		syntaxPalette: { ...resolved.syntaxPalette },
+	};
 
 	// Apply to reactive stores
 	setTheme(

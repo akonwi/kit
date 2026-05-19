@@ -123,7 +123,7 @@ const ok = await kit.ui.confirm({
 });
 ```
 
-These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, `confirm`, and the `text` helper so Kit can keep ownership of rendering, focus, theme, and compatibility.
+These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, `confirm`, and the `text`/`theme` helpers so Kit can keep ownership of rendering, focus, theme, and compatibility.
 
 ## Header and footer status contributions
 
@@ -134,12 +134,14 @@ kit.footer.set("build", "build: passing", { side: "right" });
 kit.footer.set("mode", "watching", { side: "left" });
 kit.header.set("branch", "main", { side: "right" });
 
+const theme = kit.ui.theme();
+
 kit.footer.set(
 	"ci",
 	[
-		kit.ui.text("✓", { fg: "green", bold: true }),
+		kit.ui.text("✓", { fg: theme.tokens.toolText, bold: true }),
 		" tests ",
-		kit.ui.text("passing", { fg: "green" }),
+		kit.ui.text("passing", { fg: theme.tokens.toolText }),
 	],
 	{
 		side: "right",
@@ -161,7 +163,7 @@ showDefaultModel();
 
 Header/footer item IDs passed to `set`/`clear` are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded. `hide` accepts the full item ID to support replacing known built-in contributions.
 
-Use `kit.ui.text(text, style)` to style part or all of a contribution. Supported style fields are `fg`, `bg`, `bold`, `dim`, `italic`, `underline`, and `strikethrough`. `onClick` is a whole-contribution action; Kit maps it to terminal mouse events and does not expose raw mouse events to plugins.
+Use `kit.ui.text(text, style)` to style part or all of a contribution. Supported style fields are `fg`, `bg`, `bold`, `dim`, `italic`, `underline`, and `strikethrough`. Use `kit.ui.theme()` when setting or updating contributions to read the current resolved theme config (`name`, `tokens`, and `syntaxPalette`) and blend with Kit's colors. `onClick` is a whole-contribution action; Kit maps it to terminal mouse events and does not expose raw mouse events to plugins.
 
 Built-in header item IDs are `HeaderBar:title`, `HeaderBar:model`, `HeaderBar:bell`, and `HeaderBar:speech`.
 
