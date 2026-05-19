@@ -168,8 +168,9 @@ export type FooterStatusOptions = {
 };
 
 type FooterAPI = {
-	add: (id: string, label: string, options?: FooterStatusOptions) => Disposer;
-	remove: (id: string) => void;
+	set: (id: string, label: string, options?: FooterStatusOptions) => void;
+	clear: (id: string) => void;
+	hide: (id: string) => Disposer;
 };
 
 type SystemAPI = {

@@ -153,32 +153,33 @@ export function createPluginAPI(
 		get: () => ctx.runtime.vcsInfo,
 	};
 
-	let footerContributionSeq = 0;
-
-	function footerItemId(id: string): string {
+	function requireFooterItemId(id: string): string {
 		const itemId = id.trim();
 		if (!itemId) throw new Error("Footer item id is required.");
-		return `${options.name}:${itemId}`;
+		return itemId;
+	}
+
+	function footerItemId(id: string): string {
+		return `${options.name}:${requireFooterItemId(id)}`;
 	}
 
 	const footer = {
-		add: (
+		set: (
 			id: string,
 			label: string,
-			itemOptions?: Parameters<PluginAPI["footer"]["add"]>[2],
+			itemOptions?: Parameters<PluginAPI["footer"]["set"]>[2],
 		) => {
-			const namespacedId = footerItemId(id);
-			const key = `${namespacedId}:${footerContributionSeq++}`;
-			ctx.status.addContribution({
-				key,
-				id: namespacedId,
+			ctx.status.setContribution({
+				id: footerItemId(id),
 				label,
 				side: itemOptions?.side,
 			});
-			return () => ctx.status.removeContribution(key);
 		},
-		remove: (id: string) => {
-			ctx.status.clearNamespace(footerItemId(id));
+		clear: (id: string) => {
+			ctx.status.clearContribution(footerItemId(id));
+		},
+		hide: (id: string) => {
+			return track(ctx.status.hideContribution(requireFooterItemId(id)));
 		},
 	};
 	track(() => ctx.status.clearNamespace(options.name));

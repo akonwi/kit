@@ -34,7 +34,7 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 	}
 
 	function updateFooter() {
-		kit.footer.add(
+		kit.footer.set(
 			"location",
 			formatLocation(currentVcsInfo, currentPullRequest),
 			{
@@ -92,6 +92,6 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 	return () => {
 		disposed = true;
 		clearInterval(refreshTimer);
-		kit.footer.remove("location");
+		kit.footer.clear("location");
 	};
 }

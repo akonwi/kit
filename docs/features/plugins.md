@@ -130,14 +130,19 @@ These helpers use Kit-owned dialogs and return `undefined` when selection/input 
 Plugins can contribute short text items to the bottom footer. Kit owns the rendering and layout; plugins provide text only.
 
 ```ts
-kit.footer.add("build", "build: passing", { side: "right" });
-kit.footer.add("mode", "watching", { side: "left" });
+kit.footer.set("build", "build: passing", { side: "right" });
+kit.footer.set("mode", "watching", { side: "left" });
 
 // Clear an item
-kit.footer.remove("build");
+kit.footer.clear("build");
+
+// Hide a known footer item contributed by another plugin or built-in.
+// The disposer restores it.
+const showDefaultLocation = kit.footer.hide("VcsStatusPlugin:location");
+showDefaultLocation();
 ```
 
-Footer item IDs are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded.
+Footer item IDs passed to `set`/`clear` are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded. `hide` accepts the full footer item ID to support replacing known built-in contributions.
 
 Built-in internal plugins may use additional app-owned capabilities that are not part of the public plugin SDK. For example, built-ins can read VCS state while the public SDK only exposes footer contribution rendering.
 
