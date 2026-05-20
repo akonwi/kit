@@ -1,6 +1,5 @@
-import type { KeyEvent, PasteEvent } from "@opentui/core";
+import type { PasteEvent } from "@opentui/core";
 import { useBindings, useKeymap } from "@opentui/keymap/solid";
-import { useKeyboard } from "@opentui/solid";
 import type { Accessor } from "solid-js";
 import { createEffect, createSignal } from "solid-js";
 import {
@@ -60,33 +59,6 @@ const COMPOSER_RECALL_BINDINGS = [
 	},
 ] as const satisfies readonly KitBindingDefinition[];
 
-const PICKER_BINDINGS = [
-	{
-		cmd: "picker.move-up",
-		key: "up",
-		desc: "Move picker selection up",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.move-down",
-		key: "down",
-		desc: "Move picker selection down",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.close",
-		key: "escape",
-		desc: "Close picker",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.select",
-		key: "return",
-		desc: "Select current picker item",
-		group: "Picker",
-	},
-] as const satisfies readonly KitBindingDefinition[];
-
 export type ComposerDockProps = {
 	settings: Accessor<Settings>;
 	controller: ComposerController;
@@ -127,8 +99,6 @@ export function ComposerDock(props: ComposerDockProps) {
 	});
 
 	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
-	const nonFilterablePickerVisible = () =>
-		picker.visible && !picker.isFilterable && !picker.isInputMode;
 
 	useBindings(() =>
 		withKitKeyAliases({
@@ -249,73 +219,6 @@ export function ComposerDock(props: ComposerDockProps) {
 			),
 		}),
 	);
-
-	useBindings(() =>
-		withKitKeyAliases({
-			priority: 60,
-			commands: [
-				{
-					name: "picker.move-up",
-					desc: "Move picker selection up",
-					group: "Picker",
-					run: () => {
-						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
-							return false;
-						}
-						picker.moveUp();
-					},
-				},
-				{
-					name: "picker.move-down",
-					desc: "Move picker selection down",
-					group: "Picker",
-					run: () => {
-						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
-							return false;
-						}
-						picker.moveDown();
-					},
-				},
-				{
-					name: "picker.close",
-					desc: "Close picker",
-					group: "Picker",
-					run: () => {
-						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
-							return false;
-						}
-						picker.pop();
-					},
-				},
-				{
-					name: "picker.select",
-					desc: "Select current picker item",
-					group: "Picker",
-					run: () => {
-						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
-							return false;
-						}
-						picker.selectCurrent();
-					},
-				},
-			],
-			bindings: createConfiguredBindings(
-				keymap,
-				PICKER_BINDINGS,
-				props.settings().keybindings,
-			),
-		}),
-	);
-
-	useKeyboard((e: KeyEvent) => {
-		if (!shellInputAvailable()) return;
-		if (!nonFilterablePickerVisible()) return;
-		if (!e.ctrl || !e.name) return;
-		const key = `ctrl+${e.name}`;
-		if (picker.handleKeyBinding(key)) {
-			e.preventDefault();
-		}
-	});
 
 	const placeholder = () => "Ask kit to do something...";
 

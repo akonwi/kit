@@ -1,4 +1,6 @@
+import type { Accessor } from "solid-js";
 import { Show } from "solid-js";
+import type { Settings } from "../settings";
 import type { PickerManager } from "../state/picker-manager";
 import { HintBar } from "./HintBar";
 import { Picker } from "./Picker";
@@ -10,6 +12,7 @@ const BINDINGS = [
 ];
 
 export type InlinePickerProps = {
+	settings: Accessor<Settings>;
 	picker: PickerManager;
 	bottomOffset: number;
 };
@@ -29,7 +32,7 @@ export function InlinePicker(props: InlinePickerProps) {
 				paddingX={1}
 				flexDirection="column"
 			>
-				<Picker.Root picker={props.picker}>
+				<Picker.Root settings={props.settings} picker={props.picker}>
 					<Picker.Header />
 					<Picker.Body />
 					<Picker.Footer paddingBottom={1}>

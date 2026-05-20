@@ -148,12 +148,16 @@ export function AppShell(props: AppShellProps) {
 			</box>
 
 			<InlinePicker
+				settings={settings}
 				picker={props.controller.picker}
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
 
 			{/* Composer picker only serves @/# references */}
-			<CommandPalette picker={props.controller.commandPalette} />
+			<CommandPalette
+				settings={settings}
+				picker={props.controller.commandPalette}
+			/>
 			<Show when={props.overlays().length > 0}>
 				<For each={props.overlays()}>
 					{(entry, index) =>

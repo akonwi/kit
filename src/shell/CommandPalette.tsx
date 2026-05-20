@@ -1,4 +1,6 @@
+import type { Accessor } from "solid-js";
 import { Show } from "solid-js";
+import type { Settings } from "../settings";
 import type { PickerManager } from "../state/picker-manager";
 import { Dialog } from "./Dialog";
 import { type Binding, HintBar } from "./HintBar";
@@ -19,6 +21,7 @@ const INPUT_BINDINGS: Binding[] = [
 ];
 
 export type CommandPaletteProps = {
+	settings: Accessor<Settings>;
 	picker: PickerManager;
 };
 
@@ -36,7 +39,11 @@ export function CommandPalette(props: CommandPaletteProps) {
 				padding={0}
 			>
 				<box flexGrow={1} flexDirection="column" paddingX={1}>
-					<Picker.Root picker={props.picker} maxVisible={MAX_VISIBLE}>
+					<Picker.Root
+						settings={props.settings}
+						picker={props.picker}
+						maxVisible={MAX_VISIBLE}
+					>
 						<Picker.Header />
 						<Picker.Body />
 						<Picker.Footer>

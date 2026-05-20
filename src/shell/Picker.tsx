@@ -1,12 +1,74 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, Renderable } from "@opentui/core";
+import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import type { BoxProps } from "@opentui/solid";
-import type { JSX } from "solid-js";
-import { createContext, createMemo, For, Show, useContext } from "solid-js";
+import type { Accessor, JSX } from "solid-js";
+import {
+	createContext,
+	createMemo,
+	createSignal,
+	For,
+	Show,
+	useContext,
+} from "solid-js";
+import {
+	createConfiguredBindings,
+	type KitBindingDefinition,
+	withKitKeyAliases,
+} from "../keymap/bindings";
+import type { Settings } from "../settings";
 import type { PickerSnapshot } from "../state/picker";
 import type { PickerManager } from "../state/picker-manager";
 import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
+
+const PICKER_LIST_BINDINGS = [
+	{
+		cmd: "picker.move-up",
+		key: "up",
+		desc: "Move picker selection up",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.move-down",
+		key: "down",
+		desc: "Move picker selection down",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.complete",
+		key: "tab",
+		desc: "Complete picker selection",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.select",
+		key: "return",
+		desc: "Select current picker item",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.close",
+		key: "escape",
+		desc: "Close picker",
+		group: "Picker",
+	},
+] as const satisfies readonly KitBindingDefinition[];
+
+const PICKER_INPUT_BINDINGS = [
+	{
+		cmd: "picker.submit-input",
+		key: "return",
+		desc: "Submit picker input",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.cancel-input",
+		key: "escape",
+		desc: "Cancel picker input",
+		group: "Picker",
+	},
+] as const satisfies readonly KitBindingDefinition[];
 
 // ── Context ─────────────────────────────────────────────────────────
 
@@ -28,23 +90,7 @@ function usePickerContext(): PickerContextValue {
 // ── Key handler ─────────────────────────────────────────────────────
 
 function handleListKeyDown(picker: PickerManager, e: KeyEvent) {
-	if (e.name === "up") {
-		e.preventDefault();
-		picker.moveUp();
-	} else if (e.name === "down") {
-		e.preventDefault();
-		picker.moveDown();
-	} else if (e.name === "tab") {
-		if (picker.handleKeyBinding("tab")) {
-			e.preventDefault();
-		}
-	} else if (e.name === "return") {
-		e.preventDefault();
-		picker.selectCurrent();
-	} else if (e.name === "escape") {
-		e.preventDefault();
-		picker.pop();
-	} else if (e.ctrl && e.name) {
+	if (e.ctrl && e.name) {
 		const key = `ctrl+${e.name}`;
 		if (picker.handleKeyBinding(key)) {
 			e.preventDefault();
@@ -55,6 +101,7 @@ function handleListKeyDown(picker: PickerManager, e: KeyEvent) {
 // ── Root ─────────────────────────────────────────────────────────────
 
 export type RootProps = {
+	settings?: Accessor<Settings>;
 	picker: PickerManager;
 	children: JSX.Element;
 	maxVisible?: number;
@@ -63,12 +110,95 @@ export type RootProps = {
 function Root(props: RootProps) {
 	const maxVisible = props.maxVisible ?? 5;
 	const snapshot = () => props.picker.current();
+	const keymap = useKeymap();
+	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
+	const userKeybindings = () => props.settings?.().keybindings;
+
+	useBindings(() =>
+		withKitKeyAliases({
+			target: rootTarget,
+			targetMode: "focus-within",
+			enabled: () => snapshot().visible && snapshot().mode === "list",
+			priority: 70,
+			commands: [
+				{
+					name: "picker.move-up",
+					desc: "Move picker selection up",
+					group: "Picker",
+					run: () => props.picker.moveUp(),
+				},
+				{
+					name: "picker.move-down",
+					desc: "Move picker selection down",
+					group: "Picker",
+					run: () => props.picker.moveDown(),
+				},
+				{
+					name: "picker.complete",
+					desc: "Complete picker selection",
+					group: "Picker",
+					run: () => props.picker.handleKeyBinding("tab"),
+				},
+				{
+					name: "picker.select",
+					desc: "Select current picker item",
+					group: "Picker",
+					run: () => props.picker.selectCurrent(),
+				},
+				{
+					name: "picker.close",
+					desc: "Close picker",
+					group: "Picker",
+					run: () => props.picker.pop(),
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				PICKER_LIST_BINDINGS,
+				userKeybindings(),
+			),
+		}),
+	);
+
+	useBindings(() =>
+		withKitKeyAliases({
+			target: rootTarget,
+			targetMode: "focus-within",
+			enabled: () => snapshot().visible && snapshot().mode === "input",
+			priority: 70,
+			commands: [
+				{
+					name: "picker.submit-input",
+					desc: "Submit picker input",
+					group: "Picker",
+					run: () => props.picker.submitInput(),
+				},
+				{
+					name: "picker.cancel-input",
+					desc: "Cancel picker input",
+					group: "Picker",
+					run: () => props.picker.pop(),
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				PICKER_INPUT_BINDINGS,
+				userKeybindings(),
+			),
+		}),
+	);
 
 	return (
 		<PickerContext.Provider
 			value={{ picker: props.picker, snapshot, maxVisible }}
 		>
-			<box flexGrow={1} height="100%" flexDirection="column" gap={1}>
+			<box
+				flexGrow={1}
+				height="100%"
+				flexDirection="column"
+				gap={1}
+				ref={(value) => setRootTarget(value as Renderable)}
+			>
 				{props.children}
 			</box>
 		</PickerContext.Provider>
@@ -97,15 +227,6 @@ function Header() {
 						cursorColor={theme.cursor}
 						value={snapshot().inputValue}
 						onInput={(value: string) => picker.setInputValue(value)}
-						onKeyDown={(e: KeyEvent) => {
-							if (e.name === "return") {
-								e.preventDefault();
-								picker.submitInput();
-							} else if (e.name === "escape") {
-								e.preventDefault();
-								picker.pop();
-							}
-						}}
 					/>
 				</box>
 			</Show>
