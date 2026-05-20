@@ -3,9 +3,9 @@ import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import type { Accessor } from "solid-js";
 import { createEffect, createMemo, createSignal } from "solid-js";
 import {
+	type BindingDefinition,
 	createConfiguredBindingResult,
 	type KeybindingDiagnostic,
-	type KitBindingDefinition,
 	withKitKeyAliases,
 } from "../keymap/bindings";
 import { reportKeybindingDiagnostics } from "../keymap/diagnostics";
@@ -35,7 +35,7 @@ const COMPOSER_CORE_BINDINGS = [
 		desc: "Steer with queued follow-ups",
 		group: "Composer",
 	},
-] as const satisfies readonly KitBindingDefinition[];
+] as const satisfies readonly BindingDefinition[];
 
 const COMPOSER_BASH_HISTORY_BINDINGS = [
 	{
@@ -50,7 +50,7 @@ const COMPOSER_BASH_HISTORY_BINDINGS = [
 		desc: "Recall next bash command",
 		group: "Composer",
 	},
-] as const satisfies readonly KitBindingDefinition[];
+] as const satisfies readonly BindingDefinition[];
 
 const COMPOSER_RECALL_BINDINGS = [
 	{
@@ -59,7 +59,7 @@ const COMPOSER_RECALL_BINDINGS = [
 		desc: "Restore queued follow-ups or recall previous message",
 		group: "Composer",
 	},
-] as const satisfies readonly KitBindingDefinition[];
+] as const satisfies readonly BindingDefinition[];
 
 export type ComposerDockProps = {
 	settings: Accessor<Settings>;

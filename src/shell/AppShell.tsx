@@ -14,8 +14,8 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import {
+	type BindingDefinition,
 	createConfiguredBindingResult,
-	type KitBindingDefinition,
 	withKitKeyAliases,
 } from "../keymap/bindings";
 import {
@@ -50,7 +50,7 @@ const APP_SHELL_BINDINGS = [
 		desc: "Open command palette",
 		group: "App",
 	},
-] as const satisfies readonly KitBindingDefinition[];
+] as const satisfies readonly BindingDefinition[];
 
 export type AppShellProps = {
 	settings: Settings;

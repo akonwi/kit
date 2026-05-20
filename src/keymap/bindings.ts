@@ -1,5 +1,6 @@
 import type {
 	BindingInput,
+	CommandDefinition,
 	Keymap,
 	KeymapEvent,
 	KeySequencePart,
@@ -7,11 +8,23 @@ import type {
 import type { KeybindingSettings } from "../settings";
 import { KIT_KEY_ALIASES } from "./setup";
 
-export type KitBindingDefinition<TCommand extends string = string> = {
+export type BindingDefinition<TCommand extends string = string> = {
 	cmd: TCommand;
 	key: string | readonly string[];
 	desc: string;
 	group?: string;
+};
+
+export type CommandBindingDefinition<
+	TTarget extends object = object,
+	TEvent extends KeymapEvent = KeymapEvent,
+	TCommand extends string = string,
+> = {
+	binding: BindingDefinition<TCommand>;
+	command: {
+		run: CommandDefinition<TTarget, TEvent>["run"];
+		[key: string]: unknown;
+	};
 };
 
 export type KeybindingDiagnostic =
@@ -38,7 +51,7 @@ export type ConfiguredBindingsResult<
 };
 
 function keysFromSetting<TCommand extends string>(
-	definition: KitBindingDefinition<TCommand>,
+	definition: BindingDefinition<TCommand>,
 	configured: KeybindingSettings[string] | undefined,
 	diagnostics: KeybindingDiagnostic[],
 ): string[] {
@@ -108,7 +121,7 @@ export function createConfiguredBindingResult<
 	TCommand extends string,
 >(
 	keymap: Keymap<TTarget, TEvent>,
-	definitions: readonly KitBindingDefinition<TCommand>[],
+	definitions: readonly BindingDefinition<TCommand>[],
 	settings: KeybindingSettings | undefined,
 ): ConfiguredBindingsResult<TTarget, TEvent> {
 	const bindings: BindingInput<TTarget, TEvent>[] = [];
@@ -157,10 +170,41 @@ export function createConfiguredBindings<
 	TCommand extends string,
 >(
 	keymap: Keymap<TTarget, TEvent>,
-	definitions: readonly KitBindingDefinition<TCommand>[],
+	definitions: readonly BindingDefinition<TCommand>[],
 	settings: KeybindingSettings | undefined,
 ): BindingInput<TTarget, TEvent>[] {
 	return createConfiguredBindingResult(keymap, definitions, settings).bindings;
+}
+
+export function createConfiguredCommandBindingResult<
+	TTarget extends object,
+	TEvent extends KeymapEvent,
+	TCommand extends string,
+>(
+	keymap: Keymap<TTarget, TEvent>,
+	definitions: readonly CommandBindingDefinition<TTarget, TEvent, TCommand>[],
+	settings: KeybindingSettings | undefined,
+): ConfiguredBindingsResult<TTarget, TEvent> {
+	return createConfiguredBindingResult(
+		keymap,
+		definitions.map((definition) => definition.binding),
+		settings,
+	);
+}
+
+export function createKeymapCommands<
+	TTarget extends object,
+	TEvent extends KeymapEvent,
+	TCommand extends string,
+>(
+	definitions: readonly CommandBindingDefinition<TTarget, TEvent, TCommand>[],
+): CommandDefinition<TTarget, TEvent>[] {
+	return definitions.map(({ binding, command }) => ({
+		...command,
+		desc: command.desc ?? binding.desc,
+		group: command.group ?? binding.group,
+		name: binding.cmd,
+	}));
 }
 
 export function withKitKeyAliases<TLayer extends Record<string, unknown>>(

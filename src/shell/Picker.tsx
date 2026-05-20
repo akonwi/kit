@@ -12,9 +12,9 @@ import {
 	useContext,
 } from "solid-js";
 import {
+	type BindingDefinition,
 	createConfiguredBindingResult,
 	type KeybindingDiagnostic,
-	type KitBindingDefinition,
 	withKitKeyAliases,
 } from "../keymap/bindings";
 import { reportKeybindingDiagnostics } from "../keymap/diagnostics";
@@ -121,7 +121,7 @@ function pickerInputDescriptors(): PickerCommandDescriptor[] {
 function pickerBindingDefinitions(
 	namespace: string,
 	descriptors: readonly PickerCommandDescriptor[],
-): KitBindingDefinition[] {
+): BindingDefinition[] {
 	return descriptors.map((descriptor) => ({
 		cmd: `${namespace}.${descriptor.id}`,
 		key: descriptor.key,

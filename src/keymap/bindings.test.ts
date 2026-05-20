@@ -5,10 +5,10 @@ import {
 	registerMetadataFields,
 } from "@opentui/keymap/addons";
 import {
+	type BindingDefinition,
 	createConfiguredBindingResult,
 	createConfiguredBindings,
 	type KeybindingDiagnostic,
-	type KitBindingDefinition,
 } from "./bindings";
 
 function createTestKeymap(): Keymap<object, KeymapEvent> {
@@ -70,7 +70,7 @@ function createDispatchableTestKeymap(): {
 }
 
 function collectBindings(
-	definitions: readonly KitBindingDefinition[],
+	definitions: readonly BindingDefinition[],
 	settings?: Record<string, string | string[] | false | null>,
 ): { commands: (string | undefined)[]; diagnostics: KeybindingDiagnostic[] } {
 	const result = createConfiguredBindingResult(

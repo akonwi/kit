@@ -1,3 +1,4 @@
+import type { Renderable } from "@opentui/core";
 import type { BoxProps, TextProps } from "@opentui/solid";
 import { type JSX, splitProps } from "solid-js";
 import type { OverlaySurfaceProps } from "../app/overlay-ui";
@@ -19,12 +20,14 @@ type RootProps = {
 	paddingLeft?: number;
 	paddingRight?: number;
 	surfaceProps?: OverlaySurfaceProps;
+	rootRef?: (value: Renderable) => void;
 };
 
 function Root(props: RootProps) {
 	return (
 		<box
 			{...props.surfaceProps}
+			ref={(value) => props.rootRef?.(value as Renderable)}
 			position="absolute"
 			left={0}
 			top={0}
