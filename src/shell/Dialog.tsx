@@ -21,6 +21,8 @@ type RootProps = {
 	paddingRight?: number;
 	surfaceProps?: OverlaySurfaceProps;
 	rootRef?: (value: Renderable) => void;
+	rootFocusable?: boolean;
+	rootFocused?: boolean;
 };
 
 function Root(props: RootProps) {
@@ -28,6 +30,8 @@ function Root(props: RootProps) {
 		<box
 			{...props.surfaceProps}
 			ref={(value) => props.rootRef?.(value as Renderable)}
+			focusable={props.rootFocusable}
+			focused={props.rootFocused}
 			position="absolute"
 			left={0}
 			top={0}

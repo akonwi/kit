@@ -1,6 +1,7 @@
 import { createComponent } from "solid-js";
 import type { InternalPluginAPI } from "../../plugins";
 import { loadMcpConfig } from "./config";
+import { createMcpKeymapProps } from "./keymap";
 import { McpAuthorizationUrlModal } from "./McpAuthorizationUrlModal";
 import { McpStatusModal } from "./McpStatusModal";
 import { McpManager } from "./manager";
@@ -194,6 +195,7 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		async (ctx) => {
 			await ctx.ui.custom<void>((props) =>
 				createComponent(McpStatusModal, {
+					...createMcpKeymapProps(kit),
 					surfaceProps: props.surfaceProps,
 					states: manager?.getRuntimeStates() ?? [],
 					config: lastConfig,
