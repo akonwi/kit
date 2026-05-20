@@ -47,6 +47,7 @@ const DEFAULT_ROW_WIDTH =
 	3;
 
 type Mode = "navigate" | "rename" | "confirmDelete" | "confirmSquash";
+type SquashTarget = "parent" | "current";
 
 function formatCwd(cwd: string): string {
 	const home = process.env.HOME || process.env.USERPROFILE || "";
@@ -106,6 +107,8 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	>(null);
 	const [confirmSquashSession, setConfirmSquashSession] =
 		createSignal<SessionSummary | null>(null);
+	const [confirmSquashTarget, setConfirmSquashTarget] =
+		createSignal<SquashTarget | null>(null);
 	const [renameSession, setRenameSession] = createSignal<SessionSummary | null>(
 		null,
 	);
@@ -148,8 +151,17 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	);
 	const selectedRow = createMemo(() => rows()[selectedIndex()] ?? null);
 	const selectedSessionId = createMemo(() => selectedRow()?.session.id ?? null);
-	const selectedSessionCanSquash = createMemo(() =>
-		Boolean(selectedRow()?.isCurrent && selectedRow()?.session.parentSessionId),
+	const selectedSquashTarget = createMemo<SquashTarget | null>(() => {
+		const row = selectedRow();
+		if (!row) return null;
+		if (row.isCurrent && row.session.parentSessionId) return "parent";
+		if (!row.isCurrent && row.session.parentSessionId === currentSessionId()) {
+			return "current";
+		}
+		return null;
+	});
+	const selectedSessionCanSquash = createMemo(
+		() => selectedSquashTarget() !== null,
 	);
 	const selectedSessionCanDelete = createMemo(() =>
 		Boolean(selectedRow() && !selectedRow()?.isCurrent),
@@ -311,13 +323,22 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
 				e.preventDefault();
 				setConfirmSquashSession(null);
+				setConfirmSquashTarget(null);
 				return;
 			}
 			if (e.name === "return" || e.name === "enter") {
 				e.preventDefault();
+				const session = confirmSquashSession();
+				const target = confirmSquashTarget();
 				setConfirmSquashSession(null);
+				setConfirmSquashTarget(null);
+				if (!session || !target) return;
 				props.onClose();
-				void props.runtime.mergeUp().catch((error) => {
+				const squash =
+					target === "current"
+						? props.runtime.mergeChildIntoCurrent(session.id)
+						: props.runtime.mergeUp();
+				void squash.catch((error) => {
 					props.toast({
 						title: "Squash failed",
 						subtitle: String(error),
@@ -404,8 +425,10 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		if (e.name === "s" && selectedSessionCanSquash()) {
 			e.preventDefault();
 			const session = selectedRow()?.session;
-			if (!session) return;
+			const target = selectedSquashTarget();
+			if (!session || !target) return;
 			setConfirmSquashSession(session);
+			setConfirmSquashTarget(target);
 		}
 	});
 
@@ -600,24 +623,31 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			</Show>
 
 			<Show when={confirmSquashSession()}>
-				{(session) => (
-					<Dialog.Root maxWidth={80}>
-						<Dialog.Header>
-							<Dialog.Title>
-								Squash "{session().name?.trim() || session().id.slice(0, 8)}"
-								into its parent?
-							</Dialog.Title>
-						</Dialog.Header>
-						<box flexDirection="column">
-							<text fg={theme.textPrimary}>
-								The session will be summarized into the parent and deleted.
-							</text>
-						</box>
-						<Dialog.Footer>
-							<HintBar borderless bindings={CONFIRM_BINDINGS} />
-						</Dialog.Footer>
-					</Dialog.Root>
-				)}
+				{(session) => {
+					const targetLabel = () =>
+						confirmSquashTarget() === "current"
+							? "the current session"
+							: "its parent";
+					return (
+						<Dialog.Root maxWidth={80}>
+							<Dialog.Header>
+								<Dialog.Title>
+									Squash "{session().name?.trim() || session().id.slice(0, 8)}"
+									into {targetLabel()}?
+								</Dialog.Title>
+							</Dialog.Header>
+							<box flexDirection="column">
+								<text fg={theme.textPrimary}>
+									The session will be summarized into {targetLabel()} and
+									deleted.
+								</text>
+							</box>
+							<Dialog.Footer>
+								<HintBar borderless bindings={CONFIRM_BINDINGS} />
+							</Dialog.Footer>
+						</Dialog.Root>
+					);
+				}}
 			</Show>
 		</Dialog.Root>
 	);

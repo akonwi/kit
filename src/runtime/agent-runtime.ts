@@ -1392,6 +1392,94 @@ export class AgentRuntime {
 		return true;
 	}
 
+	private async createMergeSummary(child: Session): Promise<{
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
+		summaryTurn: Turn;
+	}> {
+		const currentModel = this.getCurrentModel();
+		if (!currentModel) {
+			throw new Error("No active model available for merge summary.");
+		}
+		const apiKey = await getApiKey(currentModel.provider);
+		if (!apiKey) {
+			throw new Error(`No API key available for ${currentModel.provider}.`);
+		}
+
+		const boundaryIndex = child.forkedFromTurnId
+			? child.turns.findIndex((turn) => turn.id === child.forkedFromTurnId)
+			: -1;
+		const turnsToSummarize =
+			boundaryIndex >= 0 ? child.turns.slice(boundaryIndex + 1) : child.turns;
+		const messagesToSummarize = turnsToSummarize.flatMap(
+			(turn) => turn.messages,
+		);
+		if (messagesToSummarize.length === 0) {
+			throw new Error("Nothing new to merge from this child session.");
+		}
+
+		const mergePrompt = [
+			"Summarize this child session so its useful work can be merged back into the parent session.",
+			boundaryIndex >= 0
+				? "The conversation below contains only work that happened after the child branched from the parent."
+				: "The original fork boundary could not be found, so the conversation below contains the full child session.",
+			child.name?.trim()
+				? `Child session name: ${child.name.trim()}`
+				: undefined,
+			"",
+			"Use this exact structure:",
+			"",
+			"## Branch goal",
+			"[what this side quest was trying to accomplish]",
+			"",
+			"## Progress / outcomes",
+			"- [important progress made in the child session]",
+			"",
+			"## Key decisions / changes",
+			"- [important decisions, code changes, or findings the parent should know]",
+			"",
+			"## Remaining issues",
+			"- [unfinished work, risks, or follow-up items]",
+			"",
+			"## Context to preserve",
+			"- [specific details the parent should retain before continuing]",
+			"",
+			"Be concise but specific. Focus on what the parent needs to resume accurately.",
+		]
+			.filter((line): line is string => typeof line === "string")
+			.join("\n");
+
+		const summaryMessage = await createSyntheticSummaryMessage({
+			messages: messagesToSummarize,
+			model: currentModel,
+			apiKey,
+			systemPrompt: MERGE_UP_SYSTEM_PROMPT,
+			userPrompt: mergePrompt,
+			kind: "handoff-summary",
+			sourceSessionName: child.name?.trim() || undefined,
+		});
+		return {
+			summaryMessage,
+			summaryTurn: {
+				id: summaryMessage.turnId,
+				messages: [summaryMessage],
+			},
+		};
+	}
+
+	private appendMergeSummaryToActiveSession(
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>,
+		summaryTurn: Turn,
+	): void {
+		this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
+		this.syncSessionFromAgentState();
+		this.emit("session.handoff_summary.appended", {
+			session: this.session,
+			summaryMessage,
+		});
+		this.handleSessionChanged();
+		this.emit("session.active.changed", { session: this.session });
+	}
+
 	async mergeUp(): Promise<void> {
 		this.emit("session.merge.started", {});
 		try {
@@ -1406,85 +1494,56 @@ export class AgentRuntime {
 				throw new Error("Parent session could not be found.");
 			}
 
-			const currentModel = this.getCurrentModel();
-			if (!currentModel) {
-				throw new Error("No active model available for merge summary.");
-			}
-			const apiKey = await getApiKey(currentModel.provider);
-			if (!apiKey) {
-				throw new Error(`No API key available for ${currentModel.provider}.`);
-			}
-
-			const boundaryIndex = child.forkedFromTurnId
-				? child.turns.findIndex((turn) => turn.id === child.forkedFromTurnId)
-				: -1;
-			const turnsToSummarize =
-				boundaryIndex >= 0 ? child.turns.slice(boundaryIndex + 1) : child.turns;
-			const messagesToSummarize = turnsToSummarize.flatMap(
-				(turn) => turn.messages,
-			);
-			if (messagesToSummarize.length === 0) {
-				throw new Error("Nothing new to merge from this child session.");
-			}
-
-			const mergePrompt = [
-				"Summarize this child session so its useful work can be merged back into the parent session.",
-				boundaryIndex >= 0
-					? "The conversation below contains only work that happened after the child branched from the parent."
-					: "The original fork boundary could not be found, so the conversation below contains the full child session.",
-				child.name?.trim()
-					? `Child session name: ${child.name.trim()}`
-					: undefined,
-				"",
-				"Use this exact structure:",
-				"",
-				"## Branch goal",
-				"[what this side quest was trying to accomplish]",
-				"",
-				"## Progress / outcomes",
-				"- [important progress made in the child session]",
-				"",
-				"## Key decisions / changes",
-				"- [important decisions, code changes, or findings the parent should know]",
-				"",
-				"## Remaining issues",
-				"- [unfinished work, risks, or follow-up items]",
-				"",
-				"## Context to preserve",
-				"- [specific details the parent should retain before continuing]",
-				"",
-				"Be concise but specific. Focus on what the parent needs to resume accurately.",
-			]
-				.filter((line): line is string => typeof line === "string")
-				.join("\n");
-
-			const summaryMessage = await createSyntheticSummaryMessage({
-				messages: messagesToSummarize,
-				model: currentModel,
-				apiKey,
-				systemPrompt: MERGE_UP_SYSTEM_PROMPT,
-				userPrompt: mergePrompt,
-				kind: "handoff-summary",
-				sourceSessionName: child.name?.trim() || undefined,
-			});
-			const summaryTurn: Turn = {
-				id: summaryMessage.turnId,
-				messages: [summaryMessage],
-			};
+			const { summaryMessage, summaryTurn } =
+				await this.createMergeSummary(child);
 
 			const switched = await this.switchSession(parent.id);
 			if (!switched) {
 				throw new Error("Failed to switch back to the parent session.");
 			}
 
-			this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
-			this.syncSessionFromAgentState();
-			this.emit("session.handoff_summary.appended", {
-				session: this.session,
-				summaryMessage,
+			this.appendMergeSummaryToActiveSession(summaryMessage, summaryTurn);
+
+			await deleteSession(child.id);
+			this.emit("session.merge.ended", {});
+		} catch (error) {
+			this.emit("session.merge.ended", {
+				error: error instanceof Error ? error.message : String(error),
 			});
-			this.handleSessionChanged();
-			this.emit("session.active.changed", { session: this.session });
+			throw error;
+		}
+	}
+
+	async mergeChildIntoCurrent(childId: string): Promise<void> {
+		this.emit("session.merge.started", {});
+		try {
+			const parentId = this.session.id;
+			if (childId === parentId) {
+				throw new Error("Cannot squash the active session into itself.");
+			}
+
+			const child =
+				(await findSessionById(childId)) ?? (await readSession(childId));
+			if (!child) {
+				throw new Error("Child session could not be found.");
+			}
+			if (child.parentSessionId !== parentId) {
+				throw new Error(
+					"Selected session is not a child of the active session.",
+				);
+			}
+
+			const { summaryMessage, summaryTurn } =
+				await this.createMergeSummary(child);
+
+			if (this.session.id !== parentId) {
+				const switched = await this.switchSession(parentId);
+				if (!switched) {
+					throw new Error("Failed to switch back to the parent session.");
+				}
+			}
+
+			this.appendMergeSummaryToActiveSession(summaryMessage, summaryTurn);
 
 			await deleteSession(child.id);
 			this.emit("session.merge.ended", {});
