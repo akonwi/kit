@@ -157,7 +157,7 @@ function sanitizeKeybindings(value: unknown): KeybindingSettings | undefined {
 	return Object.keys(keybindings).length > 0 ? keybindings : undefined;
 }
 
-function sanitizeSettings(raw: unknown): Settings {
+export function sanitizeSettings(raw: unknown): Settings {
 	if (!isRecord(raw)) {
 		return { ...DEFAULTS };
 	}

@@ -4,6 +4,7 @@ import type { BoxProps } from "@opentui/solid";
 import type { Accessor, JSX } from "solid-js";
 import {
 	createContext,
+	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -11,10 +12,12 @@ import {
 	useContext,
 } from "solid-js";
 import {
-	createConfiguredBindings,
+	createConfiguredBindingResult,
+	type KeybindingDiagnostic,
 	type KitBindingDefinition,
 	withKitKeyAliases,
 } from "../keymap/bindings";
+import { reportKeybindingDiagnostics } from "../keymap/diagnostics";
 import type { Settings } from "../settings";
 import type { PickerSnapshot } from "../state/picker";
 import type { PickerManager } from "../state/picker-manager";
@@ -173,6 +176,7 @@ function handleListKeyDown(picker: PickerManager, e: KeyEvent) {
 
 export type RootProps = {
 	settings?: Accessor<Settings>;
+	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	picker: PickerManager;
 	children: JSX.Element;
 	maxVisible?: number;
@@ -189,12 +193,36 @@ function Root(props: RootProps) {
 	const commandNamespace = () => props.commandNamespace ?? "picker";
 	const selectHint = () => props.selectHint ?? "select";
 	const userKeybindings = () => props.settings?.().keybindings;
+	const listDescriptors = createMemo(() =>
+		pickerListDescriptors(props.includeCompleteBinding === true, selectHint()),
+	);
+	const inputDescriptors = createMemo(() => pickerInputDescriptors());
+	const listBindings = createMemo(() => {
+		const namespace = commandNamespace();
+		return createConfiguredBindingResult(
+			keymap,
+			pickerBindingDefinitions(namespace, listDescriptors()),
+			userKeybindings(),
+		);
+	});
+	const inputBindings = createMemo(() => {
+		const namespace = commandNamespace();
+		return createConfiguredBindingResult(
+			keymap,
+			pickerBindingDefinitions(namespace, inputDescriptors()),
+			userKeybindings(),
+		);
+	});
+
+	createEffect(() => {
+		reportKeybindingDiagnostics(
+			[...listBindings().diagnostics, ...inputBindings().diagnostics],
+			props.onKeybindingDiagnostic,
+		);
+	});
 
 	useBindings(() => {
-		const descriptors = pickerListDescriptors(
-			props.includeCompleteBinding === true,
-			selectHint(),
-		);
+		const descriptors = listDescriptors();
 		const namespace = commandNamespace();
 		return withKitKeyAliases({
 			target: rootTarget,
@@ -202,16 +230,12 @@ function Root(props: RootProps) {
 			enabled: () => snapshot().visible && snapshot().mode === "list",
 			priority: 70,
 			commands: pickerCommands(namespace, props.picker, descriptors),
-			bindings: createConfiguredBindings(
-				keymap,
-				pickerBindingDefinitions(namespace, descriptors),
-				userKeybindings(),
-			),
+			bindings: listBindings().bindings,
 		});
 	});
 
 	useBindings(() => {
-		const descriptors = pickerInputDescriptors();
+		const descriptors = inputDescriptors();
 		const namespace = commandNamespace();
 		return withKitKeyAliases({
 			target: rootTarget,
@@ -219,11 +243,7 @@ function Root(props: RootProps) {
 			enabled: () => snapshot().visible && snapshot().mode === "input",
 			priority: 70,
 			commands: pickerCommands(namespace, props.picker, descriptors),
-			bindings: createConfiguredBindings(
-				keymap,
-				pickerBindingDefinitions(namespace, descriptors),
-				userKeybindings(),
-			),
+			bindings: inputBindings().bindings,
 		});
 	});
 

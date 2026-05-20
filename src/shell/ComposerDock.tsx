@@ -1,12 +1,14 @@
 import type { PasteEvent } from "@opentui/core";
 import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import type { Accessor } from "solid-js";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import {
-	createConfiguredBindings,
+	createConfiguredBindingResult,
+	type KeybindingDiagnostic,
 	type KitBindingDefinition,
 	withKitKeyAliases,
 } from "../keymap/bindings";
+import { reportKeybindingDiagnostics } from "../keymap/diagnostics";
 import type { Settings } from "../settings";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
@@ -61,6 +63,7 @@ const COMPOSER_RECALL_BINDINGS = [
 
 export type ComposerDockProps = {
 	settings: Accessor<Settings>;
+	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	locked?: boolean;
@@ -99,6 +102,38 @@ export function ComposerDock(props: ComposerDockProps) {
 	});
 
 	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
+	const composerCoreBindings = createMemo(() =>
+		createConfiguredBindingResult(
+			keymap,
+			COMPOSER_CORE_BINDINGS,
+			props.settings().keybindings,
+		),
+	);
+	const composerBashHistoryBindings = createMemo(() =>
+		createConfiguredBindingResult(
+			keymap,
+			COMPOSER_BASH_HISTORY_BINDINGS,
+			props.settings().keybindings,
+		),
+	);
+	const composerRecallBindings = createMemo(() =>
+		createConfiguredBindingResult(
+			keymap,
+			COMPOSER_RECALL_BINDINGS,
+			props.settings().keybindings,
+		),
+	);
+
+	createEffect(() => {
+		reportKeybindingDiagnostics(
+			[
+				...composerCoreBindings().diagnostics,
+				...composerBashHistoryBindings().diagnostics,
+				...composerRecallBindings().diagnostics,
+			],
+			props.onKeybindingDiagnostic,
+		);
+	});
 
 	useBindings(() =>
 		withKitKeyAliases({
@@ -149,11 +184,7 @@ export function ComposerDock(props: ComposerDockProps) {
 					},
 				},
 			],
-			bindings: createConfiguredBindings(
-				keymap,
-				COMPOSER_CORE_BINDINGS,
-				props.settings().keybindings,
-			),
+			bindings: composerCoreBindings().bindings,
 		}),
 	);
 
@@ -186,11 +217,7 @@ export function ComposerDock(props: ComposerDockProps) {
 					},
 				},
 			],
-			bindings: createConfiguredBindings(
-				keymap,
-				COMPOSER_BASH_HISTORY_BINDINGS,
-				props.settings().keybindings,
-			),
+			bindings: composerBashHistoryBindings().bindings,
 		}),
 	);
 
@@ -212,11 +239,7 @@ export function ComposerDock(props: ComposerDockProps) {
 					},
 				},
 			],
-			bindings: createConfiguredBindings(
-				keymap,
-				COMPOSER_RECALL_BINDINGS,
-				props.settings().keybindings,
-			),
+			bindings: composerRecallBindings().bindings,
 		}),
 	);
 

@@ -1,5 +1,6 @@
 import type { Accessor } from "solid-js";
 import { Show } from "solid-js";
+import type { KeybindingDiagnostic } from "../keymap/bindings";
 import type { Settings } from "../settings";
 import type { PickerManager } from "../state/picker-manager";
 import { KeymapHintBar } from "./KeymapHintBar";
@@ -8,6 +9,7 @@ import { theme } from "./theme";
 
 export type InlinePickerProps = {
 	settings: Accessor<Settings>;
+	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	picker: PickerManager;
 	bottomOffset: number;
 };
@@ -29,6 +31,7 @@ export function InlinePicker(props: InlinePickerProps) {
 			>
 				<Picker.Root
 					settings={props.settings}
+					onKeybindingDiagnostic={props.onKeybindingDiagnostic}
 					picker={props.picker}
 					commandNamespace="picker"
 					selectHint="insert"

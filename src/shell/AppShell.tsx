@@ -1,16 +1,27 @@
 import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onCleanup,
+	Show,
+} from "solid-js";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import {
-	createConfiguredBindings,
+	createConfiguredBindingResult,
 	type KitBindingDefinition,
 	withKitKeyAliases,
 } from "../keymap/bindings";
+import {
+	createKeybindingDiagnosticReporter,
+	reportKeybindingDiagnostics,
+} from "../keymap/diagnostics";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Settings } from "../settings";
 import type { AppState } from "../state/app-state";
@@ -66,6 +77,9 @@ export function AppShell(props: AppShellProps) {
 	const [settings, setSettings] = createSignal(props.settings);
 	const renderer = useRenderer();
 	const keymap = useKeymap();
+	const reportKeybindingDiagnostic = createKeybindingDiagnosticReporter(
+		props.showToast,
+	);
 	let transcriptRef: { width: number; height: number } | undefined;
 
 	onCleanup(
@@ -73,6 +87,21 @@ export function AppShell(props: AppShellProps) {
 			setSettings(event.settings);
 		}),
 	);
+
+	const appShellBindings = createMemo(() =>
+		createConfiguredBindingResult(
+			keymap,
+			APP_SHELL_BINDINGS,
+			settings().keybindings,
+		),
+	);
+
+	createEffect(() => {
+		reportKeybindingDiagnostics(
+			appShellBindings().diagnostics,
+			reportKeybindingDiagnostic,
+		);
+	});
 
 	useBindings(() =>
 		withKitKeyAliases({
@@ -88,11 +117,7 @@ export function AppShell(props: AppShellProps) {
 					},
 				},
 			],
-			bindings: createConfiguredBindings(
-				keymap,
-				APP_SHELL_BINDINGS,
-				settings().keybindings,
-			),
+			bindings: appShellBindings().bindings,
 		}),
 	);
 
@@ -134,6 +159,7 @@ export function AppShell(props: AppShellProps) {
 				/>
 				<ComposerDock
 					settings={settings}
+					onKeybindingDiagnostic={reportKeybindingDiagnostic}
 					controller={props.controller}
 					attachments={props.attachments}
 					locked={props.overlays().length > 0}
@@ -149,6 +175,7 @@ export function AppShell(props: AppShellProps) {
 
 			<InlinePicker
 				settings={settings}
+				onKeybindingDiagnostic={reportKeybindingDiagnostic}
 				picker={props.controller.picker}
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
@@ -156,6 +183,7 @@ export function AppShell(props: AppShellProps) {
 			{/* Composer picker only serves @/# references */}
 			<CommandPalette
 				settings={settings}
+				onKeybindingDiagnostic={reportKeybindingDiagnostic}
 				picker={props.controller.commandPalette}
 			/>
 			<Show when={props.overlays().length > 0}>
