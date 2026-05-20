@@ -22,64 +22,123 @@ import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
-function pickerListBindings(
-	namespace: string,
+type PickerCommandDescriptor = {
+	id: string;
+	key: string;
+	desc: string;
+	hint: string;
+	run: (picker: PickerManager) => boolean | undefined;
+};
+
+function pickerListDescriptors(
 	includeComplete: boolean,
-): KitBindingDefinition[] {
-	const bindings: KitBindingDefinition[] = [
+	selectHint: string,
+): PickerCommandDescriptor[] {
+	const descriptors: PickerCommandDescriptor[] = [
 		{
-			cmd: `${namespace}.move-up`,
+			id: "move-up",
 			key: "up",
 			desc: "Move picker selection up",
-			group: namespace,
+			hint: "up",
+			run: (picker) => {
+				picker.moveUp();
+				return undefined;
+			},
 		},
 		{
-			cmd: `${namespace}.move-down`,
+			id: "move-down",
 			key: "down",
 			desc: "Move picker selection down",
-			group: namespace,
+			hint: "down",
+			run: (picker) => {
+				picker.moveDown();
+				return undefined;
+			},
 		},
 	];
 	if (includeComplete) {
-		bindings.push({
-			cmd: `${namespace}.complete`,
+		descriptors.push({
+			id: "complete",
 			key: "tab",
 			desc: "Complete picker selection",
-			group: namespace,
+			hint: "complete",
+			run: (picker) => picker.handleKeyBinding("tab"),
 		});
 	}
-	bindings.push(
+	descriptors.push(
 		{
-			cmd: `${namespace}.select`,
+			id: "select",
 			key: "return",
 			desc: "Select current picker item",
-			group: namespace,
+			hint: selectHint,
+			run: (picker) => {
+				picker.selectCurrent();
+				return undefined;
+			},
 		},
 		{
-			cmd: `${namespace}.close`,
+			id: "close",
 			key: "escape",
 			desc: "Close picker",
-			group: namespace,
+			hint: "close",
+			run: (picker) => {
+				picker.pop();
+				return undefined;
+			},
 		},
 	);
-	return bindings;
+	return descriptors;
 }
 
-function pickerInputBindings(namespace: string): KitBindingDefinition[] {
+function pickerInputDescriptors(): PickerCommandDescriptor[] {
 	return [
 		{
-			cmd: `${namespace}.submit-input`,
+			id: "submit-input",
 			key: "return",
 			desc: "Submit picker input",
-			group: namespace,
+			hint: "submit",
+			run: (picker) => {
+				picker.submitInput();
+				return undefined;
+			},
 		},
 		{
-			cmd: `${namespace}.cancel-input`,
+			id: "cancel-input",
 			key: "escape",
 			desc: "Cancel picker input",
-			group: namespace,
+			hint: "cancel",
+			run: (picker) => {
+				picker.pop();
+				return undefined;
+			},
 		},
 	];
+}
+
+function pickerBindingDefinitions(
+	namespace: string,
+	descriptors: readonly PickerCommandDescriptor[],
+): KitBindingDefinition[] {
+	return descriptors.map((descriptor) => ({
+		cmd: `${namespace}.${descriptor.id}`,
+		key: descriptor.key,
+		desc: descriptor.desc,
+		group: namespace,
+	}));
+}
+
+function pickerCommands(
+	namespace: string,
+	picker: PickerManager,
+	descriptors: readonly PickerCommandDescriptor[],
+) {
+	return descriptors.map((descriptor) => ({
+		name: `${namespace}.${descriptor.id}`,
+		desc: descriptor.desc,
+		group: namespace,
+		hint: descriptor.hint,
+		run: () => descriptor.run(picker),
+	}));
 }
 
 // ── Context ─────────────────────────────────────────────────────────
@@ -131,93 +190,42 @@ function Root(props: RootProps) {
 	const selectHint = () => props.selectHint ?? "select";
 	const userKeybindings = () => props.settings?.().keybindings;
 
-	useBindings(() =>
-		withKitKeyAliases({
+	useBindings(() => {
+		const descriptors = pickerListDescriptors(
+			props.includeCompleteBinding === true,
+			selectHint(),
+		);
+		const namespace = commandNamespace();
+		return withKitKeyAliases({
 			target: rootTarget,
 			targetMode: "focus-within",
 			enabled: () => snapshot().visible && snapshot().mode === "list",
 			priority: 70,
-			commands: [
-				{
-					name: `${commandNamespace()}.move-up`,
-					desc: "Move picker selection up",
-					group: commandNamespace(),
-					hint: "up",
-					run: () => props.picker.moveUp(),
-				},
-				{
-					name: `${commandNamespace()}.move-down`,
-					desc: "Move picker selection down",
-					group: commandNamespace(),
-					hint: "down",
-					run: () => props.picker.moveDown(),
-				},
-				...(props.includeCompleteBinding
-					? [
-							{
-								name: `${commandNamespace()}.complete`,
-								desc: "Complete picker selection",
-								group: commandNamespace(),
-								hint: "complete",
-								run: () => props.picker.handleKeyBinding("tab"),
-							},
-						]
-					: []),
-				{
-					name: `${commandNamespace()}.select`,
-					desc: "Select current picker item",
-					group: commandNamespace(),
-					hint: selectHint(),
-					run: () => props.picker.selectCurrent(),
-				},
-				{
-					name: `${commandNamespace()}.close`,
-					desc: "Close picker",
-					group: commandNamespace(),
-					hint: "close",
-					run: () => props.picker.pop(),
-				},
-			],
+			commands: pickerCommands(namespace, props.picker, descriptors),
 			bindings: createConfiguredBindings(
 				keymap,
-				pickerListBindings(
-					commandNamespace(),
-					props.includeCompleteBinding === true,
-				),
+				pickerBindingDefinitions(namespace, descriptors),
 				userKeybindings(),
 			),
-		}),
-	);
+		});
+	});
 
-	useBindings(() =>
-		withKitKeyAliases({
+	useBindings(() => {
+		const descriptors = pickerInputDescriptors();
+		const namespace = commandNamespace();
+		return withKitKeyAliases({
 			target: rootTarget,
 			targetMode: "focus-within",
 			enabled: () => snapshot().visible && snapshot().mode === "input",
 			priority: 70,
-			commands: [
-				{
-					name: `${commandNamespace()}.submit-input`,
-					desc: "Submit picker input",
-					group: commandNamespace(),
-					hint: "submit",
-					run: () => props.picker.submitInput(),
-				},
-				{
-					name: `${commandNamespace()}.cancel-input`,
-					desc: "Cancel picker input",
-					group: commandNamespace(),
-					hint: "cancel",
-					run: () => props.picker.pop(),
-				},
-			],
+			commands: pickerCommands(namespace, props.picker, descriptors),
 			bindings: createConfiguredBindings(
 				keymap,
-				pickerInputBindings(commandNamespace()),
+				pickerBindingDefinitions(namespace, descriptors),
 				userKeybindings(),
 			),
-		}),
-	);
+		});
+	});
 
 	return (
 		<PickerContext.Provider
