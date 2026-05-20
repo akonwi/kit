@@ -1,41 +1,81 @@
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import type { Renderable } from "@opentui/core";
+import { useBindings, useKeymap } from "@opentui/keymap/solid";
+import { createEffect, createMemo, createSignal } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import {
+	type CommandBindingDefinition,
+	createConfiguredCommandBindingResult,
+	createKeymapCommands,
+	type KeybindingDiagnostic,
+	withKitKeyAliases,
+} from "../../keymap/bindings";
+import { reportKeybindingDiagnostics } from "../../keymap/diagnostics";
+import type { Settings } from "../../settings";
 import { Dialog } from "../../shell/Dialog";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
-
-const BINDINGS: Binding[] = [
-	{ key: "Enter", action: "continue" },
-	{ key: "Esc", action: "continue" },
-];
 
 export type McpAuthorizationUrlModalProps = {
 	serverName: string;
 	authorizationUrl: URL;
 	active: boolean;
 	surfaceProps?: OverlaySurfaceProps;
+	settings?: Settings;
+	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	onClose: () => void;
 };
 
 export function McpAuthorizationUrlModal(props: McpAuthorizationUrlModalProps) {
-	useKeyboard((event: KeyEvent) => {
-		if (!props.active) return;
-		if (
-			event.name === "return" ||
-			event.name === "enter" ||
-			event.name === "escape"
-		) {
-			event.preventDefault();
-			props.onClose();
-		}
+	const keymap = useKeymap();
+	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
+	const commands = [
+		{
+			binding: {
+				cmd: "mcp-authorization-url.continue",
+				key: ["return", "escape"],
+				desc: "Continue after MCP authorization",
+				group: "mcp-authorization-url",
+			},
+			command: {
+				hint: "continue",
+				run: () => props.onClose(),
+			},
+		},
+	] as const satisfies readonly CommandBindingDefinition[];
+	const bindings = createMemo(() =>
+		createConfiguredCommandBindingResult(
+			keymap,
+			commands,
+			props.settings?.keybindings,
+		),
+	);
+
+	createEffect(() => {
+		reportKeybindingDiagnostics(
+			bindings().diagnostics,
+			props.onKeybindingDiagnostic,
+		);
 	});
+
+	useBindings(() =>
+		withKitKeyAliases({
+			target: rootTarget,
+			targetMode: "focus-within",
+			enabled: () => props.active,
+			priority: 200,
+			commands: createKeymapCommands(commands),
+			bindings: bindings().bindings,
+		}),
+	);
 
 	const url = () => props.authorizationUrl.toString();
 
 	return (
 		<Dialog.Root
 			surfaceProps={props.surfaceProps}
+			rootRef={setRootTarget}
+			rootFocusable
+			rootFocused={props.active}
 			width="80%"
 			maxWidth={100}
 			minWidth={50}
@@ -66,7 +106,7 @@ export function McpAuthorizationUrlModal(props: McpAuthorizationUrlModalProps) {
 					</box>
 				</scrollbox>
 				<Dialog.Footer paddingY={1}>
-					<HintBar borderless bindings={BINDINGS} />
+					<KeymapHintBar borderless group="mcp-authorization-url" />
 				</Dialog.Footer>
 			</box>
 		</Dialog.Root>

@@ -27,6 +27,7 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 	): Promise<void> {
 		await kit.ui.custom<void>((props) =>
 			createComponent(McpAuthorizationUrlModal, {
+				...createMcpKeymapProps(kit),
 				serverName,
 				authorizationUrl,
 				get active() {
