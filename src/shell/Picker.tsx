@@ -38,7 +38,7 @@ function pickerListDescriptors(
 		{
 			id: "move-up",
 			key: "up",
-			desc: "Move picker selection up",
+			desc: "Move selection up",
 			hint: "up",
 			run: (picker) => {
 				picker.moveUp();
@@ -48,7 +48,7 @@ function pickerListDescriptors(
 		{
 			id: "move-down",
 			key: "down",
-			desc: "Move picker selection down",
+			desc: "Move selection down",
 			hint: "down",
 			run: (picker) => {
 				picker.moveDown();
@@ -60,7 +60,7 @@ function pickerListDescriptors(
 		descriptors.push({
 			id: "complete",
 			key: "tab",
-			desc: "Complete picker selection",
+			desc: "Complete selection",
 			hint: "complete",
 			run: (picker) => picker.handleKeyBinding("tab"),
 		});
@@ -69,7 +69,7 @@ function pickerListDescriptors(
 		{
 			id: "select",
 			key: "return",
-			desc: "Select current picker item",
+			desc: "Select item",
 			hint: selectHint,
 			run: (picker) => {
 				picker.selectCurrent();
@@ -95,7 +95,7 @@ function pickerInputDescriptors(): PickerCommandDescriptor[] {
 		{
 			id: "submit-input",
 			key: "return",
-			desc: "Submit picker input",
+			desc: "Submit input",
 			hint: "submit",
 			run: (picker) => {
 				picker.submitInput();
@@ -105,7 +105,7 @@ function pickerInputDescriptors(): PickerCommandDescriptor[] {
 		{
 			id: "cancel-input",
 			key: "escape",
-			desc: "Cancel picker input",
+			desc: "Cancel input",
 			hint: "cancel",
 			run: (picker) => {
 				picker.pop();

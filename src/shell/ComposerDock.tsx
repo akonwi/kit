@@ -18,19 +18,19 @@ const COMPOSER_CORE_BINDINGS = [
 	{
 		cmd: "composer.clear-or-quit",
 		key: "ctrl+c",
-		desc: "Clear composer or quit",
+		desc: "Clear input or quit",
 		group: "Composer",
 	},
 	{
 		cmd: "composer.abort",
 		key: "escape",
-		desc: "Abort streaming response when composer is empty",
+		desc: "Abort response",
 		group: "Composer",
 	},
 	{
 		cmd: "composer.steer",
 		key: "return",
-		desc: "Steer with queued follow-ups while streaming",
+		desc: "Steer with queued follow-ups",
 		group: "Composer",
 	},
 ] as const satisfies readonly KitBindingDefinition[];
@@ -39,13 +39,13 @@ const COMPOSER_BASH_HISTORY_BINDINGS = [
 	{
 		cmd: "composer.bash-history-older",
 		key: "up",
-		desc: "Recall older bash history entry",
+		desc: "Recall previous bash command",
 		group: "Composer",
 	},
 	{
 		cmd: "composer.bash-history-newer",
 		key: "down",
-		desc: "Recall newer bash history entry",
+		desc: "Recall next bash command",
 		group: "Composer",
 	},
 ] as const satisfies readonly KitBindingDefinition[];
@@ -54,7 +54,7 @@ const COMPOSER_RECALL_BINDINGS = [
 	{
 		cmd: "composer.restore-or-recall",
 		key: "up",
-		desc: "Restore queued follow-ups or recall last message",
+		desc: "Restore queued follow-ups or recall previous message",
 		group: "Composer",
 	},
 ] as const satisfies readonly KitBindingDefinition[];
@@ -106,7 +106,7 @@ export function ComposerDock(props: ComposerDockProps) {
 			commands: [
 				{
 					name: "composer.clear-or-quit",
-					desc: "Clear composer or quit",
+					desc: "Clear input or quit",
 					group: "Composer",
 					run: () => {
 						if (!shellInputAvailable()) return false;
@@ -125,7 +125,7 @@ export function ComposerDock(props: ComposerDockProps) {
 				},
 				{
 					name: "composer.abort",
-					desc: "Abort streaming response when composer is empty",
+					desc: "Abort response",
 					group: "Composer",
 					run: () => {
 						if (!shellInputAvailable()) return false;
@@ -137,7 +137,7 @@ export function ComposerDock(props: ComposerDockProps) {
 				},
 				{
 					name: "composer.steer",
-					desc: "Steer with queued follow-ups while streaming",
+					desc: "Steer with queued follow-ups",
 					group: "Composer",
 					run: () => {
 						if (!shellInputAvailable()) return false;
@@ -163,7 +163,7 @@ export function ComposerDock(props: ComposerDockProps) {
 			commands: [
 				{
 					name: "composer.bash-history-older",
-					desc: "Recall older bash history entry",
+					desc: "Recall previous bash command",
 					group: "Composer",
 					run: () => {
 						if (!shellInputAvailable() || picker.visible) return false;
@@ -175,7 +175,7 @@ export function ComposerDock(props: ComposerDockProps) {
 				},
 				{
 					name: "composer.bash-history-newer",
-					desc: "Recall newer bash history entry",
+					desc: "Recall next bash command",
 					group: "Composer",
 					run: () => {
 						if (!shellInputAvailable() || picker.visible) return false;
@@ -200,7 +200,7 @@ export function ComposerDock(props: ComposerDockProps) {
 			commands: [
 				{
 					name: "composer.restore-or-recall",
-					desc: "Restore queued follow-ups or recall last message",
+					desc: "Restore queued follow-ups or recall previous message",
 					group: "Composer",
 					run: () => {
 						if (!shellInputAvailable() || picker.visible) return false;
