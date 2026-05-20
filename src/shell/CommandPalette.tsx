@@ -3,22 +3,10 @@ import { Show } from "solid-js";
 import type { Settings } from "../settings";
 import type { PickerManager } from "../state/picker-manager";
 import { Dialog } from "./Dialog";
-import { type Binding, HintBar } from "./HintBar";
+import { KeymapHintBar } from "./KeymapHintBar";
 import { Picker } from "./Picker";
 
 const MAX_VISIBLE = 12;
-
-const LIST_BINDINGS: Binding[] = [
-	{ key: "↑/↓", action: "move" },
-	{ key: "Tab", action: "complete" },
-	{ key: "Enter", action: "run" },
-	{ key: "Esc", action: "close" },
-];
-
-const INPUT_BINDINGS: Binding[] = [
-	{ key: "Enter", action: "submit" },
-	{ key: "Esc", action: "cancel" },
-];
 
 export type CommandPaletteProps = {
 	settings: Accessor<Settings>;
@@ -27,9 +15,6 @@ export type CommandPaletteProps = {
 
 export function CommandPalette(props: CommandPaletteProps) {
 	const snapshot = () => props.picker.current();
-	const bindings = () =>
-		snapshot().mode === "input" ? INPUT_BINDINGS : LIST_BINDINGS;
-
 	return (
 		<Show when={snapshot().visible}>
 			<Dialog.Root
@@ -43,11 +28,14 @@ export function CommandPalette(props: CommandPaletteProps) {
 						settings={props.settings}
 						picker={props.picker}
 						maxVisible={MAX_VISIBLE}
+						commandNamespace="command-palette"
+						includeCompleteBinding
+						selectHint="run"
 					>
 						<Picker.Header />
 						<Picker.Body />
 						<Picker.Footer>
-							<HintBar borderless bindings={bindings()} />
+							<KeymapHintBar borderless group="command-palette" />
 						</Picker.Footer>
 					</Picker.Root>
 				</box>

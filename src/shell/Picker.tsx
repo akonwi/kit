@@ -22,53 +22,65 @@ import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
-const PICKER_LIST_BINDINGS = [
-	{
-		cmd: "picker.move-up",
-		key: "up",
-		desc: "Move picker selection up",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.move-down",
-		key: "down",
-		desc: "Move picker selection down",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.complete",
-		key: "tab",
-		desc: "Complete picker selection",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.select",
-		key: "return",
-		desc: "Select current picker item",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.close",
-		key: "escape",
-		desc: "Close picker",
-		group: "Picker",
-	},
-] as const satisfies readonly KitBindingDefinition[];
+function pickerListBindings(
+	namespace: string,
+	includeComplete: boolean,
+): KitBindingDefinition[] {
+	const bindings: KitBindingDefinition[] = [
+		{
+			cmd: `${namespace}.move-up`,
+			key: "up",
+			desc: "Move picker selection up",
+			group: namespace,
+		},
+		{
+			cmd: `${namespace}.move-down`,
+			key: "down",
+			desc: "Move picker selection down",
+			group: namespace,
+		},
+	];
+	if (includeComplete) {
+		bindings.push({
+			cmd: `${namespace}.complete`,
+			key: "tab",
+			desc: "Complete picker selection",
+			group: namespace,
+		});
+	}
+	bindings.push(
+		{
+			cmd: `${namespace}.select`,
+			key: "return",
+			desc: "Select current picker item",
+			group: namespace,
+		},
+		{
+			cmd: `${namespace}.close`,
+			key: "escape",
+			desc: "Close picker",
+			group: namespace,
+		},
+	);
+	return bindings;
+}
 
-const PICKER_INPUT_BINDINGS = [
-	{
-		cmd: "picker.submit-input",
-		key: "return",
-		desc: "Submit picker input",
-		group: "Picker",
-	},
-	{
-		cmd: "picker.cancel-input",
-		key: "escape",
-		desc: "Cancel picker input",
-		group: "Picker",
-	},
-] as const satisfies readonly KitBindingDefinition[];
+function pickerInputBindings(namespace: string): KitBindingDefinition[] {
+	return [
+		{
+			cmd: `${namespace}.submit-input`,
+			key: "return",
+			desc: "Submit picker input",
+			group: namespace,
+		},
+		{
+			cmd: `${namespace}.cancel-input`,
+			key: "escape",
+			desc: "Cancel picker input",
+			group: namespace,
+		},
+	];
+}
 
 // ── Context ─────────────────────────────────────────────────────────
 
@@ -105,6 +117,9 @@ export type RootProps = {
 	picker: PickerManager;
 	children: JSX.Element;
 	maxVisible?: number;
+	commandNamespace?: string;
+	includeCompleteBinding?: boolean;
+	selectHint?: string;
 };
 
 function Root(props: RootProps) {
@@ -112,6 +127,8 @@ function Root(props: RootProps) {
 	const snapshot = () => props.picker.current();
 	const keymap = useKeymap();
 	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
+	const commandNamespace = () => props.commandNamespace ?? "picker";
+	const selectHint = () => props.selectHint ?? "select";
 	const userKeybindings = () => props.settings?.().keybindings;
 
 	useBindings(() =>
@@ -122,39 +139,51 @@ function Root(props: RootProps) {
 			priority: 70,
 			commands: [
 				{
-					name: "picker.move-up",
+					name: `${commandNamespace()}.move-up`,
 					desc: "Move picker selection up",
-					group: "Picker",
+					group: commandNamespace(),
+					hint: "up",
 					run: () => props.picker.moveUp(),
 				},
 				{
-					name: "picker.move-down",
+					name: `${commandNamespace()}.move-down`,
 					desc: "Move picker selection down",
-					group: "Picker",
+					group: commandNamespace(),
+					hint: "down",
 					run: () => props.picker.moveDown(),
 				},
+				...(props.includeCompleteBinding
+					? [
+							{
+								name: `${commandNamespace()}.complete`,
+								desc: "Complete picker selection",
+								group: commandNamespace(),
+								hint: "complete",
+								run: () => props.picker.handleKeyBinding("tab"),
+							},
+						]
+					: []),
 				{
-					name: "picker.complete",
-					desc: "Complete picker selection",
-					group: "Picker",
-					run: () => props.picker.handleKeyBinding("tab"),
-				},
-				{
-					name: "picker.select",
+					name: `${commandNamespace()}.select`,
 					desc: "Select current picker item",
-					group: "Picker",
+					group: commandNamespace(),
+					hint: selectHint(),
 					run: () => props.picker.selectCurrent(),
 				},
 				{
-					name: "picker.close",
+					name: `${commandNamespace()}.close`,
 					desc: "Close picker",
-					group: "Picker",
+					group: commandNamespace(),
+					hint: "close",
 					run: () => props.picker.pop(),
 				},
 			],
 			bindings: createConfiguredBindings(
 				keymap,
-				PICKER_LIST_BINDINGS,
+				pickerListBindings(
+					commandNamespace(),
+					props.includeCompleteBinding === true,
+				),
 				userKeybindings(),
 			),
 		}),
@@ -168,21 +197,23 @@ function Root(props: RootProps) {
 			priority: 70,
 			commands: [
 				{
-					name: "picker.submit-input",
+					name: `${commandNamespace()}.submit-input`,
 					desc: "Submit picker input",
-					group: "Picker",
+					group: commandNamespace(),
+					hint: "submit",
 					run: () => props.picker.submitInput(),
 				},
 				{
-					name: "picker.cancel-input",
+					name: `${commandNamespace()}.cancel-input`,
 					desc: "Cancel picker input",
-					group: "Picker",
+					group: commandNamespace(),
+					hint: "cancel",
 					run: () => props.picker.pop(),
 				},
 			],
 			bindings: createConfiguredBindings(
 				keymap,
-				PICKER_INPUT_BINDINGS,
+				pickerInputBindings(commandNamespace()),
 				userKeybindings(),
 			),
 		}),

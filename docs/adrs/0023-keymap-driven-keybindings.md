@@ -34,6 +34,8 @@ User keybinding settings should map command ids to key strings or arrays of key 
 
 Kit should validate bindings before registering them. Invalid key strings, duplicate bindings, and unsupported overlaps within the same layer should produce warnings and be ignored. When multiple bindings in the same layer collide, Kit should keep the first registered binding and ignore later colliding bindings. Collisions across layers are expected and should use normal layer precedence as the override mechanism rather than being treated as invalid.
 
+Hint bars and shortcut help should derive displayed keys from live keymap state instead of duplicating static labels. A UI surface that declares keymap commands should be able to ask the keymap which active bindings invoke those commands in the current focus/layer context, then render those formatted bindings. Static hint labels are acceptable only as temporary migration scaffolding or for actions not yet represented in the keymap.
+
 Migration should be incremental. Global shell shortcuts and non-text editing commands should move first.
 
 Text input and edit-buffer behavior should remain native by default in the near term. Kit should not re-declare OpenTUI's built-in input editing defaults until there is a clear reason to fully own that behavior. However, user-level key mappings for editor commands should still be possible: Kit can register editor command handlers and only bind user-configured keys, letting unmatched keys fall through to native input handling. A configured editor binding should consume the matching key before the native input handler runs.
@@ -47,6 +49,7 @@ This gives users a path to add or remap editor shortcuts without forcing Kit to 
 - Stable command ids become part of Kit's user-facing configuration surface and should be renamed cautiously.
 - Reserving Kit-owned top-level domains keeps built-in settings concise while plugin-id prefixes prevent extension collisions.
 - Plugins can add keyboard-first workflows without depending on shell internals or raw renderer/keymap objects.
+- Hint bars stay accurate when defaults change or users customize bindings.
 - Future help, which-key, command palette, and debug views can query live keymap state instead of reconstructing shortcut knowledge separately.
 - Layer priority and focus scoping become important design concerns for new UI surfaces.
 - Binding diagnostics need to distinguish invalid same-layer collisions from intentional cross-layer overrides.
