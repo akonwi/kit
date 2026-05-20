@@ -71,6 +71,7 @@ export function DebugModal(props: DebugModalProps) {
 	return (
 		<Dialog.Root
 			height="70%"
+			padding={0}
 			surfaceProps={props.surfaceProps}
 			rootRef={setRootTarget}
 		>
@@ -86,7 +87,7 @@ export function DebugModal(props: DebugModalProps) {
 					</box>
 				</scrollbox>
 			</Dialog.Body>
-			<Dialog.Footer paddingBottom={1}>
+			<Dialog.Footer>
 				<KeymapHintBar borderless group="debug" />
 			</Dialog.Footer>
 		</Dialog.Root>
