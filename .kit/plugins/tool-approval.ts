@@ -1,6 +1,6 @@
 import type { PluginAPI, ToolCall } from "@akonwi/kit/plugin";
 
-const RISKY_BASH_PATTERNS = [/\bgit\s+commit\b/];
+const RISKY_BASH_PATTERNS = [/\bgit\s+commit\b/, /\bnpm\s+publish\b/];
 
 export default function ToolApprovalPlugin(kit: PluginAPI) {
 	kit.onToolCall(async (toolCall, ctx) => {
