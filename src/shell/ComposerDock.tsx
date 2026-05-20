@@ -1,13 +1,94 @@
 import type { KeyEvent, PasteEvent } from "@opentui/core";
+import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import { useKeyboard } from "@opentui/solid";
+import type { Accessor } from "solid-js";
 import { createEffect, createSignal } from "solid-js";
+import {
+	createConfiguredBindings,
+	type KitBindingDefinition,
+	withKitKeyAliases,
+} from "../keymap/bindings";
+import type { Settings } from "../settings";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { TIMES } from "./glyphs";
 import { MessageComposer } from "./MessageComposer";
 import { theme } from "./theme";
 
+const COMPOSER_CORE_BINDINGS = [
+	{
+		cmd: "composer.clear-or-quit",
+		key: "ctrl+c",
+		desc: "Clear composer or quit",
+		group: "Composer",
+	},
+	{
+		cmd: "composer.abort",
+		key: "escape",
+		desc: "Abort streaming response when composer is empty",
+		group: "Composer",
+	},
+	{
+		cmd: "composer.steer",
+		key: "return",
+		desc: "Steer with queued follow-ups while streaming",
+		group: "Composer",
+	},
+] as const satisfies readonly KitBindingDefinition[];
+
+const COMPOSER_BASH_HISTORY_BINDINGS = [
+	{
+		cmd: "composer.bash-history-older",
+		key: "up",
+		desc: "Recall older bash history entry",
+		group: "Composer",
+	},
+	{
+		cmd: "composer.bash-history-newer",
+		key: "down",
+		desc: "Recall newer bash history entry",
+		group: "Composer",
+	},
+] as const satisfies readonly KitBindingDefinition[];
+
+const COMPOSER_RECALL_BINDINGS = [
+	{
+		cmd: "composer.restore-or-recall",
+		key: "up",
+		desc: "Restore queued follow-ups or recall last message",
+		group: "Composer",
+	},
+] as const satisfies readonly KitBindingDefinition[];
+
+const PICKER_BINDINGS = [
+	{
+		cmd: "picker.move-up",
+		key: "up",
+		desc: "Move picker selection up",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.move-down",
+		key: "down",
+		desc: "Move picker selection down",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.close",
+		key: "escape",
+		desc: "Close picker",
+		group: "Picker",
+	},
+	{
+		cmd: "picker.select",
+		key: "return",
+		desc: "Select current picker item",
+		group: "Picker",
+	},
+] as const satisfies readonly KitBindingDefinition[];
+
 export type ComposerDockProps = {
+	settings: Accessor<Settings>;
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	locked?: boolean;
@@ -30,6 +111,7 @@ export function ComposerDock(props: ComposerDockProps) {
 	const [composerText, setComposerText] = createSignal(
 		props.controller.getTextareaText(),
 	);
+	const keymap = useKeymap();
 	const composerMode = () => getComposerInputMode(composerText());
 	const composerBorderColor = () =>
 		composerMode() === "bash"
@@ -44,118 +126,195 @@ export function ComposerDock(props: ComposerDockProps) {
 		props.onModeChange?.(composerMode());
 	});
 
+	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
+	const nonFilterablePickerVisible = () =>
+		picker.visible && !picker.isFilterable && !picker.isInputMode;
+
+	useBindings(() =>
+		withKitKeyAliases({
+			priority: 90,
+			commands: [
+				{
+					name: "composer.clear-or-quit",
+					desc: "Clear composer or quit",
+					group: "Composer",
+					run: () => {
+						if (!shellInputAvailable()) return false;
+						if (picker.visible) {
+							picker.clear();
+							return;
+						}
+						const text = props.controller.getTextareaText();
+						if (text.trim()) {
+							props.controller.setTextareaText("");
+							syncComposerText();
+							return;
+						}
+						props.controller.quit();
+					},
+				},
+				{
+					name: "composer.abort",
+					desc: "Abort streaming response when composer is empty",
+					group: "Composer",
+					run: () => {
+						if (!shellInputAvailable()) return false;
+						if (picker.visible) return false;
+						if (props.controller.getTextareaText().trim()) return false;
+						if (!props.controller.isStreaming()) return false;
+						props.controller.abort();
+					},
+				},
+				{
+					name: "composer.steer",
+					desc: "Steer with queued follow-ups while streaming",
+					group: "Composer",
+					run: () => {
+						if (!shellInputAvailable()) return false;
+						if (picker.visible) return false;
+						if (props.controller.getTextareaText().trim()) return false;
+						if (!props.controller.isStreaming()) return false;
+						if (props.controller.getPendingMessageCount() <= 0) return false;
+						props.controller.promotePendingFollowUpsToSteering();
+					},
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				COMPOSER_CORE_BINDINGS,
+				props.settings().keybindings,
+			),
+		}),
+	);
+
+	useBindings(() =>
+		withKitKeyAliases({
+			priority: 80,
+			commands: [
+				{
+					name: "composer.bash-history-older",
+					desc: "Recall older bash history entry",
+					group: "Composer",
+					run: () => {
+						if (!shellInputAvailable() || picker.visible) return false;
+						if (!props.controller.getTextareaText().startsWith("!"))
+							return false;
+						if (!props.controller.navigateBashHistory("older")) return false;
+						syncComposerText();
+					},
+				},
+				{
+					name: "composer.bash-history-newer",
+					desc: "Recall newer bash history entry",
+					group: "Composer",
+					run: () => {
+						if (!shellInputAvailable() || picker.visible) return false;
+						if (!props.controller.getTextareaText().startsWith("!"))
+							return false;
+						if (!props.controller.navigateBashHistory("newer")) return false;
+						syncComposerText();
+					},
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				COMPOSER_BASH_HISTORY_BINDINGS,
+				props.settings().keybindings,
+			),
+		}),
+	);
+
+	useBindings(() =>
+		withKitKeyAliases({
+			priority: 70,
+			commands: [
+				{
+					name: "composer.restore-or-recall",
+					desc: "Restore queued follow-ups or recall last message",
+					group: "Composer",
+					run: () => {
+						if (!shellInputAvailable() || picker.visible) return false;
+						if (props.controller.getTextareaText().trim()) return false;
+						if (!props.controller.restorePendingMessages()) {
+							props.controller.recallLastUserMessage();
+						}
+						syncComposerText();
+					},
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				COMPOSER_RECALL_BINDINGS,
+				props.settings().keybindings,
+			),
+		}),
+	);
+
+	useBindings(() =>
+		withKitKeyAliases({
+			priority: 60,
+			commands: [
+				{
+					name: "picker.move-up",
+					desc: "Move picker selection up",
+					group: "Picker",
+					run: () => {
+						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
+							return false;
+						}
+						picker.moveUp();
+					},
+				},
+				{
+					name: "picker.move-down",
+					desc: "Move picker selection down",
+					group: "Picker",
+					run: () => {
+						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
+							return false;
+						}
+						picker.moveDown();
+					},
+				},
+				{
+					name: "picker.close",
+					desc: "Close picker",
+					group: "Picker",
+					run: () => {
+						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
+							return false;
+						}
+						picker.pop();
+					},
+				},
+				{
+					name: "picker.select",
+					desc: "Select current picker item",
+					group: "Picker",
+					run: () => {
+						if (!shellInputAvailable() || !nonFilterablePickerVisible()) {
+							return false;
+						}
+						picker.selectCurrent();
+					},
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				PICKER_BINDINGS,
+				props.settings().keybindings,
+			),
+		}),
+	);
+
 	useKeyboard((e: KeyEvent) => {
-		if (props.locked) return;
-		// Skip composer keyboard handling while the command palette is open
-		if (commandPaletteVisible()) return;
-
-		// Ctrl+C — clear composer if it has content, otherwise quit
-		if (e.ctrl && e.name === "c") {
+		if (!shellInputAvailable()) return;
+		if (!nonFilterablePickerVisible()) return;
+		if (!e.ctrl || !e.name) return;
+		const key = `ctrl+${e.name}`;
+		if (picker.handleKeyBinding(key)) {
 			e.preventDefault();
-			if (picker.visible) {
-				picker.clear();
-				return;
-			}
-			const text = props.controller.getTextareaText();
-			if (text.trim()) {
-				props.controller.setTextareaText("");
-				syncComposerText();
-				return;
-			}
-			// Empty composer — quit the app
-			props.controller.quit();
-			return;
 		}
-
-		// Escape — abort agent when composer is empty and agent is working
-		if (
-			e.name === "escape" &&
-			!picker.visible &&
-			!props.controller.getTextareaText().trim() &&
-			props.controller.isStreaming()
-		) {
-			e.preventDefault();
-			props.controller.abort();
-			return;
-		}
-
-		// Enter in empty composer while streaming with queued follow-ups — promote to steering
-		if (
-			(e.name === "return" || e.name === "enter") &&
-			!picker.visible &&
-			!props.controller.getTextareaText().trim() &&
-			props.controller.isStreaming() &&
-			props.controller.getPendingMessageCount() > 0
-		) {
-			e.preventDefault();
-			props.controller.promotePendingFollowUpsToSteering();
-			return;
-		}
-
-		// Up/down in bash mode — navigate previous user-triggered bash executions.
-		if (
-			(e.name === "up" || e.name === "down") &&
-			!picker.visible &&
-			props.controller.getTextareaText().startsWith("!")
-		) {
-			const handled = props.controller.navigateBashHistory(
-				e.name === "up" ? "older" : "newer",
-			);
-			if (handled) {
-				e.preventDefault();
-				syncComposerText();
-				return;
-			}
-		}
-
-		// Up arrow in empty composer — restore queued follow-ups first, then recall last user message
-		if (
-			e.name === "up" &&
-			!picker.visible &&
-			!props.controller.getTextareaText().trim()
-		) {
-			e.preventDefault();
-			if (!props.controller.restorePendingMessages()) {
-				props.controller.recallLastUserMessage();
-			}
-			syncComposerText();
-			return;
-		}
-
-		// Non-filterable picker navigation
-		if (!picker.visible) return;
-		if (picker.isFilterable || picker.isInputMode) return;
-
-		if (e.name === "up") {
-			e.preventDefault();
-			picker.moveUp();
-			return;
-		}
-		if (e.name === "down") {
-			e.preventDefault();
-			picker.moveDown();
-			return;
-		}
-		if (e.name === "escape") {
-			e.preventDefault();
-			picker.pop();
-			return;
-		}
-		if (e.name === "return") {
-			e.preventDefault();
-			picker.selectCurrent();
-			return;
-		}
-
-		if (e.ctrl && e.name) {
-			const key = `ctrl+${e.name}`;
-			if (picker.handleKeyBinding(key)) {
-				e.preventDefault();
-				return;
-			}
-		}
-
-		e.preventDefault();
 	});
 
 	const placeholder = () => "Ask kit to do something...";

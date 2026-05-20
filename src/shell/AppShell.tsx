@@ -1,12 +1,18 @@
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/solid";
-import { createSignal, For, Show } from "solid-js";
+import { useBindings, useKeymap } from "@opentui/keymap/solid";
+import { useRenderer } from "@opentui/solid";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
 	type OverlayEntry,
 } from "../app/overlay-ui";
+import {
+	createConfiguredBindings,
+	type KitBindingDefinition,
+	withKitKeyAliases,
+} from "../keymap/bindings";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import type { Settings } from "../settings";
 import type { AppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
@@ -26,7 +32,17 @@ import { Transcript } from "./transcript";
 
 const STATUS_BAR_HEIGHT = 1;
 
+const APP_SHELL_BINDINGS = [
+	{
+		cmd: "command-palette.open",
+		key: "ctrl+p",
+		desc: "Open command palette",
+		group: "App",
+	},
+] as const satisfies readonly KitBindingDefinition[];
+
 export type AppShellProps = {
+	settings: Settings;
 	state: AppState;
 	runtime: AgentRuntime;
 	controller: ComposerController;
@@ -47,16 +63,38 @@ export function AppShell(props: AppShellProps) {
 	const [dockHeight, setDockHeight] = createSignal(3);
 	const [composerMode, setComposerMode] =
 		createSignal<ComposerInputMode>("normal");
+	const [settings, setSettings] = createSignal(props.settings);
 	const renderer = useRenderer();
+	const keymap = useKeymap();
 	let transcriptRef: { width: number; height: number } | undefined;
 
-	useKeyboard((e: KeyEvent) => {
-		if (e.ctrl && e.name === "p") {
-			if (props.overlays().length > 0) return;
-			e.preventDefault();
-			props.controller.openCommandPalette();
-		}
-	});
+	onCleanup(
+		props.runtime.subscribe("settings.changed", (event) => {
+			setSettings(event.settings);
+		}),
+	);
+
+	useBindings(() =>
+		withKitKeyAliases({
+			priority: 100,
+			commands: [
+				{
+					name: "command-palette.open",
+					desc: "Open command palette",
+					group: "App",
+					run: () => {
+						if (props.overlays().length > 0) return false;
+						props.controller.openCommandPalette();
+					},
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				APP_SHELL_BINDINGS,
+				settings().keybindings,
+			),
+		}),
+	);
 
 	return (
 		<box
@@ -95,6 +133,7 @@ export function AppShell(props: AppShellProps) {
 					pendingMessages={props.state.pendingMessages}
 				/>
 				<ComposerDock
+					settings={settings}
 					controller={props.controller}
 					attachments={props.attachments}
 					locked={props.overlays().length > 0}

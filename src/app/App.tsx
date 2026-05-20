@@ -350,6 +350,7 @@ export function App(props: AppProps) {
 					if (current.kind !== "ready") return null;
 					return (
 						<AppShell
+							settings={current.runtime.settings}
 							state={current.app.state}
 							runtime={current.runtime}
 							controller={current.controller}

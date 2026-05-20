@@ -9,6 +9,7 @@
         "@earendil-works/pi-ai": "^0.74.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@opentui/core": "0.2.2",
+        "@opentui/keymap": "0.2.2",
         "@opentui/solid": "0.2.2",
         "@pierre/diffs": "^1.1.16",
         "glob": "^13.0.6",
@@ -188,6 +189,8 @@
     "@opentui/core-win32-arm64": ["@opentui/core-win32-arm64@0.2.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-MPhYdJNdxmC5Bqsq6sis/+VkjRgkEjm+bQ1Tl++NSKLuiTU32Re0ImcZlgHbe+LZtZoGMZHVSgZlkGd3oYXO2g=="],
 
     "@opentui/core-win32-x64": ["@opentui/core-win32-x64@0.2.2", "", { "os": "win32", "cpu": "x64" }, "sha512-19BroLfn2h0RDYfJS5o96Fc8kYCDhRBcseIXtHIkoKIsKMxx62KiDLo/byVye6rp+yQRRB7Xkd2uWqsbdiWo9w=="],
+
+    "@opentui/keymap": ["@opentui/keymap@0.2.2", "", { "dependencies": { "@opentui/core": "0.2.2" }, "peerDependencies": { "@opentui/react": "0.2.2", "@opentui/solid": "0.2.2", "react": ">=19.0.0", "solid-js": "1.9.12" }, "optionalPeers": ["@opentui/react", "@opentui/solid", "react", "solid-js"] }, "sha512-8KeY1HnB8UqFFWDB9sm6qdi91qaJrlHk29Mf7Z6Vy6FJb9U/qbaZPl3EMMxfLTNAehMlNQ3rXsRZ4MEOTtO3Xw=="],
 
     "@opentui/solid": ["@opentui/solid@0.2.2", "", { "dependencies": { "@babel/core": "7.28.0", "@babel/preset-typescript": "7.27.1", "@opentui/core": "0.2.2", "babel-plugin-module-resolver": "5.0.2", "babel-preset-solid": "1.9.12", "entities": "7.0.1", "s-js": "^0.4.9" }, "peerDependencies": { "solid-js": "1.9.12" } }, "sha512-ZBVfCoVAhcUGQWPAWOTdzuVldMaRkuPpCu4U1VZCqmIw9DtbCuiVr0WnDocDxKhJLbTu8bl3qEWtVCf6lTSi3w=="],
 
