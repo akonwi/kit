@@ -14,8 +14,9 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import {
-	type BindingDefinition,
-	createConfiguredBindingResult,
+	type CommandBindingDefinition,
+	createConfiguredCommandBindingResult,
+	createKeymapCommands,
 	withKitKeyAliases,
 } from "../keymap/bindings";
 import {
@@ -42,15 +43,6 @@ import { theme } from "./theme";
 import { Transcript } from "./transcript";
 
 const STATUS_BAR_HEIGHT = 1;
-
-const APP_SHELL_BINDINGS = [
-	{
-		cmd: "command-palette.open",
-		key: "ctrl+p",
-		desc: "Open command palette",
-		group: "App",
-	},
-] as const satisfies readonly BindingDefinition[];
 
 export type AppShellProps = {
 	settings: Settings;
@@ -88,10 +80,28 @@ export function AppShell(props: AppShellProps) {
 		}),
 	);
 
+	const appShellCommands = () =>
+		[
+			{
+				binding: {
+					cmd: "command-palette.open",
+					key: "ctrl+p",
+					desc: "Open command palette",
+					group: "App",
+				},
+				command: {
+					run: () => {
+						if (props.overlays().length > 0) return false;
+						props.controller.openCommandPalette();
+					},
+				},
+			},
+		] as const satisfies readonly CommandBindingDefinition[];
+
 	const appShellBindings = createMemo(() =>
-		createConfiguredBindingResult(
+		createConfiguredCommandBindingResult(
 			keymap,
-			APP_SHELL_BINDINGS,
+			appShellCommands(),
 			settings().keybindings,
 		),
 	);
@@ -106,17 +116,7 @@ export function AppShell(props: AppShellProps) {
 	useBindings(() =>
 		withKitKeyAliases({
 			priority: 100,
-			commands: [
-				{
-					name: "command-palette.open",
-					desc: "Open command palette",
-					group: "App",
-					run: () => {
-						if (props.overlays().length > 0) return false;
-						props.controller.openCommandPalette();
-					},
-				},
-			],
+			commands: createKeymapCommands(appShellCommands()),
 			bindings: appShellBindings().bindings,
 		}),
 	);

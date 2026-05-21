@@ -3,8 +3,9 @@ import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import type { Accessor } from "solid-js";
 import { createEffect, createMemo, createSignal } from "solid-js";
 import {
-	type BindingDefinition,
-	createConfiguredBindingResult,
+	type CommandBindingDefinition,
+	createConfiguredCommandBindingResult,
+	createKeymapCommands,
 	type KeybindingDiagnostic,
 	withKitKeyAliases,
 } from "../keymap/bindings";
@@ -15,51 +16,6 @@ import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { TIMES } from "./glyphs";
 import { MessageComposer } from "./MessageComposer";
 import { theme } from "./theme";
-
-const COMPOSER_CORE_BINDINGS = [
-	{
-		cmd: "composer.clear-or-quit",
-		key: "ctrl+c",
-		desc: "Clear input or quit",
-		group: "Composer",
-	},
-	{
-		cmd: "composer.abort",
-		key: "escape",
-		desc: "Abort response",
-		group: "Composer",
-	},
-	{
-		cmd: "composer.steer",
-		key: "return",
-		desc: "Steer with queued follow-ups",
-		group: "Composer",
-	},
-] as const satisfies readonly BindingDefinition[];
-
-const COMPOSER_BASH_HISTORY_BINDINGS = [
-	{
-		cmd: "composer.bash-history-older",
-		key: "up",
-		desc: "Recall previous bash command",
-		group: "Composer",
-	},
-	{
-		cmd: "composer.bash-history-newer",
-		key: "down",
-		desc: "Recall next bash command",
-		group: "Composer",
-	},
-] as const satisfies readonly BindingDefinition[];
-
-const COMPOSER_RECALL_BINDINGS = [
-	{
-		cmd: "composer.restore-or-recall",
-		key: "up",
-		desc: "Restore queued follow-ups or recall previous message",
-		group: "Composer",
-	},
-] as const satisfies readonly BindingDefinition[];
 
 export type ComposerDockProps = {
 	settings: Accessor<Settings>;
@@ -102,24 +58,144 @@ export function ComposerDock(props: ComposerDockProps) {
 	});
 
 	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
+	const composerCoreCommands = () =>
+		[
+			{
+				binding: {
+					cmd: "composer.clear-or-quit",
+					key: "ctrl+c",
+					desc: "Clear input or quit",
+					group: "Composer",
+				},
+				command: {
+					run: () => {
+						if (!shellInputAvailable()) return false;
+						if (picker.visible) {
+							picker.clear();
+							return;
+						}
+						const text = props.controller.getTextareaText();
+						if (text.trim()) {
+							props.controller.setTextareaText("");
+							syncComposerText();
+							return;
+						}
+						props.controller.quit();
+					},
+				},
+			},
+			{
+				binding: {
+					cmd: "composer.abort",
+					key: "escape",
+					desc: "Abort response",
+					group: "Composer",
+				},
+				command: {
+					run: () => {
+						if (!shellInputAvailable()) return false;
+						if (picker.visible) return false;
+						if (props.controller.getTextareaText().trim()) return false;
+						if (!props.controller.isStreaming()) return false;
+						props.controller.abort();
+					},
+				},
+			},
+			{
+				binding: {
+					cmd: "composer.steer",
+					key: "return",
+					desc: "Steer with queued follow-ups",
+					group: "Composer",
+				},
+				command: {
+					run: () => {
+						if (!shellInputAvailable()) return false;
+						if (picker.visible) return false;
+						if (props.controller.getTextareaText().trim()) return false;
+						if (!props.controller.isStreaming()) return false;
+						if (props.controller.getPendingMessageCount() <= 0) return false;
+						props.controller.promotePendingFollowUpsToSteering();
+					},
+				},
+			},
+		] as const satisfies readonly CommandBindingDefinition[];
+	const composerBashHistoryCommands = () =>
+		[
+			{
+				binding: {
+					cmd: "composer.bash-history-older",
+					key: "up",
+					desc: "Recall previous bash command",
+					group: "Composer",
+				},
+				command: {
+					run: () => {
+						if (!shellInputAvailable() || picker.visible) return false;
+						if (!props.controller.getTextareaText().startsWith("!"))
+							return false;
+						if (!props.controller.navigateBashHistory("older")) return false;
+						syncComposerText();
+					},
+				},
+			},
+			{
+				binding: {
+					cmd: "composer.bash-history-newer",
+					key: "down",
+					desc: "Recall next bash command",
+					group: "Composer",
+				},
+				command: {
+					run: () => {
+						if (!shellInputAvailable() || picker.visible) return false;
+						if (!props.controller.getTextareaText().startsWith("!"))
+							return false;
+						if (!props.controller.navigateBashHistory("newer")) return false;
+						syncComposerText();
+					},
+				},
+			},
+		] as const satisfies readonly CommandBindingDefinition[];
+	const composerRecallCommands = () =>
+		[
+			{
+				binding: {
+					cmd: "composer.restore-or-recall",
+					key: "up",
+					desc: "Restore queued follow-ups or recall previous message",
+					group: "Composer",
+				},
+				command: {
+					run: () => {
+						if (!shellInputAvailable() || picker.visible) return false;
+						if (props.controller.getTextareaText().trim()) return false;
+						if (!props.controller.restorePendingMessages()) {
+							props.controller.recallLastUserMessage();
+						}
+						syncComposerText();
+					},
+				},
+			},
+		] as const satisfies readonly CommandBindingDefinition[];
 	const composerCoreBindings = createMemo(() =>
-		createConfiguredBindingResult(
+		createConfiguredCommandBindingResult(
 			keymap,
-			COMPOSER_CORE_BINDINGS,
+			composerCoreCommands(),
 			props.settings().keybindings,
 		),
 	);
 	const composerBashHistoryBindings = createMemo(() =>
-		createConfiguredBindingResult(
+		createConfiguredCommandBindingResult(
 			keymap,
-			COMPOSER_BASH_HISTORY_BINDINGS,
+			composerBashHistoryCommands(),
 			props.settings().keybindings,
 		),
 	);
 	const composerRecallBindings = createMemo(() =>
-		createConfiguredBindingResult(
+		createConfiguredCommandBindingResult(
 			keymap,
-			COMPOSER_RECALL_BINDINGS,
+			composerRecallCommands(),
 			props.settings().keybindings,
 		),
 	);
@@ -138,52 +214,7 @@ export function ComposerDock(props: ComposerDockProps) {
 	useBindings(() =>
 		withKitKeyAliases({
 			priority: 90,
-			commands: [
-				{
-					name: "composer.clear-or-quit",
-					desc: "Clear input or quit",
-					group: "Composer",
-					run: () => {
-						if (!shellInputAvailable()) return false;
-						if (picker.visible) {
-							picker.clear();
-							return;
-						}
-						const text = props.controller.getTextareaText();
-						if (text.trim()) {
-							props.controller.setTextareaText("");
-							syncComposerText();
-							return;
-						}
-						props.controller.quit();
-					},
-				},
-				{
-					name: "composer.abort",
-					desc: "Abort response",
-					group: "Composer",
-					run: () => {
-						if (!shellInputAvailable()) return false;
-						if (picker.visible) return false;
-						if (props.controller.getTextareaText().trim()) return false;
-						if (!props.controller.isStreaming()) return false;
-						props.controller.abort();
-					},
-				},
-				{
-					name: "composer.steer",
-					desc: "Steer with queued follow-ups",
-					group: "Composer",
-					run: () => {
-						if (!shellInputAvailable()) return false;
-						if (picker.visible) return false;
-						if (props.controller.getTextareaText().trim()) return false;
-						if (!props.controller.isStreaming()) return false;
-						if (props.controller.getPendingMessageCount() <= 0) return false;
-						props.controller.promotePendingFollowUpsToSteering();
-					},
-				},
-			],
+			commands: createKeymapCommands(composerCoreCommands()),
 			bindings: composerCoreBindings().bindings,
 		}),
 	);
@@ -191,32 +222,7 @@ export function ComposerDock(props: ComposerDockProps) {
 	useBindings(() =>
 		withKitKeyAliases({
 			priority: 80,
-			commands: [
-				{
-					name: "composer.bash-history-older",
-					desc: "Recall previous bash command",
-					group: "Composer",
-					run: () => {
-						if (!shellInputAvailable() || picker.visible) return false;
-						if (!props.controller.getTextareaText().startsWith("!"))
-							return false;
-						if (!props.controller.navigateBashHistory("older")) return false;
-						syncComposerText();
-					},
-				},
-				{
-					name: "composer.bash-history-newer",
-					desc: "Recall next bash command",
-					group: "Composer",
-					run: () => {
-						if (!shellInputAvailable() || picker.visible) return false;
-						if (!props.controller.getTextareaText().startsWith("!"))
-							return false;
-						if (!props.controller.navigateBashHistory("newer")) return false;
-						syncComposerText();
-					},
-				},
-			],
+			commands: createKeymapCommands(composerBashHistoryCommands()),
 			bindings: composerBashHistoryBindings().bindings,
 		}),
 	);
@@ -224,21 +230,7 @@ export function ComposerDock(props: ComposerDockProps) {
 	useBindings(() =>
 		withKitKeyAliases({
 			priority: 70,
-			commands: [
-				{
-					name: "composer.restore-or-recall",
-					desc: "Restore queued follow-ups or recall previous message",
-					group: "Composer",
-					run: () => {
-						if (!shellInputAvailable() || picker.visible) return false;
-						if (props.controller.getTextareaText().trim()) return false;
-						if (!props.controller.restorePendingMessages()) {
-							props.controller.recallLastUserMessage();
-						}
-						syncComposerText();
-					},
-				},
-			],
+			commands: createKeymapCommands(composerRecallCommands()),
 			bindings: composerRecallBindings().bindings,
 		}),
 	);
