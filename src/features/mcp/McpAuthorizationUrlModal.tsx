@@ -1,16 +1,7 @@
 import type { Renderable } from "@opentui/core";
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
-import { createEffect, createMemo, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import {
-	type CommandBindingDefinition,
-	createConfiguredCommandBindingResult,
-	createKeymapCommands,
-	type KeybindingDiagnostic,
-	withKitKeyAliases,
-} from "../../keymap/bindings";
-import { reportKeybindingDiagnostics } from "../../keymap/diagnostics";
-import type { Settings } from "../../settings";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { Dialog } from "../../shell/Dialog";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
@@ -20,53 +11,21 @@ export type McpAuthorizationUrlModalProps = {
 	authorizationUrl: URL;
 	active: boolean;
 	surfaceProps?: OverlaySurfaceProps;
-	settings?: Settings;
-	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	onClose: () => void;
 };
 
 export function McpAuthorizationUrlModal(props: McpAuthorizationUrlModalProps) {
-	const keymap = useKeymap();
 	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
-	const commands = [
-		{
-			binding: {
-				cmd: "mcp-authorization-url.continue",
-				key: ["return", "escape"],
-				desc: "Continue after MCP authorization",
-				group: "mcp-authorization-url",
-			},
-			command: {
-				hint: "continue",
-				run: () => props.onClose(),
-			},
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		target: rootTarget,
+		targetMode: "focus-within",
+		when: () => props.active,
+		commands: {
+			"mcp-authorization-url.continue": () => props.onClose(),
 		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const bindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			commands,
-			props.settings?.keybindings,
-		),
-	);
-
-	createEffect(() => {
-		reportKeybindingDiagnostics(
-			bindings().diagnostics,
-			props.onKeybindingDiagnostic,
-		);
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			target: rootTarget,
-			targetMode: "focus-within",
-			enabled: () => props.active,
-			priority: 200,
-			commands: createKeymapCommands(commands),
-			bindings: bindings().bindings,
-		}),
-	);
+	}));
 
 	const url = () => props.authorizationUrl.toString();
 

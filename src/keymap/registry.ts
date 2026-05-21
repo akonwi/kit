@@ -106,6 +106,30 @@ export const KEYBINDING_REGISTRY = {
 			hint: "back",
 		},
 	},
+	"mcp-status": {
+		close: {
+			defaultKeys: ["escape", "return"],
+			desc: "Close MCP status",
+			group: "mcp-status",
+			hint: "close",
+		},
+	},
+	"mcp-authorization-url": {
+		continue: {
+			defaultKeys: ["return", "escape"],
+			desc: "Continue after MCP authorization",
+			group: "mcp-authorization-url",
+			hint: "continue",
+		},
+	},
+	debug: {
+		close: {
+			defaultKeys: ["return", "escape"],
+			desc: "Close debug view",
+			group: "debug",
+			hint: "close",
+		},
+	},
 } as const satisfies KeybindingRegistry;
 
 type BuiltInKeybindingRegistry = typeof KEYBINDING_REGISTRY;

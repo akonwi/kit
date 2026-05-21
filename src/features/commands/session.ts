@@ -1,12 +1,11 @@
 import { createComponent } from "solid-js";
-import { createKeybindingDiagnosticReporter } from "../../keymap/diagnostics";
 import { DebugModal } from "./DebugModal";
 import type { Command } from "./types";
 
 export const sessionCommand: Command = {
 	name: "debug",
 	description: "Show runtime and session debug details",
-	async execute({ runtime, openCustomOverlay, toast }) {
+	async execute({ runtime, openCustomOverlay }) {
 		const session = runtime.getSession();
 		const turns = runtime.getTurns();
 		const messages = runtime.getMessages();
@@ -61,10 +60,8 @@ export const sessionCommand: Command = {
 			createComponent(DebugModal, {
 				title: "Debug",
 				lines,
-				settings: runtime.settings,
 				active: props.active,
 				surfaceProps: props.surfaceProps,
-				onKeybindingDiagnostic: createKeybindingDiagnosticReporter(toast),
 				onClose: () => props.done(),
 			}),
 		);

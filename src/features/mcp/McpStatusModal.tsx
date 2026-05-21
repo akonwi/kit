@@ -1,16 +1,7 @@
 import type { Renderable } from "@opentui/core";
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
-import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import {
-	type CommandBindingDefinition,
-	createConfiguredCommandBindingResult,
-	createKeymapCommands,
-	type KeybindingDiagnostic,
-	withKitKeyAliases,
-} from "../../keymap/bindings";
-import { reportKeybindingDiagnostics } from "../../keymap/diagnostics";
-import type { Settings } from "../../settings";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { Dialog } from "../../shell/Dialog";
 import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
@@ -23,8 +14,6 @@ export type McpStatusModalProps = {
 	states: McpServerRuntimeState[];
 	config: LoadMcpConfigResult | null;
 	hasOAuthSession: (serverName: string) => boolean;
-	settings?: Settings;
-	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	active?: boolean;
 	onClose: () => void;
 };
@@ -49,47 +38,17 @@ function statusIndicator(state: McpServerRuntimeState): {
 }
 
 export function McpStatusModal(props: McpStatusModalProps) {
-	const keymap = useKeymap();
 	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
-	const commands = [
-		{
-			binding: {
-				cmd: "mcp-status.close",
-				key: ["escape", "return"],
-				desc: "Close MCP status",
-				group: "mcp-status",
-			},
-			command: {
-				hint: "close",
-				run: () => props.onClose(),
-			},
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		target: rootTarget,
+		targetMode: "focus-within",
+		when: () => props.active !== false,
+		commands: {
+			"mcp-status.close": () => props.onClose(),
 		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const bindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			commands,
-			props.settings?.keybindings,
-		),
-	);
-
-	createEffect(() => {
-		reportKeybindingDiagnostics(
-			bindings().diagnostics,
-			props.onKeybindingDiagnostic,
-		);
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			target: rootTarget,
-			targetMode: "focus-within",
-			enabled: () => props.active !== false,
-			priority: 200,
-			commands: createKeymapCommands(commands),
-			bindings: bindings().bindings,
-		}),
-	);
+	}));
 
 	return (
 		<Dialog.Root
