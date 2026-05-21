@@ -1,4 +1,3 @@
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import {
 	createEffect,
 	createMemo,
@@ -7,16 +6,7 @@ import {
 	For,
 	Show,
 } from "solid-js";
-import {
-	type CommandBindingDefinition,
-	createConfiguredCommandBindingResult,
-	createKeymapCommands,
-	withKitKeyAliases,
-} from "../../keymap/bindings";
-import {
-	createKeybindingDiagnosticReporter,
-	reportKeybindingDiagnostics,
-} from "../../keymap/diagnostics";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
@@ -89,10 +79,6 @@ function visibleColumnWidth(show: boolean, width: number): number {
 }
 
 export function SessionExplorerModal(props: SessionExplorerModalProps) {
-	const keymap = useKeymap();
-	const reportKeybindingDiagnostic = createKeybindingDiagnosticReporter(
-		props.toast,
-	);
 	const currentSessionId = () => props.runtime.getSession().id;
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
 	const [lastCenteredSessionId, setLastCenteredSessionId] = createSignal<
@@ -326,289 +312,82 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		});
 	}
 
-	const navigateBaseCommands = [
-		{
-			binding: {
-				cmd: "session-explorer.close",
-				key: ["escape", "ctrl+c"],
-				desc: "Close session explorer",
-				group: "session-explorer",
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate",
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
+			"session-explorer.close": props.onClose,
+			"session-explorer.select": () => props.onSelect(selectedSessionId()),
+			"session-explorer.move-up": () => {
+				setSelectedIndex((index) => Math.max(0, index - 1));
 			},
-			command: { hint: "close", run: props.onClose },
+			"session-explorer.move-down": () => {
+				setSelectedIndex((index) => Math.min(rows().length - 1, index + 1));
+			},
+			"session-explorer.page-up": () => {
+				setSelectedIndex((index) => Math.max(0, index - MAX_VISIBLE_ROWS));
+			},
+			"session-explorer.page-down": () => {
+				setSelectedIndex((index) =>
+					Math.min(rows().length - 1, index + MAX_VISIBLE_ROWS),
+				);
+			},
+			"session-explorer.rename": beginRename,
 		},
-		{
-			binding: {
-				cmd: "session-explorer.select",
-				key: "return",
-				desc: "Switch to selected session",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "switch",
-				run: () => props.onSelect(selectedSessionId()),
-			},
-		},
-		{
-			binding: {
-				cmd: "session-explorer.move-up",
-				key: ["up", "k"],
-				desc: "Move to previous session",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "move",
-				run: () => {
-					setSelectedIndex((index) => Math.max(0, index - 1));
-				},
-			},
-		},
-		{
-			binding: {
-				cmd: "session-explorer.move-down",
-				key: ["down", "j"],
-				desc: "Move to next session",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "move",
-				run: () => {
-					setSelectedIndex((index) => Math.min(rows().length - 1, index + 1));
-				},
-			},
-		},
-		{
-			binding: {
-				cmd: "session-explorer.page-up",
-				key: "pageup",
-				desc: "Scroll sessions up",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "scroll",
-				run: () => {
-					setSelectedIndex((index) => Math.max(0, index - MAX_VISIBLE_ROWS));
-				},
-			},
-		},
-		{
-			binding: {
-				cmd: "session-explorer.page-down",
-				key: "pagedown",
-				desc: "Scroll sessions down",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "scroll",
-				run: () => {
-					setSelectedIndex((index) =>
-						Math.min(rows().length - 1, index + MAX_VISIBLE_ROWS),
-					);
-				},
-			},
-		},
-		{
-			binding: {
-				cmd: "session-explorer.rename",
-				key: "r",
-				desc: "Rename selected session",
-				group: "session-explorer",
-			},
-			command: { hint: "rename", run: beginRename },
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const navigateDeleteCommands = [
-		{
-			binding: {
-				cmd: "session-explorer.delete",
-				key: "ctrl+d",
-				desc: "Delete selected session",
-				group: "session-explorer",
-			},
-			command: { hint: "delete", run: beginDelete },
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const navigateSquashCommands = [
-		{
-			binding: {
-				cmd: "session-explorer.squash",
-				key: "s",
-				desc: "Squash selected session",
-				group: "session-explorer",
-			},
-			command: { hint: "squash", run: beginSquash },
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const renameCommands = [
-		{
-			binding: {
-				cmd: "session-explorer.rename-save",
-				key: "return",
-				desc: "Save session name",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "save",
-				run: () => void handleRenameSubmit(),
-			},
-		},
-		{
-			binding: {
-				cmd: "session-explorer.rename-cancel",
-				key: ["escape", "ctrl+c"],
-				desc: "Cancel session rename",
-				group: "session-explorer",
-			},
-			command: {
-				hint: "cancel",
-				run: () => {
-					setRenameSession(null);
-				},
-			},
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const confirmCommands = [
-		{
-			binding: {
-				cmd: "session-explorer.confirm",
-				key: "return",
-				desc: "Confirm session action",
-				group: "session-explorer",
-			},
-			command: { hint: "confirm", run: () => {} },
-		},
-		{
-			binding: {
-				cmd: "session-explorer.cancel",
-				key: ["escape", "ctrl+c"],
-				desc: "Cancel session action",
-				group: "session-explorer",
-			},
-			command: { hint: "cancel", run: () => {} },
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const navigateBaseBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			navigateBaseCommands,
-			props.runtime.settings.keybindings,
-		),
-	);
-	const navigateDeleteBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			navigateDeleteCommands,
-			props.runtime.settings.keybindings,
-		),
-	);
-	const navigateSquashBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			navigateSquashCommands,
-			props.runtime.settings.keybindings,
-		),
-	);
-	const renameBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			renameCommands,
-			props.runtime.settings.keybindings,
-		),
-	);
-	const confirmBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			confirmCommands,
-			props.runtime.settings.keybindings,
-		),
-	);
+	}));
 
-	createEffect(() => {
-		reportKeybindingDiagnostics(
-			[
-				...navigateBaseBindings().diagnostics,
-				...navigateDeleteBindings().diagnostics,
-				...navigateSquashBindings().diagnostics,
-				...renameBindings().diagnostics,
-				...confirmBindings().diagnostics,
-			],
-			reportKeybindingDiagnostic,
-		);
-	});
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate" && selectedSessionCanDelete(),
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
+			"session-explorer.delete": beginDelete,
+		},
+	}));
 
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => mode() === "navigate",
-			priority: 200,
-			commands: createKeymapCommands(navigateBaseCommands),
-			bindings: navigateBaseBindings().bindings,
-		}),
-	);
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => mode() === "navigate" && selectedSessionCanDelete(),
-			priority: 200,
-			commands: createKeymapCommands(navigateDeleteCommands),
-			bindings: navigateDeleteBindings().bindings,
-		}),
-	);
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => mode() === "navigate" && selectedSessionCanSquash(),
-			priority: 200,
-			commands: createKeymapCommands(navigateSquashCommands),
-			bindings: navigateSquashBindings().bindings,
-		}),
-	);
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => mode() === "rename",
-			priority: 200,
-			commands: createKeymapCommands(renameCommands),
-			bindings: renameBindings().bindings,
-		}),
-	);
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => mode() === "confirmDelete",
-			priority: 200,
-			commands: createKeymapCommands([
-				{
-					...confirmCommands[0],
-					command: {
-						...confirmCommands[0].command,
-						run: () => void handleDeleteConfirm(),
-					},
-				},
-				{
-					...confirmCommands[1],
-					command: {
-						...confirmCommands[1].command,
-						run: () => {
-							setDeleteSession(null);
-						},
-					},
-				},
-			]),
-			bindings: confirmBindings().bindings,
-		}),
-	);
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => mode() === "confirmSquash",
-			priority: 200,
-			commands: createKeymapCommands([
-				{
-					...confirmCommands[0],
-					command: { ...confirmCommands[0].command, run: handleSquashConfirm },
-				},
-				{
-					...confirmCommands[1],
-					command: { ...confirmCommands[1].command, run: cancelSquashConfirm },
-				},
-			]),
-			bindings: confirmBindings().bindings,
-		}),
-	);
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate" && selectedSessionCanSquash(),
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
+			"session-explorer.squash": beginSquash,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "rename",
+		diagnosticsWhen: () => mode() === "rename",
+		commands: {
+			"session-explorer.rename-save": () => void handleRenameSubmit(),
+			"session-explorer.rename-cancel": () => {
+				setRenameSession(null);
+			},
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "confirmDelete",
+		diagnosticsWhen: () => mode() === "confirmDelete",
+		commands: {
+			"session-explorer.confirm": () => void handleDeleteConfirm(),
+			"session-explorer.cancel": () => {
+				setDeleteSession(null);
+			},
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "confirmSquash",
+		diagnosticsWhen: () => mode() === "confirmSquash",
+		commands: {
+			"session-explorer.confirm": handleSquashConfirm,
+			"session-explorer.cancel": cancelSquashConfirm,
+		},
+	}));
 
 	return (
 		<Dialog.Root width="85%" maxWidth={120} minWidth={44} height="55%">

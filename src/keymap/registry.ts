@@ -183,6 +183,86 @@ export const KEYBINDING_REGISTRY = {
 			hint: "back",
 		},
 	},
+	"session-explorer": {
+		close: {
+			defaultKeys: ["escape", "ctrl+c"],
+			desc: "Close session explorer",
+			group: "session-explorer",
+			hint: "close",
+		},
+		select: {
+			defaultKeys: "return",
+			desc: "Switch to selected session",
+			group: "session-explorer",
+			hint: "switch",
+		},
+		"move-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Move to previous session",
+			group: "session-explorer",
+			hint: "move",
+		},
+		"move-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Move to next session",
+			group: "session-explorer",
+			hint: "move",
+		},
+		"page-up": {
+			defaultKeys: "pageup",
+			desc: "Scroll sessions up",
+			group: "session-explorer",
+			hint: "scroll",
+		},
+		"page-down": {
+			defaultKeys: "pagedown",
+			desc: "Scroll sessions down",
+			group: "session-explorer",
+			hint: "scroll",
+		},
+		rename: {
+			defaultKeys: "r",
+			desc: "Rename selected session",
+			group: "session-explorer",
+			hint: "rename",
+		},
+		delete: {
+			defaultKeys: "ctrl+d",
+			desc: "Delete selected session",
+			group: "session-explorer",
+			hint: "delete",
+		},
+		squash: {
+			defaultKeys: "s",
+			desc: "Squash selected session",
+			group: "session-explorer",
+			hint: "squash",
+		},
+		"rename-save": {
+			defaultKeys: "return",
+			desc: "Save session name",
+			group: "session-explorer",
+			hint: "save",
+		},
+		"rename-cancel": {
+			defaultKeys: ["escape", "ctrl+c"],
+			desc: "Cancel session rename",
+			group: "session-explorer",
+			hint: "cancel",
+		},
+		confirm: {
+			defaultKeys: "return",
+			desc: "Confirm session action",
+			group: "session-explorer",
+			hint: "confirm",
+		},
+		cancel: {
+			defaultKeys: ["escape", "ctrl+c"],
+			desc: "Cancel session action",
+			group: "session-explorer",
+			hint: "cancel",
+		},
+	},
 	debug: {
 		close: {
 			defaultKeys: ["return", "escape"],
