@@ -56,6 +56,56 @@ export const KEYBINDING_REGISTRY = {
 			group: "Composer",
 		},
 	},
+	pager: {
+		"previous-section": {
+			defaultKeys: ["left", "h"],
+			desc: "Show previous pager section",
+			group: "pager",
+			hint: "section",
+		},
+		"next-section": {
+			defaultKeys: ["right", "l"],
+			desc: "Show next pager section",
+			group: "pager",
+			hint: "section",
+		},
+		"scroll-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Scroll pager up",
+			group: "pager",
+			hint: "scroll",
+		},
+		"scroll-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Scroll pager down",
+			group: "pager",
+			hint: "scroll",
+		},
+		"edit-note": {
+			defaultKeys: ["n", "i"],
+			desc: "Edit note for current pager section",
+			group: "pager",
+			hint: "note",
+		},
+		"submit-feedback": {
+			defaultKeys: "ctrl+return",
+			desc: "Submit pager feedback",
+			group: "pager",
+			hint: "submit",
+		},
+		close: {
+			defaultKeys: ["escape", "q"],
+			desc: "Close pager",
+			group: "pager",
+			hint: "close",
+		},
+		back: {
+			defaultKeys: "escape",
+			desc: "Return to pager navigation",
+			group: "pager",
+			hint: "back",
+		},
+	},
 } as const satisfies KeybindingRegistry;
 
 type BuiltInKeybindingRegistry = typeof KEYBINDING_REGISTRY;

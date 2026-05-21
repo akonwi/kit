@@ -1,16 +1,7 @@
 import type { PasteEvent } from "@opentui/core";
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
-import { createEffect, createMemo, createSignal, Show } from "solid-js";
+import { createEffect, createSignal, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import {
-	type CommandBindingDefinition,
-	createConfiguredCommandBindingResult,
-	createKeymapCommands,
-	type KeybindingDiagnostic,
-	withKitKeyAliases,
-} from "../../keymap/bindings";
-import { reportKeybindingDiagnostics } from "../../keymap/diagnostics";
-import type { Settings } from "../../settings";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { Binding } from "../../shell/HintBar";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer } from "../../shell/MessageComposer";
@@ -25,15 +16,12 @@ const EDIT_PREFIX_BINDINGS: Binding[] = [
 
 export type PagerContentProps = {
 	pager: PagerController;
-	settings?: Settings;
-	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	onClose: () => void;
 	surfaceProps?: OverlaySurfaceProps;
 };
 
 export function PagerContent(props: PagerContentProps) {
 	const pager = props.pager;
-	const keymap = useKeymap();
 
 	// Local UI state
 	const [mode, setMode] = createSignal<"navigate" | "edit">("navigate");
@@ -97,160 +85,28 @@ export function PagerContent(props: PagerContentProps) {
 		props.onClose();
 	}
 
-	const navigateCommands = [
-		{
-			binding: {
-				cmd: "pager.previous-section",
-				key: ["left", "h"],
-				desc: "Show previous pager section",
-				group: "pager",
-			},
-			command: {
-				hint: "section",
-				run: pager.prevSection,
-			},
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => pager.active && mode() === "navigate",
+		commands: {
+			"pager.previous-section": pager.prevSection,
+			"pager.next-section": pager.nextSection,
+			"pager.scroll-up": pager.scrollUp,
+			"pager.scroll-down": pager.scrollDown,
+			"pager.edit-note": enterEditMode,
+			"pager.submit-feedback": handleSubmit,
+			"pager.close": closePager,
 		},
-		{
-			binding: {
-				cmd: "pager.next-section",
-				key: ["right", "l"],
-				desc: "Show next pager section",
-				group: "pager",
-			},
-			command: {
-				hint: "section",
-				run: pager.nextSection,
-			},
-		},
-		{
-			binding: {
-				cmd: "pager.scroll-up",
-				key: ["up", "k"],
-				desc: "Scroll pager up",
-				group: "pager",
-			},
-			command: {
-				hint: "scroll",
-				run: pager.scrollUp,
-			},
-		},
-		{
-			binding: {
-				cmd: "pager.scroll-down",
-				key: ["down", "j"],
-				desc: "Scroll pager down",
-				group: "pager",
-			},
-			command: {
-				hint: "scroll",
-				run: pager.scrollDown,
-			},
-		},
-		{
-			binding: {
-				cmd: "pager.edit-note",
-				key: ["n", "i"],
-				desc: "Edit note for current pager section",
-				group: "pager",
-			},
-			command: {
-				hint: "note",
-				run: enterEditMode,
-			},
-		},
-		{
-			binding: {
-				cmd: "pager.submit-feedback",
-				key: "ctrl+return",
-				desc: "Submit pager feedback",
-				group: "pager",
-			},
-			command: {
-				hint: "submit",
-				run: handleSubmit,
-			},
-		},
-		{
-			binding: {
-				cmd: "pager.close",
-				key: ["escape", "q"],
-				desc: "Close pager",
-				group: "pager",
-			},
-			command: {
-				hint: "close",
-				run: closePager,
-			},
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const editCommands = [
-		{
-			binding: {
-				cmd: "pager.back",
-				key: "escape",
-				desc: "Return to pager navigation",
-				group: "pager",
-			},
-			command: {
-				hint: "back",
-				run: exitEditMode,
-			},
-		},
-		{
-			binding: {
-				cmd: "pager.submit-feedback",
-				key: "ctrl+return",
-				desc: "Submit pager feedback",
-				group: "pager",
-			},
-			command: {
-				hint: "submit notes",
-				run: handleSubmit,
-			},
-		},
-	] as const satisfies readonly CommandBindingDefinition[];
-	const navigateBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			navigateCommands,
-			props.settings?.keybindings,
-		),
-	);
-	const editBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			editCommands,
-			props.settings?.keybindings,
-		),
-	);
+	}));
 
-	createEffect(() => {
-		if (!pager.active) return;
-		reportKeybindingDiagnostics(
-			mode() === "edit"
-				? editBindings().diagnostics
-				: navigateBindings().diagnostics,
-			props.onKeybindingDiagnostic,
-		);
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => pager.active && mode() === "navigate",
-			priority: 200,
-			commands: createKeymapCommands(navigateCommands),
-			bindings: navigateBindings().bindings,
-		}),
-	);
-
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => pager.active && mode() === "edit",
-			priority: 200,
-			commands: createKeymapCommands(editCommands),
-			bindings: editBindings().bindings,
-		}),
-	);
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => pager.active && mode() === "edit",
+		commands: {
+			"pager.back": exitEditMode,
+			"pager.submit-feedback": handleSubmit,
+		},
+	}));
 
 	function handlePaste(event: PasteEvent) {
 		if (mode() !== "edit") return;

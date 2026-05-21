@@ -1,4 +1,3 @@
-import { createKeybindingDiagnosticReporter } from "../../keymap/diagnostics";
 import type { InternalPluginAPI } from "../../plugins";
 import { PagerContent } from "./PagerContent";
 import {
@@ -10,16 +9,11 @@ export type { PagerController } from "./pager-controller";
 
 export function PagerPlugin(kit: InternalPluginAPI): () => void {
 	const pager: PagerController = createPagerController();
-	const reportKeybindingDiagnostic = createKeybindingDiagnosticReporter(
-		kit.ui.toast,
-	);
 
 	async function openPager(): Promise<void> {
 		await kit.ui.custom((props) => (
 			<PagerContent
 				pager={pager}
-				settings={kit.settings.get()}
-				onKeybindingDiagnostic={reportKeybindingDiagnostic}
 				onClose={() => props.done(undefined)}
 				surfaceProps={props.surfaceProps}
 			/>
