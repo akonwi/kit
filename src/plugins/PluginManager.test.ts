@@ -31,6 +31,7 @@ function createPluginContext(
 				};
 			},
 			getAll: () => [...commands],
+			subscribe: () => () => {},
 		},
 		settings: { settings: {}, paths: {} as PluginContext["settings"]["paths"] },
 		ui: {

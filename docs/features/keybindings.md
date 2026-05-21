@@ -12,6 +12,7 @@ Configure bindings under `keybindings` with command ids as keys. Values can be:
 {
   "keybindings": {
     "command-palette.open": "ctrl+space",
+    "code-review": "ctrl+o",
     "composer.clear-or-quit": ["ctrl+c", "ctrl+q"],
     "composer.restore-or-recall": false
   }
@@ -21,6 +22,8 @@ Configure bindings under `keybindings` with command ids as keys. Values can be:
 Key strings use OpenTUI Keymap syntax, such as `ctrl+p`, `shift+tab`, `return`/`enter`, `escape`, `up`, or `gg`.
 
 Invalid key strings and same-layer conflicts are ignored and reported as warning toasts. If multiple bindings in one layer collide, the first binding wins. Cross-layer overlaps are allowed and use normal layer precedence.
+
+Registered slash commands are also bindable by command id. For example, `/code-review` can be bound with the `code-review` keybinding id. Plugin commands use the id passed to `kit.registerCommand`, so plugin authors should choose owned ids such as `CodeReview.open` or `github.openPullRequest` when they want their commands to be bindable. Command keybindings run with empty arguments.
 
 ## Configurable command catalog
 
@@ -41,6 +44,11 @@ Only user-facing workflow commands are listed here. Setup, configuration, plugin
 | `command-palette.complete` | `tab` | Complete selection |
 | `command-palette.select` | `return` | Run selected command |
 | `command-palette.close` | `escape` | Close command palette |
+
+### Commands
+
+Any commands in the command palette have no default keybindings. Bind them by command id.
+Plugin and prompt commands are also bindable by their registered command ids after they load.
 
 ### Composer
 

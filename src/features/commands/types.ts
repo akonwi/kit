@@ -21,5 +21,6 @@ export type Command = {
 	name: string;
 	description: string;
 	argName?: string;
+	category?: string;
 	execute: (ctx: CommandContext) => void | Promise<void>;
 };

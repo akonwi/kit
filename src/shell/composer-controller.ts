@@ -584,6 +584,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		picker,
 		commandPalette,
 		openCommandPalette,
+		runCommand: executeCommand,
 		setTextarea,
 		handlePaste,
 		handleTextChange,

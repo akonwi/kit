@@ -33,6 +33,8 @@ Claude Code compatibility commands can also appear at runtime from project-local
 
 Press `Ctrl+P` by default to open the command palette. This is the `command-palette.open` keybinding and can be customized in `~/.kit/settings.json`.
 
+Commands can also be bound directly by command id. For example, bind `/code-review` with the `code-review` keybinding id. Direct command keybindings run with empty args.
+
 ## Behavior
 
 1. A centered modal opens with a filterable list of all commands

@@ -97,6 +97,18 @@ export default function WatchPlugin(kit: PluginAPI) {
 
 Registrations made through `kit` are cleaned up automatically on `/reload`.
 
+Plugin command ids are also keybinding ids. Users can bind a plugin command in `~/.kit/settings.json` after it loads:
+
+```json
+{
+  "keybindings": {
+    "MyPlugin.hello": "ctrl+h"
+  }
+}
+```
+
+Choose command ids that start with your plugin name or another owned namespace to avoid conflicts, for example `MyPlugin.open` or `github.openPullRequest`.
+
 Common exported SDK types include `PluginAPI`, `Plugin`, `Disposer`, `CommandContext`, `CommandOptions`, `RuntimeEvent`, `EventContext`, `ToolDefinition`, `ToolResult`, `ToolCall`, and `ToolCallDecision`.
 
 ## UI helpers
