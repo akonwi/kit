@@ -1,3 +1,4 @@
+import { createKeybindingDiagnosticReporter } from "../../keymap/diagnostics";
 import type { InternalPluginAPI } from "../../plugins";
 import { createGuidedQuestionsController } from "./controller";
 import { GuidedQuestionsContent } from "./GuidedQuestionsContent";
@@ -5,6 +6,9 @@ import { createGuidedQuestionsTool, GUIDED_QUESTIONS_POLICY } from "./tool";
 
 export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	const controller = createGuidedQuestionsController();
+	const reportKeybindingDiagnostic = createKeybindingDiagnosticReporter(
+		kit.ui.toast,
+	);
 
 	// Append the policy to the system prompt so the model knows when to use
 	// the tool. Plugin owns the policy — App.tsx no longer needs to import it.
@@ -23,6 +27,8 @@ export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 		void kit.ui.custom((props) => (
 			<GuidedQuestionsContent
 				guidedQuestions={controller}
+				settings={kit.settings.get()}
+				onKeybindingDiagnostic={reportKeybindingDiagnostic}
 				onClose={() => props.done(undefined)}
 				surfaceProps={props.surfaceProps}
 			/>

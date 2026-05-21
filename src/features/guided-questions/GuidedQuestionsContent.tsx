@@ -1,52 +1,33 @@
-import type { KeyEvent, PasteEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
-import { createEffect, createSignal, For, Show } from "solid-js";
+import type { PasteEvent } from "@opentui/core";
+import { useBindings, useKeymap } from "@opentui/keymap/solid";
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import {
+	type CommandBindingDefinition,
+	createConfiguredCommandBindingResult,
+	createKeymapCommands,
+	type KeybindingDiagnostic,
+	withKitKeyAliases,
+} from "../../keymap/bindings";
+import { reportKeybindingDiagnostics } from "../../keymap/diagnostics";
+import type { Settings } from "../../settings";
 import { Dialog } from "../../shell/Dialog";
 import { CHEVRON_RIGHT } from "../../shell/glyphs";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
-import type {
-	GuidedQuestionsController,
-	GuidedQuestionsMode,
-} from "./controller";
-
-const QUESTION_BINDINGS: Record<GuidedQuestionsMode, Binding[]> = {
-	multiselect: [
-		{ key: "↑/↓", action: "move" },
-		{ key: "Space", action: "toggle" },
-		{ key: "Enter", action: "confirm" },
-		{ key: "Shift+Tab", action: "previous" },
-		{ key: "Esc", action: "cancel" },
-	],
-	select: [
-		{ key: "↑/↓", action: "move" },
-		{ key: "Enter", action: "select" },
-		{ key: "Shift+Tab", action: "previous" },
-		{ key: "Esc", action: "cancel" },
-	],
-	otherText: [
-		{ key: "Enter", action: "submit" },
-		{ key: "Shift+Enter", action: "newline" },
-		{ key: "Esc", action: "back" },
-		{ key: "Shift+Tab", action: "previous" },
-	],
-	text: [
-		{ key: "Enter", action: "submit" },
-		{ key: "Shift+Enter", action: "newline" },
-		{ key: "Shift+Tab", action: "previous" },
-		{ key: "Esc", action: "cancel" },
-	],
-};
+import type { GuidedQuestionsController } from "./controller";
 
 export type GuidedQuestionsContentProps = {
 	guidedQuestions: GuidedQuestionsController;
+	settings?: Settings;
+	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	onClose: () => void;
 	surfaceProps?: OverlaySurfaceProps;
 };
 
 export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 	const g = props.guidedQuestions;
+	const keymap = useKeymap();
 	const [textValue, setTextValue] = createSignal("");
 	let textareaRef:
 		| { plainText: string; setText: (value: string) => void }
@@ -77,74 +58,267 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 		}
 	});
 
-	useKeyboard((e: KeyEvent) => {
+	const isMultiSelectQuestion = () =>
+		g.currentQuestion?.kind === "multiselect" && g.mode !== "otherText";
+
+	function cancel() {
+		g.cancel();
+		props.onClose();
+	}
+
+	const previousCommand = {
+		binding: {
+			cmd: "guided-questions.previous",
+			key: "shift+tab",
+			desc: "Go to previous question",
+			group: "guided-questions",
+		},
+		command: {
+			hint: "previous",
+			run: g.movePrev,
+		},
+	} as const satisfies CommandBindingDefinition;
+	const selectCommands = [
+		previousCommand,
+		{
+			binding: {
+				cmd: "guided-questions.cancel",
+				key: "escape",
+				desc: "Cancel guided questions",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "cancel",
+				run: cancel,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.move-up",
+				key: "up",
+				desc: "Move to previous option",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "move",
+				run: g.moveSelectUp,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.move-down",
+				key: "down",
+				desc: "Move to next option",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "move",
+				run: g.moveSelectDown,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.select",
+				key: "return",
+				desc: "Select focused option",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "select",
+				run: g.selectOption,
+			},
+		},
+	] as const satisfies readonly CommandBindingDefinition[];
+	const multiselectCommands = [
+		previousCommand,
+		{
+			binding: {
+				cmd: "guided-questions.cancel",
+				key: "escape",
+				desc: "Cancel guided questions",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "cancel",
+				run: cancel,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.move-up",
+				key: "up",
+				desc: "Move to previous option",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "move",
+				run: g.moveSelectUp,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.move-down",
+				key: "down",
+				desc: "Move to next option",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "move",
+				run: g.moveSelectDown,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.toggle-option",
+				key: "space",
+				desc: "Toggle focused option",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "toggle",
+				run: g.selectOption,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.confirm-multiselect",
+				key: "return",
+				desc: "Confirm selected options",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "confirm",
+				run: g.submitMultiSelect,
+			},
+		},
+	] as const satisfies readonly CommandBindingDefinition[];
+	const textCommands = [
+		previousCommand,
+		{
+			binding: {
+				cmd: "guided-questions.cancel",
+				key: "escape",
+				desc: "Cancel guided questions",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "cancel",
+				run: cancel,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.submit-text",
+				key: "return",
+				desc: "Submit text answer",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "submit",
+				run: () => g.submitText(textValue()),
+			},
+		},
+	] as const satisfies readonly CommandBindingDefinition[];
+	const otherTextCommands = [
+		previousCommand,
+		{
+			binding: {
+				cmd: "guided-questions.back",
+				key: "escape",
+				desc: "Return to option selection",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "back",
+				run: g.escapeTextMode,
+			},
+		},
+		{
+			binding: {
+				cmd: "guided-questions.submit-text",
+				key: "return",
+				desc: "Submit text answer",
+				group: "guided-questions",
+			},
+			command: {
+				hint: "submit",
+				run: () => g.submitText(textValue()),
+			},
+		},
+	] as const satisfies readonly CommandBindingDefinition[];
+	const selectBindings = createMemo(() =>
+		createConfiguredCommandBindingResult(
+			keymap,
+			selectCommands,
+			props.settings?.keybindings,
+		),
+	);
+	const multiselectBindings = createMemo(() =>
+		createConfiguredCommandBindingResult(
+			keymap,
+			multiselectCommands,
+			props.settings?.keybindings,
+		),
+	);
+	const textBindings = createMemo(() =>
+		createConfiguredCommandBindingResult(
+			keymap,
+			textCommands,
+			props.settings?.keybindings,
+		),
+	);
+	const otherTextBindings = createMemo(() =>
+		createConfiguredCommandBindingResult(
+			keymap,
+			otherTextCommands,
+			props.settings?.keybindings,
+		),
+	);
+
+	createEffect(() => {
 		if (!g.active) return;
-
-		if (e.name === "escape") {
-			e.preventDefault();
-			if (g.mode === "otherText") g.escapeTextMode();
-			else {
-				g.cancel();
-				props.onClose();
-			}
-			return;
-		}
-
-		if (e.shift && e.name === "tab") {
-			e.preventDefault();
-			g.movePrev();
-			return;
-		}
-
-		if (
-			g.mode === "select" ||
-			g.mode === "multiselect" ||
-			isMultiSelectQuestion()
-		) {
-			if (e.name === "up") {
-				e.preventDefault();
-				g.moveSelectUp();
-				return;
-			}
-			if (e.name === "down") {
-				e.preventDefault();
-				g.moveSelectDown();
-				return;
-			}
-			if (isMultiSelectQuestion() && e.name === "space") {
-				e.preventDefault();
-				g.selectOption();
-				return;
-			}
-			if (
-				isMultiSelectQuestion() &&
-				(e.name === "return" || e.name === "enter")
-			) {
-				e.preventDefault();
-				g.submitMultiSelect();
-				return;
-			}
-			if (
-				!isMultiSelectQuestion() &&
-				g.mode === "select" &&
-				e.name === "return"
-			) {
-				e.preventDefault();
-				g.selectOption();
-				return;
-			}
-			return;
-		}
-
-		if (
-			(g.mode === "text" || g.mode === "otherText") &&
-			e.name === "return" &&
-			!e.shift
-		) {
-			e.preventDefault();
-			g.submitText(textValue());
-		}
+		const diagnostics = isMultiSelectQuestion()
+			? multiselectBindings().diagnostics
+			: g.mode === "text"
+				? textBindings().diagnostics
+				: g.mode === "otherText"
+					? otherTextBindings().diagnostics
+					: selectBindings().diagnostics;
+		reportKeybindingDiagnostics(diagnostics, props.onKeybindingDiagnostic);
 	});
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () =>
+				g.active && g.mode === "select" && !isMultiSelectQuestion(),
+			priority: 200,
+			commands: createKeymapCommands(selectCommands),
+			bindings: selectBindings().bindings,
+		}),
+	);
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => g.active && isMultiSelectQuestion(),
+			priority: 200,
+			commands: createKeymapCommands(multiselectCommands),
+			bindings: multiselectBindings().bindings,
+		}),
+	);
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => g.active && g.mode === "text",
+			priority: 200,
+			commands: createKeymapCommands(textCommands),
+			bindings: textBindings().bindings,
+		}),
+	);
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => g.active && g.mode === "otherText",
+			priority: 200,
+			commands: createKeymapCommands(otherTextCommands),
+			bindings: otherTextBindings().bindings,
+		}),
+	);
 
 	function handlePaste(event: PasteEvent) {
 		if (g.mode !== "text" && g.mode !== "otherText") return;
@@ -154,9 +328,6 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 			.replace(/\r/g, "\n");
 		setTextValue((current) => `${current}${pasted}`);
 	}
-
-	const isMultiSelectQuestion = () =>
-		g.currentQuestion?.kind === "multiselect" && g.mode !== "otherText";
 
 	const selectOptions = () => {
 		const question = g.currentQuestion;
@@ -264,14 +435,7 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 				</Show>
 
 				<Dialog.Footer>
-					<HintBar
-						borderless
-						bindings={
-							QUESTION_BINDINGS[
-								isMultiSelectQuestion() ? "multiselect" : g.mode
-							] ?? QUESTION_BINDINGS.text
-						}
-					/>
+					<KeymapHintBar borderless group="guided-questions" />
 				</Dialog.Footer>
 			</Dialog.Root>
 		</Show>
