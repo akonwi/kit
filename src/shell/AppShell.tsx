@@ -1,15 +1,11 @@
 import { useRenderer } from "@opentui/solid";
-import type { Accessor } from "solid-js";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
 	type OverlayEntry,
 } from "../app/overlay-ui";
-import {
-	createKeybindingDiagnosticReporter,
-	type KeybindingDiagnosticReporter,
-} from "../keymap/diagnostics";
+import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
 import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Settings } from "../settings";
@@ -50,8 +46,6 @@ export type AppShellProps = {
 };
 
 type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
-	settings: Accessor<Settings>;
-	reportKeybindingDiagnostic: KeybindingDiagnosticReporter;
 	showToast: (toast: ToastInput) => void;
 };
 
@@ -124,18 +118,12 @@ function AppShellContent(props: AppShellContentProps) {
 			</box>
 
 			<InlinePicker
-				settings={props.settings}
-				onKeybindingDiagnostic={props.reportKeybindingDiagnostic}
 				picker={props.controller.picker}
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
 
 			{/* Composer picker only serves @/# references */}
-			<CommandPalette
-				settings={props.settings}
-				onKeybindingDiagnostic={props.reportKeybindingDiagnostic}
-				picker={props.controller.commandPalette}
-			/>
+			<CommandPalette picker={props.controller.commandPalette} />
 			<Show when={props.overlays().length > 0}>
 				<For each={props.overlays()}>
 					{(entry, index) =>
@@ -178,8 +166,6 @@ export function AppShell(props: AppShellProps) {
 			onDiagnostic={reportKeybindingDiagnostic}
 		>
 			<AppShellContent
-				settings={settings}
-				reportKeybindingDiagnostic={reportKeybindingDiagnostic}
 				state={props.state}
 				runtime={props.runtime}
 				controller={props.controller}

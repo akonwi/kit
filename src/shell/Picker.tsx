@@ -1,10 +1,8 @@
 import type { KeyEvent, Renderable } from "@opentui/core";
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import type { BoxProps } from "@opentui/solid";
-import type { Accessor, JSX } from "solid-js";
+import type { JSX } from "solid-js";
 import {
 	createContext,
-	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -12,111 +10,42 @@ import {
 	useContext,
 } from "solid-js";
 import {
-	type BindingDefinition,
-	createConfiguredBindingResult,
-	type KeybindingDiagnostic,
-	withKitKeyAliases,
-} from "../keymap/bindings";
-import { reportKeybindingDiagnostics } from "../keymap/diagnostics";
-import type { Settings } from "../settings";
+	createPickerCommandMetadata,
+	type OpenTuiCommandRun,
+	type PickerKeybindingCommandId,
+} from "../keymap/registry";
+import { useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { PickerSnapshot } from "../state/picker";
 import type { PickerManager } from "../state/picker-manager";
 import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
 
-type PickerCommandDescriptor = {
-	id: string;
-	key: string;
-	desc: string;
-	hint: string;
-	run: (picker: PickerManager) => boolean | undefined;
-};
-
-function pickerDescriptors(
-	includeComplete: boolean,
-	selectHint: string,
-): PickerCommandDescriptor[] {
-	const descriptors: PickerCommandDescriptor[] = [
-		{
-			id: "move-up",
-			key: "up",
-			desc: "Move selection up",
-			hint: "up",
-			run: (picker) => {
-				picker.moveUp();
-				return undefined;
-			},
-		},
-		{
-			id: "move-down",
-			key: "down",
-			desc: "Move selection down",
-			hint: "down",
-			run: (picker) => {
-				picker.moveDown();
-				return undefined;
-			},
-		},
-	];
-	if (includeComplete) {
-		descriptors.push({
-			id: "complete",
-			key: "tab",
-			desc: "Complete selection",
-			hint: "complete",
-			run: (picker) => picker.handleKeyBinding("tab"),
-		});
-	}
-	descriptors.push(
-		{
-			id: "select",
-			key: "return",
-			desc: "Select or submit picker value",
-			hint: selectHint,
-			run: (picker) => {
-				picker.accept();
-				return undefined;
-			},
-		},
-		{
-			id: "close",
-			key: "escape",
-			desc: "Close picker",
-			hint: "close",
-			run: (picker) => {
-				picker.pop();
-				return undefined;
-			},
-		},
-	);
-	return descriptors;
-}
-
-function pickerBindingDefinitions(
-	namespace: string,
-	descriptors: readonly PickerCommandDescriptor[],
-): BindingDefinition[] {
-	return descriptors.map((descriptor) => ({
-		cmd: `${namespace}.${descriptor.id}`,
-		key: descriptor.key,
-		desc: descriptor.desc,
-		group: namespace,
-	}));
-}
-
-function pickerCommands(
+function pickerCommandHandlers(
 	namespace: string,
 	picker: PickerManager,
-	descriptors: readonly PickerCommandDescriptor[],
-) {
-	return descriptors.map((descriptor) => ({
-		name: `${namespace}.${descriptor.id}`,
-		desc: descriptor.desc,
-		group: namespace,
-		hint: descriptor.hint,
-		run: () => descriptor.run(picker),
-	}));
+	includeComplete: boolean,
+): Partial<Record<PickerKeybindingCommandId, OpenTuiCommandRun>> {
+	const commands: Partial<
+		Record<PickerKeybindingCommandId, OpenTuiCommandRun>
+	> = {
+		[`${namespace}.move-up`]: () => {
+			picker.moveUp();
+		},
+		[`${namespace}.move-down`]: () => {
+			picker.moveDown();
+		},
+	};
+	if (includeComplete) {
+		commands[`${namespace}.complete`] = () => picker.handleKeyBinding("tab");
+	}
+	commands[`${namespace}.select`] = () => {
+		picker.accept();
+	};
+	commands[`${namespace}.close`] = () => {
+		picker.pop();
+	};
+	return commands;
 }
 
 // ── Context ─────────────────────────────────────────────────────────
@@ -150,8 +79,6 @@ function handleListKeyDown(picker: PickerManager, e: KeyEvent) {
 // ── Root ─────────────────────────────────────────────────────────────
 
 export type RootProps = {
-	settings?: Accessor<Settings>;
-	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	picker: PickerManager;
 	children: JSX.Element;
 	maxVisible?: number;
@@ -163,40 +90,29 @@ export type RootProps = {
 function Root(props: RootProps) {
 	const maxVisible = props.maxVisible ?? 5;
 	const snapshot = () => props.picker.current();
-	const keymap = useKeymap();
 	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
 	const commandNamespace = () => props.commandNamespace ?? "picker";
 	const selectHint = () => props.selectHint ?? "select";
-	const userKeybindings = () => props.settings?.().keybindings;
-	const descriptors = createMemo(() =>
-		pickerDescriptors(props.includeCompleteBinding === true, selectHint()),
-	);
-	const bindings = createMemo(() => {
-		const namespace = commandNamespace();
-		return createConfiguredBindingResult(
-			keymap,
-			pickerBindingDefinitions(namespace, descriptors()),
-			userKeybindings(),
-		);
-	});
+	const includeCompleteBinding = () => props.includeCompleteBinding === true;
 
-	createEffect(() => {
-		reportKeybindingDiagnostics(
-			bindings().diagnostics,
-			props.onKeybindingDiagnostic,
-		);
-	});
-
-	useBindings(() => {
+	useKeymapLayer(() => {
 		const namespace = commandNamespace();
-		return withKitKeyAliases({
+		return {
+			scope: "picker",
+			when: () => snapshot().visible,
 			target: rootTarget,
 			targetMode: "focus-within",
-			enabled: () => snapshot().visible,
-			priority: 70,
-			commands: pickerCommands(namespace, props.picker, descriptors()),
-			bindings: bindings().bindings,
-		});
+			commandMetadata: createPickerCommandMetadata(namespace, {
+				includeComplete: includeCompleteBinding(),
+				selectHint: selectHint(),
+			}),
+			commands: {},
+			generatedCommands: pickerCommandHandlers(
+				namespace,
+				props.picker,
+				includeCompleteBinding(),
+			),
+		};
 	});
 
 	return (

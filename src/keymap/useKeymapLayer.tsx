@@ -23,6 +23,8 @@ import {
 import {
 	type BuiltInKeybindingCommandId,
 	createCommandBindingDefinition,
+	type KeybindingCommandMetadata,
+	type KeybindingCommandMetadataMap,
 	type OpenTuiCommandRun,
 } from "./registry";
 
@@ -30,6 +32,11 @@ export type { OpenTuiCommandRun } from "./registry";
 
 export type KeymapLayerCommandHandlers = Partial<
 	Record<BuiltInKeybindingCommandId, OpenTuiCommandRun>
+>;
+
+export type GeneratedKeymapLayerCommandHandlers = Record<
+	string,
+	OpenTuiCommandRun | undefined
 >;
 
 type KeymapLayerContextValue = {
@@ -65,7 +72,16 @@ export type UseKeymapLayerOptions = {
 	diagnosticsWhen?: () => boolean;
 	target?: () => Renderable | null | undefined;
 	targetMode?: TargetMode;
+	/**
+	 * Metadata for generated command ids that are not part of the static built-in
+	 * registry. Each generated command id must have a matching entry here so the
+	 * layer can derive default keys, descriptions, groups, and hint labels.
+	 */
+	commandMetadata?: KeybindingCommandMetadataMap;
+	/** Statically registered Kit command handlers. */
 	commands: KeymapLayerCommandHandlers;
+	/** Dynamic or namespaced command handlers, such as picker instance commands. */
+	generatedCommands?: GeneratedKeymapLayerCommandHandlers;
 };
 
 type KeymapLayerDefinitionsResult = {
@@ -77,14 +93,60 @@ function diagnosticsSignature(value: unknown): string {
 	return JSON.stringify(value);
 }
 
+function createUnknownCommandDiagnostic(
+	id: string,
+	message: string,
+): KeybindingDiagnostic {
+	return {
+		type: "unknown",
+		command: id,
+		message,
+	};
+}
+
+function appendCommandDefinition(
+	definitions: CommandBindingDefinition<Renderable, KeyEvent>[],
+	diagnostics: KeybindingDiagnostic[],
+	id: string,
+	run: OpenTuiCommandRun | undefined,
+	metadata?: KeybindingCommandMetadata,
+	requireMetadata = false,
+): void {
+	if (!run) return;
+	if (requireMetadata && !metadata) {
+		diagnostics.push(
+			createUnknownCommandDiagnostic(
+				id,
+				`Missing generated command metadata: ${id}`,
+			),
+		);
+		return;
+	}
+	try {
+		definitions.push(createCommandBindingDefinition(id, run, metadata));
+	} catch (error) {
+		diagnostics.push(
+			createUnknownCommandDiagnostic(
+				id,
+				error instanceof Error ? error.message : String(error),
+			),
+		);
+	}
+}
+
 /**
- * Registers a Kit keymap layer from static keybinding command ids.
+ * Registers a Kit keymap layer from registry-backed command ids.
  *
  * Must be called under `KeymapLayerProvider`; the provider supplies user
  * keybinding settings and the centralized diagnostic reporter. Use
  * `diagnosticsWhen` for mutually exclusive layers that reuse command ids so
- * inactive variants do not repeat the same settings warning. Unknown command ids
- * are reported as diagnostics and skipped rather than throwing during render.
+ * inactive variants do not repeat the same settings warning.
+ *
+ * `commands` only accepts statically registered built-in command ids.
+ * Namespaced/generated command ids must be passed through `generatedCommands`
+ * with matching `commandMetadata`; a generated command without metadata is
+ * reported and skipped. Unknown command ids are reported as diagnostics and
+ * skipped rather than throwing during render.
  */
 export function useKeymapLayer(createLayer: () => UseKeymapLayerOptions): void {
 	const keymap = useKeymap();
@@ -96,16 +158,19 @@ export function useKeymapLayer(createLayer: () => UseKeymapLayerOptions): void {
 	const definitionsResult = createMemo<KeymapLayerDefinitionsResult>(() => {
 		const definitions: CommandBindingDefinition<Renderable, KeyEvent>[] = [];
 		const diagnostics: KeybindingDiagnostic[] = [];
-		for (const [id, run] of Object.entries(layerOptions().commands)) {
-			try {
-				definitions.push(createCommandBindingDefinition(id, run));
-			} catch (error) {
-				diagnostics.push({
-					type: "unknown",
-					command: id,
-					message: error instanceof Error ? error.message : String(error),
-				});
-			}
+		const layer = layerOptions();
+		for (const [id, run] of Object.entries(layer.commands)) {
+			appendCommandDefinition(definitions, diagnostics, id, run);
+		}
+		for (const [id, run] of Object.entries(layer.generatedCommands ?? {})) {
+			appendCommandDefinition(
+				definitions,
+				diagnostics,
+				id,
+				run,
+				layer.commandMetadata?.[id],
+				true,
+			);
 		}
 		return { definitions, diagnostics };
 	});

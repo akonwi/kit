@@ -13,6 +13,11 @@ export type KeybindingCommandMetadata = {
 	category?: string;
 };
 
+export type KeybindingCommandMetadataMap = Record<
+	string,
+	KeybindingCommandMetadata
+>;
+
 type KeybindingDomain = Record<string, KeybindingCommandMetadata>;
 type KeybindingRegistry = Record<string, KeybindingDomain>;
 
@@ -197,6 +202,39 @@ export type BuiltInKeybindingCommandId = {
 	[TDomain in BuiltInKeybindingDomain]: `${TDomain}.${BuiltInKeybindingAction<TDomain>}`;
 }[BuiltInKeybindingDomain];
 
+const PICKER_KEYBINDING_COMMANDS = {
+	"move-up": {
+		defaultKeys: "up",
+		desc: "Move picker selection up",
+		hint: "up",
+	},
+	"move-down": {
+		defaultKeys: "down",
+		desc: "Move picker selection down",
+		hint: "down",
+	},
+	complete: {
+		defaultKeys: "tab",
+		desc: "Complete picker selection",
+		hint: "complete",
+	},
+	select: {
+		defaultKeys: "return",
+		desc: "Select or submit picker value",
+		hint: "select",
+	},
+	close: {
+		defaultKeys: "escape",
+		desc: "Close picker",
+		hint: "close",
+	},
+} as const satisfies KeybindingDomain;
+
+export type PickerKeybindingAction = keyof typeof PICKER_KEYBINDING_COMMANDS &
+	string;
+export type PickerKeybindingCommandId<TNamespace extends string = string> =
+	`${TNamespace}.${PickerKeybindingAction}`;
+
 function splitCommandId(id: string): { domain: string; action: string } | null {
 	const dot = id.indexOf(".");
 	if (dot <= 0 || dot === id.length - 1) return null;
@@ -214,8 +252,9 @@ export function getKeybindingCommand(
 
 export function createBindingDefinitionForCommand(
 	id: string,
+	override?: KeybindingCommandMetadata,
 ): BindingDefinition {
-	const metadata = getKeybindingCommand(id);
+	const metadata = override ?? getKeybindingCommand(id);
 	if (!metadata) {
 		throw new Error(`Unknown keybinding command: ${id}`);
 	}
@@ -230,13 +269,14 @@ export function createBindingDefinitionForCommand(
 export function createCommandBindingDefinition(
 	id: string,
 	run: OpenTuiCommandRun,
+	override?: KeybindingCommandMetadata,
 ): CommandBindingDefinition<Renderable, KeyEvent> {
-	const metadata = getKeybindingCommand(id);
+	const metadata = override ?? getKeybindingCommand(id);
 	if (!metadata) {
 		throw new Error(`Unknown keybinding command: ${id}`);
 	}
 	return {
-		binding: createBindingDefinitionForCommand(id),
+		binding: createBindingDefinitionForCommand(id, metadata),
 		command: {
 			run,
 			...(metadata.hint !== undefined ? { hint: metadata.hint } : {}),
@@ -246,4 +286,26 @@ export function createCommandBindingDefinition(
 				: {}),
 		},
 	};
+}
+
+export function createPickerCommandMetadata(
+	namespace: string,
+	options: {
+		includeComplete?: boolean;
+		selectHint?: string;
+	} = {},
+): KeybindingCommandMetadataMap {
+	const metadata: KeybindingCommandMetadataMap = {};
+	for (const [action, command] of Object.entries(PICKER_KEYBINDING_COMMANDS)) {
+		if (action === "complete" && !options.includeComplete) continue;
+		const id = `${namespace}.${action}`;
+		metadata[id] = {
+			...command,
+			group: namespace,
+			...(action === "select" && options.selectHint
+				? { hint: options.selectHint }
+				: {}),
+		};
+	}
+	return metadata;
 }
