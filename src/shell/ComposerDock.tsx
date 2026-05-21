@@ -1,16 +1,6 @@
 import type { PasteEvent } from "@opentui/core";
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
-import type { Accessor } from "solid-js";
-import { createEffect, createMemo, createSignal } from "solid-js";
-import {
-	type CommandBindingDefinition,
-	createConfiguredCommandBindingResult,
-	createKeymapCommands,
-	type KeybindingDiagnostic,
-	withKitKeyAliases,
-} from "../keymap/bindings";
-import { reportKeybindingDiagnostics } from "../keymap/diagnostics";
-import type { Settings } from "../settings";
+import { createEffect, createSignal } from "solid-js";
+import { useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { TIMES } from "./glyphs";
@@ -18,8 +8,6 @@ import { MessageComposer } from "./MessageComposer";
 import { theme } from "./theme";
 
 export type ComposerDockProps = {
-	settings: Accessor<Settings>;
-	onKeybindingDiagnostic?: (diagnostic: KeybindingDiagnostic) => void;
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	locked?: boolean;
@@ -42,7 +30,6 @@ export function ComposerDock(props: ComposerDockProps) {
 	const [composerText, setComposerText] = createSignal(
 		props.controller.getTextareaText(),
 	);
-	const keymap = useKeymap();
 	const composerMode = () => getComposerInputMode(composerText());
 	const composerBorderColor = () =>
 		composerMode() === "bash"
@@ -58,182 +45,74 @@ export function ComposerDock(props: ComposerDockProps) {
 	});
 
 	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
-	const composerCoreCommands = () =>
-		[
-			{
-				binding: {
-					cmd: "composer.clear-or-quit",
-					key: "ctrl+c",
-					desc: "Clear input or quit",
-					group: "Composer",
-				},
-				command: {
-					run: () => {
-						if (!shellInputAvailable()) return false;
-						if (picker.visible) {
-							picker.clear();
-							return;
-						}
-						const text = props.controller.getTextareaText();
-						if (text.trim()) {
-							props.controller.setTextareaText("");
-							syncComposerText();
-							return;
-						}
-						props.controller.quit();
-					},
-				},
+	useKeymapLayer(() => ({
+		scope: "composer",
+		when: shellInputAvailable,
+		commands: {
+			"composer.clear-or-quit": () => {
+				if (picker.visible) {
+					picker.clear();
+					return;
+				}
+				const text = props.controller.getTextareaText();
+				if (text.trim()) {
+					props.controller.setTextareaText("");
+					syncComposerText();
+					return;
+				}
+				props.controller.quit();
 			},
-			{
-				binding: {
-					cmd: "composer.abort",
-					key: "escape",
-					desc: "Abort response",
-					group: "Composer",
-				},
-				command: {
-					run: () => {
-						if (!shellInputAvailable()) return false;
-						if (picker.visible) return false;
-						if (props.controller.getTextareaText().trim()) return false;
-						if (!props.controller.isStreaming()) return false;
-						props.controller.abort();
-					},
-				},
+			"composer.abort": () => {
+				if (picker.visible) return false;
+				if (props.controller.getTextareaText().trim()) return false;
+				if (!props.controller.isStreaming()) return false;
+				props.controller.abort();
 			},
-			{
-				binding: {
-					cmd: "composer.steer",
-					key: "return",
-					desc: "Steer with queued follow-ups",
-					group: "Composer",
-				},
-				command: {
-					run: () => {
-						if (!shellInputAvailable()) return false;
-						if (picker.visible) return false;
-						if (props.controller.getTextareaText().trim()) return false;
-						if (!props.controller.isStreaming()) return false;
-						if (props.controller.getPendingMessageCount() <= 0) return false;
-						props.controller.promotePendingFollowUpsToSteering();
-					},
-				},
+			"composer.steer": () => {
+				if (picker.visible) return false;
+				if (props.controller.getTextareaText().trim()) return false;
+				if (!props.controller.isStreaming()) return false;
+				if (props.controller.getPendingMessageCount() <= 0) return false;
+				props.controller.promotePendingFollowUpsToSteering();
 			},
-		] as const satisfies readonly CommandBindingDefinition[];
-	const composerBashHistoryCommands = () =>
-		[
-			{
-				binding: {
-					cmd: "composer.bash-history-older",
-					key: "up",
-					desc: "Recall previous bash command",
-					group: "Composer",
-				},
-				command: {
-					run: () => {
-						if (!shellInputAvailable() || picker.visible) return false;
-						if (!props.controller.getTextareaText().startsWith("!"))
-							return false;
-						if (!props.controller.navigateBashHistory("older")) return false;
-						syncComposerText();
-					},
-				},
-			},
-			{
-				binding: {
-					cmd: "composer.bash-history-newer",
-					key: "down",
-					desc: "Recall next bash command",
-					group: "Composer",
-				},
-				command: {
-					run: () => {
-						if (!shellInputAvailable() || picker.visible) return false;
-						if (!props.controller.getTextareaText().startsWith("!"))
-							return false;
-						if (!props.controller.navigateBashHistory("newer")) return false;
-						syncComposerText();
-					},
-				},
-			},
-		] as const satisfies readonly CommandBindingDefinition[];
-	const composerRecallCommands = () =>
-		[
-			{
-				binding: {
-					cmd: "composer.restore-or-recall",
-					key: "up",
-					desc: "Restore queued follow-ups or recall previous message",
-					group: "Composer",
-				},
-				command: {
-					run: () => {
-						if (!shellInputAvailable() || picker.visible) return false;
-						if (props.controller.getTextareaText().trim()) return false;
-						if (!props.controller.restorePendingMessages()) {
-							props.controller.recallLastUserMessage();
-						}
-						syncComposerText();
-					},
-				},
-			},
-		] as const satisfies readonly CommandBindingDefinition[];
-	const composerCoreBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			composerCoreCommands(),
-			props.settings().keybindings,
-		),
-	);
-	const composerBashHistoryBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			composerBashHistoryCommands(),
-			props.settings().keybindings,
-		),
-	);
-	const composerRecallBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			composerRecallCommands(),
-			props.settings().keybindings,
-		),
-	);
+		},
+	}));
 
-	createEffect(() => {
-		reportKeybindingDiagnostics(
-			[
-				...composerCoreBindings().diagnostics,
-				...composerBashHistoryBindings().diagnostics,
-				...composerRecallBindings().diagnostics,
-			],
-			props.onKeybindingDiagnostic,
-		);
-	});
+	useKeymapLayer(() => ({
+		scope: "composer",
+		precedence: "contextual",
+		when: shellInputAvailable,
+		commands: {
+			"composer.bash-history-older": () => {
+				if (picker.visible) return false;
+				if (!props.controller.getTextareaText().startsWith("!")) return false;
+				if (!props.controller.navigateBashHistory("older")) return false;
+				syncComposerText();
+			},
+			"composer.bash-history-newer": () => {
+				if (picker.visible) return false;
+				if (!props.controller.getTextareaText().startsWith("!")) return false;
+				if (!props.controller.navigateBashHistory("newer")) return false;
+				syncComposerText();
+			},
+		},
+	}));
 
-	useBindings(() =>
-		withKitKeyAliases({
-			priority: 90,
-			commands: createKeymapCommands(composerCoreCommands()),
-			bindings: composerCoreBindings().bindings,
-		}),
-	);
-
-	useBindings(() =>
-		withKitKeyAliases({
-			priority: 80,
-			commands: createKeymapCommands(composerBashHistoryCommands()),
-			bindings: composerBashHistoryBindings().bindings,
-		}),
-	);
-
-	useBindings(() =>
-		withKitKeyAliases({
-			priority: 70,
-			commands: createKeymapCommands(composerRecallCommands()),
-			bindings: composerRecallBindings().bindings,
-		}),
-	);
+	useKeymapLayer(() => ({
+		scope: "composer",
+		precedence: "fallback",
+		when: shellInputAvailable,
+		commands: {
+			"composer.restore-or-recall": () => {
+				if (picker.visible) return false;
+				if (props.controller.getTextareaText().trim()) return false;
+				if (!props.controller.restorePendingMessages()) {
+					props.controller.recallLastUserMessage();
+				}
+				syncComposerText();
+			},
+		},
+	}));
 
 	const placeholder = () => "Ask kit to do something...";
 

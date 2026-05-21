@@ -10,6 +10,9 @@ type ShowToast = (toast: ToastInput) => void;
 export function formatKeybindingDiagnostic(
 	diagnostic: KeybindingDiagnostic,
 ): string {
+	if (diagnostic.type === "unknown") {
+		return `${diagnostic.command}: ${diagnostic.message}`;
+	}
 	if (diagnostic.type === "invalid") {
 		return `${diagnostic.key} for ${diagnostic.command}: ${diagnostic.message}`;
 	}

@@ -5,6 +5,16 @@ import {
 } from "./diagnostics";
 
 describe("keybinding diagnostics", () => {
+	test("formats unknown command diagnostics", () => {
+		expect(
+			formatKeybindingDiagnostic({
+				type: "unknown",
+				command: "composer.typo",
+				message: "Unknown keybinding command",
+			}),
+		).toBe("composer.typo: Unknown keybinding command");
+	});
+
 	test("formats invalid binding diagnostics", () => {
 		expect(
 			formatKeybindingDiagnostic({

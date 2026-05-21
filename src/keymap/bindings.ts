@@ -29,6 +29,11 @@ export type CommandBindingDefinition<
 
 export type KeybindingDiagnostic =
 	| {
+			type: "unknown";
+			command: string;
+			message: string;
+	  }
+	| {
 			type: "invalid";
 			command: string;
 			key: string;

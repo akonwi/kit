@@ -1,28 +1,16 @@
-import { useBindings, useKeymap } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
-import {
-	createEffect,
-	createMemo,
-	createSignal,
-	For,
-	onCleanup,
-	Show,
-} from "solid-js";
+import type { Accessor } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import {
-	type CommandBindingDefinition,
-	createConfiguredCommandBindingResult,
-	createKeymapCommands,
-	withKitKeyAliases,
-} from "../keymap/bindings";
-import {
 	createKeybindingDiagnosticReporter,
-	reportKeybindingDiagnostics,
+	type KeybindingDiagnosticReporter,
 } from "../keymap/diagnostics";
+import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Settings } from "../settings";
 import type { AppState } from "../state/app-state";
@@ -61,65 +49,29 @@ export type AppShellProps = {
 	showToast: (toast: ToastInput) => void;
 };
 
-export function AppShell(props: AppShellProps) {
+type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
+	settings: Accessor<Settings>;
+	reportKeybindingDiagnostic: KeybindingDiagnosticReporter;
+	showToast: (toast: ToastInput) => void;
+};
+
+function AppShellContent(props: AppShellContentProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
 	const [composerMode, setComposerMode] =
 		createSignal<ComposerInputMode>("normal");
-	const [settings, setSettings] = createSignal(props.settings);
 	const renderer = useRenderer();
-	const keymap = useKeymap();
-	const reportKeybindingDiagnostic = createKeybindingDiagnosticReporter(
-		props.showToast,
-	);
 	let transcriptRef: { width: number; height: number } | undefined;
 
-	onCleanup(
-		props.runtime.subscribe("settings.changed", (event) => {
-			setSettings(event.settings);
-		}),
-	);
-
-	const appShellCommands = () =>
-		[
-			{
-				binding: {
-					cmd: "command-palette.open",
-					key: "ctrl+p",
-					desc: "Open command palette",
-					group: "App",
-				},
-				command: {
-					run: () => {
-						if (props.overlays().length > 0) return false;
-						props.controller.openCommandPalette();
-					},
-				},
+	useKeymapLayer(() => ({
+		scope: "app",
+		commands: {
+			"command-palette.open": () => {
+				if (props.overlays().length > 0) return false;
+				props.controller.openCommandPalette();
 			},
-		] as const satisfies readonly CommandBindingDefinition[];
-
-	const appShellBindings = createMemo(() =>
-		createConfiguredCommandBindingResult(
-			keymap,
-			appShellCommands(),
-			settings().keybindings,
-		),
-	);
-
-	createEffect(() => {
-		reportKeybindingDiagnostics(
-			appShellBindings().diagnostics,
-			reportKeybindingDiagnostic,
-		);
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			priority: 100,
-			commands: createKeymapCommands(appShellCommands()),
-			bindings: appShellBindings().bindings,
-		}),
-	);
+		},
+	}));
 
 	return (
 		<box
@@ -158,8 +110,6 @@ export function AppShell(props: AppShellProps) {
 					pendingMessages={props.state.pendingMessages}
 				/>
 				<ComposerDock
-					settings={settings}
-					onKeybindingDiagnostic={reportKeybindingDiagnostic}
 					controller={props.controller}
 					attachments={props.attachments}
 					locked={props.overlays().length > 0}
@@ -174,16 +124,16 @@ export function AppShell(props: AppShellProps) {
 			</box>
 
 			<InlinePicker
-				settings={settings}
-				onKeybindingDiagnostic={reportKeybindingDiagnostic}
+				settings={props.settings}
+				onKeybindingDiagnostic={props.reportKeybindingDiagnostic}
 				picker={props.controller.picker}
 				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
 			/>
 
 			{/* Composer picker only serves @/# references */}
 			<CommandPalette
-				settings={settings}
-				onKeybindingDiagnostic={reportKeybindingDiagnostic}
+				settings={props.settings}
+				onKeybindingDiagnostic={props.reportKeybindingDiagnostic}
 				picker={props.controller.commandPalette}
 			/>
 			<Show when={props.overlays().length > 0}>
@@ -207,5 +157,40 @@ export function AppShell(props: AppShellProps) {
 				onDismiss={props.dismissToast}
 			/>
 		</box>
+	);
+}
+
+export function AppShell(props: AppShellProps) {
+	const [settings, setSettings] = createSignal(props.settings);
+	const reportKeybindingDiagnostic = createKeybindingDiagnosticReporter(
+		props.showToast,
+	);
+
+	onCleanup(
+		props.runtime.subscribe("settings.changed", (event) => {
+			setSettings(event.settings);
+		}),
+	);
+
+	return (
+		<KeymapLayerProvider
+			keybindings={() => settings().keybindings}
+			onDiagnostic={reportKeybindingDiagnostic}
+		>
+			<AppShellContent
+				settings={settings}
+				reportKeybindingDiagnostic={reportKeybindingDiagnostic}
+				state={props.state}
+				runtime={props.runtime}
+				controller={props.controller}
+				attachments={props.attachments}
+				footer={props.footer}
+				header={props.header}
+				overlays={props.overlays}
+				dismissToast={props.dismissToast}
+				onTranscriptViewportChange={props.onTranscriptViewportChange}
+				showToast={props.showToast}
+			/>
+		</KeymapLayerProvider>
 	);
 }
