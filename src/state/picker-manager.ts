@@ -59,33 +59,21 @@ export function createPickerManager() {
 		keyBindings?: Record<string, PickerKeyBinding>,
 	) {
 		const id = nextId++;
-		let entry: PickerEntry;
-
-		if ("mode" in config && config.mode === "input") {
-			entry = {
-				id,
-				onDismiss: config.onDismiss,
-				mode: "input",
-				label: config.label ?? "",
-				inputValue: config.inputValue ?? "",
-				onSubmit: config.onSubmit,
-			};
-		} else {
-			const opts = config as Exclude<PickerConfig, { mode: "input" }>;
-			entry = {
-				id,
-				onDismiss: opts.onDismiss,
-				onFilterChange: opts.onFilterChange,
-				mode: "list",
-				options: opts.options,
-				allOptions: opts.options,
-				selectedIndex: 0,
-				filterable: opts.filterable ?? false,
-				filterText: "",
-				hint: opts.hint ?? "",
-				keyBindings: keyBindings ?? {},
-			};
-		}
+		const options = config.options ?? [];
+		const entry: PickerEntry = {
+			id,
+			onDismiss: config.onDismiss,
+			onFilterChange: config.onFilterChange,
+			onSubmit: config.onSubmit,
+			label: config.label ?? "",
+			options,
+			allOptions: options,
+			selectedIndex: 0,
+			filterable: config.filterable ?? Boolean(config.onSubmit),
+			filterText: config.inputValue ?? "",
+			hint: config.hint ?? "",
+			keyBindings: keyBindings ?? {},
+		};
 
 		setStack((s) => [...s, entry]);
 	}
@@ -106,7 +94,6 @@ export function createPickerManager() {
 
 	function moveUp() {
 		updateTop((t) => {
-			if (t.mode !== "list") return t;
 			const count = t.options.length;
 			if (count === 0) return t;
 			return {
@@ -118,7 +105,6 @@ export function createPickerManager() {
 
 	function moveDown() {
 		updateTop((t) => {
-			if (t.mode !== "list") return t;
 			const count = t.options.length;
 			if (count === 0) return t;
 			return {
@@ -130,11 +116,21 @@ export function createPickerManager() {
 
 	function selectCurrent() {
 		const t = top();
-		if (!t || t.mode !== "list") return;
+		if (!t) return;
 		const option = t.options[t.selectedIndex];
 		if (option) {
 			option.action(ctxFor(t.id));
 		}
+	}
+
+	function accept() {
+		const t = top();
+		if (!t) return;
+		if (t.onSubmit) {
+			t.onSubmit(t.filterText, ctxFor(t.id));
+			return;
+		}
+		selectCurrent();
 	}
 
 	function filter(query: string) {
@@ -154,7 +150,7 @@ export function createPickerManager() {
 			}
 		}
 		updateTop((t) => {
-			if (t.mode !== "list" || !t.filterable) return t;
+			if (!t.filterable) return t;
 			const effectiveQuery = override?.query ?? query;
 			const options = override?.options
 				? override.options
@@ -180,7 +176,7 @@ export function createPickerManager() {
 
 	function handleKeyBinding(key: string): boolean {
 		const t = top();
-		if (!t || t.mode !== "list") return false;
+		if (!t) return false;
 		const handler = t.keyBindings[key];
 		if (!handler) return false;
 		const option = t.options[t.selectedIndex];
@@ -188,19 +184,6 @@ export function createPickerManager() {
 			handler(option, ctxFor(t.id));
 		}
 		return true;
-	}
-
-	function submitInput() {
-		const t = top();
-		if (!t || t.mode !== "input") return;
-		t.onSubmit(t.inputValue, ctxFor(t.id));
-	}
-
-	function setInputValue(value: string) {
-		updateTop((t) => {
-			if (t.mode !== "input") return t;
-			return { ...t, inputValue: value };
-		});
 	}
 
 	const self = {
@@ -211,23 +194,14 @@ export function createPickerManager() {
 		moveUp,
 		moveDown,
 		selectCurrent,
+		accept,
 		filter,
 		handleKeyBinding,
-		submitInput,
-		setInputValue,
 		get visible() {
 			return current().visible;
 		},
 		get isFilterable() {
-			const c = current();
-			return c.mode === "list" && c.filterable;
-		},
-		get isInputMode() {
-			return current().mode === "input";
-		},
-		get inputValue() {
-			const c = current();
-			return c.mode === "input" ? c.inputValue : "";
+			return current().filterable;
 		},
 	};
 

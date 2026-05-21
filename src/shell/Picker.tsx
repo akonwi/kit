@@ -33,7 +33,7 @@ type PickerCommandDescriptor = {
 	run: (picker: PickerManager) => boolean | undefined;
 };
 
-function pickerListDescriptors(
+function pickerDescriptors(
 	includeComplete: boolean,
 	selectHint: string,
 ): PickerCommandDescriptor[] {
@@ -72,10 +72,10 @@ function pickerListDescriptors(
 		{
 			id: "select",
 			key: "return",
-			desc: "Select item",
+			desc: "Select or submit picker value",
 			hint: selectHint,
 			run: (picker) => {
-				picker.selectCurrent();
+				picker.accept();
 				return undefined;
 			},
 		},
@@ -91,31 +91,6 @@ function pickerListDescriptors(
 		},
 	);
 	return descriptors;
-}
-
-function pickerInputDescriptors(): PickerCommandDescriptor[] {
-	return [
-		{
-			id: "submit-input",
-			key: "return",
-			desc: "Submit input",
-			hint: "submit",
-			run: (picker) => {
-				picker.submitInput();
-				return undefined;
-			},
-		},
-		{
-			id: "cancel-input",
-			key: "escape",
-			desc: "Cancel input",
-			hint: "cancel",
-			run: (picker) => {
-				picker.pop();
-				return undefined;
-			},
-		},
-	];
 }
 
 function pickerBindingDefinitions(
@@ -193,57 +168,34 @@ function Root(props: RootProps) {
 	const commandNamespace = () => props.commandNamespace ?? "picker";
 	const selectHint = () => props.selectHint ?? "select";
 	const userKeybindings = () => props.settings?.().keybindings;
-	const listDescriptors = createMemo(() =>
-		pickerListDescriptors(props.includeCompleteBinding === true, selectHint()),
+	const descriptors = createMemo(() =>
+		pickerDescriptors(props.includeCompleteBinding === true, selectHint()),
 	);
-	const inputDescriptors = createMemo(() => pickerInputDescriptors());
-	const listBindings = createMemo(() => {
+	const bindings = createMemo(() => {
 		const namespace = commandNamespace();
 		return createConfiguredBindingResult(
 			keymap,
-			pickerBindingDefinitions(namespace, listDescriptors()),
-			userKeybindings(),
-		);
-	});
-	const inputBindings = createMemo(() => {
-		const namespace = commandNamespace();
-		return createConfiguredBindingResult(
-			keymap,
-			pickerBindingDefinitions(namespace, inputDescriptors()),
+			pickerBindingDefinitions(namespace, descriptors()),
 			userKeybindings(),
 		);
 	});
 
 	createEffect(() => {
 		reportKeybindingDiagnostics(
-			[...listBindings().diagnostics, ...inputBindings().diagnostics],
+			bindings().diagnostics,
 			props.onKeybindingDiagnostic,
 		);
 	});
 
 	useBindings(() => {
-		const descriptors = listDescriptors();
 		const namespace = commandNamespace();
 		return withKitKeyAliases({
 			target: rootTarget,
 			targetMode: "focus-within",
-			enabled: () => snapshot().visible && snapshot().mode === "list",
+			enabled: () => snapshot().visible,
 			priority: 70,
-			commands: pickerCommands(namespace, props.picker, descriptors),
-			bindings: listBindings().bindings,
-		});
-	});
-
-	useBindings(() => {
-		const descriptors = inputDescriptors();
-		const namespace = commandNamespace();
-		return withKitKeyAliases({
-			target: rootTarget,
-			targetMode: "focus-within",
-			enabled: () => snapshot().visible && snapshot().mode === "input",
-			priority: 70,
-			commands: pickerCommands(namespace, props.picker, descriptors),
-			bindings: inputBindings().bindings,
+			commands: pickerCommands(namespace, props.picker, descriptors()),
+			bindings: bindings().bindings,
 		});
 	});
 
@@ -271,9 +223,19 @@ function Header() {
 
 	return (
 		<box flexDirection="column" paddingTop={1}>
-			{/* Input mode */}
-			<Show when={snapshot().mode === "input"}>
+			<Show when={snapshot().label}>
 				<text fg={theme.textMuted}>{snapshot().label}</text>
+			</Show>
+			<Show
+				when={snapshot().filterable}
+				fallback={
+					<box
+						focusable
+						focused
+						onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
+					/>
+				}
+			>
 				<box flexDirection="row" gap={1} width="100%">
 					<text flexBasis={1} fg={theme.textPrimary}>
 						{">"}
@@ -284,40 +246,11 @@ function Header() {
 						textColor={theme.textPrimary}
 						focusedTextColor={theme.textPrimary}
 						cursorColor={theme.cursor}
-						value={snapshot().inputValue}
-						onInput={(value: string) => picker.setInputValue(value)}
+						value={snapshot().filterText}
+						onInput={(value: string) => picker.filter(value)}
+						onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
 					/>
 				</box>
-			</Show>
-
-			{/* List mode — filter input or focusable anchor for non-filterable */}
-			<Show when={snapshot().mode === "list"}>
-				<Show
-					when={snapshot().filterable}
-					fallback={
-						<box
-							focusable
-							focused
-							onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
-						/>
-					}
-				>
-					<box flexDirection="row" gap={1} width="100%">
-						<text flexBasis={1} fg={theme.textPrimary}>
-							{">"}
-						</text>
-						<input
-							flexGrow={1}
-							focused
-							textColor={theme.textPrimary}
-							focusedTextColor={theme.textPrimary}
-							cursorColor={theme.cursor}
-							value={snapshot().filterText}
-							onInput={(value: string) => picker.filter(value)}
-							onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
-						/>
-					</box>
-				</Show>
 			</Show>
 		</box>
 	);
@@ -376,82 +309,79 @@ function Body() {
 	);
 
 	return (
-		<Show when={snapshot().mode === "list"}>
-			<box flexGrow={1} flexDirection="column" overflow="hidden">
-				<Show when={snapshot().options.length === 0}>
-					<text fg={theme.textMuted}>No results</text>
-				</Show>
+		<box flexGrow={1} flexDirection="column" overflow="hidden">
+			<Show when={snapshot().options.length === 0}>
+				<text fg={theme.textMuted}>No results</text>
+			</Show>
 
-				<box flexDirection="row">
-					<box flexGrow={1} flexDirection="column">
-						<For each={visibleSlice().items}>
-							{(entry) => {
-								const isFocused = () =>
-									entry.index === snapshot().selectedIndex;
-								const fg = () =>
-									isFocused() ? theme.pickerFocusedText : theme.pickerItemText;
-								const bg = () =>
-									isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
-								return (
-									<box
-										flexDirection="row"
-										width="100%"
-										height={1}
-										overflow="hidden"
-										gap={1}
-										backgroundColor={bg()}
-									>
-										<box width={maxNameWidth()} flexShrink={0}>
-											<text fg={fg()} bg={bg()}>
-												{entry.option.name}
+			<box flexDirection="row">
+				<box flexGrow={1} flexDirection="column">
+					<For each={visibleSlice().items}>
+						{(entry) => {
+							const isFocused = () => entry.index === snapshot().selectedIndex;
+							const fg = () =>
+								isFocused() ? theme.pickerFocusedText : theme.pickerItemText;
+							const bg = () =>
+								isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
+							return (
+								<box
+									flexDirection="row"
+									width="100%"
+									height={1}
+									overflow="hidden"
+									gap={1}
+									backgroundColor={bg()}
+								>
+									<box width={maxNameWidth()} flexShrink={0}>
+										<text fg={fg()} bg={bg()}>
+											{entry.option.name}
+										</text>
+									</box>
+									<box width={maxArgHintWidth()} flexShrink={0}>
+										<Show when={entry.option.argHint}>
+											<text fg={theme.textMuted} bg={bg()}>
+												{`[${entry.option.argHint}]`}
 											</text>
-										</box>
-										<box width={maxArgHintWidth()} flexShrink={0}>
-											<Show when={entry.option.argHint}>
-												<text fg={theme.textMuted} bg={bg()}>
-													{`[${entry.option.argHint}]`}
-												</text>
-											</Show>
-										</box>
-										<Show when={entry.option.description.length > 0}>
-											<box
-												flexGrow={1}
-												flexShrink={1}
-												height={1}
-												overflow="hidden"
-											>
-												<text fg={theme.textMuted} bg={bg()}>
-													{entry.option.description}
-												</text>
-											</box>
 										</Show>
 									</box>
-								);
-							}}
-						</For>
-					</box>
-					<Show when={scrollbar()}>
-						{(track) => (
-							<box flexShrink={0} width={1} flexDirection="column">
-								<For each={track()}>
-									{(isThumb) => (
-										<text
-											fg={
-												isThumb
-													? theme.pickerScrollThumb
-													: theme.pickerScrollTrack
-											}
+									<Show when={entry.option.description.length > 0}>
+										<box
+											flexGrow={1}
+											flexShrink={1}
+											height={1}
+											overflow="hidden"
 										>
-											{isThumb ? FULL_BLOCK : VERTICAL_LINE}
-										</text>
-									)}
-								</For>
-							</box>
-						)}
-					</Show>
+											<text fg={theme.textMuted} bg={bg()}>
+												{entry.option.description}
+											</text>
+										</box>
+									</Show>
+								</box>
+							);
+						}}
+					</For>
 				</box>
+				<Show when={scrollbar()}>
+					{(track) => (
+						<box flexShrink={0} width={1} flexDirection="column">
+							<For each={track()}>
+								{(isThumb) => (
+									<text
+										fg={
+											isThumb
+												? theme.pickerScrollThumb
+												: theme.pickerScrollTrack
+										}
+									>
+										{isThumb ? FULL_BLOCK : VERTICAL_LINE}
+									</text>
+								)}
+							</For>
+						</box>
+					)}
+				</Show>
 			</box>
-		</Show>
+		</box>
 	);
 }
 

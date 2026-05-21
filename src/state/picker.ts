@@ -1,6 +1,7 @@
 /**
- * Picker — a stack-based overlay that can show lists or input prompts.
- * Only the top entry renders. Actions control their own lifecycle via ctx.dismiss().
+ * Picker — a stack-based overlay that can show selectable lists, text prompts,
+ * or filterable combinations of both. Only the top entry renders. Actions
+ * control their own lifecycle via ctx.dismiss().
  */
 
 export type PickerContext = {
@@ -30,68 +31,51 @@ export type PickerFilterChangeResult =
 	  }
 	| undefined;
 
-export type PickerConfig =
-	| {
-			options: PickerOption[];
-			filterable?: boolean;
-			hint?: string;
-			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
-			onDismiss?: () => void;
-			/** Called when the filter text changes. Return false to intercept; or override query/options. */
-			onFilterChange?: (text: string) => PickerFilterChangeResult;
-	  }
-	| {
-			mode: "input";
-			label?: string;
-			inputValue?: string;
-			onSubmit: (value: string, ctx: PickerContext) => void;
-			/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
-			onDismiss?: () => void;
-	  };
+export type PickerConfig = {
+	options?: PickerOption[];
+	filterable?: boolean;
+	label?: string;
+	/** Initial text for the picker input. */
+	inputValue?: string;
+	hint?: string;
+	/** Called when the current text is accepted. */
+	onSubmit?: (value: string, ctx: PickerContext) => void;
+	/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
+	onDismiss?: () => void;
+	/** Called when the filter text changes. Return false to intercept; or override query/options. */
+	onFilterChange?: (text: string) => PickerFilterChangeResult;
+};
 
 /** Internal entry stored on the stack */
 export type PickerEntry = {
 	id: number;
 	onDismiss?: () => void;
 	onFilterChange?: (text: string) => PickerFilterChangeResult;
-} & (
-	| {
-			mode: "list";
-			options: PickerOption[];
-			allOptions: PickerOption[];
-			selectedIndex: number;
-			filterable: boolean;
-			filterText: string;
-			hint: string;
-			keyBindings: Record<string, PickerKeyBinding>;
-	  }
-	| {
-			mode: "input";
-			label: string;
-			inputValue: string;
-			onSubmit: (value: string, ctx: PickerContext) => void;
-	  }
-);
+	onSubmit?: (value: string, ctx: PickerContext) => void;
+	label: string;
+	options: PickerOption[];
+	allOptions: PickerOption[];
+	selectedIndex: number;
+	filterable: boolean;
+	filterText: string;
+	hint: string;
+	keyBindings: Record<string, PickerKeyBinding>;
+};
 
 /** Derived view for rendering — strips functions and internal state from entries */
 export type PickerSnapshot = {
 	visible: boolean;
-	mode: "list" | "input";
-	// list mode
 	options: Array<{ name: string; description: string; argHint?: string }>;
 	allOptions: Array<{ name: string; description: string; argHint?: string }>;
 	selectedIndex: number;
 	filterable: boolean;
 	filterText: string;
 	hint: string;
-	// input mode
 	label: string;
-	inputValue: string;
 };
 
 export const emptySnapshot: PickerSnapshot = {
 	visible: false,
-	mode: "list",
 	options: [],
 	allOptions: [],
 	selectedIndex: 0,
@@ -99,27 +83,11 @@ export const emptySnapshot: PickerSnapshot = {
 	filterText: "",
 	hint: "",
 	label: "",
-	inputValue: "",
 };
 
 export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
-	if (entry.mode === "input") {
-		return {
-			visible: true,
-			mode: "input",
-			options: [],
-			allOptions: [],
-			selectedIndex: 0,
-			filterable: false,
-			filterText: "",
-			hint: "",
-			label: entry.label,
-			inputValue: entry.inputValue,
-		};
-	}
 	return {
 		visible: true,
-		mode: "list",
 		options: entry.options.map((o) => ({
 			name: o.name,
 			description: o.description,
@@ -134,7 +102,6 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 		filterable: entry.filterable,
 		filterText: entry.filterText,
 		hint: entry.hint,
-		label: "",
-		inputValue: "",
+		label: entry.label,
 	};
 }

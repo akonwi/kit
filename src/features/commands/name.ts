@@ -14,7 +14,6 @@ export const nameCommand: Command = {
 
 		const currentName = runtime.getSession().name ?? "";
 		picker.show({
-			mode: "input",
 			label: "Session name",
 			inputValue: currentName,
 			onSubmit: (value: string, ctx: PickerContext) => {
