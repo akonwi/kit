@@ -11,6 +11,8 @@ export type KeymapHintBarProps = {
 	group: string;
 	category?: string;
 	borderless?: boolean;
+	prefixBindings?: Binding[];
+	suffixBindings?: Binding[];
 };
 
 function formatKeyToken(token: string): string {
@@ -101,5 +103,14 @@ export function KeymapHintBar(props: KeymapHintBarProps) {
 		});
 	});
 
-	return <HintBar borderless={props.borderless} bindings={bindings()} />;
+	return (
+		<HintBar
+			borderless={props.borderless}
+			bindings={[
+				...(props.prefixBindings ?? []),
+				...bindings(),
+				...(props.suffixBindings ?? []),
+			]}
+		/>
+	);
 }
