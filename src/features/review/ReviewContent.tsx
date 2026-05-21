@@ -1,5 +1,4 @@
-import type { KeyEvent, MouseEvent as TuiMouseEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
 	createEffect,
@@ -11,6 +10,7 @@ import {
 	Show,
 } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import {
@@ -20,7 +20,7 @@ import {
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../../shell/glyphs";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
@@ -66,32 +66,6 @@ type CommentableLine = ReviewDiffCommentableLine;
 type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
-};
-
-const FOCUS_BINDINGS: { [key in ReviewMode]: Binding[] } = {
-	list: [
-		{ key: "↑/↓ or j/k", action: "move" },
-		{ key: "Enter", action: "focus change group" },
-		{ key: "Space", action: "collapse/expand" },
-		{ key: "f", action: "file note" },
-		{ key: "x", action: "clear file note" },
-		{ key: "v", action: "toggle view" },
-		{ key: "s", action: "submit" },
-		{ key: "Esc", action: "close" },
-	],
-	patch: [
-		{ key: "Click", action: "comment line" },
-		{ key: "↑/↓ or j/k", action: "move cursor" },
-		{ key: "Tab / Shift+Tab", action: "change group" },
-		{ key: "Space", action: "toggle skipped section" },
-		{ key: "Enter", action: "comment line / confirm range" },
-		{ key: "Ctrl+Enter", action: "start range" },
-		{ key: "x", action: "clear line note" },
-		{ key: "f", action: "file note" },
-		{ key: "v", action: "toggle view" },
-		{ key: "s", action: "submit" },
-		{ key: "Esc", action: "cancel range / back" },
-	],
 };
 
 function statusLabel(file: ReviewFile): string {
@@ -1200,142 +1174,86 @@ export function ReviewContent(props: ReviewContentProps) {
 		});
 	}
 
-	useKeyboard((e: KeyEvent) => {
-		if (editorOpen()) {
-			if (e.name === "escape") {
-				e.preventDefault();
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: editorOpen,
+		diagnosticsWhen: editorOpen,
+		commands: {
+			"review.close-editor": () => {
 				if (editingRange()) closeRangeNoteEditor();
 				else if (editingFileNoteKey()) closeFileNoteEditor();
-			}
-			return;
-		}
-		if (mode() === "patch") {
-			if (e.name === "escape") {
-				e.preventDefault();
+			},
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => !editorOpen() && mode() === "patch",
+		diagnosticsWhen: () => mode() === "patch",
+		commands: {
+			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
 				else setMode("list");
-				return;
-			}
-			if (e.shift && e.name === "tab") {
-				e.preventDefault();
-				cycleHunk(-1);
-				return;
-			}
-			if (e.name === "tab") {
-				e.preventDefault();
-				cycleHunk(1);
-				return;
-			}
-			if (e.name === "k" || e.name === "up") {
-				e.preventDefault();
-				moveSelectedLine(-1);
-				return;
-			}
-			if (e.name === "j" || e.name === "down") {
-				e.preventDefault();
-				moveSelectedLine(1);
-				return;
-			}
-			if (e.name === "space") {
-				e.preventDefault();
+			},
+			"review.previous-change": () => cycleHunk(-1),
+			"review.next-change": () => cycleHunk(1),
+			"review.move-line-up": () => moveSelectedLine(-1),
+			"review.move-line-down": () => moveSelectedLine(1),
+			"review.toggle-section": () => {
 				const section = selectedSkippedSection();
-				if (section) {
-					toggleExpandedContext(section.id);
-				}
-				return;
-			}
-			if (e.name === "return" || e.name === "enter") {
-				e.preventDefault();
-				if (e.ctrl) {
-					beginRangeSelection();
-					return;
-				}
-				confirmSelectedLineComment();
-				return;
-			}
-			if (e.name === "f") {
-				e.preventDefault();
+				if (section) toggleExpandedContext(section.id);
+			},
+			"review.comment-line": () => confirmSelectedLineComment(),
+			"review.start-range": () => beginRangeSelection(),
+			"review.file-note": () => {
 				const file = selectedFile();
-				if (!file) return;
-				openFileNoteEditor(file);
-				return;
-			}
-			if (e.name === "v") {
-				e.preventDefault();
-				toggleDiffView();
-				return;
-			}
-			if (e.name === "x") {
-				e.preventDefault();
-				clearOrCancelLineSelection();
-				return;
-			}
-			if (e.name === "s") {
-				e.preventDefault();
-				submitReview();
-			}
-			return;
-		}
+				if (file) openFileNoteEditor(file);
+			},
+			"review.toggle-view": () => toggleDiffView(),
+			"review.clear-line-note": () => clearOrCancelLineSelection(),
+			"review.submit": () => submitReview(),
+		},
+	}));
 
-		if (e.name === "escape") {
-			e.preventDefault();
-			props.onClose();
-			return;
-		}
-		if (e.name === "up" || e.name === "k") {
-			e.preventDefault();
-			setSelectedIndex((index) => Math.max(0, index - 1));
-			return;
-		}
-		if (e.name === "down" || e.name === "j") {
-			e.preventDefault();
-			setSelectedIndex((index) =>
-				Math.min(reviewFiles().length - 1, index + 1),
-			);
-			return;
-		}
-		if (e.name === "return" || e.name === "enter") {
-			e.preventDefault();
-			const file = selectedFile();
-			if (file && expandedKeys().has(file.id)) {
-				setMode("patch");
-				if (file.hunks.length > 0) {
-					setSelectedHunkIndex(
-						file.id,
-						selectedHunkIndices().get(file.id) ?? 0,
-					);
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => !editorOpen() && mode() === "list",
+		diagnosticsWhen: () => mode() === "list",
+		commands: {
+			"review.close": () => props.onClose(),
+			"review.move-file-up": () => {
+				setSelectedIndex((index) => Math.max(0, index - 1));
+			},
+			"review.move-file-down": () => {
+				setSelectedIndex((index) =>
+					Math.min(reviewFiles().length - 1, index + 1),
+				);
+			},
+			"review.focus-file": () => {
+				const file = selectedFile();
+				if (file && expandedKeys().has(file.id)) {
+					setMode("patch");
+					if (file.hunks.length > 0) {
+						setSelectedHunkIndex(
+							file.id,
+							selectedHunkIndices().get(file.id) ?? 0,
+						);
+					}
 				}
-			}
-			return;
-		}
-		if (e.name === "space") {
-			e.preventDefault();
-			const file = selectedFile();
-			if (file) toggleExpanded(file.id);
-			return;
-		}
-		if (e.name === "f") {
-			e.preventDefault();
-			const file = selectedFile();
-			if (!file) return;
-			openFileNoteEditor(file);
-			return;
-		}
-		if (e.name === "v") {
-			e.preventDefault();
-			toggleDiffView();
-			return;
-		}
-		if (e.name === "x") {
-			e.preventDefault();
-			clearSelectedFileNote();
-			return;
-		}
-		if (e.name === "s") {
-			e.preventDefault();
-			submitReview();
-		}
-	});
+			},
+			"review.toggle-file": () => {
+				const file = selectedFile();
+				if (file) toggleExpanded(file.id);
+			},
+			"review.file-note": () => {
+				const file = selectedFile();
+				if (file) openFileNoteEditor(file);
+			},
+			"review.toggle-view": () => toggleDiffView(),
+			"review.clear-file-note": () => clearSelectedFileNote(),
+			"review.submit": () => submitReview(),
+		},
+	}));
 
 	return (
 		<ScreenLayout
@@ -1355,7 +1273,16 @@ export function ReviewContent(props: ReviewContentProps) {
 					}
 				/>
 			}
-			footer={<HintBar bindings={FOCUS_BINDINGS[mode()]} />}
+			footer={
+				<KeymapHintBar
+					group="review"
+					prefixBindings={
+						mode() === "patch" && !editorOpen()
+							? [{ key: "Click", action: "comment" }]
+							: undefined
+					}
+				/>
+			}
 		>
 			<Show
 				when={!files.loading}
