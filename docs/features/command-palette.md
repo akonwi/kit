@@ -31,7 +31,7 @@ Claude Code compatibility commands can also appear at runtime from project-local
 
 ## How to access it
 
-Press `Ctrl+P` to open the command palette.
+Press `Ctrl+P` by default to open the command palette. This is the `command-palette.open` keybinding and can be customized in `~/.kit/settings.json`.
 
 ## Behavior
 

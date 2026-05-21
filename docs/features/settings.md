@@ -40,6 +40,8 @@ Some shell keybindings can be customized in `~/.kit/settings.json` under `keybin
 
 The key syntax is OpenTUI keymap syntax such as `ctrl+p`, `shift+tab`, `return`/`enter`, `escape`, `up`, or multi-key sequences like `gg` when a feature layer supports them.
 
+See `docs/features/keybindings.md` for the built-in configurable command catalog.
+
 ## How to access it
 
 Run:
