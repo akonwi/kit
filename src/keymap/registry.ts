@@ -122,6 +122,62 @@ export const KEYBINDING_REGISTRY = {
 			hint: "continue",
 		},
 	},
+	"guided-questions": {
+		previous: {
+			defaultKeys: "shift+tab",
+			desc: "Go to previous question",
+			group: "guided-questions",
+			hint: "previous",
+		},
+		cancel: {
+			defaultKeys: "escape",
+			desc: "Cancel guided questions",
+			group: "guided-questions",
+			hint: "cancel",
+		},
+		"move-up": {
+			defaultKeys: "up",
+			desc: "Move to previous option",
+			group: "guided-questions",
+			hint: "move",
+		},
+		"move-down": {
+			defaultKeys: "down",
+			desc: "Move to next option",
+			group: "guided-questions",
+			hint: "move",
+		},
+		select: {
+			defaultKeys: "return",
+			desc: "Select focused option",
+			group: "guided-questions",
+			hint: "select",
+		},
+		"toggle-option": {
+			defaultKeys: "space",
+			desc: "Toggle focused option",
+			group: "guided-questions",
+			hint: "toggle",
+		},
+		"confirm-multiselect": {
+			defaultKeys: "return",
+			desc: "Confirm selected options",
+			group: "guided-questions",
+			hint: "confirm",
+		},
+		"submit-text": {
+			defaultKeys: "return",
+			desc: "Submit text answer",
+			group: "guided-questions",
+			hint: "submit",
+		},
+		back: {
+			defaultKeys: "escape",
+			desc: "Return to option selection",
+			group: "guided-questions",
+			hint: "back",
+		},
+	},
 	debug: {
 		close: {
 			defaultKeys: ["return", "escape"],

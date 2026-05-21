@@ -62,6 +62,7 @@ export type UseKeymapLayerOptions = {
 	scope: KeymapLayerScope;
 	precedence?: KeymapLayerPrecedence;
 	when?: () => boolean;
+	diagnosticsWhen?: () => boolean;
 	target?: () => Renderable | null | undefined;
 	targetMode?: TargetMode;
 	commands: KeymapLayerCommandHandlers;
@@ -80,8 +81,10 @@ function diagnosticsSignature(value: unknown): string {
  * Registers a Kit keymap layer from static keybinding command ids.
  *
  * Must be called under `KeymapLayerProvider`; the provider supplies user
- * keybinding settings and the centralized diagnostic reporter. Unknown command
- * ids are reported as diagnostics and skipped rather than throwing during render.
+ * keybinding settings and the centralized diagnostic reporter. Use
+ * `diagnosticsWhen` for mutually exclusive layers that reuse command ids so
+ * inactive variants do not repeat the same settings warning. Unknown command ids
+ * are reported as diagnostics and skipped rather than throwing during render.
  */
 export function useKeymapLayer(createLayer: () => UseKeymapLayerOptions): void {
 	const keymap = useKeymap();
@@ -116,6 +119,8 @@ export function useKeymapLayer(createLayer: () => UseKeymapLayerOptions): void {
 	let lastDiagnosticsSignature = "";
 
 	createEffect(() => {
+		const diagnosticsWhen = layerOptions().diagnosticsWhen;
+		if (diagnosticsWhen && !diagnosticsWhen()) return;
 		const diagnostics = [
 			...definitionsResult().diagnostics,
 			...bindingResult().diagnostics,
