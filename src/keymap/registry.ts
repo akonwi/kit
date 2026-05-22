@@ -47,12 +47,12 @@ export const KEYBINDING_REGISTRY = {
 		},
 		"bash-history-older": {
 			defaultKeys: "up",
-			desc: "Recall previous bash command",
+			desc: "Show bash command history",
 			group: "Composer",
 		},
 		"bash-history-newer": {
 			defaultKeys: "down",
-			desc: "Recall next bash command",
+			desc: "Show bash command history",
 			group: "Composer",
 		},
 		"restore-or-recall": {

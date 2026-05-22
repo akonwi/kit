@@ -16,8 +16,8 @@ Current behavior:
 - the pending entry is replaced in place when execution completes
 - completed entries include the command, output, and exit status
 - pending bash transcript entries are not included in model context
-- while the composer is in bash mode (`!` or `!!`), `Up`/`Down` navigate current-session bash execution history for reuse
-- recalled history entries restore their previous context mode (`!` or `!!`)
+- while the composer is in bash mode (`!` or `!!`), `Up`/`Down` open current-session bash execution history for reuse
+- selected history entries restore their previous context mode (`!` or `!!`)
 
 Kit also has a separate agent-driven `bash` tool path. The low-level execution code is shared, but direct user bash execution and agent tool use are different flows.
 
@@ -28,4 +28,4 @@ Type a bash command directly into the composer:
 - `!ls`
 - `!!git status`
 
-When the composer starts with `!` or `!!`, press `Up` to recall older bash executions and `Down` to move back toward the current draft.
+When the composer starts with `!` or `!!`, press `Up` or `Down` to open bash execution history, then choose an entry to reuse it.

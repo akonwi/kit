@@ -57,8 +57,8 @@ Plugin and prompt commands are also bindable by their registered command ids aft
 | `composer.clear-or-quit` | `ctrl+c` | Clear input or quit |
 | `composer.abort` | `escape` | Abort response |
 | `composer.steer` | `return` | Steer with queued follow-ups |
-| `composer.bash-history-older` | `up` | Recall previous bash command |
-| `composer.bash-history-newer` | `down` | Recall next bash command |
+| `composer.bash-history-older` | `up` | Show bash command history |
+| `composer.bash-history-newer` | `down` | Show bash command history |
 | `composer.restore-or-recall` | `up` | Restore queued follow-ups or recall previous message |
 
 ### Inline picker

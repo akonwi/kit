@@ -56,8 +56,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	let textareaRef: TextareaHandle | undefined;
 	let prevTextLength = 0;
-	let bashHistoryIndex: number | null = null;
-	let bashHistoryDraft = "";
 	let expectedBashHistoryText: string | null = null;
 
 	function setTextarea(ref: TextareaHandle | undefined) {
@@ -467,34 +465,37 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return true;
 	}
 
-	function navigateBashHistory(direction: "older" | "newer"): boolean {
+	function showBashHistoryPicker(onSelect?: () => void): boolean {
 		const text = textareaRef?.plainText ?? "";
 		if (!text.startsWith("!")) return false;
 
 		const history = getBashExecutionHistory();
 		if (history.length === 0) return false;
 
-		let nextIndex: number;
-		if (bashHistoryIndex === null) {
-			if (direction === "newer") return false;
-			bashHistoryDraft = text;
-			nextIndex = 0;
-		} else {
-			nextIndex =
-				direction === "older" ? bashHistoryIndex + 1 : bashHistoryIndex - 1;
-		}
-
-		if (nextIndex < 0) {
-			applyBashHistoryText(bashHistoryDraft);
-			bashHistoryIndex = null;
-			return true;
-		}
-		if (nextIndex >= history.length) return true;
-
-		const entry = history[nextIndex];
-		const prefix = entry.excludeFromContext ? "!!" : "!";
-		applyBashHistoryText(`${prefix}${entry.command}`);
-		bashHistoryIndex = nextIndex;
+		const query = text.replace(/^!+/, "").trimStart();
+		picker.show({
+			filterable: true,
+			label: "Bash history",
+			inputValue: query,
+			hint: "Enter use · Esc close",
+			options: history.map((entry) => {
+				const prefix = entry.excludeFromContext ? "!!" : "!";
+				const value = `${prefix}${entry.command}`;
+				return {
+					name: entry.command,
+					description: entry.excludeFromContext
+						? "excluded from context"
+						: "included in context",
+					value,
+					action: (ctx: PickerContext) => {
+						ctx.dismiss();
+						applyBashHistoryText(value);
+						onSelect?.();
+					},
+				};
+			}),
+		});
+		if (query) picker.filter(query);
 		return true;
 	}
 
@@ -505,8 +506,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	function resetBashHistoryNavigation() {
-		bashHistoryIndex = null;
-		bashHistoryDraft = "";
 		expectedBashHistoryText = null;
 	}
 
@@ -591,7 +590,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		handleSubmit,
 		handleFollowUp,
 		restorePendingMessages,
-		navigateBashHistory,
+		showBashHistoryPicker,
 		insertText,
 		getTextareaText,
 		setTextareaText,

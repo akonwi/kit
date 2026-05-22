@@ -86,14 +86,14 @@ export function ComposerDock(props: ComposerDockProps) {
 			"composer.bash-history-older": () => {
 				if (picker.visible) return false;
 				if (!props.controller.getTextareaText().startsWith("!")) return false;
-				if (!props.controller.navigateBashHistory("older")) return false;
-				syncComposerText();
+				if (!props.controller.showBashHistoryPicker(syncComposerText))
+					return false;
 			},
 			"composer.bash-history-newer": () => {
 				if (picker.visible) return false;
 				if (!props.controller.getTextareaText().startsWith("!")) return false;
-				if (!props.controller.navigateBashHistory("newer")) return false;
-				syncComposerText();
+				if (!props.controller.showBashHistoryPicker(syncComposerText))
+					return false;
 			},
 		},
 	}));
