@@ -168,7 +168,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const entries = await fileIndex.ensureLoaded();
 		picker.show({
 			filterable: true,
-			hint: "Enter insert · Esc close",
 			options: entries.map((entry) => ({
 				name: entry.path,
 				description: entry.isDir ? "directory" : "",
@@ -190,7 +189,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const suggestions = await threadIndex.suggest(initialQuery);
 		picker.show({
 			filterable: true,
-			hint: "Enter insert · Esc close",
 			options: suggestions.map((entry) => ({
 				name: entry.name,
 				description: entry.description,
@@ -477,7 +475,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			filterable: true,
 			label: "Bash history",
 			inputValue: query,
-			hint: "Enter use · Esc close",
 			options: history.map((entry) => {
 				const prefix = entry.excludeFromContext ? "!!" : "!";
 				const value = `${prefix}${entry.command}`;

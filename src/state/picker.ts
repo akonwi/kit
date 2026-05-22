@@ -37,7 +37,6 @@ export type PickerConfig = {
 	label?: string;
 	/** Initial text for the picker input. */
 	inputValue?: string;
-	hint?: string;
 	/** Called when the current text is accepted. */
 	onSubmit?: (value: string, ctx: PickerContext) => void;
 	/** Called when the picker entry is removed from the stack (escape, dismiss, or pop). */
@@ -58,7 +57,6 @@ export type PickerEntry = {
 	selectedIndex: number;
 	filterable: boolean;
 	filterText: string;
-	hint: string;
 	keyBindings: Record<string, PickerKeyBinding>;
 };
 
@@ -70,7 +68,6 @@ export type PickerSnapshot = {
 	selectedIndex: number;
 	filterable: boolean;
 	filterText: string;
-	hint: string;
 	label: string;
 };
 
@@ -81,7 +78,6 @@ export const emptySnapshot: PickerSnapshot = {
 	selectedIndex: 0,
 	filterable: false,
 	filterText: "",
-	hint: "",
 	label: "",
 };
 
@@ -101,7 +97,6 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 		selectedIndex: entry.selectedIndex,
 		filterable: entry.filterable,
 		filterText: entry.filterText,
-		hint: entry.hint,
 		label: entry.label,
 	};
 }

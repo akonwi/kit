@@ -16,7 +16,6 @@ export const thinkingCommand: Command = {
 
 		picker.show({
 			filterable: false,
-			hint: "Select a thinking level",
 			options: availableLevels.map((level) => ({
 				name: level === current ? `${level} ${CHECK}` : level,
 				description: level === current ? "Current" : "",

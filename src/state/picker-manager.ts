@@ -71,7 +71,6 @@ export function createPickerManager() {
 			selectedIndex: 0,
 			filterable: config.filterable ?? Boolean(config.onSubmit),
 			filterText: config.inputValue ?? "",
-			hint: config.hint ?? "",
 			keyBindings: keyBindings ?? {},
 		};
 

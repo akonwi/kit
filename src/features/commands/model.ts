@@ -13,7 +13,6 @@ export const modelCommand: Command = {
 			let selected: (typeof models)[0] | null = null;
 			picker.show({
 				filterable: true,
-				hint: "Select a model",
 				onDismiss: () => {
 					if (selected) {
 						try {
