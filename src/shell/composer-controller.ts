@@ -8,7 +8,7 @@ import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { ImageAttachment } from "../features/images/attachment";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
-import type { MessagePart } from "../messages/parts";
+import { type MessagePart, messagePartToPromptText } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { PickerContext } from "../state/picker";
 import {
@@ -525,39 +525,81 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return history;
 	}
 
-	function recallLastUserMessage() {
+	function showUserMessageHistoryPicker(onSelect?: () => void): boolean {
+		const history = getUserMessageHistory();
+		if (history.length === 0) return false;
+
+		picker.show({
+			filterable: true,
+			label: "Message history",
+			options: history.map((entry) => ({
+				name: singleLineSummary(entry.text),
+				description: formatMessageHistoryTimestamp(entry.timestamp),
+				value: entry.text,
+				action: (ctx: PickerContext) => {
+					ctx.dismiss();
+					setTextareaText(entry.text);
+					if (textareaRef) textareaRef.cursorOffset = entry.text.length;
+					onSelect?.();
+				},
+			})),
+		});
+		return true;
+	}
+
+	function getUserMessageHistory(): Array<{
+		text: string;
+		timestamp?: number;
+	}> {
 		const messages = runtime.getMessages();
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const msg = messages[i];
+		const history: Array<{ text: string; timestamp?: number }> = [];
+		for (let index = messages.length - 1; index >= 0; index--) {
+			const msg = messages[index];
 			if (msg.role !== "user") continue;
-			const content = (msg as { content?: unknown }).content;
-			let text = "";
-			if (typeof content === "string") text = content;
-			else if (Array.isArray(content)) {
-				text = content
-					.filter(
-						(
-							block,
-						): block is {
-							type: "text";
-							text: string;
-						} =>
-							typeof block === "object" &&
-							block !== null &&
-							"type" in block &&
-							block.type === "text" &&
-							"text" in block &&
-							typeof block.text === "string",
-					)
-					.map((block) => block.text)
-					.join("\n");
-			}
-			if (text.trim()) {
-				setTextareaText(text);
-				if (textareaRef) textareaRef.cursorOffset = text.length;
-				return;
-			}
+			const text = textFromUserMessageContent(
+				(msg as { content?: unknown }).content,
+			);
+			if (!text.trim()) continue;
+			history.push({
+				text,
+				...(typeof msg.timestamp === "number"
+					? { timestamp: msg.timestamp }
+					: {}),
+			});
 		}
+		return history;
+	}
+
+	function textFromUserMessageContent(content: unknown): string {
+		if (typeof content === "string") return content;
+		if (!Array.isArray(content)) return "";
+		return content
+			.map((part) => {
+				if (!isMessagePart(part)) return "";
+				return messagePartToPromptText(part);
+			})
+			.filter((text) => text.trim().length > 0)
+			.join("\n");
+	}
+
+	function isMessagePart(value: unknown): value is MessagePart {
+		return (
+			typeof value === "object" &&
+			value !== null &&
+			"type" in value &&
+			typeof value.type === "string"
+		);
+	}
+
+	function singleLineSummary(text: string): string {
+		return text.replace(/\s+/g, " ").trim();
+	}
+
+	function formatMessageHistoryTimestamp(
+		timestamp: number | undefined,
+	): string {
+		if (timestamp === undefined) return "previous message";
+		return new Date(timestamp).toLocaleString();
 	}
 
 	function abort() {
@@ -588,10 +630,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		handleFollowUp,
 		restorePendingMessages,
 		showBashHistoryPicker,
+		showUserMessageHistoryPicker,
 		insertText,
 		getTextareaText,
 		setTextareaText,
-		recallLastUserMessage,
 		abort,
 		isStreaming,
 		getPendingMessageCount,

@@ -12,7 +12,7 @@ Current behavior:
 - when the agent is streaming and the composer has text, pressing `Enter` queues that text as a follow-up
 - queued follow-ups are shown above the composer while they are pending
 - when the composer is empty, the agent is streaming, and queued follow-ups exist, pressing `Enter` promotes those queued follow-ups to steering
-- pressing `Up` in an empty composer restores queued follow-ups first; if none exist, it recalls the last user message
+- pressing `Up` in an empty composer restores queued follow-ups first; if none exist, it opens user message history for recall
 - queued follow-ups clear from the visible stack when the next turn begins consuming them
 
 This behavior is currently exposed through the composer flow rather than through dedicated slash commands.

@@ -59,7 +59,7 @@ Plugin and prompt commands are also bindable by their registered command ids aft
 | `composer.steer` | `return` | Steer with queued follow-ups |
 | `composer.bash-history-older` | `up` | Show bash command history |
 | `composer.bash-history-newer` | `down` | Show bash command history |
-| `composer.restore-or-recall` | `up` | Restore queued follow-ups or recall previous message |
+| `composer.restore-or-recall` | `up` | Restore queued follow-ups or show message history |
 
 ### Inline picker
 

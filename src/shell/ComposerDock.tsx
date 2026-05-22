@@ -106,10 +106,13 @@ export function ComposerDock(props: ComposerDockProps) {
 			"composer.restore-or-recall": () => {
 				if (picker.visible) return false;
 				if (props.controller.getTextareaText().trim()) return false;
-				if (!props.controller.restorePendingMessages()) {
-					props.controller.recallLastUserMessage();
+				if (props.controller.restorePendingMessages()) {
+					syncComposerText();
+					return;
 				}
-				syncComposerText();
+				if (!props.controller.showUserMessageHistoryPicker(syncComposerText)) {
+					return false;
+				}
 			},
 		},
 	}));

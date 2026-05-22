@@ -57,7 +57,7 @@ export const KEYBINDING_REGISTRY = {
 		},
 		"restore-or-recall": {
 			defaultKeys: "up",
-			desc: "Restore queued follow-ups or recall previous message",
+			desc: "Restore queued follow-ups or show message history",
 			group: "Composer",
 		},
 	},
