@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test";
 import { sanitizeSettings } from "./settings";
 
+describe("sanitizeSettings", () => {
+	test("keeps boolean zen setting", () => {
+		expect(sanitizeSettings({ zen: true }).zen).toBe(true);
+		expect(sanitizeSettings({ zen: false }).zen).toBe(false);
+		expect(sanitizeSettings({ zen: "true" }).zen).toBe(false);
+	});
+});
+
 describe("sanitizeSettings keybindings", () => {
 	test("keeps string, array, false, and null keybinding values", () => {
 		const settings = sanitizeSettings({

@@ -24,6 +24,8 @@ The current settings UI exposes:
 
 Settings are persisted to `~/.kit/settings.json`.
 
+Use `/zen` to toggle the persisted zen transcript mode, which hides agent tool call details while keeping user messages, assistant text, and user-triggered bash visible.
+
 ## Keybindings
 
 Some shell keybindings and registered slash commands can be customized in `~/.kit/settings.json` under `keybindings`. Values may be a key string, an array of key strings, or `false`/`null` to disable the binding.

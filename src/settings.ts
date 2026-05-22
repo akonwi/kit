@@ -15,6 +15,8 @@ export type Settings = {
 	bells?: boolean;
 	/** User keybinding overrides by Kit command id. Use false/null to disable. */
 	keybindings?: KeybindingSettings;
+	/** Hide agent tool call details from the transcript */
+	zen?: boolean;
 	/** Speech settings - can be a boolean or object with options */
 	speech?:
 		| boolean
@@ -61,6 +63,7 @@ export type ResolvedDiffSettings = {
 
 const DEFAULTS: Settings = {
 	bells: true,
+	zen: false,
 	speech: { enabled: true, maxChars: 220 },
 	pager: true,
 	guidedQuestions: true,
@@ -165,6 +168,7 @@ export function sanitizeSettings(raw: unknown): Settings {
 	const theme = typeof raw.theme === "string" ? raw.theme : undefined;
 	const bells = typeof raw.bells === "boolean" ? raw.bells : DEFAULTS.bells;
 	const keybindings = sanitizeKeybindings(raw.keybindings);
+	const zen = typeof raw.zen === "boolean" ? raw.zen : DEFAULTS.zen;
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
 	const guidedQuestions =
 		typeof raw.guidedQuestions === "boolean"
@@ -219,6 +223,7 @@ export function sanitizeSettings(raw: unknown): Settings {
 		theme,
 		bells,
 		...(keybindings ? { keybindings } : {}),
+		zen,
 		speech,
 		pager,
 		guidedQuestions,

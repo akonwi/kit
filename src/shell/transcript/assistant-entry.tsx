@@ -189,6 +189,7 @@ export function AssistantEntry(props: {
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
+	zenMode?: boolean;
 }) {
 	if (isAssistantError(props.msg)) {
 		return (
@@ -202,43 +203,47 @@ export function AssistantEntry(props: {
 
 	return (
 		<box flexDirection="column" gap={0} width="100%">
-			<For each={toolCalls}>
-				{(tc) => {
-					const result = () => props.toolResults.get(tc.id);
-					const liveTool = () => props.liveTools[tc.id];
-					return (
-						<Show
-							when={result()}
-							fallback={
-								<Show
-									when={liveTool()}
-									fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}
-								>
-									{(live) => (
-										<LiveToolCall
-											tc={tc}
-											args={live().args}
-											partialResult={live().partialResult}
-											result={live().result}
-											isError={live().isError}
-											state={live().state}
-											aborted={props.aborted}
-										/>
-									)}
-								</Show>
-							}
-						>
-							{(r) => (
-								<CompletedToolCall
-									tc={tc}
-									result={r()}
-									aborted={props.aborted}
-								/>
-							)}
-						</Show>
-					);
-				}}
-			</For>
+			<Show when={!props.zenMode}>
+				<For each={toolCalls}>
+					{(tc) => {
+						const result = () => props.toolResults.get(tc.id);
+						const liveTool = () => props.liveTools[tc.id];
+						return (
+							<Show
+								when={result()}
+								fallback={
+									<Show
+										when={liveTool()}
+										fallback={
+											<PendingToolCall tc={tc} aborted={props.aborted} />
+										}
+									>
+										{(live) => (
+											<LiveToolCall
+												tc={tc}
+												args={live().args}
+												partialResult={live().partialResult}
+												result={live().result}
+												isError={live().isError}
+												state={live().state}
+												aborted={props.aborted}
+											/>
+										)}
+									</Show>
+								}
+							>
+								{(r) => (
+									<CompletedToolCall
+										tc={tc}
+										result={r()}
+										aborted={props.aborted}
+									/>
+								)}
+							</Show>
+						);
+					}}
+				</For>
+			</Show>
 			<Show when={text.length > 0}>
 				<markdown
 					content={text}
