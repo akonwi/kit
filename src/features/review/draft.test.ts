@@ -52,6 +52,8 @@ function makeFile(): ReviewFile {
 		],
 		skippedSections: [],
 		changeCount: 2,
+		unifiedLineCount: 2,
+		splitLineCount: 1,
 	};
 }
 

@@ -99,6 +99,22 @@ describe("ReviewDiffModel row model", () => {
 		});
 		expect(rows[2].addition.lineIndex).toBeUndefined();
 	});
+
+	test("preserves source line indexes for windowed hunks", () => {
+		const hunk = {
+			...makeHunk(),
+			lines: makeHunk().lines.slice(1, 4),
+			lineIndexOffset: 1,
+		};
+
+		expect(
+			buildReviewDiffUnifiedRows(hunk).map((row) => row.lineIndex),
+		).toEqual([1, 2, 3]);
+		expect(buildReviewDiffSplitRows(hunk)[0]).toMatchObject({
+			deletion: { kind: "delete", lineIndex: 1, lineNumber: 10 },
+			addition: { kind: "add", lineIndex: 3, lineNumber: 10 },
+		});
+	});
 });
 
 describe("ReviewDiffModel annotation placement", () => {

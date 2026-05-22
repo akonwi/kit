@@ -1,5 +1,5 @@
 import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
-import type { DiffLineAnnotation } from "@pierre/diffs";
+import { type DiffLineAnnotation, trimPatchContext } from "@pierre/diffs";
 import {
 	createEffect,
 	createMemo,
@@ -63,6 +63,15 @@ export type ReviewContentProps = {
 type ReviewMode = "list" | "patch";
 type ReviewSide = "additions" | "deletions";
 type CommentableLine = ReviewDiffCommentableLine;
+
+const LIST_AUTO_EXPAND_FILE_LIMIT = 12;
+const LIST_DIFF_PREVIEW_HUNK_LIMIT = 3;
+const LIST_DIFF_PREVIEW_LINE_LIMIT = 120;
+const PATCH_FOCUSED_RENDER_HUNK_LIMIT = 40;
+const PATCH_FOCUSED_RENDER_LINE_LIMIT = 800;
+const PATCH_WINDOW_HUNK_LIMIT = 12;
+const PATCH_WINDOW_LINE_LIMIT = 800;
+
 type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
@@ -94,6 +103,28 @@ type PatchScrollRef = {
 
 function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
+}
+
+function formatFileCount(count: number): string {
+	return `${count} file${count === 1 ? "" : "s"}`;
+}
+
+function getReviewFileRenderedLineCount(file: ReviewFile): number {
+	if (file.hunks.length === 0) {
+		return file.rawPatch.replace(/\r\n/g, "\n").split("\n").length;
+	}
+	return file.unifiedLineCount;
+}
+
+function shouldAutoExpandReviewList(files: ReviewFile[]): boolean {
+	return files.length <= LIST_AUTO_EXPAND_FILE_LIMIT;
+}
+
+function shouldUseFocusedPatchRendering(file: ReviewFile): boolean {
+	return (
+		file.hunks.length > PATCH_FOCUSED_RENDER_HUNK_LIMIT ||
+		getReviewFileRenderedLineCount(file) > PATCH_FOCUSED_RENDER_LINE_LIMIT
+	);
 }
 
 function sourceLabel(file: ReviewFile): string {
@@ -480,6 +511,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		setExpandedKeys((prev) => {
 			if (prev.size > 0) return prev;
+			if (!shouldAutoExpandReviewList(list)) return prev;
 			return new Set<string>(list.map((file) => file.id));
 		});
 	});
@@ -968,7 +1000,240 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
+	function getListPreviewHunks(file: ReviewFile): ReviewHunk[] {
+		const hunks: ReviewHunk[] = [];
+		let lineCount = 0;
+		for (const hunk of file.hunks) {
+			if (hunks.length >= LIST_DIFF_PREVIEW_HUNK_LIMIT) break;
+			const remainingLines = LIST_DIFF_PREVIEW_LINE_LIMIT - lineCount;
+			if (remainingLines <= 0) break;
+			const lines = hunk.lines.slice(0, remainingLines);
+			if (lines.length === 0) continue;
+			hunks.push({
+				...hunk,
+				id: `${hunk.id}:preview`,
+				lines,
+				changeCount: lines.filter((line) => line.kind !== "context").length,
+				patchLineCount: lines.length,
+			});
+			lineCount += lines.length;
+		}
+		return hunks;
+	}
+
+	function limitRawPatch(rawPatch: string): string {
+		const lines = rawPatch.replace(/\r\n/g, "\n").split("\n");
+		if (lines.length <= LIST_DIFF_PREVIEW_LINE_LIMIT) return rawPatch;
+		return trimPatchContext(rawPatch, 3);
+	}
+
+	function renderPreviewNotice(file: ReviewFile, visibleHunkCount: number) {
+		const hiddenHunks = Math.max(0, file.hunks.length - visibleHunkCount);
+		const hiddenLineCount = Math.max(
+			0,
+			getReviewFileRenderedLineCount(file) - LIST_DIFF_PREVIEW_LINE_LIMIT,
+		);
+		if (hiddenHunks === 0 && hiddenLineCount === 0) return null;
+		return (
+			<box paddingX={1} paddingY={0} backgroundColor={theme.bgSurface}>
+				<text fg={theme.textMuted} bg={theme.bgSurface}>
+					Preview only · press Enter for full file
+					{hiddenHunks > 0
+						? ` · ${hiddenHunks} more change group${hiddenHunks === 1 ? "" : "s"}`
+						: ""}
+				</text>
+			</box>
+		);
+	}
+
+	function renderListFileDiffContent(file: ReviewFile) {
+		if (!shouldUseFocusedPatchRendering(file)) {
+			return renderFileDiffContent(file, false);
+		}
+		if (file.hunks.length === 0) {
+			return (
+				<box flexDirection="column" gap={0}>
+					{renderRawDiffBlock(limitRawPatch(file.rawPatch), file.filetype)}
+					{renderPreviewNotice(file, 0)}
+				</box>
+			);
+		}
+		const hunks = getListPreviewHunks(file);
+		return (
+			<box flexDirection="column" gap={0}>
+				<For each={hunks}>{(hunk) => renderHunkBlock(file, hunk, false)}</For>
+				{renderPreviewNotice(file, hunks.length)}
+			</box>
+		);
+	}
+
+	function getRenderableLineCount(hunk: ReviewHunk): number {
+		return hunk.lines.length;
+	}
+
+	function getPatchWindowHunk(
+		hunk: ReviewHunk,
+		forceWindow: boolean,
+	): ReviewHunk {
+		if (!forceWindow || hunk.patchLineCount <= PATCH_WINDOW_LINE_LIMIT)
+			return hunk;
+		const sourceOffset = hunk.lineIndexOffset ?? 0;
+		const selectedLineIndex =
+			selectedLineIndices().get(hunk.id) ?? sourceOffset;
+		const halfWindow = Math.floor(PATCH_WINDOW_LINE_LIMIT / 2);
+		const maxStart = Math.max(0, hunk.lines.length - PATCH_WINDOW_LINE_LIMIT);
+		const start = Math.max(
+			0,
+			Math.min(maxStart, selectedLineIndex - sourceOffset - halfWindow),
+		);
+		const end = Math.min(hunk.lines.length, start + PATCH_WINDOW_LINE_LIMIT);
+		const lines = hunk.lines.slice(start, end);
+		return {
+			...hunk,
+			lines,
+			lineIndexOffset: sourceOffset + start,
+			lineWindow: { start, end, total: hunk.lines.length },
+			changeCount: lines.filter((line) => line.kind !== "context").length,
+			patchLineCount: lines.length,
+		};
+	}
+
+	function getFocusedPatchWindow(file: ReviewFile) {
+		const hunkCount = file.hunks.length;
+		if (hunkCount === 0) {
+			return { hunks: [] as ReviewHunk[], startIndex: 0, endIndex: 0 };
+		}
+		const section = selectedSkippedSection();
+		const focusIndex = Math.max(
+			0,
+			Math.min(hunkCount - 1, section?.beforeHunkIndex ?? selectedHunkIndex()),
+		);
+		let startIndex = focusIndex;
+		let endIndex = focusIndex + 1;
+		const focusedHunk = getPatchWindowHunk(file.hunks[focusIndex], true);
+		let lineCount = getRenderableLineCount(focusedHunk);
+		let preferBefore = true;
+
+		while (
+			endIndex - startIndex < PATCH_WINDOW_HUNK_LIMIT &&
+			lineCount < PATCH_WINDOW_LINE_LIMIT &&
+			(startIndex > 0 || endIndex < hunkCount)
+		) {
+			const candidates = preferBefore
+				? (["before", "after"] as const)
+				: (["after", "before"] as const);
+			let added = false;
+			for (const candidate of candidates) {
+				const nextIndex = candidate === "before" ? startIndex - 1 : endIndex;
+				const hunk = file.hunks[nextIndex];
+				if (!hunk) continue;
+				if (lineCount + hunk.patchLineCount > PATCH_WINDOW_LINE_LIMIT) continue;
+				if (candidate === "before") startIndex = nextIndex;
+				else endIndex = nextIndex + 1;
+				lineCount += hunk.patchLineCount;
+				preferBefore = !preferBefore;
+				added = true;
+				break;
+			}
+			if (!added) break;
+		}
+
+		return {
+			hunks: file.hunks
+				.slice(startIndex, endIndex)
+				.map((hunk) => getPatchWindowHunk(hunk, hunk.id === focusedHunk.id)),
+			startIndex,
+			endIndex,
+		};
+	}
+
+	function renderPatchWindowNotice(message: string) {
+		return (
+			<box paddingX={1} paddingY={0} backgroundColor={theme.bgSurface}>
+				<text fg={theme.textMuted} bg={theme.bgSurface}>
+					{message}
+				</text>
+			</box>
+		);
+	}
+
+	function renderHunkWindowNotice(hunk: ReviewHunk) {
+		if (!hunk.lineWindow) return null;
+		return renderPatchWindowNotice(
+			`Large change group · showing rows ${hunk.lineWindow.start + 1}-${hunk.lineWindow.end} of ${hunk.lineWindow.total}`,
+		);
+	}
+
+	function renderFocusedSkippedSection(
+		file: ReviewFile,
+		section: ReviewSkippedSection,
+	) {
+		const expanded = () => expandedSectionIds().has(section.id);
+		const selected = () => selectedSkippedSection()?.id === section.id;
+		return (
+			<>
+				{renderSkippedSectionRow(section, {
+					interactive: true,
+					selected,
+					expanded,
+				})}
+				<Show when={expanded()}>
+					{renderRawDiffBlock(section.rawPatch, file.filetype)}
+				</Show>
+			</>
+		);
+	}
+
+	function renderFocusedPatchContent(file: ReviewFile) {
+		const window = () => getFocusedPatchWindow(file);
+		const trailingSection = () =>
+			window().endIndex === file.hunks.length
+				? getSkippedSection(file, file.hunks.length)
+				: undefined;
+		return (
+			<box flexDirection="column" gap={0}>
+				<box paddingX={1} paddingY={0} backgroundColor={theme.bgSurface}>
+					<text fg={theme.textMuted} bg={theme.bgSurface}>
+						Large file · showing nearby change groups for responsiveness
+					</text>
+				</box>
+				<Show when={window().startIndex > 0}>
+					{renderPatchWindowNotice(
+						`${window().startIndex} earlier change group${window().startIndex === 1 ? "" : "s"} hidden`,
+					)}
+				</Show>
+				<For each={window().hunks}>
+					{(hunk) => {
+						const hunkIndex = () =>
+							file.hunks.findIndex((candidate) => candidate.id === hunk.id);
+						const section = () => getSkippedSection(file, hunkIndex());
+						return (
+							<>
+								{renderHunkWindowNotice(hunk)}
+								<Show when={section()}>
+									{(value) => renderFocusedSkippedSection(file, value())}
+								</Show>
+								{renderHunkBlock(file, hunk, true)}
+							</>
+						);
+					}}
+				</For>
+				<Show when={trailingSection()}>
+					{(section) => renderFocusedSkippedSection(file, section())}
+				</Show>
+				<Show when={window().endIndex < file.hunks.length}>
+					{renderPatchWindowNotice(
+						`${file.hunks.length - window().endIndex} later change group${file.hunks.length - window().endIndex === 1 ? "" : "s"} hidden`,
+					)}
+				</Show>
+			</box>
+		);
+	}
+
 	function renderFileDiffContent(file: ReviewFile, interactive: boolean) {
+		if (interactive && shouldUseFocusedPatchRendering(file)) {
+			return renderFocusedPatchContent(file);
+		}
 		if (file.hunks.length === 0) {
 			return renderRawDiffBlock(file.rawPatch, file.filetype);
 		}
@@ -1260,7 +1525,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					left={<text fg={theme.textMuted}>Code review</text>}
 					right={
 						<text fg={theme.textMuted}>
-							{reviewFiles().length === 1 ? "" : "s"}
+							{formatFileCount(reviewFiles().length)}
 							{totalDraftNotes() > 0
 								? ` · ${formatNoteCount(totalDraftNotes())}`
 								: ""}
@@ -1307,6 +1572,17 @@ export function ReviewContent(props: ReviewContentProps) {
 								padding={1}
 							>
 								<box flexDirection="column" gap={0}>
+									<Show when={!shouldAutoExpandReviewList(reviewFiles())}>
+										<box
+											paddingX={1}
+											paddingY={0}
+											backgroundColor={theme.bgSurface}
+										>
+											<text fg={theme.textMuted} bg={theme.bgSurface}>
+												Large review · files start collapsed for responsiveness
+											</text>
+										</box>
+									</Show>
 									<For each={reviewFiles()}>
 										{(file, idx) => {
 											const selected = () => idx() === selectedIndex();
@@ -1364,7 +1640,7 @@ export function ReviewContent(props: ReviewContentProps) {
 															gap={0}
 														>
 															{renderFileNoteBlock(file)}
-															{renderFileDiffContent(file, false)}
+															{renderListFileDiffContent(file)}
 														</box>
 													</Show>
 												</box>

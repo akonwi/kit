@@ -69,6 +69,14 @@ export function getReviewDiffActiveLineId(
 	return `review-line-cursor-${hunkId}-${lineIndex}`;
 }
 
+function getHunkLineIndexOffset(hunk: ReviewHunk): number {
+	return hunk.lineIndexOffset ?? 0;
+}
+
+function getLocalLineIndex(hunk: ReviewHunk, lineIndex: number): number {
+	return lineIndex - getHunkLineIndexOffset(hunk);
+}
+
 function cellForLine(
 	line: ReviewLine,
 	lineIndex: number,
@@ -107,9 +115,10 @@ function cellForLine(
 export function buildReviewDiffUnifiedRows(
 	hunk: ReviewHunk,
 ): ReviewDiffUnifiedRow[] {
+	const lineIndexOffset = getHunkLineIndexOffset(hunk);
 	return hunk.lines.map((line, index) => ({
-		id: `${hunk.id}:unified:${index}`,
-		lineIndex: index,
+		id: `${hunk.id}:unified:${lineIndexOffset + index}`,
+		lineIndex: lineIndexOffset + index,
 		kind: line.kind,
 		deletionLineNumber: line.deletionLineNumber,
 		additionLineNumber: line.additionLineNumber,
@@ -152,7 +161,7 @@ export function getReviewDiffCommentableLine(
 	hunk: ReviewHunk,
 	lineIndex: number,
 ): ReviewDiffCommentableLine | null {
-	const line = hunk.lines[lineIndex];
+	const line = hunk.lines[getLocalLineIndex(hunk, lineIndex)];
 	if (!line) return null;
 	return toCommentableLine(line, lineIndex);
 }
@@ -161,14 +170,16 @@ export function buildReviewDiffSplitRows(
 	hunk: ReviewHunk,
 ): ReviewDiffSplitRow[] {
 	const rows: ReviewDiffSplitRow[] = [];
+	const lineIndexOffset = getHunkLineIndexOffset(hunk);
 	let index = 0;
 	while (index < hunk.lines.length) {
 		const line = hunk.lines[index];
+		const globalIndex = lineIndexOffset + index;
 		if (line.kind === "context") {
 			rows.push({
-				id: `${hunk.id}:split:${index}`,
-				deletion: cellForLine(line, index, "deletions"),
-				addition: cellForLine(line, index, "additions"),
+				id: `${hunk.id}:split:${globalIndex}`,
+				deletion: cellForLine(line, globalIndex, "deletions"),
+				addition: cellForLine(line, globalIndex, "additions"),
 			});
 			index += 1;
 			continue;
@@ -177,6 +188,7 @@ export function buildReviewDiffSplitRows(
 		const deletions: IndexedReviewLine[] = [];
 		const additions: IndexedReviewLine[] = [];
 		const startIndex = index;
+		const globalStartIndex = lineIndexOffset + startIndex;
 		while (index < hunk.lines.length) {
 			const current = hunk.lines[index];
 			if (current.kind === "context") break;
@@ -193,12 +205,20 @@ export function buildReviewDiffSplitRows(
 			const deletion = deletions[rowIndex];
 			const addition = additions[rowIndex];
 			rows.push({
-				id: `${hunk.id}:split:${startIndex}:${rowIndex}`,
+				id: `${hunk.id}:split:${globalStartIndex}:${rowIndex}`,
 				deletion: deletion
-					? cellForLine(deletion.line, deletion.index, "deletions")
+					? cellForLine(
+							deletion.line,
+							lineIndexOffset + deletion.index,
+							"deletions",
+						)
 					: { kind: "empty", sign: " ", text: "" },
 				addition: addition
-					? cellForLine(addition.line, addition.index, "additions")
+					? cellForLine(
+							addition.line,
+							lineIndexOffset + addition.index,
+							"additions",
+						)
 					: { kind: "empty", sign: " ", text: "" },
 			});
 		}
@@ -216,7 +236,8 @@ export function getReviewDiffCommentableLines(
 		for (const row of buildReviewDiffSplitRows(hunk)) {
 			for (const cell of [row.deletion, row.addition]) {
 				if (cell.lineIndex == null || cell.lineNumber == null) continue;
-				const sourceLine = hunk.lines[cell.lineIndex];
+				const sourceLine = hunk.lines[getLocalLineIndex(hunk, cell.lineIndex)];
+				if (!sourceLine) continue;
 				const line = toCommentableLine(sourceLine, cell.lineIndex);
 				if (!line || (side && line.side !== side)) continue;
 				lines.push(line);
@@ -225,8 +246,9 @@ export function getReviewDiffCommentableLines(
 		return lines;
 	}
 
+	const lineIndexOffset = getHunkLineIndexOffset(hunk);
 	return hunk.lines.flatMap((line, index) => {
-		const commentableLine = toCommentableLine(line, index);
+		const commentableLine = toCommentableLine(line, lineIndexOffset + index);
 		if (!commentableLine || (side && commentableLine.side !== side)) return [];
 		return [commentableLine];
 	});
@@ -350,7 +372,7 @@ export function getReviewDiffLineTop(
 ): number {
 	if (view === "unified") {
 		return (
-			lineIndex +
+			getLocalLineIndex(hunk, lineIndex) +
 			unifiedAnnotationOffsetBeforeLine(hunk, lineIndex, annotations)
 		);
 	}

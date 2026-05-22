@@ -1,12 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type {
-	ChangeContent,
-	ContextContent,
-	FileDiffMetadata,
-	Hunk,
-} from "@pierre/diffs";
+import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 
 export type ReviewDiffSource = "staged" | "unstaged" | "untracked";
@@ -24,6 +19,9 @@ export type ReviewHunk = {
 	header: string;
 	context: string;
 	lines: ReviewLine[];
+	/** Offset of lines[0] in the source hunk's unified row space. */
+	lineIndexOffset?: number;
+	lineWindow?: { start: number; end: number; total: number };
 	changeCount: number;
 	rawPatch: string;
 	patchStartLine: number;
@@ -56,6 +54,8 @@ export type ReviewFile = {
 	hunks: ReviewHunk[];
 	skippedSections: ReviewSkippedSection[];
 	changeCount: number;
+	unifiedLineCount: number;
+	splitLineCount: number;
 };
 
 function runGit(
@@ -259,101 +259,70 @@ function loadDisplayLines(options: {
 	}
 }
 
-function contextLines(
-	block: ContextContent,
+function buildReviewLinesFromPierreHunk(
 	file: FileDiffMetadata,
-	additionLineNumber: number,
-	deletionLineNumber: number,
+	hunk: PierreHunk,
 ): ReviewLine[] {
-	return file.additionLines
-		.slice(block.additionLineIndex, block.additionLineIndex + block.lines)
-		.map((text, index) => ({
-			kind: "context" as const,
-			text,
-			additionLineNumber: additionLineNumber + index,
-			deletionLineNumber: deletionLineNumber + index,
-		}));
-}
-
-function deletedLines(
-	block: ChangeContent,
-	file: FileDiffMetadata,
-	deletionLineNumber: number,
-): ReviewLine[] {
-	return file.deletionLines
-		.slice(block.deletionLineIndex, block.deletionLineIndex + block.deletions)
-		.map((text, index) => ({
-			kind: "delete" as const,
-			text,
-			deletionLineNumber: deletionLineNumber + index,
-		}));
-}
-
-function addedLines(
-	block: ChangeContent,
-	file: FileDiffMetadata,
-	additionLineNumber: number,
-): ReviewLine[] {
-	return file.additionLines
-		.slice(block.additionLineIndex, block.additionLineIndex + block.additions)
-		.map((text, index) => ({
-			kind: "add" as const,
-			text,
-			additionLineNumber: additionLineNumber + index,
-		}));
-}
-
-function getRenderedUnifiedLineCount(hunk: Hunk): number {
-	return hunk.hunkContent.reduce((count, block) => {
-		if (block.type === "context") return count + block.lines;
-		return count + block.additions + block.deletions;
-	}, 0);
-}
-
-function hunkToReviewHunk(
-	file: FileDiffMetadata,
-	hunk: Hunk,
-	fileNoteKey: string,
-	index: number,
-	renderedStartLine: number,
-	rawPatch: string,
-): ReviewHunk {
 	const lines: ReviewLine[] = [];
 	let nextAdditionLineNumber = hunk.additionStart;
 	let nextDeletionLineNumber = hunk.deletionStart;
 	for (const block of hunk.hunkContent) {
 		if (block.type === "context") {
-			lines.push(
-				...contextLines(
-					block,
-					file,
-					nextAdditionLineNumber,
-					nextDeletionLineNumber,
-				),
-			);
+			for (let index = 0; index < block.lines; index += 1) {
+				lines.push({
+					kind: "context",
+					text: file.additionLines[block.additionLineIndex + index] ?? "",
+					additionLineNumber: nextAdditionLineNumber + index,
+					deletionLineNumber: nextDeletionLineNumber + index,
+				});
+			}
 			nextAdditionLineNumber += block.lines;
 			nextDeletionLineNumber += block.lines;
 			continue;
 		}
-		lines.push(...deletedLines(block, file, nextDeletionLineNumber));
-		lines.push(...addedLines(block, file, nextAdditionLineNumber));
+		for (let index = 0; index < block.deletions; index += 1) {
+			lines.push({
+				kind: "delete",
+				text: file.deletionLines[block.deletionLineIndex + index] ?? "",
+				deletionLineNumber: nextDeletionLineNumber + index,
+			});
+		}
+		for (let index = 0; index < block.additions; index += 1) {
+			lines.push({
+				kind: "add",
+				text: file.additionLines[block.additionLineIndex + index] ?? "",
+				additionLineNumber: nextAdditionLineNumber + index,
+			});
+		}
 		nextDeletionLineNumber += block.deletions;
 		nextAdditionLineNumber += block.additions;
 	}
-	const changeCount = lines.filter((line) => line.kind !== "context").length;
+	return lines;
+}
+
+function hunkToReviewHunk(
+	file: FileDiffMetadata,
+	hunk: PierreHunk,
+	fileNoteKey: string,
+	index: number,
+	rawPatch: string,
+): ReviewHunk {
+	let cachedLines: ReviewLine[] | null = null;
 	const noteKey = `${fileNoteKey}:${hunk.hunkSpecs ?? `hunk-${index + 1}`}:${index}`;
 	const header = hunk.hunkSpecs ?? `Hunk ${index + 1}`;
-	const patchLineCount = getRenderedUnifiedLineCount(hunk);
 	return {
 		id: `${file.name}:${hunk.hunkSpecs ?? index}:${index}`,
 		noteKey,
 		header,
 		context: hunk.hunkContext ?? "",
-		lines,
-		changeCount,
+		get lines() {
+			cachedLines ??= buildReviewLinesFromPierreHunk(file, hunk);
+			return cachedLines;
+		},
+		changeCount: hunk.additionLines + hunk.deletionLines,
 		rawPatch,
-		patchStartLine: renderedStartLine,
-		patchLineCount,
+		patchStartLine: hunk.unifiedLineStart,
+		patchLineCount: hunk.unifiedLineCount,
 		additionStart: hunk.additionStart,
 		additionCount: hunk.additionCount,
 		deletionStart: hunk.deletionStart,
@@ -470,6 +439,8 @@ export function buildSkippedSectionsForFile(
 	return sections;
 }
 
+const EAGER_SKIPPED_SECTIONS_FILE_LIMIT = 50;
+
 function fileToReviewFile(
 	file: FileDiffMetadata,
 	rawPatch: string,
@@ -478,31 +449,35 @@ function fileToReviewFile(
 		cwd?: string;
 		repoRoot: string;
 		source: ReviewDiffSource;
+		includeSkippedSections: boolean;
 	},
 ): ReviewFile {
 	const noteKey = `${options.source}:${file.prevName ?? ""}->${file.name}`;
 	const rawHunks = splitRawPatchIntoHunks(rawPatch);
-	let renderedStartLine = 0;
-	const hunks = file.hunks.map((hunk, hunkIndex) => {
-		const reviewHunk = hunkToReviewHunk(
+	const hunks = file.hunks.map((hunk, hunkIndex) =>
+		hunkToReviewHunk(
 			file,
 			hunk,
 			noteKey,
 			hunkIndex,
-			renderedStartLine,
 			rawHunks[hunkIndex] ?? rawPatch,
-		);
-		renderedStartLine += getRenderedUnifiedLineCount(hunk);
-		return reviewHunk;
-	});
+		),
+	);
 	const changeCount = hunks.reduce((sum, hunk) => sum + hunk.changeCount, 0);
 	const id = `${noteKey}:${index}`;
-	const displayLines = loadDisplayLines({
-		cwd: options.cwd,
-		repoRoot: options.repoRoot,
-		file,
-		source: options.source,
-	});
+	const skippedSections = options.includeSkippedSections
+		? buildSkippedSectionsForFile(
+				id,
+				rawPatch,
+				hunks,
+				loadDisplayLines({
+					cwd: options.cwd,
+					repoRoot: options.repoRoot,
+					file,
+					source: options.source,
+				}),
+			)
+		: [];
 	return {
 		id,
 		noteKey,
@@ -513,13 +488,10 @@ function fileToReviewFile(
 		filetype: inferFiletype(file.name),
 		rawPatch,
 		hunks,
-		skippedSections: buildSkippedSectionsForFile(
-			id,
-			rawPatch,
-			hunks,
-			displayLines,
-		),
+		skippedSections,
 		changeCount,
+		unifiedLineCount: file.unifiedLineCount,
+		splitLineCount: file.splitLineCount,
 	};
 }
 
@@ -542,7 +514,12 @@ function parseReviewPatchSet(
 	};
 }
 
+function yieldToRenderer(): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
+	await yieldToRenderer();
 	const staged = getStagedDiff(cwd);
 	const unstaged = getUnstagedDiff(cwd);
 	const untracked = getUntrackedDiff(cwd);
@@ -558,6 +535,12 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 		["rev-parse", "--show-toplevel"],
 		"Failed to resolve repository root.",
 	).trim();
+	const totalFileCount = patchSets.reduce(
+		(count, patchSet) => count + patchSet.files.length,
+		0,
+	);
+	const includeSkippedSections =
+		totalFileCount <= EAGER_SKIPPED_SECTIONS_FILE_LIMIT;
 	const reviewFiles: ReviewFile[] = [];
 	for (const patchSet of patchSets) {
 		for (const [index, file] of patchSet.files.entries()) {
@@ -570,6 +553,7 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 						cwd,
 						repoRoot,
 						source: patchSet.source,
+						includeSkippedSections,
 					},
 				),
 			);
