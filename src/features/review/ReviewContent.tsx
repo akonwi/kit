@@ -406,16 +406,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		return buildLineSelection(file.path, anchor, line);
 	});
-	const selectedRangeNote = createMemo(() => {
-		const range = selectedRange();
-		if (!range) return "";
-		return rangeNotes().get(buildRangeNoteKey(range))?.trim() ?? "";
-	});
-	const currentLineNoteLabel = createMemo(() => {
-		const range = selectedRange();
-		if (!range) return "";
-		return range.startLine === range.endLine ? "Line note" : "Range note";
-	});
 	const activeLineStatus = createMemo(() => {
 		const range = selectedRange();
 		if (!range || mode() !== "patch" || !rangeAnchor()) return "";
@@ -1693,8 +1683,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									<Show
 										when={
 											editingFileNoteKey() === file().noteKey ||
-											fileNote().length > 0 ||
-											selectedRangeNote().length > 0
+											fileNote().length > 0
 										}
 									>
 										<box
@@ -1704,19 +1693,6 @@ export function ReviewContent(props: ReviewContentProps) {
 											gap={0}
 										>
 											{renderFileNoteBlock(file())}
-											<Show when={selectedRangeNote().length > 0}>
-												<box
-													border
-													borderColor={theme.borderDefault}
-													paddingX={1}
-													flexDirection="column"
-													gap={0}
-												>
-													<text fg={theme.textPrimary}>
-														{currentLineNoteLabel()}: {selectedRangeNote()}
-													</text>
-												</box>
-											</Show>
 										</box>
 									</Show>
 
