@@ -56,7 +56,7 @@ import { Type, type PluginAPI } from "@akonwi/kit/plugin";
 
 export default function MyPlugin(kit: PluginAPI) {
 	kit.registerCommand(
-		"hello-plugin",
+		"hello-world",
 		{ description: "Show a greeting from a plugin" },
 		async (ctx) => {
 			ctx.ui.toast({
@@ -102,7 +102,7 @@ Plugin command ids are also keybinding ids. Users can bind a plugin command in `
 ```json
 {
   "keybindings": {
-    "MyPlugin.hello": "ctrl+h"
+    "hello-world": "ctrl+h"
   }
 }
 ```
