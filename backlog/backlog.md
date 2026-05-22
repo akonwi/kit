@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] feat: allow customizing/overriding the templates for code-review messages and pager responses
 - [ ] chore: turn this into a monorepo and build website
 - [ ] feat: support remote usage. build a way to use kit sessions from web/mobile 
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery

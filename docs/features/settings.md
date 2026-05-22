@@ -45,6 +45,38 @@ The key syntax is OpenTUI keymap syntax such as `ctrl+p`, `shift+tab`, `return`/
 
 Slash commands are bound by command id without the leading `/`; for example, bind `/code-review` with `"code-review"`. See `docs/features/keybindings.md` for the built-in configurable command catalog.
 
+## Templates
+
+Code-review and pager feedback messages are rendered from Markdown templates. You can override the built-in defaults by placing template files in either location:
+
+| Scope | Path |
+| --- | --- |
+| Project | `.kit/templates/<name>.md` |
+| Global | `~/.kit/templates/<name>.md` |
+
+Project templates take precedence over global templates, which take precedence over the built-in defaults.
+
+### Available templates
+
+| Name | Used for |
+| --- | --- |
+| `review-feedback` | `/code-review` submission message |
+| `pager-feedback` | Pager section feedback message |
+
+### Template variables
+
+Use `{{content}}` where the structured feedback content should be inserted.
+
+Example `~/.kit/templates/review-feedback.md`:
+
+```markdown
+Here are my notes on the uncommitted changes.
+
+{{content}}
+
+Please address these before merging.
+```
+
 ## How to access it
 
 Run:

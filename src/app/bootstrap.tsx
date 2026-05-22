@@ -11,6 +11,7 @@ import { createKitKeymap } from "../keymap/setup";
 import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
+import { initTemplates } from "../shell/templates";
 import {
 	initTerminalTitle,
 	updateTerminalTitle,
@@ -149,6 +150,7 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
 	updateTerminalTitle(session.name, process.cwd());
+	initTemplates(session.cwd);
 
 	// Keep the process alive until the renderer is destroyed.
 	// In compiled binaries, the async bootstrap() returning would let

@@ -5,6 +5,7 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
+import { renderTemplate } from "../../shell/templates";
 import { type PagerSection, splitSections } from "./split-sections";
 
 const AUTO_PAGE_MIN_OVERFLOW_ROWS = 8;
@@ -77,13 +78,9 @@ function formatFeedbackMessage(
 
 	if (blocks.length === 0) return null;
 
-	return [
-		"Here is my feedback on your previous response, grouped by section.",
-		"",
-		...blocks.flatMap((block, idx) => (idx === 0 ? [block] : ["", block])),
-		"",
-		"Please use this section-specific feedback in your revision or reply.",
-	].join("\n");
+	return renderTemplate("pager-feedback", {
+		content: blocks.join("\n\n"),
+	});
 }
 
 function activateSections(

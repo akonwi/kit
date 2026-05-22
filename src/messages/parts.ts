@@ -1,3 +1,5 @@
+import { renderTemplate } from "../shell/templates";
+
 export type TextMessagePart = {
 	type: "text";
 	text: string;
@@ -48,21 +50,28 @@ export function messagePartToPromptText(part: MessagePart): string {
 		case "text":
 			return part.text;
 		case "code-review": {
-			const lines = ["Attached code review:"];
+			const fileBlocks: string[] = [];
 			for (const file of part.review.files) {
-				lines.push(`File: ${file.path}`);
+				const notes: string[] = [];
 				if (file.fileComment.trim()) {
-					lines.push(`- File comment: ${file.fileComment.trim()}`);
+					notes.push(`- File comment: ${file.fileComment.trim()}`);
 				}
 				for (const range of file.ranges) {
 					const lineLabel =
 						range.startLine === range.endLine
 							? `${range.startLine}`
 							: `${range.startLine}-${range.endLine}`;
-					lines.push(`- ${range.side} ${lineLabel}: ${range.comment.trim()}`);
+					notes.push(`- ${range.side} ${lineLabel}: ${range.comment.trim()}`);
 				}
+				if (notes.length === 0) continue;
+				fileBlocks.push(`File: ${file.path}\n${notes.join("\n")}`);
 			}
-			return lines.join("\n");
+			if (fileBlocks.length === 0) return "";
+			return (
+				renderTemplate("review-feedback", {
+					content: fileBlocks.join("\n\n"),
+				}) ?? ""
+			);
 		}
 		case "image":
 			return part.filename
