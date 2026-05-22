@@ -1,13 +1,8 @@
 import { Show } from "solid-js";
 import type { PickerManager } from "../state/picker-manager";
-import { HintBar } from "./HintBar";
+import { KeymapHintBar } from "./KeymapHintBar";
 import { Picker } from "./Picker";
 import { theme } from "./theme";
-
-const BINDINGS = [
-	{ key: "Enter", action: "insert" },
-	{ key: "Esc", action: "close" },
-];
 
 export type InlinePickerProps = {
 	picker: PickerManager;
@@ -29,11 +24,15 @@ export function InlinePicker(props: InlinePickerProps) {
 				paddingX={1}
 				flexDirection="column"
 			>
-				<Picker.Root picker={props.picker}>
+				<Picker.Root
+					picker={props.picker}
+					commandNamespace="picker"
+					selectHint="insert"
+				>
 					<Picker.Header />
 					<Picker.Body />
 					<Picker.Footer paddingBottom={1}>
-						<HintBar borderless bindings={BINDINGS} />
+						<KeymapHintBar borderless group="picker" />
 					</Picker.Footer>
 				</Picker.Root>
 			</box>

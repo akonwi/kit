@@ -348,7 +348,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	async function handleSubmit() {
 		if (commandPalette.visible) return;
 		if (picker.visible && !picker.isFilterable) {
-			picker.selectCurrent();
+			picker.accept();
 			return;
 		}
 		if (picker.visible) return;
@@ -584,6 +584,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		picker,
 		commandPalette,
 		openCommandPalette,
+		runCommand: executeCommand,
 		setTextarea,
 		handlePaste,
 		handleTextChange,

@@ -1,14 +1,10 @@
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import type { Renderable } from "@opentui/core";
+import { createSignal } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { Dialog } from "../../shell/Dialog";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
-
-const BINDINGS: Binding[] = [
-	{ key: "Enter", action: "continue" },
-	{ key: "Esc", action: "continue" },
-];
 
 export type McpAuthorizationUrlModalProps = {
 	serverName: string;
@@ -19,23 +15,26 @@ export type McpAuthorizationUrlModalProps = {
 };
 
 export function McpAuthorizationUrlModal(props: McpAuthorizationUrlModalProps) {
-	useKeyboard((event: KeyEvent) => {
-		if (!props.active) return;
-		if (
-			event.name === "return" ||
-			event.name === "enter" ||
-			event.name === "escape"
-		) {
-			event.preventDefault();
-			props.onClose();
-		}
-	});
+	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		target: rootTarget,
+		targetMode: "focus-within",
+		when: () => props.active,
+		commands: {
+			"mcp-authorization-url.continue": () => props.onClose(),
+		},
+	}));
 
 	const url = () => props.authorizationUrl.toString();
 
 	return (
 		<Dialog.Root
 			surfaceProps={props.surfaceProps}
+			rootRef={setRootTarget}
+			rootFocusable
+			rootFocused={props.active}
 			width="80%"
 			maxWidth={100}
 			minWidth={50}
@@ -66,7 +65,7 @@ export function McpAuthorizationUrlModal(props: McpAuthorizationUrlModalProps) {
 					</box>
 				</scrollbox>
 				<Dialog.Footer paddingY={1}>
-					<HintBar borderless bindings={BINDINGS} />
+					<KeymapHintBar borderless group="mcp-authorization-url" />
 				</Dialog.Footer>
 			</box>
 		</Dialog.Root>

@@ -154,9 +154,13 @@ type SessionAPI = {
 	) => Promise<void>;
 };
 
+export type KeybindingValue = string | string[] | false | null;
+export type KeybindingSettings = Record<string, KeybindingValue>;
+
 export type Settings = {
 	theme?: string;
 	bells?: boolean;
+	keybindings?: KeybindingSettings;
 	speech?:
 		| boolean
 		| {

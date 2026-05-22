@@ -4,29 +4,17 @@ import {
 	type OAuthPrompt,
 	type OAuthProviderInterface,
 } from "@earendil-works/pi-ai/oauth";
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard, useRenderer } from "@opentui/solid";
+import { useBindings } from "@opentui/keymap/solid";
+import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { readAuthFile, writeAuthFile } from "../../auth";
+import { withKitKeyAliases } from "../../keymap/bindings";
 import { Dialog } from "../../shell/Dialog";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { openExternal } from "../../shell/open-external";
 import { copySelection } from "../../shell/selection";
 import { theme } from "../../shell/theme";
-
-const SELECT_BINDINGS: Binding[] = [
-	{ key: "↑/↓", action: "move" },
-	{ key: "Enter", action: "select" },
-	{ key: "Esc", action: "cancel" },
-];
-
-const PROMPT_BINDINGS: Binding[] = [
-	{ key: "Enter", action: "submit" },
-	{ key: "Esc", action: "cancel" },
-];
-
-const WAITING_BINDINGS: Binding[] = [{ key: "Esc", action: "cancel" }];
 
 export type LoginOutcome = {
 	didAuthenticate: boolean;
@@ -203,46 +191,117 @@ export function LoginModal(props: LoginModalProps) {
 		resolvePendingPrompt(value);
 	}
 
-	useKeyboard((event: KeyEvent) => {
-		if (event.ctrl && event.name === "c") {
-			event.preventDefault();
-			cancel();
-			return;
-		}
+	useBindings(() =>
+		withKitKeyAliases({
+			priority: 200,
+			commands: [
+				{
+					name: "login.cancel",
+					desc: "Cancel login",
+					group: "login",
+					hint: "cancel",
+					run: cancel,
+				},
+			],
+			bindings: [
+				{
+					key: "escape",
+					cmd: "login.cancel",
+					desc: "Cancel login",
+					group: "login",
+				},
+				{
+					key: "ctrl+c",
+					cmd: "login.cancel",
+					desc: "Cancel login",
+					group: "login",
+				},
+			],
+		}),
+	);
 
-		if (event.name === "escape") {
-			event.preventDefault();
-			cancel();
-			return;
-		}
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => step() === "select",
+			priority: 200,
+			commands: [
+				{
+					name: "login.move-up",
+					desc: "Move provider selection up",
+					group: "login",
+					hint: "move",
+					run: () => {
+						setSelectedIndex((index) => Math.max(0, index - 1));
+					},
+				},
+				{
+					name: "login.move-down",
+					desc: "Move provider selection down",
+					group: "login",
+					hint: "move",
+					run: () => {
+						setSelectedIndex((index) =>
+							Math.min(providers.length - 1, index + 1),
+						);
+					},
+				},
+				{
+					name: "login.select-provider",
+					desc: "Select login provider",
+					group: "login",
+					hint: "select",
+					run: () => {
+						const provider = providers[selectedIndex()];
+						if (provider) void startProviderLogin(provider);
+					},
+				},
+			],
+			bindings: [
+				{
+					key: "up",
+					cmd: "login.move-up",
+					desc: "Move provider selection up",
+					group: "login",
+				},
+				{
+					key: "down",
+					cmd: "login.move-down",
+					desc: "Move provider selection down",
+					group: "login",
+				},
+				{
+					key: "return",
+					cmd: "login.select-provider",
+					desc: "Select login provider",
+					group: "login",
+				},
+			],
+		}),
+	);
 
-		if (step() === "select") {
-			if (event.name === "up") {
-				event.preventDefault();
-				setSelectedIndex((index) => Math.max(0, index - 1));
-				return;
-			}
-			if (event.name === "down") {
-				event.preventDefault();
-				setSelectedIndex((index) => Math.min(providers.length - 1, index + 1));
-				return;
-			}
-			if (event.name === "return" || event.name === "enter") {
-				event.preventDefault();
-				const provider = providers[selectedIndex()];
-				if (provider) void startProviderLogin(provider);
-			}
-			return;
-		}
-
-		if (
-			(step() === "prompt" || step() === "apiKey") &&
-			(event.name === "return" || event.name === "enter")
-		) {
-			event.preventDefault();
-			submitInput();
-		}
-	});
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => step() === "prompt" || step() === "apiKey",
+			priority: 200,
+			commands: [
+				{
+					name: "login.submit-input",
+					desc: "Submit login input",
+					group: "login",
+					hint: "submit",
+					run: submitInput,
+				},
+			],
+			bindings: [
+				{
+					key: "return",
+					cmd: "login.submit-input",
+					desc: "Submit login input",
+					group: "login",
+				},
+			],
+		}),
+	);
 
 	const title = () => {
 		if (step() === "apiKey") return "Set API key";
@@ -254,12 +313,6 @@ export function LoginModal(props: LoginModalProps) {
 		if (step() === "apiKey") return "No OAuth providers are available.";
 		if (providerName()) return providerName();
 		return `${providers.length} providers available`;
-	};
-
-	const bindings = () => {
-		if (step() === "select") return SELECT_BINDINGS;
-		if (step() === "prompt" || step() === "apiKey") return PROMPT_BINDINGS;
-		return WAITING_BINDINGS;
 	};
 
 	const authDetailsLines = () => {
@@ -381,7 +434,7 @@ export function LoginModal(props: LoginModalProps) {
 			</Show>
 
 			<Dialog.Footer>
-				<HintBar borderless bindings={bindings()} />
+				<KeymapHintBar borderless group="login" />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);

@@ -1,9 +1,11 @@
-import { useKeyboard } from "@opentui/solid";
+import { useBindings } from "@opentui/keymap/solid";
 import { For, Match, Show, Switch } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import { withKitKeyAliases } from "../../keymap/bindings";
 import type { Settings } from "../../settings";
 import { Dialog } from "../../shell/Dialog";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import type { Binding } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
 import type { SpeechVoiceDiscovery } from "../notifications/voices";
 import { BooleanSettingsRow } from "./BooleanSettingsRow";
@@ -26,20 +28,9 @@ type SettingsContentProps = {
 	surfaceProps?: OverlaySurfaceProps;
 };
 
-const SETTINGS_BINDINGS: { editing: Binding[]; browsing: Binding[] } = {
-	editing: [
-		{ key: "Enter", action: "save" },
-		{ key: "Esc", action: "cancel" },
-		{ key: "Click", action: "another tab or row to save" },
-	],
-	browsing: [
-		{ key: "Esc", action: "close" },
-		{ key: "↑/↓", action: "move" },
-		{ key: "←/→", action: "tabs" },
-		{ key: "Enter", action: "edit" },
-		{ key: "Space", action: "toggle" },
-	],
-};
+const SETTINGS_EDITING_SUFFIX_BINDINGS: Binding[] = [
+	{ key: "Click", action: "another tab or row to save" },
+];
 
 function isNumericEditField(
 	field: EditableField,
@@ -61,57 +52,166 @@ function SettingsDialog(props: {
 }) {
 	const settings = useSettingsContext();
 
-	useKeyboard((e) => {
-		if (e.name === "escape") {
-			e.preventDefault();
-			if (settings.editingField()) {
-				settings.actions.cancelEdit();
-				return;
-			}
-			props.onClose();
-			return;
-		}
-
+	const numericEditing = () => {
 		const editingField = settings.editingField();
-		if (editingField) {
-			if (e.name === "return" && isNumericEditField(editingField)) {
-				e.preventDefault();
-				void settings.actions.commitEdit();
-			}
-			return;
-		}
+		return editingField ? isNumericEditField(editingField) : false;
+	};
 
-		if (e.name === "left") {
-			e.preventDefault();
-			void settings.actions.switchTab(
-				nextSettingsTab(settings.activeTab(), -1),
-			);
-			return;
-		}
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => !settings.editingField(),
+			priority: 200,
+			commands: [
+				{
+					name: "settings.close",
+					desc: "Close settings",
+					group: "settings",
+					hint: "close",
+					run: props.onClose,
+				},
+				{
+					name: "settings.row-up",
+					desc: "Move to previous setting",
+					group: "settings",
+					hint: "move",
+					run: () => settings.actions.focusRow(settings.focusedRowIndex() - 1),
+				},
+				{
+					name: "settings.row-down",
+					desc: "Move to next setting",
+					group: "settings",
+					hint: "move",
+					run: () => settings.actions.focusRow(settings.focusedRowIndex() + 1),
+				},
+				{
+					name: "settings.tab-previous",
+					desc: "Switch to previous settings tab",
+					group: "settings",
+					hint: "tabs",
+					run: () =>
+						void settings.actions.switchTab(
+							nextSettingsTab(settings.activeTab(), -1),
+						),
+				},
+				{
+					name: "settings.tab-next",
+					desc: "Switch to next settings tab",
+					group: "settings",
+					hint: "tabs",
+					run: () =>
+						void settings.actions.switchTab(
+							nextSettingsTab(settings.activeTab(), 1),
+						),
+				},
+				{
+					name: "settings.edit-row",
+					desc: "Edit focused setting",
+					group: "settings",
+					hint: "edit",
+					run: () => void settings.actions.activateRow(),
+				},
+				{
+					name: "settings.toggle-row",
+					desc: "Toggle focused setting",
+					group: "settings",
+					hint: "toggle",
+					run: () => void settings.actions.activateRow(),
+				},
+			],
+			bindings: [
+				{
+					key: "escape",
+					cmd: "settings.close",
+					desc: "Close settings",
+					group: "settings",
+				},
+				{
+					key: "up",
+					cmd: "settings.row-up",
+					desc: "Move to previous setting",
+					group: "settings",
+				},
+				{
+					key: "down",
+					cmd: "settings.row-down",
+					desc: "Move to next setting",
+					group: "settings",
+				},
+				{
+					key: "left",
+					cmd: "settings.tab-previous",
+					desc: "Switch to previous settings tab",
+					group: "settings",
+				},
+				{
+					key: "right",
+					cmd: "settings.tab-next",
+					desc: "Switch to next settings tab",
+					group: "settings",
+				},
+				{
+					key: "return",
+					cmd: "settings.edit-row",
+					desc: "Edit focused setting",
+					group: "settings",
+				},
+				{
+					key: "space",
+					cmd: "settings.toggle-row",
+					desc: "Toggle focused setting",
+					group: "settings",
+				},
+			],
+		}),
+	);
 
-		if (e.name === "right") {
-			e.preventDefault();
-			void settings.actions.switchTab(nextSettingsTab(settings.activeTab(), 1));
-			return;
-		}
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => Boolean(settings.editingField()),
+			priority: 200,
+			commands: [
+				{
+					name: "settings.cancel-edit",
+					desc: "Cancel editing setting",
+					group: "settings",
+					hint: "cancel",
+					run: settings.actions.cancelEdit,
+				},
+			],
+			bindings: [
+				{
+					key: "escape",
+					cmd: "settings.cancel-edit",
+					desc: "Cancel editing setting",
+					group: "settings",
+				},
+			],
+		}),
+	);
 
-		if (e.name === "up") {
-			e.preventDefault();
-			settings.actions.focusRow(settings.focusedRowIndex() - 1);
-			return;
-		}
-
-		if (e.name === "down") {
-			e.preventDefault();
-			settings.actions.focusRow(settings.focusedRowIndex() + 1);
-			return;
-		}
-
-		if (e.name === "return" || e.name === "space") {
-			e.preventDefault();
-			void settings.actions.activateRow();
-		}
-	});
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: numericEditing,
+			priority: 200,
+			commands: [
+				{
+					name: "settings.commit-edit",
+					desc: "Save edited setting",
+					group: "settings",
+					hint: "save",
+					run: () => void settings.actions.commitEdit(),
+				},
+			],
+			bindings: [
+				{
+					key: "return",
+					cmd: "settings.commit-edit",
+					desc: "Save edited setting",
+					group: "settings",
+				},
+			],
+		}),
+	);
 
 	return (
 		<Dialog.Root
@@ -164,12 +264,11 @@ function SettingsDialog(props: {
 
 			<Dialog.Footer>
 				<box>
-					<HintBar
+					<KeymapHintBar
 						borderless
-						bindings={
-							SETTINGS_BINDINGS[
-								settings.editingField() ? "editing" : "browsing"
-							]
+						group="settings"
+						suffixBindings={
+							settings.editingField() ? SETTINGS_EDITING_SUFFIX_BINDINGS : []
 						}
 					/>
 				</box>

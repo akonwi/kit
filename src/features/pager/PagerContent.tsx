@@ -1,28 +1,18 @@
-import type { KeyEvent, PasteEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import type { PasteEvent } from "@opentui/core";
 import { createEffect, createSignal, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
+import type { Binding } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
 import { syntaxStyle, theme } from "../../shell/theme";
 import type { PagerController } from "./pager-controller";
 
-const MODE_BINDINGS: { [key in "navigate" | "edit"]: Binding[] } = {
-	navigate: [
-		{ key: "←/→", action: "section" },
-		{ key: "j/k", action: "scroll" },
-		{ key: "n", action: "note" },
-		{ key: "Ctrl+Enter", action: "submit" },
-		{ key: "Esc", action: "close" },
-	],
-	edit: [
-		{ key: "Shift+Enter", action: "newline" },
-		{ key: "Esc", action: "back" },
-		{ key: "Ctrl+Enter", action: "submit notes" },
-	],
-};
+const EDIT_PREFIX_BINDINGS: Binding[] = [
+	{ key: "Shift+Enter", action: "newline" },
+];
 
 export type PagerContentProps = {
 	pager: PagerController;
@@ -90,59 +80,33 @@ export function PagerContent(props: PagerContentProps) {
 		props.onClose();
 	}
 
-	// Global keyboard handler (navigate mode + edit-mode escape/submit)
-	useKeyboard((e: KeyEvent) => {
-		if (!pager.active) return;
+	function closePager() {
+		pager.close();
+		props.onClose();
+	}
 
-		if (mode() === "edit") {
-			if (e.name === "escape") {
-				e.preventDefault();
-				exitEditMode();
-			} else if (e.ctrl && e.name === "return") {
-				e.preventDefault();
-				handleSubmit();
-			}
-			return;
-		}
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => pager.active && mode() === "navigate",
+		commands: {
+			"pager.previous-section": pager.prevSection,
+			"pager.next-section": pager.nextSection,
+			"pager.scroll-up": pager.scrollUp,
+			"pager.scroll-down": pager.scrollDown,
+			"pager.edit-note": enterEditMode,
+			"pager.submit-feedback": handleSubmit,
+			"pager.close": closePager,
+		},
+	}));
 
-		// Navigate mode
-		if (e.name === "escape" || e.name === "q") {
-			e.preventDefault();
-			pager.close();
-			props.onClose();
-			return;
-		}
-		if (e.name === "n" || e.name === "i") {
-			e.preventDefault();
-			enterEditMode();
-			return;
-		}
-		if (e.ctrl && e.name === "return") {
-			e.preventDefault();
-			handleSubmit();
-			return;
-		}
-		if (e.name === "left" || e.name === "h") {
-			e.preventDefault();
-			pager.prevSection();
-			return;
-		}
-		if (e.name === "right" || e.name === "l") {
-			e.preventDefault();
-			pager.nextSection();
-			return;
-		}
-		if (e.name === "up" || e.name === "k") {
-			e.preventDefault();
-			pager.scrollUp();
-			return;
-		}
-		if (e.name === "down" || e.name === "j") {
-			e.preventDefault();
-			pager.scrollDown();
-			return;
-		}
-	});
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => pager.active && mode() === "edit",
+		commands: {
+			"pager.back": exitEditMode,
+			"pager.submit-feedback": handleSubmit,
+		},
+	}));
 
 	function handlePaste(event: PasteEvent) {
 		if (mode() !== "edit") return;
@@ -213,7 +177,10 @@ export function PagerContent(props: PagerContentProps) {
 								onPaste={handlePaste}
 							/>
 						</Show>
-						<HintBar bindings={MODE_BINDINGS[mode()]} />
+						<KeymapHintBar
+							group="pager"
+							prefixBindings={mode() === "edit" ? EDIT_PREFIX_BINDINGS : []}
+						/>
 					</box>
 				}
 			>

@@ -1,5 +1,4 @@
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import { useBindings } from "@opentui/keymap/solid";
 import {
 	createEffect,
 	createMemo,
@@ -8,32 +7,16 @@ import {
 	type JSX,
 	Show,
 } from "solid-js";
+import { withKitKeyAliases } from "../keymap/bindings";
 import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
 import { Dialog } from "../shell/Dialog";
 import { CHEVRON_RIGHT } from "../shell/glyphs";
-import { type Binding, HintBar } from "../shell/HintBar";
+import { KeymapHintBar } from "../shell/KeymapHintBar";
 import { theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
 
 const SELECT_MAX_VISIBLE = 8;
-
-const SELECT_BINDINGS: Binding[] = [
-	{ key: "↑/↓", action: "move" },
-	{ key: "Enter", action: "select" },
-	{ key: "Esc", action: "cancel" },
-];
-
-const INPUT_BINDINGS: Binding[] = [
-	{ key: "Enter", action: "submit" },
-	{ key: "Esc", action: "cancel" },
-];
-
-const CONFIRM_BINDINGS: Binding[] = [
-	{ key: "←/→", action: "choose" },
-	{ key: "Enter", action: "confirm" },
-	{ key: "Esc", action: "cancel" },
-];
 
 type OpenOverlay = <T>(
 	component: (props: OverlayComponentProps<T>) => JSX.Element,
@@ -174,30 +157,68 @@ function PluginSelectOverlay(
 		props.done(filteredOptions()[selectedIndex()]?.value);
 	}
 
-	function handleKey(e: KeyEvent) {
-		if (!props.active) return;
-		if (e.name === "escape") {
-			e.preventDefault();
-			props.done(undefined);
-			return;
-		}
-		if (e.name === "return") {
-			e.preventDefault();
-			submit();
-			return;
-		}
-		if (e.name === "up") {
-			e.preventDefault();
-			move(-1);
-			return;
-		}
-		if (e.name === "down") {
-			e.preventDefault();
-			move(1);
-		}
-	}
-
-	useKeyboard(handleKey);
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => props.active,
+			priority: 200,
+			commands: [
+				{
+					name: "plugin-ui.select.cancel",
+					desc: "Cancel plugin selection",
+					group: "plugin-ui.select",
+					hint: "cancel",
+					run: () => props.done(undefined),
+				},
+				{
+					name: "plugin-ui.select.submit",
+					desc: "Submit plugin selection",
+					group: "plugin-ui.select",
+					hint: "select",
+					run: submit,
+				},
+				{
+					name: "plugin-ui.select.move-up",
+					desc: "Move plugin selection up",
+					group: "plugin-ui.select",
+					hint: "move",
+					run: () => move(-1),
+				},
+				{
+					name: "plugin-ui.select.move-down",
+					desc: "Move plugin selection down",
+					group: "plugin-ui.select",
+					hint: "move",
+					run: () => move(1),
+				},
+			],
+			bindings: [
+				{
+					key: "escape",
+					cmd: "plugin-ui.select.cancel",
+					desc: "Cancel plugin selection",
+					group: "plugin-ui.select",
+				},
+				{
+					key: "return",
+					cmd: "plugin-ui.select.submit",
+					desc: "Submit plugin selection",
+					group: "plugin-ui.select",
+				},
+				{
+					key: "up",
+					cmd: "plugin-ui.select.move-up",
+					desc: "Move plugin selection up",
+					group: "plugin-ui.select",
+				},
+				{
+					key: "down",
+					cmd: "plugin-ui.select.move-down",
+					desc: "Move plugin selection down",
+					group: "plugin-ui.select",
+				},
+			],
+		}),
+	);
 
 	return (
 		<Dialog.Root
@@ -269,7 +290,7 @@ function PluginSelectOverlay(
 				</box>
 			</Dialog.Body>
 			<Dialog.Footer>
-				<HintBar borderless bindings={SELECT_BINDINGS} />
+				<KeymapHintBar borderless group="plugin-ui.select" />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);
@@ -284,20 +305,42 @@ function PluginInputOverlay(
 		props.done(value());
 	}
 
-	function handleKey(e: KeyEvent) {
-		if (!props.active) return;
-		if (e.name === "escape") {
-			e.preventDefault();
-			props.done(undefined);
-			return;
-		}
-		if (e.name === "return") {
-			e.preventDefault();
-			submit();
-		}
-	}
-
-	useKeyboard(handleKey);
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => props.active,
+			priority: 200,
+			commands: [
+				{
+					name: "plugin-ui.input.cancel",
+					desc: "Cancel plugin input",
+					group: "plugin-ui.input",
+					hint: "cancel",
+					run: () => props.done(undefined),
+				},
+				{
+					name: "plugin-ui.input.submit",
+					desc: "Submit plugin input",
+					group: "plugin-ui.input",
+					hint: "submit",
+					run: submit,
+				},
+			],
+			bindings: [
+				{
+					key: "escape",
+					cmd: "plugin-ui.input.cancel",
+					desc: "Cancel plugin input",
+					group: "plugin-ui.input",
+				},
+				{
+					key: "return",
+					cmd: "plugin-ui.input.submit",
+					desc: "Submit plugin input",
+					group: "plugin-ui.input",
+				},
+			],
+		}),
+	);
 
 	return (
 		<Dialog.Root
@@ -323,7 +366,7 @@ function PluginInputOverlay(
 				/>
 			</box>
 			<Dialog.Footer>
-				<HintBar borderless bindings={INPUT_BINDINGS} />
+				<KeymapHintBar borderless group="plugin-ui.input" />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);
@@ -342,25 +385,72 @@ function PluginConfirmOverlay(
 		props.done(selected() === 1);
 	}
 
-	function handleKey(e: KeyEvent) {
-		if (!props.active) return;
-		if (e.name === "escape") {
-			e.preventDefault();
-			props.done(false);
-			return;
-		}
-		if (e.name === "return") {
-			e.preventDefault();
-			submit();
-			return;
-		}
-		if (e.name === "left" || e.name === "right") {
-			e.preventDefault();
-			setSelected((current) => (current === 0 ? 1 : 0));
-		}
-	}
-
-	useKeyboard(handleKey);
+	useBindings(() =>
+		withKitKeyAliases({
+			enabled: () => props.active,
+			priority: 200,
+			commands: [
+				{
+					name: "plugin-ui.confirm.cancel",
+					desc: "Cancel plugin confirmation",
+					group: "plugin-ui.confirm",
+					hint: "cancel",
+					run: () => props.done(false),
+				},
+				{
+					name: "plugin-ui.confirm.submit",
+					desc: "Submit plugin confirmation",
+					group: "plugin-ui.confirm",
+					hint: "confirm",
+					run: submit,
+				},
+				{
+					name: "plugin-ui.confirm.choose-previous",
+					desc: "Choose previous confirmation option",
+					group: "plugin-ui.confirm",
+					hint: "choose",
+					run: () => {
+						setSelected((current) => (current === 0 ? 1 : 0));
+					},
+				},
+				{
+					name: "plugin-ui.confirm.choose-next",
+					desc: "Choose next confirmation option",
+					group: "plugin-ui.confirm",
+					hint: "choose",
+					run: () => {
+						setSelected((current) => (current === 0 ? 1 : 0));
+					},
+				},
+			],
+			bindings: [
+				{
+					key: "escape",
+					cmd: "plugin-ui.confirm.cancel",
+					desc: "Cancel plugin confirmation",
+					group: "plugin-ui.confirm",
+				},
+				{
+					key: "return",
+					cmd: "plugin-ui.confirm.submit",
+					desc: "Submit plugin confirmation",
+					group: "plugin-ui.confirm",
+				},
+				{
+					key: "left",
+					cmd: "plugin-ui.confirm.choose-previous",
+					desc: "Choose previous confirmation option",
+					group: "plugin-ui.confirm",
+				},
+				{
+					key: "right",
+					cmd: "plugin-ui.confirm.choose-next",
+					desc: "Choose next confirmation option",
+					group: "plugin-ui.confirm",
+				},
+			],
+		}),
+	);
 
 	function option(label: string, index: number) {
 		const focused = () => selected() === index;
@@ -404,7 +494,7 @@ function PluginConfirmOverlay(
 				{option(confirmLabel(), 1)}
 			</box>
 			<Dialog.Footer>
-				<HintBar borderless bindings={CONFIRM_BINDINGS} />
+				<KeymapHintBar borderless group="plugin-ui.confirm" />
 			</Dialog.Footer>
 		</Dialog.Root>
 	);

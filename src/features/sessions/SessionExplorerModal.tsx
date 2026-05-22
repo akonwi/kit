@@ -1,5 +1,3 @@
-import type { KeyEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
 import {
 	createEffect,
 	createMemo,
@@ -8,12 +6,13 @@ import {
 	For,
 	Show,
 } from "solid-js";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
 import { Dialog } from "../../shell/Dialog";
 import { ELLIPSIS } from "../../shell/glyphs";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
 import { formatTimeAgo } from "../commands/utils";
@@ -78,26 +77,6 @@ function countVisibleColumns(columns: boolean[]): number {
 function visibleColumnWidth(show: boolean, width: number): number {
 	return show ? width : 0;
 }
-
-const NAVIGATE_BINDINGS: Binding[] = [
-	{ key: "↑/↓", action: "move" },
-	{ key: "PgUp/PgDn", action: "scroll" },
-	{ key: "Enter", action: "switch" },
-	{ key: "r", action: "rename" },
-	{ key: "Esc", action: "close" },
-];
-
-const DELETE_BINDING: Binding = { key: "Ctrl+D", action: "delete" };
-
-const RENAME_BINDINGS: Binding[] = [
-	{ key: "Enter", action: "save" },
-	{ key: "Esc", action: "cancel" },
-];
-
-const CONFIRM_BINDINGS: Binding[] = [
-	{ key: "Enter", action: "confirm" },
-	{ key: "Esc", action: "cancel" },
-];
 
 export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	const currentSessionId = () => props.runtime.getSession().id;
@@ -203,23 +182,6 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		};
 	});
 
-	const bindings = createMemo<Binding[]>(() => {
-		switch (mode()) {
-			case "rename":
-				return RENAME_BINDINGS;
-			case "confirmDelete":
-			case "confirmSquash":
-				return CONFIRM_BINDINGS;
-			default:
-				return [
-					...NAVIGATE_BINDINGS,
-					...(selectedSessionCanDelete() ? [DELETE_BINDING] : []),
-					...(selectedSessionCanSquash()
-						? [{ key: "s", action: "squash" }]
-						: []),
-				];
-		}
-	});
 	createEffect(() => {
 		const allRows = rows();
 		if (allRows.length === 0) {
@@ -318,119 +280,114 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		}
 	}
 
-	useKeyboard((e: KeyEvent) => {
-		if (mode() === "confirmSquash") {
-			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
-				e.preventDefault();
-				setConfirmSquashSession(null);
-				setConfirmSquashTarget(null);
-				return;
-			}
-			if (e.name === "return" || e.name === "enter") {
-				e.preventDefault();
-				const session = confirmSquashSession();
-				const target = confirmSquashTarget();
-				setConfirmSquashSession(null);
-				setConfirmSquashTarget(null);
-				if (!session || !target) return;
-				props.onClose();
-				const squash =
-					target === "current"
-						? props.runtime.mergeChildIntoCurrent(session.id)
-						: props.runtime.mergeUp();
-				void squash.catch((error) => {
-					props.toast({
-						title: "Squash failed",
-						subtitle: String(error),
-						variant: "error",
-					});
-				});
-				return;
-			}
-			return;
-		}
+	function beginSquash() {
+		const session = selectedRow()?.session;
+		const target = selectedSquashTarget();
+		if (!session || !target) return;
+		setConfirmSquashSession(session);
+		setConfirmSquashTarget(target);
+	}
 
-		if (mode() === "confirmDelete") {
-			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
-				e.preventDefault();
-				setDeleteSession(null);
-				return;
-			}
-			if (e.name === "return" || e.name === "enter") {
-				e.preventDefault();
-				void handleDeleteConfirm();
-				return;
-			}
-			return;
-		}
+	function cancelSquashConfirm() {
+		setConfirmSquashSession(null);
+		setConfirmSquashTarget(null);
+	}
 
-		if (mode() === "rename") {
-			if (e.name === "escape" || (e.ctrl && e.name === "c")) {
-				e.preventDefault();
+	function handleSquashConfirm() {
+		const session = confirmSquashSession();
+		const target = confirmSquashTarget();
+		cancelSquashConfirm();
+		if (!session || !target) return;
+		props.onClose();
+		const squash =
+			target === "current"
+				? props.runtime.mergeChildIntoCurrent(session.id)
+				: props.runtime.mergeUp();
+		void squash.catch((error) => {
+			props.toast({
+				title: "Squash failed",
+				subtitle: String(error),
+				variant: "error",
+			});
+		});
+	}
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate",
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
+			"session-explorer.close": props.onClose,
+			"session-explorer.select": () => props.onSelect(selectedSessionId()),
+			"session-explorer.move-up": () => {
+				setSelectedIndex((index) => Math.max(0, index - 1));
+			},
+			"session-explorer.move-down": () => {
+				setSelectedIndex((index) => Math.min(rows().length - 1, index + 1));
+			},
+			"session-explorer.page-up": () => {
+				setSelectedIndex((index) => Math.max(0, index - MAX_VISIBLE_ROWS));
+			},
+			"session-explorer.page-down": () => {
+				setSelectedIndex((index) =>
+					Math.min(rows().length - 1, index + MAX_VISIBLE_ROWS),
+				);
+			},
+			"session-explorer.rename": beginRename,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate" && selectedSessionCanDelete(),
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
+			"session-explorer.delete": beginDelete,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate" && selectedSessionCanSquash(),
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
+			"session-explorer.squash": beginSquash,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "rename",
+		diagnosticsWhen: () => mode() === "rename",
+		commands: {
+			"session-explorer.rename-save": () => void handleRenameSubmit(),
+			"session-explorer.rename-cancel": () => {
 				setRenameSession(null);
-				return;
-			}
-			if (e.name === "return" || e.name === "enter") {
-				e.preventDefault();
-				void handleRenameSubmit();
-				return;
-			}
-			return;
-		}
+			},
+		},
+	}));
 
-		if (e.name === "escape" || (e.ctrl && e.name === "c")) {
-			e.preventDefault();
-			props.onClose();
-			return;
-		}
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "confirmDelete",
+		diagnosticsWhen: () => mode() === "confirmDelete",
+		commands: {
+			"session-explorer.confirm": () => void handleDeleteConfirm(),
+			"session-explorer.cancel": () => {
+				setDeleteSession(null);
+			},
+		},
+	}));
 
-		if (e.name === "return" || e.name === "enter") {
-			e.preventDefault();
-			props.onSelect(selectedSessionId());
-			return;
-		}
-
-		if (e.name === "up" || e.name === "k") {
-			e.preventDefault();
-			setSelectedIndex((index) => Math.max(0, index - 1));
-			return;
-		}
-		if (e.name === "down" || e.name === "j") {
-			e.preventDefault();
-			setSelectedIndex((index) => Math.min(rows().length - 1, index + 1));
-			return;
-		}
-		if (e.name === "pageup") {
-			e.preventDefault();
-			setSelectedIndex((index) => Math.max(0, index - MAX_VISIBLE_ROWS));
-			return;
-		}
-		if (e.name === "pagedown") {
-			e.preventDefault();
-			setSelectedIndex((index) =>
-				Math.min(rows().length - 1, index + MAX_VISIBLE_ROWS),
-			);
-			return;
-		}
-		if (e.name === "r") {
-			e.preventDefault();
-			beginRename();
-			return;
-		}
-		if (e.ctrl && e.name === "d") {
-			e.preventDefault();
-			if (selectedSessionCanDelete()) beginDelete();
-			return;
-		}
-		if (e.name === "s" && selectedSessionCanSquash()) {
-			e.preventDefault();
-			const session = selectedRow()?.session;
-			const target = selectedSquashTarget();
-			if (!session || !target) return;
-			setConfirmSquashSession(session);
-			setConfirmSquashTarget(target);
-		}
-	});
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "confirmSquash",
+		diagnosticsWhen: () => mode() === "confirmSquash",
+		commands: {
+			"session-explorer.confirm": handleSquashConfirm,
+			"session-explorer.cancel": cancelSquashConfirm,
+		},
+	}));
 
 	return (
 		<Dialog.Root width="85%" maxWidth={120} minWidth={44} height="55%">
@@ -572,7 +529,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 			</Dialog.Body>
 
 			<Dialog.Footer paddingTop={1}>
-				<HintBar borderless bindings={bindings()} />
+				<KeymapHintBar borderless group="session-explorer" />
 			</Dialog.Footer>
 
 			<Show when={renameSession()}>
@@ -601,7 +558,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							onContentChange={() => setRenameText(renameRef?.plainText ?? "")}
 						/>
 						<Dialog.Footer>
-							<HintBar borderless bindings={RENAME_BINDINGS} />
+							<KeymapHintBar borderless group="session-explorer" />
 						</Dialog.Footer>
 					</Dialog.Root>
 				)}
@@ -616,7 +573,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							</Dialog.Title>
 						</Dialog.Header>
 						<Dialog.Footer>
-							<HintBar borderless bindings={CONFIRM_BINDINGS} />
+							<KeymapHintBar borderless group="session-explorer" />
 						</Dialog.Footer>
 					</Dialog.Root>
 				)}
@@ -643,7 +600,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 								</text>
 							</box>
 							<Dialog.Footer>
-								<HintBar borderless bindings={CONFIRM_BINDINGS} />
+								<KeymapHintBar borderless group="session-explorer" />
 							</Dialog.Footer>
 						</Dialog.Root>
 					);

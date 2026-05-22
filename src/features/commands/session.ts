@@ -60,6 +60,8 @@ export const sessionCommand: Command = {
 			createComponent(DebugModal, {
 				title: "Debug",
 				lines,
+				active: props.active,
+				surfaceProps: props.surfaceProps,
 				onClose: () => props.done(),
 			}),
 		);

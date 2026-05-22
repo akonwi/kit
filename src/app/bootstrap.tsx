@@ -5,7 +5,9 @@ import {
 	createCliRenderer,
 	getTreeSitterClient,
 } from "@opentui/core";
+import { KeymapProvider } from "@opentui/keymap/solid";
 import { render } from "@opentui/solid";
+import { createKitKeymap } from "../keymap/setup";
 import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
@@ -112,6 +114,8 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 		});
 	}
 
+	const keymap = createKitKeymap(renderer);
+
 	// Resolve theme before rendering — "system" theme needs the renderer for palette detection
 	const themeName = settings.settings.theme ?? "system";
 	await resolveAndApplyTheme(themeName, renderer);
@@ -125,15 +129,17 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 	const alive = new Promise<void>((resolve) => {
 		render(
 			() => (
-				<App
-					settings={settings}
-					session={session}
-					updateTerminalTitle={updateTerminalTitle}
-					quitAndDestroy={() => {
-						renderer.destroy();
-						resolve();
-					}}
-				/>
+				<KeymapProvider keymap={keymap}>
+					<App
+						settings={settings}
+						session={session}
+						updateTerminalTitle={updateTerminalTitle}
+						quitAndDestroy={() => {
+							renderer.destroy();
+							resolve();
+						}}
+					/>
+				</KeymapProvider>
 			),
 			renderer,
 		);

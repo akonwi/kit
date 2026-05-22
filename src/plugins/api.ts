@@ -330,6 +330,7 @@ export function createPluginAPI(
 			name: id,
 			description: commandOptions.description ?? commandOptions.title ?? "",
 			argName: commandOptions.argName,
+			category: commandOptions.category,
 			execute: async (commandCtx) => {
 				await handler(createCommandContext(commandCtx.args));
 			},

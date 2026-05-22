@@ -5,11 +5,16 @@ import { getKitPaths, type KitPaths } from "./paths";
 
 export type ReviewDiffView = "unified" | "split";
 
+export type KeybindingValue = string | string[] | false | null;
+export type KeybindingSettings = Record<string, KeybindingValue>;
+
 export type Settings = {
 	/** Theme name: "system" (default) or a custom theme from ~/.kit/themes/ */
 	theme?: string;
 	/** Enable terminal bell on turn complete */
 	bells?: boolean;
+	/** User keybinding overrides by Kit command id. Use false/null to disable. */
+	keybindings?: KeybindingSettings;
 	/** Speech settings - can be a boolean or object with options */
 	speech?:
 		| boolean
@@ -128,13 +133,38 @@ export function resolveDiffSettings(
 	return defaultDiffObject();
 }
 
-function sanitizeSettings(raw: unknown): Settings {
+function sanitizeKeybindings(value: unknown): KeybindingSettings | undefined {
+	if (!isRecord(value)) return undefined;
+	const keybindings: KeybindingSettings = {};
+	for (const [command, binding] of Object.entries(value)) {
+		const name = command.trim();
+		if (!name) continue;
+		if (typeof binding === "string") {
+			keybindings[name] = binding;
+			continue;
+		}
+		if (binding === false || binding === null) {
+			keybindings[name] = binding;
+			continue;
+		}
+		if (Array.isArray(binding)) {
+			const keys = binding.filter(
+				(entry): entry is string => typeof entry === "string",
+			);
+			if (keys.length > 0) keybindings[name] = keys;
+		}
+	}
+	return Object.keys(keybindings).length > 0 ? keybindings : undefined;
+}
+
+export function sanitizeSettings(raw: unknown): Settings {
 	if (!isRecord(raw)) {
 		return { ...DEFAULTS };
 	}
 
 	const theme = typeof raw.theme === "string" ? raw.theme : undefined;
 	const bells = typeof raw.bells === "boolean" ? raw.bells : DEFAULTS.bells;
+	const keybindings = sanitizeKeybindings(raw.keybindings);
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
 	const guidedQuestions =
 		typeof raw.guidedQuestions === "boolean"
@@ -188,6 +218,7 @@ function sanitizeSettings(raw: unknown): Settings {
 	return {
 		theme,
 		bells,
+		...(keybindings ? { keybindings } : {}),
 		speech,
 		pager,
 		guidedQuestions,

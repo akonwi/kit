@@ -1,6 +1,6 @@
-import type { KeyEvent, PasteEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import type { PasteEvent } from "@opentui/core";
 import { createEffect, createSignal } from "solid-js";
+import { useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { AttachmentsController } from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
 import { TIMES } from "./glyphs";
@@ -44,119 +44,75 @@ export function ComposerDock(props: ComposerDockProps) {
 		props.onModeChange?.(composerMode());
 	});
 
-	useKeyboard((e: KeyEvent) => {
-		if (props.locked) return;
-		// Skip composer keyboard handling while the command palette is open
-		if (commandPaletteVisible()) return;
+	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
+	useKeymapLayer(() => ({
+		scope: "composer",
+		when: shellInputAvailable,
+		commands: {
+			"composer.clear-or-quit": () => {
+				if (picker.visible) {
+					picker.clear();
+					return;
+				}
+				const text = props.controller.getTextareaText();
+				if (text.trim()) {
+					props.controller.setTextareaText("");
+					syncComposerText();
+					return;
+				}
+				props.controller.quit();
+			},
+			"composer.abort": () => {
+				if (picker.visible) return false;
+				if (props.controller.getTextareaText().trim()) return false;
+				if (!props.controller.isStreaming()) return false;
+				props.controller.abort();
+			},
+			"composer.steer": () => {
+				if (picker.visible) return false;
+				if (props.controller.getTextareaText().trim()) return false;
+				if (!props.controller.isStreaming()) return false;
+				if (props.controller.getPendingMessageCount() <= 0) return false;
+				props.controller.promotePendingFollowUpsToSteering();
+			},
+		},
+	}));
 
-		// Ctrl+C — clear composer if it has content, otherwise quit
-		if (e.ctrl && e.name === "c") {
-			e.preventDefault();
-			if (picker.visible) {
-				picker.clear();
-				return;
-			}
-			const text = props.controller.getTextareaText();
-			if (text.trim()) {
-				props.controller.setTextareaText("");
+	useKeymapLayer(() => ({
+		scope: "composer",
+		precedence: "contextual",
+		when: shellInputAvailable,
+		commands: {
+			"composer.bash-history-older": () => {
+				if (picker.visible) return false;
+				if (!props.controller.getTextareaText().startsWith("!")) return false;
+				if (!props.controller.navigateBashHistory("older")) return false;
 				syncComposerText();
-				return;
-			}
-			// Empty composer — quit the app
-			props.controller.quit();
-			return;
-		}
-
-		// Escape — abort agent when composer is empty and agent is working
-		if (
-			e.name === "escape" &&
-			!picker.visible &&
-			!props.controller.getTextareaText().trim() &&
-			props.controller.isStreaming()
-		) {
-			e.preventDefault();
-			props.controller.abort();
-			return;
-		}
-
-		// Enter in empty composer while streaming with queued follow-ups — promote to steering
-		if (
-			(e.name === "return" || e.name === "enter") &&
-			!picker.visible &&
-			!props.controller.getTextareaText().trim() &&
-			props.controller.isStreaming() &&
-			props.controller.getPendingMessageCount() > 0
-		) {
-			e.preventDefault();
-			props.controller.promotePendingFollowUpsToSteering();
-			return;
-		}
-
-		// Up/down in bash mode — navigate previous user-triggered bash executions.
-		if (
-			(e.name === "up" || e.name === "down") &&
-			!picker.visible &&
-			props.controller.getTextareaText().startsWith("!")
-		) {
-			const handled = props.controller.navigateBashHistory(
-				e.name === "up" ? "older" : "newer",
-			);
-			if (handled) {
-				e.preventDefault();
+			},
+			"composer.bash-history-newer": () => {
+				if (picker.visible) return false;
+				if (!props.controller.getTextareaText().startsWith("!")) return false;
+				if (!props.controller.navigateBashHistory("newer")) return false;
 				syncComposerText();
-				return;
-			}
-		}
+			},
+		},
+	}));
 
-		// Up arrow in empty composer — restore queued follow-ups first, then recall last user message
-		if (
-			e.name === "up" &&
-			!picker.visible &&
-			!props.controller.getTextareaText().trim()
-		) {
-			e.preventDefault();
-			if (!props.controller.restorePendingMessages()) {
-				props.controller.recallLastUserMessage();
-			}
-			syncComposerText();
-			return;
-		}
-
-		// Non-filterable picker navigation
-		if (!picker.visible) return;
-		if (picker.isFilterable || picker.isInputMode) return;
-
-		if (e.name === "up") {
-			e.preventDefault();
-			picker.moveUp();
-			return;
-		}
-		if (e.name === "down") {
-			e.preventDefault();
-			picker.moveDown();
-			return;
-		}
-		if (e.name === "escape") {
-			e.preventDefault();
-			picker.pop();
-			return;
-		}
-		if (e.name === "return") {
-			e.preventDefault();
-			picker.selectCurrent();
-			return;
-		}
-
-		if (e.ctrl && e.name) {
-			const key = `ctrl+${e.name}`;
-			if (picker.handleKeyBinding(key)) {
-				e.preventDefault();
-				return;
-			}
-		}
-
-		e.preventDefault();
-	});
+	useKeymapLayer(() => ({
+		scope: "composer",
+		precedence: "fallback",
+		when: shellInputAvailable,
+		commands: {
+			"composer.restore-or-recall": () => {
+				if (picker.visible) return false;
+				if (props.controller.getTextareaText().trim()) return false;
+				if (!props.controller.restorePendingMessages()) {
+					props.controller.recallLastUserMessage();
+				}
+				syncComposerText();
+			},
+		},
+	}));
 
 	const placeholder = () => "Ask kit to do something...";
 

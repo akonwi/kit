@@ -41,6 +41,7 @@ export type AppProps = {
 type ReadyState = {
 	kind: "ready";
 	runtime: AgentRuntime;
+	commands: CommandRegistry;
 	controller: ReturnType<typeof createComposerController>;
 	attachments: ReturnType<typeof createAttachmentsController>;
 	footer: ReturnType<typeof createFooterStatusController>;
@@ -272,6 +273,7 @@ export function App(props: AppProps) {
 		return {
 			kind: "ready",
 			runtime,
+			commands,
 			controller,
 			attachments,
 			footer,
@@ -350,8 +352,10 @@ export function App(props: AppProps) {
 					if (current.kind !== "ready") return null;
 					return (
 						<AppShell
+							settings={current.runtime.settings}
 							state={current.app.state}
 							runtime={current.runtime}
+							commands={current.commands}
 							controller={current.controller}
 							attachments={current.attachments}
 							footer={current.footer}

@@ -1,12 +1,52 @@
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, Renderable } from "@opentui/core";
 import type { BoxProps } from "@opentui/solid";
 import type { JSX } from "solid-js";
-import { createContext, createMemo, For, Show, useContext } from "solid-js";
+import {
+	createContext,
+	createMemo,
+	createSignal,
+	For,
+	Show,
+	useContext,
+} from "solid-js";
+import {
+	createPickerCommandMetadata,
+	type OpenTuiCommandRun,
+	type PickerKeybindingCommandId,
+} from "../keymap/registry";
+import { useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { PickerSnapshot } from "../state/picker";
 import type { PickerManager } from "../state/picker-manager";
 import { FULL_BLOCK, VERTICAL_LINE } from "./glyphs";
 import { computeScrollbar } from "./scrollbar";
 import { theme } from "./theme";
+
+function pickerCommandHandlers(
+	namespace: string,
+	picker: PickerManager,
+	includeComplete: boolean,
+): Partial<Record<PickerKeybindingCommandId, OpenTuiCommandRun>> {
+	const commands: Partial<
+		Record<PickerKeybindingCommandId, OpenTuiCommandRun>
+	> = {
+		[`${namespace}.move-up`]: () => {
+			picker.moveUp();
+		},
+		[`${namespace}.move-down`]: () => {
+			picker.moveDown();
+		},
+	};
+	if (includeComplete) {
+		commands[`${namespace}.complete`] = () => picker.handleKeyBinding("tab");
+	}
+	commands[`${namespace}.select`] = () => {
+		picker.accept();
+	};
+	commands[`${namespace}.close`] = () => {
+		picker.pop();
+	};
+	return commands;
+}
 
 // ── Context ─────────────────────────────────────────────────────────
 
@@ -28,23 +68,7 @@ function usePickerContext(): PickerContextValue {
 // ── Key handler ─────────────────────────────────────────────────────
 
 function handleListKeyDown(picker: PickerManager, e: KeyEvent) {
-	if (e.name === "up") {
-		e.preventDefault();
-		picker.moveUp();
-	} else if (e.name === "down") {
-		e.preventDefault();
-		picker.moveDown();
-	} else if (e.name === "tab") {
-		if (picker.handleKeyBinding("tab")) {
-			e.preventDefault();
-		}
-	} else if (e.name === "return") {
-		e.preventDefault();
-		picker.selectCurrent();
-	} else if (e.name === "escape") {
-		e.preventDefault();
-		picker.pop();
-	} else if (e.ctrl && e.name) {
+	if (e.ctrl && e.name) {
 		const key = `ctrl+${e.name}`;
 		if (picker.handleKeyBinding(key)) {
 			e.preventDefault();
@@ -58,17 +82,50 @@ export type RootProps = {
 	picker: PickerManager;
 	children: JSX.Element;
 	maxVisible?: number;
+	commandNamespace?: string;
+	includeCompleteBinding?: boolean;
+	selectHint?: string;
 };
 
 function Root(props: RootProps) {
 	const maxVisible = props.maxVisible ?? 5;
 	const snapshot = () => props.picker.current();
+	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
+	const commandNamespace = () => props.commandNamespace ?? "picker";
+	const selectHint = () => props.selectHint ?? "select";
+	const includeCompleteBinding = () => props.includeCompleteBinding === true;
+
+	useKeymapLayer(() => {
+		const namespace = commandNamespace();
+		return {
+			scope: "picker",
+			when: () => snapshot().visible,
+			target: rootTarget,
+			targetMode: "focus-within",
+			commandMetadata: createPickerCommandMetadata(namespace, {
+				includeComplete: includeCompleteBinding(),
+				selectHint: selectHint(),
+			}),
+			commands: {},
+			generatedCommands: pickerCommandHandlers(
+				namespace,
+				props.picker,
+				includeCompleteBinding(),
+			),
+		};
+	});
 
 	return (
 		<PickerContext.Provider
 			value={{ picker: props.picker, snapshot, maxVisible }}
 		>
-			<box flexGrow={1} height="100%" flexDirection="column" gap={1}>
+			<box
+				flexGrow={1}
+				height="100%"
+				flexDirection="column"
+				gap={1}
+				ref={(value) => setRootTarget(value as Renderable)}
+			>
 				{props.children}
 			</box>
 		</PickerContext.Provider>
@@ -82,9 +139,19 @@ function Header() {
 
 	return (
 		<box flexDirection="column" paddingTop={1}>
-			{/* Input mode */}
-			<Show when={snapshot().mode === "input"}>
+			<Show when={snapshot().label}>
 				<text fg={theme.textMuted}>{snapshot().label}</text>
+			</Show>
+			<Show
+				when={snapshot().filterable}
+				fallback={
+					<box
+						focusable
+						focused
+						onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
+					/>
+				}
+			>
 				<box flexDirection="row" gap={1} width="100%">
 					<text flexBasis={1} fg={theme.textPrimary}>
 						{">"}
@@ -95,49 +162,11 @@ function Header() {
 						textColor={theme.textPrimary}
 						focusedTextColor={theme.textPrimary}
 						cursorColor={theme.cursor}
-						value={snapshot().inputValue}
-						onInput={(value: string) => picker.setInputValue(value)}
-						onKeyDown={(e: KeyEvent) => {
-							if (e.name === "return") {
-								e.preventDefault();
-								picker.submitInput();
-							} else if (e.name === "escape") {
-								e.preventDefault();
-								picker.pop();
-							}
-						}}
+						value={snapshot().filterText}
+						onInput={(value: string) => picker.filter(value)}
+						onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
 					/>
 				</box>
-			</Show>
-
-			{/* List mode — filter input or focusable anchor for non-filterable */}
-			<Show when={snapshot().mode === "list"}>
-				<Show
-					when={snapshot().filterable}
-					fallback={
-						<box
-							focusable
-							focused
-							onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
-						/>
-					}
-				>
-					<box flexDirection="row" gap={1} width="100%">
-						<text flexBasis={1} fg={theme.textPrimary}>
-							{">"}
-						</text>
-						<input
-							flexGrow={1}
-							focused
-							textColor={theme.textPrimary}
-							focusedTextColor={theme.textPrimary}
-							cursorColor={theme.cursor}
-							value={snapshot().filterText}
-							onInput={(value: string) => picker.filter(value)}
-							onKeyDown={(e: KeyEvent) => handleListKeyDown(picker, e)}
-						/>
-					</box>
-				</Show>
 			</Show>
 		</box>
 	);
@@ -196,82 +225,79 @@ function Body() {
 	);
 
 	return (
-		<Show when={snapshot().mode === "list"}>
-			<box flexGrow={1} flexDirection="column" overflow="hidden">
-				<Show when={snapshot().options.length === 0}>
-					<text fg={theme.textMuted}>No results</text>
-				</Show>
+		<box flexGrow={1} flexDirection="column" overflow="hidden">
+			<Show when={snapshot().options.length === 0}>
+				<text fg={theme.textMuted}>No results</text>
+			</Show>
 
-				<box flexDirection="row">
-					<box flexGrow={1} flexDirection="column">
-						<For each={visibleSlice().items}>
-							{(entry) => {
-								const isFocused = () =>
-									entry.index === snapshot().selectedIndex;
-								const fg = () =>
-									isFocused() ? theme.pickerFocusedText : theme.pickerItemText;
-								const bg = () =>
-									isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
-								return (
-									<box
-										flexDirection="row"
-										width="100%"
-										height={1}
-										overflow="hidden"
-										gap={1}
-										backgroundColor={bg()}
-									>
-										<box width={maxNameWidth()} flexShrink={0}>
-											<text fg={fg()} bg={bg()}>
-												{entry.option.name}
+			<box flexDirection="row">
+				<box flexGrow={1} flexDirection="column">
+					<For each={visibleSlice().items}>
+						{(entry) => {
+							const isFocused = () => entry.index === snapshot().selectedIndex;
+							const fg = () =>
+								isFocused() ? theme.pickerFocusedText : theme.pickerItemText;
+							const bg = () =>
+								isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
+							return (
+								<box
+									flexDirection="row"
+									width="100%"
+									height={1}
+									overflow="hidden"
+									gap={1}
+									backgroundColor={bg()}
+								>
+									<box width={maxNameWidth()} flexShrink={0}>
+										<text fg={fg()} bg={bg()}>
+											{entry.option.name}
+										</text>
+									</box>
+									<box width={maxArgHintWidth()} flexShrink={0}>
+										<Show when={entry.option.argHint}>
+											<text fg={theme.textMuted} bg={bg()}>
+												{`[${entry.option.argHint}]`}
 											</text>
-										</box>
-										<box width={maxArgHintWidth()} flexShrink={0}>
-											<Show when={entry.option.argHint}>
-												<text fg={theme.textMuted} bg={bg()}>
-													{`[${entry.option.argHint}]`}
-												</text>
-											</Show>
-										</box>
-										<Show when={entry.option.description.length > 0}>
-											<box
-												flexGrow={1}
-												flexShrink={1}
-												height={1}
-												overflow="hidden"
-											>
-												<text fg={theme.textMuted} bg={bg()}>
-													{entry.option.description}
-												</text>
-											</box>
 										</Show>
 									</box>
-								);
-							}}
-						</For>
-					</box>
-					<Show when={scrollbar()}>
-						{(track) => (
-							<box flexShrink={0} width={1} flexDirection="column">
-								<For each={track()}>
-									{(isThumb) => (
-										<text
-											fg={
-												isThumb
-													? theme.pickerScrollThumb
-													: theme.pickerScrollTrack
-											}
+									<Show when={entry.option.description.length > 0}>
+										<box
+											flexGrow={1}
+											flexShrink={1}
+											height={1}
+											overflow="hidden"
 										>
-											{isThumb ? FULL_BLOCK : VERTICAL_LINE}
-										</text>
-									)}
-								</For>
-							</box>
-						)}
-					</Show>
+											<text fg={theme.textMuted} bg={bg()}>
+												{entry.option.description}
+											</text>
+										</box>
+									</Show>
+								</box>
+							);
+						}}
+					</For>
 				</box>
+				<Show when={scrollbar()}>
+					{(track) => (
+						<box flexShrink={0} width={1} flexDirection="column">
+							<For each={track()}>
+								{(isThumb) => (
+									<text
+										fg={
+											isThumb
+												? theme.pickerScrollThumb
+												: theme.pickerScrollTrack
+										}
+									>
+										{isThumb ? FULL_BLOCK : VERTICAL_LINE}
+									</text>
+								)}
+							</For>
+						</box>
+					)}
+				</Show>
 			</box>
-		</Show>
+		</box>
 	);
 }
 

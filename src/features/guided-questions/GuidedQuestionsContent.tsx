@@ -1,43 +1,12 @@
-import type { KeyEvent, PasteEvent } from "@opentui/core";
-import { useKeyboard } from "@opentui/solid";
+import type { PasteEvent } from "@opentui/core";
 import { createEffect, createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
+import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { Dialog } from "../../shell/Dialog";
 import { CHEVRON_RIGHT } from "../../shell/glyphs";
-import { type Binding, HintBar } from "../../shell/HintBar";
+import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
-import type {
-	GuidedQuestionsController,
-	GuidedQuestionsMode,
-} from "./controller";
-
-const QUESTION_BINDINGS: Record<GuidedQuestionsMode, Binding[]> = {
-	multiselect: [
-		{ key: "↑/↓", action: "move" },
-		{ key: "Space", action: "toggle" },
-		{ key: "Enter", action: "confirm" },
-		{ key: "Shift+Tab", action: "previous" },
-		{ key: "Esc", action: "cancel" },
-	],
-	select: [
-		{ key: "↑/↓", action: "move" },
-		{ key: "Enter", action: "select" },
-		{ key: "Shift+Tab", action: "previous" },
-		{ key: "Esc", action: "cancel" },
-	],
-	otherText: [
-		{ key: "Enter", action: "submit" },
-		{ key: "Shift+Enter", action: "newline" },
-		{ key: "Esc", action: "back" },
-		{ key: "Shift+Tab", action: "previous" },
-	],
-	text: [
-		{ key: "Enter", action: "submit" },
-		{ key: "Shift+Enter", action: "newline" },
-		{ key: "Shift+Tab", action: "previous" },
-		{ key: "Esc", action: "cancel" },
-	],
-};
+import type { GuidedQuestionsController } from "./controller";
 
 export type GuidedQuestionsContentProps = {
 	guidedQuestions: GuidedQuestionsController;
@@ -77,74 +46,67 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 		}
 	});
 
-	useKeyboard((e: KeyEvent) => {
-		if (!g.active) return;
+	const isMultiSelectQuestion = () =>
+		g.currentQuestion?.kind === "multiselect" && g.mode !== "otherText";
+	const selectModeActive = () =>
+		g.active && g.mode === "select" && !isMultiSelectQuestion();
+	const multiselectModeActive = () => g.active && isMultiSelectQuestion();
+	const textModeActive = () => g.active && g.mode === "text";
+	const otherTextModeActive = () => g.active && g.mode === "otherText";
 
-		if (e.name === "escape") {
-			e.preventDefault();
-			if (g.mode === "otherText") g.escapeTextMode();
-			else {
-				g.cancel();
-				props.onClose();
-			}
-			return;
-		}
+	function cancel() {
+		g.cancel();
+		props.onClose();
+	}
 
-		if (e.shift && e.name === "tab") {
-			e.preventDefault();
-			g.movePrev();
-			return;
-		}
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: selectModeActive,
+		diagnosticsWhen: selectModeActive,
+		commands: {
+			"guided-questions.previous": g.movePrev,
+			"guided-questions.cancel": cancel,
+			"guided-questions.move-up": g.moveSelectUp,
+			"guided-questions.move-down": g.moveSelectDown,
+			"guided-questions.select": g.selectOption,
+		},
+	}));
 
-		if (
-			g.mode === "select" ||
-			g.mode === "multiselect" ||
-			isMultiSelectQuestion()
-		) {
-			if (e.name === "up") {
-				e.preventDefault();
-				g.moveSelectUp();
-				return;
-			}
-			if (e.name === "down") {
-				e.preventDefault();
-				g.moveSelectDown();
-				return;
-			}
-			if (isMultiSelectQuestion() && e.name === "space") {
-				e.preventDefault();
-				g.selectOption();
-				return;
-			}
-			if (
-				isMultiSelectQuestion() &&
-				(e.name === "return" || e.name === "enter")
-			) {
-				e.preventDefault();
-				g.submitMultiSelect();
-				return;
-			}
-			if (
-				!isMultiSelectQuestion() &&
-				g.mode === "select" &&
-				e.name === "return"
-			) {
-				e.preventDefault();
-				g.selectOption();
-				return;
-			}
-			return;
-		}
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: multiselectModeActive,
+		diagnosticsWhen: multiselectModeActive,
+		commands: {
+			"guided-questions.previous": g.movePrev,
+			"guided-questions.cancel": cancel,
+			"guided-questions.move-up": g.moveSelectUp,
+			"guided-questions.move-down": g.moveSelectDown,
+			"guided-questions.toggle-option": g.selectOption,
+			"guided-questions.confirm-multiselect": g.submitMultiSelect,
+		},
+	}));
 
-		if (
-			(g.mode === "text" || g.mode === "otherText") &&
-			e.name === "return" &&
-			!e.shift
-		) {
-			e.preventDefault();
-			g.submitText(textValue());
-		}
-	});
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: textModeActive,
+		diagnosticsWhen: textModeActive,
+		commands: {
+			"guided-questions.previous": g.movePrev,
+			"guided-questions.cancel": cancel,
+			"guided-questions.submit-text": () => g.submitText(textValue()),
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: otherTextModeActive,
+		diagnosticsWhen: otherTextModeActive,
+		commands: {
+			"guided-questions.previous": g.movePrev,
+			"guided-questions.back": g.escapeTextMode,
+			"guided-questions.submit-text": () => g.submitText(textValue()),
+		},
+	}));
 
 	function handlePaste(event: PasteEvent) {
 		if (g.mode !== "text" && g.mode !== "otherText") return;
@@ -154,9 +116,6 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 			.replace(/\r/g, "\n");
 		setTextValue((current) => `${current}${pasted}`);
 	}
-
-	const isMultiSelectQuestion = () =>
-		g.currentQuestion?.kind === "multiselect" && g.mode !== "otherText";
 
 	const selectOptions = () => {
 		const question = g.currentQuestion;
@@ -264,14 +223,7 @@ export function GuidedQuestionsContent(props: GuidedQuestionsContentProps) {
 				</Show>
 
 				<Dialog.Footer>
-					<HintBar
-						borderless
-						bindings={
-							QUESTION_BINDINGS[
-								isMultiSelectQuestion() ? "multiselect" : g.mode
-							] ?? QUESTION_BINDINGS.text
-						}
-					/>
+					<KeymapHintBar borderless group="guided-questions" />
 				</Dialog.Footer>
 			</Dialog.Root>
 		</Show>

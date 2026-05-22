@@ -31,7 +31,9 @@ Claude Code compatibility commands can also appear at runtime from project-local
 
 ## How to access it
 
-Press `Ctrl+P` to open the command palette.
+Press `Ctrl+P` by default to open the command palette (or `/` while focused on the message input).
+
+Commands can also be bound directly by command id. For example, bind `/code-review` with the `code-review` keybinding id. Direct command keybindings run with empty args.
 
 ## Behavior
 

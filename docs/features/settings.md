@@ -24,6 +24,25 @@ The current settings UI exposes:
 
 Settings are persisted to `~/.kit/settings.json`.
 
+## Keybindings
+
+Some shell keybindings and registered slash commands can be customized in `~/.kit/settings.json` under `keybindings`. Values may be a key string, an array of key strings, or `false`/`null` to disable the binding.
+
+```json
+{
+  "keybindings": {
+    "command-palette.open": "ctrl+space",
+    "code-review": "ctrl+o",
+    "composer.clear-or-quit": ["ctrl+c", "ctrl+q"],
+    "composer.restore-or-recall": false
+  }
+}
+```
+
+The key syntax is OpenTUI keymap syntax such as `ctrl+p`, `shift+tab`, `return`/`enter`, `escape`, `up`, or multi-key sequences like `gg` when a feature layer supports them.
+
+Slash commands are bound by command id without the leading `/`; for example, bind `/code-review` with `"code-review"`. See `docs/features/keybindings.md` for the built-in configurable command catalog.
+
 ## How to access it
 
 Run:
