@@ -1,7 +1,7 @@
 /**
  * Bells and speech notifications on agent turn completion.
  *
- * - Bell: OpenTUI terminal notification when available, BEL fallback, macOS Funk sound on error
+ * - Bell: terminal BEL plus OpenTUI terminal notification when available, macOS Funk sound on error
  * - Speech (macOS only): reads a shortened version of the assistant's response via `say`
  */
 
@@ -61,8 +61,9 @@ function triggerTerminalNotification(
 }
 
 /**
- * Emit a terminal-mediated notification when available, falling back to BEL.
- * Optional sound playback is controlled separately via `soundEnabled`.
+ * Emit BEL for terminal bell/tab indicators and also request a terminal-mediated
+ * notification when available. Optional sound playback is controlled separately
+ * via `soundEnabled`.
  */
 export function ringBell(
 	isError: boolean,
@@ -75,12 +76,14 @@ export function ringBell(
 ): void {
 	if (!soundEnabled) return;
 
-	const notified = triggerTerminalNotification(
+	// OpenTUI notifications are terminal/OS dependent and may be quiet or hidden
+	// while focused, so keep BEL as the reliable bell/tab indicator.
+	writeBell();
+	triggerTerminalNotification(
 		options?.notify,
 		options?.message ?? (isError ? "Turn failed" : "Turn complete"),
 		options?.title ?? "Kit",
 	);
-	if (!notified) writeBell();
 
 	if (isError) {
 		playErrorSound(soundEnabled);
