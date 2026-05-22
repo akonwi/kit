@@ -1,8 +1,8 @@
 import type { KeyEvent, Renderable } from "@opentui/core";
-import type { CommandDefinition } from "@opentui/keymap";
+import type { Command } from "@opentui/keymap";
 import type { BindingDefinition, CommandBindingDefinition } from "./bindings";
 
-export type OpenTuiCommandRun = CommandDefinition<Renderable, KeyEvent>["run"];
+export type OpenTuiCommandRun = Command<Renderable, KeyEvent>["run"];
 
 export type KeybindingCommandMetadata = {
 	defaultKeys: string | readonly string[];

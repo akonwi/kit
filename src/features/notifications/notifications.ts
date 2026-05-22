@@ -1,7 +1,7 @@
 /**
  * Bells and speech notifications on agent turn completion.
  *
- * - Bell: terminal bell character (\u0007) on success, macOS Funk sound on error
+ * - Bell: OpenTUI terminal notification when available, BEL fallback, macOS Funk sound on error
  * - Speech (macOS only): reads a shortened version of the assistant's response via `say`
  */
 
@@ -10,6 +10,8 @@ import { writeFileSync } from "node:fs";
 import { platform } from "node:os";
 
 const FUNK_SOUND_PATH = "/System/Library/Sounds/Funk.aiff";
+
+type TerminalNotifier = (message: string, title?: string) => boolean;
 
 // ── Bell ────────────────────────────────────────────────────────────
 
@@ -46,15 +48,40 @@ function playErrorSound(enabled: boolean): void {
 	}
 }
 
+function triggerTerminalNotification(
+	notify: TerminalNotifier | undefined,
+	message: string,
+	title: string,
+): boolean {
+	try {
+		return notify?.(message, title) === true;
+	} catch {
+		return false;
+	}
+}
+
 /**
- * Emit terminal tab notification (BEL) always.
+ * Emit a terminal-mediated notification when available, falling back to BEL.
  * Optional sound playback is controlled separately via `soundEnabled`.
  */
-export function ringBell(isError: boolean, soundEnabled: boolean): void {
-	// Always emit BEL so terminal tab indicators light up.
-	writeBell();
+export function ringBell(
+	isError: boolean,
+	soundEnabled: boolean,
+	options?: {
+		notify?: TerminalNotifier;
+		message?: string;
+		title?: string;
+	},
+): void {
+	if (!soundEnabled) return;
 
-	// Sound policy is separate from tab notification.
+	const notified = triggerTerminalNotification(
+		options?.notify,
+		options?.message ?? (isError ? "Turn failed" : "Turn complete"),
+		options?.title ?? "Kit",
+	);
+	if (!notified) writeBell();
+
 	if (isError) {
 		playErrorSound(soundEnabled);
 	}

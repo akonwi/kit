@@ -82,6 +82,7 @@ export type PluginContext = {
 	attachments: AttachmentsController;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	triggerNotification: (message: string, title?: string) => boolean;
 };
 
 export type InternalPluginSessionAPI = {
@@ -115,6 +116,7 @@ export type InternalPluginHeaderAPI = PluginAPI["header"];
 export type InternalPluginSystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
+	notify: (message: string, title?: string) => boolean;
 };
 
 export type InternalPluginEventContext = {

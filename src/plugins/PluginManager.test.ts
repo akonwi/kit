@@ -63,6 +63,7 @@ function createPluginContext(
 			getContributions: () => [],
 			subscribe: () => () => {},
 		},
+		triggerNotification: () => false,
 	};
 }
 

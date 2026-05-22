@@ -1,4 +1,5 @@
 import type { InternalPluginAPI } from "../../plugins";
+import { ringBell } from "../notifications/notifications";
 import { createGuidedQuestionsController } from "./controller";
 import { GuidedQuestionsContent } from "./GuidedQuestionsContent";
 import { createGuidedQuestionsTool, GUIDED_QUESTIONS_POLICY } from "./tool";
@@ -15,6 +16,12 @@ export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	// takes effect immediately (next tool call returns a disabled response).
 	const tool = createGuidedQuestionsTool(controller, {
 		getSettings: () => kit.settings.get(),
+		notify: () =>
+			ringBell(false, kit.settings.get().bells !== false, {
+				notify: kit.system.notify,
+				title: "Kit",
+				message: "Input needed",
+			}),
 	});
 	kit.registerTool(tool);
 

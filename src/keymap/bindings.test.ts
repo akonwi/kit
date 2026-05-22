@@ -43,6 +43,17 @@ function createDispatchableTestKeymap(): {
 	const root = {};
 	const keyListeners = new Set<(event: KeymapEvent) => void>();
 	const host: KeymapHost<object, KeymapEvent> = {
+		metadata: {
+			platform: "unknown",
+			primaryModifier: "unknown",
+			modifiers: {
+				ctrl: "supported",
+				shift: "supported",
+				meta: "unknown",
+				super: "unknown",
+				hyper: "unknown",
+			},
+		},
 		rootTarget: root,
 		isDestroyed: false,
 		getFocusedTarget: () => root,
@@ -138,7 +149,7 @@ describe("createConfiguredBindings", () => {
 
 	test("reports invalid key strings and skips them", () => {
 		const result = collectBindings([
-			{ cmd: "bad", key: "ctrl+shift", desc: "Bad" },
+			{ cmd: "bad", key: "ctrl+", desc: "Bad" },
 			{ cmd: "good", key: "escape", desc: "Good" },
 		]);
 
@@ -147,7 +158,7 @@ describe("createConfiguredBindings", () => {
 		expect(result.diagnostics[0]).toMatchObject({
 			type: "invalid",
 			command: "bad",
-			key: "ctrl+shift",
+			key: "ctrl+",
 		});
 	});
 

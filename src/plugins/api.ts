@@ -226,6 +226,8 @@ export function createPluginAPI(
 		open: async (url: string | URL) => {
 			await openExternal(url.toString());
 		},
+		notify: (message: string, title?: string) =>
+			ctx.triggerNotification(message, title),
 	};
 
 	const publicUi = toPublicPluginUI(ctx.ui);

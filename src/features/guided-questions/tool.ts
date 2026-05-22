@@ -59,6 +59,7 @@ const parameters = Type.Object({
 
 export type GuidedQuestionsToolOptions = {
 	getSettings: () => Settings;
+	notify?: () => void;
 };
 
 export function createGuidedQuestionsTool(
@@ -108,7 +109,11 @@ export function createGuidedQuestionsTool(
 				};
 			}
 
-			ringBell(false, settings.bells !== false);
+			if (options.notify) {
+				options.notify();
+			} else {
+				ringBell(false, settings.bells !== false);
+			}
 			const result = await guidedQuestions.activate(params);
 			const title =
 				typeof params.title === "string" && params.title.trim()

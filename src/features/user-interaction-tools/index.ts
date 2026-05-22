@@ -1,4 +1,5 @@
 import type { InternalPluginAPI } from "../../plugins";
+import { ringBell } from "../notifications/notifications";
 import {
 	createUserInteractionTools,
 	USER_INTERACTION_TOOLS_POLICY,
@@ -10,6 +11,12 @@ export function UserInteractionToolsPlugin(kit: InternalPluginAPI): void {
 	for (const tool of createUserInteractionTools({
 		ui: kit.ui,
 		getSettings: () => kit.settings.get(),
+		notify: () =>
+			ringBell(false, kit.settings.get().bells !== false, {
+				notify: kit.system.notify,
+				title: "Kit",
+				message: "Input needed",
+			}),
 	})) {
 		kit.registerTool(tool);
 	}

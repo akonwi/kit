@@ -35,7 +35,11 @@ function notifyTurnComplete(kit: InternalPluginAPI, turn: Turn | null): void {
 		(message: { role: string; stopReason?: string }) =>
 			message.role === "assistant" && message.stopReason === "error",
 	);
-	ringBell(isError, settings.bells ?? true);
+	ringBell(isError, settings.bells ?? true, {
+		notify: kit.system.notify,
+		title: "Kit",
+		message: isError ? "Agent turn failed" : "Agent turn complete",
+	});
 
 	const speech = resolveSpeechSettings(settings.speech);
 	if (!speech.enabled) return;

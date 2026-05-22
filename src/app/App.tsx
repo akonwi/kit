@@ -35,6 +35,7 @@ export type AppProps = {
 	settings: LoadedSettings;
 	session: Session;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
+	triggerNotification: (message: string, title?: string) => boolean;
 	quitAndDestroy: () => void;
 };
 
@@ -102,6 +103,7 @@ export function App(props: AppProps) {
 			attachments,
 			footer,
 			header,
+			triggerNotification: props.triggerNotification,
 		};
 		let pluginReloadCount = 0;
 		let pluginLoadGeneration = 0;

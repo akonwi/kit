@@ -70,10 +70,14 @@ function titleFromCommandName(name: string): string {
 	return segment.replaceAll("-", " ");
 }
 
+function commandField(command: OpenTuiCommandEntry["command"], key: string) {
+	return (command as Record<string, unknown>)[key];
+}
+
 function commandHint(entry: OpenTuiCommandEntry): string {
-	const hint = entry.command.fields.hint;
+	const hint = commandField(entry.command, "hint");
 	if (typeof hint === "string" && hint.trim()) return hint.trim();
-	const title = entry.command.fields.title ?? entry.command.attrs?.title;
+	const title = commandField(entry.command, "title");
 	if (typeof title === "string" && title.trim()) return title.trim();
 	return titleFromCommandName(entry.command.name);
 }
@@ -83,9 +87,12 @@ export function KeymapHintBar(props: KeymapHintBarProps) {
 		const entries = keymap.getCommandEntries({
 			visibility: "active",
 			filter: (command) => {
-				if (command.fields.group !== props.group) return false;
-				if (command.fields.hint === false) return false;
-				if (props.category && command.fields.category !== props.category) {
+				if (commandField(command, "group") !== props.group) return false;
+				if (commandField(command, "hint") === false) return false;
+				if (
+					props.category &&
+					commandField(command, "category") !== props.category
+				) {
 					return false;
 				}
 				return true;

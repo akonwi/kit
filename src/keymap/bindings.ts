@@ -1,6 +1,6 @@
 import type {
-	BindingInput,
-	CommandDefinition,
+	Binding,
+	Command,
 	Keymap,
 	KeymapEvent,
 	KeySequencePart,
@@ -22,7 +22,7 @@ export type CommandBindingDefinition<
 > = {
 	binding: BindingDefinition<TCommand>;
 	command: {
-		run: CommandDefinition<TTarget, TEvent>["run"];
+		run: Command<TTarget, TEvent>["run"];
 		[key: string]: unknown;
 	};
 };
@@ -51,7 +51,7 @@ export type ConfiguredBindingsResult<
 	TTarget extends object,
 	TEvent extends KeymapEvent,
 > = {
-	bindings: BindingInput<TTarget, TEvent>[];
+	bindings: Binding<TTarget, TEvent>[];
 	diagnostics: KeybindingDiagnostic[];
 };
 
@@ -129,7 +129,7 @@ export function createConfiguredBindingResult<
 	definitions: readonly BindingDefinition<TCommand>[],
 	settings: KeybindingSettings | undefined,
 ): ConfiguredBindingsResult<TTarget, TEvent> {
-	const bindings: BindingInput<TTarget, TEvent>[] = [];
+	const bindings: Binding<TTarget, TEvent>[] = [];
 	const diagnostics: KeybindingDiagnostic[] = [];
 	const seen = new Map<string, { key: string; command: string }>();
 	for (const definition of definitions) {
@@ -177,7 +177,7 @@ export function createConfiguredBindings<
 	keymap: Keymap<TTarget, TEvent>,
 	definitions: readonly BindingDefinition<TCommand>[],
 	settings: KeybindingSettings | undefined,
-): BindingInput<TTarget, TEvent>[] {
+): Binding<TTarget, TEvent>[] {
 	return createConfiguredBindingResult(keymap, definitions, settings).bindings;
 }
 
@@ -203,7 +203,7 @@ export function createKeymapCommands<
 	TCommand extends string,
 >(
 	definitions: readonly CommandBindingDefinition<TTarget, TEvent, TCommand>[],
-): CommandDefinition<TTarget, TEvent>[] {
+): Command<TTarget, TEvent>[] {
 	return definitions.map(({ binding, command }) => ({
 		...command,
 		desc: command.desc ?? binding.desc,

@@ -134,6 +134,9 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 						settings={settings}
 						session={session}
 						updateTerminalTitle={updateTerminalTitle}
+						triggerNotification={(message, title) =>
+							renderer.triggerNotification(message, title)
+						}
 						quitAndDestroy={() => {
 							renderer.destroy();
 							resolve();
