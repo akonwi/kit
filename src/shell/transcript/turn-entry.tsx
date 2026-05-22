@@ -10,6 +10,7 @@ export function TurnEntry(props: {
 	item: TranscriptItem;
 	liveTools: LiveToolsForTurn;
 	showToast: (toast: TranscriptToast) => void;
+	zenMode?: boolean;
 }) {
 	switch (props.item.kind) {
 		case "user":
@@ -27,6 +28,7 @@ export function TurnEntry(props: {
 					toolResults={props.item.toolResults}
 					liveTools={props.liveTools}
 					aborted={props.item.aborted}
+					zenMode={props.zenMode}
 				/>
 			);
 		case "handoff-summary":

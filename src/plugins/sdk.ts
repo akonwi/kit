@@ -161,6 +161,7 @@ export type Settings = {
 	theme?: string;
 	bells?: boolean;
 	keybindings?: KeybindingSettings;
+	zen?: boolean;
 	speech?:
 		| boolean
 		| {

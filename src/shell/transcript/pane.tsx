@@ -123,6 +123,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 								item={item}
 								liveTools={liveTools()[item.turnId] ?? {}}
 								showToast={props.showToast}
+								zenMode={props.zenMode}
 							/>
 						)}
 					</For>

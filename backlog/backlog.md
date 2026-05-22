@@ -13,8 +13,6 @@ Delete done items.
 
 ## Active items
 - [ ] feat: allow customizing/overriding the templates for code-review messages and pager responses
-- [ ] feat: setting for "zen" mode. minimal transcript
-  - don't show tool calls in transcript
 - [ ] chore: turn this into a monorepo and build website
 - [ ] feat: support remote usage. build a way to use kit sessions from web/mobile 
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery

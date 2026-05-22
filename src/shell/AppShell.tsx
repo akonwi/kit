@@ -50,6 +50,7 @@ export type AppShellProps = {
 
 type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
 	showToast: (toast: ToastInput) => void;
+	zenMode?: boolean;
 };
 
 function commandKeybindingGroup(command: Command): string {
@@ -138,7 +139,11 @@ function AppShellContent(props: AppShellContentProps) {
 					});
 				}}
 			>
-				<Transcript runtime={props.runtime} showToast={props.showToast} />
+				<Transcript
+					runtime={props.runtime}
+					showToast={props.showToast}
+					zenMode={props.zenMode}
+				/>
 			</box>
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
@@ -210,6 +215,7 @@ export function AppShell(props: AppShellProps) {
 		>
 			<AppShellContent
 				state={props.state}
+				zenMode={settings().zen === true}
 				runtime={props.runtime}
 				commands={props.commands}
 				controller={props.controller}

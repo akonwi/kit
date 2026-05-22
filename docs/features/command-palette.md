@@ -10,6 +10,7 @@ Core commands currently include:
 - `speech`
 - `settings`
 - `pager`
+- `zen`
 - `code-review`
 - `handoff [message]`
 - `login`

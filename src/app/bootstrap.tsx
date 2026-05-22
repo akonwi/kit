@@ -18,6 +18,33 @@ import {
 import { resolveAndApplyTheme } from "../shell/theme";
 import { App } from "./App";
 
+type ProcessWithActiveHandles = NodeJS.Process & {
+	_getActiveHandles?: () => unknown[];
+	_getActiveRequests?: () => unknown[];
+};
+
+function describeActiveHandle(handle: unknown): string {
+	if (typeof handle !== "object" || handle === null) return typeof handle;
+	const constructorName = handle.constructor?.name;
+	return constructorName || Object.prototype.toString.call(handle);
+}
+
+function reportDanglingHandlesForDebugging(): void {
+	if (!process.env.KIT_DEBUG_SHUTDOWN) return;
+	const proc = process as ProcessWithActiveHandles;
+	const handles = proc._getActiveHandles?.() ?? [];
+	const requests = proc._getActiveRequests?.() ?? [];
+	console.error(
+		`[kit] forcing shutdown with ${handles.length} active handle(s), ${requests.length} active request(s)`,
+	);
+	for (const handle of handles) {
+		console.error(`[kit] active handle: ${describeActiveHandle(handle)}`);
+	}
+	for (const request of requests) {
+		console.error(`[kit] active request: ${describeActiveHandle(request)}`);
+	}
+}
+
 async function loadSession(sessionId?: string): Promise<Session> {
 	// If a session ID is provided directly (e.g. from `kit threads`), use it
 	const sessionArg =
@@ -126,7 +153,27 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 	// Keep the process alive until the renderer is destroyed.
 	// In compiled binaries, the async bootstrap() returning would let
 	// the event loop drain and the process exit prematurely.
+	let quitStarted = false;
 	const alive = new Promise<void>((resolve) => {
+		function quitAndDestroy(): void {
+			if (quitStarted) return;
+			quitStarted = true;
+			renderer.destroy();
+			resolve();
+
+			// OpenTUI generally discourages process.exit() because it can bypass
+			// terminal cleanup and leave the user's shell in raw/alternate-screen state.
+			// This watchdog only runs after renderer.destroy() has restored the terminal
+			// and the normal bootstrap promise has resolved. It exists because Bun or a
+			// native integration can still keep the process alive with no visible active
+			// handles, leaving users at a hung shell after quitting.
+			const shutdownWatchdog = setTimeout(() => {
+				reportDanglingHandlesForDebugging();
+				process.exit(0);
+			}, 200);
+			shutdownWatchdog.unref?.();
+		}
+
 		render(
 			() => (
 				<KeymapProvider keymap={keymap}>
@@ -137,10 +184,7 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 						triggerNotification={(message, title) =>
 							renderer.triggerNotification(message, title)
 						}
-						quitAndDestroy={() => {
-							renderer.destroy();
-							resolve();
-						}}
+						quitAndDestroy={quitAndDestroy}
 					/>
 				</KeymapProvider>
 			),
