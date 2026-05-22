@@ -1,6 +1,7 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { Static, TSchema } from "@earendil-works/pi-ai";
 import type { Command } from "../features/commands/types";
+import { ringBell } from "../features/notifications/notifications";
 import type {
 	AgentRuntimeEvent,
 	RuntimeEventName,
@@ -47,14 +48,20 @@ function toAgentTool<TParameters extends TSchema, TDetails>(
 	});
 }
 
-function toPublicPluginUI(ui: PluginContext["ui"]): PluginAPI["ui"] {
+function toPublicPluginUI(
+	ctx: PluginContext,
+	notifyUserInteraction: () => void,
+): PluginAPI["ui"] {
 	return {
-		text: ui.text,
-		theme: ui.theme,
-		toast: ui.toast,
-		select: ui.select,
-		input: ui.input,
-		confirm: ui.confirm,
+		text: ctx.ui.text,
+		theme: ctx.ui.theme,
+		toast: ctx.ui.toast,
+		select: ctx.ui.select,
+		input: ctx.ui.input,
+		confirm: (input) => {
+			notifyUserInteraction();
+			return ctx.ui.confirm(input);
+		},
 	};
 }
 
@@ -230,7 +237,15 @@ export function createPluginAPI(
 			ctx.triggerNotification(message, title),
 	};
 
-	const publicUi = toPublicPluginUI(ctx.ui);
+	function notifyUserInteraction(): void {
+		ringBell(false, ctx.settings.settings.bells !== false, {
+			notify: ctx.triggerNotification,
+			title: "Kit",
+			message: "Input needed",
+		});
+	}
+
+	const publicUi = toPublicPluginUI(ctx, notifyUserInteraction);
 	const ui = options.exposeInternalUi ? ctx.ui : publicUi;
 
 	function createPublicEventContext(): EventContext {
