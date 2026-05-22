@@ -16,6 +16,7 @@ Delete done items.
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
+- [ ] feat: allow customizing/overriding the templates for code-review messages and pager responses
 - [ ] feat: setting for "zen" mode. minimal transcript
   - don't show tool calls in transcript
 - [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
