@@ -2,6 +2,8 @@
 
 Kit is a TUI coding agent heavily inspired by [Pi](https://pi.dev) and built on top of [`pi-agent-core`](https://github.com/earendil-works/pi-mono/tree/main/packages/agent) with [OpenTUI](https://opentui.com/).
 
+[akonwi.io/kit](https://akonwi.io/kit)
+
 ## Requirements
 
 - [Bun](https://bun.sh) `>= 1.3.0`
