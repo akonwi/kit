@@ -96,10 +96,6 @@ function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
 }
 
-function diffViewLabel(view: ReviewDiffView): string {
-	return view === "split" ? "split" : "unified";
-}
-
 function sourceLabel(file: ReviewFile): string {
 	switch (file.source) {
 		case "staged":
@@ -1264,7 +1260,6 @@ export function ReviewContent(props: ReviewContentProps) {
 					left={<text fg={theme.textMuted}>Code review</text>}
 					right={
 						<text fg={theme.textMuted}>
-							{diffViewLabel(diffView())} view · {reviewFiles().length} file
 							{reviewFiles().length === 1 ? "" : "s"}
 							{totalDraftNotes() > 0
 								? ` · ${formatNoteCount(totalDraftNotes())}`
@@ -1412,7 +1407,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											</Show>
 										</box>
 										<text fg={theme.textMuted}>
-											{sourceLabel(file())} · {diffViewLabel(diffView())} view ·{" "}
+											{sourceLabel(file())} ·{" "}
 											{currentHunk()
 												? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
 												: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}

@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] tweak: remove display of diff view mode in diff header 
 - [ ] feat: in bash execution mode of composer, show picker for navigating history
 - [ ] feat: when invoking previous user message for composer, use picker to support full history
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
