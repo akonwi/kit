@@ -1,0 +1,228 @@
+/*
+ * Kit website — design tokens and styles.
+ * Follows Kit's TUI design language: utilitarian, dark-first,
+ * semantic colors only, minimal chrome.
+ */
+
+/* ── Tokens ────────────────────────────────────────────── */
+:root {
+  --black:       #0a0a0a;
+  --near-black:  #171717;
+  --dark-gray:   #262626;
+  --mid-gray:    #404040;
+  --gray:        #a1a1a1;
+  --light-gray:  #d4d4d4;
+  --off-white:   #fafafa;
+
+  --blue:        #6cb6ff;
+  --green:       #7ee787;
+  --red:         #ff6467;
+  --amber:       #ffb86a;
+
+  --font-sans:   "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono:   "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/* ── Reset ─────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html {
+  font-size: 16px;
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--black);
+  color: var(--off-white);
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--blue);
+  text-decoration: none;
+}
+a:hover { text-decoration: underline; }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  background: var(--near-black);
+  padding: 0.15em 0.35em;
+  border-radius: 0;
+}
+
+h1, h2, h3 {
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+
+h1 { font-size: 2.2rem; }
+h2 { font-size: 1.4rem; color: var(--light-gray); margin-bottom: 1.5rem; }
+h3 { font-size: 1rem; }
+
+.muted { color: var(--gray); font-size: 0.9rem; }
+
+/* ── Header ────────────────────────────────────────────── */
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--dark-gray);
+  position: sticky;
+  top: 0;
+  background: var(--black);
+  z-index: 10;
+}
+
+.wordmark {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  letter-spacing: 0.35em;
+  color: var(--off-white);
+}
+
+.nav {
+  display: flex;
+  gap: 1.5rem;
+}
+.nav a {
+  color: var(--gray);
+  font-size: 0.9rem;
+  transition: color 0.15s;
+}
+.nav a:hover { color: var(--off-white); text-decoration: none; }
+
+/* ── Hero ──────────────────────────────────────────────── */
+.hero {
+  text-align: center;
+  padding: 5rem 1.5rem 3rem;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.hero h1 {
+  margin-bottom: 1rem;
+}
+
+.hero-sub {
+  color: var(--light-gray);
+  font-size: 1.05rem;
+  margin-bottom: 2rem;
+  line-height: 1.7;
+}
+
+.install-line {
+  background: var(--near-black);
+  border: 1px solid var(--dark-gray);
+  display: inline-block;
+  padding: 0.65rem 1.2rem;
+  margin-bottom: 0.5rem;
+}
+.install-line code {
+  background: none;
+  font-size: 0.95rem;
+  color: var(--green);
+}
+
+.install-note {
+  color: var(--mid-gray);
+  font-size: 0.85rem;
+}
+.install-note a { color: var(--gray); }
+
+/* ── Sections ──────────────────────────────────────────── */
+.section {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem;
+  border-top: 1px solid var(--dark-gray);
+}
+
+/* ── Feature cards ─────────────────────────────────────── */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 1.5rem;
+}
+
+.feature-card {
+  background: var(--near-black);
+  border: 1px solid var(--dark-gray);
+  padding: 1.25rem;
+}
+.feature-card h3 {
+  color: var(--blue);
+  margin-bottom: 0.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+.feature-card p {
+  color: var(--light-gray);
+  font-size: 0.9rem;
+  line-height: 1.55;
+}
+.feature-card a { font-size: 0.9rem; }
+
+/* ── Install ───────────────────────────────────────────── */
+.install-block {
+  background: var(--near-black);
+  border: 1px solid var(--dark-gray);
+  padding: 0.75rem 1.2rem;
+  margin-bottom: 0.75rem;
+}
+.install-block code {
+  background: none;
+  color: var(--green);
+  font-size: 0.9rem;
+  line-height: 1.7;
+}
+
+/* ── Usage table ───────────────────────────────────────── */
+.usage-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+.usage-table td {
+  padding: 0.55rem 0;
+  border-bottom: 1px solid var(--dark-gray);
+  font-size: 0.9rem;
+}
+.usage-table td:first-child {
+  width: 180px;
+  color: var(--green);
+  font-family: var(--font-mono);
+}
+.usage-table td:last-child {
+  color: var(--light-gray);
+}
+
+/* ── Footer ────────────────────────────────────────────── */
+.footer {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem 3rem;
+  text-align: center;
+}
+.footer-line {
+  border-top: 1px solid var(--dark-gray);
+  margin-bottom: 1.5rem;
+}
+.footer p {
+  color: var(--mid-gray);
+  font-size: 0.85rem;
+}
+.footer a { color: var(--gray); }
+.sep { margin: 0 0.5rem; }
+
+/* ── Responsive ────────────────────────────────────────── */
+@media (max-width: 480px) {
+  h1 { font-size: 1.6rem; }
+  .hero { padding: 3rem 1rem 2rem; }
+  .features-grid { grid-template-columns: 1fr; }
+  .usage-table td:first-child { width: auto; padding-right: 1rem; }
+  .header { flex-direction: column; gap: 0.5rem; }
+}
