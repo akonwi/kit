@@ -261,6 +261,7 @@ export function App(props: AppProps) {
 			if (disposed) return;
 			disposed = true;
 			disposePluginManagers();
+			app.dispose();
 			persistence.dispose();
 			runtime.dispose();
 		};

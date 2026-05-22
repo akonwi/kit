@@ -102,7 +102,7 @@ export function createAppState(runtime: AgentRuntime | null) {
 	const FILE_INDEX_INVALIDATE_INTERVAL = 5;
 	let toolCompletionCount = 0;
 
-	runtime?.subscribe((event) => {
+	const unsubscribeRuntime = runtime?.subscribe((event) => {
 		switch (event.type) {
 			case "session.active.changed":
 				setState("sessionMeta", buildSessionMeta(event.session));
@@ -182,11 +182,20 @@ export function createAppState(runtime: AgentRuntime | null) {
 
 	// ── Debug ─────────────────────────────────────────────────────
 
+	function dispose() {
+		unsubscribeRuntime?.();
+		for (const timer of toastTimers.values()) {
+			clearTimeout(timer);
+		}
+		toastTimers.clear();
+	}
+
 	return {
 		state,
 		fileIndex,
 		threadIndex,
 		dismissToast,
 		showToast,
+		dispose,
 	};
 }
