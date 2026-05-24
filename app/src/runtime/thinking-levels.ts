@@ -1,10 +1,8 @@
-import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import {
-	type Api,
 	clampThinkingLevel as clampModelThinkingLevel,
 	getSupportedThinkingLevels,
-	type Model,
 } from "@earendil-works/pi-ai";
+import type { Api, Model, ThinkingLevel } from "./agent";
 
 export const DEFAULT_THINKING_LEVEL: ThinkingLevel = "medium";
 

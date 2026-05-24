@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool } from "../runtime/agent";
+import { Type } from "../runtime/agent";
 
 // Legacy single-edit shape the model sometimes sends instead of the canonical {edits:[...]} shape.
 type LegacyEditParams = {

@@ -1,7 +1,6 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Api, Model, Usage } from "@earendil-works/pi-ai";
 import { messagePartToPromptText } from "../messages/parts";
 import type { SyntheticSummaryKind } from "../session/types";
+import type { AgentMessage, Api, Model, Usage } from "./agent";
 
 type SyntheticSummaryMessage = AgentMessage & {
 	synthetic?: { kind: SyntheticSummaryKind; sourceSessionName?: string };

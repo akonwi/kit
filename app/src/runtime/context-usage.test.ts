@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type { Api, Model, Usage } from "@earendil-works/pi-ai";
+import type { AgentMessage, Api, Model, Usage } from "./agent";
 import { getRuntimeContextUsage } from "./context-usage";
 
 const model = {

@@ -1,5 +1,6 @@
 import { type Accessor, createSignal } from "solid-js";
 import type { MessagePart } from "../messages/parts";
+import { EventBus } from "../runtime/event-bus";
 
 export interface Attachment {
 	id: string;
@@ -9,6 +10,11 @@ export interface Attachment {
 	toMessagePart(): MessagePart;
 	toPromptText(): string;
 }
+
+export type AttachmentEventMap = {
+	attached: { attachment: Attachment };
+	detached: { id: string };
+};
 
 export type AttachmentEvent =
 	| { type: "attached"; attachment: Attachment }
@@ -23,13 +29,7 @@ export interface AttachmentsController {
 
 export function createAttachmentsController(): AttachmentsController {
 	const [attachments, setAttachments] = createSignal<Attachment[]>([]);
-	const listeners = new Set<(event: AttachmentEvent) => void>();
-
-	function emit(event: AttachmentEvent): void {
-		for (const listener of listeners) {
-			listener(event);
-		}
-	}
+	const bus = new EventBus<AttachmentEventMap>();
 
 	return {
 		attach(attachment) {
@@ -38,7 +38,7 @@ export function createAttachmentsController(): AttachmentsController {
 				next.push(attachment);
 				return next;
 			});
-			emit({ type: "attached", attachment });
+			bus.publish("attached", { attachment });
 		},
 		detach(id) {
 			let removed = false;
@@ -48,14 +48,11 @@ export function createAttachmentsController(): AttachmentsController {
 				return next;
 			});
 			if (!removed) return;
-			emit({ type: "detached", id });
+			bus.publish("detached", { id });
 		},
 		attachments,
 		subscribe(listener) {
-			listeners.add(listener);
-			return () => {
-				listeners.delete(listener);
-			};
+			return bus.subscribe(listener);
 		},
 	};
 }

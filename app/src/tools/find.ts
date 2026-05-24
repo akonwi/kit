@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { relative, resolve } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
 import { globSync } from "glob";
+import type { AgentTool } from "../runtime/agent";
+import { Type } from "../runtime/agent";
 
 const DEFAULT_LIMIT = 1000;
 const MAX_BYTES = 200 * 1024; // 200KB

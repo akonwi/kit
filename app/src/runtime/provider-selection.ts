@@ -1,11 +1,10 @@
 import {
-	type Api,
 	getEnvApiKey,
 	getModels,
 	getProviders,
 	type KnownProvider,
-	type Model,
 } from "@earendil-works/pi-ai";
+import type { Api, Model } from "./agent";
 
 const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Partial<
 	Record<KnownProvider, RegExp[]>

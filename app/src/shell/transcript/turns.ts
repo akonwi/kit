@@ -1,14 +1,12 @@
+import type { MessagePart, UserMultipartMessage } from "../../messages/parts";
 import type {
 	AgentMessage,
-	CustomAgentMessages,
-} from "@earendil-works/pi-agent-core";
-import type {
 	AssistantMessage,
+	CustomAgentMessages,
 	ToolCall,
 	ToolResultMessage,
 	UserMessage,
-} from "@earendil-works/pi-ai";
-import type { MessagePart, UserMultipartMessage } from "../../messages/parts";
+} from "../../runtime/agent";
 import type { KitAgentMessage, Turn } from "../../session/types";
 
 export type BashExecutionMessage = CustomAgentMessages["bashExecution"];

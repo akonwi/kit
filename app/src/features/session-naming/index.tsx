@@ -1,7 +1,7 @@
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { type Api, completeSimple, type Model } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai";
 import { getApiKey } from "../../auth";
 import type { InternalPluginAPI } from "../../plugins";
+import type { AgentMessage, Api, Model } from "../../runtime/agent";
 
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;

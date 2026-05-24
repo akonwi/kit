@@ -1,4 +1,3 @@
-import type { UserMessage } from "@earendil-works/pi-ai";
 import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { For, Show } from "solid-js";
@@ -8,6 +7,7 @@ import type {
 	ImageMessagePart,
 	UserMultipartMessage,
 } from "../../messages/parts";
+import type { UserMessage } from "../../runtime/agent";
 import { PENCIL } from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import {

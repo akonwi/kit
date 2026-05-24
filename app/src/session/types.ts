@@ -5,10 +5,7 @@
  * append-only JSONL entry log under ~/.kit/sessions/<id>.jsonl.
  */
 
-import type {
-	AgentMessage,
-	ThinkingLevel,
-} from "@earendil-works/pi-agent-core";
+import type { AgentMessage, ThinkingLevel } from "../runtime/agent";
 
 export const SESSION_VERSION = 2;
 

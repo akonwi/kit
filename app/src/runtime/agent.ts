@@ -3,14 +3,14 @@ import "./custom-messages";
 import {
 	type AfterToolCallContext,
 	type AfterToolCallResult,
-	Agent,
 	type AgentMessage,
-	type AgentOptions,
 	type AgentState,
 	type AgentTool,
 	type BeforeToolCallContext,
 	type BeforeToolCallResult,
+	Agent as PiAgent,
 	type AgentEvent as PiAgentEvent,
+	type AgentOptions as PiAgentOptions,
 	type StreamFn,
 	type ThinkingLevel,
 	type ToolExecutionMode,
@@ -34,8 +34,34 @@ import {
 	type UserMultipartMessage,
 } from "../messages/parts";
 import type { KitAgentMessage, Session, Turn } from "../session/types";
+import { type AnyEvent, EventBus } from "./event-bus";
 
-export interface KitAgentOptions extends AgentOptions {
+// Re-export upstream types so the rest of the codebase imports them
+// from Kit's own boundary instead of reaching into upstream packages.
+export type {
+	AgentMessage,
+	AgentTool,
+	BeforeToolCallContext,
+	BeforeToolCallResult,
+	CustomAgentMessages,
+	ThinkingLevel,
+} from "@earendil-works/pi-agent-core";
+export type {
+	Api,
+	AssistantMessage,
+	ImageContent,
+	Model,
+	Static,
+	TextContent,
+	ToolCall,
+	ToolResultMessage,
+	TSchema,
+	Usage,
+	UserMessage,
+} from "@earendil-works/pi-ai";
+export { Type } from "@earendil-works/pi-ai";
+
+export interface AgentOptions extends PiAgentOptions {
 	initialTurns?: Turn[];
 }
 
@@ -50,74 +76,69 @@ export type ReplacedCustomMessage = {
 	message: KitAgentMessage;
 };
 
-export type AgentEvent =
-	| { type: "agent_start" }
-	| { type: "agent_end"; messages: AgentMessage[] }
-	| { type: "turn_start"; turn: Turn }
-	| {
-			type: "turn_end";
-			turn: Turn | null;
-			message: AgentMessage;
-			toolResults: ToolResultMessage[];
-	  }
-	| { type: "message_start"; message: AgentMessage }
-	| {
-			type: "message_update";
-			message: AgentMessage;
-			assistantMessageEvent: AssistantMessageEvent;
-	  }
-	| {
-			type: "assistant_message_started";
-			turn: Turn;
-			message: Extract<AssistantMessage, { role: "assistant" }>;
-	  }
-	| {
-			type: "assistant_message_updated";
-			turn: Turn;
-			message: Extract<AssistantMessage, { role: "assistant" }>;
-	  }
-	| {
-			type: "user_message_created";
-			turn: Turn;
-			message: Extract<KitAgentMessage, { role: "user" }>;
-	  }
-	| {
-			type: "assistant_message_ended";
-			turn: Turn;
-			message: Extract<KitAgentMessage, { role: "assistant" }>;
-	  }
-	| { type: "message_end"; turn: Turn; message: KitAgentMessage }
-	| { type: "agent_thinking_started"; turn: Turn }
-	| { type: "agent_thinking_updated"; turn: Turn; delta: string }
-	| { type: "agent_thinking_completed"; turn: Turn }
-	| {
-			type: "agent_tool_started";
-			turn: Turn;
-			toolCallId: string;
-			toolName: string;
-			args: unknown;
-	  }
-	| {
-			type: "agent_tool_updated";
-			turn: Turn;
-			toolCallId: string;
-			toolName: string;
-			args: unknown;
-			partialResult: unknown;
-	  }
-	| {
-			type: "agent_tool_ended";
-			turn: Turn;
-			toolCallId: string;
-			toolName: string;
-			args: unknown;
-			result: unknown;
-			isError: boolean;
-	  };
+export type AgentEventMap = {
+	// biome-ignore lint/complexity/noBannedTypes: empty event payload
+	"agent.start": {};
+	"agent.end": { messages: AgentMessage[] };
+	"agent.turn.started": { turn: Turn };
+	"agent.turn.ended": {
+		turn: Turn | null;
+		message: AgentMessage;
+		toolResults: ToolResultMessage[];
+	};
+	"message.start": { message: AgentMessage };
+	"message.update": {
+		message: AgentMessage;
+		assistantMessageEvent: AssistantMessageEvent;
+	};
+	"agent.message.started": {
+		turn: Turn;
+		message: Extract<AssistantMessage, { role: "assistant" }>;
+	};
+	"agent.message.updated": {
+		turn: Turn;
+		message: Extract<AssistantMessage, { role: "assistant" }>;
+	};
+	"user.message.created": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "user" }>;
+	};
+	"agent.message.ended": {
+		turn: Turn;
+		message: Extract<KitAgentMessage, { role: "assistant" }>;
+	};
+	"message.committed": { turn: Turn; message: KitAgentMessage };
+	"agent.thinking.started": { turn: Turn };
+	"agent.thinking.updated": { turn: Turn; delta: string };
+	"agent.thinking.completed": { turn: Turn };
+	"agent.tool.started": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+	};
+	"agent.tool.updated": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+		partialResult: unknown;
+	};
+	"agent.tool.ended": {
+		turn: Turn;
+		toolCallId: string;
+		toolName: string;
+		args: unknown;
+		result: unknown;
+		isError: boolean;
+	};
+};
 
-export class KitAgent {
-	private readonly pi: Agent;
-	private readonly listeners = new Set<(event: AgentEvent) => void>();
+export type AgentEvent = AnyEvent<AgentEventMap>;
+
+export class Agent {
+	private readonly pi: PiAgent;
+	private readonly bus = new EventBus<AgentEventMap>();
 	private readonly toolArgsById = new Map<string, unknown>();
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
@@ -126,18 +147,18 @@ export class KitAgent {
 	private _queuedFollowUps: AgentMessage[] = [];
 	private nextPromptStartsNewTurn = false;
 
-	static fromSession(session: Session, opts?: KitAgentOptions): KitAgent {
-		return new KitAgent({
+	static fromSession(session: Session, opts?: AgentOptions): Agent {
+		return new Agent({
 			...opts,
 			initialTurns: session.turns,
 		});
 	}
 
-	constructor(opts?: KitAgentOptions) {
+	constructor(opts?: AgentOptions) {
 		const initialTurns = opts?.initialTurns;
 		const initialMessages =
 			initialTurns?.flatMap((turn) => turn.messages) ?? [];
-		this.pi = new Agent({
+		this.pi = new PiAgent({
 			...opts,
 			initialState: {
 				systemPrompt: opts?.initialState?.systemPrompt ?? "",
@@ -162,7 +183,9 @@ export class KitAgent {
 
 		this.pi.subscribe((event) => {
 			for (const nextEvent of this.processPiEvent(event)) {
-				this.emit(nextEvent);
+				const { type, ...payload } = nextEvent;
+				// biome-ignore lint/suspicious/noExplicitAny: event is already a valid union member
+				this.bus.publish(type, payload as any);
 			}
 		});
 	}
@@ -228,8 +251,7 @@ export class KitAgent {
 	}
 
 	subscribe(fn: (e: AgentEvent) => void): () => void {
-		this.listeners.add(fn);
-		return () => this.listeners.delete(fn);
+		return this.bus.subscribe(fn);
 	}
 
 	setSystemPrompt(v: string): void {
@@ -358,7 +380,7 @@ export class KitAgent {
 		if (userMessages.length === 0) return;
 
 		let turn = this.startTurn();
-		this.emit({ type: "turn_start", turn });
+		this.bus.publish("agent.turn.started", { turn });
 		for (const message of userMessages) {
 			const tagged = {
 				...message,
@@ -372,13 +394,11 @@ export class KitAgent {
 			this._turns = this._turns.map((candidate) =>
 				candidate.id === turn.id ? turn : candidate,
 			);
-			this.emit({
-				type: "user_message_created",
+			this.bus.publish("user.message.created", {
 				turn,
 				message: tagged as Extract<KitAgentMessage, { role: "user" }>,
 			});
-			this.emit({
-				type: "message_end",
+			this.bus.publish("message.committed", {
 				turn,
 				message: tagged,
 			});
@@ -433,12 +453,6 @@ export class KitAgent {
 		this.clearAllQueues();
 	}
 
-	private emit(event: AgentEvent): void {
-		for (const listener of this.listeners) {
-			listener(event);
-		}
-	}
-
 	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
 		switch (event.type) {
 			case "turn_start": {
@@ -446,33 +460,45 @@ export class KitAgent {
 				if (this.nextPromptStartsNewTurn || this._currentTurn === null) {
 					this.nextPromptStartsNewTurn = false;
 					const turn = this.startTurn();
-					return [{ type: "turn_start", turn }];
+					return [{ type: "agent.turn.started", turn }];
 				}
 				return [];
 			}
 			case "message_start": {
-				if (event.message.role !== "assistant") return [event];
+				if (event.message.role !== "assistant")
+					return [{ type: "message.start", message: event.message }];
 				const turn = this.ensureCurrentTurn();
 				return [
-					event,
+					{ type: "message.start", message: event.message },
 					{
-						type: "assistant_message_started",
+						type: "agent.message.started",
 						turn,
 						message: event.message as Extract<
 							AssistantMessage,
 							{ role: "assistant" }
 						>,
 					},
-					{ type: "agent_thinking_started", turn },
+					{ type: "agent.thinking.started", turn },
 				];
 			}
 			case "message_update": {
-				if (event.message.role !== "assistant") return [event];
+				if (event.message.role !== "assistant")
+					return [
+						{
+							type: "message.update",
+							message: event.message,
+							assistantMessageEvent: event.assistantMessageEvent,
+						},
+					];
 				const turn = this.ensureCurrentTurn();
 				const events: AgentEvent[] = [
-					event,
 					{
-						type: "assistant_message_updated",
+						type: "message.update",
+						message: event.message,
+						assistantMessageEvent: event.assistantMessageEvent,
+					},
+					{
+						type: "agent.message.updated",
 						turn,
 						message: event.message as Extract<
 							AssistantMessage,
@@ -487,7 +513,7 @@ export class KitAgent {
 						? event.assistantMessageEvent.delta
 						: null;
 				if (delta) {
-					events.push({ type: "agent_thinking_updated", turn, delta });
+					events.push({ type: "agent.thinking.updated", turn, delta });
 				}
 				return events;
 			}
@@ -522,29 +548,29 @@ export class KitAgent {
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
 				const events: AgentEvent[] = startsFollowUpTurn
-					? [{ type: "turn_start", turn: updatedTurn }]
+					? [{ type: "agent.turn.started", turn: updatedTurn }]
 					: [];
 				if (tagged.role === "assistant") {
 					events.push({
-						type: "agent_thinking_completed",
+						type: "agent.thinking.completed",
 						turn: updatedTurn,
 					});
 					events.push({
-						type: "assistant_message_ended",
+						type: "agent.message.ended",
 						turn: updatedTurn,
 						message: tagged as Extract<KitAgentMessage, { role: "assistant" }>,
 					});
 				}
 				if (tagged.role === "user" && !isDuplicateSubmittedUser) {
 					events.push({
-						type: "user_message_created",
+						type: "user.message.created",
 						turn: updatedTurn,
 						message: tagged as Extract<KitAgentMessage, { role: "user" }>,
 					});
 				}
 				if (!isDuplicateSubmittedUser) {
 					events.push({
-						type: "message_end",
+						type: "message.committed",
 						turn: updatedTurn,
 						message: tagged,
 					});
@@ -556,7 +582,7 @@ export class KitAgent {
 				this.toolArgsById.set(event.toolCallId, event.args);
 				return [
 					{
-						type: "agent_tool_started",
+						type: "agent.tool.started",
 						turn,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
@@ -569,7 +595,7 @@ export class KitAgent {
 				this.toolArgsById.set(event.toolCallId, event.args);
 				return [
 					{
-						type: "agent_tool_updated",
+						type: "agent.tool.updated",
 						turn,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
@@ -584,7 +610,7 @@ export class KitAgent {
 				this.toolArgsById.delete(event.toolCallId);
 				return [
 					{
-						type: "agent_tool_ended",
+						type: "agent.tool.ended",
 						turn,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
@@ -598,14 +624,21 @@ export class KitAgent {
 				this._activeFollowUpTurn = null;
 				return [
 					{
-						type: "turn_end",
+						type: "agent.turn.ended",
 						turn: this._currentTurn,
 						message: event.message,
 						toolResults: event.toolResults,
 					},
 				];
+			case "agent_start":
+				return [{ type: "agent.start" }];
+			case "agent_end":
+				return [{ type: "agent.end", messages: event.messages }];
 			default:
-				return [event];
+				console.warn(
+					`[Agent] unhandled Pi event dropped: ${(event as { type: string }).type}`,
+				);
+				return [];
 		}
 	}
 

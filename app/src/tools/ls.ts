@@ -1,7 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool } from "../runtime/agent";
+import { Type } from "../runtime/agent";
 
 // Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
 const parameters = Type.Object({

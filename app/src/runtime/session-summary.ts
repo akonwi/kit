@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { type Api, completeSimple, type Model } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai";
 import { messagePartToPromptText } from "../messages/parts";
 import type { KitAgentMessage, SyntheticSummaryKind } from "../session/types";
+import type { AgentMessage, Api, Model } from "./agent";
 
 const MAX_USER_MESSAGE_CHARS = 4_000;
 const MAX_ASSISTANT_MESSAGE_CHARS = 4_000;

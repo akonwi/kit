@@ -1,18 +1,7 @@
 import { randomUUID } from "node:crypto";
 import "./custom-messages";
-import type {
-	AgentMessage,
-	AgentTool,
-	BeforeToolCallContext,
-	BeforeToolCallResult,
-	ThinkingLevel,
-} from "@earendil-works/pi-agent-core";
-import {
-	type Api,
-	type Model,
-	registerBuiltInApiProviders,
-	type UserMessage,
-} from "@earendil-works/pi-ai";
+
+import { registerBuiltInApiProviders } from "@earendil-works/pi-ai";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
 	buildSystemPrompt,
@@ -35,12 +24,25 @@ import type { KitAgentMessage, Turn } from "../session/types";
 import { resolveRetrySettings, type Settings } from "../settings";
 import { createDefaultTools } from "../tools";
 import { runBash } from "../tools/run-bash";
+import {
+	Agent,
+	type AgentEvent,
+	type AgentEventMap,
+	type AgentMessage,
+	type AgentTool,
+	type Api,
+	type BeforeToolCallContext,
+	type BeforeToolCallResult,
+	type Model,
+	type ThinkingLevel,
+	type UserMessage,
+} from "./agent";
 import { compactSessionTurns, shouldAutoCompact } from "./compaction";
 import {
 	getRuntimeContextUsage,
 	type RuntimeContextUsage,
 } from "./context-usage";
-import { type AgentEvent, KitAgent } from "./kit-agent";
+import { EventBus } from "./event-bus";
 import {
 	getSelectableModels,
 	listRegisteredAuthenticatedProviders,
@@ -105,18 +107,13 @@ export type RuntimeStatus = {
 	contextUsage: RuntimeContextUsage | null;
 };
 
-export type RuntimeEventMap = {
+export type RuntimeEventMap = AgentEventMap & {
 	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
-	"agent.turn.started": { turn: Turn };
 	"agent.turn.completed": { turn: Turn | null };
 	"session.message.appended": {
 		session: Session;
 		turn: Turn;
 		message: KitAgentMessage;
-	};
-	"user.message.created": {
-		turn: Turn;
-		message: Extract<KitAgentMessage, { role: "user" }>;
 	};
 	"bash.command.started": {
 		turn: Turn;
@@ -126,21 +123,6 @@ export type RuntimeEventMap = {
 		turn: Turn;
 		message: Extract<KitAgentMessage, { role: "bashExecution" }>;
 	};
-	"agent.message.started": {
-		turn: Turn;
-		message: Extract<AgentMessage, { role: "assistant" }>;
-	};
-	"agent.message.updated": {
-		turn: Turn;
-		message: Extract<AgentMessage, { role: "assistant" }>;
-	};
-	"agent.message.ended": {
-		turn: Turn;
-		message: Extract<KitAgentMessage, { role: "assistant" }>;
-	};
-	"agent.thinking.started": { turn: Turn };
-	"agent.thinking.updated": { turn: Turn; delta: string };
-	"agent.thinking.completed": { turn: Turn };
 	"agent.retry.started": {
 		attempt: number;
 		maxAttempts: number;
@@ -217,27 +199,6 @@ export type RuntimeEventMap = {
 		session: Session;
 		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
-	"agent.tool.started": {
-		turn: Turn;
-		toolCallId: string;
-		toolName: string;
-		args: unknown;
-	};
-	"agent.tool.updated": {
-		turn: Turn;
-		toolCallId: string;
-		toolName: string;
-		args: unknown;
-		partialResult: unknown;
-	};
-	"agent.tool.ended": {
-		turn: Turn;
-		toolCallId: string;
-		toolName: string;
-		args: unknown;
-		result: unknown;
-		isError: boolean;
-	};
 	"chat.message-queue.changed": { count: number };
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
@@ -278,20 +239,12 @@ export type ToolApprovalHandler = (
 
 export class AgentRuntime {
 	private session: Session;
-	private agent: KitAgent;
+	private agent: Agent;
 	private _settings: Settings;
 	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 	private extraTools: AgentTool<any>[];
 	private systemPromptAdditions: string[];
-	private listeners = new Set<(event: AgentRuntimeEvent) => void>();
-	private readonly exactListeners = new Map<
-		RuntimeEventName,
-		Set<(event: AgentRuntimeEvent) => void>
-	>();
-	private readonly prefixListeners: Array<{
-		prefix: string;
-		listener: (event: AgentRuntimeEvent) => void;
-	}> = [];
+	private readonly bus = new EventBus<RuntimeEventMap>();
 	private quitHandler: (() => void) | null = null;
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
@@ -336,7 +289,7 @@ export class AgentRuntime {
 			thinkingLevel: initialThinkingLevel,
 		};
 		this.contextFiles = discoverContextFiles(session.cwd);
-		this.agent = KitAgent.fromSession(session, {
+		this.agent = Agent.fromSession(session, {
 			initialState: {
 				model: defaultModel,
 				thinkingLevel: initialThinkingLevel,
@@ -421,24 +374,9 @@ export class AgentRuntime {
 		this.gitWatcher?.dispose();
 		this.gitWatcher = new VcsInfoWatcher(this.session.cwd, (gitInfo) => {
 			this.gitInfo = gitInfo;
-			this.emit("vcs.updated", this.gitInfo);
+			this.bus.publish("vcs.updated", this.gitInfo);
 		});
 		this.gitInfo = this.gitWatcher.getCurrent();
-	}
-
-	private emit<K extends RuntimeEventName>(
-		type: K,
-		payload: RuntimeEventMap[K],
-	): void {
-		const event = { type, ...payload } as AgentRuntimeEvent<K>;
-		for (const listener of this.listeners) listener(event);
-		const exactListeners = this.exactListeners.get(type);
-		if (exactListeners) {
-			for (const listener of exactListeners) listener(event);
-		}
-		for (const { prefix, listener } of this.prefixListeners) {
-			if (type.startsWith(prefix)) listener(event);
-		}
 	}
 
 	private handleSessionChanged(): void {
@@ -462,7 +400,7 @@ export class AgentRuntime {
 	private persistSessionThinkingLevel(level: ThinkingLevel): void {
 		if (this.session.thinkingLevel === level) return;
 		this.touchSession({ thinkingLevel: level });
-		this.emit("session.thinking_level.changed", {
+		this.bus.publish("session.thinking_level.changed", {
 			session: this.session,
 			thinkingLevel: level,
 		});
@@ -509,7 +447,7 @@ export class AgentRuntime {
 	}
 
 	private createRecoveryPromiseForAgentEnd(event: AgentEvent): void {
-		if (event.type !== "agent_end" || this.recoveryPromise) return;
+		if (event.type !== "agent.end" || this.recoveryPromise) return;
 		const assistant = this.findLastAssistantMessage(event.messages);
 		if (!assistant) return;
 		if (
@@ -525,7 +463,7 @@ export class AgentRuntime {
 
 	private syncPendingState() {
 		const count = this.agent.getPendingFollowUps().length;
-		this.emit("chat.message-queue.changed", { count });
+		this.bus.publish("chat.message-queue.changed", { count });
 	}
 
 	private snapshotStatus(): RuntimeStatus {
@@ -554,14 +492,14 @@ export class AgentRuntime {
 		if (!model || !shouldAutoCompact(contextUsage?.percent)) return;
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			this.emit("session.compaction.failed.auto", {
+			this.bus.publish("session.compaction.failed.auto", {
 				error: `No API key available for ${model.provider}.`,
 			});
 			return;
 		}
 
 		this.isCompacting = true;
-		this.emit("session.compaction.started.auto", {
+		this.bus.publish("session.compaction.started.auto", {
 			contextPercent: contextUsage?.percent ?? 0,
 		});
 
@@ -580,7 +518,7 @@ export class AgentRuntime {
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.handleSessionChanged();
-			this.emit("session.compaction.completed.auto", {
+			this.bus.publish("session.compaction.completed.auto", {
 				contextPercent: contextUsage?.percent ?? 0,
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
@@ -593,7 +531,7 @@ export class AgentRuntime {
 				>,
 			});
 		} catch (error) {
-			this.emit("session.compaction.failed.auto", {
+			this.bus.publish("session.compaction.failed.auto", {
 				error: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
@@ -621,13 +559,13 @@ export class AgentRuntime {
 			nextTurns.push(nextLastTurn);
 		}
 		this.agent.replaceFromTurns(nextTurns);
-		this.emit("session.active.changed", { session: this.session });
+		this.bus.publish("session.active.changed", { session: this.session });
 	}
 
 	private scheduleContinue(): void {
 		setTimeout(() => {
 			void this.agent.continue().catch((error) => {
-				this.emit("agent.retry.failed", {
+				this.bus.publish("agent.retry.failed", {
 					attempt: this.retryAttempt,
 					maxAttempts: this.getRetrySettings().maxRetries,
 					error: error instanceof Error ? error.message : String(error),
@@ -670,7 +608,7 @@ export class AgentRuntime {
 
 		this.removeTerminalAssistantErrorFromLiveState();
 		const delayMs = settings.baseDelayMs * 2 ** (this.retryAttempt - 1);
-		this.emit("agent.retry.started", {
+		this.bus.publish("agent.retry.started", {
 			attempt: this.retryAttempt,
 			maxAttempts: settings.maxRetries,
 			delayMs,
@@ -679,7 +617,7 @@ export class AgentRuntime {
 		try {
 			await this.sleepWithAbort(delayMs, this.retryAbortController.signal);
 		} catch {
-			this.emit("agent.retry.failed", {
+			this.bus.publish("agent.retry.failed", {
 				attempt: this.retryAttempt,
 				maxAttempts: settings.maxRetries,
 				error: "Retry cancelled before continue.",
@@ -700,7 +638,7 @@ export class AgentRuntime {
 		const model = this.agent.state.model;
 		if (!model) return false;
 		if (this.overflowRecoveryAttempted) {
-			this.emit("session.compaction.failed.recovery", {
+			this.bus.publish("session.compaction.failed.recovery", {
 				reason: "overflow",
 				error: [
 					"Kit already attempted one compact-and-retry recovery for this overflow.",
@@ -718,7 +656,7 @@ export class AgentRuntime {
 
 		this.overflowRecoveryAttempted = true;
 		this.removeTerminalAssistantErrorFromLiveState();
-		this.emit("session.compaction.started.recovery", {
+		this.bus.publish("session.compaction.started.recovery", {
 			reason: "overflow",
 		});
 		try {
@@ -738,7 +676,7 @@ export class AgentRuntime {
 				thinkingLevel: this.agent.state.thinkingLevel,
 			});
 			this.handleSessionChanged();
-			this.emit("session.compaction.completed.recovery", {
+			this.bus.publish("session.compaction.completed.recovery", {
 				reason: "overflow",
 				compactedTurnCount: result.compactedTurnCount,
 				keptTurnCount: result.keptTurnCount,
@@ -753,7 +691,7 @@ export class AgentRuntime {
 			this.scheduleContinue();
 			return true;
 		} catch (error) {
-			this.emit("session.compaction.failed.recovery", {
+			this.bus.publish("session.compaction.failed.recovery", {
 				reason: "overflow",
 				error: error instanceof Error ? error.message : String(error),
 			});
@@ -777,7 +715,7 @@ export class AgentRuntime {
 		}
 		await this.maybeAutoCompact();
 		this.handleSessionChanged();
-		this.emit("agent.turn.completed", {
+		this.bus.publish("agent.turn.completed", {
 			turn: this.agent.turns.at(-1) ?? null,
 		});
 		this.syncPendingState();
@@ -802,7 +740,7 @@ export class AgentRuntime {
 
 		const apiKey = await getApiKey(model.provider);
 		if (!apiKey) {
-			this.emit("session.compaction.failed.adaptation", {
+			this.bus.publish("session.compaction.failed.adaptation", {
 				modelId: model.id,
 				modelName: model.name,
 				cause: "missing-api-key",
@@ -812,7 +750,7 @@ export class AgentRuntime {
 		}
 
 		this.overflowRecoveryInFlight = true;
-		this.emit("session.compaction.started.adaptation", {
+		this.bus.publish("session.compaction.started.adaptation", {
 			modelId: model.id,
 			modelName: model.name,
 			contextPercent: contextUsage.percent,
@@ -825,7 +763,7 @@ export class AgentRuntime {
 				apiKey,
 			});
 			if (!result) {
-				this.emit("session.compaction.failed.adaptation", {
+				this.bus.publish("session.compaction.failed.adaptation", {
 					modelId: model.id,
 					modelName: model.name,
 					cause: "cannot-fit",
@@ -842,7 +780,7 @@ export class AgentRuntime {
 			});
 			this.handleSessionChanged();
 
-			this.emit("session.compaction.completed.adaptation", {
+			this.bus.publish("session.compaction.completed.adaptation", {
 				modelId: model.id,
 				modelName: model.name,
 				compactedTurnCount: result.compactedTurnCount,
@@ -860,7 +798,7 @@ export class AgentRuntime {
 				model,
 			);
 			if (nextUsage && nextUsage.percent > 100) {
-				this.emit("session.compaction.failed.adaptation", {
+				this.bus.publish("session.compaction.failed.adaptation", {
 					modelId: model.id,
 					modelName: model.name,
 					cause: "still-over-capacity",
@@ -868,7 +806,7 @@ export class AgentRuntime {
 				});
 			}
 		} catch (error) {
-			this.emit("session.compaction.failed.adaptation", {
+			this.bus.publish("session.compaction.failed.adaptation", {
 				modelId: model.id,
 				modelName: model.name,
 				cause: "compaction-error",
@@ -881,111 +819,40 @@ export class AgentRuntime {
 
 	private handleAgentEvent(event: AgentEvent) {
 		this.createRecoveryPromiseForAgentEnd(event);
-		switch (event.type) {
-			case "agent_start":
-				break;
+		const { type, ...payload } = event;
 
-			case "turn_start":
+		switch (type) {
+			// Side effect before forwarding
+			case "agent.turn.started":
 				this.syncPendingState();
-				this.emit("agent.turn.started", { turn: event.turn });
 				break;
 
-			case "turn_end":
-				break;
-
-			case "user_message_created":
-				this.emit("user.message.created", {
-					turn: event.turn,
-					message: event.message,
-				});
-				break;
-
-			case "assistant_message_started":
-				this.emit("agent.message.started", {
-					turn: event.turn,
-					message: event.message,
-				});
-				break;
-
-			case "assistant_message_updated":
-				this.emit("agent.message.updated", {
-					turn: event.turn,
-					message: event.message,
-				});
-				break;
-
-			case "assistant_message_ended":
-				this.emit("agent.message.ended", {
-					turn: event.turn,
-					message: event.message,
-				});
-				break;
-
-			case "agent_thinking_started":
-				this.emit("agent.thinking.started", { turn: event.turn });
-				break;
-
-			case "agent_thinking_updated":
-				this.emit("agent.thinking.updated", {
-					turn: event.turn,
-					delta: event.delta,
-				});
-				break;
-
-			case "agent_thinking_completed":
-				this.emit("agent.thinking.completed", { turn: event.turn });
-				break;
-
-			case "message_end":
+			// Enriched → published as a different event
+			case "message.committed":
 				this.syncSessionFromAgentState();
-				this.emit("session.message.appended", {
+				this.bus.publish("session.message.appended", {
 					session: this.session,
 					turn: event.turn,
 					message: event.message,
 				});
-				break;
+				return;
 
-			case "agent_tool_started":
-				this.emit("agent.tool.started", {
-					turn: event.turn,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					args: event.args,
-				});
-				break;
-
-			case "agent_tool_updated":
-				this.emit("agent.tool.updated", {
-					turn: event.turn,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					args: event.args,
-					partialResult: event.partialResult,
-				});
-				break;
-
-			case "agent_tool_ended":
-				this.emit("agent.tool.ended", {
-					turn: event.turn,
-					toolCallId: event.toolCallId,
-					toolName: event.toolName,
-					args: event.args,
-					result: event.result,
-					isError: event.isError,
-				});
-				break;
-
-			case "agent_end":
+			// Complex handler — not forwarded
+			case "agent.end":
 				void this.finalizeAgentRun(event.messages).catch((error) => {
 					this.retryAttempt = 0;
 					this.overflowRecoveryAttempted = false;
 					this.resolveRecovery();
-					this.emit("agent.run.failed", {
+					this.bus.publish("agent.run.failed", {
 						error: error instanceof Error ? error.message : String(error),
 					});
 				});
-				break;
+				return;
 		}
+
+		// Forward all other agent events as-is
+		// biome-ignore lint/suspicious/noExplicitAny: bridge between AgentEventMap and RuntimeEventMap
+		this.bus.publish(type as any, payload as any);
 	}
 
 	async submitMessage(input: string | MessagePart[]): Promise<void> {
@@ -1166,7 +1033,7 @@ export class AgentRuntime {
 			timestamp,
 		};
 		const appended = this.agent.appendCustomMessage(pendingMessage);
-		this.emit("bash.command.started", {
+		this.bus.publish("bash.command.started", {
 			turn: appended.turn,
 			message: appended.message as Extract<
 				KitAgentMessage,
@@ -1201,11 +1068,11 @@ export class AgentRuntime {
 				KitAgentMessage,
 				{ role: "bashExecution" }
 			>;
-			this.emit("bash.command.completed", {
+			this.bus.publish("bash.command.completed", {
 				turn: replaced.turn,
 				message,
 			});
-			this.emit("session.message.appended", {
+			this.bus.publish("session.message.appended", {
 				session: this.session,
 				turn: replaced.turn,
 				message,
@@ -1255,7 +1122,7 @@ export class AgentRuntime {
 		}
 		this.syncPendingState();
 		if (drained.length > 0) {
-			this.emit("chat.followups.promoted", { count: drained.length });
+			this.bus.publish("chat.followups.promoted", { count: drained.length });
 		}
 	}
 
@@ -1321,7 +1188,7 @@ export class AgentRuntime {
 		this.session.thinkingLevel = restoredThinkingLevel;
 		this.applySessionContext(this.session);
 		this.syncPendingState();
-		this.emit("session.active.changed", { session: this.session });
+		this.bus.publish("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 	}
 
@@ -1363,7 +1230,7 @@ export class AgentRuntime {
 		this.applySessionContext(child);
 		this.syncPendingState();
 		this.handleSessionChanged();
-		this.emit("session.active.changed", { session: this.session });
+		this.bus.publish("session.active.changed", { session: this.session });
 
 		const prompt = firstMessage?.trim();
 		if (prompt) {
@@ -1388,7 +1255,7 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.handleSessionChanged();
-		this.emit("session.active.changed", { session: this.session });
+		this.bus.publish("session.active.changed", { session: this.session });
 		return true;
 	}
 
@@ -1472,16 +1339,16 @@ export class AgentRuntime {
 	): void {
 		this.agent.replaceFromTurns([...this.session.turns, summaryTurn]);
 		this.syncSessionFromAgentState();
-		this.emit("session.handoff_summary.appended", {
+		this.bus.publish("session.handoff_summary.appended", {
 			session: this.session,
 			summaryMessage,
 		});
 		this.handleSessionChanged();
-		this.emit("session.active.changed", { session: this.session });
+		this.bus.publish("session.active.changed", { session: this.session });
 	}
 
 	async mergeUp(): Promise<void> {
-		this.emit("session.merge.started", {});
+		this.bus.publish("session.merge.started", {});
 		try {
 			const child = this.session;
 			if (!child.parentSessionId) {
@@ -1505,9 +1372,9 @@ export class AgentRuntime {
 			this.appendMergeSummaryToActiveSession(summaryMessage, summaryTurn);
 
 			await deleteSession(child.id);
-			this.emit("session.merge.ended", {});
+			this.bus.publish("session.merge.ended", {});
 		} catch (error) {
-			this.emit("session.merge.ended", {
+			this.bus.publish("session.merge.ended", {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			throw error;
@@ -1515,7 +1382,7 @@ export class AgentRuntime {
 	}
 
 	async mergeChildIntoCurrent(childId: string): Promise<void> {
-		this.emit("session.merge.started", {});
+		this.bus.publish("session.merge.started", {});
 		try {
 			const parentId = this.session.id;
 			if (childId === parentId) {
@@ -1546,9 +1413,9 @@ export class AgentRuntime {
 			this.appendMergeSummaryToActiveSession(summaryMessage, summaryTurn);
 
 			await deleteSession(child.id);
-			this.emit("session.merge.ended", {});
+			this.bus.publish("session.merge.ended", {});
 		} catch (error) {
-			this.emit("session.merge.ended", {
+			this.bus.publish("session.merge.ended", {
 				error: error instanceof Error ? error.message : String(error),
 			});
 			throw error;
@@ -1562,8 +1429,8 @@ export class AgentRuntime {
 	async setSessionName(name: string): Promise<void> {
 		if (this.session.name === name) return;
 		this.touchSession({ name });
-		this.emit("session.name.changed", { session: this.session, name });
-		this.emit("session.active.changed", { session: this.session });
+		this.bus.publish("session.name.changed", { session: this.session, name });
+		this.bus.publish("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
 	}
 
@@ -1603,11 +1470,11 @@ export class AgentRuntime {
 	setModel(model: Model<Api>): void {
 		this.agent.setModel(model);
 		this.touchSession({ model: model.id });
-		this.emit("session.model.changed", {
+		this.bus.publish("session.model.changed", {
 			session: this.session,
 			modelId: model.id,
 		});
-		this.emit("agent.model.changed", {
+		this.bus.publish("agent.model.changed", {
 			model,
 			thinkingLevel: this.agent.state.thinkingLevel,
 		});
@@ -1618,7 +1485,7 @@ export class AgentRuntime {
 		const clamped = clampThinkingLevel(level, this.agent.state.model);
 		this.agent.setThinkingLevel(clamped);
 		this.persistSessionThinkingLevel(clamped);
-		this.emit("agent.model.changed", {
+		this.bus.publish("agent.model.changed", {
 			model: this.agent.state.model,
 			thinkingLevel: this.agent.state.thinkingLevel,
 		});
@@ -1634,7 +1501,7 @@ export class AgentRuntime {
 	emitSettingsChanged(settings: Settings): void {
 		this._settings = settings;
 		this.agent.maxRetryDelayMs = this.getRetrySettings().maxDelayMs;
-		this.emit("settings.changed", { settings });
+		this.bus.publish("settings.changed", { settings });
 	}
 
 	onQuit(handler: () => void): void {
@@ -1665,35 +1532,8 @@ export class AgentRuntime {
 			| ((event: AgentRuntimeEvent<K>) => void)
 			| ((event: AgentRuntimeEvent<RuntimeEventNameMatchingPrefix<P>>) => void),
 	): () => void {
-		if (typeof typeOrListener === "function") {
-			const listener = typeOrListener;
-			this.listeners.add(listener);
-			return () => this.listeners.delete(listener);
-		}
-
-		const listener = maybeListener as (event: AgentRuntimeEvent) => void;
-		if (typeof typeOrListener === "object" && typeOrListener !== null) {
-			const entry = {
-				prefix: typeOrListener.prefix,
-				listener,
-			};
-			this.prefixListeners.push(entry);
-			return () => {
-				const index = this.prefixListeners.indexOf(entry);
-				if (index >= 0) this.prefixListeners.splice(index, 1);
-			};
-		}
-
-		const type = typeOrListener;
-		const listeners = this.exactListeners.get(type) ?? new Set();
-		listeners.add(listener);
-		this.exactListeners.set(type, listeners);
-		return () => {
-			const current = this.exactListeners.get(type);
-			if (!current) return;
-			current.delete(listener);
-			if (current.size === 0) this.exactListeners.delete(type);
-		};
+		// biome-ignore lint/suspicious/noExplicitAny: overload bridge delegates to EventBus
+		return this.bus.subscribe(typeOrListener as any, maybeListener as any);
 	}
 
 	dispose(): void {
@@ -1701,9 +1541,7 @@ export class AgentRuntime {
 		this.unsubscribeAgent = null;
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
-		this.listeners.clear();
-		this.exactListeners.clear();
-		this.prefixListeners.length = 0;
+		this.bus.dispose();
 	}
 }
 

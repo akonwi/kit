@@ -3,8 +3,8 @@
  * and feedback submission for long assistant responses.
  */
 
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { createMemo, createSignal } from "solid-js";
+import type { AgentMessage } from "../../runtime/agent";
 import { renderTemplate } from "../../shell/templates";
 import { type PagerSection, splitSections } from "./split-sections";
 

@@ -1,5 +1,5 @@
-import { type Static, Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition, ToolResult } from "../../plugins";
+import { type Static, Type } from "../../runtime/agent";
 import type { SubagentDefinition } from "./discovery";
 import {
 	type ActiveSubagentStatus,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "./agent";
 import { AgentRuntime } from "./agent-runtime";
 
 type SubmissionTestRuntime = {

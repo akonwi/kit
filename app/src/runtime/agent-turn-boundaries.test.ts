@@ -1,16 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import { KitAgent } from "./kit-agent";
+import type { AgentMessage } from "./agent";
+import { Agent } from "./agent";
 
-function drive(agent: KitAgent, event: unknown) {
-	const events = (
-		agent as unknown as {
-			processPiEvent: (e: unknown) => unknown[];
-			emit: (e: unknown) => void;
-		}
-	).processPiEvent(event);
-	for (const nextEvent of events) {
-		(agent as unknown as { emit: (e: unknown) => void }).emit(nextEvent);
+function drive(agent: Agent, event: unknown) {
+	const internals = agent as unknown as {
+		processPiEvent: (e: unknown) => Array<{ type: string }>;
+		bus: { publish: (type: string, payload: unknown) => void };
+	};
+	for (const nextEvent of internals.processPiEvent(event)) {
+		const { type, ...payload } = nextEvent;
+		internals.bus.publish(type, payload);
 	}
 }
 
@@ -63,9 +62,9 @@ function toolResultMessage(
 	} as Extract<AgentMessage, { role: "toolResult" }>;
 }
 
-describe("KitAgent user-facing turn boundaries", () => {
+describe("Agent user-facing turn boundaries", () => {
 	test("records structured prompt user messages before provider events", async () => {
-		const agent = new KitAgent({});
+		const agent = new Agent({});
 		(agent as unknown as { pi: { prompt: () => Promise<void> } }).pi.prompt =
 			async () => {};
 
@@ -78,7 +77,7 @@ describe("KitAgent user-facing turn boundaries", () => {
 	});
 
 	test("keeps tool-loop Pi turns inside one Kit turn", () => {
-		const agent = new KitAgent({});
+		const agent = new Agent({});
 		const user = userMessage("review this");
 		const toolAssistant = assistantMessage("using a tool");
 		const toolResult = toolResultMessage("call-1");
@@ -123,7 +122,7 @@ describe("KitAgent user-facing turn boundaries", () => {
 	});
 
 	test("a new prompt starts a new Kit turn after a previous response", async () => {
-		const agent = new KitAgent({});
+		const agent = new Agent({});
 		(agent as unknown as { pi: { prompt: () => Promise<void> } }).pi.prompt =
 			async () => {};
 
@@ -158,7 +157,7 @@ describe("KitAgent user-facing turn boundaries", () => {
 	});
 
 	test("steering stays in the current Kit turn and follow-up starts a new one", () => {
-		const agent = new KitAgent({});
+		const agent = new Agent({});
 		const user = userMessage("initial");
 		const assistant = assistantMessage("working");
 		drive(agent, { type: "turn_start" });

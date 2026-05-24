@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { getApiKey } from "../../auth";
 import { buildSystemPrompt } from "../../context/agents";
+import type { AgentTool, ImageContent, TextContent } from "../../runtime/agent";
+import { Agent, type AgentEvent } from "../../runtime/agent";
 import {
 	type AgentRuntime,
 	DEFAULT_SYSTEM_PROMPT,
 } from "../../runtime/agent-runtime";
-import { type AgentEvent, KitAgent } from "../../runtime/kit-agent";
 import {
 	type AppendableSessionEntry,
 	appendSessionEntries,
@@ -137,7 +136,7 @@ function assistantMessageId(message: unknown): string | undefined {
 }
 
 function maybeTextDelta(
-	event: Extract<AgentEvent, { type: "message_update" }>,
+	event: Extract<AgentEvent, { type: "message.update" }>,
 ): string | null {
 	if (event.message.role !== "assistant") return null;
 	const deltaEvent = event.assistantMessageEvent as
@@ -280,7 +279,7 @@ async function createLiveSubagentRuntime(
 		options.runtime.getContextFiles(),
 	);
 
-	const agent = new KitAgent({
+	const agent = new Agent({
 		initialTurns: options.historyTurns,
 		initialState: {
 			model: resolvedModel,
@@ -306,7 +305,7 @@ async function createLiveSubagentRuntime(
 
 	const unsubscribe = agent.subscribe((event) => {
 		switch (event.type) {
-			case "assistant_message_started": {
+			case "agent.message.started": {
 				currentMessageId = assistantMessageId(event.message) ?? randomUUID();
 				options.onTerminalState("running");
 				enqueueEntries([
@@ -327,7 +326,7 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "message_update": {
+			case "message.update": {
 				const delta = maybeTextDelta(event);
 				if (!delta || !currentMessageId) break;
 				enqueueEntries([
@@ -342,7 +341,7 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "agent_thinking_updated": {
+			case "agent.thinking.updated": {
 				if (!currentMessageId) break;
 				enqueueEntries([
 					{
@@ -356,7 +355,7 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "agent_tool_started": {
+			case "agent.tool.started": {
 				enqueueEntries([
 					{
 						type: "subagent_tool_started",
@@ -370,7 +369,7 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "agent_tool_updated": {
+			case "agent.tool.updated": {
 				enqueueEntries([
 					{
 						type: "subagent_tool_updated",
@@ -384,7 +383,7 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "agent_tool_ended": {
+			case "agent.tool.ended": {
 				enqueueEntries([
 					{
 						type: "subagent_tool_completed",
@@ -399,7 +398,7 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "assistant_message_ended": {
+			case "agent.message.ended": {
 				const messageId =
 					currentMessageId ?? assistantMessageId(event.message) ?? randomUUID();
 				const persisted = stripTurnId(event.message);

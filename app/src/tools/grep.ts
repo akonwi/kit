@@ -2,8 +2,8 @@ import { spawn } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { basename, relative, resolve } from "node:path";
 import { createInterface } from "node:readline";
-import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { Type } from "@earendil-works/pi-ai";
+import type { AgentTool } from "../runtime/agent";
+import { Type } from "../runtime/agent";
 
 const DEFAULT_LIMIT = 100;
 const MAX_LINE_LENGTH = 2000;

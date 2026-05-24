@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { AssistantMessage, ToolCall } from "@earendil-works/pi-ai";
+import type { AssistantMessage, ToolCall } from "../../runtime/agent";
 import { filterTranscriptItemsForDisplay, type TranscriptItem } from "./turns";
 
 function assistantMessage(

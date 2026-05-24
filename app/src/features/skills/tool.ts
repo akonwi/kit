@@ -5,8 +5,8 @@
  */
 
 import { readFileSync } from "node:fs";
-import { type Static, Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition, ToolResult } from "../../plugins";
+import { type Static, Type } from "../../runtime/agent";
 import type { Skill } from "./discovery";
 
 const parameters = Type.Object({

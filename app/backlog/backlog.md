@@ -13,8 +13,6 @@ Delete done items.
 
 ## Active items
 - [ ] feat: support remote usage. build a way to use kit sessions from web/mobile 
-- [ ] refactor: extract `AgentRuntime` core so main and sub-agent runtimes can share execution machinery
-  - see `backlog/agent-runtime-extraction-for-subagents.md`
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect

@@ -3,8 +3,8 @@
  * can invoke it to ask the user structured questions.
  */
 
-import { type Static, Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition, ToolResult } from "../../plugins";
+import { type Static, Type } from "../../runtime/agent";
 import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";
 import type { GuidedQuestionsController } from "./controller";

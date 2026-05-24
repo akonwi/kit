@@ -1,5 +1,5 @@
-import { type Static, Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition, ToolResult } from "../../plugins";
+import { type Static, Type } from "../../runtime/agent";
 import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import type { McpManager } from "./manager";
 import type { McpToolMetadata } from "./types";

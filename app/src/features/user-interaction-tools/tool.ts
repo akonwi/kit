@@ -1,6 +1,6 @@
-import { type Static, Type } from "@earendil-works/pi-ai";
 import type { ToolDefinition, ToolResult } from "../../plugins";
 import type { InternalPluginUI } from "../../plugins/types";
+import { type Static, Type } from "../../runtime/agent";
 import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";
 
