@@ -165,7 +165,6 @@ function renderContentText(
 				content={text}
 				filetype={filetype}
 				syntaxStyle={syntaxStyle()}
-				fg={textColorForKind(kind)}
 				bg={bg()}
 				wrapMode="none"
 				onMouseScroll={() => resetLineTextScroll(contentRef)}
