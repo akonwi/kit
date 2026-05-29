@@ -46,10 +46,15 @@ function reportDanglingHandlesForDebugging(): void {
 	}
 }
 
-async function loadSession(sessionId?: string): Promise<Session> {
+type BootstrapOpts = {
+	sessionId?: string;
+	newSession?: boolean;
+};
+
+async function loadSession(opts?: BootstrapOpts): Promise<Session> {
 	// If a session ID is provided directly (e.g. from `kit threads`), use it
 	const sessionArg =
-		sessionId ??
+		opts?.sessionId ??
 		(parseArgs({
 			args: process.argv.slice(2),
 			options: { session: { type: "string", short: "s" } },
@@ -67,11 +72,16 @@ async function loadSession(sessionId?: string): Promise<Session> {
 		return session;
 	}
 
+	if (opts?.newSession) {
+		const { createSession } = await import("../session");
+		return createSession(process.cwd());
+	}
+
 	const { openRecentSession } = await import("../session");
 	return openRecentSession(process.cwd());
 }
 
-export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
+export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	// Legacy support for older wrapper-based launches. The compiled binary should
 	// run directly from the user's current working directory and not need this.
 	const userCwd = process.env.KIT_USER_CWD;
@@ -113,7 +123,7 @@ export async function bootstrap(opts?: { sessionId?: string }): Promise<void> {
 	});
 
 	const settings = await loadSettings();
-	const session = await loadSession(opts?.sessionId);
+	const session = await loadSession(opts);
 
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,

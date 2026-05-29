@@ -21,6 +21,11 @@ switch (subcommand) {
 		}
 		break;
 	}
+	case "new": {
+		const { bootstrap } = await import("./bootstrap");
+		await bootstrap({ newSession: true });
+		break;
+	}
 	default: {
 		const { bootstrap } = await import("./bootstrap");
 		await bootstrap();
