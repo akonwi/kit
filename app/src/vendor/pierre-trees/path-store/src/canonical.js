@@ -1,0 +1,566 @@
+import { applyChildAggregateDelta, createDirectoryChildIndex, ensureChildIdByNameId, ensureChildPositions, rebuildDirectoryChildAggregates, rebuildVisibleChildChunks, updateChildPositionsFrom } from "./child-index.js";
+import { PATH_STORE_NODE_FLAG_EXPLICIT, PATH_STORE_NODE_FLAG_REMOVED, PATH_STORE_NODE_FLAG_ROOT, PATH_STORE_NODE_KIND_DIRECTORY, addNodeFlag, createNodeDepthAndFlags, getNodeDepth, getNodeKind, hasNodeFlag, isDirectoryNode, setNodeDepth } from "./internal-types.js";
+import { withBenchmarkPhase } from "./internal/benchmarkInstrumentation.js";
+import { parseInputPath, parseLookupPath } from "./path.js";
+import { compareSegmentSortKeys, getSegmentSortKey } from "./sort.js";
+import { getSegmentValue, internSegment } from "./segments.js";
+import { clearDirectoryLoadInfo, isDirectoryExpanded } from "./state.js";
+import { createAddEvent, createMoveEvent, createRemoveEvent } from "./events.js";
+import { collectFlattenedDirectoryChainIds, getFlattenedChildDirectoryId, getFlattenedTerminalDirectoryId } from "./flatten.js";
+
+//#region ../path-store/src/canonical.ts
+function listPaths(state, path) {
+	const nodeId = path == null ? state.snapshot.rootId : findNodeId(state, path);
+	if (nodeId == null) return [];
+	return collectCanonicalEntries(state, nodeId);
+}
+function addPath(state, path) {
+	const preparedPath = parseInputPath(path);
+	const parentSegments = preparedPath.isDirectory ? preparedPath.segments : preparedPath.segments.slice(0, -1);
+	const previousProjectionSignature = getCollapsedProjectionSignature(state, findDeepestExistingDirectoryId(state, parentSegments));
+	const { createdNodeIds, directoryId } = ensureDirectoryChain(state, parentSegments);
+	const affectedNodeIds = new Set(createdNodeIds);
+	let addedNodeId = directoryId;
+	if (preparedPath.isDirectory) {
+		const directoryNode = requireNode(state, directoryId);
+		if (hasNodeFlag(directoryNode, PATH_STORE_NODE_FLAG_EXPLICIT)) throw new Error(`Path already exists: "${path}"`);
+		addNodeFlag(directoryNode, PATH_STORE_NODE_FLAG_EXPLICIT);
+		state.pathCacheByNodeId.set(directoryId, {
+			path,
+			version: state.pathCacheVersion
+		});
+		affectedNodeIds.add(directoryId);
+	} else {
+		addedNodeId = createFileNode(state, directoryId, preparedPath.basename);
+		affectedNodeIds.add(addedNodeId);
+	}
+	recomputeCountsUpwardFrom(state, directoryId);
+	const nextProjectionSignature = getCollapsedProjectionSignature(state, directoryId);
+	return createAddEvent({
+		affectedAncestorIds: collectAncestorIds(state, addedNodeId),
+		affectedNodeIds: [...affectedNodeIds],
+		path,
+		projectionChanged: didProjectionChange(previousProjectionSignature, nextProjectionSignature)
+	});
+}
+function removePath(state, path, options) {
+	const nodeId = findNodeId(state, path);
+	if (nodeId == null) throw new Error(`Path does not exist: "${path}"`);
+	const node = requireNode(state, nodeId);
+	if (hasNodeFlag(node, PATH_STORE_NODE_FLAG_ROOT)) throw new Error("The root node cannot be removed");
+	if (isDirectoryNode(node) && getDirectoryIndex(state, nodeId).childIds.length > 0 && options.recursive !== true) throw new Error(`Cannot remove a non-empty directory without recursive: "${path}"`);
+	const parentId = node.parentId;
+	const previousProjectionSignature = getCollapsedProjectionSignature(state, parentId);
+	const removedNodeIds = removeSubtree(state, nodeId);
+	removeChildReference(state, parentId, nodeId, node.nameId);
+	promoteEmptyAncestorsToExplicit(state, parentId);
+	recomputeCountsUpwardFrom(state, parentId);
+	const nextProjectionSignature = getCollapsedProjectionSignature(state, parentId);
+	return createRemoveEvent({
+		affectedAncestorIds: collectAncestorIds(state, parentId),
+		affectedNodeIds: removedNodeIds,
+		path,
+		projectionChanged: didProjectionChange(previousProjectionSignature, nextProjectionSignature),
+		recursive: options.recursive === true
+	});
+}
+function movePath(state, fromPath, toPath, options) {
+	const sourceNodeId = findNodeId(state, fromPath);
+	if (sourceNodeId == null) throw new Error(`Source path does not exist: "${fromPath}"`);
+	const sourceNode = requireNode(state, sourceNodeId);
+	if (hasNodeFlag(sourceNode, PATH_STORE_NODE_FLAG_ROOT)) throw new Error("The root node cannot be moved");
+	const collision = options.collision ?? "error";
+	const moveTarget = resolveMoveTarget(state, sourceNodeId, toPath);
+	const previousSourceProjectionSignature = getCollapsedProjectionSignature(state, sourceNode.parentId);
+	const previousTargetProjectionSignature = getCollapsedProjectionSignature(state, moveTarget.parentId);
+	const sourceName = getSegmentValue(state.snapshot.segmentTable, sourceNode.nameId);
+	const targetNameId = internSegment(state.snapshot.segmentTable, moveTarget.basename);
+	if (moveTarget.parentId === sourceNode.parentId && sourceName === moveTarget.basename) return null;
+	if (isDirectoryNode(sourceNode) && isAncestor(state, sourceNodeId, moveTarget.parentId)) throw new Error("Cannot move a directory into one of its descendants");
+	const siblingCollisionId = ensureChildIdByNameId(state.snapshot.nodes, getDirectoryIndex(state, moveTarget.parentId)).get(targetNameId);
+	const collisionNodeId = moveTarget.existingNodeId ?? siblingCollisionId ?? null;
+	if (collisionNodeId != null && collisionNodeId !== sourceNodeId) {
+		if (handleMoveCollision(state, collisionNodeId, collision, getNodeKind(sourceNode)) === "skip") return null;
+	}
+	const previousParentId = sourceNode.parentId;
+	removeChildReference(state, previousParentId, sourceNodeId, sourceNode.nameId);
+	sourceNode.parentId = moveTarget.parentId;
+	sourceNode.nameId = targetNameId;
+	state.pathCacheByNodeId.delete(sourceNodeId);
+	recomputeDepths(state, sourceNodeId);
+	insertChildReference(state, moveTarget.parentId, sourceNodeId);
+	promoteEmptyAncestorsToExplicit(state, previousParentId);
+	state.pathCacheVersion++;
+	recomputeCountsUpwardFrom(state, previousParentId);
+	if (moveTarget.parentId !== previousParentId) recomputeCountsUpwardFrom(state, moveTarget.parentId);
+	const nextSourceProjectionSignature = getCollapsedProjectionSignature(state, previousParentId);
+	const nextTargetProjectionSignature = getCollapsedProjectionSignature(state, moveTarget.parentId);
+	return createMoveEvent({
+		affectedAncestorIds: [...new Set([...collectAncestorIds(state, previousParentId), ...collectAncestorIds(state, moveTarget.parentId)])],
+		affectedNodeIds: [sourceNodeId],
+		from: fromPath,
+		projectionChanged: didAnyProjectionChange([previousSourceProjectionSignature, previousTargetProjectionSignature], [nextSourceProjectionSignature, nextTargetProjectionSignature]),
+		to: materializeNodePath(state, sourceNodeId)
+	});
+}
+function getCachedNodePath(state, nodeId) {
+	const cachedEntry = state.pathCacheByNodeId.get(nodeId);
+	return cachedEntry != null && cachedEntry.version === state.pathCacheVersion ? cachedEntry.path : null;
+}
+function setCachedNodePath(state, nodeId, path) {
+	state.pathCacheByNodeId.set(nodeId, {
+		path,
+		version: state.pathCacheVersion
+	});
+	return path;
+}
+function materializeNodePath(state, nodeId) {
+	const node = requireNode(state, nodeId);
+	const cachedPath = getCachedNodePath(state, nodeId);
+	if (cachedPath != null) return cachedPath;
+	if (hasNodeFlag(node, PATH_STORE_NODE_FLAG_ROOT)) return setCachedNodePath(state, nodeId, "");
+	const parentPath = materializeNodePath(state, node.parentId);
+	const nodeName = getSegmentValue(state.snapshot.segmentTable, node.nameId);
+	const path = parentPath.length === 0 ? nodeName : `${parentPath}${nodeName}`;
+	return setCachedNodePath(state, nodeId, isDirectoryNode(node) ? `${path}/` : path);
+}
+function recomputeCountsUpwardFrom(state, startNodeId) {
+	const instrumentation = state.instrumentation;
+	if (instrumentation == null) {
+		recomputeCountsUpwardFromNow(state, startNodeId);
+		return;
+	}
+	withBenchmarkPhase(instrumentation, "store.recomputeCountsUpwardFrom", () => recomputeCountsUpwardFromNow(state, startNodeId));
+}
+function recomputeCountsRecursive(state, nodeId) {
+	const stack = [[nodeId, 0]];
+	const { nodes, directories } = state.snapshot;
+	while (stack.length > 0) {
+		const frame = stack[stack.length - 1];
+		const nid = frame[0];
+		const node = nodes[nid];
+		if (node == null || !isDirectoryNode(node)) {
+			recomputeNodeCounts(state, nid, node, true);
+			stack.pop();
+			continue;
+		}
+		const dirIndex = directories.get(nid);
+		if (dirIndex == null || frame[1] >= dirIndex.childIds.length) {
+			recomputeNodeCounts(state, nid, node, true);
+			stack.pop();
+			continue;
+		}
+		const childId = dirIndex.childIds[frame[1]++];
+		stack.push([childId, 0]);
+	}
+}
+function collectAncestorIds(state, nodeId) {
+	const ancestorIds = [];
+	let currentNodeId = nodeId;
+	while (currentNodeId != null) {
+		const currentNode = requireNode(state, currentNodeId);
+		ancestorIds.push(currentNodeId);
+		if (currentNodeId === state.snapshot.rootId) break;
+		currentNodeId = currentNode.parentId;
+	}
+	return ancestorIds;
+}
+function findNodeId(state, path) {
+	if (path.length === 0) return state.snapshot.rootId;
+	const lookupPath = parseLookupPath(path);
+	return findNodeIdBySegments(state, lookupPath.segments, lookupPath.requiresDirectory);
+}
+function findNodeIdBySegments(state, segments, requireDirectory) {
+	let currentNodeId = state.snapshot.rootId;
+	for (const segment of segments) {
+		const segmentId = state.snapshot.segmentTable.idByValue.get(segment);
+		if (segmentId === void 0) return null;
+		const currentIndex = getDirectoryIndex(state, currentNodeId);
+		const nextNodeId = ensureChildIdByNameId(state.snapshot.nodes, currentIndex).get(segmentId);
+		if (nextNodeId === void 0) return null;
+		currentNodeId = nextNodeId;
+	}
+	const currentNode = requireNode(state, currentNodeId);
+	if (requireDirectory && !isDirectoryNode(currentNode)) return null;
+	return currentNodeId;
+}
+function getDirectoryIndex(state, directoryId) {
+	const directoryIndex = state.snapshot.directories.get(directoryId);
+	if (directoryIndex === void 0) throw new Error(`Unknown directory child index for node ${String(directoryId)}`);
+	return directoryIndex;
+}
+function requireNode(state, nodeId) {
+	const node = state.snapshot.nodes[nodeId];
+	if (node === void 0 || hasNodeFlag(node, PATH_STORE_NODE_FLAG_REMOVED)) throw new Error(`Unknown node ID: ${String(nodeId)}`);
+	return node;
+}
+function collectCanonicalEntries(state, nodeId) {
+	const rootNode = state.snapshot.nodes[nodeId];
+	if (rootNode === void 0 || hasNodeFlag(rootNode, PATH_STORE_NODE_FLAG_REMOVED)) return [];
+	if (!isDirectoryNode(rootNode)) return [materializeNodePath(state, nodeId)];
+	if (getDirectoryIndex(state, nodeId).childIds.length === 0) return hasNodeFlag(rootNode, PATH_STORE_NODE_FLAG_EXPLICIT) && !hasNodeFlag(rootNode, PATH_STORE_NODE_FLAG_ROOT) ? [materializeNodePath(state, nodeId)] : [];
+	const entries = [];
+	const stack = [{
+		childIndex: 0,
+		nodeId
+	}];
+	while (stack.length > 0) {
+		const frame = stack[stack.length - 1];
+		if (frame == null) break;
+		const currentNode = state.snapshot.nodes[frame.nodeId];
+		if (currentNode === void 0 || hasNodeFlag(currentNode, PATH_STORE_NODE_FLAG_REMOVED)) {
+			stack.pop();
+			continue;
+		}
+		if (!isDirectoryNode(currentNode)) {
+			entries.push(materializeNodePath(state, frame.nodeId));
+			stack.pop();
+			continue;
+		}
+		const currentIndex = getDirectoryIndex(state, frame.nodeId);
+		if (currentIndex.childIds.length === 0) {
+			if (hasNodeFlag(currentNode, PATH_STORE_NODE_FLAG_EXPLICIT) && !hasNodeFlag(currentNode, PATH_STORE_NODE_FLAG_ROOT)) entries.push(materializeNodePath(state, frame.nodeId));
+			stack.pop();
+			continue;
+		}
+		const nextChildId = currentIndex.childIds[frame.childIndex];
+		if (nextChildId == null) {
+			stack.pop();
+			continue;
+		}
+		frame.childIndex++;
+		stack.push({
+			childIndex: 0,
+			nodeId: nextChildId
+		});
+	}
+	return entries;
+}
+function ensureDirectoryChain(state, directorySegments) {
+	const createdNodeIds = [];
+	let currentDirectoryId = state.snapshot.rootId;
+	for (const segment of directorySegments) {
+		const segmentId = internSegment(state.snapshot.segmentTable, segment);
+		const currentIndex = getDirectoryIndex(state, currentDirectoryId);
+		const existingChildId = ensureChildIdByNameId(state.snapshot.nodes, currentIndex).get(segmentId);
+		if (existingChildId !== void 0) {
+			if (!isDirectoryNode(requireNode(state, existingChildId))) throw new Error(`Cannot create a directory that collides with an existing file: "${segment}"`);
+			currentDirectoryId = existingChildId;
+			continue;
+		}
+		currentDirectoryId = createDirectoryNode(state, currentDirectoryId, segmentId);
+		createdNodeIds.push(currentDirectoryId);
+	}
+	return {
+		createdNodeIds,
+		directoryId: currentDirectoryId
+	};
+}
+function createDirectoryNode(state, parentId, nameId) {
+	const parentNode = requireNode(state, parentId);
+	const nodeId = state.snapshot.nodes.length;
+	state.snapshot.nodes.push({
+		depthAndFlags: createNodeDepthAndFlags(getNodeDepth(parentNode) + 1, 0, PATH_STORE_NODE_KIND_DIRECTORY),
+		nameId,
+		parentId,
+		subtreeNodeCount: 1,
+		visibleSubtreeCount: 1
+	});
+	state.snapshot.directories.set(nodeId, createDirectoryChildIndex());
+	insertChildReference(state, parentId, nodeId);
+	if (state.collapseNewDirectoriesByDefault) {
+		state.collapsedDirectoryIds.add(nodeId);
+		state.hasCollapsedDirectoryOverrides = true;
+	}
+	state.activeNodeCount++;
+	return nodeId;
+}
+function createFileNode(state, parentId, basename) {
+	const nameId = internSegment(state.snapshot.segmentTable, basename);
+	const parentIndex = getDirectoryIndex(state, parentId);
+	if (ensureChildIdByNameId(state.snapshot.nodes, parentIndex).has(nameId)) throw new Error(`Path already exists: "${buildPathPreview(state, parentId, basename)}"`);
+	const parentNode = requireNode(state, parentId);
+	const nodeId = state.snapshot.nodes.length;
+	state.snapshot.nodes.push({
+		depthAndFlags: createNodeDepthAndFlags(getNodeDepth(parentNode) + 1, 0),
+		nameId,
+		parentId,
+		subtreeNodeCount: 1,
+		visibleSubtreeCount: 1
+	});
+	insertChildReference(state, parentId, nodeId);
+	state.activeNodeCount++;
+	return nodeId;
+}
+function findChildInsertIndex(state, parentIndex, childId) {
+	let low = 0;
+	let high = parentIndex.childIds.length;
+	while (low < high) {
+		const middle = low + high >>> 1;
+		const existingChildId = parentIndex.childIds[middle];
+		if (existingChildId == null) {
+			high = middle;
+			continue;
+		}
+		if (compareSiblingNodes(state, childId, existingChildId) < 0) high = middle;
+		else low = middle + 1;
+	}
+	return low;
+}
+function insertChildReference(state, parentId, childId) {
+	const parentIndex = getDirectoryIndex(state, parentId);
+	const childNode = requireNode(state, childId);
+	ensureChildIdByNameId(state.snapshot.nodes, parentIndex).set(childNode.nameId, childId);
+	applyChildAggregateDelta(parentIndex, childId, childNode.subtreeNodeCount, childNode.visibleSubtreeCount);
+	const insertIndex = findChildInsertIndex(state, parentIndex, childId);
+	parentIndex.childIds.splice(insertIndex, 0, childId);
+	updateChildPositionsFrom(parentIndex, insertIndex);
+	rebuildVisibleChildChunks(state.snapshot.nodes, parentIndex);
+}
+function removeChildReference(state, parentId, childId, childNameId) {
+	const parentIndex = getDirectoryIndex(state, parentId);
+	const positions = ensureChildPositions(parentIndex);
+	const childIndex = positions.get(childId) ?? -1;
+	ensureChildIdByNameId(state.snapshot.nodes, parentIndex).delete(childNameId);
+	positions.delete(childId);
+	const childNode = state.snapshot.nodes[childId];
+	if (childNode != null) applyChildAggregateDelta(parentIndex, childId, -childNode.subtreeNodeCount, -childNode.visibleSubtreeCount);
+	if (childIndex >= 0) {
+		parentIndex.childIds.splice(childIndex, 1);
+		updateChildPositionsFrom(parentIndex, childIndex);
+		rebuildVisibleChildChunks(state.snapshot.nodes, parentIndex);
+	}
+}
+function compareSiblingNodes(state, leftId, rightId) {
+	const sortOption = state.snapshot.options.sort;
+	if (sortOption === "default") return compareSiblingNodesDefault(state, leftId, rightId);
+	return sortOption(createCompareEntry(state, leftId), createCompareEntry(state, rightId));
+}
+function compareSiblingNodesDefault(state, leftId, rightId) {
+	const leftNode = requireNode(state, leftId);
+	const rightNode = requireNode(state, rightId);
+	const leftIsDirectory = isDirectoryNode(leftNode);
+	if (leftIsDirectory !== isDirectoryNode(rightNode)) return leftIsDirectory ? -1 : 1;
+	const comparison = compareSegmentSortKeys(getSegmentSortKey(state.snapshot.segmentTable, leftNode.nameId), getSegmentSortKey(state.snapshot.segmentTable, rightNode.nameId));
+	if (comparison !== 0) return comparison;
+	const leftName = getSegmentValue(state.snapshot.segmentTable, leftNode.nameId);
+	const rightName = getSegmentValue(state.snapshot.segmentTable, rightNode.nameId);
+	if (leftName !== rightName) return leftName < rightName ? -1 : 1;
+	return leftId < rightId ? -1 : 1;
+}
+function createCompareEntry(state, nodeId) {
+	const node = requireNode(state, nodeId);
+	const path = materializeNodePath(state, nodeId);
+	const isDirectory = isDirectoryNode(node);
+	const normalizedPath = isDirectory ? path.slice(0, -1) : path;
+	return {
+		basename: getSegmentValue(state.snapshot.segmentTable, node.nameId),
+		depth: getNodeDepth(node),
+		isDirectory,
+		path,
+		segments: normalizedPath.length === 0 ? [] : normalizedPath.split("/")
+	};
+}
+function resolveMoveTarget(state, sourceNodeId, toPath) {
+	const sourceNode = requireNode(state, sourceNodeId);
+	const existingDestinationId = findNodeId(state, toPath);
+	if (existingDestinationId != null) {
+		const existingDestination = requireNode(state, existingDestinationId);
+		if (isDirectoryNode(existingDestination)) return {
+			basename: getSegmentValue(state.snapshot.segmentTable, sourceNode.nameId),
+			existingNodeId: null,
+			parentId: existingDestinationId
+		};
+		const destinationSegments = parseLookupPath(toPath).segments;
+		return {
+			basename: destinationSegments[destinationSegments.length - 1] ?? "",
+			existingNodeId: existingDestinationId,
+			parentId: existingDestination.parentId
+		};
+	}
+	const destinationLookup = parseLookupPath(toPath);
+	const basename = destinationLookup.segments[destinationLookup.segments.length - 1] ?? "";
+	const parentSegments = destinationLookup.segments.slice(0, -1);
+	const parentId = parentSegments.length === 0 ? state.snapshot.rootId : findNodeIdBySegments(state, parentSegments, true);
+	if (parentId == null) throw new Error(`Destination parent does not exist: "${toPath}"`);
+	return {
+		basename,
+		existingNodeId: null,
+		parentId
+	};
+}
+function handleMoveCollision(state, collisionNodeId, strategy, sourceKind) {
+	if (strategy === "skip") return "skip";
+	if (strategy === "error") throw new Error(`Destination already exists: "${materializeNodePath(state, collisionNodeId)}"`);
+	const collisionNode = requireNode(state, collisionNodeId);
+	if (getNodeKind(collisionNode) !== sourceKind) throw new Error("replace collision requires the same source and destination kinds");
+	if (isDirectoryNode(collisionNode) && getDirectoryIndex(state, collisionNodeId).childIds.length > 0) throw new Error("replace collision does not support non-empty directories");
+	const collisionParentId = collisionNode.parentId;
+	const collisionNameId = collisionNode.nameId;
+	removeSubtree(state, collisionNodeId);
+	removeChildReference(state, collisionParentId, collisionNodeId, collisionNameId);
+	promoteEmptyAncestorsToExplicit(state, collisionParentId);
+	recomputeCountsUpwardFrom(state, collisionParentId);
+	return "handled";
+}
+function removeSubtree(state, nodeId) {
+	const removedNodeIds = [];
+	const stack = [{
+		nodeId,
+		visitedChildren: false
+	}];
+	while (stack.length > 0) {
+		const frame = stack.pop();
+		if (frame == null) break;
+		const node = requireNode(state, frame.nodeId);
+		if (frame.visitedChildren || !isDirectoryNode(node)) {
+			if (isDirectoryNode(node)) state.snapshot.directories.delete(frame.nodeId);
+			addNodeFlag(node, PATH_STORE_NODE_FLAG_REMOVED);
+			state.pathCacheByNodeId.delete(frame.nodeId);
+			if (state.collapsedDirectoryIds.delete(frame.nodeId)) state.hasCollapsedDirectoryOverrides = state.collapsedDirectoryIds.size > 0;
+			state.expandedDirectoryIds.delete(frame.nodeId);
+			clearDirectoryLoadInfo(state, frame.nodeId);
+			state.activeNodeCount--;
+			removedNodeIds.push(frame.nodeId);
+			continue;
+		}
+		stack.push({
+			nodeId: frame.nodeId,
+			visitedChildren: true
+		});
+		const directoryIndex = getDirectoryIndex(state, frame.nodeId);
+		for (let childIndex = directoryIndex.childIds.length - 1; childIndex >= 0; childIndex--) {
+			const childId = directoryIndex.childIds[childIndex];
+			if (childId != null) stack.push({
+				nodeId: childId,
+				visitedChildren: false
+			});
+		}
+	}
+	return removedNodeIds;
+}
+function promoteEmptyAncestorsToExplicit(state, startDirectoryId) {
+	let currentDirectoryId = startDirectoryId;
+	while (currentDirectoryId != null) {
+		const currentNode = requireNode(state, currentDirectoryId);
+		if (!isDirectoryNode(currentNode) || hasNodeFlag(currentNode, PATH_STORE_NODE_FLAG_ROOT)) return;
+		if (getDirectoryIndex(state, currentDirectoryId).childIds.length > 0) return;
+		addNodeFlag(currentNode, PATH_STORE_NODE_FLAG_EXPLICIT);
+		currentDirectoryId = currentNode.parentId === currentDirectoryId ? null : currentNode.parentId;
+	}
+}
+function findDeepestExistingDirectoryId(state, segments) {
+	let currentDirectoryId = state.snapshot.rootId;
+	for (const segment of segments) {
+		const segmentId = state.snapshot.segmentTable.idByValue.get(segment);
+		if (segmentId == null) break;
+		const nextNodeId = ensureChildIdByNameId(state.snapshot.nodes, getDirectoryIndex(state, currentDirectoryId)).get(segmentId);
+		if (nextNodeId == null) break;
+		if (!isDirectoryNode(requireNode(state, nextNodeId))) break;
+		currentDirectoryId = nextNodeId;
+	}
+	return currentDirectoryId;
+}
+function getCollapsedProjectionSignature(state, startDirectoryId) {
+	const collapsedAncestorId = findNearestCollapsedAncestor(state, startDirectoryId);
+	if (collapsedAncestorId == null) return null;
+	const terminalDirectoryId = getFlattenedTerminalDirectoryId(state, collapsedAncestorId);
+	const terminalNode = requireNode(state, terminalDirectoryId);
+	const flattenedSegmentPaths = collapsedAncestorId === terminalDirectoryId ? null : collectFlattenedDirectoryChainIds(state, collapsedAncestorId).map((nodeId) => materializeNodePath(state, nodeId));
+	return JSON.stringify({
+		flattenedSegmentPaths,
+		hasChildren: getDirectoryIndex(state, terminalDirectoryId).childIds.length > 0,
+		path: materializeNodePath(state, terminalDirectoryId),
+		terminalKind: getNodeKind(terminalNode)
+	});
+}
+function didProjectionChange(previousProjectionSignature, nextProjectionSignature) {
+	return didAnyProjectionChange([previousProjectionSignature], [nextProjectionSignature]);
+}
+function didAnyProjectionChange(previousProjectionSignatures, nextProjectionSignatures) {
+	for (let index = 0; index < previousProjectionSignatures.length; index += 1) {
+		const previousProjectionSignature = previousProjectionSignatures[index];
+		const nextProjectionSignature = nextProjectionSignatures[index];
+		if (previousProjectionSignature == null || nextProjectionSignature == null || previousProjectionSignature !== nextProjectionSignature) return true;
+	}
+	return false;
+}
+function findNearestCollapsedAncestor(state, startDirectoryId) {
+	let currentDirectoryId = startDirectoryId;
+	while (currentDirectoryId != null) {
+		const currentNode = requireNode(state, currentDirectoryId);
+		if (!isDirectoryNode(currentNode) || hasNodeFlag(currentNode, PATH_STORE_NODE_FLAG_ROOT)) return null;
+		if (!isDirectoryExpanded(state, currentDirectoryId, currentNode)) return currentDirectoryId;
+		currentDirectoryId = currentNode.parentId;
+	}
+	return null;
+}
+function recomputeDepths(state, nodeId) {
+	const node = requireNode(state, nodeId);
+	setNodeDepth(node, (nodeId === state.snapshot.rootId ? -1 : getNodeDepth(requireNode(state, node.parentId))) + 1);
+	if (!isDirectoryNode(node)) return;
+	const directoryIndex = getDirectoryIndex(state, nodeId);
+	for (const childId of directoryIndex.childIds) recomputeDepths(state, childId);
+}
+function isAncestor(state, ancestorNodeId, nodeId) {
+	let currentNodeId = nodeId;
+	while (currentNodeId != null) {
+		if (currentNodeId === ancestorNodeId) return true;
+		const currentNode = requireNode(state, currentNodeId);
+		if (currentNodeId === state.snapshot.rootId) return false;
+		currentNodeId = currentNode.parentId;
+	}
+	return false;
+}
+function recomputeNodeCounts(state, nodeId, currentNode = requireNode(state, nodeId), rebuildChildAggregates = false) {
+	const instrumentation = state.instrumentation;
+	if (instrumentation == null) {
+		recomputeNodeCountsNow(state, nodeId, currentNode, rebuildChildAggregates);
+		return;
+	}
+	withBenchmarkPhase(instrumentation, "store.recomputeNodeCounts", () => recomputeNodeCountsNow(state, nodeId, currentNode, rebuildChildAggregates));
+}
+function recomputeCountsUpwardFromNow(state, startNodeId) {
+	let currentNodeId = startNodeId;
+	while (currentNodeId != null) {
+		const currentNode = requireNode(state, currentNodeId);
+		const previousSubtreeNodeCount = currentNode.subtreeNodeCount;
+		const previousVisibleSubtreeCount = currentNode.visibleSubtreeCount;
+		recomputeNodeCounts(state, currentNodeId, currentNode);
+		if (currentNodeId === state.snapshot.rootId) return;
+		const subtreeNodeDelta = currentNode.subtreeNodeCount - previousSubtreeNodeCount;
+		const visibleSubtreeDelta = currentNode.visibleSubtreeCount - previousVisibleSubtreeCount;
+		const parentId = currentNode.parentId;
+		if (subtreeNodeDelta !== 0 || visibleSubtreeDelta !== 0) applyChildAggregateDelta(getDirectoryIndex(state, parentId), currentNodeId, subtreeNodeDelta, visibleSubtreeDelta);
+		currentNodeId = parentId;
+	}
+}
+function recomputeNodeCountsNow(state, nodeId, currentNode, rebuildChildAggregates) {
+	if (!isDirectoryNode(currentNode)) {
+		currentNode.subtreeNodeCount = 1;
+		currentNode.visibleSubtreeCount = 1;
+		return;
+	}
+	const currentIndex = getDirectoryIndex(state, nodeId);
+	if (rebuildChildAggregates) {
+		const instrumentation = state.instrumentation;
+		if (instrumentation == null) rebuildDirectoryChildAggregates(state.snapshot.nodes, currentIndex);
+		else withBenchmarkPhase(instrumentation, "store.recomputeNodeCounts.rebuildChildAggregates", () => rebuildDirectoryChildAggregates(state.snapshot.nodes, currentIndex));
+	}
+	const subtreeNodeCount = 1 + currentIndex.totalChildSubtreeNodeCount;
+	const visibleChildCount = currentIndex.totalChildVisibleSubtreeCount;
+	currentNode.subtreeNodeCount = subtreeNodeCount;
+	if (hasNodeFlag(currentNode, PATH_STORE_NODE_FLAG_ROOT)) {
+		currentNode.visibleSubtreeCount = visibleChildCount;
+		return;
+	}
+	currentNode.visibleSubtreeCount = getFlattenedChildDirectoryId(state, nodeId) != null ? visibleChildCount : isDirectoryExpanded(state, nodeId, currentNode) ? 1 + visibleChildCount : 1;
+}
+function buildPathPreview(state, parentId, basename) {
+	const parentPath = materializeNodePath(state, parentId);
+	return parentPath.length === 0 ? basename : `${parentPath}${basename}`;
+}
+
+//#endregion
+export { addPath, collectAncestorIds, findNodeId, getDirectoryIndex, listPaths, materializeNodePath, movePath, recomputeCountsRecursive, recomputeCountsUpwardFrom, removePath, requireNode };
+//# sourceMappingURL=canonical.js.map

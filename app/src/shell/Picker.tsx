@@ -138,7 +138,7 @@ function Header() {
 	const { picker, snapshot } = usePickerContext();
 
 	return (
-		<box flexDirection="column" paddingTop={1}>
+		<box flexDirection="column">
 			<Show when={snapshot().label}>
 				<text fg={theme.textMuted}>{snapshot().label}</text>
 			</Show>
@@ -227,7 +227,9 @@ function Body() {
 	return (
 		<box flexGrow={1} flexDirection="column" overflow="hidden">
 			<Show when={snapshot().options.length === 0}>
-				<text fg={theme.textMuted}>No results</text>
+				<text fg={theme.textMuted}>
+					{snapshot().loading ? "Loading…" : "No results"}
+				</text>
 			</Show>
 
 			<box flexDirection="row">
@@ -236,7 +238,9 @@ function Body() {
 						{(entry) => {
 							const isFocused = () => entry.index === snapshot().selectedIndex;
 							const fg = () =>
-								isFocused() ? theme.pickerFocusedText : theme.pickerItemText;
+								isFocused()
+									? theme.pickerFocusedText
+									: (entry.option.nameColor ?? theme.pickerItemText);
 							const bg = () =>
 								isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
 							return (

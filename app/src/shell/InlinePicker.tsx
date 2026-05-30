@@ -21,7 +21,7 @@ export function InlinePicker(props: InlinePickerProps) {
 				width="100%"
 				zIndex={100}
 				backgroundColor={theme.pickerBg}
-				paddingX={1}
+				padding={1}
 				flexDirection="column"
 			>
 				<Picker.Root
@@ -31,7 +31,7 @@ export function InlinePicker(props: InlinePickerProps) {
 				>
 					<Picker.Header />
 					<Picker.Body />
-					<Picker.Footer paddingBottom={1}>
+					<Picker.Footer>
 						<KeymapHintBar borderless group="picker" />
 					</Picker.Footer>
 				</Picker.Root>

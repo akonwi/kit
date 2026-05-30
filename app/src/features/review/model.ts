@@ -107,13 +107,19 @@ function getUntrackedDiff(cwd?: string): string {
 	);
 	const paths = output.split("\0").filter(Boolean);
 	if (paths.length === 0) return "";
+	const effectiveCwd = cwd || process.cwd();
 	const repoRoot = runGit(
 		cwd,
 		["rev-parse", "--show-toplevel"],
 		"Failed to resolve repository root.",
 	).trim();
 	return paths
-		.map((filePath) => buildUntrackedFilePatch(repoRoot, filePath))
+		.map((filePath) => {
+			// ls-files returns paths relative to cwd; resolve to repo-relative
+			const absPath = path.resolve(effectiveCwd, filePath);
+			const repoRelative = path.relative(repoRoot, absPath);
+			return buildUntrackedFilePatch(repoRoot, repoRelative);
+		})
 		.filter((patch): patch is string => patch !== null)
 		.join("\n");
 }
@@ -157,25 +163,38 @@ function splitRawDiffIntoFiles(diff: string): string[] {
 		.filter((chunk) => chunk.trim().startsWith("diff --git "));
 }
 
-function inferFiletype(path: string): string | undefined {
-	const normalized = path.toLowerCase();
-	if (normalized.endsWith(".ts") || normalized.endsWith(".tsx")) {
-		return "typescript";
-	}
+/**
+ * Infer a tree-sitter filetype from a file path.
+ * Only returns filetypes that have parsers registered in OpenTUI core
+ * or added by Kit in bootstrap. Returns undefined for unsupported
+ * filetypes so the code component falls back to plain text.
+ */
+export function inferFiletype(filePath: string): string | undefined {
+	const normalized = filePath.toLowerCase();
+	if (normalized.endsWith(".ts")) return "typescript";
+	if (normalized.endsWith(".tsx")) return "tsx";
+	if (normalized.endsWith(".jsx")) return "jsx";
 	if (
 		normalized.endsWith(".js") ||
-		normalized.endsWith(".jsx") ||
-		normalized.endsWith(".mjs")
+		normalized.endsWith(".mjs") ||
+		normalized.endsWith(".cjs")
 	) {
 		return "javascript";
 	}
-	if (normalized.endsWith(".json")) return "json";
-	if (normalized.endsWith(".md")) return "markdown";
-	if (normalized.endsWith(".sh")) return "bash";
+	if (normalized.endsWith(".md") || normalized.endsWith(".mdx"))
+		return "markdown";
+	if (normalized.endsWith(".zig")) return "zig";
+	if (normalized.endsWith(".json") || normalized.endsWith(".jsonc"))
+		return "json";
+	if (normalized.endsWith(".toml")) return "toml";
+	if (normalized.endsWith(".rb") || normalized.endsWith(".gemspec"))
+		return "ruby";
+	if (normalized.endsWith(".sh") || normalized.endsWith(".bash")) return "bash";
 	if (normalized.endsWith(".yml") || normalized.endsWith(".yaml"))
 		return "yaml";
 	if (normalized.endsWith(".css")) return "css";
-	if (normalized.endsWith(".html")) return "html";
+	if (normalized.endsWith(".html") || normalized.endsWith(".htm"))
+		return "html";
 	if (normalized.endsWith(".rs")) return "rust";
 	if (normalized.endsWith(".go")) return "go";
 	if (normalized.endsWith(".py")) return "python";
@@ -560,4 +579,24 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 		}
 	}
 	return reviewFiles;
+}
+
+/** Resolve the git repository root for the given working directory. */
+export function getRepoRoot(cwd?: string): string {
+	return runGit(
+		cwd,
+		["rev-parse", "--show-toplevel"],
+		"Failed to resolve repository root.",
+	).trim();
+}
+
+/** List all tracked files in the repo via `git ls-files`. */
+export function listRepoFiles(cwd?: string): string[] {
+	const result = spawnSync("git", ["ls-files", "--full-name"], {
+		cwd: cwd || process.cwd(),
+		encoding: "utf8",
+		maxBuffer: 10 * 1024 * 1024,
+	});
+	if (result.status !== 0) return [];
+	return result.stdout.trim().split("\n").filter(Boolean);
 }

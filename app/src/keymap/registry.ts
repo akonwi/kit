@@ -298,6 +298,36 @@ export const KEYBINDING_REGISTRY = {
 			group: "review",
 			hint: "close",
 		},
+		"expand-dir": {
+			defaultKeys: ["l", "right"],
+			desc: "Expand directory",
+			group: "review",
+			hint: false,
+		},
+		"collapse-dir": {
+			defaultKeys: ["h", "left"],
+			desc: "Collapse directory or go to parent",
+			group: "review",
+			hint: false,
+		},
+		"toggle-tree-mode": {
+			defaultKeys: "t",
+			desc: "Toggle changes / all files",
+			group: "review",
+			hint: "tree mode",
+		},
+		"search-tree": {
+			defaultKeys: "/",
+			desc: "Search file tree",
+			group: "review",
+			hint: "search",
+		},
+		"clear-search": {
+			defaultKeys: "escape",
+			desc: "Clear search",
+			group: "review",
+			hint: "clear",
+		},
 	},
 	"session-explorer": {
 		close: {
