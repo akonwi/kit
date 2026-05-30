@@ -1610,6 +1610,12 @@ export function ReviewContent(props: ReviewContentProps) {
 															.get(`unchanged:${filePath()}`)
 															?.trim() ?? ""
 													}
+													editingFileNote={
+														editingFileNoteKey() === `unchanged:${filePath()}`
+													}
+													editingFileNoteValue={editingFileNoteValue()}
+													onEditingFileNoteChange={setEditingFileNoteValue}
+													onEditingFileNoteSubmit={saveFileNoteEditor}
 													rangeNotes={rangeNotes()}
 													editingRange={viewingFileEditingRange()}
 													editingRangeValue={viewingFileEditingValue()}
@@ -1732,6 +1738,10 @@ type ReadOnlyFileViewProps = {
 	selectedLine: number;
 	onLineCountChange: (count: number) => void;
 	fileNote: string;
+	editingFileNote: boolean;
+	editingFileNoteValue: string;
+	onEditingFileNoteChange: (value: string) => void;
+	onEditingFileNoteSubmit: () => void;
 	rangeNotes: Map<string, string>;
 	editingRange: ReviewRangeDraft | null;
 	editingRangeValue: string;
@@ -1798,6 +1808,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 	});
 
 	let composerRef: { plainText: string } | undefined;
+	let fileNoteComposerRef: { plainText: string } | undefined;
 
 	return (
 		<box flexGrow={1} flexDirection="column" backgroundColor={theme.bgMuted}>
@@ -1816,17 +1827,44 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 				</Show>
 			</box>
 
-			<Show when={props.fileNote}>
-				<box
-					flexShrink={0}
-					marginX={1}
-					border
-					borderColor={theme.borderDefault}
-					backgroundColor={theme.bgSurface}
-					paddingX={1}
+			<Show when={props.editingFileNote || props.fileNote}>
+				<Show
+					when={props.editingFileNote}
+					fallback={
+						<box
+							flexShrink={0}
+							marginX={1}
+							border
+							borderColor={theme.borderDefault}
+							backgroundColor={theme.bgSurface}
+							paddingX={1}
+						>
+							<text fg={theme.textPrimary}>{props.fileNote}</text>
+						</box>
+					}
 				>
-					<text fg={theme.textPrimary}>{props.fileNote}</text>
-				</box>
+					<box flexShrink={0} marginX={1}>
+						<MessageComposer
+							initialValue={props.editingFileNoteValue}
+							placeholder="Comment on the whole file..."
+							backgroundColor={theme.bgTransparent}
+							focusedBackgroundColor={theme.bgTransparent}
+							keyBindings={[
+								{ name: "return", action: "submit" },
+								{ name: "return", shift: true, action: "newline" },
+							]}
+							onContentChange={() =>
+								props.onEditingFileNoteChange(
+									fileNoteComposerRef?.plainText ?? "",
+								)
+							}
+							onSubmit={props.onEditingFileNoteSubmit}
+							ref={(el) => {
+								fileNoteComposerRef = el as typeof fileNoteComposerRef;
+							}}
+						/>
+					</box>
+				</Show>
 			</Show>
 
 			<box flexGrow={1} padding={1} paddingTop={0} backgroundColor={theme.bg}>
