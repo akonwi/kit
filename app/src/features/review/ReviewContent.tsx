@@ -1512,20 +1512,24 @@ export function ReviewContent(props: ReviewContentProps) {
 							<Show
 								when={selectedFile()}
 								fallback={
-									<Show
-										when={viewingFilePath()}
-										fallback={
-											<box
-												flexGrow={1}
-												justifyContent="center"
-												alignItems="center"
-											>
-												<text fg={theme.textMuted}>Select a file to view</text>
-											</box>
-										}
-									>
-										{(filePath) => <ReadOnlyFileView path={filePath()} />}
-									</Show>
+									<box flexGrow={1} flexDirection="column">
+										<Show
+											when={viewingFilePath()}
+											fallback={
+												<box
+													flexGrow={1}
+													justifyContent="center"
+													alignItems="center"
+												>
+													<text fg={theme.textMuted}>
+														Select a file to view
+													</text>
+												</box>
+											}
+										>
+											{(filePath) => <ReadOnlyFileView path={filePath()} />}
+										</Show>
+									</box>
 								}
 							>
 								{(file) => {
