@@ -1,5 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
-import { type DiffLineAnnotation, trimPatchContext } from "@pierre/diffs";
+import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
 	createEffect,
 	createMemo,
@@ -16,7 +18,6 @@ import type { AttachmentsController } from "../../shell/attachments-controller";
 import {
 	DASHED_VERTICAL,
 	DIAMOND,
-	PENCIL,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../../shell/glyphs";
@@ -24,19 +25,22 @@ import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { theme } from "../../shell/theme";
+import { syntaxStyle, theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
 import { CodeReviewAttachment } from "./attachment";
 import {
 	buildRangeNoteKey,
 	buildReviewSubmission,
 	countDraftNotes,
-	countFileDraftNotes,
 	parseRangeNoteKey,
 	type ReviewDraftState,
 	type ReviewRangeDraft,
 } from "./draft";
+import { FileTreePanel } from "./FileTreePanel";
 import {
+	getRepoRoot,
+	inferFiletype,
+	listRepoFiles,
 	loadReviewFiles,
 	type ReviewFile,
 	type ReviewHunk,
@@ -60,13 +64,14 @@ export type ReviewContentProps = {
 	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
 };
 
-type ReviewMode = "list" | "patch";
+type ReviewMode = "tree" | "patch";
 type ReviewSide = "additions" | "deletions";
 type CommentableLine = ReviewDiffCommentableLine;
 
-const LIST_AUTO_EXPAND_FILE_LIMIT = 12;
-const LIST_DIFF_PREVIEW_HUNK_LIMIT = 3;
-const LIST_DIFF_PREVIEW_LINE_LIMIT = 120;
+const WIDE_VIEWPORT_THRESHOLD = 100;
+const TREE_PANEL_WIDTH = 36;
+const MIN_TREE_PANEL_WIDTH = 28;
+
 const PATCH_FOCUSED_RENDER_HUNK_LIMIT = 40;
 const PATCH_FOCUSED_RENDER_LINE_LIMIT = 800;
 const PATCH_WINDOW_HUNK_LIMIT = 12;
@@ -91,11 +96,6 @@ function statusLabel(file: ReviewFile): string {
 	}
 }
 
-type ScrollRef = {
-	scrollChildIntoView: (childId: string) => void;
-	scrollBy: (delta: number | { x: number; y: number }) => void;
-};
-
 type PatchScrollRef = {
 	scrollBy: (delta: number | { x: number; y: number }) => void;
 	scrollChildIntoView?: (childId: string) => void;
@@ -114,10 +114,6 @@ function getReviewFileRenderedLineCount(file: ReviewFile): number {
 		return file.rawPatch.replace(/\r\n/g, "\n").split("\n").length;
 	}
 	return file.unifiedLineCount;
-}
-
-function shouldAutoExpandReviewList(files: ReviewFile[]): boolean {
-	return files.length <= LIST_AUTO_EXPAND_FILE_LIMIT;
 }
 
 function shouldUseFocusedPatchRendering(file: ReviewFile): boolean {
@@ -295,9 +291,16 @@ function findSavedRangeAtLine(
 
 export function ReviewContent(props: ReviewContentProps) {
 	const [files] = createResource(() => loadReviewFiles());
+	const [allFiles] = createResource(() => listRepoFiles());
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
-	const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());
-	const [mode, setMode] = createSignal<ReviewMode>("list");
+	const [mode, setMode] = createSignal<ReviewMode>("tree");
+	const [contentWidth, setContentWidth] = createSignal(120);
+	const [treeFocusedPath, setTreeFocusedPath] = createSignal<string | null>(
+		null,
+	);
+	const [viewingFilePath, setViewingFilePath] = createSignal<string | null>(
+		null,
+	);
 	const [fileNotes, setFileNotes] = createSignal<Map<string, string>>(
 		new Map(),
 	);
@@ -330,8 +333,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [editingFileNoteValue, setEditingFileNoteValue] = createSignal("");
 	const [editorOpen, setEditorOpen] = createSignal(false);
 	const patchScrollRefs = new Map<string, PatchScrollRef>();
-	let listScrollRef: ScrollRef | undefined;
-	let listCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
+
+	let contentRef: { width: number } | undefined;
+
+	const isWide = createMemo(() => contentWidth() >= WIDE_VIEWPORT_THRESHOLD);
+	const treePanelWidth = createMemo(() =>
+		Math.max(
+			MIN_TREE_PANEL_WIDTH,
+			Math.min(TREE_PANEL_WIDTH, Math.floor(contentWidth() * 0.35)),
+		),
+	);
+
 	let patchCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	const reviewFiles = createMemo(() => files() ?? []);
@@ -340,7 +352,25 @@ export function ReviewContent(props: ReviewContentProps) {
 		rangeNotes: rangeNotes(),
 	}));
 	const totalDraftNotes = createMemo(() => countDraftNotes(draftState()));
-	const selectedFile = createMemo(() => reviewFiles()[selectedIndex()] ?? null);
+	const reviewFilesByPath = createMemo(() => {
+		const map = new Map<string, ReviewFile>();
+		for (const file of reviewFiles()) {
+			map.set(file.path, file);
+		}
+		return map;
+	});
+	const selectedFile = createMemo(() => {
+		// Viewing an unchanged file — no ReviewFile to show
+		if (viewingFilePath()) return null;
+		// In tree mode, use the tree-focused path
+		const focused = treeFocusedPath();
+		if (focused) {
+			const byPath = reviewFilesByPath().get(focused);
+			if (byPath) return byPath;
+		}
+		// Fallback to index-based selection
+		return reviewFiles()[selectedIndex()] ?? null;
+	});
 	const selectedHunk = createMemo(() => {
 		const file = selectedFile();
 		if (!file || file.hunks.length === 0) return null;
@@ -492,18 +522,11 @@ export function ReviewContent(props: ReviewContentProps) {
 	createEffect(() => {
 		const list = reviewFiles();
 		if (list.length === 0) {
-			setExpandedKeys(new Set<string>());
 			setSelectedSectionIds(new Map<string, string>());
 			setExpandedSectionIds(new Set<string>());
-			setMode("list");
+			setMode("tree");
 			setRangeAnchor(null);
-			return;
 		}
-		setExpandedKeys((prev) => {
-			if (prev.size > 0) return prev;
-			if (!shouldAutoExpandReviewList(list)) return prev;
-			return new Set<string>(list.map((file) => file.id));
-		});
 	});
 
 	createEffect(() => {
@@ -516,19 +539,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		) {
 			setSelectedSectionId(file.id, null);
 		}
-	});
-
-	createEffect(() => {
-		clearListCursorScrollTimeout();
-		if (mode() !== "list") return;
-		const file = selectedFile();
-		expandedKeys();
-		if (!file) return;
-		listCursorScrollTimeout = setTimeout(() => {
-			listCursorScrollTimeout = undefined;
-			listScrollRef?.scrollChildIntoView(`review-file-row-${file.id}`);
-		}, 0);
-		onCleanup(clearListCursorScrollTimeout);
 	});
 
 	createEffect(() => {
@@ -569,12 +579,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		}, 0);
 		onCleanup(clearPatchCursorScrollTimeout);
 	});
-
-	function clearListCursorScrollTimeout() {
-		if (!listCursorScrollTimeout) return;
-		clearTimeout(listCursorScrollTimeout);
-		listCursorScrollTimeout = undefined;
-	}
 
 	function clearPatchCursorScrollTimeout() {
 		if (!patchCursorScrollTimeout) return;
@@ -734,22 +738,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			adjacent.hunkIndex,
 			direction > 0 ? 0 : adjacent.lines.length - 1,
 		);
-	}
-
-	function toggleExpanded(fileId: string) {
-		setExpandedKeys((prev) => {
-			const next = new Set(prev);
-			if (next.has(fileId)) {
-				next.delete(fileId);
-				if (selectedFile()?.id === fileId) {
-					setMode("list");
-					setRangeAnchor(null);
-				}
-			} else {
-				next.add(fileId);
-			}
-			return next;
-		});
 	}
 
 	function toggleExpandedContext(sectionId: string) {
@@ -990,73 +978,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
-	function getListPreviewHunks(file: ReviewFile): ReviewHunk[] {
-		const hunks: ReviewHunk[] = [];
-		let lineCount = 0;
-		for (const hunk of file.hunks) {
-			if (hunks.length >= LIST_DIFF_PREVIEW_HUNK_LIMIT) break;
-			const remainingLines = LIST_DIFF_PREVIEW_LINE_LIMIT - lineCount;
-			if (remainingLines <= 0) break;
-			const lines = hunk.lines.slice(0, remainingLines);
-			if (lines.length === 0) continue;
-			hunks.push({
-				...hunk,
-				id: `${hunk.id}:preview`,
-				lines,
-				changeCount: lines.filter((line) => line.kind !== "context").length,
-				patchLineCount: lines.length,
-			});
-			lineCount += lines.length;
-		}
-		return hunks;
-	}
-
-	function limitRawPatch(rawPatch: string): string {
-		const lines = rawPatch.replace(/\r\n/g, "\n").split("\n");
-		if (lines.length <= LIST_DIFF_PREVIEW_LINE_LIMIT) return rawPatch;
-		return trimPatchContext(rawPatch, 3);
-	}
-
-	function renderPreviewNotice(file: ReviewFile, visibleHunkCount: number) {
-		const hiddenHunks = Math.max(0, file.hunks.length - visibleHunkCount);
-		const hiddenLineCount = Math.max(
-			0,
-			getReviewFileRenderedLineCount(file) - LIST_DIFF_PREVIEW_LINE_LIMIT,
-		);
-		if (hiddenHunks === 0 && hiddenLineCount === 0) return null;
-		return (
-			<box paddingX={1} paddingY={0} backgroundColor={theme.bgSurface}>
-				<text fg={theme.textMuted} bg={theme.bgSurface}>
-					Preview only · press Enter for full file
-					{hiddenHunks > 0
-						? ` · ${hiddenHunks} more change group${hiddenHunks === 1 ? "" : "s"}`
-						: ""}
-				</text>
-			</box>
-		);
-	}
-
-	function renderListFileDiffContent(file: ReviewFile) {
-		if (!shouldUseFocusedPatchRendering(file)) {
-			return renderFileDiffContent(file, false);
-		}
-		if (file.hunks.length === 0) {
-			return (
-				<box flexDirection="column" gap={0}>
-					{renderRawDiffBlock(limitRawPatch(file.rawPatch), file.filetype)}
-					{renderPreviewNotice(file, 0)}
-				</box>
-			);
-		}
-		const hunks = getListPreviewHunks(file);
-		return (
-			<box flexDirection="column" gap={0}>
-				<For each={hunks}>{(hunk) => renderHunkBlock(file, hunk, false)}</For>
-				{renderPreviewNotice(file, hunks.length)}
-			</box>
-		);
-	}
-
 	function getRenderableLineCount(hunk: ReviewHunk): number {
 		return hunk.lines.length;
 	}
@@ -1280,10 +1201,6 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function openFileNoteEditor(file: ReviewFile) {
-		setExpandedKeys((prev) => {
-			if (prev.has(file.id)) return prev;
-			return new Set([...prev, file.id]);
-		});
 		setEditingFileNoteValue(selectedFileNote(file));
 		setEditingFileNoteKey(file.noteKey);
 		setEditorOpen(true);
@@ -1444,7 +1361,10 @@ export function ReviewContent(props: ReviewContentProps) {
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
-				else setMode("list");
+				else {
+					setViewingFilePath(null);
+					setMode("tree");
+				}
 			},
 			"review.previous-change": () => cycleHunk(-1),
 			"review.next-change": () => cycleHunk(1),
@@ -1466,36 +1386,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		},
 	}));
 
+	// Tree mode: view-level bindings (navigation is handled by FileTreePanel)
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && mode() === "list",
-		diagnosticsWhen: () => mode() === "list",
+		when: () => !editorOpen() && mode() === "tree",
+		diagnosticsWhen: () => mode() === "tree",
 		commands: {
-			"review.close": () => props.onClose(),
-			"review.move-file-up": () => {
-				setSelectedIndex((index) => Math.max(0, index - 1));
-			},
-			"review.move-file-down": () => {
-				setSelectedIndex((index) =>
-					Math.min(reviewFiles().length - 1, index + 1),
-				);
-			},
-			"review.focus-file": () => {
-				const file = selectedFile();
-				if (file && expandedKeys().has(file.id)) {
-					setMode("patch");
-					if (file.hunks.length > 0) {
-						setSelectedHunkIndex(
-							file.id,
-							selectedHunkIndices().get(file.id) ?? 0,
-						);
-					}
-				}
-			},
-			"review.toggle-file": () => {
-				const file = selectedFile();
-				if (file) toggleExpanded(file.id);
-			},
 			"review.file-note": () => {
 				const file = selectedFile();
 				if (file) openFileNoteEditor(file);
@@ -1550,178 +1446,231 @@ export function ReviewContent(props: ReviewContentProps) {
 						</box>
 					}
 				>
-					<Show
-						when={mode() !== "list" && selectedFile()}
-						fallback={
-							<scrollbox
-								ref={(value) => {
-									listScrollRef = value as ScrollRef;
-								}}
-								flexGrow={1}
-								scrollY
-								padding={1}
-							>
-								<box flexDirection="column" gap={0}>
-									<Show when={!shouldAutoExpandReviewList(reviewFiles())}>
-										<box
-											paddingX={1}
-											paddingY={0}
-											backgroundColor={theme.bgSurface}
-										>
-											<text fg={theme.textMuted} bg={theme.bgSurface}>
-												Large review · files start collapsed for responsiveness
-											</text>
-										</box>
-									</Show>
-									<For each={reviewFiles()}>
-										{(file, idx) => {
-											const selected = () => idx() === selectedIndex();
-											const expanded = () => expandedKeys().has(file.id);
-											const noteCount = () =>
-												countFileDraftNotes(file, draftState());
-											return (
-												<box
-													id={`review-file-${file.id}`}
-													flexDirection="column"
-													gap={0}
-													backgroundColor={
-														selected() ? theme.bgMuted : theme.bgTransparent
-													}
-												>
-													<box
-														id={`review-file-row-${file.id}`}
-														paddingX={1}
-														paddingY={0}
-														flexDirection="row"
-														justifyContent="space-between"
-													>
-														<box flexDirection="column">
-															<text
-																fg={
-																	selected()
-																		? theme.textPrimary
-																		: theme.textSecondary
-																}
-															>
-																{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}{" "}
-																{statusLabel(file)} {file.path}
-																{noteCount() > 0
-																	? ` · ${PENCIL} ${formatNoteCount(noteCount())}`
-																	: ""}
-															</text>
-															<Show when={file.prevPath}>
-																<text fg={theme.textMuted}>
-																	from {file.prevPath}
-																</text>
-															</Show>
-														</box>
-														<text fg={theme.textMuted}>
-															{sourceLabel(file)} · {file.hunks.length} hunk
-															{file.hunks.length === 1 ? "" : "s"} ·{" "}
-															{file.changeCount} changed line
-															{file.changeCount === 1 ? "" : "s"}
-														</text>
-													</box>
-													<Show when={expanded()}>
-														<box
-															padding={1}
-															paddingTop={0}
-															flexDirection="column"
-															gap={0}
-														>
-															{renderFileNoteBlock(file)}
-															{renderListFileDiffContent(file)}
-														</box>
-													</Show>
-												</box>
-											);
-										}}
-									</For>
-								</box>
-							</scrollbox>
-						}
+					<box
+						ref={(el) => {
+							contentRef = el as typeof contentRef;
+						}}
+						onSizeChange={() => {
+							const w = contentRef?.width ?? 0;
+							if (w > 0) setContentWidth(w);
+						}}
+						flexGrow={1}
+						flexDirection="row"
+						overflow="hidden"
 					>
-						{(file) => {
-							const currentHunk = createMemo(() => selectedHunk());
-							const fileNote = createMemo(() => selectedFileNote(file()));
-							return (
-								<box
-									flexGrow={1}
-									flexDirection="column"
-									gap={1}
-									backgroundColor={theme.bgMuted}
-								>
-									<box
-										flexShrink={0}
-										paddingX={1}
-										paddingY={0}
-										flexDirection="row"
-										justifyContent="space-between"
-									>
-										<box flexDirection="column">
-											<text fg={theme.textPrimary}>
-												{statusLabel(file())} {file().path}
-											</text>
-											<Show when={file().prevPath}>
-												<text fg={theme.textMuted}>from {file().prevPath}</text>
-											</Show>
-											<Show when={activeLineStatus().length > 0}>
-												<text fg={theme.textMuted}>{activeLineStatus()}</text>
-											</Show>
-											<Show when={hiddenContextStatus().length > 0}>
-												<text fg={theme.metaText}>{hiddenContextStatus()}</text>
-											</Show>
-										</box>
-										<text fg={theme.textMuted}>
-											{sourceLabel(file())} ·{" "}
-											{currentHunk()
-												? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
-												: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}
-										</text>
-									</box>
+						{/* Tree panel */}
+						<Show when={isWide() || mode() === "tree"}>
+							<box
+								width={isWide() ? treePanelWidth() : undefined}
+								flexGrow={isWide() ? 0 : 1}
+								flexShrink={0}
+								height="100%"
+								border={isWide() ? ["right"] : false}
+								borderColor={theme.borderDefault}
+							>
+								<FileTreePanel
+									reviewFiles={reviewFiles()}
+									allFiles={allFiles() ?? []}
+									focused={mode() === "tree"}
+									editorOpen={editorOpen()}
+									onFocusedPathChange={(path) => {
+										setTreeFocusedPath(path);
+										// Sync selectedIndex for diff state
+										if (path) {
+											const idx = reviewFiles().findIndex(
+												(f) => f.path === path,
+											);
+											if (idx >= 0) setSelectedIndex(idx);
+										}
+									}}
+									onSelectFile={(filePath) => {
+										const file = reviewFilesByPath().get(filePath);
+										if (file) {
+											const idx = reviewFiles().indexOf(file);
+											if (idx >= 0) setSelectedIndex(idx);
+											setViewingFilePath(null);
+											setMode("patch");
+											if (file.hunks.length > 0) {
+												setSelectedHunkIndex(
+													file.id,
+													selectedHunkIndices().get(file.id) ?? 0,
+												);
+											}
+										} else {
+											// Unchanged file — view read-only
+											setViewingFilePath(filePath);
+											setMode("patch");
+										}
+									}}
+									onClose={props.onClose}
+								/>
+							</box>
+						</Show>
 
+						{/* Diff pane */}
+						<Show when={isWide() || mode() === "patch"}>
+							<Show
+								when={selectedFile()}
+								fallback={
 									<Show
-										when={
-											editingFileNoteKey() === file().noteKey ||
-											fileNote().length > 0
+										when={viewingFilePath()}
+										fallback={
+											<box
+												flexGrow={1}
+												justifyContent="center"
+												alignItems="center"
+											>
+												<text fg={theme.textMuted}>Select a file to view</text>
+											</box>
 										}
 									>
-										<box
-											flexShrink={0}
-											marginX={1}
-											flexDirection="column"
-											gap={0}
-										>
-											{renderFileNoteBlock(file())}
-										</box>
+										{(filePath) => <ReadOnlyFileView path={filePath()} />}
 									</Show>
-
-									<box
-										flexGrow={1}
-										padding={1}
-										paddingTop={0}
-										backgroundColor={theme.bg}
-									>
-										<scrollbox
-											ref={(value) => {
-												if (value)
-													patchScrollRefs.set(
-														file().id,
-														value as PatchScrollRef,
-													);
-											}}
+								}
+							>
+								{(file) => {
+									const currentHunk = createMemo(() => selectedHunk());
+									const fileNote = createMemo(() => selectedFileNote(file()));
+									return (
+										<box
 											flexGrow={1}
-											scrollY
+											flexDirection="column"
+											gap={1}
+											backgroundColor={theme.bgMuted}
 										>
-											{renderFileDiffContent(file(), true)}
-										</scrollbox>
-									</box>
-								</box>
-							);
-						}}
-					</Show>
+											<box
+												flexShrink={0}
+												paddingX={1}
+												paddingY={0}
+												flexDirection="row"
+												justifyContent="space-between"
+											>
+												<box flexDirection="column">
+													<text fg={theme.textPrimary}>
+														{statusLabel(file())} {file().path}
+													</text>
+													<Show when={file().prevPath}>
+														<text fg={theme.textMuted}>
+															from {file().prevPath}
+														</text>
+													</Show>
+													<Show when={activeLineStatus().length > 0}>
+														<text fg={theme.textMuted}>
+															{activeLineStatus()}
+														</text>
+													</Show>
+													<Show when={hiddenContextStatus().length > 0}>
+														<text fg={theme.metaText}>
+															{hiddenContextStatus()}
+														</text>
+													</Show>
+												</box>
+												<text fg={theme.textMuted}>
+													{sourceLabel(file())} ·{" "}
+													{currentHunk()
+														? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
+														: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}
+												</text>
+											</box>
+
+											<Show
+												when={
+													editingFileNoteKey() === file().noteKey ||
+													fileNote().length > 0
+												}
+											>
+												<box
+													flexShrink={0}
+													marginX={1}
+													flexDirection="column"
+													gap={0}
+												>
+													{renderFileNoteBlock(file())}
+												</box>
+											</Show>
+
+											<box
+												flexGrow={1}
+												padding={1}
+												paddingTop={0}
+												backgroundColor={theme.bg}
+											>
+												<scrollbox
+													ref={(value) => {
+														if (value)
+															patchScrollRefs.set(
+																file().id,
+																value as PatchScrollRef,
+															);
+													}}
+													flexGrow={1}
+													scrollY
+												>
+													{renderFileDiffContent(file(), mode() === "patch")}
+												</scrollbox>
+											</box>
+										</box>
+									);
+								}}
+							</Show>
+						</Show>
+					</box>
 				</Show>
 			</Show>
 		</ScreenLayout>
+	);
+}
+
+// ── Read-only file viewer ───────────────────────────────────────────
+
+function ReadOnlyFileView(props: { path: string }) {
+	const repoRoot = getRepoRoot();
+
+	const [content] = createResource(
+		() => props.path,
+		(filePath) => {
+			try {
+				return readFileSync(path.join(repoRoot, filePath), "utf-8");
+			} catch {
+				return null;
+			}
+		},
+	);
+
+	const filetype = createMemo(() => inferFiletype(props.path));
+
+	return (
+		<box flexGrow={1} flexDirection="column" backgroundColor={theme.bgMuted}>
+			<box flexShrink={0} paddingX={1} paddingY={0}>
+				<text fg={theme.textPrimary}>{props.path}</text>
+			</box>
+			<box flexGrow={1} padding={1} paddingTop={0} backgroundColor={theme.bg}>
+				<Show
+					when={!content.loading && content() != null}
+					fallback={
+						<text fg={theme.textMuted}>
+							{content.loading ? "Loading…" : "Could not read file"}
+						</text>
+					}
+				>
+					<scrollbox flexGrow={1} scrollY>
+						<Show
+							when={filetype()}
+							fallback={<text fg={theme.textPrimary}>{content()}</text>}
+						>
+							{(ft) => (
+								<code
+									content={content() ?? ""}
+									filetype={ft()}
+									syntaxStyle={syntaxStyle()}
+									bg={theme.bg}
+									flexGrow={1}
+								/>
+							)}
+						</Show>
+					</scrollbox>
+				</Show>
+			</box>
+		</box>
 	);
 }

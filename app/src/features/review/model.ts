@@ -107,13 +107,19 @@ function getUntrackedDiff(cwd?: string): string {
 	);
 	const paths = output.split("\0").filter(Boolean);
 	if (paths.length === 0) return "";
+	const effectiveCwd = cwd || process.cwd();
 	const repoRoot = runGit(
 		cwd,
 		["rev-parse", "--show-toplevel"],
 		"Failed to resolve repository root.",
 	).trim();
 	return paths
-		.map((filePath) => buildUntrackedFilePatch(repoRoot, filePath))
+		.map((filePath) => {
+			// ls-files returns paths relative to cwd; resolve to repo-relative
+			const absPath = path.resolve(effectiveCwd, filePath);
+			const repoRelative = path.relative(repoRoot, absPath);
+			return buildUntrackedFilePatch(repoRoot, repoRelative);
+		})
 		.filter((patch): patch is string => patch !== null)
 		.join("\n");
 }
@@ -157,7 +163,7 @@ function splitRawDiffIntoFiles(diff: string): string[] {
 		.filter((chunk) => chunk.trim().startsWith("diff --git "));
 }
 
-function inferFiletype(path: string): string | undefined {
+export function inferFiletype(path: string): string | undefined {
 	const normalized = path.toLowerCase();
 	if (normalized.endsWith(".ts") || normalized.endsWith(".tsx")) {
 		return "typescript";
@@ -560,4 +566,24 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 		}
 	}
 	return reviewFiles;
+}
+
+/** Resolve the git repository root for the given working directory. */
+export function getRepoRoot(cwd?: string): string {
+	return runGit(
+		cwd,
+		["rev-parse", "--show-toplevel"],
+		"Failed to resolve repository root.",
+	).trim();
+}
+
+/** List all tracked files in the repo via `git ls-files`. */
+export function listRepoFiles(cwd?: string): string[] {
+	const result = spawnSync("git", ["ls-files", "--full-name"], {
+		cwd: cwd || process.cwd(),
+		encoding: "utf8",
+		maxBuffer: 10 * 1024 * 1024,
+	});
+	if (result.status !== 0) return [];
+	return result.stdout.trim().split("\n").filter(Boolean);
 }
