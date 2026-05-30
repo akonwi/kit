@@ -239,7 +239,6 @@ export function FileTreePanel(props: FileTreePanelProps) {
 						{treeMode() === "all" ? "[all files]" : "all files"}
 					</text>
 				</box>
-				<text fg={theme.textPlaceholder}>/ find</text>
 			</box>
 
 			{/* Tree rows */}
