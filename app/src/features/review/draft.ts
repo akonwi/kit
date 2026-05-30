@@ -66,39 +66,71 @@ export function countFileDraftNotes(
 	return count;
 }
 
+function collectRangesForPath(
+	filePath: string,
+	rangeNotes: Map<string, string>,
+): CodeReviewFileComment["ranges"] {
+	const prefix = `${filePath}::`;
+	const ranges: CodeReviewFileComment["ranges"] = [];
+	for (const [key, value] of rangeNotes) {
+		if (!key.startsWith(prefix)) continue;
+		const comment = normalizeNote(value);
+		if (!comment) continue;
+		const parsed = parseRangeNoteKey(key);
+		if (!parsed) continue;
+		ranges.push({
+			side: parsed.side as CodeReviewFileComment["ranges"][number]["side"],
+			startLine: parsed.startLine,
+			endLine: parsed.endLine,
+			comment,
+		});
+	}
+	return ranges;
+}
+
 export function buildReviewSubmission(
 	files: ReviewFile[],
 	state: ReviewDraftState,
 ): CodeReviewSubmission | null {
 	const submittedFiles: CodeReviewFileComment[] = [];
+	const coveredPaths = new Set<string>();
 
 	for (const file of files) {
+		coveredPaths.add(file.path);
 		const fileComment = normalizeNote(state.fileNotes.get(file.noteKey));
-		const ranges = [
-			...Array.from(state.rangeNotes.entries())
-				.filter(
-					([key, value]) =>
-						key.startsWith(`${file.path}::`) && normalizeNote(value).length > 0,
-				)
-				.flatMap(([key, value]) => {
-					const parsed = parseRangeNoteKey(key);
-					if (!parsed) return [];
-					return [
-						{
-							side: parsed.side as CodeReviewFileComment["ranges"][number]["side"],
-							startLine: parsed.startLine,
-							endLine: parsed.endLine,
-							comment: normalizeNote(value),
-						},
-					];
-				}),
-		];
+		const ranges = collectRangesForPath(file.path, state.rangeNotes);
 		if (!fileComment && ranges.length === 0) continue;
-		submittedFiles.push({
-			path: file.path,
-			fileComment,
-			ranges,
-		});
+		submittedFiles.push({ path: file.path, fileComment, ranges });
+	}
+
+	// Collect all paths that have range notes (for unchanged files)
+	const rangeNotePaths = new Set<string>();
+	for (const [key, value] of state.rangeNotes) {
+		if (!normalizeNote(value)) continue;
+		const parsed = parseRangeNoteKey(key);
+		if (parsed) rangeNotePaths.add(parsed.path);
+	}
+
+	// Include notes on unchanged files (file notes keyed as "unchanged:path"
+	// and/or range notes on paths not covered by changed files)
+	const unchangedPaths = new Set<string>();
+	for (const key of state.fileNotes.keys()) {
+		if (key.startsWith("unchanged:")) {
+			unchangedPaths.add(key.slice("unchanged:".length));
+		}
+	}
+	for (const filePath of rangeNotePaths) {
+		unchangedPaths.add(filePath);
+	}
+
+	for (const filePath of unchangedPaths) {
+		if (coveredPaths.has(filePath)) continue;
+		const fileComment = normalizeNote(
+			state.fileNotes.get(`unchanged:${filePath}`),
+		);
+		const ranges = collectRangesForPath(filePath, state.rangeNotes);
+		if (!fileComment && ranges.length === 0) continue;
+		submittedFiles.push({ path: filePath, fileComment, ranges });
 	}
 
 	if (submittedFiles.length === 0) return null;
