@@ -74,7 +74,9 @@ function isDirectoryHandle(
 // ── Component ───────────────────────────────────────────────────────
 
 export function FileTreePanel(props: FileTreePanelProps) {
-	const [treeMode, setTreeMode] = createSignal<TreeMode>("changes");
+	const [treeMode, setTreeMode] = createSignal<TreeMode>(
+		props.reviewFiles.length > 0 ? "changes" : "all",
+	);
 	const [searching, setSearching] = createSignal(false);
 	const [treeVersion, setTreeVersion] = createSignal(0);
 

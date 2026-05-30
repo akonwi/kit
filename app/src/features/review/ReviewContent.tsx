@@ -1510,223 +1510,207 @@ export function ReviewContent(props: ReviewContentProps) {
 					</box>
 				}
 			>
-				<Show
-					when={reviewFiles().length > 0}
-					fallback={
-						<box flexGrow={1} padding={1}>
-							<text fg={theme.textMuted}>No uncommitted changes.</text>
-						</box>
-					}
+				<box
+					ref={(el) => {
+						contentRef = el as typeof contentRef;
+					}}
+					onSizeChange={() => {
+						const w = contentRef?.width ?? 0;
+						if (w > 0) setContentWidth(w);
+					}}
+					flexGrow={1}
+					flexDirection="row"
+					overflow="hidden"
 				>
-					<box
-						ref={(el) => {
-							contentRef = el as typeof contentRef;
-						}}
-						onSizeChange={() => {
-							const w = contentRef?.width ?? 0;
-							if (w > 0) setContentWidth(w);
-						}}
-						flexGrow={1}
-						flexDirection="row"
-						overflow="hidden"
-					>
-						{/* Tree panel */}
-						<Show when={isWide() || mode() === "tree"}>
-							<box
-								width={isWide() ? treePanelWidth() : undefined}
-								flexGrow={isWide() ? 0 : 1}
-								flexShrink={0}
-								height="100%"
-								border={isWide() ? ["right"] : false}
-								borderColor={theme.borderDefault}
-							>
-								<FileTreePanel
-									reviewFiles={reviewFiles()}
-									allFiles={allFiles() ?? []}
-									focused={mode() === "tree"}
-									editorOpen={editorOpen()}
-									onFocusedPathChange={(path) => {
-										setTreeFocusedPath(path);
-										// Sync selectedIndex for diff state
-										if (path) {
-											const idx = reviewFiles().findIndex(
-												(f) => f.path === path,
+					{/* Tree panel */}
+					<Show when={isWide() || mode() === "tree"}>
+						<box
+							width={isWide() ? treePanelWidth() : undefined}
+							flexGrow={isWide() ? 0 : 1}
+							flexShrink={0}
+							height="100%"
+							border={isWide() ? ["right"] : false}
+							borderColor={theme.borderDefault}
+						>
+							<FileTreePanel
+								reviewFiles={reviewFiles()}
+								allFiles={allFiles() ?? []}
+								focused={mode() === "tree"}
+								editorOpen={editorOpen()}
+								onFocusedPathChange={(path) => {
+									setTreeFocusedPath(path);
+									// Sync selectedIndex for diff state
+									if (path) {
+										const idx = reviewFiles().findIndex((f) => f.path === path);
+										if (idx >= 0) setSelectedIndex(idx);
+									}
+								}}
+								onSelectFile={(filePath) => {
+									const file = reviewFilesByPath().get(filePath);
+									if (file) {
+										const idx = reviewFiles().indexOf(file);
+										if (idx >= 0) setSelectedIndex(idx);
+										setViewingFilePath(null);
+										setMode("patch");
+										if (file.hunks.length > 0) {
+											setSelectedHunkIndex(
+												file.id,
+												selectedHunkIndices().get(file.id) ?? 0,
 											);
-											if (idx >= 0) setSelectedIndex(idx);
 										}
-									}}
-									onSelectFile={(filePath) => {
-										const file = reviewFilesByPath().get(filePath);
-										if (file) {
-											const idx = reviewFiles().indexOf(file);
-											if (idx >= 0) setSelectedIndex(idx);
-											setViewingFilePath(null);
-											setMode("patch");
-											if (file.hunks.length > 0) {
-												setSelectedHunkIndex(
-													file.id,
-													selectedHunkIndices().get(file.id) ?? 0,
-												);
-											}
-										} else {
-											// Unchanged file — view read-only
-											setViewingFilePath(filePath);
-											setViewingFileLine(1);
-											setMode("patch");
-										}
-									}}
-									onClose={props.onClose}
-								/>
-							</box>
-						</Show>
+									} else {
+										// Unchanged file — view read-only
+										setViewingFilePath(filePath);
+										setViewingFileLine(1);
+										setMode("patch");
+									}
+								}}
+								onClose={props.onClose}
+							/>
+						</box>
+					</Show>
 
-						{/* Diff pane */}
-						<Show when={isWide() || mode() === "patch"}>
-							<Show
-								when={selectedFile()}
-								fallback={
-									<box flexGrow={1} flexDirection="column">
-										<Show
-											when={viewingFilePath()}
-											fallback={
-												<box
-													flexGrow={1}
-													justifyContent="center"
-													alignItems="center"
-												>
-													<text fg={theme.textMuted}>
-														Select a file to view
-													</text>
-												</box>
-											}
-										>
-											{(filePath) => (
-												<ReadOnlyFileView
-													repoRoot={repoRoot}
-													path={filePath()}
-													interactive={mode() === "patch"}
-													selectedLine={viewingFileLine()}
-													onLineCountChange={setViewingFileLineCount}
-													fileNote={
-														fileNotes()
-															.get(`unchanged:${filePath()}`)
-															?.trim() ?? ""
-													}
-													editingFileNote={
-														editingFileNoteKey() === `unchanged:${filePath()}`
-													}
-													editingFileNoteValue={editingFileNoteValue()}
-													onEditingFileNoteChange={setEditingFileNoteValue}
-													onEditingFileNoteSubmit={saveFileNoteEditor}
-													rangeNotes={rangeNotes()}
-													editingRange={viewingFileEditingRange()}
-													editingRangeValue={viewingFileEditingValue()}
-													onEditingRangeChange={setViewingFileEditingValue}
-													onEditingRangeSubmit={() => {
-														const range = viewingFileEditingRange();
-														if (!range) return;
-														const key = buildRangeNoteKey(range);
-														setRangeNotes((prev) =>
-															setMapValue(prev, key, viewingFileEditingValue()),
-														);
-														setViewingFileEditingRange(null);
-														setViewingFileEditingValue("");
-														setEditorOpen(false);
-													}}
-												/>
-											)}
-										</Show>
-									</box>
-								}
-							>
-								{(file) => {
-									const currentHunk = createMemo(() => selectedHunk());
-									const fileNote = createMemo(() => selectedFileNote(file()));
-									return (
+					{/* Diff pane */}
+					<Show when={isWide() || mode() === "patch"}>
+						<Show
+							when={selectedFile()}
+							fallback={
+								<box flexGrow={1} flexDirection="column">
+									<Show
+										when={viewingFilePath()}
+										fallback={
+											<box
+												flexGrow={1}
+												justifyContent="center"
+												alignItems="center"
+											>
+												<text fg={theme.textMuted}>Select a file to view</text>
+											</box>
+										}
+									>
+										{(filePath) => (
+											<ReadOnlyFileView
+												repoRoot={repoRoot}
+												path={filePath()}
+												interactive={mode() === "patch"}
+												selectedLine={viewingFileLine()}
+												onLineCountChange={setViewingFileLineCount}
+												fileNote={
+													fileNotes().get(`unchanged:${filePath()}`)?.trim() ??
+													""
+												}
+												editingFileNote={
+													editingFileNoteKey() === `unchanged:${filePath()}`
+												}
+												editingFileNoteValue={editingFileNoteValue()}
+												onEditingFileNoteChange={setEditingFileNoteValue}
+												onEditingFileNoteSubmit={saveFileNoteEditor}
+												rangeNotes={rangeNotes()}
+												editingRange={viewingFileEditingRange()}
+												editingRangeValue={viewingFileEditingValue()}
+												onEditingRangeChange={setViewingFileEditingValue}
+												onEditingRangeSubmit={() => {
+													const range = viewingFileEditingRange();
+													if (!range) return;
+													const key = buildRangeNoteKey(range);
+													setRangeNotes((prev) =>
+														setMapValue(prev, key, viewingFileEditingValue()),
+													);
+													setViewingFileEditingRange(null);
+													setViewingFileEditingValue("");
+													setEditorOpen(false);
+												}}
+											/>
+										)}
+									</Show>
+								</box>
+							}
+						>
+							{(file) => {
+								const currentHunk = createMemo(() => selectedHunk());
+								const fileNote = createMemo(() => selectedFileNote(file()));
+								return (
+									<box
+										flexGrow={1}
+										flexDirection="column"
+										gap={1}
+										backgroundColor={theme.bgMuted}
+									>
 										<box
-											flexGrow={1}
-											flexDirection="column"
-											gap={1}
-											backgroundColor={theme.bgMuted}
+											flexShrink={0}
+											paddingX={1}
+											paddingY={0}
+											flexDirection="row"
+											justifyContent="space-between"
+										>
+											<box flexDirection="column">
+												<text fg={theme.textPrimary}>
+													{statusLabel(file())} {file().path}
+												</text>
+												<Show when={file().prevPath}>
+													<text fg={theme.textMuted}>
+														from {file().prevPath}
+													</text>
+												</Show>
+												<Show when={activeLineStatus().length > 0}>
+													<text fg={theme.textMuted}>{activeLineStatus()}</text>
+												</Show>
+												<Show when={hiddenContextStatus().length > 0}>
+													<text fg={theme.metaText}>
+														{hiddenContextStatus()}
+													</text>
+												</Show>
+											</box>
+											<text fg={theme.textMuted}>
+												{sourceLabel(file())} ·{" "}
+												{currentHunk()
+													? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
+													: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}
+											</text>
+										</box>
+
+										<Show
+											when={
+												editingFileNoteKey() === file().noteKey ||
+												fileNote().length > 0
+											}
 										>
 											<box
 												flexShrink={0}
-												paddingX={1}
-												paddingY={0}
-												flexDirection="row"
-												justifyContent="space-between"
+												marginX={1}
+												flexDirection="column"
+												gap={0}
 											>
-												<box flexDirection="column">
-													<text fg={theme.textPrimary}>
-														{statusLabel(file())} {file().path}
-													</text>
-													<Show when={file().prevPath}>
-														<text fg={theme.textMuted}>
-															from {file().prevPath}
-														</text>
-													</Show>
-													<Show when={activeLineStatus().length > 0}>
-														<text fg={theme.textMuted}>
-															{activeLineStatus()}
-														</text>
-													</Show>
-													<Show when={hiddenContextStatus().length > 0}>
-														<text fg={theme.metaText}>
-															{hiddenContextStatus()}
-														</text>
-													</Show>
-												</box>
-												<text fg={theme.textMuted}>
-													{sourceLabel(file())} ·{" "}
-													{currentHunk()
-														? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
-														: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}
-												</text>
+												{renderFileNoteBlock(file())}
 											</box>
+										</Show>
 
-											<Show
-												when={
-													editingFileNoteKey() === file().noteKey ||
-													fileNote().length > 0
-												}
-											>
-												<box
-													flexShrink={0}
-													marginX={1}
-													flexDirection="column"
-													gap={0}
-												>
-													{renderFileNoteBlock(file())}
-												</box>
-											</Show>
-
-											<box
+										<box
+											flexGrow={1}
+											padding={1}
+											paddingTop={0}
+											backgroundColor={theme.bg}
+										>
+											<scrollbox
+												ref={(value) => {
+													if (value)
+														patchScrollRefs.set(
+															file().id,
+															value as PatchScrollRef,
+														);
+												}}
 												flexGrow={1}
-												padding={1}
-												paddingTop={0}
-												backgroundColor={theme.bg}
+												scrollY
 											>
-												<scrollbox
-													ref={(value) => {
-														if (value)
-															patchScrollRefs.set(
-																file().id,
-																value as PatchScrollRef,
-															);
-													}}
-													flexGrow={1}
-													scrollY
-												>
-													{renderFileDiffContent(file(), mode() === "patch")}
-												</scrollbox>
-											</box>
+												{renderFileDiffContent(file(), mode() === "patch")}
+											</scrollbox>
 										</box>
-									);
-								}}
-							</Show>
+									</box>
+								);
+							}}
 						</Show>
-					</box>
-				</Show>
+					</Show>
+				</box>
 			</Show>
 		</ScreenLayout>
 	);
