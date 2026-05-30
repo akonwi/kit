@@ -122,6 +122,32 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 		},
 	});
 
+	const kitGrammars = installedRuntimeDir
+		? path.join(installedRuntimeDir, "grammars")
+		: path.resolve(import.meta.dirname, "../../grammars");
+	for (const grammar of [
+		{ filetype: "bash", wasm: "tree-sitter-bash.wasm" },
+		{ filetype: "css", wasm: "tree-sitter-css.wasm" },
+		{ filetype: "go", wasm: "tree-sitter-go.wasm" },
+		{ filetype: "html", wasm: "tree-sitter-html.wasm" },
+		{ filetype: "json", wasm: "tree-sitter-json.wasm" },
+		{ filetype: "python", wasm: "tree-sitter-python.wasm" },
+		{ filetype: "ruby", wasm: "tree-sitter-ruby.wasm" },
+		{ filetype: "rust", wasm: "tree-sitter-rust.wasm" },
+		{ filetype: "toml", wasm: "tree-sitter-toml.wasm" },
+		{ filetype: "yaml", wasm: "tree-sitter-yaml.wasm" },
+	]) {
+		treeSitter.addFiletypeParser({
+			filetype: grammar.filetype,
+			wasm: path.join(kitGrammars, grammar.filetype, grammar.wasm),
+			queries: {
+				highlights: [
+					path.join(kitGrammars, grammar.filetype, "highlights.scm"),
+				],
+			},
+		});
+	}
+
 	const settings = await loadSettings();
 	const session = await loadSession(opts);
 

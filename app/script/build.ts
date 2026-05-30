@@ -29,6 +29,7 @@ const parserWorkerPath = path.resolve(
 	"node_modules/@opentui/core/parser.worker.js",
 );
 const coreAssetsPath = path.resolve(dir, "node_modules/@opentui/core/assets");
+const kitGrammarsPath = path.resolve(dir, "grammars");
 
 process.chdir(dir);
 
@@ -119,6 +120,9 @@ if (bundledWasm) {
 }
 
 await fs.promises.cp(coreAssetsPath, path.join(runtimeDir, "assets"), {
+	recursive: true,
+});
+await fs.promises.cp(kitGrammarsPath, path.join(runtimeDir, "grammars"), {
 	recursive: true,
 });
 
