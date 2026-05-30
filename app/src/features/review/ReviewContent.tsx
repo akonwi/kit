@@ -299,6 +299,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [treeFocusedPath, setTreeFocusedPath] = createSignal<string | null>(
 		null,
 	);
+	const [treeSearching, setTreeSearching] = createSignal(false);
 	const [viewingFilePath, setViewingFilePath] = createSignal<string | null>(
 		null,
 	);
@@ -1461,8 +1462,8 @@ export function ReviewContent(props: ReviewContentProps) {
 	// Tree mode: view-level bindings (navigation is handled by FileTreePanel)
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && mode() === "tree",
-		diagnosticsWhen: () => mode() === "tree",
+		when: () => !editorOpen() && mode() === "tree" && !treeSearching(),
+		diagnosticsWhen: () => mode() === "tree" && !treeSearching(),
 		commands: {
 			"review.file-note": () => {
 				const file = selectedFile();
@@ -1565,6 +1566,7 @@ export function ReviewContent(props: ReviewContentProps) {
 										setMode("patch");
 									}
 								}}
+								onSearchingChange={setTreeSearching}
 								onClose={props.onClose}
 							/>
 						</box>

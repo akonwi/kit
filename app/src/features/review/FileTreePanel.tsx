@@ -29,6 +29,7 @@ export type FileTreePanelProps = {
 	editorOpen: boolean;
 	onFocusedPathChange: (path: string | null) => void;
 	onSelectFile: (path: string) => void;
+	onSearchingChange: (searching: boolean) => void;
 	onClose: () => void;
 };
 
@@ -207,16 +208,19 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	function toggleTreeMode() {
 		setTreeMode((m) => (m === "changes" ? "all" : "changes"));
 		setSearching(false);
+		props.onSearchingChange(false);
 	}
 
 	function startSearch() {
 		setSearching(true);
+		props.onSearchingChange(true);
 		setTimeout(() => searchInputRef?.setText(""), 0);
 	}
 
 	function clearSearch() {
 		controller?.setSearch(null);
 		setSearching(false);
+		props.onSearchingChange(false);
 	}
 
 	function handleSearchInput(value: string) {
@@ -284,7 +288,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 									searchInputRef = el as typeof searchInputRef;
 								}}
 								flexGrow={1}
-								focused
+								focused={props.focused}
 								textColor={theme.textPrimary}
 								focusedTextColor={theme.textPrimary}
 								cursorColor={theme.cursor}
