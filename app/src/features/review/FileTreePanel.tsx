@@ -381,8 +381,7 @@ function FileTreeRow(props: FileTreeRowProps) {
 	const nameColor = () => {
 		if (focused()) return theme.pickerFocusedText;
 		if (props.statusColor) return props.statusColor;
-		if (props.row.kind === "directory") return theme.textPrimary;
-		return theme.textMuted;
+		return theme.textPrimary;
 	};
 
 	const metaColor = () =>
