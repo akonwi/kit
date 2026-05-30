@@ -290,6 +290,7 @@ function findSavedRangeAtLine(
 }
 
 export function ReviewContent(props: ReviewContentProps) {
+	const repoRoot = getRepoRoot();
 	const [files] = createResource(() => loadReviewFiles());
 	const [allFiles] = createResource(() => listRepoFiles());
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
@@ -1601,6 +1602,7 @@ export function ReviewContent(props: ReviewContentProps) {
 										>
 											{(filePath) => (
 												<ReadOnlyFileView
+													repoRoot={repoRoot}
 													path={filePath()}
 													interactive={mode() === "patch"}
 													selectedLine={viewingFileLine()}
@@ -1733,6 +1735,7 @@ export function ReviewContent(props: ReviewContentProps) {
 // ── Read-only file viewer ───────────────────────────────────────────
 
 type ReadOnlyFileViewProps = {
+	repoRoot: string;
 	path: string;
 	interactive: boolean;
 	selectedLine: number;
@@ -1750,18 +1753,13 @@ type ReadOnlyFileViewProps = {
 };
 
 function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
-	const repoRoot = getRepoRoot();
-
-	const [content] = createResource(
-		() => props.path,
-		(filePath) => {
-			try {
-				return readFileSync(path.join(repoRoot, filePath), "utf-8");
-			} catch {
-				return null;
-			}
-		},
-	);
+	const content = createMemo(() => {
+		try {
+			return readFileSync(path.join(props.repoRoot, props.path), "utf-8");
+		} catch {
+			return null;
+		}
+	});
 
 	const filetype = createMemo(() => inferFiletype(props.path));
 	const lines = createMemo(() => {
@@ -1806,6 +1804,15 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 		}
 		return map;
 	});
+
+	type ScrollableRef = { scrollX: number; scrollY: number };
+	function resetScroll(ref: ScrollableRef | undefined) {
+		queueMicrotask(() => {
+			if (!ref) return;
+			ref.scrollX = 0;
+			ref.scrollY = 0;
+		});
+	}
 
 	let composerRef: { plainText: string } | undefined;
 	let fileNoteComposerRef: { plainText: string } | undefined;
@@ -1869,12 +1876,8 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 
 			<box flexGrow={1} padding={1} paddingTop={0} backgroundColor={theme.bg}>
 				<Show
-					when={!content.loading && content() != null}
-					fallback={
-						<text fg={theme.textMuted}>
-							{content.loading ? "Loading\u2026" : "Could not read file"}
-						</text>
-					}
+					when={content() != null}
+					fallback={<text fg={theme.textMuted}>Could not read file</text>}
 				>
 					<scrollbox
 						ref={(el) => {
@@ -1894,6 +1897,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 										active() ? theme.diffCursorGutterBg : theme.bg;
 									const annotation = () =>
 										annotationsByLine().get(lineNum()) ?? null;
+									let lineRef: ScrollableRef | undefined;
 									return (
 										<>
 											<box
@@ -1913,11 +1917,15 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 													when={filetype()}
 													fallback={
 														<text
+															ref={(el) => {
+																lineRef = el as ScrollableRef | undefined;
+															}}
 															fg={theme.textPrimary}
 															bg={bg()}
 															flexGrow={1}
 															height={1}
 															flexShrink={0}
+															onMouseScroll={() => resetScroll(lineRef)}
 														>
 															{line}
 														</text>
@@ -1925,6 +1933,9 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 												>
 													{(ft) => (
 														<code
+															ref={(el) => {
+																lineRef = el as ScrollableRef | undefined;
+															}}
 															content={line}
 															filetype={ft()}
 															syntaxStyle={syntaxStyle()}
@@ -1933,6 +1944,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															flexGrow={1}
 															height={1}
 															flexShrink={0}
+															onMouseScroll={() => resetScroll(lineRef)}
 														/>
 													)}
 												</Show>
