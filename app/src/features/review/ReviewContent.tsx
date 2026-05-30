@@ -15,6 +15,7 @@ import type { OverlayComponentProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
+import { Dialog } from "../../shell/Dialog";
 import {
 	DASHED_VERTICAL,
 	DIAMOND,
@@ -23,9 +24,12 @@ import {
 } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
+import { Picker } from "../../shell/Picker";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
 import { syntaxStyle, theme } from "../../shell/theme";
+import type { PickerOption } from "../../state/picker";
+import { createPickerManager } from "../../state/picker-manager";
 import type { ToastInput } from "../../state/toasts";
 import { CodeReviewAttachment } from "./attachment";
 import {
@@ -55,6 +59,11 @@ import {
 	ReviewDiffBlock,
 	type ReviewDiffCommentableLine,
 } from "./ReviewDiffBlock";
+import {
+	reviewStatusColor,
+	reviewStatusLabel,
+	reviewStatusText,
+} from "./status";
 
 export type ReviewContentProps = {
 	onClose: () => void;
@@ -81,20 +90,6 @@ type RangeAnchor = {
 	side: ReviewSide;
 	lineNumber: number;
 };
-
-function statusLabel(file: ReviewFile): string {
-	switch (file.status) {
-		case "new":
-			return "A";
-		case "deleted":
-			return "D";
-		case "rename-pure":
-		case "rename-changed":
-			return "R";
-		default:
-			return "M";
-	}
-}
 
 type PatchScrollRef = {
 	scrollBy: (delta: number | { x: number; y: number }) => void;
@@ -299,7 +294,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [treeFocusedPath, setTreeFocusedPath] = createSignal<string | null>(
 		null,
 	);
-	const [treeSearching, setTreeSearching] = createSignal(false);
+	const [fileFinderOpen, setFileFinderOpen] = createSignal(false);
 	const [viewingFilePath, setViewingFilePath] = createSignal<string | null>(
 		null,
 	);
@@ -378,6 +373,27 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		// Fallback to index-based selection
 		return reviewFiles()[selectedIndex()] ?? null;
+	});
+	const fileFinderOptions = createMemo<PickerOption[]>(() => {
+		const paths = Array.from(
+			new Set([
+				...(allFiles() ?? []),
+				...reviewFiles().map((file) => file.path),
+			]),
+		);
+		const byPath = reviewFilesByPath();
+		return paths.map((filePath) => {
+			const file = byPath.get(filePath);
+			return {
+				name: filePath,
+				description: file ? reviewStatusText(file) : "",
+				nameColor: file ? reviewStatusColor(file) : undefined,
+				action: (ctx) => {
+					ctx.dismiss();
+					selectFilePath(filePath);
+				},
+			};
+		});
 	});
 	const selectedHunk = createMemo(() => {
 		const file = selectedFile();
@@ -769,6 +785,23 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 		if (nextIndex >= 0) {
 			setSelectedLineIndex(hunk.id, nextIndex);
+		}
+	}
+
+	function selectFilePath(filePath: string) {
+		const file = reviewFilesByPath().get(filePath);
+		if (file) {
+			const idx = reviewFiles().indexOf(file);
+			if (idx >= 0) setSelectedIndex(idx);
+			setViewingFilePath(null);
+			setMode("patch");
+			if (file.hunks.length > 0) {
+				setSelectedHunkIndex(file.id, selectedHunkIndices().get(file.id) ?? 0);
+			}
+		} else {
+			setViewingFilePath(filePath);
+			setViewingFileLine(1);
+			setMode("patch");
 		}
 	}
 
@@ -1462,8 +1495,8 @@ export function ReviewContent(props: ReviewContentProps) {
 	// Tree mode: view-level bindings (navigation is handled by FileTreePanel)
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && mode() === "tree" && !treeSearching(),
-		diagnosticsWhen: () => mode() === "tree" && !treeSearching(),
+		when: () => !editorOpen() && mode() === "tree" && !fileFinderOpen(),
+		diagnosticsWhen: () => mode() === "tree" && !fileFinderOpen(),
 		commands: {
 			"review.file-note": () => {
 				const file = selectedFile();
@@ -1538,6 +1571,7 @@ export function ReviewContent(props: ReviewContentProps) {
 								allFiles={allFiles() ?? []}
 								focused={mode() === "tree"}
 								editorOpen={editorOpen()}
+								finderOpen={fileFinderOpen()}
 								onFocusedPathChange={(path) => {
 									setTreeFocusedPath(path);
 									// Sync selectedIndex for diff state
@@ -1546,27 +1580,8 @@ export function ReviewContent(props: ReviewContentProps) {
 										if (idx >= 0) setSelectedIndex(idx);
 									}
 								}}
-								onSelectFile={(filePath) => {
-									const file = reviewFilesByPath().get(filePath);
-									if (file) {
-										const idx = reviewFiles().indexOf(file);
-										if (idx >= 0) setSelectedIndex(idx);
-										setViewingFilePath(null);
-										setMode("patch");
-										if (file.hunks.length > 0) {
-											setSelectedHunkIndex(
-												file.id,
-												selectedHunkIndices().get(file.id) ?? 0,
-											);
-										}
-									} else {
-										// Unchanged file — view read-only
-										setViewingFilePath(filePath);
-										setViewingFileLine(1);
-										setMode("patch");
-									}
-								}}
-								onSearchingChange={setTreeSearching}
+								onSelectFile={selectFilePath}
+								onOpenFileFinder={() => setFileFinderOpen(true)}
 								onClose={props.onClose}
 							/>
 						</box>
@@ -1647,7 +1662,7 @@ export function ReviewContent(props: ReviewContentProps) {
 										>
 											<box flexDirection="column">
 												<text fg={theme.textPrimary}>
-													{statusLabel(file())} {file().path}
+													{reviewStatusLabel(file())} {file().path}
 												</text>
 												<Show when={file().prevPath}>
 													<text fg={theme.textMuted}>
@@ -1713,8 +1728,74 @@ export function ReviewContent(props: ReviewContentProps) {
 						</Show>
 					</Show>
 				</box>
+				<Show when={fileFinderOpen()}>
+					<FileFinderDialog
+						options={fileFinderOptions()}
+						loading={allFiles.loading}
+						onClose={() => setFileFinderOpen(false)}
+					/>
+				</Show>
 			</Show>
 		</ScreenLayout>
+	);
+}
+
+// ── File finder dialog ──────────────────────────────────────────────
+
+type FileFinderDialogProps = {
+	options: PickerOption[];
+	loading: boolean;
+	onClose: () => void;
+};
+
+function FileFinderDialog(props: FileFinderDialogProps) {
+	const picker = createPickerManager();
+	let didShow = false;
+
+	createEffect(() => {
+		if (didShow) return;
+		didShow = true;
+		picker.show({
+			label: "Find file",
+			options: props.options,
+			loading: props.loading,
+			filterable: true,
+			onDismiss: props.onClose,
+		});
+	});
+
+	createEffect(() => {
+		picker.updateOptions(props.options);
+		picker.setLoading(props.loading);
+	});
+
+	return (
+		<Show when={picker.current().visible}>
+			<Dialog.Root
+				width="80%"
+				minWidth={72}
+				maxWidth={120}
+				height={18}
+				padding={0}
+			>
+				<box flexGrow={1} flexDirection="column">
+					<Picker.Root
+						picker={picker}
+						maxVisible={12}
+						commandNamespace="review-file-finder"
+					>
+						<Picker.Header />
+						<Picker.Body />
+						<Picker.Footer flexDirection="column">
+							<Show when={props.loading}>
+								<text fg={theme.textMuted}>Loading repository files…</text>
+							</Show>
+							<KeymapHintBar borderless group="review-file-finder" />
+						</Picker.Footer>
+					</Picker.Root>
+				</box>
+			</Dialog.Root>
+		</Show>
 	);
 }
 

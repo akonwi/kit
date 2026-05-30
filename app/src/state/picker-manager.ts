@@ -12,6 +12,19 @@ import {
 
 let nextId = 0;
 
+function filterOptions(options: PickerOption[], query: string): PickerOption[] {
+	if (!query) return options;
+	return options
+		.map((o) => {
+			const nameScore = scoreMatch(o.name, query);
+			const descScore = scoreMatch(o.description, query);
+			return { option: o, score: Math.max(nameScore, descScore) };
+		})
+		.filter((e) => e.score > 0)
+		.sort((a, b) => b.score - a.score)
+		.map((e) => e.option);
+}
+
 export function createPickerManager() {
 	const [stack, setStack] = createSignal<PickerEntry[]>([]);
 
@@ -72,6 +85,7 @@ export function createPickerManager() {
 			filterable: config.filterable ?? Boolean(config.onSubmit),
 			filterText: config.inputValue ?? "",
 			keyBindings: keyBindings ?? {},
+			loading: config.loading ?? false,
 		};
 
 		setStack((s) => [...s, entry]);
@@ -87,6 +101,19 @@ export function createPickerManager() {
 
 	function clear() {
 		setStack([]);
+	}
+
+	function updateOptions(options: PickerOption[]) {
+		updateTop((t) => ({
+			...t,
+			allOptions: options,
+			options: filterOptions(options, t.filterText),
+			selectedIndex: 0,
+		}));
+	}
+
+	function setLoading(loading: boolean) {
+		updateTop((t) => ({ ...t, loading }));
 	}
 
 	// ── Key handling ────────────────────────────────────────────────
@@ -153,17 +180,7 @@ export function createPickerManager() {
 			const effectiveQuery = override?.query ?? query;
 			const options = override?.options
 				? override.options
-				: effectiveQuery
-					? t.allOptions
-							.map((o) => {
-								const nameScore = scoreMatch(o.name, effectiveQuery);
-								const descScore = scoreMatch(o.description, effectiveQuery);
-								return { option: o, score: Math.max(nameScore, descScore) };
-							})
-							.filter((e) => e.score > 0)
-							.sort((a, b) => b.score - a.score)
-							.map((e) => e.option)
-					: t.allOptions;
+				: filterOptions(t.allOptions, effectiveQuery);
 			return {
 				...t,
 				filterText: query,
@@ -195,6 +212,8 @@ export function createPickerManager() {
 		selectCurrent,
 		accept,
 		filter,
+		updateOptions,
+		setLoading,
 		handleKeyBinding,
 		get visible() {
 			return current().visible;

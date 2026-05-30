@@ -17,6 +17,7 @@ import {
 	type FileTreeVisibleRow,
 } from "../../vendor/pierre-trees/index.js";
 import type { ReviewFile } from "./model";
+import { reviewStatusColor } from "./status";
 
 // ── Types ───────────────────────────────────────────────────────────
 
@@ -27,9 +28,10 @@ export type FileTreePanelProps = {
 	allFiles: string[];
 	focused: boolean;
 	editorOpen: boolean;
+	finderOpen: boolean;
 	onFocusedPathChange: (path: string | null) => void;
 	onSelectFile: (path: string) => void;
-	onSearchingChange: (searching: boolean) => void;
+	onOpenFileFinder: () => void;
 	onClose: () => void;
 };
 
@@ -44,24 +46,10 @@ function getAncestorDirPaths(filePath: string): string[] {
 	return dirs;
 }
 
-function resolveStatusColor(file: ReviewFile): string {
-	switch (file.status) {
-		case "new":
-			return theme.toolText;
-		case "deleted":
-			return theme.errorText;
-		case "rename-pure":
-		case "rename-changed":
-			return theme.warningText;
-		default:
-			return theme.warningText;
-	}
-}
-
 function buildStatusColorMap(files: ReviewFile[]): Map<string, string> {
 	const map = new Map<string, string>();
 	for (const file of files) {
-		map.set(file.path, resolveStatusColor(file));
+		map.set(file.path, reviewStatusColor(file));
 	}
 	return map;
 }
@@ -78,15 +66,11 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	const [treeMode, setTreeMode] = createSignal<TreeMode>(
 		props.reviewFiles.length > 0 ? "changes" : "all",
 	);
-	const [searching, setSearching] = createSignal(false);
 	const [treeVersion, setTreeVersion] = createSignal(0);
 
 	let controller: FileTreeController | null = null;
 	let controllerUnsub: (() => void) | null = null;
 	let scrollRef: { scrollChildIntoView: (id: string) => void } | undefined;
-	let searchInputRef:
-		| { plainText: string; setText: (v: string) => void }
-		| undefined;
 
 	const statusColorMap = createMemo(() =>
 		buildStatusColorMap(props.reviewFiles),
@@ -207,32 +191,18 @@ export function FileTreePanel(props: FileTreePanelProps) {
 
 	function toggleTreeMode() {
 		setTreeMode((m) => (m === "changes" ? "all" : "changes"));
-		setSearching(false);
-		props.onSearchingChange(false);
 	}
 
-	function startSearch() {
-		setSearching(true);
-		props.onSearchingChange(true);
-		setTimeout(() => searchInputRef?.setText(""), 0);
-	}
-
-	function clearSearch() {
-		controller?.setSearch(null);
-		setSearching(false);
-		props.onSearchingChange(false);
-	}
-
-	function handleSearchInput(value: string) {
-		controller?.setSearch(value || null);
+	function openFileFinder() {
+		props.onOpenFileFinder();
 	}
 
 	// ── Keybindings ─────────────────────────────────────────────
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => props.focused && !props.editorOpen && !searching(),
-		diagnosticsWhen: () => props.focused && !searching(),
+		when: () => props.focused && !props.editorOpen && !props.finderOpen,
+		diagnosticsWhen: () => props.focused && !props.finderOpen,
 		commands: {
 			"review.close": props.onClose,
 			"review.move-file-up": () => controller?.focusPreviousItem(),
@@ -242,30 +212,11 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			"review.expand-dir": expandDir,
 			"review.collapse-dir": collapseDir,
 			"review.toggle-tree-mode": toggleTreeMode,
-			"review.search-tree": startSearch,
-		},
-	}));
-
-	useKeymapLayer(() => ({
-		scope: "modal",
-		when: () => props.focused && !props.editorOpen && searching(),
-		diagnosticsWhen: () => props.focused && searching(),
-		commands: {
-			"review.clear-search": clearSearch,
-			"review.move-file-up": () => controller?.focusPreviousItem(),
-			"review.move-file-down": () => controller?.focusNextItem(),
-			"review.focus-file": selectFocusedFile,
-			"review.toggle-file": toggleDir,
+			"review.search-tree": openFileFinder,
 		},
 	}));
 
 	// ── Render ───────────────────────────────────────────────────
-
-	const searchMatchCount = createMemo(() => {
-		treeVersion();
-		if (!searching() || !controller?.isSearchOpen()) return null;
-		return controller.getSearchMatchingPaths().length;
-	});
 
 	return (
 		<box flexDirection="column" height="100%">
@@ -278,48 +229,17 @@ export function FileTreePanel(props: FileTreePanelProps) {
 				justifyContent="space-between"
 				gap={1}
 			>
-				<Show
-					when={!searching()}
-					fallback={
-						<box flexDirection="row" gap={0} flexGrow={1}>
-							<text fg={theme.textPrimary}>{"/ "}</text>
-							<input
-								ref={(el) => {
-									searchInputRef = el as typeof searchInputRef;
-								}}
-								flexGrow={1}
-								focused={props.focused}
-								textColor={theme.textPrimary}
-								focusedTextColor={theme.textPrimary}
-								cursorColor={theme.cursor}
-								onInput={handleSearchInput}
-							/>
-							<Show when={searchMatchCount() !== null}>
-								<text fg={theme.textMuted}>
-									{" "}
-									{searchMatchCount()} match
-									{searchMatchCount() === 1 ? "" : "es"}
-								</text>
-							</Show>
-						</box>
-					}
-				>
-					<box flexDirection="row" gap={1}>
-						<text
-							fg={
-								treeMode() === "changes" ? theme.textPrimary : theme.textMuted
-							}
-						>
-							{treeMode() === "changes" ? "[changes]" : "changes"}
-						</text>
-						<text
-							fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}
-						>
-							{treeMode() === "all" ? "[all files]" : "all files"}
-						</text>
-					</box>
-					<text fg={theme.textPlaceholder}>/ search</text>
-				</Show>
+				<box flexDirection="row" gap={1}>
+					<text
+						fg={treeMode() === "changes" ? theme.textPrimary : theme.textMuted}
+					>
+						{treeMode() === "changes" ? "[changes]" : "changes"}
+					</text>
+					<text fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}>
+						{treeMode() === "all" ? "[all files]" : "all files"}
+					</text>
+				</box>
+				<text fg={theme.textPlaceholder}>/ find</text>
 			</box>
 
 			{/* Tree rows */}
@@ -343,9 +263,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 						when={visibleRows().length > 0}
 						fallback={
 							<box paddingX={1} paddingY={1}>
-								<text fg={theme.textMuted}>
-									{searching() ? "No matches" : "No files"}
-								</text>
+								<text fg={theme.textMuted}>No files</text>
 							</box>
 						}
 					>

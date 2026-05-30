@@ -13,6 +13,7 @@ export type PickerOption = {
 	name: string;
 	description: string;
 	argHint?: string;
+	nameColor?: string;
 	value?: unknown;
 	action: (ctx: PickerContext) => void;
 };
@@ -33,6 +34,7 @@ export type PickerFilterChangeResult =
 
 export type PickerConfig = {
 	options?: PickerOption[];
+	loading?: boolean;
 	filterable?: boolean;
 	label?: string;
 	/** Initial text for the picker input. */
@@ -58,17 +60,29 @@ export type PickerEntry = {
 	filterable: boolean;
 	filterText: string;
 	keyBindings: Record<string, PickerKeyBinding>;
+	loading: boolean;
 };
 
 /** Derived view for rendering — strips functions and internal state from entries */
 export type PickerSnapshot = {
 	visible: boolean;
-	options: Array<{ name: string; description: string; argHint?: string }>;
-	allOptions: Array<{ name: string; description: string; argHint?: string }>;
+	options: Array<{
+		name: string;
+		description: string;
+		argHint?: string;
+		nameColor?: string;
+	}>;
+	allOptions: Array<{
+		name: string;
+		description: string;
+		argHint?: string;
+		nameColor?: string;
+	}>;
 	selectedIndex: number;
 	filterable: boolean;
 	filterText: string;
 	label: string;
+	loading: boolean;
 };
 
 export const emptySnapshot: PickerSnapshot = {
@@ -79,6 +93,7 @@ export const emptySnapshot: PickerSnapshot = {
 	filterable: false,
 	filterText: "",
 	label: "",
+	loading: false,
 };
 
 export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
@@ -88,15 +103,18 @@ export function snapshotFromEntry(entry: PickerEntry): PickerSnapshot {
 			name: o.name,
 			description: o.description,
 			argHint: o.argHint,
+			nameColor: o.nameColor,
 		})),
 		allOptions: entry.allOptions.map((o) => ({
 			name: o.name,
 			description: o.description,
 			argHint: o.argHint,
+			nameColor: o.nameColor,
 		})),
 		selectedIndex: entry.selectedIndex,
 		filterable: entry.filterable,
 		filterText: entry.filterText,
 		label: entry.label,
+		loading: entry.loading,
 	};
 }
