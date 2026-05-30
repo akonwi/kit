@@ -138,7 +138,7 @@ function Header() {
 	const { picker, snapshot } = usePickerContext();
 
 	return (
-		<box flexDirection="column" paddingTop={1}>
+		<box flexDirection="column">
 			<Show when={snapshot().label}>
 				<text fg={theme.textMuted}>{snapshot().label}</text>
 			</Show>
