@@ -1592,7 +1592,12 @@ export function ReviewContent(props: ReviewContentProps) {
 						<Show
 							when={selectedFile()}
 							fallback={
-								<box flexGrow={1} flexDirection="column">
+								<box
+									flexGrow={1}
+									height="100%"
+									flexDirection="column"
+									overflow="hidden"
+								>
 									<Show
 										when={viewingFilePath()}
 										fallback={
@@ -1649,9 +1654,11 @@ export function ReviewContent(props: ReviewContentProps) {
 								return (
 									<box
 										flexGrow={1}
+										height="100%"
 										flexDirection="column"
 										gap={1}
 										backgroundColor={theme.bgMuted}
+										overflow="hidden"
 									>
 										<box
 											flexShrink={0}
@@ -1707,6 +1714,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											padding={1}
 											paddingTop={0}
 											backgroundColor={theme.bg}
+											overflow="hidden"
 										>
 											<scrollbox
 												ref={(value) => {
