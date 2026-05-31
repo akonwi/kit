@@ -143,6 +143,18 @@ describe("review draft", () => {
 					},
 				],
 			},
+			{
+				path: "src/other.ts",
+				fileComment: "",
+				ranges: [
+					{
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+						comment: "ignore other files",
+					},
+				],
+			},
 		]);
 	});
 
