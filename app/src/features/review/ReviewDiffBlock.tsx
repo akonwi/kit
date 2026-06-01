@@ -475,7 +475,12 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 							<box flexDirection="column" gap={0}>
 								<For each={buildReviewDiffUnifiedRows(currentHunk())}>
 									{(row) => (
-										<>
+										<box
+											flexDirection="column"
+											gap={0}
+											width="100%"
+											flexShrink={0}
+										>
 											{renderUnifiedRow(
 												row,
 												lineNumberWidth(),
@@ -498,7 +503,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 													)
 												}
 											</For>
-										</>
+										</box>
 									)}
 								</For>
 							</box>
@@ -507,7 +512,12 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 						<box flexDirection="column" gap={0}>
 							<For each={buildReviewDiffSplitRows(currentHunk())}>
 								{(row) => (
-									<>
+									<box
+										flexDirection="column"
+										gap={0}
+										width="100%"
+										flexShrink={0}
+									>
 										<box
 											flexDirection="row"
 											width="100%"
@@ -535,7 +545,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 											getReviewDiffSplitAnnotationsAfterRow(row, annotations()),
 											props.annotationEditor,
 										)}
-									</>
+									</box>
 								)}
 							</For>
 						</box>
