@@ -112,7 +112,7 @@ export function createGuidedQuestionsTool(
 			if (options.notify) {
 				options.notify();
 			} else {
-				ringBell(false, settings.bells !== false);
+				ringBell(false);
 			}
 			const result = await guidedQuestions.activate(params);
 			const title =

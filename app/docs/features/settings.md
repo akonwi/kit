@@ -17,7 +17,6 @@ The current settings UI exposes:
 - automatic session naming
 - automatic pager opening
 - automatic retry settings
-- bells
 - speech enablement
 - speech max chars
 - speech voice

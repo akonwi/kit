@@ -17,7 +17,6 @@ export type BooleanSettingsRowData = {
 		| "guidedQuestions"
 		| "sessionNaming"
 		| "pager"
-		| "bells"
 		| "speech"
 		| "retry.enabled";
 	kind: "boolean";

@@ -6,7 +6,6 @@ The command surface is composed from built-in commands, plugin-registered comman
 
 Core commands currently include:
 
-- `bells`
 - `speech`
 - `settings`
 - `pager`

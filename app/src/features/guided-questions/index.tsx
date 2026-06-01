@@ -17,7 +17,7 @@ export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	const tool = createGuidedQuestionsTool(controller, {
 		getSettings: () => kit.settings.get(),
 		notify: () =>
-			ringBell(false, kit.settings.get().bells !== false, {
+			ringBell(false, {
 				notify: kit.system.notify,
 				title: "Kit",
 				message: "Input needed",

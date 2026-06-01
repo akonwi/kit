@@ -19,7 +19,6 @@ function progressColor(pct: number): string {
 export const HEADER_CONTRIBUTION_IDS = {
 	title: "HeaderBar:title",
 	model: "HeaderBar:model",
-	bell: "HeaderBar:bell",
 	speech: "HeaderBar:speech",
 } as const;
 
@@ -67,8 +66,6 @@ export function HeaderBar(props: HeaderBarProps) {
 	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
 		setSettings(e.settings),
 	);
-	const bell = () =>
-		settings().bells ? `${CIRCLE_FILLED} bell` : `${CIRCLE_EMPTY} bell`;
 	const speech = () => {
 		const value = settings().speech;
 		const on =
@@ -99,11 +96,6 @@ export function HeaderBar(props: HeaderBarProps) {
 		builtInContribution({
 			id: HEADER_CONTRIBUTION_IDS.model,
 			label: `${agentInfo().model?.name ?? "model?"} (${agentInfo().thinkingLevel})`,
-			side: "right",
-		}),
-		builtInContribution({
-			id: HEADER_CONTRIBUTION_IDS.bell,
-			label: bell(),
 			side: "right",
 		}),
 		builtInContribution({

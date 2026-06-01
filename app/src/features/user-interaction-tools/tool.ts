@@ -1,7 +1,6 @@
 import type { ToolDefinition, ToolResult } from "../../plugins";
 import type { InternalPluginUI } from "../../plugins/types";
 import { type Static, Type } from "../../runtime/agent";
-import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";
 
 export const USER_INTERACTION_TOOLS_POLICY = [
@@ -13,7 +12,6 @@ export const USER_INTERACTION_TOOLS_POLICY = [
 
 type InteractionToolOptions = {
 	ui: Pick<InternalPluginUI, "confirm" | "input" | "select">;
-	getSettings: () => Settings;
 	notify?: () => void;
 };
 
@@ -22,8 +20,7 @@ function notifyUser(options: InteractionToolOptions) {
 		options.notify();
 		return;
 	}
-	const settings = options.getSettings();
-	ringBell(false, settings.bells !== false);
+	ringBell(false);
 }
 
 const confirmParameters = Type.Object({

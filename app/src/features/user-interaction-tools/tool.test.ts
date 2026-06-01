@@ -12,7 +12,6 @@ function createTools(overrides: {
 			input: overrides.input ?? (async () => undefined),
 			select: overrides.select ?? (async () => undefined),
 		},
-		getSettings: () => ({ bells: false }),
 		notify: () => {},
 	});
 }

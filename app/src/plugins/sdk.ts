@@ -164,7 +164,6 @@ export type KeybindingSettings = Record<string, KeybindingValue>;
 
 export type Settings = {
 	theme?: string;
-	bells?: boolean;
 	keybindings?: KeybindingSettings;
 	zen?: boolean;
 	speech?:

@@ -40,8 +40,7 @@ function writeBell(): void {
 	}
 }
 
-function playErrorSound(enabled: boolean): void {
-	if (!enabled) return;
+function playErrorSound(): void {
 	if (platform() === "darwin") {
 		const child = spawn("afplay", [FUNK_SOUND_PATH], { stdio: "ignore" });
 		child.unref();
@@ -62,20 +61,16 @@ function triggerTerminalNotification(
 
 /**
  * Emit BEL for terminal bell/tab indicators and also request a terminal-mediated
- * notification when available. Optional sound playback is controlled separately
- * via `soundEnabled`.
+ * notification when available.
  */
 export function ringBell(
 	isError: boolean,
-	soundEnabled: boolean,
 	options?: {
 		notify?: TerminalNotifier;
 		message?: string;
 		title?: string;
 	},
 ): void {
-	if (!soundEnabled) return;
-
 	// OpenTUI notifications are terminal/OS dependent and may be quiet or hidden
 	// while focused, so keep BEL as the reliable bell/tab indicator.
 	writeBell();
@@ -86,7 +81,7 @@ export function ringBell(
 	);
 
 	if (isError) {
-		playErrorSound(soundEnabled);
+		playErrorSound();
 	}
 }
 

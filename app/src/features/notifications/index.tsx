@@ -35,7 +35,7 @@ function notifyTurnComplete(kit: InternalPluginAPI, turn: Turn | null): void {
 		(message: { role: string; stopReason?: string }) =>
 			message.role === "assistant" && message.stopReason === "error",
 	);
-	ringBell(isError, settings.bells ?? true, {
+	ringBell(isError, {
 		notify: kit.system.notify,
 		title: "Kit",
 		message: isError ? "Agent turn failed" : "Agent turn complete",
@@ -57,16 +57,6 @@ export function NotificationsPlugin(kit: InternalPluginAPI): void {
 	kit.on("agent.turn.completed", (event) => {
 		notifyTurnComplete(kit, event.turn);
 	});
-
-	// Register /bells command
-	kit.registerCommand(
-		"bells",
-		{ description: "Toggle audible notification sounds on/off" },
-		async () => {
-			const settings = kit.settings.get();
-			await kit.settings.update({ bells: !(settings.bells ?? true) });
-		},
-	);
 
 	// Register /speech command
 	kit.registerCommand(

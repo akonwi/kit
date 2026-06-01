@@ -7,6 +7,10 @@ describe("sanitizeSettings", () => {
 		expect(sanitizeSettings({ zen: false }).zen).toBe(false);
 		expect(sanitizeSettings({ zen: "true" }).zen).toBe(false);
 	});
+
+	test("drops removed bell setting", () => {
+		expect("bells" in sanitizeSettings({ bells: false })).toBe(false);
+	});
 });
 
 describe("sanitizeSettings keybindings", () => {

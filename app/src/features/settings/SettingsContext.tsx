@@ -250,13 +250,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 
 		return [
 			{
-				id: "bells",
-				kind: "boolean",
-				label: "Bells",
-				help: "Play a terminal bell when a turn completes.",
-				checked: currentSettings.bells !== false,
-			},
-			{
 				id: "speech",
 				kind: "boolean",
 				label: "Speech",
@@ -337,8 +330,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 					return { ...current, sessionNaming: current.sessionNaming === false };
 				case "pager":
 					return { ...current, pager: current.pager === false };
-				case "bells":
-					return { ...current, bells: current.bells === false };
 				case "speech": {
 					const speech = resolveSpeechSettings(current.speech);
 					return {
