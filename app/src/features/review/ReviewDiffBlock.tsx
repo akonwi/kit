@@ -317,6 +317,12 @@ function renderUnifiedRow(
 		hunk && row.lineIndex != null
 			? getReviewDiffCommentableLine(hunk, row.lineIndex)
 			: null;
+	const lineId = () => {
+		const line = commentableLine();
+		return hunk && line
+			? getReviewDiffActiveLineId(hunk.id, line.index)
+			: undefined;
+	};
 	const handleMouseDown = (event: TuiMouseEvent) => {
 		const line = commentableLine();
 		if (!line) return;
@@ -324,11 +330,7 @@ function renderUnifiedRow(
 	};
 	return (
 		<box
-			id={
-				active() && hunk && row.lineIndex != null
-					? getReviewDiffActiveLineId(hunk.id, row.lineIndex)
-					: undefined
-			}
+			id={lineId()}
 			flexDirection="row"
 			backgroundColor={bg()}
 			height={1}
@@ -375,6 +377,10 @@ function renderSplitCell(
 			(isActiveLine?.(`line:${line.index}:${line.side}`) ?? false)
 		);
 	};
+	const lineId = () => {
+		const line = commentableLine();
+		return line ? getReviewDiffActiveLineId(hunk.id, line.index) : undefined;
+	};
 	const bg = () =>
 		active()
 			? cursorBackgroundForKind(cell.kind)
@@ -386,11 +392,7 @@ function renderSplitCell(
 	};
 	return (
 		<box
-			id={
-				active() && cell.lineIndex != null
-					? getReviewDiffActiveLineId(hunk.id, cell.lineIndex)
-					: undefined
-			}
+			id={lineId()}
 			width="50%"
 			flexDirection="row"
 			backgroundColor={bg()}

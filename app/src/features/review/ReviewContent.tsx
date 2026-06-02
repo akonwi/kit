@@ -1976,7 +1976,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 									return (
 										<>
 											<box
-												id={active() ? `readonly-line-${lineNum()}` : undefined}
+												id={`readonly-line-${lineNum()}`}
 												flexDirection="row"
 												height={1}
 												flexShrink={0}
