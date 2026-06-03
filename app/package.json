@@ -1,6 +1,6 @@
 {
 	"name": "@akonwi/kit",
-	"version": "0.8.0",
+	"version": "0.9.0",
 	"author": "Akonwi Ngoh <akonwi@gmail.com>",
 	"description": "A TUI coding agent",
 	"license": "MIT",
