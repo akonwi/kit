@@ -10,6 +10,7 @@ import { createCliRenderer } from "@opentui/core";
 import { render, useKeyboard } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
 import { formatSessionOption, formatTimeAgo } from "../features/commands/utils";
+import { safeProcessCwd } from "../process-cwd";
 import type { SessionSummary } from "../session";
 import {
 	deleteSession,
@@ -40,6 +41,7 @@ const MODE_BINDINGS: { [key in Mode]: Binding[] } = {
 };
 
 function ThreadPicker(props: {
+	currentCwd: string;
 	initialSessions: SessionSummary[];
 	onSelect: (id: string) => void;
 	onCancel: () => void;
@@ -183,7 +185,7 @@ function ThreadPicker(props: {
 		>
 			<box paddingX={1} paddingY={1}>
 				<text fg={theme.textPrimary}>
-					<b>Threads for {process.cwd()}</b>
+					<b>Threads for {props.currentCwd}</b>
 				</text>
 			</box>
 			<box flexDirection="column" flexGrow={1} paddingX={1}>
@@ -276,7 +278,8 @@ function EmptyState(props: { onCancel: () => void }) {
 }
 
 export async function showThreadPicker(): Promise<string | null> {
-	const sessions = await listSessionsForCwd(process.cwd());
+	const currentCwd = safeProcessCwd();
+	const sessions = await listSessionsForCwd(currentCwd);
 	const footerHeight =
 		sessions.length === 0 ? 5 : Math.max(10, Math.min(sessions.length + 4, 20));
 	const renderer = await createCliRenderer({
@@ -307,6 +310,7 @@ export async function showThreadPicker(): Promise<string | null> {
 		render(
 			() => (
 				<ThreadPicker
+					currentCwd={currentCwd}
 					initialSessions={sessions}
 					onSelect={(id) => {
 						renderer.destroy();

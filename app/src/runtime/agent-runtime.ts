@@ -12,6 +12,7 @@ import {
 	discoverContextFiles,
 } from "../context/agents";
 import type { MessagePart, UserMultipartMessage } from "../messages/parts";
+import { chdirIfNeeded } from "../process-cwd";
 import {
 	createSession,
 	deleteSession,
@@ -308,6 +309,7 @@ export class AgentRuntime {
 			...this.session,
 			thinkingLevel: initialThinkingLevel,
 		};
+		chdirIfNeeded(this.session.cwd);
 		this.contextFiles = discoverContextFiles(session.cwd);
 		this.agent = Agent.fromSession(session, {
 			initialState: {
@@ -1470,8 +1472,12 @@ export class AgentRuntime {
 		if (!stats.isDirectory()) {
 			throw new Error(`Working directory is not a directory: ${targetCwd}`);
 		}
-		if (targetCwd === this.session.cwd) return this.session;
+		if (targetCwd === this.session.cwd) {
+			chdirIfNeeded(targetCwd);
+			return this.session;
+		}
 
+		chdirIfNeeded(targetCwd);
 		const previousCwd = this.session.cwd;
 		this.touchSession({ cwd: targetCwd });
 		this.applySessionContext(this.session);

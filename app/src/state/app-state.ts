@@ -2,6 +2,7 @@ import { homedir } from "node:os";
 import { createStore } from "solid-js/store";
 import { createFileIndex, type FileIndex } from "../features/files";
 import { createThreadIndex, type ThreadIndex } from "../features/threads";
+import { safeProcessCwd } from "../process-cwd";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
 import type { Toast, ToastInput } from "./toasts";
@@ -39,7 +40,7 @@ function buildSessionMeta(session: Session | null): SessionMeta {
 	return {
 		id: "",
 		name: undefined,
-		cwd: formatCwd(process.cwd()),
+		cwd: formatCwd(safeProcessCwd()),
 		hasSession: false,
 	};
 }
@@ -55,7 +56,7 @@ export function createAppState(runtime: AgentRuntime | null) {
 	});
 
 	const fileIndex: FileIndex = createFileIndex(
-		runtime?.getSession().cwd ?? process.cwd(),
+		runtime?.getSession().cwd ?? safeProcessCwd(),
 	);
 	const threadIndex: ThreadIndex | null = runtime
 		? createThreadIndex(runtime)

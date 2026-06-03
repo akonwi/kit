@@ -8,6 +8,7 @@ import {
 import { KeymapProvider } from "@opentui/keymap/solid";
 import { render } from "@opentui/solid";
 import { createKitKeymap } from "../keymap/setup";
+import { safeProcessCwd } from "../process-cwd";
 import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
@@ -72,20 +73,21 @@ async function loadSession(opts?: BootstrapOpts): Promise<Session> {
 		return session;
 	}
 
+	const cwd = safeProcessCwd();
 	if (opts?.newSession) {
 		const { createSession } = await import("../session");
-		return createSession(process.cwd());
+		return createSession(cwd);
 	}
 
 	const { openRecentSession } = await import("../session");
-	return openRecentSession(process.cwd());
+	return openRecentSession(cwd);
 }
 
 export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	// Legacy support for older wrapper-based launches. The compiled binary should
 	// run directly from the user's current working directory and not need this.
 	const userCwd = process.env.KIT_USER_CWD;
-	if (userCwd && userCwd !== process.cwd()) {
+	if (userCwd && userCwd !== safeProcessCwd()) {
 		process.chdir(userCwd);
 	}
 

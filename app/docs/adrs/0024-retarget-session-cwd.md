@@ -34,7 +34,7 @@ Retargeting should be persisted as durable session metadata. With JSONL session 
 
 Kit should keep enough historical information to explain that the session moved. Historical transcript entries should not be reinterpreted as if they originally occurred in the latest cwd. New relative paths and tool calls after the retarget resolve against the latest cwd.
 
-The active session cwd should be an application/runtime concept, not an assumption that `process.cwd()` is always current. `process.cwd()` is useful for initial launch/session lookup, but after bootstrap app code should prefer the active session cwd from runtime/session state.
+The active session cwd should be an application/runtime concept, not an assumption that `process.cwd()` is always current. `process.cwd()` is useful for initial launch/session lookup, but after bootstrap app code should prefer the active session cwd from runtime/session state. Explicit session cwd changes should also move the process cwd with `process.chdir()` so shell-backed functionality can recover when an old working directory, such as a deleted git worktree, disappears.
 
 Changing cwd should rebuild or refresh cwd-dependent runtime state atomically enough that the next agent turn and UI render both observe the same target directory. At minimum, retargeting needs to refresh:
 
@@ -43,6 +43,7 @@ Changing cwd should rebuild or refresh cwd-dependent runtime state atomically en
 - VCS watcher and VCS chrome
 - file indexes and file pickers
 - project-local extension/discovery surfaces
+- process cwd
 - terminal title and visible session metadata
 
 A shell command such as `cd other-dir` inside a tool call should not implicitly retarget the session. Tool calls are isolated executions.
@@ -80,6 +81,7 @@ Sessions should be discoverable from their latest cwd. Retargeting does not need
 - Retargeting must not silently occur from ordinary shell `cd` commands.
 - The agent retarget tool may change cwd without a separate confirmation prompt.
 - Cwd-dependent state should not be cached only from process startup.
+- Explicit session cwd changes should update `process.cwd()` after the target directory is validated.
 - Default cwd-based resume should use the latest cwd only.
 - Session lists and pickers should make cwd moves understandable when relevant.
 

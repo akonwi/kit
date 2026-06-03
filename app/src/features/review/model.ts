@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
+import { safeProcessCwd } from "../../process-cwd";
 
 export type ReviewDiffSource = "staged" | "unstaged" | "untracked";
 
@@ -63,7 +64,10 @@ function runGit(
 	args: string[],
 	errorMessage: string,
 ): string {
-	const result = spawnSync("git", args, { encoding: "utf8", cwd });
+	const result = spawnSync("git", args, {
+		encoding: "utf8",
+		cwd: cwd || safeProcessCwd(),
+	});
 	if (result.status !== 0) {
 		throw new Error(result.stderr || errorMessage);
 	}
@@ -71,7 +75,10 @@ function runGit(
 }
 
 function tryRunGit(cwd: string | undefined, args: string[]): string | null {
-	const result = spawnSync("git", args, { encoding: "utf8", cwd });
+	const result = spawnSync("git", args, {
+		encoding: "utf8",
+		cwd: cwd || safeProcessCwd(),
+	});
 	if (result.status !== 0) return null;
 	return result.stdout;
 }
@@ -107,7 +114,7 @@ function getUntrackedDiff(cwd?: string): string {
 	);
 	const paths = output.split("\0").filter(Boolean);
 	if (paths.length === 0) return "";
-	const effectiveCwd = cwd || process.cwd();
+	const effectiveCwd = cwd || safeProcessCwd();
 	const repoRoot = runGit(
 		cwd,
 		["rev-parse", "--show-toplevel"],
@@ -593,7 +600,7 @@ export function getRepoRoot(cwd?: string): string {
 /** List all tracked files in the repo via `git ls-files`. */
 export function listRepoFiles(cwd?: string): string[] {
 	const result = spawnSync("git", ["ls-files", "--full-name"], {
-		cwd: cwd || process.cwd(),
+		cwd: cwd || safeProcessCwd(),
 		encoding: "utf8",
 		maxBuffer: 10 * 1024 * 1024,
 	});

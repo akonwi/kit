@@ -1,12 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { SESSION_VERSION, type Session } from "../session";
 import { AgentRuntime, isRetryableProviderErrorMessage } from "./agent-runtime";
 
 describe("AgentRuntime cwd changes", () => {
-	test("expands ~ targets to the user home directory", async () => {
+	test("expands ~ targets to the user home directory and updates the process cwd", async () => {
+		const originalCwd = process.cwd();
 		const tempRoot = await mkdtemp(path.join(tmpdir(), "kit-runtime-cwd-"));
 		const timestamp = new Date().toISOString();
 		const session: Session = {
@@ -19,9 +20,12 @@ describe("AgentRuntime cwd changes", () => {
 		};
 		const runtime = new AgentRuntime(session);
 		try {
+			expect(process.cwd()).toBe(await realpath(tempRoot));
 			await runtime.changeCwd("~", "user");
 			expect(runtime.getSession().cwd).toBe(homedir());
+			expect(process.cwd()).toBe(homedir());
 		} finally {
+			process.chdir(originalCwd);
 			runtime.dispose();
 			await rm(tempRoot, { recursive: true, force: true });
 		}
