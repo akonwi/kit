@@ -1,6 +1,7 @@
 export type { AppendableSessionEntry } from "../storage/session-storage";
 export {
 	appendCompaction,
+	appendCwdChange,
 	appendHandoffSummary,
 	appendMessage,
 	appendModelChange,
@@ -25,6 +26,7 @@ export type {
 	PersistedKitAgentMessage,
 	Session,
 	SessionCompactionEntry,
+	SessionCwdChangeEntry,
 	SessionEntry,
 	SessionFileEntry,
 	SessionHandoffSummaryEntry,

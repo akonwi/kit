@@ -88,6 +88,7 @@ export type InternalPluginSessionAPI = {
 	get: () => KitSession;
 	getMessages: () => AgentMessage[];
 	setName: (name: string) => Promise<void>;
+	changeCwd: (path: string, source?: "user" | "agent") => Promise<KitSession>;
 	submitMessage: (input: string | KitMessagePart[]) => Promise<void>;
 	submitPromptCommandMessage: (
 		command: string,

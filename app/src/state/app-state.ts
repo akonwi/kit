@@ -54,7 +54,9 @@ export function createAppState(runtime: AgentRuntime | null) {
 		debugEntry: null,
 	});
 
-	const fileIndex: FileIndex = createFileIndex(process.cwd());
+	const fileIndex: FileIndex = createFileIndex(
+		runtime?.getSession().cwd ?? process.cwd(),
+	);
 	const threadIndex: ThreadIndex | null = runtime
 		? createThreadIndex(runtime)
 		: null;
@@ -106,6 +108,7 @@ export function createAppState(runtime: AgentRuntime | null) {
 		switch (event.type) {
 			case "session.active.changed":
 				setState("sessionMeta", buildSessionMeta(event.session));
+				fileIndex.setCwd(event.session.cwd);
 				break;
 			case "agent.tool.ended":
 				toolCompletionCount++;

@@ -1,7 +1,7 @@
 # 0006: Mutable cwd remains deferred
 
 ## Status
-Deferred
+Superseded by `docs/adrs/0024-retarget-session-cwd.md`
 
 ## Context
 
@@ -16,6 +16,10 @@ The current runtime and session architecture assumes:
 - session lookup and persistence are keyed to the session's own stored metadata
 
 ## Decision
+
+This ADR originally deferred mutable cwd support. It is superseded by `docs/adrs/0024-retarget-session-cwd.md`, which accepts explicit session cwd changes.
+
+Original deferred decision:
 
 Do not support mutable cwd yet.
 

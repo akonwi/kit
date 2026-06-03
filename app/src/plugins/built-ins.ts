@@ -4,6 +4,7 @@ import { McpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
 import { PagerPlugin } from "../features/pager";
 import { PromptsPlugin } from "../features/prompts";
+import { SessionCwdPlugin } from "../features/session-cwd";
 import { SessionNamingPlugin } from "../features/session-naming";
 import { SettingsPlugin } from "../features/settings";
 import { SkillsPlugin } from "../features/skills";
@@ -32,6 +33,7 @@ export function createBuiltInPlugins(ctx: PluginContext): PluginManagerInput[] {
 		internalPlugin(ClaudeCompatibilityPlugin),
 		internalPlugin(McpPlugin),
 		internalPlugin(VcsStatusPlugin),
+		internalPlugin(SessionCwdPlugin),
 		internalPlugin(PagerPlugin),
 		internalPlugin(GuidedQuestionsPlugin),
 		internalPlugin(UserInteractionToolsPlugin),

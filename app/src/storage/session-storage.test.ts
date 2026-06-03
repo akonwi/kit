@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir as originalHomedir, tmpdir } from "node:os";
 import path from "node:path";
-import type { Session, Turn } from "../session/types";
+import { SESSION_VERSION, type Session, type Turn } from "../session/types";
 
 const originalHome = process.env.HOME;
 const originalCwd = process.cwd();
@@ -137,6 +138,104 @@ describe("session storage", () => {
 			"turn-2",
 			"turn-2",
 		]);
+	});
+
+	test("persists cwd changes as latest session cwd", async () => {
+		const session = await storage.createSession(projectDir);
+		const nextDir = path.join(tempRoot, "other-project");
+		await mkdir(nextDir, { recursive: true });
+		const moved = {
+			...session,
+			cwd: nextDir,
+			updatedAt: new Date(Date.now() + 1000).toISOString(),
+		};
+
+		await storage.appendCwdChange(moved, session.cwd, "user");
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.cwd).toBe(nextDir);
+		expect(await storage.listSessionsForCwd(projectDir)).toEqual([]);
+		expect(
+			(await storage.listSessionsForCwd(nextDir)).map((s) => s.id),
+		).toEqual([session.id]);
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries.at(-1)).toMatchObject({
+			type: "cwd_change",
+			cwd: nextDir,
+			previousCwd: projectDir,
+			source: "user",
+		});
+	});
+
+	test("updateSession accepts and persists cwd changes", async () => {
+		const session = await storage.createSession(projectDir);
+		const nextDir = path.join(tempRoot, "updated-project");
+		await mkdir(nextDir, { recursive: true });
+
+		const updated = await storage.updateSession(session, { cwd: nextDir });
+
+		expect(updated.cwd).toBe(nextDir);
+		expect((await storage.readSession(session.id))?.cwd).toBe(nextDir);
+	});
+
+	test("updateSession preserves cwd metadata when writing turns", async () => {
+		const session = await storage.createSession(projectDir);
+		const nextDir = path.join(tempRoot, "updated-with-turns-project");
+		await mkdir(nextDir, { recursive: true });
+		const turn: Turn = {
+			id: "turn-cwd-update",
+			messages: [userMessage("turn-cwd-update", "move and remember this")],
+		};
+
+		await storage.updateSession(session, { cwd: nextDir, turns: [turn] });
+
+		const raw = await readFile(
+			path.join(homeDir, ".kit", "sessions", `${session.id}.jsonl`),
+			"utf8",
+		);
+		const lines = raw
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line) as { type: string; cwd?: string });
+		expect(lines[0]).toMatchObject({ type: "session", cwd: projectDir });
+		expect(lines.at(-1)).toMatchObject({ type: "cwd_change", cwd: nextDir });
+		expect((await storage.readSession(session.id))?.cwd).toBe(nextDir);
+		expect((await storage.readSession(session.id))?.turns).toHaveLength(1);
+	});
+
+	test("appendCwdChange records metadata when state starts uncached", async () => {
+		const nextDir = path.join(tempRoot, "uncached-project");
+		await mkdir(nextDir, { recursive: true });
+		const timestamp = new Date().toISOString();
+		const session: Session = {
+			id: randomUUID(),
+			version: SESSION_VERSION,
+			cwd: nextDir,
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			turns: [],
+		};
+
+		await storage.appendCwdChange(session, projectDir, "agent");
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries.map((entry) => entry.type)).toEqual(["cwd_change"]);
+		expect(entries[0]).toMatchObject({
+			type: "cwd_change",
+			cwd: nextDir,
+			previousCwd: projectDir,
+			source: "agent",
+		});
+		const raw = await readFile(
+			path.join(homeDir, ".kit", "sessions", `${session.id}.jsonl`),
+			"utf8",
+		);
+		expect(JSON.parse(raw.split("\n")[0] ?? "{}")).toMatchObject({
+			type: "session",
+			cwd: projectDir,
+		});
+		expect((await storage.readSession(session.id))?.cwd).toBe(nextDir);
 	});
 
 	test("appends messages incrementally and reconstructs their turn", async () => {

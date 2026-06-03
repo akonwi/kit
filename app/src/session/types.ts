@@ -43,7 +43,7 @@ export interface Session {
 	/** UUID */
 	id: string;
 	version: typeof SESSION_VERSION;
-	/** Absolute path to the working directory when session was created */
+	/** Absolute path to the session's current working directory */
 	cwd: string;
 	/** Parent session ID when this session was forked/handed off */
 	parentSessionId?: string;
@@ -115,6 +115,13 @@ export interface SessionModelChangeEntry extends SessionEntryBase {
 export interface SessionThinkingLevelChangeEntry extends SessionEntryBase {
 	type: "thinking_level_change";
 	thinkingLevel?: ThinkingLevel;
+}
+
+export interface SessionCwdChangeEntry extends SessionEntryBase {
+	type: "cwd_change";
+	cwd: string;
+	previousCwd?: string;
+	source?: "user" | "agent";
 }
 
 export interface SessionCompactionEntry extends SessionEntryBase {
@@ -225,6 +232,7 @@ export type SessionEntry =
 	| SessionInfoEntry
 	| SessionModelChangeEntry
 	| SessionThinkingLevelChangeEntry
+	| SessionCwdChangeEntry
 	| SessionCompactionEntry
 	| SessionHandoffSummaryEntry
 	| SubagentStartedEntry

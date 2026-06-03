@@ -22,6 +22,7 @@ import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
 import { createFooterStatusController } from "../shell/footer-status";
 import { createHeaderStatusController } from "../shell/header-status";
+import { initTemplates } from "../shell/templates";
 import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
@@ -255,8 +256,26 @@ export function App(props: AppProps) {
 			openCustomOverlay,
 		});
 
-		runtime.subscribe("session.active.changed", (event) => {
-			props.updateTerminalTitle(event.session.name, process.cwd());
+		runtime.subscribe({ prefix: "session.active.changed" }, (event) => {
+			if (event.type === "session.active.changed") {
+				props.updateTerminalTitle(event.session.name, event.session.cwd);
+				return;
+			}
+			initTemplates(event.cwd);
+			disposePluginManagers();
+			setTimeout(() => {
+				if (disposed) return;
+				try {
+					initializePlugins();
+				} catch (error) {
+					disposePluginManagers();
+					toast({
+						title: "Plugin reload failed",
+						subtitle: error instanceof Error ? error.message : String(error),
+						variant: "error",
+					});
+				}
+			}, 0);
 		});
 
 		const dispose = () => {

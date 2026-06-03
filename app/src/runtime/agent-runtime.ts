@@ -1,4 +1,7 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import "./custom-messages";
 
 import { registerBuiltInApiProviders } from "@earendil-works/pi-ai";
@@ -99,6 +102,17 @@ export function isRetryableProviderErrorMessage(errorMessage: string): boolean {
 	return RETRYABLE_PROVIDER_ERROR_PATTERN.test(errorMessage);
 }
 
+function resolveCwdTarget(baseCwd: string, targetPath: string): string {
+	const trimmed = targetPath.trim();
+	const expanded =
+		trimmed === "~"
+			? homedir()
+			: trimmed.startsWith("~/")
+				? path.join(homedir(), trimmed.slice(2))
+				: trimmed;
+	return path.resolve(baseCwd, expanded);
+}
+
 export type RuntimeStatus = {
 	model: string;
 	thinkingLevel: string;
@@ -190,6 +204,12 @@ export type RuntimeEventMap = AgentEventMap & {
 	};
 	"session.active.changed": { session: Session };
 	"session.name.changed": { session: Session; name?: string };
+	"session.active.changed.cwd": {
+		session: Session;
+		cwd: string;
+		previousCwd: string;
+		source: "user" | "agent";
+	};
 	"session.model.changed": { session: Session; modelId?: string };
 	"session.thinking_level.changed": {
 		session: Session;
@@ -322,7 +342,7 @@ export class AgentRuntime {
 
 	private touchSession(
 		changes: Partial<
-			Pick<Session, "name" | "model" | "thinkingLevel" | "turns">
+			Pick<Session, "name" | "cwd" | "model" | "thinkingLevel" | "turns">
 		>,
 	): void {
 		this.session = {
@@ -1432,6 +1452,39 @@ export class AgentRuntime {
 		this.bus.publish("session.name.changed", { session: this.session, name });
 		this.bus.publish("session.active.changed", { session: this.session });
 		this.handleSessionChanged();
+	}
+
+	async changeCwd(
+		targetPath: string,
+		source: "user" | "agent" = "user",
+	): Promise<Session> {
+		const trimmed = targetPath.trim();
+		if (!trimmed) throw new Error("Working directory path is required.");
+		const targetCwd = resolveCwdTarget(this.session.cwd, trimmed);
+		let stats: Awaited<ReturnType<typeof stat>>;
+		try {
+			stats = await stat(targetCwd);
+		} catch {
+			throw new Error(`Working directory does not exist: ${targetCwd}`);
+		}
+		if (!stats.isDirectory()) {
+			throw new Error(`Working directory is not a directory: ${targetCwd}`);
+		}
+		if (targetCwd === this.session.cwd) return this.session;
+
+		const previousCwd = this.session.cwd;
+		this.touchSession({ cwd: targetCwd });
+		this.applySessionContext(this.session);
+		this.syncPendingState();
+		this.bus.publish("session.active.changed", { session: this.session });
+		this.bus.publish("session.active.changed.cwd", {
+			session: this.session,
+			cwd: targetCwd,
+			previousCwd,
+			source,
+		});
+		this.handleSessionChanged();
+		return this.session;
 	}
 
 	async listAllSessions(): Promise<SessionSummary[]> {
