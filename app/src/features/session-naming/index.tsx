@@ -16,7 +16,25 @@ const AUTO_TITLE_SYSTEM_PROMPT = [
 	"Focus on the concrete task or topic.",
 	"If the topic is unclear, return Untitled.",
 ].join(" ");
+const HANDOFF_PLACEHOLDER_PREFIX = "handoff: ";
+const AUTO_HANDOFF_PREFIX = "-> ";
+/** System-generated name prefixes that auto-naming may overwrite. */
+const SYSTEM_NAME_PREFIXES = [HANDOFF_PLACEHOLDER_PREFIX, AUTO_HANDOFF_PREFIX];
 const lastAutoTitleAttemptBySession = new Map<string, number>();
+
+/** True when the session has a user-given name rather than a system placeholder. */
+function isUserGivenName(name: string | null | undefined): boolean {
+	const trimmed = name?.trim();
+	if (!trimmed) return false;
+	return !SYSTEM_NAME_PREFIXES.some((p) => trimmed.startsWith(p));
+}
+
+/** True when the session name starts with a system-generated prefix (not user-given). */
+function isSystemNamed(name: string | null | undefined): boolean {
+	const trimmed = name?.trim();
+	if (!trimmed) return false;
+	return SYSTEM_NAME_PREFIXES.some((p) => trimmed.startsWith(p));
+}
 
 export function SessionNamingPlugin(kit: InternalPluginAPI): void {
 	kit.on("agent.turn.completed", async () => {
@@ -151,7 +169,7 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 	const session = kit.session.get();
 	const sessionId = session.id;
 	if (!sessionId) return;
-	if (session.name?.trim()) return;
+	if (isUserGivenName(session.name)) return;
 
 	const now = Date.now();
 	const lastAttempt = lastAutoTitleAttemptBySession.get(sessionId) || 0;
@@ -184,9 +202,11 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 
 		const currentSession = kit.session.get();
 		if (currentSession.id !== sessionId) return;
-		if (currentSession.name?.trim()) return;
+		if (isUserGivenName(currentSession.name)) return;
 
-		await kit.session.setName(title);
+		const wasSystemNamed = isSystemNamed(currentSession.name);
+		const finalName = wasSystemNamed ? `${AUTO_HANDOFF_PREFIX}${title}` : title;
+		await kit.session.setName(finalName);
 	} catch (error) {
 		kit.ui.toast({
 			title: "Session auto-name failed",
