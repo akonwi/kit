@@ -207,6 +207,7 @@ describe("FilePersistence", () => {
 		const runtime = new FakeRuntime(session);
 		const persistence = new FilePersistence(runtime, {
 			appendCompaction: storage.appendCompaction,
+			appendCwdChange: storage.appendCwdChange,
 			appendHandoffSummary: storage.appendHandoffSummary,
 			appendMessage: async (...args) => {
 				if (failNextAppend) {
@@ -267,12 +268,24 @@ describe("FilePersistence", () => {
 			session,
 			thinkingLevel: session.thinkingLevel,
 		});
+		const previousCwd = session.cwd;
+		const nextCwd = path.join(tempRoot, "next-project");
+		await mkdir(nextCwd, { recursive: true });
+		session = withUpdatedTimestamp({ ...session, cwd: nextCwd });
+		runtime.emit({
+			type: "session.active.changed.cwd",
+			session,
+			cwd: nextCwd,
+			previousCwd,
+			source: "user",
+		});
 		await persistence.flush();
 
 		const restored = await storage.readSession(session.id);
 		expect(restored?.name).toBe("Named session");
 		expect(restored?.model).toBe("other-model");
 		expect(restored?.thinkingLevel).toBe("high");
+		expect(restored?.cwd).toBe(nextCwd);
 		persistence.dispose();
 	});
 

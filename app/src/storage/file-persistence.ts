@@ -2,6 +2,7 @@ import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Session, Turn } from "../session/types";
 import {
 	appendCompaction,
+	appendCwdChange,
 	appendHandoffSummary,
 	appendMessage,
 	appendModelChange,
@@ -17,6 +18,7 @@ type RuntimeEventSource = {
 
 type FilePersistenceStorage = {
 	appendCompaction: typeof appendCompaction;
+	appendCwdChange: typeof appendCwdChange;
 	appendHandoffSummary: typeof appendHandoffSummary;
 	appendMessage: typeof appendMessage;
 	appendModelChange: typeof appendModelChange;
@@ -27,6 +29,7 @@ type FilePersistenceStorage = {
 
 const defaultStorage: FilePersistenceStorage = {
 	appendCompaction,
+	appendCwdChange,
 	appendHandoffSummary,
 	appendMessage,
 	appendModelChange,
@@ -132,6 +135,15 @@ export class FilePersistence {
 			case "session.thinking_level.changed":
 				this.enqueueWrite(() =>
 					this.storage.appendThinkingLevelChange(event.session),
+				);
+				break;
+			case "session.active.changed.cwd":
+				this.enqueueWrite(() =>
+					this.storage.appendCwdChange(
+						event.session,
+						event.previousCwd,
+						event.source,
+					),
 				);
 				break;
 		}

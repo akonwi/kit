@@ -185,7 +185,7 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	await resolveAndApplyTheme(themeName, renderer);
 
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
-	updateTerminalTitle(session.name, process.cwd());
+	updateTerminalTitle(session.name, session.cwd);
 	initTemplates(session.cwd);
 
 	// Keep the process alive until the renderer is destroyed.

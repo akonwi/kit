@@ -20,6 +20,7 @@ import {
 	SESSION_VERSION,
 	type Session,
 	type SessionCompactionEntry,
+	type SessionCwdChangeEntry,
 	type SessionEntry,
 	type SessionFileEntry,
 	type SessionHandoffSummaryEntry,
@@ -53,6 +54,7 @@ type SessionStorageState = {
 	legacyFilePath: string;
 	flushedEntryCount: number;
 	firstEntryIdByTurnId: Map<string, string>;
+	cwd: string;
 	name?: string;
 	model?: string;
 	thinkingLevel?: Session["thinkingLevel"];
@@ -450,6 +452,7 @@ function buildState(
 	flushedEntryCount: number,
 ): SessionStorageState {
 	const firstEntryIdByTurnId = new Map<string, string>();
+	let cwd = header.cwd;
 	let name = header.name?.trim() || undefined;
 	let model = header.model;
 	let thinkingLevel = header.thinkingLevel;
@@ -468,6 +471,10 @@ function buildState(
 			name = entry.name?.trim() || undefined;
 			continue;
 		}
+		if (entry.type === "cwd_change") {
+			cwd = entry.cwd;
+			continue;
+		}
 		if (entry.type === "model_change") {
 			model = entry.modelId;
 			continue;
@@ -484,6 +491,7 @@ function buildState(
 		legacyFilePath,
 		flushedEntryCount,
 		firstEntryIdByTurnId,
+		cwd,
 		name,
 		model,
 		thinkingLevel,
@@ -589,7 +597,7 @@ function buildSessionFromState(state: SessionStorageState): Session {
 	return {
 		id: state.header.id,
 		version: SESSION_VERSION,
-		cwd: state.header.cwd,
+		cwd: state.cwd,
 		parentSessionId: state.header.parentSessionId,
 		forkedFromTurnId: state.header.forkedFromTurnId,
 		name: state.name,
@@ -651,6 +659,10 @@ function applyEntryToState(
 		state.name = entry.name?.trim() || undefined;
 		return;
 	}
+	if (entry.type === "cwd_change") {
+		state.cwd = entry.cwd;
+		return;
+	}
 	if (entry.type === "model_change") {
 		state.model = entry.modelId;
 		return;
@@ -662,7 +674,7 @@ function applyEntryToState(
 
 type SessionStorageSnapshot = Pick<
 	SessionStorageState,
-	"flushedEntryCount" | "name" | "model" | "thinkingLevel"
+	"flushedEntryCount" | "cwd" | "name" | "model" | "thinkingLevel"
 > & {
 	entryCount: number;
 	firstEntryIdByTurnId: Map<string, string>;
@@ -673,6 +685,7 @@ function snapshotState(state: SessionStorageState): SessionStorageSnapshot {
 		entryCount: state.entries.length,
 		flushedEntryCount: state.flushedEntryCount,
 		firstEntryIdByTurnId: new Map(state.firstEntryIdByTurnId),
+		cwd: state.cwd,
 		name: state.name,
 		model: state.model,
 		thinkingLevel: state.thinkingLevel,
@@ -686,6 +699,7 @@ function restoreState(
 	state.entries.length = snapshot.entryCount;
 	state.flushedEntryCount = snapshot.flushedEntryCount;
 	state.firstEntryIdByTurnId = snapshot.firstEntryIdByTurnId;
+	state.cwd = snapshot.cwd;
 	state.name = snapshot.name;
 	state.model = snapshot.model;
 	state.thinkingLevel = snapshot.thinkingLevel;
@@ -1005,6 +1019,37 @@ export async function appendThinkingLevelChange(
 	});
 }
 
+export async function appendCwdChange(
+	session: Session,
+	previousCwd?: string,
+	source?: SessionCwdChangeEntry["source"],
+): Promise<void> {
+	let state = await ensureState(session.id);
+	if (!state) {
+		state = createStateFromSession(
+			previousCwd && previousCwd !== session.cwd
+				? { ...session, cwd: previousCwd }
+				: session,
+		);
+		stateBySessionId.set(session.id, state);
+	}
+	await appendEntries(state, () => {
+		if (state.cwd === session.cwd) {
+			return { entries: [], result: undefined };
+		}
+		const entry: SessionCwdChangeEntry = {
+			type: "cwd_change",
+			id: makeEntryId(),
+			parentId: state.entries.at(-1)?.id ?? null,
+			timestamp: session.updatedAt,
+			cwd: session.cwd,
+			previousCwd,
+			source,
+		};
+		return { entries: [entry], result: undefined };
+	});
+}
+
 export async function appendCompaction(options: {
 	session: Session;
 	summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
@@ -1074,7 +1119,9 @@ export async function appendHandoffSummary(
 // persisting to disk should be a side-effect
 export async function updateSession(
 	session: Session,
-	changes: Partial<Pick<Session, "name" | "model" | "thinkingLevel" | "turns">>,
+	changes: Partial<
+		Pick<Session, "name" | "cwd" | "model" | "thinkingLevel" | "turns">
+	>,
 ): Promise<Session> {
 	const updated: Session = {
 		...session,
@@ -1082,7 +1129,12 @@ export async function updateSession(
 		updatedAt: now(),
 	};
 	if (changes.turns) {
-		await writeSession(updated);
+		const cwdChanged =
+			Object.hasOwn(changes, "cwd") && session.cwd !== updated.cwd;
+		await writeSession(cwdChanged ? { ...updated, cwd: session.cwd } : updated);
+		if (cwdChanged) {
+			await appendCwdChange(updated, session.cwd);
+		}
 		return updated;
 	}
 	if (Object.hasOwn(changes, "name")) {
@@ -1093,6 +1145,9 @@ export async function updateSession(
 	}
 	if (Object.hasOwn(changes, "thinkingLevel")) {
 		await appendThinkingLevelChange(updated);
+	}
+	if (Object.hasOwn(changes, "cwd")) {
+		await appendCwdChange(updated, session.cwd);
 	}
 	return updated;
 }

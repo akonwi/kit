@@ -19,7 +19,8 @@ export type FileSuggestion = {
 	value: string;
 };
 
-export function createFileIndex(cwd: string) {
+export function createFileIndex(initialCwd: string) {
+	let cwd = initialCwd;
 	let cached: FileIndexEntry[] | null = null;
 	let scanning: Promise<FileIndexEntry[]> | null = null;
 
@@ -75,12 +76,18 @@ export function createFileIndex(cwd: string) {
 		scanning = null;
 	}
 
+	function setCwd(nextCwd: string) {
+		if (cwd === nextCwd) return;
+		cwd = nextCwd;
+		invalidate();
+	}
+
 	/** Check if the index has been loaded */
 	function isLoaded(): boolean {
 		return cached !== null;
 	}
 
-	return { suggest, invalidate, isLoaded, ensureLoaded };
+	return { suggest, invalidate, setCwd, isLoaded, ensureLoaded };
 }
 
 export type FileIndex = ReturnType<typeof createFileIndex>;

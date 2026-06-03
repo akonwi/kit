@@ -135,6 +135,8 @@ export function createPluginAPI(
 		get: () => ctx.runtime.getSession(),
 		getMessages: () => ctx.runtime.getMessages(),
 		setName: (name: string) => ctx.runtime.setSessionName(name),
+		changeCwd: (path: string, source?: "user" | "agent") =>
+			ctx.runtime.changeCwd(path, source),
 		submitMessage: (input: Parameters<typeof ctx.runtime.submitMessage>[0]) =>
 			ctx.runtime.submitMessage(input),
 		submitPromptCommandMessage: (
