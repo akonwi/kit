@@ -385,6 +385,32 @@ export function createPluginAPI(
 			}),
 		)) as PluginAPI["onToolCall"] & InternalPluginAPI["onToolCall"];
 
+	const registerSubagent: PluginAPI["registerSubagent"] &
+		InternalPluginAPI["registerSubagent"] = (def) => {
+		if (
+			ctx.runtime
+				.getAllSubagents()
+				.some((existing) => existing.name === def.name)
+		) {
+			ctx.ui.toast({
+				title: "Sub-agent conflict",
+				subtitle: `"${def.name}" is already defined — skipping.`,
+				variant: "warning",
+			});
+			return () => {};
+		}
+		return track(
+			ctx.runtime.addPluginSubagent({
+				name: def.name,
+				description: def.description,
+				instructions: def.instructions,
+				model: def.model,
+				source: "plugin",
+				pluginName: options.name.replace(/^[^:]+:/, ""),
+			}),
+		);
+	};
+
 	const api = {
 		logger,
 		ui,
@@ -397,6 +423,7 @@ export function createPluginAPI(
 		on,
 		registerCommand,
 		registerTool,
+		registerSubagent,
 		onToolCall,
 		addSystemPrompt: (text: string) =>
 			track(ctx.runtime.addSystemPromptAddition(text)),

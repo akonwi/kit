@@ -38,9 +38,33 @@ export function createSubagentsPlugin(options: {
 			getAgents: () => agents,
 		});
 
+		// Synchronously seed file agents before subsequent plugins initialize
+		// so registerSubagent can check against the complete set immediately.
+		const { agents: initialFileAgents } = loadSubagents(kit.system.cwd);
+		options.runtime.setDiscoveredSubagents(initialFileAgents);
+
 		async function refresh(): Promise<void> {
-			const { agents: nextAgents, warnings } = loadSubagents(kit.system.cwd);
-			agents = nextAgents;
+			const { agents: fileAgents, warnings } = loadSubagents(kit.system.cwd);
+			options.runtime.setDiscoveredSubagents(fileAgents);
+
+			const pluginAgents = options.runtime.getPluginSubagents();
+			const seenNames = new Set<string>();
+			const merged: SubagentDefinition[] = [];
+
+			// File-discovered agents first — they win on name conflict
+			for (const agent of fileAgents) {
+				seenNames.add(agent.name);
+				merged.push(agent);
+			}
+
+			// Plugin-contributed agents — skip any that conflict with file agents
+			for (const agent of pluginAgents) {
+				if (seenNames.has(agent.name)) continue;
+				seenNames.add(agent.name);
+				merged.push(agent);
+			}
+
+			agents = merged;
 			await manager.hydrate(kit.session.get());
 			if (disposed) return;
 
@@ -67,10 +91,13 @@ export function createSubagentsPlugin(options: {
 
 			const lines = [
 				...(agents.length > 0
-					? agents.map(
-							(agent) =>
-								`- ${agent.name} (${agent.source}) ${agent.filePath}${agent.model ? ` · ${agent.model}` : ""}`,
-						)
+					? agents.map((agent) => {
+							const src =
+								agent.source === "plugin"
+									? `(plugin:${agent.pluginName ?? "?"})`
+									: `(${agent.source}) ${agent.filePath ?? ""}`;
+							return `- ${agent.name} ${src}${agent.model ? ` · ${agent.model}` : ""}`;
+						})
 					: ["(none)"]),
 				...(active.length > 0
 					? [
@@ -92,6 +119,9 @@ export function createSubagentsPlugin(options: {
 		}
 
 		kit.on("session.active.changed", async () => {
+			await refresh();
+		});
+		kit.on("subagents.changed", async () => {
 			await refresh();
 		});
 		void refresh();
