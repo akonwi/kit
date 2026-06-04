@@ -2,6 +2,7 @@ import { completeSimple } from "@earendil-works/pi-ai";
 import { getApiKey } from "../../auth";
 import type { InternalPluginAPI } from "../../plugins";
 import type { AgentMessage, Api, Model } from "../../runtime/agent";
+import type { Session } from "../../session";
 
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
@@ -161,15 +162,43 @@ async function generateTitleWithCurrentModel(
 		.join("\n");
 }
 
+/** Filter to only messages from turns after the fork boundary (handoff). */
+function filterMessagesAfterFork(
+	messages: AgentMessage[],
+	session: Session,
+): AgentMessage[] {
+	if (!session.forkedFromTurnId || !session.turns) return messages;
+
+	const boundaryIndex = session.turns.findIndex(
+		(t) => t.id === session.forkedFromTurnId,
+	);
+	if (boundaryIndex < 0) return messages;
+
+	const newTurnIds = new Set(
+		session.turns.slice(boundaryIndex + 1).map((t) => t.id),
+	);
+	return messages.filter((m) =>
+		newTurnIds.has((m as unknown as { turnId: string }).turnId),
+	);
+}
+
 async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
-	const messages = kit.session.getMessages();
+	const allMessages = kit.session.getMessages();
 	if (AUTO_TITLE_DISABLED) return;
-	if (lastAssistantFailed(messages)) return;
+	if (lastAssistantFailed(allMessages)) return;
 
 	const session = kit.session.get();
 	const sessionId = session.id;
 	if (!sessionId) return;
 	if (isUserGivenName(session.name)) return;
+
+	// For handoff sessions, only use post-fork messages for the title
+	// so the name reflects the handoff's purpose, not the parent's history.
+	const messages = session.forkedFromTurnId
+		? filterMessagesAfterFork(allMessages, session)
+		: allMessages;
+
+	if (messages.length === 0) return;
 
 	const now = Date.now();
 	const lastAttempt = lastAutoTitleAttemptBySession.get(sessionId) || 0;
