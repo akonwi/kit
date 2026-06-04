@@ -52,6 +52,7 @@ function createMockKit(logs: string[]): PluginAPI {
 		on: () => () => {},
 		registerCommand: () => () => {},
 		registerTool: () => () => {},
+		registerSubagent: () => () => {},
 		onToolCall: () => () => {},
 		addSystemPrompt: () => () => {},
 		addDebugSection: () => () => {},

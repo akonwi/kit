@@ -11,6 +11,7 @@ import {
 	type ContextFile,
 	discoverContextFiles,
 } from "../context/agents";
+import type { SubagentDefinition } from "../features/subagents/discovery";
 import type { MessagePart, UserMultipartMessage } from "../messages/parts";
 import { chdirIfNeeded } from "../process-cwd";
 import {
@@ -224,6 +225,7 @@ export type RuntimeEventMap = AgentEventMap & {
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
 	"vcs.updated": VcsInfo;
+	"subagents.changed": Record<string, never>;
 };
 
 export type RuntimeEventName = keyof RuntimeEventMap;
@@ -264,6 +266,8 @@ export class AgentRuntime {
 	private _settings: Settings;
 	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 	private extraTools: AgentTool<any>[];
+	private pluginSubagents: SubagentDefinition[];
+	private fileDiscoveredSubagents: SubagentDefinition[] = [];
 	private systemPromptAdditions: string[];
 	private readonly bus = new EventBus<RuntimeEventMap>();
 	private quitHandler: (() => void) | null = null;
@@ -299,6 +303,8 @@ export class AgentRuntime {
 		this._settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
 		this.extraTools = options?.extraTools ?? [];
+		this.pluginSubagents = [];
+		this.fileDiscoveredSubagents = [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		const defaultModel = resolveDefaultModel(session.model);
 		const initialThinkingLevel = clampThinkingLevel(
@@ -1010,6 +1016,29 @@ export class AgentRuntime {
 				...this.extraTools,
 			]);
 		};
+	}
+
+	addPluginSubagent(def: SubagentDefinition): () => void {
+		this.pluginSubagents.push(def);
+		this.bus.publish("subagents.changed", {});
+		return () => {
+			this.pluginSubagents = this.pluginSubagents.filter(
+				(candidate) => candidate !== def,
+			);
+			this.bus.publish("subagents.changed", {});
+		};
+	}
+
+	getPluginSubagents(): SubagentDefinition[] {
+		return [...this.pluginSubagents];
+	}
+
+	setDiscoveredSubagents(agents: SubagentDefinition[]): void {
+		this.fileDiscoveredSubagents = agents;
+	}
+
+	getAllSubagents(): SubagentDefinition[] {
+		return [...this.fileDiscoveredSubagents, ...this.pluginSubagents];
 	}
 
 	/**

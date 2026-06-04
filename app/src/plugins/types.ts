@@ -175,6 +175,12 @@ export interface InternalPluginAPI {
 	registerTool: <TParameters extends TSchema, TDetails>(
 		tool: ToolDefinition<TParameters, TDetails>,
 	) => Disposer;
+	registerSubagent: (def: {
+		name: string;
+		description: string;
+		model?: string;
+		instructions: string;
+	}) => Disposer;
 	onToolCall: (handler: InternalToolCallHandler) => Disposer;
 	addSystemPrompt: (text: string) => Disposer;
 	addDebugSection: (key: string, lines: string[]) => Disposer;

@@ -8,16 +8,19 @@ export type SubagentSource =
 	| "kit-user"
 	| "kit-project"
 	| "pi-user"
-	| "pi-project";
+	| "pi-project"
+	| "plugin";
 
 export interface SubagentDefinition {
 	name: string;
 	description: string;
 	model?: string;
 	instructions: string;
-	filePath: string;
-	baseDir: string;
+	filePath?: string;
+	baseDir?: string;
 	source: SubagentSource;
+	/** The plugin name that contributed this sub-agent, when source is "plugin". */
+	pluginName?: string;
 }
 
 export interface LoadSubagentsOptions {
