@@ -1982,10 +1982,14 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 												flexShrink={0}
 												backgroundColor={bg()}
 											>
-												<text fg={theme.textMuted} bg={gutterBg()}>
+												<text
+													fg={theme.textMuted}
+													bg={gutterBg()}
+													flexShrink={0}
+												>
 													{String(lineNum()).padStart(lineNumberWidth())}
 												</text>
-												<text fg={theme.textMuted} bg={bg()}>
+												<text fg={theme.textMuted} bg={bg()} flexShrink={0}>
 													{"  "}
 												</text>
 												<Show
@@ -1999,7 +2003,6 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															bg={bg()}
 															flexGrow={1}
 															height={1}
-															flexShrink={0}
 															onMouseScroll={() => resetScroll(lineRef)}
 														>
 															{line}
@@ -2019,7 +2022,6 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															wrapMode="none"
 															flexGrow={1}
 															height={1}
-															flexShrink={0}
 															onMouseScroll={() => resetScroll(lineRef)}
 														/>
 													)}

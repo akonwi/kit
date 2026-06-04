@@ -171,7 +171,6 @@ function renderContentText(
 				onMouseScroll={() => resetLineTextScroll(contentRef)}
 				flexGrow={1}
 				height={1}
-				flexShrink={0}
 			/>
 		);
 	}
@@ -185,7 +184,6 @@ function renderContentText(
 			onMouseScroll={() => resetLineTextScroll(contentRef)}
 			flexGrow={1}
 			height={1}
-			flexShrink={0}
 		>
 			{text}
 		</text>
@@ -341,17 +339,19 @@ function renderUnifiedRow(
 			<text
 				fg={theme.textMuted}
 				bg={active() ? theme.diffCursorGutterBg : bg()}
+				flexShrink={0}
 			>
 				{formatLineNumber(row.deletionLineNumber, lineNumberWidth)}
 			</text>
 			<text
 				fg={theme.textMuted}
 				bg={active() ? theme.diffCursorGutterBg : bg()}
+				flexShrink={0}
 			>
 				{" "}
 				{formatLineNumber(row.additionLineNumber, lineNumberWidth)}
 			</text>
-			<text fg={signColorForKind(row.kind)} bg={bg()}>
+			<text fg={signColorForKind(row.kind)} bg={bg()} flexShrink={0}>
 				{row.sign}{" "}
 			</text>
 			{renderContentText(row.text, row.kind, filetype, bg)}
@@ -404,10 +404,11 @@ function renderSplitCell(
 			<text
 				fg={theme.textMuted}
 				bg={active() ? theme.diffCursorGutterBg : bg()}
+				flexShrink={0}
 			>
 				{formatLineNumber(cell.lineNumber, lineNumberWidth)}
 			</text>
-			<text fg={signColorForKind(cell.kind)} bg={bg()}>
+			<text fg={signColorForKind(cell.kind)} bg={bg()} flexShrink={0}>
 				{cell.sign}{" "}
 			</text>
 			{renderContentText(cell.text, cell.kind, filetype, bg)}
