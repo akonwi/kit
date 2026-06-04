@@ -166,6 +166,7 @@ function renderContentText(
 				filetype={filetype}
 				syntaxStyle={syntaxStyle()}
 				bg={bg()}
+				conceal={false}
 				wrapMode="none"
 				onMouseScroll={() => resetLineTextScroll(contentRef)}
 				flexGrow={1}

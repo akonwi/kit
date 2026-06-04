@@ -2015,6 +2015,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															filetype={ft()}
 															syntaxStyle={syntaxStyle()}
 															bg={bg()}
+															conceal={false}
 															wrapMode="none"
 															flexGrow={1}
 															height={1}
