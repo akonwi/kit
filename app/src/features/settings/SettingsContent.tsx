@@ -206,10 +206,10 @@ function SettingsDialog(props: {
 
 	return (
 		<Dialog.Root
-			width="74%"
-			maxWidth={104}
-			minWidth={64}
-			height="70%"
+			width="60%"
+			maxWidth={80}
+			minWidth={56}
+			height="35%"
 			surfaceProps={props.surfaceProps}
 		>
 			<Dialog.Header>
