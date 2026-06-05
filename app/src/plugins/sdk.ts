@@ -174,7 +174,6 @@ export type Settings = {
 				voice?: string;
 		  };
 	pager?: boolean;
-	guidedQuestions?: boolean;
 	sessionNaming?: boolean;
 	diffs?: {
 		view?: "unified" | "split";

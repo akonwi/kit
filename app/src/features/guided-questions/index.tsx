@@ -11,11 +11,7 @@ export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	// the tool. Plugin owns the policy — App.tsx no longer needs to import it.
 	kit.addSystemPrompt(GUIDED_QUESTIONS_POLICY);
 
-	// Register the guided_questions tool. The tool reads the current
-	// `guidedQuestions` setting on every invocation, so toggling the setting
-	// takes effect immediately (next tool call returns a disabled response).
 	const tool = createGuidedQuestionsTool(controller, {
-		getSettings: () => kit.settings.get(),
 		notify: () =>
 			ringBell(false, {
 				notify: kit.system.notify,

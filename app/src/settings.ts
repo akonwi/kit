@@ -25,8 +25,6 @@ export type Settings = {
 		  };
 	/** Auto-open the pager for long assistant responses */
 	pager?: boolean;
-	/** Expose the guided_questions tool to the agent */
-	guidedQuestions?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
 	sessionNaming?: boolean;
 	/** Default diff rendering settings */
@@ -63,7 +61,6 @@ const DEFAULTS: Settings = {
 	zen: false,
 	speech: { enabled: true, maxChars: 220 },
 	pager: true,
-	guidedQuestions: true,
 	sessionNaming: true,
 	diffs: { view: "unified" },
 	retry: {
@@ -166,10 +163,6 @@ export function sanitizeSettings(raw: unknown): Settings {
 	const keybindings = sanitizeKeybindings(raw.keybindings);
 	const zen = typeof raw.zen === "boolean" ? raw.zen : DEFAULTS.zen;
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
-	const guidedQuestions =
-		typeof raw.guidedQuestions === "boolean"
-			? raw.guidedQuestions
-			: DEFAULTS.guidedQuestions;
 	const sessionNaming =
 		typeof raw.sessionNaming === "boolean"
 			? raw.sessionNaming
@@ -221,7 +214,6 @@ export function sanitizeSettings(raw: unknown): Settings {
 		zen,
 		speech,
 		pager,
-		guidedQuestions,
 		sessionNaming,
 		diffs,
 		retry,

@@ -138,13 +138,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		if (activeTab() === "general") {
 			return [
 				{
-					id: "guidedQuestions",
-					kind: "boolean",
-					label: "Guided Questions",
-					help: "The agent uses a form when it needs several answers.",
-					checked: currentSettings.guidedQuestions !== false,
-				},
-				{
 					id: "sessionNaming",
 					kind: "boolean",
 					label: "Auto-name Sessions",
@@ -266,11 +259,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	async function toggleBoolean(rowId: BooleanSettingsRowData["id"]) {
 		await updateSettings((current) => {
 			switch (rowId) {
-				case "guidedQuestions":
-					return {
-						...current,
-						guidedQuestions: current.guidedQuestions === false,
-					};
 				case "sessionNaming":
 					return { ...current, sessionNaming: current.sessionNaming === false };
 				case "pager":

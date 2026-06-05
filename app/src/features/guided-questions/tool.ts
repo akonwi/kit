@@ -5,7 +5,6 @@
 
 import type { ToolDefinition, ToolResult } from "../../plugins";
 import { type Static, Type } from "../../runtime/agent";
-import type { Settings } from "../../settings";
 import { ringBell } from "../notifications/notifications";
 import type { GuidedQuestionsController } from "./controller";
 import { type GuidedQuestionsInput, normalizeQuestion } from "./types";
@@ -58,7 +57,6 @@ const parameters = Type.Object({
 });
 
 export type GuidedQuestionsToolOptions = {
-	getSettings: () => Settings;
 	notify?: () => void;
 };
 
@@ -90,24 +88,6 @@ export function createGuidedQuestionsTool(
 				intro: input.intro,
 				questions: (input.questions || []).map(normalizeQuestion),
 			};
-
-			const settings = options.getSettings();
-			if (settings.guidedQuestions === false) {
-				return {
-					content: [
-						{
-							type: "text" as const,
-							text: "Guided questions are currently disabled by the user. Ask the clarifying questions directly in plain chat instead.",
-						},
-					],
-					details: {
-						disabled: true,
-						answers: {},
-						answeredCount: 0,
-						totalQuestions: params.questions.length,
-					},
-				};
-			}
 
 			if (options.notify) {
 				options.notify();

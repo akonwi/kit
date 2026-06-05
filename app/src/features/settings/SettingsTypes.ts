@@ -9,12 +9,7 @@ export type EditableField =
 	| null;
 
 export type BooleanSettingsRowData = {
-	id:
-		| "guidedQuestions"
-		| "sessionNaming"
-		| "pager"
-		| "speech"
-		| "retry.enabled";
+	id: "sessionNaming" | "pager" | "speech" | "retry.enabled";
 	kind: "boolean";
 	label: string;
 	help: string;
