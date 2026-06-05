@@ -9,11 +9,9 @@
  * Search locations:
  * - ~/.kit/prompts/       (user-global)
  * - .agents/prompts/      (project-local, relative to cwd)
- * - ~/.pi/agent/prompts/  (Pi compat)
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
-import { homedir } from "node:os";
 import path from "node:path";
 import { getKitPaths } from "../../paths";
 import { parseFrontmatter } from "../skills/frontmatter";
@@ -25,7 +23,7 @@ export interface PromptTemplate {
 	/** Template body with argument placeholders */
 	content: string;
 	filePath: string;
-	source: "user" | "project" | "pi-compat";
+	source: "user" | "project";
 }
 
 function loadTemplateFromFile(
@@ -91,7 +89,7 @@ function scanDir(
 
 /**
  * Load prompt templates from all configured locations.
- * First-loaded wins on name collisions (user > project > pi-compat).
+ * First-loaded wins on name collisions (user > project).
  */
 export function loadPromptTemplates(cwd: string): PromptTemplate[] {
 	const kitPaths = getKitPaths();
@@ -101,10 +99,6 @@ export function loadPromptTemplates(cwd: string): PromptTemplate[] {
 	const dirs: Array<{ dir: string; source: PromptTemplate["source"] }> = [
 		{ dir: path.join(kitPaths.kitRoot, "prompts"), source: "user" },
 		{ dir: path.resolve(cwd, ".agents", "prompts"), source: "project" },
-		{
-			dir: path.join(homedir(), ".pi", "agent", "prompts"),
-			source: "pi-compat",
-		},
 	];
 
 	for (const { dir, source } of dirs) {

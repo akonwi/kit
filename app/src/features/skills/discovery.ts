@@ -10,7 +10,6 @@
  * Search locations:
  * - ~/.kit/skills/       (user-global)
  * - .agents/skills/      (project-local, relative to cwd)
- * - ~/.pi/agent/skills/  (Pi compat)
  * - ~/.claude/skills/    (Claude compat, user-global)
  * - .claude/skills/      (Claude compat, project-local)
  */
@@ -29,7 +28,7 @@ export interface Skill {
 	description: string;
 	filePath: string;
 	baseDir: string;
-	source: "user" | "project" | "pi-compat" | "claude-compat";
+	source: "user" | "project" | "claude-compat";
 	disableModelInvocation: boolean;
 }
 
@@ -179,7 +178,7 @@ function scanDir(
 
 /**
  * Load skills from all configured locations.
- * First-loaded wins on name collisions (user > project > pi-compat).
+ * First-loaded wins on name collisions (user > project > claude-compat).
  */
 export function loadSkills(cwd: string): LoadSkillsResult {
 	const kitPaths = getKitPaths();
@@ -190,10 +189,6 @@ export function loadSkills(cwd: string): LoadSkillsResult {
 	const dirs: Array<{ dir: string; source: Skill["source"] }> = [
 		{ dir: path.join(kitPaths.kitRoot, "skills"), source: "user" },
 		{ dir: path.resolve(cwd, ".agents", "skills"), source: "project" },
-		{
-			dir: path.join(homedir(), ".pi", "agent", "skills"),
-			source: "pi-compat",
-		},
 		{
 			dir: path.join(homedir(), ".claude", "skills"),
 			source: "claude-compat",

@@ -86,9 +86,6 @@ Kit customization and documentation:
   - User prompt commands: ~/.kit/prompts/
   - Project prompt commands: .agents/prompts/
   - MCP config: ~/.kit/mcp.json, .mcp.json, .agents/mcp.json
-- Pi compatibility surfaces also exist for some resources:
-  - Skills: ~/.pi/agent/skills/
-  - Prompt commands: ~/.pi/agent/prompts/
 - When customizing Kit behavior for a user, prefer creating or editing those files when they fit the request.
 - When working on Kit topics, read the relevant .md files completely and follow cross-references before implementing.`;
 
