@@ -1,18 +1,60 @@
 import type { Renderable } from "@opentui/core";
-import { createSignal } from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { Dialog } from "../../shell/Dialog";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
 
-export type DebugModalProps = {
+// ── Types ───────────────────────────────────────────────────────────
+
+export type DebugEntry = { label: string; value: string };
+
+export type DebugSection = {
 	title: string;
-	lines: string[];
+	entries: DebugEntry[];
+};
+
+export type DebugModalProps = {
+	sections: DebugSection[];
 	active?: boolean;
 	surfaceProps?: OverlaySurfaceProps;
 	onClose: () => void;
 };
+
+// ── Components ──────────────────────────────────────────────────────
+
+function SectionHeader(props: { title: string }) {
+	return (
+		<text fg={theme.textMuted}>
+			<b>{props.title}</b>
+		</text>
+	);
+}
+
+function EntryRow(props: { label: string; value: string }) {
+	return (
+		<box flexDirection="row" gap={1}>
+			<text fg={theme.textMuted}>{props.label}</text>
+			<text fg={theme.textSecondary}>{props.value}</text>
+		</box>
+	);
+}
+
+function Section(props: { section: DebugSection }) {
+	return (
+		<Show when={props.section.entries.length > 0}>
+			<box flexDirection="column">
+				<SectionHeader title={props.section.title} />
+				<For each={props.section.entries}>
+					{(entry) => <EntryRow label={entry.label} value={entry.value} />}
+				</For>
+			</box>
+		</Show>
+	);
+}
+
+// ── Modal ───────────────────────────────────────────────────────────
 
 export function DebugModal(props: DebugModalProps) {
 	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
@@ -35,14 +77,14 @@ export function DebugModal(props: DebugModalProps) {
 			rootRef={setRootTarget}
 		>
 			<Dialog.Header>
-				<Dialog.Title>{props.title}</Dialog.Title>
+				<Dialog.Title>Debug</Dialog.Title>
 			</Dialog.Header>
 			<Dialog.Body>
-				<scrollbox flexGrow={1} scrollY focused>
-					<box flexDirection="column" gap={0} width="100%">
-						{props.lines.map((line) => (
-							<text fg={theme.textSecondary}>{line}</text>
-						))}
+				<scrollbox flexGrow={1} scrollY focused paddingX={1}>
+					<box flexDirection="column" gap={1} width="100%">
+						<For each={props.sections}>
+							{(section) => <Section section={section} />}
+						</For>
 					</box>
 				</scrollbox>
 			</Dialog.Body>
