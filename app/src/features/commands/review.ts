@@ -1,5 +1,10 @@
 import { createComponent } from "solid-js";
-import { resolveDiffSettings } from "../../settings";
+import type { ReviewDiffView } from "../../settings";
+import {
+	loadSettingsSync,
+	resolveDiffSettings,
+	saveSettings,
+} from "../../settings";
 import { ReviewContent } from "../review/ReviewContent";
 import type { Command } from "./types";
 
@@ -13,6 +18,19 @@ export const codeReviewCommand: Command = {
 				attachments,
 				toast,
 				defaultDiffView: resolveDiffSettings(runtime.settings.diffs).view,
+				onDiffViewChanged: (view: ReviewDiffView) => {
+					const { settings } = loadSettingsSync();
+					const next = { ...settings, diffs: { view } };
+					void saveSettings(next)
+						.then(() => runtime.emitSettingsChanged(next))
+						.catch((e) => {
+							toast({
+								title: "Failed to save diff view",
+								subtitle: e instanceof Error ? e.message : String(e),
+								variant: "error",
+							});
+						});
+				},
 				surfaceProps: props.surfaceProps,
 			}),
 		);

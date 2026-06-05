@@ -1,8 +1,6 @@
 import type { Accessor, JSX } from "solid-js";
 import { createContext, createMemo, createSignal, useContext } from "solid-js";
 import {
-	type ReviewDiffView,
-	resolveDiffSettings,
 	resolveRetrySettings,
 	resolveSpeechSettings,
 	type Settings,
@@ -12,7 +10,6 @@ import {
 	type BooleanSettingsRowData,
 	type EditableField,
 	type InputSettingsRowData,
-	REVIEW_DIFF_VIEW_OPTIONS,
 	type SelectSettingsRowData,
 	type SettingsRowData,
 	type SettingsSelectOption,
@@ -110,12 +107,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	const [retryMaxDelayDraft, setRetryMaxDelayDraft] = createSignal(
 		String(resolveRetrySettings(props.initialSettings.retry).maxDelayMs),
 	);
-	const [reviewDiffViewDraft, setReviewDiffViewDraft] =
-		createSignal<ReviewDiffView>(
-			resolveDiffSettings(props.initialSettings.diffs).view,
-		);
-	const [reviewDiffViewSelectedIndex, setReviewDiffViewSelectedIndex] =
-		createSignal(0);
 	const [voiceDraft, setVoiceDraft] = createSignal(
 		resolveSpeechSettings(props.initialSettings.speech).voice ?? "",
 	);
@@ -134,13 +125,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		})),
 	]);
 
-	function resolveReviewDiffViewIndex(value: ReviewDiffView): number {
-		const index = REVIEW_DIFF_VIEW_OPTIONS.findIndex(
-			(option) => option.value === value,
-		);
-		return index >= 0 ? index : 0;
-	}
-
 	function resolveVoiceIndex(value: string): number {
 		const index = voiceOptions().findIndex((option) => option.value === value);
 		return index >= 0 ? index : 0;
@@ -149,18 +133,10 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	const rows = createMemo<SettingsRowData[]>(() => {
 		const currentSettings = settings();
 		const speech = resolveSpeechSettings(currentSettings.speech);
-		const diffs = resolveDiffSettings(currentSettings.diffs);
 		const retry = resolveRetrySettings(currentSettings.retry);
 
 		if (activeTab() === "general") {
 			return [
-				{
-					id: "diffs.view",
-					kind: "select",
-					label: "Code Review Diff View",
-					help: "Default view for /code-review.",
-					value: diffs.view,
-				},
 				{
 					id: "guidedQuestions",
 					kind: "boolean",
@@ -255,10 +231,7 @@ export function SettingsProvider(props: SettingsProviderProps) {
 
 	function syncDrafts(nextSettings: Settings) {
 		const speech = resolveSpeechSettings(nextSettings.speech);
-		const diffs = resolveDiffSettings(nextSettings.diffs);
 		const retry = resolveRetrySettings(nextSettings.retry);
-		setReviewDiffViewDraft(diffs.view);
-		setReviewDiffViewSelectedIndex(resolveReviewDiffViewIndex(diffs.view));
 		setMaxCharsDraft(String(speech.maxChars));
 		setRetryMaxRetriesDraft(String(retry.maxRetries));
 		setRetryBaseDelayDraft(String(retry.baseDelayMs));
@@ -364,8 +337,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		field: SelectSettingsRowData["id"],
 	): SettingsSelectOption[] {
 		switch (field) {
-			case "diffs.view":
-				return REVIEW_DIFF_VIEW_OPTIONS;
 			case "speech.voice":
 				return voiceOptions();
 		}
@@ -373,8 +344,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 
 	function selectSelectedIndex(field: SelectSettingsRowData["id"]): number {
 		switch (field) {
-			case "diffs.view":
-				return reviewDiffViewSelectedIndex();
 			case "speech.voice":
 				return voiceSelectedIndex();
 		}
@@ -386,10 +355,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		value: unknown,
 	) {
 		switch (field) {
-			case "diffs.view":
-				setReviewDiffViewSelectedIndex(index);
-				setReviewDiffViewDraft(value === "split" ? "split" : "unified");
-				return;
 			case "speech.voice":
 				setVoiceSelectedIndex(index);
 				setVoiceDraft(String(value ?? ""));
@@ -411,24 +376,16 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		return Math.min(6, Math.max(2, options.length));
 	}
 
-	function selectMinWidth(field: SelectSettingsRowData["id"]): number {
-		return field === "diffs.view" ? 16 : 28;
+	function selectMinWidth(_field: SelectSettingsRowData["id"]): number {
+		return 28;
 	}
 
-	function showSelectDescription(field: SelectSettingsRowData["id"]): boolean {
-		return field !== "diffs.view";
+	function showSelectDescription(_field: SelectSettingsRowData["id"]): boolean {
+		return true;
 	}
 
 	async function commitEdit(field = editingField()): Promise<boolean> {
 		if (!field) return true;
-		if (field === "diffs.view") {
-			const ok = await persist({
-				...cloneSettings(settings()),
-				diffs: { view: reviewDiffViewDraft() },
-			});
-			if (ok) setEditingField(null);
-			return ok;
-		}
 		if (
 			field === "speech.maxChars" ||
 			field === "retry.maxRetries" ||
@@ -516,13 +473,7 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		}
 		setError(null);
 		if (row.kind === "select") {
-			if (row.id === "diffs.view") {
-				setReviewDiffViewSelectedIndex(
-					resolveReviewDiffViewIndex(reviewDiffViewDraft()),
-				);
-			} else {
-				setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
-			}
+			setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
 		}
 		setEditingField(row.id);
 	}

@@ -72,6 +72,7 @@ export type ReviewContentProps = {
 	attachments: AttachmentsController;
 	toast: (toast: ToastInput) => void;
 	defaultDiffView: ReviewDiffView;
+	onDiffViewChanged?: (view: ReviewDiffView) => void;
 	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
 };
 
@@ -877,6 +878,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		const line = selectedLine();
 		const nextView = diffView() === "unified" ? "split" : "unified";
 		setDiffView(nextView);
+		props.onDiffViewChanged?.(nextView);
 		if (!hunk || !line) return;
 		const nextLines = getCommentableLines(hunk, rangeAnchor()?.side, nextView);
 		const nextIndex = nextLines.findIndex(

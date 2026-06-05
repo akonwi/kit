@@ -1,9 +1,6 @@
-import type { ReviewDiffView } from "../../settings";
-
 export type SettingsTabId = "general" | "notifications";
 
 export type EditableField =
-	| "diffs.view"
 	| "speech.maxChars"
 	| "speech.voice"
 	| "retry.maxRetries"
@@ -40,7 +37,7 @@ export type InputSettingsRowData = {
 };
 
 export type SelectSettingsRowData = {
-	id: "diffs.view" | "speech.voice";
+	id: "speech.voice";
 	kind: "select";
 	label: string;
 	help: string;
@@ -64,8 +61,3 @@ export const TABS: Array<{ id: SettingsTabId; label: string }> = [
 	{ id: "general", label: "General" },
 	{ id: "notifications", label: "Notifications" },
 ];
-
-export const REVIEW_DIFF_VIEW_OPTIONS = [
-	{ name: "Unified", description: "", value: "unified" },
-	{ name: "Split", description: "", value: "split" },
-] satisfies Array<SettingsSelectOption<ReviewDiffView>>;

@@ -33,7 +33,7 @@ const SETTINGS_EDITING_SUFFIX_BINDINGS: Binding[] = [
 
 function isNumericEditField(
 	field: EditableField,
-): field is Exclude<EditableField, "diffs.view" | "speech.voice" | null> {
+): field is Exclude<EditableField, "speech.voice" | null> {
 	return (
 		field === "speech.maxChars" ||
 		field === "retry.maxRetries" ||
