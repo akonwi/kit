@@ -59,7 +59,6 @@ export type SettingsContextValue = {
 type SettingsProviderProps = {
 	initialSettings: Settings;
 	speechVoices: SpeechVoiceDiscovery;
-	userThemes: string[];
 	onSave: (settings: Settings) => Promise<void>;
 	children: JSX.Element;
 };
@@ -111,10 +110,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	const [retryMaxDelayDraft, setRetryMaxDelayDraft] = createSignal(
 		String(resolveRetrySettings(props.initialSettings.retry).maxDelayMs),
 	);
-	const [themeDraft, setThemeDraft] = createSignal(
-		props.initialSettings.theme ?? "system",
-	);
-	const [themeSelectedIndex, setThemeSelectedIndex] = createSignal(0);
 	const [reviewDiffViewDraft, setReviewDiffViewDraft] =
 		createSignal<ReviewDiffView>(
 			resolveDiffSettings(props.initialSettings.diffs).view,
@@ -125,15 +120,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		resolveSpeechSettings(props.initialSettings.speech).voice ?? "",
 	);
 	const [voiceSelectedIndex, setVoiceSelectedIndex] = createSignal(0);
-
-	const themeOptions: SettingsSelectOption[] = [
-		{ name: "System", description: "", value: "system" },
-		...props.userThemes.map((name) => ({
-			name: name.charAt(0).toUpperCase() + name.slice(1),
-			description: "",
-			value: name,
-		})),
-	];
 
 	const voiceOptions = createMemo<SettingsSelectOption[]>(() => [
 		{
@@ -147,11 +133,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 			value: voice.name,
 		})),
 	]);
-
-	function resolveThemeIndex(value: string): number {
-		const index = themeOptions.findIndex((option) => option.value === value);
-		return index >= 0 ? index : 0;
-	}
 
 	function resolveReviewDiffViewIndex(value: ReviewDiffView): number {
 		const index = REVIEW_DIFF_VIEW_OPTIONS.findIndex(
@@ -173,13 +154,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 
 		if (activeTab() === "general") {
 			return [
-				{
-					id: "theme",
-					kind: "select",
-					label: "Theme",
-					help: "",
-					value: currentSettings.theme ?? "system",
-				},
 				{
 					id: "diffs.view",
 					kind: "select",
@@ -283,8 +257,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		const speech = resolveSpeechSettings(nextSettings.speech);
 		const diffs = resolveDiffSettings(nextSettings.diffs);
 		const retry = resolveRetrySettings(nextSettings.retry);
-		setThemeDraft(nextSettings.theme ?? "system");
-		setThemeSelectedIndex(resolveThemeIndex(nextSettings.theme ?? "system"));
 		setReviewDiffViewDraft(diffs.view);
 		setReviewDiffViewSelectedIndex(resolveReviewDiffViewIndex(diffs.view));
 		setMaxCharsDraft(String(speech.maxChars));
@@ -392,8 +364,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		field: SelectSettingsRowData["id"],
 	): SettingsSelectOption[] {
 		switch (field) {
-			case "theme":
-				return themeOptions;
 			case "diffs.view":
 				return REVIEW_DIFF_VIEW_OPTIONS;
 			case "speech.voice":
@@ -403,8 +373,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 
 	function selectSelectedIndex(field: SelectSettingsRowData["id"]): number {
 		switch (field) {
-			case "theme":
-				return themeSelectedIndex();
 			case "diffs.view":
 				return reviewDiffViewSelectedIndex();
 			case "speech.voice":
@@ -418,10 +386,6 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		value: unknown,
 	) {
 		switch (field) {
-			case "theme":
-				setThemeSelectedIndex(index);
-				setThemeDraft(String(value ?? "system"));
-				return;
 			case "diffs.view":
 				setReviewDiffViewSelectedIndex(index);
 				setReviewDiffViewDraft(value === "split" ? "split" : "unified");
@@ -448,24 +412,15 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	}
 
 	function selectMinWidth(field: SelectSettingsRowData["id"]): number {
-		return field === "theme" || field === "diffs.view" ? 16 : 28;
+		return field === "diffs.view" ? 16 : 28;
 	}
 
 	function showSelectDescription(field: SelectSettingsRowData["id"]): boolean {
-		return field !== "theme" && field !== "diffs.view";
+		return field !== "diffs.view";
 	}
 
 	async function commitEdit(field = editingField()): Promise<boolean> {
 		if (!field) return true;
-		if (field === "theme") {
-			const value = themeDraft().trim() || "system";
-			const ok = await persist({
-				...cloneSettings(settings()),
-				theme: value,
-			});
-			if (ok) setEditingField(null);
-			return ok;
-		}
 		if (field === "diffs.view") {
 			const ok = await persist({
 				...cloneSettings(settings()),
@@ -561,9 +516,7 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		}
 		setError(null);
 		if (row.kind === "select") {
-			if (row.id === "theme") {
-				setThemeSelectedIndex(resolveThemeIndex(themeDraft()));
-			} else if (row.id === "diffs.view") {
+			if (row.id === "diffs.view") {
 				setReviewDiffViewSelectedIndex(
 					resolveReviewDiffViewIndex(reviewDiffViewDraft()),
 				);

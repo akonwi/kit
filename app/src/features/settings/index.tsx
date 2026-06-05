@@ -1,6 +1,5 @@
 import type { InternalPluginAPI } from "../../plugins";
 import type { Settings } from "../../settings";
-import { listUserThemes } from "../../shell/themes/loader";
 import { discoverSpeechVoices } from "../notifications/voices";
 import { SettingsContent } from "./SettingsContent";
 
@@ -31,15 +30,11 @@ export function SettingsPlugin(kit: InternalPluginAPI): void {
 		"settings",
 		{ description: "Open application settings" },
 		async () => {
-			const [speechVoices, userThemes] = await Promise.all([
-				speechVoicesPromise,
-				listUserThemes(),
-			]);
+			const speechVoices = await speechVoicesPromise;
 			await kit.ui.custom((props) => (
 				<SettingsContent
 					initialSettings={kit.settings.get()}
 					speechVoices={speechVoices}
-					userThemes={userThemes}
 					onSave={(settings) => persistSettings(kit, settings)}
 					onClose={() => props.done(undefined)}
 					surfaceProps={props.surfaceProps}

@@ -22,7 +22,6 @@ import type { EditableField } from "./SettingsTypes";
 type SettingsContentProps = {
 	initialSettings: Settings;
 	speechVoices: SpeechVoiceDiscovery;
-	userThemes: string[];
 	onSave: (settings: Settings) => Promise<void>;
 	onClose: () => void;
 	surfaceProps?: OverlaySurfaceProps;
@@ -34,10 +33,7 @@ const SETTINGS_EDITING_SUFFIX_BINDINGS: Binding[] = [
 
 function isNumericEditField(
 	field: EditableField,
-): field is Exclude<
-	EditableField,
-	"theme" | "diffs.view" | "speech.voice" | null
-> {
+): field is Exclude<EditableField, "diffs.view" | "speech.voice" | null> {
 	return (
 		field === "speech.maxChars" ||
 		field === "retry.maxRetries" ||
@@ -282,7 +278,6 @@ export function SettingsContent(props: SettingsContentProps) {
 		<SettingsProvider
 			initialSettings={props.initialSettings}
 			speechVoices={props.speechVoices}
-			userThemes={props.userThemes}
 			onSave={props.onSave}
 		>
 			<SettingsDialog

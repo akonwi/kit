@@ -11,6 +11,7 @@ import { reloadCommand } from "./reload";
 import { codeReviewCommand } from "./review";
 import { sessionCommand } from "./session";
 import { sessionsManageCommand } from "./sessions-manage";
+import { themeCommand } from "./theme";
 import { thinkingCommand } from "./thinking";
 import type { Command } from "./types";
 
@@ -24,6 +25,7 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	codeReviewCommand,
 	sessionCommand,
 	sessionsManageCommand,
+	themeCommand,
 	thinkingCommand,
 	quitCommand,
 ];

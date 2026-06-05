@@ -45,6 +45,10 @@ export type PickerConfig = {
 	onDismiss?: () => void;
 	/** Called when the filter text changes. Return false to intercept; or override query/options. */
 	onFilterChange?: (text: string) => PickerFilterChangeResult;
+	/** Called when the highlighted option changes (navigation or filtering). */
+	onSelectionChange?: (option: PickerOption, index: number) => void;
+	/** Initial selected index. Defaults to 0. */
+	selectedIndex?: number;
 };
 
 /** Internal entry stored on the stack */
@@ -53,6 +57,8 @@ export type PickerEntry = {
 	onDismiss?: () => void;
 	onFilterChange?: (text: string) => PickerFilterChangeResult;
 	onSubmit?: (value: string, ctx: PickerContext) => void;
+	onSelectionChange?: (option: PickerOption, index: number) => void;
+	prevSelectedOption?: PickerOption;
 	label: string;
 	options: PickerOption[];
 	allOptions: PickerOption[];

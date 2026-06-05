@@ -73,15 +73,21 @@ export function createPickerManager() {
 	) {
 		const id = nextId++;
 		const options = config.options ?? [];
+		const initialIndex = Math.max(
+			0,
+			Math.min(config.selectedIndex ?? 0, options.length - 1),
+		);
 		const entry: PickerEntry = {
 			id,
 			onDismiss: config.onDismiss,
 			onFilterChange: config.onFilterChange,
 			onSubmit: config.onSubmit,
+			onSelectionChange: config.onSelectionChange,
+			prevSelectedOption: undefined,
 			label: config.label ?? "",
 			options,
 			allOptions: options,
-			selectedIndex: 0,
+			selectedIndex: initialIndex,
 			filterable: config.filterable ?? Boolean(config.onSubmit),
 			filterText: config.inputValue ?? "",
 			keyBindings: keyBindings ?? {},
@@ -118,6 +124,15 @@ export function createPickerManager() {
 
 	// ── Key handling ────────────────────────────────────────────────
 
+	function notifySelectionChange() {
+		const t = top();
+		if (!t?.onSelectionChange) return;
+		const option = t.options[t.selectedIndex];
+		if (!option || option === t.prevSelectedOption) return;
+		t.prevSelectedOption = option;
+		t.onSelectionChange(option, t.selectedIndex);
+	}
+
 	function moveUp() {
 		updateTop((t) => {
 			const count = t.options.length;
@@ -127,6 +142,7 @@ export function createPickerManager() {
 				selectedIndex: t.selectedIndex <= 0 ? count - 1 : t.selectedIndex - 1,
 			};
 		});
+		notifySelectionChange();
 	}
 
 	function moveDown() {
@@ -138,6 +154,7 @@ export function createPickerManager() {
 				selectedIndex: t.selectedIndex >= count - 1 ? 0 : t.selectedIndex + 1,
 			};
 		});
+		notifySelectionChange();
 	}
 
 	function selectCurrent() {
@@ -188,6 +205,7 @@ export function createPickerManager() {
 				selectedIndex: override?.selectedIndex ?? 0,
 			};
 		});
+		notifySelectionChange();
 	}
 
 	function handleKeyBinding(key: string): boolean {

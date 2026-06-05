@@ -3,7 +3,6 @@ import type { ReviewDiffView } from "../../settings";
 export type SettingsTabId = "general" | "notifications";
 
 export type EditableField =
-	| "theme"
 	| "diffs.view"
 	| "speech.maxChars"
 	| "speech.voice"
@@ -41,7 +40,7 @@ export type InputSettingsRowData = {
 };
 
 export type SelectSettingsRowData = {
-	id: "theme" | "diffs.view" | "speech.voice";
+	id: "diffs.view" | "speech.voice";
 	kind: "select";
 	label: string;
 	help: string;
