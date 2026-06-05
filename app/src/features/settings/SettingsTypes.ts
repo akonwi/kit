@@ -1,15 +1,9 @@
 export type SettingsTabId = "general" | "notifications";
 
-export type EditableField =
-	| "speech.maxChars"
-	| "speech.voice"
-	| "retry.maxRetries"
-	| "retry.baseDelayMs"
-	| "retry.maxDelayMs"
-	| null;
+export type EditableField = "speech.maxChars" | "speech.voice" | null;
 
 export type BooleanSettingsRowData = {
-	id: "sessionNaming" | "pager" | "speech" | "retry.enabled";
+	id: "sessionNaming" | "pager" | "speech";
 	kind: "boolean";
 	label: string;
 	help: string;
@@ -18,11 +12,7 @@ export type BooleanSettingsRowData = {
 };
 
 export type InputSettingsRowData = {
-	id:
-		| "speech.maxChars"
-		| "retry.maxRetries"
-		| "retry.baseDelayMs"
-		| "retry.maxDelayMs";
+	id: "speech.maxChars";
 	kind: "input";
 	label: string;
 	help: string;
