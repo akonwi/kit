@@ -115,6 +115,21 @@ function resolveCwdTarget(baseCwd: string, targetPath: string): string {
 	return path.resolve(baseCwd, expanded);
 }
 
+async function ensureCwdDirectory(
+	cwd: string,
+	description = "Working directory",
+): Promise<void> {
+	let stats: Awaited<ReturnType<typeof stat>>;
+	try {
+		stats = await stat(cwd);
+	} catch {
+		throw new Error(`${description} does not exist: ${cwd}`);
+	}
+	if (!stats.isDirectory()) {
+		throw new Error(`${description} is not a directory: ${cwd}`);
+	}
+}
+
 export type RuntimeStatus = {
 	model: string;
 	thinkingLevel: string;
@@ -1225,12 +1240,18 @@ export class AgentRuntime {
 	}
 
 	async newSession(cwd?: string): Promise<void> {
-		const targetCwd = cwd ?? this.session.cwd;
-		this.session = await createSession(
+		const previousCwd = this.session.cwd;
+		const targetCwd = cwd
+			? resolveCwdTarget(this.session.cwd, cwd)
+			: this.session.cwd;
+		await ensureCwdDirectory(targetCwd);
+		const nextSession = await createSession(
 			targetCwd,
 			this.agent.state.model?.id,
 			this.agent.state.thinkingLevel,
 		);
+		chdirIfNeeded(targetCwd);
+		this.session = nextSession;
 		this.agent.replaceFromTurns([]);
 		const restoredThinkingLevel = this.getRestoredThinkingLevel(
 			this.agent.state.model,
@@ -1240,6 +1261,14 @@ export class AgentRuntime {
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.bus.publish("session.active.changed", { session: this.session });
+		if (previousCwd !== this.session.cwd) {
+			this.bus.publish("session.active.changed.cwd", {
+				session: this.session,
+				cwd: this.session.cwd,
+				previousCwd,
+				source: "user",
+			});
+		}
 		this.handleSessionChanged();
 	}
 
@@ -1292,8 +1321,11 @@ export class AgentRuntime {
 	}
 
 	async switchSession(id: string): Promise<boolean> {
+		const previousCwd = this.session.cwd;
 		const target = (await findSessionById(id)) ?? (await readSession(id));
 		if (!target) return false;
+		await ensureCwdDirectory(target.cwd, "Session working directory");
+		chdirIfNeeded(target.cwd);
 		this.session = target;
 		this.agent.replaceFromTurns(this.session.turns);
 		const model = this.findModelById(this.session.model);
@@ -1307,6 +1339,14 @@ export class AgentRuntime {
 		this.syncPendingState();
 		this.handleSessionChanged();
 		this.bus.publish("session.active.changed", { session: this.session });
+		if (previousCwd !== this.session.cwd) {
+			this.bus.publish("session.active.changed.cwd", {
+				session: this.session,
+				cwd: this.session.cwd,
+				previousCwd,
+				source: "user",
+			});
+		}
 		return true;
 	}
 
@@ -1492,15 +1532,7 @@ export class AgentRuntime {
 		const trimmed = targetPath.trim();
 		if (!trimmed) throw new Error("Working directory path is required.");
 		const targetCwd = resolveCwdTarget(this.session.cwd, trimmed);
-		let stats: Awaited<ReturnType<typeof stat>>;
-		try {
-			stats = await stat(targetCwd);
-		} catch {
-			throw new Error(`Working directory does not exist: ${targetCwd}`);
-		}
-		if (!stats.isDirectory()) {
-			throw new Error(`Working directory is not a directory: ${targetCwd}`);
-		}
+		await ensureCwdDirectory(targetCwd);
 		if (targetCwd === this.session.cwd) {
 			chdirIfNeeded(targetCwd);
 			return this.session;
