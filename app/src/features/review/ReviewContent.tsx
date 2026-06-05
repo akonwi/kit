@@ -51,6 +51,7 @@ import {
 	type ReviewSkippedSection,
 } from "./model";
 import {
+	estimateWrappedRows,
 	getReviewDiffActiveLineId,
 	getReviewDiffCommentableLines,
 	getReviewDiffLineTop,
@@ -58,6 +59,7 @@ import {
 	type ReviewDiffAnnotationMetadata,
 	ReviewDiffBlock,
 	type ReviewDiffCommentableLine,
+	shouldResetPatchScroll,
 } from "./ReviewDiffBlock";
 import {
 	reviewStatusColor,
@@ -94,6 +96,8 @@ type RangeAnchor = {
 type PatchScrollRef = {
 	scrollBy: (delta: number | { x: number; y: number }) => void;
 	scrollChildIntoView?: (childId: string) => void;
+	scrollTop?: number;
+	scrollTo?: (position: number | { x: number; y: number }) => void;
 };
 
 function formatNoteCount(count: number): string {
@@ -177,8 +181,15 @@ function getCommentableLineTop(
 	lineIndex: number,
 	diffView: ReviewDiffView,
 	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
+	contentColumns?: number,
 ): number {
-	return getReviewDiffLineTop(hunk, lineIndex, diffView, annotations);
+	return getReviewDiffLineTop(
+		hunk,
+		lineIndex,
+		diffView,
+		annotations,
+		contentColumns,
+	);
 }
 
 function getVisualBoundsForRange(
@@ -186,8 +197,64 @@ function getVisualBoundsForRange(
 	range: ReviewRangeDraft,
 	diffView: ReviewDiffView,
 	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
+	contentColumns?: number,
 ) {
-	return getReviewDiffRangeBounds(hunk, range, diffView, annotations);
+	return getReviewDiffRangeBounds(
+		hunk,
+		range,
+		diffView,
+		annotations,
+		contentColumns,
+	);
+}
+
+/** Line-number column width for a hunk's gutter. */
+function lineNumberWidthForHunk(hunk: ReviewHunk): number {
+	const maxLineNumber = Math.max(
+		0,
+		...hunk.lines.flatMap((line) => [
+			line.deletionLineNumber ?? 0,
+			line.additionLineNumber ?? 0,
+		]),
+	);
+	return Math.max(1, String(maxLineNumber).length);
+}
+
+// Hunk content chrome widths (matches the layout in renderHunkBlock):
+//   patch box has padding={1} (left + right = 2)
+//   each hunk wrapper has paddingLeft={2}
+const PATCH_CONTENT_PADDING = 2;
+const HUNK_PADDING_LEFT = 2;
+
+function unifiedContentColumns(
+	hunk: ReviewHunk,
+	diffPaneWidth: number,
+): number {
+	const lnw = lineNumberWidthForHunk(hunk);
+	// Unified row: [lnw][space][lnw][sign][space]
+	const gutterCols = 2 * lnw + 3;
+	return Math.max(
+		10,
+		diffPaneWidth - PATCH_CONTENT_PADDING - HUNK_PADDING_LEFT - gutterCols,
+	);
+}
+
+function splitContentColumns(hunk: ReviewHunk, diffPaneWidth: number): number {
+	const lnw = lineNumberWidthForHunk(hunk);
+	const inner = diffPaneWidth - PATCH_CONTENT_PADDING - HUNK_PADDING_LEFT;
+	const halfWidth = Math.floor(inner / 2);
+	// Split cell: [lnw][sign][space]
+	return Math.max(10, halfWidth - lnw - 2);
+}
+
+function contentColumnsFor(
+	hunk: ReviewHunk,
+	view: ReviewDiffView,
+	diffPaneWidth: number,
+): number {
+	return view === "split"
+		? splitContentColumns(hunk, diffPaneWidth)
+		: unifiedContentColumns(hunk, diffPaneWidth);
 }
 
 function lineRangeLabel(range: ReviewRangeDraft): string {
@@ -335,7 +402,23 @@ export function ReviewContent(props: ReviewContentProps) {
 	>(null);
 	const [editingFileNoteValue, setEditingFileNoteValue] = createSignal("");
 	const [editorOpen, setEditorOpen] = createSignal(false);
-	const patchScrollRefs = new Map<string, PatchScrollRef>();
+	// The diff pane has a single scrollbox shared across files (the
+	// <Show when={selectedFile()}> is non-keyed). Keep a single ref —
+	// a per-file map would only ever capture the initial file's id because
+	// ref callbacks don't refire on reactive prop updates.
+	let patchScrollRef: PatchScrollRef | undefined;
+	let lastPatchFileId: string | undefined;
+	let pendingPatchOpenReset = false;
+	let pendingPatchScrollReset = false;
+
+	function applyPendingPatchScrollReset(ref: PatchScrollRef): boolean {
+		if (!pendingPatchScrollReset) return false;
+		if (ref.scrollTo) ref.scrollTo(0);
+		else if (typeof ref.scrollTop === "number") ref.scrollTop = 0;
+		pendingPatchScrollReset = false;
+		pendingPatchOpenReset = false;
+		return true;
+	}
 
 	let contentRef: { width: number } | undefined;
 
@@ -345,6 +428,9 @@ export function ReviewContent(props: ReviewContentProps) {
 			MIN_TREE_PANEL_WIDTH,
 			Math.min(TREE_PANEL_WIDTH, Math.floor(contentWidth() * 0.35)),
 		),
+	);
+	const diffPaneWidth = createMemo(() =>
+		isWide() ? Math.max(0, contentWidth() - treePanelWidth()) : contentWidth(),
 	);
 
 	let patchCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -520,6 +606,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					line.index,
 					diffView(),
 					selectedFileCommentAnnotations(),
+					contentColumnsFor(hunk, diffView(), diffPaneWidth()),
 				)
 			: null;
 	});
@@ -533,6 +620,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			range,
 			diffView(),
 			selectedFileCommentAnnotations(),
+			contentColumnsFor(hunk, diffView(), diffPaneWidth()),
 		);
 	});
 
@@ -595,11 +683,22 @@ export function ReviewContent(props: ReviewContentProps) {
 			: hunk && line
 				? getReviewDiffActiveLineId(hunk.id, line.index)
 				: null;
-		if (!childId) return;
-
+		if (
+			shouldResetPatchScroll(lastPatchFileId, file.id, pendingPatchOpenReset)
+		) {
+			pendingPatchScrollReset = true;
+		}
+		lastPatchFileId = file.id;
+		if (!childId && !pendingPatchScrollReset) return;
 		patchCursorScrollTimeout = setTimeout(() => {
 			patchCursorScrollTimeout = undefined;
-			patchScrollRefs.get(file.id)?.scrollChildIntoView?.(childId);
+			const ref = patchScrollRef;
+			if (!ref) return;
+			// On file switch/open, reset to top first so the new file doesn't
+			// inherit the previous file's scroll offset. Clear pending reset flags
+			// only after a ref exists and the reset has actually been applied.
+			applyPendingPatchScrollReset(ref);
+			if (childId) ref.scrollChildIntoView?.(childId);
 		}, 0);
 		onCleanup(clearPatchCursorScrollTimeout);
 	});
@@ -794,9 +893,12 @@ export function ReviewContent(props: ReviewContentProps) {
 			const idx = reviewFiles().indexOf(file);
 			if (idx >= 0) setSelectedIndex(idx);
 			setViewingFilePath(null);
+			pendingPatchOpenReset = true;
 			setMode("patch");
 			if (file.hunks.length > 0) {
-				setSelectedHunkIndex(file.id, selectedHunkIndices().get(file.id) ?? 0);
+				// Opening a file from the tree should start at the top of that file,
+				// not restore a previous hunk/line or inherit another file's viewport.
+				setSelectedHunkIndex(file.id, 0);
 			}
 		} else {
 			setViewingFilePath(filePath);
@@ -910,6 +1012,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				current.line.index,
 				diffView(),
 				annotations(),
+				contentColumnsFor(hunk, diffView(), diffPaneWidth()),
 			);
 		};
 		const cursorSide = () => {
@@ -982,6 +1085,11 @@ export function ReviewContent(props: ReviewContentProps) {
 						filetype={file.filetype}
 						annotations={annotations()}
 						activeLine={activeLine()}
+						contentColumns={contentColumnsFor(
+							hunk,
+							diffView(),
+							diffPaneWidth(),
+						)}
 						annotationEditor={
 							editingRange()
 								? {
@@ -1614,6 +1722,7 @@ export function ReviewContent(props: ReviewContentProps) {
 											<ReadOnlyFileView
 												repoRoot={repoRoot}
 												path={filePath()}
+												paneWidth={diffPaneWidth()}
 												interactive={mode() === "patch"}
 												selectedLine={viewingFileLine()}
 												onLineCountChange={setViewingFileLineCount}
@@ -1718,11 +1827,9 @@ export function ReviewContent(props: ReviewContentProps) {
 										>
 											<scrollbox
 												ref={(value) => {
-													if (value)
-														patchScrollRefs.set(
-															file().id,
-															value as PatchScrollRef,
-														);
+													if (!value) return;
+													patchScrollRef = value as PatchScrollRef;
+													applyPendingPatchScrollReset(patchScrollRef);
 												}}
 												flexGrow={1}
 												scrollY
@@ -1825,6 +1932,8 @@ type ReadOnlyFileViewProps = {
 	editingRangeValue: string;
 	onEditingRangeChange: (value: string) => void;
 	onEditingRangeSubmit: () => void;
+	/** Available pane width for computing wrap-aware line heights. */
+	paneWidth: number;
 };
 
 function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
@@ -1845,17 +1954,114 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 	const lineNumberWidth = createMemo(() =>
 		Math.max(1, String(lines().length).length),
 	);
+	// Content area = paneWidth minus padding={1} (both sides) and the gutter
+	// (line number column + the two-space separator).
+	const contentColumns = createMemo(() =>
+		Math.max(10, props.paneWidth - 2 - lineNumberWidth() - 2),
+	);
 
 	createEffect(() => {
 		props.onLineCountChange(lines().length);
 	});
 
-	let scrollRef: { scrollChildIntoView: (id: string) => void } | undefined;
+	type ReadOnlyScrollRef = {
+		scrollTop?: number;
+		viewport?: { height: number };
+		scrollChildIntoView?: (id: string) => void;
+		scrollTo?: (position: number | { x: number; y: number }) => void;
+	};
+	let scrollRef: ReadOnlyScrollRef | undefined;
+	let scrollTimeout: ReturnType<typeof setTimeout> | undefined;
+	let resetScrollTimeout: ReturnType<typeof setTimeout> | undefined;
+
+	function clearReadonlyScrollTimeout() {
+		if (!scrollTimeout) return;
+		clearTimeout(scrollTimeout);
+		scrollTimeout = undefined;
+	}
+
+	function clearReadonlyResetScrollTimeout() {
+		if (!resetScrollTimeout) return;
+		clearTimeout(resetScrollTimeout);
+		resetScrollTimeout = undefined;
+	}
+
+	function lineRowOffset(lineIndex: number): number {
+		const all = lines();
+		const cols = contentColumns();
+		let top = 0;
+		const end = Math.min(lineIndex, all.length);
+		for (let i = 0; i < end; i += 1) {
+			top += Math.max(1, estimateWrappedRows(all[i], cols));
+		}
+		return top;
+	}
+
+	function resetScrollToTop() {
+		const ref = scrollRef;
+		if (!ref) return;
+		if (ref.scrollTo) {
+			ref.scrollTo(0);
+		} else if (typeof ref.scrollTop === "number") {
+			ref.scrollTop = 0;
+		} else {
+			ref.scrollChildIntoView?.(`readonly-line-1`);
+		}
+	}
+
+	// Reset the scroll position whenever the file path/content changes. Runs
+	// as its own effect so it's independent of the cursor visibility logic and
+	// fires for every path transition (including the initial mount).
+	createEffect(() => {
+		void props.path;
+		void lines();
+		clearReadonlyResetScrollTimeout();
+		resetScrollTimeout = setTimeout(() => {
+			resetScrollTimeout = undefined;
+			resetScrollToTop();
+		}, 0);
+		onCleanup(clearReadonlyResetScrollTimeout);
+	});
 
 	createEffect(() => {
 		if (!props.interactive) return;
 		const line = props.selectedLine;
-		scrollRef?.scrollChildIntoView(`readonly-line-${line}`);
+		// Track paneWidth and lines so we re-scroll after the layout reflows
+		// when the terminal resizes, the diff/tree split changes, or the file
+		// content swaps in.
+		void props.paneWidth;
+		void lines();
+		void contentColumns();
+		clearReadonlyScrollTimeout();
+		scrollTimeout = setTimeout(() => {
+			scrollTimeout = undefined;
+			const ref = scrollRef;
+			if (!ref) return;
+			const cursorTop = lineRowOffset(line - 1);
+			const cursorHeight = Math.max(
+				1,
+				estimateWrappedRows(lines()[line - 1] ?? "", contentColumns()),
+			);
+			const current = ref.scrollTop ?? 0;
+			const vh = ref.viewport?.height ?? 0;
+			// Keep the cursor in view: scroll up when it's above the viewport,
+			// scroll down when it's below. Otherwise leave the scroll alone.
+			if (cursorTop < current) {
+				if (ref.scrollTo) ref.scrollTo(cursorTop);
+				else if (typeof ref.scrollTop === "number") ref.scrollTop = cursorTop;
+				else ref.scrollChildIntoView?.(`readonly-line-${line}`);
+			} else if (vh > 0 && cursorTop + cursorHeight > current + vh) {
+				const target = Math.max(0, cursorTop + cursorHeight - vh);
+				if (ref.scrollTo) ref.scrollTo(target);
+				else if (typeof ref.scrollTop === "number") ref.scrollTop = target;
+				else ref.scrollChildIntoView?.(`readonly-line-${line}`);
+			} else if (vh === 0) {
+				// Initial mount before viewport is sized — fall back to the
+				// scrollbox's own measurement so the first scroll still lands.
+				ref.scrollChildIntoView?.(`readonly-line-${line}`);
+			}
+		}, 0);
+		onCleanup(clearReadonlyScrollTimeout);
 	});
 
 	const annotationsByLine = createMemo(() => {
@@ -1972,13 +2178,16 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 										active() ? theme.diffCursorGutterBg : theme.bg;
 									const annotation = () =>
 										annotationsByLine().get(lineNum()) ?? null;
+									const rowHeight = () =>
+										Math.max(1, estimateWrappedRows(line, contentColumns()));
 									let lineRef: ScrollableRef | undefined;
 									return (
 										<>
 											<box
 												id={`readonly-line-${lineNum()}`}
 												flexDirection="row"
-												height={1}
+												alignItems="flex-start"
+												height={rowHeight()}
 												flexShrink={0}
 												backgroundColor={bg()}
 											>
@@ -1986,10 +2195,16 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 													fg={theme.textMuted}
 													bg={gutterBg()}
 													flexShrink={0}
+													height={1}
 												>
 													{String(lineNum()).padStart(lineNumberWidth())}
 												</text>
-												<text fg={theme.textMuted} bg={bg()} flexShrink={0}>
+												<text
+													fg={theme.textMuted}
+													bg={bg()}
+													flexShrink={0}
+													height={1}
+												>
 													{"  "}
 												</text>
 												<Show
@@ -2002,7 +2217,8 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															fg={theme.textPrimary}
 															bg={bg()}
 															flexGrow={1}
-															height={1}
+															wrapMode="word"
+															height={rowHeight()}
 															onMouseScroll={() => resetScroll(lineRef)}
 														>
 															{line}
@@ -2019,9 +2235,9 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															syntaxStyle={syntaxStyle()}
 															bg={bg()}
 															conceal={false}
-															wrapMode="none"
+															wrapMode="word"
 															flexGrow={1}
-															height={1}
+															height={rowHeight()}
 															onMouseScroll={() => resetScroll(lineRef)}
 														/>
 													)}

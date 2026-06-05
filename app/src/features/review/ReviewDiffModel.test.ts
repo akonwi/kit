@@ -4,10 +4,13 @@ import type { ReviewHunk } from "./model";
 import {
 	buildReviewDiffSplitRows,
 	buildReviewDiffUnifiedRows,
+	estimateWrappedRows,
 	getReviewDiffActiveLineId,
+	getReviewDiffLineHeight,
 	getReviewDiffLineTop,
 	getReviewDiffRangeBounds,
 	type ReviewDiffAnnotationMetadata,
+	shouldResetPatchScroll,
 } from "./ReviewDiffModel";
 
 function makeHunk(): ReviewHunk {
@@ -154,5 +157,102 @@ describe("ReviewDiffModel active line ids", () => {
 		expect(getReviewDiffActiveLineId("hunk-1", 3)).toBe(
 			"review-line-cursor-hunk-1-3",
 		);
+	});
+});
+
+describe("estimateWrappedRows", () => {
+	test("returns 1 for empty or short text", () => {
+		expect(estimateWrappedRows("", 10)).toBe(1);
+		expect(estimateWrappedRows("hi", 10)).toBe(1);
+		expect(estimateWrappedRows("exactly10!", 10)).toBe(1);
+	});
+
+	test("wraps prose at word boundaries", () => {
+		// "hello" (5), then " world foo" (10), then " bar" (4)
+		expect(estimateWrappedRows("hello world foo bar", 10)).toBe(3);
+	});
+
+	test("counts whitespace segments consistently", () => {
+		expect(estimateWrappedRows("aa  bb  cc", 6)).toBe(2);
+		expect(estimateWrappedRows("aa      bb", 6)).toBe(3);
+	});
+
+	test("breaks words longer than width", () => {
+		// 25-char word into 10-col width → 3 rows
+		expect(estimateWrappedRows("a".repeat(25), 10)).toBe(3);
+	});
+
+	test("handles unknown width gracefully", () => {
+		expect(estimateWrappedRows("anything", 0)).toBe(1);
+		expect(estimateWrappedRows("anything", -5)).toBe(1);
+	});
+});
+
+describe("shouldResetPatchScroll", () => {
+	test("resets on file changes or explicit file-open reset", () => {
+		expect(shouldResetPatchScroll(undefined, "file-a", false)).toBe(true);
+		expect(shouldResetPatchScroll("file-a", "file-a", false)).toBe(false);
+		expect(shouldResetPatchScroll("file-a", "file-b", false)).toBe(true);
+		expect(shouldResetPatchScroll("file-b", "file-b", true)).toBe(true);
+	});
+});
+
+describe("ReviewDiffModel wrap-aware positioning", () => {
+	function longHunk(): ReviewHunk {
+		return {
+			id: "long-hunk",
+			noteKey: "long-hunk",
+			header: "@@ -1,3 +1,3 @@",
+			context: "",
+			lines: [
+				{
+					kind: "context",
+					text: "x".repeat(25),
+					deletionLineNumber: 1,
+					additionLineNumber: 1,
+				},
+				{
+					kind: "context",
+					text: "short",
+					deletionLineNumber: 2,
+					additionLineNumber: 2,
+				},
+				{
+					kind: "context",
+					text: "another short",
+					deletionLineNumber: 3,
+					additionLineNumber: 3,
+				},
+			],
+			changeCount: 0,
+			rawPatch: "",
+			patchStartLine: 0,
+			patchLineCount: 3,
+			additionStart: 1,
+			additionCount: 3,
+			deletionStart: 1,
+			deletionCount: 3,
+			collapsedBefore: 0,
+		};
+	}
+
+	test("unified line top accounts for wrapped preceding lines", () => {
+		const hunk = longHunk();
+		// Width 10 → 25-char first line wraps to 3 rows
+		expect(getReviewDiffLineTop(hunk, 0, "unified", [], 10)).toBe(0);
+		expect(getReviewDiffLineTop(hunk, 1, "unified", [], 10)).toBe(3);
+		expect(getReviewDiffLineTop(hunk, 2, "unified", [], 10)).toBe(4);
+	});
+
+	test("line height reports wrapped row count", () => {
+		const hunk = longHunk();
+		expect(getReviewDiffLineHeight(hunk, 0, "unified", 10)).toBe(3);
+		expect(getReviewDiffLineHeight(hunk, 1, "unified", 10)).toBe(1);
+	});
+
+	test("falls back to 1-row math when content columns omitted", () => {
+		const hunk = longHunk();
+		expect(getReviewDiffLineTop(hunk, 1, "unified")).toBe(1);
+		expect(getReviewDiffLineHeight(hunk, 0, "unified")).toBe(1);
 	});
 });

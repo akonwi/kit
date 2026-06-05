@@ -269,6 +269,51 @@ function estimateTextLineCount(text: string): number {
 	);
 }
 
+/**
+ * Approximate how many terminal rows a single text line will occupy when
+ * rendered with word wrap at the given width. Mirrors OpenTUI's "word" wrap
+ * mode closely enough for positioning math without re-implementing layout.
+ */
+export function estimateWrappedRows(text: string, width: number): number {
+	if (width <= 0) return 1;
+	if (text.length === 0) return 1;
+	if (text.length <= width) return 1;
+
+	let rows = 1;
+	let col = 0;
+	const segments = text.split(/(\s+)/);
+	for (const seg of segments) {
+		if (seg.length === 0) continue;
+		if (col + seg.length <= width) {
+			col += seg.length;
+			continue;
+		}
+		if (seg.length > width) {
+			// Word longer than width — break it char-wise.
+			if (col > 0) {
+				rows += 1;
+				col = 0;
+			}
+			const fullLines = Math.floor(seg.length / width);
+			const remainder = seg.length % width;
+			rows += remainder === 0 ? fullLines - 1 : fullLines;
+			col = remainder === 0 ? width : remainder;
+			continue;
+		}
+		rows += 1;
+		col = seg.length;
+	}
+	return rows;
+}
+
+export function shouldResetPatchScroll(
+	previousFileId: string | undefined,
+	currentFileId: string,
+	pendingOpenReset: boolean,
+): boolean {
+	return pendingOpenReset || previousFileId !== currentFileId;
+}
+
 export function getReviewDiffAnnotationHeight(
 	annotation: DiffLineAnnotation<ReviewDiffAnnotationMetadata> | undefined,
 ): number {
@@ -342,6 +387,36 @@ function unifiedAnnotationOffsetBeforeLine(
 	}, 0);
 }
 
+function unifiedLineRowOffsetBeforeLine(
+	hunk: ReviewHunk,
+	localLineIndex: number,
+	contentColumns: number,
+): number {
+	let rows = 0;
+	const end = Math.min(localLineIndex, hunk.lines.length);
+	for (let i = 0; i < end; i += 1) {
+		rows += estimateWrappedRows(hunk.lines[i].text, contentColumns);
+	}
+	return rows;
+}
+
+function splitLineRowOffsetBeforeRow(
+	rows: ReviewDiffSplitRow[],
+	rowIndex: number,
+	contentColumns: number,
+): number {
+	let offset = 0;
+	const end = Math.min(rowIndex, rows.length);
+	for (let i = 0; i < end; i += 1) {
+		const row = rows[i];
+		offset += Math.max(
+			estimateWrappedRows(row.deletion.text, contentColumns),
+			estimateWrappedRows(row.addition.text, contentColumns),
+		);
+	}
+	return offset;
+}
+
 function splitAnnotationOffsetBeforeRow(
 	rows: ReviewDiffSplitRow[],
 	rowIndex: number,
@@ -369,10 +444,16 @@ export function getReviewDiffLineTop(
 	lineIndex: number,
 	view: ReviewDiffView,
 	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
+	contentColumns?: number,
 ): number {
 	if (view === "unified") {
+		const localIndex = getLocalLineIndex(hunk, lineIndex);
+		const lineRowOffset =
+			contentColumns && contentColumns > 0
+				? unifiedLineRowOffsetBeforeLine(hunk, localIndex, contentColumns)
+				: localIndex;
 		return (
-			getLocalLineIndex(hunk, lineIndex) +
+			lineRowOffset +
 			unifiedAnnotationOffsetBeforeLine(hunk, lineIndex, annotations)
 		);
 	}
@@ -383,7 +464,42 @@ export function getReviewDiffLineTop(
 			row.addition.lineIndex === lineIndex,
 	);
 	if (rowIndex < 0) return lineIndex;
-	return rowIndex + splitAnnotationOffsetBeforeRow(rows, rowIndex, annotations);
+	const lineRowOffset =
+		contentColumns && contentColumns > 0
+			? splitLineRowOffsetBeforeRow(rows, rowIndex, contentColumns)
+			: rowIndex;
+	return (
+		lineRowOffset + splitAnnotationOffsetBeforeRow(rows, rowIndex, annotations)
+	);
+}
+
+/**
+ * Height (in terminal rows) of the rendered diff line, accounting for wrap.
+ * Returns 1 when content columns are unknown.
+ */
+export function getReviewDiffLineHeight(
+	hunk: ReviewHunk,
+	lineIndex: number,
+	view: ReviewDiffView,
+	contentColumns?: number,
+): number {
+	if (!contentColumns || contentColumns <= 0) return 1;
+	if (view === "unified") {
+		const localIndex = getLocalLineIndex(hunk, lineIndex);
+		const line = hunk.lines[localIndex];
+		if (!line) return 1;
+		return estimateWrappedRows(line.text, contentColumns);
+	}
+	const rows = buildReviewDiffSplitRows(hunk);
+	const row = rows.find(
+		(r) =>
+			r.deletion.lineIndex === lineIndex || r.addition.lineIndex === lineIndex,
+	);
+	if (!row) return 1;
+	return Math.max(
+		estimateWrappedRows(row.deletion.text, contentColumns),
+		estimateWrappedRows(row.addition.text, contentColumns),
+	);
 }
 
 export function getReviewDiffRangeBounds(
@@ -391,8 +507,9 @@ export function getReviewDiffRangeBounds(
 	range: ReviewDiffLineRange,
 	view: ReviewDiffView,
 	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
+	contentColumns?: number,
 ): ReviewDiffVisualBounds | null {
-	const tops = getReviewDiffCommentableLines(hunk, range.side, view).flatMap(
+	const entries = getReviewDiffCommentableLines(hunk, range.side, view).flatMap(
 		(line) => {
 			if (
 				line.lineNumber < range.startLine ||
@@ -400,11 +517,24 @@ export function getReviewDiffRangeBounds(
 			) {
 				return [];
 			}
-			return [getReviewDiffLineTop(hunk, line.index, view, annotations)];
+			const top = getReviewDiffLineTop(
+				hunk,
+				line.index,
+				view,
+				annotations,
+				contentColumns,
+			);
+			const height = getReviewDiffLineHeight(
+				hunk,
+				line.index,
+				view,
+				contentColumns,
+			);
+			return [{ top, bottom: top + height - 1 }];
 		},
 	);
-	if (tops.length === 0) return null;
-	const top = Math.min(...tops);
-	const bottom = Math.max(...tops);
+	if (entries.length === 0) return null;
+	const top = Math.min(...entries.map((e) => e.top));
+	const bottom = Math.max(...entries.map((e) => e.bottom));
 	return { top, height: bottom - top + 1 };
 }
