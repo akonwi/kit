@@ -4,12 +4,7 @@ import path from "node:path";
 import { getKitPaths } from "../../paths";
 import { parseFrontmatter } from "../skills/frontmatter";
 
-export type SubagentSource =
-	| "kit-user"
-	| "kit-project"
-	| "pi-user"
-	| "pi-project"
-	| "plugin";
+export type SubagentSource = "kit-user" | "kit-project" | "plugin";
 
 export interface SubagentDefinition {
 	name: string;
@@ -134,8 +129,6 @@ export function loadSubagents(
 	const dirs: Array<{ dir: string; source: SubagentSource }> = [
 		{ dir: path.join(kitRoot, "agents"), source: "kit-user" },
 		{ dir: path.resolve(cwd, ".kit", "agents"), source: "kit-project" },
-		{ dir: path.join(homeDir, ".pi", "agent", "agents"), source: "pi-user" },
-		{ dir: path.resolve(cwd, ".pi", "agents"), source: "pi-project" },
 	];
 
 	for (const { dir, source } of dirs) {

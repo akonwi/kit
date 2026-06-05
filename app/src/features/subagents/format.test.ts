@@ -18,7 +18,7 @@ const agents: SubagentDefinition[] = [
 		instructions: "Reviewer instructions",
 		filePath: "/tmp/reviewer.md",
 		baseDir: "/tmp",
-		source: "pi-project",
+		source: "kit-project",
 	},
 ];
 
@@ -41,7 +41,7 @@ describe("formatSubagentsForPrompt", () => {
 			"<description>Review correctness &amp; risk</description>",
 		);
 		expect(formatted).toContain("<model>claude-haiku-4-5</model>");
-		expect(formatted).toContain("<source>pi-project</source>");
+		expect(formatted).toContain("<source>kit-project</source>");
 		expect(formatted).toContain("</available_subagents>");
 	});
 });

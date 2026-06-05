@@ -56,42 +56,12 @@ describe("sub-agent discovery", () => {
 				"Reviewer instructions",
 			].join("\n"),
 		);
-		await writeAgent(
-			homeDir,
-			".pi/agent/agents/planner.md",
-			[
-				"---",
-				"name: planner",
-				"description: Planning help",
-				"---",
-				"Planner instructions",
-			].join("\n"),
-		);
-		await writeAgent(
-			cwd,
-			".pi/agents/researcher.md",
-			[
-				"---",
-				"name: researcher",
-				"description: Background research",
-				"---",
-				"Researcher instructions",
-			].join("\n"),
-		);
-
 		const { agents, warnings } = loadSubagents(cwd, { homeDir });
 		expect(warnings).toEqual([]);
-		expect(agents.map((agent) => agent.name)).toEqual([
-			"scout",
-			"reviewer",
-			"planner",
-			"researcher",
-		]);
+		expect(agents.map((agent) => agent.name)).toEqual(["scout", "reviewer"]);
 		expect(agents.map((agent) => agent.source)).toEqual([
 			"kit-user",
 			"kit-project",
-			"pi-user",
-			"pi-project",
 		]);
 		expect(agents[0]).toMatchObject({
 			model: "claude-haiku-4-5",
