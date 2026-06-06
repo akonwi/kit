@@ -281,9 +281,16 @@ export function ToolDrawer(props: {
 					setExpanded(!expanded());
 				}}
 			>
-				<text fg={theme.textMuted}>
-					{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
-				</text>
+				<Show
+					when={inProgress()}
+					fallback={
+						<text fg={theme.textMuted}>
+							{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
+						</text>
+					}
+				>
+					<InlineSpinner />
+				</Show>
 				<text fg={theme.textMuted}>{countLabel()}</text>
 				<Show when={!expanded()}>
 					<box flexDirection="row" gap={0}>
@@ -303,9 +310,6 @@ export function ToolDrawer(props: {
 							</text>
 						</Show>
 					</box>
-				</Show>
-				<Show when={inProgress()}>
-					<InlineSpinner />
 				</Show>
 			</box>
 			<Show when={expanded()}>
