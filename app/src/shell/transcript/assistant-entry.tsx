@@ -10,6 +10,7 @@ import {
 	CHECK,
 	CIRCLE_SLASH,
 	CROSS,
+	MIDDLE_DOT,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../glyphs";
@@ -184,6 +185,123 @@ function CompletedToolCall(props: {
 	);
 }
 
+/**
+ * Compact summary line for completed tool calls.
+ * Renders as: ✓ Read · ✓ Grep · ✓ Edit (expandable to full detail)
+ */
+function CompletedToolSummary(props: {
+	toolCalls: ToolCall[];
+	toolResults: Map<string, ToolResultMessage>;
+	aborted?: boolean;
+}) {
+	const [expanded, setExpanded] = createSignal(false);
+	const renderer = useRenderer();
+
+	return (
+		<box flexDirection="column" gap={0} width="100%">
+			<box
+				flexDirection="row"
+				gap={0}
+				onMouseDown={() => {
+					if (renderer.getSelection()?.getSelectedText()) return;
+					setExpanded(!expanded());
+				}}
+			>
+				<text fg={theme.textMuted}>
+					{props.toolCalls
+						.map((tc) => {
+							const result = props.toolResults.get(tc.id);
+							const glyph = props.aborted
+								? CIRCLE_SLASH
+								: result?.isError
+									? CROSS
+									: CHECK;
+							return `${glyph} ${tc.name}`;
+						})
+						.join(` ${MIDDLE_DOT} `)}
+				</text>
+				<text fg={theme.metaText}>
+					{" "}
+					{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
+				</text>
+			</box>
+			<Show when={expanded()}>
+				<box paddingLeft={2} flexDirection="column" gap={0}>
+					<For each={props.toolCalls}>
+						{(tc) => {
+							const result = props.toolResults.get(tc.id);
+							return (
+								<Show when={result}>
+									{(r) => (
+										<CompletedToolCall
+											tc={tc}
+											result={r()}
+											aborted={props.aborted}
+										/>
+									)}
+								</Show>
+							);
+						}}
+					</For>
+				</box>
+			</Show>
+		</box>
+	);
+}
+
+/**
+ * In-progress tool calls: show live/pending rows for tools that are still running,
+ * plus a compact summary for any already completed.
+ */
+function InProgressToolCalls(props: {
+	toolCalls: ToolCall[];
+	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
+	aborted?: boolean;
+}) {
+	return (
+		<box flexDirection="column" gap={0} width="100%">
+			<For each={props.toolCalls}>
+				{(tc) => {
+					const result = () => props.toolResults.get(tc.id);
+					const liveTool = () => props.liveTools[tc.id];
+					return (
+						<Show
+							when={result()}
+							fallback={
+								<Show
+									when={liveTool()}
+									fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}
+								>
+									{(live) => (
+										<LiveToolCall
+											tc={tc}
+											args={live().args}
+											partialResult={live().partialResult}
+											result={live().result}
+											isError={live().isError}
+											state={live().state}
+											aborted={props.aborted}
+										/>
+									)}
+								</Show>
+							}
+						>
+							{(r) => (
+								<CompletedToolCall
+									tc={tc}
+									result={r()}
+									aborted={props.aborted}
+								/>
+							)}
+						</Show>
+					);
+				}}
+			</For>
+		</box>
+	);
+}
+
 export function AssistantEntry(props: {
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
@@ -200,51 +318,39 @@ export function AssistantEntry(props: {
 	}
 
 	const { text, toolCalls } = extractAssistantParts(props.msg);
+	const hasToolCalls = toolCalls.length > 0;
+	const hasText = text.length > 0;
+
+	// All tool calls are completed when every tool call has a result
+	const allCompleted = () =>
+		hasToolCalls && toolCalls.every((tc) => props.toolResults.has(tc.id));
 
 	return (
-		<box flexDirection="column" gap={0} width="100%">
-			<Show when={!props.zenMode}>
-				<For each={toolCalls}>
-					{(tc) => {
-						const result = () => props.toolResults.get(tc.id);
-						const liveTool = () => props.liveTools[tc.id];
-						return (
-							<Show
-								when={result()}
-								fallback={
-									<Show
-										when={liveTool()}
-										fallback={
-											<PendingToolCall tc={tc} aborted={props.aborted} />
-										}
-									>
-										{(live) => (
-											<LiveToolCall
-												tc={tc}
-												args={live().args}
-												partialResult={live().partialResult}
-												result={live().result}
-												isError={live().isError}
-												state={live().state}
-												aborted={props.aborted}
-											/>
-										)}
-									</Show>
-								}
-							>
-								{(r) => (
-									<CompletedToolCall
-										tc={tc}
-										result={r()}
-										aborted={props.aborted}
-									/>
-								)}
-							</Show>
-						);
-					}}
-				</For>
+		<box
+			flexDirection="column"
+			gap={!props.zenMode && hasToolCalls && hasText ? 1 : 0}
+			width="100%"
+		>
+			<Show when={!props.zenMode && hasToolCalls}>
+				<Show
+					when={allCompleted()}
+					fallback={
+						<InProgressToolCalls
+							toolCalls={toolCalls}
+							toolResults={props.toolResults}
+							liveTools={props.liveTools}
+							aborted={props.aborted}
+						/>
+					}
+				>
+					<CompletedToolSummary
+						toolCalls={toolCalls}
+						toolResults={props.toolResults}
+						aborted={props.aborted}
+					/>
+				</Show>
 			</Show>
-			<Show when={text.length > 0}>
+			<Show when={hasText}>
 				<markdown
 					content={text}
 					syntaxStyle={syntaxStyle()}

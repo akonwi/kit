@@ -1,6 +1,6 @@
 import "../../runtime/custom-messages";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { HEAVY_LINE } from "../glyphs";
+import { createEffect, createSignal, Index, onCleanup, Show } from "solid-js";
+import { HEAVY_LINE, HORIZONTAL_LINE } from "../glyphs";
 import { theme } from "../theme";
 import {
 	type LiveToolExecutionMap,
@@ -11,6 +11,29 @@ import { TurnEntry } from "./turn-entry";
 import type { TranscriptPaneProps } from "./types";
 
 export type { TranscriptPaneProps } from "./types";
+
+function TurnDivider() {
+	const [width, setWidth] = createSignal(0);
+	let ref: { width: number; height: number } | undefined;
+	return (
+		<box
+			ref={(value) => {
+				ref = value as typeof ref;
+				if (ref) setWidth(ref.width);
+			}}
+			onSizeChange={() => {
+				if (ref) setWidth(ref.width);
+			}}
+			width="100%"
+			paddingY={1}
+			justifyContent="center"
+		>
+			<text fg={theme.borderDefault}>
+				{HORIZONTAL_LINE.repeat(Math.max(0, width() - 2))}
+			</text>
+		</box>
+	);
+}
 
 export function TranscriptPane(props: TranscriptPaneProps) {
 	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
@@ -116,17 +139,33 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 					</box>
 				}
 			>
-				<box flexDirection="column" gap={1} width="100%">
-					<For each={props.items}>
-						{(item) => (
-							<TurnEntry
-								item={item}
-								liveTools={liveTools()[item.turnId] ?? {}}
-								showToast={props.showToast}
-								zenMode={props.zenMode}
-							/>
-						)}
-					</For>
+				<box flexDirection="column" gap={0} width="100%">
+					<Index each={props.items}>
+						{(item, index) => {
+							const prevItem = () =>
+								index > 0 ? props.items[index - 1] : undefined;
+							const showDivider = () => {
+								const prev = prevItem();
+								return prev !== undefined && prev.turnId !== item().turnId;
+							};
+							return (
+								<>
+									<Show when={showDivider()}>
+										<TurnDivider />
+									</Show>
+									<Show when={index > 0 && !showDivider()}>
+										<box height={1} />
+									</Show>
+									<TurnEntry
+										item={item()}
+										liveTools={liveTools()[item().turnId] ?? {}}
+										showToast={props.showToast}
+										zenMode={props.zenMode}
+									/>
+								</>
+							);
+						}}
+					</Index>
 				</box>
 			</Show>
 		</scrollbox>
