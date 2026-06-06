@@ -1,5 +1,12 @@
 import "../../runtime/custom-messages";
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import {
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	onCleanup,
+	Show,
+} from "solid-js";
 import { HEAVY_LINE } from "../glyphs";
 import { theme } from "../theme";
 import {
@@ -15,6 +22,7 @@ export type { TranscriptPaneProps } from "./types";
 
 export function TranscriptPane(props: TranscriptPaneProps) {
 	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
+	const displayItems = createMemo(() => groupItemsForDisplay(props.items));
 
 	createEffect(() => {
 		setLiveTools((prev) => reconcileLiveTools(prev, props.items));
@@ -118,20 +126,19 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				}
 			>
 				<box flexDirection="column" gap={0} width="100%">
-					<For each={groupItemsForDisplay(props.items)}>
+					<For each={displayItems()}>
 						{(displayItem, index) => {
-							const turnId = () =>
+							const turnId =
 								displayItem.kind === "single"
 									? displayItem.item.turnId
 									: displayItem.turnId;
-							const itemKind = () =>
-								displayItem.kind === "single"
-									? displayItem.item.kind
-									: "tool-group";
+							const isUser =
+								displayItem.kind === "single" &&
+								displayItem.item.kind === "user";
 							// Extra spacing before user messages for visual separation
 							const spacerHeight = () => {
 								if (index() === 0) return 0;
-								if (itemKind() === "user") return 2;
+								if (isUser) return 2;
 								return 1;
 							};
 							return (
@@ -141,7 +148,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 									</Show>
 									<TurnEntry
 										displayItem={displayItem}
-										liveTools={liveTools()[turnId()] ?? {}}
+										liveTools={liveTools()[turnId] ?? {}}
 										showToast={props.showToast}
 										zenMode={props.zenMode}
 									/>

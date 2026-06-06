@@ -1,5 +1,5 @@
-import { Show } from "solid-js";
-import type { ToolCall, ToolResultMessage } from "../../runtime/agent";
+import { createMemo, Show } from "solid-js";
+import type { ToolResultMessage } from "../../runtime/agent";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import {
 	AssistantEntry,
@@ -22,11 +22,12 @@ function ToolGroupEntry(props: {
 	zenMode?: boolean;
 }) {
 	// Merge tool calls and results from all items in the group
-	const allToolCalls = (): ToolCall[] =>
+	const allToolCalls = createMemo(() =>
 		props.items.flatMap(
 			(item) => extractAssistantParts(item.message).toolCalls,
-		);
-	const allToolResults = (): Map<string, ToolResultMessage> => {
+		),
+	);
+	const allToolResults = createMemo(() => {
 		const merged = new Map<string, ToolResultMessage>();
 		for (const item of props.items) {
 			for (const [id, result] of item.toolResults) {
@@ -34,8 +35,8 @@ function ToolGroupEntry(props: {
 			}
 		}
 		return merged;
-	};
-	const aborted = () => props.items.some((item) => item.aborted);
+	});
+	const aborted = createMemo(() => props.items.some((item) => item.aborted));
 
 	const allCompleted = () => {
 		const tcs = allToolCalls();
