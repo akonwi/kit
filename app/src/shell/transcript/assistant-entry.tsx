@@ -225,7 +225,6 @@ export function CompletedToolSummary(props: {
 			gap={0}
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
-			width="100%"
 		>
 			<box
 				flexDirection="row"

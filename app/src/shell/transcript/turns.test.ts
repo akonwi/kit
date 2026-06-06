@@ -27,11 +27,10 @@ function assistantItem(message: AssistantMessage): TranscriptItem {
 	};
 }
 
-let toolCallCounter = 0;
 function toolCall(name = "bash"): ToolCall {
 	return {
 		type: "toolCall",
-		id: `tool-${++toolCallCounter}`,
+		id: `tool-${crypto.randomUUID()}`,
 		name,
 		arguments: { command: "echo hidden" },
 	} as ToolCall;

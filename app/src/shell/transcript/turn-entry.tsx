@@ -44,6 +44,8 @@ function ToolGroupEntry(props: {
 		return tcs.length > 0 && tcs.every((tc) => results.has(tc.id));
 	};
 
+	if (allToolCalls().length === 0) return null;
+
 	return (
 		<Show when={!props.zenMode}>
 			<Show
