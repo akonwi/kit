@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kit Transcript Design Proposals — Finalists</title>
+<style>
+  :root {
+    --black: #0a0a0a;
+    --nearBlack: #171717;
+    --darkGray: #262626;
+    --midGray: #404040;
+    --gray: #a1a1a1;
+    --lightGray: #d4d4d4;
+    --offWhite: #fafafa;
+    --blue: #6cb6ff;
+    --green: #7ee787;
+    --red: #ff6467;
+    --amber: #ffb86a;
+    --purple: #8a6bbd;
+    --cyan: #7dcfff;
+    --rose: #e78a9a;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: #111;
+    color: var(--offWhite);
+    font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', monospace;
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 40px 20px;
+  }
+
+  h1 {
+    text-align: center;
+    font-size: 24px;
+    font-weight: 400;
+    color: var(--offWhite);
+    margin-bottom: 12px;
+    letter-spacing: 0.05em;
+  }
+  .subtitle {
+    text-align: center;
+    color: var(--gray);
+    margin-bottom: 48px;
+    font-size: 13px;
+  }
+
+  .proposals {
+    display: flex;
+    flex-direction: column;
+    gap: 64px;
+    max-width: 820px;
+    margin: 0 auto;
+  }
+
+  .proposal {
+    border: 1px solid var(--darkGray);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .proposal-header {
+    background: var(--nearBlack);
+    border-bottom: 1px solid var(--darkGray);
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .proposal-name {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--offWhite);
+  }
+  .proposal-tag {
+    font-size: 11px;
+    color: var(--gray);
+  }
+  .proposal-desc {
+    padding: 10px 16px;
+    color: var(--gray);
+    font-size: 12px;
+    background: var(--nearBlack);
+    border-bottom: 1px solid var(--darkGray);
+    line-height: 1.6;
+  }
+
+  .terminal {
+    background: var(--black);
+    padding: 16px;
+    min-height: 200px;
+  }
+
+  .text-primary { color: var(--offWhite); }
+  .text-muted { color: var(--gray); }
+  .text-placeholder { color: var(--midGray); }
+  .text-blue { color: var(--blue); }
+  .text-green { color: var(--green); }
+  .text-purple { color: var(--purple); }
+
+  code { font-family: inherit; }
+</style>
+</head>
+<body>
+
+<h1>Transcript Visual Refresh — Finalists</h1>
+<p class="subtitle">5 finalist proposals</p>
+
+<div class="proposals">
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- 2: Accent Bars -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="proposal">
+  <div class="proposal-header">
+    <span class="proposal-name">2 · Accent Bars</span>
+    <span class="proposal-tag">colored left-border per role</span>
+  </div>
+  <div class="proposal-desc">
+    Every entry type gets a continuous left-border in its role color. Tool calls are
+    indented inside the assistant bar. Dividers between turns.
+  </div>
+  <div class="terminal">
+    <div style="border-left: 2px solid var(--blue); padding-left: 12px;">
+      <span class="text-primary">How do I fix the auth middleware?</span>
+    </div>
+    <hr style="border:none; border-top: 1px dashed var(--darkGray); margin: 12px 0;">
+    <div style="border-left: 2px solid var(--midGray); padding-left: 12px;">
+      <div style="padding-left: 16px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Read</span> <span class="text-muted">app/src/middleware/auth.ts</span></div>
+        <div><span class="text-green">✓</span> <span class="text-green">Grep</span> <span class="text-muted">"validateToken" app/src/</span></div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">The issue is in <code>validateToken</code>. The token expiry check uses <code>&lt;</code> instead of <code>&lt;=</code>, causing tokens to expire one second early.</div>
+      <div style="height:12px"></div>
+      <div style="padding-left: 16px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Edit</span> <span class="text-muted">app/src/middleware/auth.ts</span></div>
+      </div>
+    </div>
+    <hr style="border:none; border-top: 1px dashed var(--darkGray); margin: 12px 0;">
+    <div style="border-left: 2px solid var(--blue); padding-left: 12px;">
+      <span class="text-primary">Can you also run the tests?</span>
+    </div>
+    <hr style="border:none; border-top: 1px dashed var(--darkGray); margin: 12px 0;">
+    <div style="border-left: 2px solid var(--midGray); padding-left: 12px;">
+      <div style="padding-left: 16px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Bash</span> <span class="text-muted">bun test src/middleware/</span></div>
+        <div style="padding-left: 24px;" class="text-muted">8 pass, 0 fail</div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">All tests pass.</div>
+      <div style="height:12px"></div>
+      <div style="padding-left: 16px;">
+        <div><span class="text-purple">✓</span> <span class="text-purple">subagent</span> <span class="text-muted">summarizer</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- 5: Grouped Turns -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="proposal">
+  <div class="proposal-header">
+    <span class="proposal-name">5 · Grouped Turns</span>
+    <span class="proposal-tag">user prompt + assistant response as one visual unit</span>
+  </div>
+  <div class="proposal-desc">
+    Each user→assistant exchange is one visual group. The user message is a bold header line,
+    followed by the assistant's work below. A solid rule separates groups.
+    Tool calls are dimmed and compact — the prose is the star.
+  </div>
+  <div class="terminal">
+    <div>
+      <div style="margin-bottom: 8px;"><span class="text-blue" style="font-weight:600;">›</span> <span class="text-blue">How do I fix the auth middleware?</span></div>
+      <div class="text-muted" style="font-size:12px;">
+        <span class="text-green" style="opacity:0.7;">✓</span> Read auth.ts · <span class="text-green" style="opacity:0.7;">✓</span> Grep "validateToken" · <span class="text-green" style="opacity:0.7;">✓</span> Edit auth.ts
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">The issue is in <code>validateToken</code>. The token expiry check uses <code>&lt;</code> instead of <code>&lt;=</code>, causing tokens to expire one second early.</div>
+    </div>
+    <hr style="border:none; border-top: 1px solid var(--darkGray); margin: 20px 0;">
+    <div>
+      <div style="margin-bottom: 8px;"><span class="text-blue" style="font-weight:600;">›</span> <span class="text-blue">Can you also run the tests?</span></div>
+      <div class="text-muted" style="font-size:12px;">
+        <span class="text-green" style="opacity:0.7;">✓</span> Bash bun test → 8 pass · <span class="text-purple" style="opacity:0.7;">✓</span> subagent summarizer
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">All tests pass.</div>
+    </div>
+    <hr style="border:none; border-top: 1px solid var(--darkGray); margin: 20px 0;">
+    <div>
+      <div style="margin-bottom: 8px;"><span class="text-blue" style="font-weight:600;">›</span> <span class="text-blue">Deploy to staging</span></div>
+      <div class="text-muted" style="font-size:12px;">
+        <span class="text-green" style="opacity:0.7;">✓</span> Bash ./deploy.sh staging
+      </div>
+      <div style="height:6px"></div>
+      <div style="padding-left: 16px; font-size: 12px;" class="text-muted">
+        Building... done<br>
+        Uploading artifacts... done<br>
+        Health check passed
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">Deployed to staging successfully. The health check endpoint is returning 200.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- 9: Tool Drawer -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="proposal">
+  <div class="proposal-header">
+    <span class="proposal-name">9 · Tool Drawer</span>
+    <span class="proposal-tag">collapsible tool block, prose-forward</span>
+  </div>
+  <div class="proposal-desc">
+    Tool calls are grouped into a single collapsible "drawer" line showing a summary count.
+    Prose stands alone as the primary content. User messages keep the blue left-border.
+    Clicking the drawer expands to full tool detail.
+  </div>
+  <div class="terminal">
+    <div style="border-left: 2px solid var(--blue); padding-left: 12px;">
+      <span class="text-primary">How do I fix the auth middleware?</span>
+    </div>
+    <div style="height:20px"></div>
+    <div style="padding: 4px 8px; background: var(--nearBlack); border-radius: 2px; display: inline-block;">
+      <span class="text-muted">▸</span> <span class="text-muted" style="font-size:12px;">3 tool calls</span> <span class="text-placeholder" style="font-size:11px; margin-left:8px;">Read · Grep · Edit</span>
+    </div>
+    <div style="height:12px"></div>
+    <div class="text-primary">The issue is in <code>validateToken</code>. The token expiry check uses <code>&lt;</code> instead of <code>&lt;=</code>, causing tokens to expire one second early.</div>
+    <div style="height:28px"></div>
+    <div style="border-left: 2px solid var(--blue); padding-left: 12px;">
+      <span class="text-primary">Can you also run the tests?</span>
+    </div>
+    <div style="height:20px"></div>
+    <div style="background: var(--nearBlack); border-radius: 2px; padding: 6px 8px;">
+      <div><span class="text-muted">▾</span> <span class="text-muted" style="font-size:12px;">2 tool calls</span></div>
+      <div style="padding-left: 16px; padding-top: 4px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Bash</span> <span class="text-muted">bun test src/middleware/</span></div>
+        <div style="padding-left:24px" class="text-muted">8 pass, 0 fail</div>
+        <div style="height:4px"></div>
+        <div><span class="text-purple">✓</span> <span class="text-purple">subagent</span> <span class="text-muted">summarizer</span></div>
+      </div>
+    </div>
+    <div style="height:12px"></div>
+    <div class="text-primary">All tests pass.</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- 10: Two-Tone -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="proposal">
+  <div class="proposal-header">
+    <span class="proposal-name">10 · Two-Tone</span>
+    <span class="proposal-tag">alternating background per role</span>
+  </div>
+  <div class="proposal-desc">
+    User messages sit on bgSurface. Assistant content sits on default black.
+    The alternation creates a natural rhythm without any borders or dividers.
+    Tool calls are indented within the assistant band.
+  </div>
+  <div class="terminal" style="padding: 0;">
+    <div style="background: var(--nearBlack); padding: 10px 16px;">
+      <span class="text-primary">How do I fix the auth middleware?</span>
+    </div>
+    <div style="background: var(--black); padding: 10px 16px;">
+      <div style="padding-left: 12px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Read</span> <span class="text-muted">app/src/middleware/auth.ts</span></div>
+        <div><span class="text-green">✓</span> <span class="text-green">Grep</span> <span class="text-muted">"validateToken" app/src/</span></div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">The issue is in <code>validateToken</code>. The token expiry check uses <code>&lt;</code> instead of <code>&lt;=</code>, causing tokens to expire one second early.</div>
+      <div style="height:12px"></div>
+      <div style="padding-left: 12px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Edit</span> <span class="text-muted">app/src/middleware/auth.ts</span></div>
+      </div>
+    </div>
+    <div style="background: var(--nearBlack); padding: 10px 16px;">
+      <span class="text-primary">Can you also run the tests?</span>
+    </div>
+    <div style="background: var(--black); padding: 10px 16px;">
+      <div style="padding-left: 12px;">
+        <div><span class="text-green">✓</span> <span class="text-green">Bash</span> <span class="text-muted">bun test src/middleware/</span></div>
+        <div style="padding-left:24px" class="text-muted">8 pass, 0 fail</div>
+      </div>
+      <div style="height:12px"></div>
+      <div class="text-primary">All tests pass.</div>
+      <div style="height:12px"></div>
+      <div style="padding-left: 12px;">
+        <div><span class="text-purple">✓</span> <span class="text-purple">subagent</span> <span class="text-muted">summarizer</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════ -->
+<!-- 12: Dialogue -->
+<!-- ════════════════════════════════════════════════════════════════ -->
+<div class="proposal">
+  <div class="proposal-header">
+    <span class="proposal-name">12 · Dialogue</span>
+    <span class="proposal-tag">right-aligned user, left-aligned assistant</span>
+  </div>
+  <div class="proposal-desc">
+    User messages are right-aligned with a blue background — like a chat app but in the terminal.
+    Assistant content is left-aligned on default background. The asymmetry instantly communicates
+    who is speaking. Tool calls are tucked under the assistant side in muted text.
+  </div>
+  <div class="terminal">
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+      <div style="background: #1a2a3d; padding: 6px 12px; border-radius: 3px; max-width: 70%;">
+        <span class="text-primary">How do I fix the auth middleware?</span>
+      </div>
+    </div>
+    <div style="max-width: 85%; margin-bottom: 8px;">
+      <div style="margin-bottom: 6px;">
+        <span class="text-green" style="font-size: 12px;">✓</span> <span class="text-muted" style="font-size: 12px;">Read auth.ts · Grep "validateToken" · Edit auth.ts</span>
+      </div>
+      <div class="text-primary">
+        The issue is in <code>validateToken</code>. The token expiry check uses <code>&lt;</code> instead of <code>&lt;=</code>, causing tokens to expire one second early.
+      </div>
+    </div>
+    <div style="height: 20px;"></div>
+    <div style="display: flex; justify-content: flex-end; margin-bottom: 20px;">
+      <div style="background: #1a2a3d; padding: 6px 12px; border-radius: 3px; max-width: 70%;">
+        <span class="text-primary">Can you also run the tests?</span>
+      </div>
+    </div>
+    <div style="max-width: 85%;">
+      <div style="margin-bottom: 6px;">
+        <span class="text-green" style="font-size: 12px;">✓</span> <span class="text-muted" style="font-size: 12px;">Bash bun test → 8 pass</span>
+        <span style="margin: 0 4px;" class="text-placeholder">·</span>
+        <span class="text-purple" style="font-size: 12px;">✓</span> <span class="text-muted" style="font-size: 12px;">subagent summarizer</span>
+      </div>
+      <div class="text-primary">All tests pass.</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /proposals -->
+
+<div style="height: 80px;"></div>
+
+</body>
+</html>
