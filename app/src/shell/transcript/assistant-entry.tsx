@@ -1,6 +1,13 @@
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
-import { createSignal, For, Show } from "solid-js";
+import {
+	type Accessor,
+	createMemo,
+	createSignal,
+	For,
+	type Setter,
+	Show,
+} from "solid-js";
 import type {
 	AssistantMessage,
 	ToolCall,
@@ -26,9 +33,30 @@ import {
 } from "./turns";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
+const MAX_VISIBLE_TOOLS = 8;
 
 function toolAccentColor(toolName: string): string {
 	return toolName === "subagent" ? theme.subagentText : theme.toolText;
+}
+
+/**
+ * Module-level store for ToolDrawer expansion state, keyed by a stable
+ * drawerId derived from the underlying transcript item id. This preserves
+ * user-toggled expansion across remounts triggered by new tool calls
+ * arriving in the same group.
+ */
+const drawerExpansionSignals = new Map<
+	string,
+	[Accessor<boolean>, Setter<boolean>]
+>();
+
+function useDrawerExpansion(id: string): [Accessor<boolean>, Setter<boolean>] {
+	let entry = drawerExpansionSignals.get(id);
+	if (!entry) {
+		entry = createSignal(false);
+		drawerExpansionSignals.set(id, entry);
+	}
+	return entry;
 }
 
 function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
@@ -192,32 +220,51 @@ function CompletedToolCall(props: {
 }
 
 /**
- * Collapsible tool drawer chip.
- * Collapsed: ▸ N tool calls  Read · Grep · Edit  (on bgSurface)
- * Expanded: ▾ N tool calls  with full tool details indented below
+ * Universal collapsible tool drawer.
+ *
+ * Renders all tool calls (in-progress and completed) in a single bgSurface
+ * chip with a count + tool-name summary. A spinner is appended while any
+ * call is still running.
+ *
+ * Collapsed (default): ▸ N tool calls  Read · Grep · Edit  [spinner]
+ * Expanded:            ▾ N tool calls  [spinner]
+ *                        · per-tool detail rows (Pending/Live/Completed)
  */
-export function CompletedToolSummary(props: {
+export function ToolDrawer(props: {
+	/**
+	 * Stable identifier (typically the originating transcript item id) used to
+	 * persist expansion state across remounts when new tool calls stream into
+	 * the same group.
+	 */
+	drawerId: string;
 	toolCalls: ToolCall[];
 	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(false);
+	const [expanded, setExpanded] = useDrawerExpansion(props.drawerId);
 	const renderer = useRenderer();
 
-	const MAX_VISIBLE_TOOLS = 8;
+	const countLabel = createMemo(
+		() =>
+			`${props.toolCalls.length} tool call${props.toolCalls.length === 1 ? "" : "s"}`,
+	);
 
-	const count = () => props.toolCalls.length;
-	const countLabel = () => `${count()} tool call${count() === 1 ? "" : "s"}`;
+	const inProgress = createMemo(
+		() =>
+			!props.aborted &&
+			props.toolCalls.some((tc) => !props.toolResults.has(tc.id)),
+	);
 
-	// Safe to read non-reactively: this component only mounts when all
-	// tool calls are completed, so all results are present at mount time.
-	const toolNameSummary = () => {
-		const visible = props.toolCalls.slice(0, MAX_VISIBLE_TOOLS);
-		const overflow = props.toolCalls.length - MAX_VISIBLE_TOOLS;
-		const names = visible.map((tc) => tc.name);
-		const joined = names.join(` ${MIDDLE_DOT} `);
-		return overflow > 0 ? `${joined} ${MIDDLE_DOT} +${overflow} more` : joined;
-	};
+	const visibleToolCalls = createMemo(() =>
+		props.toolCalls.slice(0, MAX_VISIBLE_TOOLS),
+	);
+	const overflowCount = createMemo(() =>
+		Math.max(0, props.toolCalls.length - MAX_VISIBLE_TOOLS),
+	);
+
+	const nameColor = (toolName: string) =>
+		toolName === "subagent" ? theme.subagentText : theme.textPlaceholder;
 
 	return (
 		<box
@@ -239,7 +286,26 @@ export function CompletedToolSummary(props: {
 				</text>
 				<text fg={theme.textMuted}>{countLabel()}</text>
 				<Show when={!expanded()}>
-					<text fg={theme.textPlaceholder}>{toolNameSummary()}</text>
+					<box flexDirection="row" gap={0}>
+						<For each={visibleToolCalls()}>
+							{(tc, i) => (
+								<>
+									<Show when={i() > 0}>
+										<text fg={theme.textPlaceholder}>{` ${MIDDLE_DOT} `}</text>
+									</Show>
+									<text fg={nameColor(tc.name)}>{tc.name}</text>
+								</>
+							)}
+						</For>
+						<Show when={overflowCount() > 0}>
+							<text fg={theme.textPlaceholder}>
+								{` ${MIDDLE_DOT} +${overflowCount()} more`}
+							</text>
+						</Show>
+					</box>
+				</Show>
+				<Show when={inProgress()}>
+					<InlineSpinner />
 				</Show>
 			</box>
 			<Show when={expanded()}>
@@ -247,8 +313,31 @@ export function CompletedToolSummary(props: {
 					<For each={props.toolCalls}>
 						{(tc) => {
 							const result = () => props.toolResults.get(tc.id);
+							const liveTool = () => props.liveTools[tc.id];
 							return (
-								<Show when={result()}>
+								<Show
+									when={result()}
+									fallback={
+										<Show
+											when={liveTool()}
+											fallback={
+												<PendingToolCall tc={tc} aborted={props.aborted} />
+											}
+										>
+											{(live) => (
+												<LiveToolCall
+													tc={tc}
+													args={live().args}
+													partialResult={live().partialResult}
+													result={live().result}
+													isError={live().isError}
+													state={live().state}
+													aborted={props.aborted}
+												/>
+											)}
+										</Show>
+									}
+								>
 									{(r) => (
 										<CompletedToolCall
 											tc={tc}
@@ -266,60 +355,9 @@ export function CompletedToolSummary(props: {
 	);
 }
 
-/**
- * In-progress tool calls: show live/pending rows for tools that are still running,
- * plus a compact summary for any already completed.
- */
-export function InProgressToolCalls(props: {
-	toolCalls: ToolCall[];
-	toolResults: Map<string, ToolResultMessage>;
-	liveTools: LiveToolsForTurn;
-	aborted?: boolean;
-}) {
-	return (
-		<box flexDirection="column" gap={0} width="100%">
-			<For each={props.toolCalls}>
-				{(tc) => {
-					const result = () => props.toolResults.get(tc.id);
-					const liveTool = () => props.liveTools[tc.id];
-					return (
-						<Show
-							when={result()}
-							fallback={
-								<Show
-									when={liveTool()}
-									fallback={<PendingToolCall tc={tc} aborted={props.aborted} />}
-								>
-									{(live) => (
-										<LiveToolCall
-											tc={tc}
-											args={live().args}
-											partialResult={live().partialResult}
-											result={live().result}
-											isError={live().isError}
-											state={live().state}
-											aborted={props.aborted}
-										/>
-									)}
-								</Show>
-							}
-						>
-							{(r) => (
-								<CompletedToolCall
-									tc={tc}
-									result={r()}
-									aborted={props.aborted}
-								/>
-							)}
-						</Show>
-					);
-				}}
-			</For>
-		</box>
-	);
-}
-
 export function AssistantEntry(props: {
+	/** Stable id of the underlying transcript item, used for drawer state. */
+	itemId: string;
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
@@ -338,10 +376,6 @@ export function AssistantEntry(props: {
 	const hasToolCalls = toolCalls.length > 0;
 	const hasText = text.length > 0;
 
-	// All tool calls are completed when every tool call has a result
-	const allCompleted = () =>
-		hasToolCalls && toolCalls.every((tc) => props.toolResults.has(tc.id));
-
 	return (
 		<box
 			flexDirection="column"
@@ -349,23 +383,13 @@ export function AssistantEntry(props: {
 			width="100%"
 		>
 			<Show when={!props.zenMode && hasToolCalls}>
-				<Show
-					when={allCompleted()}
-					fallback={
-						<InProgressToolCalls
-							toolCalls={toolCalls}
-							toolResults={props.toolResults}
-							liveTools={props.liveTools}
-							aborted={props.aborted}
-						/>
-					}
-				>
-					<CompletedToolSummary
-						toolCalls={toolCalls}
-						toolResults={props.toolResults}
-						aborted={props.aborted}
-					/>
-				</Show>
+				<ToolDrawer
+					drawerId={props.itemId}
+					toolCalls={toolCalls}
+					toolResults={props.toolResults}
+					liveTools={props.liveTools}
+					aborted={props.aborted}
+				/>
 			</Show>
 			<Show when={hasText}>
 				<markdown
