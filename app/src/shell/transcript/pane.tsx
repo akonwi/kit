@@ -8,6 +8,7 @@ import {
 	upsertLiveTool,
 } from "../transcript-live-tools";
 import { TurnEntry } from "./turn-entry";
+import { groupItemsForDisplay } from "./turns";
 import type { TranscriptPaneProps } from "./types";
 
 export type { TranscriptPaneProps } from "./types";
@@ -117,20 +118,20 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				}
 			>
 				<box flexDirection="column" gap={0} width="100%">
-					<For each={props.items}>
-						{(item, index) => {
-							const prevItem = () => {
-								const i = index();
-								return i > 0 ? props.items[i - 1] : undefined;
-							};
-							const isNewTurn = () => {
-								const prev = prevItem();
-								return prev !== undefined && prev.turnId !== item.turnId;
-							};
+					<For each={groupItemsForDisplay(props.items)}>
+						{(displayItem, index) => {
+							const turnId = () =>
+								displayItem.kind === "single"
+									? displayItem.item.turnId
+									: displayItem.turnId;
+							const itemKind = () =>
+								displayItem.kind === "single"
+									? displayItem.item.kind
+									: "tool-group";
 							// Extra spacing before user messages for visual separation
 							const spacerHeight = () => {
 								if (index() === 0) return 0;
-								if (item.kind === "user" || isNewTurn()) return 2;
+								if (itemKind() === "user") return 2;
 								return 1;
 							};
 							return (
@@ -139,8 +140,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 										<box height={spacerHeight()} />
 									</Show>
 									<TurnEntry
-										item={item}
-										liveTools={liveTools()[item.turnId] ?? {}}
+										displayItem={displayItem}
+										liveTools={liveTools()[turnId()] ?? {}}
 										showToast={props.showToast}
 										zenMode={props.zenMode}
 									/>

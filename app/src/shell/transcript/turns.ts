@@ -296,3 +296,70 @@ export function isHandoffSummaryMessage(
 export function isAssistantError(msg: AssistantMessage): boolean {
 	return msg.stopReason === "error" && !!msg.errorMessage;
 }
+
+function isToolOnlyAssistantItem(
+	item: TranscriptItem,
+): item is Extract<TranscriptItem, { kind: "assistant" }> {
+	if (item.kind !== "assistant") return false;
+	if (isAssistantError(item.message)) return false;
+	const { text, toolCalls } = extractAssistantParts(item.message);
+	return toolCalls.length > 0 && text.trim().length === 0;
+}
+
+/**
+ * A display-level item: either a single transcript item or a group of
+ * consecutive tool-only assistant items merged into one drawer.
+ */
+export type DisplayItem =
+	| { kind: "single"; item: TranscriptItem }
+	| {
+			kind: "tool-group";
+			items: Extract<TranscriptItem, { kind: "assistant" }>[];
+			turnId: string;
+	  };
+
+/**
+ * Groups consecutive tool-only assistant items within the same turn
+ * into a single display group so they render as one drawer.
+ */
+export function groupItemsForDisplay(items: TranscriptItem[]): DisplayItem[] {
+	const result: DisplayItem[] = [];
+	let pendingGroup: Extract<TranscriptItem, { kind: "assistant" }>[] = [];
+	let pendingTurnId = "";
+
+	function flushGroup() {
+		if (pendingGroup.length === 0) return;
+		if (pendingGroup.length === 1) {
+			result.push({ kind: "single", item: pendingGroup[0] });
+		} else {
+			result.push({
+				kind: "tool-group",
+				items: pendingGroup,
+				turnId: pendingTurnId,
+			});
+		}
+		pendingGroup = [];
+		pendingTurnId = "";
+	}
+
+	for (const item of items) {
+		if (
+			isToolOnlyAssistantItem(item) &&
+			(pendingGroup.length === 0 || item.turnId === pendingTurnId)
+		) {
+			pendingGroup.push(item);
+			pendingTurnId = item.turnId;
+		} else {
+			flushGroup();
+			if (isToolOnlyAssistantItem(item)) {
+				pendingGroup.push(item);
+				pendingTurnId = item.turnId;
+			} else {
+				result.push({ kind: "single", item });
+			}
+		}
+	}
+	flushGroup();
+
+	return result;
+}

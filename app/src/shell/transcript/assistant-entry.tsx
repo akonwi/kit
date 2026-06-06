@@ -196,7 +196,7 @@ function CompletedToolCall(props: {
  * Collapsed: ▸ N tool calls  Read · Grep · Edit  (on bgSurface)
  * Expanded: ▾ N tool calls  with full tool details indented below
  */
-function CompletedToolSummary(props: {
+export function CompletedToolSummary(props: {
 	toolCalls: ToolCall[];
 	toolResults: Map<string, ToolResultMessage>;
 	aborted?: boolean;
@@ -271,7 +271,7 @@ function CompletedToolSummary(props: {
  * In-progress tool calls: show live/pending rows for tools that are still running,
  * plus a compact summary for any already completed.
  */
-function InProgressToolCalls(props: {
+export function InProgressToolCalls(props: {
 	toolCalls: ToolCall[];
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
