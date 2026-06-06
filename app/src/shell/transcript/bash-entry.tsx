@@ -13,8 +13,8 @@ import type { BashExecutionMessage } from "./turns";
 
 export function BashEntry(props: { msg: BashExecutionMessage }) {
 	const [expanded, setExpanded] = createSignal(true);
-	const outputLines = () =>
-		props.msg.output.length > 0 ? props.msg.output.split("\n") : [];
+	const output = () => props.msg.output ?? "";
+	const outputLines = () => (output().length > 0 ? output().split("\n") : []);
 	const hasOutput = () => outputLines().length > 0;
 	const prefix = () =>
 		props.msg.pending
