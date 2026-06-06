@@ -197,6 +197,26 @@ function CompletedToolSummary(props: {
 	const [expanded, setExpanded] = createSignal(false);
 	const renderer = useRenderer();
 
+	const MAX_VISIBLE_TOOLS = 8;
+
+	// Safe to read non-reactively: this component only mounts when all
+	// tool calls are completed, so all results are present at mount time.
+	const summaryText = () => {
+		const visible = props.toolCalls.slice(0, MAX_VISIBLE_TOOLS);
+		const overflow = props.toolCalls.length - MAX_VISIBLE_TOOLS;
+		const parts = visible.map((tc) => {
+			const result = props.toolResults.get(tc.id);
+			const glyph = props.aborted
+				? CIRCLE_SLASH
+				: result?.isError
+					? CROSS
+					: CHECK;
+			return `${glyph} ${tc.name}`;
+		});
+		const joined = parts.join(` ${MIDDLE_DOT} `);
+		return overflow > 0 ? `${joined} ${MIDDLE_DOT} +${overflow} more` : joined;
+	};
+
 	return (
 		<box flexDirection="column" gap={0} width="100%">
 			<box
@@ -207,19 +227,7 @@ function CompletedToolSummary(props: {
 					setExpanded(!expanded());
 				}}
 			>
-				<text fg={theme.textMuted}>
-					{props.toolCalls
-						.map((tc) => {
-							const result = props.toolResults.get(tc.id);
-							const glyph = props.aborted
-								? CIRCLE_SLASH
-								: result?.isError
-									? CROSS
-									: CHECK;
-							return `${glyph} ${tc.name}`;
-						})
-						.join(` ${MIDDLE_DOT} `)}
-				</text>
+				<text fg={theme.textMuted}>{summaryText()}</text>
 				<text fg={theme.metaText}>
 					{" "}
 					{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
@@ -229,9 +237,9 @@ function CompletedToolSummary(props: {
 				<box paddingLeft={2} flexDirection="column" gap={0}>
 					<For each={props.toolCalls}>
 						{(tc) => {
-							const result = props.toolResults.get(tc.id);
+							const result = () => props.toolResults.get(tc.id);
 							return (
-								<Show when={result}>
+								<Show when={result()}>
 									{(r) => (
 										<CompletedToolCall
 											tc={tc}
