@@ -1,6 +1,6 @@
 import "../../runtime/custom-messages";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import { HEAVY_LINE, HORIZONTAL_LINE } from "../glyphs";
+import { HEAVY_LINE } from "../glyphs";
 import { theme } from "../theme";
 import {
 	type LiveToolExecutionMap,
@@ -11,29 +11,6 @@ import { TurnEntry } from "./turn-entry";
 import type { TranscriptPaneProps } from "./types";
 
 export type { TranscriptPaneProps } from "./types";
-
-function TurnDivider() {
-	const [width, setWidth] = createSignal(0);
-	let ref: { width: number; height: number } | undefined;
-	return (
-		<box
-			ref={(value) => {
-				ref = value as typeof ref;
-				if (ref) setWidth(ref.width);
-			}}
-			onSizeChange={() => {
-				if (ref) setWidth(ref.width);
-			}}
-			width="100%"
-			paddingY={1}
-			justifyContent="center"
-		>
-			<text fg={theme.borderDefault}>
-				{HORIZONTAL_LINE.repeat(Math.max(0, width() - 2))}
-			</text>
-		</box>
-	);
-}
 
 export function TranscriptPane(props: TranscriptPaneProps) {
 	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
@@ -146,17 +123,20 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 								const i = index();
 								return i > 0 ? props.items[i - 1] : undefined;
 							};
-							const showDivider = () => {
+							const isNewTurn = () => {
 								const prev = prevItem();
 								return prev !== undefined && prev.turnId !== item.turnId;
 							};
+							// Extra spacing before user messages for visual separation
+							const spacerHeight = () => {
+								if (index() === 0) return 0;
+								if (item.kind === "user" || isNewTurn()) return 2;
+								return 1;
+							};
 							return (
 								<>
-									<Show when={showDivider()}>
-										<TurnDivider />
-									</Show>
-									<Show when={index() > 0 && !showDivider()}>
-										<box height={1} />
+									<Show when={spacerHeight() > 0}>
+										<box height={spacerHeight()} />
 									</Show>
 									<TurnEntry
 										item={item}

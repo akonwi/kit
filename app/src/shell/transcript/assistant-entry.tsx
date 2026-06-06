@@ -27,6 +27,10 @@ import {
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
+function toolAccentColor(toolName: string): string {
+	return toolName === "subagent" ? theme.subagentText : theme.toolText;
+}
+
 function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 	return (
 		<box flexDirection="row" gap={1}>
@@ -37,7 +41,7 @@ function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 				<InlineSpinner />
 			</Show>
 			<text
-				fg={props.aborted ? theme.textMuted : theme.toolText}
+				fg={props.aborted ? theme.textMuted : toolAccentColor(props.tc.name)}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
 				{props.tc.name}
@@ -76,10 +80,11 @@ function LiveToolCall(props: {
 		if (props.state !== "ended") return null;
 		return props.isError ? CROSS : CHECK;
 	};
+	const accent = () => toolAccentColor(props.tc.name);
 	const headerColor = () => {
 		if (props.aborted) return theme.textMuted;
-		if (props.state !== "ended") return theme.toolText;
-		return props.isError ? theme.errorText : theme.toolText;
+		if (props.state !== "ended") return accent();
+		return props.isError ? theme.errorText : accent();
 	};
 	const toolArgs = () =>
 		typeof props.args === "object" && props.args !== null
@@ -136,11 +141,12 @@ function CompletedToolCall(props: {
 		: props.result.isError
 			? CROSS
 			: CHECK;
+	const accent = toolAccentColor(props.tc.name);
 	const headerColor = props.aborted
 		? theme.textMuted
 		: props.result.isError
 			? theme.errorText
-			: theme.toolText;
+			: accent;
 	const hasOutput = lines.length > 0;
 
 	const displayLines = () => {
@@ -186,8 +192,9 @@ function CompletedToolCall(props: {
 }
 
 /**
- * Compact summary line for completed tool calls.
- * Renders as: ✓ Read · ✓ Grep · ✓ Edit (expandable to full detail)
+ * Collapsible tool drawer chip.
+ * Collapsed: ▸ N tool calls  Read · Grep · Edit  (on bgSurface)
+ * Expanded: ▾ N tool calls  with full tool details indented below
  */
 function CompletedToolSummary(props: {
 	toolCalls: ToolCall[];
@@ -199,39 +206,42 @@ function CompletedToolSummary(props: {
 
 	const MAX_VISIBLE_TOOLS = 8;
 
+	const count = () => props.toolCalls.length;
+	const countLabel = () => `${count()} tool call${count() === 1 ? "" : "s"}`;
+
 	// Safe to read non-reactively: this component only mounts when all
 	// tool calls are completed, so all results are present at mount time.
-	const summaryText = () => {
+	const toolNameSummary = () => {
 		const visible = props.toolCalls.slice(0, MAX_VISIBLE_TOOLS);
 		const overflow = props.toolCalls.length - MAX_VISIBLE_TOOLS;
-		const parts = visible.map((tc) => {
-			const result = props.toolResults.get(tc.id);
-			const glyph = props.aborted
-				? CIRCLE_SLASH
-				: result?.isError
-					? CROSS
-					: CHECK;
-			return `${glyph} ${tc.name}`;
-		});
-		const joined = parts.join(` ${MIDDLE_DOT} `);
+		const names = visible.map((tc) => tc.name);
+		const joined = names.join(` ${MIDDLE_DOT} `);
 		return overflow > 0 ? `${joined} ${MIDDLE_DOT} +${overflow} more` : joined;
 	};
 
 	return (
-		<box flexDirection="column" gap={0} width="100%">
+		<box
+			flexDirection="column"
+			gap={0}
+			backgroundColor={theme.bgSurface}
+			paddingX={1}
+			width="100%"
+		>
 			<box
 				flexDirection="row"
-				gap={0}
+				gap={1}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
 					setExpanded(!expanded());
 				}}
 			>
-				<text fg={theme.textMuted}>{summaryText()}</text>
-				<text fg={theme.metaText}>
-					{" "}
+				<text fg={theme.textMuted}>
 					{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 				</text>
+				<text fg={theme.textMuted}>{countLabel()}</text>
+				<Show when={!expanded()}>
+					<text fg={theme.textPlaceholder}>{toolNameSummary()}</text>
+				</Show>
 			</box>
 			<Show when={expanded()}>
 				<box paddingLeft={2} flexDirection="column" gap={0}>

@@ -179,6 +179,7 @@ export function buildSystemTheme(colors: TerminalColors): ResolvedTheme {
 			reviewText: magenta,
 			errorText: red,
 			warningText: yellow,
+			subagentText: magenta,
 			debugLabel: magenta,
 
 			metaText: cyan,
