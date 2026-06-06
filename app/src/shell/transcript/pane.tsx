@@ -1,5 +1,5 @@
 import "../../runtime/custom-messages";
-import { createEffect, createSignal, Index, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
 import { HEAVY_LINE, HORIZONTAL_LINE } from "../glyphs";
 import { theme } from "../theme";
 import {
@@ -140,32 +140,34 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				}
 			>
 				<box flexDirection="column" gap={0} width="100%">
-					<Index each={props.items}>
+					<For each={props.items}>
 						{(item, index) => {
-							const prevItem = () =>
-								index > 0 ? props.items[index - 1] : undefined;
+							const prevItem = () => {
+								const i = index();
+								return i > 0 ? props.items[i - 1] : undefined;
+							};
 							const showDivider = () => {
 								const prev = prevItem();
-								return prev !== undefined && prev.turnId !== item().turnId;
+								return prev !== undefined && prev.turnId !== item.turnId;
 							};
 							return (
 								<>
 									<Show when={showDivider()}>
 										<TurnDivider />
 									</Show>
-									<Show when={index > 0 && !showDivider()}>
+									<Show when={index() > 0 && !showDivider()}>
 										<box height={1} />
 									</Show>
 									<TurnEntry
-										item={item()}
-										liveTools={liveTools()[item().turnId] ?? {}}
+										item={item}
+										liveTools={liveTools()[item.turnId] ?? {}}
 										showToast={props.showToast}
 										zenMode={props.zenMode}
 									/>
 								</>
 							);
 						}}
-					</Index>
+					</For>
 				</box>
 			</Show>
 		</scrollbox>
