@@ -383,6 +383,7 @@ export function App(props: AppProps) {
 							footer={current.footer}
 							header={current.header}
 							overlays={overlays}
+							openOverlay={openCustomOverlay}
 							dismissToast={current.app.dismissToast}
 							onTranscriptViewportChange={setTranscriptViewport}
 							showToast={current.app.showToast}

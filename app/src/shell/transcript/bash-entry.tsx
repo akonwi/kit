@@ -11,7 +11,10 @@ import { syntaxStyle, theme } from "../theme";
 import { InlineSpinner } from "./inline-spinner";
 import type { BashExecutionMessage } from "./turns";
 
-export function BashEntry(props: { msg: BashExecutionMessage }) {
+export function BashEntry(props: {
+	msg: BashExecutionMessage;
+	noTruncate?: boolean;
+}) {
 	const [expanded, setExpanded] = createSignal(true);
 	const output = () => props.msg.output ?? "";
 	const outputLines = () => (output().length > 0 ? output().split("\n") : []);
@@ -35,7 +38,7 @@ export function BashEntry(props: { msg: BashExecutionMessage }) {
 
 	const displayLines = () => {
 		if (!expanded()) return [];
-		if (outputLines().length > 20) {
+		if (!props.noTruncate && outputLines().length > 20) {
 			return [
 				...outputLines().slice(0, 18),
 				`  ... (${outputLines().length - 18} more lines)`,

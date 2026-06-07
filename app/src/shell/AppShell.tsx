@@ -27,6 +27,7 @@ import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
+import type { OpenOverlay } from "./transcript/types";
 
 const STATUS_BAR_HEIGHT = 1;
 
@@ -40,6 +41,7 @@ export type AppShellProps = {
 	footer: FooterStatusController;
 	header: HeaderStatusController;
 	overlays: () => OverlayEntry[];
+	openOverlay: OpenOverlay;
 	dismissToast: (id: number) => void;
 	onTranscriptViewportChange: (viewport: {
 		width: number;
@@ -138,7 +140,11 @@ function AppShellContent(props: AppShellContentProps) {
 					});
 				}}
 			>
-				<Transcript runtime={props.runtime} showToast={props.showToast} />
+				<Transcript
+					runtime={props.runtime}
+					showToast={props.showToast}
+					openOverlay={props.openOverlay}
+				/>
 			</box>
 
 			<box flexShrink={0} flexDirection="column" gap={0}>
@@ -217,6 +223,7 @@ export function AppShell(props: AppShellProps) {
 				footer={props.footer}
 				header={props.header}
 				overlays={props.overlays}
+				openOverlay={props.openOverlay}
 				dismissToast={props.dismissToast}
 				onTranscriptViewportChange={props.onTranscriptViewportChange}
 				showToast={props.showToast}

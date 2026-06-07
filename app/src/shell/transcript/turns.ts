@@ -250,24 +250,28 @@ export function extractToolResultLines(msg: ToolResultMessage): string[] {
 
 const MAX_TOOL_ARG_SUMMARY_LENGTH = 80;
 
-function summarizeToolArg(value: string): string {
+function summarizeToolArg(value: string, full: boolean): string {
 	const singleLine = value.replace(/\s+/g, " ").trim();
-	if (singleLine.length <= MAX_TOOL_ARG_SUMMARY_LENGTH) {
+	if (full || singleLine.length <= MAX_TOOL_ARG_SUMMARY_LENGTH) {
 		return singleLine;
 	}
 	return `${singleLine.slice(0, MAX_TOOL_ARG_SUMMARY_LENGTH - 3)}...`;
 }
 
-export function formatToolArgs(args?: Record<string, unknown>): string {
+export function formatToolArgs(
+	args?: Record<string, unknown>,
+	options: { full?: boolean } = {},
+): string {
 	if (!args) return "";
+	const full = options.full ?? false;
 	if ("command" in args && typeof args.command === "string") {
-		return ` ${summarizeToolArg(args.command)}`;
+		return ` ${summarizeToolArg(args.command, full)}`;
 	}
 	if ("path" in args && typeof args.path === "string") {
-		return ` ${summarizeToolArg(args.path)}`;
+		return ` ${summarizeToolArg(args.path, full)}`;
 	}
 	if ("agent" in args && typeof args.agent === "string") {
-		return ` ${summarizeToolArg(args.agent)}`;
+		return ` ${summarizeToolArg(args.agent, full)}`;
 	}
 	return "";
 }

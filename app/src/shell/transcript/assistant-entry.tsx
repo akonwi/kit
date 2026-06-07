@@ -1,11 +1,14 @@
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
+import type { JSX } from "solid-js";
 import { createSignal, For, Show } from "solid-js";
+import type { OverlayComponentProps } from "../../app/overlay-ui";
 import type {
 	AssistantMessage,
 	ToolCall,
 	ToolResultMessage,
 } from "../../runtime/agent";
+import type { AgentRuntime } from "../../runtime/agent-runtime";
 import {
 	CHECK,
 	CIRCLE_SLASH,
@@ -18,12 +21,14 @@ import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
+import { TurnActivityDialog } from "./TurnActivityDialog";
 import {
 	extractAssistantParts,
 	extractToolResultLines,
 	formatToolArgs,
 	isAssistantError,
 } from "./turns";
+import type { OpenOverlay } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -31,7 +36,11 @@ function toolAccentColor(toolName: string): string {
 	return toolName === "subagent" ? theme.subagentText : theme.toolText;
 }
 
-function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
+function PendingToolCall(props: {
+	tc: ToolCall;
+	aborted?: boolean;
+	fullArgs?: boolean;
+}) {
 	return (
 		<box flexDirection="row" gap={1}>
 			<Show
@@ -45,7 +54,7 @@ function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
 				{props.tc.name}
-				{formatToolArgs(props.tc.arguments)}
+				{formatToolArgs(props.tc.arguments, { full: props.fullArgs })}
 			</text>
 		</box>
 	);
@@ -59,15 +68,18 @@ function LiveToolCall(props: {
 	isError?: boolean | null;
 	state: "started" | "updated" | "ended";
 	aborted?: boolean;
+	autoExpand?: boolean;
+	fullArgs?: boolean;
+	noTruncate?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(false);
+	const [expanded, setExpanded] = createSignal(props.autoExpand ?? false);
 	const renderer = useRenderer();
 	const lines = () =>
 		extractToolProgressLines(props.result ?? props.partialResult ?? null);
 	const hasOutput = () => lines().length > 0;
 	const displayLines = () => {
 		if (!expanded()) return [];
-		if (lines().length > 40) {
+		if (!props.noTruncate && lines().length > 40) {
 			return [
 				...lines().slice(0, 38),
 				`  ... (${lines().length - 38} more lines)`,
@@ -109,7 +121,7 @@ function LiveToolCall(props: {
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				>
 					{props.tc.name}
-					{formatToolArgs(toolArgs())}
+					{formatToolArgs(toolArgs(), { full: props.fullArgs })}
 				</text>
 				<Show when={hasOutput() && !props.aborted}>
 					<text fg={theme.metaText}>
@@ -132,8 +144,11 @@ function CompletedToolCall(props: {
 	tc: ToolCall;
 	result: ToolResultMessage;
 	aborted?: boolean;
+	autoExpand?: boolean;
+	fullArgs?: boolean;
+	noTruncate?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(false);
+	const [expanded, setExpanded] = createSignal(props.autoExpand ?? false);
 	const renderer = useRenderer();
 	const lines = extractToolResultLines(props.result);
 	const prefix = props.aborted
@@ -151,7 +166,7 @@ function CompletedToolCall(props: {
 
 	const displayLines = () => {
 		if (!expanded()) return [];
-		if (lines.length > 40) {
+		if (!props.noTruncate && lines.length > 40) {
 			return [...lines.slice(0, 38), `  ... (${lines.length - 38} more lines)`];
 		}
 		return lines;
@@ -172,7 +187,7 @@ function CompletedToolCall(props: {
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				>
 					{prefix} {props.tc.name}
-					{formatToolArgs(props.tc.arguments)}
+					{formatToolArgs(props.tc.arguments, { full: props.fullArgs })}
 				</text>
 				<Show when={hasOutput && !props.aborted}>
 					<text fg={theme.metaText}>
@@ -192,56 +207,18 @@ function CompletedToolCall(props: {
 }
 
 /**
- * Collapsible drawer for tool calls in a single assistant message.
- *
- * Header: `▸ N tool calls  Read · Grep · Edit` (or spinner when running).
- * Expanded body: per-tool detail rows via Pending/Live/Completed.
- */
-export function ToolDrawer(props: {
-	/**
-	 * Stable identifier (typically the originating transcript item id) used to
-	 * persist expansion state across remounts when new tool calls stream into
-	 * the same group.
-	 */
-	drawerId: string;
-	toolCalls: ToolCall[];
-	toolResults: Map<string, ToolResultMessage>;
-	liveTools: LiveToolsForTurn;
-	aborted?: boolean;
-}) {
-	return (
-		<DrawerChip
-			drawerId={props.drawerId}
-			toolCalls={props.toolCalls}
-			toolResults={props.toolResults}
-			aborted={props.aborted}
-		>
-			<box paddingLeft={2} flexDirection="column" gap={0}>
-				<For each={props.toolCalls}>
-					{(tc) => (
-						<PerToolRow
-							tc={tc}
-							toolResults={props.toolResults}
-							liveTools={props.liveTools}
-							aborted={props.aborted}
-						/>
-					)}
-				</For>
-			</box>
-		</DrawerChip>
-	);
-}
-
-/**
  * Per-tool row dispatcher. Picks Pending, Live, or Completed presentation
  * based on whether a result has landed and whether live progress is
  * available.
  */
-function PerToolRow(props: {
+export function PerToolRow(props: {
 	tc: ToolCall;
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
+	autoExpand?: boolean;
+	fullArgs?: boolean;
+	noTruncate?: boolean;
 }) {
 	const result = () => props.toolResults.get(props.tc.id);
 	const liveTool = () => props.liveTools[props.tc.id];
@@ -251,7 +228,13 @@ function PerToolRow(props: {
 			fallback={
 				<Show
 					when={liveTool()}
-					fallback={<PendingToolCall tc={props.tc} aborted={props.aborted} />}
+					fallback={
+						<PendingToolCall
+							tc={props.tc}
+							aborted={props.aborted}
+							fullArgs={props.fullArgs}
+						/>
+					}
 				>
 					{(live) => (
 						<LiveToolCall
@@ -262,28 +245,41 @@ function PerToolRow(props: {
 							isError={live().isError}
 							state={live().state}
 							aborted={props.aborted}
+							autoExpand={props.autoExpand}
+							fullArgs={props.fullArgs}
+							noTruncate={props.noTruncate}
 						/>
 					)}
 				</Show>
 			}
 		>
 			{(r) => (
-				<CompletedToolCall tc={props.tc} result={r()} aborted={props.aborted} />
+				<CompletedToolCall
+					tc={props.tc}
+					result={r()}
+					aborted={props.aborted}
+					autoExpand={props.autoExpand}
+					fullArgs={props.fullArgs}
+					noTruncate={props.noTruncate}
+				/>
 			)}
 		</Show>
 	);
 }
 
 /**
- * Flat assistant rendering for use inside a turn-work drawer's expanded
- * view. Renders prose + per-tool rows directly, without wrapping tool
- * calls in another drawer.
+ * Flat assistant rendering for use inside the turn activity dialog.
+ * Renders prose + per-tool rows directly, without wrapping tool calls
+ * in another drawer.
  */
 export function FlatAssistantEntry(props: {
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
+	autoExpand?: boolean;
+	fullArgs?: boolean;
+	noTruncate?: boolean;
 }) {
 	if (isAssistantError(props.msg)) {
 		return <text fg={theme.errorText}>{props.msg.errorMessage}</text>;
@@ -312,6 +308,9 @@ export function FlatAssistantEntry(props: {
 								toolResults={props.toolResults}
 								liveTools={props.liveTools}
 								aborted={props.aborted}
+								autoExpand={props.autoExpand}
+								fullArgs={props.fullArgs}
+								noTruncate={props.noTruncate}
 							/>
 						)}
 					</For>
@@ -321,13 +320,54 @@ export function FlatAssistantEntry(props: {
 	);
 }
 
+/**
+ * Drawer chip for tool calls in a single assistant message. Clicking opens
+ * the turn activity dialog with the message's prose + tool details, kept
+ * live via the runtime.
+ */
+export function ToolDrawer(props: {
+	itemId: string;
+	toolCalls: ToolCall[];
+	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
+	aborted?: boolean;
+	runtime: AgentRuntime;
+	openOverlay: OpenOverlay;
+}) {
+	function openDialog() {
+		const itemId = props.itemId;
+		const runtime = props.runtime;
+		void props.openOverlay(
+			(overlayProps: OverlayComponentProps<unknown>): JSX.Element => (
+				<TurnActivityDialog
+					runtime={runtime}
+					source={{ kind: "single-item", itemId }}
+					done={overlayProps.done}
+					surfaceProps={overlayProps.surfaceProps}
+					active={overlayProps.active}
+				/>
+			),
+		);
+	}
+
+	return (
+		<DrawerChip
+			toolCalls={props.toolCalls}
+			toolResults={props.toolResults}
+			aborted={props.aborted}
+			onActivate={openDialog}
+		/>
+	);
+}
+
 export function AssistantEntry(props: {
-	/** Stable id of the underlying transcript item, used for drawer state. */
 	itemId: string;
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
+	runtime: AgentRuntime;
+	openOverlay: OpenOverlay;
 }) {
 	if (isAssistantError(props.msg)) {
 		return (
@@ -349,11 +389,13 @@ export function AssistantEntry(props: {
 		>
 			<Show when={hasToolCalls}>
 				<ToolDrawer
-					drawerId={props.itemId}
+					itemId={props.itemId}
 					toolCalls={toolCalls}
 					toolResults={props.toolResults}
 					liveTools={props.liveTools}
 					aborted={props.aborted}
+					runtime={props.runtime}
+					openOverlay={props.openOverlay}
 				/>
 			</Show>
 			<Show when={hasText}>
