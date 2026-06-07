@@ -1,8 +1,11 @@
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
+import { diffLines } from "diff";
 import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
+import type { ReviewHunk, ReviewLine } from "../../features/review/model";
+import { ReviewDiffBlock } from "../../features/review/ReviewDiffBlock";
 import type {
 	AssistantMessage,
 	ToolCall,
@@ -125,24 +128,99 @@ function FileCodeBlock(props: { path: string; content: string }) {
 	);
 }
 
+function splitDiffPart(value: string): string[] {
+	const lines = value.split("\n");
+	// diffLines emits a trailing empty entry when the chunk ends with \n.
+	if (lines[lines.length - 1] === "") lines.pop();
+	return lines;
+}
+
+/**
+ * Construct a synthetic ReviewHunk from an edit's before/after pair so the
+ * dialog can render the diff with the same line-number gutter + bg tints as
+ * the code review. Line numbers are 1-based within the hunk since edits
+ * don't include absolute file positions.
+ */
+function buildEditHunk(
+	oldText: string,
+	newText: string,
+	id: string,
+): ReviewHunk {
+	const parts = diffLines(oldText, newText);
+	const lines: ReviewLine[] = [];
+	let additionLineNumber = 1;
+	let deletionLineNumber = 1;
+	let additionCount = 0;
+	let deletionCount = 0;
+
+	for (const part of parts) {
+		if (part.value.length === 0) continue;
+		for (const text of splitDiffPart(part.value)) {
+			if (part.added) {
+				lines.push({ kind: "add", text, additionLineNumber });
+				additionLineNumber++;
+				additionCount++;
+			} else if (part.removed) {
+				lines.push({ kind: "delete", text, deletionLineNumber });
+				deletionLineNumber++;
+				deletionCount++;
+			} else {
+				lines.push({
+					kind: "context",
+					text,
+					additionLineNumber,
+					deletionLineNumber,
+				});
+				additionLineNumber++;
+				deletionLineNumber++;
+			}
+		}
+	}
+
+	return {
+		id,
+		noteKey: id,
+		header: "",
+		context: "",
+		lines,
+		changeCount: additionCount + deletionCount,
+		// rawPatch is not consumed by ReviewDiffBlock when a hunk is provided.
+		rawPatch: "",
+		patchStartLine: 0,
+		patchLineCount: lines.length,
+		additionStart: 1,
+		additionCount,
+		deletionStart: 1,
+		deletionCount,
+		collapsedBefore: 0,
+	};
+}
+
 function EditsBlock(props: {
 	path: string;
 	edits: Array<{ oldText: string; newText: string }>;
 }) {
+	const filetype = createMemo(() => inferFiletype(props.path));
 	return (
 		<box flexDirection="column" gap={1} width="100%">
 			<For each={props.edits}>
-				{(edit, i) => (
-					<box flexDirection="column" gap={0} width="100%">
-						<Show when={props.edits.length > 1}>
-							<text fg={theme.textMuted}>edit {i() + 1}</text>
-						</Show>
-						<text fg={theme.errorText}>before</text>
-						<FileCodeBlock path={props.path} content={edit.oldText} />
-						<text fg={theme.toolText}>after</text>
-						<FileCodeBlock path={props.path} content={edit.newText} />
-					</box>
-				)}
+				{(edit, i) => {
+					const hunk = createMemo(() =>
+						buildEditHunk(edit.oldText, edit.newText, `edit-${i()}`),
+					);
+					return (
+						<box flexDirection="column" gap={0} width="100%">
+							<Show when={props.edits.length > 1}>
+								<text fg={theme.textMuted}>edit {i() + 1}</text>
+							</Show>
+							<ReviewDiffBlock
+								view="unified"
+								hunk={hunk()}
+								filetype={filetype()}
+							/>
+						</box>
+					);
+				}}
 			</For>
 		</box>
 	);
