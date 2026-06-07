@@ -15,7 +15,6 @@ import { UserEntry } from "./user-entry";
 function ToolGroupEntry(props: {
 	items: Extract<TranscriptItem, { kind: "assistant" }>[];
 	liveTools: LiveToolsForTurn;
-	zenMode?: boolean;
 }) {
 	// Defensive: groupItemsForDisplay never produces empty groups, but bail
 	// out before creating memos if it ever does.
@@ -43,7 +42,7 @@ function ToolGroupEntry(props: {
 	const aborted = createMemo(() => props.items.some((item) => item.aborted));
 
 	return (
-		<Show when={!props.zenMode && allToolCalls().length > 0}>
+		<Show when={allToolCalls().length > 0}>
 			<ToolDrawer
 				drawerId={drawerId}
 				toolCalls={allToolCalls()}
@@ -59,14 +58,12 @@ export function TurnEntry(props: {
 	displayItem: DisplayItem;
 	liveTools: LiveToolsForTurn;
 	showToast: (toast: TranscriptToast) => void;
-	zenMode?: boolean;
 }) {
 	if (props.displayItem.kind === "tool-group") {
 		return (
 			<ToolGroupEntry
 				items={props.displayItem.items}
 				liveTools={props.liveTools}
-				zenMode={props.zenMode}
 			/>
 		);
 	}
@@ -89,7 +86,6 @@ export function TurnEntry(props: {
 					toolResults={item.toolResults}
 					liveTools={props.liveTools}
 					aborted={item.aborted}
-					zenMode={props.zenMode}
 				/>
 			);
 		case "handoff-summary":

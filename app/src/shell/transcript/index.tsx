@@ -1,4 +1,4 @@
-import { createMemo, createSignal, onCleanup } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import type { KitAgentMessage } from "../../session/types";
 import { TranscriptPane } from "./pane";
 import {
@@ -6,7 +6,6 @@ import {
 	buildBashTranscriptItem,
 	buildUserTranscriptItem,
 	extractAssistantParts,
-	filterTranscriptItemsForDisplay,
 	flattenTurnsToTranscriptItems,
 	type TranscriptItem,
 } from "./turns";
@@ -46,9 +45,6 @@ export function Transcript(props: TranscriptProps) {
 		flattenTurnsToTranscriptItems(props.runtime.getTurns()),
 	);
 	const [pendingAssistantText, setPendingAssistantText] = createSignal("");
-	const displayItems = createMemo(() =>
-		filterTranscriptItemsForDisplay(items(), { zenMode: props.zenMode }),
-	);
 
 	const unsubscribeUserMessageCreated = props.runtime.subscribe(
 		"user.message.created",
@@ -139,5 +135,5 @@ export function Transcript(props: TranscriptProps) {
 		unsubscribeCompacted();
 	});
 
-	return <TranscriptPane {...props} items={displayItems()} />;
+	return <TranscriptPane {...props} items={items()} />;
 }

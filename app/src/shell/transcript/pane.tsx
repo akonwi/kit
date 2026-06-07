@@ -150,7 +150,6 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 										displayItem={displayItem}
 										liveTools={liveTools()[turnId] ?? {}}
 										showToast={props.showToast}
-										zenMode={props.zenMode}
 									/>
 								</>
 							);

@@ -366,7 +366,6 @@ export function AssistantEntry(props: {
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
-	zenMode?: boolean;
 }) {
 	if (isAssistantError(props.msg)) {
 		return (
@@ -383,10 +382,10 @@ export function AssistantEntry(props: {
 	return (
 		<box
 			flexDirection="column"
-			gap={!props.zenMode && hasToolCalls && hasText ? 1 : 0}
+			gap={hasToolCalls && hasText ? 1 : 0}
 			width="100%"
 		>
-			<Show when={!props.zenMode && hasToolCalls}>
+			<Show when={hasToolCalls}>
 				<ToolDrawer
 					drawerId={props.itemId}
 					toolCalls={toolCalls}

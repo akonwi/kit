@@ -10,7 +10,6 @@ export type TranscriptToast = {
 export type TranscriptProps = {
 	runtime: AgentRuntime;
 	showToast: (toast: TranscriptToast) => void;
-	zenMode?: boolean;
 };
 
 export type TranscriptPaneProps = TranscriptProps & {

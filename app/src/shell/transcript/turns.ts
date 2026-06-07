@@ -134,18 +134,6 @@ export function buildBashTranscriptItem(
 	};
 }
 
-export function filterTranscriptItemsForDisplay(
-	items: TranscriptItem[],
-	options: { zenMode?: boolean },
-): TranscriptItem[] {
-	if (!options.zenMode) return items;
-	return items.filter((item) => {
-		if (item.kind !== "assistant") return true;
-		if (isAssistantError(item.message)) return true;
-		return extractAssistantParts(item.message).text.trim().length > 0;
-	});
-}
-
 export function flattenTurnsToTranscriptItems(turns: Turn[]): TranscriptItem[] {
 	const items: TranscriptItem[] = [];
 	for (const turn of turns) {
