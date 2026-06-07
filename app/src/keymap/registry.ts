@@ -129,7 +129,7 @@ export const KEYBINDING_REGISTRY = {
 	},
 	"turn-activity": {
 		close: {
-			defaultKeys: ["escape", "q"],
+			defaultKeys: "escape",
 			desc: "Close turn activity dialog",
 			group: "turn-activity",
 			hint: "close",

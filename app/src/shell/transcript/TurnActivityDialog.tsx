@@ -1,4 +1,3 @@
-import type { Renderable } from "@opentui/core";
 import {
 	createEffect,
 	createMemo,
@@ -141,8 +140,6 @@ function countToolCalls(sections: TurnActivitySection[]): number {
  * the dialog is open are reflected without requiring close/reopen.
  */
 export function TurnActivityDialog(props: TurnActivityDialogProps) {
-	const [rootTarget, setRootTarget] = createSignal<Renderable | null>(null);
-
 	// Sections are derived from a `tick` signal that we increment whenever a
 	// runtime event arrives that could change the activity content.
 	const [tick, setTick] = createSignal(0);
@@ -269,8 +266,6 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		target: rootTarget,
-		targetMode: "focus-within",
 		when: () => props.active !== false,
 		commands: {
 			"turn-activity.close": () => props.done(undefined),
@@ -286,9 +281,6 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 			maxWidth={160}
 			height="85%"
 			surfaceProps={props.surfaceProps}
-			rootRef={setRootTarget}
-			rootFocusable
-			rootFocused={props.active !== false}
 		>
 			<Dialog.Header>
 				<Dialog.Title>Turn activity</Dialog.Title>
