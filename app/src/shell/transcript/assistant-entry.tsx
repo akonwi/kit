@@ -17,6 +17,7 @@ import {
 	CHECK,
 	CIRCLE_SLASH,
 	CROSS,
+	ELLIPSIS,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../glyphs";
@@ -196,29 +197,51 @@ function buildEditHunk(
 	};
 }
 
+/**
+ * Thin separator row rendered between consecutive edit hunks to evoke a
+ * multi-hunk file diff (where unchanged context between hunks is elided).
+ * Edits don't include absolute file positions, so we don't show line
+ * ranges — just a visual gap with a chevron indicator.
+ */
+function EditSkipRow() {
+	return (
+		<box
+			paddingX={1}
+			backgroundColor={theme.bgMuted}
+			height={1}
+			flexShrink={0}
+			width="100%"
+		>
+			<text fg={theme.textMuted} bg={theme.bgMuted}>
+				{ELLIPSIS}
+			</text>
+		</box>
+	);
+}
+
 function EditsBlock(props: {
 	path: string;
 	edits: Array<{ oldText: string; newText: string }>;
 }) {
 	const filetype = createMemo(() => inferFiletype(props.path));
 	return (
-		<box flexDirection="column" gap={1} width="100%">
+		<box flexDirection="column" gap={0} width="100%">
 			<For each={props.edits}>
 				{(edit, i) => {
 					const hunk = createMemo(() =>
 						buildEditHunk(edit.oldText, edit.newText, `edit-${i()}`),
 					);
 					return (
-						<box flexDirection="column" gap={0} width="100%">
-							<Show when={props.edits.length > 1}>
-								<text fg={theme.textMuted}>edit {i() + 1}</text>
+						<>
+							<Show when={i() > 0}>
+								<EditSkipRow />
 							</Show>
 							<ReviewDiffBlock
 								view="unified"
 								hunk={hunk()}
 								filetype={filetype()}
 							/>
-						</box>
+						</>
 					);
 				}}
 			</For>
