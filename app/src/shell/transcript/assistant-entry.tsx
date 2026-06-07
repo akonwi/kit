@@ -10,6 +10,7 @@ import type {
 	ToolResultMessage,
 } from "../../runtime/agent";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import { CodeView } from "../code-view";
 import { ReviewDiffBlock } from "../diff/ReviewDiffBlock";
 import type { ReviewHunk, ReviewLine } from "../diff/types";
 import { inferFiletype } from "../filetype";
@@ -108,24 +109,15 @@ function detectEnrichment(
 }
 
 function FileCodeBlock(props: { path: string; content: string }) {
-	const filetype = createMemo(() => inferFiletype(props.path));
+	// Tool outputs don't carry reliable absolute file positions in every case
+	// (e.g. multi-edit, post-hoc reads), so we suppress the gutter rather
+	// than risk showing misleading numbers.
 	return (
-		<Show
-			when={filetype()}
-			fallback={
-				<For each={props.content.split("\n")}>
-					{(line) => <text fg={theme.textMuted}>{line}</text>}
-				</For>
-			}
-		>
-			{(ft) => (
-				<code
-					filetype={ft()}
-					content={props.content}
-					syntaxStyle={syntaxStyle()}
-				/>
-			)}
-		</Show>
+		<CodeView
+			path={props.path}
+			content={props.content}
+			showLineNumbers={false}
+		/>
 	);
 }
 
@@ -240,6 +232,7 @@ function EditsBlock(props: {
 								view="unified"
 								hunk={hunk()}
 								filetype={filetype()}
+								showLineNumbers={false}
 							/>
 						</>
 					);
