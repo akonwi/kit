@@ -16,6 +16,7 @@ import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import { Dialog } from "../../shell/Dialog";
+import { inferFiletype } from "../../shell/filetype";
 import {
 	DASHED_VERTICAL,
 	DIAMOND,
@@ -43,7 +44,6 @@ import {
 import { FileTreePanel } from "./FileTreePanel";
 import {
 	getRepoRoot,
-	inferFiletype,
 	listRepoFiles,
 	loadReviewFiles,
 	type ReviewFile,

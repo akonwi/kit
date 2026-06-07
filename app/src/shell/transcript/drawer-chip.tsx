@@ -53,6 +53,7 @@ export function DrawerChip(props: {
 			gap={1}
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
+			paddingY={1}
 			onMouseDown={() => {
 				if (renderer.getSelection()?.getSelectedText()) return;
 				props.onActivate?.();

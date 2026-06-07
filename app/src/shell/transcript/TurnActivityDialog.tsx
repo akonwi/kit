@@ -27,6 +27,7 @@ import {
 } from "../transcript-live-tools";
 import { FlatAssistantEntry } from "./assistant-entry";
 import { BashEntry } from "./bash-entry";
+import { DialogCard } from "./dialog-card";
 import { HandoffSummaryEntry } from "./handoff-summary-entry";
 import type {
 	BashExecutionMessage,
@@ -333,19 +334,26 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 													autoExpand
 													fullArgs
 													noTruncate
+													enrichOutput
 												/>
 											)}
 										</Match>
 										<Match when={section.kind === "bash" && section}>
-											{(s) => <BashEntry msg={s().message} noTruncate />}
+											{(s) => (
+												<DialogCard>
+													<BashEntry msg={s().message} noTruncate />
+												</DialogCard>
+											)}
 										</Match>
 										<Match when={section.kind === "handoff-summary" && section}>
 											{(s) => (
-												<HandoffSummaryEntry
-													msg={s().message}
-													aborted={s().aborted}
-													autoExpand
-												/>
+												<DialogCard>
+													<HandoffSummaryEntry
+														msg={s().message}
+														aborted={s().aborted}
+														autoExpand
+													/>
+												</DialogCard>
 											)}
 										</Match>
 									</Switch>

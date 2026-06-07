@@ -1,7 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import type { JSX } from "solid-js";
-import { createSignal, For, Show } from "solid-js";
+import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
 import type {
 	AssistantMessage,
@@ -9,6 +9,7 @@ import type {
 	ToolResultMessage,
 } from "../../runtime/agent";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import { inferFiletype } from "../filetype";
 import {
 	CHECK,
 	CIRCLE_SLASH,
@@ -19,6 +20,7 @@ import {
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
+import { DialogCard } from "./dialog-card";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
 import { TurnActivityDialog } from "./TurnActivityDialog";
@@ -36,11 +38,136 @@ function toolAccentColor(toolName: string): string {
 	return toolName === "subagent" ? theme.subagentText : theme.toolText;
 }
 
+// ── Enriched tool output detection ────────────────────────────────
+
+type EnrichedDetail =
+	| { kind: "file"; path: string; content: string }
+	| {
+			kind: "edits";
+			path: string;
+			edits: Array<{ oldText: string; newText: string }>;
+	  };
+
+function extractResultText(result: ToolResultMessage): string {
+	const parts: string[] = [];
+	for (const block of result.content) {
+		if (block.type === "text" && "text" in block && block.text) {
+			parts.push(block.text);
+		}
+	}
+	return parts.join("");
+}
+
+function detectEnrichment(
+	tc: ToolCall,
+	result: ToolResultMessage,
+): EnrichedDetail | null {
+	if (result.isError) return null;
+	const name = tc.name.toLowerCase();
+	const args = tc.arguments ?? {};
+
+	if (name === "read" && typeof args.path === "string") {
+		const text = extractResultText(result);
+		if (!text) return null;
+		return { kind: "file", path: args.path, content: text };
+	}
+
+	if (
+		name === "write" &&
+		typeof args.path === "string" &&
+		typeof args.content === "string"
+	) {
+		return { kind: "file", path: args.path, content: args.content };
+	}
+
+	if (
+		name === "edit" &&
+		typeof args.path === "string" &&
+		Array.isArray(args.edits)
+	) {
+		const edits: Array<{ oldText: string; newText: string }> = [];
+		for (const e of args.edits) {
+			if (
+				typeof e === "object" &&
+				e !== null &&
+				typeof (e as { oldText?: unknown }).oldText === "string" &&
+				typeof (e as { newText?: unknown }).newText === "string"
+			) {
+				edits.push(e as { oldText: string; newText: string });
+			}
+		}
+		if (edits.length === 0) return null;
+		return { kind: "edits", path: args.path, edits };
+	}
+
+	return null;
+}
+
+function FileCodeBlock(props: { path: string; content: string }) {
+	const filetype = createMemo(() => inferFiletype(props.path));
+	return (
+		<Show
+			when={filetype()}
+			fallback={
+				<For each={props.content.split("\n")}>
+					{(line) => <text fg={theme.textMuted}>{line}</text>}
+				</For>
+			}
+		>
+			{(ft) => (
+				<code
+					filetype={ft()}
+					content={props.content}
+					syntaxStyle={syntaxStyle()}
+				/>
+			)}
+		</Show>
+	);
+}
+
+function EditsBlock(props: {
+	path: string;
+	edits: Array<{ oldText: string; newText: string }>;
+}) {
+	return (
+		<box flexDirection="column" gap={1} width="100%">
+			<For each={props.edits}>
+				{(edit, i) => (
+					<box flexDirection="column" gap={0} width="100%">
+						<Show when={props.edits.length > 1}>
+							<text fg={theme.textMuted}>edit {i() + 1}</text>
+						</Show>
+						<text fg={theme.errorText}>before</text>
+						<FileCodeBlock path={props.path} content={edit.oldText} />
+						<text fg={theme.toolText}>after</text>
+						<FileCodeBlock path={props.path} content={edit.newText} />
+					</box>
+				)}
+			</For>
+		</box>
+	);
+}
+
+function EnrichedDetailBlock(props: { detail: EnrichedDetail }) {
+	return (
+		<Switch>
+			<Match when={props.detail.kind === "file" && props.detail}>
+				{(d) => <FileCodeBlock path={d().path} content={d().content} />}
+			</Match>
+			<Match when={props.detail.kind === "edits" && props.detail}>
+				{(d) => <EditsBlock path={d().path} edits={d().edits} />}
+			</Match>
+		</Switch>
+	);
+}
+
 function PendingToolCall(props: {
 	tc: ToolCall;
 	aborted?: boolean;
 	fullArgs?: boolean;
 }) {
+	const argText = () =>
+		formatToolArgs(props.tc.arguments, { full: props.fullArgs }).trimStart();
 	return (
 		<box flexDirection="row" gap={1}>
 			<Show
@@ -54,8 +181,15 @@ function PendingToolCall(props: {
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
 				{props.tc.name}
-				{formatToolArgs(props.tc.arguments, { full: props.fullArgs })}
 			</text>
+			<Show when={argText().length > 0}>
+				<text
+					fg={props.aborted ? theme.textMuted : theme.textPrimary}
+					attributes={props.aborted ? ABORTED_ATTRS : undefined}
+				>
+					{argText()}
+				</text>
+			</Show>
 		</box>
 	);
 }
@@ -102,12 +236,17 @@ function LiveToolCall(props: {
 		typeof props.args === "object" && props.args !== null
 			? (props.args as Record<string, unknown>)
 			: props.tc.arguments;
+	const liveArgText = () =>
+		formatToolArgs(toolArgs(), { full: props.fullArgs }).trimStart();
 
 	return (
 		<box flexDirection="column" gap={0} width="100%">
 			<box
 				flexDirection="row"
 				gap={1}
+				paddingY={1}
+				border={expanded() ? ["bottom"] : false}
+				borderColor={theme.bgAccent}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
 					if (hasOutput()) setExpanded(!expanded());
@@ -121,8 +260,15 @@ function LiveToolCall(props: {
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				>
 					{props.tc.name}
-					{formatToolArgs(toolArgs(), { full: props.fullArgs })}
 				</text>
+				<Show when={liveArgText().length > 0}>
+					<text
+						fg={props.aborted ? theme.textMuted : theme.textPrimary}
+						attributes={props.aborted ? ABORTED_ATTRS : undefined}
+					>
+						{liveArgText()}
+					</text>
+				</Show>
 				<Show when={hasOutput() && !props.aborted}>
 					<text fg={theme.metaText}>
 						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
@@ -147,6 +293,7 @@ function CompletedToolCall(props: {
 	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
+	enrichOutput?: boolean;
 }) {
 	const [expanded, setExpanded] = createSignal(props.autoExpand ?? false);
 	const renderer = useRenderer();
@@ -162,7 +309,13 @@ function CompletedToolCall(props: {
 		: props.result.isError
 			? theme.errorText
 			: accent;
-	const hasOutput = lines.length > 0;
+	const enrichedDetail = createMemo(() =>
+		props.enrichOutput ? detectEnrichment(props.tc, props.result) : null,
+	);
+	const hasOutput = () => enrichedDetail() !== null || lines.length > 0;
+	const argText = formatToolArgs(props.tc.arguments, {
+		full: props.fullArgs,
+	}).trimStart();
 
 	const displayLines = () => {
 		if (!expanded()) return [];
@@ -177,9 +330,12 @@ function CompletedToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
+				paddingY={1}
+				border={expanded() ? ["bottom"] : false}
+				borderColor={theme.bgAccent}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
-					if (hasOutput) setExpanded(!expanded());
+					if (hasOutput()) setExpanded(!expanded());
 				}}
 			>
 				<text
@@ -187,19 +343,33 @@ function CompletedToolCall(props: {
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				>
 					{prefix} {props.tc.name}
-					{formatToolArgs(props.tc.arguments, { full: props.fullArgs })}
 				</text>
-				<Show when={hasOutput && !props.aborted}>
+				<Show when={argText.length > 0}>
+					<text
+						fg={props.aborted ? theme.textMuted : theme.textPrimary}
+						attributes={props.aborted ? ABORTED_ATTRS : undefined}
+					>
+						{argText}
+					</text>
+				</Show>
+				<Show when={hasOutput() && !props.aborted}>
 					<text fg={theme.metaText}>
 						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
 			<Show when={expanded()}>
-				<box paddingLeft={2} flexDirection="column" gap={0}>
-					<For each={displayLines()}>
-						{(line) => <text fg={theme.textMuted}>{line}</text>}
-					</For>
+				<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
+					<Show
+						when={enrichedDetail()}
+						fallback={
+							<For each={displayLines()}>
+								{(line) => <text fg={theme.textMuted}>{line}</text>}
+							</For>
+						}
+					>
+						{(detail) => <EnrichedDetailBlock detail={detail()} />}
+					</Show>
 				</box>
 			</Show>
 		</box>
@@ -219,6 +389,7 @@ export function PerToolRow(props: {
 	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
+	enrichOutput?: boolean;
 }) {
 	const result = () => props.toolResults.get(props.tc.id);
 	const liveTool = () => props.liveTools[props.tc.id];
@@ -261,6 +432,7 @@ export function PerToolRow(props: {
 					autoExpand={props.autoExpand}
 					fullArgs={props.fullArgs}
 					noTruncate={props.noTruncate}
+					enrichOutput={props.enrichOutput}
 				/>
 			)}
 		</Show>
@@ -269,8 +441,8 @@ export function PerToolRow(props: {
 
 /**
  * Flat assistant rendering for use inside the turn activity dialog.
- * Renders prose + per-tool rows directly, without wrapping tool calls
- * in another drawer.
+ * Renders prose followed by each tool call wrapped in a DialogCard for
+ * surface discrimination.
  */
 export function FlatAssistantEntry(props: {
 	msg: AssistantMessage;
@@ -280,6 +452,7 @@ export function FlatAssistantEntry(props: {
 	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
+	enrichOutput?: boolean;
 }) {
 	if (isAssistantError(props.msg)) {
 		return <text fg={theme.errorText}>{props.msg.errorMessage}</text>;
@@ -300,18 +473,21 @@ export function FlatAssistantEntry(props: {
 				/>
 			</Show>
 			<Show when={hasTools}>
-				<box flexDirection="column" gap={0}>
+				<box flexDirection="column" gap={1}>
 					<For each={toolCalls}>
 						{(tc) => (
-							<PerToolRow
-								tc={tc}
-								toolResults={props.toolResults}
-								liveTools={props.liveTools}
-								aborted={props.aborted}
-								autoExpand={props.autoExpand}
-								fullArgs={props.fullArgs}
-								noTruncate={props.noTruncate}
-							/>
+							<DialogCard>
+								<PerToolRow
+									tc={tc}
+									toolResults={props.toolResults}
+									liveTools={props.liveTools}
+									aborted={props.aborted}
+									autoExpand={props.autoExpand}
+									fullArgs={props.fullArgs}
+									noTruncate={props.noTruncate}
+									enrichOutput={props.enrichOutput}
+								/>
+							</DialogCard>
 						)}
 					</For>
 				</box>
