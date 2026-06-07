@@ -285,69 +285,90 @@ export function isAssistantError(msg: AssistantMessage): boolean {
 	return msg.stopReason === "error" && !!msg.errorMessage;
 }
 
-function isToolOnlyAssistantItem(
-	item: TranscriptItem,
-): item is Extract<TranscriptItem, { kind: "assistant" }> {
-	if (item.kind !== "assistant") return false;
-	if (isAssistantError(item.message)) return false;
-	const { text, toolCalls } = extractAssistantParts(item.message);
-	return toolCalls.length > 0 && text.trim().length === 0;
+function assistantHasProse(
+	item: Extract<TranscriptItem, { kind: "assistant" }>,
+): boolean {
+	if (isAssistantError(item.message)) return true;
+	return extractAssistantParts(item.message).text.trim().length > 0;
 }
 
 /**
  * A display-level item: either a single transcript item or a group of
- * consecutive tool-only assistant items merged into one drawer.
+ * intermediate turn items folded into one drawer.
  */
 export type DisplayItem =
 	| { kind: "single"; item: TranscriptItem }
 	| {
-			kind: "tool-group";
-			items: Extract<TranscriptItem, { kind: "assistant" }>[];
+			kind: "turn-work";
+			items: TranscriptItem[];
 			turnId: string;
 	  };
 
 /**
- * Groups consecutive tool-only assistant items within the same turn
- * into a single display group so they render as one drawer.
+ * Groups items into display units. Within each turn:
+ * - If the turn has 0 or 1 assistant message: emit all items as singles.
+ * - Otherwise, fold intermediate items into a single "turn-work" drawer.
+ *   The user message and the "final" assistant message (the last one with
+ *   prose) render as singles; everything in between collapses.
+ *   If no assistant message in the turn has prose, all assistant items
+ *   collapse into the turn-work drawer.
  */
 export function groupItemsForDisplay(items: TranscriptItem[]): DisplayItem[] {
 	const result: DisplayItem[] = [];
-	let pendingGroup: Extract<TranscriptItem, { kind: "assistant" }>[] = [];
-	let pendingTurnId = "";
+	let i = 0;
+	while (i < items.length) {
+		const turnId = items[i].turnId;
+		let j = i;
+		while (j < items.length && items[j].turnId === turnId) j++;
+		const turnItems = items.slice(i, j);
+		i = j;
 
-	function flushGroup() {
-		if (pendingGroup.length === 0) return;
-		if (pendingGroup.length === 1) {
-			result.push({ kind: "single", item: pendingGroup[0] });
-		} else {
-			result.push({
-				kind: "tool-group",
-				items: pendingGroup,
-				turnId: pendingTurnId,
-			});
+		let assistantCount = 0;
+		for (const item of turnItems) {
+			if (item.kind === "assistant") assistantCount++;
 		}
-		pendingGroup = [];
-		pendingTurnId = "";
-	}
 
-	for (const item of items) {
-		if (
-			isToolOnlyAssistantItem(item) &&
-			(pendingGroup.length === 0 || item.turnId === pendingTurnId)
-		) {
-			pendingGroup.push(item);
-			pendingTurnId = item.turnId;
-		} else {
-			flushGroup();
-			if (isToolOnlyAssistantItem(item)) {
-				pendingGroup.push(item);
-				pendingTurnId = item.turnId;
-			} else {
+		if (assistantCount <= 1) {
+			for (const item of turnItems) {
 				result.push({ kind: "single", item });
 			}
+			continue;
 		}
+
+		// Multiple assistant messages: identify the "final" item — the last
+		// assistant message that has prose. If none, no item is treated as final
+		// and everything intermediate collapses.
+		let finalIdx = -1;
+		for (let k = turnItems.length - 1; k >= 0; k--) {
+			const item = turnItems[k];
+			if (item.kind === "assistant" && assistantHasProse(item)) {
+				finalIdx = k;
+				break;
+			}
+		}
+
+		let buffer: TranscriptItem[] = [];
+		const flushBuffer = () => {
+			if (buffer.length === 0) return;
+			if (buffer.length === 1) {
+				result.push({ kind: "single", item: buffer[0] });
+			} else {
+				result.push({ kind: "turn-work", items: buffer.slice(), turnId });
+			}
+			buffer = [];
+		};
+
+		for (let k = 0; k < turnItems.length; k++) {
+			const item = turnItems[k];
+			if (item.kind === "user" || k === finalIdx) {
+				flushBuffer();
+				result.push({ kind: "single", item });
+			} else {
+				buffer.push(item);
+			}
+		}
+		flushBuffer();
 	}
-	flushGroup();
 
 	return result;
 }

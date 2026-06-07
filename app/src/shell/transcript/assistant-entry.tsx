@@ -1,13 +1,6 @@
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
-import {
-	type Accessor,
-	createMemo,
-	createSignal,
-	For,
-	type Setter,
-	Show,
-} from "solid-js";
+import { createSignal, For, Show } from "solid-js";
 import type {
 	AssistantMessage,
 	ToolCall,
@@ -17,13 +10,13 @@ import {
 	CHECK,
 	CIRCLE_SLASH,
 	CROSS,
-	MIDDLE_DOT,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
+import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
 import {
 	extractAssistantParts,
@@ -33,30 +26,9 @@ import {
 } from "./turns";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
-const MAX_VISIBLE_TOOLS = 8;
 
 function toolAccentColor(toolName: string): string {
 	return toolName === "subagent" ? theme.subagentText : theme.toolText;
-}
-
-/**
- * Module-level store for ToolDrawer expansion state, keyed by a stable
- * drawerId derived from the underlying transcript item id. This preserves
- * user-toggled expansion across remounts triggered by new tool calls
- * arriving in the same group.
- */
-const drawerExpansionSignals = new Map<
-	string,
-	[Accessor<boolean>, Setter<boolean>]
->();
-
-function useDrawerExpansion(id: string): [Accessor<boolean>, Setter<boolean>] {
-	let entry = drawerExpansionSignals.get(id);
-	if (!entry) {
-		entry = createSignal(false);
-		drawerExpansionSignals.set(id, entry);
-	}
-	return entry;
 }
 
 function PendingToolCall(props: { tc: ToolCall; aborted?: boolean }) {
@@ -220,15 +192,10 @@ function CompletedToolCall(props: {
 }
 
 /**
- * Universal collapsible tool drawer.
+ * Collapsible drawer for tool calls in a single assistant message.
  *
- * Renders all tool calls (in-progress and completed) in a single bgSurface
- * chip with a count + tool-name summary. A spinner is appended while any
- * call is still running.
- *
- * Collapsed (default): ▸ N tool calls  Read · Grep · Edit  [spinner]
- * Expanded:            ▾ N tool calls  [spinner]
- *                        · per-tool detail rows (Pending/Live/Completed)
+ * Header: `▸ N tool calls  Read · Grep · Edit` (or spinner when running).
+ * Expanded body: per-tool detail rows via Pending/Live/Completed.
  */
 export function ToolDrawer(props: {
 	/**
@@ -242,116 +209,111 @@ export function ToolDrawer(props: {
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
 }) {
-	const [expanded, setExpanded] = useDrawerExpansion(props.drawerId);
-	const renderer = useRenderer();
-
-	const countLabel = createMemo(
-		() =>
-			`${props.toolCalls.length} tool call${props.toolCalls.length === 1 ? "" : "s"}`,
+	return (
+		<DrawerChip
+			drawerId={props.drawerId}
+			toolCalls={props.toolCalls}
+			toolResults={props.toolResults}
+			aborted={props.aborted}
+		>
+			<box paddingLeft={2} flexDirection="column" gap={0}>
+				<For each={props.toolCalls}>
+					{(tc) => (
+						<PerToolRow
+							tc={tc}
+							toolResults={props.toolResults}
+							liveTools={props.liveTools}
+							aborted={props.aborted}
+						/>
+					)}
+				</For>
+			</box>
+		</DrawerChip>
 	);
+}
 
-	const inProgress = createMemo(
-		() =>
-			!props.aborted &&
-			props.toolCalls.some((tc) => !props.toolResults.has(tc.id)),
+/**
+ * Per-tool row dispatcher. Picks Pending, Live, or Completed presentation
+ * based on whether a result has landed and whether live progress is
+ * available.
+ */
+function PerToolRow(props: {
+	tc: ToolCall;
+	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
+	aborted?: boolean;
+}) {
+	const result = () => props.toolResults.get(props.tc.id);
+	const liveTool = () => props.liveTools[props.tc.id];
+	return (
+		<Show
+			when={result()}
+			fallback={
+				<Show
+					when={liveTool()}
+					fallback={<PendingToolCall tc={props.tc} aborted={props.aborted} />}
+				>
+					{(live) => (
+						<LiveToolCall
+							tc={props.tc}
+							args={live().args}
+							partialResult={live().partialResult}
+							result={live().result}
+							isError={live().isError}
+							state={live().state}
+							aborted={props.aborted}
+						/>
+					)}
+				</Show>
+			}
+		>
+			{(r) => (
+				<CompletedToolCall tc={props.tc} result={r()} aborted={props.aborted} />
+			)}
+		</Show>
 	);
+}
 
-	const visibleToolCalls = createMemo(() =>
-		props.toolCalls.slice(0, MAX_VISIBLE_TOOLS),
-	);
-	const overflowCount = createMemo(() =>
-		Math.max(0, props.toolCalls.length - MAX_VISIBLE_TOOLS),
-	);
+/**
+ * Flat assistant rendering for use inside a turn-work drawer's expanded
+ * view. Renders prose + per-tool rows directly, without wrapping tool
+ * calls in another drawer.
+ */
+export function FlatAssistantEntry(props: {
+	msg: AssistantMessage;
+	toolResults: Map<string, ToolResultMessage>;
+	liveTools: LiveToolsForTurn;
+	aborted?: boolean;
+}) {
+	if (isAssistantError(props.msg)) {
+		return <text fg={theme.errorText}>{props.msg.errorMessage}</text>;
+	}
 
-	const nameColor = (toolName: string) =>
-		toolName === "subagent" ? theme.subagentText : theme.textPlaceholder;
+	const { text, toolCalls } = extractAssistantParts(props.msg);
+	const hasText = text.length > 0;
+	const hasTools = toolCalls.length > 0;
 
 	return (
-		<box
-			flexDirection="column"
-			gap={0}
-			backgroundColor={theme.bgSurface}
-			paddingX={1}
-		>
-			<box
-				flexDirection="row"
-				gap={1}
-				onMouseDown={() => {
-					if (renderer.getSelection()?.getSelectedText()) return;
-					setExpanded(!expanded());
-				}}
-			>
-				<Show
-					when={inProgress()}
-					fallback={
-						<text fg={theme.textMuted}>
-							{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
-						</text>
-					}
-				>
-					<InlineSpinner />
-				</Show>
-				<text fg={theme.textMuted}>{countLabel()}</text>
-				<Show when={!expanded()}>
-					<box flexDirection="row" gap={0}>
-						<For each={visibleToolCalls()}>
-							{(tc, i) => (
-								<>
-									<Show when={i() > 0}>
-										<text fg={theme.textPlaceholder}>{` ${MIDDLE_DOT} `}</text>
-									</Show>
-									<text fg={nameColor(tc.name)}>{tc.name}</text>
-								</>
-							)}
-						</For>
-						<Show when={overflowCount() > 0}>
-							<text fg={theme.textPlaceholder}>
-								{` ${MIDDLE_DOT} +${overflowCount()} more`}
-							</text>
-						</Show>
-					</box>
-				</Show>
-			</box>
-			<Show when={expanded()}>
-				<box paddingLeft={2} flexDirection="column" gap={0}>
-					<For each={props.toolCalls}>
-						{(tc) => {
-							const result = () => props.toolResults.get(tc.id);
-							const liveTool = () => props.liveTools[tc.id];
-							return (
-								<Show
-									when={result()}
-									fallback={
-										<Show
-											when={liveTool()}
-											fallback={
-												<PendingToolCall tc={tc} aborted={props.aborted} />
-											}
-										>
-											{(live) => (
-												<LiveToolCall
-													tc={tc}
-													args={live().args}
-													partialResult={live().partialResult}
-													result={live().result}
-													isError={live().isError}
-													state={live().state}
-													aborted={props.aborted}
-												/>
-											)}
-										</Show>
-									}
-								>
-									{(r) => (
-										<CompletedToolCall
-											tc={tc}
-											result={r()}
-											aborted={props.aborted}
-										/>
-									)}
-								</Show>
-							);
-						}}
+		<box flexDirection="column" gap={hasText && hasTools ? 1 : 0} width="100%">
+			<Show when={hasText}>
+				<markdown
+					content={text}
+					syntaxStyle={syntaxStyle()}
+					conceal
+					fg={props.aborted ? theme.textMuted : theme.textPrimary}
+				/>
+			</Show>
+			<Show when={hasTools}>
+				<box flexDirection="column" gap={0}>
+					<For each={toolCalls}>
+						{(tc) => (
+							<PerToolRow
+								tc={tc}
+								toolResults={props.toolResults}
+								liveTools={props.liveTools}
+								aborted={props.aborted}
+							/>
+						)}
 					</For>
 				</box>
 			</Show>
