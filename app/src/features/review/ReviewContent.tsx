@@ -123,12 +123,15 @@ function shouldUseFocusedPatchRendering(file: ReviewFile): boolean {
 	);
 }
 
+/**
+ * Short label for non-default sources. Working-tree changes are the
+ * dominant case and don't need a redundant prefix; only untracked files
+ * get a label.
+ */
 function sourceLabel(file: ReviewFile): string {
 	switch (file.source) {
-		case "staged":
-			return "staged";
-		case "unstaged":
-			return "unstaged";
+		case "working":
+			return "";
 		case "untracked":
 			return "untracked";
 	}
@@ -1797,7 +1800,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												</Show>
 											</box>
 											<text fg={theme.textMuted}>
-												{sourceLabel(file())} ·{" "}
+												{sourceLabel(file()) ? `${sourceLabel(file())} · ` : ""}
 												{currentHunk()
 													? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
 													: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}

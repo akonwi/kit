@@ -9,7 +9,7 @@ import { inferFiletype } from "../../shell/filetype";
 
 export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 
-export type ReviewDiffSource = "staged" | "unstaged" | "untracked";
+export type ReviewDiffSource = "working" | "untracked";
 
 export type ReviewSkippedSection = {
 	id: string;
@@ -60,26 +60,25 @@ function tryRunGit(cwd: string | undefined, args: string[]): string | null {
 	return result.stdout;
 }
 
-function getStagedDiff(cwd?: string): string {
+/**
+ * Diff from HEAD to working tree — covers staged and unstaged changes in a
+ * single patch. The review intentionally does not distinguish between the
+ * two; users just want to see what they've changed since HEAD. A side
+ * benefit is that each path appears at most once, so the file tree can't
+ * receive duplicate entries for the same path.
+ */
+function getWorkingTreeDiff(cwd?: string): string {
 	return runGit(
 		cwd,
 		[
 			"diff",
-			"--cached",
+			"HEAD",
 			"--no-ext-diff",
 			"--find-renames",
 			"--find-copies",
 			"--unified=3",
 		],
-		"Failed to read staged diff.",
-	);
-}
-
-function getUnstagedDiff(cwd?: string): string {
-	return runGit(
-		cwd,
-		["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--unified=3"],
-		"Failed to read unstaged diff.",
+		"Failed to read working tree diff.",
 	);
 }
 
@@ -178,15 +177,6 @@ function readGitRevisionLines(
 	return splitFileLines(output);
 }
 
-function readGitIndexLines(
-	cwd: string | undefined,
-	relativePath: string,
-): string[] | null {
-	const output = tryRunGit(cwd, ["show", `:${relativePath}`]);
-	if (output === null) return null;
-	return splitFileLines(output);
-}
-
 function loadDisplayLines(options: {
 	cwd?: string;
 	repoRoot: string;
@@ -197,18 +187,7 @@ function loadDisplayLines(options: {
 	const afterPath = options.file.name;
 
 	switch (options.source) {
-		case "staged": {
-			const afterLines =
-				options.file.type === "deleted"
-					? null
-					: readGitIndexLines(options.cwd, afterPath);
-			const beforeLines =
-				options.file.type === "new"
-					? null
-					: readGitRevisionLines(options.cwd, "HEAD", beforePath);
-			return afterLines ?? beforeLines ?? [];
-		}
-		case "unstaged": {
+		case "working": {
 			const afterLines =
 				options.file.type === "deleted"
 					? null
@@ -216,7 +195,7 @@ function loadDisplayLines(options: {
 			const beforeLines =
 				options.file.type === "new"
 					? null
-					: readGitIndexLines(options.cwd, beforePath);
+					: readGitRevisionLines(options.cwd, "HEAD", beforePath);
 			return afterLines ?? beforeLines ?? [];
 		}
 		case "untracked":
@@ -485,12 +464,10 @@ function yieldToRenderer(): Promise<void> {
 
 export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 	await yieldToRenderer();
-	const staged = getStagedDiff(cwd);
-	const unstaged = getUnstagedDiff(cwd);
+	const working = getWorkingTreeDiff(cwd);
 	const untracked = getUntrackedDiff(cwd);
 	const patchSets = [
-		parseReviewPatchSet(staged, "staged"),
-		parseReviewPatchSet(unstaged, "unstaged"),
+		parseReviewPatchSet(working, "working"),
 		parseReviewPatchSet(untracked, "untracked"),
 	].filter((value): value is ReviewPatchSet => value !== null);
 	if (patchSets.length === 0) return [];
