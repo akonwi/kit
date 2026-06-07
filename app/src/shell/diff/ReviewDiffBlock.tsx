@@ -2,9 +2,8 @@ import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import { type Accessor, createMemo, createSelector, For, Show } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
-import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
-import { syntaxStyle, theme } from "../../shell/theme";
-import type { ReviewHunk } from "./model";
+import { MessageComposer, type TextareaRef } from "../MessageComposer";
+import { syntaxStyle, theme } from "../theme";
 import {
 	buildReviewDiffSplitRows,
 	buildReviewDiffUnifiedRows,
@@ -21,6 +20,7 @@ import {
 	type ReviewDiffSplitAnnotationGroup,
 	type ReviewDiffUnifiedRow,
 } from "./ReviewDiffModel";
+import type { ReviewHunk } from "./types";
 
 export {
 	buildReviewDiffSplitRows,

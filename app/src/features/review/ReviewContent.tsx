@@ -16,6 +16,17 @@ import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import { Dialog } from "../../shell/Dialog";
+import {
+	estimateWrappedRows,
+	getReviewDiffActiveLineId,
+	getReviewDiffCommentableLines,
+	getReviewDiffLineTop,
+	getReviewDiffRangeBounds,
+	type ReviewDiffAnnotationMetadata,
+	ReviewDiffBlock,
+	type ReviewDiffCommentableLine,
+	shouldResetPatchScroll,
+} from "../../shell/diff/ReviewDiffBlock";
 import { inferFiletype } from "../../shell/filetype";
 import {
 	DASHED_VERTICAL,
@@ -50,17 +61,6 @@ import {
 	type ReviewHunk,
 	type ReviewSkippedSection,
 } from "./model";
-import {
-	estimateWrappedRows,
-	getReviewDiffActiveLineId,
-	getReviewDiffCommentableLines,
-	getReviewDiffLineTop,
-	getReviewDiffRangeBounds,
-	type ReviewDiffAnnotationMetadata,
-	ReviewDiffBlock,
-	type ReviewDiffCommentableLine,
-	shouldResetPatchScroll,
-} from "./ReviewDiffBlock";
 import {
 	reviewStatusColor,
 	reviewStatusLabel,

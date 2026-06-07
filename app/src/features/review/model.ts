@@ -4,36 +4,12 @@ import path from "node:path";
 import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 import { safeProcessCwd } from "../../process-cwd";
+import type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 import { inferFiletype } from "../../shell/filetype";
 
+export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
+
 export type ReviewDiffSource = "staged" | "unstaged" | "untracked";
-
-export type ReviewLine = {
-	kind: "add" | "context" | "delete";
-	text: string;
-	additionLineNumber?: number;
-	deletionLineNumber?: number;
-};
-
-export type ReviewHunk = {
-	id: string;
-	noteKey: string;
-	header: string;
-	context: string;
-	lines: ReviewLine[];
-	/** Offset of lines[0] in the source hunk's unified row space. */
-	lineIndexOffset?: number;
-	lineWindow?: { start: number; end: number; total: number };
-	changeCount: number;
-	rawPatch: string;
-	patchStartLine: number;
-	patchLineCount: number;
-	additionStart: number;
-	additionCount: number;
-	deletionStart: number;
-	deletionCount: number;
-	collapsedBefore: number;
-};
 
 export type ReviewSkippedSection = {
 	id: string;

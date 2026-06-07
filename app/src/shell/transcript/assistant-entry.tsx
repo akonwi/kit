@@ -4,14 +4,14 @@ import { diffLines } from "diff";
 import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
-import type { ReviewHunk, ReviewLine } from "../../features/review/model";
-import { ReviewDiffBlock } from "../../features/review/ReviewDiffBlock";
 import type {
 	AssistantMessage,
 	ToolCall,
 	ToolResultMessage,
 } from "../../runtime/agent";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import { ReviewDiffBlock } from "../diff/ReviewDiffBlock";
+import type { ReviewHunk, ReviewLine } from "../diff/types";
 import { inferFiletype } from "../filetype";
 import {
 	CHECK,

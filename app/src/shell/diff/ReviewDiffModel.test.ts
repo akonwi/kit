@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import type { DiffLineAnnotation } from "@pierre/diffs";
-import type { ReviewHunk } from "./model";
 import {
 	buildReviewDiffSplitRows,
 	buildReviewDiffUnifiedRows,
@@ -12,6 +11,7 @@ import {
 	type ReviewDiffAnnotationMetadata,
 	shouldResetPatchScroll,
 } from "./ReviewDiffModel";
+import type { ReviewHunk } from "./types";
 
 function makeHunk(): ReviewHunk {
 	return {

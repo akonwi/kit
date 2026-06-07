@@ -1,6 +1,6 @@
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import type { ReviewDiffView } from "../../settings";
-import type { ReviewHunk, ReviewLine } from "./model";
+import type { ReviewHunk, ReviewLine } from "./types";
 
 export type ReviewDiffSide = "additions" | "deletions";
 export type ReviewDiffCellKind =
