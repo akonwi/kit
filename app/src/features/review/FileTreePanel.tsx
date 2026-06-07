@@ -75,7 +75,18 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	const statusColorMap = createMemo(() =>
 		buildStatusColorMap(props.reviewFiles),
 	);
-	const changedPaths = createMemo(() => props.reviewFiles.map((f) => f.path));
+	// Dedupe: a file that has both staged and unstaged changes appears twice
+	// in reviewFiles (one entry per source). PathStore rejects duplicate paths.
+	const changedPaths = createMemo(() => {
+		const seen = new Set<string>();
+		const paths: string[] = [];
+		for (const file of props.reviewFiles) {
+			if (seen.has(file.path)) continue;
+			seen.add(file.path);
+			paths.push(file.path);
+		}
+		return paths;
+	});
 
 	const changedExpandedDirs = createMemo(() => {
 		const dirs = new Set<string>();
@@ -91,7 +102,10 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		controllerUnsub?.();
 		controller?.destroy();
 		const mode = treeMode();
-		const paths = mode === "changes" ? changedPaths() : props.allFiles;
+		const rawPaths = mode === "changes" ? changedPaths() : props.allFiles;
+		// FileTreeController's PathStore rejects duplicate paths; dedupe
+		// defensively in case the inputs include the same path twice.
+		const paths = Array.from(new Set(rawPaths));
 		controller = new FileTreeController({
 			paths,
 			flattenEmptyDirectories: true,
