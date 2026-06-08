@@ -134,13 +134,14 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 		{ filetype: "html", wasm: "tree-sitter-html.wasm" },
 		{ filetype: "json", wasm: "tree-sitter-json.wasm" },
 		{ filetype: "python", wasm: "tree-sitter-python.wasm" },
-		{ filetype: "ruby", wasm: "tree-sitter-ruby.wasm" },
+		{ filetype: "ruby", wasm: "tree-sitter-ruby.wasm", aliases: ["rake"] },
 		{ filetype: "rust", wasm: "tree-sitter-rust.wasm" },
 		{ filetype: "toml", wasm: "tree-sitter-toml.wasm" },
 		{ filetype: "yaml", wasm: "tree-sitter-yaml.wasm" },
 	]) {
 		treeSitter.addFiletypeParser({
 			filetype: grammar.filetype,
+			aliases: grammar.aliases,
 			wasm: path.join(kitGrammars, grammar.filetype, grammar.wasm),
 			queries: {
 				highlights: [
