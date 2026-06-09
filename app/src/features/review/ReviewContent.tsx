@@ -1486,18 +1486,56 @@ export function ReviewContent(props: ReviewContentProps) {
 		line: CommentableLine,
 		event: TuiMouseEvent,
 	) {
-		if (editorOpen() || event.button !== 0) return;
+		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
 
-		setRangeAnchor(null);
-		focusDiffLine(file, hunk, line);
-		void openRangeNoteEditor(file, {
+		const range = {
 			path: file.path,
 			side: line.side,
 			startLine: line.lineNumber,
 			endLine: line.lineNumber,
-		});
+		} satisfies ReviewRangeDraft;
+		const editing = editingRange();
+		if (editing && buildRangeNoteKey(editing) === buildRangeNoteKey(range)) {
+			closeRangeNoteEditor();
+			return;
+		}
+		if (editorOpen()) return;
+
+		setRangeAnchor(null);
+		focusDiffLine(file, hunk, line);
+		void openRangeNoteEditor(file, range);
+	}
+
+	function handleReadOnlyLineMouseDown(
+		filePath: string,
+		line: number,
+		event: TuiMouseEvent,
+	) {
+		if (event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		setViewingFileLine(line);
+		const range: ReviewRangeDraft = {
+			path: filePath,
+			side: "additions",
+			startLine: line,
+			endLine: line,
+		};
+		const editing = viewingFileEditingRange();
+		if (editing && buildRangeNoteKey(editing) === buildRangeNoteKey(range)) {
+			setViewingFileEditingRange(null);
+			setViewingFileEditingValue("");
+			setEditorOpen(false);
+			return;
+		}
+		if (editorOpen()) return;
+		setViewingFileEditingValue(
+			rangeNotes().get(buildRangeNoteKey(range))?.trim() ?? "",
+		);
+		setViewingFileEditingRange(range);
+		setEditorOpen(true);
 	}
 
 	useKeymapLayer(() => ({
@@ -1727,6 +1765,9 @@ export function ReviewContent(props: ReviewContentProps) {
 												paneWidth={diffPaneWidth()}
 												interactive={mode() === "patch"}
 												selectedLine={viewingFileLine()}
+												onLineMouseDown={(line, event) =>
+													handleReadOnlyLineMouseDown(filePath(), line, event)
+												}
 												onLineCountChange={setViewingFileLineCount}
 												fileNote={
 													fileNotes().get(`unchanged:${filePath()}`)?.trim() ??
@@ -1923,6 +1964,7 @@ type ReadOnlyFileViewProps = {
 	path: string;
 	interactive: boolean;
 	selectedLine: number;
+	onLineMouseDown: (line: number, event: TuiMouseEvent) => void;
 	onLineCountChange: (count: number) => void;
 	fileNote: string;
 	editingFileNote: boolean;
@@ -2192,6 +2234,10 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 												height={rowHeight()}
 												flexShrink={0}
 												backgroundColor={bg()}
+												onMouseDown={(event) => {
+													if (!props.interactive) return;
+													props.onLineMouseDown(lineNum(), event);
+												}}
 											>
 												<text
 													fg={theme.textMuted}

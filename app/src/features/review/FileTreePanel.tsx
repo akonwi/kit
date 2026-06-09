@@ -1,3 +1,4 @@
+import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import {
 	createEffect,
 	createMemo,
@@ -193,6 +194,27 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		setTreeMode((m) => (m === "changes" ? "all" : "changes"));
 	}
 
+	function chooseTreeMode(mode: TreeMode, event: TuiMouseEvent) {
+		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		setTreeMode(mode);
+	}
+
+	function selectPath(path: string, event: TuiMouseEvent) {
+		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
+		event.preventDefault();
+		event.stopPropagation();
+		controller?.focusPath(path);
+		const item = controller?.getItem(path);
+		if (!item) return;
+		if (isDirectoryHandle(item)) {
+			item.toggle();
+			return;
+		}
+		props.onSelectFile(item.getPath());
+	}
+
 	function openFileFinder() {
 		props.onOpenFileFinder();
 	}
@@ -232,10 +254,14 @@ export function FileTreePanel(props: FileTreePanelProps) {
 				<box flexDirection="row" gap={1}>
 					<text
 						fg={treeMode() === "changes" ? theme.textPrimary : theme.textMuted}
+						onMouseDown={(event) => chooseTreeMode("changes", event)}
 					>
 						{treeMode() === "changes" ? "[changes]" : "changes"}
 					</text>
-					<text fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}>
+					<text
+						fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}
+						onMouseDown={(event) => chooseTreeMode("all", event)}
+					>
 						{treeMode() === "all" ? "[all files]" : "all files"}
 					</text>
 				</box>
@@ -271,6 +297,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 								<FileTreeRow
 									row={row}
 									statusColor={statusColorMap().get(row.path) ?? null}
+									onMouseDown={(event) => selectPath(row.path, event)}
 								/>
 							)}
 						</For>
@@ -286,6 +313,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 type FileTreeRowProps = {
 	row: FileTreeVisibleRow;
 	statusColor: string | null;
+	onMouseDown: (event: TuiMouseEvent) => void;
 };
 
 function FileTreeRow(props: FileTreeRowProps) {
@@ -318,6 +346,7 @@ function FileTreeRow(props: FileTreeRowProps) {
 			overflow="hidden"
 			backgroundColor={bg()}
 			flexDirection="row"
+			onMouseDown={props.onMouseDown}
 		>
 			<text fg={nameColor()} bg={bg()}>
 				{indent()}
