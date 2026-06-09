@@ -61,23 +61,51 @@ function tryRunGit(cwd: string | undefined, args: string[]): string | null {
 }
 
 /**
+ * Detect whether the current branch has a HEAD commit. An unborn branch
+ * (e.g. immediately after `git init`) has no HEAD; `git diff HEAD` would
+ * fail there.
+ */
+function repoHasHead(cwd?: string): boolean {
+	const result = spawnSync(
+		"git",
+		["rev-parse", "--verify", "--quiet", "HEAD"],
+		{
+			encoding: "utf8",
+			cwd: cwd || safeProcessCwd(),
+		},
+	);
+	return result.status === 0;
+}
+
+/**
  * Diff from HEAD to working tree — covers staged and unstaged changes in a
  * single patch. The review intentionally does not distinguish between the
  * two; users just want to see what they've changed since HEAD. A side
  * benefit is that each path appears at most once, so the file tree can't
  * receive duplicate entries for the same path.
+ *
+ * On an unborn branch (no HEAD) we fall back to `git diff --cached`, which
+ * surfaces staged files against the empty tree. Working-tree-only changes
+ * to staged files are not shown in that case, but unborn-branch usage is
+ * rare enough that this trade-off is acceptable.
  */
 function getWorkingTreeDiff(cwd?: string): string {
+	const baseArgs = [
+		"--no-ext-diff",
+		"--find-renames",
+		"--find-copies",
+		"--unified=3",
+	];
+	if (!repoHasHead(cwd)) {
+		return runGit(
+			cwd,
+			["diff", "--cached", ...baseArgs],
+			"Failed to read staged diff.",
+		);
+	}
 	return runGit(
 		cwd,
-		[
-			"diff",
-			"HEAD",
-			"--no-ext-diff",
-			"--find-renames",
-			"--find-copies",
-			"--unified=3",
-		],
+		["diff", "HEAD", ...baseArgs],
 		"Failed to read working tree diff.",
 	);
 }
