@@ -552,23 +552,39 @@ export function FlatAssistantEntry(props: {
 		return <text fg={theme.errorText}>{props.msg.errorMessage}</text>;
 	}
 
-	const { text, toolCalls } = extractAssistantParts(props.msg);
-	const hasText = text.length > 0;
-	const hasTools = toolCalls.length > 0;
+	// `parts` is reactive so an in-flight assistant message can grow its tool
+	// calls without unmounting this entry. A shallow equality check on the
+	// derived value prevents spurious downstream notifications when an
+	// upstream tick fires but the message's text + tool-call refs are
+	// unchanged — keeping the inner For and per-row state quiet.
+	const parts = createMemo(() => extractAssistantParts(props.msg), undefined, {
+		equals: (prev, next) =>
+			prev.text === next.text &&
+			prev.toolCalls.length === next.toolCalls.length &&
+			prev.toolCalls.every((tc, i) => tc === next.toolCalls[i]),
+	});
+	const text = () => parts().text;
+	const toolCalls = () => parts().toolCalls;
+	const hasText = () => text().length > 0;
+	const hasTools = () => toolCalls().length > 0;
 
 	return (
-		<box flexDirection="column" gap={hasText && hasTools ? 1 : 0} width="100%">
-			<Show when={hasText}>
+		<box
+			flexDirection="column"
+			gap={hasText() && hasTools() ? 1 : 0}
+			width="100%"
+		>
+			<Show when={hasText()}>
 				<markdown
-					content={text}
+					content={text()}
 					syntaxStyle={syntaxStyle()}
 					conceal
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 				/>
 			</Show>
-			<Show when={hasTools}>
+			<Show when={hasTools()}>
 				<box flexDirection="column" gap={1}>
-					<For each={toolCalls}>
+					<For each={toolCalls()}>
 						{(tc) => (
 							<DialogCard>
 								<PerToolRow

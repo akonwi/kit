@@ -41,20 +41,29 @@ import {
 
 /**
  * Heterogeneous section types shown in the activity dialog.
+ *
+ * Each section carries the stable id of its originating TranscriptItem so
+ * the For loop in the dialog can key on it and keep child components
+ * mounted across re-renders. Without a stable key the For would remount on
+ * every tick (since `itemsToSections` rebuilds object refs), wiping out
+ * local UI state like collapsed/expanded tool calls.
  */
 export type TurnActivitySection =
 	| {
 			kind: "assistant";
+			id: string;
 			message: AssistantMessage;
 			toolResults: Map<string, ToolResultMessage>;
 			aborted?: boolean;
 	  }
 	| {
 			kind: "bash";
+			id: string;
 			message: BashExecutionMessage;
 	  }
 	| {
 			kind: "handoff-summary";
+			id: string;
 			message: HandoffSummaryMessage;
 			aborted?: boolean;
 	  };
@@ -84,15 +93,17 @@ function itemsToSections(items: TranscriptItem[]): TurnActivitySection[] {
 		if (item.kind === "assistant") {
 			sections.push({
 				kind: "assistant",
+				id: item.id,
 				message: item.message,
 				toolResults: item.toolResults,
 				aborted: item.aborted,
 			});
 		} else if (item.kind === "bash") {
-			sections.push({ kind: "bash", message: item.message });
+			sections.push({ kind: "bash", id: item.id, message: item.message });
 		} else if (item.kind === "handoff-summary") {
 			sections.push({
 				kind: "handoff-summary",
+				id: item.id,
 				message: item.message,
 				aborted: item.aborted,
 			});
@@ -158,6 +169,17 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 
 	const sections = () => sectionsAndTurn().sections;
 	const activeTurnId = () => sectionsAndTurn().turnId;
+
+	// Stable id list and id->section lookup. The For below keys on string ids
+	// so existing rows keep their identity (and their collapsed/expanded state)
+	// as new sections stream in. Children read the latest section reactively
+	// through `sectionsById()`.
+	const sectionOrder = createMemo(() => sections().map((s) => s.id));
+	const sectionsById = createMemo(() => {
+		const map = new Map<string, TurnActivitySection>();
+		for (const s of sections()) map.set(s.id, s);
+		return map;
+	});
 
 	const turnLiveTools = (): LiveToolsForTurn =>
 		liveTools()[activeTurnId()] ?? {};
@@ -313,43 +335,60 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 						}
 					>
 						<box flexDirection="column" gap={1} width="100%">
-							<For each={sections()}>
-								{(section) => (
-									<Switch>
-										<Match when={section.kind === "assistant" && section}>
-											{(s) => (
-												<FlatAssistantEntry
-													msg={s().message}
-													toolResults={s().toolResults}
-													liveTools={turnLiveTools()}
-													aborted={s().aborted}
-													autoExpand
-													fullArgs
-													noTruncate
-													enrichOutput
-												/>
-											)}
-										</Match>
-										<Match when={section.kind === "bash" && section}>
-											{(s) => (
-												<DialogCard>
-													<BashEntry msg={s().message} noTruncate />
-												</DialogCard>
-											)}
-										</Match>
-										<Match when={section.kind === "handoff-summary" && section}>
-											{(s) => (
-												<DialogCard>
-													<HandoffSummaryEntry
-														msg={s().message}
-														aborted={s().aborted}
+							<For each={sectionOrder()}>
+								{(id) => {
+									// Per-kind narrowed accessors so Solid's Match/Show keep
+									// reactive type narrowing through the union.
+									const section = createMemo(() => sectionsById().get(id));
+									const asAssistant = createMemo(() => {
+										const s = section();
+										return s && s.kind === "assistant" ? s : undefined;
+									});
+									const asBash = createMemo(() => {
+										const s = section();
+										return s && s.kind === "bash" ? s : undefined;
+									});
+									const asHandoff = createMemo(() => {
+										const s = section();
+										return s && s.kind === "handoff-summary" ? s : undefined;
+									});
+									return (
+										<Switch>
+											<Match when={asAssistant()}>
+												{(a) => (
+													<FlatAssistantEntry
+														msg={a().message}
+														toolResults={a().toolResults}
+														liveTools={turnLiveTools()}
+														aborted={a().aborted}
 														autoExpand
+														fullArgs
+														noTruncate
+														enrichOutput
 													/>
-												</DialogCard>
-											)}
-										</Match>
-									</Switch>
-								)}
+												)}
+											</Match>
+											<Match when={asBash()}>
+												{(b) => (
+													<DialogCard>
+														<BashEntry msg={b().message} noTruncate />
+													</DialogCard>
+												)}
+											</Match>
+											<Match when={asHandoff()}>
+												{(h) => (
+													<DialogCard>
+														<HandoffSummaryEntry
+															msg={h().message}
+															aborted={h().aborted}
+															autoExpand
+														/>
+													</DialogCard>
+												)}
+											</Match>
+										</Switch>
+									);
+								}}
 							</For>
 						</box>
 					</Show>
