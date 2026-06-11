@@ -258,22 +258,55 @@ function summarizeToolArg(value: string, full: boolean): string {
 	return `${singleLine.slice(0, MAX_TOOL_ARG_SUMMARY_LENGTH - 3)}...`;
 }
 
+/**
+ * Display label for a tool call.
+ *
+ * Subagent calls show the agent name when available so the transcript
+ * reads as e.g. `summarizer` instead of the generic `subagent` label.
+ * Falls back to the raw tool name for `list_agents` (no agent arg) and
+ * any non-subagent tool.
+ */
+export function toolDisplayName(tc: ToolCall): string {
+	if (tc.name === "subagent") {
+		const agent = tc.arguments?.agent;
+		if (typeof agent === "string" && agent.trim().length > 0) {
+			return agent;
+		}
+	}
+	return tc.name;
+}
+
+const DEFAULT_TOOL_ARG_KEYS = ["command", "path", "agent"] as const;
+
+/**
+ * Returns the first string-valued arg matching the configured keys.
+ *
+ * Callers can override `keys` when the default preview keys would
+ * duplicate information shown elsewhere (e.g. subagent calls promote
+ * `agent` to the display label, so they pass `["message", "action"]`).
+ */
 export function formatToolArgs(
 	args?: Record<string, unknown>,
-	options: { full?: boolean } = {},
+	options: { full?: boolean; keys?: readonly string[] } = {},
 ): string {
 	if (!args) return "";
 	const full = options.full ?? false;
-	if ("command" in args && typeof args.command === "string") {
-		return ` ${summarizeToolArg(args.command, full)}`;
-	}
-	if ("path" in args && typeof args.path === "string") {
-		return ` ${summarizeToolArg(args.path, full)}`;
-	}
-	if ("agent" in args && typeof args.agent === "string") {
-		return ` ${summarizeToolArg(args.agent, full)}`;
+	const keys = options.keys ?? DEFAULT_TOOL_ARG_KEYS;
+	for (const key of keys) {
+		const value = args[key];
+		if (typeof value === "string") {
+			return ` ${summarizeToolArg(value, full)}`;
+		}
 	}
 	return "";
+}
+
+/**
+ * The arg-preview keys to use for a tool call. Subagent calls hide the
+ * `agent` arg because it's already the display label.
+ */
+export function toolArgKeys(tc: ToolCall): readonly string[] | undefined {
+	return tc.name === "subagent" ? ["message", "action"] : undefined;
 }
 
 export function isHandoffSummaryMessage(

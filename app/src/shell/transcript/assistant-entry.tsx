@@ -34,6 +34,8 @@ import {
 	extractToolResultLines,
 	formatToolArgs,
 	isAssistantError,
+	toolArgKeys,
+	toolDisplayName,
 } from "./turns";
 import type { OpenOverlay } from "./types";
 
@@ -261,7 +263,10 @@ function PendingToolCall(props: {
 	fullArgs?: boolean;
 }) {
 	const argText = () =>
-		formatToolArgs(props.tc.arguments, { full: props.fullArgs }).trimStart();
+		formatToolArgs(props.tc.arguments, {
+			full: props.fullArgs,
+			keys: toolArgKeys(props.tc),
+		}).trimStart();
 	return (
 		<box flexDirection="row" gap={1}>
 			<Show
@@ -274,7 +279,7 @@ function PendingToolCall(props: {
 				fg={props.aborted ? theme.textMuted : toolAccentColor(props.tc.name)}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
-				{props.tc.name}
+				{toolDisplayName(props.tc)}
 			</text>
 			<Show when={argText().length > 0}>
 				<text
@@ -331,7 +336,10 @@ function LiveToolCall(props: {
 			? (props.args as Record<string, unknown>)
 			: props.tc.arguments;
 	const liveArgText = () =>
-		formatToolArgs(toolArgs(), { full: props.fullArgs }).trimStart();
+		formatToolArgs(toolArgs(), {
+			full: props.fullArgs,
+			keys: toolArgKeys(props.tc),
+		}).trimStart();
 
 	return (
 		<box flexDirection="column" gap={0} width="100%">
@@ -353,7 +361,7 @@ function LiveToolCall(props: {
 					fg={headerColor()}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				>
-					{props.tc.name}
+					{toolDisplayName(props.tc)}
 				</text>
 				<Show when={liveArgText().length > 0}>
 					<text
@@ -409,6 +417,7 @@ function CompletedToolCall(props: {
 	const hasOutput = () => enrichedDetail() !== null || lines.length > 0;
 	const argText = formatToolArgs(props.tc.arguments, {
 		full: props.fullArgs,
+		keys: toolArgKeys(props.tc),
 	}).trimStart();
 
 	const displayLines = () => {
@@ -436,7 +445,7 @@ function CompletedToolCall(props: {
 					fg={headerColor}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
 				>
-					{prefix} {props.tc.name}
+					{prefix} {toolDisplayName(props.tc)}
 				</text>
 				<Show when={argText.length > 0}>
 					<text

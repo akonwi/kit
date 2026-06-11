@@ -4,6 +4,7 @@ import type { ToolCall, ToolResultMessage } from "../../runtime/agent";
 import { MIDDLE_DOT, TRIANGLE_RIGHT } from "../glyphs";
 import { theme } from "../theme";
 import { InlineSpinner } from "./inline-spinner";
+import { toolDisplayName } from "./turns";
 
 const MAX_VISIBLE_TOOLS = 8;
 
@@ -81,7 +82,7 @@ export function DrawerChip(props: {
 								<Show when={i() > 0}>
 									<text fg={theme.textPlaceholder}>{` ${MIDDLE_DOT} `}</text>
 								</Show>
-								<text fg={nameColor(tc.name)}>{tc.name}</text>
+								<text fg={nameColor(tc.name)}>{toolDisplayName(tc)}</text>
 							</>
 						)}
 					</For>

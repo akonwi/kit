@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import type { AssistantMessage, ToolCall } from "../../runtime/agent";
-import { groupItemsForDisplay, type TranscriptItem } from "./turns";
+import {
+	formatToolArgs,
+	groupItemsForDisplay,
+	type TranscriptItem,
+	toolDisplayName,
+} from "./turns";
 
 function assistantMessage(
 	content: AssistantMessage["content"],
@@ -270,5 +275,79 @@ describe("groupItemsForDisplay", () => {
 			expect(result[0].turnId).toBe("t1");
 		}
 		expect(result[1]).toEqual({ kind: "single", item: t2a1 });
+	});
+});
+
+describe("toolDisplayName", () => {
+	test("returns the raw name for non-subagent tools", () => {
+		const tc = {
+			type: "toolCall",
+			id: "a",
+			name: "read",
+			arguments: { path: "/x" },
+		} as ToolCall;
+		expect(toolDisplayName(tc)).toBe("read");
+	});
+
+	test("returns the agent name for subagent calls with an agent arg", () => {
+		const tc = {
+			type: "toolCall",
+			id: "a",
+			name: "subagent",
+			arguments: { action: "run", agent: "summarizer", message: "hi" },
+		} as ToolCall;
+		expect(toolDisplayName(tc)).toBe("summarizer");
+	});
+
+	test("falls back to 'subagent' when agent arg is missing or empty", () => {
+		const noAgent = {
+			type: "toolCall",
+			id: "a",
+			name: "subagent",
+			arguments: { action: "list_agents" },
+		} as ToolCall;
+		expect(toolDisplayName(noAgent)).toBe("subagent");
+
+		const blankAgent = {
+			type: "toolCall",
+			id: "b",
+			name: "subagent",
+			arguments: { action: "run", agent: "  " },
+		} as ToolCall;
+		expect(toolDisplayName(blankAgent)).toBe("subagent");
+	});
+});
+
+describe("formatToolArgs", () => {
+	test("prefers message over action when keys are restricted", () => {
+		const out = formatToolArgs(
+			{ action: "run", agent: "summarizer", message: "summarize this" },
+			{ keys: ["message", "action"] },
+		);
+		expect(out.trim()).toBe("summarize this");
+	});
+
+	test("falls back to action when no message is present", () => {
+		const out = formatToolArgs(
+			{ action: "list_agents" },
+			{ keys: ["message", "action"] },
+		);
+		expect(out.trim()).toBe("list_agents");
+	});
+
+	test("returns empty when none of the requested keys match", () => {
+		// Important for subagent: ensures we never fall through to `agent`
+		// and duplicate the display label.
+		const out = formatToolArgs(
+			{ agent: "summarizer" },
+			{ keys: ["message", "action"] },
+		);
+		expect(out).toBe("");
+	});
+
+	test("uses default keys (command, path, agent) when none provided", () => {
+		expect(formatToolArgs({ path: "/x" }).trim()).toBe("/x");
+		expect(formatToolArgs({ command: "ls -al" }).trim()).toBe("ls -al");
+		expect(formatToolArgs({ agent: "summarizer" }).trim()).toBe("summarizer");
 	});
 });
