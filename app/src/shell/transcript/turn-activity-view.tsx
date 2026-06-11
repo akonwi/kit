@@ -100,6 +100,7 @@ function itemsToSections(items: TranscriptItem[]): TurnActivitySection[] {
 function buildSectionsForSource(
 	items: TranscriptItem[],
 	source: ActivitySource,
+	inProgressTurnId: string | null,
 ): { sections: TurnActivitySection[]; turnId: string } {
 	if (source.kind === "single-item") {
 		const item = items.find((i) => i.id === source.itemId);
@@ -109,7 +110,12 @@ function buildSectionsForSource(
 			turnId: item.turnId,
 		};
 	}
-	const displayItems = groupItemsForDisplay(items);
+	// Pass the in-progress turn id through so the source turn folds into a
+	// turn-work display item even when grouping wouldn't normally produce
+	// one (e.g. ≤ 1 assistant item so far, or bash/handoff-only activity).
+	// Without this, an open sidebar can show "No activity to display" until
+	// enough messages accumulate or the turn completes.
+	const displayItems = groupItemsForDisplay(items, inProgressTurnId);
 	for (const d of displayItems) {
 		if (d.kind === "turn-work" && d.turnId === source.turnId) {
 			return { sections: itemsToSections(d.items), turnId: d.turnId };
@@ -184,10 +190,20 @@ export function createTurnActivityModel(
 
 	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
 
+	// Mirror TranscriptPane's in-progress turn tracking so the source
+	// turn folds into a single turn-work item even before its first
+	// assistant message ends.
+	const [inProgressTurnId, setInProgressTurnId] = createSignal<string | null>(
+		(() => {
+			if (!runtime.getStatus().isStreaming) return null;
+			return runtime.getTurns().at(-1)?.id ?? null;
+		})(),
+	);
+
 	const sectionsAndTurn = createMemo(() => {
 		tick();
 		const items = flattenTurnsToTranscriptItems(runtime.getTurns());
-		return buildSectionsForSource(items, source);
+		return buildSectionsForSource(items, source, inProgressTurnId());
 	});
 
 	const sections = () => sectionsAndTurn().sections;
@@ -289,7 +305,23 @@ export function createTurnActivityModel(
 		}),
 	);
 
-	unsubs.push(runtime.subscribe("session.active.changed", onSessionChange));
+	unsubs.push(
+		runtime.subscribe("agent.turn.started", (event) => {
+			setInProgressTurnId(event.turn.id);
+		}),
+	);
+	unsubs.push(
+		runtime.subscribe("agent.turn.completed", () => {
+			setInProgressTurnId(null);
+		}),
+	);
+
+	unsubs.push(
+		runtime.subscribe("session.active.changed", () => {
+			setInProgressTurnId(null);
+			onSessionChange();
+		}),
+	);
 
 	onCleanup(() => {
 		for (const u of unsubs) u();
