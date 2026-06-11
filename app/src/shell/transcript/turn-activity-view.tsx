@@ -352,7 +352,7 @@ export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 			when={props.model.sections().length > 0}
 			fallback={
 				<box flexGrow={1} justifyContent="center" alignItems="center">
-					<text fg={theme.textMuted}>No activity to display.</text>
+					<text fg={theme.textMuted}>Nothing to show here yet</text>
 				</box>
 			}
 		>

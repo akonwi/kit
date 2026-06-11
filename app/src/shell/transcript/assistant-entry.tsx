@@ -343,7 +343,6 @@ function LiveToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				paddingY={1}
 				border={expanded() ? ["bottom"] : false}
 				borderColor={theme.bgAccent}
 				onMouseDown={() => {
@@ -430,7 +429,6 @@ function CompletedToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				paddingY={1}
 				border={expanded() ? ["bottom"] : false}
 				borderColor={theme.bgAccent}
 				onMouseDown={() => {

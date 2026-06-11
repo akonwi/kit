@@ -8,6 +8,10 @@ import { Dialog } from "../Dialog";
 import { KeymapHintBar } from "../KeymapHintBar";
 import { theme } from "../theme";
 import {
+	TURN_ACTIVITY_TITLE,
+	turnActivityMetaText,
+} from "./turn-activity-header";
+import {
 	type ActivitySource,
 	createTurnActivityModel,
 	TurnActivitySectionList,
@@ -49,13 +53,8 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 			surfaceProps={props.surfaceProps}
 		>
 			<Dialog.Header>
-				<Dialog.Title>Turn activity</Dialog.Title>
-				<Dialog.Meta>
-					{model.toolCallCount()} tool call
-					{model.toolCallCount() === 1 ? "" : "s"}
-					{" · "}
-					{model.stepCount()} step{model.stepCount() === 1 ? "" : "s"}
-				</Dialog.Meta>
+				<Dialog.Title>{TURN_ACTIVITY_TITLE}</Dialog.Title>
+				<Dialog.Meta>{turnActivityMetaText(model)}</Dialog.Meta>
 			</Dialog.Header>
 
 			<Dialog.Body>

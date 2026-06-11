@@ -1,13 +1,21 @@
 import { useRenderer } from "@opentui/solid";
 import { createMemo, For, Show } from "solid-js";
 import type { ToolCall, ToolResultMessage } from "../../runtime/agent";
-import { MIDDLE_DOT, TRIANGLE_RIGHT } from "../glyphs";
+import { CHEVRON_RIGHT, MIDDLE_DOT } from "../glyphs";
 import { theme } from "../theme";
 import { InlineSpinner } from "./inline-spinner";
 import { toolDisplayName } from "./turns";
 
 const MAX_VISIBLE_TOOLS = 8;
 
+/**
+ * The chip is intentionally low-contrast for ordinary tool names so the
+ * row reads as a quiet summary against the transcript. Subagent calls
+ * are promoted because they represent a delegated agent — a higher-order
+ * concern than a single tool invocation — and deserve emphasis even in
+ * the collapsed preview. The expanded view (PerToolRow / activity view)
+ * paints every tool with its semantic accent.
+ */
 function nameColor(toolName: string): string {
 	return toolName === "subagent" ? theme.subagentText : theme.textPlaceholder;
 }
@@ -19,8 +27,12 @@ function nameColor(toolName: string): string {
  * Clicking the chip invokes `onActivate` — currently used by callers to open
  * the activity dialog. The chip itself does not manage any expanded state.
  *
- *   ▸ N tool calls  Read · Grep · Edit       (idle)
+ *   › N tool calls  Read · Grep · Edit       (idle)
  *   ⠋ N tool calls  Read · Grep · Edit       (any tool still running)
+ *
+ * `›` is used rather than `▸` because clicking opens a separate panel/
+ * dialog rather than expanding inline — see CHEVRON_RIGHT in the design
+ * SKILL.md glyph catalog.
  */
 export function DrawerChip(props: {
 	toolCalls: ToolCall[];
@@ -61,7 +73,6 @@ export function DrawerChip(props: {
 			gap={1}
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
-			paddingY={1}
 			onMouseDown={() => {
 				if (renderer.getSelection()?.getSelectedText()) return;
 				props.onActivate?.();
@@ -69,7 +80,7 @@ export function DrawerChip(props: {
 		>
 			<Show
 				when={inProgress()}
-				fallback={<text fg={theme.textMuted}>{TRIANGLE_RIGHT}</text>}
+				fallback={<text fg={theme.textMuted}>{CHEVRON_RIGHT}</text>}
 			>
 				<InlineSpinner />
 			</Show>

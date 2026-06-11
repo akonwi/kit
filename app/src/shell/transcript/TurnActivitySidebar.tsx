@@ -3,6 +3,10 @@ import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { KeymapHintBar } from "../KeymapHintBar";
 import { theme } from "../theme";
 import {
+	TURN_ACTIVITY_TITLE,
+	turnActivityMetaText,
+} from "./turn-activity-header";
+import {
 	type ActivitySource,
 	createTurnActivityModel,
 	TurnActivitySectionList,
@@ -56,13 +60,8 @@ export function TurnActivitySidebar(props: TurnActivitySidebarProps) {
 				borderColor={theme.borderDefault}
 				border={["bottom"]}
 			>
-				<text fg={theme.textPrimary}>Turn activity</text>
-				<text fg={theme.textMuted}>
-					{model.toolCallCount()} tool call
-					{model.toolCallCount() === 1 ? "" : "s"}
-					{" · "}
-					{model.stepCount()} step{model.stepCount() === 1 ? "" : "s"}
-				</text>
+				<text fg={theme.textPrimary}>{TURN_ACTIVITY_TITLE}</text>
+				<text fg={theme.textMuted}>{turnActivityMetaText(model)}</text>
 			</box>
 
 			<box flexGrow={1} flexDirection="column" paddingX={1} paddingY={1}>
@@ -87,8 +86,12 @@ export function TurnActivitySidebar(props: TurnActivitySidebarProps) {
 				</scrollbox>
 			</box>
 
+			{/* Bordered (default — i.e. no `borderless`) because the hint bar
+			 * is the outermost structural element at the bottom of the inline
+			 * panel — see design SKILL.md (Hint Bar). The modal variant uses
+			 * `borderless` since Dialog.Root already frames it. */}
 			<box flexShrink={0}>
-				<KeymapHintBar borderless group="turn-activity" />
+				<KeymapHintBar group="turn-activity" />
 			</box>
 		</box>
 	);
