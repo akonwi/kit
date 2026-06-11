@@ -50,7 +50,7 @@ Choose option A.
 
 - pending queued messages should be visible
 - the footer/status bar shows the queued count and an edit hint when follow-ups are queued
-- queued follow-ups can be edited, deleted, or cleared from the queue editor opened with `Alt+Q` or `queue-editor.open` from the command palette
+- queued follow-ups can be edited, deleted, or cleared from the queue editor opened with `Alt+Q` or `edit-queue` from the command palette
 
 ## Related
 

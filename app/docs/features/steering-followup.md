@@ -17,7 +17,7 @@ While the agent is streaming:
 - when the composer is empty and queued follow-ups exist, pressing `Enter` promotes those queued follow-ups to steering
 - pressing `Up` in an empty composer restores queued follow-ups back into the composer; if none exist, it opens user message history for recall
 - pressing `Alt+Q` opens the queued follow-up editor
-- running `queue-editor.open` from the command palette opens the same editor
+- running `edit-queue` from the command palette opens the same editor
 - queued follow-ups clear from the visible stack when the next turn begins consuming them
 
 ## Queue editor
@@ -51,4 +51,4 @@ If an edit is saved as empty text, the queued follow-up is removed.
 - type a message and press `Enter` while streaming to queue a follow-up
 - press `Enter` again in an empty composer to promote queued follow-ups to steering
 - press `Up` in an empty composer to restore queued follow-ups back into the composer
-- press `Alt+Q` or run `queue-editor.open` from the command palette to edit, delete, or clear queued follow-ups
+- press `Alt+Q` or run `edit-queue` from the command palette to edit, delete, or clear queued follow-ups

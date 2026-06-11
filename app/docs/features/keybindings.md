@@ -55,7 +55,7 @@ Built-in command palette entries include:
 
 | Command id | Description |
 | --- | --- |
-| `queue-editor.open` | Edit queued messages |
+| `edit-queue` | Edit queued messages |
 
 ### Composer
 

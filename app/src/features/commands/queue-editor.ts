@@ -3,7 +3,7 @@ import { QueueEditorDialog } from "../../shell/QueueEditorDialog";
 import type { Command } from "./types";
 
 export const queueEditorCommand: Command = {
-	name: "queue-editor.open",
+	name: "edit-queue",
 	description: "Edit queued messages",
 	execute({ runtime, toast, openCustomOverlay }) {
 		if (runtime.getPendingMessageCount() === 0) {
