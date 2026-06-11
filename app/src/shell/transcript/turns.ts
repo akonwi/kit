@@ -316,8 +316,17 @@ export type DisplayItem =
  *   prose) render as singles; everything in between collapses.
  *   If no assistant message in the turn has prose, all assistant items
  *   collapse into the turn-work drawer.
+ *
+ * When `inProgressTurnId` matches a turn, that turn is treated as in flight:
+ * no "final" prose item is extracted, and every non-user item collapses
+ * into a single growing turn-work drawer (even if there is currently only
+ * one such item). This keeps the visible transcript stable while the
+ * assistant streams multiple intermediate messages.
  */
-export function groupItemsForDisplay(items: TranscriptItem[]): DisplayItem[] {
+export function groupItemsForDisplay(
+	items: TranscriptItem[],
+	inProgressTurnId?: string | null,
+): DisplayItem[] {
 	const result: DisplayItem[] = [];
 	let i = 0;
 	while (i < items.length) {
@@ -327,12 +336,14 @@ export function groupItemsForDisplay(items: TranscriptItem[]): DisplayItem[] {
 		const turnItems = items.slice(i, j);
 		i = j;
 
+		const isInProgress = !!inProgressTurnId && inProgressTurnId === turnId;
+
 		let assistantCount = 0;
 		for (const item of turnItems) {
 			if (item.kind === "assistant") assistantCount++;
 		}
 
-		if (assistantCount <= 1) {
+		if (assistantCount <= 1 && !isInProgress) {
 			for (const item of turnItems) {
 				result.push({ kind: "single", item });
 			}
@@ -341,20 +352,23 @@ export function groupItemsForDisplay(items: TranscriptItem[]): DisplayItem[] {
 
 		// Multiple assistant messages: identify the "final" item — the last
 		// assistant message that has prose. If none, no item is treated as final
-		// and everything intermediate collapses.
+		// and everything intermediate collapses. In-progress turns never extract
+		// a final, since more messages may still arrive.
 		let finalIdx = -1;
-		for (let k = turnItems.length - 1; k >= 0; k--) {
-			const item = turnItems[k];
-			if (item.kind === "assistant" && assistantHasProse(item)) {
-				finalIdx = k;
-				break;
+		if (!isInProgress) {
+			for (let k = turnItems.length - 1; k >= 0; k--) {
+				const item = turnItems[k];
+				if (item.kind === "assistant" && assistantHasProse(item)) {
+					finalIdx = k;
+					break;
+				}
 			}
 		}
 
 		let buffer: TranscriptItem[] = [];
 		const flushBuffer = () => {
 			if (buffer.length === 0) return;
-			if (buffer.length === 1) {
+			if (buffer.length === 1 && !isInProgress) {
 				result.push({ kind: "single", item: buffer[0] });
 			} else {
 				result.push({ kind: "turn-work", items: buffer.slice(), turnId });

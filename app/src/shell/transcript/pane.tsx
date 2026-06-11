@@ -22,11 +22,41 @@ export type { TranscriptPaneProps } from "./types";
 
 export function TranscriptPane(props: TranscriptPaneProps) {
 	const [liveTools, setLiveTools] = createSignal<LiveToolExecutionMap>({});
-	const displayItems = createMemo(() => groupItemsForDisplay(props.items));
+	// Track the turn that is currently streaming so its intermediate work folds
+	// into a single growing drawer instead of expanding into per-message rows
+	// and tool drawers that visibly restructure as each message ends.
+	const [inProgressTurnId, setInProgressTurnId] = createSignal<string | null>(
+		(() => {
+			if (!props.runtime.getStatus().isStreaming) return null;
+			return props.runtime.getTurns().at(-1)?.id ?? null;
+		})(),
+	);
+	const displayItems = createMemo(() =>
+		groupItemsForDisplay(props.items, inProgressTurnId()),
+	);
 
 	createEffect(() => {
 		setLiveTools((prev) => reconcileLiveTools(prev, props.items));
 	});
+
+	const unsubscribeTurnStarted = props.runtime.subscribe(
+		"agent.turn.started",
+		(event) => {
+			setInProgressTurnId(event.turn.id);
+		},
+	);
+	const unsubscribeTurnCompleted = props.runtime.subscribe(
+		"agent.turn.completed",
+		() => {
+			setInProgressTurnId(null);
+		},
+	);
+	const unsubscribeSessionChanged = props.runtime.subscribe(
+		"session.active.changed",
+		() => {
+			setInProgressTurnId(null);
+		},
+	);
 
 	const unsubscribeStarted = props.runtime.subscribe(
 		"agent.tool.started",
@@ -86,6 +116,9 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 		unsubscribeStarted();
 		unsubscribeUpdated();
 		unsubscribeEnded();
+		unsubscribeTurnStarted();
+		unsubscribeTurnCompleted();
+		unsubscribeSessionChanged();
 	});
 
 	return (
