@@ -2,9 +2,8 @@ import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import { type Accessor, createMemo, createSelector, For, Show } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
-import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
-import { syntaxStyle, theme } from "../../shell/theme";
-import type { ReviewHunk } from "./model";
+import { MessageComposer, type TextareaRef } from "../MessageComposer";
+import { syntaxStyle, theme } from "../theme";
 import {
 	buildReviewDiffSplitRows,
 	buildReviewDiffUnifiedRows,
@@ -21,6 +20,7 @@ import {
 	type ReviewDiffSplitAnnotationGroup,
 	type ReviewDiffUnifiedRow,
 } from "./ReviewDiffModel";
+import type { ReviewHunk } from "./types";
 
 export {
 	buildReviewDiffSplitRows,
@@ -61,6 +61,12 @@ export type ReviewDiffBlockProps = {
 	) => void;
 	/** Columns available for line content; enables wrap-aware row heights. */
 	contentColumns?: number;
+	/**
+	 * Whether to render the line-number gutter. Defaults to true. Callers
+	 * displaying diffs without reliable absolute file positions (e.g. the
+	 * synthetic hunks built for the `edit` tool) should pass `false`.
+	 */
+	showLineNumbers?: boolean;
 };
 
 function wrappedRowsFor(text: string, contentColumns?: number): number {
@@ -309,15 +315,28 @@ function renderSplitAnnotationRows(
 	);
 }
 
-function renderUnifiedRow(
-	row: ReviewDiffUnifiedRow,
-	lineNumberWidth: number,
-	filetype: string | undefined,
-	hunk?: ReviewHunk,
-	isActiveLine?: (key: string) => boolean,
-	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"],
-	rowHeight: number = 1,
-) {
+type RenderUnifiedRowOptions = {
+	row: ReviewDiffUnifiedRow;
+	lineNumberWidth: number;
+	filetype: string | undefined;
+	hunk?: ReviewHunk;
+	isActiveLine?: (key: string) => boolean;
+	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"];
+	rowHeight?: number;
+	showLineNumbers?: boolean;
+};
+
+function renderUnifiedRow(opts: RenderUnifiedRowOptions) {
+	const {
+		row,
+		lineNumberWidth,
+		filetype,
+		hunk,
+		isActiveLine,
+		onLineMouseDown,
+		rowHeight = 1,
+		showLineNumbers = true,
+	} = opts;
 	const activeKey = () =>
 		row.lineIndex == null ? null : `line:${row.lineIndex}`;
 	const active = () => {
@@ -351,23 +370,25 @@ function renderUnifiedRow(
 			flexShrink={0}
 			onMouseDown={handleMouseDown}
 		>
-			<text
-				fg={theme.textMuted}
-				bg={active() ? theme.diffCursorGutterBg : bg()}
-				flexShrink={0}
-				height={1}
-			>
-				{formatLineNumber(row.deletionLineNumber, lineNumberWidth)}
-			</text>
-			<text
-				fg={theme.textMuted}
-				bg={active() ? theme.diffCursorGutterBg : bg()}
-				flexShrink={0}
-				height={1}
-			>
-				{" "}
-				{formatLineNumber(row.additionLineNumber, lineNumberWidth)}
-			</text>
+			<Show when={showLineNumbers}>
+				<text
+					fg={theme.textMuted}
+					bg={active() ? theme.diffCursorGutterBg : bg()}
+					flexShrink={0}
+					height={1}
+				>
+					{formatLineNumber(row.deletionLineNumber, lineNumberWidth)}
+				</text>
+				<text
+					fg={theme.textMuted}
+					bg={active() ? theme.diffCursorGutterBg : bg()}
+					flexShrink={0}
+					height={1}
+				>
+					{" "}
+					{formatLineNumber(row.additionLineNumber, lineNumberWidth)}
+				</text>
+			</Show>
 			<text fg={signColorForKind(row.kind)} bg={bg()} flexShrink={0} height={1}>
 				{row.sign}{" "}
 			</text>
@@ -376,15 +397,28 @@ function renderUnifiedRow(
 	);
 }
 
-function renderSplitCell(
-	cell: ReviewDiffCell,
-	lineNumberWidth: number,
-	filetype: string | undefined,
-	hunk: ReviewHunk,
-	isActiveLine?: (key: string) => boolean,
-	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"],
-	cellHeight: number = 1,
-) {
+type RenderSplitCellOptions = {
+	cell: ReviewDiffCell;
+	lineNumberWidth: number;
+	filetype: string | undefined;
+	hunk: ReviewHunk;
+	isActiveLine?: (key: string) => boolean;
+	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"];
+	cellHeight?: number;
+	showLineNumbers?: boolean;
+};
+
+function renderSplitCell(opts: RenderSplitCellOptions) {
+	const {
+		cell,
+		lineNumberWidth,
+		filetype,
+		hunk,
+		isActiveLine,
+		onLineMouseDown,
+		cellHeight = 1,
+		showLineNumbers = true,
+	} = opts;
 	const commentableLine = () =>
 		cell.lineIndex != null
 			? getReviewDiffCommentableLine(hunk, cell.lineIndex)
@@ -420,14 +454,16 @@ function renderSplitCell(
 			flexShrink={0}
 			onMouseDown={handleMouseDown}
 		>
-			<text
-				fg={theme.textMuted}
-				bg={active() ? theme.diffCursorGutterBg : bg()}
-				flexShrink={0}
-				height={1}
-			>
-				{formatLineNumber(cell.lineNumber, lineNumberWidth)}
-			</text>
+			<Show when={showLineNumbers}>
+				<text
+					fg={theme.textMuted}
+					bg={active() ? theme.diffCursorGutterBg : bg()}
+					flexShrink={0}
+					height={1}
+				>
+					{formatLineNumber(cell.lineNumber, lineNumberWidth)}
+				</text>
+			</Show>
 			<text
 				fg={signColorForKind(cell.kind)}
 				bg={bg()}
@@ -489,7 +525,14 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 			fallback={
 				<box flexDirection="column" gap={0}>
 					<For each={rawPatchRows(props.rawPatch ?? "")}>
-						{(row) => renderUnifiedRow(row, 1, props.filetype)}
+						{(row) =>
+							renderUnifiedRow({
+								row,
+								lineNumberWidth: 1,
+								filetype: props.filetype,
+								showLineNumbers: props.showLineNumbers !== false,
+							})
+						}
 					</For>
 				</box>
 			}
@@ -510,15 +553,19 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 											width="100%"
 											flexShrink={0}
 										>
-											{renderUnifiedRow(
+											{renderUnifiedRow({
 												row,
-												lineNumberWidth(),
-												props.filetype,
-												currentHunk(),
-												isActiveUnifiedLine,
-												props.onLineMouseDown,
-												wrappedRowsFor(row.text, props.contentColumns),
-											)}
+												lineNumberWidth: lineNumberWidth(),
+												filetype: props.filetype,
+												hunk: currentHunk(),
+												isActiveLine: isActiveUnifiedLine,
+												onLineMouseDown: props.onLineMouseDown,
+												rowHeight: wrappedRowsFor(
+													row.text,
+													props.contentColumns,
+												),
+												showLineNumbers: props.showLineNumbers !== false,
+											})}
 											<For
 												each={getReviewDiffUnifiedAnnotationsAfterRow(
 													row,
@@ -559,24 +606,26 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 												width="100%"
 												flexShrink={0}
 											>
-												{renderSplitCell(
-													row.deletion,
-													lineNumberWidth(),
-													props.filetype,
-													currentHunk(),
-													isActiveSplitLine,
-													props.onLineMouseDown,
-													rowHeight,
-												)}
-												{renderSplitCell(
-													row.addition,
-													lineNumberWidth(),
-													props.filetype,
-													currentHunk(),
-													isActiveSplitLine,
-													props.onLineMouseDown,
-													rowHeight,
-												)}
+												{renderSplitCell({
+													cell: row.deletion,
+													lineNumberWidth: lineNumberWidth(),
+													filetype: props.filetype,
+													hunk: currentHunk(),
+													isActiveLine: isActiveSplitLine,
+													onLineMouseDown: props.onLineMouseDown,
+													cellHeight: rowHeight,
+													showLineNumbers: props.showLineNumbers !== false,
+												})}
+												{renderSplitCell({
+													cell: row.addition,
+													lineNumberWidth: lineNumberWidth(),
+													filetype: props.filetype,
+													hunk: currentHunk(),
+													isActiveLine: isActiveSplitLine,
+													onLineMouseDown: props.onLineMouseDown,
+													cellHeight: rowHeight,
+													showLineNumbers: props.showLineNumbers !== false,
+												})}
 											</box>
 											{renderSplitAnnotationRows(
 												getReviewDiffSplitAnnotationsAfterRow(

@@ -134,18 +134,6 @@ export function buildBashTranscriptItem(
 	};
 }
 
-export function filterTranscriptItemsForDisplay(
-	items: TranscriptItem[],
-	options: { zenMode?: boolean },
-): TranscriptItem[] {
-	if (!options.zenMode) return items;
-	return items.filter((item) => {
-		if (item.kind !== "assistant") return true;
-		if (isAssistantError(item.message)) return true;
-		return extractAssistantParts(item.message).text.trim().length > 0;
-	});
-}
-
 export function flattenTurnsToTranscriptItems(turns: Turn[]): TranscriptItem[] {
 	const items: TranscriptItem[] = [];
 	for (const turn of turns) {
@@ -262,26 +250,63 @@ export function extractToolResultLines(msg: ToolResultMessage): string[] {
 
 const MAX_TOOL_ARG_SUMMARY_LENGTH = 80;
 
-function summarizeToolArg(value: string): string {
+function summarizeToolArg(value: string, full: boolean): string {
 	const singleLine = value.replace(/\s+/g, " ").trim();
-	if (singleLine.length <= MAX_TOOL_ARG_SUMMARY_LENGTH) {
+	if (full || singleLine.length <= MAX_TOOL_ARG_SUMMARY_LENGTH) {
 		return singleLine;
 	}
 	return `${singleLine.slice(0, MAX_TOOL_ARG_SUMMARY_LENGTH - 3)}...`;
 }
 
-export function formatToolArgs(args?: Record<string, unknown>): string {
+/**
+ * Display label for a tool call.
+ *
+ * Subagent calls show the agent name when available so the transcript
+ * reads as e.g. `summarizer` instead of the generic `subagent` label.
+ * Falls back to the raw tool name for `list_agents` (no agent arg) and
+ * any non-subagent tool.
+ */
+export function toolDisplayName(tc: ToolCall): string {
+	if (tc.name === "subagent") {
+		const agent = tc.arguments?.agent;
+		if (typeof agent === "string" && agent.trim().length > 0) {
+			return agent;
+		}
+	}
+	return tc.name;
+}
+
+const DEFAULT_TOOL_ARG_KEYS = ["command", "path", "agent"] as const;
+
+/**
+ * Returns the first string-valued arg matching the configured keys.
+ *
+ * Callers can override `keys` when the default preview keys would
+ * duplicate information shown elsewhere (e.g. subagent calls promote
+ * `agent` to the display label, so they pass `["message", "action"]`).
+ */
+export function formatToolArgs(
+	args?: Record<string, unknown>,
+	options: { full?: boolean; keys?: readonly string[] } = {},
+): string {
 	if (!args) return "";
-	if ("command" in args && typeof args.command === "string") {
-		return ` ${summarizeToolArg(args.command)}`;
-	}
-	if ("path" in args && typeof args.path === "string") {
-		return ` ${summarizeToolArg(args.path)}`;
-	}
-	if ("agent" in args && typeof args.agent === "string") {
-		return ` ${summarizeToolArg(args.agent)}`;
+	const full = options.full ?? false;
+	const keys = options.keys ?? DEFAULT_TOOL_ARG_KEYS;
+	for (const key of keys) {
+		const value = args[key];
+		if (typeof value === "string") {
+			return ` ${summarizeToolArg(value, full)}`;
+		}
 	}
 	return "";
+}
+
+/**
+ * The arg-preview keys to use for a tool call. Subagent calls hide the
+ * `agent` arg because it's already the display label.
+ */
+export function toolArgKeys(tc: ToolCall): readonly string[] | undefined {
+	return tc.name === "subagent" ? ["message", "action"] : undefined;
 }
 
 export function isHandoffSummaryMessage(
@@ -295,4 +320,106 @@ export function isHandoffSummaryMessage(
 
 export function isAssistantError(msg: AssistantMessage): boolean {
 	return msg.stopReason === "error" && !!msg.errorMessage;
+}
+
+function assistantHasProse(
+	item: Extract<TranscriptItem, { kind: "assistant" }>,
+): boolean {
+	if (isAssistantError(item.message)) return true;
+	return extractAssistantParts(item.message).text.trim().length > 0;
+}
+
+/**
+ * A display-level item: either a single transcript item or a group of
+ * intermediate turn items folded into one drawer.
+ */
+export type DisplayItem =
+	| { kind: "single"; item: TranscriptItem }
+	| {
+			kind: "turn-work";
+			items: TranscriptItem[];
+			turnId: string;
+	  };
+
+/**
+ * Groups items into display units. Within each turn:
+ * - If the turn has 0 or 1 assistant message: emit all items as singles.
+ * - Otherwise, fold intermediate items into a single "turn-work" drawer.
+ *   The user message and the "final" assistant message (the last one with
+ *   prose) render as singles; everything in between collapses.
+ *   If no assistant message in the turn has prose, all assistant items
+ *   collapse into the turn-work drawer.
+ *
+ * When `inProgressTurnId` matches a turn, that turn is treated as in flight:
+ * no "final" prose item is extracted, and every non-user item collapses
+ * into a single growing turn-work drawer (even if there is currently only
+ * one such item). This keeps the visible transcript stable while the
+ * assistant streams multiple intermediate messages.
+ */
+export function groupItemsForDisplay(
+	items: TranscriptItem[],
+	inProgressTurnId?: string | null,
+): DisplayItem[] {
+	const result: DisplayItem[] = [];
+	let i = 0;
+	while (i < items.length) {
+		const turnId = items[i].turnId;
+		let j = i;
+		while (j < items.length && items[j].turnId === turnId) j++;
+		const turnItems = items.slice(i, j);
+		i = j;
+
+		const isInProgress = !!inProgressTurnId && inProgressTurnId === turnId;
+
+		let assistantCount = 0;
+		for (const item of turnItems) {
+			if (item.kind === "assistant") assistantCount++;
+		}
+
+		if (assistantCount <= 1 && !isInProgress) {
+			for (const item of turnItems) {
+				result.push({ kind: "single", item });
+			}
+			continue;
+		}
+
+		// Multiple assistant messages: identify the "final" item — the last
+		// assistant message that has prose. If none, no item is treated as final
+		// and everything intermediate collapses. In-progress turns never extract
+		// a final, since more messages may still arrive.
+		let finalIdx = -1;
+		if (!isInProgress) {
+			for (let k = turnItems.length - 1; k >= 0; k--) {
+				const item = turnItems[k];
+				if (item.kind === "assistant" && assistantHasProse(item)) {
+					finalIdx = k;
+					break;
+				}
+			}
+		}
+
+		let buffer: TranscriptItem[] = [];
+		const flushBuffer = () => {
+			if (buffer.length === 0) return;
+			if (buffer.length === 1 && !isInProgress) {
+				result.push({ kind: "single", item: buffer[0] });
+			} else {
+				result.push({ kind: "turn-work", items: buffer.slice(), turnId });
+			}
+			buffer = [];
+		};
+
+		for (let k = 0; k < turnItems.length; k++) {
+			const item = turnItems[k];
+			if (item.kind === "user" || k === finalIdx) {
+				flushBuffer();
+				result.push({ kind: "single", item });
+			} else {
+				buffer.push(item);
+			}
+		}
+		flushBuffer();
+	}
+
+	return result;
 }

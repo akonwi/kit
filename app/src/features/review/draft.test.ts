@@ -12,7 +12,7 @@ function makeFile(): ReviewFile {
 		noteKey: "src/test.ts",
 		path: "src/test.ts",
 		status: "modify" as ReviewFile["status"],
-		source: "unstaged",
+		source: "working",
 		filetype: "typescript",
 		rawPatch: [
 			"diff --git a/src/test.ts b/src/test.ts",

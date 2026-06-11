@@ -127,6 +127,14 @@ export const KEYBINDING_REGISTRY = {
 			hint: "continue",
 		},
 	},
+	"turn-activity": {
+		close: {
+			defaultKeys: "escape",
+			desc: "Close turn activity dialog",
+			group: "turn-activity",
+			hint: "close",
+		},
+	},
 	"guided-questions": {
 		previous: {
 			defaultKeys: "shift+tab",

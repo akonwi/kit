@@ -17,6 +17,18 @@ import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import { Dialog } from "../../shell/Dialog";
 import {
+	estimateWrappedRows,
+	getReviewDiffActiveLineId,
+	getReviewDiffCommentableLines,
+	getReviewDiffLineTop,
+	getReviewDiffRangeBounds,
+	type ReviewDiffAnnotationMetadata,
+	ReviewDiffBlock,
+	type ReviewDiffCommentableLine,
+	shouldResetPatchScroll,
+} from "../../shell/diff/ReviewDiffBlock";
+import { inferFiletype } from "../../shell/filetype";
+import {
 	DASHED_VERTICAL,
 	DIAMOND,
 	TRIANGLE_DOWN,
@@ -43,24 +55,12 @@ import {
 import { FileTreePanel } from "./FileTreePanel";
 import {
 	getRepoRoot,
-	inferFiletype,
 	listRepoFiles,
 	loadReviewFiles,
 	type ReviewFile,
 	type ReviewHunk,
 	type ReviewSkippedSection,
 } from "./model";
-import {
-	estimateWrappedRows,
-	getReviewDiffActiveLineId,
-	getReviewDiffCommentableLines,
-	getReviewDiffLineTop,
-	getReviewDiffRangeBounds,
-	type ReviewDiffAnnotationMetadata,
-	ReviewDiffBlock,
-	type ReviewDiffCommentableLine,
-	shouldResetPatchScroll,
-} from "./ReviewDiffBlock";
 import {
 	reviewStatusColor,
 	reviewStatusLabel,
@@ -123,12 +123,15 @@ function shouldUseFocusedPatchRendering(file: ReviewFile): boolean {
 	);
 }
 
+/**
+ * Short label for non-default sources. Working-tree changes are the
+ * dominant case and don't need a redundant prefix; only untracked files
+ * get a label.
+ */
 function sourceLabel(file: ReviewFile): string {
 	switch (file.source) {
-		case "staged":
-			return "staged";
-		case "unstaged":
-			return "unstaged";
+		case "working":
+			return "";
 		case "untracked":
 			return "untracked";
 	}
@@ -1838,7 +1841,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												</Show>
 											</box>
 											<text fg={theme.textMuted}>
-												{sourceLabel(file())} ·{" "}
+												{sourceLabel(file()) ? `${sourceLabel(file())} · ` : ""}
 												{currentHunk()
 													? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
 													: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}

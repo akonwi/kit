@@ -35,6 +35,7 @@ export type ThemeTokens = {
 	reviewText: string;
 	errorText: string;
 	warningText: string;
+	subagentText: string;
 	debugLabel: string;
 
 	// Secondary

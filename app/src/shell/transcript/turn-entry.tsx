@@ -1,44 +1,121 @@
+import { createMemo } from "solid-js";
+import type { ToolResultMessage } from "../../runtime/agent";
+import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { AssistantEntry } from "./assistant-entry";
 import { BashEntry } from "./bash-entry";
+import { DrawerChip } from "./drawer-chip";
 import { HandoffSummaryEntry } from "./handoff-summary-entry";
-import type { TranscriptItem } from "./turns";
-import type { TranscriptToast } from "./types";
+import {
+	type DisplayItem,
+	extractAssistantParts,
+	type TranscriptItem,
+} from "./turns";
+import type { OpenActivity, TranscriptToast } from "./types";
 import { UserEntry } from "./user-entry";
 
+/**
+ * Chip for the consolidated intermediate work of a turn. Clicking opens the
+ * turn activity view (sidebar on wide terminals, modal otherwise), kept
+ * live via the runtime.
+ */
+function TurnWorkDrawer(props: {
+	items: TranscriptItem[];
+	liveTools: LiveToolsForTurn;
+	runtime: AgentRuntime;
+	openActivity: OpenActivity;
+}) {
+	if (props.items.length === 0) return null;
+
+	const turnId = props.items[0].turnId;
+
+	const allToolCalls = createMemo(() =>
+		props.items.flatMap((item) =>
+			item.kind === "assistant"
+				? extractAssistantParts(item.message).toolCalls
+				: [],
+		),
+	);
+	const allToolResults = createMemo(() => {
+		const merged = new Map<string, ToolResultMessage>();
+		for (const item of props.items) {
+			if (item.kind === "assistant") {
+				for (const [id, result] of item.toolResults) {
+					merged.set(id, result);
+				}
+			}
+		}
+		return merged;
+	});
+	const aborted = createMemo(() =>
+		props.items.some((item) =>
+			item.kind === "assistant" ? item.aborted : false,
+		),
+	);
+
+	function openDialog() {
+		props.openActivity({ kind: "turn-intermediate", turnId });
+	}
+
+	const stepLabel = createMemo(() => {
+		const n = props.items.length;
+		return `${n} step${n === 1 ? "" : "s"}`;
+	});
+
+	return (
+		<DrawerChip
+			toolCalls={allToolCalls()}
+			toolResults={allToolResults()}
+			aborted={aborted()}
+			onActivate={openDialog}
+			emptyLabel={stepLabel()}
+		/>
+	);
+}
+
 export function TurnEntry(props: {
-	item: TranscriptItem;
+	displayItem: DisplayItem;
 	liveTools: LiveToolsForTurn;
 	showToast: (toast: TranscriptToast) => void;
-	zenMode?: boolean;
+	runtime: AgentRuntime;
+	openActivity: OpenActivity;
 }) {
-	switch (props.item.kind) {
+	if (props.displayItem.kind === "turn-work") {
+		return (
+			<TurnWorkDrawer
+				items={props.displayItem.items}
+				liveTools={props.liveTools}
+				runtime={props.runtime}
+				openActivity={props.openActivity}
+			/>
+		);
+	}
+
+	const item = props.displayItem.item;
+	switch (item.kind) {
 		case "user":
 			return (
 				<UserEntry
-					msg={props.item.message}
-					aborted={props.item.aborted}
+					msg={item.message}
+					aborted={item.aborted}
 					showToast={props.showToast}
 				/>
 			);
 		case "assistant":
 			return (
 				<AssistantEntry
-					msg={props.item.message}
-					toolResults={props.item.toolResults}
+					itemId={item.id}
+					msg={item.message}
+					toolResults={item.toolResults}
 					liveTools={props.liveTools}
-					aborted={props.item.aborted}
-					zenMode={props.zenMode}
+					aborted={item.aborted}
+					runtime={props.runtime}
+					openActivity={props.openActivity}
 				/>
 			);
 		case "handoff-summary":
-			return (
-				<HandoffSummaryEntry
-					msg={props.item.message}
-					aborted={props.item.aborted}
-				/>
-			);
+			return <HandoffSummaryEntry msg={item.message} aborted={item.aborted} />;
 		case "bash":
-			return <BashEntry msg={props.item.message} />;
+			return <BashEntry msg={item.message} />;
 	}
 }

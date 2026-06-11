@@ -14,19 +14,6 @@ export function SettingsPlugin(kit: InternalPluginAPI): void {
 	const speechVoicesPromise = discoverSpeechVoices();
 
 	kit.registerCommand(
-		"zen",
-		{ description: "Toggle minimal transcript mode" },
-		async () => {
-			const enabled = kit.settings.get().zen === true;
-			await kit.settings.update({ zen: !enabled });
-			kit.ui.toast({
-				title: !enabled ? "Zen transcript enabled" : "Zen transcript disabled",
-				variant: "info",
-			});
-		},
-	);
-
-	kit.registerCommand(
 		"settings",
 		{ description: "Open application settings" },
 		async () => {

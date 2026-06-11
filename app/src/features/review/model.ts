@@ -4,35 +4,12 @@ import path from "node:path";
 import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 import { safeProcessCwd } from "../../process-cwd";
+import type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
+import { inferFiletype } from "../../shell/filetype";
 
-export type ReviewDiffSource = "staged" | "unstaged" | "untracked";
+export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 
-export type ReviewLine = {
-	kind: "add" | "context" | "delete";
-	text: string;
-	additionLineNumber?: number;
-	deletionLineNumber?: number;
-};
-
-export type ReviewHunk = {
-	id: string;
-	noteKey: string;
-	header: string;
-	context: string;
-	lines: ReviewLine[];
-	/** Offset of lines[0] in the source hunk's unified row space. */
-	lineIndexOffset?: number;
-	lineWindow?: { start: number; end: number; total: number };
-	changeCount: number;
-	rawPatch: string;
-	patchStartLine: number;
-	patchLineCount: number;
-	additionStart: number;
-	additionCount: number;
-	deletionStart: number;
-	deletionCount: number;
-	collapsedBefore: number;
-};
+export type ReviewDiffSource = "working" | "untracked";
 
 export type ReviewSkippedSection = {
 	id: string;
@@ -83,26 +60,53 @@ function tryRunGit(cwd: string | undefined, args: string[]): string | null {
 	return result.stdout;
 }
 
-function getStagedDiff(cwd?: string): string {
-	return runGit(
-		cwd,
-		[
-			"diff",
-			"--cached",
-			"--no-ext-diff",
-			"--find-renames",
-			"--find-copies",
-			"--unified=3",
-		],
-		"Failed to read staged diff.",
+/**
+ * Detect whether the current branch has a HEAD commit. An unborn branch
+ * (e.g. immediately after `git init`) has no HEAD; `git diff HEAD` would
+ * fail there.
+ */
+function repoHasHead(cwd?: string): boolean {
+	const result = spawnSync(
+		"git",
+		["rev-parse", "--verify", "--quiet", "HEAD"],
+		{
+			encoding: "utf8",
+			cwd: cwd || safeProcessCwd(),
+		},
 	);
+	return result.status === 0;
 }
 
-function getUnstagedDiff(cwd?: string): string {
+/**
+ * Diff from HEAD to working tree — covers staged and unstaged changes in a
+ * single patch. The review intentionally does not distinguish between the
+ * two; users just want to see what they've changed since HEAD. A side
+ * benefit is that each path appears at most once, so the file tree can't
+ * receive duplicate entries for the same path.
+ *
+ * On an unborn branch (no HEAD) we fall back to `git diff --cached`, which
+ * surfaces staged files against the empty tree. Working-tree-only changes
+ * to staged files are not shown in that case, but unborn-branch usage is
+ * rare enough that this trade-off is acceptable.
+ */
+function getWorkingTreeDiff(cwd?: string): string {
+	const baseArgs = [
+		"--no-ext-diff",
+		"--find-renames",
+		"--find-copies",
+		"--unified=3",
+	];
+	if (!repoHasHead(cwd)) {
+		return runGit(
+			cwd,
+			["diff", "--cached", ...baseArgs],
+			"Failed to read staged diff.",
+		);
+	}
 	return runGit(
 		cwd,
-		["diff", "--no-ext-diff", "--find-renames", "--find-copies", "--unified=3"],
-		"Failed to read unstaged diff.",
+		["diff", "HEAD", ...baseArgs],
+		"Failed to read working tree diff.",
 	);
 }
 
@@ -170,44 +174,6 @@ function splitRawDiffIntoFiles(diff: string): string[] {
 		.filter((chunk) => chunk.trim().startsWith("diff --git "));
 }
 
-/**
- * Infer a tree-sitter filetype from a file path.
- * Only returns filetypes that have parsers registered in OpenTUI core
- * or added by Kit in bootstrap. Returns undefined for unsupported
- * filetypes so the code component falls back to plain text.
- */
-export function inferFiletype(filePath: string): string | undefined {
-	const normalized = filePath.toLowerCase();
-	if (normalized.endsWith(".ts")) return "typescript";
-	if (normalized.endsWith(".tsx")) return "tsx";
-	if (normalized.endsWith(".jsx")) return "jsx";
-	if (
-		normalized.endsWith(".js") ||
-		normalized.endsWith(".mjs") ||
-		normalized.endsWith(".cjs")
-	) {
-		return "javascript";
-	}
-	if (normalized.endsWith(".md") || normalized.endsWith(".mdx"))
-		return "markdown";
-	if (normalized.endsWith(".zig")) return "zig";
-	if (normalized.endsWith(".json") || normalized.endsWith(".jsonc"))
-		return "json";
-	if (normalized.endsWith(".toml")) return "toml";
-	if (normalized.endsWith(".rb") || normalized.endsWith(".gemspec"))
-		return "ruby";
-	if (normalized.endsWith(".sh") || normalized.endsWith(".bash")) return "bash";
-	if (normalized.endsWith(".yml") || normalized.endsWith(".yaml"))
-		return "yaml";
-	if (normalized.endsWith(".css")) return "css";
-	if (normalized.endsWith(".html") || normalized.endsWith(".htm"))
-		return "html";
-	if (normalized.endsWith(".rs")) return "rust";
-	if (normalized.endsWith(".go")) return "go";
-	if (normalized.endsWith(".py")) return "python";
-	return undefined;
-}
-
 function splitFileLines(content: string): string[] {
 	const normalized = content.replace(/\r\n/g, "\n");
 	if (normalized.length === 0) return [];
@@ -239,15 +205,6 @@ function readGitRevisionLines(
 	return splitFileLines(output);
 }
 
-function readGitIndexLines(
-	cwd: string | undefined,
-	relativePath: string,
-): string[] | null {
-	const output = tryRunGit(cwd, ["show", `:${relativePath}`]);
-	if (output === null) return null;
-	return splitFileLines(output);
-}
-
 function loadDisplayLines(options: {
 	cwd?: string;
 	repoRoot: string;
@@ -258,18 +215,7 @@ function loadDisplayLines(options: {
 	const afterPath = options.file.name;
 
 	switch (options.source) {
-		case "staged": {
-			const afterLines =
-				options.file.type === "deleted"
-					? null
-					: readGitIndexLines(options.cwd, afterPath);
-			const beforeLines =
-				options.file.type === "new"
-					? null
-					: readGitRevisionLines(options.cwd, "HEAD", beforePath);
-			return afterLines ?? beforeLines ?? [];
-		}
-		case "unstaged": {
+		case "working": {
 			const afterLines =
 				options.file.type === "deleted"
 					? null
@@ -277,7 +223,7 @@ function loadDisplayLines(options: {
 			const beforeLines =
 				options.file.type === "new"
 					? null
-					: readGitIndexLines(options.cwd, beforePath);
+					: readGitRevisionLines(options.cwd, "HEAD", beforePath);
 			return afterLines ?? beforeLines ?? [];
 		}
 		case "untracked":
@@ -546,12 +492,10 @@ function yieldToRenderer(): Promise<void> {
 
 export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 	await yieldToRenderer();
-	const staged = getStagedDiff(cwd);
-	const unstaged = getUnstagedDiff(cwd);
+	const working = getWorkingTreeDiff(cwd);
 	const untracked = getUntrackedDiff(cwd);
 	const patchSets = [
-		parseReviewPatchSet(staged, "staged"),
-		parseReviewPatchSet(unstaged, "unstaged"),
+		parseReviewPatchSet(working, "working"),
 		parseReviewPatchSet(untracked, "untracked"),
 	].filter((value): value is ReviewPatchSet => value !== null);
 	if (patchSets.length === 0) return [];
