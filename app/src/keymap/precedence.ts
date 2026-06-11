@@ -2,6 +2,7 @@ export type KeymapLayerScope =
 	| "app"
 	| "composer"
 	| "picker"
+	| "panel"
 	| "modal"
 	| "overlay";
 
@@ -10,6 +11,7 @@ export type KeymapLayerPrecedence = "default" | "contextual" | "fallback";
 const SCOPE_PRIORITY: Record<KeymapLayerScope, number> = {
 	overlay: 250,
 	modal: 200,
+	panel: 150,
 	app: 100,
 	composer: 90,
 	picker: 70,

@@ -1,9 +1,7 @@
 import { TextAttributes } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import { diffLines } from "diff";
-import type { JSX } from "solid-js";
 import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js";
-import type { OverlayComponentProps } from "../../app/overlay-ui";
 import type {
 	AssistantMessage,
 	ToolCall,
@@ -28,7 +26,6 @@ import { extractToolProgressLines } from "../transcript-live-tools";
 import { DialogCard } from "./dialog-card";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
-import { TurnActivityDialog } from "./TurnActivityDialog";
 import {
 	extractAssistantParts,
 	extractToolResultLines,
@@ -37,7 +34,7 @@ import {
 	toolArgKeys,
 	toolDisplayName,
 } from "./turns";
-import type { OpenOverlay } from "./types";
+import type { OpenActivity } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -627,22 +624,10 @@ export function ToolDrawer(props: {
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
 	runtime: AgentRuntime;
-	openOverlay: OpenOverlay;
+	openActivity: OpenActivity;
 }) {
 	function openDialog() {
-		const itemId = props.itemId;
-		const runtime = props.runtime;
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<unknown>): JSX.Element => (
-				<TurnActivityDialog
-					runtime={runtime}
-					source={{ kind: "single-item", itemId }}
-					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
+		props.openActivity({ kind: "single-item", itemId: props.itemId });
 	}
 
 	return (
@@ -662,7 +647,7 @@ export function AssistantEntry(props: {
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
 	runtime: AgentRuntime;
-	openOverlay: OpenOverlay;
+	openActivity: OpenActivity;
 }) {
 	if (isAssistantError(props.msg)) {
 		return (
@@ -690,7 +675,7 @@ export function AssistantEntry(props: {
 					liveTools={props.liveTools}
 					aborted={props.aborted}
 					runtime={props.runtime}
-					openOverlay={props.openOverlay}
+					openActivity={props.openActivity}
 				/>
 			</Show>
 			<Show when={hasText}>

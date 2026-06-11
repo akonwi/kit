@@ -1,6 +1,4 @@
-import type { JSX } from "solid-js";
 import { createMemo } from "solid-js";
-import type { OverlayComponentProps } from "../../app/overlay-ui";
 import type { ToolResultMessage } from "../../runtime/agent";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
@@ -8,24 +6,24 @@ import { AssistantEntry } from "./assistant-entry";
 import { BashEntry } from "./bash-entry";
 import { DrawerChip } from "./drawer-chip";
 import { HandoffSummaryEntry } from "./handoff-summary-entry";
-import { TurnActivityDialog } from "./TurnActivityDialog";
 import {
 	type DisplayItem,
 	extractAssistantParts,
 	type TranscriptItem,
 } from "./turns";
-import type { OpenOverlay, TranscriptToast } from "./types";
+import type { OpenActivity, TranscriptToast } from "./types";
 import { UserEntry } from "./user-entry";
 
 /**
  * Chip for the consolidated intermediate work of a turn. Clicking opens the
- * turn activity dialog, kept live via the runtime.
+ * turn activity view (sidebar on wide terminals, modal otherwise), kept
+ * live via the runtime.
  */
 function TurnWorkDrawer(props: {
 	items: TranscriptItem[];
 	liveTools: LiveToolsForTurn;
 	runtime: AgentRuntime;
-	openOverlay: OpenOverlay;
+	openActivity: OpenActivity;
 }) {
 	if (props.items.length === 0) return null;
 
@@ -56,18 +54,7 @@ function TurnWorkDrawer(props: {
 	);
 
 	function openDialog() {
-		const runtime = props.runtime;
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<unknown>): JSX.Element => (
-				<TurnActivityDialog
-					runtime={runtime}
-					source={{ kind: "turn-intermediate", turnId }}
-					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
+		props.openActivity({ kind: "turn-intermediate", turnId });
 	}
 
 	const stepLabel = createMemo(() => {
@@ -91,7 +78,7 @@ export function TurnEntry(props: {
 	liveTools: LiveToolsForTurn;
 	showToast: (toast: TranscriptToast) => void;
 	runtime: AgentRuntime;
-	openOverlay: OpenOverlay;
+	openActivity: OpenActivity;
 }) {
 	if (props.displayItem.kind === "turn-work") {
 		return (
@@ -99,7 +86,7 @@ export function TurnEntry(props: {
 				items={props.displayItem.items}
 				liveTools={props.liveTools}
 				runtime={props.runtime}
-				openOverlay={props.openOverlay}
+				openActivity={props.openActivity}
 			/>
 		);
 	}
@@ -123,7 +110,7 @@ export function TurnEntry(props: {
 					liveTools={props.liveTools}
 					aborted={item.aborted}
 					runtime={props.runtime}
-					openOverlay={props.openOverlay}
+					openActivity={props.openActivity}
 				/>
 			);
 		case "handoff-summary":

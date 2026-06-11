@@ -1,5 +1,7 @@
 import { useRenderer } from "@opentui/solid";
-import { createSignal, For, onCleanup, Show } from "solid-js";
+import type { JSX } from "solid-js";
+import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import type { OverlayComponentProps } from "../app/overlay-ui";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
@@ -27,9 +29,20 @@ import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
-import type { OpenOverlay } from "./transcript/types";
+import { TurnActivityDialog } from "./transcript/TurnActivityDialog";
+import { TurnActivitySidebar } from "./transcript/TurnActivitySidebar";
+import type { ActivitySource } from "./transcript/turn-activity-view";
+import type { OpenActivity, OpenOverlay } from "./transcript/types";
 
-const STATUS_BAR_HEIGHT = 1;
+/**
+ * Terminal width (in columns) at which the turn activity view is shown as
+ * a right-side sidebar alongside the transcript. Below this threshold it
+ * falls back to the existing modal dialog.
+ */
+const ACTIVITY_SIDEBAR_MIN_WIDTH = 200;
+
+/** Sidebar width as a fraction of terminal width when shown. */
+const ACTIVITY_SIDEBAR_FRACTION = 0.4;
 
 export type AppShellProps = {
 	settings: Settings;
@@ -54,6 +67,14 @@ type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
 	showToast: (toast: ToastInput) => void;
 };
 
+function activitySourceEquals(a: ActivitySource, b: ActivitySource): boolean {
+	if (a.kind === "single-item" && b.kind === "single-item")
+		return a.itemId === b.itemId;
+	if (a.kind === "turn-intermediate" && b.kind === "turn-intermediate")
+		return a.turnId === b.turnId;
+	return false;
+}
+
 function commandKeybindingGroup(command: Command): string {
 	if (command.category) return command.category;
 	const dot = command.name.indexOf(".");
@@ -68,6 +89,50 @@ function AppShellContent(props: AppShellContentProps) {
 	const [commandRegistryVersion, setCommandRegistryVersion] = createSignal(0);
 	const renderer = useRenderer();
 	let transcriptRef: { width: number; height: number } | undefined;
+
+	// Track outer terminal width so we can switch the turn activity view
+	// between sidebar (wide) and modal (narrow) modes responsively.
+	const [shellWidth, setShellWidth] = createSignal(renderer.terminalWidth);
+	let shellRef: { width: number; height: number } | undefined;
+
+	const [sidebarActivity, setSidebarActivity] =
+		createSignal<ActivitySource | null>(null);
+
+	const isWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
+	const sidebarSource = () => (isWideEnough() ? sidebarActivity() : null);
+	const sidebarWidth = () =>
+		Math.max(40, Math.floor(shellWidth() * ACTIVITY_SIDEBAR_FRACTION));
+
+	// If the terminal narrows below the sidebar threshold while a sidebar
+	// is open, close it. (Users can reopen the activity view; it will
+	// fall back to the modal at the new width.)
+	createEffect(() => {
+		if (sidebarActivity() !== null && !isWideEnough()) {
+			setSidebarActivity(null);
+		}
+	});
+
+	const openActivity: OpenActivity = (source) => {
+		if (shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH) {
+			// Re-clicking the same chip while its sidebar is open is a no-op;
+			// a different chip swaps the content.
+			const current = sidebarActivity();
+			if (current && activitySourceEquals(current, source)) return;
+			setSidebarActivity(source);
+			return;
+		}
+		void props.openOverlay(
+			(overlayProps: OverlayComponentProps<unknown>): JSX.Element => (
+				<TurnActivityDialog
+					runtime={props.runtime}
+					source={source}
+					done={overlayProps.done}
+					surfaceProps={overlayProps.surfaceProps}
+					active={overlayProps.active}
+				/>
+			),
+		);
+	};
 
 	onCleanup(
 		props.commands.subscribe(() => {
@@ -119,6 +184,12 @@ function AppShellContent(props: AppShellContentProps) {
 			flexDirection="column"
 			backgroundColor={theme.bg}
 			onMouseUp={() => copySelection(renderer)}
+			ref={(value) => {
+				shellRef = value as typeof shellRef;
+			}}
+			onSizeChange={() => {
+				if (shellRef) setShellWidth(shellRef.width);
+			}}
 		>
 			<HeaderBar
 				runtime={props.runtime}
@@ -127,48 +198,81 @@ function AppShellContent(props: AppShellContentProps) {
 				onHeightChange={setHeaderHeight}
 			/>
 
-			<box
-				flexGrow={1}
-				ref={(value) => {
-					transcriptRef = value as typeof transcriptRef;
-				}}
-				onSizeChange={() => {
-					if (!transcriptRef) return;
-					props.onTranscriptViewportChange({
-						width: transcriptRef.width,
-						height: transcriptRef.height,
-					});
-				}}
-			>
-				<Transcript
-					runtime={props.runtime}
-					showToast={props.showToast}
-					openOverlay={props.openOverlay}
-				/>
+			{/*
+			 * Main row sits between the full-width HeaderBar and
+			 * BottomStatusBar. The left column holds the transcript + the
+			 * composer stack (pending slot, composer dock); when the
+			 * activity sidebar is open it mounts to the right and extends
+			 * the full height of this row so pending/composer UI no longer
+			 * bleeds under it.
+			 */}
+			<box flexGrow={1} flexDirection="row">
+				<box flexGrow={1} flexDirection="column">
+					<box
+						flexGrow={1}
+						ref={(value) => {
+							transcriptRef = value as typeof transcriptRef;
+						}}
+						onSizeChange={() => {
+							if (!transcriptRef) return;
+							props.onTranscriptViewportChange({
+								width: transcriptRef.width,
+								height: transcriptRef.height,
+							});
+						}}
+					>
+						<Transcript
+							runtime={props.runtime}
+							showToast={props.showToast}
+							openOverlay={props.openOverlay}
+							openActivity={openActivity}
+						/>
+					</box>
+					<box flexShrink={0} flexDirection="column" gap={0}>
+						<PendingSlot
+							runtime={props.runtime}
+							pendingMessages={props.state.pendingMessages}
+						/>
+						<ComposerDock
+							controller={props.controller}
+							attachments={props.attachments}
+							locked={props.overlays().length > 0}
+							onHeightChange={setDockHeight}
+							onModeChange={setComposerMode}
+						/>
+					</box>
+					{/* Inline @/# reference picker floats just above the
+					 * composer. Mounting it inside the left column constrains
+					 * its absolute positioning to the column, so when the
+					 * sidebar is open the picker no longer bleeds across it.
+					 * `bottom` only accounts for the composer dock height
+					 * because the status bar lives outside this column. */}
+					<InlinePicker
+						picker={props.controller.picker}
+						bottomOffset={dockHeight() + 2}
+					/>
+				</box>
+				{/* `keyed` so swapping to a different ActivitySource re-mounts
+				 * the sidebar. The model captures `source` statically at
+				 * creation, so without keyed the sidebar would keep showing
+				 * source A even after sidebarActivity changes to B. */}
+				<Show keyed when={sidebarSource()}>
+					{(source) => (
+						<box flexShrink={0} width={sidebarWidth()} height="100%">
+							<TurnActivitySidebar
+								runtime={props.runtime}
+								source={source}
+								onClose={() => setSidebarActivity(null)}
+							/>
+						</box>
+					)}
+				</Show>
 			</box>
 
-			<box flexShrink={0} flexDirection="column" gap={0}>
-				<PendingSlot
-					runtime={props.runtime}
-					pendingMessages={props.state.pendingMessages}
-				/>
-				<ComposerDock
-					controller={props.controller}
-					attachments={props.attachments}
-					locked={props.overlays().length > 0}
-					onHeightChange={setDockHeight}
-					onModeChange={setComposerMode}
-				/>
-				<BottomStatusBar
-					runtime={props.runtime}
-					status={props.footer}
-					composerMode={composerMode()}
-				/>
-			</box>
-
-			<InlinePicker
-				picker={props.controller.picker}
-				bottomOffset={dockHeight() + STATUS_BAR_HEIGHT + 2}
+			<BottomStatusBar
+				runtime={props.runtime}
+				status={props.footer}
+				composerMode={composerMode()}
 			/>
 
 			{/* Composer picker only serves @/# references */}
