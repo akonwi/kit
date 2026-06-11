@@ -26,11 +26,18 @@ export function DrawerChip(props: {
 	toolResults: Map<string, ToolResultMessage>;
 	aborted?: boolean;
 	onActivate?: () => void;
+	/**
+	 * Label shown in place of the tool-call count when `toolCalls` is empty.
+	 * Lets a turn-work chip summarize non-tool activity (bash, handoffs)
+	 * without showing the misleading "0 tool calls".
+	 */
+	emptyLabel?: string;
 }) {
 	const renderer = useRenderer();
 
 	const countLabel = createMemo(() => {
 		const n = props.toolCalls.length;
+		if (n === 0 && props.emptyLabel) return props.emptyLabel;
 		return `${n} tool call${n === 1 ? "" : "s"}`;
 	});
 

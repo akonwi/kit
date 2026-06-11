@@ -70,12 +70,18 @@ function TurnWorkDrawer(props: {
 		);
 	}
 
+	const stepLabel = createMemo(() => {
+		const n = props.items.length;
+		return `${n} step${n === 1 ? "" : "s"}`;
+	});
+
 	return (
 		<DrawerChip
 			toolCalls={allToolCalls()}
 			toolResults={allToolResults()}
 			aborted={aborted()}
 			onActivate={openDialog}
+			emptyLabel={stepLabel()}
 		/>
 	);
 }
