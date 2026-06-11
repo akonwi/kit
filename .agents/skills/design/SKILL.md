@@ -88,11 +88,25 @@ Bordered header bar with left/right content slots and an optional progress bar o
 />
 ```
 
+### Inline Panel
+A panel mounted alongside the transcript or another primary surface — part of the layout, not floating. Unlike an overlay, an inline panel coexists with the underlying view rather than taking it over. Used for the turn activity sidebar on wide terminals.
+
+Chrome conventions:
+- **Edge border**: `border={["left"]}` or `border={["right"]}` on the inward-facing edge as a separator from the adjacent surface. Use `borderDefault`.
+- **Header strip**: top of the panel, `paddingX={1} paddingY={0}` with `border={["bottom"]}`. Left content (title in `textPrimary`), right content (metadata in `textMuted`). One row tall.
+- **Body**: `flexGrow={1}`, a `scrollbox` for the content with theme-styled scrollbar.
+- **Hint bar**: `bordered` — it is the outermost structural element at the bottom of the panel.
+
+Width and visibility:
+- Derived from the viewport (e.g., `max(40, 40% of width)`).
+- Gated by a minimum-viewport threshold; auto-collapse to a Tier 2 dialog fallback when the viewport drops below it.
+- Mounted inside the shell layout as a flex sibling of the primary column, so absolutely-positioned children (e.g., InlinePicker) of the primary column don't bleed across it.
+
 ### Hint Bar (`HintBar`)
 Standardized keyboard shortcut bar. Renders bindings as `key action · key action · ...`.
 
 - **Borderless by default** — used in Tier 2 dialogs and Tier 1 pickers where the surrounding container already provides framing.
-- **`bordered`** — use at Tier 3 screen footers (pager, auth gate, main transcript, review) where the hint bar is the outermost structural element.
+- **`bordered`** — use at Tier 3 screen footers (pager, auth gate, main transcript, review) and inline panel footers, where the hint bar is the outermost structural element.
 
 ```tsx
 // Dialog / picker footer (default, borderless)
@@ -138,8 +152,8 @@ All glyphs are defined in `src/shell/glyphs.ts`. Import named constants; never u
 - `CIRCLE_SLASH` (`⊘`) — aborted/cancelled
 - `CIRCLE_FILLED` (`●`) — on, active, dirty
 - `CIRCLE_EMPTY` (`○`) — off, inactive, clean, idle
-- `TRIANGLE_RIGHT`/`TRIANGLE_DOWN` (`▸`/`▾`) — collapsed/expanded
-- `CHEVRON_RIGHT` (`›`) — focused item indicator
+- `TRIANGLE_RIGHT`/`TRIANGLE_DOWN` (`▸`/`▾`) — collapsed/expanded **inline**
+- `CHEVRON_RIGHT` (`›`) — focused item indicator, or "open detail view" affordance when clicking drills into a separate panel/dialog
 - `TIMES` (`×`) — close/dismiss
 - `MIDDLE_DOT` (`·`) — inline metadata separator
 - `SPINNER_FRAMES` — braille spinner at 80ms
