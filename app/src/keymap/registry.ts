@@ -29,6 +29,13 @@ export const KEYBINDING_REGISTRY = {
 			group: "App",
 		},
 	},
+	"queue-editor": {
+		open: {
+			defaultKeys: "alt+q",
+			desc: "Edit queued messages",
+			group: "App",
+		},
+	},
 	composer: {
 		"clear-or-quit": {
 			defaultKeys: "ctrl+c",

@@ -118,6 +118,9 @@ export function createAppState(runtime: AgentRuntime | null) {
 					fileIndex.invalidate();
 				}
 				break;
+			case "chat.message-queue.changed":
+				setState("pendingMessages", event.messages);
+				break;
 			case "chat.followups.promoted":
 				showToast({
 					title: "Steering",

@@ -233,7 +233,7 @@ export type RuntimeEventMap = AgentEventMap & {
 		session: Session;
 		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
-	"chat.message-queue.changed": { count: number };
+	"chat.message-queue.changed": { count: number; messages: string[] };
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
 	"vcs.updated": VcsInfo;
@@ -502,8 +502,11 @@ export class AgentRuntime {
 	}
 
 	private syncPendingState() {
-		const count = this.agent.getPendingFollowUps().length;
-		this.bus.publish("chat.message-queue.changed", { count });
+		const messages = this.agent.getPendingFollowUps();
+		this.bus.publish("chat.message-queue.changed", {
+			count: messages.length,
+			messages,
+		});
 	}
 
 	private snapshotStatus(): RuntimeStatus {
@@ -1164,6 +1167,21 @@ export class AgentRuntime {
 
 	clearPendingMessages(): void {
 		this.agent.clearPendingFollowUps();
+		this.syncPendingState();
+	}
+
+	setPendingMessages(messages: string[]): void {
+		this.agent.setPendingFollowUps(messages);
+		this.syncPendingState();
+	}
+
+	updatePendingMessage(index: number, text: string): void {
+		this.agent.updatePendingFollowUp(index, text);
+		this.syncPendingState();
+	}
+
+	removePendingMessage(index: number): void {
+		this.agent.removePendingFollowUp(index);
 		this.syncPendingState();
 	}
 

@@ -34,6 +34,7 @@ Only user-facing workflow commands are listed here. Setup, configuration, plugin
 | Command id | Default keys | Description |
 | --- | --- | --- |
 | `command-palette.open` | `ctrl+p` | Open command palette |
+| `queue-editor.open` | `alt+q` | Edit queued messages |
 
 ### Command palette
 
@@ -47,8 +48,14 @@ Only user-facing workflow commands are listed here. Setup, configuration, plugin
 
 ### Commands
 
-Any commands in the command palette have no default keybindings. Bind them by command id.
+Any commands in the command palette have no default keybindings unless they are also listed in this catalog. Bind them by command id.
 Plugin and prompt commands are also bindable by their registered command ids after they load.
+
+Built-in command palette entries include:
+
+| Command id | Description |
+| --- | --- |
+| `queue-editor.open` | Edit queued messages |
 
 ### Composer
 

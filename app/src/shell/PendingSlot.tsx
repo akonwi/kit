@@ -180,18 +180,6 @@ export function PendingSlot(props: PanelHostProps) {
 
 	return (
 		<box flexShrink={0} flexDirection="column" gap={0}>
-			<Show when={props.pendingMessages.length > 0}>
-				<box flexDirection="column" paddingLeft={1} paddingRight={1}>
-					{props.pendingMessages.map((message, index) => (
-						<box paddingLeft={1} paddingRight={1}>
-							<text fg={theme.textMuted}>
-								{`Follow-up ${index + 1}: ${message.replace(/\s+/g, " ").trim()}`}
-							</text>
-						</box>
-					))}
-				</box>
-			</Show>
-
 			<box
 				flexShrink={0}
 				height={1}
@@ -212,6 +200,18 @@ export function PendingSlot(props: PanelHostProps) {
 					</box>
 				</Show>
 			</box>
+
+			<Show when={props.pendingMessages.length > 0}>
+				<box flexDirection="column" paddingLeft={1} paddingRight={1}>
+					{props.pendingMessages.map((message, index) => (
+						<box paddingLeft={1} paddingRight={1}>
+							<text fg={theme.textMuted}>
+								{`Follow-up ${index + 1}: ${message.replace(/\s+/g, " ").trim()}`}
+							</text>
+						</box>
+					))}
+				</box>
+			</Show>
 		</box>
 	);
 }

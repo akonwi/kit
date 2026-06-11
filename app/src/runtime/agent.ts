@@ -443,14 +443,61 @@ export class Agent {
 		return [...this._pendingFollowUps];
 	}
 
+	setPendingFollowUps(messages: string[]): void {
+		this.replacePendingFollowUps(
+			messages.flatMap((text) => {
+				const trimmed = text.trim();
+				return trimmed
+					? [
+							{
+								role: "user" as const,
+								content: trimmed,
+								timestamp: Date.now(),
+							},
+						]
+					: [];
+			}),
+		);
+	}
+
+	updatePendingFollowUp(index: number, text: string): void {
+		if (index < 0 || index >= this._queuedFollowUps.length) return;
+		const trimmed = text.trim();
+		if (!trimmed) {
+			this.removePendingFollowUp(index);
+			return;
+		}
+		this.replacePendingFollowUps(
+			this._queuedFollowUps.map((message, messageIndex) =>
+				messageIndex === index
+					? withPlainTextContent(message, trimmed)
+					: message,
+			),
+		);
+	}
+
+	removePendingFollowUp(index: number): void {
+		if (index < 0 || index >= this._queuedFollowUps.length) return;
+		this.replacePendingFollowUps(
+			this._queuedFollowUps.filter((_, messageIndex) => messageIndex !== index),
+		);
+	}
+
 	drainPendingFollowUps(): string[] {
 		const drained = [...this._pendingFollowUps];
-		this.clearAllQueues();
+		this.clearFollowUpQueue();
 		return drained;
 	}
 
 	clearPendingFollowUps(): void {
-		this.clearAllQueues();
+		this.clearFollowUpQueue();
+	}
+
+	private replacePendingFollowUps(messages: AgentMessage[]): void {
+		this.clearFollowUpQueue();
+		for (const message of messages) {
+			this.followUp(message);
+		}
 	}
 
 	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
@@ -831,6 +878,18 @@ function normalizeUserMessage(
 		content,
 		timestamp: message.timestamp,
 	};
+}
+
+function withPlainTextContent(
+	message: AgentMessage,
+	text: string,
+): AgentMessage {
+	if (!("content" in message)) return message;
+	return {
+		...message,
+		content:
+			typeof message.content === "string" ? text : [{ type: "text", text }],
+	} as AgentMessage;
 }
 
 function extractPlainText(message: AgentMessage): string {

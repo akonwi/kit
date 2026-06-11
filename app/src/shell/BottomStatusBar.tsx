@@ -5,7 +5,7 @@ import type { ComposerInputMode } from "./ComposerDock";
 import type { ChromeContribution } from "./chrome-contributions";
 import { createChromeTextContent } from "./chrome-contributions";
 import type { FooterStatusController } from "./footer-status";
-import { MIDDLE_DOT } from "./glyphs";
+import { ARROW_UP, MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
 export type BottomStatusBarProps = {
@@ -38,7 +38,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 
 	const pending = () =>
 		pendingMessageCount() > 0
-			? `queued messages: ${pendingMessageCount()}`
+			? `queued messages: ${pendingMessageCount()} ${MIDDLE_DOT} Alt+Q edit ${MIDDLE_DOT} ${ARROW_UP} restore`
 			: "";
 	const composerModeLabel = () => {
 		switch (props.composerMode) {

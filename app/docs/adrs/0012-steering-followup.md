@@ -1,7 +1,9 @@
 # 0012: Steering is the default mid-turn submission mode
 
 ## Status
-Accepted
+Superseded
+
+The implemented composer flow now queues follow-ups with `Enter` while streaming and promotes queued follow-ups to steering when `Enter` is pressed from an empty composer. The current user-facing behavior is documented in `docs/features/steering-followup.md`.
 
 ## Context
 
@@ -47,7 +49,8 @@ Choose option A.
 ## UI behavior
 
 - pending queued messages should be visible
-- the footer shows `📬N` when `N` pending messages are queued
+- the footer/status bar shows the queued count and an edit hint when follow-ups are queued
+- queued follow-ups can be edited, deleted, or cleared from the queue editor opened with `Alt+Q` or `queue-editor.open` from the command palette
 
 ## Related
 

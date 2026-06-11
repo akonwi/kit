@@ -25,6 +25,7 @@ import { HeaderBar } from "./HeaderBar";
 import type { HeaderStatusController } from "./header-status";
 import { InlinePicker } from "./InlinePicker";
 import { PendingSlot } from "./PendingSlot";
+import { QueueEditorDialog } from "./QueueEditorDialog";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
@@ -112,6 +113,28 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 	});
 
+	const openQueueEditor = () => {
+		if (props.runtime.getPendingMessageCount() === 0) {
+			props.showToast({
+				title: "No queued messages",
+				subtitle:
+					"Queue a follow-up while the agent is working to edit it here.",
+				variant: "info",
+			});
+			return;
+		}
+		void props.openOverlay(
+			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
+				<QueueEditorDialog
+					runtime={props.runtime}
+					done={overlayProps.done}
+					surfaceProps={overlayProps.surfaceProps}
+					active={overlayProps.active}
+				/>
+			),
+		);
+	};
+
 	const openActivity: OpenActivity = (source) => {
 		if (shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH) {
 			// Re-clicking the same chip while its sidebar is open is a no-op;
@@ -163,6 +186,7 @@ function AppShellContent(props: AppShellContentProps) {
 				"command-palette.open": () => {
 					props.controller.openCommandPalette();
 				},
+				"queue-editor.open": openQueueEditor,
 			},
 			generatedCommands: Object.fromEntries(
 				bindableCommands.map((command) => [
