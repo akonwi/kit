@@ -153,7 +153,7 @@ function buildSyntaxStyle(p: SyntaxPalette): SyntaxStyle {
 			},
 		},
 		{
-			scope: ["keyword.function", "function.method"],
+			scope: ["keyword.function", "function.method", "function.definition"],
 			style: { foreground: rgba(p.function) },
 		},
 		{
@@ -178,7 +178,7 @@ function buildSyntaxStyle(p: SyntaxPalette): SyntaxStyle {
 			style: { foreground: rgba(p.variable) },
 		},
 		{
-			scope: ["variable.member", "function", "constructor"],
+			scope: ["variable.member", "variable.special", "function", "constructor"],
 			style: { foreground: rgba(p.member) },
 		},
 		{
@@ -193,7 +193,15 @@ function buildSyntaxStyle(p: SyntaxPalette): SyntaxStyle {
 			style: { foreground: rgba(p.builtin) },
 		},
 		{
-			scope: ["type", "module", "namespace", "class", "type.definition"],
+			scope: [
+				"type",
+				"type.parameter",
+				"type.interface",
+				"module",
+				"namespace",
+				"class",
+				"type.definition",
+			],
 			style: { foreground: rgba(p.type) },
 		},
 		{

@@ -128,6 +128,7 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 		? path.join(installedRuntimeDir, "grammars")
 		: path.resolve(import.meta.dirname, "../../grammars");
 	for (const grammar of [
+		{ filetype: "ard", wasm: "tree-sitter-ard.wasm" },
 		{ filetype: "bash", wasm: "tree-sitter-bash.wasm" },
 		{ filetype: "css", wasm: "tree-sitter-css.wasm" },
 		{ filetype: "go", wasm: "tree-sitter-go.wasm" },

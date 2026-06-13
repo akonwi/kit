@@ -6,6 +6,7 @@
  */
 export function inferFiletype(filePath: string): string | undefined {
 	const normalized = filePath.toLowerCase();
+	if (normalized.endsWith(".ard")) return "ard";
 	if (normalized.endsWith(".ts")) return "typescript";
 	if (normalized.endsWith(".tsx")) return "tsx";
 	if (normalized.endsWith(".jsx")) return "jsx";
