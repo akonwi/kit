@@ -99,59 +99,20 @@ export function PendingSlot(props: PanelHostProps) {
 			clearPending(setPending);
 		},
 	);
-	const unsubscribeAutoCompactionStarted = props.runtime.subscribe(
-		"session.compaction.started.auto",
-		(event) => {
-			showPending(setPending, `Compacting session… (${event.contextPercent}%)`);
+	const unsubscribeCompactionStarted = props.runtime.subscribe(
+		{ prefix: "session.compaction.started" },
+		() => {
+			showPending(setPending, "Compacting session…");
 		},
 	);
-	const unsubscribeAutoCompactionCompleted = props.runtime.subscribe(
-		"session.compaction.completed.auto",
+	const unsubscribeCompactionCompleted = props.runtime.subscribe(
+		{ prefix: "session.compaction.completed" },
 		() => {
 			clearPending(setPending);
 		},
 	);
-	const unsubscribeAutoCompactionFailed = props.runtime.subscribe(
-		"session.compaction.failed.auto",
-		() => {
-			clearPending(setPending);
-		},
-	);
-	const unsubscribeRecoveryCompactionStarted = props.runtime.subscribe(
-		"session.compaction.started.recovery",
-		() => {
-			showPending(setPending, "Compacting session for retry…");
-		},
-	);
-	const unsubscribeRecoveryCompactionCompleted = props.runtime.subscribe(
-		"session.compaction.completed.recovery",
-		() => {
-			clearPending(setPending);
-		},
-	);
-	const unsubscribeRecoveryCompactionFailed = props.runtime.subscribe(
-		"session.compaction.failed.recovery",
-		() => {
-			clearPending(setPending);
-		},
-	);
-	const unsubscribeAdaptationCompactionStarted = props.runtime.subscribe(
-		"session.compaction.started.adaptation",
-		(event) => {
-			showPending(
-				setPending,
-				`Adapting session to ${event.modelName ?? event.modelId}… (${event.contextPercent}%)`,
-			);
-		},
-	);
-	const unsubscribeAdaptationCompactionCompleted = props.runtime.subscribe(
-		"session.compaction.completed.adaptation",
-		() => {
-			clearPending(setPending);
-		},
-	);
-	const unsubscribeAdaptationCompactionFailed = props.runtime.subscribe(
-		"session.compaction.failed.adaptation",
+	const unsubscribeCompactionFailed = props.runtime.subscribe(
+		{ prefix: "session.compaction.failed" },
 		() => {
 			clearPending(setPending);
 		},
@@ -167,15 +128,9 @@ export function PendingSlot(props: PanelHostProps) {
 		unsubscribeMergeEnded();
 		unsubscribeRetryStarted();
 		unsubscribeRetryFailed();
-		unsubscribeAutoCompactionStarted();
-		unsubscribeAutoCompactionCompleted();
-		unsubscribeAutoCompactionFailed();
-		unsubscribeRecoveryCompactionStarted();
-		unsubscribeRecoveryCompactionCompleted();
-		unsubscribeRecoveryCompactionFailed();
-		unsubscribeAdaptationCompactionStarted();
-		unsubscribeAdaptationCompactionCompleted();
-		unsubscribeAdaptationCompactionFailed();
+		unsubscribeCompactionStarted();
+		unsubscribeCompactionCompleted();
+		unsubscribeCompactionFailed();
 	});
 
 	return (

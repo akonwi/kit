@@ -216,6 +216,18 @@ export type RuntimeEventMap = AgentEventMap & {
 			| "compaction-error";
 		error: string;
 	};
+	"session.compaction.started.manual": Record<string, never>;
+	"session.compaction.completed.manual": {
+		compactedTurnCount: number;
+		keptTurnCount: number;
+		tokensBefore: number;
+		firstKeptTurnId?: string;
+		keptTurns: Turn[];
+		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
+	};
+	"session.compaction.failed.manual": {
+		error: string;
+	};
 	"session.active.changed": { session: Session };
 	"session.name.changed": { session: Session; name?: string };
 	"session.active.changed.cwd": {
@@ -533,13 +545,6 @@ export class AgentRuntime {
 			model,
 		);
 		if (!model || !shouldAutoCompact(contextUsage?.percent)) return;
-		const apiKey = await getApiKey(model.provider);
-		if (!apiKey) {
-			this.bus.publish("session.compaction.failed.auto", {
-				error: `No API key available for ${model.provider}.`,
-			});
-			return;
-		}
 
 		this.isCompacting = true;
 		this.bus.publish("session.compaction.started.auto", {
@@ -547,12 +552,25 @@ export class AgentRuntime {
 		});
 
 		try {
+			const apiKey = await getApiKey(model.provider);
+			if (!apiKey) {
+				this.bus.publish("session.compaction.failed.auto", {
+					error: `No API key available for ${model.provider}.`,
+				});
+				return;
+			}
+
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,
 				apiKey,
 			});
-			if (!result) return;
+			if (!result) {
+				this.bus.publish("session.compaction.failed.auto", {
+					error: "Not enough turns to compact.",
+				});
+				return;
+			}
 
 			this.agent.replaceFromTurns(result.turns);
 			this.touchSession({
@@ -575,6 +593,78 @@ export class AgentRuntime {
 			});
 		} catch (error) {
 			this.bus.publish("session.compaction.failed.auto", {
+				error: error instanceof Error ? error.message : String(error),
+			});
+		} finally {
+			this.isCompacting = false;
+		}
+	}
+
+	async compact(): Promise<void> {
+		if (this.isCompacting) {
+			this.bus.publish("session.compaction.failed.manual", {
+				error: "Compaction already in progress.",
+			});
+			return;
+		}
+		if (this.agent.state.isStreaming || this.overflowRecoveryInFlight) {
+			this.bus.publish("session.compaction.failed.manual", {
+				error: "Cannot compact while the agent is running.",
+			});
+			return;
+		}
+
+		this.isCompacting = true;
+		this.bus.publish("session.compaction.started.manual", {});
+
+		try {
+			const model = this.agent.state.model;
+			if (!model) {
+				this.bus.publish("session.compaction.failed.manual", {
+					error: "No model selected.",
+				});
+				return;
+			}
+			const apiKey = await getApiKey(model.provider);
+			if (!apiKey) {
+				this.bus.publish("session.compaction.failed.manual", {
+					error: `No API key available for ${model.provider}.`,
+				});
+				return;
+			}
+
+			const result = await compactSessionTurns({
+				session: this.session,
+				model,
+				apiKey,
+			});
+			if (!result) {
+				this.bus.publish("session.compaction.failed.manual", {
+					error: "Not enough turns to compact.",
+				});
+				return;
+			}
+
+			this.agent.replaceFromTurns(result.turns);
+			this.touchSession({
+				turns: result.turns,
+				model: model.id,
+				thinkingLevel: this.agent.state.thinkingLevel,
+			});
+			this.handleSessionChanged();
+			this.bus.publish("session.compaction.completed.manual", {
+				compactedTurnCount: result.compactedTurnCount,
+				keptTurnCount: result.keptTurnCount,
+				tokensBefore: result.tokensBefore,
+				firstKeptTurnId: result.turns.at(1)?.id,
+				keptTurns: result.turns.slice(1),
+				summaryMessage: result.summaryMessage as Extract<
+					KitAgentMessage,
+					{ role: "assistant" }
+				>,
+			});
+		} catch (error) {
+			this.bus.publish("session.compaction.failed.manual", {
 				error: error instanceof Error ? error.message : String(error),
 			});
 		} finally {
@@ -709,6 +799,10 @@ export class AgentRuntime {
 				apiKey,
 			});
 			if (!result) {
+				this.bus.publish("session.compaction.failed.recovery", {
+					reason: "overflow",
+					error: "Not enough turns to compact.",
+				});
 				this.resolveRecovery();
 				return false;
 			}
@@ -781,17 +875,6 @@ export class AgentRuntime {
 		if (this.lastOverflowRecoveryKey === recoveryKey) return;
 		this.lastOverflowRecoveryKey = recoveryKey;
 
-		const apiKey = await getApiKey(model.provider);
-		if (!apiKey) {
-			this.bus.publish("session.compaction.failed.adaptation", {
-				modelId: model.id,
-				modelName: model.name,
-				cause: "missing-api-key",
-				error: `No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
-			});
-			return;
-		}
-
 		this.overflowRecoveryInFlight = true;
 		this.bus.publish("session.compaction.started.adaptation", {
 			modelId: model.id,
@@ -800,6 +883,17 @@ export class AgentRuntime {
 		});
 
 		try {
+			const apiKey = await getApiKey(model.provider);
+			if (!apiKey) {
+				this.bus.publish("session.compaction.failed.adaptation", {
+					modelId: model.id,
+					modelName: model.name,
+					cause: "missing-api-key",
+					error: `No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
+				});
+				return;
+			}
+
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,

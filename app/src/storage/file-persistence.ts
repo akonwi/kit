@@ -116,6 +116,11 @@ export class FilePersistence {
 				this.enqueueWrite(() => this.persistCompaction(session, event));
 				break;
 			}
+			case "session.compaction.completed.manual": {
+				const session = this.runtime.getSession();
+				this.enqueueWrite(() => this.persistCompaction(session, event));
+				break;
+			}
 			case "session.handoff_summary.appended":
 				this.enqueueWrite(() =>
 					this.storage.appendHandoffSummary(

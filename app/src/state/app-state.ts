@@ -169,6 +169,20 @@ export function createAppState(runtime: AgentRuntime | null) {
 					variant: "error",
 				});
 				break;
+			case "session.compaction.completed.manual":
+				showToast({
+					title: "Session compacted",
+					subtitle: `Compacted ${event.compactedTurnCount} turns into 1 summary turn. Kept ${event.keptTurnCount} recent turns unchanged.`,
+					variant: "info",
+				});
+				break;
+			case "session.compaction.failed.manual":
+				showToast({
+					title: "Compaction failed",
+					subtitle: event.error,
+					variant: "error",
+				});
+				break;
 			case "agent.retry.failed":
 				if (event.error === "Retry cancelled before continue.") break;
 				showToast({
