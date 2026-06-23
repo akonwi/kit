@@ -125,8 +125,6 @@ export function buildSystemTheme(colors: TerminalColors): ResolvedTheme {
 	);
 	const cyan = ansiColor(ANSI.CYAN, ANSI.BRIGHT_CYAN, "#55FFFF", "#008888");
 
-	const brightWhite = p(ANSI.BRIGHT_WHITE) ?? fg;
-
 	// Grayscale ramp interpolated between bg and fg
 	const bgSurface = lerp(bg, fg, isDark ? 0.05 : 0.03);
 	const bgMuted = lerp(bg, fg, isDark ? 0.1 : 0.07);
@@ -220,7 +218,7 @@ export function buildSystemTheme(colors: TerminalColors): ResolvedTheme {
 		syntaxPalette: {
 			text: fg,
 			heading: blue,
-			bold: brightWhite,
+			bold: fg,
 			italic: yellow,
 			link: blue,
 			list: blue,
