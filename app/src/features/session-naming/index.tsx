@@ -7,7 +7,6 @@ import type { Session } from "../../session";
 const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
 const AUTO_TITLE_MAX_TOKENS = 32;
-const AUTO_TITLE_DISABLED = process.env.KIT_NO_AUTO_TITLE === "1";
 const AUTO_TITLE_SYSTEM_PROMPT = [
 	"You generate concise conversation titles.",
 	"Return title only.",
@@ -184,7 +183,6 @@ function filterMessagesAfterFork(
 
 async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 	const allMessages = kit.session.getMessages();
-	if (AUTO_TITLE_DISABLED) return;
 	if (lastAssistantFailed(allMessages)) return;
 
 	const session = kit.session.get();
