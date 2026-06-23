@@ -893,6 +893,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function selectFilePath(filePath: string) {
+		setTreeFocusedPath(filePath);
 		const file = reviewFilesByPath().get(filePath);
 		if (file) {
 			const idx = reviewFiles().indexOf(file);
