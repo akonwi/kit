@@ -4,7 +4,6 @@ import type { InternalPluginAPI } from "../../plugins";
 import type { AgentMessage, Api, Model } from "../../runtime/agent";
 import type { Session } from "../../session";
 
-const AUTO_TITLE_COOLDOWN_MS = 4 * 60 * 1000;
 const AUTO_TITLE_MIN_USER_MESSAGES = 2;
 const AUTO_TITLE_MAX_TOKENS = 32;
 const AUTO_TITLE_SYSTEM_PROMPT = [
@@ -20,7 +19,6 @@ const HANDOFF_PLACEHOLDER_PREFIX = "handoff: ";
 const AUTO_HANDOFF_PREFIX = "-> ";
 /** System-generated name prefixes that auto-naming may overwrite. */
 const SYSTEM_NAME_PREFIXES = [HANDOFF_PLACEHOLDER_PREFIX, AUTO_HANDOFF_PREFIX];
-const lastAutoTitleAttemptBySession = new Map<string, number>();
 
 /** True when the session has a user-given name rather than a system placeholder. */
 function isUserGivenName(name: string | null | undefined): boolean {
@@ -198,17 +196,11 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 
 	if (messages.length === 0) return;
 
-	const now = Date.now();
-	const lastAttempt = lastAutoTitleAttemptBySession.get(sessionId) || 0;
-	if (now - lastAttempt < AUTO_TITLE_COOLDOWN_MS) return;
-
 	const userCount = messages.filter((m) => m.role === "user").length;
 	if (userCount < AUTO_TITLE_MIN_USER_MESSAGES) return;
 
 	const summary = buildConversationSummary(messages, 10, 900);
 	if (!summary) return;
-
-	lastAutoTitleAttemptBySession.set(sessionId, now);
 
 	const prompt = ["Conversation summary:", summary].join("\n\n");
 
