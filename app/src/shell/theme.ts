@@ -294,9 +294,13 @@ async function resolveSystemThemeBase(): Promise<ResolvedTheme> {
 export async function resolveAndApplyTheme(
 	themeName: string,
 	renderer?: PaletteSource,
+	options?: { invalidateSystemCache?: boolean },
 ): Promise<void> {
 	if (renderer && renderer !== cachedRenderer) {
 		cachedRenderer = renderer;
+		cachedSystemTheme = null;
+		cachedSystemThemePromise = null;
+	} else if (options?.invalidateSystemCache) {
 		cachedSystemTheme = null;
 		cachedSystemThemePromise = null;
 	}

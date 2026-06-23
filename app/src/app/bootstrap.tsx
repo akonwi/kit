@@ -1,6 +1,7 @@
 import path from "node:path";
 import { parseArgs } from "node:util";
 import {
+	CliRenderEvents,
 	ConsolePosition,
 	createCliRenderer,
 	getTreeSitterClient,
@@ -17,7 +18,7 @@ import {
 	initTerminalTitle,
 	updateTerminalTitle,
 } from "../shell/terminal-title";
-import { resolveAndApplyTheme } from "../shell/theme";
+import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { App } from "./App";
 
 type ProcessWithActiveHandles = NodeJS.Process & {
@@ -187,6 +188,15 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	// Resolve theme before rendering — "system" theme needs the renderer for palette detection
 	const themeName = settings.settings.theme ?? "system";
 	await resolveAndApplyTheme(themeName, renderer);
+
+	// Re-resolve the theme when the terminal reports a color scheme change
+	// (e.g. the user switches between light and dark mode in their OS).
+	renderer.on(CliRenderEvents.THEME_MODE, () => {
+		const currentTheme = getCurrentThemeConfig().name;
+		void resolveAndApplyTheme(currentTheme, undefined, {
+			invalidateSystemCache: true,
+		});
+	});
 
 	initTerminalTitle((title) => renderer.setTerminalTitle(title));
 	updateTerminalTitle(session.name, session.cwd);
