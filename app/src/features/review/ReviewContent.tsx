@@ -80,7 +80,7 @@ type ReviewMode = "tree" | "patch";
 type ReviewSide = "additions" | "deletions";
 type CommentableLine = ReviewDiffCommentableLine;
 
-const WIDE_VIEWPORT_THRESHOLD = 100;
+const WIDE_VIEWPORT_THRESHOLD = 121;
 const TREE_PANEL_WIDTH = 36;
 const MIN_TREE_PANEL_WIDTH = 28;
 
