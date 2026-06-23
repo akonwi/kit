@@ -4,16 +4,15 @@ import type { InternalPluginAPI } from "../../plugins";
 import type { AgentMessage, Api, Model } from "../../runtime/agent";
 import type { Session } from "../../session";
 
-const AUTO_TITLE_MIN_USER_MESSAGES = 2;
-const AUTO_TITLE_MAX_TOKENS = 32;
+const AUTO_TITLE_MIN_TURNS = 2;
+const AUTO_TITLE_MAX_TOKENS = 50;
 const AUTO_TITLE_SYSTEM_PROMPT = [
 	"You generate concise conversation titles.",
 	"Return title only.",
 	"No quotes.",
 	"No markdown.",
-	"Maximum 5 words.",
+	"Maximum 8 words.",
 	"Focus on the concrete task or topic.",
-	"If the topic is unclear, return Untitled.",
 ].join(" ");
 const HANDOFF_PLACEHOLDER_PREFIX = "handoff: ";
 const AUTO_HANDOFF_PREFIX = "-> ";
@@ -87,24 +86,6 @@ function buildConversationSummary(
 	return clip(items.join("\n"), maxChars);
 }
 
-function sanitizeGeneratedTitle(raw: string): string {
-	const firstLine = raw.split(/\r?\n/)[0] || "";
-	const cleaned = firstLine
-		.replace(/^['"`]+|['"`]+$/g, "")
-		.replace(/^title\s*:\s*/i, "")
-		.replace(/\s+/g, " ")
-		.trim();
-
-	const words = cleaned.split(" ").filter(Boolean).slice(0, 6);
-	const compact = words
-		.join(" ")
-		.replace(/[.!,;:]+$/g, "")
-		.trim();
-	if (!compact) return "";
-	if (/^untitled$/i.test(compact)) return "";
-	return clip(compact, 48);
-}
-
 function lastAssistantFailed(messages: AgentMessage[]): boolean {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i] as AgentMessage & { stopReason?: string };
@@ -159,6 +140,16 @@ async function generateTitleWithCurrentModel(
 		.join("\n");
 }
 
+/** Count turns after the fork boundary. */
+function turnsAfterFork(session: Session): number {
+	if (!session.forkedFromTurnId) return session.turns.length;
+	const boundaryIndex = session.turns.findIndex(
+		(t) => t.id === session.forkedFromTurnId,
+	);
+	if (boundaryIndex < 0) return session.turns.length;
+	return session.turns.length - boundaryIndex - 1;
+}
+
 /** Filter to only messages from turns after the fork boundary (handoff). */
 function filterMessagesAfterFork(
 	messages: AgentMessage[],
@@ -194,10 +185,12 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 		? filterMessagesAfterFork(allMessages, session)
 		: allMessages;
 
-	if (messages.length === 0) return;
+	const turnCount = session.forkedFromTurnId
+		? turnsAfterFork(session)
+		: session.turns.length;
+	if (turnCount < AUTO_TITLE_MIN_TURNS) return;
 
-	const userCount = messages.filter((m) => m.role === "user").length;
-	if (userCount < AUTO_TITLE_MIN_USER_MESSAGES) return;
+	if (messages.length === 0) return;
 
 	const summary = buildConversationSummary(messages, 10, 900);
 	if (!summary) return;
@@ -209,8 +202,12 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 			kit.model.getCurrent(),
 			prompt,
 		);
-		const title = sanitizeGeneratedTitle(rawTitle);
-		if (!title) {
+		const title =
+			rawTitle
+				.split(/\r?\n/)
+				.find((l) => l.trim())
+				?.trim() || "";
+		if (!title || /^untitled$/i.test(title)) {
 			kit.ui.toast({
 				title: "Session auto-name failed",
 				subtitle: "The model did not return a usable session title.",
