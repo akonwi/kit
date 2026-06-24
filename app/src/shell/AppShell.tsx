@@ -58,6 +58,8 @@ type RightPanel =
 	| { kind: "scratchpad" }
 	| null;
 
+type FocusedInput = "composer" | "scratchpad";
+
 export type AppShellProps = {
 	settings: Settings;
 	state: AppState;
@@ -111,6 +113,8 @@ function AppShellContent(props: AppShellContentProps) {
 	let shellRef: { width: number; height: number } | undefined;
 
 	const [rightPanel, setRightPanel] = createSignal<RightPanel>(null);
+	const [focusedInput, setFocusedInput] =
+		createSignal<FocusedInput>("composer");
 
 	const activityWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
 	const scratchpadWideEnough = () => shellWidth() >= SCRATCHPAD_MIN_WIDTH;
@@ -142,6 +146,7 @@ function AppShellContent(props: AppShellContentProps) {
 		if (panel.kind === "scratchpad" && !scratchpadWideEnough()) {
 			if (props.scratchpad.editing()) openScratchpadDialog();
 			setRightPanel(null);
+			setFocusedInput("composer");
 		}
 	});
 
@@ -200,11 +205,15 @@ function AppShellContent(props: AppShellContentProps) {
 	};
 
 	const openScratchpadDialog = () => {
+		setFocusedInput("composer");
 		void props.openOverlay(
 			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
 				<ScratchpadDialog
 					controller={props.scratchpad}
-					done={overlayProps.done}
+					done={(result) => {
+						setFocusedInput("composer");
+						overlayProps.done(result);
+					}}
 					surfaceProps={overlayProps.surfaceProps}
 					active={overlayProps.active}
 				/>
@@ -212,15 +221,23 @@ function AppShellContent(props: AppShellContentProps) {
 		);
 	};
 
+	function cycleInputFocus(): void {
+		setFocusedInput(
+			focusedInput() === "scratchpad" ? "composer" : "scratchpad",
+		);
+	}
+
 	const toggleScratchpad = () => {
 		const panel = rightPanel();
 		if (panel?.kind === "scratchpad") {
 			saveScratchpadDraftIfEditing();
 			setRightPanel(null);
+			setFocusedInput("composer");
 			return;
 		}
 		if (scratchpadWideEnough()) {
 			setRightPanel({ kind: "scratchpad" });
+			setFocusedInput("scratchpad");
 			return;
 		}
 		openScratchpadDialog();
@@ -268,6 +285,12 @@ function AppShellContent(props: AppShellContentProps) {
 				},
 				"queue-editor.open": openQueueEditor,
 				"scratchpad.toggle": toggleScratchpad,
+				"scratchpad.focus-next": () => {
+					if (!scratchpadOpen()) return false;
+					if (props.overlays().length > 0) return false;
+					if (props.controller.picker.visible) return false;
+					cycleInputFocus();
+				},
 			},
 			generatedCommands: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -342,6 +365,9 @@ function AppShellContent(props: AppShellContentProps) {
 							controller={props.controller}
 							attachments={props.attachments}
 							locked={props.overlays().length > 0}
+							inputFocused={
+								focusedInput() === "composer" || props.overlays().length > 0
+							}
 							onHeightChange={setDockHeight}
 							onModeChange={setComposerMode}
 						/>
@@ -376,8 +402,13 @@ function AppShellContent(props: AppShellContentProps) {
 					<box flexShrink={0} width={scratchpadWidth()} height="100%">
 						<ScratchpadPanel
 							controller={props.scratchpad}
-							active={props.overlays().length === 0}
-							onClose={() => setRightPanel(null)}
+							active={
+								props.overlays().length === 0 && focusedInput() === "scratchpad"
+							}
+							onClose={() => {
+								setRightPanel(null);
+								setFocusedInput("composer");
+							}}
 						/>
 					</box>
 				</Show>
