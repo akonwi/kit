@@ -302,6 +302,7 @@ export class AgentRuntime {
 	private isCompacting = false;
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
+	private scratchpadContent = "";
 	private debugSections = new Map<string, string[]>();
 	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
 	private gitWatcher: VcsInfoWatcher | null = null;
@@ -402,11 +403,27 @@ export class AgentRuntime {
 		});
 	}
 
+	private getEffectiveContextFiles(): ContextFile[] {
+		const scratchpad = this.scratchpadContent.trim();
+		if (!scratchpad) return this.contextFiles;
+		return [
+			...this.contextFiles,
+			{
+				path: "<scratchpad>",
+				content: [
+					"User scratchpad notes. Read-only to the agent; do not modify.",
+					"",
+					this.scratchpadContent,
+				].join("\n"),
+			},
+		];
+	}
+
 	private getEffectiveSystemPrompt(): string {
 		const basePrompt = [DEFAULT_SYSTEM_PROMPT, ...this.systemPromptAdditions]
 			.filter((value) => value.trim().length > 0)
 			.join("\n\n");
-		return buildSystemPrompt(basePrompt, this.contextFiles);
+		return buildSystemPrompt(basePrompt, this.getEffectiveContextFiles());
 	}
 
 	private getEffectiveTools(): AgentTool[] {
@@ -1325,7 +1342,12 @@ export class AgentRuntime {
 	}
 
 	getContextFiles(): ContextFile[] {
-		return [...this.contextFiles];
+		return [...this.getEffectiveContextFiles()];
+	}
+
+	setScratchpadContent(content: string): void {
+		this.scratchpadContent = content;
+		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
 	}
 
 	/**

@@ -142,6 +142,24 @@ export const KEYBINDING_REGISTRY = {
 			hint: "close",
 		},
 	},
+	scratchpad: {
+		toggle: {
+			defaultKeys: [],
+			desc: "Toggle scratchpad",
+			group: "App",
+		},
+		"focus-next": {
+			defaultKeys: "tab",
+			desc: "Focus next input",
+			group: "App",
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Close scratchpad",
+			group: "scratchpad",
+			hint: "close",
+		},
+	},
 	"guided-questions": {
 		previous: {
 			defaultKeys: "shift+tab",

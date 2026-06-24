@@ -11,6 +11,7 @@ export type ComposerDockProps = {
 	controller: ComposerController;
 	attachments: AttachmentsController;
 	locked?: boolean;
+	inputFocused?: boolean;
 	onHeightChange?: (height: number) => void;
 	onModeChange?: (mode: ComposerInputMode) => void;
 };
@@ -44,7 +45,9 @@ export function ComposerDock(props: ComposerDockProps) {
 		props.onModeChange?.(composerMode());
 	});
 
-	const shellInputAvailable = () => !props.locked && !commandPaletteVisible();
+	const inputFocused = () => props.inputFocused !== false;
+	const shellInputAvailable = () =>
+		inputFocused() && !props.locked && !commandPaletteVisible();
 	useKeymapLayer(() => ({
 		scope: "composer",
 		when: shellInputAvailable,
@@ -161,9 +164,17 @@ export function ComposerDock(props: ComposerDockProps) {
 					props.controller.setTextarea(value as TextareaHandle | undefined);
 				}}
 				placeholder={placeholder()}
-				focused={!picker.visible && !commandPaletteVisible() && !props.locked}
+				focused={
+					inputFocused() &&
+					!picker.visible &&
+					!commandPaletteVisible() &&
+					!props.locked
+				}
 				showCursor={
-					!picker.visible && !commandPaletteVisible() && !props.locked
+					inputFocused() &&
+					!picker.visible &&
+					!commandPaletteVisible() &&
+					!props.locked
 				}
 				borderColor={composerBorderColor()}
 				keyBindings={

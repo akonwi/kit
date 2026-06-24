@@ -4,6 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
+import { createScratchpadController } from "../features/scratchpad/controller";
 import { createBuiltInPlugins } from "../plugins/built-ins";
 import {
 	type ExternalPluginFailure,
@@ -48,6 +49,7 @@ type ReadyState = {
 	attachments: ReturnType<typeof createAttachmentsController>;
 	footer: ReturnType<typeof createFooterStatusController>;
 	header: ReturnType<typeof createHeaderStatusController>;
+	scratchpad: ReturnType<typeof createScratchpadController>;
 	app: ReturnType<typeof createAppState>;
 	dispose: () => void;
 };
@@ -85,6 +87,7 @@ export function App(props: AppProps) {
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
 		});
+		const scratchpad = createScratchpadController(runtime);
 		const persistence = new FilePersistence(runtime);
 		const app = createAppState(runtime);
 		showToast = app.showToast;
@@ -283,6 +286,7 @@ export function App(props: AppProps) {
 			disposed = true;
 			disposePluginManagers();
 			app.dispose();
+			scratchpad.dispose();
 			persistence.dispose();
 			runtime.dispose();
 		};
@@ -300,6 +304,7 @@ export function App(props: AppProps) {
 			attachments,
 			footer,
 			header,
+			scratchpad,
 			app,
 			dispose,
 		};
@@ -382,6 +387,7 @@ export function App(props: AppProps) {
 							attachments={current.attachments}
 							footer={current.footer}
 							header={current.header}
+							scratchpad={current.scratchpad}
 							overlays={overlays}
 							openOverlay={openCustomOverlay}
 							dismissToast={current.app.dismissToast}
