@@ -8,6 +8,14 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
+import type { ScratchpadController } from "../features/scratchpad/controller";
+import {
+	SCRATCHPAD_FRACTION,
+	SCRATCHPAD_MIN_COLS,
+	SCRATCHPAD_MIN_WIDTH,
+	ScratchpadDialog,
+	ScratchpadPanel,
+} from "../features/scratchpad/ScratchpadPanel";
 import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
 import { getKeybindingCommand } from "../keymap/registry";
 import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
@@ -45,6 +53,11 @@ const ACTIVITY_SIDEBAR_MIN_WIDTH = 200;
 /** Sidebar width as a fraction of terminal width when shown. */
 const ACTIVITY_SIDEBAR_FRACTION = 0.4;
 
+type RightPanel =
+	| { kind: "activity"; source: ActivitySource }
+	| { kind: "scratchpad" }
+	| null;
+
 export type AppShellProps = {
 	settings: Settings;
 	state: AppState;
@@ -54,6 +67,7 @@ export type AppShellProps = {
 	attachments: AttachmentsController;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	scratchpad: ScratchpadController;
 	overlays: () => OverlayEntry[];
 	openOverlay: OpenOverlay;
 	dismissToast: (id: number) => void;
@@ -96,20 +110,38 @@ function AppShellContent(props: AppShellContentProps) {
 	const [shellWidth, setShellWidth] = createSignal(renderer.terminalWidth);
 	let shellRef: { width: number; height: number } | undefined;
 
-	const [sidebarActivity, setSidebarActivity] =
-		createSignal<ActivitySource | null>(null);
+	const [rightPanel, setRightPanel] = createSignal<RightPanel>(null);
 
-	const isWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
-	const sidebarSource = () => (isWideEnough() ? sidebarActivity() : null);
+	const activityWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
+	const scratchpadWideEnough = () => shellWidth() >= SCRATCHPAD_MIN_WIDTH;
+	const sidebarSource = () => {
+		const panel = rightPanel();
+		return panel?.kind === "activity" && activityWideEnough()
+			? panel.source
+			: null;
+	};
+	const scratchpadOpen = () =>
+		rightPanel()?.kind === "scratchpad" && scratchpadWideEnough();
 	const sidebarWidth = () =>
 		Math.max(40, Math.floor(shellWidth() * ACTIVITY_SIDEBAR_FRACTION));
+	const scratchpadWidth = () =>
+		Math.max(
+			SCRATCHPAD_MIN_COLS,
+			Math.floor(shellWidth() * SCRATCHPAD_FRACTION),
+		);
 
 	// If the terminal narrows below the sidebar threshold while a sidebar
 	// is open, close it. (Users can reopen the activity view; it will
 	// fall back to the modal at the new width.)
 	createEffect(() => {
-		if (sidebarActivity() !== null && !isWideEnough()) {
-			setSidebarActivity(null);
+		const panel = rightPanel();
+		if (!panel) return;
+		if (panel.kind === "activity" && !activityWideEnough()) {
+			setRightPanel(null);
+		}
+		if (panel.kind === "scratchpad" && !scratchpadWideEnough()) {
+			if (props.scratchpad.editing()) openScratchpadDialog();
+			setRightPanel(null);
 		}
 	});
 
@@ -135,13 +167,23 @@ function AppShellContent(props: AppShellContentProps) {
 		);
 	};
 
+	function saveScratchpadDraftIfEditing(): void {
+		if (props.scratchpad.editing()) props.scratchpad.autosaveDraft();
+	}
+
 	const openActivity: OpenActivity = (source) => {
 		if (shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH) {
 			// Re-clicking the same chip while its sidebar is open is a no-op;
 			// a different chip swaps the content.
-			const current = sidebarActivity();
-			if (current && activitySourceEquals(current, source)) return;
-			setSidebarActivity(source);
+			const current = rightPanel();
+			if (
+				current?.kind === "activity" &&
+				activitySourceEquals(current.source, source)
+			) {
+				return;
+			}
+			saveScratchpadDraftIfEditing();
+			setRightPanel({ kind: "activity", source });
 			return;
 		}
 		void props.openOverlay(
@@ -156,6 +198,44 @@ function AppShellContent(props: AppShellContentProps) {
 			),
 		);
 	};
+
+	const openScratchpadDialog = () => {
+		void props.openOverlay(
+			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
+				<ScratchpadDialog
+					controller={props.scratchpad}
+					done={overlayProps.done}
+					surfaceProps={overlayProps.surfaceProps}
+					active={overlayProps.active}
+				/>
+			),
+		);
+	};
+
+	const toggleScratchpad = () => {
+		const panel = rightPanel();
+		if (panel?.kind === "scratchpad") {
+			saveScratchpadDraftIfEditing();
+			setRightPanel(null);
+			return;
+		}
+		if (scratchpadWideEnough()) {
+			setRightPanel({ kind: "scratchpad" });
+			return;
+		}
+		openScratchpadDialog();
+	};
+
+	onCleanup(
+		props.commands.register({
+			name: "scratchpad.toggle",
+			description: "Toggle scratchpad",
+			category: "App",
+			execute: () => {
+				toggleScratchpad();
+			},
+		}),
+	);
 
 	onCleanup(
 		props.commands.subscribe(() => {
@@ -187,6 +267,7 @@ function AppShellContent(props: AppShellContentProps) {
 					props.controller.openCommandPalette();
 				},
 				"queue-editor.open": openQueueEditor,
+				"scratchpad.toggle": toggleScratchpad,
 			},
 			generatedCommands: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -286,10 +367,19 @@ function AppShellContent(props: AppShellContentProps) {
 							<TurnActivitySidebar
 								runtime={props.runtime}
 								source={source}
-								onClose={() => setSidebarActivity(null)}
+								onClose={() => setRightPanel(null)}
 							/>
 						</box>
 					)}
+				</Show>
+				<Show when={scratchpadOpen()}>
+					<box flexShrink={0} width={scratchpadWidth()} height="100%">
+						<ScratchpadPanel
+							controller={props.scratchpad}
+							active={props.overlays().length === 0}
+							onClose={() => setRightPanel(null)}
+						/>
+					</box>
 				</Show>
 			</box>
 
@@ -350,6 +440,7 @@ export function AppShell(props: AppShellProps) {
 				attachments={props.attachments}
 				footer={props.footer}
 				header={props.header}
+				scratchpad={props.scratchpad}
 				overlays={props.overlays}
 				openOverlay={props.openOverlay}
 				dismissToast={props.dismissToast}

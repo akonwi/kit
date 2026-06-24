@@ -16,6 +16,7 @@ mock.module("node:os", () => ({
 }));
 
 const storage = await import("./session-storage");
+const sidecars = await import("./session-sidecars");
 
 let tempRoot = "";
 let homeDir = "";
@@ -84,6 +85,17 @@ describe("session storage", () => {
 		if (originalHome === undefined) delete process.env.HOME;
 		else process.env.HOME = originalHome;
 		if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
+	});
+
+	test("deleteSession removes scratchpad sidecar", async () => {
+		const session = await storage.createSession(projectDir);
+		const scratchpadFile = sidecars.scratchpadPath(session.id);
+		await mkdir(path.dirname(scratchpadFile), { recursive: true });
+		await writeFile(scratchpadFile, "private notes", "utf8");
+
+		expect(existsSync(scratchpadFile)).toBe(true);
+		await storage.deleteSession(session.id);
+		expect(existsSync(scratchpadFile)).toBe(false);
 	});
 
 	test("persists turns as JSONL message entries and reconstructs them", async () => {

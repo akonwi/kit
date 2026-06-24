@@ -102,6 +102,42 @@ describe("AgentRuntime cwd changes", () => {
 	});
 });
 
+describe("AgentRuntime scratchpad context", () => {
+	test("includes non-empty scratchpad content as read-only context", async () => {
+		const originalCwd = process.cwd();
+		const tempRoot = await mkdtemp(
+			path.join(tmpdir(), "kit-runtime-scratchpad-"),
+		);
+		const timestamp = new Date().toISOString();
+		const runtime = new AgentRuntime({
+			id: "session-scratchpad-test",
+			version: SESSION_VERSION,
+			cwd: tempRoot,
+			createdAt: timestamp,
+			updatedAt: timestamp,
+			turns: [],
+		});
+		try {
+			runtime.setScratchpadContent("Remember to check auth tests.");
+			expect(runtime.getContextFiles()).toContainEqual({
+				path: "<scratchpad>",
+				content:
+					"User scratchpad notes. Read-only to the agent; do not modify.\n\nRemember to check auth tests.",
+			});
+			runtime.setScratchpadContent("   ");
+			expect(
+				runtime
+					.getContextFiles()
+					.some((contextFile) => contextFile.path === "<scratchpad>"),
+			).toBe(false);
+		} finally {
+			process.chdir(originalCwd);
+			runtime.dispose();
+			await rm(tempRoot, { recursive: true, force: true });
+		}
+	});
+});
+
 describe("retryable provider errors", () => {
 	test("treats websocket abnormal closures as retryable", () => {
 		expect(
