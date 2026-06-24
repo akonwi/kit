@@ -98,6 +98,7 @@ type PatchScrollRef = {
 	scrollBy: (delta: number | { x: number; y: number }) => void;
 	scrollChildIntoView?: (childId: string) => void;
 	scrollTop?: number;
+	scrollLeft?: number;
 	scrollTo?: (position: number | { x: number; y: number }) => void;
 };
 
@@ -415,10 +416,15 @@ export function ReviewContent(props: ReviewContentProps) {
 	let pendingPatchOpenReset = false;
 	let pendingPatchScrollReset = false;
 
+	function resetPatchHorizontalScroll(ref: PatchScrollRef): void {
+		if (typeof ref.scrollLeft === "number") ref.scrollLeft = 0;
+	}
+
 	function applyPendingPatchScrollReset(ref: PatchScrollRef): boolean {
 		if (!pendingPatchScrollReset) return false;
-		if (ref.scrollTo) ref.scrollTo(0);
+		if (ref.scrollTo) ref.scrollTo({ x: 0, y: 0 });
 		else if (typeof ref.scrollTop === "number") ref.scrollTop = 0;
+		resetPatchHorizontalScroll(ref);
 		pendingPatchScrollReset = false;
 		pendingPatchOpenReset = false;
 		return true;
@@ -1876,6 +1882,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												ref={(value) => {
 													if (!value) return;
 													patchScrollRef = value as PatchScrollRef;
+													resetPatchHorizontalScroll(patchScrollRef);
 													applyPendingPatchScrollReset(patchScrollRef);
 												}}
 												flexGrow={1}
