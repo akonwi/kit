@@ -1,4 +1,4 @@
-import { completeSimple } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { getApiKey } from "../../auth";
 import type { InternalPluginAPI } from "../../plugins";
 import type { AgentMessage, Api, Model } from "../../runtime/agent";

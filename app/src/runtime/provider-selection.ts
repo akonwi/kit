@@ -1,9 +1,9 @@
+import type { KnownProvider } from "@earendil-works/pi-ai";
 import {
 	getEnvApiKey,
 	getModels,
 	getProviders,
-	type KnownProvider,
-} from "@earendil-works/pi-ai";
+} from "@earendil-works/pi-ai/compat";
 import type { Api, Model } from "./agent";
 
 const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Partial<

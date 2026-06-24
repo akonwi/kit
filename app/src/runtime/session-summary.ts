@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { completeSimple } from "@earendil-works/pi-ai";
+import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { messagePartToPromptText } from "../messages/parts";
 import type { KitAgentMessage, SyntheticSummaryKind } from "../session/types";
 import type { AgentMessage, Api, Model } from "./agent";

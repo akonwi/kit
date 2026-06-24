@@ -1,10 +1,8 @@
-import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import "./custom-messages";
 
-import { registerBuiltInApiProviders } from "@earendil-works/pi-ai";
+import { registerBuiltInApiProviders } from "@earendil-works/pi-ai/compat";
 import { getApiKey, getAuthenticatedProviderIds } from "../auth";
 import {
 	buildSystemPrompt,
@@ -1178,17 +1176,14 @@ export class AgentRuntime {
 		command: string,
 		excludeFromContext = false,
 	): Promise<void> {
-		const id = randomUUID();
 		const timestamp = Date.now();
 		const pendingMessage: AgentMessage = {
 			role: "bashExecution",
-			id,
 			command,
 			output: "",
 			exitCode: undefined,
 			cancelled: false,
 			truncated: false,
-			pending: true,
 			excludeFromContext: true,
 			timestamp,
 		};
@@ -1205,21 +1200,20 @@ export class AgentRuntime {
 
 		const bashMessage: AgentMessage = {
 			role: "bashExecution",
-			id,
 			command,
 			output: result.output,
 			exitCode: result.exitCode,
 			cancelled: false,
 			truncated: false,
-			pending: false,
 			excludeFromContext,
 			timestamp,
 		};
+		// Match the pending placeholder by command + timestamp (unique per executeBash call)
 		const replaced = this.agent.replaceCustomMessage(
 			(message) =>
 				message.role === "bashExecution" &&
-				"id" in message &&
-				message.id === id,
+				message.command === command &&
+				message.timestamp === timestamp,
 			bashMessage,
 		);
 		if (replaced) {

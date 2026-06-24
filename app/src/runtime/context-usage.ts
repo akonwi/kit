@@ -130,7 +130,7 @@ export function estimateTokens(message: AgentMessage): number {
 		}
 
 		default: {
-			const fallback = message as Record<string, unknown>;
+			const fallback = message as unknown as Record<string, unknown>;
 			if ("content" in fallback) {
 				const content = fallback.content;
 				if (typeof content === "string") {

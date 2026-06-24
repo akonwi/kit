@@ -1,4 +1,3 @@
-import "../../runtime/custom-messages";
 import {
 	createEffect,
 	createMemo,

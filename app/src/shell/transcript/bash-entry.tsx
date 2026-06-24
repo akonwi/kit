@@ -19,8 +19,11 @@ export function BashEntry(props: {
 	const output = () => props.msg.output ?? "";
 	const outputLines = () => (output().length > 0 ? output().split("\n") : []);
 	const hasOutput = () => outputLines().length > 0;
+	/** The command is still running when exitCode hasn't been set yet. */
+	const pending = () =>
+		props.msg.exitCode === undefined && !props.msg.cancelled;
 	const prefix = () =>
-		props.msg.pending
+		pending()
 			? null
 			: props.msg.cancelled
 				? CIRCLE_SLASH
@@ -28,7 +31,7 @@ export function BashEntry(props: {
 					? CHECK
 					: CROSS;
 	const prefixColor = () =>
-		props.msg.pending
+		pending()
 			? theme.toolText
 			: props.msg.cancelled
 				? theme.textMuted
@@ -62,7 +65,7 @@ export function BashEntry(props: {
 				onMouseDown={() => hasOutput() && setExpanded(!expanded())}
 			>
 				<Show
-					when={props.msg.pending}
+					when={pending()}
 					fallback={<text fg={prefixColor()}>{prefix()}</text>}
 				>
 					<InlineSpinner />
@@ -73,13 +76,13 @@ export function BashEntry(props: {
 					syntaxStyle={syntaxStyle()}
 					fg={theme.textPrimary}
 				/>
-				<Show when={!props.msg.pending && hasOutput()}>
+				<Show when={!pending() && hasOutput()}>
 					<text fg={theme.metaText}>
 						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
-			<Show when={!props.msg.pending && expanded()}>
+			<Show when={!pending() && expanded()}>
 				<box paddingLeft={2} flexDirection="column" gap={0}>
 					<For each={displayLines()}>
 						{(line) => <text fg={theme.textMuted}>{line}</text>}

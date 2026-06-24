@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import "./custom-messages";
 import {
 	type AfterToolCallContext,
 	type AfterToolCallResult,
@@ -831,7 +830,7 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
 				result.push(msg as Message);
 				break;
 			case "bashExecution": {
-				if (!msg.pending && !msg.excludeFromContext) {
+				if (!msg.excludeFromContext) {
 					const exitInfo =
 						msg.exitCode != null && msg.exitCode !== 0
 							? ` (exit code: ${msg.exitCode})`

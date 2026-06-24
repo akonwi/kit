@@ -50,8 +50,8 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"@earendil-works/pi-agent-core": "^0.74.0",
-		"@earendil-works/pi-ai": "^0.74.0",
+		"@earendil-works/pi-agent-core": "0.80.2",
+		"@earendil-works/pi-ai": "0.80.2",
 		"@modelcontextprotocol/sdk": "^1.29.0",
 		"@opentui/core": "0.2.15",
 		"@opentui/keymap": "0.2.15",

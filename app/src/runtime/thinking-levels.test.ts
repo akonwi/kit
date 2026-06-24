@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-	getModels,
-	getProviders,
-	getSupportedThinkingLevels,
-} from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { getModels, getProviders } from "@earendil-works/pi-ai/compat";
 import {
 	clampThinkingLevel,
 	DEFAULT_THINKING_LEVEL,

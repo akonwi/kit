@@ -1,8 +1,10 @@
 import {
 	getOAuthProviders,
 	type OAuthAuthInfo,
+	type OAuthDeviceCodeInfo,
 	type OAuthPrompt,
 	type OAuthProviderInterface,
+	type OAuthSelectPrompt,
 } from "@earendil-works/pi-ai/oauth";
 import { useBindings } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
@@ -149,6 +151,23 @@ export function LoginModal(props: LoginModalProps) {
 					appendProgress(message);
 				},
 				onPrompt: requestPrompt,
+				onDeviceCode(info: OAuthDeviceCodeInfo) {
+					if (closed) return;
+					appendProgress(
+						`Enter code ${info.userCode} at ${info.verificationUri}`,
+					);
+					void openExternal(info.verificationUri).catch(() => {});
+				},
+				async onSelect(prompt: OAuthSelectPrompt) {
+					if (closed) return undefined;
+					const result = await requestPrompt({
+						message: `${prompt.message}\n${prompt.options.map((o) => `  ${o.id}: ${o.label}`).join("\n")}`,
+					});
+					const match = prompt.options.find(
+						(o) => o.id === result || o.label === result,
+					);
+					return match?.id;
+				},
 				onManualCodeInput: () =>
 					requestPrompt({
 						message:

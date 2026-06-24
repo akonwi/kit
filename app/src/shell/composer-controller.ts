@@ -514,12 +514,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const history: Array<{ command: string; excludeFromContext: boolean }> = [];
 		for (let index = messages.length - 1; index >= 0; index--) {
 			const msg = messages[index];
-			if (msg.role !== "bashExecution" || msg.pending) continue;
+			if (msg.role !== "bashExecution") continue;
 			const command = msg.command.trim();
 			if (!command) continue;
 			history.push({
 				command,
-				excludeFromContext: msg.excludeFromContext,
+				excludeFromContext: msg.excludeFromContext ?? false,
 			});
 		}
 		return history;
