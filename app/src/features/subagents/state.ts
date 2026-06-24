@@ -1,17 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { getApiKey } from "../../auth";
-import { buildSystemPrompt } from "../../context/agents";
-import type { AgentTool, ImageContent, TextContent } from "../../runtime/agent";
-import { Agent, type AgentEvent } from "../../runtime/agent";
+import type { ImageContent, TextContent } from "../../runtime/agent";
 import {
-	type AgentRuntime,
-	DEFAULT_SYSTEM_PROMPT,
+	AgentRuntime,
+	type AgentRuntimeEvent,
 } from "../../runtime/agent-runtime";
 import {
 	type AppendableSessionEntry,
 	appendSessionEntries,
 	type PersistedKitAgentMessage,
 	readSessionEntries,
+	SESSION_VERSION,
 	type Session,
 	type SessionEntry,
 	type SubagentAbortedEntry,
@@ -19,7 +17,6 @@ import {
 	type SubagentFailedEntry,
 	type Turn,
 } from "../../session";
-import { resolveRetrySettings } from "../../settings";
 import type { SubagentDefinition } from "./discovery";
 
 export type ActiveSubagentStatus = "idle" | "running" | "failed" | "aborted";
@@ -136,7 +133,7 @@ function assistantMessageId(message: unknown): string | undefined {
 }
 
 function maybeTextDelta(
-	event: Extract<AgentEvent, { type: "message.update" }>,
+	event: Extract<AgentRuntimeEvent, { type: "message.update" }>,
 ): string | null {
 	if (event.message.role !== "assistant") return null;
 	const deltaEvent = event.assistantMessageEvent as
@@ -184,14 +181,83 @@ function normalizeToolResultContent(result: unknown): {
 	};
 }
 
+function normalizeTurn(turn: Turn): Turn {
+	return {
+		...turn,
+		messages: turn.messages.map((message) => ({
+			...message,
+			turnId: turn.id,
+		})),
+	};
+}
+
+type RuntimeCompactionEvent = Extract<
+	AgentRuntimeEvent,
+	{
+		type:
+			| "session.compaction.completed.auto"
+			| "session.compaction.completed.recovery"
+			| "session.compaction.completed.adaptation"
+			| "session.compaction.completed.manual";
+	}
+>;
+
+type SubagentEntryMetadata = {
+	timestamp: string;
+	agentName: string;
+	subagentConversationId: string;
+};
+
+export function createSubagentCompactionEntry(
+	event: RuntimeCompactionEvent,
+	baseEntry: SubagentEntryMetadata,
+): AppendableSessionEntry {
+	return {
+		...baseEntry,
+		type: "subagent_compaction",
+		message: stripTurnId(event.summaryMessage),
+		firstKeptTurnId: event.firstKeptTurnId,
+		compactedTurnCount: event.compactedTurnCount,
+		keptTurnCount: event.keptTurnCount,
+		tokensBefore: event.tokensBefore,
+		keptTurns: event.keptTurns.map(normalizeTurn),
+	};
+}
+
 function buildHistoryTurns(
 	entries: SessionEntry[],
 	subagentConversationId: string,
 ): Turn[] {
+	const latestCompactionIndex = entries.findLastIndex(
+		(entry) =>
+			"subagentConversationId" in entry &&
+			entry.subagentConversationId === subagentConversationId &&
+			entry.type === "subagent_compaction",
+	);
+	const latestCompaction =
+		latestCompactionIndex >= 0 ? entries[latestCompactionIndex] : undefined;
 	const turns: Turn[] = [];
-	let currentTurn: Turn | null = null;
+	if (latestCompaction?.type === "subagent_compaction") {
+		const summaryTurnId = `${subagentConversationId}:${latestCompaction.id}`;
+		turns.push({
+			id: summaryTurnId,
+			messages: [
+				{
+					...latestCompaction.message,
+					turnId: summaryTurnId,
+				},
+			],
+		});
+		turns.push(...latestCompaction.keptTurns.map(normalizeTurn));
+	}
 
-	for (const entry of entries) {
+	let currentTurn: Turn | null = null;
+	const replayEntries =
+		latestCompactionIndex >= 0
+			? entries.slice(latestCompactionIndex + 1)
+			: entries;
+
+	for (const entry of replayEntries) {
 		if (
 			!("subagentConversationId" in entry) ||
 			entry.subagentConversationId !== subagentConversationId
@@ -264,63 +330,58 @@ async function createLiveSubagentRuntime(
 		);
 	}
 
-	const tools = options.runtime
-		.getTools()
-		.filter((tool: AgentTool) => tool.name !== "subagent");
-	const basePrompt = [
-		DEFAULT_SYSTEM_PROMPT,
-		...options.runtime.getSystemPromptAdditions(),
-		options.definition.instructions,
-	]
-		.filter((part) => part.trim().length > 0)
-		.join("\n\n");
-	const systemPrompt = buildSystemPrompt(
-		basePrompt,
-		options.runtime.getContextFiles(),
-	);
-
-	const agent = new Agent({
-		initialTurns: options.historyTurns,
-		initialState: {
-			model: resolvedModel,
-			thinkingLevel: options.runtime.agentInfo.thinkingLevel,
-			systemPrompt,
-			tools,
-		},
-		getApiKey: (provider) => getApiKey(provider),
-		maxRetryDelayMs: resolveRetrySettings(options.runtime.settings.retry)
-			.maxDelayMs,
+	const now = nowIso();
+	const session: Session = {
+		id: options.subagentConversationId,
+		version: SESSION_VERSION,
+		cwd: options.runtime.getSession().cwd,
+		name: options.definition.name,
+		model: resolvedModel.id,
+		thinkingLevel: options.runtime.agentInfo.thinkingLevel,
+		createdAt: now,
+		updatedAt: now,
+		turns: options.historyTurns,
+	};
+	const runtime = new AgentRuntime(session, {
+		settings: options.runtime.settings,
+		systemPromptAdditions: [
+			...options.runtime.getSystemPromptAdditions(),
+			options.definition.instructions,
+		],
+		extraTools: options.runtime.getTools(),
+		subagent: true,
 	});
-	agent.sessionId = options.subagentConversationId;
 
 	let writeChain = Promise.resolve();
 	let currentMessageId: string | undefined;
 	let latestCompletedText: string | undefined;
+	let terminalError: string | undefined;
 	let aborted = false;
 	let abortReason: string | undefined;
 
 	const enqueueEntries = (entries: AppendableSessionEntry[]): void => {
 		writeChain = writeChain.then(() => options.onEntries(entries));
 	};
+	const baseEntry = () => ({
+		timestamp: nowIso(),
+		agentName: options.definition.name,
+		subagentConversationId: options.subagentConversationId,
+	});
 
-	const unsubscribe = agent.subscribe((event) => {
+	const unsubscribe = runtime.subscribe((event) => {
 		switch (event.type) {
 			case "agent.message.started": {
 				currentMessageId = assistantMessageId(event.message) ?? randomUUID();
 				options.onTerminalState("running");
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_message_started",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						messageId: currentMessageId,
 					},
 					{
+						...baseEntry(),
 						type: "subagent_thinking_started",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						messageId: currentMessageId,
 					},
 				]);
@@ -331,10 +392,8 @@ async function createLiveSubagentRuntime(
 				if (!delta || !currentMessageId) break;
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_message_delta",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						messageId: currentMessageId,
 						delta,
 					},
@@ -345,10 +404,8 @@ async function createLiveSubagentRuntime(
 				if (!currentMessageId) break;
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_thinking_delta",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						messageId: currentMessageId,
 						delta: event.delta,
 					},
@@ -358,10 +415,8 @@ async function createLiveSubagentRuntime(
 			case "agent.tool.started": {
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_tool_started",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
 						args: event.args,
@@ -372,10 +427,8 @@ async function createLiveSubagentRuntime(
 			case "agent.tool.updated": {
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_tool_updated",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
 						partialResult: event.partialResult,
@@ -386,10 +439,8 @@ async function createLiveSubagentRuntime(
 			case "agent.tool.ended": {
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_tool_completed",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						toolCallId: event.toolCallId,
 						toolName: event.toolName,
 						result: event.result,
@@ -398,30 +449,43 @@ async function createLiveSubagentRuntime(
 				]);
 				break;
 			}
-			case "agent.message.ended": {
+			case "session.message.appended": {
+				if (event.message.role !== "assistant") break;
 				const messageId =
 					currentMessageId ?? assistantMessageId(event.message) ?? randomUUID();
 				const persisted = stripTurnId(event.message);
 				latestCompletedText = extractAssistantText(persisted);
 				options.onCompletedMessage(persisted, latestCompletedText);
+				if (event.message.stopReason === "error") {
+					terminalError = event.message.errorMessage ?? "Sub-agent failed.";
+				} else {
+					terminalError = undefined;
+				}
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_thinking_completed",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						messageId,
 					},
 					{
+						...baseEntry(),
 						type: "subagent_message_completed",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						messageId,
 						message: persisted,
 					},
 				]);
 				currentMessageId = undefined;
+				break;
+			}
+			case "session.compaction.completed.auto":
+			case "session.compaction.completed.recovery":
+			case "session.compaction.completed.adaptation":
+			case "session.compaction.completed.manual": {
+				enqueueEntries([createSubagentCompactionEntry(event, baseEntry())]);
+				break;
+			}
+			case "agent.run.failed": {
+				terminalError = event.error;
 				break;
 			}
 		}
@@ -430,8 +494,24 @@ async function createLiveSubagentRuntime(
 	return {
 		async run(prompt: string): Promise<SubagentRunResult> {
 			try {
-				await agent.prompt(prompt);
+				await runtime.submitUserMessage(prompt);
 				await writeChain;
+				if (terminalError) {
+					options.onTerminalState("failed", { error: terminalError });
+					enqueueEntries([
+						{
+							...baseEntry(),
+							type: "subagent_failed",
+							error: terminalError,
+						},
+					]);
+					await writeChain;
+					return {
+						status: "failed",
+						message: latestCompletedText,
+						error: terminalError,
+					};
+				}
 				options.onTerminalState("idle");
 				return {
 					status: "completed",
@@ -446,10 +526,8 @@ async function createLiveSubagentRuntime(
 					});
 					enqueueEntries([
 						{
+							...baseEntry(),
 							type: "subagent_aborted",
-							timestamp: nowIso(),
-							agentName: options.definition.name,
-							subagentConversationId: options.subagentConversationId,
 							reason: abortReason ?? errorMessage,
 						},
 					]);
@@ -463,10 +541,8 @@ async function createLiveSubagentRuntime(
 				options.onTerminalState("failed", { error: errorMessage });
 				enqueueEntries([
 					{
+						...baseEntry(),
 						type: "subagent_failed",
-						timestamp: nowIso(),
-						agentName: options.definition.name,
-						subagentConversationId: options.subagentConversationId,
 						error: errorMessage,
 					},
 				]);
@@ -481,10 +557,11 @@ async function createLiveSubagentRuntime(
 		abort(reason?: string): void {
 			aborted = true;
 			abortReason = trimToUndefined(reason) ?? "Aborted";
-			agent.abort();
+			runtime.abort();
 		},
 		dispose(): void {
 			unsubscribe();
+			runtime.dispose();
 		},
 	};
 }

@@ -292,6 +292,8 @@ export class AgentRuntime {
 	private _settings: Settings;
 	// biome-ignore lint/suspicious/noExplicitAny: heterogeneous tool collection, matches pi-core convention
 	private extraTools: AgentTool<any>[];
+	private readonly subagent: boolean;
+	private readonly disableGitWatcher: boolean;
 	private pluginSubagents: SubagentDefinition[];
 	private fileDiscoveredSubagents: SubagentDefinition[] = [];
 	private systemPromptAdditions: string[];
@@ -323,12 +325,16 @@ export class AgentRuntime {
 			extraTools?: AgentTool<any>[];
 			systemPromptAdditions?: string[];
 			settings?: Settings;
+			subagent?: boolean;
+			disableGitWatcher?: boolean;
 		},
 	) {
 		this.session = session;
 		this._settings = options?.settings ?? {};
 		this.lastSessionModel = session.model;
 		this.extraTools = options?.extraTools ?? [];
+		this.subagent = options?.subagent ?? false;
+		this.disableGitWatcher = options?.disableGitWatcher ?? this.subagent;
 		this.pluginSubagents = [];
 		this.fileDiscoveredSubagents = [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
@@ -348,7 +354,7 @@ export class AgentRuntime {
 				model: defaultModel,
 				thinkingLevel: initialThinkingLevel,
 				systemPrompt: this.getEffectiveSystemPrompt(),
-				tools: [...createDefaultTools(session.cwd), ...this.extraTools],
+				tools: this.getEffectiveTools(),
 			},
 			getApiKey: (provider) => getApiKey(provider),
 			maxRetryDelayMs: resolveRetrySettings(this._settings.retry).maxDelayMs,
@@ -360,7 +366,9 @@ export class AgentRuntime {
 		this.unsubscribeAgent = this.agent.subscribe((event) =>
 			this.handleAgentEvent(event),
 		);
-		this.resetGitWatcher();
+		if (!this.disableGitWatcher) {
+			this.resetGitWatcher();
+		}
 	}
 
 	get contextStats(): RuntimeContextUsage | null {
@@ -401,15 +409,28 @@ export class AgentRuntime {
 		return buildSystemPrompt(basePrompt, this.contextFiles);
 	}
 
+	private getEffectiveTools(): AgentTool[] {
+		const tools: AgentTool[] = [];
+		const seen = new Set<string>();
+		for (const tool of [
+			...createDefaultTools(this.session.cwd),
+			...this.extraTools,
+		]) {
+			if (seen.has(tool.name)) continue;
+			seen.add(tool.name);
+			tools.push(tool);
+		}
+		return tools;
+	}
+
 	private applySessionContext(session: Session): void {
 		this.contextFiles = discoverContextFiles(session.cwd);
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
-		this.agent.setTools([
-			...createDefaultTools(session.cwd),
-			...this.extraTools,
-		]);
+		this.agent.setTools(this.getEffectiveTools());
 		this.agent.sessionId = session.id;
-		this.resetGitWatcher();
+		if (!this.disableGitWatcher) {
+			this.resetGitWatcher();
+		}
 	}
 
 	private findModelById(modelId: string | undefined): Model<Api> | undefined {
@@ -1113,18 +1134,12 @@ export class AgentRuntime {
 
 	addTool(tool: AgentTool): () => void {
 		this.extraTools.push(tool);
-		this.agent.setTools([
-			...createDefaultTools(this.session.cwd),
-			...this.extraTools,
-		]);
+		this.agent.setTools(this.getEffectiveTools());
 		return () => {
 			this.extraTools = this.extraTools.filter(
 				(candidate) => candidate !== tool,
 			);
-			this.agent.setTools([
-				...createDefaultTools(this.session.cwd),
-				...this.extraTools,
-			]);
+			this.agent.setTools(this.getEffectiveTools());
 		};
 	}
 
@@ -1333,7 +1348,7 @@ export class AgentRuntime {
 	}
 
 	getTools(): AgentTool[] {
-		return [...createDefaultTools(this.session.cwd), ...this.extraTools];
+		return this.getEffectiveTools();
 	}
 
 	getSystemPromptAdditions(): string[] {

@@ -227,6 +227,16 @@ export interface SubagentAbortedEntry extends SubagentEntryBase {
 	reason?: string;
 }
 
+export interface SubagentCompactionEntry extends SubagentEntryBase {
+	type: "subagent_compaction";
+	firstKeptTurnId?: string;
+	compactedTurnCount: number;
+	keptTurnCount: number;
+	tokensBefore: number;
+	message: PersistedKitAgentMessage;
+	keptTurns: Turn[];
+}
+
 export type SessionEntry =
 	| SessionMessageEntry
 	| SessionInfoEntry
@@ -248,6 +258,7 @@ export type SessionEntry =
 	| SubagentToolCompletedEntry
 	| SubagentDismissedEntry
 	| SubagentFailedEntry
-	| SubagentAbortedEntry;
+	| SubagentAbortedEntry
+	| SubagentCompactionEntry;
 
 export type SessionFileEntry = SessionHeader | SessionEntry;

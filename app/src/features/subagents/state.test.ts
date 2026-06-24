@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import type { AgentRuntimeEvent } from "../../runtime/agent-runtime";
 import type { Session, SessionEntry } from "../../session";
 import type { SubagentDefinition } from "./discovery";
-import { SubagentManager } from "./state";
+import { createSubagentCompactionEntry, SubagentManager } from "./state";
 
 const session: Session = {
 	id: "session-1",
@@ -72,6 +73,56 @@ function assistantMessage(
 }
 
 describe("SubagentManager", () => {
+	test("creates normalized sub-agent compaction entries from runtime events", () => {
+		const keptTurn = {
+			id: "kept-turn",
+			messages: [
+				{
+					role: "user" as const,
+					content: "kept question",
+					timestamp: Date.parse("2025-01-01T00:00:04.000Z"),
+					turnId: "stale-turn",
+				},
+			],
+		};
+		const event: Extract<
+			AgentRuntimeEvent,
+			{ type: "session.compaction.completed.auto" }
+		> = {
+			type: "session.compaction.completed.auto",
+			contextPercent: 91,
+			compactedTurnCount: 3,
+			keptTurnCount: 1,
+			tokensBefore: 123,
+			firstKeptTurnId: "kept-turn",
+			keptTurns: [keptTurn],
+			summaryMessage: {
+				...assistantMessage("summary"),
+				turnId: "summary-turn",
+			},
+		};
+
+		const entry = createSubagentCompactionEntry(event, {
+			timestamp: "2025-01-01T00:00:05.000Z",
+			agentName: "scout",
+			subagentConversationId: "conv-1",
+		});
+
+		expect(entry).toMatchObject({
+			type: "subagent_compaction",
+			agentName: "scout",
+			subagentConversationId: "conv-1",
+			compactedTurnCount: 3,
+			keptTurnCount: 1,
+			tokensBefore: 123,
+		});
+		if (entry.type !== "subagent_compaction") {
+			throw new Error("Expected subagent compaction entry");
+		}
+		expect(entry.keptTurns[0]?.messages[0]?.turnId).toBe("kept-turn");
+		expect("turnId" in entry.message).toBe(false);
+	});
+
 	test("hydrates active conversations from persisted session entries", async () => {
 		const entries: SessionEntry[] = [
 			{
@@ -200,6 +251,113 @@ describe("SubagentManager", () => {
 			status: "idle",
 			latestMessage: "delegated answer",
 		});
+	});
+
+	test("replays only compacted sub-agent history after latest compaction", async () => {
+		const summary = assistantMessage("older work summarized");
+		const keptTurn = {
+			id: "kept-turn",
+			messages: [
+				{
+					role: "user" as const,
+					content: "kept question",
+					timestamp: Date.parse("2025-01-01T00:00:04.000Z"),
+					turnId: "kept-turn",
+				},
+				{
+					...assistantMessage("kept answer"),
+					turnId: "kept-turn",
+				},
+			],
+		};
+		const persisted: SessionEntry[] = [
+			{
+				type: "subagent_started",
+				id: "1",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:00.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+			},
+			{
+				type: "subagent_prompt",
+				id: "2",
+				parentId: "1",
+				timestamp: "2025-01-01T00:00:01.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "old prompt should be compacted away",
+			},
+			{
+				type: "subagent_compaction",
+				id: "3",
+				parentId: "2",
+				timestamp: "2025-01-01T00:00:03.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				message: summary,
+				compactedTurnCount: 1,
+				keptTurnCount: 1,
+				tokensBefore: 100,
+				keptTurns: [keptTurn],
+			},
+			{
+				type: "subagent_prompt",
+				id: "4",
+				parentId: "3",
+				timestamp: "2025-01-01T00:00:05.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+				prompt: "new prompt",
+			},
+			{
+				type: "subagent_message_completed",
+				id: "5",
+				parentId: "4",
+				timestamp: "2025-01-01T00:00:06.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				messageId: "msg-1",
+				message: assistantMessage("new answer"),
+			},
+		];
+		let capturedTurns: Session["turns"] = [];
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => persisted,
+			appendEntries: async () => [],
+			createRuntime: async (options) => {
+				capturedTurns = options.historyTurns;
+				return {
+					async run() {
+						return { status: "completed" as const, message: "continued" };
+					},
+					abort() {},
+					dispose() {},
+				};
+			},
+		});
+
+		await manager.hydrate();
+		await manager.run("scout", "continue");
+
+		expect(capturedTurns.map((turn) => turn.id)).toEqual([
+			"conv-1:3",
+			"kept-turn",
+			"conv-1:4",
+		]);
+		expect(capturedTurns[0]?.messages[0]).toMatchObject({
+			role: "assistant",
+			content: summary.content,
+		});
+		expect(capturedTurns[2]?.messages.map((message) => message.role)).toEqual([
+			"user",
+			"assistant",
+		]);
 	});
 
 	test("reconstructs prior tool results into history turns for continued runs", async () => {
