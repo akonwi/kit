@@ -395,22 +395,6 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			return;
 		}
 
-		if (runtime.getStatus().isStreaming) {
-			if (pendingAttachments.length > 0) {
-				toast({
-					title: "Attachments not supported in queued follow-ups",
-					subtitle:
-						"Wait for the current turn to finish before sending attached reviews.",
-					variant: "error",
-				});
-				textareaRef?.setText(text);
-				prevTextLength = text.length;
-				return;
-			}
-			runtime.sendFollowUp(preparedText ?? "");
-			return;
-		}
-
 		const parts: MessagePart[] = [];
 		if ((preparedText ?? "").trim()) {
 			parts.push({ type: "text", text: preparedText ?? "" });
@@ -424,7 +408,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 
 		try {
-			await runtime.submitUserMessage(parts);
+			await runtime.submitMessage(parts);
 		} catch (error) {
 			for (const attachment of pendingAttachments) {
 				attachments.attach(attachment);

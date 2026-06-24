@@ -24,6 +24,49 @@ type RuntimeWithQueue = {
 };
 
 describe("queued follow-up editing", () => {
+	test("editing a queued multipart message preserves image attachments", () => {
+		const agent = new Agent();
+		const message = {
+			role: "user",
+			content: [
+				{ type: "text", text: "before" },
+				{
+					type: "image",
+					data: "base64-data",
+					mimeType: "image/png",
+					filename: "screenshot.png",
+				},
+			],
+			timestamp: 123,
+		} as AgentMessage;
+
+		agent.followUp(message);
+		expect(agent.getPendingFollowUps()).toEqual([
+			"before\nAttached image: screenshot.png",
+		]);
+		expect(agent.getPendingFollowUpDrafts()).toEqual(["before"]);
+
+		agent.updatePendingFollowUp(0, "after");
+
+		expect(agent.getPendingFollowUps()).toEqual([
+			"after\nAttached image: screenshot.png",
+		]);
+		expect(agent.getPendingFollowUpDrafts()).toEqual(["after"]);
+		const queued = (agent as unknown as { _queuedFollowUps: AgentMessage[] })
+			._queuedFollowUps[0] as AgentMessage & {
+			content: Array<{ type: string; text?: string; filename?: string }>;
+		};
+		expect(queued.content).toEqual([
+			{ type: "text", text: "after" },
+			{
+				type: "image",
+				data: "base64-data",
+				mimeType: "image/png",
+				filename: "screenshot.png",
+			},
+		]);
+	});
+
 	test("editing a queued structured message preserves metadata", () => {
 		const agent = new Agent();
 		const message = {

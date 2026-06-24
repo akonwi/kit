@@ -13,9 +13,84 @@ type SubmissionTestRuntime = {
 	submitPromptCommandMessage: InstanceType<
 		typeof AgentRuntime
 	>["submitPromptCommandMessage"];
+	submitMessage: InstanceType<typeof AgentRuntime>["submitMessage"];
 };
 
 describe("AgentRuntime prompt-command submission", () => {
+	test("ignores empty messages while streaming", async () => {
+		let queued = false;
+		let syncedPendingState = false;
+
+		const runtime = Object.create(
+			AgentRuntime.prototype,
+		) as SubmissionTestRuntime;
+		runtime.agent = {
+			state: { isStreaming: true },
+			prompt: async () => {},
+			followUp: () => {
+				queued = true;
+			},
+		};
+		runtime.waitForRecovery = async () => {};
+		runtime.syncPendingState = () => {
+			syncedPendingState = true;
+		};
+
+		await runtime.submitMessage([]);
+		await runtime.submitMessage([{ type: "text", text: "   " }]);
+
+		expect(queued).toBe(false);
+		expect(syncedPendingState).toBe(false);
+	});
+
+	test("queues multipart messages with images while streaming", async () => {
+		let promptedMessage: AgentMessage | null = null;
+		let queuedMessage: AgentMessage | null = null;
+		let syncedPendingState = false;
+
+		const runtime = Object.create(
+			AgentRuntime.prototype,
+		) as SubmissionTestRuntime;
+		runtime.agent = {
+			state: { isStreaming: true },
+			prompt: async (message) => {
+				promptedMessage = message;
+			},
+			followUp: (message) => {
+				queuedMessage = message;
+			},
+		};
+		runtime.waitForRecovery = async () => {};
+		runtime.syncPendingState = () => {
+			syncedPendingState = true;
+		};
+
+		await runtime.submitMessage([
+			{ type: "text", text: "describe this" },
+			{
+				type: "image",
+				data: "base64-data",
+				mimeType: "image/png",
+				filename: "screenshot.png",
+			},
+		]);
+
+		expect(promptedMessage).toBeNull();
+		expect(syncedPendingState).toBe(true);
+		expect(queuedMessage).toMatchObject({
+			role: "user",
+			content: [
+				{ type: "text", text: "describe this" },
+				{
+					type: "image",
+					data: "base64-data",
+					mimeType: "image/png",
+					filename: "screenshot.png",
+				},
+			],
+		});
+	});
+
 	test("queues structured prompt-command messages while streaming", async () => {
 		let promptedMessage: AgentMessage | null = null;
 		let queuedMessage: AgentMessage | null = null;

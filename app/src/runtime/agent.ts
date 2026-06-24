@@ -442,6 +442,10 @@ export class Agent {
 		return [...this._pendingFollowUps];
 	}
 
+	getPendingFollowUpDrafts(): string[] {
+		return this._queuedFollowUps.map((message) => extractEditableText(message));
+	}
+
 	setPendingFollowUps(messages: string[]): void {
 		this.replacePendingFollowUps(
 			messages.flatMap((text) => {
@@ -484,6 +488,12 @@ export class Agent {
 
 	drainPendingFollowUps(): string[] {
 		const drained = [...this._pendingFollowUps];
+		this.clearFollowUpQueue();
+		return drained;
+	}
+
+	drainPendingFollowUpMessages(): AgentMessage[] {
+		const drained = [...this._queuedFollowUps];
 		this.clearFollowUpQueue();
 		return drained;
 	}
@@ -884,14 +894,26 @@ function withPlainTextContent(
 	text: string,
 ): AgentMessage {
 	if (!("content" in message)) return message;
+	if (typeof message.content === "string") {
+		return { ...message, content: text } as AgentMessage;
+	}
+	if (!Array.isArray(message.content)) return message;
+	const nonTextParts = message.content.filter(
+		(part) =>
+			!(
+				typeof part === "object" &&
+				part !== null &&
+				"type" in part &&
+				part.type === "text"
+			),
+	);
 	return {
 		...message,
-		content:
-			typeof message.content === "string" ? text : [{ type: "text", text }],
+		content: [{ type: "text", text }, ...nonTextParts],
 	} as AgentMessage;
 }
 
-function extractPlainText(message: AgentMessage): string {
+function extractEditableText(message: AgentMessage): string {
 	if (!("content" in message)) return "";
 	const { content } = message;
 	if (typeof content === "string") return content;
@@ -912,5 +934,21 @@ function extractPlainText(message: AgentMessage): string {
 				typeof block.text === "string",
 		)
 		.map((block) => block.text)
+		.join("\n");
+}
+
+function extractPlainText(message: AgentMessage): string {
+	if (!("content" in message)) return "";
+	const { content } = message;
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.map((block) => {
+			if (typeof block !== "object" || block === null || !("type" in block)) {
+				return "";
+			}
+			return messagePartToPromptText(block as MessagePart);
+		})
+		.filter((text) => text.trim().length > 0)
 		.join("\n");
 }

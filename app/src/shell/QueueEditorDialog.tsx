@@ -108,7 +108,7 @@ export function QueueEditorDialog(props: QueueEditorDialogProps) {
 	function startEdit(): void {
 		const message = messages()[selected()];
 		if (message === undefined) return;
-		setDraft(message);
+		setDraft(props.runtime.getPendingMessageDrafts()[selected()] ?? message);
 		setMode("edit");
 	}
 

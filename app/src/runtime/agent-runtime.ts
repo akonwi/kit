@@ -10,7 +10,11 @@ import {
 	discoverContextFiles,
 } from "../context/agents";
 import type { SubagentDefinition } from "../features/subagents/discovery";
-import type { MessagePart, UserMultipartMessage } from "../messages/parts";
+import {
+	type MessagePart,
+	messagePartToPromptText,
+	type UserMultipartMessage,
+} from "../messages/parts";
 import { chdirIfNeeded } from "../process-cwd";
 import {
 	createSession,
@@ -993,22 +997,21 @@ export class AgentRuntime {
 	async submitMessage(input: string | MessagePart[]): Promise<void> {
 		const parts: MessagePart[] =
 			typeof input === "string" ? [{ type: "text", text: input }] : input;
+		const hasContent = parts.some((part) =>
+			messagePartToPromptText(part).trim(),
+		);
+		if (!hasContent) return;
 		if (!this.agent.state.isStreaming) {
 			await this.submitUserMessage(parts);
 			return;
 		}
-		const textOnly = parts.every((part) => part.type === "text");
-		if (!textOnly) {
-			throw new Error(
-				"Attachments not supported in queued follow-ups. Wait for the current turn to finish before sending attached reviews.",
-			);
-		}
-		const queuedText = parts
-			.map((part) => (part.type === "text" ? part.text : ""))
-			.join("\n")
-			.trim();
-		if (!queuedText) return;
-		this.sendFollowUp(queuedText);
+		const message: UserMultipartMessage = {
+			role: "user",
+			content: parts,
+			timestamp: Date.now(),
+		};
+		this.agent.followUp(message as unknown as AgentMessage);
+		this.syncPendingState();
 	}
 
 	async submitUserMessage(input: string | MessagePart[]): Promise<void> {
@@ -1280,14 +1283,9 @@ export class AgentRuntime {
 	}
 
 	promotePendingFollowUpsToSteering(): void {
-		const drained = this.agent.drainPendingFollowUps();
-		for (const text of drained) {
-			const msg: UserMessage = {
-				role: "user",
-				content: text,
-				timestamp: Date.now(),
-			};
-			this.agent.steer(msg);
+		const drained = this.agent.drainPendingFollowUpMessages();
+		for (const message of drained) {
+			this.agent.steer(message);
 		}
 		this.syncPendingState();
 		if (drained.length > 0) {
@@ -1301,6 +1299,10 @@ export class AgentRuntime {
 
 	getPendingMessages(): string[] {
 		return this.agent.getPendingFollowUps();
+	}
+
+	getPendingMessageDrafts(): string[] {
+		return this.agent.getPendingFollowUpDrafts();
 	}
 
 	getSession(): Session {
