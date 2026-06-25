@@ -245,7 +245,7 @@ function AppShellContent(props: AppShellContentProps) {
 
 	onCleanup(
 		props.commands.register({
-			name: "scratchpad.toggle",
+			name: "toggle-scratchpad",
 			description: "Toggle scratchpad",
 			category: "App",
 			execute: () => {
@@ -284,7 +284,6 @@ function AppShellContent(props: AppShellContentProps) {
 					props.controller.openCommandPalette();
 				},
 				"queue-editor.open": openQueueEditor,
-				"scratchpad.toggle": toggleScratchpad,
 				"scratchpad.focus-next": () => {
 					if (!scratchpadOpen()) return false;
 					if (props.overlays().length > 0) return false;

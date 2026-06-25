@@ -143,11 +143,6 @@ export const KEYBINDING_REGISTRY = {
 		},
 	},
 	scratchpad: {
-		toggle: {
-			defaultKeys: [],
-			desc: "Toggle scratchpad",
-			group: "App",
-		},
 		"focus-next": {
 			defaultKeys: "tab",
 			desc: "Focus next input",
