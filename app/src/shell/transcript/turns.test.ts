@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { AssistantMessage, ToolCall } from "../../runtime/agent";
+import type {
+	AssistantMessage,
+	CustomAgentMessages,
+	ToolCall,
+} from "../../runtime/agent";
 import {
 	formatToolArgs,
 	groupItemsForDisplay,
@@ -53,6 +57,24 @@ function userItem(id: string, turnId: string): TranscriptItem {
 			: never,
 		aborted: false,
 	} as TranscriptItem;
+}
+
+function bashItem(
+	id: string,
+	turnId: string,
+): Extract<TranscriptItem, { kind: "bash" }> {
+	return {
+		kind: "bash",
+		id,
+		turnId,
+		message: {
+			role: "bashExecution",
+			command: "echo manual",
+			output: "manual\n",
+			exitCode: 0,
+			timestamp: 1,
+		} as CustomAgentMessages["bashExecution"],
+	};
 }
 
 describe("groupItemsForDisplay", () => {
@@ -164,6 +186,52 @@ describe("groupItemsForDisplay", () => {
 		expect(result[0]).toEqual({ kind: "single", item: u });
 		expect(result[1]).toEqual({ kind: "single", item: intermediate });
 		expect(result[2]).toEqual({ kind: "single", item: final });
+	});
+
+	test("keeps manual bash executions standalone even when sharing a tool-work turn", () => {
+		const a1 = assistantItemWithId("a1", "t1", assistantMessage([toolCall()]));
+		const a2 = assistantItemWithId("a2", "t1", assistantMessage([toolCall()]));
+		const bash = bashItem("bash1", "t1");
+
+		const result = groupItemsForDisplay([a1, a2, bash]);
+
+		expect(result).toHaveLength(2);
+		expect(result[0].kind).toBe("turn-work");
+		if (result[0].kind === "turn-work") {
+			expect(result[0].items).toEqual([a1, a2]);
+		}
+		expect(result[1]).toEqual({ kind: "single", item: bash });
+	});
+
+	test("manual bash executions split surrounding tool-work groups", () => {
+		const a1 = assistantItemWithId("a1", "t1", assistantMessage([toolCall()]));
+		const bash = bashItem("bash1", "t1");
+		const a2 = assistantItemWithId("a2", "t1", assistantMessage([toolCall()]));
+		const a3 = assistantItemWithId("a3", "t1", assistantMessage([toolCall()]));
+
+		const result = groupItemsForDisplay([a1, bash, a2, a3]);
+
+		expect(result).toHaveLength(3);
+		expect(result[0]).toEqual({ kind: "single", item: a1 });
+		expect(result[1]).toEqual({ kind: "single", item: bash });
+		expect(result[2].kind).toBe("turn-work");
+		if (result[2].kind === "turn-work") {
+			expect(result[2].items).toEqual([a2, a3]);
+		}
+	});
+
+	test("in-progress turn: keeps manual bash executions out of the drawer", () => {
+		const a1 = assistantItemWithId("a1", "t1", assistantMessage([toolCall()]));
+		const bash = bashItem("bash1", "t1");
+
+		const result = groupItemsForDisplay([a1, bash], "t1");
+
+		expect(result).toHaveLength(2);
+		expect(result[0].kind).toBe("turn-work");
+		if (result[0].kind === "turn-work") {
+			expect(result[0].items).toEqual([a1]);
+		}
+		expect(result[1]).toEqual({ kind: "single", item: bash });
 	});
 
 	test("in-progress turn: folds a single assistant tool-only item into a drawer", () => {

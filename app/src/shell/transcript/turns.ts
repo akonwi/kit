@@ -350,11 +350,15 @@ export type DisplayItem =
  *   If no assistant message in the turn has prose, all assistant items
  *   collapse into the turn-work drawer.
  *
+ * Manual bash execution items always render as singles, even if they share
+ * a turn id with assistant tool work. They are user-triggered transcript
+ * events, not assistant turn-work.
+ *
  * When `inProgressTurnId` matches a turn, that turn is treated as in flight:
- * no "final" prose item is extracted, and every non-user item collapses
- * into a single growing turn-work drawer (even if there is currently only
- * one such item). This keeps the visible transcript stable while the
- * assistant streams multiple intermediate messages.
+ * no "final" prose item is extracted, and every non-user, non-bash item
+ * collapses into a single growing turn-work drawer (even if there is
+ * currently only one such item). This keeps the visible transcript stable
+ * while the assistant streams multiple intermediate messages.
  */
 export function groupItemsForDisplay(
 	items: TranscriptItem[],
@@ -411,7 +415,7 @@ export function groupItemsForDisplay(
 
 		for (let k = 0; k < turnItems.length; k++) {
 			const item = turnItems[k];
-			if (item.kind === "user" || k === finalIdx) {
+			if (item.kind === "user" || item.kind === "bash" || k === finalIdx) {
 				flushBuffer();
 				result.push({ kind: "single", item });
 			} else {
