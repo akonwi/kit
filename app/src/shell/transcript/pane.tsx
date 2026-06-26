@@ -14,7 +14,7 @@ import {
 	upsertLiveTool,
 } from "../transcript-live-tools";
 import { TurnEntry } from "./turn-entry";
-import { groupItemsForDisplay } from "./turns";
+import { type DisplayItem, groupItemsForDisplay } from "./turns";
 import type { TranscriptPaneProps } from "./types";
 
 export type { TranscriptPaneProps } from "./types";
@@ -30,8 +30,8 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 			return props.runtime.getTurns().at(-1)?.id ?? null;
 		})(),
 	);
-	const displayItems = createMemo(() =>
-		groupItemsForDisplay(props.items, inProgressTurnId()),
+	const displayItems = createMemo<DisplayItem[]>((previous) =>
+		groupItemsForDisplay(props.items, inProgressTurnId(), previous),
 	);
 
 	createEffect(() => {

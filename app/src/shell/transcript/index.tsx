@@ -7,6 +7,8 @@ import {
 	buildUserTranscriptItem,
 	extractAssistantParts,
 	flattenTurnsToTranscriptItems,
+	reconcileTranscriptItems,
+	sameTranscriptItem,
 	type TranscriptItem,
 } from "./turns";
 import type { TranscriptProps } from "./types";
@@ -19,7 +21,7 @@ function replaceTranscriptItem(
 	const next = prev.map((candidate) => {
 		if (candidate.id !== item.id) return candidate;
 		replaced = true;
-		return item;
+		return sameTranscriptItem(candidate, item) ? candidate : item;
 	});
 	return replaced ? next : [...prev, item];
 }
@@ -104,7 +106,12 @@ export function Transcript(props: TranscriptProps) {
 		"agent.turn.completed",
 		(_) => {
 			setPendingAssistantText("");
-			setItems(flattenTurnsToTranscriptItems(props.runtime.getTurns()));
+			setItems((prev) =>
+				reconcileTranscriptItems(
+					prev,
+					flattenTurnsToTranscriptItems(props.runtime.getTurns()),
+				),
+			);
 		},
 	);
 
@@ -119,7 +126,12 @@ export function Transcript(props: TranscriptProps) {
 	const unsubscribeCompacted = props.runtime.subscribe(
 		{ prefix: "session.compaction.completed" },
 		(_) => {
-			setItems(flattenTurnsToTranscriptItems(props.runtime.getTurns()));
+			setItems((prev) =>
+				reconcileTranscriptItems(
+					prev,
+					flattenTurnsToTranscriptItems(props.runtime.getTurns()),
+				),
+			);
 		},
 	);
 

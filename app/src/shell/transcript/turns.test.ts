@@ -3,10 +3,12 @@ import type {
 	AssistantMessage,
 	CustomAgentMessages,
 	ToolCall,
+	ToolResultMessage,
 } from "../../runtime/agent";
 import {
 	formatToolArgs,
 	groupItemsForDisplay,
+	reconcileTranscriptItems,
 	type TranscriptItem,
 	toolDisplayName,
 } from "./turns";
@@ -343,6 +345,92 @@ describe("groupItemsForDisplay", () => {
 			expect(result[0].turnId).toBe("t1");
 		}
 		expect(result[1]).toEqual({ kind: "single", item: t2a1 });
+	});
+
+	test("reuses unchanged display item objects from previous grouping", () => {
+		const t1u = userItem("t1u", "t1");
+		const t1a = assistantItemWithId(
+			"t1a",
+			"t1",
+			assistantMessage([{ type: "text", text: "done" }]),
+		);
+		const previous = groupItemsForDisplay([t1u, t1a]);
+		const t2u = userItem("t2u", "t2");
+
+		const next = groupItemsForDisplay([t1u, t1a, t2u], null, previous);
+
+		expect(next[0]).toBe(previous[0]);
+		expect(next[1]).toBe(previous[1]);
+		expect(next[2]).toEqual({ kind: "single", item: t2u });
+	});
+
+	test("does not reuse a display item when the underlying transcript item changes", () => {
+		const original = assistantItemWithId(
+			"a1",
+			"t1",
+			assistantMessage([{ type: "text", text: "before" }]),
+		);
+		const previous = groupItemsForDisplay([original]);
+		const updated = assistantItemWithId(
+			"a1",
+			"t1",
+			assistantMessage([{ type: "text", text: "after" }]),
+		);
+
+		const next = groupItemsForDisplay([updated], null, previous);
+
+		expect(next[0]).not.toBe(previous[0]);
+		expect(next[0]).toEqual({ kind: "single", item: updated });
+	});
+});
+
+describe("reconcileTranscriptItems", () => {
+	test("reuses unchanged transcript item objects", () => {
+		const unchanged = userItem("u1", "t1");
+		const added = userItem("u2", "t2");
+
+		const result = reconcileTranscriptItems([unchanged], [unchanged, added]);
+
+		expect(result[0]).toBe(unchanged);
+		expect(result[1]).toBe(added);
+	});
+
+	test("does not reuse items with the same id but changed message object", () => {
+		const original = assistantItemWithId(
+			"a1",
+			"t1",
+			assistantMessage([{ type: "text", text: "before" }]),
+		);
+		const updated = assistantItemWithId(
+			"a1",
+			"t1",
+			assistantMessage([{ type: "text", text: "after" }]),
+		);
+
+		const result = reconcileTranscriptItems([original], [updated]);
+
+		expect(result[0]).toBe(updated);
+	});
+
+	test("does not reuse assistant items when tool results change", () => {
+		const message = assistantMessage([toolCall()]);
+		const original = assistantItemWithId("a1", "t1", message);
+		const resultMessage = {
+			role: "toolResult",
+			toolCallId: "tool-1",
+			toolName: "bash",
+			content: [],
+			isError: false,
+			timestamp: 1,
+		} satisfies ToolResultMessage;
+		const updated = {
+			...original,
+			toolResults: new Map([["tool-1", resultMessage]]),
+		} satisfies Extract<TranscriptItem, { kind: "assistant" }>;
+
+		const result = reconcileTranscriptItems([original], [updated]);
+
+		expect(result[0]).toBe(updated);
 	});
 });
 

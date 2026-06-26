@@ -160,6 +160,56 @@ export function flattenTurnsToTranscriptItems(turns: Turn[]): TranscriptItem[] {
 	return items;
 }
 
+function sameToolResults(
+	a: Map<string, unknown>,
+	b: Map<string, unknown>,
+): boolean {
+	if (a.size !== b.size) return false;
+	for (const [key, value] of a) {
+		if (b.get(key) !== value) return false;
+	}
+	return true;
+}
+
+export function sameTranscriptItem(
+	a: TranscriptItem,
+	b: TranscriptItem,
+): boolean {
+	if (a.kind !== b.kind || a.id !== b.id || a.turnId !== b.turnId) return false;
+	switch (a.kind) {
+		case "user":
+			return (
+				b.kind === "user" && a.message === b.message && a.aborted === b.aborted
+			);
+		case "assistant":
+			return (
+				b.kind === "assistant" &&
+				a.message === b.message &&
+				a.aborted === b.aborted &&
+				sameToolResults(a.toolResults, b.toolResults)
+			);
+		case "handoff-summary":
+			return (
+				b.kind === "handoff-summary" &&
+				a.message === b.message &&
+				a.aborted === b.aborted
+			);
+		case "bash":
+			return b.kind === "bash" && a.message === b.message;
+	}
+}
+
+export function reconcileTranscriptItems(
+	prev: TranscriptItem[],
+	next: TranscriptItem[],
+): TranscriptItem[] {
+	const previousById = new Map(prev.map((item) => [item.id, item]));
+	return next.map((item) => {
+		const previous = previousById.get(item.id);
+		return previous && sameTranscriptItem(previous, item) ? previous : item;
+	});
+}
+
 export function getUserParts(
 	msg: UserMessage | UserMultipartMessage,
 ): MessagePart[] {
@@ -341,6 +391,44 @@ export type DisplayItem =
 			turnId: string;
 	  };
 
+function sameItems(a: TranscriptItem[], b: TranscriptItem[]): boolean {
+	return a.length === b.length && a.every((item, index) => item === b[index]);
+}
+
+function reuseDisplayItem(
+	item: DisplayItem,
+	previousByKey: Map<string, DisplayItem> | null,
+): DisplayItem {
+	if (!previousByKey) return item;
+	const key = displayItemKey(item);
+	const previous = previousByKey.get(key);
+	if (!previous || previous.kind !== item.kind) return item;
+	if (item.kind === "single") {
+		return previous.kind === "single" && previous.item === item.item
+			? previous
+			: item;
+	}
+	return previous.kind === "turn-work" &&
+		previous.turnId === item.turnId &&
+		sameItems(previous.items, item.items)
+		? previous
+		: item;
+}
+
+function displayItemKey(item: DisplayItem): string {
+	if (item.kind === "single") return `single:${item.item.id}`;
+	return `turn-work:${item.turnId}:${item.items.map((entry) => entry.id).join("|")}`;
+}
+
+function previousDisplayItemsByKey(
+	previous?: DisplayItem[],
+): Map<string, DisplayItem> | null {
+	if (!previous || previous.length === 0) return null;
+	const byKey = new Map<string, DisplayItem>();
+	for (const item of previous) byKey.set(displayItemKey(item), item);
+	return byKey;
+}
+
 /**
  * Groups items into display units. Within each turn:
  * - If the turn has 0 or 1 assistant message: emit all items as singles.
@@ -363,8 +451,13 @@ export type DisplayItem =
 export function groupItemsForDisplay(
 	items: TranscriptItem[],
 	inProgressTurnId?: string | null,
+	previous?: DisplayItem[],
 ): DisplayItem[] {
 	const result: DisplayItem[] = [];
+	const previousByKey = previousDisplayItemsByKey(previous);
+	const pushDisplayItem = (item: DisplayItem) => {
+		result.push(reuseDisplayItem(item, previousByKey));
+	};
 	let i = 0;
 	while (i < items.length) {
 		const turnId = items[i].turnId;
@@ -382,7 +475,7 @@ export function groupItemsForDisplay(
 
 		if (assistantCount <= 1 && !isInProgress) {
 			for (const item of turnItems) {
-				result.push({ kind: "single", item });
+				pushDisplayItem({ kind: "single", item });
 			}
 			continue;
 		}
@@ -406,9 +499,9 @@ export function groupItemsForDisplay(
 		const flushBuffer = () => {
 			if (buffer.length === 0) return;
 			if (buffer.length === 1 && !isInProgress) {
-				result.push({ kind: "single", item: buffer[0] });
+				pushDisplayItem({ kind: "single", item: buffer[0] });
 			} else {
-				result.push({ kind: "turn-work", items: buffer.slice(), turnId });
+				pushDisplayItem({ kind: "turn-work", items: buffer.slice(), turnId });
 			}
 			buffer = [];
 		};
@@ -417,7 +510,7 @@ export function groupItemsForDisplay(
 			const item = turnItems[k];
 			if (item.kind === "user" || item.kind === "bash" || k === finalIdx) {
 				flushBuffer();
-				result.push({ kind: "single", item });
+				pushDisplayItem({ kind: "single", item });
 			} else {
 				buffer.push(item);
 			}
