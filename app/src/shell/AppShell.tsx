@@ -98,6 +98,20 @@ function commandKeybindingGroup(command: Command): string {
 	return dot > 0 ? command.name.slice(0, dot) : "Commands";
 }
 
+export function shouldHandleScratchpadFocusNext(options: {
+	scratchpadOpen: boolean;
+	overlayOpen: boolean;
+	pickerVisible: boolean;
+	commandPaletteVisible: boolean;
+}): boolean {
+	return (
+		options.scratchpadOpen &&
+		!options.overlayOpen &&
+		!options.pickerVisible &&
+		!options.commandPaletteVisible
+	);
+}
+
 function AppShellContent(props: AppShellContentProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
@@ -285,9 +299,16 @@ function AppShellContent(props: AppShellContentProps) {
 				},
 				"queue-editor.open": openQueueEditor,
 				"scratchpad.focus-next": () => {
-					if (!scratchpadOpen()) return false;
-					if (props.overlays().length > 0) return false;
-					if (props.controller.picker.visible) return false;
+					if (
+						!shouldHandleScratchpadFocusNext({
+							scratchpadOpen: scratchpadOpen(),
+							overlayOpen: props.overlays().length > 0,
+							pickerVisible: props.controller.picker.visible,
+							commandPaletteVisible: props.controller.commandPalette.visible,
+						})
+					) {
+						return false;
+					}
 					cycleInputFocus();
 				},
 			},
