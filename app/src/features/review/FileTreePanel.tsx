@@ -30,9 +30,9 @@ export type FileTreePanelProps = {
 	focused: boolean;
 	editorOpen: boolean;
 	finderOpen: boolean;
+	focusedPath: string | null;
 	onFocusedPathChange: (path: string | null) => void;
 	onSelectFile: (path: string) => void;
-	onOpenFileFinder: () => void;
 	onClose: () => void;
 };
 
@@ -128,6 +128,31 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	onCleanup(() => {
 		controllerUnsub?.();
 		controller?.destroy();
+	});
+
+	// Sync programmatic selections (for example, from the file finder) into
+	// the tree controller so the visible focus follows the selected file.
+	createEffect(() => {
+		const targetPath = props.focusedPath;
+		if (!targetPath) return;
+		const targetIsChanged = changedPaths().includes(targetPath);
+		const targetIsKnownFile =
+			targetIsChanged || props.allFiles.includes(targetPath);
+		if (treeMode() === "changes" && !targetIsChanged && targetIsKnownFile) {
+			setTreeMode("all");
+			return;
+		}
+
+		treeVersion();
+		if (!targetIsKnownFile || !controller?.getItem(targetPath)) return;
+		if (controller.getFocusedPath() === targetPath) return;
+		for (const dir of getAncestorDirPaths(targetPath)) {
+			const item = controller.getItem(dir);
+			if (item && isDirectoryHandle(item) && !item.isExpanded()) {
+				item.expand();
+			}
+		}
+		controller.focusPath(targetPath);
 	});
 
 	// Notify parent when focused path changes
@@ -229,10 +254,6 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		props.onSelectFile(item.getPath());
 	}
 
-	function openFileFinder() {
-		props.onOpenFileFinder();
-	}
-
 	// ── Keybindings ─────────────────────────────────────────────
 
 	useKeymapLayer(() => ({
@@ -248,7 +269,6 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			"review.expand-dir": expandDir,
 			"review.collapse-dir": collapseDir,
 			"review.toggle-tree-mode": toggleTreeMode,
-			"review.search-tree": openFileFinder,
 		},
 	}));
 

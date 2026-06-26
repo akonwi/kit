@@ -898,6 +898,11 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	}
 
+	function openFileFinder() {
+		if (editorOpen() || fileFinderOpen()) return;
+		setFileFinderOpen(true);
+	}
+
 	function selectFilePath(filePath: string) {
 		setTreeFocusedPath(filePath);
 		const file = reviewFilesByPath().get(filePath);
@@ -1550,6 +1555,15 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
+		when: () => !editorOpen() && !fileFinderOpen(),
+		diagnosticsWhen: () => !editorOpen() && !fileFinderOpen(),
+		commands: {
+			"review.search-tree": openFileFinder,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
 		when: editorOpen,
 		diagnosticsWhen: editorOpen,
 		commands: {
@@ -1570,8 +1584,12 @@ export function ReviewContent(props: ReviewContentProps) {
 	// Patch mode — diff view (changed files)
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && mode() === "patch" && !viewingFilePath(),
-		diagnosticsWhen: () => mode() === "patch",
+		when: () =>
+			!editorOpen() &&
+			!fileFinderOpen() &&
+			mode() === "patch" &&
+			!viewingFilePath(),
+		diagnosticsWhen: () => mode() === "patch" && !fileFinderOpen(),
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
@@ -1600,8 +1618,12 @@ export function ReviewContent(props: ReviewContentProps) {
 	// Patch mode — read-only view (unchanged files)
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && mode() === "patch" && !!viewingFilePath(),
-		diagnosticsWhen: () => mode() === "patch",
+		when: () =>
+			!editorOpen() &&
+			!fileFinderOpen() &&
+			mode() === "patch" &&
+			!!viewingFilePath(),
+		diagnosticsWhen: () => mode() === "patch" && !fileFinderOpen(),
 		commands: {
 			"review.back": () => {
 				setViewingFilePath(null);
@@ -1730,6 +1752,7 @@ export function ReviewContent(props: ReviewContentProps) {
 								focused={mode() === "tree"}
 								editorOpen={editorOpen()}
 								finderOpen={fileFinderOpen()}
+								focusedPath={treeFocusedPath()}
 								onFocusedPathChange={(path) => {
 									setTreeFocusedPath(path);
 									// Sync selectedIndex for diff state
@@ -1739,7 +1762,6 @@ export function ReviewContent(props: ReviewContentProps) {
 									}
 								}}
 								onSelectFile={selectFilePath}
-								onOpenFileFinder={() => setFileFinderOpen(true)}
 								onClose={props.onClose}
 							/>
 						</box>
