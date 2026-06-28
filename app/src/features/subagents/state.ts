@@ -585,6 +585,9 @@ export class SubagentManager {
 
 	reset(): void {
 		for (const conversation of this.conversationsByAgent.values()) {
+			if (conversation.status === "running") {
+				conversation.runtime?.abort("Session closed");
+			}
 			conversation.runtime?.dispose();
 		}
 		this.conversationsByAgent.clear();

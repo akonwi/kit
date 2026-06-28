@@ -1799,10 +1799,13 @@ export class AgentRuntime {
 	}
 
 	dispose(): void {
+		this.abort();
 		this.unsubscribeAgent?.();
 		this.unsubscribeAgent = null;
+		this.agent.dispose();
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
+		this.toolApprovalHandlers.clear();
 		this.bus.dispose();
 	}
 }
