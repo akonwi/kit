@@ -145,59 +145,29 @@ export function createSubagentsPlugin(options: {
 		kit.registerCommand(
 			"subagents",
 			{
-				description:
-					"Show sub-agents and dismiss active sub-agent conversations",
-				argName: "dismiss <name>",
+				description: "Show sub-agents and active sub-agent conversations",
 			},
 			async (ctx) => {
-				const args = ctx.args.trim();
-				if (!args) {
-					await ctx.ui.custom<void>((props) =>
-						createComponent(SubagentsStatusModal, {
-							surfaceProps: props.surfaceProps,
-							getAgents: () => agents,
-							getActiveConversations: () => manager.listActive(),
-							get active() {
-								return props.active;
-							},
-							onClose: () => props.done(undefined),
-						}),
-					);
-					return;
-				}
-
-				const match = /^dismiss\s+(.+)$/i.exec(args);
-				if (!match) {
+				if (ctx.args.trim()) {
 					ctx.ui.toast({
 						title: "Sub-agents",
-						subtitle: "Use /subagents or /subagents dismiss <name>.",
+						subtitle: "Use /subagents with no arguments.",
 						variant: "warning",
 					});
 					return;
 				}
 
-				const agentName = match[1]?.trim() ?? "";
-				const exists =
-					agents.some((agent) => agent.name === agentName) ||
-					Boolean(manager.getActive(agentName));
-				if (!exists) {
-					ctx.ui.toast({
-						title: "Sub-agents",
-						subtitle: `Unknown sub-agent: ${agentName}`,
-						variant: "warning",
-					});
-					return;
-				}
-
-				const dismissed = await manager.dismiss(agentName);
-				ctx.ui.toast({
-					title: "Sub-agents",
-					subtitle: dismissed
-						? `Dismissed active conversation for ${agentName}.`
-						: `No active conversation for ${agentName}.`,
-					variant: dismissed ? "info" : "warning",
-				});
-				updateContributions();
+				await ctx.ui.custom<void>((props) =>
+					createComponent(SubagentsStatusModal, {
+						surfaceProps: props.surfaceProps,
+						getAgents: () => agents,
+						getActiveConversations: () => manager.listActive(),
+						get active() {
+							return props.active;
+						},
+						onClose: () => props.done(undefined),
+					}),
+				);
 			},
 		);
 
