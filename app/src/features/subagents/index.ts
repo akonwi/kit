@@ -1,3 +1,4 @@
+import { createComponent } from "solid-js/web";
 import type {
 	InternalPluginAPI,
 	InternalPluginDefinition,
@@ -5,6 +6,7 @@ import type {
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { loadSubagents, type SubagentDefinition } from "./discovery";
 import { formatSubagentsForPrompt } from "./format";
+import { SubagentsStatusModal } from "./SubagentsStatusModal";
 import { SubagentManager } from "./state";
 import { createSubagentTool } from "./tool";
 
@@ -43,35 +45,10 @@ export function createSubagentsPlugin(options: {
 		const { agents: initialFileAgents } = loadSubagents(kit.system.cwd);
 		options.runtime.setDiscoveredSubagents(initialFileAgents);
 
-		async function refresh(): Promise<void> {
-			const { agents: fileAgents, warnings } = loadSubagents(kit.system.cwd);
-			options.runtime.setDiscoveredSubagents(fileAgents);
+		let warnings: string[] = [];
 
-			const pluginAgents = options.runtime.getPluginSubagents();
-			const seenNames = new Set<string>();
-			const merged: SubagentDefinition[] = [];
-
-			// File-discovered agents first — they win on name conflict
-			for (const agent of fileAgents) {
-				seenNames.add(agent.name);
-				merged.push(agent);
-			}
-
-			// Plugin-contributed agents — skip any that conflict with file agents
-			for (const agent of pluginAgents) {
-				if (seenNames.has(agent.name)) continue;
-				seenNames.add(agent.name);
-				merged.push(agent);
-			}
-
-			agents = merged;
-			await manager.hydrate(kit.session.get());
+		function updateContributions(): void {
 			if (disposed) return;
-
-			for (const warning of warnings) {
-				console.warn(`[subagents] ${warning}`);
-			}
-
 			unregisterTool?.();
 			unregisterTool = null;
 			removePromptAddition?.();
@@ -118,12 +95,112 @@ export function createSubagentsPlugin(options: {
 			clearDebugSection = kit.addDebugSection("Sub-agents", lines);
 		}
 
+		async function refresh(refreshOptions?: {
+			hydrate?: boolean;
+		}): Promise<void> {
+			const shouldHydrate = refreshOptions?.hydrate ?? true;
+			const { agents: fileAgents, warnings: nextWarnings } = loadSubagents(
+				kit.system.cwd,
+			);
+			warnings = nextWarnings;
+			options.runtime.setDiscoveredSubagents(fileAgents);
+
+			const pluginAgents = options.runtime.getPluginSubagents();
+			const seenNames = new Set<string>();
+			const merged: SubagentDefinition[] = [];
+
+			// File-discovered agents first — they win on name conflict
+			for (const agent of fileAgents) {
+				seenNames.add(agent.name);
+				merged.push(agent);
+			}
+
+			// Plugin-contributed agents — skip any that conflict with file agents
+			for (const agent of pluginAgents) {
+				if (seenNames.has(agent.name)) continue;
+				seenNames.add(agent.name);
+				merged.push(agent);
+			}
+
+			agents = merged;
+			if (shouldHydrate) {
+				await manager.hydrate(kit.session.get());
+			}
+			if (disposed) return;
+
+			for (const warning of warnings) {
+				console.warn(`[subagents] ${warning}`);
+			}
+
+			updateContributions();
+		}
+
 		kit.on("session.active.changed", async () => {
 			await refresh();
 		});
 		kit.on("subagents.changed", async () => {
-			await refresh();
+			await refresh({ hydrate: false });
 		});
+
+		kit.registerCommand(
+			"subagents",
+			{
+				description:
+					"Show sub-agents and dismiss active sub-agent conversations",
+				argName: "dismiss <name>",
+			},
+			async (ctx) => {
+				const args = ctx.args.trim();
+				if (!args) {
+					await ctx.ui.custom<void>((props) =>
+						createComponent(SubagentsStatusModal, {
+							surfaceProps: props.surfaceProps,
+							getAgents: () => agents,
+							getActiveConversations: () => manager.listActive(),
+							get active() {
+								return props.active;
+							},
+							onClose: () => props.done(undefined),
+						}),
+					);
+					return;
+				}
+
+				const match = /^dismiss\s+(.+)$/i.exec(args);
+				if (!match) {
+					ctx.ui.toast({
+						title: "Sub-agents",
+						subtitle: "Use /subagents or /subagents dismiss <name>.",
+						variant: "warning",
+					});
+					return;
+				}
+
+				const agentName = match[1]?.trim() ?? "";
+				const exists =
+					agents.some((agent) => agent.name === agentName) ||
+					Boolean(manager.getActive(agentName));
+				if (!exists) {
+					ctx.ui.toast({
+						title: "Sub-agents",
+						subtitle: `Unknown sub-agent: ${agentName}`,
+						variant: "warning",
+					});
+					return;
+				}
+
+				const dismissed = await manager.dismiss(agentName);
+				ctx.ui.toast({
+					title: "Sub-agents",
+					subtitle: dismissed
+						? `Dismissed active conversation for ${agentName}.`
+						: `No active conversation for ${agentName}.`,
+					variant: dismissed ? "info" : "warning",
+				});
+				updateContributions();
+			},
+		);
+
 		void refresh();
 
 		return () => {

@@ -126,6 +126,14 @@ export const KEYBINDING_REGISTRY = {
 			hint: "close",
 		},
 	},
+	subagents: {
+		close: {
+			defaultKeys: ["escape", "return"],
+			desc: "Close sub-agents dialog",
+			group: "subagents",
+			hint: "close",
+		},
+	},
 	"mcp-authorization-url": {
 		continue: {
 			defaultKeys: ["return", "escape"],
