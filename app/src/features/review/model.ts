@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
@@ -58,6 +58,10 @@ function tryRunGit(cwd: string | undefined, args: string[]): string | null {
 	});
 	if (result.status !== 0) return null;
 	return result.stdout;
+}
+
+function getGitRepoRoot(cwd?: string): string | null {
+	return tryRunGit(cwd, ["rev-parse", "--show-toplevel"])?.trim() || null;
 }
 
 /**
@@ -492,6 +496,8 @@ function yieldToRenderer(): Promise<void> {
 
 export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 	await yieldToRenderer();
+	const repoRoot = getGitRepoRoot(cwd);
+	if (!repoRoot) return [];
 	const working = getWorkingTreeDiff(cwd);
 	const untracked = getUntrackedDiff(cwd);
 	const patchSets = [
@@ -500,11 +506,6 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 	].filter((value): value is ReviewPatchSet => value !== null);
 	if (patchSets.length === 0) return [];
 
-	const repoRoot = runGit(
-		cwd,
-		["rev-parse", "--show-toplevel"],
-		"Failed to resolve repository root.",
-	).trim();
 	const totalFileCount = patchSets.reduce(
 		(count, patchSet) => count + patchSet.files.length,
 		0,
@@ -532,19 +533,51 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 	return reviewFiles;
 }
 
-/** Resolve the git repository root for the given working directory. */
+/** Resolve the project root for the given working directory. */
 export function getRepoRoot(cwd?: string): string {
-	return runGit(
-		cwd,
-		["rev-parse", "--show-toplevel"],
-		"Failed to resolve repository root.",
-	).trim();
+	return getGitRepoRoot(cwd) ?? (cwd || safeProcessCwd());
 }
 
-/** List all tracked files in the repo via `git ls-files`. */
+const FILE_LIST_IGNORED_DIRS = new Set([
+	".git",
+	"node_modules",
+	".next",
+	"dist",
+	"build",
+	"out",
+]);
+
+function listDirectoryFiles(root: string): string[] {
+	const files: string[] = [];
+	function visit(dir: string) {
+		let entries: Dirent[];
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const absolutePath = path.join(dir, entry.name);
+			const relativePath = path
+				.relative(root, absolutePath)
+				.replace(/\\/g, "/");
+			if (entry.isDirectory()) {
+				if (!FILE_LIST_IGNORED_DIRS.has(entry.name)) visit(absolutePath);
+				continue;
+			}
+			if (entry.isFile()) files.push(relativePath);
+		}
+	}
+	visit(root);
+	return files;
+}
+
+/** List project files, using git when available and the filesystem otherwise. */
 export function listRepoFiles(cwd?: string): string[] {
+	const effectiveCwd = cwd || safeProcessCwd();
+	if (!getGitRepoRoot(cwd)) return listDirectoryFiles(effectiveCwd);
 	const result = spawnSync("git", ["ls-files", "--full-name"], {
-		cwd: cwd || safeProcessCwd(),
+		cwd: effectiveCwd,
 		encoding: "utf8",
 		maxBuffer: 10 * 1024 * 1024,
 	});
