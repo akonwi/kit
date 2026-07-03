@@ -1,9 +1,5 @@
-import { createTextAttributes } from "@opentui/core";
 import { For, Show } from "solid-js";
-import type {
-	ChromeContribution,
-	ChromeTextSegment,
-} from "./chrome-contributions";
+import type { ChromeContribution } from "./chrome-contributions";
 import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
@@ -13,24 +9,6 @@ type ChromeContributionLineProps = {
 	separatorFg?: string;
 	fallback?: string;
 };
-
-function segmentAttributes(segment: ChromeTextSegment): number {
-	return createTextAttributes({
-		bold: segment.style?.bold,
-		dim: segment.style?.dim,
-		italic: segment.style?.italic,
-		underline: segment.style?.underline,
-		strikethrough: segment.style?.strikethrough,
-	});
-}
-
-function segmentProps(segment: ChromeTextSegment): Record<string, unknown> {
-	return {
-		fg: segment.style?.fg,
-		bg: segment.style?.bg,
-		attributes: segmentAttributes(segment),
-	};
-}
 
 function handleClick(contribution: ChromeContribution) {
 	void contribution.onClick?.();
@@ -50,7 +28,12 @@ function ChromeContributionText(props: {
 			}
 		>
 			<For each={props.contribution.content}>
-				{(segment) => <span {...segmentProps(segment)}>{segment.text}</span>}
+				{(segment) => (
+					// The Solid reconciler only applies span styling through the
+					// `style` object prop; direct fg/bg/attributes props are
+					// silently ignored on text nodes.
+					<span style={segment.style ?? {}}>{segment.text}</span>
+				)}
 			</For>
 		</text>
 	);
