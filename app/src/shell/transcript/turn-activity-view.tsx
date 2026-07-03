@@ -19,7 +19,6 @@ import {
 } from "../transcript-live-tools";
 import { FlatAssistantEntry } from "./assistant-entry";
 import { BashEntry } from "./bash-entry";
-import { DialogCard } from "./dialog-card";
 import { HandoffSummaryEntry } from "./handoff-summary-entry";
 import type {
 	BashExecutionMessage,
@@ -356,7 +355,7 @@ export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 				</box>
 			}
 		>
-			<box flexDirection="column" gap={1} width="100%">
+			<box flexDirection="column" gap={0} width="100%">
 				<For each={props.model.sectionOrder()}>
 					{(id) => {
 						// Per-kind narrowed accessors so Solid's Match keeps
@@ -385,7 +384,6 @@ export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 											toolResults={a().toolResults}
 											liveTools={props.model.turnLiveTools()}
 											aborted={a().aborted}
-											autoExpand
 											fullArgs
 											noTruncate
 											enrichOutput
@@ -393,21 +391,14 @@ export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 									)}
 								</Match>
 								<Match when={asBash()}>
-									{(b) => (
-										<DialogCard>
-											<BashEntry msg={b().message} noTruncate />
-										</DialogCard>
-									)}
+									{(b) => <BashEntry msg={b().message} noTruncate plain />}
 								</Match>
 								<Match when={asHandoff()}>
 									{(h) => (
-										<DialogCard>
-											<HandoffSummaryEntry
-												msg={h().message}
-												aborted={h().aborted}
-												autoExpand
-											/>
-										</DialogCard>
+										<HandoffSummaryEntry
+											msg={h().message}
+											aborted={h().aborted}
+										/>
 									)}
 								</Match>
 							</Switch>

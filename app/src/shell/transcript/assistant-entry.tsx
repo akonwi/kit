@@ -23,7 +23,6 @@ import {
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
-import { DialogCard } from "./dialog-card";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
 import {
@@ -298,11 +297,10 @@ function LiveToolCall(props: {
 	isError?: boolean | null;
 	state: "started" | "updated" | "ended";
 	aborted?: boolean;
-	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(props.autoExpand ?? false);
+	const [expanded, setExpanded] = createSignal(false);
 	const renderer = useRenderer();
 	const lines = () =>
 		extractToolProgressLines(props.result ?? props.partialResult ?? null);
@@ -343,8 +341,6 @@ function LiveToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				border={expanded() ? ["bottom"] : false}
-				borderColor={theme.bgAccent}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
 					if (hasOutput()) setExpanded(!expanded());
@@ -388,12 +384,11 @@ function CompletedToolCall(props: {
 	tc: ToolCall;
 	result: ToolResultMessage;
 	aborted?: boolean;
-	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 	enrichOutput?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(props.autoExpand ?? false);
+	const [expanded, setExpanded] = createSignal(false);
 	const renderer = useRenderer();
 	const lines = extractToolResultLines(props.result);
 	const prefix = props.aborted
@@ -429,8 +424,6 @@ function CompletedToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				border={expanded() ? ["bottom"] : false}
-				borderColor={theme.bgAccent}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
 					if (hasOutput()) setExpanded(!expanded());
@@ -484,7 +477,6 @@ export function PerToolRow(props: {
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
-	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 	enrichOutput?: boolean;
@@ -514,7 +506,6 @@ export function PerToolRow(props: {
 							isError={live().isError}
 							state={live().state}
 							aborted={props.aborted}
-							autoExpand={props.autoExpand}
 							fullArgs={props.fullArgs}
 							noTruncate={props.noTruncate}
 						/>
@@ -527,7 +518,6 @@ export function PerToolRow(props: {
 					tc={props.tc}
 					result={r()}
 					aborted={props.aborted}
-					autoExpand={props.autoExpand}
 					fullArgs={props.fullArgs}
 					noTruncate={props.noTruncate}
 					enrichOutput={props.enrichOutput}
@@ -538,16 +528,15 @@ export function PerToolRow(props: {
 }
 
 /**
- * Flat assistant rendering for use inside the turn activity dialog.
- * Renders prose followed by each tool call wrapped in a DialogCard for
- * surface discrimination.
+ * Flat assistant rendering for use inside the turn activity view.
+ * Renders prose followed by each tool call as a plain collapsed row, so
+ * the activity list reads like compact log lines.
  */
 export function FlatAssistantEntry(props: {
 	msg: AssistantMessage;
 	toolResults: Map<string, ToolResultMessage>;
 	liveTools: LiveToolsForTurn;
 	aborted?: boolean;
-	autoExpand?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 	enrichOutput?: boolean;
@@ -587,21 +576,18 @@ export function FlatAssistantEntry(props: {
 				/>
 			</Show>
 			<Show when={hasTools()}>
-				<box flexDirection="column" gap={1}>
+				<box flexDirection="column" gap={0}>
 					<For each={toolCalls()}>
 						{(tc) => (
-							<DialogCard>
-								<PerToolRow
-									tc={tc}
-									toolResults={props.toolResults}
-									liveTools={props.liveTools}
-									aborted={props.aborted}
-									autoExpand={props.autoExpand}
-									fullArgs={props.fullArgs}
-									noTruncate={props.noTruncate}
-									enrichOutput={props.enrichOutput}
-								/>
-							</DialogCard>
+							<PerToolRow
+								tc={tc}
+								toolResults={props.toolResults}
+								liveTools={props.liveTools}
+								aborted={props.aborted}
+								fullArgs={props.fullArgs}
+								noTruncate={props.noTruncate}
+								enrichOutput={props.enrichOutput}
+							/>
 						)}
 					</For>
 				</box>
