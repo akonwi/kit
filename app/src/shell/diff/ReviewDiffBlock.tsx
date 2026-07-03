@@ -477,24 +477,30 @@ function renderSplitCell(opts: RenderSplitCellOptions) {
 	);
 }
 
+/**
+ * Rows for a raw patch string. Patch metadata lines (`diff --git`,
+ * `index`, `---`/`+++`, `@@`) are dropped — the review view presents
+ * diffs without patch-format jargon.
+ */
 function rawPatchRows(rawPatch: string): ReviewDiffUnifiedRow[] {
 	return rawPatch
 		.replace(/\r\n/g, "\n")
 		.split("\n")
-		.filter((line) => line.length > 0)
+		.filter(
+			(line) =>
+				line.length > 0 &&
+				!line.startsWith("@@") &&
+				!line.startsWith("diff --git") &&
+				!line.startsWith("index ") &&
+				!line.startsWith("--- ") &&
+				!line.startsWith("+++ "),
+		)
 		.map((line, index) => {
-			const kind =
-				line.startsWith("@@") ||
-				line.startsWith("diff --git") ||
-				line.startsWith("index ") ||
-				line.startsWith("--- ") ||
-				line.startsWith("+++ ")
-					? "metadata"
-					: line.startsWith("+")
-						? "add"
-						: line.startsWith("-")
-							? "delete"
-							: "context";
+			const kind = line.startsWith("+")
+				? "add"
+				: line.startsWith("-")
+					? "delete"
+					: "context";
 			return {
 				id: `raw:${index}`,
 				kind,

@@ -138,14 +138,6 @@ function sourceLabel(file: ReviewFile): string {
 	}
 }
 
-function formatSkippedSectionSummary(
-	sectionCount: number,
-	lineCount: number,
-): string {
-	if (sectionCount === 0 || lineCount === 0) return "";
-	return `${sectionCount} skipped section${sectionCount === 1 ? "" : "s"} · ${lineCount} unchanged line${lineCount === 1 ? "" : "s"}`;
-}
-
 function getSkippedSection(
 	file: ReviewFile,
 	beforeHunkIndex: number,
@@ -561,28 +553,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		const range = selectedRange();
 		if (!range || mode() !== "patch" || !rangeAnchor()) return "";
 		return `Selecting ${lineRangeLabel(range)} · press Enter to comment`;
-	});
-	const hiddenContextStatus = createMemo(() => {
-		const file = selectedFile();
-		if (!file || mode() !== "patch") return "";
-		const selectedSection = selectedSkippedSection();
-		if (selectedSection) {
-			const expanded = expandedSectionIds().has(selectedSection.id);
-			return `${skippedSectionLineLabel(selectedSection)} · ${selectedSection.lineCount} unchanged line${selectedSection.lineCount === 1 ? "" : "s"} ${expanded ? "shown" : "hidden"} · press Space to ${expanded ? "collapse" : "expand"}`;
-		}
-		const hiddenSections = file.skippedSections.filter(
-			(section) => !expandedSectionIds().has(section.id),
-		);
-		const summary = formatSkippedSectionSummary(
-			hiddenSections.length,
-			hiddenSections.reduce((sum, section) => sum + section.lineCount, 0),
-		);
-		if (summary.length === 0) {
-			return file.skippedSections.length > 0
-				? "All skipped sections shown · use ↑/↓ to select one"
-				: "";
-		}
-		return `${summary} hidden · use ↑/↓ to select one`;
 	});
 	const lineCursorState = createMemo(() => {
 		const hunk = selectedHunk();
@@ -1084,18 +1054,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 		return (
 			<box flexDirection="column" gap={0}>
-				<box
-					paddingLeft={2}
-					paddingX={1}
-					backgroundColor={theme.bgMuted}
-					height={1}
-					flexShrink={0}
-				>
-					<text fg={theme.metaText} bg={theme.bgMuted}>
-						{hunk.header}
-						{hunk.context ? ` ${hunk.context}` : ""}
-					</text>
-				</box>
 				<box position="relative" paddingLeft={2}>
 					<ReviewDiffBlock
 						hunk={hunk}
@@ -1225,23 +1183,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		};
 	}
 
-	function renderPatchWindowNotice(message: string) {
-		return (
-			<box paddingX={1} paddingY={0} backgroundColor={theme.bgSurface}>
-				<text fg={theme.textMuted} bg={theme.bgSurface}>
-					{message}
-				</text>
-			</box>
-		);
-	}
-
-	function renderHunkWindowNotice(hunk: ReviewHunk) {
-		if (!hunk.lineWindow) return null;
-		return renderPatchWindowNotice(
-			`Large change group · showing rows ${hunk.lineWindow.start + 1}-${hunk.lineWindow.end} of ${hunk.lineWindow.total}`,
-		);
-	}
-
 	function renderFocusedSkippedSection(
 		file: ReviewFile,
 		section: ReviewSkippedSection,
@@ -1270,16 +1211,6 @@ export function ReviewContent(props: ReviewContentProps) {
 				: undefined;
 		return (
 			<box flexDirection="column" gap={0}>
-				<box paddingX={1} paddingY={0} backgroundColor={theme.bgSurface}>
-					<text fg={theme.textMuted} bg={theme.bgSurface}>
-						Large file · showing nearby change groups for responsiveness
-					</text>
-				</box>
-				<Show when={window().startIndex > 0}>
-					{renderPatchWindowNotice(
-						`${window().startIndex} earlier change group${window().startIndex === 1 ? "" : "s"} hidden`,
-					)}
-				</Show>
 				<For each={window().hunks}>
 					{(hunk) => {
 						const hunkIndex = () =>
@@ -1287,7 +1218,6 @@ export function ReviewContent(props: ReviewContentProps) {
 						const section = () => getSkippedSection(file, hunkIndex());
 						return (
 							<>
-								{renderHunkWindowNotice(hunk)}
 								<Show when={section()}>
 									{(value) => renderFocusedSkippedSection(file, value())}
 								</Show>
@@ -1298,11 +1228,6 @@ export function ReviewContent(props: ReviewContentProps) {
 				</For>
 				<Show when={trailingSection()}>
 					{(section) => renderFocusedSkippedSection(file, section())}
-				</Show>
-				<Show when={window().endIndex < file.hunks.length}>
-					{renderPatchWindowNotice(
-						`${file.hunks.length - window().endIndex} later change group${file.hunks.length - window().endIndex === 1 ? "" : "s"} hidden`,
-					)}
 				</Show>
 			</box>
 		);
@@ -1834,7 +1759,6 @@ export function ReviewContent(props: ReviewContentProps) {
 							}
 						>
 							{(file) => {
-								const currentHunk = createMemo(() => selectedHunk());
 								const fileNote = createMemo(() => selectedFileNote(file()));
 								return (
 									<box
@@ -1864,18 +1788,10 @@ export function ReviewContent(props: ReviewContentProps) {
 												<Show when={activeLineStatus().length > 0}>
 													<text fg={theme.textMuted}>{activeLineStatus()}</text>
 												</Show>
-												<Show when={hiddenContextStatus().length > 0}>
-													<text fg={theme.metaText}>
-														{hiddenContextStatus()}
-													</text>
-												</Show>
 											</box>
-											<text fg={theme.textMuted}>
-												{sourceLabel(file()) ? `${sourceLabel(file())} · ` : ""}
-												{currentHunk()
-													? `change group ${selectedHunkIndex() + 1}/${file().hunks.length}`
-													: `${file().hunks.length} change group${file().hunks.length === 1 ? "" : "s"}`}
-											</text>
+											<Show when={sourceLabel(file())}>
+												{(label) => <text fg={theme.textMuted}>{label()}</text>}
+											</Show>
 										</box>
 
 										<Show
