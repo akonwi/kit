@@ -12,7 +12,7 @@ import {
 	MIDDLE_DOT,
 } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
-import { theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import type { SubagentDefinition } from "./discovery";
 import type {
 	ActiveSubagentConversationState,
@@ -237,14 +237,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 						flexGrow={1}
 						scrollY
 						focused={props.active !== false}
-						style={{
-							scrollbarOptions: {
-								trackOptions: {
-									foregroundColor: theme.scrollbarFg,
-									backgroundColor: theme.scrollbarBg,
-								},
-							},
-						}}
+						style={scrollbarStyle()}
 					>
 						<box flexDirection="column" gap={1} width="100%">
 							<For each={items()}>{(item) => <SubagentRow item={item} />}</For>

@@ -39,7 +39,7 @@ import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { syntaxStyle, theme } from "../../shell/theme";
+import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
 import type { PickerOption } from "../../state/picker";
 import { createPickerManager } from "../../state/picker-manager";
 import type { ToastInput } from "../../state/toasts";
@@ -1902,6 +1902,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												}}
 												flexGrow={1}
 												scrollY
+												style={scrollbarStyle()}
 											>
 												{renderFileDiffContent(file(), mode() === "patch")}
 											</scrollbox>
@@ -2237,6 +2238,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 						}}
 						flexGrow={1}
 						scrollY
+						style={scrollbarStyle()}
 					>
 						<box flexDirection="column" gap={0}>
 							<For each={lines()}>

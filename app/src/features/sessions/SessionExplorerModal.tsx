@@ -13,7 +13,7 @@ import { readSession, updateSession } from "../../session";
 import { Dialog } from "../../shell/Dialog";
 import { ELLIPSIS } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
-import { theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import type { ToastInput } from "../../state/toasts";
 import { formatTimeAgo } from "../commands/utils";
 import {
@@ -411,14 +411,7 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							}}
 							flexGrow={1}
 							scrollY
-							style={{
-								scrollbarOptions: {
-									trackOptions: {
-										foregroundColor: theme.scrollbarFg,
-										backgroundColor: theme.scrollbarBg,
-									},
-								},
-							}}
+							style={scrollbarStyle()}
 						>
 							<box
 								ref={(el) => {

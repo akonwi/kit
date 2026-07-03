@@ -7,7 +7,7 @@ import { Dialog } from "./Dialog";
 import { CHEVRON_RIGHT, MIDDLE_DOT } from "./glyphs";
 import { type Binding, HintBar } from "./HintBar";
 import { MessageComposer, type TextareaRef } from "./MessageComposer";
-import { theme } from "./theme";
+import { scrollbarStyle, theme } from "./theme";
 
 type QueueEditorDialogProps = OverlayComponentProps<void> & {
 	runtime: AgentRuntime;
@@ -298,14 +298,7 @@ export function QueueEditorDialog(props: QueueEditorDialogProps) {
 							}}
 							flexGrow={1}
 							scrollY
-							style={{
-								scrollbarOptions: {
-									trackOptions: {
-										foregroundColor: theme.scrollbarFg,
-										backgroundColor: theme.scrollbarBg,
-									},
-								},
-							}}
+							style={scrollbarStyle()}
 						>
 							<box flexDirection="column" gap={0} width="100%">
 								<For each={messages()}>

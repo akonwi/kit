@@ -6,7 +6,7 @@ import { Dialog } from "../../shell/Dialog";
 import { CHECK, CIRCLE_EMPTY, CIRCLE_SLASH, CROSS } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { Spinner } from "../../shell/Spinner";
-import { theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import type { LoadMcpConfigResult, McpServerRuntimeState } from "./types";
 
 export type McpStatusModalProps = {
@@ -72,18 +72,7 @@ export function McpStatusModal(props: McpStatusModalProps) {
 						</box>
 					}
 				>
-					<scrollbox
-						flexGrow={1}
-						scrollY
-						style={{
-							scrollbarOptions: {
-								trackOptions: {
-									foregroundColor: theme.scrollbarFg,
-									backgroundColor: theme.scrollbarBg,
-								},
-							},
-						}}
-					>
+					<scrollbox flexGrow={1} scrollY style={scrollbarStyle()}>
 						<box flexDirection="column" gap={1} width="100%">
 							<For each={props.states}>
 								{(state) => {

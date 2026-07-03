@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { TRIANGLE_DOWN, TRIANGLE_RIGHT } from "../../shell/glyphs";
-import { theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import {
 	FileTreeController,
 	type FileTreeDirectoryHandle,
@@ -316,14 +316,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 				}}
 				flexGrow={1}
 				scrollY
-				style={{
-					scrollbarOptions: {
-						trackOptions: {
-							foregroundColor: theme.scrollbarFg,
-							backgroundColor: theme.scrollbarBg,
-						},
-					},
-				}}
+				style={scrollbarStyle()}
 			>
 				<box flexDirection="column" gap={0} width="100%">
 					<Show
