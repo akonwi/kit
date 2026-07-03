@@ -226,9 +226,10 @@ function lineNumberWidthForHunk(hunk: ReviewHunk): number {
 }
 
 // Hunk content chrome widths (matches the layout in renderHunkBlock):
-//   patch box has padding={1} (left + right = 2)
-//   each hunk wrapper has paddingLeft={2}
-const PATCH_CONTENT_PADDING = 2;
+//   the patch box is full-bleed (no horizontal padding) so rows align
+//   flush with the pane header above
+//   each hunk wrapper has paddingLeft={2} (comment-marker lane)
+const PATCH_CONTENT_PADDING = 0;
 const HUNK_PADDING_LEFT = 2;
 
 function unifiedContentColumns(
@@ -1895,8 +1896,6 @@ export function ReviewContent(props: ReviewContentProps) {
 
 										<box
 											flexGrow={1}
-											padding={1}
-											paddingTop={0}
 											backgroundColor={theme.bg}
 											overflow="hidden"
 										>
@@ -2031,10 +2030,11 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 	const lineNumberWidth = createMemo(() =>
 		Math.max(1, String(lines().length).length),
 	);
-	// Content area = paneWidth minus padding={1} (both sides) and the gutter
-	// (line number column + the two-space separator).
+	// Content area = paneWidth minus the gutter (line number column + the
+	// two-space separator). The content box is full-bleed so rows align
+	// flush with the pane header above.
 	const contentColumns = createMemo(() =>
-		Math.max(10, props.paneWidth - 2 - lineNumberWidth() - 2),
+		Math.max(10, props.paneWidth - lineNumberWidth() - 2),
 	);
 
 	createEffect(() => {
@@ -2232,7 +2232,7 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 				</Show>
 			</Show>
 
-			<box flexGrow={1} padding={1} paddingTop={0} backgroundColor={theme.bg}>
+			<box flexGrow={1} backgroundColor={theme.bg}>
 				<Show
 					when={content() != null}
 					fallback={<text fg={theme.textMuted}>Could not read file</text>}
