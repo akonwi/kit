@@ -59,6 +59,7 @@ import {
 	loadReviewFiles,
 	type ReviewFile,
 	type ReviewHunk,
+	type ReviewLine,
 	type ReviewSkippedSection,
 } from "./model";
 import {
@@ -154,6 +155,41 @@ function skippedSectionLineLabel(section: ReviewSkippedSection): string {
 	return start === end ? `line ${start}` : `lines ${start}-${end}`;
 }
 
+/**
+ * Builds a synthetic context-only hunk for a skipped (unchanged) section
+ * so its expanded view renders through the structured hunk path — with a
+ * line-number gutter — instead of the numberless raw-patch fallback.
+ */
+function skippedSectionToHunk(section: ReviewSkippedSection): ReviewHunk {
+	const raw = section.rawPatch.replace(/\r\n/g, "\n").split("\n");
+	const hunkMarker = raw.findIndex((line) => line.startsWith("@@"));
+	const body = hunkMarker >= 0 ? raw.slice(hunkMarker + 1) : raw;
+	const lines: ReviewLine[] = body.map((line, i) => ({
+		kind: "context",
+		text: line.startsWith(" ") ? line.slice(1) : line,
+		additionLineNumber:
+			section.additionStart > 0 ? section.additionStart + i : undefined,
+		deletionLineNumber:
+			section.deletionStart > 0 ? section.deletionStart + i : undefined,
+	}));
+	return {
+		id: section.id,
+		noteKey: section.id,
+		header: "",
+		context: "",
+		lines,
+		changeCount: 0,
+		rawPatch: section.rawPatch,
+		patchStartLine: 0,
+		patchLineCount: lines.length,
+		additionStart: section.additionStart,
+		additionCount: lines.length,
+		deletionStart: section.deletionStart,
+		deletionCount: lines.length,
+		collapsedBefore: 0,
+	};
+}
+
 function setMapValue(
 	map: Map<string, string>,
 	key: string,
@@ -217,6 +253,26 @@ function lineNumberWidthForHunk(hunk: ReviewHunk): number {
 	return Math.max(1, String(maxLineNumber).length);
 }
 
+/**
+ * File-wide line-number column width, covering every hunk and skipped
+ * section, so gutters align vertically across the whole file instead of
+ * each block sizing to its own max line number.
+ */
+function lineNumberWidthForFile(file: ReviewFile): number {
+	let width = 1;
+	for (const hunk of file.hunks) {
+		width = Math.max(width, lineNumberWidthForHunk(hunk));
+	}
+	for (const section of file.skippedSections) {
+		const end =
+			Math.max(section.additionStart, section.deletionStart) +
+			section.lineCount -
+			1;
+		width = Math.max(width, String(Math.max(1, end)).length);
+	}
+	return width;
+}
+
 // Hunk content chrome widths (matches the layout in renderHunkBlock):
 //   the patch box is full-bleed (no horizontal padding) so rows align
 //   flush with the pane header above
@@ -224,11 +280,7 @@ function lineNumberWidthForHunk(hunk: ReviewHunk): number {
 const PATCH_CONTENT_PADDING = 0;
 const HUNK_PADDING_LEFT = 2;
 
-function unifiedContentColumns(
-	hunk: ReviewHunk,
-	diffPaneWidth: number,
-): number {
-	const lnw = lineNumberWidthForHunk(hunk);
+function unifiedContentColumns(lnw: number, diffPaneWidth: number): number {
 	// Unified row: [lnw][space][lnw][sign][space]
 	const gutterCols = 2 * lnw + 3;
 	return Math.max(
@@ -237,8 +289,7 @@ function unifiedContentColumns(
 	);
 }
 
-function splitContentColumns(hunk: ReviewHunk, diffPaneWidth: number): number {
-	const lnw = lineNumberWidthForHunk(hunk);
+function splitContentColumns(lnw: number, diffPaneWidth: number): number {
 	const inner = diffPaneWidth - PATCH_CONTENT_PADDING - HUNK_PADDING_LEFT;
 	const halfWidth = Math.floor(inner / 2);
 	// Split cell: [lnw][sign][space]
@@ -246,13 +297,14 @@ function splitContentColumns(hunk: ReviewHunk, diffPaneWidth: number): number {
 }
 
 function contentColumnsFor(
-	hunk: ReviewHunk,
+	file: ReviewFile,
 	view: ReviewDiffView,
 	diffPaneWidth: number,
 ): number {
+	const lnw = lineNumberWidthForFile(file);
 	return view === "split"
-		? splitContentColumns(hunk, diffPaneWidth)
-		: unifiedContentColumns(hunk, diffPaneWidth);
+		? splitContentColumns(lnw, diffPaneWidth)
+		: unifiedContentColumns(lnw, diffPaneWidth);
 }
 
 function lineRangeLabel(range: ReviewRangeDraft): string {
@@ -577,7 +629,8 @@ export function ReviewContent(props: ReviewContentProps) {
 	const anchorLineTop = createMemo(() => {
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
-		if (!anchor || !hunk) return null;
+		const file = selectedFile();
+		if (!anchor || !hunk || !file) return null;
 		const line = getCommentableLines(hunk, anchor.side, diffView()).find(
 			(candidate) => candidate.lineNumber === anchor.lineNumber,
 		);
@@ -587,7 +640,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					line.index,
 					diffView(),
 					selectedFileCommentAnnotations(),
-					contentColumnsFor(hunk, diffView(), diffPaneWidth()),
+					contentColumnsFor(file, diffView(), diffPaneWidth()),
 				)
 			: null;
 	});
@@ -595,13 +648,14 @@ export function ReviewContent(props: ReviewContentProps) {
 		const range = selectedRange();
 		const anchor = rangeAnchor();
 		const hunk = selectedHunk();
-		if (!range || !anchor || !hunk) return null;
+		const file = selectedFile();
+		if (!range || !anchor || !hunk || !file) return null;
 		return getVisualBoundsForRange(
 			hunk,
 			range,
 			diffView(),
 			selectedFileCommentAnnotations(),
-			contentColumnsFor(hunk, diffView(), diffPaneWidth()),
+			contentColumnsFor(file, diffView(), diffPaneWidth()),
 		);
 	});
 
@@ -905,6 +959,29 @@ export function ReviewContent(props: ReviewContentProps) {
 		);
 	}
 
+	/**
+	 * Expanded body of a skipped (unchanged) section, rendered as a
+	 * context-only hunk so it gets the same line-number gutter and
+	 * wrap-aware heights as the surrounding change groups.
+	 */
+	function renderSkippedSectionBlock(
+		file: ReviewFile,
+		section: ReviewSkippedSection,
+	) {
+		const hunk = skippedSectionToHunk(section);
+		return (
+			<box paddingLeft={2}>
+				<ReviewDiffBlock
+					hunk={hunk}
+					view={diffView()}
+					filetype={file.filetype}
+					lineNumberWidth={lineNumberWidthForFile(file)}
+					contentColumns={contentColumnsFor(file, diffView(), diffPaneWidth())}
+				/>
+			</box>
+		);
+	}
+
 	function renderSkippedSectionRow(
 		section: ReviewSkippedSection,
 		options: {
@@ -1000,7 +1077,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				current.line.index,
 				diffView(),
 				annotations(),
-				contentColumnsFor(hunk, diffView(), diffPaneWidth()),
+				contentColumnsFor(file, diffView(), diffPaneWidth()),
 			);
 		};
 		const cursorSide = () => {
@@ -1061,8 +1138,9 @@ export function ReviewContent(props: ReviewContentProps) {
 						filetype={file.filetype}
 						annotations={annotations()}
 						activeLine={activeLine()}
+						lineNumberWidth={lineNumberWidthForFile(file)}
 						contentColumns={contentColumnsFor(
-							hunk,
+							file,
 							diffView(),
 							diffPaneWidth(),
 						)}
@@ -1197,7 +1275,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					expanded,
 				})}
 				<Show when={expanded()}>
-					{renderRawDiffBlock(section.rawPatch, file.filetype)}
+					{renderSkippedSectionBlock(file, section)}
 				</Show>
 			</>
 		);
@@ -1259,7 +1337,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												expanded,
 											})}
 											<Show when={expanded()}>
-												{renderRawDiffBlock(section().rawPatch, file.filetype)}
+												{renderSkippedSectionBlock(file, section())}
 											</Show>
 										</>
 									);
@@ -1282,7 +1360,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									expanded,
 								})}
 								<Show when={expanded()}>
-									{renderRawDiffBlock(section().rawPatch, file.filetype)}
+									{renderSkippedSectionBlock(file, section())}
 								</Show>
 							</>
 						);

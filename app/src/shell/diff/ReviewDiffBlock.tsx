@@ -62,6 +62,13 @@ export type ReviewDiffBlockProps = {
 	/** Columns available for line content; enables wrap-aware row heights. */
 	contentColumns?: number;
 	/**
+	 * Gutter width override. When rendering multiple blocks for one file
+	 * (hunks + expanded unchanged sections), pass a file-wide width so
+	 * gutters align vertically instead of sizing to each block's own max
+	 * line number.
+	 */
+	lineNumberWidth?: number;
+	/**
 	 * Whether to render the line-number gutter. Defaults to true. Callers
 	 * displaying diffs without reliable absolute file positions (e.g. the
 	 * synthetic hunks built for the `edit` tool) should pass `false`.
@@ -545,7 +552,8 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 		>
 			{(hunk) => {
 				const currentHunk = () => hunk();
-				const lineNumberWidth = () => getLineNumberWidth(currentHunk());
+				const lineNumberWidth = () =>
+					props.lineNumberWidth ?? getLineNumberWidth(currentHunk());
 				return (
 					<Show
 						when={props.view === "split"}
