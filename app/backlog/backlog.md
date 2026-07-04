@@ -16,3 +16,9 @@ Delete done items.
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
+- [ ] idea: agent-authored diff annotations in review mode — an `annotate` tool
+  (path + side + line range + note, validated against current hunks) feeding a
+  session-persisted store, rendered through the existing
+  `DiffLineAnnotation`/`ReviewDiffAnnotationMetadata` pipeline with an
+  `author: "agent"` style; lazy staleness (drop ranges no longer in the diff),
+  dismiss key, hide-all toggle
