@@ -13,6 +13,9 @@ Delete done items.
 
 ## Active items
 - [ ] feat: support remote usage. build a way to use kit sessions from web/mobile 
+- [ ] feat: code-review commit targets — review and comment on a previous
+  commit's diff (primarily the most recent commit). Designed in
+  docs/features/code-review-commit-targets.md
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
   - https://github.com/Ataraxy-Labs/inspect
