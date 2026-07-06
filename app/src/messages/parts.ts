@@ -18,11 +18,24 @@ export type CodeReviewFileComment = {
 	ranges: CodeReviewCommentRange[];
 };
 
+/**
+ * Committed diff a review's comments refer to. When present, line
+ * numbers are positions in `git diff <parentSha> <sha>`, not the working
+ * tree. Covers both single commits (parent..commit) and branch diffs
+ * (merge-base..head); `subject` names the target for humans.
+ */
+export type CodeReviewCommitRef = {
+	sha: string;
+	parentSha: string;
+	subject: string;
+};
+
 export type CodeReviewMessagePart = {
 	type: "code-review";
 	review: {
 		submittedAt: string;
 		files: CodeReviewFileComment[];
+		commit?: CodeReviewCommitRef;
 	};
 };
 
@@ -67,11 +80,23 @@ export function messagePartToPromptText(part: MessagePart): string {
 				fileBlocks.push(`File: ${file.path}\n${notes.join("\n")}`);
 			}
 			if (fileBlocks.length === 0) return "";
-			return (
-				renderTemplate("review-feedback", {
-					content: fileBlocks.join("\n\n"),
-				}) ?? ""
-			);
+			const commit = part.review.commit;
+			// The subject is repo-influenceable text entering instructional
+			// prompt context; clamp it so it stays a label, not a payload.
+			const subject = commit
+				? commit.subject.replace(/\s+/g, " ").trim().slice(0, 120)
+				: "";
+			const scope = commit
+				? [
+						`These comments are on the committed diff ${commit.parentSha}..${commit.sha} ("${subject}"),`,
+						`not the working tree. Line numbers refer to that diff;`,
+						`run \`git diff ${commit.parentSha} ${commit.sha}\` to see exactly what was reviewed.`,
+					].join(" ")
+				: "";
+			const content = scope
+				? `${scope}\n\n${fileBlocks.join("\n\n")}`
+				: fileBlocks.join("\n\n");
+			return renderTemplate("review-feedback", { content }) ?? "";
 		}
 		case "image":
 			return part.filename

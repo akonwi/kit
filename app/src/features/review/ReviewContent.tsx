@@ -29,8 +29,11 @@ import {
 } from "../../shell/diff/ReviewDiffBlock";
 import { inferFiletype } from "../../shell/filetype";
 import {
+	CHEVRON_RIGHT,
+	CIRCLE_FILLED,
 	DASHED_VERTICAL,
 	DIAMOND,
+	MIDDLE_DOT,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../../shell/glyphs";
@@ -54,13 +57,24 @@ import {
 } from "./draft";
 import { FileTreePanel } from "./FileTreePanel";
 import {
+	getCurrentBranch,
+	getMergeBase,
 	getRepoRoot,
+	isAncestorOfHead,
+	listLocalBranches,
+	listRecentCommits,
 	listRepoFiles,
 	loadReviewFiles,
+	type ReviewBranchSummary,
+	type ReviewCommitSummary,
 	type ReviewFile,
 	type ReviewHunk,
 	type ReviewLine,
 	type ReviewSkippedSection,
+	type ReviewTarget,
+	resolveCommit,
+	resolveCommitParent,
+	resolveDefaultBranchBase,
 } from "./model";
 import {
 	reviewStatusColor,
@@ -136,6 +150,10 @@ function sourceLabel(file: ReviewFile): string {
 			return "";
 		case "untracked":
 			return "untracked";
+		case "commit":
+			// The screen header crumb already names the commit target;
+			// repeating it per file would be noise.
+			return "";
 	}
 }
 
@@ -403,8 +421,32 @@ function findSavedRangeAtLine(
 
 export function ReviewContent(props: ReviewContentProps) {
 	const repoRoot = getRepoRoot();
-	const [files] = createResource(() => loadReviewFiles());
+	// What the review is diffing: working tree (default), one commit, or a
+	// branch's total diff. See docs/features/code-review-commit-targets.md.
+	const [target, setTarget] = createSignal<ReviewTarget>({ kind: "working" });
+	const [targetCommit, setTargetCommit] =
+		createSignal<ReviewCommitSummary | null>(null);
+	const targetKey = (forTarget?: ReviewTarget): string => {
+		const value = forTarget ?? target();
+		switch (value.kind) {
+			case "working":
+				return "working";
+			case "commit":
+				return `commit:${value.sha}`;
+			case "branch":
+				return `branch:${value.base}:${value.head}`;
+		}
+	};
+	const [files] = createResource(target, (value) =>
+		loadReviewFiles(undefined, value),
+	);
 	const [allFiles] = createResource(() => listRepoFiles());
+	const [commitPickerOpen, setCommitPickerOpen] = createSignal(false);
+	// The target picker's second level: choosing a different base branch
+	// for the branch-diff target.
+	const [pickingBranchBase, setPickingBranchBase] = createSignal(false);
+	const [targetNotice, setTargetNotice] = createSignal("");
+	let targetNoticeTimeout: ReturnType<typeof setTimeout> | undefined;
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
 	const [mode, setMode] = createSignal<ReviewMode>("tree");
 	const [contentWidth, setContentWidth] = createSignal(120);
@@ -496,6 +538,94 @@ export function ReviewContent(props: ReviewContentProps) {
 		rangeNotes: rangeNotes(),
 	}));
 	const totalDraftNotes = createMemo(() => countDraftNotes(draftState()));
+
+	// ── Review targets ───────────────────────────────────────
+
+	// Drafts are per-target and preserved across switches; switching away
+	// stashes the current maps, switching back restores them.
+	const draftStash = new Map<string, ReviewDraftState>();
+
+	function showTargetNotice(text: string, durationMs = 5000): void {
+		if (targetNoticeTimeout) clearTimeout(targetNoticeTimeout);
+		setTargetNotice(text);
+		targetNoticeTimeout = setTimeout(() => {
+			targetNoticeTimeout = undefined;
+			setTargetNotice("");
+		}, durationMs);
+	}
+	onCleanup(() => {
+		if (targetNoticeTimeout) clearTimeout(targetNoticeTimeout);
+	});
+
+	function stashedDraftCount(key: string): number {
+		if (key === targetKey()) return totalDraftNotes();
+		const stashed = draftStash.get(key);
+		return stashed ? countDraftNotes(stashed) : 0;
+	}
+
+	function switchTarget(
+		next: ReviewTarget,
+		commit: ReviewCommitSummary | null,
+	): void {
+		const currentKey = targetKey();
+		const nextKey = targetKey(next);
+		if (nextKey === currentKey) return;
+		draftStash.set(currentKey, {
+			fileNotes: fileNotes(),
+			rangeNotes: rangeNotes(),
+		});
+		const restored = draftStash.get(nextKey);
+		setFileNotes(restored?.fileNotes ?? new Map());
+		setRangeNotes(restored?.rangeNotes ?? new Map());
+		setTargetCommit(commit);
+		setRangeAnchor(null);
+		setEditingRange(null);
+		setEditingFileNoteKey(null);
+		setEditorOpen(false);
+		setViewingFilePath(null);
+		setSelectedIndex(0);
+		setTreeFocusedPath(null);
+		setMode("tree");
+		setTarget(next);
+	}
+
+	function cycleTarget(): void {
+		if (target().kind === "working") {
+			const head = resolveCommit(undefined, "HEAD");
+			if (!head) {
+				props.toast({
+					title: "No commits",
+					subtitle: "This repository has no commits to review.",
+					variant: "warning",
+				});
+				return;
+			}
+			const treeWasDirty = reviewFiles().length > 0;
+			switchTarget({ kind: "commit", sha: head.sha }, head);
+			if (treeWasDirty) {
+				showTargetNotice("Showing HEAD (working tree has changes).", 2000);
+			}
+		} else {
+			switchTarget({ kind: "working" }, null);
+		}
+	}
+
+	// Opening review with a clean working tree auto-targets HEAD — the
+	// primary use case is commenting on what was just committed.
+	let autoTargetChecked = false;
+	createEffect(() => {
+		if (autoTargetChecked || files.loading) return;
+		const list = files();
+		if (!list) return;
+		autoTargetChecked = true;
+		if (target().kind !== "working" || list.length > 0) return;
+		const head = resolveCommit(undefined, "HEAD");
+		if (!head) return;
+		switchTarget({ kind: "commit", sha: head.sha }, head);
+		showTargetNotice(
+			`Working tree is clean — showing last commit (${head.shortSha}).`,
+		);
+	});
 	const reviewFilesByPath = createMemo(() => {
 		const map = new Map<string, ReviewFile>();
 		for (const file of reviewFiles()) {
@@ -516,9 +646,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		return reviewFiles()[selectedIndex()] ?? null;
 	});
 	const fileFinderOptions = createMemo<PickerOption[]>(() => {
+		// Commit targets only offer the commit's own files: the filesystem
+		// listing (and the read-only file view it opens) reflects the
+		// working tree, not the commit snapshot.
 		const paths = Array.from(
 			new Set([
-				...(allFiles() ?? []),
+				...(target().kind === "working" ? (allFiles() ?? []) : []),
 				...reviewFiles().map((file) => file.path),
 			]),
 		);
@@ -536,6 +669,149 @@ export function ReviewContent(props: ReviewContentProps) {
 			};
 		});
 	});
+	/** Pin head + merge-base and switch to a branch target vs `base`. */
+	function switchToBranchTarget(base: string): void {
+		const branchName = getCurrentBranch(undefined);
+		const head = resolveCommit(undefined, "HEAD");
+		const mergeBase = head ? getMergeBase(undefined, base, head.sha) : null;
+		if (!branchName || !head || !mergeBase) {
+			props.toast({
+				title: "No common history",
+				subtitle: `Cannot diff the current branch against ${base}.`,
+				variant: "warning",
+			});
+			return;
+		}
+		switchTarget(
+			{ kind: "branch", base, head: head.sha, mergeBase },
+			{
+				sha: head.sha,
+				shortSha: head.shortSha,
+				subject: `${branchName} vs ${base}`,
+				relativeTime: head.relativeTime,
+			},
+		);
+	}
+
+	/**
+	 * Git state snapshot for the target picker, captured once when the
+	 * picker opens. Keeping the blocking git spawns out of the options
+	 * memo means only the (cheap, reactive) draft-count decoration can
+	 * re-run it.
+	 */
+	type PickerGitState = {
+		commits: ReviewCommitSummary[];
+		branchName: string | null;
+		branchBase: string | null;
+		branchHead: ReviewCommitSummary | null;
+		branchMergeBase: string | null;
+		localBranches: ReviewBranchSummary[];
+	};
+	const [pickerGitState, setPickerGitState] =
+		createSignal<PickerGitState | null>(null);
+
+	function openCommitPicker(): void {
+		const branchName = getCurrentBranch(undefined);
+		const branchBase = resolveDefaultBranchBase(undefined);
+		const branchHead = branchBase ? resolveCommit(undefined, "HEAD") : null;
+		setPickerGitState({
+			commits: listRecentCommits(undefined),
+			branchName,
+			branchBase,
+			branchHead,
+			branchMergeBase:
+				branchBase && branchHead
+					? getMergeBase(undefined, branchBase, branchHead.sha)
+					: null,
+			localBranches: branchName ? listLocalBranches(undefined) : [],
+		});
+		setPickingBranchBase(false);
+		setCommitPickerOpen(true);
+	}
+
+	const commitPickerOptions = createMemo<PickerOption[]>(() => {
+		if (!commitPickerOpen()) return [];
+		const git = pickerGitState();
+		if (!git) return [];
+		// Second level: choose the base branch for the branch diff.
+		if (pickingBranchBase()) {
+			return git.localBranches.map((branch) => ({
+				name: branch.name,
+				description: branch.relativeTime,
+				action: (ctx) => {
+					ctx.dismiss();
+					setCommitPickerOpen(false);
+					setPickingBranchBase(false);
+					switchToBranchTarget(branch.name);
+				},
+			}));
+		}
+		const options: PickerOption[] = [];
+		const workingDrafts = stashedDraftCount("working");
+		// Working tree pinned as the first row: the picker is the single
+		// source of truth for target selection.
+		options.push({
+			name: `${workingDrafts > 0 ? `${CIRCLE_FILLED} ` : ""}working tree`,
+			description:
+				workingDrafts > 0
+					? `${workingDrafts} note${workingDrafts === 1 ? "" : "s"} drafted`
+					: "uncommitted changes",
+			nameColor: theme.textPrimary,
+			action: (ctx) => {
+				ctx.dismiss();
+				setCommitPickerOpen(false);
+				switchTarget({ kind: "working" }, null);
+			},
+		});
+		// Branch total diff pinned second, when a base branch is resolvable.
+		const { branchName, branchBase, branchHead, branchMergeBase } = git;
+		if (branchName && branchBase && branchHead && branchMergeBase) {
+			const key = `branch:${branchBase}:${branchHead.sha}`;
+			const drafts = stashedDraftCount(key);
+			options.push({
+				name: `${drafts > 0 ? `${CIRCLE_FILLED} ` : ""}branch ${branchName} vs ${branchBase}`,
+				description:
+					drafts > 0
+						? `${drafts} drafted ${MIDDLE_DOT} total branch diff`
+						: "total branch diff",
+				nameColor: theme.textPrimary,
+				action: (ctx) => {
+					ctx.dismiss();
+					setCommitPickerOpen(false);
+					switchToBranchTarget(branchBase);
+				},
+			});
+		}
+		// Choosing a different base swaps the picker to a branch list.
+		if (branchName && git.localBranches.length > 0) {
+			options.push({
+				name: `branch ${branchName} vs …`,
+				description: "choose a base branch",
+				nameColor: theme.textPrimary,
+				action: () => {
+					setPickingBranchBase(true);
+				},
+			});
+		}
+		for (const commit of git.commits) {
+			const drafts = stashedDraftCount(`commit:${commit.sha}`);
+			options.push({
+				name: `${drafts > 0 ? `${CIRCLE_FILLED} ` : ""}${commit.shortSha}  ${commit.subject}`,
+				description:
+					drafts > 0
+						? `${drafts} drafted ${MIDDLE_DOT} ${commit.relativeTime}`
+						: commit.relativeTime,
+				nameColor: theme.metaText,
+				action: (ctx) => {
+					ctx.dismiss();
+					setCommitPickerOpen(false);
+					switchTarget({ kind: "commit", sha: commit.sha }, commit);
+				},
+			});
+		}
+		return options;
+	});
+
 	const selectedHunk = createMemo(() => {
 		const file = selectedFile();
 		if (!file || file.hunks.length === 0) return null;
@@ -924,7 +1200,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function openFileFinder() {
-		if (editorOpen() || fileFinderOpen()) return;
+		if (editorOpen() || fileFinderOpen() || commitPickerOpen()) return;
 		setFileFinderOpen(true);
 	}
 
@@ -943,6 +1219,9 @@ export function ReviewContent(props: ReviewContentProps) {
 				setSelectedHunkIndex(file.id, 0);
 			}
 		} else {
+			// The read-only viewer reads the working tree; never open it for
+			// a commit target where the filesystem may have moved on.
+			if (target().kind !== "working") return;
 			setViewingFilePath(filePath);
 			setViewingFileLine(1);
 			setMode("patch");
@@ -1435,6 +1714,11 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function submitReview() {
+		// A target switch may still be refetching; submitting then would
+		// pair the old target's file list with the new target's notes.
+		if (files.loading) return;
+		const currentTarget = target();
+
 		const submission = buildReviewSubmission(reviewFiles(), draftState());
 		if (!submission) {
 			props.toast({
@@ -1444,6 +1728,55 @@ export function ReviewContent(props: ReviewContentProps) {
 			});
 			return;
 		}
+
+		// Amend/rebase staleness defense: line numbers only make sense
+		// against the drafted revisions. A rewritten commit stops being an
+		// ancestor of HEAD. Block — never silently rebind.
+		const committedHead =
+			currentTarget.kind === "commit"
+				? currentTarget.sha
+				: currentTarget.kind === "branch"
+					? currentTarget.head
+					: null;
+		if (committedHead && !isAncestorOfHead(undefined, committedHead)) {
+			props.toast({
+				title: `Commit ${targetCommit()?.shortSha ?? committedHead} changed`,
+				subtitle:
+					"It was amended or rebased since you started drafting. Re-open the target to review the new diff.",
+				variant: "error",
+			});
+			return;
+		}
+		if (currentTarget.kind === "commit") {
+			submission.commit = {
+				sha: currentTarget.sha,
+				parentSha: resolveCommitParent(undefined, currentTarget.sha),
+				subject: targetCommit()?.subject ?? "",
+			};
+		} else if (currentTarget.kind === "branch") {
+			submission.commit = {
+				sha: currentTarget.head,
+				parentSha: currentTarget.mergeBase,
+				subject: targetCommit()?.subject ?? "",
+			};
+		}
+
+		// Submission is scoped to the current target only. Closing the
+		// review destroys the per-target stash, so be honest about drafts
+		// left behind on other targets.
+		let otherDrafts = 0;
+		for (const [key, stashed] of draftStash) {
+			if (key === targetKey()) continue;
+			otherDrafts += countDraftNotes(stashed);
+		}
+		if (otherDrafts > 0) {
+			props.toast({
+				title: "Review attached",
+				subtitle: `${otherDrafts} draft note${otherDrafts === 1 ? "" : "s"} on other review targets ${otherDrafts === 1 ? "was" : "were"} discarded.`,
+				variant: "warning",
+			});
+		}
+
 		props.attachments.attach(
 			new CodeReviewAttachment("code-review", submission),
 		);
@@ -1559,10 +1892,13 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && !fileFinderOpen(),
-		diagnosticsWhen: () => !editorOpen() && !fileFinderOpen(),
+		when: () => !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
+		diagnosticsWhen: () =>
+			!editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.search-tree": openFileFinder,
+			"review.cycle-target": cycleTarget,
+			"review.pick-commit": openCommitPicker,
 		},
 	}));
 
@@ -1591,9 +1927,11 @@ export function ReviewContent(props: ReviewContentProps) {
 		when: () =>
 			!editorOpen() &&
 			!fileFinderOpen() &&
+			!commitPickerOpen() &&
 			mode() === "patch" &&
 			!viewingFilePath(),
-		diagnosticsWhen: () => mode() === "patch" && !fileFinderOpen(),
+		diagnosticsWhen: () =>
+			mode() === "patch" && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
@@ -1625,9 +1963,11 @@ export function ReviewContent(props: ReviewContentProps) {
 		when: () =>
 			!editorOpen() &&
 			!fileFinderOpen() &&
+			!commitPickerOpen() &&
 			mode() === "patch" &&
 			!!viewingFilePath(),
-		diagnosticsWhen: () => mode() === "patch" && !fileFinderOpen(),
+		diagnosticsWhen: () =>
+			mode() === "patch" && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				setViewingFilePath(null);
@@ -1679,8 +2019,13 @@ export function ReviewContent(props: ReviewContentProps) {
 	// Tree mode: view-level bindings (navigation is handled by FileTreePanel)
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && mode() === "tree" && !fileFinderOpen(),
-		diagnosticsWhen: () => mode() === "tree" && !fileFinderOpen(),
+		when: () =>
+			!editorOpen() &&
+			mode() === "tree" &&
+			!fileFinderOpen() &&
+			!commitPickerOpen(),
+		diagnosticsWhen: () =>
+			mode() === "tree" && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.file-note": () => {
 				const file = selectedFile();
@@ -1698,9 +2043,33 @@ export function ReviewContent(props: ReviewContentProps) {
 			zIndex={1200}
 			header={
 				<ScreenHeader
-					left={<text fg={theme.textMuted}>Code review</text>}
+					left={
+						<text fg={theme.textMuted}>
+							Code review {CHEVRON_RIGHT}{" "}
+							<Show
+								when={targetCommit()}
+								fallback={
+									<span style={{ fg: theme.textPrimary }}>working tree</span>
+								}
+							>
+								{(commit) => (
+									<>
+										<span style={{ fg: theme.metaText }}>
+											{commit().shortSha}
+										</span>{" "}
+										<span style={{ fg: theme.textPrimary }}>
+											{commit().subject}
+										</span>
+									</>
+								)}
+							</Show>
+						</text>
+					}
 					right={
 						<text fg={theme.textMuted}>
+							{targetCommit()
+								? `committed ${targetCommit()?.relativeTime} · `
+								: ""}
 							{formatFileCount(reviewFiles().length)}
 							{totalDraftNotes() > 0
 								? ` · ${formatNoteCount(totalDraftNotes())}`
@@ -1728,6 +2097,18 @@ export function ReviewContent(props: ReviewContentProps) {
 					</box>
 				}
 			>
+				<Show when={targetNotice()}>
+					<box
+						flexShrink={0}
+						paddingX={1}
+						backgroundColor={theme.bgSurface}
+						width="100%"
+					>
+						<text fg={theme.textSecondary} bg={theme.bgSurface}>
+							{targetNotice()}
+						</text>
+					</box>
+				</Show>
 				<box
 					ref={(el) => {
 						contentRef = el as typeof contentRef;
@@ -1752,10 +2133,15 @@ export function ReviewContent(props: ReviewContentProps) {
 						>
 							<FileTreePanel
 								reviewFiles={reviewFiles()}
-								allFiles={allFiles() ?? []}
+								// Commit targets restrict the tree to the commit's
+								// changes; the filesystem listing reflects the
+								// working tree, not the commit snapshot.
+								allFiles={target().kind === "working" ? (allFiles() ?? []) : []}
 								focused={mode() === "tree"}
 								editorOpen={editorOpen()}
-								finderOpen={fileFinderOpen()}
+								// Any floating picker suppresses tree navigation,
+								// not just the file finder.
+								finderOpen={fileFinderOpen() || commitPickerOpen()}
 								focusedPath={treeFocusedPath()}
 								onFocusedPathChange={(path) => {
 									setTreeFocusedPath(path);
@@ -1920,8 +2306,75 @@ export function ReviewContent(props: ReviewContentProps) {
 						onClose={() => setFileFinderOpen(false)}
 					/>
 				</Show>
+				<Show when={commitPickerOpen()}>
+					<CommitPickerDialog
+						options={commitPickerOptions()}
+						onClose={() => {
+							setCommitPickerOpen(false);
+							setPickingBranchBase(false);
+						}}
+					/>
+				</Show>
 			</Show>
 		</ScreenLayout>
+	);
+}
+
+// ── Commit picker dialog ────────────────────────────────────
+
+type CommitPickerDialogProps = {
+	options: PickerOption[];
+	onClose: () => void;
+};
+
+/**
+ * Review-target picker: recent commits with the working tree pinned as
+ * the first row. Capped at 20 commits by design — this is not a history
+ * explorer (docs/features/code-review-commit-targets.md).
+ */
+function CommitPickerDialog(props: CommitPickerDialogProps) {
+	const picker = createPickerManager();
+	let didShow = false;
+
+	createEffect(() => {
+		if (didShow) return;
+		didShow = true;
+		picker.show({
+			label: "Review target",
+			options: props.options,
+			filterable: true,
+			onDismiss: props.onClose,
+		});
+	});
+
+	createEffect(() => {
+		picker.updateOptions(props.options);
+	});
+
+	return (
+		<Show when={picker.current().visible}>
+			<Dialog.Root
+				width="80%"
+				minWidth={72}
+				maxWidth={120}
+				height={18}
+				padding={0}
+			>
+				<box flexGrow={1} flexDirection="column">
+					<Picker.Root
+						picker={picker}
+						maxVisible={12}
+						commandNamespace="review-commit-picker"
+					>
+						<Picker.Header />
+						<Picker.Body />
+						<Picker.Footer flexDirection="column">
+							<KeymapHintBar borderless group="review-commit-picker" />
+						</Picker.Footer>
+					</Picker.Root>
+				</box>
+			</Dialog.Root>
+		</Show>
 	);
 }
 

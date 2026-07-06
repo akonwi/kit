@@ -1,156 +1,160 @@
-# Code Review: Commit Targets
+# Code Review: Commit and Branch Targets
 
-Design for extending `/code-review` beyond the working tree so a previous
-commit's diff can be reviewed and commented on. The primary use case is
-commenting on the most recent commit right after the agent makes it.
+`/code-review` reviews more than the working tree: it can show the diff of
+a previous commit or a branch's total diff, with the same commenting and
+submission flow. The primary use case is commenting on the most recent
+commit right after the agent makes it.
 
 This is deliberately **not** a history explorer: one commit at a time, no
-graph, no ranges, no branches. Status: designed, not yet implemented.
+arbitrary ranges, no graphs.
 
 ## Review targets
 
-The review screen gains a `target` — a piece of state read on mount and
-swappable in place. One review screen, multiple targets:
+The review screen holds a `target` — swappable in place, one review
+screen for all targets:
 
 ```ts
 type ReviewTarget =
-	| { kind: "working" } // today's behavior, default
-	| { kind: "commit"; sha: string }; // commit vs its parent
+	| { kind: "working" } // default
+	| { kind: "commit"; sha: string } // commit vs its parent
+	| { kind: "branch"; base: string; head: string; mergeBase: string };
 ```
 
-- `working` — `git diff HEAD` + synthesized untracked patches (unchanged).
-- `commit` — `git diff <sha>^ <sha>` (root commit diffs against the empty
-  tree). No untracked set.
+- `working` — `git diff HEAD` + synthesized untracked patches.
+- `commit` — `git diff <sha>^ <sha>`; a root commit diffs against the
+  empty tree. No untracked set.
+- `branch` — the branch's total diff, `git diff <mergeBase> <head>`. The
+  base defaults to the **local** default branch (`main`/`master`, or the
+  local branch `origin/HEAD` points at), falling back to the
+  remote-tracking ref only when no local branch exists. `head` is pinned
+  at selection time so the diff stays deterministic while the review is
+  open.
 
-Everything downstream of `loadReviewFiles` already consumes `ReviewFile[]`
-and needs no changes, with one exception: content reads. The read-only
-file view, skipped-section line sourcing, and the file tree's "all files"
-listing read the live filesystem today, which is only correct for the
-working tree. In commit mode these must read the commit snapshot via
-`git show <sha>:<path>` (and `git ls-tree`, or restrict the tree to
-"changes" mode as an MVP cut).
+Shas are stored full-length everywhere (targets, note keys, submission
+payload); abbreviations are display-only, so sha ambiguity in large repos
+can't break staleness checks or the agent's `git diff`.
+
+For committed targets, file content (read-only sections, skipped-section
+sourcing) is read from the revision snapshots via `git show <rev>:<path>`
+— never the filesystem, which reflects the working tree. For the same
+reason the file tree and the file finder are restricted to the diff's own
+files, the changes/all-files toggle is disabled, and the working-tree
+read-only file viewer never opens.
+
+Committed-diff loads degrade gracefully: if a pinned sha stops resolving
+(pruned, ambiguous), the target renders as an empty diff instead of
+crashing the overlay.
 
 ## Switching targets
 
-Two keybindings, added to the review hint bar:
+Two keybindings on the review hint bar:
 
-- `t` — cycle target: `working ↔ HEAD`. Single keystroke for the dominant
+- `g` — cycle target: `working ↔ HEAD`. Single keystroke for the dominant
   workflow ("review what the agent just committed, flip back").
-- `T` — open the commit picker.
+- `shift+g` — open the target picker.
 
-### Commit picker
+### Target picker
 
-Tier 1 picker (no border, `pickerBg`, floats over the review screen, no
-backdrop dim — the user is orienting between two things):
+Tier 1 picker floating over the review screen, filterable by subject +
+sha. Git state (commits, branches, merge bases) is snapshotted once when
+the picker opens; only draft-count decoration is reactive.
 
-- Rows: `shortSha` (`metaText`) · subject (`textPrimary`, truncated) ·
-  relative time (`textMuted`, right-aligned).
-- **Working tree pinned as the first row** with a summary
-  (`3 files · 42+/8−`). The picker is the single source of truth for
-  target selection and teaches that the working tree is just another
-  target.
-- Filterable by subject + sha.
-- Hard cap: last 20 commits, enforced in the picker with no "show more"
-  affordance. Older history is git tooling's job. If ever expanded, add a
-  free-text sha input before pagination.
+- **Working tree pinned as the first row** — the picker is the single
+  source of truth for target selection.
+- **Branch diff pinned second** (`branch <name> vs <base>`) when the
+  current branch has a resolvable base that isn't the current commit.
+- **Custom base**: a `branch <name> vs …` row swaps the picker to a list
+  of local branches (sorted by last-commit recency, current branch
+  excluded); selecting one becomes the branch-diff base. Escape closes
+  the picker rather than stepping back a level.
+- Then the last 20 commits: `shortSha  subject` with relative time.
+  The cap is enforced with no "show more" affordance — older history is
+  git tooling's job.
+- Rows for targets holding draft notes carry a `CIRCLE_FILLED` prefix.
+
+While any picker is open, tree navigation and the other review keymap
+layers are suppressed.
 
 ## Communicating the current target
 
-- **Screen header crumb** (left slot): `Code review › <target>` —
-  `Code review` in `textMuted`, `CHEVRON_RIGHT` separator, then either
-  `working tree` in `textPrimary` or `shortSha` (`metaText`) + subject
-  (`textPrimary`).
-- **Right slot**: target-appropriate stats. Working tree:
-  `3 files · 42+/8−`. Commit: `authored 8m ago · 3 files · 42+/8−`.
-- Drop the per-file source label in the diff pane header when it is
-  redundant with the screen target (keep it only when a file's source
-  diverges, e.g. untracked files in working-tree mode).
-- File tree: no banner; a one-line footer in `textPlaceholder` anchors the
-  scope (`HEAD~1 → HEAD` or `working tree`).
+- **Screen header crumb** (left slot): `Code review › <target>` — either
+  `working tree`, or `shortSha` (`metaText`) + subject (`textPrimary`;
+  `<branch> vs <base>` for branch targets).
+- **Right slot**: file count and drafted-note count; committed targets
+  prepend `committed <relative time>`.
+- The per-file source label in the diff pane header only appears when a
+  file's source diverges from the screen target (e.g. untracked files in
+  working-tree mode).
+- Target-change notices render as a transient full-width strip above the
+  panes.
 
 ### Clean-tree auto-targeting
 
 Opening review with a clean working tree auto-targets `HEAD` instead of
 showing a dead-end empty state — that *is* the primary use case, reached
-with zero keystrokes. Announce with an inline one-line banner in the diff
-area (`textSecondary` on `nearBlack`, no border, dismissed by any
-navigation key):
+with zero keystrokes. A transient strip announces it:
 
 ```
-Working tree is clean — showing last commit (a1b2c3d).  t swap · T pick commit
+Working tree is clean — showing last commit (a1b2c3d).
 ```
 
-If `HEAD` also has an empty diff, fall through to the standard empty state
-with a hint to press `T`.
+If `HEAD` has no commits, the standard empty state remains.
 
 ### Dirty-tree HEAD ambiguity
 
-When cycling to `HEAD` while the working tree is dirty, show a transient
-(~1.5s) strip in the diff area: `Showing HEAD (working tree has changes)`.
-One consistent inline affordance for "your context changed" — never a
-modal.
+Cycling to `HEAD` while the working tree is dirty shows a short-lived
+strip — `Showing HEAD (working tree has changes)` — one consistent inline
+affordance for "your context changed", never a modal.
 
 ## Comments and drafts
 
-- **Per-target draft maps**, keyed `working` / `commit:<sha>`, kept in
-  memory and preserved across target switches. Note keys gain the target
-  prefix (`<target>::path::side:start-end`) so drafts never collide.
-- No discard prompts on switch — the indicators carry the state:
-  - rose `CIRCLE_FILLED` next to picker rows that have draft notes
-  - drafted-note count in the header crumb
-    (`Code review › working tree · 2 notes drafted`)
-- Commit-scoped annotation boxes get a subtle `a1b2c3d ›` prefix in
-  `metaText`. Working-tree annotations stay unbadged (badges everywhere =
-  badges nowhere). Comments keep the rose attachment accent in both modes.
+- **Drafts are per-target**: note maps are stashed and restored on target
+  switch, so switching never loses or mixes drafts. File-note keys are
+  revision-scoped (`commit:<sha>:…`, `branch:<base>:<head>:…`); range
+  notes are isolated by the per-target map swap.
+- No discard prompts on switch — the picker's `CIRCLE_FILLED` indicators
+  and the header note count carry the state.
 - **Submit is scoped to the current target only.** Never batch across
-  targets. If drafts exist on other targets at submit time, show a
-  transient inline notice
-  (`Submitting working tree notes only. 2 notes on a1b2c3d not included.`).
-- After submit, stay on the submitted target with a cleared draft — no
-  auto-switching.
-- Transcript attachment chip labels the scope:
-  `Review · a1b2c3d · 4 notes` vs `Review · working tree · 4 notes`.
+  targets. Submitting closes the review (the flow continues in the
+  composer), which destroys the per-target stash — drafts left on other
+  targets are discarded, and the submit toast says so.
+- Submitting while a target switch is still loading is a no-op (the old
+  file list and new drafts must never mix).
+- The transcript attachment chip labels the scope:
+  `Code review · a1b2c3d · 4 comments`.
 
 ## Submission payload
 
-`CodeReviewSubmission` gains optional commit metadata:
+`CodeReviewSubmission` carries commit metadata for committed targets:
 
 ```ts
 commit?: { sha: string; parentSha: string; subject: string };
 ```
 
-The prompt-text rendering states the target ("comments on commit a1b2c3d
-(fix: …)") so the agent knows the line numbers refer to that commit's diff
-and can `git show sha^ sha` for exact context.
+The prompt-text rendering states the target as a committed diff
+(`<parentSha>..<sha>` plus a human subject — a commit's subject line, or
+`<branch> vs <base>` for branch diffs) so the agent knows the line
+numbers refer to that diff and can run `git diff <parentSha> <sha>` for
+exact context. Branch targets use `sha = head` and
+`parentSha = mergeBase`. Subjects are whitespace-collapsed and clamped
+before entering the prompt.
 
 ## Amend/rebase staleness
 
-The real bug hazard: comment line numbers only make sense against the
-drafted sha. Defense:
+Comment line numbers only make sense against the drafted sha. Defense:
 
-- Store the target `sha` **and its `tree` hash** with commit drafts.
-- On submit, re-resolve. If the sha no longer exists or the tree changed,
-  **block submission** with a Tier 2 dialog:
-  `Commit a1b2c3d was amended. Your 3 notes reference the old diff.` with
-  actions: Discard notes / Keep drafting on new commit (remap by
-  file+content hash, drop unremappable) / Cancel.
-- Never silently rebind line numbers — silent rebinding leads to the agent
-  editing the wrong lines.
-
-## MVP slice
-
-1. `ReviewTarget` plumbing in `model.ts`: commit diff loading +
-   `git show`-backed content reads in commit mode.
-2. `t`/`T` bindings + Tier 1 commit picker with pinned working-tree row.
-3. Header crumb + clean-tree auto-targeting of `HEAD`.
-4. Per-target draft maps, target-scoped submit, commit metadata in the
-   submission and prompt text.
-5. Amend detection at submit time.
+- At submit, check `git merge-base --is-ancestor <pinnedSha> HEAD`. An
+  amended or rebased-away commit stops being an ancestor of HEAD (the
+  old object survives in the reflog, so existence checks — and tree
+  hashes, which are immutable per sha — cannot detect rewrites).
+- On failure, submission is blocked with an explanatory toast.
+- Line numbers are never silently rebound — silent rebinding leads to the
+  agent editing the wrong lines.
 
 ## Non-goals
 
-- Commit graphs, ranges (`sha..sha`), branch selection, author columns,
+- Commit graphs, arbitrary ranges (`sha..sha`), author columns,
   pagination beyond 20 commits.
 - Reviewing merge commits against multiple parents (first parent only).
-- Persisting drafts across app restarts (in-memory per session, matching
-  current working-tree behavior).
+- Persisting drafts across app restarts (in-memory per review session,
+  matching working-tree behavior).

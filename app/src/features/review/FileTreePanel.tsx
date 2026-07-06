@@ -90,6 +90,12 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	});
 
 	const hasChangedFiles = createMemo(() => changedPaths().length > 0);
+	// The changes/all-files toggle only makes sense when there is an
+	// "all files" listing to show — committed review targets pass an
+	// empty list because the filesystem reflects the working tree.
+	const canToggleTreeMode = createMemo(
+		() => hasChangedFiles() && props.allFiles.length > 0,
+	);
 
 	const changedExpandedDirs = createMemo(() => {
 		const dirs = new Set<string>();
@@ -232,7 +238,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	}
 
 	function toggleTreeMode() {
-		if (!hasChangedFiles()) return;
+		if (!canToggleTreeMode()) return;
 		setTreeMode((m) => (m === "changes" ? "all" : "changes"));
 	}
 
@@ -272,7 +278,9 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			"review.toggle-file": toggleDir,
 			"review.expand-dir": expandDir,
 			"review.collapse-dir": collapseDir,
-			"review.toggle-tree-mode": hasChangedFiles() ? toggleTreeMode : undefined,
+			"review.toggle-tree-mode": canToggleTreeMode()
+				? toggleTreeMode
+				: undefined,
 		},
 	}));
 
@@ -281,7 +289,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	return (
 		<box flexDirection="column" height="100%">
 			{/* Mode toggle */}
-			<Show when={hasChangedFiles()}>
+			<Show when={canToggleTreeMode()}>
 				<box
 					flexShrink={0}
 					paddingX={1}

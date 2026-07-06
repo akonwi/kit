@@ -358,6 +358,18 @@ export const KEYBINDING_REGISTRY = {
 			group: "review",
 			hint: "search",
 		},
+		"cycle-target": {
+			defaultKeys: "g",
+			desc: "Swap review target (working tree / last commit)",
+			group: "review",
+			hint: "swap target",
+		},
+		"pick-commit": {
+			defaultKeys: "shift+g",
+			desc: "Pick a commit to review",
+			group: "review",
+			hint: "pick commit",
+		},
 		"clear-search": {
 			defaultKeys: "escape",
 			desc: "Clear search",
