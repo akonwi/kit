@@ -610,22 +610,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	}
 
-	// Opening review with a clean working tree auto-targets HEAD — the
-	// primary use case is commenting on what was just committed.
-	let autoTargetChecked = false;
-	createEffect(() => {
-		if (autoTargetChecked || files.loading) return;
-		const list = files();
-		if (!list) return;
-		autoTargetChecked = true;
-		if (target().kind !== "working" || list.length > 0) return;
-		const head = resolveCommit(undefined, "HEAD");
-		if (!head) return;
-		switchTarget({ kind: "commit", sha: head.sha }, head);
-		showTargetNotice(
-			`Working tree is clean — showing last commit (${head.shortSha}).`,
-		);
-	});
 	const reviewFilesByPath = createMemo(() => {
 		const map = new Map<string, ReviewFile>();
 		for (const file of reviewFiles()) {

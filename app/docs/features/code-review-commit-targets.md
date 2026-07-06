@@ -88,17 +88,12 @@ layers are suppressed.
 - Target-change notices render as a transient full-width strip above the
   panes.
 
-### Clean-tree auto-targeting
+### Clean working tree
 
-Opening review with a clean working tree auto-targets `HEAD` instead of
-showing a dead-end empty state — that *is* the primary use case, reached
-with zero keystrokes. A transient strip announces it:
-
-```
-Working tree is clean — showing last commit (a1b2c3d).
-```
-
-If `HEAD` has no commits, the standard empty state remains.
+Opening review with a clean working tree keeps the working-tree target
+and shows the normal project explorer: the file tree falls back to "all
+files" mode and files open in the read-only viewer. Commit and branch
+targets remain one keystroke away (`g` / `shift+g`).
 
 ### Dirty-tree HEAD ambiguity
 
