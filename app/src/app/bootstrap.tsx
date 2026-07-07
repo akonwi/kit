@@ -156,6 +156,26 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	const settings = await loadSettings();
 	const session = await loadSession(opts);
 
+	let disposeApp: (() => void) | null = null;
+	let resolveAlive: (() => void) | null = null;
+	let quitStarted = false;
+	let shutdownWatchdogStarted = false;
+	const startShutdownWatchdog = () => {
+		if (shutdownWatchdogStarted) return;
+		shutdownWatchdogStarted = true;
+		// OpenTUI generally discourages process.exit() because it can bypass
+		// terminal cleanup and leave the user's shell in raw/alternate-screen state.
+		// This watchdog only runs after renderer.destroy() has restored the terminal
+		// and the normal bootstrap promise has resolved. It exists because Bun or a
+		// native integration can still keep the process alive with no visible active
+		// handles, leaving users at a hung shell after quitting.
+		const shutdownWatchdog = setTimeout(() => {
+			reportDanglingHandlesForDebugging();
+			process.exit(0);
+		}, 200);
+		shutdownWatchdog.unref?.();
+	};
+
 	const renderer = await createCliRenderer({
 		exitOnCtrlC: false,
 		exitSignals: [
@@ -168,6 +188,21 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 			"SIGBUS",
 			"SIGFPE",
 		],
+		onDestroy: () => {
+			quitStarted = true;
+			try {
+				disposeApp?.();
+			} catch (error) {
+				console.error(
+					`[kit] shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			} finally {
+				disposeApp = null;
+				resolveAlive?.();
+				resolveAlive = null;
+				startShutdownWatchdog();
+			}
+		},
 		consoleOptions: {
 			position: ConsolePosition.TOP,
 			sizePercent: 30,
@@ -205,26 +240,21 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	// Keep the process alive until the renderer is destroyed.
 	// In compiled binaries, the async bootstrap() returning would let
 	// the event loop drain and the process exit prematurely.
-	let quitStarted = false;
-	const alive = new Promise<void>((resolve) => {
-		function quitAndDestroy(): void {
-			if (quitStarted) return;
-			quitStarted = true;
-			renderer.destroy();
-			resolve();
+	function quitAndDestroy(): void {
+		if (quitStarted) return;
+		quitStarted = true;
+		renderer.destroy();
+	}
 
-			// OpenTUI generally discourages process.exit() because it can bypass
-			// terminal cleanup and leave the user's shell in raw/alternate-screen state.
-			// This watchdog only runs after renderer.destroy() has restored the terminal
-			// and the normal bootstrap promise has resolved. It exists because Bun or a
-			// native integration can still keep the process alive with no visible active
-			// handles, leaving users at a hung shell after quitting.
-			const shutdownWatchdog = setTimeout(() => {
-				reportDanglingHandlesForDebugging();
-				process.exit(0);
-			}, 200);
-			shutdownWatchdog.unref?.();
-		}
+	const stdioShutdown = () => quitAndDestroy();
+	process.stdin.once("end", stdioShutdown);
+	process.stdin.once("close", stdioShutdown);
+	process.stdin.once("error", stdioShutdown);
+	process.stdout.once("error", stdioShutdown);
+	process.stderr.once("error", stdioShutdown);
+
+	const alive = new Promise<void>((resolve) => {
+		resolveAlive = resolve;
 
 		render(
 			() => (
@@ -237,6 +267,9 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 							renderer.triggerNotification(message, title)
 						}
 						quitAndDestroy={quitAndDestroy}
+						registerDispose={(dispose) => {
+							disposeApp = dispose;
+						}}
 					/>
 				</KeymapProvider>
 			),
@@ -245,4 +278,9 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	});
 
 	await alive;
+	process.stdin.off("end", stdioShutdown);
+	process.stdin.off("close", stdioShutdown);
+	process.stdin.off("error", stdioShutdown);
+	process.stdout.off("error", stdioShutdown);
+	process.stderr.off("error", stdioShutdown);
 }

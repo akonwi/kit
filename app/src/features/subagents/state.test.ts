@@ -185,6 +185,76 @@ describe("SubagentManager", () => {
 		expect(manager.getActive("reviewer")).toBeUndefined();
 	});
 
+	test("reset aborts running sub-agent runtimes before disposal", () => {
+		const calls: string[] = [];
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => [],
+			appendEntries: async () => [],
+			createRuntime: async () => {
+				throw new Error("not used");
+			},
+		});
+		manager.setActive({
+			agentName: "scout",
+			subagentConversationId: "conv-1",
+			status: "running",
+			lastActivityAt: "2025-01-01T00:00:00.000Z",
+			runtime: {
+				async run() {
+					return { status: "completed" as const };
+				},
+				abort(reason?: string) {
+					calls.push(`abort:${reason}`);
+				},
+				dispose() {
+					calls.push("dispose");
+				},
+			},
+		});
+
+		manager.reset();
+
+		expect(calls).toEqual(["abort:Session closed", "dispose"]);
+		expect(manager.getActive("scout")).toBeUndefined();
+	});
+
+	test("reset disposes idle sub-agent runtimes without aborting", () => {
+		const calls: string[] = [];
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => [],
+			appendEntries: async () => [],
+			createRuntime: async () => {
+				throw new Error("not used");
+			},
+		});
+		manager.setActive({
+			agentName: "scout",
+			subagentConversationId: "conv-1",
+			status: "idle",
+			lastActivityAt: "2025-01-01T00:00:00.000Z",
+			runtime: {
+				async run() {
+					return { status: "completed" as const };
+				},
+				abort(reason?: string) {
+					calls.push(`abort:${reason}`);
+				},
+				dispose() {
+					calls.push("dispose");
+				},
+			},
+		});
+
+		manager.reset();
+
+		expect(calls).toEqual(["dispose"]);
+		expect(manager.getActive("scout")).toBeUndefined();
+	});
+
 	test("run persists sub-agent lifecycle entries and updates active state", async () => {
 		const persisted: SessionEntry[] = [];
 		let nextId = 1;

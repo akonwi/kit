@@ -10,9 +10,8 @@ const HORIZONTAL_PADDING = 1;
 export function HandoffSummaryEntry(props: {
 	msg: HandoffSummaryMessage;
 	aborted?: boolean;
-	autoExpand?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(props.autoExpand ?? false);
+	const [expanded, setExpanded] = createSignal(false);
 	const [rowWidth, setRowWidth] = createSignal(0);
 	const renderer = useRenderer();
 	let rowRef: { width: number; height: number } | undefined;

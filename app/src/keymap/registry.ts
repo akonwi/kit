@@ -126,6 +126,14 @@ export const KEYBINDING_REGISTRY = {
 			hint: "close",
 		},
 	},
+	subagents: {
+		close: {
+			defaultKeys: ["escape", "return"],
+			desc: "Close sub-agents dialog",
+			group: "subagents",
+			hint: "close",
+		},
+	},
 	"mcp-authorization-url": {
 		continue: {
 			defaultKeys: ["return", "escape"],
@@ -349,6 +357,18 @@ export const KEYBINDING_REGISTRY = {
 			desc: "Search file tree",
 			group: "review",
 			hint: "search",
+		},
+		"cycle-target": {
+			defaultKeys: "g",
+			desc: "Swap review target (working tree / last commit)",
+			group: "review",
+			hint: "swap target",
+		},
+		"pick-commit": {
+			defaultKeys: "shift+g",
+			desc: "Pick a commit to review",
+			group: "review",
+			hint: "pick commit",
 		},
 		"clear-search": {
 			defaultKeys: "escape",

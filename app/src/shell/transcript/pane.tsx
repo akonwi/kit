@@ -7,7 +7,7 @@ import {
 	Show,
 } from "solid-js";
 import { HEAVY_LINE } from "../glyphs";
-import { theme } from "../theme";
+import { scrollbarStyle, theme } from "../theme";
 import {
 	type LiveToolExecutionMap,
 	reconcileLiveTools,
@@ -128,14 +128,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 			stickyStart="bottom"
 			stickyScroll
 			padding={1}
-			style={{
-				scrollbarOptions: {
-					trackOptions: {
-						foregroundColor: theme.scrollbarFg,
-						backgroundColor: theme.scrollbarBg,
-					},
-				},
-			}}
+			style={scrollbarStyle()}
 		>
 			<Show
 				when={props.items.length > 0}

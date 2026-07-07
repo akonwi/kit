@@ -6,7 +6,7 @@ import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { Dialog } from "../Dialog";
 import { KeymapHintBar } from "../KeymapHintBar";
-import { theme } from "../theme";
+import { scrollbarStyle } from "../theme";
 import {
 	TURN_ACTIVITY_TITLE,
 	turnActivityMetaText,
@@ -66,14 +66,7 @@ export function TurnActivityDialog(props: TurnActivityDialogProps) {
 					scrollY
 					stickyStart={model.initiallyLive ? "bottom" : undefined}
 					stickyScroll={model.initiallyLive}
-					style={{
-						scrollbarOptions: {
-							trackOptions: {
-								foregroundColor: theme.scrollbarFg,
-								backgroundColor: theme.scrollbarBg,
-							},
-						},
-					}}
+					style={scrollbarStyle()}
 				>
 					<TurnActivitySectionList model={model} />
 				</scrollbox>

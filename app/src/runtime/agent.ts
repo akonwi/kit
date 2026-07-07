@@ -138,7 +138,9 @@ export type AgentEvent = AnyEvent<AgentEventMap>;
 export class Agent {
 	private readonly pi: PiAgent;
 	private readonly bus = new EventBus<AgentEventMap>();
+	private readonly unsubscribePi: () => void;
 	private readonly toolArgsById = new Map<string, unknown>();
+	private disposed = false;
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
 	private _activeFollowUpTurn: Turn | null = null;
@@ -180,7 +182,7 @@ export class Agent {
 			}));
 		}
 
-		this.pi.subscribe((event) => {
+		this.unsubscribePi = this.pi.subscribe((event) => {
 			for (const nextEvent of this.processPiEvent(event)) {
 				const { type, ...payload } = nextEvent;
 				// biome-ignore lint/suspicious/noExplicitAny: event is already a valid union member
@@ -340,6 +342,21 @@ export class Agent {
 
 	reset(): void {
 		this.pi.reset();
+		this.clearLocalState();
+	}
+
+	dispose(): void {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.abort();
+		this.unsubscribePi();
+		this.bus.dispose();
+		this.clearAllQueues();
+		this.clearMessages();
+		this.clearLocalState();
+	}
+
+	private clearLocalState(): void {
 		this.toolArgsById.clear();
 		this._turns = [];
 		this._currentTurn = null;

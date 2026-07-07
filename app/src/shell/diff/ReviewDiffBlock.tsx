@@ -62,6 +62,13 @@ export type ReviewDiffBlockProps = {
 	/** Columns available for line content; enables wrap-aware row heights. */
 	contentColumns?: number;
 	/**
+	 * Gutter width override. When rendering multiple blocks for one file
+	 * (hunks + expanded unchanged sections), pass a file-wide width so
+	 * gutters align vertically instead of sizing to each block's own max
+	 * line number.
+	 */
+	lineNumberWidth?: number;
+	/**
 	 * Whether to render the line-number gutter. Defaults to true. Callers
 	 * displaying diffs without reliable absolute file positions (e.g. the
 	 * synthetic hunks built for the `edit` tool) should pass `false`.
@@ -477,24 +484,30 @@ function renderSplitCell(opts: RenderSplitCellOptions) {
 	);
 }
 
+/**
+ * Rows for a raw patch string. Patch metadata lines (`diff --git`,
+ * `index`, `---`/`+++`, `@@`) are dropped — the review view presents
+ * diffs without patch-format jargon.
+ */
 function rawPatchRows(rawPatch: string): ReviewDiffUnifiedRow[] {
 	return rawPatch
 		.replace(/\r\n/g, "\n")
 		.split("\n")
-		.filter((line) => line.length > 0)
+		.filter(
+			(line) =>
+				line.length > 0 &&
+				!line.startsWith("@@") &&
+				!line.startsWith("diff --git") &&
+				!line.startsWith("index ") &&
+				!line.startsWith("--- ") &&
+				!line.startsWith("+++ "),
+		)
 		.map((line, index) => {
-			const kind =
-				line.startsWith("@@") ||
-				line.startsWith("diff --git") ||
-				line.startsWith("index ") ||
-				line.startsWith("--- ") ||
-				line.startsWith("+++ ")
-					? "metadata"
-					: line.startsWith("+")
-						? "add"
-						: line.startsWith("-")
-							? "delete"
-							: "context";
+			const kind = line.startsWith("+")
+				? "add"
+				: line.startsWith("-")
+					? "delete"
+					: "context";
 			return {
 				id: `raw:${index}`,
 				kind,
@@ -539,7 +552,8 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 		>
 			{(hunk) => {
 				const currentHunk = () => hunk();
-				const lineNumberWidth = () => getLineNumberWidth(currentHunk());
+				const lineNumberWidth = () =>
+					props.lineNumberWidth ?? getLineNumberWidth(currentHunk());
 				return (
 					<Show
 						when={props.view === "split"}

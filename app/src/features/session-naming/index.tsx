@@ -16,21 +16,22 @@ const AUTO_TITLE_SYSTEM_PROMPT = [
 ].join(" ");
 const HANDOFF_PLACEHOLDER_PREFIX = "handoff: ";
 const AUTO_HANDOFF_PREFIX = "-> ";
-/** System-generated name prefixes that auto-naming may overwrite. */
-const SYSTEM_NAME_PREFIXES = [HANDOFF_PLACEHOLDER_PREFIX, AUTO_HANDOFF_PREFIX];
 
-/** True when the session has a user-given name rather than a system placeholder. */
-function isUserGivenName(name: string | null | undefined): boolean {
+/**
+ * True when auto-naming may overwrite the current name. Only the empty
+ * name (new session) and the `handoff: ` placeholder are overwritable;
+ * a generated `-> ` handoff title is terminal, so handoff sessions are
+ * auto-named exactly once — same as normal sessions.
+ */
+function isOverwritableName(name: string | null | undefined): boolean {
 	const trimmed = name?.trim();
-	if (!trimmed) return false;
-	return !SYSTEM_NAME_PREFIXES.some((p) => trimmed.startsWith(p));
+	if (!trimmed) return true;
+	return trimmed.startsWith(HANDOFF_PLACEHOLDER_PREFIX);
 }
 
-/** True when the session name starts with a system-generated prefix (not user-given). */
-function isSystemNamed(name: string | null | undefined): boolean {
-	const trimmed = name?.trim();
-	if (!trimmed) return false;
-	return SYSTEM_NAME_PREFIXES.some((p) => trimmed.startsWith(p));
+/** True when the session name is the handoff placeholder. */
+function isHandoffPlaceholder(name: string | null | undefined): boolean {
+	return Boolean(name?.trim().startsWith(HANDOFF_PLACEHOLDER_PREFIX));
 }
 
 export function SessionNamingPlugin(kit: InternalPluginAPI): void {
@@ -177,7 +178,7 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 	const session = kit.session.get();
 	const sessionId = session.id;
 	if (!sessionId) return;
-	if (isUserGivenName(session.name)) return;
+	if (!isOverwritableName(session.name)) return;
 
 	// For handoff sessions, only use post-fork messages for the title
 	// so the name reflects the handoff's purpose, not the parent's history.
@@ -218,10 +219,11 @@ async function maybeAutoNameSession(kit: InternalPluginAPI): Promise<void> {
 
 		const currentSession = kit.session.get();
 		if (currentSession.id !== sessionId) return;
-		if (isUserGivenName(currentSession.name)) return;
+		if (!isOverwritableName(currentSession.name)) return;
 
-		const wasSystemNamed = isSystemNamed(currentSession.name);
-		const finalName = wasSystemNamed ? `${AUTO_HANDOFF_PREFIX}${title}` : title;
+		const finalName = isHandoffPlaceholder(currentSession.name)
+			? `${AUTO_HANDOFF_PREFIX}${title}`
+			: title;
 		await kit.session.setName(finalName);
 	} catch (error) {
 		kit.ui.toast({

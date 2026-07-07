@@ -39,6 +39,7 @@ export type AppProps = {
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 	triggerNotification: (message: string, title?: string) => boolean;
 	quitAndDestroy: () => void;
+	registerDispose?: (dispose: () => void) => void;
 };
 
 type ReadyState = {
@@ -329,17 +330,41 @@ export function App(props: AppProps) {
 	}
 
 	const [root, setRoot] = createSignal<RootState>({ kind: "loading" });
+	let appDisposed = false;
+
+	function disposeRootState(state: RootState) {
+		if (state.kind === "ready") {
+			state.dispose();
+		}
+	}
+
+	function disposeCurrentRootState() {
+		disposeRootState(root());
+	}
+
+	function disposeAppState() {
+		appDisposed = true;
+		disposeCurrentRootState();
+	}
+
+	props.registerDispose?.(disposeAppState);
 
 	function replaceRootState(next: RootState) {
-		const previous = root();
-		if (previous.kind === "ready") {
-			previous.dispose();
+		if (appDisposed) {
+			disposeRootState(next);
+			return;
 		}
+		const previous = root();
+		disposeRootState(previous);
 		setRoot(next);
 	}
 
 	async function handleAuthenticated(providerName?: string): Promise<boolean> {
 		const next = await buildRootState();
+		if (appDisposed) {
+			disposeRootState(next);
+			return false;
+		}
 		if (next.kind === "ready") {
 			replaceRootState(next);
 			next.app.showToast({
@@ -360,15 +385,18 @@ export function App(props: AppProps) {
 
 	onMount(() => {
 		void (async () => {
-			replaceRootState(await buildRootState());
+			const next = await buildRootState();
+			if (appDisposed) {
+				disposeRootState(next);
+				return;
+			}
+			replaceRootState(next);
 		})();
 	});
 
 	onCleanup(() => {
-		const current = root();
-		if (current.kind === "ready") {
-			current.dispose();
-		}
+		disposeAppState();
+		props.registerDispose?.(() => {});
 	});
 
 	return (

@@ -10,7 +10,7 @@ import {
 } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { TRIANGLE_DOWN, TRIANGLE_RIGHT } from "../../shell/glyphs";
-import { theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import {
 	FileTreeController,
 	type FileTreeDirectoryHandle,
@@ -89,6 +89,14 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		return paths;
 	});
 
+	const hasChangedFiles = createMemo(() => changedPaths().length > 0);
+	// The changes/all-files toggle only makes sense when there is an
+	// "all files" listing to show — committed review targets pass an
+	// empty list because the filesystem reflects the working tree.
+	const canToggleTreeMode = createMemo(
+		() => hasChangedFiles() && props.allFiles.length > 0,
+	);
+
 	const changedExpandedDirs = createMemo(() => {
 		const dirs = new Set<string>();
 		for (const filePath of changedPaths()) {
@@ -102,7 +110,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	function resetTree() {
 		controllerUnsub?.();
 		controller?.destroy();
-		const mode = treeMode();
+		const mode = hasChangedFiles() ? treeMode() : "all";
 		const rawPaths = mode === "changes" ? changedPaths() : props.allFiles;
 		// FileTreeController's PathStore rejects duplicate paths; dedupe
 		// defensively in case the inputs include the same path twice.
@@ -230,10 +238,12 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	}
 
 	function toggleTreeMode() {
+		if (!canToggleTreeMode()) return;
 		setTreeMode((m) => (m === "changes" ? "all" : "changes"));
 	}
 
 	function chooseTreeMode(mode: TreeMode, event: TuiMouseEvent) {
+		if (mode === "changes" && !hasChangedFiles()) return;
 		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
@@ -268,7 +278,9 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			"review.toggle-file": toggleDir,
 			"review.expand-dir": expandDir,
 			"review.collapse-dir": collapseDir,
-			"review.toggle-tree-mode": toggleTreeMode,
+			"review.toggle-tree-mode": canToggleTreeMode()
+				? toggleTreeMode
+				: undefined,
 		},
 	}));
 
@@ -276,30 +288,34 @@ export function FileTreePanel(props: FileTreePanelProps) {
 
 	return (
 		<box flexDirection="column" height="100%">
-			{/* Mode toggle + search */}
-			<box
-				flexShrink={0}
-				paddingX={1}
-				height={1}
-				flexDirection="row"
-				justifyContent="space-between"
-				gap={1}
-			>
-				<box flexDirection="row" gap={1}>
-					<text
-						fg={treeMode() === "changes" ? theme.textPrimary : theme.textMuted}
-						onMouseDown={(event) => chooseTreeMode("changes", event)}
-					>
-						{treeMode() === "changes" ? "[changes]" : "changes"}
-					</text>
-					<text
-						fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}
-						onMouseDown={(event) => chooseTreeMode("all", event)}
-					>
-						{treeMode() === "all" ? "[all files]" : "all files"}
-					</text>
+			{/* Mode toggle */}
+			<Show when={canToggleTreeMode()}>
+				<box
+					flexShrink={0}
+					paddingX={1}
+					height={1}
+					flexDirection="row"
+					justifyContent="space-between"
+					gap={1}
+				>
+					<box flexDirection="row" gap={1}>
+						<text
+							fg={
+								treeMode() === "changes" ? theme.textPrimary : theme.textMuted
+							}
+							onMouseDown={(event) => chooseTreeMode("changes", event)}
+						>
+							{treeMode() === "changes" ? "[changes]" : "changes"}
+						</text>
+						<text
+							fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}
+							onMouseDown={(event) => chooseTreeMode("all", event)}
+						>
+							{treeMode() === "all" ? "[all files]" : "all files"}
+						</text>
+					</box>
 				</box>
-			</box>
+			</Show>
 
 			{/* Tree rows */}
 			<scrollbox
@@ -308,14 +324,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 				}}
 				flexGrow={1}
 				scrollY
-				style={{
-					scrollbarOptions: {
-						trackOptions: {
-							foregroundColor: theme.scrollbarFg,
-							backgroundColor: theme.scrollbarBg,
-						},
-					},
-				}}
+				style={scrollbarStyle()}
 			>
 				<box flexDirection="column" gap={0} width="100%">
 					<Show

@@ -1,4 +1,5 @@
 import type { BorderSides } from "@opentui/core";
+import { useRenderer } from "@opentui/solid";
 import { createSignal, For, Show } from "solid-js";
 import {
 	CHECK,
@@ -14,8 +15,15 @@ import type { BashExecutionMessage } from "./turns";
 export function BashEntry(props: {
 	msg: BashExecutionMessage;
 	noTruncate?: boolean;
+	/**
+	 * Renders without the left-border accent frame and collapsed by
+	 * default. Used in the turn activity view where entries read as flat
+	 * log lines.
+	 */
+	plain?: boolean;
 }) {
-	const [expanded, setExpanded] = createSignal(true);
+	const [expanded, setExpanded] = createSignal(!props.plain);
+	const renderer = useRenderer();
 	const output = () => props.msg.output ?? "";
 	const outputLines = () => (output().length > 0 ? output().split("\n") : []);
 	const hasOutput = () => outputLines().length > 0;
@@ -52,9 +60,9 @@ export function BashEntry(props: {
 
 	return (
 		<box
-			border={["left" as BorderSides]}
+			border={props.plain ? false : ["left" as BorderSides]}
 			borderColor={theme.toolText}
-			paddingLeft={1}
+			paddingLeft={props.plain ? 0 : 1}
 			flexDirection="column"
 			gap={0}
 			width="100%"
@@ -62,7 +70,10 @@ export function BashEntry(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				onMouseDown={() => hasOutput() && setExpanded(!expanded())}
+				onMouseDown={() => {
+					if (renderer.getSelection()?.getSelectedText()) return;
+					if (hasOutput()) setExpanded(!expanded());
+				}}
 			>
 				<Show
 					when={pending()}

@@ -44,6 +44,24 @@ const [theme, setTheme] = createStore<ThemeTokens>({
 });
 export { theme };
 
+/**
+ * Themed scrollbar options for scrollbox `style` props. Every scrollbox
+ * should use this so scrollbars look identical across surfaces.
+ *
+ * Call inside JSX (`style={scrollbarStyle()}`) so the theme store reads
+ * stay within a reactive context.
+ */
+export function scrollbarStyle() {
+	return {
+		scrollbarOptions: {
+			trackOptions: {
+				foregroundColor: theme.scrollbarFg,
+				backgroundColor: theme.scrollbarBg,
+			},
+		},
+	};
+}
+
 // ── Syntax style ────────────────────────────────────────────────────
 
 function rgba(hex: string): RGBA {

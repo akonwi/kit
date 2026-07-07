@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
@@ -9,7 +9,33 @@ import { inferFiletype } from "../../shell/filetype";
 
 export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 
-export type ReviewDiffSource = "working" | "untracked";
+export type ReviewDiffSource = "working" | "untracked" | "commit";
+
+/**
+ * What the review screen is diffing.
+ *
+ * - `working` — working tree vs HEAD plus untracked files (default).
+ * - `commit` — a single commit vs its (first) parent.
+ * - `branch` — the branch's total diff: merge-base(base, head)..head.
+ *   `head` is pinned at selection time so the diff is deterministic even
+ *   if the branch moves while the review is open.
+ *
+ * Deliberately not a history explorer: no arbitrary ranges or graphs.
+ * See docs/features/code-review-commit-targets.md.
+ */
+export type ReviewTarget =
+	| { kind: "working" }
+	| { kind: "commit"; sha: string }
+	| { kind: "branch"; base: string; head: string; mergeBase: string };
+
+export type ReviewCommitSummary = {
+	/** Full sha — canonical identifier for targets, keys, and submissions. */
+	sha: string;
+	/** Abbreviated sha for display only. */
+	shortSha: string;
+	subject: string;
+	relativeTime: string;
+};
 
 export type ReviewSkippedSection = {
 	id: string;
@@ -60,6 +86,19 @@ function tryRunGit(cwd: string | undefined, args: string[]): string | null {
 	return result.stdout;
 }
 
+/** True when the git command exits 0; for status-only checks. */
+function gitSucceeds(cwd: string | undefined, args: string[]): boolean {
+	const result = spawnSync("git", args, {
+		encoding: "utf8",
+		cwd: cwd || safeProcessCwd(),
+	});
+	return result.status === 0;
+}
+
+function getGitRepoRoot(cwd?: string): string | null {
+	return tryRunGit(cwd, ["rev-parse", "--show-toplevel"])?.trim() || null;
+}
+
 /**
  * Detect whether the current branch has a HEAD commit. An unborn branch
  * (e.g. immediately after `git init`) has no HEAD; `git diff HEAD` would
@@ -108,6 +147,216 @@ function getWorkingTreeDiff(cwd?: string): string {
 		["diff", "HEAD", ...baseArgs],
 		"Failed to read working tree diff.",
 	);
+}
+
+/** SHA of git's canonical empty tree; parent of a root commit's diff. */
+const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+
+/**
+ * Diff between two revisions. Returns empty on failure (e.g. a pruned
+ * or ambiguous sha) instead of throwing — a resource error would
+ * propagate through every downstream memo and crash the review overlay.
+ */
+function getRevisionDiff(
+	cwd: string | undefined,
+	before: string,
+	after: string,
+): string {
+	return (
+		tryRunGit(cwd, [
+			"diff",
+			before,
+			after,
+			"--no-ext-diff",
+			"--find-renames",
+			"--find-copies",
+			"--unified=3",
+			"--",
+		]) ?? ""
+	);
+}
+
+/** Diff endpoints for a committed target. */
+export function revisionsForTarget(
+	cwd: string | undefined,
+	target: ReviewTarget,
+): ReviewRevisions | null {
+	switch (target.kind) {
+		case "working":
+			return null;
+		case "commit": {
+			const parent =
+				tryRunGit(cwd, [
+					"rev-parse",
+					"--verify",
+					"--quiet",
+					`${target.sha}^`,
+				])?.trim() || EMPTY_TREE_SHA;
+			return {
+				after: target.sha,
+				before: parent,
+				key: `commit:${target.sha}`,
+			};
+		}
+		case "branch":
+			return {
+				after: target.head,
+				before: target.mergeBase,
+				key: `branch:${target.base}:${target.head}`,
+			};
+	}
+}
+
+const COMMIT_SUMMARY_FORMAT = "--format=%H%x00%h%x00%s%x00%cr";
+
+function parseCommitSummaryLine(line: string): ReviewCommitSummary | null {
+	const [sha, shortSha, subject, relativeTime] = line.split("\0");
+	if (!sha) return null;
+	return {
+		sha,
+		shortSha: shortSha || sha.slice(0, 7),
+		subject: subject ?? "",
+		relativeTime: relativeTime ?? "",
+	};
+}
+
+/** Most recent commits, newest first. Capped by design; see the doc. */
+export function listRecentCommits(
+	cwd?: string,
+	limit = 20,
+): ReviewCommitSummary[] {
+	const output = tryRunGit(cwd, ["log", `-${limit}`, COMMIT_SUMMARY_FORMAT]);
+	if (!output) return [];
+	return output
+		.split("\n")
+		.filter(Boolean)
+		.map(parseCommitSummaryLine)
+		.filter((commit): commit is ReviewCommitSummary => commit !== null);
+}
+
+/**
+ * True when `sha` is still part of HEAD's history. An amended or
+ * rebased-away commit stops being an ancestor of HEAD even though the
+ * old object survives in the reflog — this is the staleness signal for
+ * reviews drafted against a pinned commit.
+ */
+export function isAncestorOfHead(
+	cwd: string | undefined,
+	sha: string,
+): boolean {
+	return gitSucceeds(cwd, ["merge-base", "--is-ancestor", sha, "HEAD"]);
+}
+
+/** Full sha of a commit's first parent; empty-tree sha for root commits. */
+export function resolveCommitParent(
+	cwd: string | undefined,
+	sha: string,
+): string {
+	return (
+		tryRunGit(cwd, ["rev-parse", "--verify", "--quiet", `${sha}^`])?.trim() ||
+		EMPTY_TREE_SHA
+	);
+}
+
+/** Current branch name, or null when detached/unavailable. */
+export function getCurrentBranch(cwd?: string): string | null {
+	const name = tryRunGit(cwd, ["rev-parse", "--abbrev-ref", "HEAD"])?.trim();
+	if (!name || name === "HEAD") return null;
+	return name;
+}
+
+/** Full sha of the merge base of two refs, or null when unrelated. */
+export function getMergeBase(
+	cwd: string | undefined,
+	a: string,
+	b: string,
+): string | null {
+	return tryRunGit(cwd, ["merge-base", a, b])?.trim() || null;
+}
+
+/**
+ * Default base for branch diffs: the local default branch (`main`, then
+ * `master`, then whatever local branch the remote's default points at),
+ * falling back to the remote-tracking ref only when no local branch
+ * exists. Local-first keeps the diff anchored to what's checked out on
+ * this machine rather than the remote's state. Returns null when nothing
+ * resolves or the base is the current commit (nothing to diff).
+ */
+export function resolveDefaultBranchBase(cwd?: string): string | null {
+	const originHead = tryRunGit(cwd, [
+		"symbolic-ref",
+		"--quiet",
+		"refs/remotes/origin/HEAD",
+	])
+		?.trim()
+		.replace("refs/remotes/", "");
+	// The local branch name the remote default points at (origin/main -> main).
+	const originHeadLocal = originHead?.replace(/^origin\//, "");
+	const seen = new Set<string>();
+	const candidates = [originHeadLocal, "main", "master", originHead].filter(
+		(value): value is string => {
+			if (!value || seen.has(value)) return false;
+			seen.add(value);
+			return true;
+		},
+	);
+	const headSha = tryRunGit(cwd, ["rev-parse", "HEAD"])?.trim();
+	for (const candidate of candidates) {
+		const sha = tryRunGit(cwd, [
+			"rev-parse",
+			"--verify",
+			"--quiet",
+			`${candidate}^{commit}`,
+		])?.trim();
+		if (!sha) continue;
+		if (headSha && sha === headSha) continue;
+		return candidate;
+	}
+	return null;
+}
+
+export type ReviewBranchSummary = {
+	name: string;
+	relativeTime: string;
+};
+
+/**
+ * Local branches by recency of their last commit, excluding the current
+ * branch. Candidates for the branch-diff base.
+ */
+export function listLocalBranches(cwd?: string): ReviewBranchSummary[] {
+	const current = getCurrentBranch(cwd);
+	const output = tryRunGit(cwd, [
+		"for-each-ref",
+		"refs/heads",
+		"--sort=-committerdate",
+		"--format=%(refname:short)%00%(committerdate:relative)",
+	]);
+	if (!output) return [];
+	return output
+		.split("\n")
+		.filter(Boolean)
+		.map((line) => {
+			const [name, relativeTime] = line.split("\0");
+			return { name: name ?? "", relativeTime: relativeTime ?? "" };
+		})
+		.filter((branch) => branch.name.length > 0 && branch.name !== current);
+}
+
+/** Resolve a ref to its commit summary, or null when it doesn't exist. */
+export function resolveCommit(
+	cwd: string | undefined,
+	ref: string,
+): ReviewCommitSummary | null {
+	const output = tryRunGit(cwd, [
+		"log",
+		"-1",
+		COMMIT_SUMMARY_FORMAT,
+		ref,
+		"--",
+	]);
+	if (!output?.trim()) return null;
+	return parseCommitSummaryLine(output.trim());
 }
 
 function getUntrackedDiff(cwd?: string): string {
@@ -205,11 +454,23 @@ function readGitRevisionLines(
 	return splitFileLines(output);
 }
 
+/** Endpoints of a committed diff (commit-vs-parent or branch range). */
+export type ReviewRevisions = {
+	/** Revision holding the "after" side of the diff. */
+	after: string;
+	/** Revision holding the "before" side of the diff. */
+	before: string;
+	/** Stable draft-scoping key, e.g. `commit:<sha>` or `branch:<base>:<head>`. */
+	key: string;
+};
+
 function loadDisplayLines(options: {
 	cwd?: string;
 	repoRoot: string;
 	file: FileDiffMetadata;
 	source: ReviewDiffSource;
+	/** Diff endpoints when source is "commit". */
+	revisions?: ReviewRevisions;
 }): string[] {
 	const beforePath = options.file.prevName ?? options.file.name;
 	const afterPath = options.file.name;
@@ -228,6 +489,21 @@ function loadDisplayLines(options: {
 		}
 		case "untracked":
 			return readWorkingTreeLines(options.repoRoot, afterPath) ?? [];
+		case "commit": {
+			const revisions = options.revisions;
+			if (!revisions) return [];
+			// Read the revision snapshots, never the working tree — the
+			// filesystem may have moved on since these commits.
+			const afterLines =
+				options.file.type === "deleted"
+					? null
+					: readGitRevisionLines(options.cwd, revisions.after, afterPath);
+			const beforeLines =
+				options.file.type === "new"
+					? null
+					: readGitRevisionLines(options.cwd, revisions.before, beforePath);
+			return afterLines ?? beforeLines ?? [];
+		}
 	}
 }
 
@@ -422,9 +698,18 @@ function fileToReviewFile(
 		repoRoot: string;
 		source: ReviewDiffSource;
 		includeSkippedSections: boolean;
+		/** Diff endpoints when source is "commit". */
+		revisions?: ReviewRevisions;
 	},
 ): ReviewFile {
-	const noteKey = `${options.source}:${file.prevName ?? ""}->${file.name}`;
+	// Committed-diff notes are scoped by their revision key so drafts on
+	// different targets never collide
+	// (see docs/features/code-review-commit-targets.md).
+	const sourceKey =
+		options.source === "commit" && options.revisions
+			? options.revisions.key
+			: options.source;
+	const noteKey = `${sourceKey}:${file.prevName ?? ""}->${file.name}`;
 	const rawHunks = splitRawPatchIntoHunks(rawPatch);
 	const hunks = file.hunks.map((hunk, hunkIndex) =>
 		hunkToReviewHunk(
@@ -447,6 +732,7 @@ function fileToReviewFile(
 					repoRoot: options.repoRoot,
 					file,
 					source: options.source,
+					revisions: options.revisions,
 				}),
 			)
 		: [];
@@ -490,21 +776,29 @@ function yieldToRenderer(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
+export async function loadReviewFiles(
+	cwd?: string,
+	target: ReviewTarget = { kind: "working" },
+): Promise<ReviewFile[]> {
 	await yieldToRenderer();
-	const working = getWorkingTreeDiff(cwd);
-	const untracked = getUntrackedDiff(cwd);
-	const patchSets = [
-		parseReviewPatchSet(working, "working"),
-		parseReviewPatchSet(untracked, "untracked"),
-	].filter((value): value is ReviewPatchSet => value !== null);
+	const repoRoot = getGitRepoRoot(cwd);
+	if (!repoRoot) return [];
+	const revisions = revisionsForTarget(cwd, target);
+	const patchSets = (
+		revisions
+			? [
+					parseReviewPatchSet(
+						getRevisionDiff(cwd, revisions.before, revisions.after),
+						"commit",
+					),
+				]
+			: [
+					parseReviewPatchSet(getWorkingTreeDiff(cwd), "working"),
+					parseReviewPatchSet(getUntrackedDiff(cwd), "untracked"),
+				]
+	).filter((value): value is ReviewPatchSet => value !== null);
 	if (patchSets.length === 0) return [];
 
-	const repoRoot = runGit(
-		cwd,
-		["rev-parse", "--show-toplevel"],
-		"Failed to resolve repository root.",
-	).trim();
 	const totalFileCount = patchSets.reduce(
 		(count, patchSet) => count + patchSet.files.length,
 		0,
@@ -524,6 +818,7 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 						repoRoot,
 						source: patchSet.source,
 						includeSkippedSections,
+						revisions: revisions ?? undefined,
 					},
 				),
 			);
@@ -532,19 +827,51 @@ export async function loadReviewFiles(cwd?: string): Promise<ReviewFile[]> {
 	return reviewFiles;
 }
 
-/** Resolve the git repository root for the given working directory. */
+/** Resolve the project root for the given working directory. */
 export function getRepoRoot(cwd?: string): string {
-	return runGit(
-		cwd,
-		["rev-parse", "--show-toplevel"],
-		"Failed to resolve repository root.",
-	).trim();
+	return getGitRepoRoot(cwd) ?? (cwd || safeProcessCwd());
 }
 
-/** List all tracked files in the repo via `git ls-files`. */
+const FILE_LIST_IGNORED_DIRS = new Set([
+	".git",
+	"node_modules",
+	".next",
+	"dist",
+	"build",
+	"out",
+]);
+
+function listDirectoryFiles(root: string): string[] {
+	const files: string[] = [];
+	function visit(dir: string) {
+		let entries: Dirent[];
+		try {
+			entries = readdirSync(dir, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const entry of entries) {
+			const absolutePath = path.join(dir, entry.name);
+			const relativePath = path
+				.relative(root, absolutePath)
+				.replace(/\\/g, "/");
+			if (entry.isDirectory()) {
+				if (!FILE_LIST_IGNORED_DIRS.has(entry.name)) visit(absolutePath);
+				continue;
+			}
+			if (entry.isFile()) files.push(relativePath);
+		}
+	}
+	visit(root);
+	return files;
+}
+
+/** List project files, using git when available and the filesystem otherwise. */
 export function listRepoFiles(cwd?: string): string[] {
+	const effectiveCwd = cwd || safeProcessCwd();
+	if (!getGitRepoRoot(cwd)) return listDirectoryFiles(effectiveCwd);
 	const result = spawnSync("git", ["ls-files", "--full-name"], {
-		cwd: cwd || safeProcessCwd(),
+		cwd: effectiveCwd,
 		encoding: "utf8",
 		maxBuffer: 10 * 1024 * 1024,
 	});

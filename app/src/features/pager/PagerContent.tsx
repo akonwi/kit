@@ -7,7 +7,7 @@ import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { syntaxStyle, theme } from "../../shell/theme";
+import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
 import type { PagerController } from "./pager-controller";
 
 const EDIT_PREFIX_BINDINGS: Binding[] = [
@@ -191,14 +191,7 @@ export function PagerContent(props: PagerContentProps) {
 					stickyStart="top"
 					paddingX={2}
 					paddingY={1}
-					style={{
-						scrollbarOptions: {
-							trackOptions: {
-								foregroundColor: theme.scrollbarFg,
-								backgroundColor: theme.scrollbarBg,
-							},
-						},
-					}}
+					style={scrollbarStyle()}
 				>
 					<box flexDirection="column" width="100%">
 						<Show when={pager.currentSection?.sectionTitle}>

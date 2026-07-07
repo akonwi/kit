@@ -1,4 +1,5 @@
 import type {
+	CodeReviewCommitRef,
 	CodeReviewFileComment,
 	CodeReviewMessagePart,
 	MessagePart,
@@ -10,6 +11,8 @@ import { PENCIL } from "../../shell/glyphs";
 export type CodeReviewSubmission = {
 	submittedAt: string;
 	files: CodeReviewFileComment[];
+	/** Present when the review targets a commit instead of the working tree. */
+	commit?: CodeReviewCommitRef;
 };
 
 export class CodeReviewAttachment implements Attachment {
@@ -26,7 +29,9 @@ export class CodeReviewAttachment implements Attachment {
 				sum + (file.fileComment.trim().length > 0 ? 1 : 0) + file.ranges.length,
 			0,
 		);
-		this.summary = `Code review · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${review.files.length} file${review.files.length === 1 ? "" : "s"}`;
+		// Shas are stored full-length; shorten for the chip label.
+		const scope = review.commit ? ` · ${review.commit.sha.slice(0, 7)}` : "";
+		this.summary = `Code review${scope} · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${review.files.length} file${review.files.length === 1 ? "" : "s"}`;
 	}
 
 	toMessagePart(): MessagePart {

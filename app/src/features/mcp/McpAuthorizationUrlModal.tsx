@@ -4,7 +4,7 @@ import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { Dialog } from "../../shell/Dialog";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
-import { theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 
 export type McpAuthorizationUrlModalProps = {
 	serverName: string;
@@ -48,18 +48,7 @@ export function McpAuthorizationUrlModal(props: McpAuthorizationUrlModalProps) {
 				<text fg={theme.textMuted}>
 					{`Kit could not open a browser for ${props.serverName}. Open this URL manually, then press Enter to continue.`}
 				</text>
-				<scrollbox
-					flexGrow={1}
-					scrollY
-					style={{
-						scrollbarOptions: {
-							trackOptions: {
-								foregroundColor: theme.scrollbarFg,
-								backgroundColor: theme.scrollbarBg,
-							},
-						},
-					}}
-				>
+				<scrollbox flexGrow={1} scrollY style={scrollbarStyle()}>
 					<box width="100%" backgroundColor={theme.bg} paddingX={1}>
 						<text fg={theme.textSecondary}>{url()}</text>
 					</box>
