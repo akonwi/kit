@@ -103,6 +103,12 @@ const PATCH_FOCUSED_RENDER_HUNK_LIMIT = 40;
 const PATCH_FOCUSED_RENDER_LINE_LIMIT = 800;
 const PATCH_WINDOW_HUNK_LIMIT = 12;
 const PATCH_WINDOW_LINE_LIMIT = 800;
+/**
+ * How close (in lines) the selection may get to a patch window's edge
+ * before the window re-centers. Larger margin = fewer re-centers but
+ * less lookahead context near the edges.
+ */
+const PATCH_WINDOW_EDGE_MARGIN = 40;
 
 type RangeAnchor = {
 	side: ReviewSide;
@@ -276,7 +282,11 @@ function lineNumberWidthForHunk(hunk: ReviewHunk): number {
  * section, so gutters align vertically across the whole file instead of
  * each block sizing to its own max line number.
  */
+const lineNumberWidthCache = new WeakMap<ReviewFile, number>();
+
 function lineNumberWidthForFile(file: ReviewFile): number {
+	const cached = lineNumberWidthCache.get(file);
+	if (cached !== undefined) return cached;
 	let width = 1;
 	for (const hunk of file.hunks) {
 		width = Math.max(width, lineNumberWidthForHunk(hunk));
@@ -288,6 +298,7 @@ function lineNumberWidthForFile(file: ReviewFile): number {
 			1;
 		width = Math.max(width, String(Math.max(1, end)).length);
 	}
+	lineNumberWidthCache.set(file, width);
 	return width;
 }
 
@@ -926,6 +937,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	});
 
+	// Windowed-hunk cache entries root their source hunks (and lazily
+	// materialized lines); drop them wholesale whenever the diff reloads.
+	createEffect(() => {
+		reviewFiles();
+		patchWindowCache.clear();
+	});
+
 	createEffect(() => {
 		const list = reviewFiles();
 		if (list.length === 0) {
@@ -1448,6 +1466,19 @@ export function ReviewContent(props: ReviewContentProps) {
 		return hunk.lines.length;
 	}
 
+	/**
+	 * Cache of windowed hunks keyed by hunk id. A windowed hunk is a
+	 * fresh object; <For> keys by reference, so returning a new one per
+	 * keystroke would tear down and rebuild the focused block's rows
+	 * (syntax highlighting, wrap measurement) on every selection move.
+	 * The window is kept until the selection nears its edge (hysteresis)
+	 * and the same object is reused while the bounds are unchanged.
+	 */
+	const patchWindowCache = new Map<
+		string,
+		{ source: ReviewHunk; start: number; end: number; windowed: ReviewHunk }
+	>();
+
 	function getPatchWindowHunk(
 		hunk: ReviewHunk,
 		forceWindow: boolean,
@@ -1455,17 +1486,50 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (!forceWindow || hunk.patchLineCount <= PATCH_WINDOW_LINE_LIMIT)
 			return hunk;
 		const sourceOffset = hunk.lineIndexOffset ?? 0;
-		const selectedLineIndex =
-			selectedLineIndices().get(hunk.id) ?? sourceOffset;
+		// selectedLineIndices stores positions in the *commentable-lines*
+		// array (context lines filtered out), not hunk.lines. Map to the
+		// selected line's true hunk.lines position via its `.index` before
+		// comparing against window bounds — otherwise interleaved context
+		// drift lets the cursor walk outside the frozen window unseen.
+		const commentable = getCommentableLines(
+			hunk,
+			rangeAnchor()?.side,
+			diffView(),
+		);
+		const storedIndex = selectedLineIndices().get(hunk.id) ?? 0;
+		const clampedIndex = Math.max(
+			0,
+			Math.min(commentable.length - 1, storedIndex),
+		);
+		const relativeIndex = Math.max(
+			0,
+			(commentable[clampedIndex]?.index ?? 0) - sourceOffset,
+		);
+
+		const cached = patchWindowCache.get(hunk.id);
+		if (cached && cached.source === hunk) {
+			// Keep the current window while the selection stays comfortably
+			// inside it; only re-center when it approaches an edge.
+			const safeStart =
+				cached.start === 0 ? 0 : cached.start + PATCH_WINDOW_EDGE_MARGIN;
+			const safeEnd =
+				cached.end >= hunk.lines.length
+					? cached.end
+					: cached.end - PATCH_WINDOW_EDGE_MARGIN;
+			if (relativeIndex >= safeStart && relativeIndex < safeEnd) {
+				return cached.windowed;
+			}
+		}
+
 		const halfWindow = Math.floor(PATCH_WINDOW_LINE_LIMIT / 2);
 		const maxStart = Math.max(0, hunk.lines.length - PATCH_WINDOW_LINE_LIMIT);
-		const start = Math.max(
-			0,
-			Math.min(maxStart, selectedLineIndex - sourceOffset - halfWindow),
-		);
+		const start = Math.max(0, Math.min(maxStart, relativeIndex - halfWindow));
 		const end = Math.min(hunk.lines.length, start + PATCH_WINDOW_LINE_LIMIT);
+		if (cached && cached.source === hunk && cached.start === start) {
+			return cached.windowed;
+		}
 		const lines = hunk.lines.slice(start, end);
-		return {
+		const windowed: ReviewHunk = {
 			...hunk,
 			lines,
 			lineIndexOffset: sourceOffset + start,
@@ -1473,6 +1537,8 @@ export function ReviewContent(props: ReviewContentProps) {
 			changeCount: lines.filter((line) => line.kind !== "context").length,
 			patchLineCount: lines.length,
 		};
+		patchWindowCache.set(hunk.id, { source: hunk, start, end, windowed });
+		return windowed;
 	}
 
 	function getFocusedPatchWindow(file: ReviewFile) {

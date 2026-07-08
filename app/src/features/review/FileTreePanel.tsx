@@ -55,6 +55,47 @@ function buildStatusColorMap(files: ReviewFile[]): Map<string, string> {
 	return map;
 }
 
+/** Field-wise equality for tree rows, enabling structural sharing. */
+function visibleRowsEqual(
+	a: FileTreeVisibleRow,
+	b: FileTreeVisibleRow,
+): boolean {
+	if (
+		a.path !== b.path ||
+		a.name !== b.name ||
+		a.kind !== b.kind ||
+		a.depth !== b.depth ||
+		a.level !== b.level ||
+		a.index !== b.index ||
+		a.posInSet !== b.posInSet ||
+		a.setSize !== b.setSize ||
+		a.hasChildren !== b.hasChildren ||
+		a.isFocused !== b.isFocused ||
+		a.isSelected !== b.isSelected ||
+		a.isExpanded !== b.isExpanded ||
+		a.isFlattened !== b.isFlattened
+	) {
+		return false;
+	}
+	if (a.ancestorPaths.length !== b.ancestorPaths.length) return false;
+	for (let i = 0; i < a.ancestorPaths.length; i++) {
+		if (a.ancestorPaths[i] !== b.ancestorPaths[i]) return false;
+	}
+	const aSegments = a.flattenedSegments ?? [];
+	const bSegments = b.flattenedSegments ?? [];
+	if (aSegments.length !== bSegments.length) return false;
+	for (let i = 0; i < aSegments.length; i++) {
+		if (
+			aSegments[i].path !== bSegments[i].path ||
+			aSegments[i].name !== bSegments[i].name ||
+			aSegments[i].isTerminal !== bSegments[i].isTerminal
+		) {
+			return false;
+		}
+	}
+	return true;
+}
+
 function isDirectoryHandle(
 	item: FileTreeItemHandle,
 ): item is FileTreeDirectoryHandle {
@@ -183,12 +224,26 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		}
 	});
 
+	// The controller emits fresh row objects on every change (including
+	// plain focus moves). <For> keys by reference, so without structural
+	// sharing every keypress would tear down and rebuild every visible
+	// row's nodes — reuse the previous object when a row is unchanged so
+	// only the rows that actually changed re-render.
+	let previousRowsByPath = new Map<string, FileTreeVisibleRow>();
 	const visibleRows = createMemo<FileTreeVisibleRow[]>(() => {
 		treeVersion();
 		if (!controller) return [];
 		const count = controller.getVisibleCount();
-		if (count === 0) return [];
-		return [...controller.getVisibleRows(0, count - 1)];
+		if (count === 0) {
+			previousRowsByPath = new Map();
+			return [];
+		}
+		const rows = [...controller.getVisibleRows(0, count - 1)].map((row) => {
+			const previous = previousRowsByPath.get(row.path);
+			return previous && visibleRowsEqual(previous, row) ? previous : row;
+		});
+		previousRowsByPath = new Map(rows.map((row) => [row.path, row]));
+		return rows;
 	});
 
 	// ── Actions ───────────────────────────────────────────────────
