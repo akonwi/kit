@@ -186,16 +186,40 @@ async function writePluginSdkShim(outdir: string): Promise<string> {
 	return shimPath;
 }
 
-async function installPluginDependencies(pluginDir: string): Promise<void> {
-	if (!existsSync(path.join(pluginDir, "package.json"))) return;
-	const pm = Bun.which("bun") ? "bun" : Bun.which("npm") ? "npm" : null;
-	if (!pm) {
-		throw new Error(
-			`Cannot install plugin dependencies in ${pluginDir}: neither bun nor npm found in PATH.`,
-		);
-	}
-	const proc = Bun.spawn([pm, "install"], {
+type InstallCommand = {
+	argv: string[];
+	env?: Record<string, string | undefined>;
+};
+
+/**
+ * Commands to try for installing plugin dependencies, in order.
+ *
+ * Kit ships as a compiled Bun binary (Homebrew, GitHub releases), so
+ * users may have neither bun nor npm installed. Bun's BUN_BE_BUN escape
+ * hatch makes the kit executable behave as the plain `bun` CLI, letting
+ * kit install plugin dependencies with its own embedded runtime. This
+ * also works in dev, where process.execPath is a real bun. PATH lookups
+ * remain as fallbacks.
+ */
+function installCommandCandidates(): InstallCommand[] {
+	const candidates: InstallCommand[] = [
+		{
+			argv: [process.execPath, "install"],
+			env: { ...process.env, BUN_BE_BUN: "1" },
+		},
+	];
+	if (Bun.which("bun")) candidates.push({ argv: ["bun", "install"] });
+	if (Bun.which("npm")) candidates.push({ argv: ["npm", "install"] });
+	return candidates;
+}
+
+async function runInstallCommand(
+	command: InstallCommand,
+	pluginDir: string,
+): Promise<{ ok: boolean; details: string }> {
+	const proc = Bun.spawn(command.argv, {
 		cwd: pluginDir,
+		env: command.env,
 		stdout: "pipe",
 		stderr: "pipe",
 	});
@@ -204,14 +228,29 @@ async function installPluginDependencies(pluginDir: string): Promise<void> {
 		new Response(proc.stdout).text(),
 		new Response(proc.stderr).text(),
 	]);
-	if (exitCode !== 0) {
-		const details = [stderrText.trim(), stdoutText.trim()]
-			.filter(Boolean)
-			.join("\n");
-		throw new Error(
-			`Failed to install plugin dependencies in ${pluginDir}${details ? `:\n${details}` : "."}`,
-		);
+	const details = [stderrText.trim(), stdoutText.trim()]
+		.filter(Boolean)
+		.join("\n");
+	return { ok: exitCode === 0, details };
+}
+
+async function installPluginDependencies(pluginDir: string): Promise<void> {
+	if (!existsSync(path.join(pluginDir, "package.json"))) return;
+	const failures: string[] = [];
+	for (const command of installCommandCandidates()) {
+		try {
+			const result = await runInstallCommand(command, pluginDir);
+			if (result.ok) return;
+			failures.push(`${command.argv.join(" ")}:\n${result.details}`);
+		} catch (error) {
+			failures.push(`${command.argv.join(" ")}: ${formatError(error)}`);
+		}
 	}
+	throw new Error(
+		`Failed to install plugin dependencies in ${pluginDir}${
+			failures.length > 0 ? `:\n${failures.join("\n")}` : "."
+		}`,
+	);
 }
 
 function bundleFailureMessage(result: Bun.BuildOutput): string {

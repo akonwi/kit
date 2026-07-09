@@ -37,7 +37,7 @@ project/.kit/plugins/
   project-plugin.ts
 ```
 
-Kit automatically installs dependencies for each plugin directory before bundling. It uses `bun install` when the `bun` CLI is available and falls back to `npm install` otherwise.
+Kit automatically installs dependencies for each plugin directory before bundling. It installs with its own embedded Bun runtime (the kit executable re-invoked as the `bun` CLI via `BUN_BE_BUN=1`), so no separate bun or npm installation is required — including for compiled-binary installs such as Homebrew. If the embedded install fails, kit falls back to `bun install` and then `npm install` from PATH.
 
 Kit bundles each plugin from its absolute file path before loading it, so package imports resolve from the plugin file's directory and then walk up through normal Bun/Node module resolution. This lets user and project plugins depend on packages that Kit itself does not ship.
 
