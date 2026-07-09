@@ -57,6 +57,45 @@ Use this skill to publish a new Kit package release.
      bump: x.x.x
      ```
    - Replace `x.x.x` with the version that was published.
+   - Push the bump commit to `origin/main`.
 
-8. Report the result.
-   - Include the published version, release type, validation commands, and bump commit hash.
+8. Tag the release to trigger the binary build.
+   - Tag the bump commit and push the tag:
+     ```sh
+     git tag vx.x.x
+     git push origin vx.x.x
+     ```
+   - The tag push triggers `.github/workflows/release.yml`, which builds
+     the compiled binary on four platforms (darwin/linux × arm64/amd64)
+     and attaches `kit_vx.x.x_<platform>.tar.gz` tarballs to a GitHub
+     release.
+   - Wait for the workflow to finish, for example:
+     ```sh
+     gh run list --workflow=release.yml --limit 1
+     gh run watch <run-id> --exit-status
+     ```
+   - Verify all four assets exist:
+     ```sh
+     gh release view vx.x.x --json assets -q '.assets[].name'
+     ```
+
+9. Update the Homebrew formula in `../homebrew-tap`.
+   - Compute the sha256 of each release tarball:
+     ```sh
+     for p in darwin_arm64 darwin_amd64 linux_arm64 linux_amd64; do
+       curl -sL "https://github.com/akonwi/kit/releases/download/vx.x.x/kit_vx.x.x_${p}.tar.gz" | shasum -a 256
+     done
+     ```
+   - In `../homebrew-tap/Formula/kit.rb`, update the `version`, the four
+     `url` values, the four `sha256` values, and the version asserted in
+     the `test` block.
+   - Commit in the tap repo with the subject `kit x.x.x` and push.
+   - Verify the install:
+     ```sh
+     brew update && brew upgrade akonwi/tap/kit && brew test kit
+     ```
+
+10. Report the result.
+    - Include the published version, release type, validation commands,
+      bump commit hash, release tag, and the tap commit updating the
+      formula.
