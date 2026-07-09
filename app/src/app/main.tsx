@@ -1,17 +1,23 @@
 import { parseArgs } from "node:util";
 
-const { positionals } = parseArgs({
+const { positionals, values } = parseArgs({
 	args: process.argv.slice(2),
 	options: {
 		session: { type: "string", short: "s" },
+		version: { type: "boolean", short: "v" },
 	},
 	strict: false,
 	allowPositionals: true,
 });
 
-const subcommand = positionals[0];
+const subcommand = values.version === true ? "version" : positionals[0];
 
 switch (subcommand) {
+	case "version": {
+		const { version } = await import("../../package.json");
+		console.log(`kit v${version}`);
+		break;
+	}
 	case "threads": {
 		const { showThreadPicker } = await import("./threads");
 		const sessionId = await showThreadPicker();

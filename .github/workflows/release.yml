@@ -1,0 +1,83 @@
+name: Release binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            platform: darwin_arm64
+          - os: macos-13
+            platform: darwin_amd64
+          - os: ubuntu-24.04-arm
+            platform: linux_arm64
+          - os: ubuntu-latest
+            platform: linux_amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        working-directory: app
+        run: |
+          PKG_VERSION=$(bun -e "console.log(require('./package.json').version)")
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Build binary
+        working-directory: app
+        run: bun run build
+
+      - name: Smoke test
+        working-directory: app
+        run: ./dist/kit version
+
+      - name: Package tarball
+        run: |
+          tar -czf "kit_${GITHUB_REF_NAME}_${{ matrix.platform }}.tar.gz" -C app/dist kit runtime
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-${{ matrix.platform }}
+          path: kit_*.tar.gz
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            artifacts/*.tar.gz
