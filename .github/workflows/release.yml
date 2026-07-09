@@ -17,7 +17,9 @@ jobs:
         include:
           - os: macos-14
             platform: darwin_arm64
-          - os: macos-13
+          # macos-13 (Intel) runners are retired; macos-15-intel is the
+          # supported Intel label through 2027.
+          - os: macos-15-intel
             platform: darwin_amd64
           - os: ubuntu-24.04-arm
             platform: linux_arm64
