@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { getKitPaths } from "../paths";
+import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { ExternalPluginRegistration } from "./PluginManager";
 import type { Plugin } from "./types";
 
@@ -186,6 +187,31 @@ async function writePluginSdkShim(outdir: string): Promise<string> {
 	return shimPath;
 }
 
+/**
+ * Resolve the runtime module backing @akonwi/kit/plugin imports.
+ *
+ * Compiled-binary installs (Homebrew, GitHub releases) have no
+ * node_modules anywhere above the executable, so the build ships a
+ * self-contained SDK bundle in the runtime assets directory next to
+ * the binary. Dev checkouts fall back to a shim pointing at the
+ * repo's typebox dependency.
+ */
+async function findPluginSdkEntry(outdir: string): Promise<string> {
+	// Only trust the installed runtime dir when actually running as the
+	// compiled kit binary. In dev, process.execPath is the real bun
+	// executable — a stray runtime/ directory next to it must not shadow
+	// the repo's typebox dependency.
+	const execName = path.basename(process.execPath);
+	if (execName === "kit") {
+		const runtimeDir = getInstalledRuntimeDir();
+		if (runtimeDir) {
+			const bundled = path.join(runtimeDir, "kit-plugin-sdk.mjs");
+			if (existsSync(bundled)) return bundled;
+		}
+	}
+	return writePluginSdkShim(outdir);
+}
+
 type InstallCommand = {
 	argv: string[];
 	env?: Record<string, string | undefined>;
@@ -290,7 +316,7 @@ async function bundlePlugin(
 				name: "kit-plugin-sdk",
 				setup(build) {
 					build.onResolve({ filter: /^@akonwi\/kit\/plugin$/ }, async () => {
-						pluginSdkShim ??= await writePluginSdkShim(outdir);
+						pluginSdkShim ??= await findPluginSdkEntry(outdir);
 						return { path: pluginSdkShim };
 					});
 				},

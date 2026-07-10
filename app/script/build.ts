@@ -119,6 +119,37 @@ if (bundledWasm) {
 	await fs.promises.writeFile(bundledWorkerPath, patchedWorkerSource, "utf8");
 }
 
+// Bundle the plugin SDK runtime (typebox inlined) into the runtime
+// assets. Compiled-binary installs (Homebrew, GitHub releases) have no
+// node_modules on disk, so plugins importing @akonwi/kit/plugin resolve
+// against this self-contained module instead.
+const sdkEntryPath = path.join(distDir, ".plugin-sdk-entry.ts");
+await fs.promises.writeFile(
+	sdkEntryPath,
+	'export { Type } from "typebox";\n',
+	"utf8",
+);
+let sdkBundle: Awaited<ReturnType<typeof Bun.build>>;
+try {
+	sdkBundle = await Bun.build({
+		entrypoints: [sdkEntryPath],
+		outdir: runtimeDir,
+		naming: "kit-plugin-sdk.mjs",
+		target: "bun",
+		format: "esm",
+	});
+} finally {
+	// dist/ is published wholesale — never leave the temp entry behind.
+	await fs.promises.rm(sdkEntryPath, { force: true });
+}
+if (!sdkBundle.success) {
+	console.error("Plugin SDK bundle failed:");
+	for (const log of sdkBundle.logs) {
+		console.error(" ", log);
+	}
+	process.exit(1);
+}
+
 await fs.promises.cp(coreAssetsPath, path.join(runtimeDir, "assets"), {
 	recursive: true,
 });
