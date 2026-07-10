@@ -8,20 +8,22 @@ import type {
 	UserMultipartMessage,
 } from "../../messages/parts";
 import type { UserMessage } from "../../runtime/agent";
-import { PENCIL } from "../glyphs";
+import { CHEVRON_RIGHT, PENCIL } from "../glyphs";
 import { syntaxStyle, theme } from "../theme";
 import {
 	extractPromptCommandSynthetic,
 	extractUserCustomParts,
 	extractUserText,
 } from "./turns";
-import type { TranscriptToast } from "./types";
+import type { OpenReviewAttachment, TranscriptToast } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
 function CodeReviewPartEntry(props: {
 	part: CodeReviewMessagePart;
+	sourceId: string;
 	aborted?: boolean;
+	openReviewAttachment: OpenReviewAttachment;
 }) {
 	const review = props.part.review;
 	const fileCount = review.files.length;
@@ -40,12 +42,20 @@ function CodeReviewPartEntry(props: {
 			flexDirection="column"
 			gap={0}
 			width="100%"
+			onMouseUp={() => {
+				if (props.aborted) return;
+				props.openReviewAttachment({
+					kind: "historical",
+					id: props.sourceId,
+					review: props.part.review,
+				});
+			}}
 		>
 			<text
 				fg={props.aborted ? theme.textMuted : theme.attachmentText}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
 			>
-				{PENCIL} {summary}
+				{PENCIL} {summary} {CHEVRON_RIGHT}
 			</text>
 		</box>
 	);
@@ -128,8 +138,10 @@ function PromptCommandEntry(props: {
 
 export function UserEntry(props: {
 	msg: UserMessage | UserMultipartMessage;
+	sourceId: string;
 	aborted?: boolean;
 	showToast: (toast: TranscriptToast) => void;
+	openReviewAttachment: OpenReviewAttachment;
 }) {
 	const promptCommand = extractPromptCommandSynthetic(props.msg);
 	const text = extractUserText(props.msg);
@@ -153,11 +165,16 @@ export function UserEntry(props: {
 				)}
 			</Show>
 			<For each={parts}>
-				{(part) => {
+				{(part, index) => {
 					switch (part.type) {
 						case "code-review":
 							return (
-								<CodeReviewPartEntry part={part} aborted={props.aborted} />
+								<CodeReviewPartEntry
+									part={part}
+									sourceId={`${props.sourceId}:${index()}`}
+									aborted={props.aborted}
+									openReviewAttachment={props.openReviewAttachment}
+								/>
 							);
 						case "image":
 							return (

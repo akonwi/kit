@@ -177,6 +177,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 										showToast={props.showToast}
 										runtime={props.runtime}
 										openActivity={props.openActivity}
+										openReviewAttachment={props.openReviewAttachment}
 									/>
 								</>
 							);

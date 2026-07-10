@@ -8,6 +8,13 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
+import { CodeReviewAttachment } from "../features/review/attachment";
+import {
+	ReviewAttachmentDialog,
+	ReviewAttachmentSidebar,
+	type ReviewAttachmentSource,
+	reviewAttachmentSourceEquals,
+} from "../features/review/ReviewAttachmentViewer";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import {
 	SCRATCHPAD_FRACTION,
@@ -55,6 +62,7 @@ const ACTIVITY_SIDEBAR_FRACTION = 0.4;
 
 type RightPanel =
 	| { kind: "activity"; source: ActivitySource }
+	| { kind: "review"; source: ReviewAttachmentSource }
 	| { kind: "scratchpad" }
 	| null;
 
@@ -138,6 +146,23 @@ function AppShellContent(props: AppShellContentProps) {
 			? panel.source
 			: null;
 	};
+	const reviewSidebarSource = () => {
+		const panel = rightPanel();
+		return panel?.kind === "review" && activityWideEnough()
+			? panel.source
+			: null;
+	};
+	const resolveReviewSource = (source: ReviewAttachmentSource) => {
+		if (source.kind === "historical") {
+			return { draft: false, review: source.review };
+		}
+		const attachment = props.attachments
+			.attachments()
+			.find((candidate) => candidate.id === source.attachmentId);
+		return attachment instanceof CodeReviewAttachment
+			? { draft: true, review: attachment.review }
+			: null;
+	};
 	const scratchpadOpen = () =>
 		rightPanel()?.kind === "scratchpad" && scratchpadWideEnough();
 	const sidebarWidth = () =>
@@ -154,7 +179,10 @@ function AppShellContent(props: AppShellContentProps) {
 	createEffect(() => {
 		const panel = rightPanel();
 		if (!panel) return;
-		if (panel.kind === "activity" && !activityWideEnough()) {
+		if (
+			(panel.kind === "activity" || panel.kind === "review") &&
+			!activityWideEnough()
+		) {
 			setRightPanel(null);
 		}
 		if (panel.kind === "scratchpad" && !scratchpadWideEnough()) {
@@ -163,6 +191,26 @@ function AppShellContent(props: AppShellContentProps) {
 			setFocusedInput("composer");
 		}
 	});
+
+	createEffect(() => {
+		const panel = rightPanel();
+		if (
+			panel?.kind === "review" &&
+			panel.source.kind === "draft" &&
+			!resolveReviewSource(panel.source)
+		) {
+			setRightPanel(null);
+		}
+	});
+
+	onCleanup(
+		props.runtime.subscribe("session.active.changed", () => {
+			const panel = rightPanel();
+			if (panel?.kind === "review" || panel?.kind === "activity") {
+				setRightPanel(null);
+			}
+		}),
+	);
 
 	const openQueueEditor = () => {
 		if (props.runtime.getPendingMessageCount() === 0) {
@@ -202,6 +250,7 @@ function AppShellContent(props: AppShellContentProps) {
 				return;
 			}
 			saveScratchpadDraftIfEditing();
+			setFocusedInput("composer");
 			setRightPanel({ kind: "activity", source });
 			return;
 		}
@@ -210,6 +259,47 @@ function AppShellContent(props: AppShellContentProps) {
 				<TurnActivityDialog
 					runtime={props.runtime}
 					source={source}
+					done={overlayProps.done}
+					surfaceProps={overlayProps.surfaceProps}
+					active={overlayProps.active}
+				/>
+			),
+		);
+	};
+
+	function editReviewDraft(): void {
+		setRightPanel(null);
+		const command = props.commands
+			.getAll()
+			.find((candidate) => candidate.name === "code-review");
+		if (!command) return;
+		queueMicrotask(() => {
+			void props.controller.runCommand(command, "");
+		});
+	}
+
+	const openReviewAttachment = (source: ReviewAttachmentSource) => {
+		const resolved = resolveReviewSource(source);
+		if (!resolved) return;
+		if (activityWideEnough()) {
+			const current = rightPanel();
+			if (
+				current?.kind === "review" &&
+				reviewAttachmentSourceEquals(current.source, source)
+			) {
+				return;
+			}
+			saveScratchpadDraftIfEditing();
+			setFocusedInput("composer");
+			setRightPanel({ kind: "review", source });
+			return;
+		}
+		void props.openOverlay(
+			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
+				<ReviewAttachmentDialog
+					review={resolved.review}
+					draft={resolved.draft}
+					onEdit={resolved.draft ? editReviewDraft : undefined}
 					done={overlayProps.done}
 					surfaceProps={overlayProps.surfaceProps}
 					active={overlayProps.active}
@@ -374,6 +464,7 @@ function AppShellContent(props: AppShellContentProps) {
 							showToast={props.showToast}
 							openOverlay={props.openOverlay}
 							openActivity={openActivity}
+							openReviewAttachment={openReviewAttachment}
 						/>
 					</box>
 					<box flexShrink={0} flexDirection="column" gap={0}>
@@ -384,6 +475,14 @@ function AppShellContent(props: AppShellContentProps) {
 						<ComposerDock
 							controller={props.controller}
 							attachments={props.attachments}
+							onOpenAttachment={(attachment) => {
+								if (attachment instanceof CodeReviewAttachment) {
+									openReviewAttachment({
+										kind: "draft",
+										attachmentId: attachment.id,
+									});
+								}
+							}}
 							locked={props.overlays().length > 0}
 							inputFocused={
 								focusedInput() === "composer" || props.overlays().length > 0
@@ -416,6 +515,22 @@ function AppShellContent(props: AppShellContentProps) {
 								onClose={() => setRightPanel(null)}
 							/>
 						</box>
+					)}
+				</Show>
+				<Show keyed when={reviewSidebarSource()}>
+					{(source) => (
+						<Show when={resolveReviewSource(source)}>
+							{(resolved) => (
+								<box flexShrink={0} width={sidebarWidth()} height="100%">
+									<ReviewAttachmentSidebar
+										review={resolved().review}
+										draft={resolved().draft}
+										onEdit={resolved().draft ? editReviewDraft : undefined}
+										onClose={() => setRightPanel(null)}
+									/>
+								</box>
+							)}
+						</Show>
 					)}
 				</Show>
 				<Show when={scratchpadOpen()}>

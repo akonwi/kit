@@ -1,9 +1,12 @@
 import type { PasteEvent } from "@opentui/core";
 import { createEffect, createSignal } from "solid-js";
 import { useKeymapLayer } from "../keymap/useKeymapLayer";
-import type { AttachmentsController } from "./attachments-controller";
+import type {
+	Attachment,
+	AttachmentsController,
+} from "./attachments-controller";
 import type { ComposerController, TextareaHandle } from "./composer-controller";
-import { TIMES } from "./glyphs";
+import { CHEVRON_RIGHT, TIMES } from "./glyphs";
 import { MessageComposer } from "./MessageComposer";
 import { theme } from "./theme";
 
@@ -14,6 +17,7 @@ export type ComposerDockProps = {
 	inputFocused?: boolean;
 	onHeightChange?: (height: number) => void;
 	onModeChange?: (mode: ComposerInputMode) => void;
+	onOpenAttachment?: (attachment: Attachment) => void;
 };
 
 export type ComposerInputMode = "normal" | "bash" | "bash-excluded";
@@ -145,10 +149,14 @@ export function ComposerDock(props: ComposerDockProps) {
 						justifyContent="space-between"
 						alignItems="center"
 					>
-						<text fg={theme.attachmentText}>
+						<text
+							fg={theme.attachmentText}
+							onMouseUp={() => props.onOpenAttachment?.(attachment)}
+						>
 							{attachment.icon
 								? `${attachment.icon} ${attachment.summary}`
 								: attachment.summary}
+							{attachment.type === "code-review" ? ` ${CHEVRON_RIGHT}` : ""}
 						</text>
 						<text
 							fg={theme.textMuted}

@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
+import type { ReviewAttachmentSource } from "../../features/review/ReviewAttachmentViewer";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { ActivitySource } from "./turn-activity-view";
 import type { TranscriptItem } from "./turns";
@@ -20,12 +21,14 @@ export type OpenOverlay = <T>(
  * sidebar (when the terminal is wide enough) or as a modal dialog.
  */
 export type OpenActivity = (source: ActivitySource) => void;
+export type OpenReviewAttachment = (source: ReviewAttachmentSource) => void;
 
 export type TranscriptProps = {
 	runtime: AgentRuntime;
 	showToast: (toast: TranscriptToast) => void;
 	openOverlay: OpenOverlay;
 	openActivity: OpenActivity;
+	openReviewAttachment: OpenReviewAttachment;
 };
 
 export type TranscriptPaneProps = TranscriptProps & {

@@ -150,6 +150,28 @@ export const KEYBINDING_REGISTRY = {
 			hint: "close",
 		},
 	},
+	"review-attachment": {
+		close: {
+			defaultKeys: "escape",
+			desc: "Close code review attachment",
+			group: "review-attachment",
+			hint: "close",
+		},
+	},
+	"review-draft": {
+		edit: {
+			defaultKeys: "e",
+			desc: "Edit code review draft",
+			group: "review-draft",
+			hint: "edit",
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Close code review draft",
+			group: "review-draft",
+			hint: "close",
+		},
+	},
 	scratchpad: {
 		"focus-next": {
 			defaultKeys: "tab",

@@ -128,6 +128,14 @@ Built-in command palette entries include:
 | `review.clear-line-note` | `x` | Clear line note |
 | `review.close-editor` | `escape` | Close note editor |
 
+### Review attachment viewer
+
+| Command id | Default keys | Description |
+| --- | --- | --- |
+| `review-attachment.close` | `escape` | Close code review attachment |
+| `review-draft.edit` | `e` | Edit code review draft |
+| `review-draft.close` | `escape` | Close code review draft |
+
 ### Session explorer
 
 | Command id | Default keys | Description |

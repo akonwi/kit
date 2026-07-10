@@ -11,7 +11,11 @@ import {
 	extractAssistantParts,
 	type TranscriptItem,
 } from "./turns";
-import type { OpenActivity, TranscriptToast } from "./types";
+import type {
+	OpenActivity,
+	OpenReviewAttachment,
+	TranscriptToast,
+} from "./types";
 import { UserEntry } from "./user-entry";
 
 /**
@@ -79,6 +83,7 @@ export function TurnEntry(props: {
 	showToast: (toast: TranscriptToast) => void;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openReviewAttachment: OpenReviewAttachment;
 }) {
 	if (props.displayItem.kind === "turn-work") {
 		return (
@@ -97,8 +102,10 @@ export function TurnEntry(props: {
 			return (
 				<UserEntry
 					msg={item.message}
+					sourceId={item.id}
 					aborted={item.aborted}
 					showToast={props.showToast}
+					openReviewAttachment={props.openReviewAttachment}
 				/>
 			);
 		case "assistant":
