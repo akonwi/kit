@@ -5,7 +5,10 @@ import type {
 	MessagePart,
 } from "../../messages/parts";
 import { messagePartToPromptText } from "../../messages/parts";
-import type { Attachment } from "../../shell/attachments-controller";
+import type {
+	Attachment,
+	AttachmentDetachReason,
+} from "../../shell/attachments-controller";
 import { PENCIL } from "../../shell/glyphs";
 
 export type CodeReviewSubmission = {
@@ -13,6 +16,12 @@ export type CodeReviewSubmission = {
 	files: CodeReviewFileComment[];
 	/** Present when the review targets a commit instead of the working tree. */
 	commit?: CodeReviewCommitRef;
+};
+
+export type CodeReviewDraftAttachmentOptions = {
+	repoRoot: string;
+	targetKey: string;
+	onDetach: (reason: AttachmentDetachReason) => void;
 };
 
 export class CodeReviewAttachment implements Attachment {
@@ -23,6 +32,7 @@ export class CodeReviewAttachment implements Attachment {
 	constructor(
 		public readonly id: string,
 		public readonly review: CodeReviewSubmission,
+		public readonly draft?: CodeReviewDraftAttachmentOptions,
 	) {
 		const commentCount = review.files.reduce(
 			(sum, file) =>
@@ -31,7 +41,14 @@ export class CodeReviewAttachment implements Attachment {
 		);
 		// Shas are stored full-length; shorten for the chip label.
 		const scope = review.commit ? ` · ${review.commit.sha.slice(0, 7)}` : "";
-		this.summary = `Code review${scope} · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${review.files.length} file${review.files.length === 1 ? "" : "s"}`;
+		this.summary = `Code review${draft ? " draft" : ""}${scope} · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${review.files.length} file${review.files.length === 1 ? "" : "s"}`;
+	}
+
+	onDetach(reason: AttachmentDetachReason): void {
+		// Composer removes attachments immediately while message submission is
+		// pending. Keep the editable draft until submission succeeds; a failed
+		// submission reattaches this same attachment.
+		if (reason !== "pending") this.draft?.onDetach(reason);
 	}
 
 	toMessagePart(): MessagePart {

@@ -11,11 +11,18 @@ import type { Command } from "./types";
 export const codeReviewCommand: Command = {
 	name: "code-review",
 	description: "Review the current changes",
-	async execute({ openCustomOverlay, attachments, toast, runtime }) {
+	async execute({
+		openCustomOverlay,
+		attachments,
+		reviewDrafts,
+		toast,
+		runtime,
+	}) {
 		await openCustomOverlay<void>((props) =>
 			createComponent(ReviewContent, {
 				onClose: () => props.done(),
 				attachments,
+				reviewDrafts,
 				toast,
 				defaultDiffView: resolveDiffSettings(runtime.settings.diffs).view,
 				onDiffViewChanged: (view: ReviewDiffView) => {

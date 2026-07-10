@@ -172,9 +172,9 @@ describe("commit review targets", () => {
 			expect(files[0].path).toBe("beta.txt");
 			expect(files[0].rawPatch).toContain("+branch work");
 			expect(files[0].rawPatch).toContain("+more");
-			expect(files[0].noteKey.startsWith(`branch:${baseRef}:${head}:`)).toBe(
-				true,
-			);
+			expect(
+				files[0].noteKey.startsWith(`branch:${baseRef}:${mergeBase}:${head}:`),
+			).toBe(true);
 		} finally {
 			git(["checkout", "-q", "-"]);
 			git(["branch", "-q", "-D", "feature"]);

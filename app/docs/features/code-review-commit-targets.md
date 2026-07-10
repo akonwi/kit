@@ -103,16 +103,20 @@ affordance for "your context changed", never a modal.
 
 ## Comments and drafts
 
-- **Drafts are per-target**: note maps are stashed and restored on target
-  switch, so switching never loses or mixes drafts. File-note keys are
-  revision-scoped (`commit:<sha>:…`, `branch:<base>:<head>:…`); range
-  notes are isolated by the per-target map swap.
+- **Drafts are per-target**: note maps are stored in memory for the active
+  Kit session, so switching targets or closing and reopening review never
+  loses or mixes drafts. File-note keys are revision-scoped
+  (`commit:<sha>:…`, `branch:<base>:<merge-base>:<head>:…`); range notes are isolated by
+  the per-target map swap.
+- The last valid target is restored when review reopens in the same Kit
+  session.
 - No discard prompts on switch — the picker's `CIRCLE_FILLED` indicators
   and the header note count carry the state.
-- **Submit is scoped to the current target only.** Never batch across
-  targets. Submitting closes the review (the flow continues in the
-  composer), which destroys the per-target stash — drafts left on other
-  targets are discarded, and the submit toast says so.
+- **The composer attachment is scoped to the current target only.** Never
+  batch across targets. Closing review with notes (or pressing `s`) creates
+  or refreshes that target's draft attachment. Sending the next message or
+  removing the attachment clears that target's draft; drafts on other
+  targets remain available during the active Kit session.
 - Submitting while a target switch is still loading is a no-op (the old
   file list and new drafts must never mix).
 - The transcript attachment chip labels the scope:
@@ -151,5 +155,5 @@ Comment line numbers only make sense against the drafted sha. Defense:
 - Commit graphs, arbitrary ranges (`sha..sha`), author columns,
   pagination beyond 20 commits.
 - Reviewing merge commits against multiple parents (first parent only).
-- Persisting drafts across app restarts (in-memory per review session,
-  matching working-tree behavior).
+- Persisting drafts across app restarts or active Kit session changes.
+- Reconciling draft line coordinates after the underlying working tree changes.

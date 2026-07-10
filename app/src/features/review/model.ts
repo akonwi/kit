@@ -202,7 +202,7 @@ export function revisionsForTarget(
 			return {
 				after: target.head,
 				before: target.mergeBase,
-				key: `branch:${target.base}:${target.head}`,
+				key: `branch:${target.base}:${target.mergeBase}:${target.head}`,
 			};
 	}
 }
@@ -460,7 +460,7 @@ export type ReviewRevisions = {
 	after: string;
 	/** Revision holding the "before" side of the diff. */
 	before: string;
-	/** Stable draft-scoping key, e.g. `commit:<sha>` or `branch:<base>:<head>`. */
+	/** Stable draft key, e.g. `commit:<sha>` or `branch:<base>:<merge-base>:<head>`. */
 	key: string;
 };
 

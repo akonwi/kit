@@ -4,6 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
+import { createReviewDraftController } from "../features/review/draft-controller";
 import { createScratchpadController } from "../features/scratchpad/controller";
 import { createBuiltInPlugins } from "../plugins/built-ins";
 import {
@@ -88,6 +89,7 @@ export function App(props: AppProps) {
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
 		});
+		const reviewDrafts = createReviewDraftController(props.session.id);
 		const scratchpad = createScratchpadController(runtime);
 		const persistence = new FilePersistence(runtime);
 		const app = createAppState(runtime);
@@ -255,6 +257,7 @@ export function App(props: AppProps) {
 			fileIndex: app.fileIndex,
 			threadIndex: app.threadIndex,
 			attachments,
+			reviewDrafts,
 			toast,
 			_reload,
 			openCustomOverlay,
@@ -262,6 +265,12 @@ export function App(props: AppProps) {
 
 		runtime.subscribe({ prefix: "session.active.changed" }, (event) => {
 			if (event.type === "session.active.changed") {
+				reviewDrafts.resetForSession(event.session.id);
+				attachments.detach("code-review");
+				// Overlays belong to the previous active session. Resolve them so
+				// stale review components unmount; generation-guarded draft writes
+				// provide defense in depth during cleanup.
+				for (const overlay of overlays()) overlay.resolve(undefined);
 				props.updateTerminalTitle(event.session.name, event.session.cwd);
 				return;
 			}

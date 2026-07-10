@@ -7,6 +7,7 @@ import type { OverlayComponentProps } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { ImageAttachment } from "../features/images/attachment";
+import type { ReviewDraftController } from "../features/review/draft-controller";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import { type MessagePart, messagePartToPromptText } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
@@ -31,6 +32,7 @@ export type ComposerControllerDeps = {
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
 	attachments: AttachmentsController;
+	reviewDrafts: ReviewDraftController;
 	toast: (toast: ToastInput) => void;
 	_reload: () => Promise<void>;
 	openCustomOverlay: <T>(
@@ -47,6 +49,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		fileIndex,
 		threadIndex,
 		attachments,
+		reviewDrafts,
 		toast,
 		_reload,
 		openCustomOverlay,
@@ -85,6 +88,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				args,
 				toast,
 				attachments,
+				reviewDrafts,
 				_reload,
 				openCustomOverlay,
 			});
@@ -350,6 +354,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (picker.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
+		const submitSessionId = runtime.getSession().id;
 		const pendingAttachments = attachments.attachments();
 		if (!text.trim() && pendingAttachments.length === 0) {
 			if (
@@ -389,6 +394,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		resetBashHistoryNavigation();
 
 		const preparedText = text.trim() ? await prepareMessageText(text) : "";
+		// Thread expansion is asynchronous. If the active session changed
+		// while it ran, never submit old-session text or attachments into the
+		// new session.
+		if (runtime.getSession().id !== submitSessionId) return;
 		if (text.trim() && !preparedText) {
 			textareaRef?.setText(text);
 			prevTextLength = text.length;
@@ -403,24 +412,34 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			parts.push(attachment.toMessagePart());
 		}
 
+		// Remove previews immediately so submission feels responsive. Draft
+		// attachments treat this as provisional: success finalizes consumption,
+		// while failure reattaches the original objects below.
 		for (const attachment of pendingAttachments) {
-			attachments.detach(attachment.id);
+			attachments.detach(attachment.id, "pending");
 		}
 
 		try {
 			await runtime.submitMessage(parts);
-		} catch (error) {
 			for (const attachment of pendingAttachments) {
-				attachments.attach(attachment);
+				attachment.onDetach?.("consumed");
 			}
-			toast({
-				title: "Agent error",
-				subtitle: error instanceof Error ? error.message : String(error),
-				variant: "error",
-			});
+		} catch (error) {
+			// A session switch owns a fresh composer. Never resurrect text or
+			// attachments from a failed submission started in the old session.
+			if (runtime.getSession().id === submitSessionId) {
+				for (const attachment of pendingAttachments) {
+					attachments.attach(attachment);
+				}
+				toast({
+					title: "Agent error",
+					subtitle: error instanceof Error ? error.message : String(error),
+					variant: "error",
+				});
+				textareaRef?.setText(text);
+				prevTextLength = text.length;
+			}
 			console.error(error);
-			textareaRef?.setText(text);
-			prevTextLength = text.length;
 		}
 	}
 

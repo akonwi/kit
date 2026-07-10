@@ -4,6 +4,7 @@ import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import type { PickerManager } from "../../state/picker-manager";
 import type { ToastInput } from "../../state/toasts";
+import type { ReviewDraftController } from "../review/draft-controller";
 
 export type CommandContext = {
 	runtime: AgentRuntime;
@@ -11,6 +12,7 @@ export type CommandContext = {
 	args: string;
 	toast: (toast: ToastInput) => void;
 	attachments: AttachmentsController;
+	reviewDrafts: ReviewDraftController;
 	_reload: () => Promise<void>;
 	openCustomOverlay: <T>(
 		component: (props: OverlayComponentProps<T>) => JSX.Element,

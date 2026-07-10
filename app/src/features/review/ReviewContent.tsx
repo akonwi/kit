@@ -55,6 +55,10 @@ import {
 	type ReviewDraftState,
 	type ReviewRangeDraft,
 } from "./draft";
+import {
+	type ReviewDraftController,
+	reviewTargetKey,
+} from "./draft-controller";
 import { FileTreePanel } from "./FileTreePanel";
 import {
 	getCurrentBranch,
@@ -85,6 +89,7 @@ import {
 export type ReviewContentProps = {
 	onClose: () => void;
 	attachments: AttachmentsController;
+	reviewDrafts: ReviewDraftController;
 	toast: (toast: ToastInput) => void;
 	defaultDiffView: ReviewDiffView;
 	onDiffViewChanged?: (view: ReviewDiffView) => void;
@@ -432,22 +437,48 @@ function findSavedRangeAtLine(
 
 export function ReviewContent(props: ReviewContentProps) {
 	const repoRoot = getRepoRoot();
+	const draftToken = props.reviewDrafts.currentToken();
+	const savedTarget = props.reviewDrafts.getLastTarget(draftToken, repoRoot);
+	const savedCommit =
+		savedTarget.kind === "working"
+			? null
+			: resolveCommit(
+					undefined,
+					savedTarget.kind === "commit" ? savedTarget.sha : savedTarget.head,
+				);
+	const mergeBaseResolves =
+		savedTarget.kind !== "branch" ||
+		resolveCommit(undefined, savedTarget.mergeBase) !== null;
+	const initialTarget =
+		savedTarget.kind === "working" || (savedCommit && mergeBaseResolves)
+			? savedTarget
+			: ({ kind: "working" } satisfies ReviewTarget);
+	if (initialTarget.kind === "working" && savedTarget.kind !== "working") {
+		// A temporarily unreachable commit must not destroy authored notes.
+		// Fall back to working while keeping its draft inert in memory.
+		props.reviewDrafts.setLastTarget(draftToken, repoRoot, initialTarget);
+	}
+	const initialCommit =
+		initialTarget.kind === "working" || !savedCommit
+			? null
+			: initialTarget.kind === "branch"
+				? {
+						...savedCommit,
+						subject: `${getCurrentBranch(undefined) ?? savedCommit.shortSha} vs ${initialTarget.base}`,
+					}
+				: savedCommit;
+	const initialDraft = props.reviewDrafts.getDraft(
+		draftToken,
+		repoRoot,
+		initialTarget,
+	);
 	// What the review is diffing: working tree (default), one commit, or a
 	// branch's total diff. See docs/features/code-review-commit-targets.md.
-	const [target, setTarget] = createSignal<ReviewTarget>({ kind: "working" });
+	const [target, setTarget] = createSignal<ReviewTarget>(initialTarget);
 	const [targetCommit, setTargetCommit] =
-		createSignal<ReviewCommitSummary | null>(null);
-	const targetKey = (forTarget?: ReviewTarget): string => {
-		const value = forTarget ?? target();
-		switch (value.kind) {
-			case "working":
-				return "working";
-			case "commit":
-				return `commit:${value.sha}`;
-			case "branch":
-				return `branch:${value.base}:${value.head}`;
-		}
-	};
+		createSignal<ReviewCommitSummary | null>(initialCommit);
+	const targetKey = (forTarget?: ReviewTarget): string =>
+		reviewTargetKey(forTarget ?? target());
 	const [files] = createResource(target, (value) =>
 		loadReviewFiles(undefined, value),
 	);
@@ -475,10 +506,10 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [viewingFileEditingValue, setViewingFileEditingValue] =
 		createSignal("");
 	const [fileNotes, setFileNotes] = createSignal<Map<string, string>>(
-		new Map(),
+		initialDraft.fileNotes,
 	);
 	const [rangeNotes, setRangeNotes] = createSignal<Map<string, string>>(
-		new Map(),
+		initialDraft.rangeNotes,
 	);
 	const [selectedHunkIndices, setSelectedHunkIndices] = createSignal<
 		Map<string, number>
@@ -552,9 +583,30 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	// ── Review targets ───────────────────────────────────────
 
-	// Drafts are per-target and preserved across switches; switching away
-	// stashes the current maps, switching back restores them.
-	const draftStash = new Map<string, ReviewDraftState>();
+	// Drafts are per-target and live in the active session's in-memory
+	// controller, so closing and reopening review does not discard them.
+	function saveCurrentDraft(state = draftState()): void {
+		props.reviewDrafts.saveDraft(draftToken, repoRoot, target(), state);
+	}
+	function updateFileNotes(
+		update: (current: Map<string, string>) => Map<string, string>,
+	): void {
+		setFileNotes((current) => {
+			const next = update(current);
+			saveCurrentDraft({ fileNotes: next, rangeNotes: rangeNotes() });
+			return next;
+		});
+	}
+	function updateRangeNotes(
+		update: (current: Map<string, string>) => Map<string, string>,
+	): void {
+		setRangeNotes((current) => {
+			const next = update(current);
+			saveCurrentDraft({ fileNotes: fileNotes(), rangeNotes: next });
+			return next;
+		});
+	}
+	onCleanup(() => saveCurrentDraft());
 
 	function showTargetNotice(text: string, durationMs = 5000): void {
 		if (targetNoticeTimeout) clearTimeout(targetNoticeTimeout);
@@ -570,8 +622,7 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	function stashedDraftCount(key: string): number {
 		if (key === targetKey()) return totalDraftNotes();
-		const stashed = draftStash.get(key);
-		return stashed ? countDraftNotes(stashed) : 0;
+		return props.reviewDrafts.countDraftForKey(draftToken, repoRoot, key);
 	}
 
 	function switchTarget(
@@ -581,13 +632,11 @@ export function ReviewContent(props: ReviewContentProps) {
 		const currentKey = targetKey();
 		const nextKey = targetKey(next);
 		if (nextKey === currentKey) return;
-		draftStash.set(currentKey, {
-			fileNotes: fileNotes(),
-			rangeNotes: rangeNotes(),
-		});
-		const restored = draftStash.get(nextKey);
-		setFileNotes(restored?.fileNotes ?? new Map());
-		setRangeNotes(restored?.rangeNotes ?? new Map());
+		saveCurrentDraft();
+		const restored = props.reviewDrafts.getDraft(draftToken, repoRoot, next);
+		setFileNotes(restored.fileNotes);
+		setRangeNotes(restored.rangeNotes);
+		props.reviewDrafts.setLastTarget(draftToken, repoRoot, next);
 		setTargetCommit(commit);
 		setRangeAnchor(null);
 		setEditingRange(null);
@@ -761,7 +810,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		// Branch total diff pinned second, when a base branch is resolvable.
 		const { branchName, branchBase, branchHead, branchMergeBase } = git;
 		if (branchName && branchBase && branchHead && branchMergeBase) {
-			const key = `branch:${branchBase}:${branchHead.sha}`;
+			const key = reviewTargetKey({
+				kind: "branch",
+				base: branchBase,
+				head: branchHead.sha,
+				mergeBase: branchMergeBase,
+			});
 			const drafts = stashedDraftCount(key);
 			options.push({
 				name: `${drafts > 0 ? `${CIRCLE_FILLED} ` : ""}branch ${branchName} vs ${branchBase}`,
@@ -1721,7 +1775,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	function saveFileNoteEditor() {
 		const key = editingFileNoteKey();
 		if (!key) return;
-		setFileNotes((prev) => setMapValue(prev, key, editingFileNoteValue()));
+		updateFileNotes((prev) => setMapValue(prev, key, editingFileNoteValue()));
 		closeFileNoteEditor();
 	}
 
@@ -1745,7 +1799,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	function saveRangeNoteEditor() {
 		const range = editingRange();
 		if (!range) return;
-		setRangeNotes((prev) =>
+		updateRangeNotes((prev) =>
 			setMapValue(prev, buildRangeNoteKey(range), editingRangeValue()),
 		);
 		closeRangeNoteEditor();
@@ -1754,30 +1808,54 @@ export function ReviewContent(props: ReviewContentProps) {
 	function clearSelectedFileNote() {
 		const file = selectedFile();
 		if (!file) return;
-		setFileNotes((prev) => setMapValue(prev, file.noteKey, ""));
+		updateFileNotes((prev) => setMapValue(prev, file.noteKey, ""));
 	}
 
 	function clearSelectedRangeNote() {
 		const range = selectedRange();
 		if (!range) return;
-		setRangeNotes((prev) => setMapValue(prev, buildRangeNoteKey(range), ""));
+		updateRangeNotes((prev) => setMapValue(prev, buildRangeNoteKey(range), ""));
 	}
 
-	function submitReview() {
-		// A target switch may still be refetching; submitting then would
-		// pair the old target's file list with the new target's notes.
-		if (files.loading) return;
-		const currentTarget = target();
+	function currentDraftAttachment(): CodeReviewAttachment | null {
+		const attachment = props.attachments
+			.attachments()
+			.find((candidate) => candidate.id === "code-review");
+		return attachment instanceof CodeReviewAttachment ? attachment : null;
+	}
 
-		const submission = buildReviewSubmission(reviewFiles(), draftState());
-		if (!submission) {
-			props.toast({
-				title: "No review notes",
-				subtitle: "Add a file or line note before submitting review.",
-				variant: "warning",
-			});
-			return;
+	type QueueDraftResult = "queued" | "empty" | "blocked";
+
+	function queueCurrentDraft(showEmptyWarning: boolean): QueueDraftResult {
+		const currentTarget = target();
+		const currentKey = targetKey(currentTarget);
+		if (totalDraftNotes() === 0) {
+			const attached = currentDraftAttachment();
+			if (
+				attached?.draft?.repoRoot === repoRoot &&
+				attached.draft.targetKey === currentKey
+			) {
+				props.attachments.detach(attached.id);
+			}
+			if (showEmptyWarning) {
+				props.toast({
+					title: "No review notes",
+					subtitle: "Add a file or line note before submitting review.",
+					variant: "warning",
+				});
+			}
+			return "empty";
 		}
+
+		// A target switch may still be refetching; queueing then would pair
+		// the old target's file list with the new target's notes. Keep review
+		// open until the attachment can be refreshed safely.
+		if (files.loading) {
+			showTargetNotice("Review is still loading.", 1500);
+			return "blocked";
+		}
+		const submission = buildReviewSubmission(reviewFiles(), draftState());
+		if (!submission) return "blocked";
 
 		// Amend/rebase staleness defense: line numbers only make sense
 		// against the drafted revisions. A rewritten commit stops being an
@@ -1795,7 +1873,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					"It was amended or rebased since you started drafting. Re-open the target to review the new diff.",
 				variant: "error",
 			});
-			return;
+			return "blocked";
 		}
 		if (currentTarget.kind === "commit") {
 			submission.commit = {
@@ -1811,25 +1889,38 @@ export function ReviewContent(props: ReviewContentProps) {
 			};
 		}
 
-		// Submission is scoped to the current target only. Closing the
-		// review destroys the per-target stash, so be honest about drafts
-		// left behind on other targets.
-		let otherDrafts = 0;
-		for (const [key, stashed] of draftStash) {
-			if (key === targetKey()) continue;
-			otherDrafts += countDraftNotes(stashed);
-		}
+		props.attachments.attach(
+			new CodeReviewAttachment("code-review", submission, {
+				repoRoot,
+				targetKey: currentKey,
+				onDetach: () => {
+					props.reviewDrafts.clearDraft(draftToken, repoRoot, currentTarget);
+				},
+			}),
+		);
+		return "queued";
+	}
+
+	function closeReview(): void {
+		if (queueCurrentDraft(false) === "blocked") return;
+		props.onClose();
+	}
+
+	function submitReview(): void {
+		if (queueCurrentDraft(true) !== "queued") return;
+		const currentTarget = target();
+		const otherDrafts = props.reviewDrafts.countDraftsExcept(
+			draftToken,
+			repoRoot,
+			currentTarget,
+		);
 		if (otherDrafts > 0) {
 			props.toast({
-				title: "Review attached",
-				subtitle: `${otherDrafts} draft note${otherDrafts === 1 ? "" : "s"} on other review targets ${otherDrafts === 1 ? "was" : "were"} discarded.`,
-				variant: "warning",
+				title: "Other review drafts kept",
+				subtitle: `${otherDrafts} draft note${otherDrafts === 1 ? "" : "s"} on other review targets ${otherDrafts === 1 ? "was" : "were"} not included.`,
+				variant: "info",
 			});
 		}
-
-		props.attachments.attach(
-			new CodeReviewAttachment("code-review", submission),
-		);
 		props.onClose();
 	}
 
@@ -2060,7 +2151,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					startLine: viewingFileLine(),
 					endLine: viewingFileLine(),
 				});
-				setRangeNotes((prev) => setMapValue(prev, key, ""));
+				updateRangeNotes((prev) => setMapValue(prev, key, ""));
 			},
 			"review.submit": () => submitReview(),
 		},
@@ -2202,7 +2293,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									}
 								}}
 								onSelectFile={selectFilePath}
-								onClose={props.onClose}
+								onClose={closeReview}
 							/>
 						</box>
 					</Show>
@@ -2259,7 +2350,7 @@ export function ReviewContent(props: ReviewContentProps) {
 													const range = viewingFileEditingRange();
 													if (!range) return;
 													const key = buildRangeNoteKey(range);
-													setRangeNotes((prev) =>
+													updateRangeNotes((prev) =>
 														setMapValue(prev, key, viewingFileEditingValue()),
 													);
 													setViewingFileEditingRange(null);

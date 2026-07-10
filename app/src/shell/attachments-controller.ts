@@ -2,6 +2,8 @@ import { type Accessor, createSignal } from "solid-js";
 import type { MessagePart } from "../messages/parts";
 import { EventBus } from "../runtime/event-bus";
 
+export type AttachmentDetachReason = "removed" | "pending" | "consumed";
+
 export interface Attachment {
 	id: string;
 	type: string;
@@ -9,6 +11,7 @@ export interface Attachment {
 	summary: string;
 	toMessagePart(): MessagePart;
 	toPromptText(): string;
+	onDetach?(reason: AttachmentDetachReason): void;
 }
 
 export type AttachmentEventMap = {
@@ -22,7 +25,7 @@ export type AttachmentEvent =
 
 export interface AttachmentsController {
 	attach(attachment: Attachment): void;
-	detach(id: string): void;
+	detach(id: string, reason?: AttachmentDetachReason): void;
 	attachments: Accessor<Attachment[]>;
 	subscribe(listener: (event: AttachmentEvent) => void): () => void;
 }
@@ -40,14 +43,14 @@ export function createAttachmentsController(): AttachmentsController {
 			});
 			bus.publish("attached", { attachment });
 		},
-		detach(id) {
-			let removed = false;
+		detach(id, reason = "removed") {
+			let removed: Attachment | undefined;
 			setAttachments((prev) => {
-				const next = prev.filter((item) => item.id !== id);
-				removed = next.length !== prev.length;
-				return next;
+				removed = prev.find((item) => item.id === id);
+				return removed ? prev.filter((item) => item.id !== id) : prev;
 			});
 			if (!removed) return;
+			removed.onDetach?.(reason);
 			bus.publish("detached", { id });
 		},
 		attachments,

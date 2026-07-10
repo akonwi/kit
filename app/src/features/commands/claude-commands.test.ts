@@ -77,6 +77,7 @@ describe("Claude Code command discovery", () => {
 			picker: {} as CommandContext["picker"],
 			toast: () => {},
 			attachments: {} as CommandContext["attachments"],
+			reviewDrafts: {} as CommandContext["reviewDrafts"],
 			_reload: async () => {},
 			openCustomOverlay: async () => undefined as never,
 		});
