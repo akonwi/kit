@@ -299,6 +299,7 @@ function AppShellContent(props: AppShellContentProps) {
 				<ReviewAttachmentDialog
 					review={resolved.review}
 					draft={resolved.draft}
+					cwd={props.runtime.getSession().cwd}
 					onEdit={resolved.draft ? editReviewDraft : undefined}
 					done={overlayProps.done}
 					surfaceProps={overlayProps.surfaceProps}
@@ -525,6 +526,7 @@ function AppShellContent(props: AppShellContentProps) {
 									<ReviewAttachmentSidebar
 										review={resolved().review}
 										draft={resolved().draft}
+										cwd={props.runtime.getSession().cwd}
 										onEdit={resolved().draft ? editReviewDraft : undefined}
 										onClose={() => setRightPanel(null)}
 									/>

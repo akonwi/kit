@@ -776,6 +776,40 @@ function yieldToRenderer(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+function reviewFilesFromPatchSets(options: {
+	cwd?: string;
+	repoRoot: string;
+	revisions?: ReviewRevisions;
+	patchSets: ReviewPatchSet[];
+}): ReviewFile[] {
+	const totalFileCount = options.patchSets.reduce(
+		(count, patchSet) => count + patchSet.files.length,
+		0,
+	);
+	const includeSkippedSections =
+		totalFileCount <= EAGER_SKIPPED_SECTIONS_FILE_LIMIT;
+	const reviewFiles: ReviewFile[] = [];
+	for (const patchSet of options.patchSets) {
+		for (const [index, file] of patchSet.files.entries()) {
+			reviewFiles.push(
+				fileToReviewFile(
+					file,
+					patchSet.rawFiles[index] ?? "",
+					reviewFiles.length,
+					{
+						cwd: options.cwd,
+						repoRoot: options.repoRoot,
+						source: patchSet.source,
+						includeSkippedSections,
+						revisions: options.revisions,
+					},
+				),
+			);
+		}
+	}
+	return reviewFiles;
+}
+
 export async function loadReviewFiles(
 	cwd?: string,
 	target: ReviewTarget = { kind: "working" },
@@ -798,33 +832,39 @@ export async function loadReviewFiles(
 				]
 	).filter((value): value is ReviewPatchSet => value !== null);
 	if (patchSets.length === 0) return [];
+	return reviewFilesFromPatchSets({
+		cwd,
+		repoRoot,
+		revisions: revisions ?? undefined,
+		patchSets,
+	});
+}
 
-	const totalFileCount = patchSets.reduce(
-		(count, patchSet) => count + patchSet.files.length,
-		0,
+/** Load an explicit immutable revision range, including branch merge-base diffs. */
+export async function loadReviewFilesForRevisions(
+	cwd: string | undefined,
+	before: string,
+	after: string,
+): Promise<ReviewFile[]> {
+	await yieldToRenderer();
+	const repoRoot = getGitRepoRoot(cwd);
+	if (!repoRoot) return [];
+	const revisions: ReviewRevisions = {
+		before,
+		after,
+		key: `range:${before}:${after}`,
+	};
+	const patchSet = parseReviewPatchSet(
+		getRevisionDiff(cwd, before, after),
+		"commit",
 	);
-	const includeSkippedSections =
-		totalFileCount <= EAGER_SKIPPED_SECTIONS_FILE_LIMIT;
-	const reviewFiles: ReviewFile[] = [];
-	for (const patchSet of patchSets) {
-		for (const [index, file] of patchSet.files.entries()) {
-			reviewFiles.push(
-				fileToReviewFile(
-					file,
-					patchSet.rawFiles[index] ?? "",
-					reviewFiles.length,
-					{
-						cwd,
-						repoRoot,
-						source: patchSet.source,
-						includeSkippedSections,
-						revisions: revisions ?? undefined,
-					},
-				),
-			);
-		}
-	}
-	return reviewFiles;
+	if (!patchSet) return [];
+	return reviewFilesFromPatchSets({
+		cwd,
+		repoRoot,
+		revisions,
+		patchSets: [patchSet],
+	});
 }
 
 /** Resolve the project root for the given working directory. */

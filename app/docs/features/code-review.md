@@ -74,7 +74,7 @@ File notes and line/range notes are authored inline. In note editors, `Enter` sa
 
 Closing review with committed notes creates or refreshes a visible code-review draft attachment in the composer. Clicking the draft attachment opens a read-only viewer in the right sidebar on wide terminals (or a dialog on narrow terminals); `e` opens the full review screen for editing. Reopening review edits the same in-memory draft, and closing it refreshes the attachment. Sending the next message consumes the attachment and clears that target's draft. Removing the attachment with `×` also discards that target's draft.
 
-Historical code-review attachments in the transcript are also clickable and open the same viewer in read-only mode. The viewer presents the structured review grouped by file, including file notes and addition/deletion line ranges. It does not reconstruct or persist diff source text.
+Historical code-review attachments in the transcript are also clickable and open the same viewer in read-only mode. The viewer presents the structured review grouped by file, including file notes and addition/deletion line ranges. It lazily reconstructs bounded diff excerpts for committed reviews from their stored parent/head revisions and shows live excerpts for working-tree drafts. Historical working-tree reviews remain comment-only because their original uncommitted source is not retained. Excerpts are UI-only and are never added to the message payload or prompt.
 
 Committed notes autosave in memory. Closing and reopening `/code-review` during the same active Kit session restores them inline, where they remain editable and removable. Uncommitted editor text is not retained. Changing Kit sessions or exiting Kit discards review drafts.
 

@@ -11,6 +11,7 @@ import {
 	listLocalBranches,
 	listRecentCommits,
 	loadReviewFiles,
+	loadReviewFilesForRevisions,
 	resolveCommit,
 	resolveCommitParent,
 	resolveDefaultBranchBase,
@@ -116,6 +117,13 @@ describe("commit review targets", () => {
 		expect(patch).toContain("+TWO");
 		expect(patch).toContain("-two");
 		expect(patch).toContain("+four");
+	});
+
+	test("loads an explicit revision range for attachment context", async () => {
+		const files = await loadReviewFilesForRevisions(repo, firstSha, secondSha);
+		expect(files).toHaveLength(1);
+		expect(files[0]?.path).toBe("alpha.txt");
+		expect(files[0]?.rawPatch).toContain("+TWO");
 	});
 
 	test("root commit target diffs against the empty tree", async () => {

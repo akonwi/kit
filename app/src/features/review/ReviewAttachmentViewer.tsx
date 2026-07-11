@@ -1,4 +1,4 @@
-import { For, Show } from "solid-js";
+import { createResource, For, Show } from "solid-js";
 import type {
 	OverlayComponentProps,
 	OverlaySurfaceProps,
@@ -6,8 +6,14 @@ import type {
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { CodeReviewMessagePart } from "../../messages/parts";
 import { Dialog } from "../../shell/Dialog";
+import type { ReviewLine } from "../../shell/diff/types";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
+import {
+	extractReviewRangeExcerpt,
+	loadReviewAttachmentContext,
+	type ReviewRangeExcerpt,
+} from "./review-attachment-context";
 
 export type ReviewAttachmentSource =
 	| { kind: "draft"; attachmentId: string }
@@ -64,9 +70,71 @@ function rangeLabel(
 		: `${prefix}L${range.startLine}-${range.endLine}`;
 }
 
+function excerptLineColor(line: ReviewLine): string {
+	if (line.kind === "add") return theme.toolText;
+	if (line.kind === "delete") return theme.errorText;
+	return theme.textSecondary;
+}
+
+function excerptLineBg(line: ReviewLine): string | undefined {
+	if (line.kind === "add") return theme.diffAddedBg;
+	if (line.kind === "delete") return theme.diffRemovedBg;
+	return undefined;
+}
+
+function ReviewRangeExcerptView(props: { excerpt: ReviewRangeExcerpt }) {
+	return (
+		<box flexDirection="column" width="100%">
+			<Show when={props.excerpt.truncatedBefore}>
+				<text fg={theme.textPlaceholder}>context omitted</text>
+			</Show>
+			<For each={props.excerpt.lines}>
+				{(line) => {
+					const prefix =
+						line.kind === "add" ? "+" : line.kind === "delete" ? "-" : " ";
+					const lineNumber =
+						line.kind === "delete"
+							? line.deletionLineNumber
+							: (line.additionLineNumber ?? line.deletionLineNumber);
+					return (
+						<text
+							fg={excerptLineColor(line)}
+							bg={excerptLineBg(line)}
+							wrapMode="none"
+						>
+							{prefix} {lineNumber ?? ""} {line.text}
+						</text>
+					);
+				}}
+			</For>
+			<Show when={props.excerpt.truncatedAfter}>
+				<text fg={theme.textPlaceholder}>context omitted</text>
+			</Show>
+		</box>
+	);
+}
+
 function ReviewAttachmentContent(props: {
 	review: CodeReviewMessagePart["review"];
+	draft: boolean;
+	cwd?: string;
 }) {
+	const [context] = createResource(
+		() => ({ review: props.review, draft: props.draft, cwd: props.cwd }),
+		loadReviewAttachmentContext,
+	);
+	const contextLabel = () => {
+		if (context.loading) return "loading context";
+		switch (context()?.kind) {
+			case "exact":
+				return "exact commit context";
+			case "live":
+				return "live context";
+			default:
+				return "source context not retained";
+		}
+	};
+
 	return (
 		<box flexDirection="column" gap={1} width="100%">
 			<box flexDirection="column" paddingX={1}>
@@ -83,51 +151,71 @@ function ReviewAttachmentContent(props: {
 						</text>
 					)}
 				</Show>
+				<text fg={theme.textPlaceholder}>{contextLabel()}</text>
 			</box>
 
 			<For each={props.review.files}>
-				{(file) => (
-					<box flexDirection="column" gap={1} paddingX={1}>
-						<text fg={theme.textPrimary}>{file.path}</text>
-
-						<Show when={file.fileComment.trim()}>
-							<box
-								border={["left"]}
-								borderColor={theme.attachmentText}
-								paddingLeft={1}
-							>
-								<markdown
-									content={file.fileComment}
-									syntaxStyle={syntaxStyle()}
-									conceal
-									fg={theme.textSecondary}
-								/>
+				{(file) => {
+					const contextFile = () => context()?.files.get(file.path);
+					return (
+						<box flexDirection="column" gap={1} paddingX={1}>
+							<box flexDirection="row" justifyContent="space-between">
+								<text fg={theme.textPrimary}>{file.path}</text>
+								<Show when={contextFile()}>
+									{(resolvedFile) => (
+										<text fg={theme.textMuted}>
+											{resolvedFile().changeCount} changes
+										</text>
+									)}
+								</Show>
 							</box>
-						</Show>
 
-						<For each={file.ranges}>
-							{(range) => (
-								<box flexDirection="column" paddingLeft={1}>
-									<text
-										fg={
-											range.side === "additions"
-												? theme.toolText
-												: theme.errorText
-										}
-									>
-										{rangeLabel(range)}
-									</text>
+							<Show when={file.fileComment.trim()}>
+								<box
+									border={["left"]}
+									borderColor={theme.attachmentText}
+									paddingLeft={1}
+								>
 									<markdown
-										content={range.comment}
+										content={file.fileComment}
 										syntaxStyle={syntaxStyle()}
 										conceal
 										fg={theme.textSecondary}
 									/>
 								</box>
-							)}
-						</For>
-					</box>
-				)}
+							</Show>
+
+							<For each={file.ranges}>
+								{(range) => (
+									<box flexDirection="column" paddingLeft={1}>
+										<text
+											fg={
+												range.side === "additions"
+													? theme.toolText
+													: theme.errorText
+											}
+										>
+											{rangeLabel(range)}
+										</text>
+										<Show
+											when={extractReviewRangeExcerpt(contextFile(), range)}
+										>
+											{(excerpt) => (
+												<ReviewRangeExcerptView excerpt={excerpt()} />
+											)}
+										</Show>
+										<markdown
+											content={range.comment}
+											syntaxStyle={syntaxStyle()}
+											conceal
+											fg={theme.textSecondary}
+										/>
+									</box>
+								)}
+							</For>
+						</box>
+					);
+				}}
 			</For>
 		</box>
 	);
@@ -136,6 +224,7 @@ function ReviewAttachmentContent(props: {
 export type ReviewAttachmentSidebarProps = {
 	review: CodeReviewMessagePart["review"];
 	draft: boolean;
+	cwd?: string;
 	onClose: () => void;
 	onEdit?: () => void;
 };
@@ -177,7 +266,11 @@ export function ReviewAttachmentSidebar(props: ReviewAttachmentSidebarProps) {
 			</box>
 
 			<scrollbox flexGrow={1} scrollY style={scrollbarStyle()}>
-				<ReviewAttachmentContent review={props.review} />
+				<ReviewAttachmentContent
+					review={props.review}
+					draft={props.draft}
+					cwd={props.cwd}
+				/>
 			</scrollbox>
 
 			<box flexShrink={0}>
@@ -192,6 +285,7 @@ export function ReviewAttachmentSidebar(props: ReviewAttachmentSidebarProps) {
 export type ReviewAttachmentDialogProps = OverlayComponentProps<void> & {
 	review: CodeReviewMessagePart["review"];
 	draft: boolean;
+	cwd?: string;
 	onEdit?: () => void;
 	surfaceProps?: OverlaySurfaceProps;
 };
@@ -229,7 +323,11 @@ export function ReviewAttachmentDialog(props: ReviewAttachmentDialogProps) {
 			</Dialog.Header>
 			<Dialog.Body>
 				<scrollbox flexGrow={1} scrollY style={scrollbarStyle()}>
-					<ReviewAttachmentContent review={props.review} />
+					<ReviewAttachmentContent
+						review={props.review}
+						draft={props.draft}
+						cwd={props.cwd}
+					/>
 				</scrollbox>
 			</Dialog.Body>
 			<Dialog.Footer>
