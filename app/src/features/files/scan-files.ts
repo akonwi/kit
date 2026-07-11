@@ -28,24 +28,53 @@ async function tryReadFile(filePath: string): Promise<string | null> {
 }
 
 /**
- * Build an ignore filter for a given directory.
- * Merges rules from .gitignore and .kitignore found in that dir.
- * Hierarchy is handled by maintaining a chain of filters at the call-site.
+ * Build an ignore filter for a given directory. Rules from .gitignore are
+ * applied first, then .kitignore, so .kitignore may override .gitignore in
+ * the same directory. Descendant scopes are applied after ancestor scopes.
  */
-async function loadIgnoreForDir(dir: string): Promise<Ignore> {
-	const ig = ignore();
+type IgnoreScope = {
+	dir: string;
+	matcher: Ignore;
+};
+
+async function loadIgnoreForDir(dir: string): Promise<IgnoreScope> {
+	const matcher = ignore();
 
 	const gitignoreContent = await tryReadFile(path.join(dir, ".gitignore"));
 	if (gitignoreContent) {
-		ig.add(gitignoreContent);
+		matcher.add(gitignoreContent);
 	}
 
 	const kitIgnoreContent = await tryReadFile(path.join(dir, KIT_IGNORE_FILE));
 	if (kitIgnoreContent) {
-		ig.add(kitIgnoreContent);
+		matcher.add(kitIgnoreContent);
 	}
 
-	return ig;
+	return { dir, matcher };
+}
+
+function toIgnorePath(value: string): string {
+	return value.split(path.sep).join("/");
+}
+
+function isIgnored(
+	fullPath: string,
+	isDirectory: boolean,
+	ignoreChain: IgnoreScope[],
+): boolean {
+	let ignored = false;
+	for (const scope of ignoreChain) {
+		const scopedPath = toIgnorePath(path.relative(scope.dir, fullPath));
+		if (!scopedPath || scopedPath === ".." || scopedPath.startsWith("../")) {
+			continue;
+		}
+		const result = scope.matcher.test(
+			isDirectory ? `${scopedPath}/` : scopedPath,
+		);
+		if (result.ignored) ignored = true;
+		else if (result.unignored) ignored = false;
+	}
+	return ignored;
 }
 
 // ── Scanner ─────────────────────────────────────────────────────────
@@ -66,8 +95,8 @@ export async function scanFiles(cwd: string): Promise<ScanResult> {
 
 	type StackEntry = {
 		dir: string;
-		/** Accumulated ignore filters from ancestor directories */
-		ignoreChain: Ignore[];
+		/** Ignore filters, each scoped to the directory that declared it. */
+		ignoreChain: IgnoreScope[];
 	};
 
 	// Build the root-level ignore
@@ -89,25 +118,27 @@ export async function scanFiles(cwd: string): Promise<ScanResult> {
 		} catch {
 			continue;
 		}
+		rawEntries.sort((a, b) => String(a.name).localeCompare(String(b.name)));
 
 		// Collect subdirs to process — we'll push them after processing all entries
-		const subdirs: { full: string; relative: string; ignoreChain: Ignore[] }[] =
-			[];
+		const subdirs: {
+			full: string;
+			relative: string;
+			ignoreChain: IgnoreScope[];
+		}[] = [];
 
 		for (const entry of rawEntries) {
 			if (files.length + dirs.length >= MAX_FILES) break;
 
 			const name = String(entry.name);
 			const full = path.join(dir, name);
-			const relative = path.relative(cwd, full);
+			const relative = toIgnorePath(path.relative(cwd, full));
 
 			if (entry.isDirectory()) {
 				// Always skip built-in excludes
 				if (BUILT_IN_EXCLUDES.has(name)) continue;
 
-				// Check all ignore layers — use "dir/" format for directory matching
-				const relativeForIgnore = `${relative}/`;
-				if (ignoreChain.some((ig) => ig.ignores(relativeForIgnore))) continue;
+				if (isIgnored(full, true, ignoreChain)) continue;
 
 				dirs.push(`${relative}/`);
 
@@ -128,7 +159,7 @@ export async function scanFiles(cwd: string): Promise<ScanResult> {
 				continue;
 
 			// Check ignore rules
-			if (ignoreChain.some((ig) => ig.ignores(relative))) continue;
+			if (isIgnored(full, false, ignoreChain)) continue;
 
 			files.push(relative);
 		}
