@@ -122,7 +122,7 @@ function createInputFromUserTool(
 				content: [
 					{
 						type: "text" as const,
-						text: cancelled ? "Input cancelled." : "User provided input.",
+						text: value ?? "Input cancelled.",
 					},
 				],
 				details: { value: value ?? null, cancelled },
@@ -200,9 +200,7 @@ function createSelectFromUserTool(
 				content: [
 					{
 						type: "text" as const,
-						text: cancelled
-							? "Selection cancelled."
-							: `User selected: ${selectedOption?.label ?? selected}.`,
+						text: selected ?? "Selection cancelled.",
 					},
 				],
 				details: {
