@@ -244,6 +244,11 @@ function PluginSelectOverlay(
 						value={filter()}
 						placeholder={props.input.placeholder ?? "Filter..."}
 						placeholderColor={theme.textPlaceholder}
+						backgroundColor={theme.bgTransparent}
+						focusedBackgroundColor={theme.bgTransparent}
+						textColor={theme.textPrimary}
+						focusedTextColor={theme.textPrimary}
+						cursorColor={theme.cursor}
 						onInput={(value: string) => setFilter(value)}
 					/>
 				</box>
@@ -362,6 +367,11 @@ function PluginInputOverlay(
 					value={value()}
 					placeholder={props.input.placeholder ?? ""}
 					placeholderColor={theme.textPlaceholder}
+					backgroundColor={theme.bgTransparent}
+					focusedBackgroundColor={theme.bgTransparent}
+					textColor={theme.textPrimary}
+					focusedTextColor={theme.textPrimary}
+					cursorColor={theme.cursor}
 					onInput={(next: string) => setValue(next)}
 				/>
 			</box>
