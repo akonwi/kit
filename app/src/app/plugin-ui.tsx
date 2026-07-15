@@ -10,8 +10,9 @@ import {
 import { withKitKeyAliases } from "../keymap/bindings";
 import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
 import { Dialog } from "../shell/Dialog";
-import { CHEVRON_RIGHT } from "../shell/glyphs";
+import { FULL_BLOCK, VERTICAL_LINE } from "../shell/glyphs";
 import { KeymapHintBar } from "../shell/KeymapHintBar";
+import { computeScrollbar } from "../shell/scrollbar";
 import { theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
@@ -138,14 +139,27 @@ function PluginSelectOverlay(
 		const all = filteredOptions();
 		const selected = selectedIndex();
 		if (all.length <= SELECT_MAX_VISIBLE) {
-			return all.map((option, index) => ({ option, index }));
+			return {
+				items: all.map((option, index) => ({ option, index })),
+				offset: 0,
+			};
 		}
 		let offset = selected - Math.floor(SELECT_MAX_VISIBLE / 2);
 		offset = Math.max(0, Math.min(offset, all.length - SELECT_MAX_VISIBLE));
-		return all
-			.slice(offset, offset + SELECT_MAX_VISIBLE)
-			.map((option, index) => ({ option, index: offset + index }));
+		return {
+			items: all
+				.slice(offset, offset + SELECT_MAX_VISIBLE)
+				.map((option, index) => ({ option, index: offset + index })),
+			offset,
+		};
 	});
+	const scrollbar = createMemo(() =>
+		computeScrollbar(
+			filteredOptions().length,
+			SELECT_MAX_VISIBLE,
+			visibleOptions().offset,
+		),
+	);
 
 	function move(delta: number) {
 		const count = filteredOptions().length;
@@ -231,7 +245,7 @@ function PluginSelectOverlay(
 				<Dialog.Title>{props.input.title}</Dialog.Title>
 			</Dialog.Header>
 			<Show when={props.input.message}>
-				<text fg={theme.textMuted}>{props.input.message}</text>
+				<text fg={theme.textSecondary}>{props.input.message}</text>
 			</Show>
 			<Show when={props.input.filterable}>
 				<box flexDirection="row" gap={1} width="100%">
@@ -254,44 +268,66 @@ function PluginSelectOverlay(
 				</box>
 			</Show>
 			<Dialog.Body>
-				<box flexDirection="column" overflow="hidden">
-					<Show when={filteredOptions().length === 0}>
-						<text fg={theme.textMuted}>No options</text>
-					</Show>
-					<For each={visibleOptions()}>
-						{(entry) => {
-							const isFocused = () => entry.index === selectedIndex();
-							const fg = () =>
-								isFocused() ? theme.pickerFocusedText : theme.textPrimary;
-							const bg = () =>
-								isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
-							return (
-								<box
-									flexDirection="row"
-									width="100%"
-									height={1}
-									overflow="hidden"
-									gap={1}
-									backgroundColor={bg()}
-									onMouseUp={() => {
-										if (!props.active) return;
-										props.done(entry.option.value);
-									}}
-								>
-									<text fg={fg()} bg={bg()}>
-										{isFocused() ? `${CHEVRON_RIGHT} ` : "  "}
-										{entry.option.label}
-									</text>
-									<Show when={entry.option.description.length > 0}>
-										<box flexGrow={1} />
-										<text fg={fg()} bg={bg()}>
-											{entry.option.description}
+				<Show when={filteredOptions().length === 0}>
+					<text fg={theme.textMuted}>No options</text>
+				</Show>
+				<box flexDirection="row" overflow="hidden">
+					<box flexGrow={1} flexDirection="column" overflow="hidden">
+						<For each={visibleOptions().items}>
+							{(entry) => {
+								const isFocused = () => entry.index === selectedIndex();
+								const labelFg = () =>
+									isFocused() ? theme.pickerFocusedText : theme.pickerItemText;
+								const descriptionFg = () =>
+									isFocused() ? theme.pickerFocusedText : theme.textMuted;
+								const bg = () =>
+									isFocused() ? theme.pickerFocusedBg : theme.bgTransparent;
+								return (
+									<box
+										flexDirection="row"
+										width="100%"
+										height={1}
+										overflow="hidden"
+										gap={1}
+										backgroundColor={bg()}
+										onMouseUp={() => {
+											if (!props.active) return;
+											props.done(entry.option.value);
+										}}
+									>
+										<text fg={labelFg()} bg={bg()}>
+											{entry.option.label}
 										</text>
-									</Show>
-								</box>
-							);
-						}}
-					</For>
+										<Show when={entry.option.description.length > 0}>
+											<box flexGrow={1} />
+											<text fg={descriptionFg()} bg={bg()}>
+												{entry.option.description}
+											</text>
+										</Show>
+									</box>
+								);
+							}}
+						</For>
+					</box>
+					<Show when={scrollbar()}>
+						{(track) => (
+							<box flexShrink={0} width={1} flexDirection="column">
+								<For each={track()}>
+									{(isThumb) => (
+										<text
+											fg={
+												isThumb
+													? theme.pickerScrollThumb
+													: theme.pickerScrollTrack
+											}
+										>
+											{isThumb ? FULL_BLOCK : VERTICAL_LINE}
+										</text>
+									)}
+								</For>
+							</box>
+						)}
+					</Show>
 				</box>
 			</Dialog.Body>
 			<Dialog.Footer>
@@ -358,9 +394,14 @@ function PluginInputOverlay(
 				<Dialog.Title>{props.input.title}</Dialog.Title>
 			</Dialog.Header>
 			<Show when={props.input.message}>
-				<text fg={theme.textMuted}>{props.input.message}</text>
+				<text fg={theme.textSecondary}>{props.input.message}</text>
 			</Show>
-			<box border borderColor={theme.borderAccent} paddingX={1} width="100%">
+			<box
+				border
+				borderColor={props.active ? theme.borderAccent : theme.borderDefault}
+				paddingX={1}
+				width="100%"
+			>
 				<input
 					flexGrow={1}
 					focused={props.active}
@@ -496,7 +537,7 @@ function PluginConfirmOverlay(
 				<Dialog.Title>{props.input.title}</Dialog.Title>
 			</Dialog.Header>
 			<Show when={props.input.message}>
-				<text fg={theme.textMuted}>{props.input.message}</text>
+				<text fg={theme.textSecondary}>{props.input.message}</text>
 			</Show>
 			<box flexGrow={1} />
 			<box flexDirection="row" justifyContent="flex-end" gap={1}>
