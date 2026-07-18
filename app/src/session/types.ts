@@ -89,6 +89,14 @@ export interface SessionHeader {
 	thinkingLevel?: ThinkingLevel;
 }
 
+export interface SubagentSessionHeader extends SessionHeader {
+	kind: "subagent";
+	ownerSessionId: string;
+	agentName: string;
+	description?: string;
+	source: SubagentEventSource;
+}
+
 export interface SessionEntryBase {
 	type: string;
 	id: string;

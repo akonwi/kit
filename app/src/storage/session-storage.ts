@@ -37,6 +37,7 @@ import {
 	type Turn,
 } from "../session/types";
 import { scratchpadPath } from "./session-sidecars";
+import { deleteSubagentSessionsForOwner } from "./subagent-session-storage";
 
 export type AppendableSessionEntry = SessionEntry extends infer T
 	? T extends SessionEntry
@@ -1154,11 +1155,13 @@ export async function updateSession(
 }
 
 export async function deleteSession(id: string): Promise<void> {
+	await writeChains.get(id);
 	await rm(sessionPath(id), { force: true });
 	await rm(legacySessionPath(id), { force: true });
-	await rm(scratchpadPath(id), { force: true });
 	stateBySessionId.delete(id);
 	writeChains.delete(id);
+	await deleteSubagentSessionsForOwner(id);
+	await rm(scratchpadPath(id), { force: true });
 }
 
 // --- Listing ---
