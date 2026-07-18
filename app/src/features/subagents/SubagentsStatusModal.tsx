@@ -495,6 +495,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 			height="70%"
 			maxWidth={140}
 			minWidth={44}
+			paddingBottom={0}
 			surfaceProps={props.surfaceProps}
 			rootRef={setRootTarget}
 			rootFocusable
@@ -688,7 +689,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 
 			<Show when={mode() === "confirmDismiss" && selectedConversation()}>
 				{(conversation) => (
-					<Dialog.Root maxWidth={80}>
+					<Dialog.Root maxWidth={80} paddingBottom={0}>
 						<Dialog.Header>
 							<Dialog.Title fg={theme.errorText}>
 								Dismiss "{conversation().agentName}"?
