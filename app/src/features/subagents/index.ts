@@ -162,6 +162,10 @@ export function createSubagentsPlugin(options: {
 						surfaceProps: props.surfaceProps,
 						getAgents: () => agents,
 						getActiveConversations: () => manager.listActive(),
+						readConversationEntries: (conversationId) =>
+							manager.readConversationEntries(conversationId),
+						subscribeToChanges: (listener) => manager.subscribe(listener),
+						dismissConversation: (agentName) => manager.dismiss(agentName),
 						get active() {
 							return props.active;
 						},

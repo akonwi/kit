@@ -22,6 +22,16 @@ export {
 	updateSession,
 	writeSession,
 } from "../storage/session-storage";
+export {
+	appendSubagentSessionEntries,
+	createSubagentSession,
+	deleteSubagentSession,
+	deleteSubagentSessionsForOwner,
+	readSubagentSessionEntries,
+	readSubagentSessionHeader,
+	subagentSessionPath,
+	subagentSessionsDir,
+} from "../storage/subagent-session-storage";
 export type {
 	PersistedKitAgentMessage,
 	Session,
@@ -44,6 +54,7 @@ export type {
 	SubagentMessageDeltaEntry,
 	SubagentMessageStartedEntry,
 	SubagentPromptEntry,
+	SubagentSessionHeader,
 	SubagentStartedEntry,
 	SubagentThinkingCompletedEntry,
 	SubagentThinkingDeltaEntry,

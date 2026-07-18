@@ -17,6 +17,13 @@ import {
 	type SubagentFailedEntry,
 	type Turn,
 } from "../../session";
+import {
+	appendSubagentSessionEntries,
+	createSubagentSession,
+	deleteSubagentSession,
+	readSubagentSessionEntries,
+	readSubagentSessionHeader,
+} from "../../storage/subagent-session-storage";
 import type { SubagentDefinition } from "./discovery";
 
 export type ActiveSubagentStatus = "idle" | "running" | "failed" | "aborted";
@@ -26,6 +33,16 @@ export interface LiveSubagentRuntime {
 	abort(reason?: string): void;
 	dispose(): void;
 }
+
+export type SubagentLiveTool = {
+	toolCallId: string;
+	toolName: string;
+	args: unknown;
+	partialResult: unknown | null;
+	result: unknown | null;
+	isError: boolean | null;
+	state: "started" | "updated" | "ended";
+};
 
 export interface ActiveSubagentConversationState {
 	agentName: string;
@@ -37,7 +54,11 @@ export interface ActiveSubagentConversationState {
 	latestMessage?: string;
 	failureMessage?: string;
 	abortReason?: string;
+	transcriptRevision?: number;
+	liveMessage?: Extract<PersistedKitAgentMessage, { role: "assistant" }>;
+	liveTools?: Record<string, SubagentLiveTool>;
 	runtime?: LiveSubagentRuntime;
+	initializing?: Promise<void>;
 }
 
 export interface SubagentRunResult {
@@ -79,6 +100,10 @@ interface SubagentExecutorFactoryOptions {
 	historyTurns: Turn[];
 	onEntries: (entries: AppendableSessionEntry[]) => Promise<void>;
 	onCompletedMessage: (message: PersistedKitAgentMessage, text: string) => void;
+	onLiveMessage: (
+		message: Extract<PersistedKitAgentMessage, { role: "assistant" }>,
+	) => void;
+	onLiveTool: (tool: SubagentLiveTool) => void;
 	onTerminalState: (
 		status: ActiveSubagentStatus,
 		options?: { error?: string; reason?: string },
@@ -86,11 +111,20 @@ interface SubagentExecutorFactoryOptions {
 	subagentConversationId: string;
 }
 
+export type SubagentSessionStorage = {
+	appendEntries: typeof appendSubagentSessionEntries;
+	create: typeof createSubagentSession;
+	delete: typeof deleteSubagentSession;
+	readEntries: typeof readSubagentSessionEntries;
+	readHeader: typeof readSubagentSessionHeader;
+};
+
 interface SubagentManagerOptions {
 	runtime: RuntimeLike;
 	getAgents: () => SubagentDefinition[];
 	appendEntries?: typeof appendSessionEntries;
 	readEntries?: typeof readSessionEntries;
+	subagentStorage?: SubagentSessionStorage;
 	createRuntime?: (
 		options: SubagentExecutorFactoryOptions,
 	) => Promise<LiveSubagentRuntime> | LiveSubagentRuntime;
@@ -130,18 +164,6 @@ function assistantMessageId(message: unknown): string | undefined {
 	}
 	const id = message.id;
 	return typeof id === "string" && id.trim().length > 0 ? id : undefined;
-}
-
-function maybeTextDelta(
-	event: Extract<AgentRuntimeEvent, { type: "message.update" }>,
-): string | null {
-	if (event.message.role !== "assistant") return null;
-	const deltaEvent = event.assistantMessageEvent as
-		| { type?: string; delta?: unknown }
-		| undefined;
-	if (!deltaEvent || typeof deltaEvent.delta !== "string") return null;
-	if (deltaEvent.type === "thinking_delta") return null;
-	return deltaEvent.delta;
 }
 
 function normalizeToolResultContent(result: unknown): {
@@ -224,7 +246,7 @@ export function createSubagentCompactionEntry(
 	};
 }
 
-function buildHistoryTurns(
+export function buildSubagentTranscriptTurns(
 	entries: SessionEntry[],
 	subagentConversationId: string,
 ): Turn[] {
@@ -372,6 +394,10 @@ async function createLiveSubagentRuntime(
 		switch (event.type) {
 			case "agent.message.started": {
 				currentMessageId = assistantMessageId(event.message) ?? randomUUID();
+				const liveMessage = stripTurnId(event.message);
+				if (liveMessage.role === "assistant") {
+					options.onLiveMessage(liveMessage);
+				}
 				options.onTerminalState("running");
 				enqueueEntries([
 					{
@@ -379,64 +405,50 @@ async function createLiveSubagentRuntime(
 						type: "subagent_message_started",
 						messageId: currentMessageId,
 					},
-					{
-						...baseEntry(),
-						type: "subagent_thinking_started",
-						messageId: currentMessageId,
-					},
 				]);
 				break;
 			}
-			case "message.update": {
-				const delta = maybeTextDelta(event);
-				if (!delta || !currentMessageId) break;
-				enqueueEntries([
-					{
-						...baseEntry(),
-						type: "subagent_message_delta",
-						messageId: currentMessageId,
-						delta,
-					},
-				]);
-				break;
-			}
-			case "agent.thinking.updated": {
-				if (!currentMessageId) break;
-				enqueueEntries([
-					{
-						...baseEntry(),
-						type: "subagent_thinking_delta",
-						messageId: currentMessageId,
-						delta: event.delta,
-					},
-				]);
+			case "agent.message.updated": {
+				const liveMessage = stripTurnId(event.message);
+				if (liveMessage.role === "assistant") {
+					options.onLiveMessage(liveMessage);
+				}
 				break;
 			}
 			case "agent.tool.started": {
-				enqueueEntries([
-					{
-						...baseEntry(),
-						type: "subagent_tool_started",
-						toolCallId: event.toolCallId,
-						toolName: event.toolName,
-						args: event.args,
-					},
-				]);
+				options.onLiveTool({
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: null,
+					result: null,
+					isError: null,
+					state: "started",
+				});
 				break;
 			}
 			case "agent.tool.updated": {
-				enqueueEntries([
-					{
-						...baseEntry(),
-						type: "subagent_tool_updated",
-						toolCallId: event.toolCallId,
-						toolName: event.toolName,
-						partialResult: event.partialResult,
-					},
-				]);
+				options.onLiveTool({
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: event.partialResult,
+					result: null,
+					isError: null,
+					state: "updated",
+				});
 				break;
 			}
 			case "agent.tool.ended": {
+				options.onLiveTool({
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: null,
+					result: event.result,
+					isError: event.isError,
+					state: "ended",
+				});
 				enqueueEntries([
 					{
 						...baseEntry(),
@@ -462,11 +474,6 @@ async function createLiveSubagentRuntime(
 					terminalError = undefined;
 				}
 				enqueueEntries([
-					{
-						...baseEntry(),
-						type: "subagent_thinking_completed",
-						messageId,
-					},
 					{
 						...baseEntry(),
 						type: "subagent_message_completed",
@@ -576,14 +583,32 @@ export class SubagentManager {
 	private readonly createRuntime: (
 		options: SubagentExecutorFactoryOptions,
 	) => Promise<LiveSubagentRuntime> | LiveSubagentRuntime;
+	private readonly subagentStorage: SubagentSessionStorage;
+	private readonly usesSeparateStorage: boolean;
+	private readonly dismissedConversationIds = new Set<string>();
+	private readonly dismissalPromises = new Map<string, Promise<boolean>>();
+	private readonly listeners = new Set<() => void>();
+	private generation = 0;
 
 	constructor(private readonly options: SubagentManagerOptions) {
 		this.appendEntries = options.appendEntries ?? appendSessionEntries;
 		this.readEntries = options.readEntries ?? readSessionEntries;
+		this.subagentStorage = options.subagentStorage ?? {
+			appendEntries: appendSubagentSessionEntries,
+			create: createSubagentSession,
+			delete: deleteSubagentSession,
+			readEntries: readSubagentSessionEntries,
+			readHeader: readSubagentSessionHeader,
+		};
+		this.usesSeparateStorage = Boolean(
+			options.subagentStorage ||
+				(!options.appendEntries && !options.readEntries),
+		);
 		this.createRuntime = options.createRuntime ?? createLiveSubagentRuntime;
 	}
 
 	reset(): void {
+		this.generation += 1;
 		for (const conversation of this.conversationsByAgent.values()) {
 			if (conversation.status === "running") {
 				conversation.runtime?.abort("Session closed");
@@ -591,6 +616,7 @@ export class SubagentManager {
 			conversation.runtime?.dispose();
 		}
 		this.conversationsByAgent.clear();
+		this.emitChanged();
 	}
 
 	async hydrate(
@@ -669,6 +695,69 @@ export class SubagentManager {
 				}
 			}
 		}
+
+		if (this.usesSeparateStorage) {
+			for (const conversation of this.conversationsByAgent.values()) {
+				const childEntries = await this.subagentStorage.readEntries(
+					conversation.subagentConversationId,
+				);
+				for (const entry of childEntries) {
+					if (entry.type === "subagent_message_started") {
+						conversation.status = "running";
+						conversation.lastActivityAt = entry.timestamp;
+					} else if (entry.type === "subagent_message_completed") {
+						conversation.status = "idle";
+						conversation.lastActivityAt = entry.timestamp;
+						conversation.latestMessage = extractAssistantText(entry.message);
+						conversation.failureMessage = undefined;
+						conversation.abortReason = undefined;
+					} else if (entry.type === "subagent_failed") {
+						conversation.status = "failed";
+						conversation.lastActivityAt = entry.timestamp;
+						conversation.failureMessage = entry.error;
+					} else if (entry.type === "subagent_aborted") {
+						conversation.status = "aborted";
+						conversation.lastActivityAt = entry.timestamp;
+						conversation.abortReason = entry.reason;
+					}
+				}
+			}
+		}
+		await this.recoverInterruptedConversations(session);
+		this.emitChanged();
+	}
+
+	private async recoverInterruptedConversations(
+		session: Session,
+	): Promise<void> {
+		for (const conversation of this.conversationsByAgent.values()) {
+			if (conversation.status !== "running" || conversation.runtime) continue;
+			const timestamp = nowIso();
+			const reason = "Interrupted when Kit stopped";
+			const entry = {
+				type: "subagent_aborted" as const,
+				timestamp,
+				agentName: conversation.agentName,
+				subagentConversationId: conversation.subagentConversationId,
+				reason,
+			};
+			conversation.status = "aborted";
+			conversation.lastActivityAt = timestamp;
+			conversation.abortReason = reason;
+			try {
+				if (this.usesSeparateStorage) {
+					await this.subagentStorage.appendEntries(
+						conversation.subagentConversationId,
+						[entry],
+					);
+					conversation.transcriptRevision =
+						(conversation.transcriptRevision ?? 0) + 1;
+				}
+				await this.appendEntries(session, [entry]);
+			} catch (error) {
+				console.error("[subagents] failed to persist interrupted state", error);
+			}
+		}
 	}
 
 	getActive(agentName: string): ActiveSubagentConversationState | undefined {
@@ -677,38 +766,138 @@ export class SubagentManager {
 
 	setActive(conversation: ActiveSubagentConversationState): void {
 		this.conversationsByAgent.set(conversation.agentName, conversation);
+		this.emitChanged();
 	}
 
 	async dismiss(agentName: string): Promise<boolean> {
 		const active = this.conversationsByAgent.get(agentName);
 		if (!active) return false;
-		if (active.status === "running") {
-			active.runtime?.abort("Dismissed");
-			await this.appendSubagentEntries([
-				{
-					type: "subagent_aborted",
+		const existing = this.dismissalPromises.get(active.subagentConversationId);
+		if (existing) return existing;
+		const dismissal = this.performDismiss(agentName, active).finally(() => {
+			this.dismissalPromises.delete(active.subagentConversationId);
+		});
+		this.dismissalPromises.set(active.subagentConversationId, dismissal);
+		return dismissal;
+	}
+
+	private async performDismiss(
+		agentName: string,
+		active: ActiveSubagentConversationState,
+	): Promise<boolean> {
+		const ownerSession = this.options.runtime.getSession();
+		let dismissalCommitted = false;
+		this.dismissedConversationIds.add(active.subagentConversationId);
+		try {
+			await active.initializing?.catch(() => {});
+			if (this.conversationsByAgent.get(agentName) !== active) {
+				this.dismissedConversationIds.delete(active.subagentConversationId);
+				return false;
+			}
+			if (active.status === "running") {
+				active.runtime?.abort("Dismissed");
+				active.status = "aborted";
+				active.abortReason = "Dismissed";
+				const abortEntry = {
+					type: "subagent_aborted" as const,
 					timestamp: nowIso(),
 					agentName,
 					subagentConversationId: active.subagentConversationId,
 					reason: "Dismissed",
+				};
+				if (this.usesSeparateStorage) {
+					await this.subagentStorage.appendEntries(
+						active.subagentConversationId,
+						[abortEntry],
+					);
+				}
+				await this.appendEntries(ownerSession, [abortEntry]);
+			}
+			await this.appendEntries(ownerSession, [
+				{
+					type: "subagent_dismissed",
+					timestamp: nowIso(),
+					agentName,
+					subagentConversationId: active.subagentConversationId,
 				},
 			]);
+			dismissalCommitted = true;
+			active.runtime?.dispose();
+			active.runtime = undefined;
+			if (this.conversationsByAgent.get(agentName) === active) {
+				this.conversationsByAgent.delete(agentName);
+			}
+			this.emitChanged();
+			if (this.usesSeparateStorage) {
+				try {
+					await this.subagentStorage.delete(active.subagentConversationId);
+				} catch (error) {
+					console.error("[subagents] child cleanup deferred", error);
+					this.scheduleChildDeletion(active.subagentConversationId);
+				}
+			}
+			return true;
+		} catch (error) {
+			active.runtime?.dispose();
+			active.runtime = undefined;
+			if (dismissalCommitted) {
+				if (this.conversationsByAgent.get(agentName) === active) {
+					this.conversationsByAgent.delete(agentName);
+				}
+			} else {
+				this.dismissedConversationIds.delete(active.subagentConversationId);
+			}
+			this.emitChanged();
+			throw error;
 		}
-		await this.appendSubagentEntries([
-			{
-				type: "subagent_dismissed",
-				timestamp: nowIso(),
-				agentName,
-				subagentConversationId: active.subagentConversationId,
-			},
-		]);
-		active.runtime?.dispose();
-		this.conversationsByAgent.delete(agentName);
-		return true;
+	}
+
+	private scheduleChildDeletion(conversationId: string, attempt = 1): void {
+		setTimeout(() => {
+			void this.subagentStorage.delete(conversationId).catch((error) => {
+				if (attempt < 3) {
+					this.scheduleChildDeletion(conversationId, attempt + 1);
+					return;
+				}
+				console.error("[subagents] child cleanup failed", error);
+			});
+		}, attempt * 250);
 	}
 
 	listActive(): ActiveSubagentConversationState[] {
 		return [...this.conversationsByAgent.values()];
+	}
+
+	subscribe(listener: () => void): () => void {
+		this.listeners.add(listener);
+		return () => this.listeners.delete(listener);
+	}
+
+	async readConversationEntries(
+		conversationId: string,
+	): Promise<SessionEntry[]> {
+		if (this.usesSeparateStorage) {
+			return this.subagentStorage.readEntries(conversationId);
+		}
+		return (
+			await this.readEntries(this.options.runtime.getSession().id)
+		).filter(
+			(entry) =>
+				"subagentConversationId" in entry &&
+				entry.subagentConversationId === conversationId,
+		);
+	}
+
+	private emitChanged(): void {
+		for (const listener of [...this.listeners]) {
+			try {
+				listener();
+			} catch (error) {
+				queueMicrotask(() =>
+					console.error("[subagents] listener failed", error),
+				);
+			}
+		}
 	}
 
 	async run(
@@ -741,87 +930,206 @@ export class SubagentManager {
 			);
 		}
 
+		const ownerSession = this.options.runtime.getSession();
+		const runGeneration = this.generation;
 		let active = this.conversationsByAgent.get(normalizedAgent);
-		if (active?.status === "running") {
+		if (
+			active &&
+			(active.status === "running" ||
+				this.dismissalPromises.has(active.subagentConversationId))
+		) {
 			throw new SubagentManagerError(
 				"SUBAGENT_BUSY",
-				`Sub-agent "${normalizedAgent}" is already running.`,
+				`Sub-agent "${normalizedAgent}" is already running or being dismissed.`,
 			);
 		}
 
+		const isNewConversation = !active;
 		if (!active) {
 			active = {
 				agentName: normalizedAgent,
 				subagentConversationId: randomUUID(),
-				status: "idle",
+				status: "running",
 				model: definition.model,
 				description: definition.description,
 				lastActivityAt: nowIso(),
 			};
 			this.conversationsByAgent.set(normalizedAgent, active);
-			await this.appendSubagentEntries([
-				{
-					type: "subagent_started",
-					timestamp: nowIso(),
-					agentName: normalizedAgent,
-					subagentConversationId: active.subagentConversationId,
-					source,
-					model: definition.model,
-					description: definition.description,
-				},
-			]);
 		}
 
-		const historyEntries = await this.readEntries(
-			this.options.runtime.getSession().id,
-		);
-		const historyTurns = buildHistoryTurns(
-			historyEntries,
-			active.subagentConversationId,
-		);
-
-		active.lastActivityAt = nowIso();
-		active.failureMessage = undefined;
-		active.abortReason = undefined;
-		await this.appendSubagentEntries([
-			{
-				type: "subagent_prompt",
-				timestamp: nowIso(),
-				agentName: normalizedAgent,
-				subagentConversationId: active.subagentConversationId,
-				source,
-				prompt: normalizedMessage,
-			},
-		]);
 		const conversation = active;
 		conversation.status = "running";
 		conversation.lastActivityAt = nowIso();
-		try {
-			conversation.runtime = await this.createRuntime({
-				runtime: this.options.runtime,
+		conversation.failureMessage = undefined;
+		conversation.abortReason = undefined;
+		conversation.liveMessage = undefined;
+		conversation.liveTools = undefined;
+		this.emitChanged();
+		let historyTurns: Turn[] = [];
+		const initialize = async () => {
+			if (isNewConversation) {
+				if (this.usesSeparateStorage) {
+					await this.subagentStorage.create({
+						id: conversation.subagentConversationId,
+						ownerSessionId: ownerSession.id,
+						cwd: ownerSession.cwd,
+						agentName: normalizedAgent,
+						description: definition.description,
+						model: definition.model,
+						thinkingLevel: this.options.runtime.agentInfo.thinkingLevel,
+						source,
+					});
+				}
+				await this.appendEntries(ownerSession, [
+					{
+						type: "subagent_started",
+						timestamp: nowIso(),
+						agentName: normalizedAgent,
+						subagentConversationId: conversation.subagentConversationId,
+						source,
+						model: definition.model,
+						description: definition.description,
+					},
+				]);
+			}
+
+			await this.ensureSeparateSession(
+				conversation,
+				ownerSession,
 				definition,
-				historyTurns,
-				subagentConversationId: conversation.subagentConversationId,
-				onEntries: (entries) => this.appendSubagentEntries(entries),
-				onCompletedMessage: (_message, text) => {
-					const current = this.conversationsByAgent.get(normalizedAgent);
-					if (!current) return;
-					current.latestMessage = text;
-					current.lastActivityAt = nowIso();
+				source,
+			);
+			const parentEntries = await this.readEntries(ownerSession.id);
+			const historyEntries = this.usesSeparateStorage
+				? await this.subagentStorage.readEntries(
+						conversation.subagentConversationId,
+					)
+				: parentEntries;
+			historyTurns = buildSubagentTranscriptTurns(
+				historyEntries,
+				conversation.subagentConversationId,
+			);
+			await this.persistSubagentEntries(ownerSession, [
+				{
+					type: "subagent_prompt",
+					timestamp: nowIso(),
+					agentName: normalizedAgent,
+					subagentConversationId: conversation.subagentConversationId,
+					source,
+					prompt: normalizedMessage,
 				},
-				onTerminalState: (status, options) => {
-					const current = this.conversationsByAgent.get(normalizedAgent);
-					if (!current) return;
-					current.status = status;
-					current.lastActivityAt = nowIso();
-					if (status === "failed") current.failureMessage = options?.error;
-					if (status === "aborted") current.abortReason = options?.reason;
-				},
-			});
+			]);
+		};
+		conversation.initializing = initialize();
+		try {
+			await conversation.initializing;
 		} catch (error) {
 			conversation.status = "failed";
 			conversation.failureMessage =
 				error instanceof Error ? error.message : String(error);
+			this.emitChanged();
+			if (isNewConversation) {
+				await this.appendEntries(ownerSession, [
+					{
+						type: "subagent_dismissed",
+						timestamp: nowIso(),
+						agentName: normalizedAgent,
+						subagentConversationId: conversation.subagentConversationId,
+					},
+				]).catch(() => {});
+				if (this.conversationsByAgent.get(normalizedAgent) === conversation) {
+					this.conversationsByAgent.delete(normalizedAgent);
+				}
+				if (this.usesSeparateStorage) {
+					await this.subagentStorage.delete(
+						conversation.subagentConversationId,
+					);
+				}
+			}
+			throw error;
+		} finally {
+			conversation.initializing = undefined;
+		}
+		if (
+			this.dismissedConversationIds.has(conversation.subagentConversationId) ||
+			this.generation !== runGeneration ||
+			this.conversationsByAgent.get(normalizedAgent) !== conversation
+		) {
+			return { status: "aborted", error: "Session closed" };
+		}
+		try {
+			const createdRuntime = await this.createRuntime({
+				runtime: this.options.runtime,
+				definition,
+				historyTurns,
+				subagentConversationId: conversation.subagentConversationId,
+				onEntries: (entries) =>
+					this.persistSubagentEntries(ownerSession, entries),
+				onCompletedMessage: (_message, text) => {
+					const current = this.conversationsByAgent.get(normalizedAgent);
+					if (current !== conversation || this.generation !== runGeneration)
+						return;
+					current.latestMessage = text;
+					current.lastActivityAt = nowIso();
+					this.emitChanged();
+				},
+				onLiveMessage: (message) => {
+					const current = this.conversationsByAgent.get(normalizedAgent);
+					if (current !== conversation || this.generation !== runGeneration)
+						return;
+					current.liveMessage = message;
+					current.lastActivityAt = nowIso();
+					this.emitChanged();
+				},
+				onLiveTool: (tool) => {
+					const current = this.conversationsByAgent.get(normalizedAgent);
+					if (current !== conversation || this.generation !== runGeneration)
+						return;
+					const previous = current.liveTools?.[tool.toolCallId];
+					current.liveTools = {
+						...current.liveTools,
+						[tool.toolCallId]: {
+							...tool,
+							partialResult:
+								tool.partialResult ?? previous?.partialResult ?? null,
+							result: tool.result ?? previous?.result ?? null,
+							isError: tool.isError ?? previous?.isError ?? null,
+						},
+					};
+					this.emitChanged();
+				},
+				onTerminalState: (status, options) => {
+					const current = this.conversationsByAgent.get(normalizedAgent);
+					if (current !== conversation || this.generation !== runGeneration)
+						return;
+					current.status = status;
+					current.lastActivityAt = nowIso();
+					if (status !== "running") {
+						current.liveMessage = undefined;
+						current.liveTools = undefined;
+					}
+					if (status === "failed") current.failureMessage = options?.error;
+					if (status === "aborted") current.abortReason = options?.reason;
+					this.emitChanged();
+				},
+			});
+			if (
+				this.dismissedConversationIds.has(
+					conversation.subagentConversationId,
+				) ||
+				this.generation !== runGeneration ||
+				this.conversationsByAgent.get(normalizedAgent) !== conversation
+			) {
+				createdRuntime.abort("Session closed");
+				createdRuntime.dispose();
+				return { status: "aborted", error: "Session closed" };
+			}
+			conversation.runtime = createdRuntime;
+		} catch (error) {
+			conversation.status = "failed";
+			conversation.failureMessage =
+				error instanceof Error ? error.message : String(error);
+			this.emitChanged();
 			throw error;
 		}
 
@@ -856,10 +1164,85 @@ export class SubagentManager {
 		Object.assign(active, changes);
 	}
 
-	private async appendSubagentEntries(
+	private async ensureSeparateSession(
+		active: ActiveSubagentConversationState,
+		ownerSession: Session,
+		definition: SubagentDefinition,
+		source: SubagentEventSource,
+	): Promise<void> {
+		if (!this.usesSeparateStorage) return;
+		const existing = await this.subagentStorage.readHeader(
+			active.subagentConversationId,
+		);
+		if (existing) return;
+		await this.subagentStorage.create({
+			id: active.subagentConversationId,
+			ownerSessionId: ownerSession.id,
+			cwd: ownerSession.cwd,
+			agentName: active.agentName,
+			description: definition.description,
+			model: definition.model,
+			thinkingLevel: this.options.runtime.agentInfo.thinkingLevel,
+			source,
+		});
+	}
+
+	private async persistSubagentEntries(
+		ownerSession: Session,
 		entries: AppendableSessionEntry[],
 	): Promise<void> {
-		await this.appendEntries(this.options.runtime.getSession(), entries);
+		const conversationId = entries.find(
+			(entry) => "subagentConversationId" in entry,
+		)?.subagentConversationId;
+		if (!conversationId || this.dismissedConversationIds.has(conversationId)) {
+			return;
+		}
+		if (!this.usesSeparateStorage) {
+			await this.appendEntries(ownerSession, entries);
+			this.markTranscriptPersisted(conversationId);
+			return;
+		}
+		const childEntries = entries.filter((entry) => this.isChildEntry(entry));
+		if (childEntries.length > 0) {
+			await this.subagentStorage.appendEntries(conversationId, childEntries);
+			this.markTranscriptPersisted(conversationId);
+		}
+		const parentEntries = entries.filter((entry) =>
+			this.isParentReferenceEntry(entry),
+		);
+		if (parentEntries.length > 0) {
+			await this.appendEntries(ownerSession, parentEntries);
+		}
+	}
+
+	private markTranscriptPersisted(conversationId: string): void {
+		const conversation = [...this.conversationsByAgent.values()].find(
+			(candidate) => candidate.subagentConversationId === conversationId,
+		);
+		if (!conversation) return;
+		conversation.transcriptRevision =
+			(conversation.transcriptRevision ?? 0) + 1;
+		this.emitChanged();
+	}
+
+	private isChildEntry(entry: AppendableSessionEntry): boolean {
+		return (
+			entry.type === "subagent_prompt" ||
+			entry.type === "subagent_message_started" ||
+			entry.type === "subagent_message_completed" ||
+			entry.type === "subagent_tool_completed" ||
+			entry.type === "subagent_compaction" ||
+			entry.type === "subagent_failed" ||
+			entry.type === "subagent_aborted"
+		);
+	}
+
+	private isParentReferenceEntry(entry: AppendableSessionEntry): boolean {
+		return (
+			entry.type === "subagent_prompt" ||
+			entry.type === "subagent_failed" ||
+			entry.type === "subagent_aborted"
+		);
 	}
 }
 

@@ -16,6 +16,7 @@ mock.module("node:os", () => ({
 }));
 
 const storage = await import("./session-storage");
+const subagentStorage = await import("./subagent-session-storage");
 const sidecars = await import("./session-sidecars");
 
 let tempRoot = "";
@@ -85,6 +86,59 @@ describe("session storage", () => {
 		if (originalHome === undefined) delete process.env.HOME;
 		else process.env.HOME = originalHome;
 		if (tempRoot) await rm(tempRoot, { recursive: true, force: true });
+	});
+
+	test("stores sub-agent sessions in a nested directory outside normal listings", async () => {
+		const parent = await storage.createSession(projectDir, "claude-sonnet-4-5");
+		await storage.writeSession(parent);
+		const subagentId = randomUUID();
+		await subagentStorage.createSubagentSession({
+			id: subagentId,
+			ownerSessionId: parent.id,
+			cwd: projectDir,
+			agentName: "scout",
+			description: "Fast reconnaissance",
+			model: "claude-sonnet-4-5",
+			thinkingLevel: "medium",
+			source: "agent",
+		});
+
+		const filePath = path.join(
+			homeDir,
+			".kit",
+			"sessions",
+			"subagents",
+			`${subagentId}.jsonl`,
+		);
+		expect(existsSync(filePath)).toBe(true);
+		expect((await storage.listAllSessions()).map((item) => item.id)).toEqual([
+			parent.id,
+		]);
+		expect(
+			await subagentStorage.readSubagentSessionHeader(subagentId),
+		).toMatchObject({
+			kind: "subagent",
+			ownerSessionId: parent.id,
+			agentName: "scout",
+		});
+
+		const appended = await subagentStorage.appendSubagentSessionEntries(
+			subagentId,
+			[
+				{
+					type: "subagent_prompt",
+					timestamp: new Date().toISOString(),
+					agentName: "scout",
+					subagentConversationId: subagentId,
+					source: "agent",
+					prompt: "inspect auth",
+				},
+			],
+		);
+		expect(appended[0]?.parentId).toBeNull();
+
+		await storage.deleteSession(parent.id);
+		expect(existsSync(filePath)).toBe(false);
 	});
 
 	test("deleteSession removes scratchpad sidecar", async () => {
