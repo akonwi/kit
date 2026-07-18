@@ -172,7 +172,7 @@ export async function appendSubagentSessionEntries(
 }
 
 export async function deleteSubagentSession(id: string): Promise<void> {
-	await writeChains.get(id);
+	await writeChains.get(id)?.catch(() => {});
 	await rm(subagentSessionPath(id), { force: true });
 	cache.delete(id);
 	writeChains.delete(id);

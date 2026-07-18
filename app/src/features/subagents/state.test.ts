@@ -195,6 +195,74 @@ describe("SubagentManager", () => {
 		expect(manager.getActive("reviewer")).toBeUndefined();
 	});
 
+	test("recovers persisted running conversations as interrupted", async () => {
+		const parentEntries: SessionEntry[] = [
+			{
+				type: "subagent_started",
+				id: "parent-1",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:00.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+			},
+		];
+		const childEntries: SessionEntry[] = [
+			{
+				type: "subagent_message_started",
+				id: "child-1",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:01.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				messageId: "message-1",
+			},
+		];
+		let nextId = 1;
+		const append = (
+			entries: AppendableSessionEntry[],
+			target: SessionEntry[],
+		) =>
+			entries.map((entry) => {
+				const prepared = {
+					...entry,
+					id: `recovery-${nextId++}`,
+					parentId: target.at(-1)?.id ?? null,
+				} as SessionEntry;
+				target.push(prepared);
+				return prepared;
+			});
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => parentEntries,
+			appendEntries: async (_session, entries) =>
+				append(entries, parentEntries),
+			subagentStorage: {
+				async create() {},
+				async readHeader() {
+					return null;
+				},
+				async readEntries() {
+					return childEntries;
+				},
+				async appendEntries(_id, entries) {
+					return append(entries, childEntries);
+				},
+				async delete() {},
+			},
+		});
+
+		await manager.hydrate();
+
+		expect(manager.getActive("scout")).toMatchObject({
+			status: "aborted",
+			abortReason: "Interrupted when Kit stopped",
+		});
+		expect(childEntries.at(-1)?.type).toBe("subagent_aborted");
+		expect(parentEntries.at(-1)?.type).toBe("subagent_aborted");
+	});
+
 	test("reset aborts running sub-agent runtimes before disposal", () => {
 		const calls: string[] = [];
 		const manager = new SubagentManager({
@@ -330,6 +398,7 @@ describe("SubagentManager", () => {
 			agentName: "scout",
 			status: "idle",
 			latestMessage: "delegated answer",
+			transcriptRevision: 2,
 		});
 	});
 
@@ -421,6 +490,10 @@ describe("SubagentManager", () => {
 			}),
 		});
 
+		let changeCount = 0;
+		const unsubscribe = manager.subscribe(() => {
+			changeCount += 1;
+		});
 		await manager.run("scout", "inspect auth");
 
 		expect(parentEntries.map((entry) => entry.type)).toEqual([
@@ -436,10 +509,66 @@ describe("SubagentManager", () => {
 			ownerSessionId: session.id,
 			agentName: "scout",
 		});
+		expect(manager.getActive("scout")?.transcriptRevision).toBe(2);
+		expect(changeCount).toBeGreaterThan(0);
+
+		await Promise.all([manager.dismiss("scout"), manager.dismiss("scout")]);
+		unsubscribe();
+		expect(deleted).toBe(true);
+		expect(
+			parentEntries.filter((entry) => entry.type === "subagent_dismissed"),
+		).toHaveLength(1);
+	});
+
+	test("persists a running dismissal to the child before deletion", async () => {
+		const parentTypes: string[] = [];
+		const childTypes: string[] = [];
+		let deleted = false;
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => [],
+			appendEntries: async (_session, entries) => {
+				parentTypes.push(...entries.map((entry) => entry.type));
+				return [];
+			},
+			subagentStorage: {
+				async create() {},
+				async readHeader() {
+					return null;
+				},
+				async readEntries() {
+					return [];
+				},
+				async appendEntries(_id, entries) {
+					childTypes.push(...entries.map((entry) => entry.type));
+					return [];
+				},
+				async delete() {
+					deleted = true;
+				},
+			},
+		});
+		manager.setActive({
+			agentName: "scout",
+			subagentConversationId: "conv-1",
+			status: "running",
+			lastActivityAt: "2025-01-01T00:00:00.000Z",
+			runtime: {
+				async run() {
+					return { status: "completed" as const };
+				},
+				abort() {},
+				dispose() {},
+			},
+		});
 
 		await manager.dismiss("scout");
+
+		expect(childTypes).toEqual(["subagent_aborted"]);
+		expect(parentTypes).toEqual(["subagent_aborted", "subagent_dismissed"]);
 		expect(deleted).toBe(true);
-		expect(parentEntries.at(-1)?.type).toBe("subagent_dismissed");
+		expect(manager.getActive("scout")).toBeUndefined();
 	});
 
 	test("starts fresh when continuing a legacy embedded conversation", async () => {

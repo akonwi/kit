@@ -128,10 +128,82 @@ export const KEYBINDING_REGISTRY = {
 	},
 	subagents: {
 		close: {
-			defaultKeys: ["escape", "return"],
+			defaultKeys: ["escape", "q"],
 			desc: "Close sub-agents dialog",
 			group: "subagents",
 			hint: "close",
+		},
+		"move-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Select previous sub-agent",
+			group: "subagents",
+			hint: "move",
+		},
+		"move-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Select next sub-agent",
+			group: "subagents",
+			hint: "move",
+		},
+		open: {
+			defaultKeys: ["return", "right"],
+			desc: "Open sub-agent transcript",
+			group: "subagents",
+			hint: "view",
+		},
+		dismiss: {
+			defaultKeys: "ctrl+d",
+			desc: "Dismiss sub-agent conversation",
+			group: "subagents",
+			hint: "dismiss",
+		},
+		back: {
+			defaultKeys: ["escape", "left"],
+			desc: "Return to sub-agent list",
+			group: "subagent-transcript",
+			hint: "back",
+		},
+		"scroll-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Scroll sub-agent transcript up",
+			group: "subagent-transcript",
+			hint: "scroll",
+		},
+		"scroll-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Scroll sub-agent transcript down",
+			group: "subagent-transcript",
+			hint: "scroll",
+		},
+		"scroll-top": {
+			defaultKeys: "g",
+			desc: "Scroll to transcript start",
+			group: "subagent-transcript",
+			hint: false,
+		},
+		"scroll-bottom": {
+			defaultKeys: "shift+g",
+			desc: "Scroll to transcript end",
+			group: "subagent-transcript",
+			hint: false,
+		},
+		"dismiss-transcript": {
+			defaultKeys: "ctrl+d",
+			desc: "Dismiss sub-agent conversation",
+			group: "subagent-transcript",
+			hint: "dismiss",
+		},
+		"confirm-dismiss": {
+			defaultKeys: "return",
+			desc: "Confirm sub-agent dismissal",
+			group: "subagent-dismiss",
+			hint: "dismiss",
+		},
+		"cancel-dismiss": {
+			defaultKeys: "escape",
+			desc: "Cancel sub-agent dismissal",
+			group: "subagent-dismiss",
+			hint: "cancel",
 		},
 	},
 	"mcp-authorization-url": {

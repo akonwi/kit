@@ -17,6 +17,12 @@ Child files persist prompts, message-start markers, completed assistant messages
 
 Legacy sub-agent entries embedded in a parent session are not migrated into child files. Continuing a legacy conversation creates a fresh child history; the old parent entries remain untouched.
 
+## Observation
+
+Sub-agent conversations are observed through the `/subagents` explorer rather than the normal session list. On wide terminals the explorer uses a conversation-list and transcript split; narrow terminals drill from the list into a transcript view.
+
+Completed transcript content is reconstructed from the child file. Streaming assistant messages and tool progress are published as transient manager state so the viewer can update live without persisting deltas. A per-conversation transcript revision refreshes durable content only after child entries have been written.
+
 ## Lifecycle
 
 Sub-agent files are ephemeral but survive ordinary process and parent-session switches so conversations can continue. Dismissing a sub-agent aborts any active runtime, records the parent tombstone, and deletes the child file. Deleting an owner session cascades to its child files.
