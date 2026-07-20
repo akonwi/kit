@@ -87,6 +87,8 @@ export interface SessionHeader {
 	name?: string;
 	model?: string;
 	thinkingLevel?: ThinkingLevel;
+	/** Header metadata is authoritative through the latest compaction. */
+	historyCompacted?: true;
 }
 
 export interface SubagentSessionHeader extends SessionHeader {

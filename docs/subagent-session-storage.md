@@ -13,7 +13,7 @@ The nested directory keeps sub-agents out of normal session discovery without en
 
 The parent session retains only lightweight delegation lifecycle entries needed to preserve its transcript and restore the active sub-agent relationship. Detailed sub-agent history is written to the child file.
 
-Child files persist prompts, message-start markers, completed assistant messages, completed tool results, compactions, failures, and aborts. Streaming text and thinking deltas and partial tool updates remain transient runtime events.
+Child files persist prompts, message-start markers, completed assistant messages, completed tool results, compactions, failures, and aborts. Streaming text and thinking deltas and partial tool updates remain transient runtime events. A completed compaction atomically replaces the child history with its header and compaction entry, which embeds the retained turns.
 
 Legacy sub-agent entries embedded in a parent session are not migrated into child files. Continuing a legacy conversation creates a fresh child history; the old parent entries remain untouched.
 

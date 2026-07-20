@@ -1,7 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	appendFile,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { homedir as originalHomedir, tmpdir } from "node:os";
 import path from "node:path";
 import { SESSION_VERSION, type Session, type Turn } from "../session/types";
@@ -139,6 +146,106 @@ describe("session storage", () => {
 
 		await storage.deleteSession(parent.id);
 		expect(existsSync(filePath)).toBe(false);
+	});
+
+	test("rewrites sub-agent sessions at their latest compaction", async () => {
+		const subagentId = randomUUID();
+		await subagentStorage.createSubagentSession({
+			id: subagentId,
+			ownerSessionId: randomUUID(),
+			cwd: projectDir,
+			agentName: "scout",
+			source: "agent",
+		});
+		await subagentStorage.appendSubagentSessionEntries(subagentId, [
+			{
+				type: "subagent_prompt",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: subagentId,
+				source: "agent",
+				prompt: "discard this prompt",
+			},
+		]);
+		const summary = assistantMessage("summary", "compacted child summary", {
+			synthetic: { kind: "compaction-summary" },
+		});
+		const { turnId: _turnId, ...persistedSummary } = summary;
+		await subagentStorage.appendSubagentSessionEntries(subagentId, [
+			{
+				type: "subagent_compaction",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: subagentId,
+				message: persistedSummary,
+				compactedTurnCount: 1,
+				keptTurnCount: 1,
+				tokensBefore: 123,
+				keptTurns: [
+					{
+						id: "kept-turn",
+						messages: [userMessage("kept-turn", "keep this prompt")],
+					},
+				],
+			},
+		]);
+
+		const entries =
+			await subagentStorage.readSubagentSessionEntries(subagentId);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.type).toBe("subagent_compaction");
+		expect(entries[0]?.parentId).toBeNull();
+		const raw = await readFile(
+			path.join(
+				homeDir,
+				".kit",
+				"sessions",
+				"subagents",
+				`${subagentId}.jsonl`,
+			),
+			"utf8",
+		);
+		expect(raw).not.toContain("discard this prompt");
+		expect(raw).toContain("keep this prompt");
+
+		const compactionId = entries[0]?.id ?? null;
+		await appendFile(
+			path.join(
+				homeDir,
+				".kit",
+				"sessions",
+				"subagents",
+				`${subagentId}.jsonl`,
+			),
+			`${JSON.stringify({
+				type: "subagent_prompt",
+				id: "external-child-entry",
+				parentId: compactionId,
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: subagentId,
+				source: "agent",
+				prompt: "external child prompt",
+			})}\n`,
+			"utf8",
+		);
+		await subagentStorage.appendSubagentSessionEntries(subagentId, [
+			{
+				type: "subagent_failed",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: subagentId,
+				error: "local failure",
+			},
+		]);
+		const refreshed =
+			await subagentStorage.readSubagentSessionEntries(subagentId);
+		expect(refreshed.map((entry) => entry.id)).toEqual([
+			compactionId,
+			"external-child-entry",
+			expect.any(String),
+		]);
+		expect(refreshed[2]?.parentId).toBe("external-child-entry");
 	});
 
 	test("deleteSession removes scratchpad sidecar", async () => {
@@ -356,6 +463,117 @@ describe("session storage", () => {
 		expect(entries[1]?.parentId).toBe(entries[0]?.id);
 	});
 
+	test("refreshes cached state before appending to externally changed files", async () => {
+		const session = await storage.createSession(projectDir);
+		await storage.writeSession(session);
+		const externalMessage = userMessage("external-turn", "external work");
+		const { turnId: _turnId, ...persistedMessage } = externalMessage;
+		const externalEntry = {
+			type: "message",
+			id: "external-entry",
+			parentId: null,
+			timestamp: new Date().toISOString(),
+			turnId: "external-turn",
+			message: persistedMessage,
+		};
+		await appendFile(
+			path.join(homeDir, ".kit", "sessions", `${session.id}.jsonl`),
+			`${JSON.stringify(externalEntry)}\n`,
+			"utf8",
+		);
+
+		await storage.appendMessage(
+			session,
+			"local-turn",
+			userMessage("local-turn", "local work"),
+		);
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries).toHaveLength(2);
+		expect(entries[0]?.id).toBe("external-entry");
+		expect(entries[1]?.parentId).toBe("external-entry");
+	});
+
+	test("does not recreate a persisted session removed by another process", async () => {
+		const session = await storage.createSession(projectDir);
+		await storage.writeSession(session);
+		const filePath = path.join(
+			homeDir,
+			".kit",
+			"sessions",
+			`${session.id}.jsonl`,
+		);
+		await rm(filePath);
+
+		await expect(
+			storage.appendMessage(
+				session,
+				"late-turn",
+				userMessage("late-turn", "do not resurrect"),
+			),
+		).rejects.toThrow(/Session file was removed/);
+		expect(existsSync(filePath)).toBe(false);
+	});
+
+	test("rejects stale full-session writes after external changes", async () => {
+		const session = await storage.createSession(projectDir);
+		await storage.writeSession(session);
+		const filePath = path.join(
+			homeDir,
+			".kit",
+			"sessions",
+			`${session.id}.jsonl`,
+		);
+		await appendFile(
+			filePath,
+			`${JSON.stringify({
+				type: "session_info",
+				id: "external-info",
+				parentId: null,
+				timestamp: new Date().toISOString(),
+				name: "external name",
+			})}\n`,
+			"utf8",
+		);
+
+		await expect(storage.writeSession(session)).rejects.toThrow(
+			/Session changed in another Kit process/,
+		);
+		expect(await readFile(filePath, "utf8")).toContain("external-info");
+	});
+
+	test("session listing does not replace live cached state", async () => {
+		const session = await storage.createSession(projectDir);
+		await storage.appendMessage(
+			session,
+			"old-turn",
+			userMessage("old-turn", "old state"),
+		);
+		const filePath = path.join(
+			homeDir,
+			".kit",
+			"sessions",
+			`${session.id}.jsonl`,
+		);
+		const staleFile = await readFile(filePath, "utf8");
+		await storage.appendMessage(
+			session,
+			"current-turn",
+			userMessage("current-turn", "current state"),
+		);
+		const currentFile = await readFile(filePath, "utf8");
+		await writeFile(filePath, staleFile, "utf8");
+
+		await storage.listAllSessions();
+
+		const cached = await storage.readSession(session.id);
+		expect(cached?.turns.map((turn) => turn.id)).toEqual([
+			"old-turn",
+			"current-turn",
+		]);
+		await writeFile(filePath, currentFile, "utf8");
+	});
+
 	test("reconstructs latest compaction as a synthetic summary plus kept turns", async () => {
 		const session = await storage.createSession(
 			projectDir,
@@ -378,11 +596,22 @@ describe("session storage", () => {
 
 		await storage.appendTurn(session, turn1);
 		await storage.appendTurn(session, turn2);
+		const compactingSession = {
+			...session,
+			name: "Retained name",
+			model: "gpt-5.5",
+			updatedAt: new Date().toISOString(),
+		};
+		await storage.appendSessionInfo(compactingSession, "Retained name");
+		await storage.appendModelChange(compactingSession);
 		await storage.appendCompaction({
-			session,
-			summaryMessage: assistantMessage("summary", "compacted summary", {
-				synthetic: { kind: "compaction-summary" },
-			}),
+			session: compactingSession,
+			summaryMessage: {
+				...assistantMessage("summary", "compacted summary", {
+					synthetic: { kind: "compaction-summary" },
+				}),
+				model: "dedicated-compactor",
+			},
 			firstKeptTurnId: "turn-2",
 			compactedTurnCount: 1,
 			keptTurnCount: 1,
@@ -390,12 +619,130 @@ describe("session storage", () => {
 		});
 
 		const restored = await storage.readSession(session.id);
+		expect(restored?.name).toBe("Retained name");
+		expect(restored?.model).toBe("gpt-5.5");
 		expect(restored?.turns).toHaveLength(2);
+		const listed = (await storage.listAllSessions()).find(
+			(candidate) => candidate.id === session.id,
+		);
+		expect(listed?.model).toBe("gpt-5.5");
 		expect(restored?.turns[0]?.messages[0]?.synthetic?.kind).toBe(
 			"compaction-summary",
 		);
 		expect(restored?.turns[1]?.id).toBe("turn-2");
 		expect(restored?.turns[1]?.messages[0]?.role).toBe("user");
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries.map((entry) => entry.type)).toEqual([
+			"message",
+			"message",
+			"compaction",
+		]);
+		expect(entries[0]?.parentId).toBeNull();
+		expect(entries[1]?.parentId).toBe(entries[0]?.id);
+		expect(entries[2]?.parentId).toBe(entries[1]?.id);
+		const raw = await readFile(
+			path.join(homeDir, ".kit", "sessions", `${session.id}.jsonl`),
+			"utf8",
+		);
+		expect(raw).not.toContain("earlier work");
+		expect(raw).not.toContain("earlier answer");
+		expect(raw).toContain('"name":"Retained name"');
+	});
+
+	test("removes superseded summaries on repeated compaction", async () => {
+		const session = await storage.createSession(projectDir);
+		const turn1: Turn = {
+			id: "turn-1",
+			messages: [userMessage("turn-1", "discard first")],
+		};
+		const turn2: Turn = {
+			id: "turn-2",
+			messages: [userMessage("turn-2", "discard second")],
+		};
+		const turn3: Turn = {
+			id: "turn-3",
+			messages: [userMessage("turn-3", "keep final")],
+		};
+		await storage.appendTurn(session, turn1);
+		await storage.appendTurn(session, turn2);
+		await storage.appendCompaction({
+			session,
+			summaryMessage: assistantMessage("summary-1", "old summary", {
+				synthetic: { kind: "compaction-summary" },
+			}),
+			firstKeptTurnId: turn2.id,
+			compactedTurnCount: 1,
+			keptTurnCount: 1,
+			tokensBefore: 100,
+		});
+		await storage.appendTurn(session, turn3);
+		await storage.appendCompaction({
+			session,
+			summaryMessage: assistantMessage("summary-2", "latest summary", {
+				synthetic: { kind: "compaction-summary" },
+			}),
+			firstKeptTurnId: turn3.id,
+			compactedTurnCount: 2,
+			keptTurnCount: 1,
+			tokensBefore: 200,
+		});
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns.map((turn) => turn.id)).toEqual([
+			expect.any(String),
+			"turn-3",
+		]);
+		const raw = await readFile(
+			path.join(homeDir, ".kit", "sessions", `${session.id}.jsonl`),
+			"utf8",
+		);
+		expect(raw).not.toContain("old summary");
+		expect(raw).not.toContain("discard second");
+		expect(raw).toContain("latest summary");
+		expect(raw).toContain("keep final");
+	});
+
+	test("carries active sub-agent references across compaction", async () => {
+		const session = await storage.createSession(projectDir);
+		const conversationId = randomUUID();
+		await storage.appendSessionEntries(session, [
+			{
+				type: "subagent_started",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: conversationId,
+				source: "agent",
+			},
+		]);
+		const discarded: Turn = {
+			id: "discarded",
+			messages: [userMessage("discarded", "old work")],
+		};
+		const kept: Turn = {
+			id: "kept",
+			messages: [userMessage("kept", "current work")],
+		};
+		await storage.appendTurn(session, discarded);
+		await storage.appendTurn(session, kept);
+		await storage.appendCompaction({
+			session,
+			summaryMessage: assistantMessage("summary", "summary", {
+				synthetic: { kind: "compaction-summary" },
+			}),
+			firstKeptTurnId: kept.id,
+			compactedTurnCount: 1,
+			keptTurnCount: 1,
+			tokensBefore: 100,
+		});
+
+		const entries = await storage.readSessionEntries(session.id);
+		expect(entries[0]).toMatchObject({
+			type: "subagent_started",
+			subagentConversationId: conversationId,
+			parentId: null,
+		});
+		expect(entries.some((entry) => entry.type === "compaction")).toBe(true);
 	});
 
 	test("requires a persisted kept-turn boundary before appending compaction", async () => {

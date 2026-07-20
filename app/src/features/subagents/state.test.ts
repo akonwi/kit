@@ -195,6 +195,72 @@ describe("SubagentManager", () => {
 		expect(manager.getActive("reviewer")).toBeUndefined();
 	});
 
+	test("hydrates latest state from a compacted child session", async () => {
+		const parentEntries: SessionEntry[] = [
+			{
+				type: "subagent_started",
+				id: "parent-1",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:00.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				source: "agent",
+			},
+		];
+		const childEntries: SessionEntry[] = [
+			{
+				type: "subagent_compaction",
+				id: "child-1",
+				parentId: null,
+				timestamp: "2025-01-01T00:00:01.000Z",
+				agentName: "scout",
+				subagentConversationId: "conv-1",
+				message: assistantMessage("compacted result"),
+				compactedTurnCount: 2,
+				keptTurnCount: 1,
+				tokensBefore: 100,
+				keptTurns: [
+					{
+						id: "kept-turn",
+						messages: [
+							{
+								...assistantMessage("retained result"),
+								turnId: "kept-turn",
+							},
+						],
+					},
+				],
+			},
+		];
+		const manager = new SubagentManager({
+			runtime,
+			getAgents: () => agents,
+			readEntries: async () => parentEntries,
+			appendEntries: async () => [],
+			subagentStorage: {
+				async create() {},
+				async readHeader() {
+					return null;
+				},
+				async readEntries() {
+					return childEntries;
+				},
+				async appendEntries() {
+					return [];
+				},
+				async delete() {},
+			},
+		});
+
+		await manager.hydrate();
+
+		expect(manager.getActive("scout")).toMatchObject({
+			status: "idle",
+			latestMessage: "retained result",
+			lastActivityAt: "2025-01-01T00:00:01.000Z",
+		});
+	});
+
 	test("recovers persisted running conversations as interrupted", async () => {
 		const parentEntries: SessionEntry[] = [
 			{

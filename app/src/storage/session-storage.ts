@@ -36,6 +36,7 @@ import {
 	type SubagentStartedEntry,
 	type Turn,
 } from "../session/types";
+import { replaceFileAtomically, withFileLock } from "./atomic-file";
 import { scratchpadPath } from "./session-sidecars";
 import { deleteSubagentSessionsForOwner } from "./subagent-session-storage";
 
@@ -54,6 +55,7 @@ type SessionStorageState = {
 	entries: SessionEntry[];
 	filePath: string;
 	legacyFilePath: string;
+	persisted: boolean;
 	flushedEntryCount: number;
 	firstEntryIdByTurnId: Map<string, string>;
 	cwd: string;
@@ -178,6 +180,18 @@ function consumeRealSubagentRunToolCall(
 	if (count === 1) counts.delete(signature);
 	else counts.set(signature, count - 1);
 	return true;
+}
+
+function activeSubagentStarts(entries: SessionEntry[]): SubagentStartedEntry[] {
+	const active = new Map<string, SubagentStartedEntry>();
+	for (const entry of entries) {
+		if (entry.type === "subagent_started") {
+			active.set(entry.subagentConversationId, entry);
+		} else if (entry.type === "subagent_dismissed") {
+			active.delete(entry.subagentConversationId);
+		}
+	}
+	return [...active.values()];
 }
 
 function subagentDelegationTurnFromEntries(
@@ -452,19 +466,27 @@ function buildState(
 	filePath: string,
 	legacyFilePath: string,
 	flushedEntryCount: number,
+	persisted: boolean,
 ): SessionStorageState {
 	const firstEntryIdByTurnId = new Map<string, string>();
 	let cwd = header.cwd;
 	let name = header.name?.trim() || undefined;
 	let model = header.model;
 	let thinkingLevel = header.thinkingLevel;
+	const compactedMetadataBoundary = header.historyCompacted
+		? entries.findLastIndex((entry) => entry.type === "compaction")
+		: -1;
 
-	for (const entry of entries) {
+	for (const [index, entry] of entries.entries()) {
 		if (entry.type === "message") {
 			if (!firstEntryIdByTurnId.has(entry.turnId)) {
 				firstEntryIdByTurnId.set(entry.turnId, entry.id);
 			}
-			if (entry.message.role === "assistant" && "model" in entry.message) {
+			if (
+				index > compactedMetadataBoundary &&
+				entry.message.role === "assistant" &&
+				"model" in entry.message
+			) {
 				model = entry.message.model;
 			}
 			continue;
@@ -491,6 +513,7 @@ function buildState(
 		entries,
 		filePath,
 		legacyFilePath,
+		persisted,
 		flushedEntryCount,
 		firstEntryIdByTurnId,
 		cwd,
@@ -618,14 +641,20 @@ function serializeFile(state: SessionStorageState): string {
 		.concat("\n");
 }
 
+function storageStatesMatch(
+	left: SessionStorageState,
+	right: SessionStorageState,
+): boolean {
+	return serializeFile(left) === serializeFile(right);
+}
+
 async function flushStateToDisk(state: SessionStorageState): Promise<void> {
 	await ensureSessionsDir();
 	const pendingEntries = state.entries.slice(state.flushedEntryCount);
-	if (pendingEntries.length === 0 && state.flushedEntryCount > 0) {
-		return;
-	}
-	if (state.flushedEntryCount === 0) {
+	if (pendingEntries.length === 0 && state.persisted) return;
+	if (!state.persisted) {
 		await writeFile(state.filePath, serializeFile(state), "utf8");
+		state.persisted = true;
 		state.flushedEntryCount = state.entries.length;
 	} else if (pendingEntries.length > 0) {
 		await appendFile(
@@ -676,7 +705,7 @@ function applyEntryToState(
 
 type SessionStorageSnapshot = Pick<
 	SessionStorageState,
-	"flushedEntryCount" | "cwd" | "name" | "model" | "thinkingLevel"
+	"persisted" | "flushedEntryCount" | "cwd" | "name" | "model" | "thinkingLevel"
 > & {
 	entryCount: number;
 	firstEntryIdByTurnId: Map<string, string>;
@@ -685,6 +714,7 @@ type SessionStorageSnapshot = Pick<
 function snapshotState(state: SessionStorageState): SessionStorageSnapshot {
 	return {
 		entryCount: state.entries.length,
+		persisted: state.persisted,
 		flushedEntryCount: state.flushedEntryCount,
 		firstEntryIdByTurnId: new Map(state.firstEntryIdByTurnId),
 		cwd: state.cwd,
@@ -699,12 +729,42 @@ function restoreState(
 	snapshot: SessionStorageSnapshot,
 ): void {
 	state.entries.length = snapshot.entryCount;
+	state.persisted = snapshot.persisted;
 	state.flushedEntryCount = snapshot.flushedEntryCount;
 	state.firstEntryIdByTurnId = snapshot.firstEntryIdByTurnId;
 	state.cwd = snapshot.cwd;
 	state.name = snapshot.name;
 	state.model = snapshot.model;
 	state.thinkingLevel = snapshot.thinkingLevel;
+}
+
+function applyStorageState(
+	target: SessionStorageState,
+	replacement: SessionStorageState,
+): void {
+	target.header = replacement.header;
+	target.entries = replacement.entries;
+	target.persisted = replacement.persisted;
+	target.flushedEntryCount = replacement.flushedEntryCount;
+	target.firstEntryIdByTurnId = replacement.firstEntryIdByTurnId;
+	target.cwd = replacement.cwd;
+	target.name = replacement.name;
+	target.model = replacement.model;
+	target.thinkingLevel = replacement.thinkingLevel;
+}
+
+async function refreshStorageState(state: SessionStorageState): Promise<void> {
+	const refreshed = await readJsonlState(state.header.id);
+	if (refreshed) {
+		applyStorageState(state, refreshed);
+		return;
+	}
+	if (existsSync(state.filePath)) {
+		throw new Error(`Session file is unreadable: ${state.header.id}`);
+	}
+	if (state.persisted) {
+		throw new Error(`Session file was removed: ${state.header.id}`);
+	}
 }
 
 type PreparedAppend<T> = {
@@ -718,19 +778,23 @@ async function appendEntries<T>(
 ): Promise<T> {
 	const existing = writeChains.get(state.header.id) ?? Promise.resolve();
 	const next = existing.then(async () => {
-		const snapshot = snapshotState(state);
-		try {
-			const { entries, result } = await prepare();
-			if (entries.length === 0) return result;
-			for (const entry of entries) {
-				applyEntryToState(state, entry);
+		await ensureSessionsDir();
+		return withFileLock(state.filePath, async () => {
+			await refreshStorageState(state);
+			const snapshot = snapshotState(state);
+			try {
+				const { entries, result } = await prepare();
+				if (entries.length === 0) return result;
+				for (const entry of entries) {
+					applyEntryToState(state, entry);
+				}
+				await flushStateToDisk(state);
+				return result;
+			} catch (error) {
+				restoreState(state, snapshot);
+				throw error;
 			}
-			await flushStateToDisk(state);
-			return result;
-		} catch (error) {
-			restoreState(state, snapshot);
-			throw error;
-		}
+		});
 	});
 	writeChains.set(
 		state.header.id,
@@ -754,6 +818,7 @@ function createStateFromSession(
 		sessionPath(session.id),
 		legacySessionPath(session.id),
 		options?.flushed ? entries.length : 0,
+		options?.flushed ?? false,
 	);
 }
 
@@ -773,7 +838,7 @@ function parseJsonl(content: string): SessionFileEntry[] {
 	return entries;
 }
 
-async function loadJsonlState(id: string): Promise<SessionStorageState | null> {
+async function readJsonlState(id: string): Promise<SessionStorageState | null> {
 	const filePath = sessionPath(id);
 	if (!existsSync(filePath)) return null;
 	try {
@@ -781,7 +846,7 @@ async function loadJsonlState(id: string): Promise<SessionStorageState | null> {
 		const parsed = parseJsonl(raw);
 		const [header, ...entries] = parsed;
 		if (!header || header.type !== "session") return null;
-		const state = buildState(
+		return buildState(
 			header,
 			entries.filter(
 				(entry): entry is SessionEntry => entry.type !== "session",
@@ -789,12 +854,17 @@ async function loadJsonlState(id: string): Promise<SessionStorageState | null> {
 			filePath,
 			legacySessionPath(id),
 			entries.length,
+			true,
 		);
-		stateBySessionId.set(id, state);
-		return state;
 	} catch {
 		return null;
 	}
+}
+
+async function loadJsonlState(id: string): Promise<SessionStorageState | null> {
+	const state = await readJsonlState(id);
+	if (state) stateBySessionId.set(id, state);
+	return state;
 }
 
 async function migrateLegacySession(id: string): Promise<Session | null> {
@@ -847,6 +917,7 @@ export async function createSession(
 			sessionPath(session.id),
 			legacySessionPath(session.id),
 			0,
+			false,
 		),
 	);
 	return session;
@@ -868,13 +939,47 @@ export async function readSessionEntries(id: string): Promise<SessionEntry[]> {
 }
 
 export async function writeSession(session: Session): Promise<void> {
-	const state = createStateFromSession(session, { flushed: true });
-	await ensureSessionsDir();
-	await writeFile(state.filePath, serializeFile(state), "utf8");
-	if (existsSync(state.legacyFilePath)) {
-		await rm(state.legacyFilePath, { force: true });
-	}
-	stateBySessionId.set(session.id, state);
+	const existing = writeChains.get(session.id) ?? Promise.resolve();
+	const next = existing.then(async () => {
+		const replacement = createStateFromSession(session, { flushed: true });
+		await ensureSessionsDir();
+		await withFileLock(replacement.filePath, async () => {
+			const current = stateBySessionId.get(session.id);
+			const persisted = await readJsonlState(session.id);
+			if (current?.persisted) {
+				if (!persisted) {
+					throw new Error(`Session file was removed: ${session.id}`);
+				}
+				if (!storageStatesMatch(current, persisted)) {
+					throw new Error(
+						`Session changed in another Kit process: ${session.id}`,
+					);
+				}
+			} else if (persisted) {
+				throw new Error(
+					`Session already exists in another Kit process: ${session.id}`,
+				);
+			}
+			await replaceFileAtomically(
+				replacement.filePath,
+				serializeFile(replacement),
+			);
+			const cached = stateBySessionId.get(session.id);
+			if (cached) applyStorageState(cached, replacement);
+			else stateBySessionId.set(session.id, replacement);
+			if (existsSync(replacement.legacyFilePath)) {
+				await rm(replacement.legacyFilePath, { force: true }).catch(() => {});
+			}
+		});
+	});
+	writeChains.set(
+		session.id,
+		next.then(
+			() => {},
+			() => {},
+		),
+	);
+	await next;
 }
 
 export async function appendSessionEntries(
@@ -1073,28 +1178,100 @@ export async function appendCompaction(options: {
 		state = createStateFromSession(session);
 		stateBySessionId.set(session.id, state);
 	}
-	await appendEntries(state, () => {
-		const firstKeptEntryId = firstKeptTurnId
-			? state.firstEntryIdByTurnId.get(firstKeptTurnId)
-			: undefined;
-		if (firstKeptTurnId && !firstKeptEntryId) {
-			throw new Error(
-				`Compaction boundary could not be resolved for kept turn ${firstKeptTurnId}. Persist kept turns before appending compaction.`,
+	const storageState = state;
+	const existing = writeChains.get(session.id) ?? Promise.resolve();
+	const next = existing.then(async () => {
+		await ensureSessionsDir();
+		return withFileLock(storageState.filePath, async () => {
+			await refreshStorageState(storageState);
+			const firstKeptEntryId = firstKeptTurnId
+				? storageState.firstEntryIdByTurnId.get(firstKeptTurnId)
+				: undefined;
+			if (firstKeptTurnId && !firstKeptEntryId) {
+				throw new Error(
+					`Compaction boundary could not be resolved for kept turn ${firstKeptTurnId}. Persist kept turns before appending compaction.`,
+				);
+			}
+			const boundaryIndex = firstKeptEntryId
+				? storageState.entries.findIndex(
+						(entry) => entry.id === firstKeptEntryId,
+					)
+				: storageState.entries.length;
+			if (firstKeptEntryId && boundaryIndex < 0) {
+				throw new Error(
+					`Compaction boundary entry ${firstKeptEntryId} is missing.`,
+				);
+			}
+
+			const retainedEntries = storageState.entries
+				.slice(boundaryIndex)
+				.filter(
+					(entry) =>
+						entry.type !== "session_info" &&
+						entry.type !== "cwd_change" &&
+						entry.type !== "model_change" &&
+						entry.type !== "thinking_level_change" &&
+						entry.type !== "compaction",
+				);
+			const retainedIds = new Set(retainedEntries.map((entry) => entry.id));
+			const carriedSubagentStarts = activeSubagentStarts(
+				storageState.entries,
+			).filter((entry) => !retainedIds.has(entry.id));
+			let parentId: string | null = null;
+			const keptEntries = [...carriedSubagentStarts, ...retainedEntries].map(
+				(entry) => {
+					const reparented = { ...entry, parentId } as SessionEntry;
+					parentId = reparented.id;
+					return reparented;
+				},
 			);
-		}
-		const entry: SessionCompactionEntry = {
-			type: "compaction",
-			id: makeEntryId(),
-			parentId: state.entries.at(-1)?.id ?? null,
-			timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
-			firstKeptEntryId,
-			compactedTurnCount,
-			keptTurnCount,
-			tokensBefore,
-			message: stripTurnId(summaryMessage),
-		};
-		return { entries: [entry], result: undefined };
+			const compactionEntry: SessionCompactionEntry = {
+				type: "compaction",
+				id: makeEntryId(),
+				parentId,
+				timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
+				firstKeptEntryId: retainedEntries[0]?.id,
+				compactedTurnCount,
+				keptTurnCount,
+				tokensBefore,
+				message: stripTurnId(summaryMessage),
+			};
+			const header: SessionHeader = {
+				...storageState.header,
+				cwd: storageState.cwd,
+				name: storageState.name,
+				model: storageState.model,
+				thinkingLevel: storageState.thinkingLevel,
+				historyCompacted: true,
+			};
+			const replacement = buildState(
+				header,
+				[...keptEntries, compactionEntry],
+				storageState.filePath,
+				storageState.legacyFilePath,
+				keptEntries.length + 1,
+				true,
+			);
+
+			await ensureSessionsDir();
+			await replaceFileAtomically(
+				storageState.filePath,
+				serializeFile(replacement),
+			);
+			applyStorageState(storageState, replacement);
+			if (existsSync(storageState.legacyFilePath)) {
+				await rm(storageState.legacyFilePath, { force: true }).catch(() => {});
+			}
+		});
 	});
+	writeChains.set(
+		session.id,
+		next.then(
+			() => {},
+			() => {},
+		),
+	);
+	await next;
 }
 
 export async function appendHandoffSummary(
@@ -1156,9 +1333,12 @@ export async function updateSession(
 
 export async function deleteSession(id: string): Promise<void> {
 	await writeChains.get(id);
-	await rm(sessionPath(id), { force: true });
-	await rm(legacySessionPath(id), { force: true });
-	stateBySessionId.delete(id);
+	await ensureSessionsDir();
+	await withFileLock(sessionPath(id), async () => {
+		await rm(sessionPath(id), { force: true });
+		await rm(legacySessionPath(id), { force: true });
+		stateBySessionId.delete(id);
+	});
 	writeChains.delete(id);
 	await deleteSubagentSessionsForOwner(id);
 	await rm(scratchpadPath(id), { force: true });
@@ -1180,7 +1360,7 @@ async function readLegacySummary(id: string): Promise<SessionSummary | null> {
 }
 
 async function readSummary(id: string): Promise<SessionSummary | null> {
-	const state = (await loadJsonlState(id)) ?? null;
+	const state = (await readJsonlState(id)) ?? null;
 	if (state) return toSummary(buildSessionFromState(state));
 	return readLegacySummary(id);
 }

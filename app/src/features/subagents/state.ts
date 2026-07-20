@@ -158,6 +158,16 @@ function extractAssistantText(message: PersistedKitAgentMessage): string {
 		.trim();
 }
 
+function latestAssistantText(turns: Turn[]): string | undefined {
+	for (const turn of turns.toReversed()) {
+		for (const message of turn.messages.toReversed()) {
+			const text = extractAssistantText(message);
+			if (text) return text;
+		}
+	}
+	return undefined;
+}
+
 function assistantMessageId(message: unknown): string | undefined {
 	if (!message || typeof message !== "object" || !("id" in message)) {
 		return undefined;
@@ -709,6 +719,14 @@ export class SubagentManager {
 						conversation.status = "idle";
 						conversation.lastActivityAt = entry.timestamp;
 						conversation.latestMessage = extractAssistantText(entry.message);
+						conversation.failureMessage = undefined;
+						conversation.abortReason = undefined;
+					} else if (entry.type === "subagent_compaction") {
+						conversation.status = "idle";
+						conversation.lastActivityAt = entry.timestamp;
+						conversation.latestMessage =
+							latestAssistantText(entry.keptTurns) ??
+							extractAssistantText(entry.message);
 						conversation.failureMessage = undefined;
 						conversation.abortReason = undefined;
 					} else if (entry.type === "subagent_failed") {
