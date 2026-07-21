@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { messagePartToPromptText } from "../../messages/parts";
@@ -10,6 +10,7 @@ import {
 	isAncestorOfHead,
 	listLocalBranches,
 	listRecentCommits,
+	listRepoFiles,
 	loadReviewFiles,
 	loadReviewFilesForRevisions,
 	resolveCommit,
@@ -55,6 +56,30 @@ afterAll(() => {
 });
 
 describe("commit review targets", () => {
+	test("lists all files regardless of gitignore while respecting .kitignore", async () => {
+		const treeRepo = mkdtempSync(path.join(tmpdir(), "kit-review-tree-"));
+		try {
+			execFileSync("git", ["init", "-q"], { cwd: treeRepo });
+			mkdirSync(path.join(treeRepo, "git-ignored"));
+			mkdirSync(path.join(treeRepo, "kit-ignored"));
+			writeFileSync(path.join(treeRepo, ".gitignore"), "git-ignored/\n");
+			writeFileSync(path.join(treeRepo, ".kitignore"), "kit-ignored/\n");
+			writeFileSync(path.join(treeRepo, "tracked.txt"), "tracked\n");
+			writeFileSync(path.join(treeRepo, "git-ignored", "visible.txt"), "yes\n");
+			writeFileSync(path.join(treeRepo, "kit-ignored", "hidden.txt"), "no\n");
+
+			const files = await listRepoFiles(treeRepo);
+
+			expect(files).toContain(".gitignore");
+			expect(files).toContain(".kitignore");
+			expect(files).toContain("tracked.txt");
+			expect(files).toContain("git-ignored/visible.txt");
+			expect(files).not.toContain("kit-ignored/hidden.txt");
+		} finally {
+			rmSync(treeRepo, { recursive: true, force: true });
+		}
+	});
+
 	test("listRecentCommits returns newest first with subjects", () => {
 		const commits = listRecentCommits(repo);
 		expect(commits.length).toBe(2);

@@ -482,7 +482,25 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [files] = createResource(target, (value) =>
 		loadReviewFiles(undefined, value),
 	);
-	const [allFiles] = createResource(() => listRepoFiles());
+	const [allFilesRequest, setAllFilesRequest] = createSignal<
+		number | undefined
+	>();
+	let allFilesRequestSequence = 0;
+	let allFilesRequested = false;
+	let allFilesAbortController: AbortController | undefined;
+	const [allFiles] = createResource(allFilesRequest, async () => {
+		allFilesAbortController?.abort();
+		const controller = new AbortController();
+		allFilesAbortController = controller;
+		try {
+			return await listRepoFiles(undefined, controller.signal);
+		} finally {
+			if (allFilesAbortController === controller) {
+				allFilesAbortController = undefined;
+			}
+		}
+	});
+	onCleanup(() => allFilesAbortController?.abort());
 	const [commitPickerOpen, setCommitPickerOpen] = createSignal(false);
 	// The target picker's second level: choosing a different base branch
 	// for the branch-diff target.
@@ -1255,8 +1273,15 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	}
 
+	function requestAllFiles() {
+		if (target().kind !== "working" || allFilesRequested) return;
+		allFilesRequested = true;
+		setAllFilesRequest(++allFilesRequestSequence);
+	}
+
 	function openFileFinder() {
 		if (editorOpen() || fileFinderOpen() || commitPickerOpen()) return;
+		requestAllFiles();
 		setFileFinderOpen(true);
 	}
 
@@ -2278,6 +2303,8 @@ export function ReviewContent(props: ReviewContentProps) {
 								// changes; the filesystem listing reflects the
 								// working tree, not the commit snapshot.
 								allFiles={target().kind === "working" ? (allFiles() ?? []) : []}
+								allFilesLoading={allFiles.loading}
+								canShowAllFiles={target().kind === "working"}
 								focused={mode() === "tree"}
 								editorOpen={editorOpen()}
 								// Any floating picker suppresses tree navigation,
@@ -2293,6 +2320,7 @@ export function ReviewContent(props: ReviewContentProps) {
 									}
 								}}
 								onSelectFile={selectFilePath}
+								onRequestAllFiles={requestAllFiles}
 								onClose={closeReview}
 							/>
 						</box>

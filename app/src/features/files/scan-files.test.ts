@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { scanFiles } from "./scan-files";
@@ -78,6 +78,41 @@ describe("scanFiles", () => {
 		expect(result.files).not.toContain("drop.txt");
 		expect(result.files).not.toContain("git-kept.txt");
 		expect(result.files).not.toContain("drop.secret");
+	});
+
+	test("can include ignore control files even when their rules match them", async () => {
+		const root = await createTempDir();
+		await writeFile(path.join(root, ".kitignore"), ".*\n");
+		await writeFile(path.join(root, ".gitignore"), "ignored\n");
+
+		const result = await scanFiles(root, { includeIgnoreFiles: true });
+
+		expect(result.files).toContain(".kitignore");
+		expect(result.files).toContain(".gitignore");
+	});
+
+	test("includes file symlinks without traversing directory symlinks", async () => {
+		const root = await createTempDir();
+		await mkdir(path.join(root, "real-dir"));
+		await writeFile(path.join(root, "target.txt"), "target");
+		await writeFile(path.join(root, "real-dir", "nested.txt"), "nested");
+		await symlink("target.txt", path.join(root, "linked.txt"));
+		await symlink("real-dir", path.join(root, "linked-dir"));
+
+		const result = await scanFiles(root);
+
+		expect(result.files).toContain("linked.txt");
+		expect(result.files).not.toContain("linked-dir/nested.txt");
+	});
+
+	test("supports cancelling a traversal", async () => {
+		const root = await createTempDir();
+		const controller = new AbortController();
+		controller.abort();
+
+		await expect(
+			scanFiles(root, { signal: controller.signal }),
+		).rejects.toThrow();
 	});
 
 	test("traverses a re-included directory only when its contents are unignored", async () => {

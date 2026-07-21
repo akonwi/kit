@@ -27,12 +27,15 @@ type TreeMode = "changes" | "all";
 export type FileTreePanelProps = {
 	reviewFiles: ReviewFile[];
 	allFiles: string[];
+	allFilesLoading: boolean;
+	canShowAllFiles: boolean;
 	focused: boolean;
 	editorOpen: boolean;
 	finderOpen: boolean;
 	focusedPath: string | null;
 	onFocusedPathChange: (path: string | null) => void;
 	onSelectFile: (path: string) => void;
+	onRequestAllFiles: () => void;
 	onClose: () => void;
 };
 
@@ -135,7 +138,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	// "all files" listing to show — committed review targets pass an
 	// empty list because the filesystem reflects the working tree.
 	const canToggleTreeMode = createMemo(
-		() => hasChangedFiles() && props.allFiles.length > 0,
+		() => hasChangedFiles() && props.canShowAllFiles,
 	);
 
 	const changedExpandedDirs = createMemo(() => {
@@ -166,6 +169,14 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		controllerUnsub = controller.subscribe(() => setTreeVersion((v) => v + 1));
 		setTreeVersion((v) => v + 1);
 	}
+
+	createEffect(() => {
+		if (!props.canShowAllFiles && treeMode() === "all") {
+			setTreeMode("changes");
+			return;
+		}
+		if (treeMode() === "all") props.onRequestAllFiles();
+	});
 
 	// Initialize and rebuild when inputs change
 	createEffect(
@@ -386,7 +397,11 @@ export function FileTreePanel(props: FileTreePanelProps) {
 						when={visibleRows().length > 0}
 						fallback={
 							<box paddingX={1} paddingY={1}>
-								<text fg={theme.textMuted}>No files</text>
+								<text fg={theme.textMuted}>
+									{treeMode() === "all" && props.allFilesLoading
+										? "Loading files…"
+										: "No files"}
+								</text>
 							</box>
 						}
 					>

@@ -1,11 +1,12 @@
 import { spawnSync } from "node:child_process";
-import { type Dirent, existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { FileDiffMetadata, Hunk as PierreHunk } from "@pierre/diffs";
 import { parsePatchFiles } from "@pierre/diffs";
 import { safeProcessCwd } from "../../process-cwd";
 import type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 import { inferFiletype } from "../../shell/filetype";
+import { scanFiles } from "../files/scan-files";
 
 export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 
@@ -872,49 +873,16 @@ export function getRepoRoot(cwd?: string): string {
 	return getGitRepoRoot(cwd) ?? (cwd || safeProcessCwd());
 }
 
-const FILE_LIST_IGNORED_DIRS = new Set([
-	".git",
-	"node_modules",
-	".next",
-	"dist",
-	"build",
-	"out",
-]);
-
-function listDirectoryFiles(root: string): string[] {
-	const files: string[] = [];
-	function visit(dir: string) {
-		let entries: Dirent[];
-		try {
-			entries = readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
-			const absolutePath = path.join(dir, entry.name);
-			const relativePath = path
-				.relative(root, absolutePath)
-				.replace(/\\/g, "/");
-			if (entry.isDirectory()) {
-				if (!FILE_LIST_IGNORED_DIRS.has(entry.name)) visit(absolutePath);
-				continue;
-			}
-			if (entry.isFile()) files.push(relativePath);
-		}
-	}
-	visit(root);
-	return files;
-}
-
-/** List project files, using git when available and the filesystem otherwise. */
-export function listRepoFiles(cwd?: string): string[] {
-	const effectiveCwd = cwd || safeProcessCwd();
-	if (!getGitRepoRoot(cwd)) return listDirectoryFiles(effectiveCwd);
-	const result = spawnSync("git", ["ls-files", "--full-name"], {
-		cwd: effectiveCwd,
-		encoding: "utf8",
-		maxBuffer: 10 * 1024 * 1024,
+/** List every file available to the working-tree "All files" view. */
+export async function listRepoFiles(
+	cwd?: string,
+	signal?: AbortSignal,
+): Promise<string[]> {
+	const result = await scanFiles(getRepoRoot(cwd), {
+		includeIgnoreFiles: true,
+		maxEntries: Number.POSITIVE_INFINITY,
+		respectGitignore: false,
+		signal,
 	});
-	if (result.status !== 0) return [];
-	return result.stdout.trim().split("\n").filter(Boolean);
+	return result.files;
 }
