@@ -5,7 +5,6 @@ import {
 	type ChromeContribution,
 	createChromeTextContent,
 } from "./chrome-contributions";
-import { CIRCLE_EMPTY, CIRCLE_FILLED } from "./glyphs";
 import type { HeaderStatusController } from "./header-status";
 import { ScreenHeader } from "./ScreenHeader";
 import { theme } from "./theme";
@@ -19,7 +18,6 @@ function progressColor(pct: number): string {
 export const HEADER_CONTRIBUTION_IDS = {
 	title: "HeaderBar:title",
 	model: "HeaderBar:model",
-	speech: "HeaderBar:speech",
 } as const;
 
 export type HeaderBarProps = {
@@ -62,17 +60,6 @@ export function HeaderBar(props: HeaderBarProps) {
 
 	const contextUsage = () => contextStats()?.percent ?? 0;
 
-	const [settings, setSettings] = createSignal(props.runtime.settings);
-	const unsubscribeSettings = props.runtime.subscribe("settings.changed", (e) =>
-		setSettings(e.settings),
-	);
-	const speech = () => {
-		const value = settings().speech;
-		const on =
-			(typeof value === "boolean" && value) ||
-			(typeof value === "object" && "enabled" in value && value.enabled);
-		return on ? `${CIRCLE_FILLED} speech` : `${CIRCLE_EMPTY} speech`;
-	};
 	const [agentInfo, setAgentInfo] = createSignal(props.runtime.agentInfo);
 	const unsubscribeAgentInfo = props.runtime.subscribe(
 		"agent.model.changed",
@@ -98,11 +85,6 @@ export function HeaderBar(props: HeaderBarProps) {
 			label: `${agentInfo().model?.name ?? "model?"} (${agentInfo().thinkingLevel})`,
 			side: "right",
 		}),
-		builtInContribution({
-			id: HEADER_CONTRIBUTION_IDS.speech,
-			label: speech(),
-			side: "right",
-		}),
 	];
 	const contributions = (side: "left" | "right") => [
 		...builtInContributions().filter(
@@ -116,7 +98,6 @@ export function HeaderBar(props: HeaderBarProps) {
 
 	onCleanup(() => {
 		unsubscribeTurns();
-		unsubscribeSettings();
 		unsubscribeAgentInfo();
 		unsubscribeSessionChange();
 		unsubscribeCompactionCompleted();

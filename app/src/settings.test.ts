@@ -2,8 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { sanitizeSettings } from "./settings";
 
 describe("sanitizeSettings", () => {
-	test("drops removed bell setting", () => {
-		expect("bells" in sanitizeSettings({ bells: false })).toBe(false);
+	test("drops removed notification settings", () => {
+		const settings = sanitizeSettings({
+			bells: false,
+			speech: { enabled: true, maxChars: 220, voice: "Samantha" },
+		});
+
+		expect("bells" in settings).toBe(false);
+		expect("speech" in settings).toBe(false);
 	});
 });
 

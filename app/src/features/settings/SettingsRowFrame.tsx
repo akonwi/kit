@@ -28,10 +28,8 @@ export function SettingsRowFrame(props: SettingsRowFrameProps) {
 			paddingX={1}
 			backgroundColor={focused() ? theme.bgMuted : theme.bgTransparent}
 			onMouseUp={() => {
-				void settings.actions.runAfterPendingEdit(async () => {
-					settings.actions.focusRow(props.index);
-					await settings.actions.activateRow(props.index);
-				});
+				settings.actions.focusRow(props.index);
+				void settings.actions.activateRow(props.index);
 			}}
 		>
 			<box flexDirection="column" flexGrow={1} gap={0}>

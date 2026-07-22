@@ -17,9 +17,6 @@ The current settings UI exposes:
 - automatic session naming
 - automatic pager opening
 - automatic retry settings
-- speech enablement
-- speech max chars
-- speech voice
 
 Settings are persisted to `~/.kit/settings.json`.
 

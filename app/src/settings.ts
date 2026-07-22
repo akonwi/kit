@@ -13,14 +13,6 @@ export type Settings = {
 	theme?: string;
 	/** User keybinding overrides by Kit command id. Use false/null to disable. */
 	keybindings?: KeybindingSettings;
-	/** Speech settings - can be a boolean or object with options */
-	speech?:
-		| boolean
-		| {
-				enabled?: boolean;
-				maxChars?: number;
-				voice?: string;
-		  };
 	/** Auto-open the pager for long assistant responses */
 	pager?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
@@ -38,12 +30,6 @@ export type Settings = {
 	};
 };
 
-export type ResolvedSpeechSettings = {
-	enabled: boolean;
-	maxChars: number;
-	voice?: string;
-};
-
 export type ResolvedRetrySettings = {
 	enabled: boolean;
 	maxRetries: number;
@@ -56,7 +42,6 @@ export type ResolvedDiffSettings = {
 };
 
 const DEFAULTS: Settings = {
-	speech: { enabled: true, maxChars: 220 },
 	pager: true,
 	sessionNaming: true,
 	diffs: { view: "unified" },
@@ -72,32 +57,12 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 	return v !== null && typeof v === "object" && !Array.isArray(v);
 }
 
-function defaultSpeechObject(): ResolvedSpeechSettings {
-	return { enabled: true, maxChars: 220 };
-}
-
 function defaultRetryObject(): ResolvedRetrySettings {
 	return { enabled: true, maxRetries: 3, baseDelayMs: 2000, maxDelayMs: 60000 };
 }
 
 function defaultDiffObject(): ResolvedDiffSettings {
 	return { view: "unified" };
-}
-
-export function resolveSpeechSettings(
-	speech: Settings["speech"],
-): ResolvedSpeechSettings {
-	if (typeof speech === "boolean") {
-		return { enabled: speech, maxChars: 220 };
-	}
-	if (speech && typeof speech === "object") {
-		return {
-			enabled: speech.enabled ?? true,
-			maxChars: speech.maxChars ?? 220,
-			...(speech.voice ? { voice: speech.voice } : {}),
-		};
-	}
-	return defaultSpeechObject();
 }
 
 export function resolveRetrySettings(
@@ -186,28 +151,9 @@ export function sanitizeSettings(raw: unknown): Settings {
 			}
 		: defaultRetryObject();
 
-	let speech: Settings["speech"];
-	if (typeof raw.speech === "boolean") {
-		speech = raw.speech;
-	} else if (isRecord(raw.speech)) {
-		const rawSpeech = raw.speech;
-		speech = {
-			enabled:
-				typeof rawSpeech.enabled === "boolean" ? rawSpeech.enabled : true,
-			maxChars:
-				typeof rawSpeech.maxChars === "number" ? rawSpeech.maxChars : 220,
-			...(typeof rawSpeech.voice === "string"
-				? { voice: rawSpeech.voice }
-				: {}),
-		};
-	} else {
-		speech = defaultSpeechObject();
-	}
-
 	return {
 		theme,
 		...(keybindings ? { keybindings } : {}),
-		speech,
 		pager,
 		sessionNaming,
 		diffs,

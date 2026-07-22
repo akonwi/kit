@@ -1,57 +1,22 @@
 import type { Accessor, JSX } from "solid-js";
 import { createContext, createMemo, createSignal, useContext } from "solid-js";
-import { resolveSpeechSettings, type Settings } from "../../settings";
-import type { SpeechVoiceDiscovery } from "../notifications/voices";
-import {
-	type BooleanSettingsRowData,
-	type EditableField,
-	type InputSettingsRowData,
-	type SelectSettingsRowData,
-	type SettingsRowData,
-	type SettingsSelectOption,
-	type SettingsTabId,
-	TABS,
-} from "./SettingsTypes";
+import type { Settings } from "../../settings";
+import type { BooleanSettingsRowData, SettingsRowData } from "./SettingsTypes";
 
 export type SettingsContextValue = {
-	activeTab: Accessor<SettingsTabId>;
 	focusedRowIndex: Accessor<number>;
-	editingField: Accessor<EditableField>;
 	error: Accessor<string | null>;
 	rows: Accessor<SettingsRowData[]>;
 	isRowFocused: (index: number) => boolean;
-	isEditing: (field: Exclude<EditableField, null>) => boolean;
-	inputDraft: (field: InputSettingsRowData["id"]) => string;
-	setInputDraft: (field: InputSettingsRowData["id"], value: string) => void;
-	selectOptions: (field: SelectSettingsRowData["id"]) => SettingsSelectOption[];
-	selectSelectedIndex: (field: SelectSettingsRowData["id"]) => number;
-	selectHeight: (field: SelectSettingsRowData["id"]) => number;
-	selectMinWidth: (field: SelectSettingsRowData["id"]) => number;
-	showSelectDescription: (field: SelectSettingsRowData["id"]) => boolean;
-	setSelectDraft: (
-		field: SelectSettingsRowData["id"],
-		index: number,
-		value: unknown,
-	) => void;
-	commitSelect: (
-		field: SelectSettingsRowData["id"],
-		index: number,
-		value: unknown,
-	) => void;
 	actions: {
 		toggleBoolean: (field: BooleanSettingsRowData["id"]) => Promise<void>;
-		commitEdit: (field?: EditableField) => Promise<boolean>;
-		cancelEdit: () => void;
 		focusRow: (index: number) => void;
 		activateRow: (index?: number) => Promise<void>;
-		runAfterPendingEdit: (action: () => void | Promise<void>) => Promise<void>;
-		switchTab: (nextTab: SettingsTabId) => Promise<void>;
 	};
 };
 
 type SettingsProviderProps = {
 	initialSettings: Settings;
-	speechVoices: SpeechVoiceDiscovery;
 	onSave: (settings: Settings) => Promise<void>;
 	children: JSX.Element;
 };
@@ -60,18 +25,15 @@ const SettingsContext = createContext<SettingsContextValue>();
 
 export function useSettingsContext(): SettingsContextValue {
 	const ctx = useContext(SettingsContext);
-	if (!ctx)
+	if (!ctx) {
 		throw new Error("Settings components must be used inside SettingsProvider");
+	}
 	return ctx;
 }
 
 function cloneSettings(settings: Settings): Settings {
 	return {
 		...settings,
-		speech:
-			typeof settings.speech === "object" && settings.speech !== null
-				? { ...settings.speech }
-				: settings.speech,
 		diffs:
 			typeof settings.diffs === "object" && settings.diffs !== null
 				? { ...settings.diffs }
@@ -87,109 +49,33 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	const [settings, setSettings] = createSignal<Settings>(
 		cloneSettings(props.initialSettings),
 	);
-	const [activeTab, setActiveTab] = createSignal<SettingsTabId>("general");
 	const [focusedRowIndex, setFocusedRowIndex] = createSignal(0);
-	const [editingField, setEditingField] = createSignal<EditableField>(null);
 	const [error, setError] = createSignal<string | null>(null);
-	const [maxCharsDraft, setMaxCharsDraft] = createSignal(
-		String(resolveSpeechSettings(props.initialSettings.speech).maxChars),
-	);
-	const [voiceDraft, setVoiceDraft] = createSignal(
-		resolveSpeechSettings(props.initialSettings.speech).voice ?? "",
-	);
-	const [voiceSelectedIndex, setVoiceSelectedIndex] = createSignal(0);
-
-	const voiceOptions = createMemo<SettingsSelectOption[]>(() => [
-		{
-			name: "System Default",
-			description: "Use the macOS default speech voice",
-			value: "",
-		},
-		...props.speechVoices.voices.map((voice) => ({
-			name: voice.name,
-			description: voice.locale ?? voice.sample ?? "",
-			value: voice.name,
-		})),
-	]);
-
-	function resolveVoiceIndex(value: string): number {
-		const index = voiceOptions().findIndex((option) => option.value === value);
-		return index >= 0 ? index : 0;
-	}
 
 	const rows = createMemo<SettingsRowData[]>(() => {
-		const currentSettings = settings();
-		const speech = resolveSpeechSettings(currentSettings.speech);
-
-		if (activeTab() === "general") {
-			return [
-				{
-					id: "sessionNaming",
-					kind: "boolean",
-					label: "Auto-name Sessions",
-					help: "Generated after the first couple of turns.",
-					checked: currentSettings.sessionNaming !== false,
-				},
-				{
-					id: "pager",
-					kind: "boolean",
-					label: "Auto-open Pager",
-					help: "A paged modal UX for long agent responses",
-					checked: currentSettings.pager !== false,
-				},
-			];
-		}
-
-		const voiceHelp = !props.speechVoices.supported
-			? props.speechVoices.reason
-			: props.speechVoices.voices.length === 0
-				? "No macOS voices were discovered."
-				: "Which macOS voice to use for speech notifications.";
-
+		const current = settings();
 		return [
 			{
-				id: "speech",
+				id: "sessionNaming",
 				kind: "boolean",
-				label: "Speech",
-				help: "Speak assistant responses aloud.",
-				checked: speech.enabled,
+				label: "Auto-name Sessions",
+				help: "Generated after the first couple of turns.",
+				checked: current.sessionNaming !== false,
 			},
 			{
-				id: "speech.maxChars",
-				kind: "input",
-				label: "Speech Max Chars",
-				help: "Maximum response length to read aloud.",
-				value: String(speech.maxChars),
-				disabled: !speech.enabled,
-			},
-			{
-				id: "speech.voice",
-				kind: "select",
-				label: "Voice",
-				help: voiceHelp,
-				value: speech.voice ?? "",
-				placeholder: "System Default",
-				disabled:
-					!speech.enabled ||
-					!props.speechVoices.supported ||
-					props.speechVoices.voices.length === 0,
+				id: "pager",
+				kind: "boolean",
+				label: "Auto-open Pager",
+				help: "A paged modal UX for long agent responses",
+				checked: current.pager !== false,
 			},
 		];
 	});
 
-	function syncDrafts(nextSettings: Settings) {
-		const speech = resolveSpeechSettings(nextSettings.speech);
-		setMaxCharsDraft(String(speech.maxChars));
-		setVoiceDraft(speech.voice ?? "");
-		setVoiceSelectedIndex(resolveVoiceIndex(speech.voice ?? ""));
-	}
-
 	async function persist(nextSettings: Settings): Promise<boolean> {
 		try {
 			await props.onSave(nextSettings);
-			const cloned = cloneSettings(nextSettings);
-			setSettings(cloned);
-			syncDrafts(cloned);
+			setSettings(cloneSettings(nextSettings));
 			setError(null);
 			return true;
 		} catch (cause) {
@@ -202,214 +88,34 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		}
 	}
 
-	async function updateSettings(mutator: (current: Settings) => Settings) {
-		const nextSettings = mutator(cloneSettings(settings()));
-		await persist(nextSettings);
+	async function toggleBoolean(
+		rowId: BooleanSettingsRowData["id"],
+	): Promise<void> {
+		const current = cloneSettings(settings());
+		const next =
+			rowId === "sessionNaming"
+				? { ...current, sessionNaming: current.sessionNaming === false }
+				: { ...current, pager: current.pager === false };
+		await persist(next);
 	}
 
-	async function toggleBoolean(rowId: BooleanSettingsRowData["id"]) {
-		await updateSettings((current) => {
-			switch (rowId) {
-				case "sessionNaming":
-					return { ...current, sessionNaming: current.sessionNaming === false };
-				case "pager":
-					return { ...current, pager: current.pager === false };
-				case "speech": {
-					const speech = resolveSpeechSettings(current.speech);
-					return {
-						...current,
-						speech: {
-							enabled: !speech.enabled,
-							maxChars: speech.maxChars,
-							...(speech.voice ? { voice: speech.voice } : {}),
-						},
-					};
-				}
-			}
-		});
+	function focusRow(index: number): void {
+		const max = Math.max(0, rows().length - 1);
+		setFocusedRowIndex(Math.max(0, Math.min(index, max)));
 	}
 
-	function inputDraft(field: InputSettingsRowData["id"]): string {
-		switch (field) {
-			case "speech.maxChars":
-				return maxCharsDraft();
-		}
-	}
-
-	function setInputDraft(field: InputSettingsRowData["id"], value: string) {
-		if (!/^\d*$/.test(value)) return;
-		switch (field) {
-			case "speech.maxChars":
-				setMaxCharsDraft(value);
-				return;
-		}
-	}
-
-	function selectOptions(
-		field: SelectSettingsRowData["id"],
-	): SettingsSelectOption[] {
-		switch (field) {
-			case "speech.voice":
-				return voiceOptions();
-		}
-	}
-
-	function selectSelectedIndex(field: SelectSettingsRowData["id"]): number {
-		switch (field) {
-			case "speech.voice":
-				return voiceSelectedIndex();
-		}
-	}
-
-	function setSelectDraft(
-		field: SelectSettingsRowData["id"],
-		index: number,
-		value: unknown,
-	) {
-		switch (field) {
-			case "speech.voice":
-				setVoiceSelectedIndex(index);
-				setVoiceDraft(String(value ?? ""));
-				return;
-		}
-	}
-
-	function commitSelect(
-		field: SelectSettingsRowData["id"],
-		index: number,
-		value: unknown,
-	) {
-		setSelectDraft(field, index, value);
-		void commitEdit(field);
-	}
-
-	function selectHeight(field: SelectSettingsRowData["id"]): number {
-		const options = selectOptions(field);
-		return Math.min(6, Math.max(2, options.length));
-	}
-
-	function selectMinWidth(_field: SelectSettingsRowData["id"]): number {
-		return 28;
-	}
-
-	function showSelectDescription(_field: SelectSettingsRowData["id"]): boolean {
-		return true;
-	}
-
-	async function commitEdit(field = editingField()): Promise<boolean> {
-		if (!field) return true;
-		if (field === "speech.maxChars") {
-			const draft = inputDraft(field).trim();
-			if (draft.length === 0) {
-				syncDrafts(settings());
-				setEditingField(null);
-				return true;
-			}
-			const parsed = Number.parseInt(draft, 10);
-			if (!Number.isFinite(parsed) || parsed <= 0) {
-				syncDrafts(settings());
-				setEditingField(null);
-				return true;
-			}
-			const currentSettings = cloneSettings(settings());
-			const currentSpeech = resolveSpeechSettings(currentSettings.speech);
-			const ok = await persist({
-				...currentSettings,
-				speech: {
-					enabled: currentSpeech.enabled,
-					maxChars: parsed,
-					...(currentSpeech.voice ? { voice: currentSpeech.voice } : {}),
-				},
-			});
-			if (ok) setEditingField(null);
-			return ok;
-		}
-
-		const currentSpeech = resolveSpeechSettings(settings().speech);
-		const voice = voiceDraft().trim();
-		const ok = await persist({
-			...cloneSettings(settings()),
-			speech: {
-				enabled: currentSpeech.enabled,
-				maxChars: currentSpeech.maxChars,
-				...(voice ? { voice } : {}),
-			},
-		});
-		if (ok) setEditingField(null);
-		return ok;
-	}
-
-	function cancelEdit() {
-		syncDrafts(settings());
-		setEditingField(null);
-	}
-
-	function focusRow(index: number) {
-		const currentRows = rows();
-		if (currentRows.length === 0) {
-			setFocusedRowIndex(0);
-			return;
-		}
-		const bounded = Math.max(0, Math.min(index, currentRows.length - 1));
-		setFocusedRowIndex(bounded);
-	}
-
-	async function activateRow(index = focusedRowIndex()) {
+	async function activateRow(index = focusedRowIndex()): Promise<void> {
 		const row = rows()[index];
 		if (!row || row.disabled) return;
-		if (row.kind === "boolean") {
-			await toggleBoolean(row.id);
-			return;
-		}
-		setError(null);
-		if (row.kind === "select") {
-			setVoiceSelectedIndex(resolveVoiceIndex(voiceDraft()));
-		}
-		setEditingField(row.id);
-	}
-
-	async function runAfterPendingEdit(action: () => void | Promise<void>) {
-		if (editingField()) {
-			const ok = await commitEdit();
-			if (!ok) return;
-		}
-		await action();
-	}
-
-	async function switchTab(nextTab: SettingsTabId) {
-		await runAfterPendingEdit(async () => {
-			setActiveTab(nextTab);
-			setFocusedRowIndex(0);
-			setError(null);
-		});
+		await toggleBoolean(row.id);
 	}
 
 	const value: SettingsContextValue = {
-		activeTab,
 		focusedRowIndex,
-		editingField,
 		error,
 		rows,
-		isRowFocused: (index) => index === focusedRowIndex(),
-		isEditing: (field) => editingField() === field,
-		inputDraft,
-		setInputDraft,
-		selectOptions,
-		selectSelectedIndex,
-		selectHeight,
-		selectMinWidth,
-		showSelectDescription,
-		setSelectDraft,
-		commitSelect,
-		actions: {
-			toggleBoolean,
-			commitEdit,
-			cancelEdit,
-			focusRow,
-			activateRow,
-			runAfterPendingEdit,
-			switchTab,
-		},
+		isRowFocused: (index) => focusedRowIndex() === index,
+		actions: { toggleBoolean, focusRow, activateRow },
 	};
 
 	return (
@@ -417,17 +123,4 @@ export function SettingsProvider(props: SettingsProviderProps) {
 			{props.children}
 		</SettingsContext.Provider>
 	);
-}
-
-export function nextSettingsTab(current: SettingsTabId, direction: -1 | 1) {
-	const currentIndex = TABS.findIndex((tab) => tab.id === current);
-	const nextIndex =
-		direction < 0
-			? currentIndex <= 0
-				? TABS.length - 1
-				: currentIndex - 1
-			: currentIndex >= TABS.length - 1
-				? 0
-				: currentIndex + 1;
-	return TABS[nextIndex]?.id ?? current;
 }

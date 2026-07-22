@@ -165,13 +165,6 @@ export type KeybindingSettings = Record<string, KeybindingValue>;
 export type Settings = {
 	theme?: string;
 	keybindings?: KeybindingSettings;
-	speech?:
-		| boolean
-		| {
-				enabled?: boolean;
-				maxChars?: number;
-				voice?: string;
-		  };
 	pager?: boolean;
 	sessionNaming?: boolean;
 	diffs?: {

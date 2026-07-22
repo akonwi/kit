@@ -7,7 +7,6 @@ The command surface is composed from built-in commands, plugin-registered comman
 Core commands currently include:
 
 - `cd [path]`
-- `speech`
 - `settings`
 - `pager`
 - `code-review`
@@ -22,6 +21,8 @@ Core commands currently include:
 - `tree`
 - `thinking`
 - `quit`
+
+Additional plugin commands can appear at runtime based on loaded user and project plugins. For example, this repository's copyable `.kit/plugins/speech.ts` plugin contributes `/speech` on macOS.
 
 Additional prompt commands can appear at runtime based on discovered prompt files.
 

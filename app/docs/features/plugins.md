@@ -179,9 +179,11 @@ Header/footer item IDs passed to `set`/`clear` are scoped to the plugin and are 
 
 Use `kit.ui.text(text, style)` to style part or all of a contribution. Supported style fields are `fg`, `bg`, `bold`, `dim`, `italic`, `underline`, and `strikethrough`. Use `kit.ui.theme()` when setting or updating contributions to read the current resolved theme config (`name`, `tokens`, and `syntaxPalette`) and blend with Kit's colors. `onClick` is a whole-contribution action; Kit maps it to terminal mouse events and does not expose raw mouse events to plugins.
 
-Built-in header item IDs are `HeaderBar:title`, `HeaderBar:model`, and `HeaderBar:speech`.
+Built-in header item IDs are `HeaderBar:title` and `HeaderBar:model`.
 
 Built-in internal plugins may use additional app-owned capabilities that are not part of the public plugin SDK. For example, built-ins can read VCS state while the public SDK only exposes chrome contribution rendering.
+
+The Kit repository's `.kit/plugins/` directory contains active project plugins that also serve as copyable examples. Its macOS speech plugin reacts to completed turns, registers `/speech`, and contributes clickable header status. Its configuration is intentionally in memory; copied versions can adjust the source constants.
 
 ## Tool approval hooks
 
