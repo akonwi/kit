@@ -1,5 +1,15 @@
 import type { SubagentDefinition } from "./discovery";
 
+const SUBAGENT_PROMPT_INTRO =
+	"The following sub-agents are available as named specialists.";
+
+export function isSubagentPromptAddition(text: string): boolean {
+	return (
+		text.startsWith(`${SUBAGENT_PROMPT_INTRO}\n`) &&
+		text.includes("<available_subagents>")
+	);
+}
+
 function escapeXml(str: string): string {
 	return str
 		.replace(/&/g, "&amp;")
@@ -13,7 +23,7 @@ export function formatSubagentsForPrompt(agents: SubagentDefinition[]): string {
 	if (agents.length === 0) return "";
 
 	const lines = [
-		"The following sub-agents are available as named specialists.",
+		SUBAGENT_PROMPT_INTRO,
 		"Use the subagent tools to manage and use them.",
 		"",
 		"<available_subagents>",

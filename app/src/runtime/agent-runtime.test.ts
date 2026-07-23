@@ -8,7 +8,52 @@ import {
 	SESSION_VERSION,
 	type Session,
 } from "../session";
+import type { AgentTool } from "./agent";
 import { AgentRuntime, isRetryableProviderErrorMessage } from "./agent-runtime";
+
+const blockedTool = { name: "blocked" } as AgentTool;
+const customTool = { name: "custom" } as AgentTool;
+
+function runtimeSession(id: string): Session {
+	const timestamp = new Date().toISOString();
+	return {
+		id,
+		version: SESSION_VERSION,
+		cwd: process.cwd(),
+		createdAt: timestamp,
+		updatedAt: timestamp,
+		turns: [],
+	};
+}
+
+describe("AgentRuntime tool exclusions", () => {
+	test("excludes configured tools while retaining other tools", () => {
+		const runtime = new AgentRuntime(runtimeSession("excluded-tools-test"), {
+			extraTools: [blockedTool, customTool],
+			excludedToolNames: [blockedTool.name],
+		});
+		try {
+			const toolNames = runtime.getTools().map((tool) => tool.name);
+			expect(toolNames).not.toContain(blockedTool.name);
+			expect(toolNames).toContain(customTool.name);
+		} finally {
+			runtime.dispose();
+		}
+	});
+
+	test("keeps tools when they are not excluded", () => {
+		const runtime = new AgentRuntime(runtimeSession("included-tools-test"), {
+			extraTools: [blockedTool],
+		});
+		try {
+			expect(runtime.getTools().map((tool) => tool.name)).toContain(
+				blockedTool.name,
+			);
+		} finally {
+			runtime.dispose();
+		}
+	});
+});
 
 describe("AgentRuntime cwd changes", () => {
 	test("expands ~ targets to the user home directory and updates the process cwd", async () => {

@@ -294,6 +294,7 @@ export class AgentRuntime {
 	private extraTools: AgentTool<any>[];
 	private readonly subagent: boolean;
 	private readonly disableGitWatcher: boolean;
+	private readonly excludedToolNames: ReadonlySet<string>;
 	private pluginSubagents: SubagentDefinition[];
 	private fileDiscoveredSubagents: SubagentDefinition[] = [];
 	private systemPromptAdditions: string[];
@@ -328,6 +329,7 @@ export class AgentRuntime {
 			settings?: Settings;
 			subagent?: boolean;
 			disableGitWatcher?: boolean;
+			excludedToolNames?: Iterable<string>;
 		},
 	) {
 		this.session = session;
@@ -336,6 +338,7 @@ export class AgentRuntime {
 		this.extraTools = options?.extraTools ?? [];
 		this.subagent = options?.subagent ?? false;
 		this.disableGitWatcher = options?.disableGitWatcher ?? this.subagent;
+		this.excludedToolNames = new Set(options?.excludedToolNames);
 		this.pluginSubagents = [];
 		this.fileDiscoveredSubagents = [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
@@ -433,6 +436,7 @@ export class AgentRuntime {
 			...createDefaultTools(this.session.cwd),
 			...this.extraTools,
 		]) {
+			if (this.excludedToolNames.has(tool.name)) continue;
 			if (seen.has(tool.name)) continue;
 			seen.add(tool.name);
 			tools.push(tool);

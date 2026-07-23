@@ -7,8 +7,11 @@ import type {
 	SubagentSessionHeader,
 	Turn,
 } from "../../session";
+import { SUBAGENT_TOOL_NAME } from "./constants";
 import type { SubagentDefinition } from "./discovery";
+import { formatSubagentsForPrompt } from "./format";
 import {
+	buildSubagentRuntimeOptions,
 	createSubagentCompactionEntry,
 	SubagentManager,
 	type SubagentSessionStorage,
@@ -83,6 +86,29 @@ function assistantMessage(
 }
 
 describe("SubagentManager", () => {
+	test("builds child runtime options that prevent nested delegation", () => {
+		const [agent] = agents;
+		if (!agent) throw new Error("Expected a test sub-agent");
+		const subagentGuidance = formatSubagentsForPrompt(agents);
+		const options = buildSubagentRuntimeOptions(
+			{
+				...runtime,
+				getSystemPromptAdditions: () => [
+					"Shared plugin guidance",
+					subagentGuidance,
+				],
+			},
+			agent,
+		);
+
+		expect(options.subagent).toBe(true);
+		expect(options.excludedToolNames).toEqual([SUBAGENT_TOOL_NAME]);
+		expect(options.systemPromptAdditions).toEqual([
+			"Shared plugin guidance",
+			"Scout instructions",
+		]);
+	});
+
 	test("creates normalized sub-agent compaction entries from runtime events", () => {
 		const keptTurn = {
 			id: "kept-turn",
