@@ -33,7 +33,7 @@ describe("formatSubagentsForPrompt", () => {
 			"The following sub-agents are available as named specialists.",
 		);
 		expect(formatted).toContain(
-			"Use the subagent tool to delegate to them when isolated context would help.",
+			"Use the subagent tools to manage and use them.",
 		);
 		expect(formatted).toContain("<available_subagents>");
 		expect(formatted).toContain("<name>scout</name>");
