@@ -1,5 +1,6 @@
 import type { ToolDefinition, ToolResult } from "../../plugins";
 import { type Static, Type } from "../../runtime/agent";
+import { SUBAGENT_TOOL_NAME } from "./constants";
 import type { SubagentDefinition } from "./discovery";
 import {
 	type ActiveSubagentStatus,
@@ -94,7 +95,7 @@ export function createSubagentTool(options: {
 	manager: Pick<SubagentManager, "dismiss" | "getActive" | "run">;
 }): ToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
-		name: "subagent",
+		name: SUBAGENT_TOOL_NAME,
 		label: "Sub-agent",
 		description:
 			"List available sub-agents and run, inspect, or dismiss active delegated sub-agent conversations.",

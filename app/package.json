@@ -43,6 +43,7 @@
 		"dev": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"start": "bun --preload=@opentui/solid/preload src/app/main.tsx",
 		"build": "bun run script/build.ts",
+		"smoke:print-mode": "bun run script/smoke-print-mode.ts",
 		"pack:dry": "npm pack --dry-run",
 		"prepack": "bun run build",
 		"prepublishOnly": "bun run typecheck && bun test",

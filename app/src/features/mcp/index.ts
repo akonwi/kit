@@ -1,1 +1,1 @@
-export { McpPlugin } from "./plugin";
+export { createMcpPlugin, McpPlugin } from "./plugin";

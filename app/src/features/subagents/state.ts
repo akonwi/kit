@@ -24,7 +24,9 @@ import {
 	readSubagentSessionEntries,
 	readSubagentSessionHeader,
 } from "../../storage/subagent-session-storage";
+import { SUBAGENT_TOOL_NAME } from "./constants";
 import type { SubagentDefinition } from "./discovery";
+import { isSubagentPromptAddition } from "./format";
 
 export type ActiveSubagentStatus = "idle" | "running" | "failed" | "aborted";
 
@@ -117,6 +119,11 @@ export type SubagentSessionStorage = {
 	delete: typeof deleteSubagentSession;
 	readEntries: typeof readSubagentSessionEntries;
 	readHeader: typeof readSubagentSessionHeader;
+};
+
+export type SubagentParentStorage = {
+	appendEntries: typeof appendSessionEntries;
+	readEntries: typeof readSessionEntries;
 };
 
 interface SubagentManagerOptions {
@@ -346,6 +353,34 @@ export function buildSubagentTranscriptTurns(
 	return turns;
 }
 
+export function buildSubagentSystemPromptAdditions(
+	parentAdditions: string[],
+	instructions: string,
+): string[] {
+	return [
+		...parentAdditions.filter(
+			(addition) => !isSubagentPromptAddition(addition),
+		),
+		instructions,
+	];
+}
+
+export function buildSubagentRuntimeOptions(
+	runtime: RuntimeLike,
+	definition: SubagentDefinition,
+) {
+	return {
+		settings: runtime.settings,
+		systemPromptAdditions: buildSubagentSystemPromptAdditions(
+			runtime.getSystemPromptAdditions(),
+			definition.instructions,
+		),
+		extraTools: runtime.getTools(),
+		excludedToolNames: [SUBAGENT_TOOL_NAME],
+		subagent: true,
+	} as const;
+}
+
 async function createLiveSubagentRuntime(
 	options: SubagentExecutorFactoryOptions,
 ): Promise<LiveSubagentRuntime> {
@@ -374,15 +409,10 @@ async function createLiveSubagentRuntime(
 		updatedAt: now,
 		turns: options.historyTurns,
 	};
-	const runtime = new AgentRuntime(session, {
-		settings: options.runtime.settings,
-		systemPromptAdditions: [
-			...options.runtime.getSystemPromptAdditions(),
-			options.definition.instructions,
-		],
-		extraTools: options.runtime.getTools(),
-		subagent: true,
-	});
+	const runtime = new AgentRuntime(
+		session,
+		buildSubagentRuntimeOptions(options.runtime, options.definition),
+	);
 
 	let writeChain = Promise.resolve();
 	let currentMessageId: string | undefined;

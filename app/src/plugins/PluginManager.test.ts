@@ -4,7 +4,7 @@ import type { ToolApprovalHandler } from "../runtime/agent-runtime";
 import { createChromeContributionsController } from "../shell/chrome-contributions";
 import { buildDefaultTheme } from "../shell/themes/system";
 import { PluginManager, type PluginRegistration } from "./PluginManager";
-import type { PluginContext, ThemeConfig } from "./types";
+import type { PluginAPI, PluginContext, ThemeConfig } from "./types";
 
 function createThemeConfig(name = "test"): ThemeConfig {
 	const theme = buildDefaultTheme();
@@ -68,6 +68,109 @@ function createPluginContext(
 }
 
 describe("PluginManager", () => {
+	test("awaits asynchronous plugin cleanup in reverse order", async () => {
+		const disposed: string[] = [];
+		const manager = new PluginManager(
+			[
+				{
+					name: "first",
+					initialize: () => async () => {
+						disposed.push("first:start");
+						await Promise.resolve();
+						disposed.push("first:end");
+					},
+				},
+				{
+					name: "second",
+					initialize: () => async () => {
+						disposed.push("second:start");
+						await Promise.resolve();
+						disposed.push("second:end");
+					},
+				},
+			],
+			createPluginContext([]),
+		);
+		manager.initialize();
+		await manager.disposeAsync();
+		expect(disposed).toEqual([
+			"second:start",
+			"second:end",
+			"first:start",
+			"first:end",
+		]);
+	});
+
+	test("continues cleanup when a tracked disposer throws", () => {
+		const disposed: string[] = [];
+		const context = createPluginContext([]);
+		context.commands.register = (command) => () => {
+			disposed.push(command.name);
+			if (command.name === "bad-cleanup") throw new Error("cleanup failed");
+		};
+		const manager = new PluginManager(
+			[
+				{
+					name: "tracked",
+					initialize: (kit: PluginAPI) => {
+						kit.registerCommand(
+							"good-cleanup",
+							{ description: "Good" },
+							() => {},
+						);
+						kit.registerCommand(
+							"bad-cleanup",
+							{ description: "Bad" },
+							() => {},
+						);
+						return () => disposed.push("returned");
+					},
+				},
+			],
+			context,
+		);
+		const originalError = console.error;
+		console.error = () => {};
+		try {
+			manager.initialize();
+			manager.dispose();
+		} finally {
+			console.error = originalError;
+		}
+		expect(disposed).toEqual(["bad-cleanup", "good-cleanup", "returned"]);
+	});
+
+	test("continues cleanup when a plugin disposer throws", () => {
+		const disposed: string[] = [];
+		const manager = new PluginManager(
+			[
+				{
+					name: "first",
+					initialize: () => () => {
+						disposed.push("first");
+					},
+				},
+				{
+					name: "second",
+					initialize: () => () => {
+						disposed.push("second");
+						throw new Error("cleanup failed");
+					},
+				},
+			],
+			createPluginContext([]),
+		);
+		const originalError = console.error;
+		console.error = () => {};
+		try {
+			manager.initialize();
+			manager.dispose();
+		} finally {
+			console.error = originalError;
+		}
+		expect(disposed).toEqual(["second", "first"]);
+	});
+
 	test("continues after non-fatal plugin errors and cleans partial registrations", () => {
 		const commands: Command[] = [];
 		const errors: Array<{ name: string; error: unknown }> = [];

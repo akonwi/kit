@@ -50,3 +50,4 @@ Before asking to commit, always:
    - `noUnusedImports` / `noUnusedVariables`: remove dead code
    - Do **not** suppress warnings without a clear reason in the comment
 4. **Re-run `bun run typecheck`** after biome changes to confirm nothing broke
+5. For changes to print mode/headless execution, run **`bun run smoke:print-mode`** from the repository root. This is an authenticated manual smoke test that makes model calls and exercises prompts, tools, external-plugin exclusion, signals, subagents, and ephemeral storage.

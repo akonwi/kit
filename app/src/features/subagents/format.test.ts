@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { SubagentDefinition } from "./discovery";
-import { formatSubagentsForPrompt } from "./format";
+import { formatSubagentsForPrompt, isSubagentPromptAddition } from "./format";
 
 const agents: SubagentDefinition[] = [
 	{
@@ -33,7 +33,7 @@ describe("formatSubagentsForPrompt", () => {
 			"The following sub-agents are available as named specialists.",
 		);
 		expect(formatted).toContain(
-			"Use the subagent tool to delegate to them when isolated context would help.",
+			"Use the subagent tools to manage and use them.",
 		);
 		expect(formatted).toContain("<available_subagents>");
 		expect(formatted).toContain("<name>scout</name>");
@@ -43,5 +43,7 @@ describe("formatSubagentsForPrompt", () => {
 		expect(formatted).toContain("<model>claude-haiku-4-5</model>");
 		expect(formatted).toContain("<source>kit-project</source>");
 		expect(formatted).toContain("</available_subagents>");
+		expect(isSubagentPromptAddition(formatted)).toBe(true);
+		expect(isSubagentPromptAddition("Other plugin guidance")).toBe(false);
 	});
 });
