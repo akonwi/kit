@@ -23,7 +23,7 @@ async function runMain(args: string[]): Promise<{
 	return { exitCode, stdout, stderr };
 }
 
-describe("one-shot CLI", () => {
+describe("print mode CLI", () => {
 	test("rejects options that conflict with print mode", async () => {
 		const result = await runMain(["-p", "-v"]);
 		expect(result.exitCode).toBe(1);

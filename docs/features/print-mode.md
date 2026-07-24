@@ -1,4 +1,4 @@
-# One-shot mode
+# Print mode
 
 Kit can run a single prompt without starting the terminal UI:
 
@@ -6,7 +6,7 @@ Kit can run a single prompt without starting the terminal UI:
 kit -p "review PR 345"
 ```
 
-One-shot mode:
+Print mode:
 
 - creates an ephemeral session that is not written to Kit's session history
 - loads only headless-safe built-in plugins
@@ -23,6 +23,6 @@ Piped stdin is prepended to the prompt:
 cat changes.diff | kit -p "review this diff"
 ```
 
-Sub-agent conversations created during a one-shot run also use in-memory storage. MCP servers that require a new OAuth login must be authenticated through interactive Kit before they can be used in one-shot mode.
+Sub-agent conversations created during a print mode run also use in-memory storage. MCP servers that require a new OAuth login must be authenticated through interactive Kit before they can be used in print mode.
 
-User and project plugins are not loaded in one-shot mode, so their tools, commands, policies, and hooks are unavailable. Prefix option-like prompt text with `--`, for example `kit -p -- "--summarize this"`.
+User and project plugins are not loaded in print mode, so their tools, commands, policies, and hooks are unavailable. Prefix option-like prompt text with `--`, for example `kit -p -- "--summarize this"`.

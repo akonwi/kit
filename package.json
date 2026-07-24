@@ -2,6 +2,6 @@
 	"private": true,
 	"scripts": {
 		"dev": "bun --preload=./app/node_modules/@opentui/solid/scripts/preload.js ./app/src/app/main.tsx",
-		"smoke:one-shot": "bun run ./app/script/smoke-one-shot.ts"
+		"smoke:print-mode": "bun run ./app/script/smoke-print-mode.ts"
 	}
 }

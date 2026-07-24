@@ -43,8 +43,8 @@ function assistantText(message: AgentMessage | undefined): string {
 		.join("\n");
 }
 
-// One-shot CLI execution is intentionally limited to one run per process. These
-// process-global patches are not safe for concurrent or nested runOneShot calls;
+// Print mode execution is intentionally limited to one run per process. These
+// process-global patches are not safe for concurrent or nested runPrintMode calls;
 // use subprocess isolation before introducing either execution model.
 function takeOverStdout(): {
 	restore: () => void;
@@ -86,9 +86,12 @@ function takeOverStdout(): {
 	};
 }
 
-// Run `bun run smoke:one-shot` from the repository root after changing this
+// Run `bun run smoke:print-mode` from the repository root after changing this
 // lifecycle or its plugin, output, signal, tool, or persistence behavior.
-export async function runOneShot(prompt: string, cwd: string): Promise<number> {
+export async function runPrintMode(
+	prompt: string,
+	cwd: string,
+): Promise<number> {
 	const stdout = takeOverStdout();
 	let runtime: AgentRuntime | null = null;
 	let builtInPlugins: PluginManager | null = null;

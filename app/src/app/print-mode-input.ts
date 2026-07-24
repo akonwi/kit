@@ -1,4 +1,4 @@
-export function buildOneShotPrompt(
+export function buildPrintModePrompt(
 	stdin: string | undefined,
 	positionals: string[],
 ): string {

@@ -1,5 +1,5 @@
 import { parseArgs } from "node:util";
-import { buildOneShotPrompt } from "./one-shot-input";
+import { buildPrintModePrompt } from "./print-mode-input";
 
 const { positionals, values } = parseArgs({
 	args: process.argv.slice(2),
@@ -28,14 +28,14 @@ if (values.print === true) {
 		process.exitCode = 1;
 	} else {
 		const stdin = await readPipedStdin();
-		const prompt = buildOneShotPrompt(stdin, positionals);
+		const prompt = buildPrintModePrompt(stdin, positionals);
 		if (!prompt.trim()) {
 			console.error('Usage: kit -p "prompt"');
 			process.exitCode = 1;
 		} else {
 			const { safeProcessCwd } = await import("../process-cwd");
-			const { runOneShot } = await import("./one-shot");
-			process.exitCode = await runOneShot(prompt, safeProcessCwd());
+			const { runPrintMode } = await import("./print-mode");
+			process.exitCode = await runPrintMode(prompt, safeProcessCwd());
 		}
 	}
 } else {

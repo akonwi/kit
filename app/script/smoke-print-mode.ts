@@ -1,5 +1,5 @@
 // Manual authenticated end-to-end verification for `kit -p`. Keep this matrix
-// aligned with the lifecycle and output guarantees in app/src/app/one-shot.ts.
+// aligned with the lifecycle and output guarantees in app/src/app/print-mode.ts.
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -10,15 +10,15 @@ const probePath = path.join(
 	repoRoot,
 	".kit",
 	"plugins",
-	"headless-one-shot-smoke.ts",
+	"headless-print-mode-smoke.ts",
 );
 const subagentPath = path.join(
 	repoRoot,
 	".kit",
 	"agents",
-	"headless-one-shot-smoke.md",
+	"headless-print-mode-smoke.md",
 );
-const tempDir = await mkdtemp(path.join(tmpdir(), "kit-one-shot-smoke-"));
+const tempDir = await mkdtemp(path.join(tmpdir(), "kit-print-mode-smoke-"));
 const readFixture = path.join(tempDir, "read-fixture.txt");
 const pluginMarker = path.join(tempDir, "external-plugin-loaded");
 
@@ -50,7 +50,7 @@ type RunResult = {
 	stdout: string;
 };
 
-async function runOneShot(
+async function runPrintMode(
 	prompt: string,
 	options: { stdin?: string } = {},
 ): Promise<RunResult> {
@@ -73,9 +73,9 @@ async function expectExact(
 	name: string,
 	expected: string,
 	prompt: string,
-	options?: Parameters<typeof runOneShot>[1],
+	options?: Parameters<typeof runPrintMode>[1],
 ): Promise<void> {
-	const result = await runOneShot(prompt, options);
+	const result = await runPrintMode(prompt, options);
 	if (result.exitCode !== 0 || result.stdout !== expected) {
 		throw new Error(
 			`${name} failed: exit=${result.exitCode}, expected=${JSON.stringify(expected)}, actual=${JSON.stringify(result.stdout)}\nstderr:\n${result.stderr}`,
@@ -134,7 +134,7 @@ export default function ExternalPluginProbe() {
 }
 `;
 const subagentSource = `---
-name: headless-one-shot-smoke
+name: headless-print-mode-smoke
 description: Smoke-test subagent
 ---
 Follow the caller's request and return only the exact token it asks for.
@@ -156,7 +156,7 @@ try {
 		"Do not call tools. Reply with exactly PLAIN_OK and nothing else.",
 	);
 	if (existsSync(pluginMarker)) {
-		throw new Error("One-shot mode loaded a project plugin.");
+		throw new Error("Print mode loaded a project plugin.");
 	}
 	console.log("PASS external plugins skipped");
 
@@ -179,7 +179,7 @@ try {
 	await expectExact(
 		"subagent",
 		"SUBAGENT_OK",
-		"Use the subagent tool with agent 'headless-one-shot-smoke' and ask it to return exactly SUBAGENT_INNER_OK. After it finishes, reply with exactly SUBAGENT_OK and nothing else.",
+		"Use the subagent tool with agent 'headless-print-mode-smoke' and ask it to return exactly SUBAGENT_INNER_OK. After it finishes, reply with exactly SUBAGENT_OK and nothing else.",
 	);
 	await testSignalHandling();
 
@@ -189,11 +189,11 @@ try {
 	);
 	if (newSessions.length > 0) {
 		throw new Error(
-			`One-shot mode persisted sessions:\n${newSessions.join("\n")}`,
+			`Print mode persisted sessions:\n${newSessions.join("\n")}`,
 		);
 	}
 	console.log("PASS ephemeral session storage");
-	console.log("One-shot smoke test passed.");
+	console.log("Print mode smoke test passed.");
 } finally {
 	await rm(probePath, { force: true });
 	await rm(subagentPath, { force: true });

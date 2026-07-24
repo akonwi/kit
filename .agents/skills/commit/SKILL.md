@@ -35,7 +35,7 @@ Run the required checks for this repo:
 - `bun run check` — auto-fix formatting and safe lint fixes
 - Address remaining Biome warnings (fix or suppress with `// biome-ignore <rule>: <reason>`)
 - Re-run `bun run typecheck` after Biome changes to confirm nothing broke
-- For one-shot/headless changes: `bun run smoke:one-shot` from repo root
+- For print mode/headless changes: `bun run smoke:print-mode` from repo root
 
 ### 5. Fix Issues
 

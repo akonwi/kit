@@ -92,7 +92,7 @@ If they confirm:
    - `bun run check` — auto-fix formatting and safe lint fixes (run from the `app/` directory)
    - Address remaining Biome warnings (suppress with `// biome-ignore <rule>: <reason>`)
    - Re-run `bun run typecheck` after Biome changes
-   - For one-shot/headless changes: `bun run smoke:one-shot` from repo root
+   - For print mode/headless changes: `bun run smoke:print-mode` from repo root
 3. Prepare a summary of what was changed
 
 ## References
