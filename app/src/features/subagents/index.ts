@@ -7,7 +7,11 @@ import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { loadSubagents, type SubagentDefinition } from "./discovery";
 import { formatSubagentsForPrompt } from "./format";
 import { SubagentsStatusModal } from "./SubagentsStatusModal";
-import { SubagentManager } from "./state";
+import {
+	SubagentManager,
+	type SubagentParentStorage,
+	type SubagentSessionStorage,
+} from "./state";
 import { createSubagentTool } from "./tool";
 
 export type {
@@ -20,13 +24,18 @@ export { formatSubagentsForPrompt } from "./format";
 export type {
 	ActiveSubagentConversationState,
 	ActiveSubagentStatus,
+	SubagentParentStorage,
 	SubagentRunResult,
+	SubagentSessionStorage,
 } from "./state";
 export { SubagentManager, SubagentManagerError } from "./state";
 export { createSubagentTool } from "./tool";
 
 export function createSubagentsPlugin(options: {
 	runtime: AgentRuntime;
+	onReady?: (ready: Promise<void>) => void;
+	parentStorage?: SubagentParentStorage;
+	subagentStorage?: SubagentSessionStorage;
 }): InternalPluginDefinition {
 	return function SubagentsPlugin(kit: InternalPluginAPI): () => void {
 		let clearDebugSection: (() => void) | null = null;
@@ -38,6 +47,9 @@ export function createSubagentsPlugin(options: {
 		const manager = new SubagentManager({
 			runtime: options.runtime,
 			getAgents: () => agents,
+			appendEntries: options.parentStorage?.appendEntries,
+			readEntries: options.parentStorage?.readEntries,
+			subagentStorage: options.subagentStorage,
 		});
 
 		// Synchronously seed file agents before subsequent plugins initialize
@@ -175,7 +187,9 @@ export function createSubagentsPlugin(options: {
 			},
 		);
 
-		void refresh();
+		const ready = refresh();
+		options.onReady?.(ready);
+		void ready;
 
 		return () => {
 			disposed = true;

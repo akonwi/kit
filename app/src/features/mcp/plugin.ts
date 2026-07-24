@@ -10,7 +10,16 @@ import { loadMcpOAuthStore, saveMcpOAuthStore } from "./oauth-store";
 import { createMcpProxyTool, MCP_PROXY_POLICY } from "./proxy-tool";
 import type { LoadMcpConfigResult } from "./types";
 
-export function McpPlugin(kit: InternalPluginAPI): () => void {
+export type McpPluginOptions = {
+	interactive?: boolean;
+	onReady?: (ready: Promise<void>) => void;
+	persistState?: boolean;
+};
+
+export function McpPlugin(
+	kit: InternalPluginAPI,
+	options: McpPluginOptions = {},
+): () => void {
 	let manager: McpManager | null = null;
 	let unregisterTool: (() => void) | null = null;
 	let removePolicy: (() => void) | null = null;
@@ -41,6 +50,11 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		serverName: string,
 		authorizationUrl: URL,
 	): Promise<string> {
+		if (options.interactive === false) {
+			throw new Error(
+				`MCP server ${serverName} requires OAuth authorization. Open Kit interactively to authenticate first.`,
+			);
+		}
 		let callbackServer: Awaited<
 			ReturnType<typeof startMcpOAuthCallbackServer>
 		> | null = null;
@@ -86,7 +100,12 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		const snapshot = manager.getPersistentCache();
 		saveCachePromise = saveCachePromise
 			.catch(() => undefined)
-			.then(() => saveMcpMetadataCache(snapshot));
+			.then(() => saveMcpMetadataCache(snapshot))
+			.catch((error) => {
+				console.error(
+					`[mcp] failed to persist metadata cache: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
 		await saveCachePromise;
 	}
 
@@ -95,7 +114,12 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		const snapshot = manager.getPersistentOAuthStore();
 		saveAuthPromise = saveAuthPromise
 			.catch(() => undefined)
-			.then(() => saveMcpOAuthStore(snapshot));
+			.then(() => saveMcpOAuthStore(snapshot))
+			.catch((error) => {
+				console.error(
+					`[mcp] failed to persist OAuth state: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			});
 		await saveAuthPromise;
 	}
 
@@ -160,9 +184,12 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		const enabledServers = config.servers.filter((server) => !server.disabled);
 		manager = new McpManager(config.servers, cache, oauthStore, {
 			onStateChange: () => {
+				if (disposed) return;
 				updateDebugSection();
-				void persistCache();
-				void persistAuth();
+				if (options.persistState !== false) {
+					void persistCache();
+					void persistAuth();
+				}
 			},
 			authorizeOAuthServer: (serverName, authorizationUrl) =>
 				authorizeOAuthServer(serverName, authorizationUrl),
@@ -181,7 +208,9 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		}
 
 		updateDebugSection();
-		await Promise.all([persistCache(), persistAuth()]);
+		if (options.persistState !== false) {
+			void Promise.all([persistCache(), persistAuth()]);
+		}
 	}
 
 	kit.on("session.active.changed", async () => {
@@ -262,9 +291,11 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		},
 	);
 
-	void refresh();
+	const ready = refresh();
+	options.onReady?.(ready);
+	void ready;
 
-	return () => {
+	return async () => {
 		disposed = true;
 		unregisterTool?.();
 		unregisterTool = null;
@@ -272,7 +303,16 @@ export function McpPlugin(kit: InternalPluginAPI): () => void {
 		removePolicy = null;
 		clearDebugSection?.();
 		clearDebugSection = null;
-		void manager?.dispose();
+		const cleanup = manager?.dispose() ?? Promise.resolve();
 		manager = null;
+		await Promise.all([cleanup, saveCachePromise, saveAuthPromise]);
+	};
+}
+
+export function createMcpPlugin(
+	options: McpPluginOptions,
+): (kit: InternalPluginAPI) => () => void {
+	return function McpPluginWithOptions(kit: InternalPluginAPI): () => void {
+		return McpPlugin(kit, options);
 	};
 }

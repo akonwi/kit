@@ -121,6 +121,11 @@ export type SubagentSessionStorage = {
 	readHeader: typeof readSubagentSessionHeader;
 };
 
+export type SubagentParentStorage = {
+	appendEntries: typeof appendSessionEntries;
+	readEntries: typeof readSessionEntries;
+};
+
 interface SubagentManagerOptions {
 	runtime: RuntimeLike;
 	getAgents: () => SubagentDefinition[];

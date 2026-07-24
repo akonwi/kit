@@ -36,8 +36,41 @@ export type PluginManagerInput = Plugin | PluginRegistration;
 
 type ManagedPlugin = {
 	name: string;
-	dispose: () => void;
+	takeDisposers: () => Disposer[];
 };
+
+function startDisposer(
+	pluginName: string,
+	disposer: Disposer,
+): Promise<void> | null {
+	try {
+		const result = (disposer as () => unknown)();
+		if (!(result instanceof Promise)) return null;
+		return result.catch((error) => {
+			console.error(
+				`[plugin:${pluginName}] cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		});
+	} catch (error) {
+		console.error(
+			`[plugin:${pluginName}] cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+		);
+		return null;
+	}
+}
+
+async function runDisposer(
+	pluginName: string,
+	disposer: Disposer,
+): Promise<void> {
+	try {
+		await (disposer as () => unknown)();
+	} catch (error) {
+		console.error(
+			`[plugin:${pluginName}] cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+		);
+	}
+}
 
 function requirePluginName(name: string | undefined): string {
 	const trimmed = name?.trim();
@@ -75,10 +108,26 @@ export class PluginManager {
 	}
 
 	dispose(): void {
-		for (const plugin of [...this.plugins].reverse()) {
-			plugin.dispose();
+		for (const plugin of this.takePluginsForDisposal()) {
+			for (const disposer of plugin.takeDisposers()) {
+				const pending = startDisposer(plugin.name, disposer);
+				if (pending) void pending;
+			}
 		}
+	}
+
+	async disposeAsync(): Promise<void> {
+		for (const plugin of this.takePluginsForDisposal()) {
+			for (const disposer of plugin.takeDisposers()) {
+				await runDisposer(plugin.name, disposer);
+			}
+		}
+	}
+
+	private takePluginsForDisposal(): ManagedPlugin[] {
+		const plugins = [...this.plugins].reverse();
 		this.plugins.length = 0;
+		return plugins;
 	}
 
 	private initializePlugin(registration: PluginRegistration): void {
@@ -87,14 +136,12 @@ export class PluginManager {
 		let returnedDispose: Disposer | undefined;
 		const managed: ManagedPlugin = {
 			name: pluginName,
-			dispose: () => {
+			takeDisposers: () => {
 				const remainingDisposers = [...disposers].reverse();
 				disposers.clear();
-				for (const disposer of remainingDisposers) {
-					disposer();
-				}
-				returnedDispose?.();
+				if (returnedDispose) remainingDisposers.push(returnedDispose);
 				returnedDispose = undefined;
+				return remainingDisposers;
 			},
 		};
 
@@ -124,7 +171,10 @@ export class PluginManager {
 				returnedDispose = registration.initialize(api) ?? undefined;
 			}
 		} catch (error) {
-			managed.dispose();
+			for (const disposer of managed.takeDisposers()) {
+				const pending = startDisposer(pluginName, disposer);
+				if (pending) void pending;
+			}
 			const index = this.plugins.indexOf(managed);
 			if (index >= 0) this.plugins.splice(index, 1);
 			if (!registration.continueOnError) throw error;
