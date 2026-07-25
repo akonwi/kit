@@ -36,6 +36,32 @@ export const KEYBINDING_REGISTRY = {
 			group: "App",
 		},
 	},
+	"chrome-overflow": {
+		"move-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Select previous status contribution",
+			group: "status",
+			hint: "move",
+		},
+		"move-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Select next status contribution",
+			group: "status",
+			hint: "move",
+		},
+		activate: {
+			defaultKeys: "enter",
+			desc: "Activate status contribution",
+			group: "status",
+			hint: "open",
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Close status contributions",
+			group: "status",
+			hint: "close",
+		},
+	},
 	composer: {
 		"open-attachment": {
 			defaultKeys: "ctrl+o",

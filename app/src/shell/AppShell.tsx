@@ -31,9 +31,17 @@ import type { Settings } from "../settings";
 import type { AppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
-import { BottomStatusBar } from "./BottomStatusBar";
+import {
+	BottomStatusBar,
+	VCS_LOCATION_CONTRIBUTION_ID,
+} from "./BottomStatusBar";
+import {
+	ChromeOverflowPicker,
+	type ChromeOverflowPlacement,
+} from "./ChromeOverflowPicker";
 import { CommandPalette } from "./CommandPalette";
 import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
+import type { ChromeContribution } from "./chrome-contributions";
 import type { ComposerController } from "./composer-controller";
 import type { FooterStatusController } from "./footer-status";
 import { HeaderBar } from "./HeaderBar";
@@ -128,6 +136,9 @@ function AppShellContent(props: AppShellContentProps) {
 	const [commandRegistryVersion, setCommandRegistryVersion] = createSignal(0);
 	const renderer = useRenderer();
 	let transcriptRef: { width: number; height: number } | undefined;
+	const [transcriptWidth, setTranscriptWidth] = createSignal(
+		renderer.terminalWidth,
+	);
 
 	// Track outer terminal width so we can switch the turn activity view
 	// between sidebar (wide) and modal (narrow) modes responsively.
@@ -137,6 +148,58 @@ function AppShellContent(props: AppShellContentProps) {
 	const [rightPanel, setRightPanel] = createSignal<RightPanel>(null);
 	const [focusedInput, setFocusedInput] =
 		createSignal<FocusedInput>("composer");
+	const [chromeOverflow, setChromeOverflow] = createSignal<{
+		title: string;
+		placement: ChromeOverflowPlacement;
+	} | null>(null);
+	const [chromeContributionVersion, setChromeContributionVersion] =
+		createSignal(0);
+	onCleanup(
+		props.header.subscribe(() =>
+			setChromeContributionVersion((version) => version + 1),
+		),
+	);
+	onCleanup(
+		props.footer.subscribe(() =>
+			setChromeContributionVersion((version) => version + 1),
+		),
+	);
+
+	function currentOverflowContributions(): readonly ChromeContribution[] {
+		void chromeContributionVersion();
+		const overflow = chromeOverflow();
+		if (!overflow) return [];
+		if (overflow.placement === "header") {
+			return props.header.getContributions();
+		}
+		return props.footer
+			.getContributions()
+			.filter((item) => item.id !== VCS_LOCATION_CONTRIBUTION_ID);
+	}
+
+	function openChromeOverflow(
+		title: string,
+		placement: ChromeOverflowPlacement,
+		contributions: readonly ChromeContribution[],
+	) {
+		if (contributions.length === 0) return;
+		if (props.overlays().length > 0) return;
+		if (props.controller.picker.visible) return;
+		if (props.controller.commandPalette.visible) return;
+		setChromeOverflow({ title, placement });
+	}
+
+	createEffect(() => {
+		if (!chromeOverflow()) return;
+		if (
+			currentOverflowContributions().length === 0 ||
+			props.overlays().length > 0 ||
+			props.controller.picker.visible ||
+			props.controller.commandPalette.visible
+		) {
+			setChromeOverflow(null);
+		}
+	});
 
 	const activityWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
 	const scratchpadWideEnough = () => shellWidth() >= SCRATCHPAD_MIN_WIDTH;
@@ -372,7 +435,7 @@ function AppShellContent(props: AppShellContentProps) {
 			.filter((command) => !getKeybindingCommand(command.name));
 		return {
 			scope: "app",
-			when: () => props.overlays().length === 0,
+			when: () => props.overlays().length === 0 && chromeOverflow() === null,
 			commandMetadata: Object.fromEntries(
 				bindableCommands.map((command) => [
 					command.name,
@@ -420,8 +483,13 @@ function AppShellContent(props: AppShellContentProps) {
 		<box
 			width="100%"
 			height="100%"
+			border
+			borderColor={theme.borderDefault}
 			flexDirection="column"
 			backgroundColor={theme.bg}
+			onMouseDown={() => {
+				if (chromeOverflow()) setChromeOverflow(null);
+			}}
 			onMouseUp={() => copySelection(renderer)}
 			ref={(value) => {
 				shellRef = value as typeof shellRef;
@@ -434,7 +502,17 @@ function AppShellContent(props: AppShellContentProps) {
 				runtime={props.runtime}
 				header={props.header}
 				sessionName={props.state.sessionMeta.name}
+				shellWidth={shellWidth()}
+				transcriptWidth={transcriptWidth()}
 				onHeightChange={setHeaderHeight}
+				onOpenOverflow={(contributions) =>
+					openChromeOverflow("Header status", "header", contributions)
+				}
+				onOverflowAvailabilityChange={(available) => {
+					if (!available && chromeOverflow()?.placement === "header") {
+						setChromeOverflow(null);
+					}
+				}}
 			/>
 
 			{/*
@@ -454,6 +532,7 @@ function AppShellContent(props: AppShellContentProps) {
 						}}
 						onSizeChange={() => {
 							if (!transcriptRef) return;
+							setTranscriptWidth(transcriptRef.width);
 							props.onTranscriptViewportChange({
 								width: transcriptRef.width,
 								height: transcriptRef.height,
@@ -493,9 +572,10 @@ function AppShellContent(props: AppShellContentProps) {
 									});
 								});
 							}}
-							locked={props.overlays().length > 0}
+							locked={props.overlays().length > 0 || chromeOverflow() !== null}
 							inputFocused={
-								focusedInput() === "composer" || props.overlays().length > 0
+								chromeOverflow() === null &&
+								(focusedInput() === "composer" || props.overlays().length > 0)
 							}
 							onHeightChange={setDockHeight}
 							onModeChange={setComposerMode}
@@ -549,7 +629,9 @@ function AppShellContent(props: AppShellContentProps) {
 						<ScratchpadPanel
 							controller={props.scratchpad}
 							active={
-								props.overlays().length === 0 && focusedInput() === "scratchpad"
+								props.overlays().length === 0 &&
+								chromeOverflow() === null &&
+								focusedInput() === "scratchpad"
 							}
 							onClose={() => {
 								setRightPanel(null);
@@ -564,7 +646,36 @@ function AppShellContent(props: AppShellContentProps) {
 				runtime={props.runtime}
 				status={props.footer}
 				composerMode={composerMode()}
+				shellWidth={shellWidth()}
+				onOpenOverflow={(contributions) =>
+					openChromeOverflow("Footer status", "footer", contributions)
+				}
+				onOverflowAvailabilityChange={(available) => {
+					if (!available && chromeOverflow()?.placement === "footer") {
+						setChromeOverflow(null);
+					}
+				}}
 			/>
+
+			<Show when={chromeOverflow()}>
+				{(overflow) => (
+					<ChromeOverflowPicker
+						title={overflow().title}
+						placement={overflow().placement}
+						contributions={currentOverflowContributions()}
+						width={Math.max(1, Math.min(72, shellWidth() - 2))}
+						onClose={() => setChromeOverflow(null)}
+						onError={(error) => {
+							props.showToast({
+								title: "Status action failed",
+								subtitle:
+									error instanceof Error ? error.message : String(error),
+								variant: "error",
+							});
+						}}
+					/>
+				)}
+			</Show>
 
 			{/* Composer picker only serves @/# references */}
 			<CommandPalette picker={props.controller.commandPalette} />

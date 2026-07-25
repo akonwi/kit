@@ -177,6 +177,8 @@ showDefaultModel();
 
 Header/footer item IDs passed to `set`/`clear` are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded. `hide` accepts the full item ID to support replacing known built-in contributions.
 
+Shell status rows never wrap. Kit keeps privileged built-in status visible, packs plugin contributions as complete items in registration order, and replaces overflow with a clickable `… +N` indicator. The overflow picker lists every plugin contribution for that status row and preserves existing click actions.
+
 Use `kit.ui.text(text, style)` to style part or all of a contribution. Supported style fields are `fg`, `bg`, `bold`, `dim`, `italic`, `underline`, and `strikethrough`. Use `kit.ui.theme()` when setting or updating contributions to read the current resolved theme config (`name`, `tokens`, and `syntaxPalette`) and blend with Kit's colors. `onClick` is a whole-contribution action; Kit maps it to terminal mouse events and does not expose raw mouse events to plugins.
 
 Built-in header item IDs are `HeaderBar:title` and `HeaderBar:model`.

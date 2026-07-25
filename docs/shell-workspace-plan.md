@@ -19,7 +19,7 @@ Kit continues to own layout, focus, resizing, responsive behavior, and overflow 
 ## Shell structure
 
 ```text
-┌ k i t · session ───────────── model · thinking · plugin header items ┐
+┌ session ───────────────────── model · thinking · plugin header items ┐
 ├━━━━ context usage ━━━━━━━━━─────────┬─────────────────────────────────┤
 │ Transcript                          │ Code review                     │
 │                                     │                                 │
@@ -31,7 +31,7 @@ Kit continues to own layout, focus, resizing, responsive behavior, and overflow 
 
 The header is a fixed single row and does not wrap.
 
-- Left: Kit brand and session name
+- Left: session name
 - Right: model, thinking level, then plugin header contributions
 - Built-in items are privileged and retain guaranteed space
 - Plugin items use the remaining width
