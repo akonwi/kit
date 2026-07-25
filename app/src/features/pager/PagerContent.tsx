@@ -11,6 +11,7 @@ import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
 import type { PagerController } from "./pager-controller";
 
 const EDIT_PREFIX_BINDINGS: Binding[] = [
+	{ key: "Enter", action: "save" },
 	{ key: "Shift+Enter", action: "newline" },
 ];
 
@@ -22,18 +23,15 @@ export type PagerContentProps = {
 
 export function PagerContent(props: PagerContentProps) {
 	const pager = props.pager;
-
-	// Local UI state
 	const [mode, setMode] = createSignal<"navigate" | "edit">("navigate");
 	const [noteText, setNoteText] = createSignal("");
 	let scrollRef:
 		| { scrollBy: (opts: { x: number; y: number }) => void }
 		| undefined;
 	let textareaRef:
-		| { plainText: string; setText: (v: string) => void }
+		| { plainText: string; setText: (value: string) => void }
 		| undefined;
 
-	// Bind scroll delegate so controller keyboard helpers work
 	function bindScroll(ref: typeof scrollRef) {
 		scrollRef = ref;
 		pager.setScrollDelegate({
@@ -41,10 +39,8 @@ export function PagerContent(props: PagerContentProps) {
 		});
 	}
 
-	// When the section changes, load its saved note into the edit textarea
 	createEffect(() => {
-		const idx = pager.currentIndex;
-		const saved = pager.notes.get(idx) ?? "";
+		const saved = pager.notes.get(pager.currentIndex) ?? "";
 		setNoteText(saved);
 		try {
 			textareaRef?.setText(saved);
@@ -53,7 +49,6 @@ export function PagerContent(props: PagerContentProps) {
 		}
 	});
 
-	// When the pager closes, reset local mode
 	createEffect(() => {
 		if (!pager.active) {
 			setMode("navigate");
@@ -61,27 +56,32 @@ export function PagerContent(props: PagerContentProps) {
 		}
 	});
 
-	function saveNote() {
-		pager.setNote(pager.currentIndex, noteText());
-	}
+	const noteCount = () => pager.getNoteCount();
+	const currentNote = () => pager.notes.get(pager.currentIndex) ?? "";
 
 	function enterEditMode() {
+		setNoteText(currentNote());
 		setMode("edit");
 	}
 
-	function exitEditMode() {
-		saveNote();
+	function saveNote() {
+		pager.setNote(pager.currentIndex, noteText());
 		setMode("navigate");
 	}
 
-	async function handleSubmit() {
-		saveNote();
-		await pager.submitFeedback();
-		props.onClose();
+	function cancelEdit() {
+		const saved = currentNote();
+		setNoteText(saved);
+		textareaRef?.setText(saved);
+		setMode("navigate");
+	}
+
+	function clearCurrentNote() {
+		pager.setNote(pager.currentIndex, "");
 	}
 
 	function closePager() {
-		pager.close();
+		pager.closeView();
 		props.onClose();
 	}
 
@@ -94,8 +94,24 @@ export function PagerContent(props: PagerContentProps) {
 			"pager.scroll-up": pager.scrollUp,
 			"pager.scroll-down": pager.scrollDown,
 			"pager.edit-note": enterEditMode,
-			"pager.submit-feedback": handleSubmit,
 			"pager.close": closePager,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () =>
+			pager.active && mode() === "navigate" && currentNote().length > 0,
+		commands: {
+			"pager.clear-note": clearCurrentNote,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => pager.active && mode() === "navigate" && noteCount() > 0,
+		commands: {
+			"pager.submit-feedback": closePager,
 		},
 	}));
 
@@ -103,8 +119,7 @@ export function PagerContent(props: PagerContentProps) {
 		scope: "modal",
 		when: () => pager.active && mode() === "edit",
 		commands: {
-			"pager.back": exitEditMode,
-			"pager.submit-feedback": handleSubmit,
+			"pager.back": cancelEdit,
 		},
 	}));
 
@@ -114,11 +129,8 @@ export function PagerContent(props: PagerContentProps) {
 			.decode(event.bytes)
 			.replace(/\r\n/g, "\n")
 			.replace(/\r/g, "\n");
-		setNoteText((cur) => `${cur}${pasted}`);
+		setNoteText((current) => `${current}${pasted}`);
 	}
-
-	const noteCount = () => pager.getNoteCount();
-	const currentNote = () => pager.notes.get(pager.currentIndex) ?? "";
 
 	const sectionPct = () => {
 		const total = pager.sections.length;
@@ -153,28 +165,43 @@ export function PagerContent(props: PagerContentProps) {
 						<Show
 							when={mode() === "edit"}
 							fallback={
-								<MessageComposer
-									placeholder={currentNote() || "press n to add a note"}
-									maxHeight={6}
-									focused={false}
-									showCursor={false}
-								/>
+								<box
+									flexDirection="column"
+									paddingX={1}
+									maxHeight={5}
+									overflow="hidden"
+								>
+									<Show
+										when={currentNote()}
+										fallback={
+											<text fg={theme.textMuted}>No note for this section</text>
+										}
+									>
+										<text fg={theme.reviewText}>
+											<b>Note</b>
+										</text>
+										<text fg={theme.textSecondary}>{currentNote()}</text>
+									</Show>
+								</box>
 							}
 						>
 							<MessageComposer
-								ref={(el) => {
-									textareaRef = el as typeof textareaRef;
+								ref={(element) => {
+									textareaRef = element as typeof textareaRef;
 								}}
 								initialValue={noteText()}
 								placeholder="Type your note..."
 								maxHeight={6}
+								borderColor={theme.borderAccent}
 								keyBindings={[
+									{ name: "return", action: "submit" },
 									{ name: "return", shift: true, action: "newline" },
 								]}
 								onContentChange={() =>
 									setNoteText(textareaRef?.plainText ?? "")
 								}
 								onPaste={handlePaste}
+								onSubmit={saveNote}
 							/>
 						</Show>
 						<KeymapHintBar
@@ -189,7 +216,7 @@ export function PagerContent(props: PagerContentProps) {
 					flexGrow={1}
 					scrollY
 					stickyStart="top"
-					paddingX={2}
+					paddingX={1}
 					paddingY={1}
 					style={scrollbarStyle()}
 				>

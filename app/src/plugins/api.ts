@@ -439,7 +439,11 @@ export function createPluginAPI(
 	};
 
 	if (options.exposeInternalUi) {
-		return { ...api, vcs } as unknown as InternalPluginAPI;
+		return {
+			...api,
+			vcs,
+			attachments: ctx.attachments,
+		} as unknown as InternalPluginAPI;
 	}
 
 	return api as unknown as PluginAPI;

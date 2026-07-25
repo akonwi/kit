@@ -1,6 +1,6 @@
 /**
- * Pager controller — manages section navigation, per-section notes,
- * and feedback submission for long assistant responses.
+ * Pager controller — manages section navigation and in-memory feedback drafts
+ * for long assistant responses.
  */
 
 import { createMemo, createSignal } from "solid-js";
@@ -18,6 +18,14 @@ export type PagerViewport = {
 	height: number;
 };
 
+export type PagerDraftSnapshot = {
+	sourceId: string;
+	title: string;
+	sections: PagerSection[];
+	currentIndex: number;
+	notes: Map<number, string>;
+};
+
 function extractAssistantText(msg: AgentMessage): string {
 	const content: unknown = (msg as { content?: unknown }).content;
 	if (typeof content === "string") return content;
@@ -32,6 +40,20 @@ function extractAssistantText(msg: AgentMessage): string {
 		.filter(Boolean)
 		.join("\n")
 		.trim();
+}
+
+function assistantSourceId(message: AgentMessage, index: number): string {
+	const tagged = message as AgentMessage & {
+		id?: unknown;
+		turnId?: unknown;
+	};
+	if (typeof tagged.id === "string" && tagged.id.length > 0) {
+		return `message:${tagged.id}`;
+	}
+	if (typeof tagged.turnId === "string" && tagged.turnId.length > 0) {
+		return `turn:${tagged.turnId}:assistant:${index}`;
+	}
+	return `assistant:${index}:${message.timestamp}`;
 }
 
 function estimateWrappedRows(text: string, viewportWidth: number): number {
@@ -61,7 +83,7 @@ function shouldAutoPage(text: string, viewport: PagerViewport | null): boolean {
 	return estimatedRows >= getAutoPageThreshold(viewport.height);
 }
 
-function formatFeedbackMessage(
+export function formatPagerFeedbackMessage(
 	sections: PagerSection[],
 	notes: Map<number, string>,
 ): string | null {
@@ -83,24 +105,6 @@ function formatFeedbackMessage(
 	});
 }
 
-function activateSections(
-	text: string,
-	setSections: (value: PagerSection[]) => void,
-	setTitle: (value: string) => void,
-	setCurrentIndex: (value: number) => void,
-	setNotes: (value: Map<number, string>) => void,
-	setActive: (value: boolean) => void,
-): boolean {
-	const result = splitSections(text);
-	if (result.length === 0) return false;
-	setSections(result);
-	setTitle(result[0]?.title ?? "");
-	setCurrentIndex(0);
-	setNotes(new Map());
-	setActive(true);
-	return true;
-}
-
 export function createPagerController() {
 	const [sections, setSections] = createSignal<PagerSection[]>([]);
 	const [currentIndex, setCurrentIndex] = createSignal(0);
@@ -117,11 +121,31 @@ export function createPagerController() {
 	// Resolves the Promise returned by activateWithContent when the pager closes.
 	let pendingClose: (() => void) | null = null;
 
-	// Wired after runtime is created to avoid a circular dependency.
-	let submitMessageFn: ((message: string) => Promise<void>) | null = null;
+	// The latest paged response remains in memory until its feedback attachment
+	// is consumed/removed, a new response replaces it, or the session changes.
+	let sourceId: string | null = null;
+	let draftGeneration = 0;
+	let manualSourceId = 0;
 
-	function setSubmitCallback(fn: (message: string) => Promise<void>) {
-		submitMessageFn = fn;
+	function activate(
+		text: string,
+		nextSourceId: string,
+		pageTitle?: string,
+	): boolean {
+		const result = splitSections(text);
+		if (result.length === 0) return false;
+
+		const restoringDraft = sourceId === nextSourceId;
+		if (!restoringDraft) draftGeneration += 1;
+		sourceId = nextSourceId;
+		setSections(result);
+		setTitle(pageTitle ?? result[0]?.title ?? "");
+		setCurrentIndex((index) =>
+			restoringDraft ? Math.min(index, result.length - 1) : 0,
+		);
+		if (!restoringDraft) setNotes(new Map());
+		setActive(true);
+		return true;
 	}
 
 	/**
@@ -133,14 +157,10 @@ export function createPagerController() {
 		text: string,
 		pageTitle?: string,
 	): Promise<void> {
-		const result = splitSections(text);
-		if (result.length === 0) return Promise.resolve();
-
-		setSections(result);
-		setTitle(pageTitle ?? result[0]?.title ?? "");
-		setCurrentIndex(0);
-		setNotes(new Map());
-		setActive(true);
+		manualSourceId += 1;
+		if (!activate(text, `manual:${manualSourceId}`, pageTitle)) {
+			return Promise.resolve();
+		}
 
 		return new Promise<void>((resolve) => {
 			pendingClose = resolve;
@@ -159,14 +179,7 @@ export function createPagerController() {
 			const text = extractAssistantText(msg);
 			if (!text) break;
 
-			return activateSections(
-				text,
-				setSections,
-				setTitle,
-				setCurrentIndex,
-				setNotes,
-				setActive,
-			);
+			return activate(text, assistantSourceId(msg, i));
 		}
 		return false;
 	}
@@ -187,14 +200,7 @@ export function createPagerController() {
 			if (!text) break;
 			if (!shouldAutoPage(text, viewport)) break;
 
-			return activateSections(
-				text,
-				setSections,
-				setTitle,
-				setCurrentIndex,
-				setNotes,
-				setActive,
-			);
+			return activate(text, assistantSourceId(msg, i));
 		}
 		return false;
 	}
@@ -216,16 +222,35 @@ export function createPagerController() {
 		scrollDelegate?.scrollBy(3);
 	}
 
-	function close() {
+	function closeView() {
 		setActive(false);
-		setSections([]);
-		setNotes(new Map());
-		setCurrentIndex(0);
-		setTitle("");
 		scrollDelegate = null;
 		const resolve = pendingClose;
 		pendingClose = null;
 		resolve?.();
+	}
+
+	function reopen(): boolean {
+		if (sections().length === 0) return false;
+		setActive(true);
+		return true;
+	}
+
+	function clearDraft(expectedGeneration?: number): boolean {
+		if (
+			expectedGeneration !== undefined &&
+			expectedGeneration !== draftGeneration
+		) {
+			return false;
+		}
+		closeView();
+		setSections([]);
+		setNotes(new Map());
+		setCurrentIndex(0);
+		setTitle("");
+		sourceId = null;
+		draftGeneration += 1;
+		return true;
 	}
 
 	function nextSection() {
@@ -255,17 +280,34 @@ export function createPagerController() {
 			.length;
 	}
 
-	/**
-	 * Submit all notes as a structured feedback message.
-	 * Returns true if feedback was sent.
-	 */
-	async function submitFeedback(): Promise<boolean> {
-		const message = formatFeedbackMessage(sections(), notes());
-		if (!message || !submitMessageFn) return false;
+	function getFeedbackMessage(): string | null {
+		return formatPagerFeedbackMessage(sections(), notes());
+	}
 
-		close();
-		await submitMessageFn(message);
-		return true;
+	function getDraftSnapshot(): PagerDraftSnapshot | null {
+		if (!sourceId) return null;
+		return {
+			sourceId,
+			title: title(),
+			sections: sections().map((section) => ({ ...section })),
+			currentIndex: currentIndex(),
+			notes: new Map(notes()),
+		};
+	}
+
+	function restoreDraft(snapshot: PagerDraftSnapshot): void {
+		closeView();
+		sourceId = snapshot.sourceId;
+		draftGeneration += 1;
+		setTitle(snapshot.title);
+		setSections(snapshot.sections.map((section) => ({ ...section })));
+		setCurrentIndex(
+			Math.min(
+				snapshot.currentIndex,
+				Math.max(0, snapshot.sections.length - 1),
+			),
+		);
+		setNotes(new Map(snapshot.notes));
 	}
 
 	return {
@@ -288,15 +330,21 @@ export function createPagerController() {
 			return notes();
 		},
 		getNoteCount,
-		setSubmitCallback,
+		getFeedbackMessage,
+		getDraftSnapshot,
+		restoreDraft,
+		get draftGeneration() {
+			return draftGeneration;
+		},
 		activateWithContent,
 		tryActivate,
 		tryAutoActivate,
-		close,
+		closeView,
+		reopen,
+		clearDraft,
 		nextSection,
 		prevSection,
 		setNote,
-		submitFeedback,
 		setScrollDelegate,
 		scrollUp,
 		scrollDown,

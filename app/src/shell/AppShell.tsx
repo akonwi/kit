@@ -482,7 +482,16 @@ function AppShellContent(props: AppShellContentProps) {
 										kind: "draft",
 										attachmentId: attachment.id,
 									});
+									return;
 								}
+								void Promise.resolve(attachment.onOpen?.()).catch((error) => {
+									props.showToast({
+										title: "Could not open attachment",
+										subtitle:
+											error instanceof Error ? error.message : String(error),
+										variant: "error",
+									});
+								});
 							}}
 							locked={props.overlays().length > 0}
 							inputFocused={

@@ -151,6 +151,7 @@ export type InternalToolCallHandler = (
 export interface InternalPluginAPI {
 	logger: PluginAPI["logger"];
 	ui: InternalPluginUI;
+	attachments: AttachmentsController;
 	session: InternalPluginSessionAPI;
 	settings: InternalPluginSettingsAPI;
 	model: InternalPluginModelAPI;

@@ -263,14 +263,18 @@ export function App(props: AppProps) {
 			openCustomOverlay,
 		});
 
+		let observedSessionId = runtime.getSession().id;
 		runtime.subscribe({ prefix: "session.active.changed" }, (event) => {
 			if (event.type === "session.active.changed") {
-				reviewDrafts.resetForSession(event.session.id);
-				attachments.detach("code-review");
-				// Overlays belong to the previous active session. Resolve them so
-				// stale review components unmount; generation-guarded draft writes
-				// provide defense in depth during cleanup.
-				for (const overlay of overlays()) overlay.resolve(undefined);
+				const switchedSessions = event.session.id !== observedSessionId;
+				observedSessionId = event.session.id;
+				if (switchedSessions) {
+					reviewDrafts.resetForSession(event.session.id);
+					attachments.detach("code-review");
+					// Overlays belong to the previous active session. Resolve them so
+					// stale components unmount after a true session switch.
+					for (const overlay of overlays()) overlay.resolve(undefined);
+				}
 				props.updateTerminalTitle(event.session.name, event.session.cwd);
 				return;
 			}

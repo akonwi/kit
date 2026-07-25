@@ -11,6 +11,7 @@ export interface Attachment {
 	summary: string;
 	toMessagePart(): MessagePart;
 	toPromptText(): string;
+	onOpen?(): void | Promise<void>;
 	onDetach?(reason: AttachmentDetachReason): void;
 }
 

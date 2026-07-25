@@ -37,6 +37,11 @@ export const KEYBINDING_REGISTRY = {
 		},
 	},
 	composer: {
+		"open-attachment": {
+			defaultKeys: "ctrl+o",
+			desc: "Open latest reviewable attachment",
+			group: "Composer",
+		},
 		"clear-or-quit": {
 			defaultKeys: "ctrl+c",
 			desc: "Clear input or quit",
@@ -94,28 +99,34 @@ export const KEYBINDING_REGISTRY = {
 			hint: "scroll",
 		},
 		"edit-note": {
-			defaultKeys: ["n", "i"],
+			defaultKeys: "n",
 			desc: "Edit note for current pager section",
 			group: "pager",
 			hint: "note",
 		},
-		"submit-feedback": {
-			defaultKeys: "ctrl+return",
-			desc: "Submit pager feedback",
+		"clear-note": {
+			defaultKeys: "x",
+			desc: "Clear note for current pager section",
 			group: "pager",
-			hint: "submit",
+			hint: "clear note",
+		},
+		"submit-feedback": {
+			defaultKeys: "s",
+			desc: "Attach pager feedback draft",
+			group: "pager",
+			hint: "attach",
 		},
 		close: {
-			defaultKeys: ["escape", "q"],
+			defaultKeys: "escape",
 			desc: "Close pager",
 			group: "pager",
 			hint: "close",
 		},
 		back: {
 			defaultKeys: "escape",
-			desc: "Return to pager navigation",
+			desc: "Cancel pager note editing",
 			group: "pager",
-			hint: "back",
+			hint: "cancel",
 		},
 	},
 	"mcp-status": {

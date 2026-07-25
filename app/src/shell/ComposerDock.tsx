@@ -22,6 +22,16 @@ export type ComposerDockProps = {
 
 export type ComposerInputMode = "normal" | "bash" | "bash-excluded";
 
+export function findLatestOpenableAttachment(
+	attachments: Attachment[],
+): Attachment | null {
+	return (
+		attachments.findLast(
+			(attachment) => attachment.type === "code-review" || attachment.onOpen,
+		) ?? null
+	);
+}
+
 function getComposerInputMode(text: string): ComposerInputMode {
 	if (text.startsWith("!!")) return "bash-excluded";
 	if (text.startsWith("!")) return "bash";
@@ -56,6 +66,14 @@ export function ComposerDock(props: ComposerDockProps) {
 		scope: "composer",
 		when: shellInputAvailable,
 		commands: {
+			"composer.open-attachment": () => {
+				if (picker.visible || !props.onOpenAttachment) return false;
+				const attachment = findLatestOpenableAttachment(
+					props.attachments.attachments(),
+				);
+				if (!attachment) return false;
+				props.onOpenAttachment(attachment);
+			},
 			"composer.clear-or-quit": () => {
 				if (picker.visible) {
 					picker.clear();
@@ -156,7 +174,9 @@ export function ComposerDock(props: ComposerDockProps) {
 							{attachment.icon
 								? `${attachment.icon} ${attachment.summary}`
 								: attachment.summary}
-							{attachment.type === "code-review" ? ` ${CHEVRON_RIGHT}` : ""}
+							{attachment.type === "code-review" || attachment.onOpen
+								? ` ${CHEVRON_RIGHT}`
+								: ""}
 						</text>
 						<text
 							fg={theme.textMuted}
