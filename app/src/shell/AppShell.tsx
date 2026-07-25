@@ -63,6 +63,7 @@ import {
 } from "./workspace-layout";
 import {
 	createWorkspaceStateController,
+	type WorkspaceFocusedSurface,
 	type WorkspaceState,
 } from "./workspace-state";
 
@@ -118,6 +119,22 @@ function commandKeybindingGroup(command: Command): string {
 	if (command.category) return command.category;
 	const dot = command.name.indexOf(".");
 	return dot > 0 ? command.name.slice(0, dot) : "Commands";
+}
+
+export function shouldRestoreComposerFocus(options: {
+	overlayOpen: boolean;
+	chromeOverflowOpen: boolean;
+	pickerVisible: boolean;
+	commandPaletteVisible: boolean;
+	focusedSurface: WorkspaceFocusedSurface;
+}): boolean {
+	return (
+		!options.overlayOpen &&
+		!options.chromeOverflowOpen &&
+		!options.pickerVisible &&
+		!options.commandPaletteVisible &&
+		options.focusedSurface === "composer"
+	);
 }
 
 export function shouldHandleScratchpadFocusNext(options: {
@@ -608,12 +625,36 @@ function AppShellContent(props: AppShellContentProps) {
 									workspace.minimizeSecondary();
 									workspace.setFocusedSurface("composer");
 								}}
+								onFocusRequest={() => workspace.setFocusedSurface("secondary")}
 							/>
 						</Show>
 					</>
 				}
 			>
-				<box flexGrow={1} flexDirection="column">
+				<box
+					flexGrow={1}
+					flexDirection="column"
+					onMouseUp={(event) => {
+						if (event.button !== 0) return;
+						if (renderer.getSelection()?.getSelectedText()) return;
+						workspace.setFocusedSurface("composer");
+						queueMicrotask(() => {
+							if (
+								!shouldRestoreComposerFocus({
+									overlayOpen: props.overlays().length > 0,
+									chromeOverflowOpen: chromeOverflow() !== null,
+									pickerVisible: props.controller.picker.visible,
+									commandPaletteVisible:
+										props.controller.commandPalette.visible,
+									focusedSurface: focusedSurface(),
+								})
+							) {
+								return;
+							}
+							props.controller.focusTextarea();
+						});
+					}}
+				>
 					<box
 						flexGrow={1}
 						ref={(value) => {
@@ -668,6 +709,7 @@ function AppShellContent(props: AppShellContentProps) {
 							}
 							onHeightChange={setDockHeight}
 							onModeChange={setComposerMode}
+							onFocusRequest={() => workspace.setFocusedSurface("composer")}
 						/>
 					</box>
 					{/* Inline @/# reference picker is constrained to the primary

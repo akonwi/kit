@@ -129,6 +129,7 @@ export type ScratchpadPanelProps = {
 	controller: ScratchpadController;
 	active?: boolean;
 	onClose: () => void;
+	onFocusRequest?: () => void;
 };
 
 export function ScratchpadPanel(props: ScratchpadPanelProps) {
@@ -139,6 +140,9 @@ export function ScratchpadPanel(props: ScratchpadPanelProps) {
 			height="100%"
 			border={["left"]}
 			borderColor={editing() ? theme.borderAccent : theme.borderDefault}
+			onMouseDown={(event) => {
+				if (event.button === 0) props.onFocusRequest?.();
+			}}
 		>
 			<ScratchpadContent
 				controller={props.controller}

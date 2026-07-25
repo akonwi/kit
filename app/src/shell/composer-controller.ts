@@ -24,6 +24,7 @@ export type TextareaHandle = {
 	cursorOffset: number;
 	setText: (value: string) => void;
 	insertText: (text: string) => void;
+	focus: () => void;
 };
 
 export type ComposerControllerDeps = {
@@ -63,6 +64,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	function setTextarea(ref: TextareaHandle | undefined) {
 		textareaRef = ref;
+	}
+
+	function focusTextarea(): void {
+		textareaRef?.focus();
 	}
 
 	function getTextareaText(): string {
@@ -627,6 +632,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		openCommandPalette,
 		runCommand: executeCommand,
 		setTextarea,
+		focusTextarea,
 		handlePaste,
 		handleTextChange,
 		handleSubmit,
