@@ -1,6 +1,6 @@
 # Shell and persistent workspace plan
 
-Status: implementation in progress; shell chrome and workspace state complete.
+Status: implementation in progress; shell chrome, workspace state, and resizable pane host complete.
 
 Reference mockup: [`mockups/code-review-pane.html`](./mockups/code-review-pane.html)
 
@@ -177,7 +177,7 @@ Model explicitly:
 
 Replace the current loosely coupled `rightPanel` behavior through this interface rather than bypassing it.
 
-### 3. Add the resizable pane host
+### 3. Add the resizable pane host (complete)
 
 - Host both code review and scratchpad as secondary pane surfaces
 - Add the mouse-driven divider

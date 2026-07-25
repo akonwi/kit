@@ -1,4 +1,4 @@
-import { loadSettingsSync, saveSettings } from "../../settings";
+import { updateSettings } from "../../settings";
 import { CHECK } from "../../shell/glyphs";
 import { resolveAndApplyTheme } from "../../shell/theme";
 import { listUserThemes } from "../../shell/themes/loader";
@@ -12,8 +12,7 @@ export const themeCommand: Command = {
 		const userThemes = (await listUserThemes()).sort((a, b) =>
 			a.localeCompare(b),
 		);
-		const { settings } = loadSettingsSync();
-		const originalTheme = settings.theme ?? "system";
+		const originalTheme = runtime.settings.theme ?? "system";
 
 		const themeOptions = [
 			{ name: "System", value: "system" },
@@ -59,9 +58,10 @@ export const themeCommand: Command = {
 					action: async (ctx: PickerContext) => {
 						++previewGeneration;
 						try {
-							const latest = loadSettingsSync();
-							const next = { ...latest.settings, theme: opt.value };
-							await saveSettings(next);
+							const next = await updateSettings((current) => ({
+								...current,
+								theme: opt.value,
+							}));
 							await resolveAndApplyTheme(opt.value);
 							runtime.emitSettingsChanged(next);
 							confirmed = true;

@@ -17,6 +17,10 @@ export type Settings = {
 	pager?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
 	sessionNaming?: boolean;
+	/** Persistent shell workspace preferences */
+	workspace?: {
+		paneRatio?: number;
+	};
 	/** Default diff rendering settings */
 	diffs?: {
 		view?: ReviewDiffView;
@@ -128,6 +132,15 @@ export function sanitizeSettings(raw: unknown): Settings {
 		typeof raw.sessionNaming === "boolean"
 			? raw.sessionNaming
 			: DEFAULTS.sessionNaming;
+	const workspace: Settings["workspace"] = isRecord(raw.workspace)
+		? {
+				paneRatio:
+					typeof raw.workspace.paneRatio === "number" &&
+					Number.isFinite(raw.workspace.paneRatio)
+						? Math.max(0.1, Math.min(0.9, raw.workspace.paneRatio))
+						: undefined,
+			}
+		: undefined;
 	const diffs: Settings["diffs"] = isRecord(raw.diffs)
 		? {
 				view: raw.diffs.view === "split" ? "split" : "unified",
@@ -156,6 +169,7 @@ export function sanitizeSettings(raw: unknown): Settings {
 		...(keybindings ? { keybindings } : {}),
 		pager,
 		sessionNaming,
+		...(workspace?.paneRatio !== undefined ? { workspace } : {}),
 		diffs,
 		retry,
 	};
@@ -195,6 +209,42 @@ export async function saveSettings(settings: Settings): Promise<void> {
 	const dir = path.dirname(paths.settingsPath);
 	if (!existsSync(dir)) await mkdir(dir, { recursive: true });
 	await writeFile(paths.settingsPath, JSON.stringify(settings, null, 2));
+}
+
+let settingsUpdateQueue = Promise.resolve();
+
+async function loadSettingsForUpdate(): Promise<Settings> {
+	const { settingsPath } = getKitPaths();
+	try {
+		const content = await readFile(settingsPath, "utf8");
+		return sanitizeSettings(JSON.parse(content) as unknown);
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			error.code === "ENOENT"
+		) {
+			return { ...DEFAULTS };
+		}
+		throw error;
+	}
+}
+
+export function updateSettings(
+	updater: (current: Settings) => Settings,
+): Promise<Settings> {
+	const operation = settingsUpdateQueue.then(async () => {
+		const current = await loadSettingsForUpdate();
+		const next = updater(current);
+		await saveSettings(next);
+		return next;
+	});
+	settingsUpdateQueue = operation.then(
+		() => undefined,
+		() => undefined,
+	);
+	return operation;
 }
 
 export function saveSettingsSync(settings: Settings): void {

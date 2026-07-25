@@ -1,10 +1,6 @@
 import { createComponent } from "solid-js";
 import type { ReviewDiffView } from "../../settings";
-import {
-	loadSettingsSync,
-	resolveDiffSettings,
-	saveSettings,
-} from "../../settings";
+import { resolveDiffSettings, updateSettings } from "../../settings";
 import { ReviewContent } from "../review/ReviewContent";
 import type { Command } from "./types";
 
@@ -26,10 +22,11 @@ export const codeReviewCommand: Command = {
 				toast,
 				defaultDiffView: resolveDiffSettings(runtime.settings.diffs).view,
 				onDiffViewChanged: (view: ReviewDiffView) => {
-					const { settings } = loadSettingsSync();
-					const next = { ...settings, diffs: { view } };
-					void saveSettings(next)
-						.then(() => runtime.emitSettingsChanged(next))
+					void updateSettings((current) => ({
+						...current,
+						diffs: { view },
+					}))
+						.then((next) => runtime.emitSettingsChanged(next))
 						.catch((e) => {
 							toast({
 								title: "Failed to save diff view",

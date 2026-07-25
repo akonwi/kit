@@ -17,7 +17,6 @@ import {
 } from "../features/review/ReviewAttachmentViewer";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import {
-	SCRATCHPAD_FRACTION,
 	SCRATCHPAD_MIN_COLS,
 	SCRATCHPAD_MIN_WIDTH,
 	ScratchpadDialog,
@@ -27,7 +26,7 @@ import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
 import { getKeybindingCommand } from "../keymap/registry";
 import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import type { Settings } from "../settings";
+import { type Settings, updateSettings } from "../settings";
 import type { AppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
@@ -57,6 +56,11 @@ import { TurnActivityDialog } from "./transcript/TurnActivityDialog";
 import { TurnActivitySidebar } from "./transcript/TurnActivitySidebar";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
+import { WorkspacePaneHost } from "./WorkspacePaneHost";
+import {
+	WORKSPACE_MIN_PRIMARY_COLUMNS,
+	WORKSPACE_MIN_SECONDARY_COLUMNS,
+} from "./workspace-layout";
 import {
 	createWorkspaceStateController,
 	type WorkspaceState,
@@ -69,8 +73,7 @@ import {
  */
 const ACTIVITY_SIDEBAR_MIN_WIDTH = 200;
 
-/** Sidebar width as a fraction of terminal width when shown. */
-const ACTIVITY_SIDEBAR_FRACTION = 0.4;
+const ACTIVITY_MIN_COLS = 40;
 
 type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
@@ -99,6 +102,8 @@ export type AppShellProps = {
 
 type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
 	showToast: (toast: ToastInput) => void;
+	preferredPaneRatio: number | undefined;
+	onPreferredPaneRatioCommit: (ratio: number) => void;
 };
 
 function activitySourceEquals(a: ActivitySource, b: ActivitySource): boolean {
@@ -146,7 +151,9 @@ function AppShellContent(props: AppShellContentProps) {
 	const [shellWidth, setShellWidth] = createSignal(renderer.terminalWidth);
 	let shellRef: { width: number; height: number } | undefined;
 
-	const workspace = createWorkspaceStateController<WorkspacePane>();
+	const workspace = createWorkspaceStateController<WorkspacePane>({
+		preferredPaneRatio: props.preferredPaneRatio,
+	});
 	const [workspaceState, setWorkspaceState] = createSignal<
 		WorkspaceState<WorkspacePane>
 	>(workspace.getState());
@@ -160,6 +167,11 @@ function AppShellContent(props: AppShellContentProps) {
 		return secondary.status === "open" ? secondary.pane : null;
 	};
 	const focusedSurface = () => workspaceState().focusedSurface;
+	createEffect(() => {
+		if (props.preferredPaneRatio !== undefined) {
+			workspace.setPreferredPaneRatio(props.preferredPaneRatio);
+		}
+	});
 	const [chromeOverflow, setChromeOverflow] = createSignal<{
 		title: string;
 		placement: ChromeOverflowPlacement;
@@ -240,13 +252,14 @@ function AppShellContent(props: AppShellContentProps) {
 	};
 	const scratchpadOpen = () =>
 		openSecondaryPane()?.kind === "scratchpad" && scratchpadWideEnough();
-	const sidebarWidth = () =>
-		Math.max(40, Math.floor(shellWidth() * ACTIVITY_SIDEBAR_FRACTION));
-	const scratchpadWidth = () =>
-		Math.max(
-			SCRATCHPAD_MIN_COLS,
-			Math.floor(shellWidth() * SCRATCHPAD_FRACTION),
-		);
+	const secondaryPaneVisible = () =>
+		sidebarSource() !== null ||
+		reviewSidebarSource() !== null ||
+		scratchpadOpen();
+	const secondaryPaneMinColumns = () =>
+		openSecondaryPane()?.kind === "scratchpad"
+			? SCRATCHPAD_MIN_COLS
+			: ACTIVITY_MIN_COLS;
 
 	// Responsive presentation must not overwrite whether the user considers a
 	// pane open. Preserve workspace state while narrow and offer the scratchpad
@@ -541,7 +554,65 @@ function AppShellContent(props: AppShellContentProps) {
 			 * the full height of this row so pending/composer UI no longer
 			 * bleeds under it.
 			 */}
-			<box flexGrow={1} flexDirection="row">
+			<WorkspacePaneHost
+				secondaryOpen={secondaryPaneVisible()}
+				initialWidth={Math.max(1, shellWidth() - 2)}
+				preferredPaneRatio={workspaceState().preferredPaneRatio}
+				minPrimaryColumns={WORKSPACE_MIN_PRIMARY_COLUMNS}
+				minSecondaryColumns={Math.max(
+					WORKSPACE_MIN_SECONDARY_COLUMNS,
+					secondaryPaneMinColumns(),
+				)}
+				onPreferredPaneRatioChange={(ratio) =>
+					workspace.setPreferredPaneRatio(ratio)
+				}
+				onPreferredPaneRatioCommit={props.onPreferredPaneRatioCommit}
+				onDividerMouseDown={() => renderer.clearSelection()}
+				secondary={
+					<>
+						{/* `keyed` so swapping activity sources remounts the model,
+						 * which captures its source statically at creation. */}
+						<Show keyed when={sidebarSource()}>
+							{(source) => (
+								<TurnActivitySidebar
+									runtime={props.runtime}
+									source={source}
+									onClose={() => workspace.minimizeSecondary()}
+								/>
+							)}
+						</Show>
+						<Show keyed when={reviewSidebarSource()}>
+							{(source) => (
+								<Show when={resolveReviewSource(source)}>
+									{(resolved) => (
+										<ReviewAttachmentSidebar
+											review={resolved().review}
+											draft={resolved().draft}
+											cwd={props.runtime.getSession().cwd}
+											onEdit={resolved().draft ? editReviewDraft : undefined}
+											onClose={() => workspace.minimizeSecondary()}
+										/>
+									)}
+								</Show>
+							)}
+						</Show>
+						<Show when={scratchpadOpen()}>
+							<ScratchpadPanel
+								controller={props.scratchpad}
+								active={
+									props.overlays().length === 0 &&
+									chromeOverflow() === null &&
+									focusedSurface() === "secondary"
+								}
+								onClose={() => {
+									workspace.minimizeSecondary();
+									workspace.setFocusedSurface("composer");
+								}}
+							/>
+						</Show>
+					</>
+				}
+			>
 				<box flexGrow={1} flexDirection="column">
 					<box
 						flexGrow={1}
@@ -599,66 +670,14 @@ function AppShellContent(props: AppShellContentProps) {
 							onModeChange={setComposerMode}
 						/>
 					</box>
-					{/* Inline @/# reference picker floats just above the
-					 * composer. Mounting it inside the left column constrains
-					 * its absolute positioning to the column, so when the
-					 * sidebar is open the picker no longer bleeds across it.
-					 * `bottom` only accounts for the composer dock height
-					 * because the status bar lives outside this column. */}
+					{/* Inline @/# reference picker is constrained to the primary
+					 * workspace column and floats above the composer dock. */}
 					<InlinePicker
 						picker={props.controller.picker}
 						bottomOffset={dockHeight() + 2}
 					/>
 				</box>
-				{/* `keyed` so swapping to a different ActivitySource re-mounts
-				 * the sidebar. The model captures `source` statically at
-				 * creation, so without keyed the sidebar would keep showing
-				 * source A even after sidebarActivity changes to B. */}
-				<Show keyed when={sidebarSource()}>
-					{(source) => (
-						<box flexShrink={0} width={sidebarWidth()} height="100%">
-							<TurnActivitySidebar
-								runtime={props.runtime}
-								source={source}
-								onClose={() => workspace.minimizeSecondary()}
-							/>
-						</box>
-					)}
-				</Show>
-				<Show keyed when={reviewSidebarSource()}>
-					{(source) => (
-						<Show when={resolveReviewSource(source)}>
-							{(resolved) => (
-								<box flexShrink={0} width={sidebarWidth()} height="100%">
-									<ReviewAttachmentSidebar
-										review={resolved().review}
-										draft={resolved().draft}
-										cwd={props.runtime.getSession().cwd}
-										onEdit={resolved().draft ? editReviewDraft : undefined}
-										onClose={() => workspace.minimizeSecondary()}
-									/>
-								</box>
-							)}
-						</Show>
-					)}
-				</Show>
-				<Show when={scratchpadOpen()}>
-					<box flexShrink={0} width={scratchpadWidth()} height="100%">
-						<ScratchpadPanel
-							controller={props.scratchpad}
-							active={
-								props.overlays().length === 0 &&
-								chromeOverflow() === null &&
-								focusedSurface() === "secondary"
-							}
-							onClose={() => {
-								workspace.minimizeSecondary();
-								workspace.setFocusedSurface("composer");
-							}}
-						/>
-					</box>
-				</Show>
-			</box>
+			</WorkspacePaneHost>
 
 			<BottomStatusBar
 				runtime={props.runtime}
@@ -733,6 +752,21 @@ export function AppShell(props: AppShellProps) {
 		}),
 	);
 
+	function persistPreferredPaneRatio(ratio: number): void {
+		void updateSettings((current) => ({
+			...current,
+			workspace: { ...current.workspace, paneRatio: ratio },
+		}))
+			.then((next) => props.runtime.emitSettingsChanged(next))
+			.catch((error) => {
+				props.showToast({
+					title: "Could not save workspace layout",
+					subtitle: error instanceof Error ? error.message : String(error),
+					variant: "error",
+				});
+			});
+	}
+
 	return (
 		<KeymapLayerProvider
 			keybindings={() => settings().keybindings}
@@ -752,6 +786,8 @@ export function AppShell(props: AppShellProps) {
 				dismissToast={props.dismissToast}
 				onTranscriptViewportChange={props.onTranscriptViewportChange}
 				showToast={props.showToast}
+				preferredPaneRatio={settings().workspace?.paneRatio}
+				onPreferredPaneRatioCommit={persistPreferredPaneRatio}
 			/>
 		</KeymapLayerProvider>
 	);
