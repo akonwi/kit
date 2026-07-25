@@ -94,6 +94,9 @@ export type ReviewContentProps = {
 	defaultDiffView: ReviewDiffView;
 	onDiffViewChanged?: (view: ReviewDiffView) => void;
 	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
+	active?: boolean;
+	presentation?: "screen" | "pane";
+	onFocusRequest?: () => void;
 };
 
 type ReviewMode = "tree" | "patch";
@@ -436,6 +439,7 @@ function findSavedRangeAtLine(
 }
 
 export function ReviewContent(props: ReviewContentProps) {
+	const active = () => props.active !== false;
 	const repoRoot = getRepoRoot();
 	const draftToken = props.reviewDrafts.currentToken();
 	const savedTarget = props.reviewDrafts.getLastTarget(draftToken, repoRoot);
@@ -514,6 +518,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		null,
 	);
 	const [fileFinderOpen, setFileFinderOpen] = createSignal(false);
+	createEffect(() => {
+		if (active()) return;
+		setFileFinderOpen(false);
+		setCommitPickerOpen(false);
+		setPickingBranchBase(false);
+	});
 	const [viewingFilePath, setViewingFilePath] = createSignal<string | null>(
 		null,
 	);
@@ -1407,6 +1417,8 @@ export function ReviewContent(props: ReviewContentProps) {
 						placeholder="Comment on the whole file..."
 						backgroundColor={theme.bgTransparent}
 						focusedBackgroundColor={theme.bgTransparent}
+						focused={active()}
+						showCursor={active()}
 						keyBindings={[
 							{ name: "return", action: "submit" },
 							{ name: "return", shift: true, action: "newline" },
@@ -2007,6 +2019,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 
 		const range = {
 			path: file.path,
@@ -2034,6 +2047,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 		setViewingFileLine(line);
 		const range: ReviewRangeDraft = {
 			path: filePath,
@@ -2058,9 +2072,10 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
+		when: () =>
+			active() && !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
 		diagnosticsWhen: () =>
-			!editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
+			active() && !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.search-tree": openFileFinder,
 			"review.cycle-target": cycleTarget,
@@ -2070,8 +2085,8 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: editorOpen,
-		diagnosticsWhen: editorOpen,
+		when: () => active() && editorOpen(),
+		diagnosticsWhen: () => active() && editorOpen(),
 		commands: {
 			"review.close-editor": () => {
 				if (viewingFileEditingRange()) {
@@ -2091,13 +2106,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
+			active() &&
 			!editorOpen() &&
 			!fileFinderOpen() &&
 			!commitPickerOpen() &&
 			mode() === "patch" &&
 			!viewingFilePath(),
 		diagnosticsWhen: () =>
-			mode() === "patch" && !fileFinderOpen() && !commitPickerOpen(),
+			active() &&
+			mode() === "patch" &&
+			!fileFinderOpen() &&
+			!commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
@@ -2127,13 +2146,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
+			active() &&
 			!editorOpen() &&
 			!fileFinderOpen() &&
 			!commitPickerOpen() &&
 			mode() === "patch" &&
 			!!viewingFilePath(),
 		diagnosticsWhen: () =>
-			mode() === "patch" && !fileFinderOpen() && !commitPickerOpen(),
+			active() &&
+			mode() === "patch" &&
+			!fileFinderOpen() &&
+			!commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				setViewingFilePath(null);
@@ -2186,12 +2209,13 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
+			active() &&
 			!editorOpen() &&
 			mode() === "tree" &&
 			!fileFinderOpen() &&
 			!commitPickerOpen(),
 		diagnosticsWhen: () =>
-			mode() === "tree" && !fileFinderOpen() && !commitPickerOpen(),
+			active() && mode() === "tree" && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.file-note": () => {
 				const file = selectedFile();
@@ -2205,8 +2229,10 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	return (
 		<ScreenLayout
-			surfaceProps={props.surfaceProps}
-			zIndex={1200}
+			surfaceProps={
+				props.presentation === "pane" ? undefined : props.surfaceProps
+			}
+			zIndex={props.presentation === "pane" ? 0 : 1200}
 			header={
 				<ScreenHeader
 					left={
@@ -2305,7 +2331,7 @@ export function ReviewContent(props: ReviewContentProps) {
 								allFiles={target().kind === "working" ? (allFiles() ?? []) : []}
 								allFilesLoading={allFiles.loading}
 								canShowAllFiles={target().kind === "working"}
-								focused={mode() === "tree"}
+								focused={active() && mode() === "tree"}
 								editorOpen={editorOpen()}
 								// Any floating picker suppresses tree navigation,
 								// not just the file finder.
@@ -2322,6 +2348,7 @@ export function ReviewContent(props: ReviewContentProps) {
 								onSelectFile={selectFilePath}
 								onRequestAllFiles={requestAllFiles}
 								onClose={closeReview}
+								onFocusRequest={props.onFocusRequest}
 							/>
 						</box>
 					</Show>
@@ -2354,7 +2381,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												repoRoot={repoRoot}
 												path={filePath()}
 												paneWidth={diffPaneWidth()}
-												interactive={mode() === "patch"}
+												interactive={active() && mode() === "patch"}
 												selectedLine={viewingFileLine()}
 												onLineMouseDown={(line, event) =>
 													handleReadOnlyLineMouseDown(filePath(), line, event)
@@ -2472,12 +2499,14 @@ export function ReviewContent(props: ReviewContentProps) {
 					<FileFinderDialog
 						options={fileFinderOptions()}
 						loading={allFiles.loading}
+						availableWidth={contentWidth()}
 						onClose={() => setFileFinderOpen(false)}
 					/>
 				</Show>
 				<Show when={commitPickerOpen()}>
 					<CommitPickerDialog
 						options={commitPickerOptions()}
+						availableWidth={contentWidth()}
 						onClose={() => {
 							setCommitPickerOpen(false);
 							setPickingBranchBase(false);
@@ -2493,6 +2522,7 @@ export function ReviewContent(props: ReviewContentProps) {
 
 type CommitPickerDialogProps = {
 	options: PickerOption[];
+	availableWidth: number;
 	onClose: () => void;
 };
 
@@ -2524,7 +2554,7 @@ function CommitPickerDialog(props: CommitPickerDialogProps) {
 		<Show when={picker.current().visible}>
 			<Dialog.Root
 				width="80%"
-				minWidth={72}
+				minWidth={Math.min(72, Math.max(1, props.availableWidth - 2))}
 				maxWidth={120}
 				height={18}
 				padding={0}
@@ -2552,6 +2582,7 @@ function CommitPickerDialog(props: CommitPickerDialogProps) {
 type FileFinderDialogProps = {
 	options: PickerOption[];
 	loading: boolean;
+	availableWidth: number;
 	onClose: () => void;
 };
 
@@ -2580,7 +2611,7 @@ function FileFinderDialog(props: FileFinderDialogProps) {
 		<Show when={picker.current().visible}>
 			<Dialog.Root
 				width="80%"
-				minWidth={72}
+				minWidth={Math.min(72, Math.max(1, props.availableWidth - 2))}
 				maxWidth={120}
 				height={18}
 				padding={0}
@@ -2831,6 +2862,8 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 							placeholder="Comment on the whole file..."
 							backgroundColor={theme.bgTransparent}
 							focusedBackgroundColor={theme.bgTransparent}
+							focused={props.interactive}
+							showCursor={props.interactive}
 							keyBindings={[
 								{ name: "return", action: "submit" },
 								{ name: "return", shift: true, action: "newline" },
@@ -2969,6 +3002,8 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															placeholder="Type your review note..."
 															backgroundColor={theme.bgTransparent}
 															focusedBackgroundColor={theme.bgTransparent}
+															focused={props.interactive}
+															showCursor={props.interactive}
 															keyBindings={[
 																{
 																	name: "return",

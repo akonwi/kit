@@ -37,6 +37,7 @@ export type FileTreePanelProps = {
 	onSelectFile: (path: string) => void;
 	onRequestAllFiles: () => void;
 	onClose: () => void;
+	onFocusRequest?: () => void;
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -313,6 +314,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 		setTreeMode(mode);
 	}
 
@@ -320,6 +322,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 		controller?.focusPath(path);
 		const item = controller?.getItem(path);
 		if (!item) return;

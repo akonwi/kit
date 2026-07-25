@@ -38,6 +38,7 @@ export type HeaderBarProps = {
 	sessionName: string | undefined;
 	shellWidth: number;
 	transcriptWidth: number;
+	showContextProgress?: boolean;
 	onHeightChange?: (height: number) => void;
 	onOpenOverflow: (contributions: readonly ChromeContribution[]) => void;
 	onOverflowAvailabilityChange?: (available: boolean) => void;
@@ -206,11 +207,13 @@ export function HeaderBar(props: HeaderBarProps) {
 	];
 
 	const filledProgressColumns = () =>
-		transcriptContextProgressColumns({
-			shellWidth: props.shellWidth,
-			transcriptWidth: props.transcriptWidth,
-			percent: contextUsage(),
-		});
+		props.showContextProgress === false
+			? 0
+			: transcriptContextProgressColumns({
+					shellWidth: props.shellWidth,
+					transcriptWidth: props.transcriptWidth,
+					percent: contextUsage(),
+				});
 
 	onCleanup(() => {
 		unsubscribeTurns();

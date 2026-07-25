@@ -1,6 +1,6 @@
 # Shell and persistent workspace plan
 
-Status: implementation in progress; shell chrome, workspace state, and resizable pane host complete.
+Status: implementation in progress; phases 1–4 complete.
 
 Reference mockup: [`mockups/code-review-pane.html`](./mockups/code-review-pane.html)
 
@@ -118,13 +118,13 @@ Transcript │ Files
            │ Diff
 ```
 
-When the review pane itself reaches the existing wide-review threshold, it promotes to a tree-and-diff layout:
+When the measured review pane width crosses the review UI's existing wide-layout breakpoint, it promotes to a persistent tree-and-diff layout:
 
 ```text
 Transcript │ Tree │ Diff
 ```
 
-This decision depends on the review pane's measured width, not only the terminal width.
+This decision depends on the review pane's measured width, not only the terminal width. Phase 4 should reuse the breakpoint logic already owned by the review UI rather than introduce a separate shell threshold.
 
 The scratchpad uses this same pane host on wide terminals. On narrow terminals it retains its existing dialog presentation initially; the transcript/review tabs remain specific to review.
 
@@ -185,7 +185,7 @@ Replace the current loosely coupled `rightPanel` behavior through this interface
 - Prevent divider gestures from triggering transcript text selection or copy
 - Add unbound resize commands only if useful for user customization
 
-### 4. Extract review presentation
+### 4. Extract review presentation (complete)
 
 Separate editable review state and behavior from its current full-screen `ScreenLayout`, then render it through:
 

@@ -11,8 +11,11 @@ and submit that review back into Kit as a code-review attachment.
 
 - shows the current working-tree diff for the active repository
 - includes staged changes, unstaged changes, and untracked files that can be represented as patches
-- opens as a terminal overlay
+- opens as an editable secondary workspace pane alongside the transcript
+- uses a draggable divider and retains review state while the workspace resizes
+- switches to Transcript/Code review tabs when both panes cannot remain useful
 - shows a file list and a whole-file scrollable diff for the selected file
+- keeps the file tree persistently visible when the measured review pane crosses the review UI's existing wide-layout breakpoint
 - clearly marks skipped unchanged sections between change groups
 - lets you navigate to skipped-section rows and expand or collapse them individually while reviewing a file
 - supports unified and split diff views
@@ -72,7 +75,7 @@ Current in-TUI review drafts support:
 
 File notes and line/range notes are authored inline. In note editors, `Enter` saves, `Shift+Enter` inserts a newline, and `Esc` cancels editing.
 
-Closing review with committed notes creates or refreshes a visible code-review draft attachment in the composer. Clicking the draft attachment opens a read-only viewer in the right sidebar on wide terminals (or a dialog on narrow terminals); `e` opens the full review screen for editing. Reopening review edits the same in-memory draft, and closing it refreshes the attachment. Sending the next message consumes the attachment and clears that target's draft. Removing the attachment with `×` also discards that target's draft.
+Closing review with committed notes creates or refreshes a visible code-review draft attachment in the composer. Clicking that draft attachment restores the editable review workspace. Historical attachments continue to open in the read-only sidebar or dialog. Reopening review edits the same in-memory draft, and closing it refreshes the attachment. Sending the next message consumes the attachment and clears that target's draft. Removing the attachment with `×` also discards that target's draft.
 
 Historical code-review attachments in the transcript are also clickable and open the same viewer in read-only mode. The viewer presents the structured review grouped by file, including file notes and addition/deletion line ranges. It lazily reconstructs bounded diff excerpts for committed reviews from their stored parent/head revisions and shows live excerpts for working-tree drafts. Historical working-tree reviews remain comment-only because their original uncommitted source is not retained. Excerpts are UI-only and are never added to the message payload or prompt.
 

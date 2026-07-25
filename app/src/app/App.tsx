@@ -5,6 +5,7 @@ import {
 	createCommandRegistry,
 } from "../features/commands";
 import { createReviewDraftController } from "../features/review/draft-controller";
+import { createReviewWorkspaceController } from "../features/review/workspace-controller";
 import { createScratchpadController } from "../features/scratchpad/controller";
 import { createBuiltInPlugins } from "../plugins/built-ins";
 import {
@@ -51,6 +52,8 @@ type ReadyState = {
 	attachments: ReturnType<typeof createAttachmentsController>;
 	footer: ReturnType<typeof createFooterStatusController>;
 	header: ReturnType<typeof createHeaderStatusController>;
+	reviewDrafts: ReturnType<typeof createReviewDraftController>;
+	reviewWorkspace: ReturnType<typeof createReviewWorkspaceController>;
 	scratchpad: ReturnType<typeof createScratchpadController>;
 	app: ReturnType<typeof createAppState>;
 	dispose: () => void;
@@ -90,6 +93,7 @@ export function App(props: AppProps) {
 			settings: currentSettings.settings,
 		});
 		const reviewDrafts = createReviewDraftController(props.session.id);
+		const reviewWorkspace = createReviewWorkspaceController();
 		const scratchpad = createScratchpadController(runtime);
 		const persistence = new FilePersistence(runtime);
 		const app = createAppState(runtime);
@@ -258,6 +262,7 @@ export function App(props: AppProps) {
 			threadIndex: app.threadIndex,
 			attachments,
 			reviewDrafts,
+			reviewWorkspace,
 			toast,
 			_reload,
 			openCustomOverlay,
@@ -318,6 +323,8 @@ export function App(props: AppProps) {
 			attachments,
 			footer,
 			header,
+			reviewDrafts,
+			reviewWorkspace,
 			scratchpad,
 			app,
 			dispose,
@@ -428,6 +435,8 @@ export function App(props: AppProps) {
 							attachments={current.attachments}
 							footer={current.footer}
 							header={current.header}
+							reviewDrafts={current.reviewDrafts}
+							reviewWorkspace={current.reviewWorkspace}
 							scratchpad={current.scratchpad}
 							overlays={overlays}
 							openOverlay={openCustomOverlay}
