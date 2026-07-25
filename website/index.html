@@ -1,118 +1,232 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kit — a terminal-first coding agent</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:opsz@14..32&family=JetBrains+Mono&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Kit is a terminal-first coding agent that stays focused on your code and gets out of your way."
+    />
+    <title>Kit — a terminal-first coding agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@akonwi/mica@0.1.1/mica.css"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <m-center class="site-shell" max="xl" gutter="lg">
+      <header class="site-header">
+        <m-hstack justify="between" wrap>
+          <a class="wordmark" href="./" aria-label="Kit home">k&nbsp;&nbsp;i&nbsp;&nbsp;t</a>
+          <nav aria-label="Primary navigation">
+            <m-hstack gap="lg" wrap>
+              <a href="https://github.com/akonwi/kit">GitHub</a>
+            </m-hstack>
+          </nav>
+        </m-hstack>
+      </header>
 
-<header class="header">
-  <span class="wordmark">k i t</span>
-  <nav class="nav">
-    <a href="#features">Features</a>
-    <a href="#install">Install</a>
-    <a href="https://github.com/akonwi/kit">GitHub</a>
-  </nav>
-</header>
+      <main>
+        <section class="hero" aria-labelledby="hero-title">
+          <m-switcher gap="xl" threshold="lg">
+            <m-vstack class="hero-copy" gap="lg" align="start">
+              <h1 id="hero-title">A coding agent that gets out of your way.</h1>
+              <p class="lede">
+                Kit is a fast, keyboard-first workspace for coding with agents. Keep the
+                conversation, tools, diffs, and review loop where the work already happens.
+              </p>
+              <m-hstack class="hero-actions" gap="sm" wrap>
+                <a class="btn primary" href="#install">Install Kit</a>
+                <a class="btn" href="https://github.com/akonwi/kit">View on GitHub</a>
+              </m-hstack>
+              <p class="requirement">Install with <a href="https://brew.sh">Homebrew</a></p>
+            </m-vstack>
 
-<section class="hero">
-  <h1>A terminal-first coding agent</h1>
-  <p class="hero-sub">Kit runs in your terminal. It just works and gets out of your way.</p>
-  <div class="install-line">
-    <code>bun install --global @akonwi/kit</code>
-  </div>
-  <p class="install-note">Requires <a href="https://bun.sh">Bun</a> &ge;&nbsp;1.3.0</p>
-</section>
+            <div class="terminal" aria-label="An example of Kit's session interface">
+              <header class="terminal-header">
+                <span class="terminal-progress" aria-hidden="true"></span>
+                <m-hstack justify="between">
+                  <span>→ Refresh the Kit website with Mica</span>
+                  <span>Claude Sonnet 4 (medium)</span>
+                </m-hstack>
+              </header>
+              <div class="terminal-transcript">
+                <div class="terminal-user">Use Mica, but keep the site unmistakably Kit.</div>
+                <div class="terminal-assistant">
+                  <strong>Changes</strong>
+                  <p>
+                    I’ll preserve the terminal-first visual language and use Mica for the
+                    responsive layout, spacing, and controls.
+                  </p>
+                </div>
+                <div class="terminal-tools">
+                  <span>›</span>
+                  <span>4 tool calls</span>
+                  <span class="terminal-tool-names">read · grep · edit · bash</span>
+                </div>
+                <div class="terminal-user">Make the preview match Kit’s actual session UI.</div>
+                <div class="terminal-assistant">
+                  <p>
+                    Updated the shell anatomy: session header, transcript rails, tool drawer,
+                    composer, and repository status.
+                  </p>
+                </div>
+              </div>
+              <div class="terminal-composer">
+                <span class="terminal-cursor" aria-hidden="true"></span>
+                <span>Ask kit to do something...</span>
+              </div>
+              <m-hstack class="terminal-status" justify="between">
+                <span></span>
+                <span>~/Developer/kit (main*)</span>
+              </m-hstack>
+            </div>
+          </m-switcher>
+        </section>
 
-<section id="features" class="section">
-  <h2>Features</h2>
-  <div class="features-grid">
+        <section id="why-kit" class="section" aria-labelledby="why-title">
+          <m-vstack class="why-content" gap="xl">
+            <h2 id="why-title">Built for the terminal, not squeezed into it.</h2>
+            <p class="section-intro">
+              Kit is a standalone TUI, not a browser tab or an editor sidebar. The interface
+              stays quick, legible, and close to your repository.
+            </p>
+            <ul class="check-list">
+              <li>Keyboard-driven with thoughtful mouse support</li>
+              <li>Persistent, project-aware sessions</li>
+              <li>Full-screen diff browsing and code review</li>
+              <li>Headless print mode for scripts and pipelines</li>
+            </ul>
+          </m-vstack>
+        </section>
 
-    <div class="feature-card">
-      <h3>Terminal-native</h3>
-      <p>Full-screen TUI built on <a href="https://opentui.com">OpenTUI</a>.
-         Keyboard-driven with mouse support. No browser, no Electron, no IDE plugin.</p>
-    </div>
+        <section id="features" class="section" aria-labelledby="features-title">
+          <m-vstack gap="xl">
+            <header class="section-heading">
+              <h2 id="features-title">Everything you need to stay productive.</h2>
+            </header>
+            <m-grid class="feature-grid" min="sm" gap="md">
+              <article class="feature-card">
+                <h3>Code review, built in</h3>
+                <p>
+                  Inspect working trees, commits, and branches. Leave file, line, or range
+                  notes, then attach the structured review to your next message.
+                </p>
+              </article>
+              <article class="feature-card">
+                <h3>Sessions that move</h3>
+                <p>
+                  Use <code>/cd</code> to move the same session, or let the agent call
+                  <code>change_cwd</code> when the work shifts. Kit keeps the transcript and
+                  reloads project context for the new repo or package.
+                </p>
+              </article>
+              <article class="feature-card">
+                <h3>A shared scratchpad</h3>
+                <p>
+                  Keep autosaved notes beside the conversation. The agent sees them as
+                  read-only context, so your working notes stay useful and remain yours.
+                </p>
+              </article>
+              <article class="feature-card">
+                <h3>An ergonomic pager</h3>
+                <p>
+                  Read long agent responses section by section. Leave notes as you go, then
+                  attach the collected feedback to your next message.
+                </p>
+              </article>
+              <article class="feature-card">
+                <h3>Extensible with plugins</h3>
+                <p>
+                  Add user or project TypeScript plugins that register commands and agent
+                  tools, react to runtime events, enforce tool policies, and contribute to
+                  Kit’s interface.
+                </p>
+              </article>
+            </m-grid>
+          </m-vstack>
+        </section>
 
-    <div class="feature-card">
-      <h3>Sessions</h3>
-      <p>Every conversation is a persistent session. Resume, branch, or start fresh.
-         Sessions survive restarts and travel with your project.</p>
-    </div>
+        <section id="install" class="section install-section" aria-labelledby="install-title">
+          <m-switcher gap="xl" threshold="md">
+            <m-vstack gap="md">
+              <h2 id="install-title">Install once. Start anywhere.</h2>
+              <p class="section-intro">
+                Kit resumes the latest session for the current project, or starts a new one.
+              </p>
+            </m-vstack>
+            <m-vstack class="commands" gap="sm">
+              <div class="command-block">
+                <span class="prompt" aria-hidden="true">$</span>
+                <span class="command-text">brew install akonwi/tap/kit</span>
+              </div>
+              <div class="command-block">
+                <span class="prompt" aria-hidden="true">$</span>
+                <span class="command-text">kit</span>
+              </div>
+            </m-vstack>
+          </m-switcher>
+        </section>
 
-    <div class="feature-card">
-      <h3>Code review</h3>
-      <p>Browse diffs, annotate hunks, attach line notes, and submit structured
-         review feedback — all from the terminal.</p>
-    </div>
+        <section class="section usage-section" aria-labelledby="usage-title">
+          <m-vstack gap="lg">
+            <h2 id="usage-title" class="visually-subtle">A few ways to run Kit</h2>
+            <div class="command-list">
+              <div class="command-row">
+                <div class="command-invocation">
+                  <span class="prompt" aria-hidden="true">$</span>
+                  <span class="command-text">kit</span>
+                </div>
+                <span class="command-description">Resume or start a session in the current directory</span>
+              </div>
+              <div class="command-row">
+                <div class="command-invocation">
+                  <span class="prompt" aria-hidden="true">$</span>
+                  <span class="command-text">kit threads</span>
+                </div>
+                <span class="command-description">Open the session picker</span>
+              </div>
+              <div class="command-row">
+                <div class="command-invocation">
+                  <span class="prompt" aria-hidden="true">$</span>
+                  <span class="command-text">kit -s abc123</span>
+                </div>
+                <span class="command-description">Open a specific session</span>
+              </div>
+              <div class="command-row">
+                <div class="command-invocation">
+                  <span class="prompt" aria-hidden="true">$</span>
+                  <span class="command-text">kit -p "review this"</span>
+                </div>
+                <span class="command-description">Run once without the TUI</span>
+              </div>
+            </div>
+          </m-vstack>
+        </section>
+      </main>
 
-    <div class="feature-card">
-      <h3>Configurable</h3>
-      <p>Remap every keybinding. Toggle speech, pager, retry behavior,
-         and diff views. All via settings or slash commands.</p>
-    </div>
-
-    <div class="feature-card">
-      <h3>MCP support</h3>
-      <p>Connect to Model Context Protocol servers. Tools auto-discover and
-         OAuth flows complete inline.</p>
-    </div>
-
-    <div class="feature-card">
-      <h3>Plugins</h3>
-      <p>Extend Kit with project or global plugins. Register commands, tools,
-         chrome contributions, and event handlers in TypeScript.</p>
-    </div>
-
-    <div class="feature-card">
-      <h3>Sub-agents</h3>
-      <p>Delegate work to named sub-agents. Each runs in its own conversation
-         context and merges results back.</p>
-    </div>
-
-  </div>
-</section>
-
-<section id="install" class="section">
-  <h2>Install</h2>
-  <div class="install-block">
-    <code>bun install --global @akonwi/kit</code>
-  </div>
-  <p class="muted">Or build from source:</p>
-  <div class="install-block">
-    <code>git clone https://github.com/akonwi/kit<br>
-cd kit/app<br>
-bun install &amp;&amp; bun run build &amp;&amp; bun link</code>
-  </div>
-</section>
-
-<section id="usage" class="section">
-  <h2>Usage</h2>
-  <table class="usage-table">
-    <tr><td><code>kit</code></td><td>Resume or start a session in the current directory</td></tr>
-    <tr><td><code>kit threads</code></td><td>Open a session picker</td></tr>
-    <tr><td><code>kit -s abc123</code></td><td>Open a specific session by ID</td></tr>
-  </table>
-  <p class="muted">Inside Kit: <code>/</code> opens the command palette. <code>Ctrl+P</code> works anywhere.</p>
-</section>
-
-<footer class="footer">
-  <div class="footer-line"></div>
-  <p>
-    <a href="https://github.com/akonwi/kit">GitHub</a>
-    <span class="sep">&middot;</span>
-    <a href="https://www.npmjs.com/package/@akonwi/kit">npm</a>
-    <span class="sep">&middot;</span>
-    Built by <a href="https://github.com/akonwi">akonwi</a>
-    <span class="sep">&middot;</span>
-    Built with <a href="https://bun.sh">Bun</a> &amp; <a href="https://opentui.com">OpenTUI</a>
-  </p>
-</footer>
-
-</body>
+      <footer class="site-footer">
+        <m-hstack justify="between" wrap>
+          <p class="footer-credit">
+            <span class="footer-wordmark">k&nbsp; i&nbsp; t</span>
+            <span>built by <a href="https://github.com/akonwi">Akonwi</a></span>
+          </p>
+          <nav aria-label="Project links">
+            <m-hstack gap="lg" wrap>
+              <a href="https://github.com/akonwi/kit">GitHub</a>
+              <a href="https://www.npmjs.com/package/@akonwi/kit">npm</a>
+              <a href="https://opentui.com">OpenTUI</a>
+            </m-hstack>
+          </nav>
+        </m-hstack>
+      </footer>
+    </m-center>
+  </body>
 </html>
