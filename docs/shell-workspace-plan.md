@@ -1,6 +1,6 @@
 # Shell and persistent workspace plan
 
-Status: accepted design direction; implementation pending.
+Status: implementation in progress; shell chrome and workspace state complete.
 
 Reference mockup: [`mockups/code-review-pane.html`](./mockups/code-review-pane.html)
 
@@ -9,7 +9,7 @@ Reference mockup: [`mockups/code-review-pane.html`](./mockups/code-review-pane.h
 Evolve Kit's main shell from a transcript with occasional overlays and sidebars into a workspace with:
 
 - the transcript as the primary surface
-- code review as a persistent secondary pane
+- a persistent secondary pane that can host code review or the scratchpad
 - a draggable divider on wide terminals
 - a tabbed transcript/review presentation on narrow terminals
 - fixed, predictable shell chrome that continues to support plugin contributions
@@ -96,11 +96,13 @@ Kit-owned contributions use an internal privileged classification with guarantee
 
 The VCS location remains a privileged internal contribution rather than becoming a hardcoded shell component. Existing built-in hide identifiers and behavior remain supported.
 
-## Review workspace
+## Secondary workspace
+
+The workspace has one app-owned secondary pane. Code review and the scratchpad can occupy it, with only one secondary surface active at a time. Opening one replaces the other without introducing a separate sidebar system.
 
 ### Wide terminals
 
-The transcript and review pane coexist horizontally. Their divider supports mouse dragging.
+The transcript and active secondary pane coexist horizontally. Their divider supports mouse dragging.
 
 - Persist a preferred review-pane ratio rather than a fixed column count
 - Clamp the effective ratio to useful minimum widths for both surfaces
@@ -124,9 +126,11 @@ Transcript │ Tree │ Diff
 
 This decision depends on the review pane's measured width, not only the terminal width.
 
+The scratchpad uses this same pane host on wide terminals. On narrow terminals it retains its existing dialog presentation initially; the transcript/review tabs remain specific to review.
+
 ### Narrow terminals
 
-Use a tabbed workspace with one visible surface at a time:
+Use a tabbed transcript/review workspace with one visible surface at a time:
 
 ```text
 [ Transcript ] [ Code review · 2 ]
@@ -151,7 +155,7 @@ A collapsed right-edge drawer handle may be considered later if usage demonstrat
 
 ## Migration sequence
 
-### 1. Migrate shell chrome
+### 1. Migrate shell chrome (complete)
 
 - Introduce the fixed one-row header and footer
 - Establish privileged and standard contribution packing
@@ -161,7 +165,7 @@ A collapsed right-edge drawer handle may be considered later if usage demonstrat
 
 This phase should ship independently before the editable review pane.
 
-### 2. Introduce workspace state
+### 2. Introduce workspace state (complete)
 
 Model explicitly:
 
@@ -175,6 +179,7 @@ Replace the current loosely coupled `rightPanel` behavior through this interface
 
 ### 3. Add the resizable pane host
 
+- Host both code review and scratchpad as secondary pane surfaces
 - Add the mouse-driven divider
 - Clamp widths and persist the preferred ratio
 - Prevent divider gestures from triggering transcript text selection or copy
@@ -193,7 +198,7 @@ Review selection, comments, scroll position, and drafts must survive responsive 
 
 ### 5. Consider other secondary panes
 
-After code review establishes the workspace abstraction, evaluate migrating activity and scratchpad into the same pane host. Do not generalize the public plugin API into arbitrary panel composition as part of this work.
+After code review and scratchpad establish the workspace abstraction, evaluate migrating activity into the same pane host. Do not generalize the public plugin API into arbitrary panel composition as part of this work.
 
 ## Key implications
 

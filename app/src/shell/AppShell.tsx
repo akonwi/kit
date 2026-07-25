@@ -57,6 +57,10 @@ import { TurnActivityDialog } from "./transcript/TurnActivityDialog";
 import { TurnActivitySidebar } from "./transcript/TurnActivitySidebar";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
+import {
+	createWorkspaceStateController,
+	type WorkspaceState,
+} from "./workspace-state";
 
 /**
  * Terminal width (in columns) at which the turn activity view is shown as
@@ -68,13 +72,10 @@ const ACTIVITY_SIDEBAR_MIN_WIDTH = 200;
 /** Sidebar width as a fraction of terminal width when shown. */
 const ACTIVITY_SIDEBAR_FRACTION = 0.4;
 
-type RightPanel =
+type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
 	| { kind: "review"; source: ReviewAttachmentSource }
-	| { kind: "scratchpad" }
-	| null;
-
-type FocusedInput = "composer" | "scratchpad";
+	| { kind: "scratchpad" };
 
 export type AppShellProps = {
 	settings: Settings;
@@ -145,9 +146,20 @@ function AppShellContent(props: AppShellContentProps) {
 	const [shellWidth, setShellWidth] = createSignal(renderer.terminalWidth);
 	let shellRef: { width: number; height: number } | undefined;
 
-	const [rightPanel, setRightPanel] = createSignal<RightPanel>(null);
-	const [focusedInput, setFocusedInput] =
-		createSignal<FocusedInput>("composer");
+	const workspace = createWorkspaceStateController<WorkspacePane>();
+	const [workspaceState, setWorkspaceState] = createSignal<
+		WorkspaceState<WorkspacePane>
+	>(workspace.getState());
+	onCleanup(workspace.subscribe(setWorkspaceState));
+	const activeSecondaryPane = () => {
+		const secondary = workspaceState().secondary;
+		return secondary.status === "empty" ? null : secondary.pane;
+	};
+	const openSecondaryPane = () => {
+		const secondary = workspaceState().secondary;
+		return secondary.status === "open" ? secondary.pane : null;
+	};
+	const focusedSurface = () => workspaceState().focusedSurface;
 	const [chromeOverflow, setChromeOverflow] = createSignal<{
 		title: string;
 		placement: ChromeOverflowPlacement;
@@ -204,13 +216,13 @@ function AppShellContent(props: AppShellContentProps) {
 	const activityWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
 	const scratchpadWideEnough = () => shellWidth() >= SCRATCHPAD_MIN_WIDTH;
 	const sidebarSource = () => {
-		const panel = rightPanel();
+		const panel = openSecondaryPane();
 		return panel?.kind === "activity" && activityWideEnough()
 			? panel.source
 			: null;
 	};
 	const reviewSidebarSource = () => {
-		const panel = rightPanel();
+		const panel = openSecondaryPane();
 		return panel?.kind === "review" && activityWideEnough()
 			? panel.source
 			: null;
@@ -227,7 +239,7 @@ function AppShellContent(props: AppShellContentProps) {
 			: null;
 	};
 	const scratchpadOpen = () =>
-		rightPanel()?.kind === "scratchpad" && scratchpadWideEnough();
+		openSecondaryPane()?.kind === "scratchpad" && scratchpadWideEnough();
 	const sidebarWidth = () =>
 		Math.max(40, Math.floor(shellWidth() * ACTIVITY_SIDEBAR_FRACTION));
 	const scratchpadWidth = () =>
@@ -236,41 +248,38 @@ function AppShellContent(props: AppShellContentProps) {
 			Math.floor(shellWidth() * SCRATCHPAD_FRACTION),
 		);
 
-	// If the terminal narrows below the sidebar threshold while a sidebar
-	// is open, close it. (Users can reopen the activity view; it will
-	// fall back to the modal at the new width.)
+	// Responsive presentation must not overwrite whether the user considers a
+	// pane open. Preserve workspace state while narrow and offer the scratchpad
+	// dialog once when an active inline editor can no longer be presented.
+	let openedResponsiveScratchpadDialog = false;
 	createEffect(() => {
-		const panel = rightPanel();
-		if (!panel) return;
-		if (
-			(panel.kind === "activity" || panel.kind === "review") &&
-			!activityWideEnough()
-		) {
-			setRightPanel(null);
+		const panel = openSecondaryPane();
+		if (panel?.kind !== "scratchpad" || scratchpadWideEnough()) {
+			openedResponsiveScratchpadDialog = false;
+			return;
 		}
-		if (panel.kind === "scratchpad" && !scratchpadWideEnough()) {
-			if (props.scratchpad.editing()) openScratchpadDialog();
-			setRightPanel(null);
-			setFocusedInput("composer");
+		if (props.scratchpad.editing() && !openedResponsiveScratchpadDialog) {
+			openedResponsiveScratchpadDialog = true;
+			openScratchpadDialog();
 		}
 	});
 
 	createEffect(() => {
-		const panel = rightPanel();
+		const panel = activeSecondaryPane();
 		if (
 			panel?.kind === "review" &&
 			panel.source.kind === "draft" &&
 			!resolveReviewSource(panel.source)
 		) {
-			setRightPanel(null);
+			workspace.clearSecondary();
 		}
 	});
 
 	onCleanup(
 		props.runtime.subscribe("session.active.changed", () => {
-			const panel = rightPanel();
+			const panel = activeSecondaryPane();
 			if (panel?.kind === "review" || panel?.kind === "activity") {
-				setRightPanel(null);
+				workspace.clearSecondary();
 			}
 		}),
 	);
@@ -305,7 +314,7 @@ function AppShellContent(props: AppShellContentProps) {
 		if (shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH) {
 			// Re-clicking the same chip while its sidebar is open is a no-op;
 			// a different chip swaps the content.
-			const current = rightPanel();
+			const current = openSecondaryPane();
 			if (
 				current?.kind === "activity" &&
 				activitySourceEquals(current.source, source)
@@ -313,10 +322,15 @@ function AppShellContent(props: AppShellContentProps) {
 				return;
 			}
 			saveScratchpadDraftIfEditing();
-			setFocusedInput("composer");
-			setRightPanel({ kind: "activity", source });
+			workspace.openSecondary(
+				{ kind: "activity", source },
+				{ focus: "composer" },
+			);
 			return;
 		}
+		saveScratchpadDraftIfEditing();
+		workspace.setActiveSecondary({ kind: "activity", source });
+		workspace.setFocusedSurface("composer");
 		void props.openOverlay(
 			(overlayProps: OverlayComponentProps<unknown>): JSX.Element => (
 				<TurnActivityDialog
@@ -331,7 +345,7 @@ function AppShellContent(props: AppShellContentProps) {
 	};
 
 	function editReviewDraft(): void {
-		setRightPanel(null);
+		workspace.minimizeSecondary();
 		const command = props.commands
 			.getAll()
 			.find((candidate) => candidate.name === "code-review");
@@ -345,7 +359,7 @@ function AppShellContent(props: AppShellContentProps) {
 		const resolved = resolveReviewSource(source);
 		if (!resolved) return;
 		if (activityWideEnough()) {
-			const current = rightPanel();
+			const current = openSecondaryPane();
 			if (
 				current?.kind === "review" &&
 				reviewAttachmentSourceEquals(current.source, source)
@@ -353,10 +367,15 @@ function AppShellContent(props: AppShellContentProps) {
 				return;
 			}
 			saveScratchpadDraftIfEditing();
-			setFocusedInput("composer");
-			setRightPanel({ kind: "review", source });
+			workspace.openSecondary(
+				{ kind: "review", source },
+				{ focus: "composer" },
+			);
 			return;
 		}
+		saveScratchpadDraftIfEditing();
+		workspace.setActiveSecondary({ kind: "review", source });
+		workspace.setFocusedSurface("composer");
 		void props.openOverlay(
 			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
 				<ReviewAttachmentDialog
@@ -373,13 +392,13 @@ function AppShellContent(props: AppShellContentProps) {
 	};
 
 	const openScratchpadDialog = () => {
-		setFocusedInput("composer");
+		workspace.setFocusedSurface("composer");
 		void props.openOverlay(
 			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
 				<ScratchpadDialog
 					controller={props.scratchpad}
 					done={(result) => {
-						setFocusedInput("composer");
+						workspace.setFocusedSurface("composer");
 						overlayProps.done(result);
 					}}
 					surfaceProps={overlayProps.surfaceProps}
@@ -390,24 +409,23 @@ function AppShellContent(props: AppShellContentProps) {
 	};
 
 	function cycleInputFocus(): void {
-		setFocusedInput(
-			focusedInput() === "scratchpad" ? "composer" : "scratchpad",
+		workspace.setFocusedSurface(
+			focusedSurface() === "secondary" ? "composer" : "secondary",
 		);
 	}
 
 	const toggleScratchpad = () => {
-		const panel = rightPanel();
+		const panel = openSecondaryPane();
 		if (panel?.kind === "scratchpad") {
 			saveScratchpadDraftIfEditing();
-			setRightPanel(null);
-			setFocusedInput("composer");
+			workspace.minimizeSecondary();
 			return;
 		}
 		if (scratchpadWideEnough()) {
-			setRightPanel({ kind: "scratchpad" });
-			setFocusedInput("scratchpad");
+			workspace.openSecondary({ kind: "scratchpad" }, { focus: "secondary" });
 			return;
 		}
+		workspace.setActiveSecondary({ kind: "scratchpad" });
 		openScratchpadDialog();
 	};
 
@@ -575,7 +593,7 @@ function AppShellContent(props: AppShellContentProps) {
 							locked={props.overlays().length > 0 || chromeOverflow() !== null}
 							inputFocused={
 								chromeOverflow() === null &&
-								(focusedInput() === "composer" || props.overlays().length > 0)
+								(focusedSurface() === "composer" || props.overlays().length > 0)
 							}
 							onHeightChange={setDockHeight}
 							onModeChange={setComposerMode}
@@ -602,7 +620,7 @@ function AppShellContent(props: AppShellContentProps) {
 							<TurnActivitySidebar
 								runtime={props.runtime}
 								source={source}
-								onClose={() => setRightPanel(null)}
+								onClose={() => workspace.minimizeSecondary()}
 							/>
 						</box>
 					)}
@@ -617,7 +635,7 @@ function AppShellContent(props: AppShellContentProps) {
 										draft={resolved().draft}
 										cwd={props.runtime.getSession().cwd}
 										onEdit={resolved().draft ? editReviewDraft : undefined}
-										onClose={() => setRightPanel(null)}
+										onClose={() => workspace.minimizeSecondary()}
 									/>
 								</box>
 							)}
@@ -631,11 +649,11 @@ function AppShellContent(props: AppShellContentProps) {
 							active={
 								props.overlays().length === 0 &&
 								chromeOverflow() === null &&
-								focusedInput() === "scratchpad"
+								focusedSurface() === "secondary"
 							}
 							onClose={() => {
-								setRightPanel(null);
-								setFocusedInput("composer");
+								workspace.minimizeSecondary();
+								workspace.setFocusedSurface("composer");
 							}}
 						/>
 					</box>
