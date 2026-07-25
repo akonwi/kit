@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Kit has no persistent backing services or tunnels to repair after an orb wakes.
+echo "Kit orb is ready"

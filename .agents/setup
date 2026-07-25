@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+echo "==> Checking system prerequisites"
+missing_packages=()
+command -v curl >/dev/null 2>&1 || missing_packages+=(curl)
+command -v unzip >/dev/null 2>&1 || missing_packages+=(unzip)
+command -v rg >/dev/null 2>&1 || missing_packages+=(ripgrep)
+
+if ((${#missing_packages[@]} > 0)); then
+	sudo apt-get update
+	sudo apt-get install -y "${missing_packages[@]}"
+fi
+
+needs_bun=true
+if command -v bun >/dev/null 2>&1; then
+	installed_bun_version="$(bun --version)"
+	if [[ "$(printf '%s\n' "1.3.0" "$installed_bun_version" | sort -V | head -n1)" == "1.3.0" ]]; then
+		needs_bun=false
+	fi
+fi
+
+if [[ "$needs_bun" == true ]]; then
+	echo "==> Installing Bun"
+	curl -fsSL https://bun.sh/install | bash
+	export BUN_INSTALL="$HOME/.bun"
+	export PATH="$BUN_INSTALL/bin:$PATH"
+
+	profile_marker="# kit Bun path"
+	if ! grep -Fqx "$profile_marker" "$HOME/.bash_profile" 2>/dev/null; then
+		cat >>"$HOME/.bash_profile" <<'EOF'
+
+# kit Bun path
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+EOF
+	fi
+fi
+
+echo "==> Installing locked app dependencies"
+(
+	cd "$repo_root/app"
+	bun install --frozen-lockfile
+)
+
+echo "==> Orb setup complete"
