@@ -123,7 +123,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	);
 	// Dedupe: a file that has both staged and unstaged changes appears twice
 	// in reviewFiles (one entry per source). PathStore rejects duplicate paths.
-	const changedPaths = createMemo(() => {
+	const changedPaths = createMemo<string[]>((previous) => {
 		const seen = new Set<string>();
 		const paths: string[] = [];
 		for (const file of props.reviewFiles) {
@@ -131,8 +131,11 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			seen.add(file.path);
 			paths.push(file.path);
 		}
-		return paths;
-	});
+		return previous.length === paths.length &&
+			previous.every((value, index) => value === paths[index])
+			? previous
+			: paths;
+	}, []);
 
 	const hasChangedFiles = createMemo(() => changedPaths().length > 0);
 	// The changes/all-files toggle only makes sense when there is an

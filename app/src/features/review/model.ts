@@ -693,7 +693,6 @@ const EAGER_SKIPPED_SECTIONS_FILE_LIMIT = 50;
 function fileToReviewFile(
 	file: FileDiffMetadata,
 	rawPatch: string,
-	index: number,
 	options: {
 		cwd?: string;
 		repoRoot: string;
@@ -722,7 +721,7 @@ function fileToReviewFile(
 		),
 	);
 	const changeCount = hunks.reduce((sum, hunk) => sum + hunk.changeCount, 0);
-	const id = `${noteKey}:${index}`;
+	const id = noteKey;
 	const skippedSections = options.includeSkippedSections
 		? buildSkippedSectionsForFile(
 				id,
@@ -793,18 +792,13 @@ function reviewFilesFromPatchSets(options: {
 	for (const patchSet of options.patchSets) {
 		for (const [index, file] of patchSet.files.entries()) {
 			reviewFiles.push(
-				fileToReviewFile(
-					file,
-					patchSet.rawFiles[index] ?? "",
-					reviewFiles.length,
-					{
-						cwd: options.cwd,
-						repoRoot: options.repoRoot,
-						source: patchSet.source,
-						includeSkippedSections,
-						revisions: options.revisions,
-					},
-				),
+				fileToReviewFile(file, patchSet.rawFiles[index] ?? "", {
+					cwd: options.cwd,
+					repoRoot: options.repoRoot,
+					source: patchSet.source,
+					includeSkippedSections,
+					revisions: options.revisions,
+				}),
 			);
 		}
 	}
