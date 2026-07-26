@@ -1,6 +1,6 @@
 # Shell and persistent workspace plan
 
-Status: implementation in progress; phases 1–4 complete.
+Status: complete; all phases implemented and manually verified.
 
 Reference mockup: [`mockups/code-review-pane.html`](./mockups/code-review-pane.html)
 
@@ -196,7 +196,7 @@ Separate editable review state and behavior from its current full-screen `Screen
 
 Review selection, comments, scroll position, and drafts must survive responsive layout changes.
 
-### 5. Consider other secondary panes
+### 5. Consider other secondary panes (complete)
 
 After code review and scratchpad establish the workspace abstraction, evaluate migrating activity into the same pane host. Do not generalize the public plugin API into arbitrary panel composition as part of this work.
 
