@@ -54,16 +54,18 @@ export function McpStatusModal(props: McpStatusModalProps) {
 		<Dialog.Root
 			width="40%"
 			height="50%"
+			padding={0}
+			gap={0}
 			surfaceProps={props.surfaceProps}
 			rootRef={setRootTarget}
 			rootFocusable
 			rootFocused={props.active !== false}
 		>
-			<Dialog.Header>
+			<Dialog.Header strip>
 				<Dialog.Title>MCP status</Dialog.Title>
 			</Dialog.Header>
 
-			<Dialog.Body>
+			<Dialog.Body paddingX={1} paddingBottom={1} overflow="hidden">
 				<Show
 					when={props.states.length > 0}
 					fallback={
@@ -139,7 +141,7 @@ export function McpStatusModal(props: McpStatusModalProps) {
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer>
+			<Dialog.Footer strip>
 				<KeymapHintBar borderless group="mcp-status" />
 			</Dialog.Footer>
 		</Dialog.Root>

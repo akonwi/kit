@@ -73,13 +73,14 @@ export function DebugModal(props: DebugModalProps) {
 		<Dialog.Root
 			height="70%"
 			padding={0}
+			gap={0}
 			surfaceProps={props.surfaceProps}
 			rootRef={setRootTarget}
 		>
-			<Dialog.Header>
+			<Dialog.Header strip>
 				<Dialog.Title>Debug</Dialog.Title>
 			</Dialog.Header>
-			<Dialog.Body>
+			<Dialog.Body paddingBottom={1} overflow="hidden">
 				<scrollbox flexGrow={1} scrollY focused paddingX={1}>
 					<box flexDirection="column" gap={1} width="100%">
 						<For each={props.sections}>
@@ -88,7 +89,7 @@ export function DebugModal(props: DebugModalProps) {
 					</box>
 				</scrollbox>
 			</Dialog.Body>
-			<Dialog.Footer>
+			<Dialog.Footer strip>
 				<KeymapHintBar borderless group="debug" />
 			</Dialog.Footer>
 		</Dialog.Root>

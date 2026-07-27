@@ -282,13 +282,15 @@ export function QueueEditorDialog(props: QueueEditorDialogProps) {
 			maxWidth={88}
 			minWidth={48}
 			height="60%"
+			padding={0}
+			gap={0}
 		>
-			<Dialog.Header>
+			<Dialog.Header strip>
 				<Dialog.Title>Queued follow-ups</Dialog.Title>
 				<Dialog.Meta>{`${messages().length} pending`}</Dialog.Meta>
 			</Dialog.Header>
 
-			<Dialog.Body>
+			<Dialog.Body overflow="hidden">
 				<Show
 					when={mode() === "edit"}
 					fallback={
@@ -334,25 +336,27 @@ export function QueueEditorDialog(props: QueueEditorDialogProps) {
 						</scrollbox>
 					}
 				>
-					<MessageComposer
-						ref={(value) => {
-							textareaRef = value;
-						}}
-						initialValue={draft()}
-						focused={props.active && mode() === "edit"}
-						maxHeight={12}
-						borderColor={theme.borderAccent}
-						keyBindings={[
-							{ name: "return", action: "submit" },
-							{ name: "return", shift: true, action: "newline" },
-						]}
-						onContentChange={() => setDraft(textareaRef?.plainText ?? "")}
-						onSubmit={saveEdit}
-					/>
+					<box padding={1}>
+						<MessageComposer
+							ref={(value) => {
+								textareaRef = value;
+							}}
+							initialValue={draft()}
+							focused={props.active && mode() === "edit"}
+							maxHeight={12}
+							borderColor={theme.borderAccent}
+							keyBindings={[
+								{ name: "return", action: "submit" },
+								{ name: "return", shift: true, action: "newline" },
+							]}
+							onContentChange={() => setDraft(textareaRef?.plainText ?? "")}
+							onSubmit={saveEdit}
+						/>
+					</box>
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer>
+			<Dialog.Footer strip>
 				<HintBar
 					borderless
 					bindings={

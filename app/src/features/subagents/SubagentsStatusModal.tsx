@@ -488,7 +488,8 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 			height="70%"
 			maxWidth={140}
 			minWidth={44}
-			paddingBottom={0}
+			padding={0}
+			gap={0}
 			surfaceProps={props.surfaceProps}
 			rootRef={setRootTarget}
 			rootFocusable
@@ -499,7 +500,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 					items().length === 0)
 			}
 		>
-			<Dialog.Header>
+			<Dialog.Header strip>
 				<Dialog.Title>
 					{mode() === "transcript" && !wide()
 						? (selectedItem()?.name ?? "Sub-agent")
@@ -512,7 +513,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 				</Dialog.Meta>
 			</Dialog.Header>
 
-			<Dialog.Body>
+			<Dialog.Body overflow="hidden">
 				<Show when={items().length > 0} fallback={<EmptyState />}>
 					<box flexGrow={1} flexDirection="row" width="100%">
 						<Show when={wide() || mode() === "list"}>
@@ -673,7 +674,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer>
+			<Dialog.Footer strip>
 				<KeymapHintBar
 					borderless
 					group={mode() === "transcript" ? "subagent-transcript" : "subagents"}

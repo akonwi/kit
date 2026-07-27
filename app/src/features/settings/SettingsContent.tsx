@@ -97,14 +97,16 @@ function SettingsDialog(props: {
 			maxWidth={80}
 			minWidth={56}
 			height="35%"
+			padding={0}
+			gap={0}
 			surfaceProps={props.surfaceProps}
 		>
-			<Dialog.Header>
+			<Dialog.Header strip>
 				<Dialog.Title>Settings</Dialog.Title>
 				<Dialog.Meta>~/.kit/settings.json</Dialog.Meta>
 			</Dialog.Header>
 
-			<Dialog.Body>
+			<Dialog.Body paddingBottom={1} overflow="hidden">
 				<scrollbox flexGrow={1} scrollY>
 					<box flexDirection="column" gap={1}>
 						<For each={settings.rows()}>
@@ -114,13 +116,13 @@ function SettingsDialog(props: {
 				</scrollbox>
 
 				<Show when={settings.error()}>
-					<box border borderColor={theme.errorText} paddingX={1}>
+					<box border borderColor={theme.errorText} paddingX={1} marginX={1}>
 						<text fg={theme.errorText}>{settings.error()}</text>
 					</box>
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer>
+			<Dialog.Footer strip>
 				<KeymapHintBar borderless group="settings" />
 			</Dialog.Footer>
 		</Dialog.Root>
