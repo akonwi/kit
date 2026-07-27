@@ -4,16 +4,22 @@ import {
 	createResource,
 	createSignal,
 	For,
+	type JSX,
 	Show,
 } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { SessionSummary } from "../../session";
 import { readSession, updateSession } from "../../session";
+import {
+	terminalTextWidth,
+	truncateEnd,
+	truncateStart,
+} from "../../shell/chrome-layout";
 import { Dialog } from "../../shell/Dialog";
-import { ELLIPSIS } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { scrollbarStyle, theme } from "../../shell/theme";
+import { InlineSpinner } from "../../shell/transcript/inline-spinner";
 import type { ToastInput } from "../../state/toasts";
 import { formatTimeAgo } from "../commands/utils";
 import {
@@ -65,9 +71,8 @@ function sessionCount(count: number): string {
 	return `${count} session${count === 1 ? "" : "s"}`;
 }
 
-function truncateText(text: string, maxLength: number): string {
-	if (text.length <= maxLength) return text;
-	return `${text.slice(0, Math.max(0, maxLength - 1))}${ELLIPSIS}`;
+function sessionLabel(session: SessionSummary): string {
+	return session.name?.trim() || session.id.slice(0, SESSION_ID_COLUMN_WIDTH);
 }
 
 function countVisibleColumns(columns: boolean[]): number {
@@ -76,6 +81,65 @@ function countVisibleColumns(columns: boolean[]): number {
 
 function visibleColumnWidth(show: boolean, width: number): number {
 	return show ? width : 0;
+}
+
+export function resolveSessionExplorerRows(
+	readSessions: () => SessionSummary[] | undefined,
+	error: unknown,
+	currentSessionId: string,
+) {
+	if (error) return [];
+	const roots = buildSessionForest(readSessions() ?? []);
+	return flattenSessionForest(roots, currentSessionId);
+}
+
+export function resolveSessionExplorerColumns(width: number) {
+	const showUpdated = width >= 40;
+	const showCwd = width >= 68;
+	const showId = width >= 104;
+	const cwdWidth = showCwd
+		? Math.min(
+				CWD_COLUMN_WIDTH,
+				Math.max(
+					MIN_CWD_COLUMN_WIDTH,
+					width -
+						MIN_TITLE_COLUMN_WIDTH -
+						visibleColumnWidth(showId, SESSION_ID_COLUMN_WIDTH) -
+						visibleColumnWidth(showUpdated, UPDATED_COLUMN_WIDTH) -
+						3,
+				),
+			)
+		: 0;
+	const visibleMetadataColumns = countVisibleColumns([
+		showId,
+		showUpdated,
+		showCwd,
+	]);
+	const metadataWidth =
+		visibleColumnWidth(showId, SESSION_ID_COLUMN_WIDTH) +
+		visibleColumnWidth(showUpdated, UPDATED_COLUMN_WIDTH) +
+		cwdWidth;
+
+	return {
+		showCwd,
+		showId,
+		showUpdated,
+		cwdWidth,
+		titleWidth: Math.max(1, width - metadataWidth - visibleMetadataColumns),
+	};
+}
+
+function CenteredState(props: { children: JSX.Element }) {
+	return (
+		<box
+			flexGrow={1}
+			flexDirection="column"
+			justifyContent="center"
+			alignItems="center"
+		>
+			{props.children}
+		</box>
+	);
 }
 
 export function SessionExplorerModal(props: SessionExplorerModalProps) {
@@ -120,10 +184,9 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		return "navigate";
 	});
 
-	const rows = createMemo(() => {
-		const roots = buildSessionForest(sessions() ?? []);
-		return flattenSessionForest(roots, currentSessionId());
-	});
+	const rows = createMemo(() =>
+		resolveSessionExplorerRows(sessions, sessions.error, currentSessionId()),
+	);
 
 	const currentSelectionIndex = createMemo(() =>
 		findSessionRowIndex(rows(), currentSessionId()),
@@ -145,42 +208,11 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	const selectedSessionCanDelete = createMemo(() =>
 		Boolean(selectedRow() && !selectedRow()?.isCurrent),
 	);
-	const rowColumns = createMemo(() => {
-		const width = listWidth();
-		const showCwd = width >= 80;
-		const showId = width >= 52;
-		const showUpdated = width >= 40;
-		const cwdWidth = showCwd
-			? Math.min(
-					CWD_COLUMN_WIDTH,
-					Math.max(
-						MIN_CWD_COLUMN_WIDTH,
-						width -
-							MIN_TITLE_COLUMN_WIDTH -
-							visibleColumnWidth(showId, SESSION_ID_COLUMN_WIDTH) -
-							visibleColumnWidth(showUpdated, UPDATED_COLUMN_WIDTH) -
-							3,
-					),
-				)
-			: 0;
-		const visibleMetadataColumns = countVisibleColumns([
-			showId,
-			showUpdated,
-			showCwd,
-		]);
-		const metadataWidth =
-			visibleColumnWidth(showId, SESSION_ID_COLUMN_WIDTH) +
-			visibleColumnWidth(showUpdated, UPDATED_COLUMN_WIDTH) +
-			cwdWidth;
-
-		return {
-			showCwd,
-			showId,
-			showUpdated,
-			cwdWidth,
-			titleWidth: Math.max(1, width - metadataWidth - visibleMetadataColumns),
-		};
-	});
+	const sessionsAvailable = () =>
+		!sessions.loading && !sessions.error && rows().length > 0;
+	const rowColumns = createMemo(() =>
+		resolveSessionExplorerColumns(listWidth()),
+	);
 
 	createEffect(() => {
 		const allRows = rows();
@@ -318,6 +350,14 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 		diagnosticsWhen: () => mode() === "navigate",
 		commands: {
 			"session-explorer.close": props.onClose,
+		},
+	}));
+
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => mode() === "navigate" && sessionsAvailable(),
+		diagnosticsWhen: () => mode() === "navigate",
+		commands: {
 			"session-explorer.select": () => props.onSelect(selectedSessionId()),
 			"session-explorer.move-up": () => {
 				setSelectedIndex((index) => Math.max(0, index - 1));
@@ -390,167 +430,214 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 	}));
 
 	return (
-		<Dialog.Root width="85%" maxWidth={120} minWidth={44} height="55%">
-			<Dialog.Header>
+		<Dialog.Root
+			width="85%"
+			maxWidth={120}
+			minWidth={44}
+			height="55%"
+			padding={0}
+			gap={0}
+		>
+			<Dialog.Header strip>
 				<Dialog.Title>Session Explorer</Dialog.Title>
-				<Dialog.Meta>{sessionCount(rows().length)}</Dialog.Meta>
+				<Dialog.Meta>
+					{sessions.loading
+						? "Loading…"
+						: sessions.error
+							? "Unavailable"
+							: sessionCount(rows().length)}
+				</Dialog.Meta>
 			</Dialog.Header>
 
-			<Dialog.Body>
+			<Dialog.Body paddingX={1} paddingBottom={1} overflow="hidden">
 				<Show
 					when={!sessions.loading}
-					fallback={<text fg={theme.textMuted}>Loading sessions…</text>}
+					fallback={
+						<CenteredState>
+							<box flexDirection="row" gap={1}>
+								<InlineSpinner />
+								<text fg={theme.textMuted}>Loading sessions…</text>
+							</box>
+						</CenteredState>
+					}
 				>
 					<Show
-						when={rows().length > 0}
-						fallback={<text fg={theme.textMuted}>No sessions found.</text>}
+						when={!sessions.error}
+						fallback={
+							<CenteredState>
+								<text fg={theme.errorText}>Could not load sessions.</text>
+							</CenteredState>
+						}
 					>
-						<scrollbox
-							ref={(el) => {
-								scrollRef = el as typeof scrollRef;
-							}}
-							flexGrow={1}
-							scrollY
-							style={scrollbarStyle()}
+						<Show
+							when={rows().length > 0}
+							fallback={
+								<CenteredState>
+									<text fg={theme.textSecondary}>No sessions found.</text>
+								</CenteredState>
+							}
 						>
-							<box
+							<scrollbox
 								ref={(el) => {
-									listRef = el as typeof listRef;
-									queueMicrotask(syncListWidth);
+									scrollRef = el as typeof scrollRef;
 								}}
-								onSizeChange={syncListWidth}
-								flexDirection="column"
-								gap={0}
-								width="100%"
+								flexGrow={1}
+								scrollY
+								style={scrollbarStyle()}
 							>
-								<For each={rows()}>
-									{(row) => {
-										const prefix = formatSessionTreePrefix(row);
-										const titleWidth = () =>
-											Math.max(
-												1,
-												Math.min(TITLE_COLUMN_WIDTH, rowColumns().titleWidth) -
-													prefix.length,
-											);
-										const focused = () =>
-											row.session.id === selectedSessionId();
-										const rowBg = () =>
-											focused() ? theme.pickerFocusedBg : theme.bgTransparent;
-										const labelColor = () =>
-											row.isCurrent
-												? focused()
-													? theme.userTextFocused
-													: theme.userText
-												: focused()
+								<box
+									ref={(el) => {
+										listRef = el as typeof listRef;
+										queueMicrotask(syncListWidth);
+									}}
+									onSizeChange={syncListWidth}
+									flexDirection="column"
+									gap={0}
+									width="100%"
+								>
+									<For each={rows()}>
+										{(row) => {
+											const prefix = formatSessionTreePrefix(row);
+											const titleWidth = () =>
+												Math.max(
+													1,
+													Math.min(
+														TITLE_COLUMN_WIDTH,
+														rowColumns().titleWidth,
+													) - terminalTextWidth(prefix),
+												);
+											const focused = () =>
+												row.session.id === selectedSessionId();
+											const rowBg = () =>
+												focused() ? theme.pickerFocusedBg : theme.bgTransparent;
+											const labelColor = () =>
+												focused()
 													? theme.pickerFocusedText
-													: theme.textPrimary;
-										const metaColor = () =>
-											focused() ? theme.pickerFocusedText : theme.textMuted;
-										return (
-											<box
-												flexDirection="row"
-												width="100%"
-												height={1}
-												overflow="hidden"
-												gap={1}
-												backgroundColor={rowBg()}
-											>
+													: row.isCurrent
+														? theme.userText
+														: theme.textPrimary;
+											const metaColor = () =>
+												focused() ? theme.pickerFocusedText : theme.textMuted;
+											return (
 												<box
-													flexGrow={1}
-													flexShrink={1}
-													minWidth={MIN_TITLE_COLUMN_WIDTH}
 													flexDirection="row"
+													width="100%"
 													height={1}
 													overflow="hidden"
+													gap={1}
+													backgroundColor={rowBg()}
 												>
-													<Show when={prefix.length > 0}>
-														<text fg={metaColor()} bg={rowBg()}>
-															{prefix}
-														</text>
-													</Show>
-													<text fg={labelColor()} bg={rowBg()}>
-														{truncateText(
-															getSessionTreeTitle(row),
-															titleWidth(),
-														)}
-													</text>
-												</box>
-												<Show when={rowColumns().showId}>
 													<box
-														flexShrink={0}
-														width={SESSION_ID_COLUMN_WIDTH}
-														height={1}
-													>
-														<text fg={metaColor()} bg={rowBg()}>
-															{sessionId(row.session)}
-														</text>
-													</box>
-												</Show>
-												<Show when={rowColumns().showUpdated}>
-													<box
-														flexShrink={0}
-														width={UPDATED_COLUMN_WIDTH}
-														height={1}
-														justifyContent="flex-end"
-													>
-														<text fg={metaColor()} bg={rowBg()}>
-															{sessionUpdated(row.session)}
-														</text>
-													</box>
-												</Show>
-												<Show when={rowColumns().showCwd}>
-													<box
+														flexGrow={1}
 														flexShrink={1}
-														width={rowColumns().cwdWidth}
+														minWidth={MIN_TITLE_COLUMN_WIDTH}
+														flexDirection="row"
 														height={1}
 														overflow="hidden"
-														justifyContent="flex-end"
 													>
-														<text fg={metaColor()} bg={rowBg()}>
-															{formatCwd(row.session.cwd)}
+														<Show when={prefix.length > 0}>
+															<text fg={metaColor()} bg={rowBg()}>
+																{prefix}
+															</text>
+														</Show>
+														<text fg={labelColor()} bg={rowBg()}>
+															{truncateEnd(
+																getSessionTreeTitle(row),
+																titleWidth(),
+															)}
 														</text>
 													</box>
-												</Show>
-											</box>
-										);
-									}}
-								</For>
-							</box>
-						</scrollbox>
+													<Show when={rowColumns().showId}>
+														<box
+															flexShrink={0}
+															width={SESSION_ID_COLUMN_WIDTH}
+															height={1}
+														>
+															<text fg={metaColor()} bg={rowBg()}>
+																{sessionId(row.session)}
+															</text>
+														</box>
+													</Show>
+													<Show when={rowColumns().showUpdated}>
+														<box
+															flexShrink={0}
+															width={UPDATED_COLUMN_WIDTH}
+															height={1}
+															justifyContent="flex-end"
+														>
+															<text fg={metaColor()} bg={rowBg()}>
+																{sessionUpdated(row.session)}
+															</text>
+														</box>
+													</Show>
+													<Show when={rowColumns().showCwd}>
+														<box
+															flexShrink={1}
+															width={rowColumns().cwdWidth}
+															height={1}
+															overflow="hidden"
+															justifyContent="flex-end"
+														>
+															<text fg={metaColor()} bg={rowBg()}>
+																{truncateStart(
+																	formatCwd(row.session.cwd),
+																	rowColumns().cwdWidth,
+																)}
+															</text>
+														</box>
+													</Show>
+												</box>
+											);
+										}}
+									</For>
+								</box>
+							</scrollbox>
+						</Show>
 					</Show>
 				</Show>
 			</Dialog.Body>
 
-			<Dialog.Footer paddingTop={1}>
+			<Dialog.Footer strip>
 				<KeymapHintBar borderless group="session-explorer" />
 			</Dialog.Footer>
 
 			<Show when={renameSession()}>
 				{(session) => (
-					<Dialog.Root maxWidth={80}>
-						<Dialog.Header>
-							<Dialog.Title>
-								Rename "{session().name?.trim() || session().id.slice(0, 8)}"
-							</Dialog.Title>
+					<Dialog.Root
+						width="90%"
+						maxWidth={80}
+						minWidth={36}
+						padding={0}
+						gap={0}
+					>
+						<Dialog.Header strip>
+							<Dialog.Title>Rename session</Dialog.Title>
 						</Dialog.Header>
-						<textarea
-							ref={(el) => {
-								renameRef = el as typeof renameRef;
-							}}
-							minHeight={1}
-							maxHeight={1}
-							placeholder="Enter new session name..."
-							placeholderColor={theme.textPlaceholder}
-							backgroundColor={theme.bg}
-							focusedBackgroundColor={theme.bgSurface}
-							textColor={theme.textPrimary}
-							focusedTextColor={theme.textPrimary}
-							cursorColor={theme.cursor}
-							showCursor
-							focused
-							onContentChange={() => setRenameText(renameRef?.plainText ?? "")}
-						/>
-						<Dialog.Footer>
+						<Dialog.Body padding={1} gap={1}>
+							<text fg={theme.textMuted}>{sessionLabel(session())}</text>
+							<box border borderColor={theme.borderAccent} paddingX={1}>
+								<textarea
+									ref={(el) => {
+										renameRef = el as typeof renameRef;
+									}}
+									minHeight={1}
+									maxHeight={1}
+									placeholder="Enter new session name..."
+									placeholderColor={theme.textPlaceholder}
+									backgroundColor={theme.bgSurface}
+									focusedBackgroundColor={theme.bgSurface}
+									textColor={theme.textPrimary}
+									focusedTextColor={theme.textPrimary}
+									cursorColor={theme.cursor}
+									showCursor
+									focused
+									onContentChange={() =>
+										setRenameText(renameRef?.plainText ?? "")
+									}
+								/>
+							</box>
+						</Dialog.Body>
+						<Dialog.Footer strip>
 							<KeymapHintBar borderless group="session-explorer" />
 						</Dialog.Footer>
 					</Dialog.Root>
@@ -559,13 +646,21 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 
 			<Show when={deleteSession()}>
 				{(session) => (
-					<Dialog.Root maxWidth={80}>
-						<Dialog.Header>
-							<Dialog.Title fg={theme.errorText}>
-								Delete "{session().name?.trim() || session().id.slice(0, 8)}"?
-							</Dialog.Title>
+					<Dialog.Root
+						width="90%"
+						maxWidth={80}
+						minWidth={36}
+						padding={0}
+						gap={0}
+					>
+						<Dialog.Header strip>
+							<Dialog.Title>Delete session?</Dialog.Title>
 						</Dialog.Header>
-						<Dialog.Footer>
+						<Dialog.Body padding={1} gap={1}>
+							<text fg={theme.textPrimary}>{sessionLabel(session())}</text>
+							<text fg={theme.errorText}>This action cannot be undone.</text>
+						</Dialog.Body>
+						<Dialog.Footer strip>
 							<KeymapHintBar borderless group="session-explorer" />
 						</Dialog.Footer>
 					</Dialog.Root>
@@ -579,20 +674,24 @@ export function SessionExplorerModal(props: SessionExplorerModalProps) {
 							? "the current session"
 							: "its parent";
 					return (
-						<Dialog.Root maxWidth={80}>
-							<Dialog.Header>
-								<Dialog.Title>
-									Squash "{session().name?.trim() || session().id.slice(0, 8)}"
-									into {targetLabel()}?
-								</Dialog.Title>
+						<Dialog.Root
+							width="90%"
+							maxWidth={80}
+							minWidth={36}
+							padding={0}
+							gap={0}
+						>
+							<Dialog.Header strip>
+								<Dialog.Title>Squash session?</Dialog.Title>
 							</Dialog.Header>
-							<box flexDirection="column">
-								<text fg={theme.textPrimary}>
-									The session will be summarized into {targetLabel()} and
+							<Dialog.Body padding={1} gap={1}>
+								<text fg={theme.textPrimary}>{sessionLabel(session())}</text>
+								<text fg={theme.textSecondary}>
+									This session will be summarized into {targetLabel()} and
 									deleted.
 								</text>
-							</box>
-							<Dialog.Footer>
+							</Dialog.Body>
+							<Dialog.Footer strip>
 								<KeymapHintBar borderless group="session-explorer" />
 							</Dialog.Footer>
 						</Dialog.Root>

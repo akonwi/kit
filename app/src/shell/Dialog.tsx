@@ -12,6 +12,7 @@ type RootProps = {
 	maxWidth?: number;
 	minWidth?: number;
 	height?: number | `${number}%`;
+	gap?: number;
 	padding?: number;
 	paddingX?: number;
 	paddingY?: number;
@@ -57,7 +58,7 @@ function Root(props: RootProps) {
 				paddingLeft={props.paddingLeft}
 				paddingRight={props.paddingRight}
 				flexDirection="column"
-				gap={1}
+				gap={props.gap ?? 1}
 				overflow="hidden"
 			>
 				{props.children}
@@ -70,21 +71,37 @@ function Root(props: RootProps) {
 
 type HeaderProps = {
 	children: JSX.Element;
+	strip?: boolean;
 };
 
 function Header(props: HeaderProps) {
 	return (
-		<box flexShrink={0} flexDirection="row" justifyContent="space-between">
+		<box
+			flexShrink={0}
+			flexDirection="row"
+			justifyContent="space-between"
+			gap={1}
+			paddingX={props.strip ? 1 : undefined}
+			height={props.strip ? 2 : undefined}
+			border={props.strip ? ["bottom"] : false}
+			borderColor={props.strip ? theme.borderDefault : undefined}
+			overflow="hidden"
+		>
 			{props.children}
 		</box>
 	);
 }
 
 function Title(props: TextProps) {
-	const [picked, ...rest] = splitProps(props, ["fg"]);
+	const [picked, rest] = splitProps(props, ["fg", "flexShrink", "overflow"]);
 	const fg = picked.fg ?? theme.textPrimary;
 	return (
-		<text fg={fg} {...rest}>
+		<text
+			fg={fg}
+			flexShrink={picked.flexShrink ?? 1}
+			overflow={picked.overflow ?? "hidden"}
+			{...rest}
+		>
 			{props.children}
 		</text>
 	);
@@ -97,29 +114,51 @@ type MetaProps = {
 };
 
 function Meta(props: MetaProps) {
-	return <text fg={theme.textMuted}>{props.children}</text>;
+	return (
+		<text fg={theme.textMuted} flexShrink={0}>
+			{props.children}
+		</text>
+	);
 }
 
 // ── Body ────────────────────────────────────────────────────────────
 
-type BodyProps = {
+type BodyProps = BoxProps & {
 	children: JSX.Element;
 };
 
 function Body(props: BodyProps) {
+	const [local, rest] = splitProps(props, ["children"]);
 	return (
-		<box flexGrow={1} flexDirection="column">
-			{props.children}
+		<box {...rest} flexGrow={1} flexDirection="column">
+			{local.children}
 		</box>
 	);
 }
 
 // ── Footer ──────────────────────────────────────────────────────────
 
-function Footer(props: BoxProps) {
+type FooterProps = BoxProps & {
+	strip?: boolean;
+};
+
+function Footer(props: FooterProps) {
+	const [local, rest] = splitProps(props, [
+		"strip",
+		"children",
+		"paddingX",
+		"border",
+		"borderColor",
+	]);
 	return (
-		<box {...props} flexShrink={0}>
-			{props.children}
+		<box
+			{...rest}
+			flexShrink={0}
+			paddingX={local.strip ? 1 : local.paddingX}
+			border={local.strip ? ["top"] : local.border}
+			borderColor={local.strip ? theme.borderDefault : local.borderColor}
+		>
+			{local.children}
 		</box>
 	);
 }
