@@ -8,6 +8,7 @@ import {
 	createResource,
 	createSignal,
 	For,
+	type JSX,
 	onCleanup,
 	Show,
 } from "solid-js";
@@ -39,7 +40,6 @@ import {
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
-import { ScreenLayout } from "../../shell/ScreenLayout";
 import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
 import type { PickerOption } from "../../state/picker";
 import { createPickerManager } from "../../state/picker-manager";
@@ -96,6 +96,29 @@ export type ReviewContentProps = {
 	active?: boolean;
 	onFocusRequest?: () => void;
 };
+
+type ReviewPaneLayoutProps = {
+	header: JSX.Element;
+	footer: JSX.Element;
+	children: JSX.Element;
+};
+
+function ReviewPaneLayout(props: ReviewPaneLayoutProps) {
+	return (
+		<box
+			width="100%"
+			height="100%"
+			backgroundColor={theme.bg}
+			flexDirection="column"
+		>
+			{props.header}
+			<box flexGrow={1} flexDirection="column" overflow="hidden">
+				{props.children}
+			</box>
+			<box flexShrink={0}>{props.footer}</box>
+		</box>
+	);
+}
 
 type ReviewMode = "tree" | "patch";
 type ReviewSide = "additions" | "deletions";
@@ -2541,8 +2564,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	);
 
 	return (
-		<ScreenLayout
-			zIndex={0}
+		<ReviewPaneLayout
 			header={reviewHeader}
 			footer={
 				<KeymapHintBar
@@ -2795,7 +2817,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					/>
 				</Show>
 			</Show>
-		</ScreenLayout>
+		</ReviewPaneLayout>
 	);
 }
 
