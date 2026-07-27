@@ -5,6 +5,7 @@ import { theme } from "./theme";
 
 export type ScreenHeaderProps = {
 	left: JSX.Element;
+	variant?: "framed" | "strip";
 	right?: JSX.Element;
 	progress?: number;
 	progressColor?: string;
@@ -12,15 +13,15 @@ export type ScreenHeaderProps = {
 };
 
 /**
- * Bordered header bar for Tier 3 screens.
- * Displays left/right content with an optional progress bar
- * rendered as a colored overlay on the top border.
+ * Header bar for Tier 3 screens. Framed by default; the strip variant uses
+ * only a bottom separator. Progress overlays the relevant structural border.
  */
 export function ScreenHeader(props: ScreenHeaderProps) {
 	const [barWidth, setBarWidth] = createSignal(80);
+	const strip = () => props.variant === "strip";
 	let ref: { width: number; height: number } | undefined;
 
-	const innerWidth = () => Math.max(0, barWidth() - 2);
+	const innerWidth = () => Math.max(0, barWidth() - (strip() ? 0 : 2));
 	const clampedProgress = () => {
 		const pct = props.progress ?? 0;
 		return Math.max(0, Math.min(100, pct));
@@ -46,16 +47,22 @@ export function ScreenHeader(props: ScreenHeaderProps) {
 			}}
 		>
 			<box
-				border
+				border={strip() ? ["bottom"] : true}
 				borderColor={theme.borderDefault}
 				paddingX={1}
 				width="100%"
+				height={strip() ? 2 : undefined}
 				flexDirection="row"
-				flexWrap="wrap"
+				flexWrap={strip() ? "no-wrap" : "wrap"}
 				justifyContent="space-between"
 				gap={1}
 			>
-				<box flexGrow={1} flexShrink={0} maxWidth="100%" overflow="hidden">
+				<box
+					flexGrow={1}
+					flexShrink={strip() ? 1 : 0}
+					maxWidth="100%"
+					overflow="hidden"
+				>
 					{props.left}
 				</box>
 				<Show when={props.right}>
@@ -73,8 +80,8 @@ export function ScreenHeader(props: ScreenHeaderProps) {
 			<Show when={props.progress != null && filled() > 0}>
 				<text
 					position="absolute"
-					top={0}
-					left={1}
+					top={strip() ? 1 : 0}
+					left={strip() ? 0 : 1}
 					fg={props.progressColor ?? theme.borderAccent}
 				>
 					{HORIZONTAL_LINE.repeat(filled())}

@@ -58,6 +58,7 @@ export function PagerContent(props: PagerContentProps) {
 
 	const noteCount = () => pager.getNoteCount();
 	const currentNote = () => pager.notes.get(pager.currentIndex) ?? "";
+	const noteEditorFocused = () => pager.active && mode() === "edit";
 
 	function enterEditMode() {
 		setNoteText(currentNote());
@@ -144,6 +145,7 @@ export function PagerContent(props: PagerContentProps) {
 				surfaceProps={props.surfaceProps}
 				header={
 					<ScreenHeader
+						variant="strip"
 						left={
 							<text fg={theme.textPrimary}>
 								<b>{pager.title}</b>
@@ -161,51 +163,10 @@ export function PagerContent(props: PagerContentProps) {
 					/>
 				}
 				footer={
-					<box flexDirection="column" gap={0}>
-						<Show
-							when={mode() === "edit"}
-							fallback={
-								<box
-									flexDirection="column"
-									paddingX={1}
-									maxHeight={5}
-									overflow="hidden"
-								>
-									<Show
-										when={currentNote()}
-										fallback={
-											<text fg={theme.textMuted}>No note for this section</text>
-										}
-									>
-										<text fg={theme.reviewText}>
-											<b>Note</b>
-										</text>
-										<text fg={theme.textSecondary}>{currentNote()}</text>
-									</Show>
-								</box>
-							}
-						>
-							<MessageComposer
-								ref={(element) => {
-									textareaRef = element as typeof textareaRef;
-								}}
-								initialValue={noteText()}
-								placeholder="Type your note..."
-								maxHeight={6}
-								borderColor={theme.borderAccent}
-								keyBindings={[
-									{ name: "return", action: "submit" },
-									{ name: "return", shift: true, action: "newline" },
-								]}
-								onContentChange={() =>
-									setNoteText(textareaRef?.plainText ?? "")
-								}
-								onPaste={handlePaste}
-								onSubmit={saveNote}
-							/>
-						</Show>
+					<box border={["top"]} borderColor={theme.borderDefault} paddingX={1}>
 						<KeymapHintBar
 							group="pager"
+							borderless
 							prefixBindings={mode() === "edit" ? EDIT_PREFIX_BINDINGS : []}
 						/>
 					</box>
@@ -234,6 +195,57 @@ export function PagerContent(props: PagerContentProps) {
 						/>
 					</box>
 				</scrollbox>
+				<box
+					flexShrink={0}
+					border={["top"]}
+					borderColor={
+						noteEditorFocused() ? theme.borderAccent : theme.borderDefault
+					}
+					paddingX={1}
+				>
+					<Show
+						when={mode() === "edit"}
+						fallback={
+							<Show
+								when={currentNote()}
+								fallback={
+									<MessageComposer
+										variant="dock"
+										placeholder="Type your note..."
+										focused={false}
+										showCursor={false}
+									/>
+								}
+							>
+								<box flexDirection="column" maxHeight={5} overflow="hidden">
+									<text fg={theme.reviewText}>
+										<b>Note</b>
+									</text>
+									<text fg={theme.textSecondary}>{currentNote()}</text>
+								</box>
+							</Show>
+						}
+					>
+						<MessageComposer
+							variant="dock"
+							ref={(element) => {
+								textareaRef = element as typeof textareaRef;
+							}}
+							initialValue={noteText()}
+							placeholder="Type your note..."
+							focused={noteEditorFocused()}
+							showCursor={noteEditorFocused()}
+							maxHeight={6}
+							keyBindings={[
+								{ name: "return", action: "submit" },
+								{ name: "return", shift: true, action: "newline" },
+							]}
+							onContentChange={() => setNoteText(textareaRef?.plainText ?? "")}
+							onPaste={handlePaste}
+							onSubmit={saveNote}
+						/>
+					</Show>
+				</box>
 			</ScreenLayout>
 		</Show>
 	);
