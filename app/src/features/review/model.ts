@@ -835,33 +835,6 @@ export async function loadReviewFiles(
 	});
 }
 
-/** Load an explicit immutable revision range, including branch merge-base diffs. */
-export async function loadReviewFilesForRevisions(
-	cwd: string | undefined,
-	before: string,
-	after: string,
-): Promise<ReviewFile[]> {
-	await yieldToRenderer();
-	const repoRoot = getGitRepoRoot(cwd);
-	if (!repoRoot) return [];
-	const revisions: ReviewRevisions = {
-		before,
-		after,
-		key: `range:${before}:${after}`,
-	};
-	const patchSet = parseReviewPatchSet(
-		getRevisionDiff(cwd, before, after),
-		"commit",
-	);
-	if (!patchSet) return [];
-	return reviewFilesFromPatchSets({
-		cwd,
-		repoRoot,
-		revisions,
-		patchSets: [patchSet],
-	});
-}
-
 /** Resolve the project root for the given working directory. */
 export function getRepoRoot(cwd?: string): string {
 	return getGitRepoRoot(cwd) ?? (cwd || safeProcessCwd());

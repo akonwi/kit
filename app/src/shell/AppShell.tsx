@@ -10,12 +10,6 @@ import {
 import type { Command, CommandRegistry } from "../features/commands";
 import { CodeReviewAttachment } from "../features/review/attachment";
 import type { ReviewDraftController } from "../features/review/draft-controller";
-import {
-	ReviewAttachmentDialog,
-	ReviewAttachmentSidebar,
-	type ReviewAttachmentSource,
-	reviewAttachmentSourceEquals,
-} from "../features/review/ReviewAttachmentViewer";
 import { ReviewContent } from "../features/review/ReviewContent";
 import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import type { ScratchpadController } from "../features/scratchpad/controller";
@@ -75,16 +69,12 @@ import {
 	type WorkspaceState,
 } from "./workspace-state";
 
-const READ_ONLY_SIDEBAR_MIN_WIDTH = 200;
-
 const ACTIVITY_MIN_COLS = 40;
 const REVIEW_MIN_COLS = 60;
 
-type WorkspaceReviewSource = ReviewAttachmentSource | { kind: "editor" };
-
 type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
-	| { kind: "review"; source: WorkspaceReviewSource }
+	| { kind: "review" }
 	| { kind: "scratchpad" };
 
 export type AppShellProps = {
@@ -170,10 +160,6 @@ function AppShellContent(props: AppShellContentProps) {
 		WorkspaceState<WorkspacePane>
 	>(workspace.getState());
 	onCleanup(workspace.subscribe(setWorkspaceState));
-	const activeSecondaryPane = () => {
-		const secondary = workspaceState().secondary;
-		return secondary.status === "empty" ? null : secondary.pane;
-	};
 	const openSecondaryPane = () => {
 		const secondary = workspaceState().secondary;
 		return secondary.status === "open" ? secondary.pane : null;
@@ -191,7 +177,7 @@ function AppShellContent(props: AppShellContentProps) {
 	onCleanup(
 		props.reviewWorkspace.subscribe(() => {
 			saveScratchpadDraftIfEditing();
-			workspace.openSecondary({ kind: "review", source: { kind: "editor" } });
+			workspace.openSecondary({ kind: "review" });
 			focusReviewSurface();
 		}),
 	);
@@ -253,22 +239,12 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 	});
 
-	const readOnlySidebarWideEnough = () =>
-		shellWidth() >= READ_ONLY_SIDEBAR_MIN_WIDTH;
 	const activitySource = () => {
 		const panel = openSecondaryPane();
 		return panel?.kind === "activity" ? panel.source : null;
 	};
-	const reviewSidebarSource = () => {
-		const panel = openSecondaryPane();
-		return panel?.kind === "review" &&
-			panel.source.kind !== "editor" &&
-			readOnlySidebarWideEnough()
-			? panel.source
-			: null;
-	};
 	const isEditableReviewPane = (pane: WorkspacePane | null | undefined) =>
-		pane?.kind === "review" && pane.source.kind === "editor";
+		pane?.kind === "review";
 	const editableReviewOpen = () => isEditableReviewPane(openSecondaryPane());
 	const editableReviewRetained = () => {
 		const secondary = workspaceState().secondary;
@@ -277,17 +253,6 @@ function AppShellContent(props: AppShellContentProps) {
 			isEditableReviewPane(secondary.pane) ||
 			isEditableReviewPane(secondary.returnPane)
 		);
-	};
-	const resolveReviewSource = (source: ReviewAttachmentSource) => {
-		if (source.kind === "historical") {
-			return { draft: false, review: source.review };
-		}
-		const attachment = props.attachments
-			.attachments()
-			.find((candidate) => candidate.id === source.attachmentId);
-		return attachment instanceof CodeReviewAttachment
-			? { draft: true, review: attachment.review }
-			: null;
 	};
 	const isScratchpadPane = (pane: WorkspacePane | null | undefined) =>
 		pane?.kind === "scratchpad";
@@ -300,16 +265,11 @@ function AppShellContent(props: AppShellContentProps) {
 		);
 	};
 	const secondaryPaneVisible = () =>
-		editableReviewOpen() ||
-		activitySource() !== null ||
-		reviewSidebarSource() !== null ||
-		scratchpadOpen();
+		editableReviewOpen() || activitySource() !== null || scratchpadOpen();
 	const secondaryPaneMinColumns = () => {
 		const pane = openSecondaryPane();
 		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
-		if (pane?.kind === "review" && pane.source.kind === "editor") {
-			return REVIEW_MIN_COLS;
-		}
+		if (pane?.kind === "review") return REVIEW_MIN_COLS;
 		return ACTIVITY_MIN_COLS;
 	};
 	const supportsNarrowWorkspaceTabs = () =>
@@ -330,17 +290,6 @@ function AppShellContent(props: AppShellContentProps) {
 		if (scratchpadOpen()) return "Scratchpad";
 		return "Code review";
 	};
-
-	createEffect(() => {
-		const panel = activeSecondaryPane();
-		if (
-			panel?.kind === "review" &&
-			panel.source.kind === "draft" &&
-			!resolveReviewSource(panel.source)
-		) {
-			workspace.clearSecondary();
-		}
-	});
 
 	onCleanup(
 		props.runtime.subscribe("session.active.changed", () => {
@@ -442,15 +391,6 @@ function AppShellContent(props: AppShellContentProps) {
 			return;
 		}
 
-		const restored = openSecondaryPane();
-		if (
-			restored?.kind === "review" &&
-			restored.source.kind !== "editor" &&
-			!readOnlySidebarWideEnough()
-		) {
-			openReviewAttachment(restored.source);
-			return;
-		}
 		if (!focusSecondarySurface()) focusComposerSurface();
 	}
 
@@ -458,65 +398,11 @@ function AppShellContent(props: AppShellContentProps) {
 		closeTemporaryPanel();
 	}
 
-	function editReviewDraft(): void {
-		workspace.minimizeSecondary();
-		const command = props.commands
-			.getAll()
-			.find((candidate) => candidate.name === "code-review");
-		if (!command) return;
-		queueMicrotask(() => {
-			void props.controller.runCommand(command, "");
-		});
-	}
-
-	const openReviewAttachment = (source: ReviewAttachmentSource) => {
-		const resolved = resolveReviewSource(source);
-		if (!resolved) return;
-		if (source.kind === "draft") {
-			props.reviewWorkspace.open();
-			return;
-		}
-		if (readOnlySidebarWideEnough() && !editableReviewOpen()) {
-			const current = openSecondaryPane();
-			if (
-				current?.kind === "review" &&
-				current.source.kind !== "editor" &&
-				reviewAttachmentSourceEquals(current.source, source)
-			) {
-				return;
-			}
-			saveScratchpadDraftIfEditing();
-			workspace.openSecondary(
-				{ kind: "review", source },
-				{ focus: "composer" },
-			);
-			return;
-		}
-		if (!editableReviewOpen()) {
-			saveScratchpadDraftIfEditing();
-			workspace.setActiveSecondary({ kind: "review", source });
-			workspace.setFocusedSurface("composer");
-		}
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
-				<ReviewAttachmentDialog
-					review={resolved.review}
-					draft={resolved.draft}
-					cwd={props.runtime.getSession().cwd}
-					onEdit={resolved.draft ? editReviewDraft : undefined}
-					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
-	};
-
 	function focusSecondarySurface(): boolean {
 		if (!secondaryPaneVisible()) return false;
 		const pane = openSecondaryPane();
 		if (!pane) return false;
-		if (pane.kind === "review" && pane.source.kind === "editor") {
+		if (pane.kind === "review") {
 			focusReviewSurface();
 		} else {
 			props.controller.picker.clear();
@@ -620,26 +506,9 @@ function AppShellContent(props: AppShellContentProps) {
 			return true;
 		}
 
-		const pane = secondary.pane;
-		if (
-			pane.kind === "activity" ||
-			pane.kind === "scratchpad" ||
-			(pane.kind === "review" && pane.source.kind === "editor")
-		) {
-			workspace.restoreSecondary({ focus: "secondary" });
-			focusSecondarySurface();
-			return true;
-		}
-		switch (pane.kind) {
-			case "review":
-				if (pane.source.kind === "editor") {
-					workspace.openSecondary(pane);
-					focusReviewSurface();
-				} else {
-					openReviewAttachment(pane.source);
-				}
-				return true;
-		}
+		workspace.restoreSecondary({ focus: "secondary" });
+		focusSecondarySurface();
+		return true;
 	}
 
 	const workspaceCommandHandlers = {
@@ -882,21 +751,6 @@ function AppShellContent(props: AppShellContentProps) {
 								</box>
 							)}
 						</Show>
-						<Show keyed when={reviewSidebarSource()}>
-							{(source) => (
-								<Show when={resolveReviewSource(source)}>
-									{(resolved) => (
-										<ReviewAttachmentSidebar
-											review={resolved().review}
-											draft={resolved().draft}
-											cwd={props.runtime.getSession().cwd}
-											onEdit={resolved().draft ? editReviewDraft : undefined}
-											onClose={() => workspace.minimizeSecondary()}
-										/>
-									)}
-								</Show>
-							)}
-						</Show>
 						<Show when={scratchpadRetained()}>
 							<box
 								position="absolute"
@@ -967,7 +821,6 @@ function AppShellContent(props: AppShellContentProps) {
 							showToast={props.showToast}
 							openOverlay={props.openOverlay}
 							openActivity={openActivity}
-							openReviewAttachment={openReviewAttachment}
 						/>
 					</box>
 					<box flexShrink={0} flexDirection="column" gap={0}>
@@ -980,10 +833,7 @@ function AppShellContent(props: AppShellContentProps) {
 							attachments={props.attachments}
 							onOpenAttachment={(attachment) => {
 								if (attachment instanceof CodeReviewAttachment) {
-									openReviewAttachment({
-										kind: "draft",
-										attachmentId: attachment.id,
-									});
+									props.reviewWorkspace.open();
 									return;
 								}
 								void Promise.resolve(attachment.onOpen?.()).catch((error) => {
