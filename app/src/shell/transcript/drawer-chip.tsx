@@ -25,7 +25,7 @@ function nameColor(toolName: string): string {
  * assistant message) or a turn-work drawer (consolidated intermediate work).
  *
  * Clicking the chip invokes `onActivate` — currently used by callers to open
- * the activity dialog. The chip itself does not manage any expanded state.
+ * the activity panel. The chip itself does not manage any expanded state.
  *
  *   › N tool calls  Read · Grep · Edit       (idle)
  *   ⠋ N tool calls  Read · Grep · Edit       (any tool still running)
@@ -73,9 +73,15 @@ export function DrawerChip(props: {
 			gap={1}
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
-			onMouseDown={() => {
+			onMouseDown={(event) => {
 				if (renderer.getSelection()?.getSelectedText()) return;
+				event.preventDefault();
+				event.stopPropagation();
 				props.onActivate?.();
+			}}
+			onMouseUp={(event) => {
+				event.preventDefault();
+				event.stopPropagation();
 			}}
 		>
 			<Show

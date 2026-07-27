@@ -2,11 +2,15 @@ export const DEFAULT_WORKSPACE_PANE_RATIO = 0.4;
 
 export type WorkspaceFocusedSurface = "transcript" | "composer" | "secondary";
 
-export type WorkspaceNarrowTab = "transcript" | "review";
+export type WorkspaceNarrowTab = "transcript" | "secondary";
 
 export type WorkspaceSecondaryState<TPane extends { kind: string }> =
 	| { status: "empty" }
-	| { status: "open" | "minimized"; pane: TPane };
+	| {
+			status: "open" | "minimized";
+			pane: TPane;
+			returnPane?: TPane;
+	  };
 
 export type WorkspaceState<TPane extends { kind: string }> = {
 	secondary: WorkspaceSecondaryState<TPane>;
@@ -23,6 +27,12 @@ export type WorkspaceStateController<TPane extends { kind: string }> = {
 		pane: TPane,
 		options?: { focus?: WorkspaceFocusedSurface },
 	): void;
+	pushSecondary(
+		pane: TPane,
+		options?: { focus?: WorkspaceFocusedSurface },
+	): void;
+	popSecondary(options?: { focus?: WorkspaceFocusedSurface }): boolean;
+	restoreSecondary(options?: { focus?: WorkspaceFocusedSurface }): boolean;
 	minimizeSecondary(): void;
 	clearSecondary(): void;
 	setPreferredPaneRatio(ratio: number): void;
@@ -43,9 +53,7 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 	const initialSecondary = initial.secondary ?? { status: "empty" };
 	const initialFocus = initial.focusedSurface ?? "composer";
 	const initialNarrowTab = initial.narrowTab ?? "transcript";
-	const canSelectReviewTab =
-		initialSecondary.status === "open" &&
-		initialSecondary.pane.kind === "review";
+	const canSelectSecondaryTab = initialSecondary.status === "open";
 	let state: WorkspaceState<TPane> = {
 		secondary: initialSecondary,
 		preferredPaneRatio: normalizePreferredRatio(
@@ -56,7 +64,7 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 				? "composer"
 				: initialFocus,
 		narrowTab:
-			initialNarrowTab === "review" && !canSelectReviewTab
+			initialNarrowTab === "secondary" && !canSelectSecondaryTab
 				? "transcript"
 				: initialNarrowTab,
 	};
@@ -86,7 +94,7 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 					state.focusedSurface === "secondary"
 						? "composer"
 						: state.focusedSurface,
-				narrowTab: pane.kind === "review" ? state.narrowTab : "transcript",
+				narrowTab: "transcript",
 			});
 		},
 		openSecondary(pane, options) {
@@ -94,14 +102,58 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 				...state,
 				secondary: { status: "open", pane },
 				focusedSurface: options?.focus ?? state.focusedSurface,
-				narrowTab: pane.kind === "review" ? state.narrowTab : "transcript",
+				narrowTab: state.narrowTab,
 			});
+		},
+		pushSecondary(pane, options) {
+			const returnPane =
+				state.secondary.status === "open"
+					? (state.secondary.returnPane ?? state.secondary.pane)
+					: undefined;
+			update({
+				...state,
+				secondary: returnPane
+					? { status: "open", pane, returnPane }
+					: { status: "open", pane },
+				focusedSurface: options?.focus ?? state.focusedSurface,
+				narrowTab: state.narrowTab,
+			});
+		},
+		popSecondary(options) {
+			if (state.secondary.status !== "open" || !state.secondary.returnPane) {
+				return false;
+			}
+			update({
+				...state,
+				secondary: {
+					status: "open",
+					pane: state.secondary.returnPane,
+				},
+				focusedSurface: options?.focus ?? state.focusedSurface,
+				narrowTab: "secondary",
+			});
+			return true;
+		},
+		restoreSecondary(options) {
+			if (state.secondary.status !== "minimized") return false;
+			update({
+				...state,
+				secondary: { ...state.secondary, status: "open" },
+				focusedSurface: options?.focus ?? state.focusedSurface,
+			});
+			return true;
 		},
 		minimizeSecondary() {
 			if (state.secondary.status !== "open") return;
 			update({
 				...state,
-				secondary: { status: "minimized", pane: state.secondary.pane },
+				secondary: {
+					status: "minimized",
+					pane: state.secondary.pane,
+					...(state.secondary.returnPane
+						? { returnPane: state.secondary.returnPane }
+						: {}),
+				},
 				focusedSurface:
 					state.focusedSurface === "secondary"
 						? "composer"
@@ -134,11 +186,7 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 			update({ ...state, focusedSurface });
 		},
 		setNarrowTab(narrowTab) {
-			if (
-				narrowTab === "review" &&
-				(state.secondary.status !== "open" ||
-					state.secondary.pane.kind !== "review")
-			) {
+			if (narrowTab === "secondary" && state.secondary.status !== "open") {
 				return;
 			}
 			if (narrowTab === state.narrowTab) return;

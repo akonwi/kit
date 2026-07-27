@@ -57,7 +57,7 @@ function TurnWorkDrawer(props: {
 		),
 	);
 
-	function openDialog() {
+	function openActivity() {
 		props.openActivity({ kind: "turn-intermediate", turnId });
 	}
 
@@ -71,7 +71,7 @@ function TurnWorkDrawer(props: {
 			toolCalls={allToolCalls()}
 			toolResults={allToolResults()}
 			aborted={aborted()}
-			onActivate={openDialog}
+			onActivate={openActivity}
 			emptyLabel={stepLabel()}
 		/>
 	);

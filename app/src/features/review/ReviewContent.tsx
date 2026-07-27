@@ -8,7 +8,6 @@ import {
 	createResource,
 	createSignal,
 	For,
-	type JSX,
 	onCleanup,
 	Show,
 } from "solid-js";
@@ -41,6 +40,7 @@ import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
 import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
+import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
 import type { PickerOption } from "../../state/picker";
 import { createPickerManager } from "../../state/picker-manager";
 import type { ToastInput } from "../../state/toasts";
@@ -96,36 +96,6 @@ export type ReviewContentProps = {
 	active?: boolean;
 	onFocusRequest?: () => void;
 };
-
-type ReviewPaneLayoutProps = {
-	header: JSX.Element;
-	footer: JSX.Element;
-	children: JSX.Element;
-};
-
-function ReviewPaneLayout(props: ReviewPaneLayoutProps) {
-	return (
-		<box
-			width="100%"
-			height="100%"
-			backgroundColor={theme.bg}
-			flexDirection="column"
-		>
-			{props.header}
-			<box flexGrow={1} flexDirection="column" overflow="hidden">
-				{props.children}
-			</box>
-			<box
-				flexShrink={0}
-				paddingX={1}
-				border={["top"]}
-				borderColor={theme.borderDefault}
-			>
-				{props.footer}
-			</box>
-		</box>
-	);
-}
 
 type ReviewMode = "tree" | "patch";
 type ReviewSide = "additions" | "deletions";
@@ -2571,7 +2541,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	);
 
 	return (
-		<ReviewPaneLayout
+		<WorkspacePanelLayout
 			header={reviewHeader}
 			footer={
 				<KeymapHintBar
@@ -2825,7 +2795,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					/>
 				</Show>
 			</Show>
-		</ReviewPaneLayout>
+		</WorkspacePanelLayout>
 	);
 }
 

@@ -49,7 +49,7 @@ Only user-facing workflow commands are listed here. Setup, configuration, plugin
 | `workspace.shrink-secondary` | — | Shrink the secondary pane by approximately 5% |
 | `workspace.reset-layout` | — | Restore the default pane ratio |
 
-Focus commands select the corresponding tab in narrow review mode. Resize commands only act when both panes are visible, clamp to useful pane widths, and persist the resulting ratio. Workspace controls remain inactive while overlays or pickers have priority.
+Focus commands select the corresponding tab in narrow workspace mode. Resize commands only act when both panes are visible, clamp to useful pane widths, and persist the resulting ratio. Workspace controls remain inactive while overlays or pickers have priority.
 
 ### Command palette
 

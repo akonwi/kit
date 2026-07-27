@@ -87,29 +87,58 @@ describe("workspace state", () => {
 		workspace.openSecondary({ kind: "review" });
 		workspace.setPreferredPaneRatio(0.55);
 		workspace.setFocusedSurface("transcript");
-		workspace.setNarrowTab("review");
+		workspace.setNarrowTab("secondary");
 
 		expect(workspace.getState()).toMatchObject({
 			preferredPaneRatio: 0.55,
 			focusedSurface: "transcript",
-			narrowTab: "review",
+			narrowTab: "secondary",
 		});
 	});
 
-	test("keeps the review tab consistent with the active open pane", () => {
+	test("keeps the secondary tab consistent with pane visibility", () => {
 		const workspace = createWorkspaceStateController<Pane>();
-		workspace.setNarrowTab("review");
+		workspace.setNarrowTab("secondary");
 		expect(workspace.getState().narrowTab).toBe("transcript");
 
 		workspace.openSecondary({ kind: "review" });
-		workspace.setNarrowTab("review");
+		workspace.setNarrowTab("secondary");
 		workspace.minimizeSecondary();
 		expect(workspace.getState().narrowTab).toBe("transcript");
 
 		workspace.openSecondary({ kind: "review" });
-		workspace.setNarrowTab("review");
+		workspace.setNarrowTab("secondary");
 		workspace.openSecondary({ kind: "scratchpad" });
-		expect(workspace.getState().narrowTab).toBe("transcript");
+		expect(workspace.getState().narrowTab).toBe("secondary");
+	});
+
+	test("pushes a temporary pane and restores the previous pane", () => {
+		const workspace = createWorkspaceStateController<Pane>();
+		const review: Pane = { kind: "review", id: "draft" };
+		const activity: Pane = { kind: "scratchpad", id: "activity" };
+		workspace.openSecondary(review, { focus: "secondary" });
+		workspace.pushSecondary(activity, { focus: "secondary" });
+		const newerActivity: Pane = { kind: "scratchpad", id: "new-activity" };
+		workspace.pushSecondary(newerActivity, { focus: "secondary" });
+
+		expect(workspace.getState().secondary).toEqual({
+			status: "open",
+			pane: newerActivity,
+			returnPane: review,
+		});
+		workspace.minimizeSecondary();
+		expect(workspace.restoreSecondary({ focus: "secondary" })).toBe(true);
+		expect(workspace.getState().secondary).toEqual({
+			status: "open",
+			pane: newerActivity,
+			returnPane: review,
+		});
+		expect(workspace.popSecondary({ focus: "secondary" })).toBe(true);
+		expect(workspace.getState().secondary).toEqual({
+			status: "open",
+			pane: review,
+		});
+		expect(workspace.popSecondary()).toBe(false);
 	});
 
 	test("normalizes invalid preferred ratios without changing presentation state", () => {
@@ -133,11 +162,11 @@ describe("workspace state", () => {
 		const unsubscribe = workspace.subscribe((state) => states.push(state));
 
 		workspace.setNarrowTab("transcript");
-		workspace.setNarrowTab("review");
+		workspace.setNarrowTab("secondary");
 		unsubscribe();
 		workspace.setNarrowTab("transcript");
 
 		expect(states).toHaveLength(1);
-		expect(states[0]?.narrowTab).toBe("review");
+		expect(states[0]?.narrowTab).toBe("secondary");
 	});
 });

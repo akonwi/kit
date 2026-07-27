@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe("WorkspacePaneHost", () => {
 	test("retains the hidden secondary surface in narrow transcript mode", async () => {
-		const [selected, setSelected] = createSignal<"transcript" | "review">(
+		const [selected, setSelected] = createSignal<"transcript" | "secondary">(
 			"transcript",
 		);
 		let secondaryMounts = 0;
@@ -35,7 +35,11 @@ describe("WorkspacePaneHost", () => {
 					preferredPaneRatio={0.4}
 					minPrimaryColumns={70}
 					minSecondaryColumns={60}
-					narrowTabs={{ selected, onSelect: setSelected }}
+					narrowTabs={{
+						selected,
+						secondaryLabel: () => "Activity",
+						onSelect: setSelected,
+					}}
 					onPreferredPaneRatioChange={() => {}}
 					onPreferredPaneRatioCommit={() => {}}
 				>
@@ -46,6 +50,7 @@ describe("WorkspacePaneHost", () => {
 		);
 		await testSetup.renderOnce();
 		expect(testSetup.captureCharFrame()).toContain("transcript body");
+		expect(testSetup.captureCharFrame()).toContain("Activity");
 		expect(secondaryMounts).toBe(1);
 
 		expect(testSetup.captureCharFrame()).not.toContain("review body");
@@ -64,7 +69,8 @@ describe("WorkspacePaneHost", () => {
 					minPrimaryColumns={60}
 					minSecondaryColumns={60}
 					narrowTabs={{
-						selected: () => "review",
+						selected: () => "secondary",
+						secondaryLabel: () => "Code review",
 						onSelect: () => {},
 					}}
 					onPreferredPaneRatioChange={() => {}}

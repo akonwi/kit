@@ -20,8 +20,9 @@ export type WorkspacePaneHostProps = {
 	onPreferredPaneRatioCommit: (ratio: number) => void;
 	onDividerMouseDown?: () => void;
 	narrowTabs?: {
-		selected: () => "transcript" | "review";
-		onSelect: (tab: "transcript" | "review") => void;
+		selected: () => "transcript" | "secondary";
+		secondaryLabel: () => string;
+		onSelect: (tab: "transcript" | "secondary") => void;
 	};
 };
 
@@ -53,10 +54,10 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 		!narrowTabbed() || props.narrowTabs?.selected() === "transcript";
 	const secondaryVisible = () =>
 		layout() !== null ||
-		(narrowTabbed() && props.narrowTabs?.selected() === "review");
+		(narrowTabbed() && props.narrowTabs?.selected() === "secondary");
 
 	function selectNarrowTab(
-		tab: "transcript" | "review",
+		tab: "transcript" | "secondary",
 		event: MouseEvent,
 	): void {
 		if (event.button !== PRIMARY_MOUSE_BUTTON) return;
@@ -160,16 +161,16 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 				</text>
 				<text
 					fg={
-						props.narrowTabs?.selected() === "review"
+						props.narrowTabs?.selected() === "secondary"
 							? theme.textPrimary
 							: theme.textMuted
 					}
-					onMouseDown={(event) => selectNarrowTab("review", event)}
+					onMouseDown={(event) => selectNarrowTab("secondary", event)}
 				>
 					{narrowTabbed()
-						? props.narrowTabs?.selected() === "review"
-							? "[Code review]"
-							: "Code review"
+						? props.narrowTabs?.selected() === "secondary"
+							? `[${props.narrowTabs?.secondaryLabel() ?? "Secondary"}]`
+							: (props.narrowTabs?.secondaryLabel() ?? "Secondary")
 						: ""}
 				</text>
 			</box>
@@ -190,6 +191,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 					{props.children}
 				</box>
 				<box
+					position="relative"
 					flexShrink={0}
 					width={
 						props.secondaryOpen && secondaryVisible()

@@ -598,7 +598,7 @@ export function FlatAssistantEntry(props: {
 
 /**
  * Drawer chip for tool calls in a single assistant message. Clicking opens
- * the turn activity dialog with the message's prose + tool details, kept
+ * the turn activity panel with the message's prose + tool details, kept
  * live via the runtime.
  */
 export function ToolDrawer(props: {
@@ -610,7 +610,7 @@ export function ToolDrawer(props: {
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
 }) {
-	function openDialog() {
+	function openActivity() {
 		props.openActivity({ kind: "single-item", itemId: props.itemId });
 	}
 
@@ -619,7 +619,7 @@ export function ToolDrawer(props: {
 			toolCalls={props.toolCalls}
 			toolResults={props.toolResults}
 			aborted={props.aborted}
-			onActivate={openDialog}
+			onActivate={openActivity}
 		/>
 	);
 }
