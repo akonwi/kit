@@ -36,6 +36,48 @@ export const KEYBINDING_REGISTRY = {
 			group: "App",
 		},
 	},
+	workspace: {
+		"focus-next": {
+			defaultKeys: "f6",
+			desc: "Focus next workspace surface",
+			group: "App",
+		},
+		"focus-previous": {
+			defaultKeys: "shift+f6",
+			desc: "Focus previous workspace surface",
+			group: "App",
+		},
+		"focus-primary": {
+			defaultKeys: [],
+			desc: "Focus transcript and composer",
+			group: "App",
+		},
+		"focus-secondary": {
+			defaultKeys: [],
+			desc: "Focus secondary workspace pane",
+			group: "App",
+		},
+		"toggle-secondary": {
+			defaultKeys: [],
+			desc: "Minimize or restore secondary workspace pane",
+			group: "App",
+		},
+		"grow-secondary": {
+			defaultKeys: [],
+			desc: "Grow secondary workspace pane",
+			group: "App",
+		},
+		"shrink-secondary": {
+			defaultKeys: [],
+			desc: "Shrink secondary workspace pane",
+			group: "App",
+		},
+		"reset-layout": {
+			defaultKeys: [],
+			desc: "Reset workspace pane sizes",
+			group: "App",
+		},
+	},
 	"chrome-overflow": {
 		"move-up": {
 			defaultKeys: ["up", "k"],

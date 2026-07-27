@@ -66,12 +66,14 @@ import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 import {
+	resizeWorkspacePaneRatio,
 	resolveWorkspacePaneLayout,
 	WORKSPACE_MIN_PRIMARY_COLUMNS,
 	WORKSPACE_MIN_SECONDARY_COLUMNS,
 } from "./workspace-layout";
 import {
 	createWorkspaceStateController,
+	DEFAULT_WORKSPACE_PANE_RATIO,
 	type WorkspaceFocusedSurface,
 	type WorkspaceState,
 } from "./workspace-state";
@@ -500,10 +502,63 @@ function AppShellContent(props: AppShellContentProps) {
 		);
 	};
 
-	function cycleInputFocus(): void {
-		workspace.setFocusedSurface(
-			focusedSurface() === "secondary" ? "composer" : "secondary",
-		);
+	function focusSecondarySurface(): boolean {
+		if (!secondaryPaneVisible()) return false;
+		const pane = openSecondaryPane();
+		if (!pane) return false;
+		if (pane.kind === "review" && pane.source.kind === "editor") {
+			focusReviewSurface();
+		} else {
+			props.controller.picker.clear();
+			workspace.setFocusedSurface("secondary");
+		}
+		return true;
+	}
+
+	function cycleWorkspaceFocus(): boolean {
+		if (!secondaryPaneVisible()) return false;
+		if (focusedSurface() === "secondary") {
+			focusComposerSurface();
+			return true;
+		}
+		return focusSecondarySurface();
+	}
+
+	function resizeSecondaryPane(
+		direction: "grow-secondary" | "shrink-secondary",
+	): boolean {
+		if (!secondaryPaneVisible()) return false;
+		const ratio = resizeWorkspacePaneRatio({
+			availableColumns: Math.max(0, shellWidth() - 2),
+			preferredPaneRatio: workspaceState().preferredPaneRatio,
+			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
+			minSecondaryColumns: Math.max(
+				WORKSPACE_MIN_SECONDARY_COLUMNS,
+				secondaryPaneMinColumns(),
+			),
+			direction,
+		});
+		if (ratio === null) return false;
+		workspace.setPreferredPaneRatio(ratio);
+		props.onPreferredPaneRatioCommit(ratio);
+		return true;
+	}
+
+	function resetWorkspaceLayout(): boolean {
+		if (!secondaryPaneVisible()) return false;
+		const canSplit = resolveWorkspacePaneLayout({
+			availableColumns: Math.max(0, shellWidth() - 2),
+			preferredPaneRatio: workspaceState().preferredPaneRatio,
+			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
+			minSecondaryColumns: Math.max(
+				WORKSPACE_MIN_SECONDARY_COLUMNS,
+				secondaryPaneMinColumns(),
+			),
+		});
+		if (!canSplit) return false;
+		workspace.setPreferredPaneRatio(DEFAULT_WORKSPACE_PANE_RATIO);
+		props.onPreferredPaneRatioCommit(DEFAULT_WORKSPACE_PANE_RATIO);
+		return true;
 	}
 
 	const toggleScratchpad = () => {
@@ -525,6 +580,61 @@ function AppShellContent(props: AppShellContentProps) {
 		openScratchpadDialog();
 	};
 
+	function toggleSecondaryPane(): boolean {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		if (secondary.status === "open") {
+			if (secondary.pane.kind === "scratchpad") {
+				saveScratchpadDraftIfEditing();
+			}
+			workspace.minimizeSecondary();
+			focusComposerSurface();
+			return true;
+		}
+
+		const pane = secondary.pane;
+		switch (pane.kind) {
+			case "scratchpad":
+				toggleScratchpad();
+				return true;
+			case "activity":
+				openActivity(pane.source);
+				return true;
+			case "review":
+				if (pane.source.kind === "editor") {
+					workspace.openSecondary(pane);
+					focusReviewSurface();
+				} else {
+					openReviewAttachment(pane.source);
+				}
+				return true;
+		}
+	}
+
+	const workspaceCommandHandlers = {
+		"workspace.focus-next": cycleWorkspaceFocus,
+		"workspace.focus-previous": cycleWorkspaceFocus,
+		"workspace.focus-primary": () => {
+			focusComposerSurface();
+			return true;
+		},
+		"workspace.focus-secondary": focusSecondarySurface,
+		"workspace.toggle-secondary": toggleSecondaryPane,
+		"workspace.grow-secondary": () => resizeSecondaryPane("grow-secondary"),
+		"workspace.shrink-secondary": () => resizeSecondaryPane("shrink-secondary"),
+		"workspace.reset-layout": resetWorkspaceLayout,
+	} as const;
+	const workspaceKeymapHandlers = Object.fromEntries(
+		Object.entries(workspaceCommandHandlers).map(([name, execute]) => [
+			name,
+			() => {
+				if (props.controller.picker.visible) return false;
+				if (props.controller.commandPalette.visible) return false;
+				return execute();
+			},
+		]),
+	) as typeof workspaceCommandHandlers;
+
 	onCleanup(
 		props.commands.register({
 			name: "toggle-scratchpad",
@@ -535,6 +645,22 @@ function AppShellContent(props: AppShellContentProps) {
 			},
 		}),
 	);
+
+	const disposeWorkspaceCommands = Object.entries(workspaceCommandHandlers).map(
+		([name, execute]) =>
+			props.commands.register({
+				name,
+				description:
+					getKeybindingCommand(name)?.desc ?? "Control workspace layout",
+				category: "App",
+				execute: () => {
+					execute();
+				},
+			}),
+	);
+	onCleanup(() => {
+		for (const dispose of disposeWorkspaceCommands) dispose();
+	});
 
 	onCleanup(
 		props.commands.subscribe(() => {
@@ -562,6 +688,7 @@ function AppShellContent(props: AppShellContentProps) {
 				]),
 			),
 			commands: {
+				...workspaceKeymapHandlers,
 				"command-palette.open": () => {
 					props.controller.openCommandPalette();
 				},
@@ -577,7 +704,7 @@ function AppShellContent(props: AppShellContentProps) {
 					) {
 						return false;
 					}
-					cycleInputFocus();
+					return cycleWorkspaceFocus();
 				},
 			},
 			generatedCommands: Object.fromEntries(
