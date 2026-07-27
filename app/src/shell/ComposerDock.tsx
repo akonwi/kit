@@ -18,6 +18,7 @@ export type ComposerDockProps = {
 	onHeightChange?: (height: number) => void;
 	onModeChange?: (mode: ComposerInputMode) => void;
 	onOpenAttachment?: (attachment: Attachment) => void;
+	onFocusRequest?: () => void;
 };
 
 export type ComposerInputMode = "normal" | "bash" | "bash-excluded";
@@ -151,6 +152,9 @@ export function ComposerDock(props: ComposerDockProps) {
 			gap={0}
 			ref={(value) => {
 				dockRef = value;
+			}}
+			onMouseDown={(event) => {
+				if (event.button === 0) props.onFocusRequest?.();
 			}}
 			onSizeChange={() => {
 				if (dockRef) props.onHeightChange?.(dockRef.height);

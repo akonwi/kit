@@ -11,8 +11,13 @@ and submit that review back into Kit as a code-review attachment.
 
 - shows the current working-tree diff for the active repository
 - includes staged changes, unstaged changes, and untracked files that can be represented as patches
-- opens as a terminal overlay
+- opens as an editable secondary workspace pane alongside the transcript
+- uses a draggable divider and retains review state while the workspace resizes
+- refreshes the working-tree diff automatically while review remains open, without resetting unchanged file state
+- keeps commit and branch targets pinned to their selected revisions
+- switches to Transcript/Code review tabs when both panes cannot remain useful
 - shows a file list and a whole-file scrollable diff for the selected file
+- keeps the file tree persistently visible when the measured review pane crosses the review UI's existing wide-layout breakpoint
 - clearly marks skipped unchanged sections between change groups
 - lets you navigate to skipped-section rows and expand or collapse them individually while reviewing a file
 - supports unified and split diff views
@@ -40,7 +45,7 @@ In the file list:
 - `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
 - `x` clears the selected file note
-- `s` queues the current draft as an attachment and closes `/code-review`
+- `s` queues the current draft as an attachment and keeps the workspace open
 - `Esc` closes `/code-review`, also queueing any current draft notes
 
 ### Patch focus mode
@@ -59,7 +64,7 @@ When focused on a file diff:
 - `x` clears the selected saved line/range note, or cancels an active range selection
 - `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
-- `s` queues the current draft as an attachment and closes review
+- `s` queues the current draft as an attachment and keeps the workspace open
 - `Esc` cancels an active range selection first, then returns to the file list
 
 ## Review notes
@@ -72,11 +77,11 @@ Current in-TUI review drafts support:
 
 File notes and line/range notes are authored inline. In note editors, `Enter` saves, `Shift+Enter` inserts a newline, and `Esc` cancels editing.
 
-Closing review with committed notes creates or refreshes a visible code-review draft attachment in the composer. Clicking the draft attachment opens a read-only viewer in the right sidebar on wide terminals (or a dialog on narrow terminals); `e` opens the full review screen for editing. Reopening review edits the same in-memory draft, and closing it refreshes the attachment. Sending the next message consumes the attachment and clears that target's draft. Removing the attachment with `×` also discards that target's draft.
+Closing review with committed notes creates or refreshes a visible code-review draft attachment in the composer. Submitting from the review also creates or refreshes that attachment while keeping the workspace open. Clicking the draft attachment restores the editable review workspace. Reopening review edits the same in-memory draft, and closing it refreshes the attachment. Sending the next message keeps the review workspace open while consuming the attachment and clearing its submitted notes. Removing the attachment with `×` also discards that target's draft.
 
-Historical code-review attachments in the transcript are also clickable and open the same viewer in read-only mode. The viewer presents the structured review grouped by file, including file notes and addition/deletion line ranges. It lazily reconstructs bounded diff excerpts for committed reviews from their stored parent/head revisions and shows live excerpts for working-tree drafts. Historical working-tree reviews remain comment-only because their original uncommitted source is not retained. Excerpts are UI-only and are never added to the message payload or prompt.
+Historical code-review attachments render a compact summary in the transcript but are not interactive. The persistent review workspace remains the source for inspecting the current review target; Kit does not provide a separate read-only attachment viewer.
 
-Committed notes autosave in memory. Closing and reopening `/code-review` during the same active Kit session restores them inline, where they remain editable and removable. Uncommitted editor text is not retained. Changing Kit sessions or exiting Kit discards review drafts.
+Committed notes autosave in memory. Closing and reopening `/code-review` during the same active Kit session restores them inline, where they remain editable and removable. Uncommitted editor text is not retained. Live working-tree refresh pauses while a note editor is open so the edited target does not move underneath it. Changing Kit sessions or exiting Kit discards review drafts.
 
 Draft line coordinates are not reconciled when the underlying working tree changes while review is closed. Review drafts are intended for short-lived close/reopen workflows between agent turns.
 

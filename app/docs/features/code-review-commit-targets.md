@@ -10,8 +10,8 @@ arbitrary ranges, no graphs.
 
 ## Review targets
 
-The review screen holds a `target` — swappable in place, one review
-screen for all targets:
+The review surface holds a `target` — swappable in place, one surface
+for all targets:
 
 ```ts
 type ReviewTarget =
@@ -55,7 +55,7 @@ Two keybindings on the review hint bar:
 
 ### Target picker
 
-Tier 1 picker floating over the review screen, filterable by subject +
+Tier 1 picker floating over the review surface, filterable by subject +
 sha. Git state (commits, branches, merge bases) is snapshotted once when
 the picker opens; only draft-count decoration is reactive.
 
@@ -77,13 +77,13 @@ layers are suppressed.
 
 ## Communicating the current target
 
-- **Screen header crumb** (left slot): `Code review › <target>` — either
+- **Review header crumb** (left slot): `Code review › <target>` — either
   `working tree`, or `shortSha` (`metaText`) + subject (`textPrimary`;
   `<branch> vs <base>` for branch targets).
 - **Right slot**: file count and drafted-note count; committed targets
   prepend `committed <relative time>`.
 - The per-file source label in the diff pane header only appears when a
-  file's source diverges from the screen target (e.g. untracked files in
+  file's source diverges from the surface target (e.g. untracked files in
   working-tree mode).
 - Target-change notices render as a transient full-width strip above the
   panes.

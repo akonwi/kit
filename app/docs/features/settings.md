@@ -20,6 +20,8 @@ The current settings UI exposes:
 
 Settings are persisted to `~/.kit/settings.json`.
 
+The shell also persists the preferred secondary-pane ratio as `workspace.paneRatio` when its divider is dragged. Terminal resizing may clamp the displayed pane widths without overwriting this preference.
+
 ## Keybindings
 
 Some shell keybindings and registered slash commands can be customized in `~/.kit/settings.json` under `keybindings`. Values may be a key string, an array of key strings, or `false`/`null` to disable the binding.

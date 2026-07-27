@@ -1,5 +1,8 @@
 import { For, Show } from "solid-js";
-import type { ChromeContribution } from "./chrome-contributions";
+import type {
+	ChromeContribution,
+	ChromeTextStyle,
+} from "./chrome-contributions";
 import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
@@ -8,19 +11,38 @@ type ChromeContributionLineProps = {
 	fg?: string;
 	separatorFg?: string;
 	fallback?: string;
+	wrap?: boolean;
 };
 
 function handleClick(contribution: ChromeContribution) {
 	void contribution.onClick?.();
 }
 
-function ChromeContributionText(props: {
+function focusedSegmentStyle(
+	style: ChromeTextStyle | undefined,
+): ChromeTextStyle {
+	if (!style) return {};
+	const { fg: _fg, bg: _bg, ...attributes } = style;
+	return attributes;
+}
+
+export function ChromeContributionText(props: {
 	contribution: ChromeContribution;
 	fg?: string;
+	focused?: boolean;
 }) {
 	return (
 		<text
-			fg={props.fg}
+			fg={props.focused ? theme.pickerFocusedText : props.fg}
+			bg={props.focused ? theme.pickerFocusedBg : undefined}
+			onMouseDown={
+				props.contribution.onClick
+					? (event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}
+					: undefined
+			}
 			onMouseUp={
 				props.contribution.onClick
 					? () => handleClick(props.contribution)
@@ -32,7 +54,15 @@ function ChromeContributionText(props: {
 					// The Solid reconciler only applies span styling through the
 					// `style` object prop; direct fg/bg/attributes props are
 					// silently ignored on text nodes.
-					<span style={segment.style ?? {}}>{segment.text}</span>
+					<span
+						style={
+							props.focused
+								? focusedSegmentStyle(segment.style)
+								: (segment.style ?? {})
+						}
+					>
+						{segment.text}
+					</span>
 				)}
 			</For>
 		</text>
@@ -47,18 +77,18 @@ export function ChromeContributionLine(props: ChromeContributionLineProps) {
 		>
 			<box
 				flexDirection="row"
-				flexWrap="wrap"
+				flexWrap={props.wrap === false ? "no-wrap" : "wrap"}
 				maxWidth="100%"
 				overflow="hidden"
 			>
 				<For each={props.contributions}>
 					{(contribution, index) => (
 						<>
-							<Show when={index() > 0}>
+							{index() > 0 ? (
 								<text fg={props.separatorFg ?? theme.textMuted}>
 									{` ${MIDDLE_DOT} `}
 								</text>
-							</Show>
+							) : null}
 							<ChromeContributionText
 								contribution={contribution}
 								fg={props.fg}

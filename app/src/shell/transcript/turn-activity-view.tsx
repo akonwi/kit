@@ -112,7 +112,7 @@ function buildSectionsForSource(
 	// Pass the in-progress turn id through so the source turn folds into a
 	// turn-work display item even when grouping wouldn't normally produce
 	// one (e.g. ≤ 1 assistant item so far, or bash/handoff-only activity).
-	// Without this, an open sidebar can show "No activity to display" until
+	// Without this, an open panel can show "No activity to display" until
 	// enough messages accumulate or the turn completes.
 	const displayItems = groupItemsForDisplay(items, inProgressTurnId);
 	for (const d of displayItems) {
@@ -160,7 +160,7 @@ export type TurnActivityModel = {
  *
  * Note: `source` is captured by value. The reactive model is built once at
  * creation and does not observe later changes to the parameter. Callers
- * that need to swap sources (e.g. the sidebar) must re-mount the
+ * that need to swap sources (e.g. the activity panel) must re-mount the
  * consuming component (e.g. with `<Show keyed>`) so this function re-runs
  * with the new source.
  */
@@ -341,8 +341,8 @@ export function createTurnActivityModel(
 }
 
 /**
- * Inner section list rendered identically by the modal dialog and the
- * sidebar. Wrapped in a scrollbox by the caller so each chrome can apply
+ * Inner section list rendered inside the workspace activity panel.
+ * Wrapped in a scrollbox by the caller so panel chrome can apply
  * its own padding/border around the scroll region.
  */
 export function TurnActivitySectionList(props: { model: TurnActivityModel }) {

@@ -13,6 +13,23 @@ describe("sanitizeSettings", () => {
 	});
 });
 
+describe("sanitizeSettings workspace", () => {
+	test("keeps and clamps a finite preferred pane ratio", () => {
+		expect(
+			sanitizeSettings({ workspace: { paneRatio: 0.55 } }).workspace?.paneRatio,
+		).toBe(0.55);
+		expect(
+			sanitizeSettings({ workspace: { paneRatio: 2 } }).workspace?.paneRatio,
+		).toBe(0.9);
+	});
+
+	test("drops an invalid preferred pane ratio", () => {
+		expect(
+			sanitizeSettings({ workspace: { paneRatio: "wide" } }).workspace,
+		).toBeUndefined();
+	});
+});
+
 describe("sanitizeSettings keybindings", () => {
 	test("keeps string, array, false, and null keybinding values", () => {
 		const settings = sanitizeSettings({

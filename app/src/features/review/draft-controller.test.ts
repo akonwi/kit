@@ -80,6 +80,57 @@ describe("review draft controller", () => {
 		expect(controller.getDraft(token, "/repo", commit).fileNotes.size).toBe(0);
 	});
 
+	test("consumes only notes unchanged since the submitted snapshot", () => {
+		const controller = createReviewDraftController("session-a");
+		const token = controller.currentToken();
+		const target: ReviewTarget = { kind: "working" };
+		const submitted: ReviewDraftState = {
+			fileNotes: new Map([
+				["working:->a.ts", "submitted"],
+				["working:->b.ts", "submitted"],
+			]),
+			rangeNotes: new Map([["a.ts::additions:1:1", "submitted range"]]),
+		};
+		controller.saveDraft(token, "/repo", target, {
+			fileNotes: new Map([
+				["working:->a.ts", "edited later"],
+				["working:->b.ts", "submitted"],
+				["working:->c.ts", "new note"],
+			]),
+			rangeNotes: new Map([["a.ts::additions:1:1", "submitted range"]]),
+		});
+
+		controller.consumeDraft(token, "/repo", target, submitted);
+		const remaining = controller.getDraft(token, "/repo", target);
+
+		expect(remaining.fileNotes).toEqual(
+			new Map([
+				["working:->a.ts", "edited later"],
+				["working:->c.ts", "new note"],
+			]),
+		);
+		expect(remaining.rangeNotes.size).toBe(0);
+	});
+
+	test("notifies subscribers when drafts are cleared or reset", () => {
+		const controller = createReviewDraftController("session-a");
+		const token = controller.currentToken();
+		const events: string[] = [];
+		const unsubscribe = controller.subscribe((event) =>
+			events.push(event.type),
+		);
+
+		controller.clearDraft(token, "/repo", { kind: "working" });
+		controller.consumeDraft(token, "/repo", { kind: "working" }, draft(""));
+		controller.resetForSession("session-b");
+		unsubscribe();
+		controller.clearDraft(controller.currentToken(), "/repo", {
+			kind: "working",
+		});
+
+		expect(events).toEqual(["cleared", "consumed", "reset"]);
+	});
+
 	test("remembers the last target per repository", () => {
 		const controller = createReviewDraftController("session-a");
 		const token = controller.currentToken();

@@ -212,16 +212,9 @@ function TranscriptView(props: {
 						const results = toolResultsForTurn(turn);
 						return (
 							<For each={turn.messages}>
-								{(message, index) => {
+								{(message) => {
 									if (message.role === "user") {
-										return (
-											<UserEntry
-												msg={message}
-												sourceId={`${turn.id}:${index()}`}
-												showToast={() => {}}
-												openReviewAttachment={() => {}}
-											/>
-										);
+										return <UserEntry msg={message} showToast={() => {}} />;
 									}
 									if (message.role === "assistant") {
 										return (

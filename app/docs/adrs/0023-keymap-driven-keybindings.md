@@ -8,7 +8,7 @@ Accepted
 
 Kit currently handles keyboard shortcuts through scattered `useKeyboard` callbacks, focused input handlers, and component-local key checks. This makes shortcuts harder to standardize, inspect, test, and expose as a user customization surface.
 
-A keybinding customization model should bind keys to stable application commands rather than to implementation-specific event handlers. It should also support layered/focus-aware behavior because Kit has overlapping input surfaces: the composer, pickers, command palette, overlays, review screens, pager, and future plugin-provided UI.
+A keybinding customization model should bind keys to stable application commands rather than to implementation-specific event handlers. It should also support layered/focus-aware behavior because Kit has overlapping input surfaces: the composer, pickers, command palette, overlays, review surfaces, pager, and future plugin-provided UI.
 
 OpenTUI Keymap is a host-agnostic key/command engine for terminal and DOM-like apps. It provides layered bindings, priorities, focus/focus-within scoping, command metadata, multi-key sequences, pending-sequence state, active binding queries, and addons for common binding syntax and behavior. Those capabilities align with Kit's goals for more standard, stable, flexible, and discoverable key handling.
 

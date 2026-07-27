@@ -13,7 +13,7 @@ export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 export type ReviewDiffSource = "working" | "untracked" | "commit";
 
 /**
- * What the review screen is diffing.
+ * What the review surface is diffing.
  *
  * - `working` — working tree vs HEAD plus untracked files (default).
  * - `commit` — a single commit vs its (first) parent.
@@ -693,7 +693,6 @@ const EAGER_SKIPPED_SECTIONS_FILE_LIMIT = 50;
 function fileToReviewFile(
 	file: FileDiffMetadata,
 	rawPatch: string,
-	index: number,
 	options: {
 		cwd?: string;
 		repoRoot: string;
@@ -722,7 +721,7 @@ function fileToReviewFile(
 		),
 	);
 	const changeCount = hunks.reduce((sum, hunk) => sum + hunk.changeCount, 0);
-	const id = `${noteKey}:${index}`;
+	const id = noteKey;
 	const skippedSections = options.includeSkippedSections
 		? buildSkippedSectionsForFile(
 				id,
@@ -793,18 +792,13 @@ function reviewFilesFromPatchSets(options: {
 	for (const patchSet of options.patchSets) {
 		for (const [index, file] of patchSet.files.entries()) {
 			reviewFiles.push(
-				fileToReviewFile(
-					file,
-					patchSet.rawFiles[index] ?? "",
-					reviewFiles.length,
-					{
-						cwd: options.cwd,
-						repoRoot: options.repoRoot,
-						source: patchSet.source,
-						includeSkippedSections,
-						revisions: options.revisions,
-					},
-				),
+				fileToReviewFile(file, patchSet.rawFiles[index] ?? "", {
+					cwd: options.cwd,
+					repoRoot: options.repoRoot,
+					source: patchSet.source,
+					includeSkippedSections,
+					revisions: options.revisions,
+				}),
 			);
 		}
 	}
@@ -838,33 +832,6 @@ export async function loadReviewFiles(
 		repoRoot,
 		revisions: revisions ?? undefined,
 		patchSets,
-	});
-}
-
-/** Load an explicit immutable revision range, including branch merge-base diffs. */
-export async function loadReviewFilesForRevisions(
-	cwd: string | undefined,
-	before: string,
-	after: string,
-): Promise<ReviewFile[]> {
-	await yieldToRenderer();
-	const repoRoot = getGitRepoRoot(cwd);
-	if (!repoRoot) return [];
-	const revisions: ReviewRevisions = {
-		before,
-		after,
-		key: `range:${before}:${after}`,
-	};
-	const patchSet = parseReviewPatchSet(
-		getRevisionDiff(cwd, before, after),
-		"commit",
-	);
-	if (!patchSet) return [];
-	return reviewFilesFromPatchSets({
-		cwd,
-		repoRoot,
-		revisions,
-		patchSets: [patchSet],
 	});
 }
 

@@ -11,17 +11,12 @@ import {
 	extractAssistantParts,
 	type TranscriptItem,
 } from "./turns";
-import type {
-	OpenActivity,
-	OpenReviewAttachment,
-	TranscriptToast,
-} from "./types";
+import type { OpenActivity, TranscriptToast } from "./types";
 import { UserEntry } from "./user-entry";
 
 /**
  * Chip for the consolidated intermediate work of a turn. Clicking opens the
- * turn activity view (sidebar on wide terminals, modal otherwise), kept
- * live via the runtime.
+ * turn activity workspace panel, kept live via the runtime.
  */
 function TurnWorkDrawer(props: {
 	items: TranscriptItem[];
@@ -57,7 +52,7 @@ function TurnWorkDrawer(props: {
 		),
 	);
 
-	function openDialog() {
+	function openActivity() {
 		props.openActivity({ kind: "turn-intermediate", turnId });
 	}
 
@@ -71,7 +66,7 @@ function TurnWorkDrawer(props: {
 			toolCalls={allToolCalls()}
 			toolResults={allToolResults()}
 			aborted={aborted()}
-			onActivate={openDialog}
+			onActivate={openActivity}
 			emptyLabel={stepLabel()}
 		/>
 	);
@@ -83,7 +78,6 @@ export function TurnEntry(props: {
 	showToast: (toast: TranscriptToast) => void;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
-	openReviewAttachment: OpenReviewAttachment;
 }) {
 	if (props.displayItem.kind === "turn-work") {
 		return (
@@ -102,10 +96,8 @@ export function TurnEntry(props: {
 			return (
 				<UserEntry
 					msg={item.message}
-					sourceId={item.id}
 					aborted={item.aborted}
 					showToast={props.showToast}
-					openReviewAttachment={props.openReviewAttachment}
 				/>
 			);
 		case "assistant":

@@ -1,11 +1,27 @@
 import { describe, expect, test } from "bun:test";
-import { createPickerCommandMetadata } from "./registry";
+import { createPickerCommandMetadata, getKeybindingCommand } from "./registry";
 import type {
 	GeneratedKeymapLayerCommandHandlers,
 	KeymapLayerCommandHandlers,
 } from "./useKeymapLayer";
 
 describe("keybinding registry", () => {
+	test("only binds workspace focus cycling by default", () => {
+		expect(getKeybindingCommand("workspace.focus-next")?.defaultKeys).toBe(
+			"f6",
+		);
+		expect(getKeybindingCommand("workspace.focus-previous")?.defaultKeys).toBe(
+			"shift+f6",
+		);
+		expect(
+			getKeybindingCommand("workspace.toggle-secondary")?.defaultKeys,
+		).toEqual([]);
+		expect(
+			getKeybindingCommand("workspace.grow-secondary")?.defaultKeys,
+		).toEqual([]);
+		expect(getKeybindingCommand("scratchpad.focus-next")).toBeUndefined();
+	});
+
 	test("creates namespaced picker command metadata", () => {
 		const metadata = createPickerCommandMetadata("command-palette", {
 			includeComplete: true,

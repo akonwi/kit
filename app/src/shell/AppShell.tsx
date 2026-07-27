@@ -9,31 +9,38 @@ import {
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
 import { CodeReviewAttachment } from "../features/review/attachment";
-import {
-	ReviewAttachmentDialog,
-	ReviewAttachmentSidebar,
-	type ReviewAttachmentSource,
-	reviewAttachmentSourceEquals,
-} from "../features/review/ReviewAttachmentViewer";
+import type { ReviewDraftController } from "../features/review/draft-controller";
+import { ReviewContent } from "../features/review/ReviewContent";
+import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import {
-	SCRATCHPAD_FRACTION,
 	SCRATCHPAD_MIN_COLS,
-	SCRATCHPAD_MIN_WIDTH,
-	ScratchpadDialog,
 	ScratchpadPanel,
 } from "../features/scratchpad/ScratchpadPanel";
 import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
 import { getKeybindingCommand } from "../keymap/registry";
 import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import type { Settings } from "../settings";
+import {
+	type ReviewDiffView,
+	resolveDiffSettings,
+	type Settings,
+	updateSettings,
+} from "../settings";
 import type { AppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
-import { BottomStatusBar } from "./BottomStatusBar";
+import {
+	BottomStatusBar,
+	VCS_LOCATION_CONTRIBUTION_ID,
+} from "./BottomStatusBar";
+import {
+	ChromeOverflowPicker,
+	type ChromeOverflowPlacement,
+} from "./ChromeOverflowPicker";
 import { CommandPalette } from "./CommandPalette";
 import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
+import type { ChromeContribution } from "./chrome-contributions";
 import type { ComposerController } from "./composer-controller";
 import type { FooterStatusController } from "./footer-status";
 import { HeaderBar } from "./HeaderBar";
@@ -45,28 +52,30 @@ import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
-import { TurnActivityDialog } from "./transcript/TurnActivityDialog";
-import { TurnActivitySidebar } from "./transcript/TurnActivitySidebar";
+import { TurnActivityPanel } from "./transcript/TurnActivityPanel";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
+import { WorkspacePaneHost } from "./WorkspacePaneHost";
+import {
+	resizeWorkspacePaneRatio,
+	resolveWorkspacePaneLayout,
+	WORKSPACE_MIN_PRIMARY_COLUMNS,
+	WORKSPACE_MIN_SECONDARY_COLUMNS,
+} from "./workspace-layout";
+import {
+	createWorkspaceStateController,
+	DEFAULT_WORKSPACE_PANE_RATIO,
+	type WorkspaceFocusedSurface,
+	type WorkspaceState,
+} from "./workspace-state";
 
-/**
- * Terminal width (in columns) at which the turn activity view is shown as
- * a right-side sidebar alongside the transcript. Below this threshold it
- * falls back to the existing modal dialog.
- */
-const ACTIVITY_SIDEBAR_MIN_WIDTH = 200;
+const ACTIVITY_MIN_COLS = 40;
+const REVIEW_MIN_COLS = 60;
 
-/** Sidebar width as a fraction of terminal width when shown. */
-const ACTIVITY_SIDEBAR_FRACTION = 0.4;
-
-type RightPanel =
+type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
-	| { kind: "review"; source: ReviewAttachmentSource }
-	| { kind: "scratchpad" }
-	| null;
-
-type FocusedInput = "composer" | "scratchpad";
+	| { kind: "review" }
+	| { kind: "scratchpad" };
 
 export type AppShellProps = {
 	settings: Settings;
@@ -77,6 +86,8 @@ export type AppShellProps = {
 	attachments: AttachmentsController;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	reviewDrafts: ReviewDraftController;
+	reviewWorkspace: ReviewWorkspaceController;
 	scratchpad: ScratchpadController;
 	overlays: () => OverlayEntry[];
 	openOverlay: OpenOverlay;
@@ -90,6 +101,10 @@ export type AppShellProps = {
 
 type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
 	showToast: (toast: ToastInput) => void;
+	preferredPaneRatio: number | undefined;
+	defaultReviewDiffView: ReviewDiffView;
+	onReviewDiffViewChanged: (view: ReviewDiffView) => void;
+	onPreferredPaneRatioCommit: (ratio: number) => void;
 };
 
 function activitySourceEquals(a: ActivitySource, b: ActivitySource): boolean {
@@ -106,17 +121,19 @@ function commandKeybindingGroup(command: Command): string {
 	return dot > 0 ? command.name.slice(0, dot) : "Commands";
 }
 
-export function shouldHandleScratchpadFocusNext(options: {
-	scratchpadOpen: boolean;
+export function shouldRestoreComposerFocus(options: {
 	overlayOpen: boolean;
+	chromeOverflowOpen: boolean;
 	pickerVisible: boolean;
 	commandPaletteVisible: boolean;
+	focusedSurface: WorkspaceFocusedSurface;
 }): boolean {
 	return (
-		options.scratchpadOpen &&
 		!options.overlayOpen &&
+		!options.chromeOverflowOpen &&
 		!options.pickerVisible &&
-		!options.commandPaletteVisible
+		!options.commandPaletteVisible &&
+		options.focusedSurface === "composer"
 	);
 }
 
@@ -128,86 +145,178 @@ function AppShellContent(props: AppShellContentProps) {
 	const [commandRegistryVersion, setCommandRegistryVersion] = createSignal(0);
 	const renderer = useRenderer();
 	let transcriptRef: { width: number; height: number } | undefined;
+	const [transcriptWidth, setTranscriptWidth] = createSignal(
+		renderer.terminalWidth,
+	);
 
-	// Track outer terminal width so we can switch the turn activity view
-	// between sidebar (wide) and modal (narrow) modes responsively.
+	// Track outer terminal width for responsive workspace presentation.
 	const [shellWidth, setShellWidth] = createSignal(renderer.terminalWidth);
 	let shellRef: { width: number; height: number } | undefined;
 
-	const [rightPanel, setRightPanel] = createSignal<RightPanel>(null);
-	const [focusedInput, setFocusedInput] =
-		createSignal<FocusedInput>("composer");
-
-	const activityWideEnough = () => shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH;
-	const scratchpadWideEnough = () => shellWidth() >= SCRATCHPAD_MIN_WIDTH;
-	const sidebarSource = () => {
-		const panel = rightPanel();
-		return panel?.kind === "activity" && activityWideEnough()
-			? panel.source
-			: null;
+	const workspace = createWorkspaceStateController<WorkspacePane>({
+		preferredPaneRatio: props.preferredPaneRatio,
+	});
+	const [workspaceState, setWorkspaceState] = createSignal<
+		WorkspaceState<WorkspacePane>
+	>(workspace.getState());
+	onCleanup(workspace.subscribe(setWorkspaceState));
+	const openSecondaryPane = () => {
+		const secondary = workspaceState().secondary;
+		return secondary.status === "open" ? secondary.pane : null;
 	};
-	const reviewSidebarSource = () => {
-		const panel = rightPanel();
-		return panel?.kind === "review" && activityWideEnough()
-			? panel.source
-			: null;
-	};
-	const resolveReviewSource = (source: ReviewAttachmentSource) => {
-		if (source.kind === "historical") {
-			return { draft: false, review: source.review };
+	const focusedSurface = () => workspaceState().focusedSurface;
+	function focusComposerSurface(): void {
+		workspace.setNarrowTab("transcript");
+		workspace.setFocusedSurface("composer");
+	}
+	function focusReviewSurface(): void {
+		props.controller.picker.clear();
+		workspace.setNarrowTab("secondary");
+		workspace.setFocusedSurface("secondary");
+	}
+	onCleanup(
+		props.reviewWorkspace.subscribe(() => {
+			saveScratchpadDraftIfEditing();
+			workspace.openSecondary({ kind: "review" });
+			focusReviewSurface();
+		}),
+	);
+	createEffect(() => {
+		if (props.preferredPaneRatio !== undefined) {
+			workspace.setPreferredPaneRatio(props.preferredPaneRatio);
 		}
-		const attachment = props.attachments
-			.attachments()
-			.find((candidate) => candidate.id === source.attachmentId);
-		return attachment instanceof CodeReviewAttachment
-			? { draft: true, review: attachment.review }
-			: null;
+	});
+	const [chromeOverflow, setChromeOverflow] = createSignal<{
+		title: string;
+		placement: ChromeOverflowPlacement;
+	} | null>(null);
+	const [chromeContributionVersion, setChromeContributionVersion] =
+		createSignal(0);
+	onCleanup(
+		props.header.subscribe(() =>
+			setChromeContributionVersion((version) => version + 1),
+		),
+	);
+	onCleanup(
+		props.footer.subscribe(() =>
+			setChromeContributionVersion((version) => version + 1),
+		),
+	);
+
+	function currentOverflowContributions(): readonly ChromeContribution[] {
+		void chromeContributionVersion();
+		const overflow = chromeOverflow();
+		if (!overflow) return [];
+		if (overflow.placement === "header") {
+			return props.header.getContributions();
+		}
+		return props.footer
+			.getContributions()
+			.filter((item) => item.id !== VCS_LOCATION_CONTRIBUTION_ID);
+	}
+
+	function openChromeOverflow(
+		title: string,
+		placement: ChromeOverflowPlacement,
+		contributions: readonly ChromeContribution[],
+	) {
+		if (contributions.length === 0) return;
+		if (props.overlays().length > 0) return;
+		if (props.controller.picker.visible) return;
+		if (props.controller.commandPalette.visible) return;
+		setChromeOverflow({ title, placement });
+	}
+
+	createEffect(() => {
+		if (!chromeOverflow()) return;
+		if (
+			currentOverflowContributions().length === 0 ||
+			props.overlays().length > 0 ||
+			props.controller.picker.visible ||
+			props.controller.commandPalette.visible
+		) {
+			setChromeOverflow(null);
+		}
+	});
+
+	const activitySource = () => {
+		const panel = openSecondaryPane();
+		return panel?.kind === "activity" ? panel.source : null;
 	};
-	const scratchpadOpen = () =>
-		rightPanel()?.kind === "scratchpad" && scratchpadWideEnough();
-	const sidebarWidth = () =>
-		Math.max(40, Math.floor(shellWidth() * ACTIVITY_SIDEBAR_FRACTION));
-	const scratchpadWidth = () =>
-		Math.max(
-			SCRATCHPAD_MIN_COLS,
-			Math.floor(shellWidth() * SCRATCHPAD_FRACTION),
+	const isEditableReviewPane = (pane: WorkspacePane | null | undefined) =>
+		pane?.kind === "review";
+	const editableReviewOpen = () => isEditableReviewPane(openSecondaryPane());
+	const editableReviewRetained = () => {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		return (
+			isEditableReviewPane(secondary.pane) ||
+			isEditableReviewPane(secondary.returnPane)
 		);
-
-	// If the terminal narrows below the sidebar threshold while a sidebar
-	// is open, close it. (Users can reopen the activity view; it will
-	// fall back to the modal at the new width.)
-	createEffect(() => {
-		const panel = rightPanel();
-		if (!panel) return;
-		if (
-			(panel.kind === "activity" || panel.kind === "review") &&
-			!activityWideEnough()
-		) {
-			setRightPanel(null);
-		}
-		if (panel.kind === "scratchpad" && !scratchpadWideEnough()) {
-			if (props.scratchpad.editing()) openScratchpadDialog();
-			setRightPanel(null);
-			setFocusedInput("composer");
-		}
-	});
-
-	createEffect(() => {
-		const panel = rightPanel();
-		if (
-			panel?.kind === "review" &&
-			panel.source.kind === "draft" &&
-			!resolveReviewSource(panel.source)
-		) {
-			setRightPanel(null);
-		}
-	});
+	};
+	const isScratchpadPane = (pane: WorkspacePane | null | undefined) =>
+		pane?.kind === "scratchpad";
+	const scratchpadOpen = () => isScratchpadPane(openSecondaryPane());
+	const scratchpadRetained = () => {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		return (
+			isScratchpadPane(secondary.pane) || isScratchpadPane(secondary.returnPane)
+		);
+	};
+	const secondaryPaneVisible = () =>
+		editableReviewOpen() || activitySource() !== null || scratchpadOpen();
+	const secondaryPaneMinColumns = () => {
+		const pane = openSecondaryPane();
+		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
+		if (pane?.kind === "review") return REVIEW_MIN_COLS;
+		return ACTIVITY_MIN_COLS;
+	};
+	const supportsNarrowWorkspaceTabs = () =>
+		editableReviewOpen() || activitySource() !== null || scratchpadOpen();
+	const workspaceUsesNarrowTabs = () =>
+		supportsNarrowWorkspaceTabs() &&
+		resolveWorkspacePaneLayout({
+			availableColumns: Math.max(0, shellWidth() - 2),
+			preferredPaneRatio: workspaceState().preferredPaneRatio,
+			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
+			minSecondaryColumns: Math.max(
+				WORKSPACE_MIN_SECONDARY_COLUMNS,
+				secondaryPaneMinColumns(),
+			),
+		}) === null;
+	const secondaryPaneLabel = () => {
+		if (activitySource() !== null) return "Activity";
+		if (scratchpadOpen()) return "Scratchpad";
+		return "Code review";
+	};
 
 	onCleanup(
 		props.runtime.subscribe("session.active.changed", () => {
-			const panel = rightPanel();
-			if (panel?.kind === "review" || panel?.kind === "activity") {
-				setRightPanel(null);
+			const state = workspaceState();
+			const secondary = state.secondary;
+			if (secondary.status === "empty") return;
+			const scratchpad =
+				secondary.pane.kind === "scratchpad"
+					? secondary.pane
+					: secondary.returnPane?.kind === "scratchpad"
+						? secondary.returnPane
+						: null;
+			if (scratchpad) {
+				if (secondary.status === "open") {
+					workspace.openSecondary(scratchpad, {
+						focus: state.focusedSurface,
+					});
+				} else {
+					workspace.setActiveSecondary(scratchpad);
+				}
+				return;
+			}
+			if (
+				secondary.pane.kind === "review" ||
+				secondary.pane.kind === "activity"
+			) {
+				workspace.clearSecondary();
 			}
 		}),
 	);
@@ -239,114 +348,192 @@ function AppShellContent(props: AppShellContentProps) {
 	}
 
 	const openActivity: OpenActivity = (source) => {
-		if (shellWidth() >= ACTIVITY_SIDEBAR_MIN_WIDTH) {
-			// Re-clicking the same chip while its sidebar is open is a no-op;
-			// a different chip swaps the content.
-			const current = rightPanel();
-			if (
-				current?.kind === "activity" &&
-				activitySourceEquals(current.source, source)
-			) {
-				return;
-			}
-			saveScratchpadDraftIfEditing();
-			setFocusedInput("composer");
-			setRightPanel({ kind: "activity", source });
+		const current = openSecondaryPane();
+		if (
+			current?.kind === "activity" &&
+			activitySourceEquals(current.source, source)
+		) {
+			focusSecondarySurface();
 			return;
 		}
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<unknown>): JSX.Element => (
-				<TurnActivityDialog
-					runtime={props.runtime}
-					source={source}
-					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
+		saveScratchpadDraftIfEditing();
+		if (current?.kind === "activity") {
+			const secondary = workspaceState().secondary;
+			if (secondary.status === "open" && secondary.returnPane) {
+				workspace.replaceSecondary(
+					{ kind: "activity", source },
+					{ focus: "secondary" },
+				);
+			} else {
+				workspace.openSecondary(
+					{ kind: "activity", source },
+					{ focus: "secondary" },
+				);
+			}
+		} else if (current) {
+			workspace.pushSecondary(
+				{ kind: "activity", source },
+				{ focus: "secondary" },
+			);
+		} else {
+			workspace.openSecondary(
+				{ kind: "activity", source },
+				{ focus: "secondary" },
+			);
+		}
+		focusSecondarySurface();
 	};
 
-	function editReviewDraft(): void {
-		setRightPanel(null);
-		const command = props.commands
-			.getAll()
-			.find((candidate) => candidate.name === "code-review");
-		if (!command) return;
-		queueMicrotask(() => {
-			void props.controller.runCommand(command, "");
-		});
+	function closeTemporaryPanel(): void {
+		if (!workspace.popSecondary({ focus: "secondary" })) {
+			workspace.minimizeSecondary();
+			focusComposerSurface();
+			return;
+		}
+
+		if (!focusSecondarySurface()) focusComposerSurface();
 	}
 
-	const openReviewAttachment = (source: ReviewAttachmentSource) => {
-		const resolved = resolveReviewSource(source);
-		if (!resolved) return;
-		if (activityWideEnough()) {
-			const current = rightPanel();
-			if (
-				current?.kind === "review" &&
-				reviewAttachmentSourceEquals(current.source, source)
-			) {
-				return;
-			}
-			saveScratchpadDraftIfEditing();
-			setFocusedInput("composer");
-			setRightPanel({ kind: "review", source });
-			return;
+	function closeActivityPanel(): void {
+		closeTemporaryPanel();
+	}
+
+	function focusSecondarySurface(): boolean {
+		if (!secondaryPaneVisible()) return false;
+		const pane = openSecondaryPane();
+		if (!pane) return false;
+		if (pane.kind === "review") {
+			focusReviewSurface();
+		} else {
+			props.controller.picker.clear();
+			workspace.setNarrowTab("secondary");
+			workspace.setFocusedSurface("secondary");
 		}
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
-				<ReviewAttachmentDialog
-					review={resolved.review}
-					draft={resolved.draft}
-					cwd={props.runtime.getSession().cwd}
-					onEdit={resolved.draft ? editReviewDraft : undefined}
-					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
-	};
+		return true;
+	}
 
-	const openScratchpadDialog = () => {
-		setFocusedInput("composer");
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
-				<ScratchpadDialog
-					controller={props.scratchpad}
-					done={(result) => {
-						setFocusedInput("composer");
-						overlayProps.done(result);
-					}}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
-	};
+	function cycleWorkspaceFocus(): boolean {
+		if (!secondaryPaneVisible()) return false;
+		if (focusedSurface() === "secondary") {
+			focusComposerSurface();
+			return true;
+		}
+		return focusSecondarySurface();
+	}
 
-	function cycleInputFocus(): void {
-		setFocusedInput(
-			focusedInput() === "scratchpad" ? "composer" : "scratchpad",
-		);
+	function resizeSecondaryPane(
+		direction: "grow-secondary" | "shrink-secondary",
+	): boolean {
+		if (!secondaryPaneVisible()) return false;
+		const ratio = resizeWorkspacePaneRatio({
+			availableColumns: Math.max(0, shellWidth() - 2),
+			preferredPaneRatio: workspaceState().preferredPaneRatio,
+			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
+			minSecondaryColumns: Math.max(
+				WORKSPACE_MIN_SECONDARY_COLUMNS,
+				secondaryPaneMinColumns(),
+			),
+			direction,
+		});
+		if (ratio === null) return false;
+		workspace.setPreferredPaneRatio(ratio);
+		props.onPreferredPaneRatioCommit(ratio);
+		return true;
+	}
+
+	function resetWorkspaceLayout(): boolean {
+		if (!secondaryPaneVisible()) return false;
+		const canSplit = resolveWorkspacePaneLayout({
+			availableColumns: Math.max(0, shellWidth() - 2),
+			preferredPaneRatio: workspaceState().preferredPaneRatio,
+			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
+			minSecondaryColumns: Math.max(
+				WORKSPACE_MIN_SECONDARY_COLUMNS,
+				secondaryPaneMinColumns(),
+			),
+		});
+		if (!canSplit) return false;
+		workspace.setPreferredPaneRatio(DEFAULT_WORKSPACE_PANE_RATIO);
+		props.onPreferredPaneRatioCommit(DEFAULT_WORKSPACE_PANE_RATIO);
+		return true;
+	}
+
+	function closeScratchpadPanel(): void {
+		saveScratchpadDraftIfEditing();
+		closeTemporaryPanel();
 	}
 
 	const toggleScratchpad = () => {
-		const panel = rightPanel();
+		const secondary = workspaceState().secondary;
+		const panel = openSecondaryPane();
 		if (panel?.kind === "scratchpad") {
-			saveScratchpadDraftIfEditing();
-			setRightPanel(null);
-			setFocusedInput("composer");
+			closeScratchpadPanel();
 			return;
 		}
-		if (scratchpadWideEnough()) {
-			setRightPanel({ kind: "scratchpad" });
-			setFocusedInput("scratchpad");
+		if (
+			secondary.status === "open" &&
+			secondary.returnPane?.kind === "scratchpad"
+		) {
+			workspace.popSecondary({ focus: "secondary" });
+			focusSecondarySurface();
 			return;
 		}
-		openScratchpadDialog();
+		if (
+			secondary.status === "minimized" &&
+			secondary.pane.kind === "scratchpad"
+		) {
+			workspace.restoreSecondary({ focus: "secondary" });
+			focusSecondarySurface();
+			return;
+		}
+		if (panel) {
+			workspace.pushSecondary({ kind: "scratchpad" }, { focus: "secondary" });
+		} else {
+			workspace.openSecondary({ kind: "scratchpad" }, { focus: "secondary" });
+		}
+		focusSecondarySurface();
 	};
+
+	function toggleSecondaryPane(): boolean {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		if (secondary.status === "open") {
+			if (secondary.pane.kind === "scratchpad") {
+				saveScratchpadDraftIfEditing();
+			}
+			workspace.minimizeSecondary();
+			focusComposerSurface();
+			return true;
+		}
+
+		workspace.restoreSecondary({ focus: "secondary" });
+		focusSecondarySurface();
+		return true;
+	}
+
+	const workspaceCommandHandlers = {
+		"workspace.focus-next": cycleWorkspaceFocus,
+		"workspace.focus-previous": cycleWorkspaceFocus,
+		"workspace.focus-primary": () => {
+			focusComposerSurface();
+			return true;
+		},
+		"workspace.focus-secondary": focusSecondarySurface,
+		"workspace.toggle-secondary": toggleSecondaryPane,
+		"workspace.grow-secondary": () => resizeSecondaryPane("grow-secondary"),
+		"workspace.shrink-secondary": () => resizeSecondaryPane("shrink-secondary"),
+		"workspace.reset-layout": resetWorkspaceLayout,
+	} as const;
+	const workspaceKeymapHandlers = Object.fromEntries(
+		Object.entries(workspaceCommandHandlers).map(([name, execute]) => [
+			name,
+			() => {
+				if (props.controller.picker.visible) return false;
+				if (props.controller.commandPalette.visible) return false;
+				return execute();
+			},
+		]),
+	) as typeof workspaceCommandHandlers;
 
 	onCleanup(
 		props.commands.register({
@@ -358,6 +545,22 @@ function AppShellContent(props: AppShellContentProps) {
 			},
 		}),
 	);
+
+	const disposeWorkspaceCommands = Object.entries(workspaceCommandHandlers).map(
+		([name, execute]) =>
+			props.commands.register({
+				name,
+				description:
+					getKeybindingCommand(name)?.desc ?? "Control workspace layout",
+				category: "App",
+				execute: () => {
+					execute();
+				},
+			}),
+	);
+	onCleanup(() => {
+		for (const dispose of disposeWorkspaceCommands) dispose();
+	});
 
 	onCleanup(
 		props.commands.subscribe(() => {
@@ -372,7 +575,7 @@ function AppShellContent(props: AppShellContentProps) {
 			.filter((command) => !getKeybindingCommand(command.name));
 		return {
 			scope: "app",
-			when: () => props.overlays().length === 0,
+			when: () => props.overlays().length === 0 && chromeOverflow() === null,
 			commandMetadata: Object.fromEntries(
 				bindableCommands.map((command) => [
 					command.name,
@@ -385,23 +588,11 @@ function AppShellContent(props: AppShellContentProps) {
 				]),
 			),
 			commands: {
+				...workspaceKeymapHandlers,
 				"command-palette.open": () => {
 					props.controller.openCommandPalette();
 				},
 				"queue-editor.open": openQueueEditor,
-				"scratchpad.focus-next": () => {
-					if (
-						!shouldHandleScratchpadFocusNext({
-							scratchpadOpen: scratchpadOpen(),
-							overlayOpen: props.overlays().length > 0,
-							pickerVisible: props.controller.picker.visible,
-							commandPaletteVisible: props.controller.commandPalette.visible,
-						})
-					) {
-						return false;
-					}
-					cycleInputFocus();
-				},
 			},
 			generatedCommands: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -420,8 +611,13 @@ function AppShellContent(props: AppShellContentProps) {
 		<box
 			width="100%"
 			height="100%"
+			border
+			borderColor={theme.borderDefault}
 			flexDirection="column"
 			backgroundColor={theme.bg}
+			onMouseDown={() => {
+				if (chromeOverflow()) setChromeOverflow(null);
+			}}
 			onMouseUp={() => copySelection(renderer)}
 			ref={(value) => {
 				shellRef = value as typeof shellRef;
@@ -434,19 +630,178 @@ function AppShellContent(props: AppShellContentProps) {
 				runtime={props.runtime}
 				header={props.header}
 				sessionName={props.state.sessionMeta.name}
+				shellWidth={shellWidth()}
+				transcriptWidth={transcriptWidth()}
+				showContextProgress={
+					!workspaceUsesNarrowTabs() ||
+					workspaceState().narrowTab === "transcript"
+				}
 				onHeightChange={setHeaderHeight}
+				onOpenOverflow={(contributions) =>
+					openChromeOverflow("Header status", "header", contributions)
+				}
+				onOverflowAvailabilityChange={(available) => {
+					if (!available && chromeOverflow()?.placement === "header") {
+						setChromeOverflow(null);
+					}
+				}}
 			/>
 
 			{/*
 			 * Main row sits between the full-width HeaderBar and
 			 * BottomStatusBar. The left column holds the transcript + the
 			 * composer stack (pending slot, composer dock); when the
-			 * activity sidebar is open it mounts to the right and extends
+			 * activity panel is open it mounts to the right and extends
 			 * the full height of this row so pending/composer UI no longer
 			 * bleeds under it.
 			 */}
-			<box flexGrow={1} flexDirection="row">
-				<box flexGrow={1} flexDirection="column">
+			<WorkspacePaneHost
+				secondaryOpen={secondaryPaneVisible()}
+				initialWidth={Math.max(1, shellWidth() - 2)}
+				preferredPaneRatio={workspaceState().preferredPaneRatio}
+				minPrimaryColumns={WORKSPACE_MIN_PRIMARY_COLUMNS}
+				minSecondaryColumns={Math.max(
+					WORKSPACE_MIN_SECONDARY_COLUMNS,
+					secondaryPaneMinColumns(),
+				)}
+				onPreferredPaneRatioChange={(ratio) =>
+					workspace.setPreferredPaneRatio(ratio)
+				}
+				onPreferredPaneRatioCommit={props.onPreferredPaneRatioCommit}
+				onDividerMouseDown={() => renderer.clearSelection()}
+				narrowTabs={
+					supportsNarrowWorkspaceTabs()
+						? {
+								selected: () => workspaceState().narrowTab,
+								secondaryLabel: secondaryPaneLabel,
+								onSelect: (tab) => {
+									if (tab === "secondary") focusSecondarySurface();
+									else focusComposerSurface();
+								},
+							}
+						: undefined
+				}
+				secondary={
+					<>
+						<Show when={editableReviewRetained()}>
+							<box
+								position="absolute"
+								left={editableReviewOpen() ? 0 : -1000}
+								top={0}
+								width="100%"
+								height="100%"
+								border={workspaceUsesNarrowTabs() ? false : ["left"]}
+								borderColor={theme.borderDefault}
+								onMouseDown={(event) => {
+									if (event.button === 0) focusReviewSurface();
+								}}
+							>
+								<ReviewContent
+									onClose={() => {
+										workspace.minimizeSecondary();
+										workspace.setNarrowTab("transcript");
+										workspace.setFocusedSurface("composer");
+									}}
+									attachments={props.attachments}
+									reviewDrafts={props.reviewDrafts}
+									toast={props.showToast}
+									defaultDiffView={props.defaultReviewDiffView}
+									onDiffViewChanged={props.onReviewDiffViewChanged}
+									onFocusRequest={focusReviewSurface}
+									active={
+										editableReviewOpen() &&
+										focusedSurface() === "secondary" &&
+										props.overlays().length === 0 &&
+										chromeOverflow() === null &&
+										!props.controller.picker.visible &&
+										!props.controller.commandPalette.visible
+									}
+								/>
+							</box>
+						</Show>
+						{/* `keyed` so swapping activity sources remounts the model,
+						 * which captures its source statically at creation. */}
+						<Show keyed when={activitySource()}>
+							{(source) => (
+								<box
+									position="absolute"
+									left={0}
+									top={0}
+									width="100%"
+									height="100%"
+									border={workspaceUsesNarrowTabs() ? false : ["left"]}
+									borderColor={theme.borderDefault}
+									onMouseDown={(event) => {
+										if (event.button === 0) focusSecondarySurface();
+									}}
+								>
+									<TurnActivityPanel
+										runtime={props.runtime}
+										source={source}
+										active={
+											focusedSurface() === "secondary" &&
+											props.overlays().length === 0 &&
+											chromeOverflow() === null &&
+											!props.controller.picker.visible &&
+											!props.controller.commandPalette.visible
+										}
+										onClose={closeActivityPanel}
+										onFocusRequest={focusSecondarySurface}
+									/>
+								</box>
+							)}
+						</Show>
+						<Show when={scratchpadRetained()}>
+							<box
+								position="absolute"
+								left={scratchpadOpen() ? 0 : -1000}
+								top={0}
+								width="100%"
+								height="100%"
+							>
+								<ScratchpadPanel
+									controller={props.scratchpad}
+									showEdgeBorder={!workspaceUsesNarrowTabs()}
+									active={
+										scratchpadOpen() &&
+										props.overlays().length === 0 &&
+										chromeOverflow() === null &&
+										!props.controller.picker.visible &&
+										!props.controller.commandPalette.visible &&
+										focusedSurface() === "secondary"
+									}
+									onClose={closeScratchpadPanel}
+									onFocusRequest={focusSecondarySurface}
+								/>
+							</box>
+						</Show>
+					</>
+				}
+			>
+				<box
+					flexGrow={1}
+					flexDirection="column"
+					onMouseUp={(event) => {
+						if (event.button !== 0) return;
+						if (renderer.getSelection()?.getSelectedText()) return;
+						focusComposerSurface();
+						queueMicrotask(() => {
+							if (
+								!shouldRestoreComposerFocus({
+									overlayOpen: props.overlays().length > 0,
+									chromeOverflowOpen: chromeOverflow() !== null,
+									pickerVisible: props.controller.picker.visible,
+									commandPaletteVisible:
+										props.controller.commandPalette.visible,
+									focusedSurface: focusedSurface(),
+								})
+							) {
+								return;
+							}
+							props.controller.focusTextarea();
+						});
+					}}
+				>
 					<box
 						flexGrow={1}
 						ref={(value) => {
@@ -454,6 +809,7 @@ function AppShellContent(props: AppShellContentProps) {
 						}}
 						onSizeChange={() => {
 							if (!transcriptRef) return;
+							setTranscriptWidth(transcriptRef.width);
 							props.onTranscriptViewportChange({
 								width: transcriptRef.width,
 								height: transcriptRef.height,
@@ -465,7 +821,6 @@ function AppShellContent(props: AppShellContentProps) {
 							showToast={props.showToast}
 							openOverlay={props.openOverlay}
 							openActivity={openActivity}
-							openReviewAttachment={openReviewAttachment}
 						/>
 					</box>
 					<box flexShrink={0} flexDirection="column" gap={0}>
@@ -478,10 +833,7 @@ function AppShellContent(props: AppShellContentProps) {
 							attachments={props.attachments}
 							onOpenAttachment={(attachment) => {
 								if (attachment instanceof CodeReviewAttachment) {
-									openReviewAttachment({
-										kind: "draft",
-										attachmentId: attachment.id,
-									});
+									props.reviewWorkspace.open();
 									return;
 								}
 								void Promise.resolve(attachment.onOpen?.()).catch((error) => {
@@ -493,78 +845,59 @@ function AppShellContent(props: AppShellContentProps) {
 									});
 								});
 							}}
-							locked={props.overlays().length > 0}
+							locked={props.overlays().length > 0 || chromeOverflow() !== null}
 							inputFocused={
-								focusedInput() === "composer" || props.overlays().length > 0
+								chromeOverflow() === null &&
+								(focusedSurface() === "composer" || props.overlays().length > 0)
 							}
 							onHeightChange={setDockHeight}
 							onModeChange={setComposerMode}
+							onFocusRequest={focusComposerSurface}
 						/>
 					</box>
-					{/* Inline @/# reference picker floats just above the
-					 * composer. Mounting it inside the left column constrains
-					 * its absolute positioning to the column, so when the
-					 * sidebar is open the picker no longer bleeds across it.
-					 * `bottom` only accounts for the composer dock height
-					 * because the status bar lives outside this column. */}
+					{/* Inline @/# reference picker is constrained to the primary
+					 * workspace column and floats above the composer dock. */}
 					<InlinePicker
 						picker={props.controller.picker}
 						bottomOffset={dockHeight() + 2}
 					/>
 				</box>
-				{/* `keyed` so swapping to a different ActivitySource re-mounts
-				 * the sidebar. The model captures `source` statically at
-				 * creation, so without keyed the sidebar would keep showing
-				 * source A even after sidebarActivity changes to B. */}
-				<Show keyed when={sidebarSource()}>
-					{(source) => (
-						<box flexShrink={0} width={sidebarWidth()} height="100%">
-							<TurnActivitySidebar
-								runtime={props.runtime}
-								source={source}
-								onClose={() => setRightPanel(null)}
-							/>
-						</box>
-					)}
-				</Show>
-				<Show keyed when={reviewSidebarSource()}>
-					{(source) => (
-						<Show when={resolveReviewSource(source)}>
-							{(resolved) => (
-								<box flexShrink={0} width={sidebarWidth()} height="100%">
-									<ReviewAttachmentSidebar
-										review={resolved().review}
-										draft={resolved().draft}
-										cwd={props.runtime.getSession().cwd}
-										onEdit={resolved().draft ? editReviewDraft : undefined}
-										onClose={() => setRightPanel(null)}
-									/>
-								</box>
-							)}
-						</Show>
-					)}
-				</Show>
-				<Show when={scratchpadOpen()}>
-					<box flexShrink={0} width={scratchpadWidth()} height="100%">
-						<ScratchpadPanel
-							controller={props.scratchpad}
-							active={
-								props.overlays().length === 0 && focusedInput() === "scratchpad"
-							}
-							onClose={() => {
-								setRightPanel(null);
-								setFocusedInput("composer");
-							}}
-						/>
-					</box>
-				</Show>
-			</box>
+			</WorkspacePaneHost>
 
 			<BottomStatusBar
 				runtime={props.runtime}
 				status={props.footer}
 				composerMode={composerMode()}
+				shellWidth={shellWidth()}
+				onOpenOverflow={(contributions) =>
+					openChromeOverflow("Footer status", "footer", contributions)
+				}
+				onOverflowAvailabilityChange={(available) => {
+					if (!available && chromeOverflow()?.placement === "footer") {
+						setChromeOverflow(null);
+					}
+				}}
 			/>
+
+			<Show when={chromeOverflow()}>
+				{(overflow) => (
+					<ChromeOverflowPicker
+						title={overflow().title}
+						placement={overflow().placement}
+						contributions={currentOverflowContributions()}
+						width={Math.max(1, Math.min(72, shellWidth() - 2))}
+						onClose={() => setChromeOverflow(null)}
+						onError={(error) => {
+							props.showToast({
+								title: "Status action failed",
+								subtitle:
+									error instanceof Error ? error.message : String(error),
+								variant: "error",
+							});
+						}}
+					/>
+				)}
+			</Show>
 
 			{/* Composer picker only serves @/# references */}
 			<CommandPalette picker={props.controller.commandPalette} />
@@ -604,6 +937,36 @@ export function AppShell(props: AppShellProps) {
 		}),
 	);
 
+	function persistReviewDiffView(view: ReviewDiffView): void {
+		void updateSettings((current) => ({
+			...current,
+			diffs: { view },
+		}))
+			.then((next) => props.runtime.emitSettingsChanged(next))
+			.catch((error) => {
+				props.showToast({
+					title: "Failed to save diff view",
+					subtitle: error instanceof Error ? error.message : String(error),
+					variant: "error",
+				});
+			});
+	}
+
+	function persistPreferredPaneRatio(ratio: number): void {
+		void updateSettings((current) => ({
+			...current,
+			workspace: { ...current.workspace, paneRatio: ratio },
+		}))
+			.then((next) => props.runtime.emitSettingsChanged(next))
+			.catch((error) => {
+				props.showToast({
+					title: "Could not save workspace layout",
+					subtitle: error instanceof Error ? error.message : String(error),
+					variant: "error",
+				});
+			});
+	}
+
 	return (
 		<KeymapLayerProvider
 			keybindings={() => settings().keybindings}
@@ -617,12 +980,18 @@ export function AppShell(props: AppShellProps) {
 				attachments={props.attachments}
 				footer={props.footer}
 				header={props.header}
+				reviewDrafts={props.reviewDrafts}
+				reviewWorkspace={props.reviewWorkspace}
 				scratchpad={props.scratchpad}
 				overlays={props.overlays}
 				openOverlay={props.openOverlay}
 				dismissToast={props.dismissToast}
 				onTranscriptViewportChange={props.onTranscriptViewportChange}
 				showToast={props.showToast}
+				preferredPaneRatio={settings().workspace?.paneRatio}
+				defaultReviewDiffView={resolveDiffSettings(settings().diffs).view}
+				onReviewDiffViewChanged={persistReviewDiffView}
+				onPreferredPaneRatioCommit={persistPreferredPaneRatio}
 			/>
 		</KeymapLayerProvider>
 	);

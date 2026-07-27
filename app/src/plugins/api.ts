@@ -7,7 +7,7 @@ import type {
 	RuntimeEventPrefixSubscription,
 	ToolApprovalRequest,
 } from "../runtime/agent-runtime";
-import { saveSettings } from "../settings";
+import { updateSettings } from "../settings";
 import { openExternal } from "../shell/open-external";
 import { resolveAndApplyTheme } from "../shell/theme";
 import type {
@@ -150,9 +150,11 @@ export function createPluginAPI(
 		get: () => ctx.settings.settings,
 		update: async (patch: Parameters<PluginAPI["settings"]["update"]>[0]) => {
 			const previousTheme = ctx.settings.settings.theme ?? "system";
-			const next = { ...ctx.settings.settings, ...patch };
+			const next = await updateSettings((current) => ({
+				...current,
+				...patch,
+			}));
 			const nextTheme = next.theme ?? "system";
-			await saveSettings(next);
 			ctx.settings.settings = next;
 			if (nextTheme !== previousTheme) {
 				await resolveAndApplyTheme(nextTheme);

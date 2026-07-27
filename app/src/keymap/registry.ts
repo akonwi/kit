@@ -36,6 +36,74 @@ export const KEYBINDING_REGISTRY = {
 			group: "App",
 		},
 	},
+	workspace: {
+		"focus-next": {
+			defaultKeys: "f6",
+			desc: "Focus next workspace surface",
+			group: "App",
+		},
+		"focus-previous": {
+			defaultKeys: "shift+f6",
+			desc: "Focus previous workspace surface",
+			group: "App",
+		},
+		"focus-primary": {
+			defaultKeys: [],
+			desc: "Focus transcript and composer",
+			group: "App",
+		},
+		"focus-secondary": {
+			defaultKeys: [],
+			desc: "Focus secondary workspace pane",
+			group: "App",
+		},
+		"toggle-secondary": {
+			defaultKeys: [],
+			desc: "Minimize or restore secondary workspace pane",
+			group: "App",
+		},
+		"grow-secondary": {
+			defaultKeys: [],
+			desc: "Grow secondary workspace pane",
+			group: "App",
+		},
+		"shrink-secondary": {
+			defaultKeys: [],
+			desc: "Shrink secondary workspace pane",
+			group: "App",
+		},
+		"reset-layout": {
+			defaultKeys: [],
+			desc: "Reset workspace pane sizes",
+			group: "App",
+		},
+	},
+	"chrome-overflow": {
+		"move-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Select previous status contribution",
+			group: "status",
+			hint: "move",
+		},
+		"move-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Select next status contribution",
+			group: "status",
+			hint: "move",
+		},
+		activate: {
+			defaultKeys: "enter",
+			desc: "Activate status contribution",
+			group: "status",
+			hint: "open",
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Close status contributions",
+			group: "status",
+			hint: "close",
+		},
+	},
 	composer: {
 		"open-attachment": {
 			defaultKeys: "ctrl+o",
@@ -228,39 +296,12 @@ export const KEYBINDING_REGISTRY = {
 	"turn-activity": {
 		close: {
 			defaultKeys: "escape",
-			desc: "Close turn activity dialog",
+			desc: "Close turn activity panel",
 			group: "turn-activity",
 			hint: "close",
 		},
 	},
-	"review-attachment": {
-		close: {
-			defaultKeys: "escape",
-			desc: "Close code review attachment",
-			group: "review-attachment",
-			hint: "close",
-		},
-	},
-	"review-draft": {
-		edit: {
-			defaultKeys: "e",
-			desc: "Edit code review draft",
-			group: "review-draft",
-			hint: "edit",
-		},
-		close: {
-			defaultKeys: "escape",
-			desc: "Close code review draft",
-			group: "review-draft",
-			hint: "close",
-		},
-	},
 	scratchpad: {
-		"focus-next": {
-			defaultKeys: "tab",
-			desc: "Focus next input",
-			group: "App",
-		},
 		close: {
 			defaultKeys: "escape",
 			desc: "Close scratchpad",

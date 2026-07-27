@@ -8,6 +8,7 @@ import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { ImageAttachment } from "../features/images/attachment";
 import type { ReviewDraftController } from "../features/review/draft-controller";
+import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import { type MessagePart, messagePartToPromptText } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
@@ -24,6 +25,7 @@ export type TextareaHandle = {
 	cursorOffset: number;
 	setText: (value: string) => void;
 	insertText: (text: string) => void;
+	focus: () => void;
 };
 
 export type ComposerControllerDeps = {
@@ -33,6 +35,7 @@ export type ComposerControllerDeps = {
 	threadIndex: ThreadIndex | null;
 	attachments: AttachmentsController;
 	reviewDrafts: ReviewDraftController;
+	reviewWorkspace: ReviewWorkspaceController;
 	toast: (toast: ToastInput) => void;
 	_reload: () => Promise<void>;
 	openCustomOverlay: <T>(
@@ -50,6 +53,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		threadIndex,
 		attachments,
 		reviewDrafts,
+		reviewWorkspace,
 		toast,
 		_reload,
 		openCustomOverlay,
@@ -63,6 +67,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	function setTextarea(ref: TextareaHandle | undefined) {
 		textareaRef = ref;
+	}
+
+	function focusTextarea(): void {
+		textareaRef?.focus();
 	}
 
 	function getTextareaText(): string {
@@ -89,6 +97,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				toast,
 				attachments,
 				reviewDrafts,
+				reviewWorkspace,
 				_reload,
 				openCustomOverlay,
 			});
@@ -627,6 +636,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		openCommandPalette,
 		runCommand: executeCommand,
 		setTextarea,
+		focusTextarea,
 		handlePaste,
 		handleTextChange,
 		handleSubmit,

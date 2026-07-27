@@ -1,19 +1,11 @@
-import { createEffect, createSignal, Show } from "solid-js";
-import type {
-	OverlayComponentProps,
-	OverlaySurfaceProps,
-} from "../../app/overlay-ui";
+import { createEffect, createSignal } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
-import { Dialog } from "../../shell/Dialog";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
+import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
 import type { ScratchpadController } from "./controller";
 
-export const SCRATCHPAD_MIN_WIDTH = 120;
-export const SCRATCHPAD_FRACTION = 0.3;
 export const SCRATCHPAD_MIN_COLS = 30;
-
-export type ScratchpadSurfaceMode = "panel" | "dialog";
 
 type TextareaRef = {
 	plainText: string;
@@ -23,7 +15,6 @@ type TextareaRef = {
 
 type ScratchpadContentProps = {
 	controller: ScratchpadController;
-	mode: ScratchpadSurfaceMode;
 	active?: boolean;
 	onClose: () => void;
 	onEditingChange?: (editing: boolean) => void;
@@ -34,7 +25,6 @@ function ScratchpadContent(props: ScratchpadContentProps) {
 
 	const active = () => props.active !== false;
 	const draft = () => props.controller.draft();
-	const scope = () => (props.mode === "dialog" ? "modal" : "panel");
 
 	function close(): void {
 		props.controller.autosaveDraft();
@@ -58,7 +48,7 @@ function ScratchpadContent(props: ScratchpadContentProps) {
 	});
 
 	useKeymapLayer(() => ({
-		scope: scope(),
+		scope: "panel",
 		when: active,
 		diagnosticsWhen: active,
 		commands: {
@@ -67,68 +57,43 @@ function ScratchpadContent(props: ScratchpadContentProps) {
 	}));
 
 	return (
-		<box
-			width="100%"
-			height="100%"
-			flexDirection="column"
-			backgroundColor={props.mode === "dialog" ? theme.bgSurface : theme.bg}
-		>
-			<Show when={props.mode === "panel"}>
-				<box
-					flexShrink={0}
-					paddingX={1}
-					border={["bottom"]}
-					borderColor={theme.borderDefault}
-				>
-					<text fg={theme.textPrimary}>Scratchpad</text>
-				</box>
-			</Show>
-
-			<textarea
-				ref={(value) => {
-					textareaRef = value as TextareaRef | undefined;
-					try {
-						textareaRef?.setText(draft());
-						if (textareaRef) textareaRef.cursorOffset = draft().length;
-					} catch {
-						textareaRef = undefined;
-					}
-				}}
-				flexGrow={1}
-				paddingX={1}
-				placeholder="Type notes..."
-				placeholderColor={theme.textPlaceholder}
-				backgroundColor={props.mode === "dialog" ? theme.bgSurface : theme.bg}
-				focusedBackgroundColor={
-					props.mode === "dialog" ? theme.bgSurface : theme.bg
+		<textarea
+			ref={(value) => {
+				textareaRef = value as TextareaRef | undefined;
+				try {
+					textareaRef?.setText(draft());
+					if (textareaRef) textareaRef.cursorOffset = draft().length;
+				} catch {
+					textareaRef = undefined;
 				}
-				textColor={theme.textPrimary}
-				focusedTextColor={theme.textPrimary}
-				cursorColor={theme.cursor}
-				showCursor={active()}
-				wrapMode="word"
-				overflow="scroll"
-				focused={active()}
-				keyBindings={[{ name: "return", shift: true, action: "newline" }]}
-				onContentChange={() =>
-					props.controller.setDraft(textareaRef?.plainText ?? "")
-				}
-			/>
-
-			<box flexShrink={0}>
-				<KeymapHintBar
-					group="scratchpad"
-					borderless={props.mode === "dialog"}
-				/>
-			</box>
-		</box>
+			}}
+			flexGrow={1}
+			paddingX={1}
+			placeholder="Type notes..."
+			placeholderColor={theme.textPlaceholder}
+			backgroundColor={theme.bg}
+			focusedBackgroundColor={theme.bg}
+			textColor={theme.textPrimary}
+			focusedTextColor={theme.textPrimary}
+			cursorColor={theme.cursor}
+			showCursor={active()}
+			wrapMode="word"
+			overflow="scroll"
+			focused={active()}
+			keyBindings={[{ name: "return", shift: true, action: "newline" }]}
+			onContentChange={() =>
+				props.controller.setDraft(textareaRef?.plainText ?? "")
+			}
+		/>
 	);
 }
 
 export type ScratchpadPanelProps = {
 	controller: ScratchpadController;
 	active?: boolean;
+	showEdgeBorder?: boolean;
 	onClose: () => void;
+	onFocusRequest?: () => void;
 };
 
 export function ScratchpadPanel(props: ScratchpadPanelProps) {
@@ -137,45 +102,32 @@ export function ScratchpadPanel(props: ScratchpadPanelProps) {
 		<box
 			width="100%"
 			height="100%"
-			border={["left"]}
+			border={props.showEdgeBorder === false ? false : ["left"]}
 			borderColor={editing() ? theme.borderAccent : theme.borderDefault}
+			onMouseDown={(event) => {
+				if (event.button === 0) props.onFocusRequest?.();
+			}}
 		>
-			<ScratchpadContent
-				controller={props.controller}
-				mode="panel"
-				active={props.active}
-				onClose={props.onClose}
-				onEditingChange={setEditing}
-			/>
-		</box>
-	);
-}
-
-export type ScratchpadDialogProps = OverlayComponentProps<void> & {
-	controller: ScratchpadController;
-	surfaceProps?: OverlaySurfaceProps;
-};
-
-export function ScratchpadDialog(props: ScratchpadDialogProps) {
-	return (
-		<Dialog.Root
-			width="70%"
-			maxWidth={90}
-			minWidth={48}
-			height="70%"
-			surfaceProps={props.surfaceProps}
-		>
-			<Dialog.Header>
-				<Dialog.Title>Scratchpad</Dialog.Title>
-			</Dialog.Header>
-			<Dialog.Body>
+			<WorkspacePanelLayout
+				header={
+					<box
+						flexShrink={0}
+						paddingX={1}
+						border={["bottom"]}
+						borderColor={theme.borderDefault}
+					>
+						<text fg={theme.textPrimary}>Scratchpad</text>
+					</box>
+				}
+				footer={<KeymapHintBar group="scratchpad" borderless />}
+			>
 				<ScratchpadContent
 					controller={props.controller}
-					mode="dialog"
 					active={props.active}
-					onClose={() => props.done(undefined)}
+					onClose={props.onClose}
+					onEditingChange={setEditing}
 				/>
-			</Dialog.Body>
-		</Dialog.Root>
+			</WorkspacePanelLayout>
+		</box>
 	);
 }

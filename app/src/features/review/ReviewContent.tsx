@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, watch } from "node:fs";
 import path from "node:path";
 import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
@@ -11,7 +11,6 @@ import {
 	onCleanup,
 	Show,
 } from "solid-js";
-import type { OverlayComponentProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
@@ -40,9 +39,8 @@ import {
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
-import { ScreenHeader } from "../../shell/ScreenHeader";
-import { ScreenLayout } from "../../shell/ScreenLayout";
 import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
+import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
 import type { PickerOption } from "../../state/picker";
 import { createPickerManager } from "../../state/picker-manager";
 import type { ToastInput } from "../../state/toasts";
@@ -60,6 +58,7 @@ import {
 	reviewTargetKey,
 } from "./draft-controller";
 import { FileTreePanel } from "./FileTreePanel";
+import { reconcileReviewFiles } from "./live-files";
 import {
 	getCurrentBranch,
 	getMergeBase,
@@ -85,6 +84,7 @@ import {
 	reviewStatusLabel,
 	reviewStatusText,
 } from "./status";
+import { getWorkingTreeFingerprint } from "./working-tree-fingerprint";
 
 export type ReviewContentProps = {
 	onClose: () => void;
@@ -93,7 +93,8 @@ export type ReviewContentProps = {
 	toast: (toast: ToastInput) => void;
 	defaultDiffView: ReviewDiffView;
 	onDiffViewChanged?: (view: ReviewDiffView) => void;
-	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
+	active?: boolean;
+	onFocusRequest?: () => void;
 };
 
 type ReviewMode = "tree" | "patch";
@@ -101,6 +102,10 @@ type ReviewSide = "additions" | "deletions";
 type CommentableLine = ReviewDiffCommentableLine;
 
 const WIDE_VIEWPORT_THRESHOLD = 121;
+const WORKING_TREE_REFRESH_DEBOUNCE_MS = 250;
+const WORKING_TREE_REFRESH_FALLBACK_MS = 5000;
+const WORKING_TREE_REFRESH_POLL_MS = 1000;
+const REVIEW_TARGET_CACHE_LIMIT = 3;
 const TREE_PANEL_WIDTH = 36;
 const MIN_TREE_PANEL_WIDTH = 28;
 
@@ -127,6 +132,17 @@ type PatchScrollRef = {
 	scrollLeft?: number;
 	scrollTo?: (position: number | { x: number; y: number }) => void;
 };
+
+function samePaths(
+	current: readonly string[] | undefined,
+	next: readonly string[],
+): current is string[] {
+	return (
+		current !== undefined &&
+		current.length === next.length &&
+		current.every((value, index) => value === next[index])
+	);
+}
 
 function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
@@ -436,6 +452,11 @@ function findSavedRangeAtLine(
 }
 
 export function ReviewContent(props: ReviewContentProps) {
+	let disposed = false;
+	onCleanup(() => {
+		disposed = true;
+	});
+	const active = () => props.active !== false;
 	const repoRoot = getRepoRoot();
 	const draftToken = props.reviewDrafts.currentToken();
 	const savedTarget = props.reviewDrafts.getLastTarget(draftToken, repoRoot);
@@ -477,23 +498,112 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [target, setTarget] = createSignal<ReviewTarget>(initialTarget);
 	const [targetCommit, setTargetCommit] =
 		createSignal<ReviewCommitSummary | null>(initialCommit);
+	const [editorOpen, setEditorOpen] = createSignal(false);
+	const [staleReviewFileIds, setStaleReviewFileIds] = createSignal<Set<string>>(
+		new Set(),
+	);
 	const targetKey = (forTarget?: ReviewTarget): string =>
 		reviewTargetKey(forTarget ?? target());
-	const [files] = createResource(target, (value) =>
-		loadReviewFiles(undefined, value),
+	function fileHasDraftNotes(file: ReviewFile): boolean {
+		if (fileNotes().get(file.noteKey)?.trim()) return true;
+		for (const [key, value] of rangeNotes()) {
+			if (!value.trim()) continue;
+			if (parseRangeNoteKey(key)?.path === file.path) return true;
+		}
+		return false;
+	}
+	type LoadedReviewFiles = {
+		targetKey: string;
+		files: ReviewFile[];
+		changed: boolean;
+	};
+	const loadedFilesByTarget = new Map<string, ReviewFile[]>();
+	function cacheLoadedFiles(key: string, files: ReviewFile[]): void {
+		loadedFilesByTarget.delete(key);
+		loadedFilesByTarget.set(key, files);
+		while (loadedFilesByTarget.size > REVIEW_TARGET_CACHE_LIMIT) {
+			const oldestKey = loadedFilesByTarget.keys().next().value;
+			if (oldestKey === undefined) break;
+			loadedFilesByTarget.delete(oldestKey);
+		}
+	}
+	const [loadedReviewFiles, { refetch: refetchReviewFiles }] = createResource(
+		target,
+		async (value): Promise<LoadedReviewFiles> => {
+			const key = reviewTargetKey(value);
+			const current = loadedFilesByTarget.get(key);
+			try {
+				const next = await loadReviewFiles(undefined, value);
+				if (disposed) {
+					return { targetKey: key, files: current ?? [], changed: false };
+				}
+				// Do not publish a live result underneath an editor that opened
+				// while the Git commands were in flight. The next timer tick retries.
+				if (current && value.kind === "working" && editorOpen()) {
+					return { targetKey: key, files: current, changed: false };
+				}
+				const staleIds = new Set<string>();
+				const stable = reconcileReviewFiles(
+					current,
+					next,
+					value.kind === "working"
+						? (file) => {
+								const preserve = fileHasDraftNotes(file);
+								if (preserve) staleIds.add(file.id);
+								return preserve;
+							}
+						: undefined,
+				);
+				setStaleReviewFileIds(staleIds);
+				cacheLoadedFiles(key, stable);
+				return {
+					targetKey: key,
+					files: stable,
+					changed: stable !== current,
+				};
+			} catch (error) {
+				if (!current && !disposed) {
+					props.toast({
+						title: "Failed to load code review",
+						subtitle: error instanceof Error ? error.message : String(error),
+						variant: "error",
+					});
+				}
+				const fallback = current ?? [];
+				if (!disposed) cacheLoadedFiles(key, fallback);
+				return { targetKey: key, files: fallback, changed: false };
+			}
+		},
 	);
+	const currentLoadedReview = createMemo(() => {
+		const key = targetKey();
+		const current = loadedReviewFiles();
+		if (current?.targetKey === key) return current;
+		const latest = loadedReviewFiles.latest;
+		return latest?.targetKey === key ? latest : undefined;
+	});
+	const files = () => currentLoadedReview()?.files;
+	const filesLoading = () => currentLoadedReview() === undefined;
 	const [allFilesRequest, setAllFilesRequest] = createSignal<
 		number | undefined
 	>();
 	let allFilesRequestSequence = 0;
 	let allFilesRequested = false;
+	let allFilesRefreshPending = false;
 	let allFilesAbortController: AbortController | undefined;
+	let lastAllFiles: string[] | undefined;
 	const [allFiles] = createResource(allFilesRequest, async () => {
 		allFilesAbortController?.abort();
 		const controller = new AbortController();
 		allFilesAbortController = controller;
 		try {
-			return await listRepoFiles(undefined, controller.signal);
+			const next = await listRepoFiles(undefined, controller.signal);
+			if (disposed) return lastAllFiles ?? [];
+			if (samePaths(lastAllFiles, next)) return lastAllFiles;
+			lastAllFiles = next;
+			return next;
+		} catch {
+			return lastAllFiles ?? [];
 		} finally {
 			if (allFilesAbortController === controller) {
 				allFilesAbortController = undefined;
@@ -501,6 +611,11 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	});
 	onCleanup(() => allFilesAbortController?.abort());
+	createEffect(() => {
+		if (allFiles.loading || !allFilesRefreshPending) return;
+		allFilesRefreshPending = false;
+		setAllFilesRequest(++allFilesRequestSequence);
+	});
 	const [commitPickerOpen, setCommitPickerOpen] = createSignal(false);
 	// The target picker's second level: choosing a different base branch
 	// for the branch-diff target.
@@ -514,6 +629,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		null,
 	);
 	const [fileFinderOpen, setFileFinderOpen] = createSignal(false);
+	createEffect(() => {
+		if (active()) return;
+		setFileFinderOpen(false);
+		setCommitPickerOpen(false);
+		setPickingBranchBase(false);
+	});
 	const [viewingFilePath, setViewingFilePath] = createSignal<string | null>(
 		null,
 	);
@@ -553,7 +674,153 @@ export function ReviewContent(props: ReviewContentProps) {
 		string | null
 	>(null);
 	const [editingFileNoteValue, setEditingFileNoteValue] = createSignal("");
-	const [editorOpen, setEditorOpen] = createSignal(false);
+	let workingTreeRefreshInFlight = false;
+	let workingTreeRefreshPending = false;
+	let workingTreeRefreshTimeout: ReturnType<typeof setTimeout> | undefined;
+	function scheduleWorkingTreeRefresh(
+		delay = WORKING_TREE_REFRESH_DEBOUNCE_MS,
+	): void {
+		if (disposed) return;
+		if (workingTreeRefreshTimeout) clearTimeout(workingTreeRefreshTimeout);
+		workingTreeRefreshTimeout = setTimeout(() => {
+			workingTreeRefreshTimeout = undefined;
+			void refreshWorkingTree();
+		}, delay);
+	}
+	async function refreshWorkingTree(): Promise<void> {
+		if (disposed || target().kind !== "working" || editorOpen()) return;
+		if (workingTreeRefreshInFlight) {
+			workingTreeRefreshPending = true;
+			return;
+		}
+		if (loadedReviewFiles.loading) {
+			scheduleWorkingTreeRefresh();
+			return;
+		}
+		workingTreeRefreshInFlight = true;
+		try {
+			const refreshed = await refetchReviewFiles();
+			if (refreshed?.changed && allFilesRequested) {
+				if (allFiles.loading) allFilesRefreshPending = true;
+				else setAllFilesRequest(++allFilesRequestSequence);
+			}
+		} catch {
+			// Working-tree refresh is best-effort; keep the last good diff and retry.
+		} finally {
+			workingTreeRefreshInFlight = false;
+			if (!disposed && workingTreeRefreshPending) {
+				workingTreeRefreshPending = false;
+				scheduleWorkingTreeRefresh();
+			}
+		}
+	}
+	let workingTreeWatcher: ReturnType<typeof watch> | undefined;
+	let workingTreeWatcherActive = false;
+	let workingTreeFingerprint: string | undefined;
+	let fingerprintCheckInFlight = false;
+	async function checkWorkingTreeFingerprint(): Promise<void> {
+		if (disposed || fingerprintCheckInFlight || target().kind !== "working") {
+			return;
+		}
+		fingerprintCheckInFlight = true;
+		try {
+			const next = await getWorkingTreeFingerprint(repoRoot);
+			if (
+				workingTreeFingerprint !== undefined &&
+				next !== workingTreeFingerprint
+			) {
+				scheduleWorkingTreeRefresh(0);
+			}
+			workingTreeFingerprint = next;
+		} catch {
+			// The watcher remains primary; a later fingerprint check can recover.
+		} finally {
+			fingerprintCheckInFlight = false;
+		}
+	}
+	void checkWorkingTreeFingerprint();
+	try {
+		workingTreeWatcher = watch(
+			repoRoot,
+			{ recursive: true },
+			(_event, filename) => {
+				const changedPath = String(filename ?? "").replaceAll("\\", "/");
+				if (
+					changedPath === "node_modules" ||
+					changedPath.startsWith("node_modules/") ||
+					changedPath.startsWith(".git/objects/")
+				) {
+					return;
+				}
+				scheduleWorkingTreeRefresh();
+			},
+		);
+		workingTreeWatcherActive = true;
+		workingTreeWatcher.on("error", () => {
+			workingTreeWatcherActive = false;
+			workingTreeWatcher?.close();
+			workingTreeWatcher = undefined;
+		});
+	} catch {
+		// Recursive watching is not available on every platform; poll below.
+	}
+	let workingTreeFallbackElapsed = 0;
+	const workingTreeRefreshTimer = setInterval(() => {
+		workingTreeFallbackElapsed += WORKING_TREE_REFRESH_POLL_MS;
+		if (
+			workingTreeWatcherActive &&
+			workingTreeFallbackElapsed < WORKING_TREE_REFRESH_FALLBACK_MS
+		) {
+			return;
+		}
+		workingTreeFallbackElapsed = 0;
+		void checkWorkingTreeFingerprint();
+	}, WORKING_TREE_REFRESH_POLL_MS);
+	let editorWasOpen = editorOpen();
+	createEffect(() => {
+		const open = editorOpen();
+		if (editorWasOpen && !open) scheduleWorkingTreeRefresh(0);
+		editorWasOpen = open;
+	});
+	onCleanup(() => {
+		workingTreeWatcher?.close();
+		clearInterval(workingTreeRefreshTimer);
+		if (workingTreeRefreshTimeout) clearTimeout(workingTreeRefreshTimeout);
+	});
+	onCleanup(
+		props.reviewDrafts.subscribe((event) => {
+			if (event.type === "reset") {
+				setFileNotes(new Map());
+				setRangeNotes(new Map());
+				setStaleReviewFileIds(new Set<string>());
+				setEditorOpen(false);
+				return;
+			}
+			if (
+				event.token.sessionId !== draftToken.sessionId ||
+				event.token.generation !== draftToken.generation ||
+				event.repoRoot !== repoRoot ||
+				event.targetKey !== targetKey()
+			) {
+				return;
+			}
+			if (event.type === "consumed") {
+				setFileNotes(new Map(event.state.fileNotes));
+				setRangeNotes(new Map(event.state.rangeNotes));
+				scheduleWorkingTreeRefresh(0);
+				return;
+			}
+			setFileNotes(new Map());
+			setRangeNotes(new Map());
+			setStaleReviewFileIds(new Set<string>());
+			setRangeAnchor(null);
+			setEditingRange(null);
+			setEditingFileNoteKey(null);
+			setViewingFileEditingRange(null);
+			setEditorOpen(false);
+			scheduleWorkingTreeRefresh(0);
+		}),
+	);
 	// The diff pane has a single scrollbox shared across files (the
 	// <Show when={selectedFile()}> is non-keyed). Keep a single ref —
 	// a per-file map would only ever capture the initial file's id because
@@ -612,6 +879,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		setFileNotes((current) => {
 			const next = update(current);
 			saveCurrentDraft({ fileNotes: next, rangeNotes: rangeNotes() });
+			scheduleWorkingTreeRefresh(0);
 			return next;
 		});
 	}
@@ -621,6 +889,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		setRangeNotes((current) => {
 			const next = update(current);
 			saveCurrentDraft({ fileNotes: fileNotes(), rangeNotes: next });
+			scheduleWorkingTreeRefresh(0);
 			return next;
 		});
 	}
@@ -1407,6 +1676,8 @@ export function ReviewContent(props: ReviewContentProps) {
 						placeholder="Comment on the whole file..."
 						backgroundColor={theme.bgTransparent}
 						focusedBackgroundColor={theme.bgTransparent}
+						focused={active()}
+						showCursor={active()}
 						keyBindings={[
 							{ name: "return", action: "submit" },
 							{ name: "return", shift: true, action: "newline" },
@@ -1875,12 +2146,14 @@ export function ReviewContent(props: ReviewContentProps) {
 		// A target switch may still be refetching; queueing then would pair
 		// the old target's file list with the new target's notes. Keep review
 		// open until the attachment can be refreshed safely.
-		if (files.loading) {
+		if (filesLoading()) {
 			showTargetNotice("Review is still loading.", 1500);
 			return "blocked";
 		}
-		const submission = buildReviewSubmission(reviewFiles(), draftState());
+		const submittedDraft = draftState();
+		const submission = buildReviewSubmission(reviewFiles(), submittedDraft);
 		if (!submission) return "blocked";
+		saveCurrentDraft(submittedDraft);
 
 		// Amend/rebase staleness defense: line numbers only make sense
 		// against the drafted revisions. A rewritten commit stops being an
@@ -1918,7 +2191,16 @@ export function ReviewContent(props: ReviewContentProps) {
 			new CodeReviewAttachment("code-review", submission, {
 				repoRoot,
 				targetKey: currentKey,
-				onDetach: () => {
+				onDetach: (reason) => {
+					if (reason === "consumed") {
+						props.reviewDrafts.consumeDraft(
+							draftToken,
+							repoRoot,
+							currentTarget,
+							submittedDraft,
+						);
+						return;
+					}
 					props.reviewDrafts.clearDraft(draftToken, repoRoot, currentTarget);
 				},
 			}),
@@ -1946,7 +2228,6 @@ export function ReviewContent(props: ReviewContentProps) {
 				variant: "info",
 			});
 		}
-		props.onClose();
 	}
 
 	function beginRangeSelection() {
@@ -2007,6 +2288,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 
 		const range = {
 			path: file.path,
@@ -2034,6 +2316,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 		setViewingFileLine(line);
 		const range: ReviewRangeDraft = {
 			path: filePath,
@@ -2058,9 +2341,10 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
+		when: () =>
+			active() && !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
 		diagnosticsWhen: () =>
-			!editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
+			active() && !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.search-tree": openFileFinder,
 			"review.cycle-target": cycleTarget,
@@ -2070,8 +2354,8 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: editorOpen,
-		diagnosticsWhen: editorOpen,
+		when: () => active() && editorOpen(),
+		diagnosticsWhen: () => active() && editorOpen(),
 		commands: {
 			"review.close-editor": () => {
 				if (viewingFileEditingRange()) {
@@ -2091,13 +2375,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
+			active() &&
 			!editorOpen() &&
 			!fileFinderOpen() &&
 			!commitPickerOpen() &&
 			mode() === "patch" &&
 			!viewingFilePath(),
 		diagnosticsWhen: () =>
-			mode() === "patch" && !fileFinderOpen() && !commitPickerOpen(),
+			active() &&
+			mode() === "patch" &&
+			!fileFinderOpen() &&
+			!commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
@@ -2127,13 +2415,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
+			active() &&
 			!editorOpen() &&
 			!fileFinderOpen() &&
 			!commitPickerOpen() &&
 			mode() === "patch" &&
 			!!viewingFilePath(),
 		diagnosticsWhen: () =>
-			mode() === "patch" && !fileFinderOpen() && !commitPickerOpen(),
+			active() &&
+			mode() === "patch" &&
+			!fileFinderOpen() &&
+			!commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				setViewingFilePath(null);
@@ -2186,12 +2478,13 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
+			active() &&
 			!editorOpen() &&
 			mode() === "tree" &&
 			!fileFinderOpen() &&
 			!commitPickerOpen(),
 		diagnosticsWhen: () =>
-			mode() === "tree" && !fileFinderOpen() && !commitPickerOpen(),
+			active() && mode() === "tree" && !fileFinderOpen() && !commitPickerOpen(),
 		commands: {
 			"review.file-note": () => {
 				const file = selectedFile();
@@ -2203,49 +2496,56 @@ export function ReviewContent(props: ReviewContentProps) {
 		},
 	}));
 
+	const reviewHeaderLeft = (
+		<text fg={theme.textMuted}>
+			Code review {CHEVRON_RIGHT}{" "}
+			<Show
+				when={targetCommit()}
+				fallback={<span style={{ fg: theme.textPrimary }}>working tree</span>}
+			>
+				{(commit) => (
+					<>
+						<span style={{ fg: theme.metaText }}>{commit().shortSha}</span>{" "}
+						<span style={{ fg: theme.textPrimary }}>{commit().subject}</span>
+					</>
+				)}
+			</Show>
+		</text>
+	);
+	const reviewHeaderRight = (
+		<text fg={theme.textMuted}>
+			{targetCommit() ? `committed ${targetCommit()?.relativeTime} · ` : ""}
+			{formatFileCount(reviewFiles().length)}
+			{totalDraftNotes() > 0 ? ` · ${formatNoteCount(totalDraftNotes())}` : ""}
+		</text>
+	);
+	const reviewHeader = (
+		<box
+			flexShrink={0}
+			paddingX={1}
+			width="100%"
+			height={2}
+			flexDirection="row"
+			border={["bottom"]}
+			borderColor={theme.borderDefault}
+			justifyContent="space-between"
+			gap={1}
+		>
+			<box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+				{reviewHeaderLeft}
+			</box>
+			<box flexShrink={1} height={1} overflow="hidden">
+				{reviewHeaderRight}
+			</box>
+		</box>
+	);
+
 	return (
-		<ScreenLayout
-			surfaceProps={props.surfaceProps}
-			zIndex={1200}
-			header={
-				<ScreenHeader
-					left={
-						<text fg={theme.textMuted}>
-							Code review {CHEVRON_RIGHT}{" "}
-							<Show
-								when={targetCommit()}
-								fallback={
-									<span style={{ fg: theme.textPrimary }}>working tree</span>
-								}
-							>
-								{(commit) => (
-									<>
-										<span style={{ fg: theme.metaText }}>
-											{commit().shortSha}
-										</span>{" "}
-										<span style={{ fg: theme.textPrimary }}>
-											{commit().subject}
-										</span>
-									</>
-								)}
-							</Show>
-						</text>
-					}
-					right={
-						<text fg={theme.textMuted}>
-							{targetCommit()
-								? `committed ${targetCommit()?.relativeTime} · `
-								: ""}
-							{formatFileCount(reviewFiles().length)}
-							{totalDraftNotes() > 0
-								? ` · ${formatNoteCount(totalDraftNotes())}`
-								: ""}
-						</text>
-					}
-				/>
-			}
+		<WorkspacePanelLayout
+			header={reviewHeader}
 			footer={
 				<KeymapHintBar
+					borderless
 					group="review"
 					prefixBindings={
 						mode() === "patch" && !editorOpen()
@@ -2256,7 +2556,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			}
 		>
 			<Show
-				when={!files.loading}
+				when={!filesLoading()}
 				fallback={
 					<box flexGrow={1} padding={1}>
 						<text fg={theme.textMuted}>Loading code review…</text>
@@ -2294,7 +2594,7 @@ export function ReviewContent(props: ReviewContentProps) {
 							flexGrow={isWide() ? 0 : 1}
 							flexShrink={0}
 							height="100%"
-							border={isWide() ? ["right"] : false}
+							border={isWide() ? ["right"] : []}
 							borderColor={theme.borderDefault}
 						>
 							<FileTreePanel
@@ -2305,7 +2605,7 @@ export function ReviewContent(props: ReviewContentProps) {
 								allFiles={target().kind === "working" ? (allFiles() ?? []) : []}
 								allFilesLoading={allFiles.loading}
 								canShowAllFiles={target().kind === "working"}
-								focused={mode() === "tree"}
+								focused={active() && mode() === "tree"}
 								editorOpen={editorOpen()}
 								// Any floating picker suppresses tree navigation,
 								// not just the file finder.
@@ -2322,6 +2622,7 @@ export function ReviewContent(props: ReviewContentProps) {
 								onSelectFile={selectFilePath}
 								onRequestAllFiles={requestAllFiles}
 								onClose={closeReview}
+								onFocusRequest={props.onFocusRequest}
 							/>
 						</box>
 					</Show>
@@ -2354,7 +2655,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												repoRoot={repoRoot}
 												path={filePath()}
 												paneWidth={diffPaneWidth()}
-												interactive={mode() === "patch"}
+												interactive={active() && mode() === "patch"}
 												selectedLine={viewingFileLine()}
 												onLineMouseDown={(line, event) =>
 													handleReadOnlyLineMouseDown(filePath(), line, event)
@@ -2422,9 +2723,16 @@ export function ReviewContent(props: ReviewContentProps) {
 													<text fg={theme.textMuted}>{activeLineStatus()}</text>
 												</Show>
 											</box>
-											<Show when={sourceLabel(file())}>
-												{(label) => <text fg={theme.textMuted}>{label()}</text>}
-											</Show>
+											<box flexDirection="column" alignItems="flex-end">
+												<Show when={staleReviewFileIds().has(file().id)}>
+													<text fg={theme.metaText}>no longer changed</text>
+												</Show>
+												<Show when={sourceLabel(file())}>
+													{(label) => (
+														<text fg={theme.textMuted}>{label()}</text>
+													)}
+												</Show>
+											</box>
 										</box>
 
 										<Show
@@ -2472,12 +2780,14 @@ export function ReviewContent(props: ReviewContentProps) {
 					<FileFinderDialog
 						options={fileFinderOptions()}
 						loading={allFiles.loading}
+						availableWidth={contentWidth()}
 						onClose={() => setFileFinderOpen(false)}
 					/>
 				</Show>
 				<Show when={commitPickerOpen()}>
 					<CommitPickerDialog
 						options={commitPickerOptions()}
+						availableWidth={contentWidth()}
 						onClose={() => {
 							setCommitPickerOpen(false);
 							setPickingBranchBase(false);
@@ -2485,7 +2795,7 @@ export function ReviewContent(props: ReviewContentProps) {
 					/>
 				</Show>
 			</Show>
-		</ScreenLayout>
+		</WorkspacePanelLayout>
 	);
 }
 
@@ -2493,6 +2803,7 @@ export function ReviewContent(props: ReviewContentProps) {
 
 type CommitPickerDialogProps = {
 	options: PickerOption[];
+	availableWidth: number;
 	onClose: () => void;
 };
 
@@ -2524,7 +2835,7 @@ function CommitPickerDialog(props: CommitPickerDialogProps) {
 		<Show when={picker.current().visible}>
 			<Dialog.Root
 				width="80%"
-				minWidth={72}
+				minWidth={Math.min(72, Math.max(1, props.availableWidth - 2))}
 				maxWidth={120}
 				height={18}
 				padding={0}
@@ -2552,6 +2863,7 @@ function CommitPickerDialog(props: CommitPickerDialogProps) {
 type FileFinderDialogProps = {
 	options: PickerOption[];
 	loading: boolean;
+	availableWidth: number;
 	onClose: () => void;
 };
 
@@ -2580,7 +2892,7 @@ function FileFinderDialog(props: FileFinderDialogProps) {
 		<Show when={picker.current().visible}>
 			<Dialog.Root
 				width="80%"
-				minWidth={72}
+				minWidth={Math.min(72, Math.max(1, props.availableWidth - 2))}
 				maxWidth={120}
 				height={18}
 				padding={0}
@@ -2831,6 +3143,8 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 							placeholder="Comment on the whole file..."
 							backgroundColor={theme.bgTransparent}
 							focusedBackgroundColor={theme.bgTransparent}
+							focused={props.interactive}
+							showCursor={props.interactive}
 							keyBindings={[
 								{ name: "return", action: "submit" },
 								{ name: "return", shift: true, action: "newline" },
@@ -2969,6 +3283,8 @@ function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
 															placeholder="Type your review note..."
 															backgroundColor={theme.bgTransparent}
 															focusedBackgroundColor={theme.bgTransparent}
+															focused={props.interactive}
+															showCursor={props.interactive}
 															keyBindings={[
 																{
 																	name: "return",

@@ -1,29 +1,45 @@
-import { createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { ChromeContributionLine } from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
-import type { ChromeContribution } from "./chrome-contributions";
-import { createChromeTextContent } from "./chrome-contributions";
+import {
+	type ChromeContribution,
+	createChromeTextContent,
+	normalizeChromeTextContent,
+} from "./chrome-contributions";
+import {
+	chromeLayoutWidth,
+	packChromeContributions,
+	truncateEnd,
+	truncateStart,
+} from "./chrome-layout";
 import type { FooterStatusController } from "./footer-status";
 import { ARROW_UP, MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
+
+export const VCS_LOCATION_CONTRIBUTION_ID = "VcsStatusPlugin:location";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
 	status: FooterStatusController;
 	composerMode: ComposerInputMode;
+	shellWidth: number;
+	onOpenOverflow: (contributions: readonly ChromeContribution[]) => void;
+	onOverflowAvailabilityChange?: (available: boolean) => void;
 };
 
-function builtInContribution(input: {
+function contribution(input: {
 	id: string;
-	label: string;
+	content: ChromeContribution["content"];
 	side: "left" | "right";
+	onClick?: ChromeContribution["onClick"];
 }): ChromeContribution {
 	return {
 		id: input.id,
-		content: createChromeTextContent(input.label),
-		plainText: input.label,
+		content: input.content,
+		plainText: input.content.map((segment) => segment.text).join(""),
 		side: input.side,
+		onClick: input.onClick,
 	};
 }
 
@@ -33,62 +49,143 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	);
 	const unsubscribePendingMessageCount = props.runtime.subscribe(
 		"chat.message-queue.changed",
-		(e) => setPendingMessageCount(e.count),
+		(event) => setPendingMessageCount(event.count),
 	);
-
-	const pending = () =>
-		pendingMessageCount() > 0
-			? `queued messages: ${pendingMessageCount()} ${MIDDLE_DOT} Alt+Q edit ${MIDDLE_DOT} ${ARROW_UP} restore`
-			: "";
-	const composerModeLabel = () => {
-		switch (props.composerMode) {
-			case "bash":
-				return ["bash command", "result will be added to context"].join(
-					` ${MIDDLE_DOT} `,
-				);
-			case "bash-excluded":
-				return ["bash command", "result excluded from context"].join(
-					` ${MIDDLE_DOT} `,
-				);
-			default:
-				return "";
-		}
-	};
-	const leftColor = () =>
-		props.composerMode === "bash"
-			? theme.composerBashBorder
-			: props.composerMode === "bash-excluded"
-				? theme.composerBashExcludedBorder
-				: theme.textMuted;
 	const [footerContributions, setFooterContributions] = createSignal(
 		props.status.getContributions(),
 	);
 	const unsubscribeStatus = props.status.subscribe(() =>
 		setFooterContributions(props.status.getContributions()),
 	);
-	const builtInLeftContribution = (): ChromeContribution | null => {
-		const label = composerModeLabel() || pending();
-		return label
-			? builtInContribution({
-					id: "BottomStatusBar:status",
-					label,
-					side: "left",
-				})
-			: null;
-	};
-	const leftContributions = () => {
-		const builtIn = builtInLeftContribution();
-		return [
-			...(builtIn ? [builtIn] : []),
-			...footerContributions().filter(
-				(contribution) => contribution.side === "left",
-			),
-		];
-	};
-	const rightContributions = () =>
+
+	const availableWidth = () => Math.max(0, props.shellWidth - 4);
+	const standard = createMemo(() =>
 		footerContributions().filter(
-			(contribution) => contribution.side === "right",
+			(item) => item.id !== VCS_LOCATION_CONTRIBUTION_ID,
+		),
+	);
+	const rawGuidance = createMemo<ChromeContribution | null>(() => {
+		let label = "";
+		let color = theme.textMuted;
+		switch (props.composerMode) {
+			case "bash":
+				label = ["bash command", "result will be added to context"].join(
+					` ${MIDDLE_DOT} `,
+				);
+				color = theme.composerBashBorder;
+				break;
+			case "bash-excluded":
+				label = ["bash command", "result excluded from context"].join(
+					` ${MIDDLE_DOT} `,
+				);
+				color = theme.composerBashExcludedBorder;
+				break;
+			default:
+				if (pendingMessageCount() > 0) {
+					label = `queued messages: ${pendingMessageCount()} ${MIDDLE_DOT} Alt+Q edit ${MIDDLE_DOT} ${ARROW_UP} restore`;
+				}
+		}
+		if (!label) return null;
+		return contribution({
+			id: "BottomStatusBar:status",
+			content: normalizeChromeTextContent({
+				text: label,
+				style: { fg: color },
+			}),
+			side: "left",
+		});
+	});
+	const rawVcsContribution = createMemo<ChromeContribution | null>(() => {
+		return (
+			footerContributions().find(
+				(item) => item.id === VCS_LOCATION_CONTRIBUTION_ID,
+			) ?? null
 		);
+	});
+	const needsCompaction = createMemo(() => {
+		const privilegedItems = [rawGuidance(), rawVcsContribution()].filter(
+			(item): item is ChromeContribution => item !== null,
+		);
+		if (standard().length === 0) {
+			return chromeLayoutWidth(privilegedItems) > availableWidth();
+		}
+		const overflowProbe: ChromeContribution = {
+			id: "BottomStatusBar:overflow-probe",
+			content: [],
+			plainText: "…",
+			side: "right",
+		};
+		return (
+			chromeLayoutWidth([...privilegedItems, overflowProbe]) > availableWidth()
+		);
+	});
+	const guidance = createMemo<ChromeContribution | null>(() => {
+		const raw = rawGuidance();
+		if (!raw || !needsCompaction()) return raw;
+		const compactLabel = truncateEnd(
+			raw.plainText,
+			Math.max(
+				1,
+				Math.floor(availableWidth() * (standard().length > 0 ? 0.36 : 0.52)),
+			),
+		);
+		return contribution({
+			id: raw.id,
+			content: normalizeChromeTextContent({
+				text: compactLabel,
+				style: raw.content[0]?.style,
+			}),
+			side: "left",
+		});
+	});
+	const vcsContribution = createMemo<ChromeContribution | null>(() => {
+		const raw = rawVcsContribution();
+		if (!raw || !needsCompaction()) return raw;
+		const standardItemsPresent = standard().length > 0;
+		const fraction = standardItemsPresent ? 0.24 : 0.42;
+		const maxWidth = Math.max(
+			1,
+			Math.min(64, Math.floor(availableWidth() * fraction)),
+		);
+		return contribution({
+			id: raw.id,
+			content: createChromeTextContent(truncateStart(raw.plainText, maxWidth)),
+			side: "right",
+			onClick: raw.onClick,
+		});
+	});
+	const privileged = createMemo(() => [
+		...(guidance() ? [guidance() as ChromeContribution] : []),
+		...(vcsContribution() ? [vcsContribution() as ChromeContribution] : []),
+	]);
+	const packed = createMemo(() =>
+		packChromeContributions({
+			availableWidth: availableWidth(),
+			privileged: privileged(),
+			standard: standard(),
+		}),
+	);
+	createEffect(() => {
+		props.onOverflowAvailabilityChange?.(packed().hidden.length > 0);
+	});
+	const overflowContribution = createMemo<ChromeContribution | null>(() => {
+		const label = packed().overflowLabel;
+		if (!label) return null;
+		return {
+			id: "BottomStatusBar:overflow",
+			content: createChromeTextContent(label),
+			plainText: label,
+			side: "right",
+			onClick: () => props.onOpenOverflow(standard()),
+		};
+	});
+	const displayed = (side: "left" | "right") => [
+		...privileged().filter((item) => item.side === side),
+		...packed().visible.filter((item) => item.side === side),
+		...(side === "right" && overflowContribution()
+			? [overflowContribution() as ChromeContribution]
+			: []),
+	];
 
 	onCleanup(() => {
 		unsubscribePendingMessageCount();
@@ -98,19 +195,25 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 	return (
 		<box
 			flexShrink={0}
-			border
+			height={2}
+			border={["top"]}
 			borderColor={theme.borderStatus}
 			paddingX={1}
 			width="100%"
 			flexDirection="row"
-			flexWrap="wrap"
+			flexWrap="no-wrap"
 			justifyContent="space-between"
-			gap={1}
+			gap={
+				displayed("left").length > 0 && displayed("right").length > 0 ? 1 : 0
+			}
+			overflow="hidden"
 		>
-			<box flexGrow={1} flexShrink={0} maxWidth="100%" overflow="hidden">
+			<box flexShrink={1} maxWidth="100%" overflow="hidden">
 				<ChromeContributionLine
-					contributions={leftContributions()}
-					fg={leftColor()}
+					contributions={displayed("left")}
+					fg={theme.textMuted}
+					fallback=""
+					wrap={false}
 				/>
 			</box>
 			<box
@@ -120,9 +223,10 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 				justifyContent="flex-end"
 			>
 				<ChromeContributionLine
-					contributions={rightContributions()}
+					contributions={displayed("right")}
 					fg={theme.textMuted}
 					fallback=""
+					wrap={false}
 				/>
 			</box>
 		</box>

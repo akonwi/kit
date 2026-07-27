@@ -1,45 +1,40 @@
 import { describe, expect, test } from "bun:test";
-import { shouldHandleScratchpadFocusNext } from "./AppShell";
+import { shouldRestoreComposerFocus } from "./AppShell";
 
-describe("shouldHandleScratchpadFocusNext", () => {
-	test("handles Tab only when the scratchpad is open and no picker has priority", () => {
-		expect(
-			shouldHandleScratchpadFocusNext({
-				scratchpadOpen: true,
-				overlayOpen: false,
-				pickerVisible: false,
-				commandPaletteVisible: false,
-			}),
-		).toBe(true);
+describe("shouldRestoreComposerFocus", () => {
+	const available = {
+		overlayOpen: false,
+		chromeOverflowOpen: false,
+		pickerVisible: false,
+		commandPaletteVisible: false,
+		focusedSurface: "composer" as const,
+	};
+
+	test("restores focus when the composer still owns the primary surface", () => {
+		expect(shouldRestoreComposerFocus(available)).toBeTrue();
 	});
 
-	test("yields Tab to the command palette picker", () => {
+	test("does not steal focus from transient or modal surfaces", () => {
 		expect(
-			shouldHandleScratchpadFocusNext({
-				scratchpadOpen: true,
-				overlayOpen: false,
-				pickerVisible: false,
-				commandPaletteVisible: true,
-			}),
-		).toBe(false);
+			shouldRestoreComposerFocus({ ...available, overlayOpen: true }),
+		).toBeFalse();
+		expect(
+			shouldRestoreComposerFocus({ ...available, pickerVisible: true }),
+		).toBeFalse();
+		expect(
+			shouldRestoreComposerFocus({ ...available, commandPaletteVisible: true }),
+		).toBeFalse();
+		expect(
+			shouldRestoreComposerFocus({ ...available, chromeOverflowOpen: true }),
+		).toBeFalse();
 	});
 
-	test("yields Tab to overlays and inline pickers", () => {
+	test("does not restore focus after ownership moves to the secondary pane", () => {
 		expect(
-			shouldHandleScratchpadFocusNext({
-				scratchpadOpen: true,
-				overlayOpen: true,
-				pickerVisible: false,
-				commandPaletteVisible: false,
+			shouldRestoreComposerFocus({
+				...available,
+				focusedSurface: "secondary",
 			}),
-		).toBe(false);
-		expect(
-			shouldHandleScratchpadFocusNext({
-				scratchpadOpen: true,
-				overlayOpen: false,
-				pickerVisible: true,
-				commandPaletteVisible: false,
-			}),
-		).toBe(false);
+		).toBeFalse();
 	});
 });

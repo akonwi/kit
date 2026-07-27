@@ -1,5 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { buildSkippedSectionsForFile, type ReviewHunk } from "./model";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import {
+	buildSkippedSectionsForFile,
+	loadReviewFiles,
+	type ReviewHunk,
+} from "./model";
 
 function makeHunk(overrides: Partial<ReviewHunk>): ReviewHunk {
 	return {
@@ -77,5 +85,39 @@ describe("review model", () => {
 		expect(skippedSections[1]?.rawPatch).toContain(" five\n six\n seven");
 		expect(skippedSections[2]?.rawPatch).toContain("@@ -10 +10 @@");
 		expect(skippedSections[2]?.rawPatch).toContain(" ten");
+	});
+
+	test("keeps working-tree file identities stable when ordering changes", async () => {
+		const repo = mkdtempSync(path.join(tmpdir(), "kit-live-review-"));
+		const git = (args: string[]) =>
+			execFileSync("git", args, {
+				cwd: repo,
+				stdio: "ignore",
+				env: {
+					...process.env,
+					GIT_CONFIG_GLOBAL: "/dev/null",
+					GIT_CONFIG_SYSTEM: "/dev/null",
+				},
+			});
+		try {
+			git(["init", "-q"]);
+			git(["config", "user.email", "test@example.com"]);
+			git(["config", "user.name", "Test"]);
+			writeFileSync(path.join(repo, "a.txt"), "a\n");
+			writeFileSync(path.join(repo, "b.txt"), "b\n");
+			git(["add", "."]);
+			git(["commit", "-qm", "initial"]);
+
+			writeFileSync(path.join(repo, "b.txt"), "changed b\n");
+			const before = await loadReviewFiles(repo);
+			const beforeId = before.find((file) => file.path === "b.txt")?.id;
+
+			writeFileSync(path.join(repo, "a.txt"), "changed a\n");
+			const after = await loadReviewFiles(repo);
+			expect(after.map((file) => file.path)).toEqual(["a.txt", "b.txt"]);
+			expect(after.find((file) => file.path === "b.txt")?.id).toBe(beforeId);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
 	});
 });

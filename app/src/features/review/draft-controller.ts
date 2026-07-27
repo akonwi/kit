@@ -7,6 +7,22 @@ export type ReviewDraftToken = {
 	generation: number;
 };
 
+export type ReviewDraftEvent =
+	| {
+			type: "cleared";
+			token: ReviewDraftToken;
+			repoRoot: string;
+			targetKey: string;
+	  }
+	| {
+			type: "consumed";
+			token: ReviewDraftToken;
+			repoRoot: string;
+			targetKey: string;
+			state: ReviewDraftState;
+	  }
+	| { type: "reset"; token: ReviewDraftToken };
+
 type RepoDraftWorkspace = {
 	lastTarget: ReviewTarget;
 	drafts: Map<string, ReviewDraftState>;
@@ -38,6 +54,11 @@ export function createReviewDraftController(initialSessionId: string) {
 	let sessionId = initialSessionId;
 	let generation = 0;
 	const repos = new Map<string, RepoDraftWorkspace>();
+	const listeners = new Set<(event: ReviewDraftEvent) => void>();
+
+	function publish(event: ReviewDraftEvent): void {
+		for (const listener of listeners) listener(event);
+	}
 
 	function currentToken(): ReviewDraftToken {
 		return { sessionId, generation };
@@ -51,6 +72,7 @@ export function createReviewDraftController(initialSessionId: string) {
 		sessionId = nextSessionId;
 		generation += 1;
 		repos.clear();
+		publish({ type: "reset", token: currentToken() });
 	}
 
 	function workspace(repoRoot: string): RepoDraftWorkspace {
@@ -94,7 +116,46 @@ export function createReviewDraftController(initialSessionId: string) {
 		target: ReviewTarget,
 	): void {
 		if (!accepts(token)) return;
-		repos.get(repoRoot)?.drafts.delete(reviewTargetKey(target));
+		const key = reviewTargetKey(target);
+		repos.get(repoRoot)?.drafts.delete(key);
+		publish({
+			type: "cleared",
+			token: currentToken(),
+			repoRoot,
+			targetKey: key,
+		});
+	}
+
+	function consumeDraft(
+		token: ReviewDraftToken,
+		repoRoot: string,
+		target: ReviewTarget,
+		submitted: ReviewDraftState,
+	): void {
+		if (!accepts(token)) return;
+		const key = reviewTargetKey(target);
+		const current = repos.get(repoRoot)?.drafts.get(key) ?? emptyDraftState();
+		const remaining = cloneDraftState(current);
+		for (const [noteKey, value] of submitted.fileNotes) {
+			if (remaining.fileNotes.get(noteKey) === value) {
+				remaining.fileNotes.delete(noteKey);
+			}
+		}
+		for (const [noteKey, value] of submitted.rangeNotes) {
+			if (remaining.rangeNotes.get(noteKey) === value) {
+				remaining.rangeNotes.delete(noteKey);
+			}
+		}
+		const drafts = workspace(repoRoot).drafts;
+		if (countDraftNotes(remaining) === 0) drafts.delete(key);
+		else drafts.set(key, cloneDraftState(remaining));
+		publish({
+			type: "consumed",
+			token: currentToken(),
+			repoRoot,
+			targetKey: key,
+			state: cloneDraftState(remaining),
+		});
 	}
 
 	function getLastTarget(
@@ -124,6 +185,11 @@ export function createReviewDraftController(initialSessionId: string) {
 		return state ? countDraftNotes(state) : 0;
 	}
 
+	function subscribe(listener: (event: ReviewDraftEvent) => void): () => void {
+		listeners.add(listener);
+		return () => listeners.delete(listener);
+	}
+
 	function countDraftsExcept(
 		token: ReviewDraftToken,
 		repoRoot: string,
@@ -144,10 +210,12 @@ export function createReviewDraftController(initialSessionId: string) {
 		getDraft,
 		saveDraft,
 		clearDraft,
+		consumeDraft,
 		getLastTarget,
 		setLastTarget,
 		countDraftForKey,
 		countDraftsExcept,
+		subscribe,
 	};
 }
 

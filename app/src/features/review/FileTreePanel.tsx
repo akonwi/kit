@@ -37,6 +37,7 @@ export type FileTreePanelProps = {
 	onSelectFile: (path: string) => void;
 	onRequestAllFiles: () => void;
 	onClose: () => void;
+	onFocusRequest?: () => void;
 };
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -122,7 +123,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	);
 	// Dedupe: a file that has both staged and unstaged changes appears twice
 	// in reviewFiles (one entry per source). PathStore rejects duplicate paths.
-	const changedPaths = createMemo(() => {
+	const changedPaths = createMemo<string[]>((previous) => {
 		const seen = new Set<string>();
 		const paths: string[] = [];
 		for (const file of props.reviewFiles) {
@@ -130,8 +131,11 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			seen.add(file.path);
 			paths.push(file.path);
 		}
-		return paths;
-	});
+		return previous.length === paths.length &&
+			previous.every((value, index) => value === paths[index])
+			? previous
+			: paths;
+	}, []);
 
 	const hasChangedFiles = createMemo(() => changedPaths().length > 0);
 	// The changes/all-files toggle only makes sense when there is an
@@ -313,6 +317,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 		setTreeMode(mode);
 	}
 
@@ -320,6 +325,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
 		event.preventDefault();
 		event.stopPropagation();
+		props.onFocusRequest?.();
 		controller?.focusPath(path);
 		const item = controller?.getItem(path);
 		if (!item) return;
