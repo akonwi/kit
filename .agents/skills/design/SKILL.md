@@ -88,18 +88,19 @@ Bordered header bar with left/right content slots and an optional progress bar o
 />
 ```
 
-### Inline Panel
-A panel mounted alongside the transcript or another primary surface — part of the layout, not floating. Unlike an overlay, an inline panel coexists with the underlying view rather than taking it over. Used for the turn activity sidebar on wide terminals.
+### Workspace Panel
+A persistent secondary panel mounted alongside the transcript or another primary surface — part of the layout, not floating. Unlike an overlay, a workspace panel coexists with the primary view rather than taking it over. Used for activity details, code review, and the scratchpad.
 
 Chrome conventions:
 - **Edge border**: `border={["left"]}` or `border={["right"]}` on the inward-facing edge as a separator from the adjacent surface. Use `borderDefault`.
 - **Header strip**: top of the panel, `paddingX={1} paddingY={0}` with `border={["bottom"]}`. Left content (title in `textPrimary`), right content (metadata in `textMuted`). One row tall.
 - **Body**: `flexGrow={1}`, a `scrollbox` for the content with theme-styled scrollbar.
-- **Hint bar**: `bordered` — it is the outermost structural element at the bottom of the panel.
+- **Hint bar**: borderless inside the shared panel footer; the footer owns the top separator.
 
 Width and visibility:
-- Derived from the viewport (e.g., `max(40, 40% of width)`).
-- Gated by a minimum-viewport threshold; auto-collapse to a Tier 2 dialog fallback when the viewport drops below it.
+- Derived from the measured workspace width and the user's preferred pane ratio.
+- When both surfaces cannot meet their minimum useful widths, switch to labeled primary/secondary tabs instead of a dialog fallback.
+- Keep hidden tab surfaces mounted when their local editor or selection state must be preserved.
 - Mounted inside the shell layout as a flex sibling of the primary column, so absolutely-positioned children (e.g., InlinePicker) of the primary column don't bleed across it.
 
 ### Hint Bar (`HintBar`)

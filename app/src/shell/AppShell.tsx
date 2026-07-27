@@ -21,8 +21,6 @@ import type { ReviewWorkspaceController } from "../features/review/workspace-con
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import {
 	SCRATCHPAD_MIN_COLS,
-	SCRATCHPAD_MIN_WIDTH,
-	ScratchpadDialog,
 	ScratchpadPanel,
 } from "../features/scratchpad/ScratchpadPanel";
 import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
@@ -149,20 +147,6 @@ export function shouldRestoreComposerFocus(options: {
 	);
 }
 
-export function shouldHandleScratchpadFocusNext(options: {
-	scratchpadOpen: boolean;
-	overlayOpen: boolean;
-	pickerVisible: boolean;
-	commandPaletteVisible: boolean;
-}): boolean {
-	return (
-		options.scratchpadOpen &&
-		!options.overlayOpen &&
-		!options.pickerVisible &&
-		!options.commandPaletteVisible
-	);
-}
-
 function AppShellContent(props: AppShellContentProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
@@ -271,7 +255,6 @@ function AppShellContent(props: AppShellContentProps) {
 
 	const readOnlySidebarWideEnough = () =>
 		shellWidth() >= READ_ONLY_SIDEBAR_MIN_WIDTH;
-	const scratchpadWideEnough = () => shellWidth() >= SCRATCHPAD_MIN_WIDTH;
 	const activitySource = () => {
 		const panel = openSecondaryPane();
 		return panel?.kind === "activity" ? panel.source : null;
@@ -306,8 +289,16 @@ function AppShellContent(props: AppShellContentProps) {
 			? { draft: true, review: attachment.review }
 			: null;
 	};
-	const scratchpadOpen = () =>
-		openSecondaryPane()?.kind === "scratchpad" && scratchpadWideEnough();
+	const isScratchpadPane = (pane: WorkspacePane | null | undefined) =>
+		pane?.kind === "scratchpad";
+	const scratchpadOpen = () => isScratchpadPane(openSecondaryPane());
+	const scratchpadRetained = () => {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		return (
+			isScratchpadPane(secondary.pane) || isScratchpadPane(secondary.returnPane)
+		);
+	};
 	const secondaryPaneVisible = () =>
 		editableReviewOpen() ||
 		activitySource() !== null ||
@@ -322,7 +313,7 @@ function AppShellContent(props: AppShellContentProps) {
 		return ACTIVITY_MIN_COLS;
 	};
 	const supportsNarrowWorkspaceTabs = () =>
-		editableReviewOpen() || activitySource() !== null;
+		editableReviewOpen() || activitySource() !== null || scratchpadOpen();
 	const workspaceUsesNarrowTabs = () =>
 		supportsNarrowWorkspaceTabs() &&
 		resolveWorkspacePaneLayout({
@@ -334,24 +325,11 @@ function AppShellContent(props: AppShellContentProps) {
 				secondaryPaneMinColumns(),
 			),
 		}) === null;
-	const secondaryPaneLabel = () =>
-		activitySource() !== null ? "Activity" : "Code review";
-
-	// Responsive presentation must not overwrite whether the user considers a
-	// pane open. Preserve workspace state while narrow and offer the scratchpad
-	// dialog once when an active inline editor can no longer be presented.
-	let openedResponsiveScratchpadDialog = false;
-	createEffect(() => {
-		const panel = openSecondaryPane();
-		if (panel?.kind !== "scratchpad" || scratchpadWideEnough()) {
-			openedResponsiveScratchpadDialog = false;
-			return;
-		}
-		if (props.scratchpad.editing() && !openedResponsiveScratchpadDialog) {
-			openedResponsiveScratchpadDialog = true;
-			openScratchpadDialog();
-		}
-	});
+	const secondaryPaneLabel = () => {
+		if (activitySource() !== null) return "Activity";
+		if (scratchpadOpen()) return "Scratchpad";
+		return "Code review";
+	};
 
 	createEffect(() => {
 		const panel = activeSecondaryPane();
@@ -366,15 +344,23 @@ function AppShellContent(props: AppShellContentProps) {
 
 	onCleanup(
 		props.runtime.subscribe("session.active.changed", () => {
-			const secondary = workspaceState().secondary;
+			const state = workspaceState();
+			const secondary = state.secondary;
 			if (secondary.status === "empty") return;
-			if (
-				secondary.pane.kind === "activity" &&
-				secondary.returnPane?.kind === "scratchpad"
-			) {
-				workspace.openSecondary(secondary.returnPane, {
-					focus: scratchpadWideEnough() ? "secondary" : "composer",
-				});
+			const scratchpad =
+				secondary.pane.kind === "scratchpad"
+					? secondary.pane
+					: secondary.returnPane?.kind === "scratchpad"
+						? secondary.returnPane
+						: null;
+			if (scratchpad) {
+				if (secondary.status === "open") {
+					workspace.openSecondary(scratchpad, {
+						focus: state.focusedSurface,
+					});
+				} else {
+					workspace.setActiveSecondary(scratchpad);
+				}
 				return;
 			}
 			if (
@@ -425,7 +411,7 @@ function AppShellContent(props: AppShellContentProps) {
 		if (current?.kind === "activity") {
 			const secondary = workspaceState().secondary;
 			if (secondary.status === "open" && secondary.returnPane) {
-				workspace.pushSecondary(
+				workspace.replaceSecondary(
 					{ kind: "activity", source },
 					{ focus: "secondary" },
 				);
@@ -449,7 +435,7 @@ function AppShellContent(props: AppShellContentProps) {
 		focusSecondarySurface();
 	};
 
-	function closeActivityPanel(): void {
+	function closeTemporaryPanel(): void {
 		if (!workspace.popSecondary({ focus: "secondary" })) {
 			workspace.minimizeSecondary();
 			focusComposerSurface();
@@ -457,11 +443,6 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 
 		const restored = openSecondaryPane();
-		if (restored?.kind === "scratchpad" && !scratchpadWideEnough()) {
-			workspace.setFocusedSurface("composer");
-			openScratchpadDialog();
-			return;
-		}
 		if (
 			restored?.kind === "review" &&
 			restored.source.kind !== "editor" &&
@@ -471,6 +452,10 @@ function AppShellContent(props: AppShellContentProps) {
 			return;
 		}
 		if (!focusSecondarySurface()) focusComposerSurface();
+	}
+
+	function closeActivityPanel(): void {
+		closeTemporaryPanel();
 	}
 
 	function editReviewDraft(): void {
@@ -520,25 +505,6 @@ function AppShellContent(props: AppShellContentProps) {
 					cwd={props.runtime.getSession().cwd}
 					onEdit={resolved.draft ? editReviewDraft : undefined}
 					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
-	};
-
-	const openScratchpadDialog = (
-		returnFocus: "composer" | "secondary" = "composer",
-	) => {
-		workspace.setFocusedSurface(returnFocus);
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
-				<ScratchpadDialog
-					controller={props.scratchpad}
-					done={(result) => {
-						workspace.setFocusedSurface(returnFocus);
-						overlayProps.done(result);
-					}}
 					surfaceProps={overlayProps.surfaceProps}
 					active={overlayProps.active}
 				/>
@@ -606,23 +572,40 @@ function AppShellContent(props: AppShellContentProps) {
 		return true;
 	}
 
+	function closeScratchpadPanel(): void {
+		saveScratchpadDraftIfEditing();
+		closeTemporaryPanel();
+	}
+
 	const toggleScratchpad = () => {
-		if (editableReviewOpen()) {
-			openScratchpadDialog("secondary");
-			return;
-		}
+		const secondary = workspaceState().secondary;
 		const panel = openSecondaryPane();
 		if (panel?.kind === "scratchpad") {
-			saveScratchpadDraftIfEditing();
-			workspace.minimizeSecondary();
+			closeScratchpadPanel();
 			return;
 		}
-		if (scratchpadWideEnough()) {
+		if (
+			secondary.status === "open" &&
+			secondary.returnPane?.kind === "scratchpad"
+		) {
+			workspace.popSecondary({ focus: "secondary" });
+			focusSecondarySurface();
+			return;
+		}
+		if (
+			secondary.status === "minimized" &&
+			secondary.pane.kind === "scratchpad"
+		) {
+			workspace.restoreSecondary({ focus: "secondary" });
+			focusSecondarySurface();
+			return;
+		}
+		if (panel) {
+			workspace.pushSecondary({ kind: "scratchpad" }, { focus: "secondary" });
+		} else {
 			workspace.openSecondary({ kind: "scratchpad" }, { focus: "secondary" });
-			return;
 		}
-		workspace.setActiveSecondary({ kind: "scratchpad" });
-		openScratchpadDialog();
+		focusSecondarySurface();
 	};
 
 	function toggleSecondaryPane(): boolean {
@@ -640,6 +623,7 @@ function AppShellContent(props: AppShellContentProps) {
 		const pane = secondary.pane;
 		if (
 			pane.kind === "activity" ||
+			pane.kind === "scratchpad" ||
 			(pane.kind === "review" && pane.source.kind === "editor")
 		) {
 			workspace.restoreSecondary({ focus: "secondary" });
@@ -647,9 +631,6 @@ function AppShellContent(props: AppShellContentProps) {
 			return true;
 		}
 		switch (pane.kind) {
-			case "scratchpad":
-				toggleScratchpad();
-				return true;
 			case "review":
 				if (pane.source.kind === "editor") {
 					workspace.openSecondary(pane);
@@ -743,19 +724,6 @@ function AppShellContent(props: AppShellContentProps) {
 					props.controller.openCommandPalette();
 				},
 				"queue-editor.open": openQueueEditor,
-				"scratchpad.focus-next": () => {
-					if (
-						!shouldHandleScratchpadFocusNext({
-							scratchpadOpen: scratchpadOpen(),
-							overlayOpen: props.overlays().length > 0,
-							pickerVisible: props.controller.picker.visible,
-							commandPaletteVisible: props.controller.commandPalette.visible,
-						})
-					) {
-						return false;
-					}
-					return cycleWorkspaceFocus();
-				},
 			},
 			generatedCommands: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -929,20 +897,29 @@ function AppShellContent(props: AppShellContentProps) {
 								</Show>
 							)}
 						</Show>
-						<Show when={scratchpadOpen()}>
-							<ScratchpadPanel
-								controller={props.scratchpad}
-								active={
-									props.overlays().length === 0 &&
-									chromeOverflow() === null &&
-									focusedSurface() === "secondary"
-								}
-								onClose={() => {
-									workspace.minimizeSecondary();
-									workspace.setFocusedSurface("composer");
-								}}
-								onFocusRequest={() => workspace.setFocusedSurface("secondary")}
-							/>
+						<Show when={scratchpadRetained()}>
+							<box
+								position="absolute"
+								left={scratchpadOpen() ? 0 : -1000}
+								top={0}
+								width="100%"
+								height="100%"
+							>
+								<ScratchpadPanel
+									controller={props.scratchpad}
+									showEdgeBorder={!workspaceUsesNarrowTabs()}
+									active={
+										scratchpadOpen() &&
+										props.overlays().length === 0 &&
+										chromeOverflow() === null &&
+										!props.controller.picker.visible &&
+										!props.controller.commandPalette.visible &&
+										focusedSurface() === "secondary"
+									}
+									onClose={closeScratchpadPanel}
+									onFocusRequest={focusSecondarySurface}
+								/>
+							</box>
 						</Show>
 					</>
 				}

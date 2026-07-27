@@ -31,6 +31,10 @@ export type WorkspaceStateController<TPane extends { kind: string }> = {
 		pane: TPane,
 		options?: { focus?: WorkspaceFocusedSurface },
 	): void;
+	replaceSecondary(
+		pane: TPane,
+		options?: { focus?: WorkspaceFocusedSurface },
+	): void;
 	popSecondary(options?: { focus?: WorkspaceFocusedSurface }): boolean;
 	restoreSecondary(options?: { focus?: WorkspaceFocusedSurface }): boolean;
 	minimizeSecondary(): void;
@@ -107,8 +111,20 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 		},
 		pushSecondary(pane, options) {
 			const returnPane =
+				state.secondary.status === "open" ? state.secondary.pane : undefined;
+			update({
+				...state,
+				secondary: returnPane
+					? { status: "open", pane, returnPane }
+					: { status: "open", pane },
+				focusedSurface: options?.focus ?? state.focusedSurface,
+				narrowTab: state.narrowTab,
+			});
+		},
+		replaceSecondary(pane, options) {
+			const returnPane =
 				state.secondary.status === "open"
-					? (state.secondary.returnPane ?? state.secondary.pane)
+					? state.secondary.returnPane
 					: undefined;
 			update({
 				...state,

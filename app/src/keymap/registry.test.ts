@@ -19,6 +19,7 @@ describe("keybinding registry", () => {
 		expect(
 			getKeybindingCommand("workspace.grow-secondary")?.defaultKeys,
 		).toEqual([]);
+		expect(getKeybindingCommand("scratchpad.focus-next")).toBeUndefined();
 	});
 
 	test("creates namespaced picker command metadata", () => {

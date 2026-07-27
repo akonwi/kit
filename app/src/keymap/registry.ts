@@ -324,11 +324,6 @@ export const KEYBINDING_REGISTRY = {
 		},
 	},
 	scratchpad: {
-		"focus-next": {
-			defaultKeys: "tab",
-			desc: "Focus next input",
-			group: "App",
-		},
 		close: {
 			defaultKeys: "escape",
 			desc: "Close scratchpad",

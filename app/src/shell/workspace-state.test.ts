@@ -119,7 +119,7 @@ describe("workspace state", () => {
 		workspace.openSecondary(review, { focus: "secondary" });
 		workspace.pushSecondary(activity, { focus: "secondary" });
 		const newerActivity: Pane = { kind: "scratchpad", id: "new-activity" };
-		workspace.pushSecondary(newerActivity, { focus: "secondary" });
+		workspace.replaceSecondary(newerActivity, { focus: "secondary" });
 
 		expect(workspace.getState().secondary).toEqual({
 			status: "open",
@@ -139,6 +139,27 @@ describe("workspace state", () => {
 			pane: review,
 		});
 		expect(workspace.popSecondary()).toBe(false);
+	});
+
+	test("a new push keeps only the immediately previous pane", () => {
+		const workspace = createWorkspaceStateController<Pane>();
+		const review: Pane = { kind: "review" };
+		const activity: Pane = { kind: "scratchpad", id: "activity" };
+		const scratchpad: Pane = { kind: "scratchpad", id: "notes" };
+		workspace.openSecondary(review);
+		workspace.pushSecondary(activity);
+		workspace.pushSecondary(scratchpad);
+
+		expect(workspace.getState().secondary).toEqual({
+			status: "open",
+			pane: scratchpad,
+			returnPane: activity,
+		});
+		workspace.popSecondary();
+		expect(workspace.getState().secondary).toEqual({
+			status: "open",
+			pane: activity,
+		});
 	});
 
 	test("normalizes invalid preferred ratios without changing presentation state", () => {
