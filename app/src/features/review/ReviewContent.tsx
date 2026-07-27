@@ -40,7 +40,6 @@ import {
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
-import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
 import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
 import type { PickerOption } from "../../state/picker";
@@ -2502,49 +2501,57 @@ export function ReviewContent(props: ReviewContentProps) {
 		},
 	}));
 
+	const reviewHeaderLeft = (
+		<text fg={theme.textMuted}>
+			Code review {CHEVRON_RIGHT}{" "}
+			<Show
+				when={targetCommit()}
+				fallback={<span style={{ fg: theme.textPrimary }}>working tree</span>}
+			>
+				{(commit) => (
+					<>
+						<span style={{ fg: theme.metaText }}>{commit().shortSha}</span>{" "}
+						<span style={{ fg: theme.textPrimary }}>{commit().subject}</span>
+					</>
+				)}
+			</Show>
+		</text>
+	);
+	const reviewHeaderRight = (
+		<text fg={theme.textMuted}>
+			{targetCommit() ? `committed ${targetCommit()?.relativeTime} · ` : ""}
+			{formatFileCount(reviewFiles().length)}
+			{totalDraftNotes() > 0 ? ` · ${formatNoteCount(totalDraftNotes())}` : ""}
+		</text>
+	);
+	const reviewHeader = (
+		<box
+			flexShrink={0}
+			paddingX={1}
+			width="100%"
+			height={2}
+			flexDirection="row"
+			border={["bottom"]}
+			borderColor={theme.borderDefault}
+			justifyContent="space-between"
+			gap={1}
+		>
+			<box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+				{reviewHeaderLeft}
+			</box>
+			<box flexShrink={1} height={1} overflow="hidden">
+				{reviewHeaderRight}
+			</box>
+		</box>
+	);
+
 	return (
 		<ScreenLayout
 			surfaceProps={
 				props.presentation === "pane" ? undefined : props.surfaceProps
 			}
 			zIndex={props.presentation === "pane" ? 0 : 1200}
-			header={
-				<ScreenHeader
-					left={
-						<text fg={theme.textMuted}>
-							Code review {CHEVRON_RIGHT}{" "}
-							<Show
-								when={targetCommit()}
-								fallback={
-									<span style={{ fg: theme.textPrimary }}>working tree</span>
-								}
-							>
-								{(commit) => (
-									<>
-										<span style={{ fg: theme.metaText }}>
-											{commit().shortSha}
-										</span>{" "}
-										<span style={{ fg: theme.textPrimary }}>
-											{commit().subject}
-										</span>
-									</>
-								)}
-							</Show>
-						</text>
-					}
-					right={
-						<text fg={theme.textMuted}>
-							{targetCommit()
-								? `committed ${targetCommit()?.relativeTime} · `
-								: ""}
-							{formatFileCount(reviewFiles().length)}
-							{totalDraftNotes() > 0
-								? ` · ${formatNoteCount(totalDraftNotes())}`
-								: ""}
-						</text>
-					}
-				/>
-			}
+			header={reviewHeader}
 			footer={
 				<KeymapHintBar
 					group="review"
@@ -2595,7 +2602,7 @@ export function ReviewContent(props: ReviewContentProps) {
 							flexGrow={isWide() ? 0 : 1}
 							flexShrink={0}
 							height="100%"
-							border={isWide() ? ["right"] : false}
+							border={isWide() ? ["right"] : []}
 							borderColor={theme.borderDefault}
 						>
 							<FileTreePanel
