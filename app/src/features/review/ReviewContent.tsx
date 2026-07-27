@@ -11,7 +11,6 @@ import {
 	onCleanup,
 	Show,
 } from "solid-js";
-import type { OverlayComponentProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
@@ -94,10 +93,7 @@ export type ReviewContentProps = {
 	toast: (toast: ToastInput) => void;
 	defaultDiffView: ReviewDiffView;
 	onDiffViewChanged?: (view: ReviewDiffView) => void;
-	surfaceProps?: OverlayComponentProps<void>["surfaceProps"];
 	active?: boolean;
-	presentation?: "screen" | "pane";
-	closeOnSubmit?: boolean;
 	onFocusRequest?: () => void;
 };
 
@@ -2232,7 +2228,6 @@ export function ReviewContent(props: ReviewContentProps) {
 				variant: "info",
 			});
 		}
-		if (props.closeOnSubmit !== false) props.onClose();
 	}
 
 	function beginRangeSelection() {
@@ -2547,10 +2542,7 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	return (
 		<ScreenLayout
-			surfaceProps={
-				props.presentation === "pane" ? undefined : props.surfaceProps
-			}
-			zIndex={props.presentation === "pane" ? 0 : 1200}
+			zIndex={0}
 			header={reviewHeader}
 			footer={
 				<KeymapHintBar

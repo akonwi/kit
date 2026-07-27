@@ -816,8 +816,6 @@ function AppShellContent(props: AppShellContentProps) {
 									toast={props.showToast}
 									defaultDiffView={props.defaultReviewDiffView}
 									onDiffViewChanged={props.onReviewDiffViewChanged}
-									presentation="pane"
-									closeOnSubmit={false}
 									onFocusRequest={focusReviewSurface}
 									active={
 										focusedSurface() === "secondary" &&
