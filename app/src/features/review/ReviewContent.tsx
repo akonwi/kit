@@ -115,7 +115,14 @@ function ReviewPaneLayout(props: ReviewPaneLayoutProps) {
 			<box flexGrow={1} flexDirection="column" overflow="hidden">
 				{props.children}
 			</box>
-			<box flexShrink={0}>{props.footer}</box>
+			<box
+				flexShrink={0}
+				paddingX={1}
+				border={["top"]}
+				borderColor={theme.borderDefault}
+			>
+				{props.footer}
+			</box>
 		</box>
 	);
 }
@@ -2568,6 +2575,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			header={reviewHeader}
 			footer={
 				<KeymapHintBar
+					borderless
 					group="review"
 					prefixBindings={
 						mode() === "patch" && !editorOpen()
