@@ -13,7 +13,7 @@ export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 export type ReviewDiffSource = "working" | "untracked" | "commit";
 
 /**
- * What the review screen is diffing.
+ * What the review surface is diffing.
  *
  * - `working` — working tree vs HEAD plus untracked files (default).
  * - `commit` — a single commit vs its (first) parent.
