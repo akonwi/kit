@@ -377,13 +377,13 @@ export function FileTreePanel(props: FileTreePanelProps) {
 							}
 							onMouseDown={(event) => chooseTreeMode("changes", event)}
 						>
-							{treeMode() === "changes" ? "[changes]" : "changes"}
+							changes
 						</text>
 						<text
 							fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}
 							onMouseDown={(event) => chooseTreeMode("all", event)}
 						>
-							{treeMode() === "all" ? "[all files]" : "all files"}
+							all files
 						</text>
 					</box>
 				</box>

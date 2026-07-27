@@ -51,6 +51,7 @@ describe("WorkspacePaneHost", () => {
 		await testSetup.renderOnce();
 		expect(testSetup.captureCharFrame()).toContain("transcript body");
 		expect(testSetup.captureCharFrame()).toContain("Activity");
+		expect(testSetup.captureCharFrame()).not.toContain("[Transcript]");
 		expect(secondaryMounts).toBe(1);
 
 		expect(testSetup.captureCharFrame()).not.toContain("review body");

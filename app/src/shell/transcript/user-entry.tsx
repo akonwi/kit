@@ -1,4 +1,3 @@
-import type { BorderSides } from "@opentui/core";
 import { TextAttributes } from "@opentui/core";
 import { For, Show } from "solid-js";
 import { openImagePart } from "../../features/images/open";
@@ -33,21 +32,12 @@ function CodeReviewPartEntry(props: {
 	const summary = `Code review · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${fileCount} file${fileCount === 1 ? "" : "s"}`;
 
 	return (
-		<box
-			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.attachmentText}
-			paddingLeft={1}
-			flexDirection="column"
-			gap={0}
-			width="100%"
+		<text
+			fg={props.aborted ? theme.textMuted : theme.attachmentText}
+			attributes={props.aborted ? ABORTED_ATTRS : undefined}
 		>
-			<text
-				fg={props.aborted ? theme.textMuted : theme.attachmentText}
-				attributes={props.aborted ? ABORTED_ATTRS : undefined}
-			>
-				{PENCIL} {summary}
-			</text>
-		</box>
+			{PENCIL} {summary}
+		</text>
 	);
 }
 
@@ -59,11 +49,6 @@ function ImagePartEntry(props: {
 	const label = props.part.filename ?? "Image attachment";
 	return (
 		<box
-			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.attachmentText}
-			paddingLeft={1}
-			flexDirection="column"
-			gap={0}
 			width="100%"
 			onMouseUp={() => {
 				if (props.aborted) return;
@@ -86,21 +71,12 @@ function ImagePartEntry(props: {
 
 function UserTextEntry(props: { text: string; aborted?: boolean }) {
 	return (
-		<box
-			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
-			paddingLeft={1}
-			flexDirection="column"
-			gap={0}
-			width="100%"
-		>
-			<markdown
-				content={props.text}
-				syntaxStyle={syntaxStyle()}
-				conceal
-				fg={props.aborted ? theme.textMuted : theme.textPrimary}
-			/>
-		</box>
+		<markdown
+			content={props.text}
+			syntaxStyle={syntaxStyle()}
+			conceal
+			fg={props.aborted ? theme.textMuted : theme.textPrimary}
+		/>
 	);
 }
 
@@ -111,18 +87,9 @@ function PromptCommandEntry(props: {
 }) {
 	const suffix = props.args?.trim().length ? ` ${props.args?.trim()}` : "";
 	return (
-		<box
-			border={["left" as BorderSides]}
-			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
-			paddingLeft={1}
-			flexDirection="column"
-			gap={0}
-			width="100%"
-		>
-			<text fg={props.aborted ? theme.textMuted : theme.textPrimary}>
-				{`/${props.command}${suffix}`}
-			</text>
-		</box>
+		<text fg={props.aborted ? theme.textMuted : theme.textPrimary}>
+			{`/${props.command}${suffix}`}
+		</text>
 	);
 }
 
@@ -135,7 +102,14 @@ export function UserEntry(props: {
 	const text = extractUserText(props.msg);
 	const parts = extractUserCustomParts(props.msg);
 	return (
-		<box flexDirection="column" gap={1} width="100%">
+		<box
+			border={["left"]}
+			borderColor={props.aborted ? theme.textMuted : theme.userBorder}
+			paddingLeft={1}
+			flexDirection="column"
+			gap={1}
+			width="100%"
+		>
 			<Show
 				when={promptCommand}
 				fallback={

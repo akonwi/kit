@@ -1,4 +1,4 @@
-import { createEffect, createSignal } from "solid-js";
+import { createEffect } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
@@ -17,7 +17,6 @@ type ScratchpadContentProps = {
 	controller: ScratchpadController;
 	active?: boolean;
 	onClose: () => void;
-	onEditingChange?: (editing: boolean) => void;
 };
 
 function ScratchpadContent(props: ScratchpadContentProps) {
@@ -33,10 +32,6 @@ function ScratchpadContent(props: ScratchpadContentProps) {
 
 	createEffect(() => {
 		if (active() && !props.controller.editing()) props.controller.enterEdit();
-	});
-
-	createEffect(() => {
-		props.onEditingChange?.(props.controller.editing());
 	});
 
 	createEffect(() => {
@@ -91,19 +86,15 @@ function ScratchpadContent(props: ScratchpadContentProps) {
 export type ScratchpadPanelProps = {
 	controller: ScratchpadController;
 	active?: boolean;
-	showEdgeBorder?: boolean;
 	onClose: () => void;
 	onFocusRequest?: () => void;
 };
 
 export function ScratchpadPanel(props: ScratchpadPanelProps) {
-	const [editing, setEditing] = createSignal(false);
 	return (
 		<box
 			width="100%"
 			height="100%"
-			border={props.showEdgeBorder === false ? false : ["left"]}
-			borderColor={editing() ? theme.borderAccent : theme.borderDefault}
 			onMouseDown={(event) => {
 				if (event.button === 0) props.onFocusRequest?.();
 			}}
@@ -125,7 +116,6 @@ export function ScratchpadPanel(props: ScratchpadPanelProps) {
 					controller={props.controller}
 					active={props.active}
 					onClose={props.onClose}
-					onEditingChange={setEditing}
 				/>
 			</WorkspacePanelLayout>
 		</box>

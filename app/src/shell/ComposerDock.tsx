@@ -47,12 +47,20 @@ export function ComposerDock(props: ComposerDockProps) {
 		props.controller.getTextareaText(),
 	);
 	const composerMode = () => getComposerInputMode(composerText());
-	const composerBorderColor = () =>
-		composerMode() === "bash"
+	const inputFocused = () => props.inputFocused !== false;
+	const composerVisuallyFocused = () =>
+		inputFocused() &&
+		!props.locked &&
+		!picker.visible &&
+		!commandPaletteVisible();
+	const composerBorderColor = () => {
+		if (!composerVisuallyFocused()) return theme.borderDefault;
+		return composerMode() === "bash"
 			? theme.composerBashBorder
 			: composerMode() === "bash-excluded"
 				? theme.composerBashExcludedBorder
 				: theme.borderFocused;
+	};
 	const syncComposerText = () =>
 		setComposerText(props.controller.getTextareaText());
 
@@ -60,7 +68,6 @@ export function ComposerDock(props: ComposerDockProps) {
 		props.onModeChange?.(composerMode());
 	});
 
-	const inputFocused = () => props.inputFocused !== false;
 	const shellInputAvailable = () =>
 		inputFocused() && !props.locked && !commandPaletteVisible();
 	useKeymapLayer(() => ({
@@ -165,9 +172,7 @@ export function ComposerDock(props: ComposerDockProps) {
 					<box
 						width="100%"
 						flexDirection="row"
-						paddingLeft={1}
-						paddingRight={1}
-						paddingBottom={1}
+						paddingX={1}
 						justifyContent="space-between"
 						alignItems="center"
 					>
@@ -191,49 +196,57 @@ export function ComposerDock(props: ComposerDockProps) {
 					</box>
 				))}
 			</box>
-			<MessageComposer
-				ref={(value) => {
-					props.controller.setTextarea(value as TextareaHandle | undefined);
-				}}
-				placeholder={placeholder()}
-				focused={
-					inputFocused() &&
-					!picker.visible &&
-					!commandPaletteVisible() &&
-					!props.locked
-				}
-				showCursor={
-					inputFocused() &&
-					!picker.visible &&
-					!commandPaletteVisible() &&
-					!props.locked
-				}
+			<box
+				width="100%"
+				border={["top"]}
 				borderColor={composerBorderColor()}
-				keyBindings={
-					picker.visible || commandPaletteVisible() || props.locked
-						? []
-						: [
-								{ name: "return", action: "submit" },
-								{ name: "linefeed", action: "submit" },
-								{ name: "return", shift: true, action: "newline" },
-							]
-				}
-				onContentChange={() => {
-					props.controller.handleTextChange();
-					syncComposerText();
-				}}
-				onPaste={(event: PasteEvent) => {
-					console.log("[composer-dock] textarea onPaste fired", {
-						mimeType: event.metadata?.mimeType,
-						kind: event.metadata?.kind,
-						byteLength: event.bytes.length,
-					});
-					void props.controller.handlePaste(event).finally(syncComposerText);
-				}}
-				onSubmit={() => {
-					void props.controller.handleSubmit().finally(syncComposerText);
-				}}
-			/>
+				paddingX={1}
+			>
+				<MessageComposer
+					variant="dock"
+					ref={(value) => {
+						props.controller.setTextarea(value as TextareaHandle | undefined);
+					}}
+					placeholder={placeholder()}
+					focused={
+						inputFocused() &&
+						!picker.visible &&
+						!commandPaletteVisible() &&
+						!props.locked
+					}
+					showCursor={
+						inputFocused() &&
+						!picker.visible &&
+						!commandPaletteVisible() &&
+						!props.locked
+					}
+					borderColor={composerBorderColor()}
+					keyBindings={
+						picker.visible || commandPaletteVisible() || props.locked
+							? []
+							: [
+									{ name: "return", action: "submit" },
+									{ name: "linefeed", action: "submit" },
+									{ name: "return", shift: true, action: "newline" },
+								]
+					}
+					onContentChange={() => {
+						props.controller.handleTextChange();
+						syncComposerText();
+					}}
+					onPaste={(event: PasteEvent) => {
+						console.log("[composer-dock] textarea onPaste fired", {
+							mimeType: event.metadata?.mimeType,
+							kind: event.metadata?.kind,
+							byteLength: event.bytes.length,
+						});
+						void props.controller.handlePaste(event).finally(syncComposerText);
+					}}
+					onSubmit={() => {
+						void props.controller.handleSubmit().finally(syncComposerText);
+					}}
+				/>
+			</box>
 		</box>
 	);
 }

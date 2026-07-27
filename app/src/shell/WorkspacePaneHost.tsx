@@ -153,11 +153,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 					}
 					onMouseDown={(event) => selectNarrowTab("transcript", event)}
 				>
-					{narrowTabbed()
-						? props.narrowTabs?.selected() === "transcript"
-							? "[Transcript]"
-							: "Transcript"
-						: ""}
+					{narrowTabbed() ? "Transcript" : ""}
 				</text>
 				<text
 					fg={
@@ -168,9 +164,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 					onMouseDown={(event) => selectNarrowTab("secondary", event)}
 				>
 					{narrowTabbed()
-						? props.narrowTabs?.selected() === "secondary"
-							? `[${props.narrowTabs?.secondaryLabel() ?? "Secondary"}]`
-							: (props.narrowTabs?.secondaryLabel() ?? "Secondary")
+						? (props.narrowTabs?.secondaryLabel() ?? "Secondary")
 						: ""}
 				</text>
 			</box>
@@ -193,6 +187,8 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 				<box
 					position="relative"
 					flexShrink={0}
+					border={layout() ? ["left"] : false}
+					borderColor={theme.borderDefault}
 					width={
 						props.secondaryOpen && secondaryVisible()
 							? (layout()?.secondaryColumns ?? "100%")

@@ -157,15 +157,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 								displayItem.kind === "single"
 									? displayItem.item.turnId
 									: displayItem.turnId;
-							const isUser =
-								displayItem.kind === "single" &&
-								displayItem.item.kind === "user";
-							// Extra spacing before user messages for visual separation
-							const spacerHeight = () => {
-								if (index() === 0) return 0;
-								if (isUser) return 2;
-								return 1;
-							};
+							const spacerHeight = () => (index() === 0 ? 0 : 1);
 							return (
 								<>
 									<Show when={spacerHeight() > 0}>

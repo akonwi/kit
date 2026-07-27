@@ -690,8 +690,6 @@ function AppShellContent(props: AppShellContentProps) {
 								top={0}
 								width="100%"
 								height="100%"
-								border={workspaceUsesNarrowTabs() ? false : ["left"]}
-								borderColor={theme.borderDefault}
 								onMouseDown={(event) => {
 									if (event.button === 0) focusReviewSurface();
 								}}
@@ -729,8 +727,6 @@ function AppShellContent(props: AppShellContentProps) {
 									top={0}
 									width="100%"
 									height="100%"
-									border={workspaceUsesNarrowTabs() ? false : ["left"]}
-									borderColor={theme.borderDefault}
 									onMouseDown={(event) => {
 										if (event.button === 0) focusSecondarySurface();
 									}}
@@ -761,7 +757,6 @@ function AppShellContent(props: AppShellContentProps) {
 							>
 								<ScratchpadPanel
 									controller={props.scratchpad}
-									showEdgeBorder={!workspaceUsesNarrowTabs()}
 									active={
 										scratchpadOpen() &&
 										props.overlays().length === 0 &&
