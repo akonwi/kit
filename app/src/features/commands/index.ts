@@ -7,7 +7,6 @@ import { loginCommand } from "./login";
 import { modelCommand } from "./model";
 import { nameCommand } from "./name";
 import { newCommand } from "./new";
-import { queueEditorCommand } from "./queue-editor";
 import { quitCommand } from "./quit";
 import { reloadCommand } from "./reload";
 import { codeReviewCommand } from "./review";
@@ -25,7 +24,6 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	modelCommand,
 	nameCommand,
 	newCommand,
-	queueEditorCommand,
 	quitCommand,
 	reloadCommand,
 	sessionCommand,

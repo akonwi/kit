@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { MessagePart } from "../messages/parts";
 import type { Attachment } from "./attachments-controller";
-import { findLatestOpenableAttachment } from "./ComposerDock";
+import {
+	findLatestOpenableAttachment,
+	getComposerUpAction,
+} from "./ComposerDock";
 
 function attachment(
 	id: string,
@@ -17,6 +20,14 @@ function attachment(
 		...(options.openable ? { onOpen: () => {} } : {}),
 	};
 }
+
+describe("composer Up behavior", () => {
+	test("restores queued messages before native navigation or recall", () => {
+		expect(getComposerUpAction(2, "current draft")).toBe("restore");
+		expect(getComposerUpAction(0, "current draft")).toBe("native");
+		expect(getComposerUpAction(0, "")).toBe("recall");
+	});
+});
 
 describe("composer attachments", () => {
 	test("finds the latest attachment that can be opened", () => {

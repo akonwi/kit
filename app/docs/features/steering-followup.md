@@ -13,42 +13,19 @@ While the agent is streaming:
 
 - typing a message and pressing `Enter` queues it as a follow-up
 - queued follow-ups are shown below the agent status line and directly above the composer while they are pending
-- the status bar shows `queued messages: N · Alt+Q edit · ↑ restore` when follow-ups are queued
+- the status bar shows `queued messages: N · ↑ restore` when follow-ups are queued
 - when the composer is empty and queued follow-ups exist, pressing `Enter` promotes those queued follow-ups to steering
-- pressing `Up` in an empty composer restores queued follow-ups back into the composer; if none exist, it opens user message history for recall
-- pressing `Alt+Q` opens the queued follow-up editor
-- running `edit-queue` from the command palette opens the same editor
+- pressing `Up` while follow-ups are queued restores them into the composer; if none are queued and the composer is empty, it opens user message history for recall
 - queued follow-ups clear from the visible stack when the next turn begins consuming them
 
-## Queue editor
+## Restoring queued messages
 
-The queue editor lets pending follow-ups be changed before the agent consumes them.
+Restoring drains every pending follow-up back into the composer, separated by blank lines and in queue order. If the composer already contains a draft, that draft is preserved after the restored messages. Queued image and code-review attachments are restored too. The combined draft can then be edited or cleared using the normal composer controls.
 
-Open it with `Alt+Q` or from the command palette.
-
-Inside the editor:
-
-| Key | Action |
-| --- | --- |
-| `↑` / `↓` | Select a queued follow-up |
-| `Enter` | Edit the selected follow-up |
-| `d` | Delete the selected follow-up |
-| `c` | Clear queued follow-ups; confirms when multiple are queued |
-| `Esc` | Close the editor, or cancel the current edit/confirmation |
-
-While editing a queued follow-up:
-
-| Key | Action |
-| --- | --- |
-| `Enter` | Save the edit |
-| `Shift+Enter` | Insert a newline |
-| `Esc` | Cancel editing |
-
-If an edit is saved as empty text, the queued follow-up is removed.
+Press `Up` while follow-ups are queued. If the composer already contains a draft, it is preserved after the restored messages. When there are no queued follow-ups, `Up` keeps its normal composer behavior and opens user message history from an empty composer.
 
 ## How to use it
 
 - type a message and press `Enter` while streaming to queue a follow-up
 - press `Enter` again in an empty composer to promote queued follow-ups to steering
-- press `Up` in an empty composer to restore queued follow-ups back into the composer
-- press `Alt+Q` or run `edit-queue` from the command palette to edit, delete, or clear queued follow-ups
+- press `Up` to restore queued follow-ups back into the composer

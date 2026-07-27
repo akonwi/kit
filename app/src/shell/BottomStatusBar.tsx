@@ -14,7 +14,7 @@ import {
 	truncateStart,
 } from "./chrome-layout";
 import type { FooterStatusController } from "./footer-status";
-import { ARROW_UP, MIDDLE_DOT } from "./glyphs";
+import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
 export const VCS_LOCATION_CONTRIBUTION_ID = "VcsStatusPlugin:location";
@@ -25,6 +25,7 @@ export type BottomStatusBarProps = {
 	composerMode: ComposerInputMode;
 	shellWidth: number;
 	onOpenOverflow: (contributions: readonly ChromeContribution[]) => void;
+	restoreQueueBinding?: string;
 	onOverflowAvailabilityChange?: (available: boolean) => void;
 };
 
@@ -82,7 +83,9 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 				break;
 			default:
 				if (pendingMessageCount() > 0) {
-					label = `queued messages: ${pendingMessageCount()} ${MIDDLE_DOT} Alt+Q edit ${MIDDLE_DOT} ${ARROW_UP} restore`;
+					label = `queued messages: ${pendingMessageCount()}`;
+					const binding = props.restoreQueueBinding;
+					if (binding) label += ` ${MIDDLE_DOT} ${binding} restore`;
 				}
 		}
 		if (!label) return null;

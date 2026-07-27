@@ -1292,28 +1292,8 @@ export class AgentRuntime {
 		this.agent.steer(msg);
 	}
 
-	clearPendingMessages(): void {
-		this.agent.clearPendingFollowUps();
-		this.syncPendingState();
-	}
-
-	setPendingMessages(messages: string[]): void {
-		this.agent.setPendingFollowUps(messages);
-		this.syncPendingState();
-	}
-
-	updatePendingMessage(index: number, text: string): void {
-		this.agent.updatePendingFollowUp(index, text);
-		this.syncPendingState();
-	}
-
-	removePendingMessage(index: number): void {
-		this.agent.removePendingFollowUp(index);
-		this.syncPendingState();
-	}
-
-	drainPendingMessages(): string[] {
-		const drained = this.agent.drainPendingFollowUps();
+	drainPendingMessages(): AgentMessage[] {
+		const drained = this.agent.drainPendingFollowUpMessages();
 		this.syncPendingState();
 		return drained;
 	}
@@ -1335,10 +1315,6 @@ export class AgentRuntime {
 
 	getPendingMessages(): string[] {
 		return this.agent.getPendingFollowUps();
-	}
-
-	getPendingMessageDrafts(): string[] {
-		return this.agent.getPendingFollowUpDrafts();
 	}
 
 	getSession(): Session {

@@ -181,6 +181,7 @@ describe("BottomStatusBar", () => {
 					status={status}
 					composerMode="normal"
 					shellWidth={52}
+					restoreQueueBinding="Ctrl+R"
 					onOpenOverflow={() => {}}
 				/>
 			),
@@ -189,7 +190,7 @@ describe("BottomStatusBar", () => {
 
 		await testSetup.renderOnce();
 		const frame = testSetup.captureCharFrame();
-		expect(frame).toContain("queued messages: 2");
+		expect(frame).toContain("queued messages: 2 · Ctrl+R restore");
 		expect(frame.trimEnd().split("\n")).toHaveLength(2);
 	});
 });

@@ -459,71 +459,10 @@ export class Agent {
 		return [...this._pendingFollowUps];
 	}
 
-	getPendingFollowUpDrafts(): string[] {
-		return this._queuedFollowUps.map((message) => extractEditableText(message));
-	}
-
-	setPendingFollowUps(messages: string[]): void {
-		this.replacePendingFollowUps(
-			messages.flatMap((text) => {
-				const trimmed = text.trim();
-				return trimmed
-					? [
-							{
-								role: "user" as const,
-								content: trimmed,
-								timestamp: Date.now(),
-							},
-						]
-					: [];
-			}),
-		);
-	}
-
-	updatePendingFollowUp(index: number, text: string): void {
-		if (index < 0 || index >= this._queuedFollowUps.length) return;
-		const trimmed = text.trim();
-		if (!trimmed) {
-			this.removePendingFollowUp(index);
-			return;
-		}
-		this.replacePendingFollowUps(
-			this._queuedFollowUps.map((message, messageIndex) =>
-				messageIndex === index
-					? withPlainTextContent(message, trimmed)
-					: message,
-			),
-		);
-	}
-
-	removePendingFollowUp(index: number): void {
-		if (index < 0 || index >= this._queuedFollowUps.length) return;
-		this.replacePendingFollowUps(
-			this._queuedFollowUps.filter((_, messageIndex) => messageIndex !== index),
-		);
-	}
-
-	drainPendingFollowUps(): string[] {
-		const drained = [...this._pendingFollowUps];
-		this.clearFollowUpQueue();
-		return drained;
-	}
-
 	drainPendingFollowUpMessages(): AgentMessage[] {
 		const drained = [...this._queuedFollowUps];
 		this.clearFollowUpQueue();
 		return drained;
-	}
-
-	clearPendingFollowUps(): void {
-		this.clearFollowUpQueue();
-	}
-
-	private replacePendingFollowUps(messages: AgentMessage[]): void {
-		this.clearFollowUpQueue();
-		for (const message of messages) {
-			this.followUp(message);
-		}
 	}
 
 	private processPiEvent(event: PiAgentEvent): AgentEvent[] {
@@ -904,54 +843,6 @@ function normalizeUserMessage(
 		content,
 		timestamp: message.timestamp,
 	};
-}
-
-function withPlainTextContent(
-	message: AgentMessage,
-	text: string,
-): AgentMessage {
-	if (!("content" in message)) return message;
-	if (typeof message.content === "string") {
-		return { ...message, content: text } as AgentMessage;
-	}
-	if (!Array.isArray(message.content)) return message;
-	const nonTextParts = message.content.filter(
-		(part) =>
-			!(
-				typeof part === "object" &&
-				part !== null &&
-				"type" in part &&
-				part.type === "text"
-			),
-	);
-	return {
-		...message,
-		content: [{ type: "text", text }, ...nonTextParts],
-	} as AgentMessage;
-}
-
-function extractEditableText(message: AgentMessage): string {
-	if (!("content" in message)) return "";
-	const { content } = message;
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter(
-			(
-				block,
-			): block is {
-				type: "text";
-				text: string;
-			} =>
-				typeof block === "object" &&
-				block !== null &&
-				"type" in block &&
-				block.type === "text" &&
-				"text" in block &&
-				typeof block.text === "string",
-		)
-		.map((block) => block.text)
-		.join("\n");
 }
 
 function extractPlainText(message: AgentMessage): string {

@@ -7,10 +7,15 @@ import type { OverlayComponentProps } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
 import type { FileIndex } from "../features/files";
 import { ImageAttachment } from "../features/images/attachment";
+import {
+	CodeReviewAttachment,
+	type CodeReviewSubmission,
+} from "../features/review/attachment";
 import type { ReviewDraftController } from "../features/review/draft-controller";
 import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
 import { type MessagePart, messagePartToPromptText } from "../messages/parts";
+import type { AgentMessage } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { PickerContext } from "../state/picker";
 import {
@@ -19,6 +24,34 @@ import {
 } from "../state/picker-manager";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
+
+export function extractPendingComposerText(message: AgentMessage): string {
+	if (!("content" in message)) return "";
+	if (typeof message.content === "string") return message.content;
+	if (!Array.isArray(message.content)) return "";
+	return message.content
+		.flatMap((part) => {
+			if (
+				typeof part === "object" &&
+				part !== null &&
+				"type" in part &&
+				part.type === "text" &&
+				"text" in part &&
+				typeof part.text === "string"
+			) {
+				return [part.text];
+			}
+			return [];
+		})
+		.join("\n");
+}
+
+export function mergePendingMessagesIntoComposer(
+	pending: string[],
+	composerText: string,
+): string {
+	return [...pending, ...(composerText ? [composerText] : [])].join("\n\n");
+}
 
 export type TextareaHandle = {
 	plainText: string;
@@ -469,9 +502,61 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	function restorePendingMessages(): boolean {
 		const pending = runtime.drainPendingMessages();
 		if (pending.length === 0) return false;
-		const restored = pending.join("\n\n");
+		const restored = mergePendingMessagesIntoComposer(
+			pending.map(extractPendingComposerText).filter(Boolean),
+			textareaRef?.plainText ?? "",
+		);
 		setTextareaText(restored);
 		if (textareaRef) textareaRef.cursorOffset = restored.length;
+
+		for (const message of pending) {
+			if (!("content" in message) || !Array.isArray(message.content)) continue;
+			for (const part of message.content) {
+				const restoredPart = part as unknown as Record<string, unknown>;
+				if (
+					restoredPart.type === "code-review" &&
+					typeof restoredPart.review === "object" &&
+					restoredPart.review !== null
+				) {
+					attachments.attach(
+						new CodeReviewAttachment(
+							randomUUID(),
+							restoredPart.review as CodeReviewSubmission,
+						),
+					);
+					continue;
+				}
+				if (
+					typeof part !== "object" ||
+					part === null ||
+					!("type" in part) ||
+					part.type !== "image" ||
+					!("data" in part) ||
+					typeof part.data !== "string" ||
+					!("mimeType" in part) ||
+					typeof part.mimeType !== "string"
+				) {
+					continue;
+				}
+				const filename =
+					"filename" in part && typeof part.filename === "string"
+						? part.filename
+						: "queued-image";
+				const sourcePath =
+					"sourcePath" in part && typeof part.sourcePath === "string"
+						? part.sourcePath
+						: undefined;
+				attachments.attach(
+					new ImageAttachment(
+						randomUUID(),
+						filename,
+						part.mimeType,
+						part.data,
+						sourcePath,
+					),
+				);
+			}
+		}
 		return true;
 	}
 

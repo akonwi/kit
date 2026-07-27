@@ -59,7 +59,7 @@ function formatKeySequence(binding: OpenTuiActiveBinding): string {
 		.join(" ");
 }
 
-function formatCommandBindings(
+export function formatCommandBindings(
 	bindings: readonly OpenTuiActiveBinding[],
 ): string {
 	return Array.from(new Set(bindings.map(formatKeySequence))).join("/");

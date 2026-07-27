@@ -29,13 +29,6 @@ export const KEYBINDING_REGISTRY = {
 			group: "App",
 		},
 	},
-	"queue-editor": {
-		open: {
-			defaultKeys: "alt+q",
-			desc: "Edit queued messages",
-			group: "App",
-		},
-	},
 	workspace: {
 		"focus-next": {
 			defaultKeys: "f6",

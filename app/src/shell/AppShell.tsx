@@ -1,7 +1,6 @@
+import { useKeymapSelector } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
-import type { JSX } from "solid-js";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
-import type { OverlayComponentProps } from "../app/overlay-ui";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
@@ -46,8 +45,8 @@ import type { FooterStatusController } from "./footer-status";
 import { HeaderBar } from "./HeaderBar";
 import type { HeaderStatusController } from "./header-status";
 import { InlinePicker } from "./InlinePicker";
+import { formatCommandBindings } from "./KeymapHintBar";
 import { PendingSlot } from "./PendingSlot";
-import { QueueEditorDialog } from "./QueueEditorDialog";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
@@ -321,27 +320,19 @@ function AppShellContent(props: AppShellContentProps) {
 		}),
 	);
 
-	const openQueueEditor = () => {
-		if (props.runtime.getPendingMessageCount() === 0) {
-			props.showToast({
-				title: "No queued messages",
-				subtitle:
-					"Queue a follow-up while the agent is working to edit it here.",
-				variant: "info",
-			});
-			return;
-		}
-		void props.openOverlay(
-			(overlayProps: OverlayComponentProps<void>): JSX.Element => (
-				<QueueEditorDialog
-					runtime={props.runtime}
-					done={overlayProps.done}
-					surfaceProps={overlayProps.surfaceProps}
-					active={overlayProps.active}
-				/>
-			),
-		);
-	};
+	const restoreQueueBinding = useKeymapSelector<string | undefined>(
+		(keymap) => {
+			const entry = keymap
+				.getCommandEntries({
+					visibility: "active",
+					filter: (command) => command.name === "composer.restore-or-recall",
+				})
+				.at(0);
+			return entry?.bindings.length
+				? formatCommandBindings(entry.bindings)
+				: undefined;
+		},
+	);
 
 	function saveScratchpadDraftIfEditing(): void {
 		if (props.scratchpad.editing()) props.scratchpad.autosaveDraft();
@@ -592,7 +583,6 @@ function AppShellContent(props: AppShellContentProps) {
 				"command-palette.open": () => {
 					props.controller.openCommandPalette();
 				},
-				"queue-editor.open": openQueueEditor,
 			},
 			generatedCommands: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -864,6 +854,7 @@ function AppShellContent(props: AppShellContentProps) {
 				status={props.footer}
 				composerMode={composerMode()}
 				shellWidth={shellWidth()}
+				restoreQueueBinding={restoreQueueBinding()}
 				onOpenOverflow={(contributions) =>
 					openChromeOverflow("Footer status", "footer", contributions)
 				}

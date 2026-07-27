@@ -3,7 +3,7 @@
 ## Status
 Superseded
 
-The implemented composer flow now queues follow-ups with `Enter` while streaming and promotes queued follow-ups to steering when `Enter` is pressed from an empty composer. The current user-facing behavior is documented in `docs/features/steering-followup.md`.
+The implemented composer flow now queues follow-ups with `Enter` while streaming, promotes queued follow-ups to steering when `Enter` is pressed from an empty composer, and restores queued messages directly into the composer instead of opening a separate editor. The current user-facing behavior is documented in `docs/features/steering-followup.md`.
 
 ## Context
 
@@ -49,8 +49,8 @@ Choose option A.
 ## UI behavior
 
 - pending queued messages should be visible
-- the footer/status bar shows the queued count and an edit hint when follow-ups are queued
-- queued follow-ups can be edited, deleted, or cleared from the queue editor opened with `Alt+Q` or `edit-queue` from the command palette
+- the footer/status bar shows the queued count and an `Up` restore hint when follow-ups are queued
+- `Up` drains queued follow-ups back into the composer, preserving any current draft; without queued messages, it keeps normal composer navigation and recalls user-message history from an empty composer
 
 ## Related
 

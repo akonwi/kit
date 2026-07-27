@@ -23,6 +23,14 @@ export type ComposerDockProps = {
 
 export type ComposerInputMode = "normal" | "bash" | "bash-excluded";
 
+export function getComposerUpAction(
+	pendingMessageCount: number,
+	composerText: string,
+): "restore" | "recall" | "native" {
+	if (pendingMessageCount > 0) return "restore";
+	return composerText.trim() ? "native" : "recall";
+}
+
 export function findLatestOpenableAttachment(
 	attachments: Attachment[],
 ): Attachment | null {
@@ -118,6 +126,14 @@ export function ComposerDock(props: ComposerDockProps) {
 		commands: {
 			"composer.bash-history-older": () => {
 				if (picker.visible) return false;
+				if (
+					getComposerUpAction(
+						props.controller.getPendingMessageCount(),
+						props.controller.getTextareaText(),
+					) === "restore"
+				) {
+					return false;
+				}
 				if (!props.controller.getTextareaText().startsWith("!")) return false;
 				if (!props.controller.showBashHistoryPicker(syncComposerText))
 					return false;
@@ -138,11 +154,16 @@ export function ComposerDock(props: ComposerDockProps) {
 		commands: {
 			"composer.restore-or-recall": () => {
 				if (picker.visible) return false;
-				if (props.controller.getTextareaText().trim()) return false;
-				if (props.controller.restorePendingMessages()) {
+				const action = getComposerUpAction(
+					props.controller.getPendingMessageCount(),
+					props.controller.getTextareaText(),
+				);
+				if (action === "restore") {
+					if (!props.controller.restorePendingMessages()) return false;
 					syncComposerText();
 					return;
 				}
+				if (action === "native") return false;
 				if (!props.controller.showUserMessageHistoryPicker(syncComposerText)) {
 					return false;
 				}
