@@ -16,6 +16,11 @@ import {
 	SCRATCHPAD_MIN_COLS,
 	ScratchpadPanel,
 } from "../features/scratchpad/ScratchpadPanel";
+import type { SubagentsWorkspaceController } from "../features/subagents";
+import {
+	SUBAGENTS_MIN_COLS,
+	SubagentsPanel,
+} from "../features/subagents/SubagentsPanel";
 import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
 import { getKeybindingCommand } from "../keymap/registry";
 import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
@@ -74,7 +79,8 @@ const REVIEW_MIN_COLS = 60;
 type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
 	| { kind: "review" }
-	| { kind: "scratchpad" };
+	| { kind: "scratchpad" }
+	| { kind: "subagents" };
 
 export type AppShellProps = {
 	settings: Settings;
@@ -88,6 +94,7 @@ export type AppShellProps = {
 	reviewDrafts: ReviewDraftController;
 	reviewWorkspace: ReviewWorkspaceController;
 	scratchpad: ScratchpadController;
+	subagentsWorkspace: SubagentsWorkspaceController;
 	overlays: () => OverlayEntry[];
 	openOverlay: OpenOverlay;
 	dismissToast: (id: number) => void;
@@ -263,16 +270,39 @@ function AppShellContent(props: AppShellContentProps) {
 			isScratchpadPane(secondary.pane) || isScratchpadPane(secondary.returnPane)
 		);
 	};
+	const [subagentsData, setSubagentsData] = createSignal(
+		props.subagentsWorkspace.data(),
+	);
+	onCleanup(
+		props.subagentsWorkspace.subscribe(() =>
+			setSubagentsData(props.subagentsWorkspace.data()),
+		),
+	);
+	const isSubagentsPane = (pane: WorkspacePane | null | undefined) =>
+		pane?.kind === "subagents";
+	const subagentsOpen = () =>
+		isSubagentsPane(openSecondaryPane()) && subagentsData() !== null;
+	const subagentsRetained = () => {
+		if (subagentsData() === null) return false;
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		return (
+			isSubagentsPane(secondary.pane) || isSubagentsPane(secondary.returnPane)
+		);
+	};
 	const secondaryPaneVisible = () =>
-		editableReviewOpen() || activitySource() !== null || scratchpadOpen();
+		editableReviewOpen() ||
+		activitySource() !== null ||
+		scratchpadOpen() ||
+		subagentsOpen();
 	const secondaryPaneMinColumns = () => {
 		const pane = openSecondaryPane();
 		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
 		if (pane?.kind === "review") return REVIEW_MIN_COLS;
+		if (pane?.kind === "subagents") return SUBAGENTS_MIN_COLS;
 		return ACTIVITY_MIN_COLS;
 	};
-	const supportsNarrowWorkspaceTabs = () =>
-		editableReviewOpen() || activitySource() !== null || scratchpadOpen();
+	const supportsNarrowWorkspaceTabs = () => secondaryPaneVisible();
 	const workspaceUsesNarrowTabs = () =>
 		supportsNarrowWorkspaceTabs() &&
 		resolveWorkspacePaneLayout({
@@ -287,6 +317,7 @@ function AppShellContent(props: AppShellContentProps) {
 	const secondaryPaneLabel = () => {
 		if (activitySource() !== null) return "Activity";
 		if (scratchpadOpen()) return "Scratchpad";
+		if (subagentsOpen()) return "Sub-agents";
 		return "Code review";
 	};
 
@@ -295,19 +326,22 @@ function AppShellContent(props: AppShellContentProps) {
 			const state = workspaceState();
 			const secondary = state.secondary;
 			if (secondary.status === "empty") return;
-			const scratchpad =
-				secondary.pane.kind === "scratchpad"
-					? secondary.pane
-					: secondary.returnPane?.kind === "scratchpad"
-						? secondary.returnPane
-						: null;
-			if (scratchpad) {
+			// Session-independent panes survive a session switch. The visible
+			// pane wins; a retained kind in the return slot is the fallback.
+			const isRetainedKind = (pane: WorkspacePane | undefined) =>
+				pane?.kind === "scratchpad" || pane?.kind === "subagents";
+			const retained = isRetainedKind(secondary.pane)
+				? secondary.pane
+				: isRetainedKind(secondary.returnPane)
+					? (secondary.returnPane ?? null)
+					: null;
+			if (retained) {
 				if (secondary.status === "open") {
-					workspace.openSecondary(scratchpad, {
+					workspace.openSecondary(retained, {
 						focus: state.focusedSurface,
 					});
 				} else {
-					workspace.setActiveSecondary(scratchpad);
+					workspace.setActiveSecondary(retained);
 				}
 				return;
 			}
@@ -484,6 +518,69 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 		focusSecondarySurface();
 	};
+
+	function closeSubagentsPanel(): void {
+		closeTemporaryPanel();
+	}
+
+	function openSubagentsPanel(): void {
+		if (subagentsData() === null) return;
+		const secondary = workspaceState().secondary;
+		const panel = openSecondaryPane();
+		if (panel?.kind === "subagents") {
+			focusSecondarySurface();
+			return;
+		}
+		saveScratchpadDraftIfEditing();
+		if (
+			secondary.status === "open" &&
+			secondary.returnPane?.kind === "subagents"
+		) {
+			workspace.popSecondary({ focus: "secondary" });
+		} else if (
+			secondary.status === "minimized" &&
+			secondary.pane.kind === "subagents"
+		) {
+			workspace.restoreSecondary({ focus: "secondary" });
+		} else if (panel) {
+			workspace.pushSecondary({ kind: "subagents" }, { focus: "secondary" });
+		} else {
+			workspace.openSecondary({ kind: "subagents" }, { focus: "secondary" });
+		}
+		focusSecondarySurface();
+	}
+
+	onCleanup(props.subagentsWorkspace.onOpenRequest(openSubagentsPanel));
+
+	// When the subagents plugin disposes (reload, failure) its panel data
+	// clears; drop the pane from the workspace so focus and narrow tabs
+	// never point at an unrendered surface.
+	createEffect(() => {
+		if (subagentsData() !== null) return;
+		const state = workspaceState();
+		const secondary = state.secondary;
+		if (secondary.status === "empty") return;
+		if (isSubagentsPane(secondary.pane)) {
+			if (secondary.status === "open" && secondary.returnPane) {
+				workspace.popSecondary({ focus: "secondary" });
+				if (!focusSecondarySurface()) focusComposerSurface();
+			} else {
+				workspace.clearSecondary();
+				if (state.focusedSurface === "secondary") focusComposerSurface();
+			}
+			return;
+		}
+		if (isSubagentsPane(secondary.returnPane)) {
+			// Strip the stale return slot while keeping the visible pane.
+			if (secondary.status === "open") {
+				workspace.openSecondary(secondary.pane, {
+					focus: state.focusedSurface,
+				});
+			} else {
+				workspace.setActiveSecondary(secondary.pane);
+			}
+		}
+	});
 
 	function toggleSecondaryPane(): boolean {
 		const secondary = workspaceState().secondary;
@@ -760,6 +857,34 @@ function AppShellContent(props: AppShellContentProps) {
 								/>
 							</box>
 						</Show>
+						{/* `keyed` on the data so plugin reloads remount the panel
+						 * against the fresh providers. */}
+						<Show keyed when={subagentsRetained() ? subagentsData() : null}>
+							{(data) => (
+								<box
+									position="absolute"
+									left={subagentsOpen() ? 0 : -1000}
+									top={0}
+									width="100%"
+									height="100%"
+								>
+									<SubagentsPanel
+										data={data}
+										openOverlay={props.openOverlay}
+										active={
+											subagentsOpen() &&
+											props.overlays().length === 0 &&
+											chromeOverflow() === null &&
+											!props.controller.picker.visible &&
+											!props.controller.commandPalette.visible &&
+											focusedSurface() === "secondary"
+										}
+										onClose={closeSubagentsPanel}
+										onFocusRequest={focusSecondarySurface}
+									/>
+								</box>
+							)}
+						</Show>
 					</>
 				}
 			>
@@ -969,6 +1094,7 @@ export function AppShell(props: AppShellProps) {
 				reviewDrafts={props.reviewDrafts}
 				reviewWorkspace={props.reviewWorkspace}
 				scratchpad={props.scratchpad}
+				subagentsWorkspace={props.subagentsWorkspace}
 				overlays={props.overlays}
 				openOverlay={props.openOverlay}
 				dismissToast={props.dismissToast}

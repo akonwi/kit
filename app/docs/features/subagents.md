@@ -83,6 +83,27 @@ That means v1 has:
 - no special composer tokenization
 - no submit-time routing shortcut
 
+### Status surface
+
+`/subagents` opens the sub-agents workspace panel — a persistent secondary
+pane alongside the transcript (like activity, code review, and the
+scratchpad). The panel shows a roster of available agents and
+conversations sorted by status; selecting a conversation (Enter or click)
+drills into its live transcript in place. `Esc` steps back from the
+transcript to the roster, then closes the panel.
+
+The panel is retained: its selection, view, and scroll state survive being
+minimized, temporarily covered by another pane, or a session switch. In
+narrow terminals it participates in the standard Transcript / Sub-agents
+workspace tabs, and `F6` cycles focus between the composer and the panel.
+
+Dismissing a conversation (`ctrl+d`) is destructive — it deletes the
+transcript and aborts a running execution — so it always confirms through
+a centered dialog before proceeding.
+
+In hosts without the workspace (e.g. headless), `/subagents` falls back to
+the legacy status modal.
+
 ## Config and discovery
 
 Sub-agents are declared as markdown files with YAML frontmatter.

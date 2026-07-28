@@ -201,7 +201,7 @@ export const KEYBINDING_REGISTRY = {
 	subagents: {
 		close: {
 			defaultKeys: ["escape", "q"],
-			desc: "Close sub-agents dialog",
+			desc: "Close sub-agents panel",
 			group: "subagents",
 			hint: "close",
 		},

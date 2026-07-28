@@ -7,6 +7,7 @@ import {
 import { createReviewDraftController } from "../features/review/draft-controller";
 import { createReviewWorkspaceController } from "../features/review/workspace-controller";
 import { createScratchpadController } from "../features/scratchpad/controller";
+import { createSubagentsWorkspaceController } from "../features/subagents";
 import { createBuiltInPlugins } from "../plugins/built-ins";
 import {
 	type ExternalPluginFailure,
@@ -57,6 +58,7 @@ type ReadyState = {
 	reviewDrafts: ReturnType<typeof createReviewDraftController>;
 	reviewWorkspace: ReturnType<typeof createReviewWorkspaceController>;
 	scratchpad: ReturnType<typeof createScratchpadController>;
+	subagentsWorkspace: ReturnType<typeof createSubagentsWorkspaceController>;
 	app: ReturnType<typeof createAppState>;
 	dispose: () => void;
 };
@@ -97,6 +99,7 @@ export function App(props: AppProps) {
 		const reviewDrafts = createReviewDraftController(props.session.id);
 		const reviewWorkspace = createReviewWorkspaceController();
 		const scratchpad = createScratchpadController(runtime);
+		const subagentsWorkspace = createSubagentsWorkspaceController();
 		const persistence = new FilePersistence(runtime);
 		const app = createAppState(runtime);
 		showToast = app.showToast;
@@ -152,7 +155,9 @@ export function App(props: AppProps) {
 
 		function initializeBuiltInPlugins(): void {
 			builtInPluginManager = new PluginManager(
-				createBuiltInPlugins(pluginContext),
+				createBuiltInPlugins(pluginContext, {
+					subagentsWorkspace,
+				}),
 				pluginContext,
 			);
 			builtInPluginManager.initialize();
@@ -333,6 +338,7 @@ export function App(props: AppProps) {
 			reviewDrafts,
 			reviewWorkspace,
 			scratchpad,
+			subagentsWorkspace,
 			app,
 			dispose,
 		};
@@ -445,6 +451,7 @@ export function App(props: AppProps) {
 							reviewDrafts={current.reviewDrafts}
 							reviewWorkspace={current.reviewWorkspace}
 							scratchpad={current.scratchpad}
+							subagentsWorkspace={current.subagentsWorkspace}
 							overlays={overlays}
 							openOverlay={openCustomOverlay}
 							dismissToast={current.app.dismissToast}

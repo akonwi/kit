@@ -13,6 +13,7 @@ import {
 	type SubagentSessionStorage,
 } from "./state";
 import { createSubagentTool } from "./tool";
+import type { SubagentsWorkspaceController } from "./workspace-controller";
 
 export type {
 	LoadSubagentsResult,
@@ -30,12 +31,18 @@ export type {
 } from "./state";
 export { SubagentManager, SubagentManagerError } from "./state";
 export { createSubagentTool } from "./tool";
+export type {
+	SubagentsPanelData,
+	SubagentsWorkspaceController,
+} from "./workspace-controller";
+export { createSubagentsWorkspaceController } from "./workspace-controller";
 
 export function createSubagentsPlugin(options: {
 	runtime: AgentRuntime;
 	onReady?: (ready: Promise<void>) => void;
 	parentStorage?: SubagentParentStorage;
 	subagentStorage?: SubagentSessionStorage;
+	workspace?: SubagentsWorkspaceController;
 }): InternalPluginDefinition {
 	return function SubagentsPlugin(kit: InternalPluginAPI): () => void {
 		let clearDebugSection: (() => void) | null = null;
@@ -145,6 +152,7 @@ export function createSubagentsPlugin(options: {
 			}
 
 			updateContributions();
+			notifyRosterChanged();
 		}
 
 		kit.on("session.active.changed", async () => {
@@ -152,6 +160,32 @@ export function createSubagentsPlugin(options: {
 		});
 		kit.on("subagents.changed", async () => {
 			await refresh({ hydrate: false });
+		});
+
+		// The manager only emits for conversation changes; roster-only
+		// updates (agent .md edits, plugin contributions) notify through
+		// this local channel so a persistently open panel stays fresh.
+		const rosterListeners = new Set<() => void>();
+		function notifyRosterChanged(): void {
+			for (const listener of [...rosterListeners]) listener();
+		}
+
+		// Register the panel's data providers so the shell can mount the
+		// sub-agents workspace pane against this plugin instance.
+		options.workspace?.setData({
+			getAgents: () => agents,
+			getActiveConversations: () => manager.listActive(),
+			readConversationEntries: (conversationId) =>
+				manager.readConversationEntries(conversationId),
+			subscribeToChanges: (listener) => {
+				rosterListeners.add(listener);
+				const unsubscribe = manager.subscribe(listener);
+				return () => {
+					rosterListeners.delete(listener);
+					unsubscribe();
+				};
+			},
+			dismissConversation: (agentName) => manager.dismiss(agentName),
 		});
 
 		kit.registerCommand(
@@ -169,6 +203,15 @@ export function createSubagentsPlugin(options: {
 					return;
 				}
 
+				// Preferred presentation: the persistent workspace pane. This
+				// command only runs once the UI is interactive, by which point
+				// the shell has subscribed to open requests.
+				if (options.workspace?.data()) {
+					options.workspace.open();
+					return;
+				}
+
+				// Fallback for hosts without a workspace pane (e.g. headless).
 				await ctx.ui.custom<void>((props) =>
 					createComponent(SubagentsStatusModal, {
 						surfaceProps: props.surfaceProps,
@@ -193,6 +236,7 @@ export function createSubagentsPlugin(options: {
 
 		return () => {
 			disposed = true;
+			options.workspace?.setData(null);
 			manager.reset();
 			clearDebugSection?.();
 			clearDebugSection = null;

@@ -11,6 +11,7 @@ import { SkillsPlugin } from "../features/skills";
 import type {
 	SubagentParentStorage,
 	SubagentSessionStorage,
+	SubagentsWorkspaceController,
 } from "../features/subagents";
 import { createSubagentsPlugin } from "../features/subagents";
 import { UserInteractionToolsPlugin } from "../features/user-interaction-tools";
@@ -33,6 +34,7 @@ export type BuiltInPluginOptions = {
 	onReady?: (ready: Promise<void>) => void;
 	subagentParentStorage?: SubagentParentStorage;
 	subagentStorage?: SubagentSessionStorage;
+	subagentsWorkspace?: SubagentsWorkspaceController;
 };
 
 // Built-in plugins that are always enabled as core features.
@@ -48,6 +50,7 @@ export function createBuiltInPlugins(
 				onReady: options.onReady,
 				parentStorage: options.subagentParentStorage,
 				subagentStorage: options.subagentStorage,
+				workspace: options.subagentsWorkspace,
 			}),
 		),
 		...(options.headless ? [] : [internalPlugin(PromptsPlugin)]),
