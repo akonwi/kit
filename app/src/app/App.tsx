@@ -26,6 +26,7 @@ import { createComposerController } from "../shell/composer-controller";
 import { createFooterStatusController } from "../shell/footer-status";
 import { createHeaderStatusController } from "../shell/header-status";
 import { initTemplates } from "../shell/templates";
+import { registerTerminalTurnStatus } from "../shell/terminal-turn-status";
 import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { createAppState } from "../state/app-state";
 import type { ToastInput } from "../state/toasts";
@@ -39,6 +40,7 @@ export type AppProps = {
 	settings: LoadedSettings;
 	session: Session;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
+	setTerminalTurnActive: (active: boolean) => void;
 	triggerNotification: (message: string, title?: string) => boolean;
 	quitAndDestroy: () => void;
 	registerDispose?: (dispose: () => void) => void;
@@ -268,6 +270,10 @@ export function App(props: AppProps) {
 			openCustomOverlay,
 		});
 
+		const disposeTerminalTurnStatus = registerTerminalTurnStatus(
+			runtime,
+			props.setTerminalTurnActive,
+		);
 		let observedSessionId = runtime.getSession().id;
 		runtime.subscribe({ prefix: "session.active.changed" }, (event) => {
 			if (event.type === "session.active.changed") {
@@ -303,6 +309,7 @@ export function App(props: AppProps) {
 		const dispose = () => {
 			if (disposed) return;
 			disposed = true;
+			disposeTerminalTurnStatus();
 			disposePluginManagers();
 			app.dispose();
 			scratchpad.dispose();

@@ -7,25 +7,46 @@
  */
 
 import path from "node:path";
+import { HOURGLASS } from "./glyphs";
 
 let setTitle: ((title: string) => void) | null = null;
+let currentSessionName: string | undefined;
+let currentCwd = "";
+let turnActive = false;
 
 export function initTerminalTitle(setter: (title: string) => void) {
 	setTitle = setter;
 }
 
-function formatTitle(sessionName: string | undefined, cwd: string): string {
+export function formatTerminalTitle(
+	sessionName: string | undefined,
+	cwd: string,
+	active = false,
+): string {
 	const cwdBasename = path.basename(cwd);
+	const prefix = active ? `${HOURGLASS} ` : "";
 	if (sessionName) {
-		return `kit - ${sessionName} - ${cwdBasename}`;
+		return `${prefix}kit - ${sessionName} - ${cwdBasename}`;
 	}
-	return `kit - ${cwdBasename}`;
+	return `${prefix}kit - ${cwdBasename}`;
+}
+
+function renderTitle(): void {
+	if (!setTitle || !currentCwd) return;
+	setTitle(formatTerminalTitle(currentSessionName, currentCwd, turnActive));
 }
 
 export function updateTerminalTitle(
 	sessionName: string | undefined,
 	cwd: string,
 ) {
-	if (!setTitle) return;
-	setTitle(formatTitle(sessionName, cwd));
+	currentSessionName = sessionName;
+	currentCwd = cwd;
+	renderTitle();
+}
+
+export function setTerminalTitleTurnActive(active: boolean): void {
+	if (turnActive === active) return;
+	turnActive = active;
+	renderTitle();
 }

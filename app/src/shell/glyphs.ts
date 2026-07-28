@@ -19,6 +19,8 @@ export const CIRCLE_SLASH = "⊘";
 export const PENCIL = "✎";
 /** ◆ */
 export const DIAMOND = "◆";
+/** ⏳ */
+export const HOURGLASS = "⏳";
 
 // ── Circles ─────────────────────────────────────────────────────────
 

@@ -14,8 +14,10 @@ import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
 import { initTemplates } from "../shell/templates";
+import { setTerminalProgress } from "../shell/terminal-progress";
 import {
 	initTerminalTitle,
+	setTerminalTitleTurnActive,
 	updateTerminalTitle,
 } from "../shell/terminal-title";
 import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
@@ -263,6 +265,10 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 						settings={settings}
 						session={session}
 						updateTerminalTitle={updateTerminalTitle}
+						setTerminalTurnActive={(active) => {
+							setTerminalTitleTurnActive(active);
+							setTerminalProgress(active ? "indeterminate" : "remove");
+						}}
 						triggerNotification={(message, title) =>
 							renderer.triggerNotification(message, title)
 						}
