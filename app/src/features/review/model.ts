@@ -811,7 +811,17 @@ export async function loadReviewFiles(
 ): Promise<ReviewFile[]> {
 	await yieldToRenderer();
 	const repoRoot = getGitRepoRoot(cwd);
-	if (!repoRoot) return [];
+	if (!repoRoot) {
+		// A pinned cwd was resolved as a repository root by the caller. When
+		// its .git marker still exists, failing to re-resolve it is a
+		// transient git/spawn failure — throw so callers keep their last good
+		// diff instead of publishing an empty review. Without the marker the
+		// directory genuinely stopped being a repository.
+		if (cwd && existsSync(path.join(cwd, ".git"))) {
+			throw new Error("Failed to resolve repository root.");
+		}
+		return [];
+	}
 	const revisions = revisionsForTarget(cwd, target);
 	const patchSets = (
 		revisions

@@ -120,4 +120,41 @@ describe("review model", () => {
 			rmSync(repo, { recursive: true, force: true });
 		}
 	});
+
+	test("throws instead of returning empty when a pinned repo fails transiently", async () => {
+		// Regression: a transient repo-root resolution failure used to publish
+		// a successful empty file list, blanking the review pane's file tree.
+		// A .git marker that git cannot resolve stands in for the transient
+		// failure: the directory still claims to be a repository.
+		const repo = mkdtempSync(path.join(tmpdir(), "kit-review-broken-repo-"));
+		try {
+			writeFileSync(
+				path.join(repo, ".git"),
+				"gitdir: /nonexistent-kit-target\n",
+			);
+			await expect(loadReviewFiles(repo)).rejects.toThrow(
+				"Failed to resolve repository root.",
+			);
+		} finally {
+			rmSync(repo, { recursive: true, force: true });
+		}
+	});
+
+	test("returns empty when a pinned directory stopped being a repository", async () => {
+		const gone = path.join(tmpdir(), "kit-review-missing-repo");
+		rmSync(gone, { recursive: true, force: true });
+		expect(await loadReviewFiles(gone)).toEqual([]);
+	});
+
+	test("still returns empty for an unpinned non-repo cwd", async () => {
+		const plain = mkdtempSync(path.join(tmpdir(), "kit-review-non-repo-"));
+		const previousCwd = process.cwd();
+		try {
+			process.chdir(plain);
+			expect(await loadReviewFiles(undefined)).toEqual([]);
+		} finally {
+			process.chdir(previousCwd);
+			rmSync(plain, { recursive: true, force: true });
+		}
+	});
 });

@@ -85,6 +85,7 @@ import {
 	reviewStatusText,
 } from "./status";
 import { getWorkingTreeFingerprint } from "./working-tree-fingerprint";
+import { createWorkingTreeRefreshTracker } from "./working-tree-refresh";
 
 export type ReviewContentProps = {
 	onClose: () => void;
@@ -469,7 +470,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				);
 	const mergeBaseResolves =
 		savedTarget.kind !== "branch" ||
-		resolveCommit(undefined, savedTarget.mergeBase) !== null;
+		resolveCommit(repoRoot, savedTarget.mergeBase) !== null;
 	const initialTarget =
 		savedTarget.kind === "working" || (savedCommit && mergeBaseResolves)
 			? savedTarget
@@ -485,7 +486,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			: initialTarget.kind === "branch"
 				? {
 						...savedCommit,
-						subject: `${getCurrentBranch(undefined) ?? savedCommit.shortSha} vs ${initialTarget.base}`,
+						subject: `${getCurrentBranch(repoRoot) ?? savedCommit.shortSha} vs ${initialTarget.base}`,
 					}
 				: savedCommit;
 	const initialDraft = props.reviewDrafts.getDraft(
@@ -527,18 +528,27 @@ export function ReviewContent(props: ReviewContentProps) {
 			loadedFilesByTarget.delete(oldestKey);
 		}
 	}
+	const refreshTracker = createWorkingTreeRefreshTracker();
 	const [loadedReviewFiles, { refetch: refetchReviewFiles }] = createResource(
 		target,
 		async (value): Promise<LoadedReviewFiles> => {
 			const key = reviewTargetKey(value);
 			const current = loadedFilesByTarget.get(key);
+			// Snapshot before reading the tree: a publish is only as fresh as
+			// the last observation preceding the git reads.
+			const fingerprintAtStart =
+				value.kind === "working" ? refreshTracker.beginRefresh() : undefined;
 			try {
-				const next = await loadReviewFiles(undefined, value);
+				// Pin git to the pane's repo root: the watcher and fingerprint
+				// poll observe repoRoot, so diff loading must read the same repo
+				// even if the process cwd changes mid-session.
+				const next = await loadReviewFiles(repoRoot, value);
 				if (disposed) {
 					return { targetKey: key, files: current ?? [], changed: false };
 				}
 				// Do not publish a live result underneath an editor that opened
-				// while the Git commands were in flight. The next timer tick retries.
+				// while the Git commands were in flight. The fingerprint poll
+				// retries because a dropped fetch never marks itself published.
 				if (current && value.kind === "working" && editorOpen()) {
 					return { targetKey: key, files: current, changed: false };
 				}
@@ -556,6 +566,12 @@ export function ReviewContent(props: ReviewContentProps) {
 				);
 				setStaleReviewFileIds(staleIds);
 				cacheLoadedFiles(key, stable);
+				// Only a successful working-tree read marks the tracker published;
+				// dropped and failed paths leave it behind so the fingerprint poll
+				// keeps retrying.
+				if (value.kind === "working") {
+					refreshTracker.markPublished(fingerprintAtStart);
+				}
 				return {
 					targetKey: key,
 					files: stable,
@@ -597,7 +613,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		const controller = new AbortController();
 		allFilesAbortController = controller;
 		try {
-			const next = await listRepoFiles(undefined, controller.signal);
+			const next = await listRepoFiles(repoRoot, controller.signal);
 			if (disposed) return lastAllFiles ?? [];
 			if (samePaths(lastAllFiles, next)) return lastAllFiles;
 			lastAllFiles = next;
@@ -716,7 +732,6 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 	let workingTreeWatcher: ReturnType<typeof watch> | undefined;
 	let workingTreeWatcherActive = false;
-	let workingTreeFingerprint: string | undefined;
 	let fingerprintCheckInFlight = false;
 	async function checkWorkingTreeFingerprint(): Promise<void> {
 		if (disposed || fingerprintCheckInFlight || target().kind !== "working") {
@@ -725,13 +740,9 @@ export function ReviewContent(props: ReviewContentProps) {
 		fingerprintCheckInFlight = true;
 		try {
 			const next = await getWorkingTreeFingerprint(repoRoot);
-			if (
-				workingTreeFingerprint !== undefined &&
-				next !== workingTreeFingerprint
-			) {
+			if (refreshTracker.observe(next)) {
 				scheduleWorkingTreeRefresh(0);
 			}
-			workingTreeFingerprint = next;
 		} catch {
 			// The watcher remains primary; a later fingerprint check can recover.
 		} finally {
@@ -938,7 +949,7 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	function cycleTarget(): void {
 		if (target().kind === "working") {
-			const head = resolveCommit(undefined, "HEAD");
+			const head = resolveCommit(repoRoot, "HEAD");
 			if (!head) {
 				props.toast({
 					title: "No commits",
@@ -1002,9 +1013,9 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 	/** Pin head + merge-base and switch to a branch target vs `base`. */
 	function switchToBranchTarget(base: string): void {
-		const branchName = getCurrentBranch(undefined);
-		const head = resolveCommit(undefined, "HEAD");
-		const mergeBase = head ? getMergeBase(undefined, base, head.sha) : null;
+		const branchName = getCurrentBranch(repoRoot);
+		const head = resolveCommit(repoRoot, "HEAD");
+		const mergeBase = head ? getMergeBase(repoRoot, base, head.sha) : null;
 		if (!branchName || !head || !mergeBase) {
 			props.toast({
 				title: "No common history",
@@ -1042,19 +1053,19 @@ export function ReviewContent(props: ReviewContentProps) {
 		createSignal<PickerGitState | null>(null);
 
 	function openCommitPicker(): void {
-		const branchName = getCurrentBranch(undefined);
-		const branchBase = resolveDefaultBranchBase(undefined);
-		const branchHead = branchBase ? resolveCommit(undefined, "HEAD") : null;
+		const branchName = getCurrentBranch(repoRoot);
+		const branchBase = resolveDefaultBranchBase(repoRoot);
+		const branchHead = branchBase ? resolveCommit(repoRoot, "HEAD") : null;
 		setPickerGitState({
-			commits: listRecentCommits(undefined),
+			commits: listRecentCommits(repoRoot),
 			branchName,
 			branchBase,
 			branchHead,
 			branchMergeBase:
 				branchBase && branchHead
-					? getMergeBase(undefined, branchBase, branchHead.sha)
+					? getMergeBase(repoRoot, branchBase, branchHead.sha)
 					: null,
-			localBranches: branchName ? listLocalBranches(undefined) : [],
+			localBranches: branchName ? listLocalBranches(repoRoot) : [],
 		});
 		setPickingBranchBase(false);
 		setCommitPickerOpen(true);
@@ -1555,6 +1566,17 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function selectFilePath(filePath: string) {
+		// Mouse selection can bypass the editor-gated keymaps; never leave an
+		// orphaned note editor holding the refresh pipeline shut. Navigation
+		// commits the draft — only Escape is an intentional cancel.
+		if (editorOpen()) {
+			// Same precedence as the review.close-editor binding.
+			if (viewingFileEditingRange()) saveViewingFileRangeNote();
+			else if (editingRange()) saveRangeNoteEditor();
+			else if (editingFileNoteKey()) saveFileNoteEditor();
+			else setEditorOpen(false);
+			setRangeAnchor(null);
+		}
 		setTreeFocusedPath(filePath);
 		const file = reviewFilesByPath().get(filePath);
 		if (file) {
@@ -2101,6 +2123,17 @@ export function ReviewContent(props: ReviewContentProps) {
 		closeRangeNoteEditor();
 	}
 
+	function saveViewingFileRangeNote() {
+		const range = viewingFileEditingRange();
+		if (!range) return;
+		updateRangeNotes((prev) =>
+			setMapValue(prev, buildRangeNoteKey(range), viewingFileEditingValue()),
+		);
+		setViewingFileEditingRange(null);
+		setViewingFileEditingValue("");
+		setEditorOpen(false);
+	}
+
 	function clearSelectedFileNote() {
 		const file = selectedFile();
 		if (!file) return;
@@ -2164,7 +2197,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				: currentTarget.kind === "branch"
 					? currentTarget.head
 					: null;
-		if (committedHead && !isAncestorOfHead(undefined, committedHead)) {
+		if (committedHead && !isAncestorOfHead(repoRoot, committedHead)) {
 			props.toast({
 				title: `Commit ${targetCommit()?.shortSha ?? committedHead} changed`,
 				subtitle:
@@ -2176,7 +2209,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (currentTarget.kind === "commit") {
 			submission.commit = {
 				sha: currentTarget.sha,
-				parentSha: resolveCommitParent(undefined, currentTarget.sha),
+				parentSha: resolveCommitParent(repoRoot, currentTarget.sha),
 				subject: targetCommit()?.subject ?? "",
 			};
 		} else if (currentTarget.kind === "branch") {
@@ -2675,17 +2708,7 @@ export function ReviewContent(props: ReviewContentProps) {
 												editingRange={viewingFileEditingRange()}
 												editingRangeValue={viewingFileEditingValue()}
 												onEditingRangeChange={setViewingFileEditingValue}
-												onEditingRangeSubmit={() => {
-													const range = viewingFileEditingRange();
-													if (!range) return;
-													const key = buildRangeNoteKey(range);
-													updateRangeNotes((prev) =>
-														setMapValue(prev, key, viewingFileEditingValue()),
-													);
-													setViewingFileEditingRange(null);
-													setViewingFileEditingValue("");
-													setEditorOpen(false);
-												}}
+												onEditingRangeSubmit={saveViewingFileRangeNote}
 											/>
 										)}
 									</Show>
