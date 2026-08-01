@@ -294,6 +294,32 @@ export const KEYBINDING_REGISTRY = {
 			hint: "close",
 		},
 	},
+	"release-notes": {
+		"open-latest": {
+			defaultKeys: "o",
+			desc: "Open latest Kit release in a browser",
+			group: "release-notes",
+			hint: "open release",
+		},
+		"scroll-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Scroll release notes up",
+			group: "release-notes",
+			hint: "scroll",
+		},
+		"scroll-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Scroll release notes down",
+			group: "release-notes",
+			hint: "scroll",
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Close release notes",
+			group: "release-notes",
+			hint: "close",
+		},
+	},
 	scratchpad: {
 		close: {
 			defaultKeys: "escape",

@@ -7,6 +7,11 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
+import {
+	RELEASE_NOTES_MIN_COLS,
+	ReleaseNotesPanel,
+	type ReleasesWorkspaceController,
+} from "../features/releases";
 import { CodeReviewAttachment } from "../features/review/attachment";
 import type { ReviewDraftController } from "../features/review/draft-controller";
 import { ReviewContent } from "../features/review/ReviewContent";
@@ -51,6 +56,7 @@ import { HeaderBar } from "./HeaderBar";
 import type { HeaderStatusController } from "./header-status";
 import { InlinePicker } from "./InlinePicker";
 import { formatCommandBindings } from "./KeymapHintBar";
+import { openExternal } from "./open-external";
 import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
@@ -79,6 +85,7 @@ const REVIEW_MIN_COLS = 60;
 type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
 	| { kind: "review" }
+	| { kind: "releases" }
 	| { kind: "scratchpad" }
 	| { kind: "subagents" };
 
@@ -91,6 +98,7 @@ export type AppShellProps = {
 	attachments: AttachmentsController;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	releasesWorkspace: ReleasesWorkspaceController;
 	reviewDrafts: ReviewDraftController;
 	reviewWorkspace: ReviewWorkspaceController;
 	scratchpad: ScratchpadController;
@@ -260,6 +268,16 @@ function AppShellContent(props: AppShellContentProps) {
 			isEditableReviewPane(secondary.returnPane)
 		);
 	};
+	const isReleasesPane = (pane: WorkspacePane | null | undefined) =>
+		pane?.kind === "releases";
+	const releasesOpen = () => isReleasesPane(openSecondaryPane());
+	const releasesRetained = () => {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return false;
+		return (
+			isReleasesPane(secondary.pane) || isReleasesPane(secondary.returnPane)
+		);
+	};
 	const isScratchpadPane = (pane: WorkspacePane | null | undefined) =>
 		pane?.kind === "scratchpad";
 	const scratchpadOpen = () => isScratchpadPane(openSecondaryPane());
@@ -293,12 +311,14 @@ function AppShellContent(props: AppShellContentProps) {
 	const secondaryPaneVisible = () =>
 		editableReviewOpen() ||
 		activitySource() !== null ||
+		releasesOpen() ||
 		scratchpadOpen() ||
 		subagentsOpen();
 	const secondaryPaneMinColumns = () => {
 		const pane = openSecondaryPane();
 		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
 		if (pane?.kind === "review") return REVIEW_MIN_COLS;
+		if (pane?.kind === "releases") return RELEASE_NOTES_MIN_COLS;
 		if (pane?.kind === "subagents") return SUBAGENTS_MIN_COLS;
 		return ACTIVITY_MIN_COLS;
 	};
@@ -316,6 +336,7 @@ function AppShellContent(props: AppShellContentProps) {
 		}) === null;
 	const secondaryPaneLabel = () => {
 		if (activitySource() !== null) return "Activity";
+		if (releasesOpen()) return "Release notes";
 		if (scratchpadOpen()) return "Scratchpad";
 		if (subagentsOpen()) return "Sub-agents";
 		return "Code review";
@@ -329,7 +350,9 @@ function AppShellContent(props: AppShellContentProps) {
 			// Session-independent panes survive a session switch. The visible
 			// pane wins; a retained kind in the return slot is the fallback.
 			const isRetainedKind = (pane: WorkspacePane | undefined) =>
-				pane?.kind === "scratchpad" || pane?.kind === "subagents";
+				pane?.kind === "releases" ||
+				pane?.kind === "scratchpad" ||
+				pane?.kind === "subagents";
 			const retained = isRetainedKind(secondary.pane)
 				? secondary.pane
 				: isRetainedKind(secondary.returnPane)
@@ -422,6 +445,38 @@ function AppShellContent(props: AppShellContentProps) {
 	function closeActivityPanel(): void {
 		closeTemporaryPanel();
 	}
+
+	function closeReleasesPanel(): void {
+		closeTemporaryPanel();
+	}
+
+	function openReleasesPanel(): void {
+		const secondary = workspaceState().secondary;
+		const panel = openSecondaryPane();
+		if (panel?.kind === "releases") {
+			focusSecondarySurface();
+			return;
+		}
+		saveScratchpadDraftIfEditing();
+		if (
+			secondary.status === "open" &&
+			secondary.returnPane?.kind === "releases"
+		) {
+			workspace.popSecondary({ focus: "secondary" });
+		} else if (
+			secondary.status === "minimized" &&
+			secondary.pane.kind === "releases"
+		) {
+			workspace.restoreSecondary({ focus: "secondary" });
+		} else if (panel) {
+			workspace.pushSecondary({ kind: "releases" }, { focus: "secondary" });
+		} else {
+			workspace.openSecondary({ kind: "releases" }, { focus: "secondary" });
+		}
+		focusSecondarySurface();
+	}
+
+	onCleanup(props.releasesWorkspace.onOpenRequest(openReleasesPanel));
 
 	function focusSecondarySurface(): boolean {
 		if (!secondaryPaneVisible()) return false;
@@ -834,6 +889,38 @@ function AppShellContent(props: AppShellContentProps) {
 								</box>
 							)}
 						</Show>
+						<Show when={releasesRetained()}>
+							<box
+								position="absolute"
+								left={releasesOpen() ? 0 : -1000}
+								top={0}
+								width="100%"
+								height="100%"
+							>
+								<ReleaseNotesPanel
+									controller={props.releasesWorkspace}
+									active={
+										releasesOpen() &&
+										props.overlays().length === 0 &&
+										chromeOverflow() === null &&
+										!props.controller.picker.visible &&
+										!props.controller.commandPalette.visible &&
+										focusedSurface() === "secondary"
+									}
+									onClose={closeReleasesPanel}
+									onFocusRequest={focusSecondarySurface}
+									onOpenRelease={openExternal}
+									onOpenError={(error) =>
+										props.showToast({
+											title: "Could not open release",
+											subtitle:
+												error instanceof Error ? error.message : String(error),
+											variant: "error",
+										})
+									}
+								/>
+							</box>
+						</Show>
 						<Show when={scratchpadRetained()}>
 							<box
 								position="absolute"
@@ -1091,6 +1178,7 @@ export function AppShell(props: AppShellProps) {
 				attachments={props.attachments}
 				footer={props.footer}
 				header={props.header}
+				releasesWorkspace={props.releasesWorkspace}
 				reviewDrafts={props.reviewDrafts}
 				reviewWorkspace={props.reviewWorkspace}
 				scratchpad={props.scratchpad}

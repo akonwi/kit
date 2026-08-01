@@ -31,8 +31,9 @@ Use this skill to publish a new Kit package release.
      - `patch` for fixes, documentation, refactors, chores, and small internal improvements.
    - If the release type is ambiguous, ask the user to choose minor or patch.
 
-4. Update `package.json` to the next version.
-   - Increment the current version based on the chosen release type.
+4. Update the bundled release notes and `package.json`.
+   - Summarize the user-facing changes being published in `app/src/features/releases/current-release.ts`.
+   - Increment the version in `app/package.json` based on the chosen release type.
    - Do not use prerelease versions unless explicitly requested.
 
 5. Run required validation before publishing.
@@ -50,8 +51,9 @@ Use this skill to publish a new Kit package release.
    - This command requires user approval in this project.
    - If publishing fails, fix the issue when appropriate and retry only after explaining the failure.
 
-7. Commit the version bump.
-   - Stage only the version file changes required for the release.
+7. Commit the version bump and bundled notes.
+   - Stage only `app/package.json` and `app/src/features/releases/current-release.ts`.
+   - Verify the working tree is clean after committing and before tagging so npm, GitHub, and Homebrew builds contain identical notes.
    - Use this exact commit subject format:
      ```text
      bump: x.x.x

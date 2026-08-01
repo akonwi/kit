@@ -4,6 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
+import { createReleasesWorkspaceController } from "../features/releases";
 import { createReviewDraftController } from "../features/review/draft-controller";
 import { createReviewWorkspaceController } from "../features/review/workspace-controller";
 import { createScratchpadController } from "../features/scratchpad/controller";
@@ -56,6 +57,7 @@ type ReadyState = {
 	attachments: ReturnType<typeof createAttachmentsController>;
 	footer: ReturnType<typeof createFooterStatusController>;
 	header: ReturnType<typeof createHeaderStatusController>;
+	releasesWorkspace: ReturnType<typeof createReleasesWorkspaceController>;
 	reviewDrafts: ReturnType<typeof createReviewDraftController>;
 	reviewWorkspace: ReturnType<typeof createReviewWorkspaceController>;
 	scratchpad: ReturnType<typeof createScratchpadController>;
@@ -98,6 +100,7 @@ export function App(props: AppProps) {
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
 		});
+		const releasesWorkspace = createReleasesWorkspaceController();
 		const reviewDrafts = createReviewDraftController(props.session.id);
 		const reviewWorkspace = createReviewWorkspaceController();
 		const scratchpad = createScratchpadController(runtime);
@@ -125,12 +128,14 @@ export function App(props: AppProps) {
 		};
 		let pluginReloadCount = 0;
 		let pluginLoadGeneration = 0;
+		let builtInReloadGeneration = 0;
 		let builtInPluginManager: PluginManager | null = null;
 		let externalPluginManager: PluginManager | null = null;
 		let disposed = false;
 
 		function disposePluginManagers(): void {
 			pluginLoadGeneration++;
+			builtInReloadGeneration++;
 			externalPluginManager?.dispose();
 			externalPluginManager = null;
 			builtInPluginManager?.dispose();
@@ -158,6 +163,7 @@ export function App(props: AppProps) {
 		function initializeBuiltInPlugins(): void {
 			builtInPluginManager = new PluginManager(
 				createBuiltInPlugins(pluginContext, {
+					releasesWorkspace,
 					subagentsWorkspace,
 				}),
 				pluginContext,
@@ -216,6 +222,7 @@ export function App(props: AppProps) {
 			initializePlugins();
 		} catch (error) {
 			disposePluginManagers();
+			releasesWorkspace.dispose();
 			persistence.dispose();
 			runtime.dispose();
 			throw error;
@@ -298,8 +305,9 @@ export function App(props: AppProps) {
 			}
 			initTemplates(event.cwd);
 			disposePluginManagers();
+			const reloadGeneration = builtInReloadGeneration;
 			setTimeout(() => {
-				if (disposed) return;
+				if (disposed || reloadGeneration !== builtInReloadGeneration) return;
 				try {
 					initializePlugins();
 				} catch (error) {
@@ -319,6 +327,7 @@ export function App(props: AppProps) {
 			disposeTerminalTurnStatus();
 			disposePluginManagers();
 			app.dispose();
+			releasesWorkspace.dispose();
 			scratchpad.dispose();
 			persistence.dispose();
 			runtime.dispose();
@@ -337,6 +346,7 @@ export function App(props: AppProps) {
 			attachments,
 			footer,
 			header,
+			releasesWorkspace,
 			reviewDrafts,
 			reviewWorkspace,
 			scratchpad,
@@ -450,6 +460,7 @@ export function App(props: AppProps) {
 							attachments={current.attachments}
 							footer={current.footer}
 							header={current.header}
+							releasesWorkspace={current.releasesWorkspace}
 							reviewDrafts={current.reviewDrafts}
 							reviewWorkspace={current.reviewWorkspace}
 							scratchpad={current.scratchpad}

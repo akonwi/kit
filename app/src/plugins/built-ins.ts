@@ -4,6 +4,10 @@ import { createMcpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
 import { PagerPlugin } from "../features/pager";
 import { PromptsPlugin } from "../features/prompts";
+import {
+	createReleasesPlugin,
+	type ReleasesWorkspaceController,
+} from "../features/releases";
 import { SessionCwdPlugin } from "../features/session-cwd";
 import { SessionNamingPlugin } from "../features/session-naming";
 import { SettingsPlugin } from "../features/settings";
@@ -35,6 +39,7 @@ export type BuiltInPluginOptions = {
 	subagentParentStorage?: SubagentParentStorage;
 	subagentStorage?: SubagentSessionStorage;
 	subagentsWorkspace?: SubagentsWorkspaceController;
+	releasesWorkspace?: ReleasesWorkspaceController;
 };
 
 // Built-in plugins that are always enabled as core features.
@@ -62,7 +67,20 @@ export function createBuiltInPlugins(
 				persistState: !options.headless,
 			}),
 		),
-		...(options.headless ? [] : [internalPlugin(VcsStatusPlugin)]),
+		...(options.headless
+			? []
+			: [
+					internalPlugin(VcsStatusPlugin),
+					...(options.releasesWorkspace
+						? [
+								internalPlugin(
+									createReleasesPlugin({
+										workspace: options.releasesWorkspace,
+									}),
+								),
+							]
+						: []),
+				]),
 		internalPlugin(SessionCwdPlugin),
 		...(options.headless
 			? []
