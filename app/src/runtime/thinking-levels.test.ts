@@ -1,17 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import { getModels, getProviders } from "@earendil-works/pi-ai/compat";
+import type { Api, Model } from "./agent";
+import { kitModels } from "./models";
 import {
 	clampThinkingLevel,
 	DEFAULT_THINKING_LEVEL,
 	getAvailableThinkingLevels,
 } from "./thinking-levels";
 
-function findModel(
-	predicate: (levels: string[]) => boolean,
-): ReturnType<typeof getModels>[number] {
-	for (const provider of getProviders()) {
-		for (const model of getModels(provider)) {
+function findModel(predicate: (levels: string[]) => boolean): Model<Api> {
+	for (const provider of kitModels.getProviders()) {
+		for (const model of kitModels.getModels(provider.id)) {
 			const levels = getSupportedThinkingLevels(model);
 			if (predicate(levels)) return model;
 		}
@@ -40,6 +39,12 @@ describe("thinking-levels", () => {
 		);
 
 		expect(clampThinkingLevel(undefined, offOnlyModel)).toBe("off");
+	});
+
+	test("exposes max when the selected model supports it", () => {
+		const model = findModel((levels) => levels.includes("max"));
+		expect(getAvailableThinkingLevels(model)).toContain("max");
+		expect(clampThinkingLevel("max", model)).toBe("max");
 	});
 
 	test("clamps unsupported requests using pi-ai model metadata", () => {

@@ -1,14 +1,9 @@
 import type { KnownProvider } from "@earendil-works/pi-ai";
-import {
-	getEnvApiKey,
-	getModels,
-	getProviders,
-} from "@earendil-works/pi-ai/compat";
+import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { Api, Model } from "./agent";
+import { hasCachedProviderAuth, isModelAvailable, kitModels } from "./models";
 
-const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Partial<
-	Record<KnownProvider, RegExp[]>
-> = {
+const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Record<string, RegExp[]> = {
 	// Anthropic keeps retired Claude 3-family entries in the pi-ai registry.
 	// They can be selected as defaults because pi-ai returns models oldest-first,
 	// but they fail immediately at runtime once Anthropic disables them.
@@ -16,7 +11,7 @@ const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Partial<
 };
 
 export function isDeprecatedModel(
-	provider: KnownProvider,
+	provider: string,
 	model: { id: string },
 ): boolean {
 	return (
@@ -26,12 +21,12 @@ export function isDeprecatedModel(
 	);
 }
 
-export function getSelectableModels(
-	provider: KnownProvider,
-): Array<Model<Api>> {
-	return getModels(provider).filter(
-		(model) => !isDeprecatedModel(provider, model),
-	);
+export function getSelectableModels(provider: string): Array<Model<Api>> {
+	return kitModels
+		.getModels(provider)
+		.filter(
+			(model) => isModelAvailable(model) && !isDeprecatedModel(provider, model),
+		);
 }
 
 type ProviderSelectionOptions<
@@ -95,16 +90,18 @@ export function selectDefaultModel<
 
 function getRuntimeProviderSelectionOptions() {
 	return {
-		providerIds: getProviders(),
-		hasEnvApiKey: (provider: KnownProvider) => getEnvApiKey(provider),
-		getModelsForProvider: (provider: KnownProvider) =>
-			getSelectableModels(provider),
+		providerIds: kitModels.getProviders().map((provider) => provider.id),
+		hasEnvApiKey: (provider: string) =>
+			hasCachedProviderAuth(provider)
+				? "provider-owned auth"
+				: getEnvApiKey(provider as KnownProvider),
+		getModelsForProvider: (provider: string) => getSelectableModels(provider),
 	};
 }
 
 export function listRegisteredAuthenticatedProviders(
 	authenticatedProviderIds: string[],
-): KnownProvider[] {
+): string[] {
 	return listAuthenticatedProviders(
 		authenticatedProviderIds,
 		getRuntimeProviderSelectionOptions(),

@@ -28,10 +28,11 @@ export async function withFileLock<T>(
 export async function replaceFileAtomically(
 	filePath: string,
 	content: string,
+	options?: { mode?: number },
 ): Promise<void> {
 	const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
 	try {
-		const handle = await open(temporaryPath, "w");
+		const handle = await open(temporaryPath, "w", options?.mode);
 		try {
 			await handle.writeFile(content, "utf8");
 			await handle.sync();

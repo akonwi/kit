@@ -87,7 +87,11 @@ function getAssistantUsage(
 ): Usage | undefined {
 	if (message.role !== "assistant") return undefined;
 	if (isSyntheticSummary(message)) return undefined;
-	if (message.stopReason === "aborted" || message.stopReason === "error") {
+	if (
+		message.stopReason === "aborted" ||
+		message.stopReason === "error" ||
+		message.stopReason === "pending"
+	) {
 		return undefined;
 	}
 	if (!isUsageCompatibleWithModel(message, model)) return undefined;

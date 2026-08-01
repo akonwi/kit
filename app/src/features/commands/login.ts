@@ -1,4 +1,5 @@
 import { createComponent } from "solid-js";
+import { refreshModelAvailability } from "../../runtime/models";
 import { LoginModal, type LoginOutcome } from "../login/LoginModal";
 import type { Command, CommandContext } from "./types";
 
@@ -19,6 +20,7 @@ export const loginCommand: Command = {
 	async execute({ toast, openCustomOverlay }) {
 		const result = await openLoginModal(openCustomOverlay);
 		if (!result.didAuthenticate) return;
+		await refreshModelAvailability();
 
 		toast({
 			title: "Login successful",

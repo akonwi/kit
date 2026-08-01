@@ -34,6 +34,7 @@ import {
 } from "../messages/parts";
 import type { KitAgentMessage, Session, Turn } from "../session/types";
 import { type AnyEvent, EventBus } from "./event-bus";
+import { kitStreamFn } from "./models";
 
 // Re-export upstream types so the rest of the codebase imports them
 // from Kit's own boundary instead of reaching into upstream packages.
@@ -60,8 +61,9 @@ export type {
 } from "@earendil-works/pi-ai";
 export { Type } from "@earendil-works/pi-ai";
 
-export interface AgentOptions extends PiAgentOptions {
+export interface AgentOptions extends Omit<PiAgentOptions, "streamFn"> {
 	initialTurns?: Turn[];
+	streamFn?: StreamFn;
 }
 
 export type AppendedCustomMessage = {
@@ -161,6 +163,7 @@ export class Agent {
 			initialTurns?.flatMap((turn) => turn.messages) ?? [];
 		this.pi = new PiAgent({
 			...opts,
+			streamFn: opts?.streamFn ?? kitStreamFn,
 			initialState: {
 				systemPrompt: opts?.initialState?.systemPrompt ?? "",
 				thinkingLevel: opts?.initialState?.thinkingLevel ?? "medium",
@@ -228,23 +231,11 @@ export class Agent {
 	}
 
 	get streamFn(): StreamFn {
-		return this.pi.streamFn;
+		return this.pi.streamFunction;
 	}
 
 	set streamFn(value: StreamFn) {
-		this.pi.streamFn = value;
-	}
-
-	get getApiKey():
-		| ((provider: string) => Promise<string | undefined> | string | undefined)
-		| undefined {
-		return this.pi.getApiKey;
-	}
-
-	set getApiKey(value:
-		| ((provider: string) => Promise<string | undefined> | string | undefined)
-		| undefined,) {
-		this.pi.getApiKey = value;
+		this.pi.streamFunction = value;
 	}
 
 	get turns(): Turn[] {

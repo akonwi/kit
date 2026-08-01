@@ -1,7 +1,6 @@
-import { completeSimple } from "@earendil-works/pi-ai/compat";
-import { getApiKey } from "../../auth";
 import type { InternalPluginAPI } from "../../plugins";
 import type { AgentMessage, Api, Model } from "../../runtime/agent";
+import { hasModelAuth, kitModels } from "../../runtime/models";
 import type { Session } from "../../session";
 
 const AUTO_TITLE_MIN_TURNS = 2;
@@ -91,7 +90,11 @@ function lastAssistantFailed(messages: AgentMessage[]): boolean {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i] as AgentMessage & { stopReason?: string };
 		if (msg.role !== "assistant") continue;
-		return msg.stopReason === "error" || msg.stopReason === "aborted";
+		return (
+			msg.stopReason === "error" ||
+			msg.stopReason === "aborted" ||
+			msg.stopReason === "pending"
+		);
 	}
 	return false;
 }
@@ -104,14 +107,13 @@ async function generateTitleWithCurrentModel(
 		throw new Error("No current model available for session auto-naming.");
 	}
 
-	const apiKey = await getApiKey(model.provider);
-	if (!apiKey) {
+	if (!(await hasModelAuth(model))) {
 		throw new Error(
-			`No API key available for ${model.provider} session auto-naming.`,
+			`No credentials available for ${model.provider} session auto-naming.`,
 		);
 	}
 
-	const response = await completeSimple(
+	const response = await kitModels.completeSimple(
 		model as Model<Api>,
 		{
 			systemPrompt: AUTO_TITLE_SYSTEM_PROMPT,
@@ -123,13 +125,14 @@ async function generateTitleWithCurrentModel(
 				},
 			],
 		},
-		{
-			apiKey,
-			maxTokens: AUTO_TITLE_MAX_TOKENS,
-		},
+		{ maxTokens: AUTO_TITLE_MAX_TOKENS },
 	);
 
-	if (response.stopReason === "error" || response.stopReason === "aborted") {
+	if (
+		response.stopReason === "error" ||
+		response.stopReason === "aborted" ||
+		response.stopReason === "pending"
+	) {
 		throw new Error(response.errorMessage || "Session auto-naming failed.");
 	}
 

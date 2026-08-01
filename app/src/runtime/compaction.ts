@@ -55,10 +55,9 @@ export function shouldAutoCompact(percent: number | null | undefined): boolean {
 export async function compactSessionTurns(options: {
 	session: Session;
 	model: Model<Api>;
-	apiKey: string;
 	signal?: AbortSignal;
 }): Promise<CompactionResult | null> {
-	const { session, model, apiKey, signal } = options;
+	const { session, model, signal } = options;
 	const turns = session.turns;
 	if (turns.length < 2) return null;
 
@@ -91,7 +90,6 @@ export async function compactSessionTurns(options: {
 	const summaryMessage = await createSyntheticSummaryMessage({
 		messages: messagesToSummarize,
 		model,
-		apiKey,
 		signal,
 		systemPrompt: SUMMARIZATION_SYSTEM_PROMPT,
 		userPrompt: SUMMARIZATION_PROMPT,

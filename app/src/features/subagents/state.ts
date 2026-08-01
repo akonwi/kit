@@ -510,6 +510,12 @@ async function createLiveSubagentRuntime(
 				options.onCompletedMessage(persisted, latestCompletedText);
 				if (event.message.stopReason === "error") {
 					terminalError = event.message.errorMessage ?? "Sub-agent failed.";
+				} else if (event.message.stopReason === "pending") {
+					terminalError = "Sub-agent response ended before completion.";
+				} else if (event.message.stopReason === "aborted") {
+					aborted = true;
+					abortReason ??= event.message.errorMessage ?? "Aborted";
+					terminalError = undefined;
 				} else {
 					terminalError = undefined;
 				}
@@ -538,11 +544,31 @@ async function createLiveSubagentRuntime(
 		}
 	});
 
+	async function finishAborted(reason: string): Promise<SubagentRunResult> {
+		options.onTerminalState("aborted", { reason });
+		enqueueEntries([
+			{
+				...baseEntry(),
+				type: "subagent_aborted",
+				reason,
+			},
+		]);
+		await writeChain;
+		return {
+			status: "aborted",
+			message: latestCompletedText,
+			error: reason,
+		};
+	}
+
 	return {
 		async run(prompt: string): Promise<SubagentRunResult> {
 			try {
 				await runtime.submitUserMessage(prompt);
 				await writeChain;
+				if (aborted) {
+					return finishAborted(abortReason ?? "Aborted");
+				}
 				if (terminalError) {
 					options.onTerminalState("failed", { error: terminalError });
 					enqueueEntries([
@@ -568,22 +594,7 @@ async function createLiveSubagentRuntime(
 				const errorMessage =
 					error instanceof Error ? error.message : String(error);
 				if (aborted) {
-					options.onTerminalState("aborted", {
-						reason: abortReason ?? errorMessage,
-					});
-					enqueueEntries([
-						{
-							...baseEntry(),
-							type: "subagent_aborted",
-							reason: abortReason ?? errorMessage,
-						},
-					]);
-					await writeChain;
-					return {
-						status: "aborted",
-						message: latestCompletedText,
-						error: abortReason ?? errorMessage,
-					};
+					return finishAborted(abortReason ?? errorMessage);
 				}
 				options.onTerminalState("failed", { error: errorMessage });
 				enqueueEntries([

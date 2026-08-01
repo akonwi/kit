@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { completeSimple } from "@earendil-works/pi-ai/compat";
 import { messagePartToPromptText } from "../messages/parts";
 import type { KitAgentMessage, SyntheticSummaryKind } from "../session/types";
 import type { AgentMessage, Api, Model } from "./agent";
+import { kitModels } from "./models";
 
 const MAX_USER_MESSAGE_CHARS = 4_000;
 const MAX_ASSISTANT_MESSAGE_CHARS = 4_000;
@@ -99,7 +99,6 @@ export function serializeConversation(messages: AgentMessage[]): string {
 export async function createSyntheticSummaryMessage(options: {
 	messages: AgentMessage[];
 	model: Model<Api>;
-	apiKey: string;
 	systemPrompt: string;
 	userPrompt: string;
 	kind: SyntheticSummaryKind;
@@ -109,7 +108,6 @@ export async function createSyntheticSummaryMessage(options: {
 	const {
 		messages,
 		model,
-		apiKey,
 		systemPrompt,
 		userPrompt,
 		kind,
@@ -117,7 +115,7 @@ export async function createSyntheticSummaryMessage(options: {
 		signal,
 	} = options;
 	const promptText = `<conversation>\n${serializeConversation(messages)}\n</conversation>\n\n${userPrompt}`;
-	const response = await completeSimple(
+	const response = await kitModels.completeSimple(
 		model,
 		{
 			systemPrompt,
@@ -130,11 +128,15 @@ export async function createSyntheticSummaryMessage(options: {
 			],
 		},
 		model.reasoning
-			? { apiKey, signal, maxTokens: 2048, reasoning: "high" }
-			: { apiKey, signal, maxTokens: 2048 },
+			? { signal, maxTokens: 2048, reasoning: "high" }
+			: { signal, maxTokens: 2048 },
 	);
 
-	if (response.stopReason === "error" || response.stopReason === "aborted") {
+	if (
+		response.stopReason === "error" ||
+		response.stopReason === "aborted" ||
+		response.stopReason === "pending"
+	) {
 		throw new Error(response.errorMessage || "Session summarization failed.");
 	}
 

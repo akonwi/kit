@@ -1,18 +1,17 @@
-import {
-	getOAuthProviders,
-	type OAuthAuthInfo,
-	type OAuthDeviceCodeInfo,
-	type OAuthPrompt,
-	type OAuthProviderInterface,
-	type OAuthSelectPrompt,
-} from "@earendil-works/pi-ai/oauth";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import type {
+	AuthEvent,
+	AuthInteraction,
+	AuthPrompt,
+	AuthType,
+	Provider,
+} from "@earendil-works/pi-ai";
 import { useBindings } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
-import { readAuthFile, readAuthFileSync, writeAuthFile } from "../../auth";
+import { readAuthFileSync } from "../../auth";
 import { withKitKeyAliases } from "../../keymap/bindings";
+import { kitModels } from "../../runtime/models";
 import { Dialog } from "../../shell/Dialog";
 import { CHECK } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
@@ -28,12 +27,13 @@ export type LoginOutcome = {
 	providerName?: string;
 };
 
-type LoginStep = "select" | "prompt" | "waiting" | "apiKey";
+type LoginStep = "select" | "prompt" | "waiting";
 
 type PromptState = {
 	label: string;
 	placeholder?: string;
 	allowEmpty: boolean;
+	options?: readonly { id: string; label: string }[];
 };
 
 export type LoginModalProps = {
@@ -41,44 +41,43 @@ export type LoginModalProps = {
 	surfaceProps?: OverlaySurfaceProps;
 };
 
-/**
- * A row in the provider list — either an OAuth flow or an API-key
- * paste. Both persist credentials to ~/.kit/auth.json; getApiKey()
- * already prefers auth.json entries of either type over env vars.
- */
-type ProviderOption =
-	| {
-			kind: "oauth";
-			name: string;
-			providerId: string;
-			oauth: OAuthProviderInterface;
-	  }
-	| { kind: "api-key"; name: string; providerId: string };
+type ProviderOption = {
+	name: string;
+	method: string;
+	providerId: string;
+	authType: AuthType;
+};
 
-/**
- * OAuth providers first (preferred flows), then API-key providers A–Z.
- * Both the list and display names come from pi-ai's provider registry;
- * a provider offers an API-key row only when it declares apiKey auth
- * and has selectable models.
- */
-function buildProviderOptions(): ProviderOption[] {
-	const oauth: ProviderOption[] = getOAuthProviders().map((provider) => ({
-		kind: "oauth",
-		name: provider.name,
-		providerId: provider.id,
-		oauth: provider,
-	}));
-	const apiKey: ProviderOption[] = builtinProviders()
-		.filter(
-			(provider) => provider.auth.apiKey && provider.getModels().length > 0,
-		)
-		.map((provider) => ({
-			kind: "api-key" as const,
+function providerOptions(provider: Provider): ProviderOption[] {
+	const options: ProviderOption[] = [];
+	if (provider.auth.oauth) {
+		options.push({
 			name: provider.name,
+			method:
+				provider.auth.oauth.loginLabel ?? provider.auth.oauth.name ?? "oauth",
 			providerId: provider.id,
-		}))
-		.sort((a, b) => a.name.localeCompare(b.name));
-	return [...oauth, ...apiKey];
+			authType: "oauth",
+		});
+	}
+	if (provider.auth.apiKey?.login) {
+		options.push({
+			name: provider.name,
+			method: provider.auth.apiKey.name,
+			providerId: provider.id,
+			authType: "api_key",
+		});
+	}
+	return options;
+}
+
+export function buildProviderOptions(): ProviderOption[] {
+	return kitModels
+		.getProviders()
+		.flatMap(providerOptions)
+		.sort((a, b) => {
+			if (a.authType !== b.authType) return a.authType === "oauth" ? -1 : 1;
+			return a.name.localeCompare(b.name);
+		});
 }
 
 function splitInstructions(instructions?: string): string[] {
@@ -86,6 +85,10 @@ function splitInstructions(instructions?: string): string[] {
 		.split(/\r?\n/)
 		.map((line) => line.trim())
 		.filter((line) => line.length > 0);
+}
+
+export function authPromptAllowsEmpty(prompt: AuthPrompt): boolean {
+	return prompt.type === "text" || prompt.type === "manual_code";
 }
 
 function formatError(error: unknown): string {
@@ -100,10 +103,6 @@ export function LoginModal(props: LoginModalProps) {
 	const [providerName, setProviderName] = createSignal<string | undefined>(
 		undefined,
 	);
-	const [apiKeyTarget, setApiKeyTarget] = createSignal<{
-		providerId: string;
-		name: string;
-	} | null>(null);
 	const [promptState, setPromptState] = createSignal<PromptState | null>(null);
 	const [inputValue, setInputValue] = createSignal("");
 	const [authUrl, setAuthUrl] = createSignal<string | null>(null);
@@ -112,6 +111,8 @@ export function LoginModal(props: LoginModalProps) {
 	const [errorLines, setErrorLines] = createSignal<string[]>([]);
 
 	let pendingPromptResolve: ((value: string) => void) | null = null;
+	let pendingPromptReject: ((error: Error) => void) | null = null;
+	let pendingPromptCleanup: (() => void) | null = null;
 	let closed = false;
 	const abortController = new AbortController();
 
@@ -121,23 +122,37 @@ export function LoginModal(props: LoginModalProps) {
 		props.onClose(result);
 	}
 
+	function clearPendingPrompt() {
+		pendingPromptCleanup?.();
+		pendingPromptCleanup = null;
+		pendingPromptResolve = null;
+		pendingPromptReject = null;
+	}
+
 	function resolvePendingPrompt(value: string) {
 		if (!pendingPromptResolve) return;
 		const resolve = pendingPromptResolve;
-		pendingPromptResolve = null;
+		clearPendingPrompt();
 		resolve(value);
+	}
+
+	function rejectPendingPrompt(error: Error) {
+		if (!pendingPromptReject) return;
+		const reject = pendingPromptReject;
+		clearPendingPrompt();
+		reject(error);
 	}
 
 	function cancel() {
 		abortController.abort();
-		resolvePendingPrompt("");
+		rejectPendingPrompt(new Error("Login cancelled"));
 		finish({ didAuthenticate: false });
 	}
 
 	onCleanup(() => {
 		closed = true;
 		abortController.abort();
-		resolvePendingPrompt("");
+		rejectPendingPrompt(new Error("Login cancelled"));
 	});
 
 	function clearTransientState(nextProviderName?: string) {
@@ -154,82 +169,87 @@ export function LoginModal(props: LoginModalProps) {
 		setProgressLines((prev) => [...prev, message]);
 	}
 
-	function requestPrompt(prompt: OAuthPrompt): Promise<string> {
-		if (closed) return Promise.resolve("");
+	function requestAuthPrompt(prompt: AuthPrompt): Promise<string> {
+		if (closed) return Promise.reject(new Error("Login cancelled"));
+		const label =
+			prompt.type === "select"
+				? `${prompt.message}\n${prompt.options
+						.map((option) => `  ${option.id}: ${option.label}`)
+						.join("\n")}`
+				: prompt.message;
 		setPromptState({
-			label: prompt.message,
-			placeholder: prompt.placeholder,
-			allowEmpty: prompt.allowEmpty ?? false,
+			label,
+			placeholder: "placeholder" in prompt ? prompt.placeholder : undefined,
+			allowEmpty: authPromptAllowsEmpty(prompt),
+			options: prompt.type === "select" ? prompt.options : undefined,
 		});
 		setInputValue("");
 		setStep("prompt");
-		return new Promise<string>((resolve) => {
+		return new Promise<string>((resolve, reject) => {
+			const onAbort = () => rejectPendingPrompt(new Error("Login cancelled"));
+			if (prompt.signal?.aborted) {
+				reject(new Error("Login cancelled"));
+				return;
+			}
 			pendingPromptResolve = resolve;
+			pendingPromptReject = reject;
+			pendingPromptCleanup = () =>
+				prompt.signal?.removeEventListener("abort", onAbort);
+			prompt.signal?.addEventListener("abort", onAbort, { once: true });
 		});
 	}
 
-	async function startProviderLogin(provider: OAuthProviderInterface) {
-		clearTransientState(provider.name);
+	function handleAuthEvent(event: AuthEvent) {
+		if (closed) return;
+		setStep("waiting");
+		switch (event.type) {
+			case "auth_url":
+				setAuthUrl(event.url);
+				setAuthInstructions(splitInstructions(event.instructions));
+				appendProgress("Complete authentication in your browser.");
+				void openExternal(event.url)
+					.then(() => {
+						if (!closed) appendProgress("Browser opened.");
+					})
+					.catch((error) => {
+						if (!closed) setErrorLines([formatError(error)]);
+					});
+				break;
+			case "device_code":
+				setAuthUrl(event.verificationUri);
+				setAuthInstructions([`Enter code ${event.userCode}`]);
+				appendProgress(`Enter code ${event.userCode} in your browser.`);
+				void openExternal(event.verificationUri).catch(() => {});
+				break;
+			case "progress":
+				appendProgress(event.message);
+				break;
+			case "info":
+				appendProgress(event.message);
+				setAuthInstructions(
+					event.links?.map((link) =>
+						link.label ? `${link.label}: ${link.url}` : link.url,
+					) ?? [],
+				);
+				break;
+		}
+	}
+
+	async function startProviderLogin(option: ProviderOption) {
+		clearTransientState(option.name);
 		setStep("waiting");
 		appendProgress("Starting login…");
+		const interaction: AuthInteraction = {
+			signal: abortController.signal,
+			prompt: requestAuthPrompt,
+			notify: handleAuthEvent,
+		};
 
 		try {
-			const credentials = await provider.login({
-				onAuth(info: OAuthAuthInfo) {
-					if (closed) return;
-					setAuthUrl(info.url);
-					setAuthInstructions(splitInstructions(info.instructions));
-					setStep("waiting");
-					appendProgress("Complete authentication in your browser.");
-					void openExternal(info.url)
-						.then(() => {
-							if (!closed) appendProgress("Browser opened.");
-						})
-						.catch((error) => {
-							if (closed) return;
-							setErrorLines([
-								`Failed to open browser automatically: ${formatError(error)}`,
-							]);
-						});
-				},
-				onProgress(message: string) {
-					if (closed) return;
-					setStep("waiting");
-					appendProgress(message);
-				},
-				onPrompt: requestPrompt,
-				onDeviceCode(info: OAuthDeviceCodeInfo) {
-					if (closed) return;
-					appendProgress(
-						`Enter code ${info.userCode} at ${info.verificationUri}`,
-					);
-					void openExternal(info.verificationUri).catch(() => {});
-				},
-				async onSelect(prompt: OAuthSelectPrompt) {
-					if (closed) return undefined;
-					const result = await requestPrompt({
-						message: `${prompt.message}\n${prompt.options.map((o) => `  ${o.id}: ${o.label}`).join("\n")}`,
-					});
-					const match = prompt.options.find(
-						(o) => o.id === result || o.label === result,
-					);
-					return match?.id;
-				},
-				onManualCodeInput: () =>
-					requestPrompt({
-						message:
-							"Paste the redirect URL (or leave blank to wait for browser callback)",
-						allowEmpty: true,
-					}),
-				signal: abortController.signal,
-			});
-
-			if (closed) return;
-
-			const auth = await readAuthFile();
-			auth[provider.id] = { ...credentials, type: "oauth" };
-			await writeAuthFile(auth);
-			finish({ didAuthenticate: true, providerName: provider.name });
+			await kitModels.login(option.providerId, option.authType, interaction);
+			if (!closed) {
+				finish({ didAuthenticate: true, providerName: option.name });
+			}
 		} catch (error) {
 			if (closed || abortController.signal.aborted) return;
 			clearTransientState();
@@ -238,43 +258,15 @@ export function LoginModal(props: LoginModalProps) {
 		}
 	}
 
-	function startApiKeyEntry(option: { providerId: string; name: string }) {
-		clearTransientState(option.name);
-		setApiKeyTarget(option);
-		setStep("apiKey");
-	}
-
-	function backToSelect() {
-		clearTransientState();
-		setApiKeyTarget(null);
-		setStep("select");
-	}
-
-	async function saveApiKey() {
-		const target = apiKeyTarget();
-		const key = inputValue().trim();
-		if (!target || !key) return;
-		try {
-			const auth = await readAuthFile();
-			auth[target.providerId] = { type: "api_key", key };
-			await writeAuthFile(auth);
-			finish({ didAuthenticate: true, providerName: target.name });
-		} catch (error) {
-			if (closed) return;
-			setErrorLines([formatError(error)]);
-		}
-	}
-
 	function submitInput() {
-		if (step() === "apiKey") {
-			void saveApiKey();
-			return;
-		}
-
 		const prompt = promptState();
 		if (!prompt) return;
 		if (!prompt.allowEmpty && inputValue().trim().length === 0) return;
-		const value = inputValue();
+		const input = inputValue();
+		const value =
+			prompt.options?.find(
+				(option) => option.id === input || option.label === input,
+			)?.id ?? input;
 		setInputValue("");
 		setPromptState(null);
 		setStep("waiting");
@@ -307,32 +299,6 @@ export function LoginModal(props: LoginModalProps) {
 		}),
 	);
 
-	// Escape backs out one level: API-key entry returns to the provider
-	// list; the OAuth waiting/prompt steps cancel the whole flow.
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => step() === "apiKey",
-			priority: 200,
-			commands: [
-				{
-					name: "login.back",
-					desc: "Back to provider list",
-					group: "login",
-					hint: "back",
-					run: backToSelect,
-				},
-			],
-			bindings: [
-				{
-					key: "escape",
-					cmd: "login.back",
-					desc: "Back to provider list",
-					group: "login",
-				},
-			],
-		}),
-	);
-
 	useBindings(() =>
 		withKitKeyAliases({
 			enabled: () => step() === "prompt" || step() === "waiting",
@@ -350,7 +316,7 @@ export function LoginModal(props: LoginModalProps) {
 
 	useBindings(() =>
 		withKitKeyAliases({
-			enabled: () => step() === "prompt" || step() === "apiKey",
+			enabled: () => step() === "prompt",
 			priority: 200,
 			commands: [
 				{
@@ -373,7 +339,6 @@ export function LoginModal(props: LoginModalProps) {
 	);
 
 	const title = () => {
-		if (step() === "apiKey") return "Set API key";
 		if (step() === "select") return "Log in to a provider";
 		return "Complete login";
 	};
@@ -390,15 +355,11 @@ export function LoginModal(props: LoginModalProps) {
 		name: authenticatedIds.has(option.providerId)
 			? `${option.name} ${CHECK}`
 			: option.name,
-		description: option.kind === "oauth" ? "oauth" : "api key",
+		description: option.method,
 		nameColor:
-			option.kind === "oauth" ? theme.textPrimary : theme.textSecondary,
+			option.authType === "oauth" ? theme.textPrimary : theme.textSecondary,
 		action: () => {
-			if (option.kind === "oauth") {
-				void startProviderLogin(option.oauth);
-			} else {
-				startApiKeyEntry(option);
-			}
+			void startProviderLogin(option);
 		},
 	}));
 	providerPicker.show({
@@ -481,13 +442,9 @@ export function LoginModal(props: LoginModalProps) {
 				</box>
 			</Show>
 
-			<Show when={step() === "prompt" || step() === "apiKey"}>
+			<Show when={step() === "prompt"}>
 				<box flexDirection="column" gap={1}>
-					<text fg={theme.textPrimary}>
-						{step() === "apiKey"
-							? `Paste your ${apiKeyTarget()?.name ?? "provider"} API key`
-							: (promptState()?.label ?? "")}
-					</text>
+					<text fg={theme.textPrimary}>{promptState()?.label ?? ""}</text>
 					<box
 						border
 						borderColor={theme.borderDefault}
@@ -498,11 +455,7 @@ export function LoginModal(props: LoginModalProps) {
 							focused
 							width="100%"
 							value={inputValue()}
-							placeholder={
-								step() === "apiKey"
-									? "paste key"
-									: (promptState()?.placeholder ?? "")
-							}
+							placeholder={promptState()?.placeholder ?? ""}
 							placeholderColor={theme.textPlaceholder}
 							backgroundColor={theme.bgTransparent}
 							focusedBackgroundColor={theme.bgTransparent}
@@ -512,9 +465,6 @@ export function LoginModal(props: LoginModalProps) {
 							onInput={(value: string) => setInputValue(value)}
 						/>
 					</box>
-					<Show when={step() === "apiKey"}>
-						<text fg={theme.textMuted}>Saved to ~/.kit/auth.json</text>
-					</Show>
 				</box>
 			</Show>
 

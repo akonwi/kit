@@ -2,8 +2,7 @@ import { stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 
-import { registerBuiltInApiProviders } from "@earendil-works/pi-ai/compat";
-import { getApiKey, getAuthenticatedProviderIds } from "../auth";
+import { getAuthenticatedProviderIds } from "../auth";
 import {
 	buildSystemPrompt,
 	type ContextFile,
@@ -50,6 +49,7 @@ import {
 	type RuntimeContextUsage,
 } from "./context-usage";
 import { EventBus } from "./event-bus";
+import { hasModelAuth } from "./models";
 import {
 	getSelectableModels,
 	listRegisteredAuthenticatedProviders,
@@ -59,8 +59,6 @@ import { createSyntheticSummaryMessage } from "./session-summary";
 import { clampThinkingLevel } from "./thinking-levels";
 import type { VcsInfo } from "./vcs-info";
 import { VcsInfoWatcher } from "./vcs-info-watcher";
-
-registerBuiltInApiProviders();
 
 export class AuthenticationRequiredError extends Error {
 	constructor(message = "No authenticated providers found. Run /login first.") {
@@ -360,7 +358,6 @@ export class AgentRuntime {
 				systemPrompt: this.getEffectiveSystemPrompt(),
 				tools: this.getEffectiveTools(),
 			},
-			getApiKey: (provider) => getApiKey(provider),
 			maxRetryDelayMs: resolveRetrySettings(this._settings.retry).maxDelayMs,
 		});
 		this.agent.setBeforeToolCall((context, signal) =>
@@ -596,10 +593,10 @@ export class AgentRuntime {
 		});
 
 		try {
-			const apiKey = await getApiKey(model.provider);
-			if (!apiKey) {
+			const hasAuth = await hasModelAuth(model);
+			if (!hasAuth) {
 				this.bus.publish("session.compaction.failed.auto", {
-					error: `No API key available for ${model.provider}.`,
+					error: `No credentials available for ${model.provider}.`,
 				});
 				return;
 			}
@@ -607,7 +604,6 @@ export class AgentRuntime {
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,
-				apiKey,
 			});
 			if (!result) {
 				this.bus.publish("session.compaction.failed.auto", {
@@ -669,10 +665,10 @@ export class AgentRuntime {
 				});
 				return;
 			}
-			const apiKey = await getApiKey(model.provider);
-			if (!apiKey) {
+			const hasAuth = await hasModelAuth(model);
+			if (!hasAuth) {
 				this.bus.publish("session.compaction.failed.manual", {
-					error: `No API key available for ${model.provider}.`,
+					error: `No credentials available for ${model.provider}.`,
 				});
 				return;
 			}
@@ -680,7 +676,6 @@ export class AgentRuntime {
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,
-				apiKey,
 			});
 			if (!result) {
 				this.bus.publish("session.compaction.failed.manual", {
@@ -828,8 +823,8 @@ export class AgentRuntime {
 			return false;
 		}
 
-		const apiKey = await getApiKey(model.provider);
-		if (!apiKey) return false;
+		const hasAuth = await hasModelAuth(model);
+		if (!hasAuth) return false;
 
 		this.overflowRecoveryAttempted = true;
 		this.removeTerminalAssistantErrorFromLiveState();
@@ -840,7 +835,6 @@ export class AgentRuntime {
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,
-				apiKey,
 			});
 			if (!result) {
 				this.bus.publish("session.compaction.failed.recovery", {
@@ -884,6 +878,17 @@ export class AgentRuntime {
 	private async finalizeAgentRun(messages: AgentMessage[]): Promise<void> {
 		this.persistTurns();
 		const assistant = this.findLastAssistantMessage(messages);
+		if (assistant?.stopReason === "pending") {
+			this.handleSessionChanged();
+			this.bus.publish("agent.run.failed", {
+				error: "Agent response ended before completion.",
+			});
+			this.syncPendingState();
+			this.retryAttempt = 0;
+			this.overflowRecoveryAttempted = false;
+			this.resolveRecovery();
+			return;
+		}
 		if (assistant?.stopReason === "error") {
 			if (this.isContextOverflowError(assistant)) {
 				const didRecover = await this.handleOverflowAssistantError(assistant);
@@ -927,13 +932,13 @@ export class AgentRuntime {
 		});
 
 		try {
-			const apiKey = await getApiKey(model.provider);
-			if (!apiKey) {
+			const hasAuth = await hasModelAuth(model);
+			if (!hasAuth) {
 				this.bus.publish("session.compaction.failed.adaptation", {
 					modelId: model.id,
 					modelName: model.name,
 					cause: "missing-api-key",
-					error: `No API key available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
+					error: `No credentials available for ${model.provider} to compact this session for ${model.name ?? model.id}.`,
 				});
 				return;
 			}
@@ -941,7 +946,6 @@ export class AgentRuntime {
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,
-				apiKey,
 			});
 			if (!result) {
 				this.bus.publish("session.compaction.failed.adaptation", {
@@ -1480,9 +1484,9 @@ export class AgentRuntime {
 		if (!currentModel) {
 			throw new Error("No active model available for merge summary.");
 		}
-		const apiKey = await getApiKey(currentModel.provider);
-		if (!apiKey) {
-			throw new Error(`No API key available for ${currentModel.provider}.`);
+		const hasAuth = await hasModelAuth(currentModel);
+		if (!hasAuth) {
+			throw new Error(`No credentials available for ${currentModel.provider}.`);
 		}
 
 		const boundaryIndex = child.forkedFromTurnId
@@ -1531,7 +1535,6 @@ export class AgentRuntime {
 		const summaryMessage = await createSyntheticSummaryMessage({
 			messages: messagesToSummarize,
 			model: currentModel,
-			apiKey,
 			systemPrompt: MERGE_UP_SYSTEM_PROMPT,
 			userPrompt: mergePrompt,
 			kind: "handoff-summary",

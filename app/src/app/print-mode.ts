@@ -12,6 +12,7 @@ import {
 	AgentRuntime,
 	AuthenticationRequiredError,
 } from "../runtime/agent-runtime";
+import { refreshModelAvailability } from "../runtime/models";
 import { SESSION_VERSION, type Session } from "../session";
 import { loadSettings } from "../settings";
 import { createAttachmentsController } from "../shell/attachments-controller";
@@ -113,6 +114,7 @@ export async function runPrintMode(
 		await resolveAndApplyTheme(settings.settings.theme ?? "system");
 		initTemplates(cwd);
 
+		await refreshModelAvailability();
 		runtime = new AgentRuntime(createEphemeralSession(cwd), {
 			settings: settings.settings,
 		});
@@ -150,7 +152,8 @@ export async function runPrintMode(
 		}
 		if (
 			lastMessage.stopReason === "error" ||
-			lastMessage.stopReason === "aborted"
+			lastMessage.stopReason === "aborted" ||
+			lastMessage.stopReason === "pending"
 		) {
 			console.error(
 				lastMessage.errorMessage ?? `Request ${lastMessage.stopReason}.`,

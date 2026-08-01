@@ -41,6 +41,10 @@ function assistantMessage(
 	text: string,
 	totalTokens: number,
 	timestamp = 1,
+	stopReason: Extract<
+		AgentMessage,
+		{ role: "assistant" }
+	>["stopReason"] = "stop",
 ): Extract<AgentMessage, { role: "assistant" }> {
 	return {
 		role: "assistant",
@@ -49,7 +53,7 @@ function assistantMessage(
 		provider: "anthropic",
 		model: "claude-sonnet-4-6",
 		usage: usage(totalTokens),
-		stopReason: "stop",
+		stopReason,
 		timestamp,
 	} as Extract<AgentMessage, { role: "assistant" }>;
 }
@@ -81,6 +85,19 @@ describe("runtime context usage", () => {
 		expect(result?.usageTokens).toBe(420);
 		expect(result?.percent).toBe(42);
 		expect(result?.lastUsageIndex).toBe(1);
+	});
+
+	test("ignores usage from partial pending messages", () => {
+		const result = getRuntimeContextUsage(
+			[
+				assistantMessage("complete", 100, 1),
+				assistantMessage("partial", 900, 2, "pending"),
+			],
+			model,
+		);
+
+		expect(result?.usageTokens).toBe(100);
+		expect(result?.lastUsageIndex).toBe(0);
 	});
 
 	test("does not keep using stale pre-compaction usage from kept turns", () => {

@@ -19,6 +19,7 @@ import {
 	AgentRuntime,
 	AuthenticationRequiredError,
 } from "../runtime/agent-runtime";
+import { refreshModelAvailability } from "../runtime/models";
 import type { Session } from "../session";
 import { type LoadedSettings, loadSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
@@ -89,6 +90,7 @@ export function App(props: AppProps) {
 	});
 
 	async function buildReadyState(): Promise<ReadyState> {
+		await refreshModelAvailability();
 		let currentSettings = props.settings;
 		const attachments = createAttachmentsController();
 		const footer = createFooterStatusController();
