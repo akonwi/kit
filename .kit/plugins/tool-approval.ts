@@ -30,12 +30,12 @@ function needsApproval(toolCall: ToolCall): boolean {
 
 function summarizeCall(toolCall: ToolCall): string {
 	if (toolCall.name === "bash") {
-		return truncate(getStringArg(toolCall.input, "command") || "(no command)");
+		return getStringArg(toolCall.input, "command") || "(no command)";
 	}
 	const path = getStringArg(toolCall.input, "path");
-	if (path) return truncate(path);
+	if (path) return path;
 	try {
-		return truncate(JSON.stringify(toolCall.input));
+		return JSON.stringify(toolCall.input);
 	} catch {
 		return "Unable to summarize tool arguments.";
 	}
@@ -44,8 +44,4 @@ function summarizeCall(toolCall: ToolCall): string {
 function getStringArg(args: Record<string, unknown>, key: string): string {
 	const value = args[key];
 	return typeof value === "string" ? value : "";
-}
-
-function truncate(value: string): string {
-	return value.length > 140 ? `${value.slice(0, 137)}...` : value;
 }
