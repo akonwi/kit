@@ -4,6 +4,7 @@ export type { Command, CommandContext } from "./types";
 import { compactCommand } from "./compact";
 import { handoffCommand } from "./handoff";
 import { loginCommand } from "./login";
+import { logoutCommand } from "./logout";
 import { modelCommand } from "./model";
 import { nameCommand } from "./name";
 import { newCommand } from "./new";
@@ -21,6 +22,7 @@ export const BUILT_IN_COMMANDS: Command[] = [
 	compactCommand,
 	handoffCommand,
 	loginCommand,
+	logoutCommand,
 	modelCommand,
 	nameCommand,
 	newCommand,

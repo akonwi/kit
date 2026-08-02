@@ -12,6 +12,7 @@ Core commands currently include:
 - `code-review`
 - `handoff [message]`
 - `login`
+- `logout`
 - `model`
 - `name`
 - `new`
