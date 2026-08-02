@@ -4,26 +4,24 @@ export const CURRENT_VERSION = version;
 
 /** Release notes bundled into the binary so the installed release is readable offline. */
 export const CURRENT_RELEASE_NOTES = `
-## Workspace panels
+## Release updates
 
-- Added a persistent, responsive secondary workspace beside the transcript.
-- Moved activity, scratchpad, code review, and sub-agent status into retained workspace panels.
-- Added narrow Transcript/secondary tabs and workspace focus cycling with \`F6\`.
+- Added a startup check for newer stable Kit releases with a persistent header notice.
+- Added the \`/release-notes\` command and workspace panel for reading the installed release notes offline.
+- The release panel can open the latest available GitHub release when an update is available.
 
-## Shell and composer
+## Scratchpad
 
-- Added Ghostty progress signaling and an active-turn marker in the terminal title.
-- Queued messages can now be restored directly into the composer with \`Up\`.
-- Refined transcript, composer, pager, session explorer, and modal chrome.
+- Added the approval-gated \`update_scratchpad\` tool so agents can append to or replace the active session scratchpad.
+- Added guarded atomic persistence for concurrent scratchpad updates across Kit processes.
+- Improved confirmation dialogs with abort handling and scrollable detail content.
 
-## Runtime
+## Authentication
 
-- Upgraded the Pi runtime to 0.83 and OpenTUI to 0.4.5.
-- Migrated authentication to provider-owned flows backed by Kit's persistent credential store.
-- Added support for \`max\` thinking and refreshed authenticated model availability.
+- Added \`/logout\` to remove credentials for one selected provider without clearing all saved authentication.
+- Reconciled the active model after logout when another authenticated provider is available.
 
-## Review reliability
+## Tool approvals
 
-- Made the working-tree review refresh pipeline self-healing after transient Git failures or deferred refreshes.
-- Preserved the last good diff instead of replacing it with a misleading empty state.
+- Tool approval dialogs now show complete command, path, and argument summaries instead of truncating them.
 `;
