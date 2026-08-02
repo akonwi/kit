@@ -66,6 +66,7 @@ interface UI {
 		confirmLabel?: string;
 		cancelLabel?: string;
 		defaultValue?: boolean;
+		signal?: AbortSignal;
 	}): Promise<boolean>;
 }
 

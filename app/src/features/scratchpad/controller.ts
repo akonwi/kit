@@ -1,6 +1,11 @@
 import { createSignal } from "solid-js";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
-import { readScratchpad, writeScratchpad } from "./storage";
+import {
+	mutateScratchpad,
+	readScratchpad,
+	type ScratchpadMutationResult,
+	writeScratchpad,
+} from "./storage";
 
 export type ScratchpadController = ReturnType<
 	typeof createScratchpadController
@@ -9,11 +14,16 @@ export type ScratchpadController = ReturnType<
 type ScratchpadStorage = {
 	read: (sessionId: string) => string;
 	write: (sessionId: string, content: string) => void;
+	mutate?: (
+		sessionId: string,
+		update: (current: string) => string | null,
+	) => ScratchpadMutationResult;
 };
 
 const defaultStorage: ScratchpadStorage = {
 	read: readScratchpad,
 	write: writeScratchpad,
+	mutate: mutateScratchpad,
 };
 
 const AUTOSAVE_DELAY_MS = 250;
@@ -157,13 +167,45 @@ export function createScratchpadController(
 			setEditing(false);
 		},
 		save(next: string): void {
+			writeContent(sessionId(), next);
 			setDraftSignal(next);
 			clearAutosaveTimer();
-			writeContent(sessionId(), next);
 			pendingDrafts.delete(sessionId());
 			setDirty(false);
 			applyContent(next);
 			setEditing(false);
+		},
+		applyAtomicUpdate(
+			targetSessionId: string,
+			update: (persisted: string) => string | null,
+		): ScratchpadMutationResult | null {
+			if (targetSessionId !== sessionId()) return null;
+			const result = storage.mutate
+				? storage.mutate(targetSessionId, update)
+				: (() => {
+						const persisted = storage.read(targetSessionId);
+						const next = update(persisted);
+						if (next === null || next === persisted) {
+							return { updated: false, content: persisted };
+						}
+						storage.write(targetSessionId, next);
+						return { updated: true, content: next };
+					})();
+			if (!result.updated) {
+				if (!dirty() && result.content !== content()) {
+					setDraftSignal(result.content);
+					applyContent(result.content);
+					setEditing(false);
+				}
+				return result;
+			}
+			setDraftSignal(result.content);
+			clearAutosaveTimer();
+			pendingDrafts.delete(targetSessionId);
+			setDirty(false);
+			applyContent(result.content);
+			setEditing(false);
+			return result;
 		},
 		reload(): void {
 			clearAutosaveTimer();

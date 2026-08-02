@@ -5,6 +5,7 @@ import {
 	createSignal,
 	For,
 	type JSX,
+	onCleanup,
 	Show,
 } from "solid-js";
 import { withKitKeyAliases } from "../keymap/bindings";
@@ -60,6 +61,7 @@ type ConfirmOptions = {
 	confirmLabel?: string;
 	cancelLabel?: string;
 	defaultValue?: boolean;
+	signal?: AbortSignal;
 };
 
 export type CreatePluginUIOptions = {
@@ -426,15 +428,39 @@ function PluginInputOverlay(
 function PluginConfirmOverlay(
 	props: OverlayComponentProps<boolean> & { input: ConfirmOptions },
 ) {
+	let messageScrollRef:
+		| { scrollBy: (options: { x: number; y: number }) => void }
+		| undefined;
+	const [messageWidth, setMessageWidth] = createSignal(48);
 	const [selected, setSelected] = createSignal(
 		props.input.defaultValue ? 1 : 0,
 	);
+	const messageHeight = createMemo(() => {
+		const message = props.input.message ?? "";
+		const width = Math.max(1, messageWidth() - 1);
+		const rows = message.split("\n").reduce((total, line) => {
+			return total + Math.max(1, Math.ceil(Bun.stringWidth(line) / width));
+		}, 0);
+		return Math.min(12, Math.max(1, rows));
+	});
 	const cancelLabel = () => props.input.cancelLabel ?? "Cancel";
 	const confirmLabel = () => props.input.confirmLabel ?? "Confirm";
 
 	function submit() {
 		props.done(selected() === 1);
 	}
+
+	createEffect(() => {
+		const signal = props.input.signal;
+		if (!signal) return;
+		if (signal.aborted) {
+			props.done(false);
+			return;
+		}
+		const abort = () => props.done(false);
+		signal.addEventListener("abort", abort, { once: true });
+		onCleanup(() => signal.removeEventListener("abort", abort));
+	});
 
 	useBindings(() =>
 		withKitKeyAliases({
@@ -473,6 +499,20 @@ function PluginConfirmOverlay(
 						setSelected((current) => (current === 0 ? 1 : 0));
 					},
 				},
+				{
+					name: "plugin-ui.confirm.scroll-up",
+					desc: "Scroll confirmation details up",
+					group: "plugin-ui.confirm",
+					hint: false,
+					run: () => messageScrollRef?.scrollBy({ x: 0, y: -3 }),
+				},
+				{
+					name: "plugin-ui.confirm.scroll-down",
+					desc: "Scroll confirmation details down",
+					group: "plugin-ui.confirm",
+					hint: false,
+					run: () => messageScrollRef?.scrollBy({ x: 0, y: 3 }),
+				},
 			],
 			bindings: [
 				{
@@ -497,6 +537,18 @@ function PluginConfirmOverlay(
 					key: "right",
 					cmd: "plugin-ui.confirm.choose-next",
 					desc: "Choose next confirmation option",
+					group: "plugin-ui.confirm",
+				},
+				{
+					key: "up",
+					cmd: "plugin-ui.confirm.scroll-up",
+					desc: "Scroll confirmation details up",
+					group: "plugin-ui.confirm",
+				},
+				{
+					key: "down",
+					cmd: "plugin-ui.confirm.scroll-down",
+					desc: "Scroll confirmation details down",
 					group: "plugin-ui.confirm",
 				},
 			],
@@ -537,7 +589,21 @@ function PluginConfirmOverlay(
 				<Dialog.Title>{props.input.title}</Dialog.Title>
 			</Dialog.Header>
 			<Show when={props.input.message}>
-				<text fg={theme.textSecondary}>{props.input.message}</text>
+				<scrollbox
+					ref={(value) => {
+						messageScrollRef = value as typeof messageScrollRef;
+					}}
+					onSizeChange={() => {
+						const width = (messageScrollRef as { width?: number } | undefined)
+							?.width;
+						if (width && width !== messageWidth()) setMessageWidth(width);
+					}}
+					height={messageHeight()}
+					flexShrink={0}
+					scrollY
+				>
+					<text fg={theme.textSecondary}>{props.input.message}</text>
+				</scrollbox>
 			</Show>
 			<box flexGrow={1} />
 			<box flexDirection="row" justifyContent="flex-end" gap={1}>

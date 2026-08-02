@@ -164,6 +164,7 @@ export function App(props: AppProps) {
 			builtInPluginManager = new PluginManager(
 				createBuiltInPlugins(pluginContext, {
 					releasesWorkspace,
+					scratchpad,
 					subagentsWorkspace,
 				}),
 				pluginContext,

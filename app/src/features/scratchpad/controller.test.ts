@@ -175,6 +175,37 @@ describe("createScratchpadController", () => {
 		expect(controller.dirty()).toBe(false);
 	});
 
+	test("syncs clean controller state after an atomic update is rejected", () => {
+		const fake = createFakeRuntime(session("parent"));
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: () => "saved notes",
+			write: () => {},
+			mutate: () => ({ updated: false, content: "external notes" }),
+		});
+
+		const result = controller.applyAtomicUpdate("parent", () => null);
+
+		expect(result).toEqual({ updated: false, content: "external notes" });
+		expect(controller.content()).toBe("external notes");
+		expect(controller.draft()).toBe("external notes");
+		expect(fake.contextUpdates.at(-1)).toBe("external notes");
+	});
+
+	test("keeps controller state unchanged when an immediate save fails", () => {
+		const fake = createFakeRuntime(session("parent"));
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: () => "saved notes",
+			write: () => {
+				throw new Error("disk full");
+			},
+		});
+
+		expect(() => controller.save("replacement")).toThrow("disk full");
+		expect(controller.content()).toBe("saved notes");
+		expect(controller.draft()).toBe("saved notes");
+		expect(controller.dirty()).toBe(false);
+	});
+
 	test("copies current scratchpad content into forked child sessions", () => {
 		const fake = createFakeRuntime(session("parent"));
 		const files = new Map([["parent", "parent notes"]]);

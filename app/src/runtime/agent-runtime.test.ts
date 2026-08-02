@@ -148,7 +148,7 @@ describe("AgentRuntime cwd changes", () => {
 });
 
 describe("AgentRuntime scratchpad context", () => {
-	test("includes non-empty scratchpad content as read-only context", async () => {
+	test("includes non-empty scratchpad content with approved-update guidance", async () => {
 		const originalCwd = process.cwd();
 		const tempRoot = await mkdtemp(
 			path.join(tmpdir(), "kit-runtime-scratchpad-"),
@@ -167,7 +167,7 @@ describe("AgentRuntime scratchpad context", () => {
 			expect(runtime.getContextFiles()).toContainEqual({
 				path: "<scratchpad>",
 				content:
-					"User scratchpad notes. Read-only to the agent; do not modify.\n\nRemember to check auth tests.",
+					"User scratchpad notes. Do not edit them directly; propose approved changes with update_scratchpad when that tool is available.\n\nRemember to check auth tests.",
 			});
 			runtime.setScratchpadContent("   ");
 			expect(

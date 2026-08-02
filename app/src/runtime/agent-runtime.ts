@@ -411,7 +411,7 @@ export class AgentRuntime {
 			{
 				path: "<scratchpad>",
 				content: [
-					"User scratchpad notes. Read-only to the agent; do not modify.",
+					"User scratchpad notes. Do not edit them directly; propose approved changes with update_scratchpad when that tool is available.",
 					"",
 					this.scratchpadContent,
 				].join("\n"),
