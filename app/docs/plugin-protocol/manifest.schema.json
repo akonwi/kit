@@ -1,0 +1,59 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/manifest.schema.json",
+	"title": "Kit plugin manifest v1",
+	"description": "Launch manifest for one external Kit plugin process.",
+	"type": "object",
+	"required": ["manifestVersion", "id", "transport"],
+	"properties": {
+		"$schema": {
+			"type": "string",
+			"format": "uri"
+		},
+		"manifestVersion": {
+			"const": 1
+		},
+		"id": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 32,
+			"pattern": "^[a-z][a-z0-9-]*$",
+			"not": {
+				"pattern": "^kit(-|$)"
+			},
+			"description": "Stable plugin id. The ids kit and kit-* are reserved."
+		},
+		"name": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 128
+		},
+		"transport": {
+			"$ref": "#/$defs/stdioTransport"
+		}
+	},
+	"additionalProperties": false,
+	"$defs": {
+		"stdioTransport": {
+			"type": "object",
+			"required": ["type", "command"],
+			"properties": {
+				"type": {
+					"const": "stdio"
+				},
+				"command": {
+					"type": "string",
+					"minLength": 1
+				},
+				"args": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": []
+				}
+			},
+			"additionalProperties": false
+		}
+	}
+}
