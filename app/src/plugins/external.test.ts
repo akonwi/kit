@@ -83,7 +83,7 @@ describe("external plugin manifest discovery", () => {
 		]);
 	});
 
-	test("reports invalid manifests and reserved command domains", async () => {
+	test("reports invalid manifests without reserving command domains", async () => {
 		const home = await makeTempDir();
 		const cwd = await makeTempDir();
 		const invalidDir = path.join(home, ".kit/plugins/invalid");
@@ -91,18 +91,13 @@ describe("external plugin manifest discovery", () => {
 		await writeFile(path.join(invalidDir, "plugin.json"), "not json");
 		await writeManifest(path.join(cwd, ".kit/plugins/help"), "help");
 
-		const result = discoverExternalPluginManifests(cwd, {
-			home,
-			reservedCommandDomains: ["help"],
-		});
-		expect(result.manifests).toEqual([]);
+		const result = discoverExternalPluginManifests(cwd, { home });
+		expect(result.manifests.map((manifest) => manifest.manifest.id)).toEqual([
+			"help",
+		]);
 		expect(result.failures.map((failure) => failure.phase)).toEqual([
 			"manifest",
-			"manifest",
 		]);
-		expect(result.failures[1]?.message).toContain(
-			"reserved Kit command domain",
-		);
 	});
 
 	test("keeps the first duplicate id and reports both manifest paths", async () => {

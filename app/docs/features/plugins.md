@@ -55,14 +55,14 @@ process cwd. Bare commands resolve through `PATH`; commands containing a path
 resolve relative to the installation directory. Arguments are passed literally.
 
 Plugin ids are lowercase kebab-case, contain at most 32 characters, and cannot
-use `kit`, `kit-*`, or a built-in command domain. If two manifests use the same
-id, the first manifest wins and Kit reports both paths in a persistent error
-toast.
+use `kit` or `kit-*`. If two manifests use the same id, the first manifest wins
+and Kit reports both paths in a persistent error toast.
 
 ## Minimal Python plugin
 
-This dependency-free example registers `/hello.greet`. It reserves stdout for
-protocol frames and writes diagnostics to stderr:
+This dependency-free example registers canonical command `hello.greet`, which
+is presented as `/greet`. It reserves stdout for protocol frames and writes
+diagnostics to stderr:
 
 ```python
 #!/usr/bin/env python3
@@ -153,9 +153,9 @@ confirm, input, and select dialogs, submit text to the active session, and open
 HTTP(S) URLs. See the method tables and payload examples in the protocol spec.
 
 Command, chrome, and subagent ids supplied by a plugin are local ids. Kit
-prefixes the manifest id:
+prefixes the manifest id for ownership while presenting commands by local id:
 
-- plugin `speech`, command `toggle` → `/speech.toggle`
+- plugin `speech`, command `toggle` → canonical `speech.toggle`, presented as `/toggle`
 - plugin `speech`, header item `status` → `speech.status`
 - plugin `speech`, tool `speak_text` → canonical `speech.speak_text` and model
   name `speech__speak_text`

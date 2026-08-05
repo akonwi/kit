@@ -63,8 +63,11 @@ The manifest plugin id is the ownership boundary. Plugins register local
 contribution ids, and Kit derives canonical ids by prefixing the plugin id.
 
 For example, plugin `speech` registering command `toggle` owns canonical
-command `speech.toggle`. Kit sends `toggle` back to that process when invoking
-the command. No callback handler id or separate registration token exists.
+command `speech.toggle` while the command palette presents `/toggle`. Kit
+retains the canonical identity selected by the user and sends `toggle` back to
+that process when invoking the command. Different plugins may present the same
+local command name because ownership remains canonical. No callback handler id
+or separate registration token exists.
 Explicit unregistration uses the same local contribution id, and all remaining
 contributions are removed automatically when the process disconnects.
 

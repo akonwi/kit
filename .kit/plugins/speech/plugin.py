@@ -171,7 +171,7 @@ class Endpoint:
                 self.stop_speaking()
                 result = None
                 self.stopping.set()
-            elif method == "kit/commands/execute" and params.get("id") == "toggle":
+            elif method == "kit/commands/execute" and params.get("id") == "toggle-speech":
                 enabled = self.toggle()
                 self.notify(
                     "kit/ui/toast",
@@ -192,7 +192,7 @@ class Endpoint:
                 self.request(
                     "kit/commands/register",
                     {
-                        "id": "toggle",
+                        "id": "toggle-speech",
                         "description": "Toggle spoken assistant responses",
                         "category": "plugins",
                     },

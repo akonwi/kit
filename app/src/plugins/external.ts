@@ -56,7 +56,6 @@ export type DiscoverExternalPluginsOptions = {
 	home?: string;
 	includeUser?: boolean;
 	includeProject?: boolean;
-	reservedCommandDomains?: Iterable<string>;
 	existingManifests?: ExternalPluginManifest[];
 };
 
@@ -172,7 +171,6 @@ export function discoverExternalPluginManifests(
 		else parsed.push(result);
 	}
 
-	const reserved = new Set(options.reservedCommandDomains);
 	const owners = new Map<string, ExternalPluginManifest>();
 	for (const manifest of options.existingManifests ?? []) {
 		owners.set(manifest.manifest.id, manifest);
@@ -180,16 +178,6 @@ export function discoverExternalPluginManifests(
 	const manifests: ExternalPluginManifest[] = [];
 	for (const candidate of parsed) {
 		const id = candidate.manifest.id;
-		if (reserved.has(id)) {
-			failures.push({
-				source: candidate.source,
-				phase: "manifest",
-				pluginId: id,
-				manifestPath: candidate.manifestPath,
-				message: `Plugin id ${id} conflicts with a reserved Kit command domain`,
-			});
-			continue;
-		}
 		const owner = owners.get(id);
 		if (owner) {
 			failures.push({
@@ -234,7 +222,6 @@ export class ExternalPluginManager {
 	private lifecycleGeneration = 0;
 	private projectGeneration = 0;
 	private projectTransition: Promise<void> = Promise.resolve();
-	private readonly reservedDomains: string[];
 	private disposed = false;
 
 	constructor(
@@ -248,10 +235,6 @@ export class ExternalPluginManager {
 		this.home = options.home;
 		this.onFailure = options.onFailure;
 		this.currentCwd = context.runtime.getSession().cwd;
-		this.reservedDomains = context.commands
-			.getAll()
-			.map((command) => command.name.split(/[.:]/, 1)[0])
-			.filter((domain): domain is string => Boolean(domain));
 	}
 
 	async initialize(): Promise<void> {
@@ -262,7 +245,6 @@ export class ExternalPluginManager {
 		this.currentCwd = this.context.runtime.getSession().cwd;
 		const discovered = discoverExternalPluginManifests(this.currentCwd, {
 			home: this.home,
-			reservedCommandDomains: this.reservedDomains,
 		});
 		for (const failure of discovered.failures) this.reportFailure(failure);
 		this.userManifests = discovered.manifests.filter(
@@ -335,7 +317,6 @@ export class ExternalPluginManager {
 				home: this.home,
 				includeUser: false,
 				includeProject: true,
-				reservedCommandDomains: this.reservedDomains,
 				existingManifests: this.userManifests,
 			});
 			for (const failure of discovered.failures) this.reportFailure(failure);
@@ -372,7 +353,6 @@ export class ExternalPluginManager {
 		this.currentCwd = this.context.runtime.getSession().cwd;
 		const discovered = discoverExternalPluginManifests(this.currentCwd, {
 			home: this.home,
-			reservedCommandDomains: this.reservedDomains,
 		});
 		for (const failure of discovered.failures) this.reportFailure(failure);
 		this.userManifests = discovered.manifests.filter(

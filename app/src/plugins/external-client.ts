@@ -460,6 +460,7 @@ export class ExternalPluginClient {
 		}
 		const command: Command = {
 			name: canonicalId,
+			displayName: params.id,
 			description: params.description,
 			argName: params.argName ?? undefined,
 			category: params.category ?? undefined,
@@ -472,7 +473,7 @@ export class ExternalPluginClient {
 					);
 				} catch (error) {
 					this.context.ui.toast({
-						title: `/${canonicalId} failed`,
+						title: `/${params.id} failed`,
 						subtitle: safeErrorMessage(error),
 						variant: "error",
 					});

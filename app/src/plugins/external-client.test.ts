@@ -171,7 +171,10 @@ for line in sys.stdin:
 				header.getContributions().length === 1 &&
 				systemPrompt.length > 0,
 		);
-		expect(commands.getAll()[0]?.name).toBe("speech.toggle");
+		expect(commands.getAll()[0]).toMatchObject({
+			name: "speech.toggle",
+			displayName: "toggle",
+		});
 		expect(tools[0]?.name).toBe("speech__speak_text");
 		expect(header.getContributions()[0]).toMatchObject({
 			id: "speech.status",

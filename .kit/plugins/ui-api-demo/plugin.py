@@ -164,7 +164,7 @@ class Endpoint:
             elif method == "shutdown":
                 result = None
                 self.stopping.set()
-            elif method == "kit/commands/execute" and params.get("id") == "run":
+            elif method == "kit/commands/execute" and params.get("id") == "ui-demo":
                 self.demo(params.get("args", ""))
                 result = None
             else:
@@ -175,7 +175,7 @@ class Endpoint:
                 self.request(
                     "kit/commands/register",
                     {
-                        "id": "run",
+                        "id": "ui-demo",
                         "description": "Exercise plugin select, input, confirm, and toast APIs",
                         "argName": "initial note",
                         "category": "plugins",
