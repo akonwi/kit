@@ -22,8 +22,26 @@ function focusedSegmentStyle(
 	style: ChromeTextStyle | undefined,
 ): ChromeTextStyle {
 	if (!style) return {};
-	const { fg: _fg, bg: _bg, ...attributes } = style;
+	const {
+		fg: _fg,
+		bg: _bg,
+		fgToken: _fgToken,
+		bgToken: _bgToken,
+		...attributes
+	} = style;
 	return attributes;
+}
+
+function resolveSegmentStyle(
+	style: ChromeTextStyle | undefined,
+): ChromeTextStyle {
+	if (!style) return {};
+	const { fgToken, bgToken, ...resolved } = style;
+	return {
+		...resolved,
+		fg: fgToken ? theme[fgToken] : resolved.fg,
+		bg: bgToken ? theme[bgToken] : resolved.bg,
+	};
 }
 
 export function ChromeContributionText(props: {
@@ -58,7 +76,7 @@ export function ChromeContributionText(props: {
 						style={
 							props.focused
 								? focusedSegmentStyle(segment.style)
-								: (segment.style ?? {})
+								: resolveSegmentStyle(segment.style)
 						}
 					>
 						{segment.text}

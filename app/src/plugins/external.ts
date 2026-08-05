@@ -1,470 +1,527 @@
-import { type Dirent, existsSync, readdirSync, statSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { type Dirent, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import type { TSchema } from "typebox";
+import { Check } from "typebox/schema";
+import manifestSchema from "../../docs/plugin-protocol/manifest.schema.json";
 import { getKitPaths } from "../paths";
-import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
-import type { ExternalPluginRegistration } from "./PluginManager";
-import type { Plugin } from "./types";
+import type { AgentRuntimeEvent } from "../runtime/agent-runtime";
+import { ExternalPluginClient, publicTurn } from "./external-client";
+import type { JsonValue } from "./json-rpc";
+import type { PluginContext } from "./types";
 
-export type ExternalPluginSource = "user" | "project";
+export type ExternalPluginSource = "project" | "user";
 
-export type ExternalPluginFailurePhase = "load" | "initialize";
+export type ExternalPluginFailurePhase =
+	| "duplicate"
+	| "initialize"
+	| "launch"
+	| "manifest"
+	| "protocol"
+	| "runtime"
+	| "shutdown";
 
 export type ExternalPluginFailure = {
 	source: ExternalPluginSource;
 	phase: ExternalPluginFailurePhase;
-	pluginName: string;
-	filePath: string;
+	pluginId?: string;
+	manifestPath: string;
+	otherManifestPath?: string;
 	message: string;
+	exitCode?: number | null;
+	exitSignal?: NodeJS.Signals | null;
+	stderr?: string;
 };
 
-export type LoadExternalPluginsResult = {
-	plugins: ExternalPluginRegistration[];
+export type PluginManifestDocument = {
+	$schema?: string;
+	manifestVersion: 1;
+	id: string;
+	name?: string;
+	transport: {
+		type: "stdio";
+		command: string;
+		args?: string[];
+	};
+};
+
+export type ExternalPluginManifest = {
+	source: ExternalPluginSource;
+	installationName: string;
+	root: string;
+	manifestPath: string;
+	manifest: PluginManifestDocument;
+};
+
+export type DiscoverExternalPluginsOptions = {
+	home?: string;
+	includeUser?: boolean;
+	includeProject?: boolean;
+	reservedCommandDomains?: Iterable<string>;
+	existingManifests?: ExternalPluginManifest[];
+};
+
+export type DiscoverExternalPluginsResult = {
+	manifests: ExternalPluginManifest[];
 	failures: ExternalPluginFailure[];
 };
 
-export type LoadExternalPluginsOptions = {
-	reloadId: string;
-	onFailure?: (failure: ExternalPluginFailure) => void;
-	home?: string;
-};
+const pluginManifestSchema = manifestSchema as TSchema;
 
-type PluginFile = {
-	source: ExternalPluginSource;
-	filePath: string;
-};
-
-function formatError(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
-}
-
-function pluginNameForFile(
+function scanInstallations(
+	directory: string,
 	source: ExternalPluginSource,
-	filePath: string,
-): string {
-	const baseName = path.basename(filePath).replace(/\.ts$/, "");
-	return `${source}:${baseName}`;
-}
-
-function sanitizeFileName(value: string): string {
-	return value.replace(/[^a-zA-Z0-9_.-]+/g, "-");
-}
-
-const activePluginCacheReloadIdsByRoot = new Map<string, Set<string>>();
-const retainedPluginCacheReloadIdsByRoot = new Map<string, string>();
-
-function getActivePluginCacheReloadIds(cacheRoot: string): Set<string> {
-	let active = activePluginCacheReloadIdsByRoot.get(cacheRoot);
-	if (!active) {
-		active = new Set<string>();
-		activePluginCacheReloadIdsByRoot.set(cacheRoot, active);
-	}
-	return active;
-}
-
-async function prunePluginCache(cacheRoot: string): Promise<void> {
+): Array<
+	Pick<
+		ExternalPluginManifest,
+		"installationName" | "manifestPath" | "root" | "source"
+	>
+> {
 	let entries: Dirent[];
 	try {
-		entries = await readdir(cacheRoot, { withFileTypes: true });
-	} catch {
-		return;
-	}
-
-	await Promise.all(
-		entries.map(async (entry) => {
-			const activeReloadIds = activePluginCacheReloadIdsByRoot.get(cacheRoot);
-			const retainedReloadId =
-				retainedPluginCacheReloadIdsByRoot.get(cacheRoot);
-			if (
-				!entry.isDirectory() ||
-				entry.name === retainedReloadId ||
-				activeReloadIds?.has(entry.name)
-			) {
-				return;
-			}
-			await rm(path.join(cacheRoot, entry.name), {
-				force: true,
-				recursive: true,
-			});
-		}),
-	);
-}
-
-function recordFailure(
-	failures: ExternalPluginFailure[],
-	failure: ExternalPluginFailure,
-	onFailure?: (failure: ExternalPluginFailure) => void,
-): void {
-	failures.push(failure);
-	onFailure?.(failure);
-}
-
-function scanPluginDirectory(
-	dir: string,
-	source: ExternalPluginSource,
-): PluginFile[] {
-	if (!existsSync(dir)) return [];
-	const files: PluginFile[] = [];
-	let entries: Dirent[];
-	try {
-		entries = readdirSync(dir, { withFileTypes: true });
+		entries = readdirSync(directory, { withFileTypes: true });
 	} catch {
 		return [];
 	}
 
-	for (const entry of entries) {
-		if (!entry.name.endsWith(".ts")) continue;
-		const filePath = path.join(dir, entry.name);
-		let isFile = entry.isFile();
+	const installations = [];
+	for (const entry of entries.sort((a, b) =>
+		a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+	)) {
+		const root = path.join(directory, entry.name);
+		let directoryEntry = entry.isDirectory();
 		if (entry.isSymbolicLink()) {
 			try {
-				isFile = statSync(filePath).isFile();
+				directoryEntry = statSync(root).isDirectory();
 			} catch {
 				continue;
 			}
 		}
-		if (!isFile) continue;
-		files.push({ source, filePath });
-	}
-
-	return files.sort((a, b) => a.filePath.localeCompare(b.filePath));
-}
-
-function discoverPluginFiles(cwd: string, home?: string): PluginFile[] {
-	const kitPaths = getKitPaths(home);
-	return [
-		...scanPluginDirectory(path.join(kitPaths.kitRoot, "plugins"), "user"),
-		...scanPluginDirectory(path.resolve(cwd, ".kit", "plugins"), "project"),
-	];
-}
-
-async function findTypeboxEntry(): Promise<string | null> {
-	const candidates: string[] = [];
-
-	// Source/dev checkout: src/plugins/external.ts -> repo/node_modules/typebox.
-	candidates.push(
-		path.resolve(import.meta.dirname, "../../node_modules/typebox"),
-	);
-
-	let current = path.dirname(process.execPath);
-	while (true) {
-		candidates.push(path.join(current, "node_modules", "typebox"));
-		const parent = path.dirname(current);
-		if (parent === current) break;
-		current = parent;
-	}
-
-	for (const packageRoot of candidates) {
-		const packagePath = path.join(packageRoot, "package.json");
-		if (!existsSync(packagePath)) continue;
+		if (!directoryEntry) continue;
+		const manifestPath = path.join(root, "plugin.json");
 		try {
-			const packageJson = JSON.parse(await readFile(packagePath, "utf8")) as {
-				module?: string;
-			};
-			return path.join(packageRoot, packageJson.module ?? "build/index.mjs");
+			if (!statSync(manifestPath).isFile()) continue;
 		} catch {
-			return path.join(packageRoot, "build/index.mjs");
+			continue;
+		}
+		installations.push({
+			source,
+			installationName: entry.name,
+			root,
+			manifestPath,
+		});
+	}
+	return installations;
+}
+
+function parseManifest(
+	installation: Pick<
+		ExternalPluginManifest,
+		"installationName" | "manifestPath" | "root" | "source"
+	>,
+): ExternalPluginManifest | ExternalPluginFailure {
+	let value: unknown;
+	try {
+		value = JSON.parse(readFileSync(installation.manifestPath, "utf8"));
+	} catch (error) {
+		return {
+			...installation,
+			phase: "manifest",
+			message: `Could not parse plugin.json: ${error instanceof Error ? error.message : String(error)}`,
+		};
+	}
+	if (!Check(pluginManifestSchema, value)) {
+		return {
+			...installation,
+			phase: "manifest",
+			pluginId:
+				typeof (value as { id?: unknown })?.id === "string"
+					? String((value as { id: string }).id)
+					: undefined,
+			message: "plugin.json does not match the Kit manifest v1 schema",
+		};
+	}
+	return { ...installation, manifest: value as PluginManifestDocument };
+}
+
+function isFailure(
+	value: ExternalPluginManifest | ExternalPluginFailure,
+): value is ExternalPluginFailure {
+	return "phase" in value;
+}
+
+export function discoverExternalPluginManifests(
+	cwd: string,
+	options: DiscoverExternalPluginsOptions = {},
+): DiscoverExternalPluginsResult {
+	const includeUser = options.includeUser ?? true;
+	const includeProject = options.includeProject ?? true;
+	const kitRoot = getKitPaths(options.home).kitRoot;
+	const installations = [
+		...(includeUser
+			? scanInstallations(path.join(kitRoot, "plugins"), "user")
+			: []),
+		...(includeProject
+			? scanInstallations(path.resolve(cwd, ".kit", "plugins"), "project")
+			: []),
+	];
+	const failures: ExternalPluginFailure[] = [];
+	const parsed: ExternalPluginManifest[] = [];
+	for (const installation of installations) {
+		const result = parseManifest(installation);
+		if (isFailure(result)) failures.push(result);
+		else parsed.push(result);
+	}
+
+	const reserved = new Set(options.reservedCommandDomains);
+	const owners = new Map<string, ExternalPluginManifest>();
+	for (const manifest of options.existingManifests ?? []) {
+		owners.set(manifest.manifest.id, manifest);
+	}
+	const manifests: ExternalPluginManifest[] = [];
+	for (const candidate of parsed) {
+		const id = candidate.manifest.id;
+		if (reserved.has(id)) {
+			failures.push({
+				source: candidate.source,
+				phase: "manifest",
+				pluginId: id,
+				manifestPath: candidate.manifestPath,
+				message: `Plugin id ${id} conflicts with a reserved Kit command domain`,
+			});
+			continue;
+		}
+		const owner = owners.get(id);
+		if (owner) {
+			failures.push({
+				source: candidate.source,
+				phase: "duplicate",
+				pluginId: id,
+				manifestPath: candidate.manifestPath,
+				otherManifestPath: owner.manifestPath,
+				message: `Duplicate plugin id ${id}; ${owner.manifestPath} was discovered first`,
+			});
+			continue;
+		}
+		owners.set(id, candidate);
+		manifests.push(candidate);
+	}
+	return { manifests, failures };
+}
+
+function failureSubtitle(failure: ExternalPluginFailure): string {
+	const details = [
+		`${failure.phase}: ${failure.message}`,
+		failure.otherManifestPath
+			? `${failure.otherManifestPath} · ${failure.manifestPath}`
+			: failure.manifestPath,
+		failure.exitCode != null ? `exit ${failure.exitCode}` : undefined,
+		failure.exitSignal ? `signal ${failure.exitSignal}` : undefined,
+		failure.stderr ? `stderr: ${failure.stderr}` : undefined,
+	].filter((value): value is string => Boolean(value));
+	return details.join(" · ");
+}
+
+export class ExternalPluginManager {
+	private readonly context: PluginContext;
+	private readonly home?: string;
+	private readonly onFailure?: (failure: ExternalPluginFailure) => void;
+	private userManifests: ExternalPluginManifest[] = [];
+	private userClients: ExternalPluginClient[] = [];
+	private projectClients: ExternalPluginClient[] = [];
+	private allClients: ExternalPluginClient[] = [];
+	private currentCwd: string;
+	private unsubscribeRuntime: (() => void) | null = null;
+	private lifecycleGeneration = 0;
+	private projectGeneration = 0;
+	private projectTransition: Promise<void> = Promise.resolve();
+	private readonly reservedDomains: string[];
+	private disposed = false;
+
+	constructor(
+		context: PluginContext,
+		options: {
+			home?: string;
+			onFailure?: (failure: ExternalPluginFailure) => void;
+		} = {},
+	) {
+		this.context = context;
+		this.home = options.home;
+		this.onFailure = options.onFailure;
+		this.currentCwd = context.runtime.getSession().cwd;
+		this.reservedDomains = context.commands
+			.getAll()
+			.map((command) => command.name.split(/[.:]/, 1)[0])
+			.filter((domain): domain is string => Boolean(domain));
+	}
+
+	async initialize(): Promise<void> {
+		if (this.disposed) return;
+		this.subscribeToRuntime();
+		const lifecycleGeneration = ++this.lifecycleGeneration;
+		const projectGeneration = ++this.projectGeneration;
+		this.currentCwd = this.context.runtime.getSession().cwd;
+		const discovered = discoverExternalPluginManifests(this.currentCwd, {
+			home: this.home,
+			reservedCommandDomains: this.reservedDomains,
+		});
+		for (const failure of discovered.failures) this.reportFailure(failure);
+		this.userManifests = discovered.manifests.filter(
+			(manifest) => manifest.source === "user",
+		);
+		for (const manifest of discovered.manifests) {
+			if (lifecycleGeneration !== this.lifecycleGeneration || this.disposed) {
+				return;
+			}
+			if (
+				manifest.source === "project" &&
+				projectGeneration !== this.projectGeneration
+			) {
+				return;
+			}
+			await this.startManifest(
+				manifest,
+				lifecycleGeneration,
+				projectGeneration,
+			);
 		}
 	}
 
-	return null;
-}
-
-async function writePluginSdkShim(outdir: string): Promise<string> {
-	const typeboxEntry = await findTypeboxEntry();
-	if (!typeboxEntry) {
-		throw new Error(
-			"Unable to locate Kit's bundled typebox dependency for @akonwi/kit/plugin.",
+	async reload(): Promise<void> {
+		if (this.disposed) return;
+		const lifecycleGeneration = ++this.lifecycleGeneration;
+		const projectGeneration = ++this.projectGeneration;
+		await this.projectTransition;
+		const clients = this.allClients.splice(0).reverse();
+		this.projectClients = [];
+		this.userClients = [];
+		await this.stopClients(clients);
+		if (lifecycleGeneration !== this.lifecycleGeneration || this.disposed) {
+			return;
+		}
+		this.userManifests = [];
+		await this.initializeCurrentGeneration(
+			lifecycleGeneration,
+			projectGeneration,
 		);
 	}
-	const shimPath = path.join(outdir, "kit-plugin-sdk.mjs");
-	await writeFile(
-		shimPath,
-		`export { Type } from ${JSON.stringify(typeboxEntry)};\n`,
-		"utf8",
-	);
-	return shimPath;
-}
 
-/**
- * Resolve the runtime module backing @akonwi/kit/plugin imports.
- *
- * Compiled-binary installs (Homebrew, GitHub releases) have no
- * node_modules anywhere above the executable, so the build ships a
- * self-contained SDK bundle in the runtime assets directory next to
- * the binary. Dev checkouts fall back to a shim pointing at the
- * repo's typebox dependency.
- */
-async function findPluginSdkEntry(outdir: string): Promise<string> {
-	// Only trust the installed runtime dir when actually running as the
-	// compiled kit binary. In dev, process.execPath is the real bun
-	// executable — a stray runtime/ directory next to it must not shadow
-	// the repo's typebox dependency.
-	const execName = path.basename(process.execPath);
-	if (execName === "kit") {
-		const runtimeDir = getInstalledRuntimeDir();
-		if (runtimeDir) {
-			const bundled = path.join(runtimeDir, "kit-plugin-sdk.mjs");
-			if (existsSync(bundled)) return bundled;
-		}
-	}
-	return writePluginSdkShim(outdir);
-}
-
-type InstallCommand = {
-	argv: string[];
-	env?: Record<string, string | undefined>;
-};
-
-/**
- * Commands to try for installing plugin dependencies, in order.
- *
- * Kit ships as a compiled Bun binary (Homebrew, GitHub releases), so
- * users may have neither bun nor npm installed. Bun's BUN_BE_BUN escape
- * hatch makes the kit executable behave as the plain `bun` CLI, letting
- * kit install plugin dependencies with its own embedded runtime. This
- * also works in dev, where process.execPath is a real bun. PATH lookups
- * remain as fallbacks.
- */
-function installCommandCandidates(): InstallCommand[] {
-	const candidates: InstallCommand[] = [
-		{
-			argv: [process.execPath, "install"],
-			env: { ...process.env, BUN_BE_BUN: "1" },
-		},
-	];
-	if (Bun.which("bun")) candidates.push({ argv: ["bun", "install"] });
-	if (Bun.which("npm")) candidates.push({ argv: ["npm", "install"] });
-	return candidates;
-}
-
-async function runInstallCommand(
-	command: InstallCommand,
-	pluginDir: string,
-): Promise<{ ok: boolean; details: string }> {
-	const proc = Bun.spawn(command.argv, {
-		cwd: pluginDir,
-		env: command.env,
-		stdout: "pipe",
-		stderr: "pipe",
-	});
-	const [exitCode, stdoutText, stderrText] = await Promise.all([
-		proc.exited,
-		new Response(proc.stdout).text(),
-		new Response(proc.stderr).text(),
-	]);
-	const details = [stderrText.trim(), stdoutText.trim()]
-		.filter(Boolean)
-		.join("\n");
-	return { ok: exitCode === 0, details };
-}
-
-async function installPluginDependencies(pluginDir: string): Promise<void> {
-	if (!existsSync(path.join(pluginDir, "package.json"))) return;
-	const failures: string[] = [];
-	for (const command of installCommandCandidates()) {
-		try {
-			const result = await runInstallCommand(command, pluginDir);
-			if (result.ok) return;
-			failures.push(`${command.argv.join(" ")}:\n${result.details}`);
-		} catch (error) {
-			failures.push(`${command.argv.join(" ")}: ${formatError(error)}`);
-		}
-	}
-	throw new Error(
-		`Failed to install plugin dependencies in ${pluginDir}${
-			failures.length > 0 ? `:\n${failures.join("\n")}` : "."
-		}`,
-	);
-}
-
-function bundleFailureMessage(result: Bun.BuildOutput): string {
-	return (
-		result.logs.map((log) => String(log)).join("\n") || "Unknown build error"
-	);
-}
-
-async function bundlePlugin(
-	file: PluginFile,
-	options: {
-		pluginName: string;
-		reloadId: string;
-		home?: string;
-	},
-): Promise<string> {
-	const cacheRoot = path.join(
-		getKitPaths(options.home).kitRoot,
-		"plugin-cache",
-	);
-	const outdir = path.join(
-		cacheRoot,
-		sanitizeFileName(options.reloadId),
-		sanitizeFileName(options.pluginName),
-	);
-	await rm(outdir, { force: true, recursive: true });
-	await mkdir(outdir, { recursive: true });
-
-	let pluginSdkShim: string | null = null;
-	const result = await Bun.build({
-		entrypoints: [file.filePath],
-		outdir,
-		target: "bun",
-		format: "esm",
-		plugins: [
-			{
-				name: "kit-plugin-sdk",
-				setup(build) {
-					build.onResolve({ filter: /^@akonwi\/kit\/plugin$/ }, async () => {
-						pluginSdkShim ??= await findPluginSdkEntry(outdir);
-						return { path: pluginSdkShim };
-					});
-				},
-			},
-		],
-	});
-
-	if (!result.success) {
-		throw new Error(bundleFailureMessage(result));
-	}
-
-	const output = result.outputs.find(
-		(artifact) => artifact.kind === "entry-point",
-	);
-	if (!output) {
-		throw new Error("Plugin build did not produce an entry point.");
-	}
-	return output.path;
-}
-
-async function loadPluginInitializer(
-	file: PluginFile,
-	options: {
-		pluginName: string;
-		reloadId: string;
-		home?: string;
-	},
-): Promise<Plugin> {
-	// Bundle external plugins before importing them. This makes user/project
-	// plugins behave like complete packages: imports are resolved from the plugin
-	// file's directory, so ~/.kit/plugins/package.json and .kit/plugins/package.json
-	// can declare dependencies Kit itself does not ship. Importing the bundled
-	// artifact also avoids Bun compiled-binary limitations around requiring
-	// arbitrary external TypeScript files with cache-busting query strings.
-	// Dependencies are installed before this point by loadExternalPlugins.
-	const bundledPath = await bundlePlugin(file, options);
-	const url = pathToFileURL(bundledPath);
-	url.searchParams.set("kitReload", options.reloadId);
-	const moduleExports = (await import(url.href)) as { default?: unknown };
-	if (typeof moduleExports.default !== "function") {
-		throw new Error("Plugin default export must be a function.");
-	}
-	return moduleExports.default as Plugin;
-}
-
-export async function loadExternalPlugins(
-	cwd: string,
-	options: LoadExternalPluginsOptions,
-): Promise<LoadExternalPluginsResult> {
-	const plugins: ExternalPluginRegistration[] = [];
-	const failures: ExternalPluginFailure[] = [];
-	const cacheRoot = path.join(
-		getKitPaths(options.home).kitRoot,
-		"plugin-cache",
-	);
-	const reloadCacheId = sanitizeFileName(options.reloadId);
-	const activeReloadIds = getActivePluginCacheReloadIds(cacheRoot);
-	activeReloadIds.add(reloadCacheId);
-
-	try {
-		await rm(path.join(cacheRoot, reloadCacheId), {
-			force: true,
-			recursive: true,
-		});
-
-		const files = discoverPluginFiles(cwd, options.home);
-
-		// Install dependencies once per unique plugin directory before bundling.
-		const installedDirs = new Set<string>();
-		const failedDirs = new Map<string, string>();
-		for (const file of files) {
-			const pluginDir = path.dirname(file.filePath);
-			if (installedDirs.has(pluginDir) || failedDirs.has(pluginDir)) continue;
-			try {
-				await installPluginDependencies(pluginDir);
-				installedDirs.add(pluginDir);
-			} catch (error) {
-				failedDirs.set(pluginDir, formatError(error));
+	retargetProject(cwd: string): void {
+		if (this.disposed || cwd === this.currentCwd) return;
+		const generation = ++this.projectGeneration;
+		const lifecycleGeneration = this.lifecycleGeneration;
+		const oldProjectClients = this.allClients
+			.filter((client) => client.manifest.source === "project")
+			.reverse();
+		this.allClients = this.allClients.filter(
+			(client) => client.manifest.source !== "project",
+		);
+		this.projectClients = [];
+		this.currentCwd = cwd;
+		this.projectTransition = this.projectTransition.then(async () => {
+			await this.stopClients(oldProjectClients);
+			if (
+				this.disposed ||
+				generation !== this.projectGeneration ||
+				lifecycleGeneration !== this.lifecycleGeneration
+			) {
+				return;
 			}
-		}
-
-		for (const file of files) {
-			const pluginName = pluginNameForFile(file.source, file.filePath);
-			const installError = failedDirs.get(path.dirname(file.filePath));
-			if (installError) {
-				recordFailure(
-					failures,
-					{
-						source: file.source,
-						phase: "load",
-						pluginName,
-						filePath: file.filePath,
-						message: installError,
-					},
-					options.onFailure,
-				);
-				continue;
-			}
-			let initialize: Plugin;
-			try {
-				initialize = await loadPluginInitializer(file, {
-					pluginName,
-					reloadId: options.reloadId,
-					home: options.home,
-				});
-			} catch (error) {
-				recordFailure(
-					failures,
-					{
-						source: file.source,
-						phase: "load",
-						pluginName,
-						filePath: file.filePath,
-						message: formatError(error),
-					},
-					options.onFailure,
-				);
-				continue;
-			}
-
-			plugins.push({
-				name: pluginName,
-				initialize,
-				continueOnError: true,
-				checkContributionConflicts: true,
-				onError: ({ error }) => {
-					recordFailure(
-						failures,
-						{
-							source: file.source,
-							phase: "initialize",
-							pluginName,
-							filePath: file.filePath,
-							message: formatError(error),
-						},
-						options.onFailure,
-					);
-				},
+			this.notifyClients(this.userClients, "kit/events/project.changed", {
+				cwd,
+				git: this.context.runtime.vcsInfo,
 			});
-		}
 
-		retainedPluginCacheReloadIdsByRoot.set(cacheRoot, reloadCacheId);
-		return { plugins, failures };
-	} finally {
-		activeReloadIds.delete(reloadCacheId);
-		await prunePluginCache(cacheRoot);
-		if (activeReloadIds.size === 0) {
-			activePluginCacheReloadIdsByRoot.delete(cacheRoot);
+			const discovered = discoverExternalPluginManifests(cwd, {
+				home: this.home,
+				includeUser: false,
+				includeProject: true,
+				reservedCommandDomains: this.reservedDomains,
+				existingManifests: this.userManifests,
+			});
+			for (const failure of discovered.failures) this.reportFailure(failure);
+			await this.startProjectManifests(
+				discovered.manifests,
+				lifecycleGeneration,
+				generation,
+			);
+		});
+	}
+
+	async dispose(): Promise<void> {
+		if (this.disposed) return;
+		this.disposed = true;
+		this.lifecycleGeneration += 1;
+		this.projectGeneration += 1;
+		this.unsubscribeRuntime?.();
+		this.unsubscribeRuntime = null;
+		await this.projectTransition;
+		const clients = this.allClients.splice(0).reverse();
+		this.projectClients = [];
+		this.userClients = [];
+		await this.stopClients(clients);
+	}
+
+	private async stopClients(clients: ExternalPluginClient[]): Promise<void> {
+		for (const client of clients) await client.stop();
+	}
+
+	private async initializeCurrentGeneration(
+		lifecycleGeneration: number,
+		projectGeneration: number,
+	): Promise<void> {
+		this.currentCwd = this.context.runtime.getSession().cwd;
+		const discovered = discoverExternalPluginManifests(this.currentCwd, {
+			home: this.home,
+			reservedCommandDomains: this.reservedDomains,
+		});
+		for (const failure of discovered.failures) this.reportFailure(failure);
+		this.userManifests = discovered.manifests.filter(
+			(manifest) => manifest.source === "user",
+		);
+		for (const manifest of discovered.manifests) {
+			if (lifecycleGeneration !== this.lifecycleGeneration || this.disposed) {
+				return;
+			}
+			if (
+				manifest.source === "project" &&
+				projectGeneration !== this.projectGeneration
+			) {
+				return;
+			}
+			await this.startManifest(
+				manifest,
+				lifecycleGeneration,
+				projectGeneration,
+			);
 		}
+	}
+
+	private async startProjectManifests(
+		manifests: ExternalPluginManifest[],
+		lifecycleGeneration: number,
+		projectGeneration: number,
+	): Promise<void> {
+		for (const manifest of manifests) {
+			if (
+				lifecycleGeneration !== this.lifecycleGeneration ||
+				projectGeneration !== this.projectGeneration ||
+				this.disposed
+			) {
+				return;
+			}
+			await this.startManifest(
+				manifest,
+				lifecycleGeneration,
+				projectGeneration,
+			);
+		}
+	}
+
+	private async startManifest(
+		manifest: ExternalPluginManifest,
+		lifecycleGeneration: number,
+		projectGeneration: number,
+	): Promise<void> {
+		const client = new ExternalPluginClient({
+			manifest,
+			context: this.context,
+			onFailure: (failure) => this.reportFailure(failure),
+		});
+		this.allClients.push(client);
+		try {
+			await client.start();
+		} catch {
+			this.allClients = this.allClients.filter(
+				(candidate) => candidate !== client,
+			);
+			return;
+		}
+		if (
+			lifecycleGeneration !== this.lifecycleGeneration ||
+			(manifest.source === "project" &&
+				projectGeneration !== this.projectGeneration) ||
+			this.disposed
+		) {
+			this.allClients = this.allClients.filter(
+				(candidate) => candidate !== client,
+			);
+			await client.stop();
+			return;
+		}
+		if (manifest.source === "user") this.userClients.push(client);
+		else this.projectClients.push(client);
+	}
+
+	private subscribeToRuntime(): void {
+		if (this.unsubscribeRuntime) return;
+		this.unsubscribeRuntime = this.context.runtime.subscribe((event) =>
+			this.handleRuntimeEvent(event),
+		);
+	}
+
+	private handleRuntimeEvent(event: AgentRuntimeEvent): void {
+		switch (event.type) {
+			case "vcs.updated":
+				this.notifyAll("kit/events/git.changed", { git: event.vcs });
+				break;
+			case "session.active.changed":
+				if (event.session.cwd !== this.currentCwd) {
+					this.retargetProject(event.session.cwd);
+				}
+				this.notifyAll("kit/events/session.changed", {
+					id: event.session.id,
+					name: event.session.name ?? null,
+				});
+				break;
+			case "session.name.changed":
+				this.notifyAll("kit/events/session.changed", {
+					id: event.session.id,
+					name: event.name ?? null,
+				});
+				break;
+			case "agent.turn.started":
+				this.notifyAll("kit/events/agent.turn.started", {
+					sessionId: this.context.runtime.getSession().id,
+					turnId: event.turn.id,
+				});
+				break;
+			case "agent.turn.completed":
+				if (event.turn) {
+					this.notifyAll("kit/events/agent.turn.completed", {
+						sessionId: this.context.runtime.getSession().id,
+						turn: publicTurn(event.turn),
+					});
+				}
+				break;
+		}
+	}
+
+	private notifyAll(method: string, params: JsonValue): void {
+		this.notifyClients(
+			[...this.userClients, ...this.projectClients],
+			method,
+			params,
+		);
+	}
+
+	private notifyClients(
+		clients: ExternalPluginClient[],
+		method: string,
+		params: JsonValue,
+	): void {
+		for (const client of clients) client.notify(method, params);
+	}
+
+	private reportFailure(failure: ExternalPluginFailure): void {
+		this.onFailure?.(failure);
+		if (this.onFailure) return;
+		this.context.ui.toast({
+			title: failure.pluginId
+				? `Plugin ${failure.pluginId} failed`
+				: "Plugin failed",
+			subtitle: failureSubtitle(failure),
+			variant: "error",
+			persistent: true,
+		});
 	}
 }

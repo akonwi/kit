@@ -23,7 +23,7 @@ Core commands currently include:
 - `thinking`
 - `quit`
 
-Additional plugin commands can appear at runtime based on loaded user and project plugins. For example, this repository's copyable `.kit/plugins/speech.ts` plugin contributes `/speech` on macOS.
+Additional plugin commands can appear at runtime based on loaded user and project plugins. For example, this repository's `.kit/plugins/speech/` installation contributes `/speech.toggle` on macOS.
 
 Additional prompt commands can appear at runtime based on discovered prompt files.
 

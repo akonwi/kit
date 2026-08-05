@@ -1,8 +1,14 @@
+import type { ThemeColorTokens } from "./themes/types";
+
 export type ChromeContributionSide = "left" | "right";
+
+export type ChromeThemeToken = keyof ThemeColorTokens;
 
 export type ChromeTextStyle = {
 	fg?: string;
 	bg?: string;
+	fgToken?: ChromeThemeToken;
+	bgToken?: ChromeThemeToken;
 	bold?: boolean;
 	dim?: boolean;
 	italic?: boolean;
@@ -58,6 +64,12 @@ function sanitizeStyle(
 	const next: ChromeTextStyle = {};
 	if (typeof style.fg === "string" && style.fg) next.fg = style.fg;
 	if (typeof style.bg === "string" && style.bg) next.bg = style.bg;
+	if (typeof style.fgToken === "string" && style.fgToken) {
+		next.fgToken = style.fgToken;
+	}
+	if (typeof style.bgToken === "string" && style.bgToken) {
+		next.bgToken = style.bgToken;
+	}
 	if (style.bold) next.bold = true;
 	if (style.dim) next.dim = true;
 	if (style.italic) next.italic = true;

@@ -10,10 +10,7 @@ import { createReviewWorkspaceController } from "../features/review/workspace-co
 import { createScratchpadController } from "../features/scratchpad/controller";
 import { createSubagentsWorkspaceController } from "../features/subagents";
 import { createBuiltInPlugins } from "../plugins/built-ins";
-import {
-	type ExternalPluginFailure,
-	loadExternalPlugins,
-} from "../plugins/external";
+import { ExternalPluginManager } from "../plugins/external";
 import { PluginManager } from "../plugins/PluginManager";
 import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
 import {
@@ -46,7 +43,7 @@ export type AppProps = {
 	setTerminalTurnActive: (active: boolean) => void;
 	triggerNotification: (message: string, title?: string) => boolean;
 	quitAndDestroy: () => void;
-	registerDispose?: (dispose: () => void) => void;
+	registerDispose?: (dispose: () => void | Promise<void>) => void;
 };
 
 type ReadyState = {
@@ -63,7 +60,7 @@ type ReadyState = {
 	scratchpad: ReturnType<typeof createScratchpadController>;
 	subagentsWorkspace: ReturnType<typeof createSubagentsWorkspaceController>;
 	app: ReturnType<typeof createAppState>;
-	dispose: () => void;
+	disposeAsync: () => Promise<void>;
 };
 
 type RootState =
@@ -126,38 +123,24 @@ export function App(props: AppProps) {
 			header,
 			triggerNotification: props.triggerNotification,
 		};
-		let pluginReloadCount = 0;
 		let pluginLoadGeneration = 0;
 		let builtInReloadGeneration = 0;
 		let builtInPluginManager: PluginManager | null = null;
-		let externalPluginManager: PluginManager | null = null;
+		let externalPluginManager: ExternalPluginManager | null = null;
 		let disposed = false;
 
-		function disposePluginManagers(): void {
-			pluginLoadGeneration++;
+		function disposeBuiltInPluginManager(): void {
 			builtInReloadGeneration++;
-			externalPluginManager?.dispose();
-			externalPluginManager = null;
 			builtInPluginManager?.dispose();
 			builtInPluginManager = null;
 		}
 
-		function showPluginFailures(failures: ExternalPluginFailure[]): void {
-			if (failures.length === 0) return;
-			const firstFailure = formatPluginFailure(failures[0]);
-			const remaining = failures.length - 1;
-			toast({
-				title:
-					failures.length === 1
-						? "Plugin failed to load"
-						: `${failures.length} plugins failed to load`,
-				subtitle:
-					remaining > 0
-						? `${firstFailure} · ${remaining} more failure${remaining === 1 ? "" : "s"}`
-						: firstFailure,
-				variant: "error",
-				persistent: true,
-			});
+		async function disposePluginManagers(): Promise<void> {
+			pluginLoadGeneration++;
+			disposeBuiltInPluginManager();
+			const external = externalPluginManager;
+			externalPluginManager = null;
+			await external?.dispose();
 		}
 
 		function initializeBuiltInPlugins(): void {
@@ -175,27 +158,17 @@ export function App(props: AppProps) {
 		async function initializeExternalPlugins(
 			generation: number,
 		): Promise<void> {
-			const failures: ExternalPluginFailure[] = [];
-			let manager: PluginManager | null = null;
+			let manager: ExternalPluginManager | null = null;
 			try {
-				const external = await loadExternalPlugins(runtime.getSession().cwd, {
-					reloadId: `${Date.now()}-${pluginReloadCount++}`,
-					onFailure: (failure) => failures.push(failure),
-				});
-				if (disposed || generation !== pluginLoadGeneration) return;
-
-				manager = new PluginManager(external.plugins, pluginContext);
-				manager.initialize();
+				manager = new ExternalPluginManager(pluginContext);
+				externalPluginManager = manager;
+				await manager.initialize();
 				if (disposed || generation !== pluginLoadGeneration) {
-					manager.dispose();
+					await manager.dispose();
 					return;
 				}
-
-				externalPluginManager?.dispose();
-				externalPluginManager = manager;
-				showPluginFailures(failures);
 			} catch (error) {
-				manager?.dispose();
+				await manager?.dispose();
 				if (disposed || generation !== pluginLoadGeneration) return;
 				toast({
 					title: "Plugin loading failed",
@@ -222,7 +195,7 @@ export function App(props: AppProps) {
 		try {
 			initializePlugins();
 		} catch (error) {
-			disposePluginManagers();
+			await disposePluginManagers();
 			releasesWorkspace.dispose();
 			persistence.dispose();
 			runtime.dispose();
@@ -237,7 +210,7 @@ export function App(props: AppProps) {
 		}
 
 		async function _reload(): Promise<void> {
-			disposePluginManagers();
+			await disposePluginManagers();
 			try {
 				await reloadSettingsAndTheme();
 				await runtime.reloadSession();
@@ -245,7 +218,7 @@ export function App(props: AppProps) {
 				try {
 					initializePlugins();
 				} catch {
-					disposePluginManagers();
+					await disposePluginManagers();
 					// Preserve the original reload error below.
 				}
 				toast({
@@ -263,7 +236,7 @@ export function App(props: AppProps) {
 					variant: "info",
 				});
 			} catch (error) {
-				disposePluginManagers();
+				await disposePluginManagers();
 				toast({
 					title: "Reload failed",
 					subtitle: error instanceof Error ? error.message : String(error),
@@ -305,14 +278,14 @@ export function App(props: AppProps) {
 				return;
 			}
 			initTemplates(event.cwd);
-			disposePluginManagers();
+			disposeBuiltInPluginManager();
 			const reloadGeneration = builtInReloadGeneration;
 			setTimeout(() => {
 				if (disposed || reloadGeneration !== builtInReloadGeneration) return;
 				try {
-					initializePlugins();
+					initializeBuiltInPlugins();
 				} catch (error) {
-					disposePluginManagers();
+					disposeBuiltInPluginManager();
 					toast({
 						title: "Plugin reload failed",
 						subtitle: error instanceof Error ? error.message : String(error),
@@ -322,21 +295,20 @@ export function App(props: AppProps) {
 			}, 0);
 		});
 
-		const dispose = () => {
-			if (disposed) return;
+		let disposePromise: Promise<void> | null = null;
+		const disposeAsync = (): Promise<void> => {
+			if (disposePromise) return disposePromise;
 			disposed = true;
 			disposeTerminalTurnStatus();
-			disposePluginManagers();
 			app.dispose();
 			releasesWorkspace.dispose();
 			scratchpad.dispose();
 			persistence.dispose();
-			runtime.dispose();
+			disposePromise = disposePluginManagers().finally(() => runtime.dispose());
+			return disposePromise;
 		};
-
 		runtime.onQuit(() => {
-			dispose();
-			props.quitAndDestroy();
+			void disposeAsync().finally(() => props.quitAndDestroy());
 		});
 
 		return {
@@ -353,7 +325,7 @@ export function App(props: AppProps) {
 			scratchpad,
 			subagentsWorkspace,
 			app,
-			dispose,
+			disposeAsync,
 		};
 	}
 
@@ -371,48 +343,49 @@ export function App(props: AppProps) {
 		}
 	}
 
-	function formatPluginFailure(failure: ExternalPluginFailure): string {
-		return `${failure.filePath} (${failure.phase}): ${failure.message}`;
-	}
-
 	const [root, setRoot] = createSignal<RootState>({ kind: "loading" });
+	const pendingRootBuilds = new Set<Promise<RootState>>();
 	let appDisposed = false;
 
-	function disposeRootState(state: RootState) {
-		if (state.kind === "ready") {
-			state.dispose();
-		}
+	function buildTrackedRootState(): Promise<RootState> {
+		const build = buildRootState();
+		pendingRootBuilds.add(build);
+		void build.finally(() => pendingRootBuilds.delete(build));
+		return build;
 	}
 
-	function disposeCurrentRootState() {
-		disposeRootState(root());
-	}
-
-	function disposeAppState() {
+	async function disposeAppState() {
 		appDisposed = true;
-		disposeCurrentRootState();
+		const current = root();
+		if (current.kind === "ready") await current.disposeAsync();
+		const pending = await Promise.all([...pendingRootBuilds]);
+		await Promise.all(
+			pending.map((state) =>
+				state.kind === "ready" ? state.disposeAsync() : Promise.resolve(),
+			),
+		);
 	}
 
 	props.registerDispose?.(disposeAppState);
 
-	function replaceRootState(next: RootState) {
+	async function replaceRootState(next: RootState): Promise<void> {
 		if (appDisposed) {
-			disposeRootState(next);
+			if (next.kind === "ready") await next.disposeAsync();
 			return;
 		}
 		const previous = root();
-		disposeRootState(previous);
+		if (previous.kind === "ready") await previous.disposeAsync();
 		setRoot(next);
 	}
 
 	async function handleAuthenticated(providerName?: string): Promise<boolean> {
-		const next = await buildRootState();
+		const next = await buildTrackedRootState();
 		if (appDisposed) {
-			disposeRootState(next);
+			if (next.kind === "ready") await next.disposeAsync();
 			return false;
 		}
 		if (next.kind === "ready") {
-			replaceRootState(next);
+			await replaceRootState(next);
 			next.app.showToast({
 				title: "Login successful",
 				subtitle: providerName
@@ -423,7 +396,7 @@ export function App(props: AppProps) {
 			return true;
 		}
 		if (next.kind === "fatal") {
-			replaceRootState(next);
+			await replaceRootState(next);
 			return false;
 		}
 		return false;
@@ -431,17 +404,17 @@ export function App(props: AppProps) {
 
 	onMount(() => {
 		void (async () => {
-			const next = await buildRootState();
+			const next = await buildTrackedRootState();
 			if (appDisposed) {
-				disposeRootState(next);
+				if (next.kind === "ready") await next.disposeAsync();
 				return;
 			}
-			replaceRootState(next);
+			await replaceRootState(next);
 		})();
 	});
 
 	onCleanup(() => {
-		disposeAppState();
+		void disposeAppState();
 		props.registerDispose?.(() => {});
 	});
 

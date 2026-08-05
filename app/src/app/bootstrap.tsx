@@ -158,7 +158,7 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	const settings = await loadSettings();
 	const session = await loadSession(opts);
 
-	let disposeApp: (() => void) | null = null;
+	let disposeApp: (() => void | Promise<void>) | null = null;
 	let resolveAlive: (() => void) | null = null;
 	let quitStarted = false;
 	let shutdownWatchdogStarted = false;
@@ -192,18 +192,20 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 		],
 		onDestroy: () => {
 			quitStarted = true;
-			try {
-				disposeApp?.();
-			} catch (error) {
-				console.error(
-					`[kit] shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			} finally {
-				disposeApp = null;
-				resolveAlive?.();
-				resolveAlive = null;
-				startShutdownWatchdog();
-			}
+			const cleanup = disposeApp;
+			disposeApp = null;
+			void Promise.resolve()
+				.then(() => cleanup?.())
+				.catch((error) => {
+					console.error(
+						`[kit] shutdown cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
+					);
+				})
+				.finally(() => {
+					resolveAlive?.();
+					resolveAlive = null;
+					startShutdownWatchdog();
+				});
 		},
 		consoleOptions: {
 			position: ConsolePosition.TOP,

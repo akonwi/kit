@@ -46,6 +46,7 @@ interface UI {
 		options: string[];
 		filterable?: boolean;
 		placeholder?: string;
+		signal?: AbortSignal;
 	}): Promise<string | undefined>;
 	select<T>(input: {
 		title: string;
@@ -53,12 +54,14 @@ interface UI {
 		options: Array<{ label: string; value: T; description?: string }>;
 		filterable?: boolean;
 		placeholder?: string;
+		signal?: AbortSignal;
 	}): Promise<T | undefined>;
 	input(input: {
 		title: string;
 		message?: string;
 		placeholder?: string;
 		initialValue?: string;
+		signal?: AbortSignal;
 	}): Promise<string | undefined>;
 	confirm(input: {
 		title: string;

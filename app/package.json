@@ -16,22 +16,10 @@
 	"bin": {
 		"kit": "dist/kit"
 	},
-	"exports": {
-		"./plugin": {
-			"types": "./dist/plugin.d.ts",
-			"default": "./dist/plugin.js"
-		}
-	},
-	"typesVersions": {
-		"*": {
-			"plugin": [
-				"dist/plugin.d.ts"
-			]
-		}
-	},
 	"files": [
 		"dist/",
 		"docs/features/plugins.md",
+		"docs/plugin-protocol/",
 		"README.md"
 	],
 	"publishConfig": {

@@ -1,7 +1,8 @@
 export type VcsInfo = {
+	root: string;
 	branch: string | null;
 	dirty: boolean;
-};
+} | null;
 
 /**
  * Get current git branch and dirty state for a given directory.
@@ -10,12 +11,21 @@ export type VcsInfo = {
  */
 export function getVcsInfo(cwd: string): VcsInfo {
 	try {
+		const rootResult = spawnSync("git", ["rev-parse", "--show-toplevel"], {
+			cwd,
+			encoding: "utf-8",
+		});
 		const result = spawnSync("git", ["status", "--porcelain=2", "--branch"], {
 			cwd,
 			encoding: "utf-8",
 		});
-		if (result.error || result.status !== 0) {
-			return emptyVcsInfo();
+		if (
+			rootResult.error ||
+			rootResult.status !== 0 ||
+			result.error ||
+			result.status !== 0
+		) {
+			return null;
 		}
 
 		let branch: string | null = null;
@@ -42,14 +52,10 @@ export function getVcsInfo(cwd: string): VcsInfo {
 			branch = `detached@${detachedOid.slice(0, 7)}`;
 		}
 
-		return { branch, dirty };
+		return { root: rootResult.stdout.trim(), branch, dirty };
 	} catch {
-		return emptyVcsInfo();
+		return null;
 	}
-}
-
-export function emptyVcsInfo(): VcsInfo {
-	return { branch: null, dirty: false };
 }
 
 function spawnSync(

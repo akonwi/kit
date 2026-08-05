@@ -1,0 +1,7 @@
+{
+  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/manifest.schema.json",
+  "manifestVersion": 1,
+  "id": "tool-approval",
+  "name": "Tool Approval",
+  "transport": { "type": "stdio", "command": "python3", "args": ["-u", "plugin.py"] }
+}

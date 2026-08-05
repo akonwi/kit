@@ -17,13 +17,6 @@ const dir = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(dir, "dist");
 const runtimeDir = path.join(distDir, "runtime");
 const binaryPath = path.join(distDir, "kit");
-const pluginRuntimePath = path.join(distDir, "plugin.js");
-const pluginTypesPath = path.join(distDir, "plugin.d.ts");
-const pluginTypesSourcePath = path.join(dir, "src/plugins/sdk.ts");
-const toastTypesPath = path.join(distDir, "toasts.d.ts");
-const toastTypesSourcePath = path.join(dir, "src/state/toasts.ts");
-const themeTypesPath = path.join(distDir, "themes.d.ts");
-const themeTypesSourcePath = path.join(dir, "src/shell/themes/types.ts");
 const parserWorkerPath = path.resolve(
 	dir,
 	"node_modules/@opentui/core/parser.worker.js",
@@ -119,70 +112,11 @@ if (bundledWasm) {
 	await fs.promises.writeFile(bundledWorkerPath, patchedWorkerSource, "utf8");
 }
 
-// Bundle the plugin SDK runtime (typebox inlined) into the runtime
-// assets. Compiled-binary installs (Homebrew, GitHub releases) have no
-// node_modules on disk, so plugins importing @akonwi/kit/plugin resolve
-// against this self-contained module instead.
-const sdkEntryPath = path.join(distDir, ".plugin-sdk-entry.ts");
-await fs.promises.writeFile(
-	sdkEntryPath,
-	'export { Type } from "typebox";\n',
-	"utf8",
-);
-let sdkBundle: Awaited<ReturnType<typeof Bun.build>>;
-try {
-	sdkBundle = await Bun.build({
-		entrypoints: [sdkEntryPath],
-		outdir: runtimeDir,
-		naming: "kit-plugin-sdk.mjs",
-		target: "bun",
-		format: "esm",
-	});
-} finally {
-	// dist/ is published wholesale — never leave the temp entry behind.
-	await fs.promises.rm(sdkEntryPath, { force: true });
-}
-if (!sdkBundle.success) {
-	console.error("Plugin SDK bundle failed:");
-	for (const log of sdkBundle.logs) {
-		console.error(" ", log);
-	}
-	process.exit(1);
-}
-
 await fs.promises.cp(coreAssetsPath, path.join(runtimeDir, "assets"), {
 	recursive: true,
 });
 await fs.promises.cp(kitGrammarsPath, path.join(runtimeDir, "grammars"), {
 	recursive: true,
 });
-
-await fs.promises.writeFile(
-	pluginRuntimePath,
-	[
-		"// Runtime surface for the public @akonwi/kit/plugin SDK.",
-		"// Plugin API shapes are type-only; runtime helpers are explicitly exported here.",
-		'export { Type } from "typebox";',
-		"",
-	].join("\n"),
-	"utf8",
-);
-const pluginTypesSource = await fs.promises.readFile(
-	pluginTypesSourcePath,
-	"utf8",
-);
-await fs.promises.writeFile(
-	pluginTypesPath,
-	pluginTypesSource
-		.replace('from "../state/toasts"', 'from "./toasts"')
-		.replace('from "../shell/themes/types"', 'from "./themes"'),
-	"utf8",
-);
-await fs.promises.copyFile(toastTypesSourcePath, toastTypesPath);
-const themeTypesSource = await fs.promises.readFile(
-	themeTypesSourcePath,
-	"utf8",
-);
-await fs.promises.writeFile(themeTypesPath, themeTypesSource, "utf8");
 
 console.log(`Built ${binaryPath}`);

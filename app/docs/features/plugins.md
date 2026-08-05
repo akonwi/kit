@@ -1,224 +1,196 @@
-# Plugins
+# External plugins
 
-Kit can load trusted TypeScript plugins that extend the app through the public `PluginAPI` capability surface.
+Kit external plugins are independent processes that communicate with Kit using
+JSON-RPC 2.0 over stdio. A plugin can be written in any language that can read
+and write newline-delimited JSON.
 
-## Locations
+The [protocol specification](../plugin-protocol/v1.md) is the complete v1
+contract. The adjacent
+[manifest](../plugin-protocol/manifest.schema.json) and
+[protocol](../plugin-protocol/protocol.schema.json) JSON Schemas are normative.
 
-Kit loads plugins from Kit-specific directories only:
+## Installation layout
 
-1. user plugins: `~/.kit/plugins/*.ts`
-2. project plugins: `.kit/plugins/*.ts`
-
-Discovery is non-recursive. Only direct `.ts` files in those directories are loaded.
-
-Project plugins load after user plugins. Built-in plugins load before both.
-
-Built-in plugins initialize during core app setup. User and project plugins load in the background after the shell is ready, so slow dependency installation or bundling does not block basic startup. Commands, tools, and chrome contributions from those external plugins become available once loading finishes.
-
-If an external plugin registers a command, tool, or debug section that already exists, Kit treats that as a plugin failure and reports it with a persistent toast.
-
-Kit does **not** load plugins from `.agents/plugins/`. Plugins execute code and are Kit-specific functionality, while `.agents/` is reserved for compatibility-oriented resources such as prompts, skills, and MCP config.
-
-## Plugin dependencies
-
-Plugin directories may have their own `package.json`, lockfile, and `node_modules`:
+Kit discovers one `plugin.json` manifest in each immediate child directory:
 
 ```text
 ~/.kit/plugins/
-  package.json
-  bun.lock
-  node_modules/
-  my-plugin.ts
+  speech/
+    plugin.json
+    plugin.py
 
 project/.kit/plugins/
-  package.json
-  bun.lock
-  node_modules/
-  project-plugin.ts
+  project-policy/
+    plugin.json
+    policy.rb
 ```
 
-Kit automatically installs dependencies for each plugin directory before bundling. It installs with its own embedded Bun runtime (the kit executable re-invoked as the `bun` CLI via `BUN_BE_BUN=1`), so no separate bun or npm installation is required — including for compiled-binary installs such as Homebrew. If the embedded install fails, kit falls back to `bun install` and then `npm install` from PATH.
+User plugins load first, followed by project plugins. Installations are sorted
+lexically within each scope. A child directory may be a symlink to a standalone
+plugin repository whose `plugin.json` is at its root.
 
-Kit bundles each plugin from its absolute file path before loading it, so package imports resolve from the plugin file's directory and then walk up through normal Bun/Node module resolution. This lets user and project plugins depend on packages that Kit itself does not ship.
+Legacy direct `~/.kit/plugins/*.ts` and `.kit/plugins/*.ts` files are not
+loaded. Kit does not install dependencies or bundle plugin source.
 
-## Trust model
+## Manifest
 
-Plugins execute local code in the Kit process. Only use plugins from people and projects you trust.
-
-A failed user/project plugin does not stop Kit from starting. Kit shows a persistent toast with the plugin file and error. Dismiss it manually after reviewing the failure.
-
-## Writing a plugin
-
-A plugin is a TypeScript file with a default function export. Import public SDK types from `@akonwi/kit/plugin`; do not import from Kit source paths such as `src/plugins`.
-
-```ts
-import { Type, type PluginAPI } from "@akonwi/kit/plugin";
-
-export default function MyPlugin(kit: PluginAPI) {
-	kit.registerCommand(
-		"hello-world",
-		{ description: "Show a greeting from a plugin" },
-		async (ctx) => {
-			ctx.ui.toast({
-				title: "Hello plugin",
-				subtitle: "Loaded from a Kit plugin.",
-				variant: "info",
-			});
-		},
-	);
-
-	kit.registerTool({
-		name: "echo_plugin",
-		description: "Echo text from a plugin tool.",
-		parameters: Type.Object({ text: Type.String() }),
-		async execute(_id, params) {
-			return {
-				content: [{ type: "text", text: params.text }],
-				details: {},
-			};
-		},
-	});
-}
-```
-
-Plugin functions may return a `Disposer` for resources not registered through Kit:
-
-```ts
-import type { PluginAPI } from "@akonwi/kit/plugin";
-
-export default function WatchPlugin(kit: PluginAPI) {
-	const timer = setInterval(() => {
-		kit.logger.log("tick");
-	}, 1000);
-
-	return () => clearInterval(timer);
-}
-```
-
-Registrations made through `kit` are cleaned up automatically on `/reload`.
-
-Plugin command ids are also keybinding ids. Users can bind a plugin command in `~/.kit/settings.json` after it loads:
+`plugin.json` declares a stable plugin id and one stdio process:
 
 ```json
 {
-  "keybindings": {
-    "hello-world": "ctrl+h"
+  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/manifest.schema.json",
+  "manifestVersion": 1,
+  "id": "speech",
+  "name": "Speech",
+  "transport": {
+    "type": "stdio",
+    "command": "python3",
+    "args": ["-u", "plugin.py"]
   }
 }
 ```
 
-Choose command ids that start with your plugin name or another owned namespace to avoid conflicts, for example `MyPlugin.open` or `github.openPullRequest`.
+Kit launches without a shell and uses the installation directory as the
+process cwd. Bare commands resolve through `PATH`; commands containing a path
+resolve relative to the installation directory. Arguments are passed literally.
 
-Common exported SDK types include `PluginAPI`, `Plugin`, `Disposer`, `CommandContext`, `CommandOptions`, `RuntimeEvent`, `EventContext`, `ToolDefinition`, `ToolResult`, `ToolCall`, and `ToolCallDecision`.
+Plugin ids are lowercase kebab-case, contain at most 32 characters, and cannot
+use `kit`, `kit-*`, or a built-in command domain. If two manifests use the same
+id, the first manifest wins and Kit reports both paths in a persistent error
+toast.
 
-## UI helpers
+## Minimal Python plugin
 
-`kit.ui.toast({ title, subtitle, variant })` remains the lightweight notification API. For small interactive flows, Kit also provides app-owned UI primitives:
+This dependency-free example registers `/hello.greet`. It reserves stdout for
+protocol frames and writes diagnostics to stderr:
 
-```ts
-const picked = await kit.ui.select({
-	title: "Choose target",
-	options: [
-		{ label: "Current file", value: "file", description: "Use the active context" },
-		{ label: "Whole project", value: "project" },
-	],
-	filterable: true,
-});
+```python
+#!/usr/bin/env python3
+import json
+import sys
 
-const name = await kit.ui.input({
-	title: "Name this run",
-	placeholder: "experiment name",
-});
+def send(message):
+    print(json.dumps(message), flush=True)
 
-const ok = await kit.ui.confirm({
-	title: "Continue?",
-	message: "This will submit a follow-up message.",
-	confirmLabel: "Continue",
-});
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    message = json.loads(line)
+    method = message.get("method")
+
+    if method == "initialize":
+        send({
+            "jsonrpc": "2.0",
+            "id": message["id"],
+            "result": {"protocolVersion": 1},
+        })
+        send({
+            "jsonrpc": "2.0",
+            "id": "register-greet",
+            "method": "kit/commands/register",
+            "params": {
+                "id": "greet",
+                "description": "Show a greeting",
+            },
+        })
+    elif method == "kit/commands/execute":
+        send({
+            "jsonrpc": "2.0",
+            "method": "kit/ui/toast",
+            "params": {
+                "title": "Hello from Python",
+                "variant": "info",
+            },
+        })
+        send({"jsonrpc": "2.0", "id": message["id"], "result": None})
+    elif method == "shutdown":
+        send({"jsonrpc": "2.0", "id": message["id"], "result": None})
+        break
 ```
 
-These helpers use Kit-owned dialogs and return `undefined` when selection/input is cancelled. `confirm` returns `false` for cancel/escape. The public plugin UI API is intentionally limited to `toast`, `select`, `input`, `confirm`, and the `text`/`theme` helpers so Kit can keep ownership of rendering, focus, theme, and compatibility.
+Its manifest uses id `hello` and points to the script:
 
-## Header and footer status contributions
-
-Plugins can contribute short text items to the header and bottom footer. Kit owns the rendering and layout; plugins provide text or styled text chunks.
-
-```ts
-kit.footer.set("build", "build: passing", { side: "right" });
-kit.footer.set("mode", "watching", { side: "left" });
-kit.header.set("branch", "main", { side: "right" });
-
-const theme = kit.ui.theme();
-
-kit.footer.set(
-	"ci",
-	[
-		kit.ui.text("✓", { fg: theme.tokens.toolText, bold: true }),
-		" tests ",
-		kit.ui.text("passing", { fg: theme.tokens.toolText }),
-	],
-	{
-		side: "right",
-		onClick: () => kit.system.open("https://github.com/org/repo/actions"),
-	},
-);
-
-// Clear an item
-kit.footer.clear("build");
-kit.header.clear("branch");
-
-// Hide a known item contributed by another plugin or built-in.
-// The disposer restores it.
-const showDefaultLocation = kit.footer.hide("VcsStatusPlugin:location");
-const showDefaultModel = kit.header.hide("HeaderBar:model");
-showDefaultLocation();
-showDefaultModel();
+```json
+{
+  "manifestVersion": 1,
+  "id": "hello",
+  "transport": {
+    "type": "stdio",
+    "command": "python3",
+    "args": ["-u", "plugin.py"]
+  }
+}
 ```
 
-Header/footer item IDs passed to `set`/`clear` are scoped to the plugin and are cleaned up automatically when the plugin is disposed or reloaded. `hide` accepts the full item ID to support replacing known built-in contributions.
+Plugins must continue reading while handlers are pending. Requests are
+full-duplex: Kit may invoke a plugin command while that plugin is waiting for a
+nested Kit UI request. Responses may arrive out of order.
 
-Shell status rows never wrap. Kit keeps privileged built-in status visible, packs plugin contributions as complete items in registration order, and replaces overflow with a clickable `… +N` indicator. The overflow picker lists every plugin contribution for that status row and preserves existing click actions.
+## Initialization context and events
 
-Use `kit.ui.text(text, style)` to style part or all of a contribution. Supported style fields are `fg`, `bg`, `bold`, `dim`, `italic`, `underline`, and `strikethrough`. Use `kit.ui.theme()` when setting or updating contributions to read the current resolved theme config (`name`, `tokens`, and `syntaxPalette`) and blend with Kit's colors. `onClick` is a whole-contribution action; Kit maps it to terminal mouse events and does not expose raw mouse events to plugins.
+Kit's first request is `initialize`. It contains protocol version 1, the active
+project cwd and nullable Git context, and the active session id and nullable
+name. The plugin must return `{ "protocolVersion": 1 }` within ten seconds
+before registering contributions.
 
-Built-in header item IDs are `HeaderBar:title` and `HeaderBar:model`.
+Every ready plugin receives public event notifications without subscribing:
 
-Built-in internal plugins may use additional app-owned capabilities that are not part of the public plugin SDK. For example, built-ins can read VCS state while the public SDK only exposes chrome contribution rendering.
+- `kit/events/project.changed`
+- `kit/events/git.changed`
+- `kit/events/session.changed`
+- `kit/events/agent.turn.started`
+- `kit/events/agent.turn.completed`
 
-The Kit repository's `.kit/plugins/` directory contains active project plugins that also serve as copyable examples. Its macOS speech plugin reacts to completed turns, registers `/speech`, and contributes clickable header status. Its configuration is intentionally in memory; copied versions can adjust the source constants.
+Unknown notifications may be ignored. Completed-turn events contain only
+ordered user/assistant text content; internal model, tool, usage, image, and
+persistence data is omitted.
 
-## Tool approval hooks
+## Contributions and ids
 
-Plugins can register a callback that runs before a tool executes. Return `{ action: "allow" }` or no value to run the tool; return `{ action: "reject-and-continue", message }` to block it and let the agent continue.
+Plugins can register commands, tools, a tool-call interceptor, header/footer
+items, subagents, and one system-prompt slot. They can also request Kit-owned
+confirm, input, and select dialogs, submit text to the active session, and open
+HTTP(S) URLs. See the method tables and payload examples in the protocol spec.
 
-If multiple plugins register tool-call handlers, Kit evaluates them in registration order. `allow` does not short-circuit; the first rejection blocks the call.
+Command, chrome, and subagent ids supplied by a plugin are local ids. Kit
+prefixes the manifest id:
 
-```ts
-kit.onToolCall(async (toolCall, ctx) => {
-	if (toolCall.name !== "bash") return { action: "allow" };
-	const command = toolCall.input.command;
-	if (typeof command !== "string" || !command.includes("rm")) {
-		return { action: "allow" };
-	}
+- plugin `speech`, command `toggle` → `/speech.toggle`
+- plugin `speech`, header item `status` → `speech.status`
+- plugin `speech`, tool `speak_text` → canonical `speech.speak_text` and model
+  name `speech__speak_text`
 
-	const approved = await ctx.ui.confirm({
-		title: "Approve bash?",
-		message: command,
-		confirmLabel: "Allow",
-		cancelLabel: "Block",
-		defaultValue: false,
-	});
+Header/footer styles use documented theme token names such as `toolText`, not
+literal color values. Kit resolves tokens when rendering, so plugin content
+tracks theme changes automatically.
 
-	return approved
-		? { action: "allow" }
-		: { action: "reject-and-continue", message: "User denied bash." };
-});
-```
+Tool input schemas use the restricted JSON Schema Draft 2020-12 profile in the
+protocol spec. Kit validates model input without coercion, defaults, property
+removal, or plugin-side argument preparation.
 
-## Reloading
+## Trust and failures
 
-Use `/reload` after editing plugin files. Kit re-discovers plugin files, re-bundles them into Kit's plugin cache, and imports the fresh bundles so changed `.ts` contents are picked up. External plugin loading continues in the background after the session reload completes.
+External processes inherit Kit's environment and run as the same OS user. They
+are not sandboxed and can access the filesystem, network, and subprocesses.
+Only install plugins and open projects you trust.
 
-Plugin modules are loaded synchronously, so top-level `await` is not supported in plugin files. Async command, event, and tool handlers are supported.
+Stdout must contain only UTF-8 newline-delimited JSON-RPC. Human-readable logs
+belong on stderr. Invalid protocol output, initialization failure, or an
+unexpected process exit removes all owned contributions and produces a
+persistent manually dismissed error toast. Kit does not automatically restart a
+failed plugin.
 
-`@akonwi/kit/plugin` exports plugin API types and the runtime `Type` schema helper. Use `import type` for types such as `PluginAPI`, and use the value import `Type` when defining tool parameter schemas.
+## Reloading and project changes
+
+Use `/reload` after changing a plugin. Kit shuts down project plugins and then
+user plugins in reverse load order, rediscovers manifests, and starts fresh
+processes in normal order.
+
+User plugin processes persist when the active cwd or session changes. On a cwd
+change, Kit removes and shuts down only the old project plugins, sends
+`kit/events/project.changed` to user plugins, and discovers project plugins for
+the new cwd.
+
+During normal shutdown Kit removes contributions immediately, requests
+`shutdown`, waits up to two seconds for the process to exit, and then terminates
+it if necessary.
