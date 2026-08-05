@@ -17,7 +17,7 @@ import type { FooterStatusController } from "./footer-status";
 import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
-export const VCS_LOCATION_CONTRIBUTION_ID = "VcsStatusPlugin:location";
+export const VCS_LOCATION_CONTRIBUTION_ID = "kit.footer.location";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;

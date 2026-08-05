@@ -27,9 +27,11 @@ import type { InternalPluginDefinition, PluginContext } from "./types";
 
 function internalPlugin(
 	initialize: InternalPluginDefinition,
+	options: { chromePrefix?: string } = {},
 ): PluginManagerInput {
 	return {
 		name: initialize.name,
+		chromePrefix: options.chromePrefix,
 		initialize,
 		internalUi: true,
 	};
@@ -73,13 +75,14 @@ export function createBuiltInPlugins(
 		...(options.headless
 			? []
 			: [
-					internalPlugin(VcsStatusPlugin),
+					internalPlugin(VcsStatusPlugin, { chromePrefix: "kit.footer" }),
 					...(options.releasesWorkspace
 						? [
 								internalPlugin(
 									createReleasesPlugin({
 										workspace: options.releasesWorkspace,
 									}),
+									{ chromePrefix: "kit.header" },
 								),
 							]
 						: []),

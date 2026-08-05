@@ -162,7 +162,9 @@ prefixes the manifest id for ownership while presenting commands by local id:
 
 Header/footer styles use documented theme token names such as `toolText`, not
 literal color values. Kit resolves tokens when rendering, so plugin content
-tracks theme changes automatically.
+tracks theme changes automatically. Stable built-in chrome targets are
+`kit.header.title`, `kit.header.model`, `kit.header.update`, and
+`kit.footer.location`.
 
 Tool input schemas use the restricted JSON Schema Draft 2020-12 profile in the
 protocol spec. Kit validates model input without coercion, defaults, property

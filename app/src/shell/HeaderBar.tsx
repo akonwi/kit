@@ -30,8 +30,8 @@ function progressColor(pct: number): string {
 }
 
 export const HEADER_CONTRIBUTION_IDS = {
-	title: "HeaderBar:title",
-	model: "HeaderBar:model",
+	title: "kit.header.title",
+	model: "kit.header.model",
 } as const;
 
 export type HeaderBarProps = {

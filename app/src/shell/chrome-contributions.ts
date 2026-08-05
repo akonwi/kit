@@ -178,9 +178,10 @@ export function createChromeContributionsController() {
 	}
 
 	function clearNamespace(namespace: string) {
-		const prefix = `${namespace}:`;
+		const prefixes = [`${namespace}:`, `${namespace}.`];
 		const next = contributions.filter(
-			(contribution) => !contribution.id.startsWith(prefix),
+			(contribution) =>
+				!prefixes.some((prefix) => contribution.id.startsWith(prefix)),
 		);
 		if (next.length === contributions.length) return;
 		contributions = next;
