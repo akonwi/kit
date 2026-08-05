@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createCommandRegistry } from "../features/commands";
@@ -38,6 +45,7 @@ afterEach(async () => {
 describe("ExternalPluginClient", () => {
 	test("initializes a dependency-free Python plugin and bridges owned contributions", async () => {
 		const root = await makeTempDir();
+		const canonicalRoot = await realpath(root);
 		const statePath = path.join(root, "state.jsonl");
 		const scriptPath = path.join(root, "plugin.py");
 		await writeFile(
@@ -195,7 +203,7 @@ for line in sys.stdin:
 			.split("\n")
 			.map((line) => JSON.parse(line));
 		expect(records[0]).toMatchObject({
-			cwd: root,
+			cwd: canonicalRoot,
 			initialize: {
 				protocolVersion: 1,
 				context: {
