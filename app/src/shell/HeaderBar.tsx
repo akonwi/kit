@@ -6,7 +6,10 @@ import {
 	Show,
 } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { ChromeContributionLine } from "./ChromeContributionLine";
+import {
+	activateChromeContributionAtX,
+	ChromeContributionLine,
+} from "./ChromeContributionLine";
 import {
 	type ChromeContribution,
 	createChromeTextContent,
@@ -22,6 +25,8 @@ import {
 import { HORIZONTAL_LINE, MIDDLE_DOT } from "./glyphs";
 import type { HeaderStatusController } from "./header-status";
 import { theme } from "./theme";
+
+const PRIMARY_MOUSE_BUTTON = 0;
 
 function progressColor(pct: number): string {
 	if (pct > 90) return theme.progressCritical;
@@ -236,6 +241,20 @@ export function HeaderBar(props: HeaderBarProps) {
 		>
 			<box
 				border={["bottom"]}
+				onMouseDown={(event) => {
+					if (event.button !== PRIMARY_MOUSE_BUTTON) return;
+					if (
+						!activateChromeContributionAtX({
+							left: displayed("left"),
+							right: displayed("right"),
+							shellWidth: props.shellWidth,
+							x: event.x,
+						})
+					)
+						return;
+					event.preventDefault();
+					event.stopPropagation();
+				}}
 				borderColor={theme.borderDefault}
 				paddingX={1}
 				width="100%"
