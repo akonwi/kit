@@ -1,6 +1,9 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import { ChromeContributionLine } from "./ChromeContributionLine";
+import {
+	activateChromeContributionAtX,
+	ChromeContributionLine,
+} from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
 import {
 	type ChromeContribution,
@@ -17,7 +20,9 @@ import type { FooterStatusController } from "./footer-status";
 import { MIDDLE_DOT } from "./glyphs";
 import { theme } from "./theme";
 
-export const VCS_LOCATION_CONTRIBUTION_ID = "VcsStatusPlugin:location";
+const PRIMARY_MOUSE_BUTTON = 0;
+
+export const VCS_LOCATION_CONTRIBUTION_ID = "kit.footer.location";
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
@@ -199,6 +204,20 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 		<box
 			flexShrink={0}
 			height={2}
+			onMouseDown={(event) => {
+				if (event.button !== PRIMARY_MOUSE_BUTTON) return;
+				if (
+					!activateChromeContributionAtX({
+						left: displayed("left"),
+						right: displayed("right"),
+						shellWidth: props.shellWidth,
+						x: event.x,
+					})
+				)
+					return;
+				event.preventDefault();
+				event.stopPropagation();
+			}}
 			border={["top"]}
 			borderColor={theme.borderStatus}
 			paddingX={1}

@@ -88,6 +88,7 @@ function toToolApprovalDecision(decision: ToolCallDecision) {
 
 type CreatePluginAPIBaseOptions = {
 	name: string;
+	chromePrefix?: string;
 	checkContributionConflicts?: boolean;
 	addDisposer: (disposer: Disposer) => Disposer;
 };
@@ -178,7 +179,10 @@ export function createPluginAPI(
 	}
 
 	function namespacedChromeItemId(id: string): string {
-		return `${options.name}:${requireChromeItemId(id)}`;
+		const itemId = requireChromeItemId(id);
+		return options.chromePrefix
+			? `${options.chromePrefix}.${itemId}`
+			: `${options.name}:${itemId}`;
 	}
 
 	function createChromeClickHandler(
@@ -226,8 +230,8 @@ export function createPluginAPI(
 
 	const footer = createChromeApi(ctx.footer);
 	const header = createChromeApi(ctx.header);
-	track(() => ctx.footer.clearNamespace(options.name));
-	track(() => ctx.header.clearNamespace(options.name));
+	track(() => ctx.footer.clearNamespace(options.chromePrefix ?? options.name));
+	track(() => ctx.header.clearNamespace(options.chromePrefix ?? options.name));
 
 	const system = {
 		get cwd() {

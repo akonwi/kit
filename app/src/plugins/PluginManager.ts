@@ -26,6 +26,8 @@ export type ExternalPluginRegistration = BasePluginRegistration & {
 export type InternalPluginRegistration = BasePluginRegistration & {
 	initialize: InternalPluginDefinition;
 	internalUi: true;
+	/** Stable public prefix for Kit-owned chrome ids, such as `kit.footer`. */
+	chromePrefix?: string;
 };
 
 export type PluginRegistration =
@@ -148,6 +150,9 @@ export class PluginManager {
 		this.plugins.push(managed);
 		const commonOptions = {
 			name: pluginName,
+			chromePrefix: registration.internalUi
+				? registration.chromePrefix
+				: undefined,
 			checkContributionConflicts: registration.checkContributionConflicts,
 			addDisposer: (disposer: Disposer) => {
 				disposers.add(disposer);

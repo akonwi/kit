@@ -6,11 +6,51 @@ import type { AgentMessage } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { createAttachmentsController } from "./attachments-controller";
 import {
+	commandDisplayName,
+	commandPaletteDescription,
 	createComposerController,
 	extractPendingComposerText,
 	mergePendingMessagesIntoComposer,
 	type TextareaHandle,
 } from "./composer-controller";
+
+describe("command presentation", () => {
+	test("keeps duplicate local names distinct by canonical command identity", () => {
+		const commands = createCommandRegistry([
+			{
+				name: "plugin-a.deploy",
+				displayName: "deploy",
+				description: "Deploy with A",
+				execute: () => {},
+			},
+			{
+				name: "plugin-b.deploy",
+				displayName: "deploy",
+				description: "Deploy with B",
+				execute: () => {},
+			},
+		]);
+
+		expect(
+			commands.getAll().map((command) => ({
+				canonical: command.name,
+				display: commandDisplayName(command),
+				description: commandPaletteDescription(command),
+			})),
+		).toEqual([
+			{
+				canonical: "plugin-a.deploy",
+				display: "deploy",
+				description: "Deploy with A · plugin-a",
+			},
+			{
+				canonical: "plugin-b.deploy",
+				display: "deploy",
+				description: "Deploy with B · plugin-b",
+			},
+		]);
+	});
+});
 
 describe("queued message restoration", () => {
 	test("restores only editable text from multipart messages", () => {

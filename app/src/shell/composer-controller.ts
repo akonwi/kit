@@ -24,6 +24,7 @@ import {
 } from "../state/picker-manager";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
+import { MIDDLE_DOT } from "./glyphs";
 
 export function extractPendingComposerText(message: AgentMessage): string {
 	if (!("content" in message)) return "";
@@ -60,6 +61,20 @@ export type TextareaHandle = {
 	insertText: (text: string) => void;
 	focus: () => void;
 };
+
+export function commandDisplayName(command: Command): string {
+	return command.displayName ?? command.name;
+}
+
+export function commandPaletteDescription(command: Command): string {
+	const displayName = commandDisplayName(command);
+	if (displayName === command.name) return command.description;
+	const localSuffix = `.${displayName}`;
+	const owner = command.name.endsWith(localSuffix)
+		? command.name.slice(0, -localSuffix.length)
+		: command.name;
+	return `${command.description} ${MIDDLE_DOT} ${owner}`;
+}
 
 export type ComposerControllerDeps = {
 	runtime: AgentRuntime;
@@ -136,7 +151,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			});
 		} catch (error) {
 			toast({
-				title: `/${command.name} failed`,
+				title: `/${commandDisplayName(command)} failed`,
 				subtitle: error instanceof Error ? error.message : String(error),
 				variant: "error",
 			});
@@ -145,15 +160,19 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	function openCommandPalette() {
 		if (commandPalette.visible) return;
-		let resolvedCommandName: string | null = null;
+		let resolvedCommand: Command | null = null;
 		let currentArgs = "";
 		const availableCommands = commands.getAll();
 		const options = availableCommands
 			.slice()
-			.sort((a, b) => a.name.localeCompare(b.name))
+			.sort(
+				(a, b) =>
+					commandDisplayName(a).localeCompare(commandDisplayName(b)) ||
+					a.name.localeCompare(b.name),
+			)
 			.map((cmd) => ({
-				name: cmd.name,
-				description: cmd.description,
+				name: commandDisplayName(cmd),
+				description: commandPaletteDescription(cmd),
 				argHint: cmd.argName,
 				value: cmd,
 				action: (ctx: PickerContext) => {
@@ -161,8 +180,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 					void executeCommand(cmd, currentArgs);
 				},
 			}));
-		const findOption = (name: string) =>
-			options.find((option) => option.name === name);
+		const findOption = (command: Command) =>
+			options.find((option) => option.value === command);
 
 		commandPalette.show(
 			{
@@ -175,22 +194,23 @@ export function createComposerController(deps: ComposerControllerDeps) {
 						firstSpace === -1 ? trimmed : trimmed.slice(0, firstSpace)
 					).trim();
 
-					if (resolvedCommandName) {
+					if (resolvedCommand) {
+						const displayName = commandDisplayName(resolvedCommand);
 						if (
-							trimmed === resolvedCommandName ||
-							trimmed.startsWith(`${resolvedCommandName} `)
+							trimmed === displayName ||
+							trimmed.startsWith(`${displayName} `)
 						) {
-							currentArgs = trimmed.slice(resolvedCommandName.length).trim();
-							const pinned = findOption(resolvedCommandName);
+							currentArgs = trimmed.slice(displayName.length).trim();
+							const pinned = findOption(resolvedCommand);
 							return pinned
 								? {
 										options: [pinned],
 										selectedIndex: 0,
-										query: resolvedCommandName,
+										query: displayName,
 									}
-								: { query: resolvedCommandName };
+								: { query: displayName };
 						}
-						resolvedCommandName = null;
+						resolvedCommand = null;
 					}
 
 					currentArgs =
@@ -202,9 +222,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				tab: (option) => {
 					const cmd = option.value as Command | undefined;
 					if (!cmd) return;
-					resolvedCommandName = cmd.name;
+					resolvedCommand = cmd;
 					currentArgs = "";
-					commandPalette.filter(`${cmd.name} `);
+					commandPalette.filter(`${commandDisplayName(cmd)} `);
 				},
 			},
 		);

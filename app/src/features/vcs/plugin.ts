@@ -26,7 +26,7 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 		pullRequest: GitHubPullRequest | null,
 	): string {
 		const cwd = kit.system.cwd;
-		if (vcsInfo.branch == null) return cwd;
+		if (vcsInfo?.branch == null) return cwd;
 		return `${cwd} (${[
 			`${vcsInfo.branch}${vcsInfo.dirty ? "*" : ""}`,
 			...(pullRequest ? [`PR #${pullRequest.number}`] : []),
@@ -44,7 +44,7 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 	}
 
 	async function refreshPullRequest(vcsInfo: VcsInfo) {
-		const branch = vcsInfo.branch;
+		const branch = vcsInfo?.branch ?? null;
 		const generation = ++refreshGeneration;
 		const now = Date.now();
 		const cached = cache;
@@ -81,7 +81,7 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 		void refreshPullRequest(vcsInfo);
 	}
 
-	kit.on("vcs.updated", (event) => update(event));
+	kit.on("vcs.updated", (event) => update(event.vcs));
 
 	const refreshTimer = setInterval(() => {
 		void refreshPullRequest(currentVcsInfo);

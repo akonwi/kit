@@ -166,8 +166,9 @@ export class VcsInfoWatcher {
 			const nextInfo = getVcsInfo(this.cwd);
 			if (this.disposed) return;
 			if (
-				nextInfo.branch !== this.lastInfo.branch ||
-				nextInfo.dirty !== this.lastInfo.dirty
+				nextInfo?.root !== this.lastInfo?.root ||
+				nextInfo?.branch !== this.lastInfo?.branch ||
+				nextInfo?.dirty !== this.lastInfo?.dirty
 			) {
 				this.lastInfo = nextInfo;
 				this.onChange(nextInfo);

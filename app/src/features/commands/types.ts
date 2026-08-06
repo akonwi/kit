@@ -22,7 +22,10 @@ export type CommandContext = {
 };
 
 export type Command = {
+	/** Stable canonical id used for ownership, keybindings, and execution. */
 	name: string;
+	/** User-facing slash command name. Defaults to `name`. */
+	displayName?: string;
 	description: string;
 	argName?: string;
 	category?: string;

@@ -248,7 +248,7 @@ export type RuntimeEventMap = AgentEventMap & {
 	"chat.message-queue.changed": { count: number; messages: string[] };
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
-	"vcs.updated": VcsInfo;
+	"vcs.updated": { vcs: VcsInfo };
 	"subagents.changed": Record<string, never>;
 };
 
@@ -296,6 +296,7 @@ export class AgentRuntime {
 	private pluginSubagents: SubagentDefinition[];
 	private fileDiscoveredSubagents: SubagentDefinition[] = [];
 	private systemPromptAdditions: string[];
+	private systemPromptSlots: Array<{ text: string }>;
 	private readonly bus = new EventBus<RuntimeEventMap>();
 	private quitHandler: (() => void) | null = null;
 	private isCompacting = false;
@@ -305,7 +306,7 @@ export class AgentRuntime {
 	private debugSections = new Map<string, string[]>();
 	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
 	private gitWatcher: VcsInfoWatcher | null = null;
-	private gitInfo: VcsInfo = { branch: null, dirty: false };
+	private gitInfo: VcsInfo = null;
 	get vcsInfo() {
 		return this.gitInfo;
 	}
@@ -340,6 +341,7 @@ export class AgentRuntime {
 		this.pluginSubagents = [];
 		this.fileDiscoveredSubagents = [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
+		this.systemPromptSlots = [];
 		const defaultModel = resolveDefaultModel(session.model);
 		const initialThinkingLevel = clampThinkingLevel(
 			session.thinkingLevel,
@@ -420,7 +422,11 @@ export class AgentRuntime {
 	}
 
 	private getEffectiveSystemPrompt(): string {
-		const basePrompt = [DEFAULT_SYSTEM_PROMPT, ...this.systemPromptAdditions]
+		const basePrompt = [
+			DEFAULT_SYSTEM_PROMPT,
+			...this.systemPromptAdditions,
+			...this.systemPromptSlots.map((slot) => slot.text),
+		]
 			.filter((value) => value.trim().length > 0)
 			.join("\n\n");
 		return buildSystemPrompt(basePrompt, this.getEffectiveContextFiles());
@@ -467,7 +473,7 @@ export class AgentRuntime {
 		this.gitWatcher?.dispose();
 		this.gitWatcher = new VcsInfoWatcher(this.session.cwd, (gitInfo) => {
 			this.gitInfo = gitInfo;
-			this.bus.publish("vcs.updated", this.gitInfo);
+			this.bus.publish("vcs.updated", { vcs: this.gitInfo });
 		});
 		this.gitInfo = this.gitWatcher.getCurrent();
 	}
@@ -1206,6 +1212,36 @@ export class AgentRuntime {
 			if (index < 0) return;
 			this.systemPromptAdditions.splice(index, 1);
 			this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		};
+	}
+
+	/** Reserve a stable, replaceable system-prompt position. */
+	createSystemPromptSlot(): {
+		set: (text: string) => void;
+		clear: () => void;
+		dispose: () => void;
+	} {
+		const slot = { text: "" };
+		let disposed = false;
+		this.systemPromptSlots.push(slot);
+
+		const update = (text: string) => {
+			if (disposed) return;
+			slot.text = text.trim();
+			this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		};
+
+		return {
+			set: update,
+			clear: () => update(""),
+			dispose: () => {
+				if (disposed) return;
+				disposed = true;
+				this.systemPromptSlots = this.systemPromptSlots.filter(
+					(candidate) => candidate !== slot,
+				);
+				this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+			},
 		};
 	}
 

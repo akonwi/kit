@@ -24,4 +24,13 @@ export const CURRENT_RELEASE_NOTES = `
 ## Tool approvals
 
 - Tool approval dialogs now show complete command, path, and argument summaries instead of truncating them.
+
+## External plugins: migration required
+
+- External plugins now use the language-neutral JSON-RPC v1 protocol over stdio. The previous direct TypeScript loader and \`@akonwi/kit/plugin\` package export have been removed.
+- Move each \`~/.kit/plugins/name.ts\` or \`<project>/.kit/plugins/name.ts\` plugin into its own installation directory containing \`plugin.json\`, then point the manifest's stdio \`command\` and \`args\` at your plugin process.
+- The process must reserve stdout for UTF-8 newline-delimited JSON-RPC. Write diagnostics to stderr, answer \`initialize\` with \`{ "protocolVersion": 1 }\`, and handle \`shutdown\`.
+- Replace PluginAPI registrations with the corresponding \`kit/commands/*\`, \`kit/tools/*\`, chrome, subagent, system-prompt, UI, and interception methods. Plugins receive public events as \`kit/events/<event-name>\` notifications without subscribing.
+- Command and contribution ids are plugin-local and become \`<plugin-id>.<local-id>\` canonically. Slash commands are presented by local id, while keybindings use the canonical id. Tool names become \`<plugin-id>__<local_id>\` for the model.
+- Kit no longer installs or bundles plugin dependencies. The manifest command must already be runnable. See \`docs/features/plugins.md\` for setup and \`docs/plugin-protocol/v1.md\` plus the bundled JSON Schemas for the complete contract.
 `;

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createMockMouse } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
@@ -170,6 +171,36 @@ describe("BottomStatusBar", () => {
 
 		await testSetup.renderOnce();
 		expect(testSetup.captureCharFrame()).toContain("… +");
+	});
+
+	test("activates a clickable plugin contribution", async () => {
+		const status = createFooterStatusController();
+		let clicks = 0;
+		status.setContribution({
+			id: "git.location",
+			content: "PR #25",
+			side: "right",
+			onClick: () => {
+				clicks += 1;
+			},
+		});
+		testSetup = await testRender(
+			() => (
+				<BottomStatusBar
+					runtime={runtime()}
+					status={status}
+					composerMode="normal"
+					shellWidth={40}
+					onOpenOverflow={() => {}}
+				/>
+			),
+			{ width: 40, height: 6 },
+		);
+
+		await testSetup.renderOnce();
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.pressDown(35, 1);
+		expect(clicks).toBe(1);
 	});
 
 	test("shows queued-message guidance without wrapping", async () => {

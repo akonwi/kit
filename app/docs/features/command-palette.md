@@ -23,7 +23,7 @@ Core commands currently include:
 - `thinking`
 - `quit`
 
-Additional plugin commands can appear at runtime based on loaded user and project plugins. For example, this repository's copyable `.kit/plugins/speech.ts` plugin contributes `/speech` on macOS.
+Additional plugin commands can appear at runtime based on loaded user and project plugins. Plugin commands are presented by their local name with the owning plugin shown as searchable secondary metadata, while retaining a namespaced canonical id for ownership and keybindings. For example, this repository's `speech` plugin contributes canonical command `speech.toggle-speech`, presented as `/toggle-speech` with `speech` attribution. Multiple plugins may present the same local name; selecting a picker entry retains its canonical identity.
 
 Additional prompt commands can appear at runtime based on discovered prompt files.
 

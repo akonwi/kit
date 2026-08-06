@@ -1,0 +1,1636 @@
+{
+	"$schema": "https://json-schema.org/draft/2020-12/schema",
+	"$id": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/protocol.schema.json",
+	"title": "Kit external plugin protocol v1",
+	"description": "Known JSON-RPC messages and reusable payloads for Kit external plugin protocol v1.",
+	"oneOf": [
+		{
+			"$ref": "#/$defs/SingleMessage"
+		},
+		{
+			"$ref": "#/$defs/BatchMessage"
+		}
+	],
+	"$defs": {
+		"JsonValue": {
+			"oneOf": [
+				{
+					"type": "null"
+				},
+				{
+					"type": "boolean"
+				},
+				{
+					"type": "number"
+				},
+				{
+					"type": "string"
+				},
+				{
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				},
+				{
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				}
+			]
+		},
+		"JsonRpcParams": {
+			"oneOf": [
+				{
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				},
+				{
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				}
+			]
+		},
+		"RequestId": {
+			"oneOf": [
+				{
+					"type": "string"
+				},
+				{
+					"type": "integer"
+				}
+			]
+		},
+		"ResponseId": {
+			"oneOf": [
+				{
+					"$ref": "#/$defs/RequestId"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"GitContext": {
+			"type": "object",
+			"required": ["root", "branch", "dirty"],
+			"properties": {
+				"root": {
+					"type": "string",
+					"minLength": 1
+				},
+				"branch": {
+					"type": ["string", "null"]
+				},
+				"dirty": {
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		},
+		"NullableGitContext": {
+			"oneOf": [
+				{
+					"$ref": "#/$defs/GitContext"
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"GitChangedParams": {
+			"type": "object",
+			"required": ["git"],
+			"properties": {
+				"git": {
+					"$ref": "#/$defs/NullableGitContext"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ProjectContext": {
+			"type": "object",
+			"required": ["cwd", "git"],
+			"properties": {
+				"cwd": {
+					"type": "string",
+					"minLength": 1
+				},
+				"git": {
+					"$ref": "#/$defs/NullableGitContext"
+				}
+			},
+			"additionalProperties": false
+		},
+		"SessionContext": {
+			"type": "object",
+			"required": ["id", "name"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"minLength": 1
+				},
+				"name": {
+					"type": ["string", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"InitializeParams": {
+			"type": "object",
+			"required": ["protocolVersion", "context"],
+			"properties": {
+				"protocolVersion": {
+					"const": 1
+				},
+				"context": {
+					"type": "object",
+					"required": ["project", "session"],
+					"properties": {
+						"project": {
+							"$ref": "#/$defs/ProjectContext"
+						},
+						"session": {
+							"$ref": "#/$defs/SessionContext"
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"InitializeResult": {
+			"type": "object",
+			"required": ["protocolVersion"],
+			"properties": {
+				"protocolVersion": {
+					"const": 1
+				}
+			},
+			"additionalProperties": false
+		},
+		"LocalContributionId": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 128,
+			"pattern": "^[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$"
+		},
+		"CanonicalContributionId": {
+			"type": "string",
+			"minLength": 3,
+			"maxLength": 161,
+			"pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9-]*(?:\\.[a-z][a-z0-9-]*)*$"
+		},
+		"ToolLocalId": {
+			"type": "string",
+			"minLength": 1,
+			"maxLength": 64,
+			"pattern": "^[a-z][a-z0-9_]*$"
+		},
+		"ToolCanonicalId": {
+			"type": "string",
+			"minLength": 3,
+			"maxLength": 97,
+			"pattern": "^[a-z][a-z0-9-]*\\.[a-z][a-z0-9_]*$"
+		},
+		"ModelToolName": {
+			"type": "string",
+			"minLength": 4,
+			"maxLength": 64,
+			"pattern": "^[a-z][a-z0-9-]*__[a-z][a-z0-9_]*$"
+		},
+		"NullResult": {
+			"type": "null"
+		},
+		"CanonicalIdResult": {
+			"type": "object",
+			"required": ["id"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/CanonicalContributionId"
+				}
+			},
+			"additionalProperties": false
+		},
+		"CommandRegisterParams": {
+			"type": "object",
+			"required": ["id", "description"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/LocalContributionId"
+				},
+				"description": {
+					"type": "string",
+					"minLength": 1
+				},
+				"argName": {
+					"type": ["string", "null"]
+				},
+				"category": {
+					"type": ["string", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"LocalIdParams": {
+			"type": "object",
+			"required": ["id"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/LocalContributionId"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolLocalIdParams": {
+			"type": "object",
+			"required": ["id"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/ToolLocalId"
+				}
+			},
+			"additionalProperties": false
+		},
+		"CommandExecuteParams": {
+			"type": "object",
+			"required": ["id", "args"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/LocalContributionId"
+				},
+				"args": {
+					"type": "string"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolSchemaNode": {
+			"type": "object",
+			"properties": {
+				"type": {
+					"enum": [
+						"object",
+						"array",
+						"string",
+						"number",
+						"integer",
+						"boolean",
+						"null"
+					]
+				},
+				"description": {
+					"type": "string"
+				},
+				"properties": {
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/ToolSchemaNode"
+					}
+				},
+				"required": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"uniqueItems": true
+				},
+				"additionalProperties": {
+					"type": "boolean"
+				},
+				"items": {
+					"$ref": "#/$defs/ToolSchemaNode"
+				},
+				"enum": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				},
+				"const": {
+					"$ref": "#/$defs/JsonValue"
+				},
+				"anyOf": {
+					"type": "array",
+					"minItems": 2,
+					"items": {
+						"$ref": "#/$defs/ToolSchemaNode"
+					}
+				},
+				"minimum": {
+					"type": "number"
+				},
+				"maximum": {
+					"type": "number"
+				},
+				"exclusiveMinimum": {
+					"type": "number"
+				},
+				"exclusiveMaximum": {
+					"type": "number"
+				},
+				"minLength": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"maxLength": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"pattern": {
+					"type": "string"
+				},
+				"minItems": {
+					"type": "integer",
+					"minimum": 0
+				},
+				"maxItems": {
+					"type": "integer",
+					"minimum": 0
+				}
+			},
+			"additionalProperties": false,
+			"anyOf": [
+				{
+					"required": ["type"]
+				},
+				{
+					"required": ["enum"]
+				},
+				{
+					"required": ["const"]
+				},
+				{
+					"required": ["anyOf"]
+				}
+			]
+		},
+		"ToolInputSchema": {
+			"type": "object",
+			"required": ["type"],
+			"properties": {
+				"$schema": {
+					"const": "https://json-schema.org/draft/2020-12/schema"
+				},
+				"type": {
+					"const": "object"
+				},
+				"description": {
+					"type": "string"
+				},
+				"properties": {
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/ToolSchemaNode"
+					}
+				},
+				"required": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"uniqueItems": true
+				},
+				"additionalProperties": {
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolRegisterParams": {
+			"type": "object",
+			"required": ["id", "description", "inputSchema"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/ToolLocalId"
+				},
+				"label": {
+					"type": ["string", "null"]
+				},
+				"description": {
+					"type": "string",
+					"minLength": 1
+				},
+				"inputSchema": {
+					"$ref": "#/$defs/ToolInputSchema"
+				},
+				"executionMode": {
+					"enum": ["sequential", "parallel"],
+					"default": "sequential"
+				},
+				"promptSnippet": {
+					"type": ["string", "null"]
+				},
+				"promptGuidelines": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": []
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolRegisterResult": {
+			"type": "object",
+			"required": ["id", "modelName"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/ToolCanonicalId"
+				},
+				"modelName": {
+					"$ref": "#/$defs/ModelToolName"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolExecuteParams": {
+			"type": "object",
+			"required": ["id", "toolCallId", "input"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/ToolLocalId"
+				},
+				"toolCallId": {
+					"type": "string",
+					"minLength": 1
+				},
+				"input": {
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolResultContent": {
+			"oneOf": [
+				{
+					"type": "object",
+					"required": ["type", "text"],
+					"properties": {
+						"type": {
+							"const": "text"
+						},
+						"text": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["type", "data", "mimeType"],
+					"properties": {
+						"type": {
+							"const": "image"
+						},
+						"data": {
+							"type": "string"
+						},
+						"mimeType": {
+							"type": "string",
+							"minLength": 1
+						}
+					},
+					"additionalProperties": false
+				}
+			]
+		},
+		"ToolExecuteResult": {
+			"type": "object",
+			"required": ["content"],
+			"properties": {
+				"content": {
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/ToolResultContent"
+					}
+				},
+				"details": {
+					"$ref": "#/$defs/JsonValue"
+				},
+				"terminate": {
+					"type": "boolean",
+					"default": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolCall": {
+			"type": "object",
+			"required": ["id", "name", "input"],
+			"properties": {
+				"id": {
+					"type": "string",
+					"minLength": 1
+				},
+				"name": {
+					"type": "string",
+					"minLength": 1
+				},
+				"input": {
+					"type": "object",
+					"additionalProperties": {
+						"$ref": "#/$defs/JsonValue"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"BeforeExecuteParams": {
+			"type": "object",
+			"required": ["toolCall"],
+			"properties": {
+				"toolCall": {
+					"$ref": "#/$defs/ToolCall"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ToolCallDecision": {
+			"oneOf": [
+				{
+					"type": "object",
+					"required": ["action"],
+					"properties": {
+						"action": {
+							"const": "allow"
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "object",
+					"required": ["action"],
+					"properties": {
+						"action": {
+							"const": "reject-and-continue"
+						},
+						"message": {
+							"type": "string"
+						}
+					},
+					"additionalProperties": false
+				}
+			]
+		},
+		"ToastParams": {
+			"type": "object",
+			"required": ["title", "variant"],
+			"properties": {
+				"title": {
+					"type": "string",
+					"minLength": 1
+				},
+				"subtitle": {
+					"type": ["string", "null"]
+				},
+				"variant": {
+					"enum": ["info", "warning", "error"]
+				},
+				"persistent": {
+					"type": "boolean",
+					"default": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"ConfirmParams": {
+			"type": "object",
+			"required": ["title"],
+			"properties": {
+				"title": {
+					"type": "string",
+					"minLength": 1
+				},
+				"message": {
+					"type": ["string", "null"]
+				},
+				"confirmLabel": {
+					"type": ["string", "null"]
+				},
+				"cancelLabel": {
+					"type": ["string", "null"]
+				},
+				"defaultValue": {
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ConfirmResult": {
+			"type": "boolean"
+		},
+		"InputParams": {
+			"type": "object",
+			"required": ["title"],
+			"properties": {
+				"title": {
+					"type": "string",
+					"minLength": 1
+				},
+				"message": {
+					"type": ["string", "null"]
+				},
+				"placeholder": {
+					"type": ["string", "null"]
+				},
+				"initialValue": {
+					"type": ["string", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"InputResult": {
+			"type": ["string", "null"]
+		},
+		"SelectOption": {
+			"type": "object",
+			"required": ["label", "value"],
+			"properties": {
+				"label": {
+					"type": "string",
+					"minLength": 1
+				},
+				"value": {
+					"$ref": "#/$defs/JsonValue"
+				},
+				"description": {
+					"type": ["string", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"SelectParams": {
+			"type": "object",
+			"required": ["title", "options"],
+			"properties": {
+				"title": {
+					"type": "string",
+					"minLength": 1
+				},
+				"message": {
+					"type": ["string", "null"]
+				},
+				"options": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"$ref": "#/$defs/SelectOption"
+					}
+				},
+				"filterable": {
+					"type": "boolean",
+					"default": false
+				},
+				"placeholder": {
+					"type": ["string", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"SelectResult": {
+			"oneOf": [
+				{
+					"type": "object",
+					"required": ["value"],
+					"properties": {
+						"value": {
+							"$ref": "#/$defs/JsonValue"
+						}
+					},
+					"additionalProperties": false
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"ThemeToken": {
+			"enum": [
+				"bg",
+				"bgSurface",
+				"bgMuted",
+				"bgAccent",
+				"bgTransparent",
+				"borderDefault",
+				"borderFocused",
+				"borderAccent",
+				"borderDebug",
+				"borderStatus",
+				"composerBashBorder",
+				"composerBashExcludedBorder",
+				"textPrimary",
+				"textSecondary",
+				"textMuted",
+				"textPlaceholder",
+				"textDebug",
+				"userText",
+				"userTextFocused",
+				"userBorder",
+				"assistantText",
+				"toolText",
+				"reviewText",
+				"errorText",
+				"warningText",
+				"subagentText",
+				"debugLabel",
+				"metaText",
+				"attachmentText",
+				"cursor",
+				"pickerBg",
+				"pickerBorder",
+				"pickerFocusedBg",
+				"pickerFocusedText",
+				"pickerItemText",
+				"pickerScrollThumb",
+				"pickerScrollTrack",
+				"scrollbarFg",
+				"scrollbarBg",
+				"panelText",
+				"progressNormal",
+				"progressWarning",
+				"progressCritical",
+				"toggleOn",
+				"diffAddedBg",
+				"diffRemovedBg",
+				"diffAddedContentBg",
+				"diffRemovedContentBg",
+				"diffAddedLineNumberBg",
+				"diffRemovedLineNumberBg",
+				"diffCursorBg",
+				"diffCursorGutterBg",
+				"diffCursorAddedBg",
+				"diffCursorRemovedBg"
+			]
+		},
+		"TextStyle": {
+			"type": "object",
+			"properties": {
+				"fg": {
+					"$ref": "#/$defs/ThemeToken"
+				},
+				"bg": {
+					"$ref": "#/$defs/ThemeToken"
+				},
+				"bold": {
+					"type": "boolean"
+				},
+				"dim": {
+					"type": "boolean"
+				},
+				"italic": {
+					"type": "boolean"
+				},
+				"underline": {
+					"type": "boolean"
+				},
+				"strikethrough": {
+					"type": "boolean"
+				}
+			},
+			"additionalProperties": false
+		},
+		"TextSegment": {
+			"type": "object",
+			"required": ["text"],
+			"properties": {
+				"text": {
+					"type": "string"
+				},
+				"style": {
+					"$ref": "#/$defs/TextStyle"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ChromeSetParams": {
+			"type": "object",
+			"required": ["id", "content"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/LocalContributionId"
+				},
+				"content": {
+					"type": "array",
+					"minItems": 1,
+					"items": {
+						"$ref": "#/$defs/TextSegment"
+					}
+				},
+				"side": {
+					"enum": ["left", "right"],
+					"default": "right"
+				},
+				"clickable": {
+					"type": "boolean",
+					"default": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"CanonicalIdParams": {
+			"type": "object",
+			"required": ["id"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/CanonicalContributionId"
+				}
+			},
+			"additionalProperties": false
+		},
+		"SubagentRegisterParams": {
+			"type": "object",
+			"required": ["id", "description", "instructions"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/LocalContributionId"
+				},
+				"description": {
+					"type": "string",
+					"minLength": 1
+				},
+				"instructions": {
+					"type": "string",
+					"minLength": 1
+				},
+				"model": {
+					"type": ["string", "null"]
+				}
+			},
+			"additionalProperties": false
+		},
+		"SystemPromptSetParams": {
+			"type": "object",
+			"required": ["text"],
+			"properties": {
+				"text": {
+					"type": "string",
+					"minLength": 1
+				}
+			},
+			"additionalProperties": false
+		},
+		"SessionSubmitParams": {
+			"type": "object",
+			"required": ["sessionId", "text"],
+			"properties": {
+				"sessionId": {
+					"type": "string",
+					"minLength": 1
+				},
+				"text": {
+					"type": "string",
+					"minLength": 1
+				}
+			},
+			"additionalProperties": false
+		},
+		"OpenUrlParams": {
+			"type": "object",
+			"required": ["url"],
+			"properties": {
+				"url": {
+					"type": "string",
+					"format": "uri",
+					"pattern": "^https?://"
+				}
+			},
+			"additionalProperties": false
+		},
+		"CancelParams": {
+			"type": "object",
+			"required": ["id"],
+			"properties": {
+				"id": {
+					"$ref": "#/$defs/RequestId"
+				}
+			},
+			"additionalProperties": false
+		},
+		"TurnStartedParams": {
+			"type": "object",
+			"required": ["sessionId", "turnId"],
+			"properties": {
+				"sessionId": {
+					"type": "string",
+					"minLength": 1
+				},
+				"turnId": {
+					"type": "string",
+					"minLength": 1
+				}
+			},
+			"additionalProperties": false
+		},
+		"PublicTextContent": {
+			"type": "object",
+			"required": ["type", "text"],
+			"properties": {
+				"type": {
+					"const": "text"
+				},
+				"text": {
+					"type": "string"
+				}
+			},
+			"additionalProperties": false
+		},
+		"PublicMessage": {
+			"type": "object",
+			"required": ["role", "content"],
+			"properties": {
+				"role": {
+					"enum": ["user", "assistant"]
+				},
+				"content": {
+					"type": "array",
+					"items": {
+						"$ref": "#/$defs/PublicTextContent"
+					}
+				}
+			},
+			"additionalProperties": false
+		},
+		"TurnCompletedParams": {
+			"type": "object",
+			"required": ["sessionId", "turn"],
+			"properties": {
+				"sessionId": {
+					"type": "string",
+					"minLength": 1
+				},
+				"turn": {
+					"type": "object",
+					"required": ["id", "messages"],
+					"properties": {
+						"id": {
+							"type": "string",
+							"minLength": 1
+						},
+						"messages": {
+							"type": "array",
+							"items": {
+								"$ref": "#/$defs/PublicMessage"
+							}
+						}
+					},
+					"additionalProperties": false
+				}
+			},
+			"additionalProperties": false
+		},
+		"RequestMethodName": {
+			"enum": [
+				"initialize",
+				"shutdown",
+				"kit/commands/register",
+				"kit/commands/unregister",
+				"kit/commands/execute",
+				"kit/tools/register",
+				"kit/tools/unregister",
+				"kit/tools/execute",
+				"kit/tool-calls/register-interceptor",
+				"kit/tool-calls/unregister-interceptor",
+				"kit/tool-calls/before-execute",
+				"kit/ui/confirm",
+				"kit/ui/input",
+				"kit/ui/select",
+				"kit/header/set",
+				"kit/header/clear",
+				"kit/header/hide",
+				"kit/header/show",
+				"kit/header/click",
+				"kit/footer/set",
+				"kit/footer/clear",
+				"kit/footer/hide",
+				"kit/footer/show",
+				"kit/footer/click",
+				"kit/subagents/register",
+				"kit/subagents/unregister",
+				"kit/system-prompt/set",
+				"kit/system-prompt/clear",
+				"kit/session/submit-message",
+				"kit/system/open-url"
+			]
+		},
+		"NotificationMethodName": {
+			"enum": [
+				"kit/cancel",
+				"kit/ui/toast",
+				"kit/events/project.changed",
+				"kit/events/git.changed",
+				"kit/events/session.changed",
+				"kit/events/agent.turn.started",
+				"kit/events/agent.turn.completed"
+			]
+		},
+		"KnownMethodName": {
+			"oneOf": [
+				{
+					"$ref": "#/$defs/RequestMethodName"
+				},
+				{
+					"$ref": "#/$defs/NotificationMethodName"
+				}
+			]
+		},
+		"KnownRequest": {
+			"type": "object",
+			"required": ["jsonrpc", "id", "method"],
+			"properties": {
+				"jsonrpc": {
+					"const": "2.0"
+				},
+				"id": {
+					"$ref": "#/$defs/RequestId"
+				},
+				"method": {
+					"$ref": "#/$defs/RequestMethodName"
+				},
+				"params": {
+					"$ref": "#/$defs/JsonRpcParams"
+				}
+			},
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "initialize"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/InitializeParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"enum": [
+									"shutdown",
+									"kit/tool-calls/register-interceptor",
+									"kit/tool-calls/unregister-interceptor",
+									"kit/system-prompt/clear"
+								]
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": false
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/commands/register"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/CommandRegisterParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"enum": [
+									"kit/commands/unregister",
+									"kit/header/clear",
+									"kit/header/click",
+									"kit/footer/clear",
+									"kit/footer/click",
+									"kit/subagents/unregister"
+								]
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/LocalIdParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/commands/execute"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/CommandExecuteParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/tools/register"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ToolRegisterParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/tools/unregister"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ToolLocalIdParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/tools/execute"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ToolExecuteParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/tool-calls/before-execute"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/BeforeExecuteParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/ui/confirm"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ConfirmParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/ui/input"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/InputParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/ui/select"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/SelectParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"enum": ["kit/header/set", "kit/footer/set"]
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ChromeSetParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"enum": [
+									"kit/header/hide",
+									"kit/header/show",
+									"kit/footer/hide",
+									"kit/footer/show"
+								]
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/CanonicalIdParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/subagents/register"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/SubagentRegisterParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/system-prompt/set"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/SystemPromptSetParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/session/submit-message"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/SessionSubmitParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/system/open-url"
+							}
+						}
+					},
+					"then": {
+						"required": ["params"],
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/OpenUrlParams"
+							}
+						}
+					}
+				}
+			]
+		},
+		"KnownNotification": {
+			"type": "object",
+			"required": ["jsonrpc", "method", "params"],
+			"properties": {
+				"jsonrpc": {
+					"const": "2.0"
+				},
+				"method": {
+					"$ref": "#/$defs/NotificationMethodName"
+				},
+				"params": {
+					"$ref": "#/$defs/JsonRpcParams"
+				}
+			},
+			"additionalProperties": false,
+			"allOf": [
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/cancel"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/CancelParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/ui/toast"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ToastParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/events/project.changed"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/ProjectContext"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/events/git.changed"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/GitChangedParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/events/session.changed"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/SessionContext"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/events/agent.turn.started"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/TurnStartedParams"
+							}
+						}
+					}
+				},
+				{
+					"if": {
+						"properties": {
+							"method": {
+								"const": "kit/events/agent.turn.completed"
+							}
+						}
+					},
+					"then": {
+						"properties": {
+							"params": {
+								"$ref": "#/$defs/TurnCompletedParams"
+							}
+						}
+					}
+				}
+			]
+		},
+		"UnknownRequest": {
+			"type": "object",
+			"required": ["jsonrpc", "id", "method"],
+			"properties": {
+				"jsonrpc": {
+					"const": "2.0"
+				},
+				"id": {
+					"$ref": "#/$defs/RequestId"
+				},
+				"method": {
+					"type": "string",
+					"not": {
+						"$ref": "#/$defs/KnownMethodName"
+					}
+				},
+				"params": {
+					"$ref": "#/$defs/JsonRpcParams"
+				}
+			},
+			"additionalProperties": false
+		},
+		"UnknownNotification": {
+			"type": "object",
+			"required": ["jsonrpc", "method"],
+			"properties": {
+				"jsonrpc": {
+					"const": "2.0"
+				},
+				"method": {
+					"type": "string",
+					"not": {
+						"$ref": "#/$defs/KnownMethodName"
+					}
+				},
+				"params": {
+					"$ref": "#/$defs/JsonRpcParams"
+				}
+			},
+			"additionalProperties": false
+		},
+		"SuccessResponse": {
+			"type": "object",
+			"required": ["jsonrpc", "id", "result"],
+			"properties": {
+				"jsonrpc": {
+					"const": "2.0"
+				},
+				"id": {
+					"$ref": "#/$defs/RequestId"
+				},
+				"result": {
+					"$ref": "#/$defs/JsonValue"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ErrorObject": {
+			"type": "object",
+			"required": ["code", "message"],
+			"properties": {
+				"code": {
+					"type": "integer"
+				},
+				"message": {
+					"type": "string"
+				},
+				"data": {
+					"$ref": "#/$defs/JsonValue"
+				}
+			},
+			"additionalProperties": false
+		},
+		"ErrorResponse": {
+			"type": "object",
+			"required": ["jsonrpc", "id", "error"],
+			"properties": {
+				"jsonrpc": {
+					"const": "2.0"
+				},
+				"id": {
+					"$ref": "#/$defs/ResponseId"
+				},
+				"error": {
+					"$ref": "#/$defs/ErrorObject"
+				}
+			},
+			"additionalProperties": false
+		},
+		"SingleMessage": {
+			"oneOf": [
+				{
+					"$ref": "#/$defs/KnownRequest"
+				},
+				{
+					"$ref": "#/$defs/KnownNotification"
+				},
+				{
+					"$ref": "#/$defs/UnknownRequest"
+				},
+				{
+					"$ref": "#/$defs/UnknownNotification"
+				},
+				{
+					"$ref": "#/$defs/SuccessResponse"
+				},
+				{
+					"$ref": "#/$defs/ErrorResponse"
+				}
+			]
+		},
+		"BatchMessage": {
+			"type": "array",
+			"minItems": 1,
+			"items": {
+				"$ref": "#/$defs/SingleMessage"
+			}
+		}
+	}
+}

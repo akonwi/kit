@@ -351,6 +351,26 @@ describe("PluginManager", () => {
 		expect(clicked).toBe(true);
 	});
 
+	test("supports stable public chrome prefixes", () => {
+		const footer = createChromeContributionsController();
+		const plugin: PluginRegistration = {
+			name: "VcsStatusPlugin",
+			internalUi: true,
+			chromePrefix: "kit.footer",
+			initialize: (kit) => {
+				kit.footer.set("location", "main");
+			},
+		};
+		const context = createPluginContext([]);
+		context.footer = footer;
+		const manager = new PluginManager([plugin], context);
+
+		manager.initialize();
+		expect(footer.getContributions()[0]?.id).toBe("kit.footer.location");
+		manager.dispose();
+		expect(footer.getContributions()).toEqual([]);
+	});
+
 	test("logs chrome contribution click handler errors", async () => {
 		const footer = createChromeContributionsController();
 		const logs: unknown[][] = [];

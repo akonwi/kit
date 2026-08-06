@@ -30,6 +30,7 @@ type SelectStringInput = {
 	options: string[];
 	filterable?: boolean;
 	placeholder?: string;
+	signal?: AbortSignal;
 };
 
 type SelectValueInput<T> = {
@@ -38,6 +39,7 @@ type SelectValueInput<T> = {
 	options: Array<{ label: string; value: T; description?: string }>;
 	filterable?: boolean;
 	placeholder?: string;
+	signal?: AbortSignal;
 };
 
 type SelectInput<T> = SelectStringInput | SelectValueInput<T>;
@@ -53,6 +55,7 @@ type InputOptions = {
 	message?: string;
 	placeholder?: string;
 	initialValue?: string;
+	signal?: AbortSignal;
 };
 
 type ConfirmOptions = {
@@ -172,6 +175,18 @@ function PluginSelectOverlay(
 	function submit() {
 		props.done(filteredOptions()[selectedIndex()]?.value);
 	}
+
+	createEffect(() => {
+		const signal = props.input.signal;
+		if (!signal) return;
+		if (signal.aborted) {
+			props.done(undefined);
+			return;
+		}
+		const abort = () => props.done(undefined);
+		signal.addEventListener("abort", abort, { once: true });
+		onCleanup(() => signal.removeEventListener("abort", abort));
+	});
 
 	useBindings(() =>
 		withKitKeyAliases({
@@ -347,6 +362,18 @@ function PluginInputOverlay(
 	function submit() {
 		props.done(value());
 	}
+
+	createEffect(() => {
+		const signal = props.input.signal;
+		if (!signal) return;
+		if (signal.aborted) {
+			props.done(undefined);
+			return;
+		}
+		const abort = () => props.done(undefined);
+		signal.addEventListener("abort", abort, { once: true });
+		onCleanup(() => signal.removeEventListener("abort", abort));
+	});
 
 	useBindings(() =>
 		withKitKeyAliases({
