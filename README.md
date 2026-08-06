@@ -31,6 +31,7 @@ The packaged CLI uses the compiled binary as its non-development entry point.
 ```bash
 kit                  # resumes the most recent session for the current directory or starts a new one
 kit -p "review this" # runs in ephemeral print mode without the TUI
+kit --mode rpc       # runs as a headless JSONL subprocess
 kit -s abc123        # opens a specific session by ID (long or short id)
 kit threads          # launches a session picker
 ```
@@ -43,7 +44,8 @@ kit threads          # launches a session picker
 - settings UI and app-owned settings
 - code review tools and diff browser
 
-For feature details, see [`docs/features/`](docs/features/).
+For feature details, including the [RPC mode protocol](docs/features/rpc-mode.md),
+see [`docs/features/`](docs/features/).
 
 ## Development
 

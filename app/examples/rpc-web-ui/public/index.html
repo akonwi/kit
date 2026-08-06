@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<meta name="kit-rpc-token" content="__KIT_RPC_TOKEN__" />
+		<title>Kit RPC Bridge</title>
+		<link rel="stylesheet" href="/styles.css" />
+	</head>
+	<body>
+		<header class="app-header" role="banner">
+			<div class="brand">
+				<span class="brand-glyph">›</span>
+				<span class="brand-name">kit</span>
+				<span class="brand-mode">rpc bridge</span>
+			</div>
+			<div class="status-cluster" id="status-cluster">
+				<div class="status-item">
+					<span class="status-label">connection</span>
+					<span class="status-value" id="status-connection" data-state="disconnected">disconnected</span>
+				</div>
+				<div class="status-item">
+					<span class="status-label">agent</span>
+					<span class="status-value" id="status-agent" data-state="offline">offline</span>
+				</div>
+				<div class="status-item status-pid">
+					<span class="status-label">pid</span>
+					<span class="status-value" id="status-pid">—</span>
+				</div>
+				<button class="ghost-button" id="reconnect-button" type="button" hidden>reconnect</button>
+			</div>
+		</header>
+
+		<main class="app-main">
+			<section class="transcript" id="transcript" aria-label="transcript">
+				<div class="empty-state" id="transcript-empty">
+					<div class="wordmark">k&nbsp;&nbsp;i&nbsp;&nbsp;t</div>
+					<div class="empty-hint">no messages yet — submit a prompt to start</div>
+					<div class="empty-shortcut">press <kbd>Enter</kbd> to send, <kbd>Shift</kbd>+<kbd>Enter</kbd> for newline</div>
+				</div>
+				<ol class="message-list" id="message-list" aria-live="polite"></ol>
+			</section>
+		</main>
+
+		<section class="protocol-log" id="protocol-log" aria-label="raw protocol log">
+			<button
+				type="button"
+				class="protocol-log-toggle"
+				id="protocol-log-toggle"
+				aria-expanded="false"
+				aria-controls="protocol-log-body"
+			>
+				<span class="protocol-log-chevron" id="protocol-log-chevron">▸</span>
+				<span>raw protocol</span>
+				<span class="protocol-log-count" id="protocol-log-count">0</span>
+			</button>
+			<div class="protocol-log-body" id="protocol-log-body" hidden>
+				<div class="protocol-log-toolbar">
+					<button type="button" class="ghost-button" id="protocol-log-clear">clear</button>
+					<label class="protocol-log-filter">
+						<input type="checkbox" id="protocol-log-autoscroll" checked />
+						<span>auto-scroll</span>
+					</label>
+				</div>
+				<ol class="protocol-log-entries" id="protocol-log-entries"></ol>
+			</div>
+		</section>
+
+		<form class="composer" id="composer" aria-label="prompt composer">
+			<textarea
+				id="prompt-input"
+				class="prompt-input"
+				rows="3"
+				placeholder="ask the agent…"
+				autocomplete="off"
+				spellcheck="true"
+			></textarea>
+			<div class="composer-actions">
+				<div class="composer-meta" id="composer-meta">idle</div>
+				<div class="composer-buttons">
+					<button type="button" class="abort-button" id="abort-button" hidden>abort</button>
+					<button type="submit" class="send-button" id="send-button">send</button>
+				</div>
+			</div>
+		</form>
+
+		<script type="module" src="/app.js"></script>
+	</body>
+</html>

@@ -13,6 +13,26 @@ type RuntimeWithQueue = {
 };
 
 describe("queued message restoration", () => {
+	test("preserves queued messages while replacing turns for recovery", () => {
+		const agent = new Agent();
+		agent.steer({
+			role: "user",
+			content: "steer me",
+			timestamp: 1,
+		});
+		agent.followUp({
+			role: "user",
+			content: "follow me",
+			timestamp: 2,
+		});
+
+		agent.replaceFromTurns([]);
+
+		expect(agent.getPendingSteering()).toEqual(["steer me"]);
+		expect(agent.getPendingFollowUps()).toEqual(["follow me"]);
+		agent.dispose();
+	});
+
 	test("drains structured messages and publishes an empty queue", () => {
 		const agent = new Agent();
 		const queued = {
@@ -43,7 +63,7 @@ describe("queued message restoration", () => {
 		expect(agent.getPendingFollowUps()).toEqual([]);
 		expect(published).toEqual({
 			type: "chat.message-queue.changed",
-			payload: { count: 0, messages: [] },
+			payload: { count: 0, messages: [], steering: [] },
 		});
 	});
 });

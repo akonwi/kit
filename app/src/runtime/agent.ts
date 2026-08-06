@@ -80,8 +80,11 @@ export type ReplacedCustomMessage = {
 export type AgentEventMap = {
 	// biome-ignore lint/complexity/noBannedTypes: empty event payload
 	"agent.start": {};
-	"agent.end": { messages: AgentMessage[] };
+	"agent.end": { messages: AgentMessage[]; willRetry?: boolean };
 	"agent.turn.started": { turn: Turn };
+	// Raw Pi boundary; fires for every model/tool-loop turn.
+	// biome-ignore lint/complexity/noBannedTypes: empty event payload
+	"turn.start": {};
 	"agent.turn.ended": {
 		turn: Turn | null;
 		message: AgentMessage;
@@ -92,6 +95,7 @@ export type AgentEventMap = {
 		message: AgentMessage;
 		assistantMessageEvent: AssistantMessageEvent;
 	};
+	"message.end": { message: AgentMessage };
 	"agent.message.started": {
 		turn: Turn;
 		message: Extract<AssistantMessage, { role: "assistant" }>;
@@ -146,6 +150,8 @@ export class Agent {
 	private _turns: Turn[] = [];
 	private _currentTurn: Turn | null = null;
 	private _activeFollowUpTurn: Turn | null = null;
+	private _pendingSteering: string[] = [];
+	private _queuedSteering: AgentMessage[] = [];
 	private _pendingFollowUps: string[] = [];
 	private _queuedFollowUps: AgentMessage[] = [];
 	private nextPromptStartsNewTurn = false;
@@ -288,6 +294,11 @@ export class Agent {
 
 	steer(message: AgentMessage): void {
 		this.pi.steer(message);
+		this._queuedSteering = [...this._queuedSteering, message];
+		const text = extractPlainText(message);
+		if (text.trim()) {
+			this._pendingSteering = [...this._pendingSteering, text];
+		}
 	}
 
 	followUp(message: AgentMessage): void {
@@ -301,6 +312,8 @@ export class Agent {
 
 	clearSteeringQueue(): void {
 		this.pi.clearSteeringQueue();
+		this._queuedSteering = [];
+		this._pendingSteering = [];
 	}
 
 	clearFollowUpQueue(): void {
@@ -311,6 +324,8 @@ export class Agent {
 
 	clearAllQueues(): void {
 		this.pi.clearAllQueues();
+		this._queuedSteering = [];
+		this._pendingSteering = [];
 		this._queuedFollowUps = [];
 		this._pendingFollowUps = [];
 	}
@@ -352,6 +367,8 @@ export class Agent {
 		this._turns = [];
 		this._currentTurn = null;
 		this._activeFollowUpTurn = null;
+		this._pendingSteering = [];
+		this._queuedSteering = [];
 		this._pendingFollowUps = [];
 		this._queuedFollowUps = [];
 		this.nextPromptStartsNewTurn = false;
@@ -450,6 +467,10 @@ export class Agent {
 		return [...this._pendingFollowUps];
 	}
 
+	getPendingSteering(): string[] {
+		return [...this._pendingSteering];
+	}
+
 	drainPendingFollowUpMessages(): AgentMessage[] {
 		const drained = [...this._queuedFollowUps];
 		this.clearFollowUpQueue();
@@ -463,9 +484,9 @@ export class Agent {
 				if (this.nextPromptStartsNewTurn || this._currentTurn === null) {
 					this.nextPromptStartsNewTurn = false;
 					const turn = this.startTurn();
-					return [{ type: "agent.turn.started", turn }];
+					return [{ type: "turn.start" }, { type: "agent.turn.started", turn }];
 				}
-				return [];
+				return [{ type: "turn.start" }];
 			}
 			case "message_start": {
 				if (event.message.role !== "assistant")
@@ -521,7 +542,11 @@ export class Agent {
 				return events;
 			}
 			case "message_end": {
+				const isQueuedSteering =
+					event.message.role === "user" &&
+					this.consumeQueuedSteering(event.message);
 				const isQueuedFollowUp =
+					!isQueuedSteering &&
 					event.message.role === "user" &&
 					this.consumeQueuedFollowUp(event.message);
 				const startsFollowUpTurn =
@@ -534,6 +559,8 @@ export class Agent {
 					turnId: turn.id,
 				};
 				const isDuplicateSubmittedUser =
+					!isQueuedSteering &&
+					!isQueuedFollowUp &&
 					tagged.role === "user" &&
 					turn.messages.some(
 						(message) =>
@@ -550,9 +577,12 @@ export class Agent {
 				this._turns = this._turns.map((candidate) =>
 					candidate.id === updatedTurn.id ? updatedTurn : candidate,
 				);
-				const events: AgentEvent[] = startsFollowUpTurn
-					? [{ type: "agent.turn.started", turn: updatedTurn }]
-					: [];
+				const events: AgentEvent[] = [
+					{ type: "message.end", message: tagged },
+					...(startsFollowUpTurn
+						? [{ type: "agent.turn.started" as const, turn: updatedTurn }]
+						: []),
+				];
 				if (tagged.role === "assistant") {
 					events.push({
 						type: "agent.thinking.completed",
@@ -645,6 +675,23 @@ export class Agent {
 		}
 	}
 
+	private consumeQueuedSteering(message: AgentMessage): boolean {
+		const index = this._queuedSteering.findIndex((candidate) =>
+			isSameAgentMessage(candidate, message),
+		);
+		if (index < 0) return false;
+		this._queuedSteering = this._queuedSteering.filter(
+			(_, candidateIndex) => candidateIndex !== index,
+		);
+		const textIndex = this._pendingSteering.indexOf(extractPlainText(message));
+		if (textIndex >= 0) {
+			this._pendingSteering = this._pendingSteering.filter(
+				(_, candidateIndex) => candidateIndex !== textIndex,
+			);
+		}
+		return true;
+	}
+
 	private consumeQueuedFollowUp(message: AgentMessage): boolean {
 		const index = this._queuedFollowUps.findIndex((candidate) =>
 			isSameAgentMessage(candidate, message),
@@ -653,9 +700,12 @@ export class Agent {
 		this._queuedFollowUps = this._queuedFollowUps.filter(
 			(_, candidateIndex) => candidateIndex !== index,
 		);
-		this._pendingFollowUps = this._pendingFollowUps.filter(
-			(_, candidateIndex) => candidateIndex !== index,
-		);
+		const textIndex = this._pendingFollowUps.indexOf(extractPlainText(message));
+		if (textIndex >= 0) {
+			this._pendingFollowUps = this._pendingFollowUps.filter(
+				(_, candidateIndex) => candidateIndex !== textIndex,
+			);
+		}
 		return true;
 	}
 
@@ -748,8 +798,6 @@ export class Agent {
 		}));
 		this._currentTurn = null;
 		this._activeFollowUpTurn = null;
-		this._pendingFollowUps = [];
-		this._queuedFollowUps = [];
 		this.nextPromptStartsNewTurn = false;
 		this.toolArgsById.clear();
 		const messages = this._turns.flatMap(

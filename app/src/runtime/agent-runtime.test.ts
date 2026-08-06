@@ -30,6 +30,7 @@ describe("AgentRuntime tool exclusions", () => {
 	test("excludes configured tools while retaining other tools", () => {
 		const runtime = new AgentRuntime(runtimeSession("excluded-tools-test"), {
 			extraTools: [blockedTool, customTool],
+			disableGitWatcher: true,
 			excludedToolNames: [blockedTool.name],
 		});
 		try {
@@ -43,6 +44,7 @@ describe("AgentRuntime tool exclusions", () => {
 
 	test("keeps tools when they are not excluded", () => {
 		const runtime = new AgentRuntime(runtimeSession("included-tools-test"), {
+			disableGitWatcher: true,
 			extraTools: [blockedTool],
 		});
 		try {
@@ -68,7 +70,7 @@ describe("AgentRuntime cwd changes", () => {
 			updatedAt: timestamp,
 			turns: [],
 		};
-		const runtime = new AgentRuntime(session);
+		const runtime = new AgentRuntime(session, { disableGitWatcher: true });
 		try {
 			expect(process.cwd()).toBe(await realpath(tempRoot));
 			await runtime.changeCwd("~", "user");
@@ -95,7 +97,7 @@ describe("AgentRuntime cwd changes", () => {
 			turns: [],
 		};
 		const target = await createSession(secondDir);
-		const runtime = new AgentRuntime(session);
+		const runtime = new AgentRuntime(session, { disableGitWatcher: true });
 		const cwdEvents: string[] = [];
 		runtime.subscribe("session.active.changed.cwd", (event) => {
 			cwdEvents.push(event.cwd);
@@ -131,7 +133,7 @@ describe("AgentRuntime cwd changes", () => {
 		};
 		const target = await createSession(missingDir);
 		await rm(missingDir, { recursive: true, force: true });
-		const runtime = new AgentRuntime(session);
+		const runtime = new AgentRuntime(session, { disableGitWatcher: true });
 		try {
 			await expect(runtime.switchSession(target.id)).rejects.toThrow(
 				"Session working directory does not exist",
@@ -154,14 +156,17 @@ describe("AgentRuntime scratchpad context", () => {
 			path.join(tmpdir(), "kit-runtime-scratchpad-"),
 		);
 		const timestamp = new Date().toISOString();
-		const runtime = new AgentRuntime({
-			id: "session-scratchpad-test",
-			version: SESSION_VERSION,
-			cwd: tempRoot,
-			createdAt: timestamp,
-			updatedAt: timestamp,
-			turns: [],
-		});
+		const runtime = new AgentRuntime(
+			{
+				id: "session-scratchpad-test",
+				version: SESSION_VERSION,
+				cwd: tempRoot,
+				createdAt: timestamp,
+				updatedAt: timestamp,
+				turns: [],
+			},
+			{ disableGitWatcher: true },
+		);
 		try {
 			runtime.setScratchpadContent("Remember to check auth tests.");
 			expect(runtime.getContextFiles()).toContainEqual({
