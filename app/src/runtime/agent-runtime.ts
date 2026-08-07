@@ -138,6 +138,7 @@ export type RuntimeStatus = {
 export type RuntimeEventMap = AgentEventMap & {
 	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
 	"agent.turn.completed": { turn: Turn | null };
+	"agent.settled": Record<string, never>;
 	"session.message.appended": {
 		session: Session;
 		turn: Turn;
@@ -161,6 +162,7 @@ export type RuntimeEventMap = AgentEventMap & {
 		maxAttempts: number;
 		error: string;
 	};
+	"agent.retry.completed": { attempt: number };
 	"agent.run.failed": { error: string };
 	"session.merge.started": Record<string, never>;
 	"session.merge.ended": { error?: string };
@@ -245,7 +247,11 @@ export type RuntimeEventMap = AgentEventMap & {
 		session: Session;
 		summaryMessage: Extract<KitAgentMessage, { role: "assistant" }>;
 	};
-	"chat.message-queue.changed": { count: number; messages: string[] };
+	"chat.message-queue.changed": {
+		count: number;
+		messages: string[];
+		steering: string[];
+	};
 	"chat.followups.promoted": { count: number };
 	"settings.changed": { settings: Settings };
 	"vcs.updated": { vcs: VcsInfo };
@@ -318,6 +324,8 @@ export class AgentRuntime {
 	private recoveryPromise: Promise<void> | null = null;
 	private recoveryResolve: (() => void) | null = null;
 	private overflowRecoveryAttempted = false;
+	private runSettled = true;
+	private modelAdaptationPromise: Promise<void> = Promise.resolve();
 
 	constructor(
 		session: Session,
@@ -482,7 +490,9 @@ export class AgentRuntime {
 		const previousModel = this.lastSessionModel;
 		this.lastSessionModel = this.session.model;
 		if (previousModel !== this.session.model) {
-			void this.maybeHandleModelSwitchOverflow();
+			this.modelAdaptationPromise = this.modelAdaptationPromise.then(() =>
+				this.maybeHandleModelSwitchOverflow(),
+			);
 		}
 	}
 
@@ -510,6 +520,10 @@ export class AgentRuntime {
 		this.recoveryResolve?.();
 		this.recoveryResolve = null;
 		this.recoveryPromise = null;
+		if (!this.runSettled) {
+			this.runSettled = true;
+			this.bus.publish("agent.settled", {});
+		}
 	}
 
 	private async waitForRecovery(): Promise<void> {
@@ -547,17 +561,23 @@ export class AgentRuntime {
 
 	private createRecoveryPromiseForAgentEnd(event: AgentEvent): void {
 		if (event.type !== "agent.end" || this.recoveryPromise) return;
-		const assistant = this.findLastAssistantMessage(event.messages);
-		if (!assistant) return;
-		if (
-			this.isContextOverflowError(assistant) ||
-			(this.getRetrySettings().enabled &&
-				this.isRetryableAssistantError(assistant))
-		) {
-			this.recoveryPromise = new Promise<void>((resolve) => {
-				this.recoveryResolve = resolve;
-			});
+		this.recoveryPromise = new Promise<void>((resolve) => {
+			this.recoveryResolve = resolve;
+		});
+	}
+
+	private willRetryAgentEnd(messages: AgentMessage[]): boolean {
+		const assistant = this.findLastAssistantMessage(messages);
+		if (!assistant) return false;
+		if (this.isContextOverflowError(assistant)) {
+			return !this.overflowRecoveryAttempted;
 		}
+		const settings = this.getRetrySettings();
+		return (
+			settings.enabled &&
+			this.isRetryableAssistantError(assistant) &&
+			this.retryAttempt < settings.maxRetries
+		);
 	}
 
 	private syncPendingState() {
@@ -565,6 +585,7 @@ export class AgentRuntime {
 		this.bus.publish("chat.message-queue.changed", {
 			count: messages.length,
 			messages,
+			steering: this.agent.getPendingSteering(),
 		});
 	}
 
@@ -779,8 +800,12 @@ export class AgentRuntime {
 		if (!settings.enabled) return false;
 		this.retryAttempt += 1;
 		if (this.retryAttempt > settings.maxRetries) {
+			this.bus.publish("agent.retry.failed", {
+				attempt: settings.maxRetries,
+				maxAttempts: settings.maxRetries,
+				error: "Retry attempts exhausted.",
+			});
 			this.retryAttempt = 0;
-			this.resolveRecovery();
 			return false;
 		}
 
@@ -825,7 +850,6 @@ export class AgentRuntime {
 				].join(" "),
 			});
 			this.overflowRecoveryAttempted = false;
-			this.resolveRecovery();
 			return false;
 		}
 
@@ -847,7 +871,6 @@ export class AgentRuntime {
 					reason: "overflow",
 					error: "Not enough turns to compact.",
 				});
-				this.resolveRecovery();
 				return false;
 			}
 			this.agent.replaceFromTurns(result.turns);
@@ -876,7 +899,6 @@ export class AgentRuntime {
 				reason: "overflow",
 				error: error instanceof Error ? error.message : String(error),
 			});
-			this.resolveRecovery();
 			return false;
 		}
 	}
@@ -910,6 +932,11 @@ export class AgentRuntime {
 		this.bus.publish("agent.turn.completed", {
 			turn: this.agent.turns.at(-1) ?? null,
 		});
+		if (this.retryAttempt > 0) {
+			this.bus.publish("agent.retry.completed", {
+				attempt: this.retryAttempt,
+			});
+		}
 		this.syncPendingState();
 		this.retryAttempt = 0;
 		this.overflowRecoveryAttempted = false;
@@ -1014,7 +1041,13 @@ export class AgentRuntime {
 
 		switch (type) {
 			// Side effect before forwarding
+			case "agent.start":
+				this.runSettled = false;
+				break;
 			case "agent.turn.started":
+				this.syncPendingState();
+				break;
+			case "user.message.created":
 				this.syncPendingState();
 				break;
 
@@ -1030,13 +1063,17 @@ export class AgentRuntime {
 
 			// Complex handler — not forwarded
 			case "agent.end":
+				this.bus.publish("agent.end", {
+					messages: event.messages,
+					willRetry: this.willRetryAgentEnd(event.messages),
+				});
 				void this.finalizeAgentRun(event.messages).catch((error) => {
 					this.retryAttempt = 0;
 					this.overflowRecoveryAttempted = false;
-					this.resolveRecovery();
 					this.bus.publish("agent.run.failed", {
 						error: error instanceof Error ? error.message : String(error),
 					});
+					this.resolveRecovery();
 				});
 				return;
 		}
@@ -1330,6 +1367,7 @@ export class AgentRuntime {
 			timestamp: Date.now(),
 		};
 		this.agent.steer(msg);
+		this.syncPendingState();
 	}
 
 	drainPendingMessages(): AgentMessage[] {
@@ -1413,6 +1451,7 @@ export class AgentRuntime {
 			this.agent.state.thinkingLevel,
 		);
 		chdirIfNeeded(targetCwd);
+		this.agent.clearAllQueues();
 		this.session = nextSession;
 		this.agent.replaceFromTurns([]);
 		const restoredThinkingLevel = this.getRestoredThinkingLevel(
@@ -1458,6 +1497,7 @@ export class AgentRuntime {
 			turns: structuredClone(this.session.turns),
 		};
 
+		this.agent.clearAllQueues();
 		this.session = child;
 		this.agent.replaceFromTurns(child.turns);
 		const restoredThinkingLevel = this.getRestoredThinkingLevel(
@@ -1488,6 +1528,7 @@ export class AgentRuntime {
 		if (!target) return false;
 		await ensureCwdDirectory(target.cwd, "Session working directory");
 		chdirIfNeeded(target.cwd);
+		this.agent.clearAllQueues();
 		this.session = target;
 		this.agent.replaceFromTurns(this.session.turns);
 		const model = this.findModelById(this.session.model);
@@ -1746,6 +1787,10 @@ export class AgentRuntime {
 
 	getCurrentModel(): Model<Api> | undefined {
 		return this.agent.state.model;
+	}
+
+	async waitForModelAdaptation(): Promise<void> {
+		await this.modelAdaptationPromise;
 	}
 
 	setModel(model: Model<Api>): void {
