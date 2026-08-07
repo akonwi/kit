@@ -5,6 +5,7 @@ const { positionals, values } = parseArgs({
 	args: process.argv.slice(2),
 	options: {
 		mode: { type: "string" },
+		model: { type: "string" },
 		"no-session": { type: "boolean" },
 		print: { type: "boolean", short: "p" },
 		session: { type: "string", short: "s" },
@@ -30,6 +31,14 @@ if (values.mode === "rpc") {
 			"kit --mode rpc cannot be combined with --print, --version, or positional arguments",
 		);
 		process.exitCode = 1;
+	} else if (
+		typeof values.model === "string" &&
+		(!values.model.includes("/") ||
+			values.model.startsWith("/") ||
+			values.model.endsWith("/"))
+	) {
+		console.error("kit --mode rpc --model expects <provider>/<model-id>");
+		process.exitCode = 1;
 	} else if (values["no-session"] && values.session) {
 		console.error("kit --mode rpc cannot combine --no-session with --session");
 		process.exitCode = 1;
@@ -37,6 +46,7 @@ if (values.mode === "rpc") {
 		const { safeProcessCwd } = await import("../process-cwd");
 		const { runRpcMode } = await import("./rpc-mode");
 		process.exitCode = await runRpcMode(safeProcessCwd(), {
+			model: typeof values.model === "string" ? values.model : undefined,
 			noSession: values["no-session"] === true,
 			sessionId:
 				typeof values.session === "string" ? values.session : undefined,

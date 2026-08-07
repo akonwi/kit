@@ -7,6 +7,7 @@ stdin and stdout:
 kit --mode rpc
 kit --mode rpc --no-session
 kit --mode rpc --session <id-or-path>
+kit --mode rpc --model <provider>/<model-id>
 ```
 
 RPC mode is inspired by Pi's RPC mode and follows its command, response, and
@@ -31,6 +32,23 @@ Pi's command surface.
 RPC mode creates and persists a new Kit session by default. `--session` opens
 an existing session. `--no-session` keeps the main conversation and sub-agent
 conversations in memory.
+
+An existing session restores its saved model when that model is available.
+`--model` overrides it at startup using an exact `<provider>/<model-id>` pair:
+
+```bash
+kit --mode rpc --model openai/gpt-5.5
+kit --mode rpc --model openrouter/openai/gpt-5.5
+```
+
+Everything after the first slash is the model ID, so model IDs that contain
+slashes are supported. Only authenticated, selectable models can be chosen.
+Controllers can discover those exact IDs through the protocol:
+
+```json
+{"id":"models","type":"get_available_models"}
+{"id":"model","type":"set_model","provider":"<provider>","modelId":"<model-id>"}
+```
 
 Like print mode, RPC mode loads only headless-safe built-in plugins. User and
 project plugins and UI-only tools are not loaded.

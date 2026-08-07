@@ -55,6 +55,13 @@ describe("RPC mode CLI", () => {
 		);
 	});
 
+	test("rejects an invalid startup model selector", async () => {
+		const result = await runMain(["--mode", "rpc", "--model", "model-1"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+	});
+
 	test("rejects unknown modes", async () => {
 		const result = await runMain(["--mode", "other"]);
 		expect(result.exitCode).toBe(1);
