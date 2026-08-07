@@ -14,7 +14,7 @@ import { Dialog } from "../shell/Dialog";
 import { FULL_BLOCK, VERTICAL_LINE } from "../shell/glyphs";
 import { KeymapHintBar } from "../shell/KeymapHintBar";
 import { computeScrollbar } from "../shell/scrollbar";
-import { theme } from "../shell/theme";
+import { scrollbarStyle, syntaxStyle, theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
 
@@ -628,8 +628,14 @@ function PluginConfirmOverlay(
 					height={messageHeight()}
 					flexShrink={0}
 					scrollY
+					style={scrollbarStyle()}
 				>
-					<text fg={theme.textSecondary}>{props.input.message}</text>
+					<markdown
+						content={props.input.message ?? ""}
+						syntaxStyle={syntaxStyle()}
+						conceal
+						fg={theme.textSecondary}
+					/>
 				</scrollbox>
 			</Show>
 			<box flexGrow={1} />

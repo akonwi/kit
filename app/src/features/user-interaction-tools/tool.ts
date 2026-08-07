@@ -28,7 +28,9 @@ const confirmParameters = Type.Object({
 		description: "Short confirmation title shown to the user",
 	}),
 	message: Type.Optional(
-		Type.String({ description: "Optional confirmation details" }),
+		Type.String({
+			description: "Optional Markdown-formatted confirmation details",
+		}),
 	),
 	confirmLabel: Type.Optional(
 		Type.String({ description: "Optional label for the affirmative action" }),

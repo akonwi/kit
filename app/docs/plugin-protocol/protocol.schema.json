@@ -612,7 +612,8 @@
 					"minLength": 1
 				},
 				"message": {
-					"type": ["string", "null"]
+					"type": ["string", "null"],
+					"description": "Optional Markdown-formatted confirmation details."
 				},
 				"confirmLabel": {
 					"type": ["string", "null"]
