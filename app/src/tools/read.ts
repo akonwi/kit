@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { AgentTool } from "../runtime/agent";
 import { Type } from "../runtime/agent";
+import { defaultFileOperations, type FileOperations } from "./file-operations";
 
 const MAX_CHARS = 50_000;
 
@@ -20,7 +20,10 @@ const parameters = Type.Object({
 	),
 });
 
-export function createReadTool(cwd: string): AgentTool<typeof parameters> {
+export function createReadTool(
+	cwd: string,
+	files: FileOperations = defaultFileOperations,
+): AgentTool<typeof parameters> {
 	return {
 		name: "read",
 		label: "Read",
@@ -30,7 +33,7 @@ export function createReadTool(cwd: string): AgentTool<typeof parameters> {
 		async execute(_id, params, _signal) {
 			try {
 				const abs = resolve(cwd, params.path);
-				const raw = await readFile(abs, "utf8");
+				const raw = await files.read(abs);
 				const lines = raw.split("\n");
 
 				const start =

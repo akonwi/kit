@@ -9,7 +9,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { mutateScratchpadFile } from "./storage";
+import { ensureScratchpadFile, mutateScratchpadFile } from "./storage";
 
 const temporaryDirectories: string[] = [];
 
@@ -26,6 +26,30 @@ afterEach(() => {
 });
 
 describe("scratchpad storage", () => {
+	test("creates an empty scratchpad when the file is missing", () => {
+		const filePath = temporaryFile();
+
+		expect(mutateScratchpadFile(filePath, (current) => current)).toEqual({
+			updated: false,
+			content: "",
+		});
+		expect(readFileSync(filePath, "utf8")).toBe("");
+	});
+
+	test("does not fail startup while another process creates the file", () => {
+		const filePath = temporaryFile();
+		const lockPath = `${filePath}.lock`;
+		mkdirSync(lockPath);
+		writeFileSync(
+			path.join(lockPath, "owner.json"),
+			JSON.stringify({ pid: process.pid, token: "other-owner" }),
+			"utf8",
+		);
+
+		expect(() => ensureScratchpadFile(filePath)).not.toThrow();
+		expect(() => readFileSync(filePath, "utf8")).toThrow();
+	});
+
 	test("atomically mutates persisted content and cleans temporary state", () => {
 		const filePath = temporaryFile();
 		writeFileSync(filePath, "Existing", "utf8");

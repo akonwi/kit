@@ -12,9 +12,9 @@ export const CURRENT_RELEASE_NOTES = `
 
 ## Scratchpad
 
-- Added the approval-gated \`update_scratchpad\` tool so agents can append to or replace the active session scratchpad.
-- Added guarded atomic persistence for concurrent scratchpad updates across Kit processes.
-- Improved confirmation dialogs with abort handling and scrollable detail content.
+- Exposed each session scratchpad as a normal Markdown file that agents can modify with the standard \`read\`, \`edit\`, and \`write\` tools.
+- Kept panel edits and agent file changes synchronized without requiring a scratchpad-specific confirmation flow.
+- Added guarded atomic persistence for scratchpad panel updates across Kit processes.
 
 ## Authentication
 

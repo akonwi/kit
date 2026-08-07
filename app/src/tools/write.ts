@@ -1,7 +1,7 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import type { AgentTool } from "../runtime/agent";
 import { Type } from "../runtime/agent";
+import { defaultFileOperations, type FileOperations } from "./file-operations";
 
 // Extracted so the return type can reference `typeof parameters` instead of `AgentTool<any>`.
 const parameters = Type.Object({
@@ -11,7 +11,10 @@ const parameters = Type.Object({
 	content: Type.String({ description: "Content to write" }),
 });
 
-export function createWriteTool(cwd: string): AgentTool<typeof parameters> {
+export function createWriteTool(
+	cwd: string,
+	files: FileOperations = defaultFileOperations,
+): AgentTool<typeof parameters> {
 	return {
 		name: "write",
 		label: "Write",
@@ -21,8 +24,7 @@ export function createWriteTool(cwd: string): AgentTool<typeof parameters> {
 		async execute(_id, params, _signal) {
 			try {
 				const abs = resolve(cwd, params.path);
-				await mkdir(dirname(abs), { recursive: true });
-				await writeFile(abs, params.content, "utf8");
+				await files.write(abs, params.content);
 				const lines = params.content.split("\n").length;
 				return {
 					content: [{ type: "text", text: `Wrote ${lines} lines to ${abs}` }],

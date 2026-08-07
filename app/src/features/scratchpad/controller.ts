@@ -1,9 +1,12 @@
 import { createSignal } from "solid-js";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import {
+	ensureScratchpad,
 	mutateScratchpad,
 	readScratchpad,
+	readScratchpadFile,
 	type ScratchpadMutationResult,
+	scratchpadPath,
 	writeScratchpad,
 } from "./storage";
 
@@ -13,7 +16,9 @@ export type ScratchpadController = ReturnType<
 
 type ScratchpadStorage = {
 	read: (sessionId: string) => string;
+	readForTool?: (sessionId: string) => string;
 	write: (sessionId: string, content: string) => void;
+	ensure?: (sessionId: string) => void;
 	mutate?: (
 		sessionId: string,
 		update: (current: string) => string | null,
@@ -22,7 +27,9 @@ type ScratchpadStorage = {
 
 const defaultStorage: ScratchpadStorage = {
 	read: readScratchpad,
+	readForTool: readScratchpadFile,
 	write: writeScratchpad,
+	ensure: ensureScratchpad,
 	mutate: mutateScratchpad,
 };
 
@@ -32,14 +39,16 @@ export function createScratchpadController(
 	runtime: AgentRuntime,
 	storage: ScratchpadStorage = defaultStorage,
 ) {
-	const [content, setContentSignal] = createSignal(
-		storage.read(runtime.getSession().id),
-	);
+	const initialSessionId = runtime.getSession().id;
+	storage.ensure?.(initialSessionId);
+	const initialContent = storage.read(initialSessionId);
+	const [content, setContentSignal] = createSignal(initialContent);
 	const [draft, setDraftSignal] = createSignal(content());
 	const [editing, setEditing] = createSignal(false);
 	const [dirty, setDirty] = createSignal(false);
 	const [sessionId, setSessionId] = createSignal(runtime.getSession().id);
 	const pendingDrafts = new Map<string, string>();
+	const persistedContents = new Map([[initialSessionId, initialContent]]);
 	let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function applyContent(next: string): void {
@@ -59,18 +68,34 @@ export function createScratchpadController(
 		autosaveTimer = undefined;
 	}
 
-	function writeContent(targetSessionId: string, next: string): void {
-		storage.write(targetSessionId, next);
-	}
-
 	function persistContent(targetSessionId: string, next: string): boolean {
 		try {
-			writeContent(targetSessionId, next);
+			const expected =
+				persistedContents.get(targetSessionId) ?? storage.read(targetSessionId);
+			const result = storage.mutate
+				? storage.mutate(targetSessionId, (current) =>
+						current === expected ? next : null,
+					)
+				: (() => {
+						const current = storage.read(targetSessionId);
+						if (current !== expected && current !== next) {
+							return { updated: false, content: current };
+						}
+						if (current !== next) storage.write(targetSessionId, next);
+						return { updated: current !== next, content: next };
+					})();
+			if (!result.updated && result.content !== next) {
+				pendingDrafts.set(targetSessionId, next);
+				if (targetSessionId === sessionId()) setDirty(true);
+				return false;
+			}
+			persistedContents.set(targetSessionId, result.content);
 			if (pendingDrafts.get(targetSessionId) === next) {
 				pendingDrafts.delete(targetSessionId);
 			}
-			if (targetSessionId === sessionId())
+			if (targetSessionId === sessionId()) {
 				setDirty(pendingDrafts.has(targetSessionId));
+			}
 			return true;
 		} catch {
 			pendingDrafts.set(targetSessionId, next);
@@ -80,6 +105,7 @@ export function createScratchpadController(
 	}
 
 	function persistDraft(targetSessionId = sessionId()): boolean {
+		if (!pendingDrafts.has(targetSessionId)) return true;
 		return persistContent(targetSessionId, draft());
 	}
 
@@ -96,34 +122,119 @@ export function createScratchpadController(
 		}, AUTOSAVE_DELAY_MS);
 	}
 
-	applyContent(content());
+	function reloadContent(): void {
+		clearAutosaveTimer();
+		pendingDrafts.delete(sessionId());
+		setDirty(false);
+		const next = storage.read(sessionId());
+		persistedContents.set(sessionId(), next);
+		applyContent(next);
+		resetDraft(next);
+	}
 
-	const unsubscribe = runtime.subscribe("session.active.changed", (event) => {
-		const previousSessionId = sessionId();
-		const previousContent = dirty()
-			? (pendingDrafts.get(previousSessionId) ?? draft())
-			: editing()
-				? draft()
-				: content();
-		if (editing() || dirty() || autosaveTimer) {
-			clearAutosaveTimer();
-			persistContent(previousSessionId, previousContent);
+	function applyAtomicUpdate(
+		targetSessionId: string,
+		update: (persisted: string) => string | null,
+	): ScratchpadMutationResult | null {
+		if (targetSessionId !== sessionId()) return null;
+		const result = storage.mutate
+			? storage.mutate(targetSessionId, update)
+			: (() => {
+					const persisted = storage.read(targetSessionId);
+					const next = update(persisted);
+					if (next === null || next === persisted) {
+						return { updated: false, content: persisted };
+					}
+					storage.write(targetSessionId, next);
+					return { updated: true, content: next };
+				})();
+		persistedContents.set(targetSessionId, result.content);
+		if (!result.updated) {
+			if (!dirty() && result.content !== content()) {
+				setDraftSignal(result.content);
+				applyContent(result.content);
+				setEditing(false);
+			}
+			return result;
 		}
-		const nextSession = event.session;
-		let nextContent =
-			pendingDrafts.get(nextSession.id) ?? storage.read(nextSession.id);
-		if (
-			nextSession.parentSessionId === previousSessionId &&
-			nextContent.trim().length === 0 &&
-			previousContent.trim().length > 0
-		) {
-			nextContent = previousContent;
-			persistContent(nextSession.id, nextContent);
+		setDraftSignal(result.content);
+		clearAutosaveTimer();
+		pendingDrafts.delete(targetSessionId);
+		setDirty(false);
+		applyContent(result.content);
+		setEditing(false);
+		return result;
+	}
+
+	function flushForFileOperation(): void {
+		if ((dirty() || autosaveTimer) && !flushAutosave()) {
+			throw new Error("Could not save pending scratchpad edits.");
 		}
-		setSessionId(nextSession.id);
-		applyContent(nextContent);
-		resetDraft(nextContent);
+	}
+
+	function syncFileContent(next: string): void {
+		pendingDrafts.delete(sessionId());
+		setDirty(false);
+		setDraftSignal(next);
+		persistedContents.set(sessionId(), next);
+		applyContent(next);
+	}
+
+	applyContent(content());
+	const unregisterFileOperations = runtime.registerFileOperationHandler({
+		handles: (filePath) => filePath === scratchpadPath(sessionId()),
+		read: () => {
+			flushForFileOperation();
+			const next = (storage.readForTool ?? storage.read)(sessionId());
+			syncFileContent(next);
+			return next;
+		},
+		write: (_filePath, next) => {
+			flushForFileOperation();
+			if (!applyAtomicUpdate(sessionId(), () => next)) {
+				throw new Error("The active scratchpad changed.");
+			}
+		},
+		mutate: (_filePath, update) => {
+			flushForFileOperation();
+			const result = applyAtomicUpdate(sessionId(), update);
+			if (!result) throw new Error("The active scratchpad changed.");
+			return result;
+		},
 	});
+
+	const unsubscribeSession = runtime.subscribe(
+		"session.active.changed",
+		(event) => {
+			const previousSessionId = sessionId();
+			const previousContent = dirty()
+				? (pendingDrafts.get(previousSessionId) ?? draft())
+				: storage.read(previousSessionId);
+			if (dirty() || autosaveTimer) {
+				clearAutosaveTimer();
+				persistContent(previousSessionId, previousContent);
+			}
+			const nextSession = event.session;
+			storage.ensure?.(nextSession.id);
+			const persistedNextContent = storage.read(nextSession.id);
+			if (!pendingDrafts.has(nextSession.id)) {
+				persistedContents.set(nextSession.id, persistedNextContent);
+			}
+			let nextContent =
+				pendingDrafts.get(nextSession.id) ?? persistedNextContent;
+			if (
+				nextSession.parentSessionId === previousSessionId &&
+				nextContent.trim().length === 0 &&
+				previousContent.trim().length > 0
+			) {
+				nextContent = previousContent;
+				persistContent(nextSession.id, nextContent);
+			}
+			setSessionId(nextSession.id);
+			applyContent(nextContent);
+			resetDraft(nextContent);
+		},
+	);
 
 	return {
 		content,
@@ -147,8 +258,10 @@ export function createScratchpadController(
 			clearAutosaveTimer();
 			pendingDrafts.delete(sessionId());
 			setDirty(false);
-			resetDraft(content());
-			runtime.setScratchpadContent(content());
+			const persisted =
+				persistedContents.get(sessionId()) ?? storage.read(sessionId());
+			applyContent(persisted);
+			resetDraft(persisted);
 		},
 		autosaveDraft(): boolean {
 			const ok = flushAutosave();
@@ -157,71 +270,16 @@ export function createScratchpadController(
 			return ok;
 		},
 		flushAutosave,
-		saveDraft(): void {
-			const next = draft();
-			clearAutosaveTimer();
-			writeContent(sessionId(), next);
-			pendingDrafts.delete(sessionId());
-			setDirty(false);
-			applyContent(next);
-			setEditing(false);
-		},
-		save(next: string): void {
-			writeContent(sessionId(), next);
-			setDraftSignal(next);
-			clearAutosaveTimer();
-			pendingDrafts.delete(sessionId());
-			setDirty(false);
-			applyContent(next);
-			setEditing(false);
-		},
-		applyAtomicUpdate(
-			targetSessionId: string,
-			update: (persisted: string) => string | null,
-		): ScratchpadMutationResult | null {
-			if (targetSessionId !== sessionId()) return null;
-			const result = storage.mutate
-				? storage.mutate(targetSessionId, update)
-				: (() => {
-						const persisted = storage.read(targetSessionId);
-						const next = update(persisted);
-						if (next === null || next === persisted) {
-							return { updated: false, content: persisted };
-						}
-						storage.write(targetSessionId, next);
-						return { updated: true, content: next };
-					})();
-			if (!result.updated) {
-				if (!dirty() && result.content !== content()) {
-					setDraftSignal(result.content);
-					applyContent(result.content);
-					setEditing(false);
-				}
-				return result;
-			}
-			setDraftSignal(result.content);
-			clearAutosaveTimer();
-			pendingDrafts.delete(targetSessionId);
-			setDirty(false);
-			applyContent(result.content);
-			setEditing(false);
-			return result;
-		},
-		reload(): void {
-			clearAutosaveTimer();
-			pendingDrafts.delete(sessionId());
-			setDirty(false);
-			const next = storage.read(sessionId());
-			applyContent(next);
-			resetDraft(next);
-		},
+		applyAtomicUpdate,
+		reload: reloadContent,
 		dispose(): void {
 			clearAutosaveTimer();
-			if (editing() || dirty()) persistDraft();
+			if (dirty()) persistDraft();
 			for (const [pendingSessionId, pendingContent] of pendingDrafts) {
 				persistContent(pendingSessionId, pendingContent);
 			}
-			unsubscribe();
+			unsubscribeSession();
+			unregisterFileOperations();
 		},
 	};
 }

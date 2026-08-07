@@ -8,8 +8,6 @@ import {
 	createReleasesPlugin,
 	type ReleasesWorkspaceController,
 } from "../features/releases";
-import { createScratchpadToolPlugin } from "../features/scratchpad";
-import type { ScratchpadController } from "../features/scratchpad/controller";
 import { SessionCwdPlugin } from "../features/session-cwd";
 import { SessionNamingPlugin } from "../features/session-naming";
 import { SettingsPlugin } from "../features/settings";
@@ -44,7 +42,6 @@ export type BuiltInPluginOptions = {
 	subagentStorage?: SubagentSessionStorage;
 	subagentsWorkspace?: SubagentsWorkspaceController;
 	releasesWorkspace?: ReleasesWorkspaceController;
-	scratchpad?: ScratchpadController;
 };
 
 // Built-in plugins that are always enabled as core features.
@@ -91,15 +88,6 @@ export function createBuiltInPlugins(
 		...(options.headless
 			? []
 			: [
-					...(options.scratchpad
-						? [
-								internalPlugin(
-									createScratchpadToolPlugin({
-										controller: options.scratchpad,
-									}),
-								),
-							]
-						: []),
 					internalPlugin(PagerPlugin),
 					internalPlugin(GuidedQuestionsPlugin),
 					internalPlugin(UserInteractionToolsPlugin),

@@ -1,7 +1,7 @@
-import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { AgentTool } from "../runtime/agent";
 import { Type } from "../runtime/agent";
+import { defaultFileOperations, type FileOperations } from "./file-operations";
 
 // Legacy single-edit shape the model sometimes sends instead of the canonical {edits:[...]} shape.
 type LegacyEditParams = {
@@ -37,7 +37,10 @@ const editSchema = Type.Object({
 	),
 });
 
-export function createEditTool(cwd: string): AgentTool<typeof editSchema> {
+export function createEditTool(
+	cwd: string,
+	files: FileOperations = defaultFileOperations,
+): AgentTool<typeof editSchema> {
 	return {
 		name: "edit",
 		label: "Edit",
@@ -57,57 +60,42 @@ export function createEditTool(cwd: string): AgentTool<typeof editSchema> {
 							edits: [{ oldText: legacy.oldText, newText: legacy.newText }],
 						}
 					: (raw as CanonicalEditParams);
+			const abs = resolve(cwd, params.path);
+			const errors: string[] = [];
 			try {
-				const abs = resolve(cwd, params.path);
-				const original = await readFile(abs, "utf8");
-
-				// Validate all edits against original before applying any
-				const errors: string[] = [];
-				for (let i = 0; i < params.edits.length; i++) {
-					const { oldText } = params.edits[i];
-					const count = original.split(oldText).length - 1;
-					if (count === 0) {
-						errors.push(`edits[${i}]: oldText not found in file`);
-					} else if (count > 1) {
-						errors.push(
-							`edits[${i}]: oldText matches ${count} locations — must be unique`,
-						);
-					}
-				}
-
-				if (errors.length > 0) {
-					return {
-						content: [{ type: "text", text: `Error:\n${errors.join("\n")}` }],
-						details: { path: abs, applied: 0, errors },
-					};
-				}
-
-				// Check for overlaps: no oldText should contain another
-				for (let i = 0; i < params.edits.length; i++) {
-					for (let j = 0; j < params.edits.length; j++) {
-						if (i === j) continue;
-						if (params.edits[i].oldText.includes(params.edits[j].oldText)) {
+				await files.mutate(abs, (original) => {
+					// Validate all edits against original before applying any.
+					for (let i = 0; i < params.edits.length; i++) {
+						const { oldText } = params.edits[i];
+						const count = original.split(oldText).length - 1;
+						if (count === 0) {
+							errors.push(`edits[${i}]: oldText not found in file`);
+						} else if (count > 1) {
 							errors.push(
-								`edits[${i}] and edits[${j}] overlap — merge them into one edit`,
+								`edits[${i}]: oldText matches ${count} locations — must be unique`,
 							);
 						}
 					}
-				}
 
-				if (errors.length > 0) {
-					return {
-						content: [{ type: "text", text: `Error:\n${errors.join("\n")}` }],
-						details: { path: abs, applied: 0, errors },
-					};
-				}
+					// Check for overlaps: no oldText should contain another.
+					for (let i = 0; i < params.edits.length; i++) {
+						for (let j = 0; j < params.edits.length; j++) {
+							if (i === j) continue;
+							if (params.edits[i].oldText.includes(params.edits[j].oldText)) {
+								errors.push(
+									`edits[${i}] and edits[${j}] overlap — merge them into one edit`,
+								);
+							}
+						}
+					}
+					if (errors.length > 0) throw new Error("Invalid edits");
 
-				// Apply all edits to the original (not incrementally)
-				let result = original;
-				for (const { oldText, newText } of params.edits) {
-					result = result.replace(oldText, newText);
-				}
-
-				await writeFile(abs, result, "utf8");
+					let result = original;
+					for (const { oldText, newText } of params.edits) {
+						result = result.replace(oldText, newText);
+					}
+					return result;
+				});
 
 				return {
 					content: [
@@ -119,6 +107,12 @@ export function createEditTool(cwd: string): AgentTool<typeof editSchema> {
 					details: { path: abs, applied: params.edits.length, errors: [] },
 				};
 			} catch (err) {
+				if (errors.length > 0) {
+					return {
+						content: [{ type: "text", text: `Error:\n${errors.join("\n")}` }],
+						details: { path: abs, applied: 0, errors },
+					};
+				}
 				const msg = err instanceof Error ? err.message : String(err);
 				return {
 					content: [{ type: "text", text: `Error: ${msg}` }],

@@ -21,16 +21,5 @@ describe("createBuiltInPlugins", () => {
 		expect(names).not.toContain("NotificationsPlugin");
 		expect(names).not.toContain("SessionNamingPlugin");
 		expect(names).not.toContain("SettingsPlugin");
-		expect(names).not.toContain("ScratchpadToolPlugin");
-	});
-
-	test("includes the scratchpad tool when an interactive controller is provided", () => {
-		const plugins = createBuiltInPlugins({ runtime: {} } as PluginContext, {
-			scratchpad: {} as never,
-		});
-
-		expect(plugins.map((plugin) => plugin.name)).toContain(
-			"ScratchpadToolPlugin",
-		);
 	});
 });

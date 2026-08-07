@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { Session } from "../../session";
 import { SESSION_VERSION } from "../../session";
+import type { FileOperationHandler } from "../../tools";
 import { createScratchpadController } from "./controller";
+import { scratchpadPath } from "./storage";
 
 function session(id: string, parentSessionId?: string): Session {
 	return {
@@ -15,7 +17,7 @@ function session(id: string, parentSessionId?: string): Session {
 	};
 }
 
-type FakeSessionEvent =
+type FakeEvent =
 	| { type: "session.active.changed"; session: Session }
 	| {
 			type: "session.active.changed.cwd";
@@ -27,11 +29,11 @@ type FakeSessionEvent =
 
 function createFakeRuntime(initial: Session) {
 	let current = initial;
-	let listener: ((event: FakeSessionEvent) => void) | undefined;
-	let subscribedEvent: string | undefined;
+	const listeners = new Map<string, Set<(event: FakeEvent) => void>>();
 	const contextUpdates: string[] = [];
-	function publish(event: FakeSessionEvent): void {
-		if (subscribedEvent === event.type) listener?.(event);
+	let fileHandler: FileOperationHandler | undefined;
+	function publish(event: FakeEvent): void {
+		for (const listener of listeners.get(event.type) ?? []) listener(event);
 	}
 	return {
 		runtime: {
@@ -39,12 +41,16 @@ function createFakeRuntime(initial: Session) {
 			setScratchpadContent: (content: string) => {
 				contextUpdates.push(content);
 			},
-			subscribe: (eventName: string, nextListener: typeof listener) => {
-				subscribedEvent = eventName;
-				listener = nextListener;
+			subscribe: (eventName: string, listener: (event: FakeEvent) => void) => {
+				const eventListeners = listeners.get(eventName) ?? new Set();
+				eventListeners.add(listener);
+				listeners.set(eventName, eventListeners);
+				return () => eventListeners.delete(listener);
+			},
+			registerFileOperationHandler: (handler: FileOperationHandler) => {
+				fileHandler = handler;
 				return () => {
-					listener = undefined;
-					subscribedEvent = undefined;
+					if (fileHandler === handler) fileHandler = undefined;
 				};
 			},
 		},
@@ -61,6 +67,10 @@ function createFakeRuntime(initial: Session) {
 				previousCwd: "/tmp/previous",
 				source: "user",
 			});
+		},
+		fileOperations() {
+			if (!fileHandler) throw new Error("File handler not registered");
+			return fileHandler;
 		},
 	};
 }
@@ -122,6 +132,30 @@ describe("createScratchpadController", () => {
 		controller.dispose();
 	});
 
+	test("does not persist a clean editor when switching sessions", () => {
+		const fake = createFakeRuntime(session("parent"));
+		const files = new Map([
+			["parent", "saved notes"],
+			["other", "other notes"],
+		]);
+		let writes = 0;
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: (id) => files.get(id) ?? "",
+			write: (id, content) => {
+				writes += 1;
+				files.set(id, content);
+			},
+		});
+
+		controller.enterEdit();
+		files.set("parent", "external notes");
+		fake.switchSession(session("other"));
+
+		expect(writes).toBe(0);
+		expect(files.get("parent")).toBe("external notes");
+		expect(controller.content()).toBe("other notes");
+	});
+
 	test("flushes a pending debounced save to the previous session on switch", () => {
 		const fake = createFakeRuntime(session("parent"));
 		const files = new Map([
@@ -175,6 +209,124 @@ describe("createScratchpadController", () => {
 		expect(controller.dirty()).toBe(false);
 	});
 
+	test("flushes user edits and applies normal tool changes atomically", async () => {
+		const fake = createFakeRuntime(session("parent"));
+		const files = new Map([["parent", "saved notes"]]);
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: (id) => files.get(id) ?? "",
+			write: (id, content) => files.set(id, content),
+			mutate: (id, update) => {
+				const current = files.get(id) ?? "";
+				const next = update(current);
+				if (next === null || next === current) {
+					return { updated: false, content: current };
+				}
+				files.set(id, next);
+				return { updated: true, content: next };
+			},
+		});
+		const filePath = scratchpadPath("parent");
+
+		controller.enterEdit();
+		controller.setDraft("user draft");
+		const result = await fake
+			.fileOperations()
+			.mutate(filePath, (current) => `${current}\nagent edit`);
+
+		expect(result.content).toBe("user draft\nagent edit");
+		expect(files.get("parent")).toBe("user draft\nagent edit");
+		expect(controller.content()).toBe("user draft\nagent edit");
+		expect(controller.draft()).toBe("user draft\nagent edit");
+		expect(controller.dirty()).toBe(false);
+		expect(fake.contextUpdates.at(-1)).toBe("user draft\nagent edit");
+	});
+
+	test("preserves conflicting panel edits instead of overwriting the file", () => {
+		const fake = createFakeRuntime(session("parent"));
+		const files = new Map([["parent", "saved notes"]]);
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: (id) => files.get(id) ?? "",
+			write: (id, content) => files.set(id, content),
+			mutate: (id, update) => {
+				const current = files.get(id) ?? "";
+				const next = update(current);
+				if (next === null || next === current) {
+					return { updated: false, content: current };
+				}
+				files.set(id, next);
+				return { updated: true, content: next };
+			},
+		});
+
+		controller.enterEdit();
+		controller.setDraft("user draft");
+		files.set("parent", "external notes");
+
+		expect(controller.flushAutosave()).toBe(false);
+		expect(files.get("parent")).toBe("external notes");
+		expect(controller.draft()).toBe("user draft");
+		expect(controller.dirty()).toBe(true);
+
+		fake.switchSession(session("other"));
+		fake.switchSession(session("parent"));
+		expect(controller.flushAutosave()).toBe(false);
+		expect(files.get("parent")).toBe("external notes");
+		expect(controller.draft()).toBe("user draft");
+		expect(controller.dirty()).toBe(true);
+	});
+
+	test("reads external changes without rewriting a clean editor draft", async () => {
+		const fake = createFakeRuntime(session("parent"));
+		const files = new Map([["parent", "saved notes"]]);
+		let writes = 0;
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: (id) => files.get(id) ?? "",
+			readForTool: (id) => files.get(id) ?? "",
+			write: (id, content) => {
+				writes += 1;
+				files.set(id, content);
+			},
+		});
+
+		controller.enterEdit();
+		files.set("parent", "external notes");
+		const content = await fake.fileOperations().read(scratchpadPath("parent"));
+
+		expect(content).toBe("external notes");
+		expect(writes).toBe(0);
+		expect(controller.content()).toBe("external notes");
+		expect(controller.draft()).toBe("external notes");
+		expect(controller.editing()).toBe(true);
+		expect(fake.contextUpdates.at(-1)).toBe("external notes");
+	});
+
+	test("preserves a pending draft when pre-operation persistence fails", () => {
+		const fake = createFakeRuntime(session("parent"));
+		let mutations = 0;
+		const controller = createScratchpadController(fake.runtime as never, {
+			read: () => "saved notes",
+			write: () => {
+				throw new Error("disk full");
+			},
+			mutate: () => {
+				mutations += 1;
+				throw new Error("disk full");
+			},
+		});
+
+		controller.enterEdit();
+		controller.setDraft("unsaved draft");
+
+		expect(() =>
+			fake
+				.fileOperations()
+				.mutate(scratchpadPath("parent"), () => "agent edit"),
+		).toThrow("Could not save pending scratchpad edits");
+		expect(mutations).toBe(1);
+		expect(controller.draft()).toBe("unsaved draft");
+		expect(controller.dirty()).toBe(true);
+	});
+
 	test("syncs clean controller state after an atomic update is rejected", () => {
 		const fake = createFakeRuntime(session("parent"));
 		const controller = createScratchpadController(fake.runtime as never, {
@@ -189,21 +341,6 @@ describe("createScratchpadController", () => {
 		expect(controller.content()).toBe("external notes");
 		expect(controller.draft()).toBe("external notes");
 		expect(fake.contextUpdates.at(-1)).toBe("external notes");
-	});
-
-	test("keeps controller state unchanged when an immediate save fails", () => {
-		const fake = createFakeRuntime(session("parent"));
-		const controller = createScratchpadController(fake.runtime as never, {
-			read: () => "saved notes",
-			write: () => {
-				throw new Error("disk full");
-			},
-		});
-
-		expect(() => controller.save("replacement")).toThrow("disk full");
-		expect(controller.content()).toBe("saved notes");
-		expect(controller.draft()).toBe("saved notes");
-		expect(controller.dirty()).toBe(false);
 	});
 
 	test("copies current scratchpad content into forked child sessions", () => {

@@ -1,14 +1,12 @@
 # Scratchpad
 
-The scratchpad is a persistent, session-scoped notes editor in the shell's secondary workspace panel. Its contents are included as read-only context for agent turns and autosaved through the scratchpad controller.
+The scratchpad is a persistent, session-scoped Markdown file shown in the shell's secondary workspace panel. Its contents and absolute file path are included as context for agent turns, and edits made in the panel are autosaved through the scratchpad controller.
 
 ## Agent updates
 
-Interactive agents can propose changes with the built-in `update_scratchpad` tool. The tool supports appending content (the default) or replacing the complete scratchpad, including clearing it. Every effective change opens a scrollable confirmation showing the exact proposed content and defaults to keeping the current scratchpad. The controller saves the change only after the user approves it.
+The active scratchpad is stored at `~/.kit/sessions/<session-id>.scratchpad.md`. Interactive agents use the normal `read`, `edit`, and `write` tools to modify it; there is no scratchpad-specific update tool or confirmation step. The context supplied to the agent exactly matches the file so targeted `edit` operations can safely replace existing text without rewriting the whole scratchpad.
 
-Agent-proposed updates are limited to a 32,000-character resulting scratchpad. Approved appends rebase onto edits made while approval is open; replacements are rejected if the scratchpad changed. Session switches, cancelled turns, and plugin reloads cancel pending updates.
-
-The tool is unavailable in headless mode because approval requires the terminal UI. Agents should use it only for information worth retaining across later turns in the current session; the tool handles approval itself, so a separate confirmation is unnecessary.
+The controller creates the file even when the scratchpad is empty. Normal file operations targeting it are routed through the scratchpad's guarded mutation layer: pending panel edits are flushed first, and successful reads or writes immediately synchronize the panel and subsequent agent context. Session forks continue to copy the parent scratchpad into an empty child scratchpad.
 
 ## Responsive behavior
 

@@ -8,6 +8,7 @@ import {
 	SESSION_VERSION,
 	type Session,
 } from "../session";
+import { scratchpadPath } from "../storage/session-sidecars";
 import type { AgentTool } from "./agent";
 import { AgentRuntime, isRetryableProviderErrorMessage } from "./agent-runtime";
 
@@ -150,7 +151,7 @@ describe("AgentRuntime cwd changes", () => {
 });
 
 describe("AgentRuntime scratchpad context", () => {
-	test("includes non-empty scratchpad content with approved-update guidance", async () => {
+	test("exposes the scratchpad as an editable context file", async () => {
 		const originalCwd = process.cwd();
 		const tempRoot = await mkdtemp(
 			path.join(tmpdir(), "kit-runtime-scratchpad-"),
@@ -168,18 +169,17 @@ describe("AgentRuntime scratchpad context", () => {
 			{ disableGitWatcher: true },
 		);
 		try {
+			const filePath = scratchpadPath("session-scratchpad-test");
 			runtime.setScratchpadContent("Remember to check auth tests.");
 			expect(runtime.getContextFiles()).toContainEqual({
-				path: "<scratchpad>",
-				content:
-					"User scratchpad notes. Do not edit them directly; propose approved changes with update_scratchpad when that tool is available.\n\nRemember to check auth tests.",
+				path: filePath,
+				content: "Remember to check auth tests.",
 			});
-			runtime.setScratchpadContent("   ");
-			expect(
-				runtime
-					.getContextFiles()
-					.some((contextFile) => contextFile.path === "<scratchpad>"),
-			).toBe(false);
+			runtime.setScratchpadContent("");
+			expect(runtime.getContextFiles()).toContainEqual({
+				path: filePath,
+				content: "",
+			});
 		} finally {
 			process.chdir(originalCwd);
 			runtime.dispose();

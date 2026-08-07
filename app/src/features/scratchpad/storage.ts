@@ -128,9 +128,13 @@ function withScratchpadLock<T>(filePath: string, operation: () => T): T {
 	throw new Error("Could not acquire the scratchpad lock.");
 }
 
+export function readScratchpadFile(sessionId: string): string {
+	return readFileSync(scratchpadPath(sessionId), "utf8");
+}
+
 export function readScratchpad(sessionId: string): string {
 	try {
-		return readFile(scratchpadPath(sessionId));
+		return readScratchpadFile(sessionId);
 	} catch {
 		return "";
 	}
@@ -141,13 +145,14 @@ export function mutateScratchpadFile(
 	update: (current: string) => string | null,
 ): ScratchpadMutationResult {
 	return withScratchpadLock(filePath, () => {
+		const fileExists = existsSync(filePath);
 		const current = readFile(filePath);
 		const next = update(current);
-		if (next === null || next === current) {
+		if (next === null || (next === current && fileExists)) {
 			return { updated: false, content: current };
 		}
 		replaceFile(filePath, next);
-		return { updated: true, content: next };
+		return { updated: next !== current, content: next };
 	});
 }
 
@@ -157,6 +162,27 @@ export function mutateScratchpad(
 ): ScratchpadMutationResult {
 	mkdirSync(SESSIONS_DIR, { recursive: true });
 	return mutateScratchpadFile(scratchpadPath(sessionId), update);
+}
+
+export function ensureScratchpadFile(filePath: string): void {
+	if (existsSync(filePath)) return;
+	try {
+		mutateScratchpadFile(filePath, (current) => current);
+	} catch (error) {
+		if (existsSync(filePath)) return;
+		if (
+			error instanceof Error &&
+			error.message === "Scratchpad is being updated by another Kit process."
+		) {
+			return;
+		}
+		throw error;
+	}
+}
+
+export function ensureScratchpad(sessionId: string): void {
+	mkdirSync(SESSIONS_DIR, { recursive: true });
+	ensureScratchpadFile(scratchpadPath(sessionId));
 }
 
 export function writeScratchpad(sessionId: string, content: string): void {

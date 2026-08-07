@@ -28,7 +28,13 @@ import {
 } from "../session";
 import type { KitAgentMessage, Turn } from "../session/types";
 import { resolveRetrySettings, type Settings } from "../settings";
-import { createDefaultTools } from "../tools";
+import { scratchpadPath } from "../storage/session-sidecars";
+import {
+	createDefaultTools,
+	defaultFileOperations,
+	type FileOperationHandler,
+	type FileOperations,
+} from "../tools";
 import { runBash } from "../tools/run-bash";
 import {
 	Agent,
@@ -309,6 +315,27 @@ export class AgentRuntime {
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private scratchpadContent = "";
+	private scratchpadEnabled = false;
+	private fileOperationHandlers = new Set<FileOperationHandler>();
+	private fileOperations: FileOperations = {
+		read: async (filePath) => {
+			const handler = this.findFileOperationHandler(filePath);
+			return handler
+				? await handler.read(filePath)
+				: defaultFileOperations.read(filePath);
+		},
+		write: async (filePath, content) => {
+			const handler = this.findFileOperationHandler(filePath);
+			if (handler) await handler.write(filePath, content);
+			else await defaultFileOperations.write(filePath, content);
+		},
+		mutate: async (filePath, update) => {
+			const handler = this.findFileOperationHandler(filePath);
+			return handler
+				? await handler.mutate(filePath, update)
+				: defaultFileOperations.mutate(filePath, update);
+		},
+	};
 	private debugSections = new Map<string, string[]>();
 	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
 	private gitWatcher: VcsInfoWatcher | null = null;
@@ -414,24 +441,23 @@ export class AgentRuntime {
 	}
 
 	private getEffectiveContextFiles(): ContextFile[] {
-		const scratchpad = this.scratchpadContent.trim();
-		if (!scratchpad) return this.contextFiles;
+		if (!this.scratchpadEnabled) return this.contextFiles;
 		return [
 			...this.contextFiles,
 			{
-				path: "<scratchpad>",
-				content: [
-					"User scratchpad notes. Do not edit them directly; propose approved changes with update_scratchpad when that tool is available.",
-					"",
-					this.scratchpadContent,
-				].join("\n"),
+				path: scratchpadPath(this.session.id),
+				content: this.scratchpadContent,
 			},
 		];
 	}
 
 	private getEffectiveSystemPrompt(): string {
+		const scratchpadGuidance = this.scratchpadEnabled
+			? `The active session scratchpad is the Markdown file at ${scratchpadPath(this.session.id)}. Its contents are included in context. Use the normal read, edit, and write tools to modify it.`
+			: "";
 		const basePrompt = [
 			DEFAULT_SYSTEM_PROMPT,
+			scratchpadGuidance,
 			...this.systemPromptAdditions,
 			...this.systemPromptSlots.map((slot) => slot.text),
 		]
@@ -440,11 +466,19 @@ export class AgentRuntime {
 		return buildSystemPrompt(basePrompt, this.getEffectiveContextFiles());
 	}
 
+	private findFileOperationHandler(
+		filePath: string,
+	): FileOperationHandler | undefined {
+		return [...this.fileOperationHandlers].find((handler) =>
+			handler.handles(filePath),
+		);
+	}
+
 	private getEffectiveTools(): AgentTool[] {
 		const tools: AgentTool[] = [];
 		const seen = new Set<string>();
 		for (const tool of [
-			...createDefaultTools(this.session.cwd),
+			...createDefaultTools(this.session.cwd, this.fileOperations),
 			...this.extraTools,
 		]) {
 			if (this.excludedToolNames.has(tool.name)) continue;
@@ -1404,8 +1438,14 @@ export class AgentRuntime {
 	}
 
 	setScratchpadContent(content: string): void {
+		this.scratchpadEnabled = true;
 		this.scratchpadContent = content;
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+	}
+
+	registerFileOperationHandler(handler: FileOperationHandler): () => void {
+		this.fileOperationHandlers.add(handler);
+		return () => this.fileOperationHandlers.delete(handler);
 	}
 
 	/**
