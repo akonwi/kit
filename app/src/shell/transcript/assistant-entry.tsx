@@ -20,7 +20,8 @@ import {
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
 } from "../glyphs";
-import { syntaxStyle, theme } from "../theme";
+import { KitMarkdown } from "../KitMarkdown";
+import { theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
 import { DrawerChip } from "./drawer-chip";
@@ -568,10 +569,8 @@ export function FlatAssistantEntry(props: {
 			width="100%"
 		>
 			<Show when={hasText()}>
-				<markdown
+				<KitMarkdown
 					content={text()}
-					syntaxStyle={syntaxStyle()}
-					conceal
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 				/>
 			</Show>
@@ -663,10 +662,8 @@ export function AssistantEntry(props: {
 				/>
 			</Show>
 			<Show when={hasText}>
-				<markdown
+				<KitMarkdown
 					content={text}
-					syntaxStyle={syntaxStyle()}
-					conceal
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 				/>
 			</Show>

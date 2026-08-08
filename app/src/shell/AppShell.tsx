@@ -8,6 +8,11 @@ import {
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
 import {
+	MERMAID_PREVIEW_MIN_COLS,
+	MermaidPreviewPanel,
+} from "../features/mermaid-preview/MermaidPreviewPanel";
+import { registerMermaidPreviewHandler } from "../features/mermaid-preview/requests";
+import {
 	RELEASE_NOTES_MIN_COLS,
 	ReleaseNotesPanel,
 	type ReleasesWorkspaceController,
@@ -84,6 +89,7 @@ const REVIEW_MIN_COLS = 60;
 
 type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
+	| { kind: "mermaid"; source: string }
 	| { kind: "review" }
 	| { kind: "releases" }
 	| { kind: "scratchpad" }
@@ -268,6 +274,19 @@ function AppShellContent(props: AppShellContentProps) {
 			isEditableReviewPane(secondary.returnPane)
 		);
 	};
+	const isMermaidPane = (pane: WorkspacePane | null | undefined) =>
+		pane?.kind === "mermaid";
+	const mermaidSource = () => {
+		const pane = openSecondaryPane();
+		return pane?.kind === "mermaid" ? pane.source : null;
+	};
+	const retainedMermaidSource = () => {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return null;
+		if (isMermaidPane(secondary.pane)) return secondary.pane.source;
+		if (isMermaidPane(secondary.returnPane)) return secondary.returnPane.source;
+		return null;
+	};
 	const isReleasesPane = (pane: WorkspacePane | null | undefined) =>
 		pane?.kind === "releases";
 	const releasesOpen = () => isReleasesPane(openSecondaryPane());
@@ -311,11 +330,13 @@ function AppShellContent(props: AppShellContentProps) {
 	const secondaryPaneVisible = () =>
 		editableReviewOpen() ||
 		activitySource() !== null ||
+		mermaidSource() !== null ||
 		releasesOpen() ||
 		scratchpadOpen() ||
 		subagentsOpen();
 	const secondaryPaneMinColumns = () => {
 		const pane = openSecondaryPane();
+		if (pane?.kind === "mermaid") return MERMAID_PREVIEW_MIN_COLS;
 		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
 		if (pane?.kind === "review") return REVIEW_MIN_COLS;
 		if (pane?.kind === "releases") return RELEASE_NOTES_MIN_COLS;
@@ -336,6 +357,7 @@ function AppShellContent(props: AppShellContentProps) {
 		}) === null;
 	const secondaryPaneLabel = () => {
 		if (activitySource() !== null) return "Activity";
+		if (mermaidSource() !== null) return "Diagram";
 		if (releasesOpen()) return "Release notes";
 		if (scratchpadOpen()) return "Scratchpad";
 		if (subagentsOpen()) return "Sub-agents";
@@ -370,7 +392,8 @@ function AppShellContent(props: AppShellContentProps) {
 			}
 			if (
 				secondary.pane.kind === "review" ||
-				secondary.pane.kind === "activity"
+				secondary.pane.kind === "activity" ||
+				secondary.pane.kind === "mermaid"
 			) {
 				workspace.clearSecondary();
 			}
@@ -432,6 +455,42 @@ function AppShellContent(props: AppShellContentProps) {
 		focusSecondarySurface();
 	};
 
+	function openMermaidPreview(source: string): void {
+		const current = openSecondaryPane();
+		if (current?.kind === "mermaid" && current.source === source) {
+			focusSecondarySurface();
+			return;
+		}
+		saveScratchpadDraftIfEditing();
+		if (current?.kind === "mermaid") {
+			const secondary = workspaceState().secondary;
+			if (secondary.status === "open" && secondary.returnPane) {
+				workspace.replaceSecondary(
+					{ kind: "mermaid", source },
+					{ focus: "secondary" },
+				);
+			} else {
+				workspace.openSecondary(
+					{ kind: "mermaid", source },
+					{ focus: "secondary" },
+				);
+			}
+		} else if (current) {
+			workspace.pushSecondary(
+				{ kind: "mermaid", source },
+				{ focus: "secondary" },
+			);
+		} else {
+			workspace.openSecondary(
+				{ kind: "mermaid", source },
+				{ focus: "secondary" },
+			);
+		}
+		focusSecondarySurface();
+	}
+
+	onCleanup(registerMermaidPreviewHandler(openMermaidPreview));
+
 	function closeTemporaryPanel(): void {
 		if (!workspace.popSecondary({ focus: "secondary" })) {
 			workspace.minimizeSecondary();
@@ -443,6 +502,10 @@ function AppShellContent(props: AppShellContentProps) {
 	}
 
 	function closeActivityPanel(): void {
+		closeTemporaryPanel();
+	}
+
+	function closeMermaidPreview(): void {
 		closeTemporaryPanel();
 	}
 
@@ -886,6 +949,41 @@ function AppShellContent(props: AppShellContentProps) {
 										}
 										onClose={closeActivityPanel}
 										onFocusRequest={focusSecondarySurface}
+									/>
+								</box>
+							)}
+						</Show>
+						<Show keyed when={retainedMermaidSource()}>
+							{(source) => (
+								<box
+									position="absolute"
+									left={mermaidSource() !== null ? 0 : -1000}
+									top={0}
+									width="100%"
+									height="100%"
+								>
+									<MermaidPreviewPanel
+										source={source}
+										active={
+											mermaidSource() !== null &&
+											props.overlays().length === 0 &&
+											chromeOverflow() === null &&
+											!props.controller.picker.visible &&
+											!props.controller.commandPalette.visible &&
+											focusedSurface() === "secondary"
+										}
+										onClose={closeMermaidPreview}
+										onFocusRequest={focusSecondarySurface}
+										onActionError={(error) =>
+											props.showToast({
+												title: "Could not open diagram",
+												subtitle:
+													error instanceof Error
+														? error.message
+														: String(error),
+												variant: "error",
+											})
+										}
 									/>
 								</box>
 							)}

@@ -294,6 +294,62 @@ export const KEYBINDING_REGISTRY = {
 			hint: "close",
 		},
 	},
+	"mermaid-preview": {
+		"open-external": {
+			defaultKeys: "o",
+			desc: "Open Mermaid preview externally",
+			group: "mermaid-preview",
+			hint: "open externally",
+		},
+		"zoom-in": {
+			defaultKeys: ["+", "shift+="],
+			desc: "Zoom in on Mermaid preview",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		"zoom-out": {
+			defaultKeys: "-",
+			desc: "Zoom out on Mermaid preview",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		"reset-zoom": {
+			defaultKeys: "0",
+			desc: "Reset Mermaid preview zoom",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		"pan-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Pan Mermaid preview up",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		"pan-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Pan Mermaid preview down",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		"pan-left": {
+			defaultKeys: ["left", "h"],
+			desc: "Pan Mermaid preview left",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		"pan-right": {
+			defaultKeys: ["right", "l"],
+			desc: "Pan Mermaid preview right",
+			group: "mermaid-preview",
+			hint: false,
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Close Mermaid preview",
+			group: "mermaid-preview",
+			hint: "close",
+		},
+	},
 	"release-notes": {
 		"open-latest": {
 			defaultKeys: "o",

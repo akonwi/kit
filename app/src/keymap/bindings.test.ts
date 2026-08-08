@@ -98,6 +98,39 @@ function collectBindings(
 }
 
 describe("createConfiguredBindings", () => {
+	test("matches both plus-key representations but not unshifted equals", () => {
+		const { keymap, press } = createDispatchableTestKeymap();
+		let calls = 0;
+		keymap.registerLayer({
+			commands: [
+				{
+					name: "mermaid-preview.zoom-in",
+					run: () => {
+						calls += 1;
+					},
+				},
+			],
+			bindings: createConfiguredBindings(
+				keymap,
+				[
+					{
+						cmd: "mermaid-preview.zoom-in",
+						key: ["+", "shift+="],
+						desc: "Zoom in",
+					},
+				],
+				undefined,
+			),
+		});
+
+		press({ name: "=" });
+		expect(calls).toBe(0);
+		press({ name: "+" });
+		expect(calls).toBe(1);
+		press({ name: "=", shift: true });
+		expect(calls).toBe(2);
+	});
+
 	test("keeps the first binding when two commands use the same key", () => {
 		const result = collectBindings([
 			{ cmd: "first", key: "ctrl+p", desc: "First" },

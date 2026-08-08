@@ -13,8 +13,9 @@ import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
 import { Dialog } from "../shell/Dialog";
 import { FULL_BLOCK, VERTICAL_LINE } from "../shell/glyphs";
 import { KeymapHintBar } from "../shell/KeymapHintBar";
+import { KitMarkdown } from "../shell/KitMarkdown";
 import { computeScrollbar } from "../shell/scrollbar";
-import { scrollbarStyle, syntaxStyle, theme } from "../shell/theme";
+import { scrollbarStyle, theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
 
@@ -630,10 +631,8 @@ function PluginConfirmOverlay(
 					scrollY
 					style={scrollbarStyle()}
 				>
-					<markdown
+					<KitMarkdown
 						content={props.input.message ?? ""}
-						syntaxStyle={syntaxStyle()}
-						conceal
 						fg={theme.textSecondary}
 					/>
 				</scrollbox>

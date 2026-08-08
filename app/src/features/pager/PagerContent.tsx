@@ -4,10 +4,11 @@ import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { Binding } from "../../shell/HintBar";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
+import { KitMarkdown } from "../../shell/KitMarkdown";
 import { MessageComposer } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import type { PagerController } from "./pager-controller";
 
 const EDIT_PREFIX_BINDINGS: Binding[] = [
@@ -187,10 +188,8 @@ export function PagerContent(props: PagerContentProps) {
 								<b>{pager.currentSection?.sectionTitle}</b>
 							</text>
 						</Show>
-						<markdown
+						<KitMarkdown
 							content={pager.currentSection?.body ?? ""}
-							syntaxStyle={syntaxStyle()}
-							conceal
 							fg={theme.textPrimary}
 						/>
 					</box>

@@ -1,7 +1,8 @@
 import { createSignal, onCleanup, Show } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import { KitMarkdown } from "./KitMarkdown";
 import { Spinner } from "./Spinner";
-import { syntaxStyle, theme } from "./theme";
+import { theme } from "./theme";
 
 export type PanelHostProps = {
 	runtime: AgentRuntime;
@@ -146,12 +147,7 @@ export function PendingSlot(props: PanelHostProps) {
 				<Show when={pending().content.length > 0}>
 					<Spinner fg={theme.panelText} />
 					<box flexGrow={1} height={1} overflow="hidden">
-						<markdown
-							content={pending().content}
-							syntaxStyle={syntaxStyle()}
-							conceal
-							fg={theme.panelText}
-						/>
+						<KitMarkdown content={pending().content} fg={theme.panelText} />
 					</box>
 				</Show>
 			</box>

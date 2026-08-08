@@ -2,7 +2,8 @@ import { createSignal, onCleanup, Show } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { TRIANGLE_UP } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
-import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
+import { KitMarkdown } from "../../shell/KitMarkdown";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
 import type {
 	ReleasesState,
@@ -101,11 +102,7 @@ export function ReleaseNotesPanel(props: ReleaseNotesPanelProps) {
 					scrollY
 					style={scrollbarStyle()}
 				>
-					<markdown
-						content={state().currentNotes}
-						syntaxStyle={syntaxStyle()}
-						conceal
-					/>
+					<KitMarkdown content={state().currentNotes} />
 				</scrollbox>
 			</WorkspacePanelLayout>
 		</box>

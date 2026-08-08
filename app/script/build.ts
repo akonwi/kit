@@ -21,6 +21,11 @@ const parserWorkerPath = path.resolve(
 	dir,
 	"node_modules/@opentui/core/parser.worker.js",
 );
+const mermaidWorkerPath = path.resolve(dir, "src/shell/mermaid-worker.ts");
+const mermaidPreviewWorkerPath = path.resolve(
+	dir,
+	"src/features/mermaid-preview/mermaid-preview-worker.ts",
+);
 const coreAssetsPath = path.resolve(dir, "node_modules/@opentui/core/assets");
 const kitGrammarsPath = path.resolve(dir, "grammars");
 
@@ -88,6 +93,34 @@ const workerBundle = await Bun.build({
 if (!workerBundle.success) {
 	console.error("Worker bundle failed:");
 	for (const log of workerBundle.logs) {
+		console.error(" ", log);
+	}
+	process.exit(1);
+}
+
+const mermaidWorkerBundle = await Bun.build({
+	entrypoints: [mermaidWorkerPath],
+	outdir: runtimeDir,
+	target: "bun",
+});
+
+if (!mermaidWorkerBundle.success) {
+	console.error("Mermaid worker bundle failed:");
+	for (const log of mermaidWorkerBundle.logs) {
+		console.error(" ", log);
+	}
+	process.exit(1);
+}
+
+const mermaidPreviewWorkerBundle = await Bun.build({
+	entrypoints: [mermaidPreviewWorkerPath],
+	outdir: runtimeDir,
+	target: "bun",
+});
+
+if (!mermaidPreviewWorkerBundle.success) {
+	console.error("Mermaid preview worker bundle failed:");
+	for (const log of mermaidPreviewWorkerBundle.logs) {
 		console.error(" ", log);
 	}
 	process.exit(1);

@@ -8,7 +8,8 @@ import type {
 } from "../../messages/parts";
 import type { UserMessage } from "../../runtime/agent";
 import { PENCIL } from "../glyphs";
-import { syntaxStyle, theme } from "../theme";
+import { KitMarkdown } from "../KitMarkdown";
+import { theme } from "../theme";
 import {
 	extractPromptCommandSynthetic,
 	extractUserCustomParts,
@@ -71,10 +72,8 @@ function ImagePartEntry(props: {
 
 function UserTextEntry(props: { text: string; aborted?: boolean }) {
 	return (
-		<markdown
+		<KitMarkdown
 			content={props.text}
-			syntaxStyle={syntaxStyle()}
-			conceal
 			fg={props.aborted ? theme.textMuted : theme.textPrimary}
 		/>
 	);
