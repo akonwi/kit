@@ -4,33 +4,39 @@ export const CURRENT_VERSION = version;
 
 /** Release notes bundled into the binary so the installed release is readable offline. */
 export const CURRENT_RELEASE_NOTES = `
-## Release updates
+## Mermaid diagrams
 
-- Added a startup check for newer stable Kit releases with a persistent header notice.
-- Added the \`/release-notes\` command and workspace panel for reading the installed release notes offline.
-- The release panel can open the latest available GitHub release when an update is available.
+- Render simple fenced \`mermaid\` diagrams as terminal-native Unicode.
+- Open complex diagrams in a workspace preview with zooming, panning, and system-app export.
+- Render locally with bounded workers, resource limits, caching, cancellation, and source fallback.
+
+## Headless RPC mode
+
+- Added \`kit --mode rpc\` for controlling Kit as a long-lived JSON-lines subprocess.
+- Supports prompts, steering, follow-ups, cancellation, sessions, model selection, thinking levels, and streaming lifecycle events.
+- Added persistent, existing-session, and ephemeral \`--no-session\` operation.
 
 ## Scratchpad
 
-- Exposed each session scratchpad as a normal Markdown file that agents can modify with the standard \`read\`, \`edit\`, and \`write\` tools.
-- Kept panel edits and agent file changes synchronized without requiring a scratchpad-specific confirmation flow.
-- Added guarded atomic persistence for scratchpad panel updates across Kit processes.
+- Exposed each session scratchpad as a normal Markdown file editable through the standard \`read\`, \`edit\`, and \`write\` tools.
+- Kept panel edits and agent file changes synchronized with atomic persistence and conflict protection.
 
-## Authentication
+## Code review
 
-- Added \`/logout\` to remove credentials for one selected provider without clearing all saved authentication.
-- Reconciled the active model after logout when another authenticated provider is available.
-
-## Tool approvals
-
-- Tool approval dialogs now show complete command, path, and argument summaries instead of truncating them.
+- Saved review comments now appear immediately as composer attachments.
+- Pressing \`s\` submits the attached review immediately.
+- Preserved newer drafts and attachments when submissions overlap or fail.
 
 ## External plugins: migration required
 
-- External plugins now use the language-neutral JSON-RPC v1 protocol over stdio. The previous direct TypeScript loader and \`@akonwi/kit/plugin\` package export have been removed.
-- Move each \`~/.kit/plugins/name.ts\` or \`<project>/.kit/plugins/name.ts\` plugin into its own installation directory containing \`plugin.json\`, then point the manifest's stdio \`command\` and \`args\` at your plugin process.
-- The process must reserve stdout for UTF-8 newline-delimited JSON-RPC. Write diagnostics to stderr, answer \`initialize\` with \`{ "protocolVersion": 1 }\`, and handle \`shutdown\`.
-- Replace PluginAPI registrations with the corresponding \`kit/commands/*\`, \`kit/tools/*\`, chrome, subagent, system-prompt, UI, and interception methods. Plugins receive public events as \`kit/events/<event-name>\` notifications without subscribing.
-- Command and contribution ids are plugin-local and become \`<plugin-id>.<local-id>\` canonically. Slash commands are presented by local id, while keybindings use the canonical id. Tool names become \`<plugin-id>__<local_id>\` for the model.
-- Kit no longer installs or bundles plugin dependencies. The manifest command must already be runnable. See \`docs/features/plugins.md\` for setup and \`docs/plugin-protocol/v1.md\` plus the bundled JSON Schemas for the complete contract.
+- Replaced direct TypeScript plugins with the language-neutral JSON-RPC v1 protocol over stdio.
+- External plugins now use a \`plugin.json\` manifest and may be implemented in any language.
+- Added commands, tools, chrome contributions, sub-agents, system prompts, events, UI requests, cancellation, and tool interception to the protocol.
+- Removed the legacy \`*.ts\` loader and \`@akonwi/kit/plugin\` export.
+- See \`docs/features/plugins.md\` and \`docs/plugin-protocol/v1.md\` for migration instructions.
+
+## UI improvements
+
+- Confirmation-dialog messages now render Markdown, including formatted code blocks.
+- Fixed clickable plugin header and footer contributions.
 `;
