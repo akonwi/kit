@@ -69,6 +69,29 @@ describe("print mode CLI", () => {
 	});
 });
 
+describe("web mode CLI", () => {
+	test("rejects ephemeral sessions", async () => {
+		const result = await runMain(["--mode", "web", "--no-session"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("does not support --no-session");
+	});
+
+	test("rejects an invalid port", async () => {
+		const result = await runMain(["--mode", "web", "--port", "70000"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("expects an integer from 1 to 65535");
+	});
+
+	test("rejects an invalid startup model selector", async () => {
+		const result = await runMain(["--mode", "web", "--model", "model-1"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+	});
+});
+
 describe("mode selection", () => {
 	test("rejects print and RPC mode together", async () => {
 		const result = await runMain(["--print", "--rpc", "hello"]);
@@ -77,7 +100,7 @@ describe("mode selection", () => {
 		expect(result.stderr).toContain("mutually exclusive");
 	});
 
-	test("rejects the removed --mode selector", async () => {
+	test("rejects non-web uses of --mode", async () => {
 		const result = await runMain(["--mode", "rpc"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
@@ -86,6 +109,13 @@ describe("mode selection", () => {
 });
 
 describe("RPC mode CLI", () => {
+	test("rejects web-only options", async () => {
+		const result = await runMain(["--rpc", "--port", "4782"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("require --mode web");
+	});
+
 	test("rejects conflicting session options", async () => {
 		const result = await runMain(["--rpc", "--no-session", "-s", "abc"]);
 		expect(result.exitCode).toBe(1);

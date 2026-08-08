@@ -25,7 +25,9 @@ kit --mode web
 kit --mode web --session <id>
 
 # Listen inside a cloud sandbox or container.
-kit --mode web --host 0.0.0.0 --port 4782
+kit --mode web --host 0.0.0.0 --port 4782 \
+  --allow-host kit.example.internal:4782 \
+  --allow-origin https://kit.example.internal
 ```
 
 The default host should be `127.0.0.1`. The initial implementation does not
@@ -205,7 +207,10 @@ separating the existing TUI's presentation state from its in-process
 - Defer native authentication and authorization. Initial remote access is
   expected to run through a trusted boundary such as Tailscale or an SSH
   tunnel, which owns its access controls.
-- Enforce same-origin WebSocket connections and avoid permissive CORS.
+- Require allowed-origin WebSocket connections, validate the request host
+  against the bound host or an explicit `--allow-host <host:port>` value, and
+  support explicit `--allow-origin <origin>` values for trusted reverse
+  proxies.
 - Treat direct public exposure as unsupported until an authentication layer is
   added.
 - Allow native authentication and authorization to be layered on later without
@@ -213,14 +218,14 @@ separating the existing TUI's presentation state from its in-process
 
 ## Suggested delivery order
 
-1. Extract transport-independent RPC dispatch from the stdio server.
-2. Build a localhost-only web mode with multi-client WebSocket broadcasting.
-3. Add a minimal Mica-based web transcript/composer client.
-4. Fill interactive UI, external-plugin, command, session, and attachment gaps.
-5. Add event sequencing, reconnect, and interaction coordination.
-6. Validate local access through a trusted private tunnel.
-7. Add a cloud sandbox worker using the same command and protocol.
-8. Add `kit attach` for a remote TUI.
+- [x] Extract transport-independent RPC dispatch from the stdio server.
+- [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
+- [ ] Add a minimal Mica-based web transcript/composer client.
+- [ ] Fill interactive UI, external-plugin, command, session, and attachment gaps.
+- [ ] Add event sequencing, reconnect, and interaction coordination.
+- [ ] Validate local access through a trusted private tunnel.
+- [ ] Add a cloud sandbox worker using the same command and protocol.
+- [ ] Add `kit attach` for a remote TUI.
 
 The core product abstraction is: `kit --mode web` turns a local or cloud
 workspace into a remotely controllable Kit session to which compatible browser

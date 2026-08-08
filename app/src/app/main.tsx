@@ -5,9 +5,13 @@ import { buildPrintModePrompt } from "./print-mode-input";
 const { positionals, values } = parseArgs({
 	args: process.argv.slice(2),
 	options: {
+		"allow-host": { type: "string", multiple: true },
+		"allow-origin": { type: "string", multiple: true },
+		host: { type: "string" },
 		mode: { type: "string" },
 		model: { type: "string" },
 		"no-session": { type: "boolean" },
+		port: { type: "string" },
 		print: { type: "boolean", short: "p" },
 		rpc: { type: "boolean" },
 		session: { type: "string", short: "s" },
@@ -18,6 +22,11 @@ const { positionals, values } = parseArgs({
 });
 
 const subcommand = values.version === true ? "version" : positionals[0];
+const hasWebOnlyOptions =
+	values.host !== undefined ||
+	values.port !== undefined ||
+	values["allow-host"] !== undefined ||
+	values["allow-origin"] !== undefined;
 
 async function readPipedStdin(): Promise<string | undefined> {
 	if (process.stdin.isTTY) return undefined;
@@ -27,8 +36,59 @@ async function readPipedStdin(): Promise<string | undefined> {
 	return content;
 }
 
-if (values.mode !== undefined) {
-	console.error("--mode is no longer supported; use --rpc for RPC mode");
+if (values.mode === "web") {
+	const port =
+		typeof values.port === "string" && /^\d+$/.test(values.port)
+			? Number(values.port)
+			: undefined;
+	if (values.rpc || values.print || values.version || positionals.length > 0) {
+		console.error(
+			"kit --mode web cannot be combined with --rpc, --print, --version, or positional arguments",
+		);
+		process.exitCode = 1;
+	} else if (values["no-session"]) {
+		console.error("kit --mode web does not support --no-session");
+		process.exitCode = 1;
+	} else if (
+		typeof values.model === "string" &&
+		!isValidModelSelector(values.model)
+	) {
+		console.error("kit --mode web --model expects <provider>/<model-id>");
+		process.exitCode = 1;
+	} else if (
+		values.port !== undefined &&
+		(port === undefined || port < 1 || port > 65535)
+	) {
+		console.error("kit --mode web --port expects an integer from 1 to 65535");
+		process.exitCode = 1;
+	} else {
+		const { safeProcessCwd } = await import("../process-cwd");
+		const { runWebMode } = await import("./web-mode");
+		process.exitCode = await runWebMode(safeProcessCwd(), {
+			allowedHosts: Array.isArray(values["allow-host"])
+				? values["allow-host"].filter(
+						(host): host is string => typeof host === "string",
+					)
+				: undefined,
+			allowedOrigins: Array.isArray(values["allow-origin"])
+				? values["allow-origin"].filter(
+						(origin): origin is string => typeof origin === "string",
+					)
+				: undefined,
+			hostname: typeof values.host === "string" ? values.host : undefined,
+			port,
+			model: typeof values.model === "string" ? values.model : undefined,
+			sessionId:
+				typeof values.session === "string" ? values.session : undefined,
+		});
+	}
+} else if (values.mode !== undefined) {
+	console.error("--mode is only supported for web mode; use --rpc for RPC mode");
+	process.exitCode = 1;
+} else if (hasWebOnlyOptions) {
+	console.error(
+		"--host, --port, --allow-host, and --allow-origin require --mode web",
+	);
 	process.exitCode = 1;
 } else if (values.rpc === true && values.print === true) {
 	console.error("kit --rpc and --print are mutually exclusive");
