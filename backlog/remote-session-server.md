@@ -71,6 +71,27 @@ Web mode should have normal Kit behavior—persistent sessions, built-in and
 external plugins, approvals, models, and tools—but use a remote UI adapter in
 place of OpenTUI.
 
+## Initial browser client
+
+Use Mica from the sibling `../mica` project as the component library and design
+system. The initial stack should stay HTML-first:
+
+- semantic HTML and native browser behavior
+- Mica's CSS-only layout custom elements and native component patterns
+- opt-in Mica JavaScript modules only where accessible behavior requires them
+- small JavaScript modules for WebSocket transport and client-state updates
+- no React
+
+The first client is a functional protocol client, not a complete redesign. It
+should emulate Kit's TUI hierarchy—session chrome, transcript, tool activity,
+composer, status, and dialogs—while keeping the implementation simple. Defer a
+full port and detailed interaction design until the RPC parity gaps are closed.
+A different lightweight framework remains an option later if streaming and
+multi-client state become difficult to manage with small modules.
+
+The exact Mica dependency/distribution strategy and production web-asset build
+can be decided when implementation reaches the browser-client milestone.
+
 ## Required parity work
 
 The current RPC mode is a useful foundation but does not yet expose enough of
@@ -88,8 +109,11 @@ commands. Support:
 - tool approval
 - guided questions
 
-Interactive requests should have cancellation and timeout behavior when no
-controlling client is connected.
+Interactive requests are broadcast to all connected clients. The first valid
+response wins, and the server broadcasts the resolution so other clients close
+the interaction. If every client disconnects, keep the request pending for a
+bounded reconnection window and send it to clients that reconnect; cancel or
+deny it when that window expires.
 
 ### Plugins
 
@@ -123,13 +147,19 @@ live events.
 Disconnecting a client must not terminate the Kit process or an active agent
 run.
 
-### Client ownership
+### Multi-client control
 
-Keep the first version simple:
+Allow multiple WebSocket clients to fully control one authoritative runtime:
 
-- allow one controlling WebSocket client
-- reject a second controller or require explicit takeover
-- defer multiple read-only observers and collaborative control
+- correlate command responses within the originating connection
+- serialize commands before they mutate shared session state
+- broadcast runtime events and shared-state changes to every client
+- allow any client to prompt, steer, abort, change session state, or answer an
+  interaction
+- resolve an interaction with the first valid response and broadcast the
+  resolution to the remaining clients
+- rely on existing runtime rules when simultaneous actions conflict with an
+  active agent run
 
 ## Local remote execution
 
@@ -184,10 +214,10 @@ separating the existing TUI's presentation state from its in-process
 ## Suggested delivery order
 
 1. Extract transport-independent RPC dispatch from the stdio server.
-2. Build a localhost-only web mode with one WebSocket controller.
-3. Add a minimal web transcript/composer client.
+2. Build a localhost-only web mode with multi-client WebSocket broadcasting.
+3. Add a minimal Mica-based web transcript/composer client.
 4. Fill interactive UI, external-plugin, command, session, and attachment gaps.
-5. Add event sequencing, reconnect, and explicit takeover.
+5. Add event sequencing, reconnect, and interaction coordination.
 6. Validate local access through a trusted private tunnel.
 7. Add a cloud sandbox worker using the same command and protocol.
 8. Add `kit attach` for a remote TUI.

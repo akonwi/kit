@@ -59,6 +59,16 @@ Web mode will host the runtime directly rather than spawning a nested
 `kit --rpc` process. Closing a network connection will not terminate the
 hosted session or abort an active agent run.
 
+### Browser client
+
+The initial browser client will use an HTML-first stack built on Mica, the
+project's progressive custom-element component library and design system. It
+will prefer native browser behavior, CSS, and small JavaScript modules over a
+client framework, and it will not use React. The client should emulate Kit's
+TUI information hierarchy and visual language without coupling protocol work to
+a full UI port. A different lightweight framework may be considered later if
+client-state complexity warrants it.
+
 ### Runtime parity
 
 Server mode is a full Kit host rather than a reduced print-mode environment. It
@@ -67,25 +77,28 @@ hosted workspace.
 
 Renderer-dependent interactions will go through a remote UI boundary. The
 server can issue correlated interaction requests for confirmation, input,
-selection, guided questions, and tool approval, and the controlling client can
-respond or cancel them. Interactive requests must have defined behavior when
-no controller is connected.
+selection, guided questions, and tool approval. Requests are broadcast to all
+connected clients; the first valid response resolves the interaction, and that
+resolution is broadcast so other clients dismiss it. Interactive requests must
+have defined behavior when no client is connected.
 
 The remote protocol will expose the session, command, workspace, model,
 thinking, attachment, steering, abort, and state-retrieval operations required
 for a client to provide the normal Kit workflow. Protocol capabilities and
 versions will be discoverable rather than inferred by clients.
 
-### Reconnection and ownership
+### Reconnection and multi-client control
 
 Runtime events will have ordered sequence identifiers. A reconnecting client
 can resume from its last observed event when retained history is available, or
 recover from a current state and message snapshot before receiving new events.
 
-The initial server will permit one controlling client. A second client must be
-rejected or explicitly take control; collaborative writes are not implicit.
-Read-only observation and multi-user collaboration may be added later without
-changing the single authoritative runtime model.
+Multiple clients may connect to and fully control the same authoritative
+runtime. Commands are correlated per connection and serialized before mutating
+shared session state. Runtime events are broadcast to every connected client,
+so prompts, aborts, model or session changes, and interaction resolutions from
+one client become visible to the others. Existing runtime rules continue to
+reject or redirect operations that are invalid while an agent run is active.
 
 ### Deployment and network exposure
 
@@ -123,6 +136,8 @@ around it.
 - Stdio RPC remains available for subprocess integrations without becoming the
   network boundary.
 - Runtime and UI concerns become more explicitly separated.
+- The initial web client shares the Mica-based design system already used by
+  Kit's website without introducing a large client runtime.
 - Cloud providers can run a standard Kit command instead of implementing a
   Kit-specific worker protocol.
 
@@ -131,7 +146,10 @@ around it.
 - Kit must maintain a network server and a versioned remote protocol.
 - RPC dispatch, interactive UI, and client state must no longer depend on one
   renderer or transport.
-- Reconnection introduces event ordering, retention, snapshot, and takeover
+- The HTML-first client must manage streaming and shared-session state without
+  assuming a component-framework runtime.
+- Reconnection and multiple controlling clients introduce event ordering,
+  retention, snapshot, command-serialization, and interaction-resolution
   semantics.
 - Full server parity requires external-plugin initialization and remote
   implementations of currently inert headless UI capabilities.
