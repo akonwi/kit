@@ -113,10 +113,11 @@ affordance for "your context changed", never a modal.
 - No discard prompts on switch — the picker's `CIRCLE_FILLED` indicators
   and the header note count carry the state.
 - **The composer attachment is scoped to the current target only.** Never
-  batch across targets. Closing review with notes (or pressing `s`) creates
-  or refreshes that target's draft attachment. Sending the next message or
-  removing the attachment clears that target's draft; drafts on other
-  targets remain available during the active Kit session.
+  batch across targets. Saving a note immediately creates or refreshes that
+  target's draft attachment. Pressing `s` submits the composer's current
+  message and attachments immediately. Sending the next message or removing
+  the attachment clears that target's draft; drafts on other targets remain
+  available during the active Kit session.
 - Submitting while a target switch is still loading is a no-op (the old
   file list and new drafts must never mix).
 - The transcript attachment chip labels the scope:

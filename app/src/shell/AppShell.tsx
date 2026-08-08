@@ -848,6 +848,7 @@ function AppShellContent(props: AppShellContentProps) {
 									defaultDiffView={props.defaultReviewDiffView}
 									onDiffViewChanged={props.onReviewDiffViewChanged}
 									onFocusRequest={focusReviewSurface}
+									onSubmitMessage={() => props.controller.handleMessageSubmit()}
 									active={
 										editableReviewOpen() &&
 										focusedSurface() === "secondary" &&

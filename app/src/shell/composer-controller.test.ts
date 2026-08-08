@@ -52,6 +52,129 @@ describe("command presentation", () => {
 	});
 });
 
+describe("composer submission", () => {
+	function setupFailedAttachmentSubmission() {
+		let rejectSubmission: ((error: Error) => void) | undefined;
+		const runtime = {
+			getSession: () => ({ id: "session-1" }),
+			submitMessage: () =>
+				new Promise<never>((_resolve, reject) => {
+					rejectSubmission = reject;
+				}),
+		} as unknown as AgentRuntime;
+		const attachments = createAttachmentsController();
+		const attachment = (summary: string) => ({
+			id: "code-review",
+			type: "test",
+			icon: "",
+			summary,
+			toMessagePart: () => ({ type: "text" as const, text: summary }),
+			toPromptText: () => summary,
+		});
+		attachments.attach(attachment("old"));
+		const controller = createComposerController({
+			runtime,
+			commands: createCommandRegistry(),
+			fileIndex: {} as never,
+			threadIndex: null,
+			attachments,
+			reviewDrafts: {} as never,
+			reviewWorkspace: {} as never,
+			toast: () => {},
+			_reload: async () => {},
+			openCustomOverlay: async () => undefined as never,
+		});
+		return {
+			attachment,
+			attachments,
+			controller,
+			rejectSubmission: () => rejectSubmission,
+		};
+	}
+
+	async function withoutConsoleError(run: () => Promise<void>): Promise<void> {
+		const originalConsoleError = console.error;
+		console.error = () => {};
+		try {
+			await run();
+		} finally {
+			console.error = originalConsoleError;
+		}
+	}
+
+	test("does not replace a newer attachment when submission fails", async () => {
+		const setup = setupFailedAttachmentSubmission();
+		await withoutConsoleError(async () => {
+			const pending = setup.controller.handleSubmit();
+			expect(setup.attachments.attachments()).toHaveLength(0);
+			setup.attachments.attach(setup.attachment("new"));
+			setup.rejectSubmission()?.(new Error("failed"));
+			await pending;
+
+			expect(setup.attachments.attachments()).toHaveLength(1);
+			expect(setup.attachments.attachments()[0]?.summary).toBe("new");
+		});
+	});
+
+	test("does not resurrect an attachment removed while submission is pending", async () => {
+		const setup = setupFailedAttachmentSubmission();
+		await withoutConsoleError(async () => {
+			const pending = setup.controller.handleSubmit();
+			setup.attachments.attach(setup.attachment("new"));
+			setup.attachments.detach("code-review");
+			setup.rejectSubmission()?.(new Error("failed"));
+			await pending;
+
+			expect(setup.attachments.attachments()).toHaveLength(0);
+		});
+	});
+
+	test("message submission bypasses composer bash execution", async () => {
+		let submitted: unknown;
+		let bashExecutions = 0;
+		const runtime = {
+			getSession: () => ({ id: "session-1" }),
+			submitMessage: async (parts: unknown) => {
+				submitted = parts;
+			},
+			executeBash: async () => {
+				bashExecutions += 1;
+			},
+		} as unknown as AgentRuntime;
+		const controller = createComposerController({
+			runtime,
+			commands: createCommandRegistry(),
+			fileIndex: {} as never,
+			threadIndex: null,
+			attachments: createAttachmentsController(),
+			reviewDrafts: {} as never,
+			reviewWorkspace: {} as never,
+			toast: () => {},
+			_reload: async () => {},
+			openCustomOverlay: async () => undefined as never,
+		});
+		let text = "!explain this";
+		controller.setTextarea({
+			get plainText() {
+				return text;
+			},
+			cursorOffset: 0,
+			setText: (value) => {
+				text = value;
+			},
+			insertText: (value) => {
+				text += value;
+			},
+			focus: () => {},
+		});
+
+		await controller.handleMessageSubmit();
+
+		expect(bashExecutions).toBe(0);
+		expect(submitted).toEqual([{ type: "text", text: "!explain this" }]);
+	});
+});
+
 describe("queued message restoration", () => {
 	test("restores only editable text from multipart messages", () => {
 		const message = {

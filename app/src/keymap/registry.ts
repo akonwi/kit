@@ -435,9 +435,9 @@ export const KEYBINDING_REGISTRY = {
 		},
 		submit: {
 			defaultKeys: "s",
-			desc: "Attach review notes",
+			desc: "Submit review now",
 			group: "review",
-			hint: "submit",
+			hint: "submit now",
 		},
 		back: {
 			defaultKeys: "escape",

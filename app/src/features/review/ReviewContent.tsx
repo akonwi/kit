@@ -10,6 +10,7 @@ import {
 	For,
 	onCleanup,
 	Show,
+	untrack,
 } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { ReviewDiffView } from "../../settings";
@@ -96,6 +97,7 @@ export type ReviewContentProps = {
 	onDiffViewChanged?: (view: ReviewDiffView) => void;
 	active?: boolean;
 	onFocusRequest?: () => void;
+	onSubmitMessage: () => void | Promise<void>;
 };
 
 type ReviewMode = "tree" | "patch";
@@ -500,6 +502,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [targetCommit, setTargetCommit] =
 		createSignal<ReviewCommitSummary | null>(initialCommit);
 	const [editorOpen, setEditorOpen] = createSignal(false);
+	const [submittingReview, setSubmittingReview] = createSignal(false);
 	const [staleReviewFileIds, setStaleReviewFileIds] = createSignal<Set<string>>(
 		new Set(),
 	);
@@ -2155,18 +2158,31 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	type QueueDraftResult = "queued" | "empty" | "blocked";
 
-	function queueCurrentDraft(showEmptyWarning: boolean): QueueDraftResult {
+	type QueueDraftOptions = {
+		showEmptyWarning?: boolean;
+		showBlockedWarning?: boolean;
+	};
+
+	function hideProjectedDraft(): void {
+		const attached = untrack(currentDraftAttachment);
+		if (attached) props.attachments.detach(attached.id, "pending");
+	}
+
+	function queueCurrentDraft(
+		options: QueueDraftOptions = {},
+	): QueueDraftResult {
 		const currentTarget = target();
 		const currentKey = targetKey(currentTarget);
-		if (totalDraftNotes() === 0) {
-			const attached = currentDraftAttachment();
-			if (
-				attached?.draft?.repoRoot === repoRoot &&
-				attached.draft.targetKey === currentKey
-			) {
-				props.attachments.detach(attached.id);
+		if (submittingReview()) {
+			hideProjectedDraft();
+			if (options.showBlockedWarning) {
+				showTargetNotice("Review submission is in progress.", 1500);
 			}
-			if (showEmptyWarning) {
+			return "blocked";
+		}
+		if (totalDraftNotes() === 0) {
+			hideProjectedDraft();
+			if (options.showEmptyWarning) {
 				props.toast({
 					title: "No review notes",
 					subtitle: "Add a file or line note before submitting review.",
@@ -2177,10 +2193,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 
 		// A target switch may still be refetching; queueing then would pair
-		// the old target's file list with the new target's notes. Keep review
-		// open until the attachment can be refreshed safely.
+		// the old target's file list with the new target's notes. Hide the stale
+		// projection until the new target can be attached safely.
 		if (filesLoading()) {
-			showTargetNotice("Review is still loading.", 1500);
+			hideProjectedDraft();
+			if (options.showBlockedWarning) {
+				showTargetNotice("Review is still loading.", 1500);
+			}
 			return "blocked";
 		}
 		const submittedDraft = draftState();
@@ -2198,12 +2217,15 @@ export function ReviewContent(props: ReviewContentProps) {
 					? currentTarget.head
 					: null;
 		if (committedHead && !isAncestorOfHead(repoRoot, committedHead)) {
-			props.toast({
-				title: `Commit ${targetCommit()?.shortSha ?? committedHead} changed`,
-				subtitle:
-					"It was amended or rebased since you started drafting. Re-open the target to review the new diff.",
-				variant: "error",
-			});
+			hideProjectedDraft();
+			if (options.showBlockedWarning) {
+				props.toast({
+					title: `Commit ${targetCommit()?.shortSha ?? committedHead} changed`,
+					subtitle:
+						"It was amended or rebased since you started drafting. Re-open the target to review the new diff.",
+					variant: "error",
+				});
+			}
 			return "blocked";
 		}
 		if (currentTarget.kind === "commit") {
@@ -2242,12 +2264,19 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function closeReview(): void {
-		if (queueCurrentDraft(false) === "blocked") return;
+		if (queueCurrentDraft({ showBlockedWarning: true }) === "blocked") return;
 		props.onClose();
 	}
 
-	function submitReview(): void {
-		if (queueCurrentDraft(true) !== "queued") return;
+	async function submitReview(): Promise<void> {
+		if (
+			queueCurrentDraft({
+				showEmptyWarning: true,
+				showBlockedWarning: true,
+			}) !== "queued"
+		) {
+			return;
+		}
 		const currentTarget = target();
 		const otherDrafts = props.reviewDrafts.countDraftsExcept(
 			draftToken,
@@ -2261,7 +2290,21 @@ export function ReviewContent(props: ReviewContentProps) {
 				variant: "info",
 			});
 		}
+		const submission = props.onSubmitMessage();
+		setSubmittingReview(true);
+		try {
+			await submission;
+		} finally {
+			setSubmittingReview(false);
+		}
 	}
+
+	// Saved review notes are a live projection into the composer. The explicit
+	// submit binding only adds immediacy: it refreshes that projection and sends
+	// the composer's current message.
+	createEffect(() => {
+		queueCurrentDraft();
+	});
 
 	function beginRangeSelection() {
 		const hunk = selectedHunk();
@@ -2440,7 +2483,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			},
 			"review.toggle-view": () => toggleDiffView(),
 			"review.clear-line-note": () => clearOrCancelLineSelection(),
-			"review.submit": () => submitReview(),
+			"review.submit": () => void submitReview(),
 		},
 	}));
 
@@ -2503,7 +2546,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				});
 				updateRangeNotes((prev) => setMapValue(prev, key, ""));
 			},
-			"review.submit": () => submitReview(),
+			"review.submit": () => void submitReview(),
 		},
 	}));
 
@@ -2525,7 +2568,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			},
 			"review.toggle-view": () => toggleDiffView(),
 			"review.clear-file-note": () => clearSelectedFileNote(),
-			"review.submit": () => submitReview(),
+			"review.submit": () => void submitReview(),
 		},
 	}));
 

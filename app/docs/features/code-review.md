@@ -27,8 +27,8 @@ and submit that review back into Kit as a code-review attachment.
 - supports inline same-side line comments and line-range comments
 - highlights the active diff line and embeds saved comments directly below their target line/range
 - autosaves committed review notes in memory for the active Kit session
+- immediately projects committed notes into the composer as a structured code-review attachment
 - restores those notes when `/code-review` is closed and reopened in the same session
-- submits the result as a structured code-review attachment
 - shows an empty state when there are no uncommitted changes
 
 The in-TUI review flow uses the existing structured code-review attachment model rather than introducing a separate terminal-only review payload format.
@@ -45,8 +45,8 @@ In the file list:
 - `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
 - `x` clears the selected file note
-- `s` queues the current draft as an attachment and keeps the workspace open
-- `Esc` closes `/code-review`, also queueing any current draft notes
+- `s` submits the composer immediately with the current review attachment and keeps the workspace open
+- `Esc` closes `/code-review`; any current draft notes remain attached
 
 ### Patch focus mode
 
@@ -64,7 +64,7 @@ When focused on a file diff:
 - `x` clears the selected saved line/range note, or cancels an active range selection
 - `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
-- `s` queues the current draft as an attachment and keeps the workspace open
+- `s` submits the composer immediately with the current review attachment and keeps the workspace open
 - `Esc` cancels an active range selection first, then returns to the file list
 
 ## Review notes
@@ -77,7 +77,7 @@ Current in-TUI review drafts support:
 
 File notes and line/range notes are authored inline. In note editors, `Enter` saves, `Shift+Enter` inserts a newline, and `Esc` cancels editing.
 
-Closing review with committed notes creates or refreshes a visible code-review draft attachment in the composer. Submitting from the review also creates or refreshes that attachment while keeping the workspace open. Clicking the draft attachment restores the editable review workspace. Reopening review edits the same in-memory draft, and closing it refreshes the attachment. Sending the next message keeps the review workspace open while consuming the attachment and clearing its submitted notes. Removing the attachment with `×` also discards that target's draft.
+Saving a review note immediately creates or refreshes a visible code-review draft attachment in the composer. Pressing `s` submits the composer's current message and attachments immediately while keeping the review workspace open. Clicking the draft attachment restores the editable review workspace. Reopening review edits the same in-memory draft. Sending the next message keeps the review workspace open while consuming the attachment and clearing its submitted notes. Removing the attachment with `×` also discards that target's draft.
 
 Historical code-review attachments render a compact summary in the transcript but are not interactive. The persistent review workspace remains the source for inspecting the current review target; Kit does not provide a separate read-only attachment viewer.
 

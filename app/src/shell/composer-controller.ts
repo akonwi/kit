@@ -407,7 +407,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return result.text;
 	}
 
-	async function handleSubmit() {
+	async function handleSubmit(options: { executeBash?: boolean } = {}) {
 		if (commandPalette.visible) return;
 		if (picker.visible && !picker.isFilterable) {
 			picker.accept();
@@ -428,8 +428,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			return;
 		}
 
-		// Handle bash command: ! for context, !! for excluded from context
-		if (text.trim() && text.startsWith("!")) {
+		// Handle bash command: ! for context, !! for excluded from context.
+		// Review's submit-now action bypasses this branch so it always sends the
+		// composer's contents with the projected review attachment.
+		if ((options.executeBash ?? true) && text.trim() && text.startsWith("!")) {
 			const excludeFromContext = text.startsWith("!!");
 			const command = excludeFromContext
 				? text.slice(2).trim()
@@ -480,6 +482,14 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		for (const attachment of pendingAttachments) {
 			attachments.detach(attachment.id, "pending");
 		}
+		const pendingAttachmentIds = new Set(
+			pendingAttachments.map((attachment) => attachment.id),
+		);
+		const changedPendingAttachmentIds = new Set<string>();
+		const unsubscribeAttachments = attachments.subscribe((event) => {
+			const id = event.type === "attached" ? event.attachment.id : event.id;
+			if (pendingAttachmentIds.has(id)) changedPendingAttachmentIds.add(id);
+		});
 
 		try {
 			await runtime.submitMessage(parts);
@@ -490,8 +500,19 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			// A session switch owns a fresh composer. Never resurrect text or
 			// attachments from a failed submission started in the old session.
 			if (runtime.getSession().id === submitSessionId) {
+				const currentAttachmentIds = new Set(
+					attachments.attachments().map((attachment) => attachment.id),
+				);
 				for (const attachment of pendingAttachments) {
-					attachments.attach(attachment);
+					// A live editor may have projected or explicitly removed a newer
+					// revision while this submission was pending. Never resurrect the
+					// stale snapshot after either transition.
+					if (
+						!changedPendingAttachmentIds.has(attachment.id) &&
+						!currentAttachmentIds.has(attachment.id)
+					) {
+						attachments.attach(attachment);
+					}
 				}
 				toast({
 					title: "Agent error",
@@ -502,7 +523,13 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				prevTextLength = text.length;
 			}
 			console.error(error);
+		} finally {
+			unsubscribeAttachments();
 		}
+	}
+
+	async function handleMessageSubmit() {
+		await handleSubmit({ executeBash: false });
 	}
 
 	async function handleFollowUp() {
@@ -745,6 +772,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		handlePaste,
 		handleTextChange,
 		handleSubmit,
+		handleMessageSubmit,
 		handleFollowUp,
 		restorePendingMessages,
 		showBashHistoryPicker,
