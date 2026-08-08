@@ -1,19 +1,26 @@
+import { randomUUID } from "node:crypto";
 import type { Server, ServerWebSocket } from "bun";
 import {
 	MAX_REMOTE_ATTACHMENT_BYTES,
 	RemoteAttachmentError,
 	type RemoteAttachmentStore,
 } from "./remote-attachment-store";
-import type {
-	RpcCommand,
-	RpcEventListener,
-	RpcWriter,
+import {
+	RemoteEventJournal,
+	type SequencedRemoteEvent,
+} from "./remote-event-journal";
+import {
+	RPC_PROTOCOL_VERSION,
+	type RpcCommand,
+	type RpcConnectionSnapshot,
+	type RpcEventListener,
+	type RpcWriter,
 } from "./rpc-session-host";
 
 export type WebRpcHost = {
 	subscribe(listener: RpcEventListener): () => void;
 	handleCommand(command: RpcCommand, respond: RpcWriter): Promise<void>;
-	connectClient?(listener: RpcEventListener): () => void;
+	getConnectionSnapshot(maxMessages?: number): RpcConnectionSnapshot;
 };
 
 export type WebRpcServerOptions = {
@@ -23,12 +30,34 @@ export type WebRpcServerOptions = {
 	allowedOrigins?: string[];
 	allowOriginless?: boolean;
 	attachments?: RemoteAttachmentStore;
+	eventStreamId?: string;
+	eventHistoryMaxEvents?: number;
+	eventHistoryMaxBytes?: number;
 };
 
-type WebSocketData = Record<string, never>;
+type ResumeCursor = {
+	requested: boolean;
+	valid: boolean;
+	streamId?: string;
+	after?: number;
+};
+
+type WebSocketData = {
+	resume: ResumeCursor;
+};
+
+type MessageChunkToken = {
+	bytes: Buffer;
+};
 
 const MAX_MULTIPART_BODY_BYTES = MAX_REMOTE_ATTACHMENT_BYTES + 1024 * 1024;
 const MAX_CONCURRENT_UPLOADS = 4;
+const MAX_SNAPSHOT_MESSAGES = 200;
+const MAX_SNAPSHOT_BYTES = 64 * 1024;
+const MAX_WEB_MESSAGE_PAGE_SIZE = 50;
+const MAX_WEB_CHUNK_BYTES = 32 * 1024;
+const MAX_MESSAGE_CHUNK_TOKENS = 1024;
+const MAX_MESSAGE_CHUNK_CACHE_BYTES = 16 * 1024 * 1024;
 
 const PLACEHOLDER_HTML = `<!doctype html>
 <html lang="en">
@@ -63,20 +92,46 @@ function parseError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function parseResumeCursor(url: URL): ResumeCursor {
+	const streamId = url.searchParams.get("streamId");
+	const afterValue = url.searchParams.get("after");
+	if (streamId === null && afterValue === null) {
+		return { requested: false, valid: true };
+	}
+	if (
+		!streamId ||
+		streamId.length > 128 ||
+		afterValue === null ||
+		!/^\d+$/.test(afterValue)
+	) {
+		return { requested: true, valid: false };
+	}
+	const after = Number(afterValue);
+	if (!Number.isSafeInteger(after)) {
+		return { requested: true, valid: false };
+	}
+	return { requested: true, valid: true, streamId, after };
+}
+
 export class WebRpcServer {
 	private server: Server<WebSocketData> | null = null;
 	private unsubscribeHost: (() => void) | null = null;
 	private activeUploads = 0;
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
-	private readonly clientDisposers = new Map<
-		ServerWebSocket<WebSocketData>,
-		() => void
-	>();
+	private readonly journal: RemoteEventJournal;
+	private readonly messageChunkTokens = new Map<string, MessageChunkToken>();
+	private messageChunkCacheBytes = 0;
 
 	constructor(
 		private readonly rpcHost: WebRpcHost,
 		private readonly options: WebRpcServerOptions = {},
-	) {}
+	) {
+		this.journal = new RemoteEventJournal({
+			streamId: options.eventStreamId,
+			maxEvents: options.eventHistoryMaxEvents,
+			maxBytes: options.eventHistoryMaxBytes,
+		});
+	}
 
 	start(): { hostname: string; port: number; url: string } {
 		if (this.server) throw new Error("Web RPC server is already running");
@@ -107,7 +162,13 @@ export class WebRpcServer {
 					if (!this.isAllowedWebSocketRequest(request, url)) {
 						return new Response("Origin or host not allowed", { status: 403 });
 					}
-					if (bunServer.upgrade(request, { data: {} })) return undefined;
+					if (
+						bunServer.upgrade(request, {
+							data: { resume: parseResumeCursor(url) },
+						})
+					) {
+						return undefined;
+					}
 					return new Response("WebSocket upgrade required", { status: 426 });
 				}
 				if (url.pathname === "/") {
@@ -122,15 +183,7 @@ export class WebRpcServer {
 				backpressureLimit: 16 * 1024 * 1024,
 				closeOnBackpressureLimit: true,
 				open: (socket) => {
-					this.clients.add(socket);
-					const disconnect = this.rpcHost.connectClient?.((record) => {
-						this.send(socket, record);
-					});
-					if (disconnect && this.clients.has(socket)) {
-						this.clientDisposers.set(socket, disconnect);
-					} else {
-						disconnect?.();
-					}
+					if (this.synchronizeClient(socket)) this.clients.add(socket);
 				},
 				message: (socket, message) => {
 					let command: RpcCommand;
@@ -145,8 +198,13 @@ export class WebRpcServer {
 						});
 						return;
 					}
-					void this.rpcHost.handleCommand(command, async (record) => {
-						this.send(socket, record);
+					if (command.type === "get_message_chunk") {
+						this.handleMessageChunkCommand(socket, command);
+						return;
+					}
+					const prepared = this.prepareWebCommand(command);
+					void this.rpcHost.handleCommand(prepared, async (record) => {
+						this.send(socket, this.prepareWebResponse(prepared, record));
 					});
 				},
 				close: (socket) => {
@@ -171,19 +229,27 @@ export class WebRpcServer {
 		await server?.stop(true);
 	}
 
-	private send(socket: ServerWebSocket<WebSocketData>, record: unknown): void {
+	private send(
+		socket: ServerWebSocket<WebSocketData>,
+		record: unknown,
+	): boolean {
 		if (socket.readyState !== WebSocket.OPEN) {
 			this.removeClient(socket);
-			return;
+			return false;
 		}
 		try {
 			const status = socket.send(JSON.stringify(this.projectRecord(record)));
-			if (status === 0) this.removeClient(socket, true);
+			if (status <= 0) {
+				this.removeClient(socket, true);
+				return false;
+			}
+			return true;
 		} catch (error) {
 			this.removeClient(socket, true);
 			console.error(
 				`WebSocket send failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
+			return false;
 		}
 	}
 
@@ -192,13 +258,415 @@ export class WebRpcServer {
 		terminate = false,
 	): void {
 		this.clients.delete(socket);
-		this.clientDisposers.get(socket)?.();
-		this.clientDisposers.delete(socket);
 		if (terminate) socket.terminate();
 	}
 
 	private broadcast(record: unknown): void {
-		for (const client of [...this.clients]) this.send(client, record);
+		let event: SequencedRemoteEvent;
+		try {
+			event = this.journal.append(this.projectRecord(record));
+		} catch {
+			event = this.journal.append({
+				type: "resync_required",
+				reason: "event_projection_failed",
+			});
+		}
+		for (const client of [...this.clients]) this.send(client, event);
+	}
+
+	private prepareWebCommand(command: RpcCommand): RpcCommand {
+		if (command.type !== "get_messages") return command;
+		const limit =
+			typeof command.limit === "number"
+				? Math.min(command.limit, MAX_WEB_MESSAGE_PAGE_SIZE)
+				: MAX_WEB_MESSAGE_PAGE_SIZE;
+		return {
+			...command,
+			offset: command.offset ?? 0,
+			limit,
+		};
+	}
+
+	private handleMessageChunkCommand(
+		socket: ServerWebSocket<WebSocketData>,
+		command: RpcCommand,
+	): void {
+		try {
+			const token = command.token;
+			if (typeof token !== "string" || !token) {
+				throw new Error("token must be a non-empty string");
+			}
+			const metadata = this.messageChunkTokens.get(token);
+			if (!metadata) throw new Error("Message chunk token is unavailable");
+			const offset = command.offset ?? 0;
+			const maxBytes = command.maxBytes ?? MAX_WEB_CHUNK_BYTES;
+			if (
+				typeof offset !== "number" ||
+				!Number.isSafeInteger(offset) ||
+				offset < 0
+			) {
+				throw new Error("offset must be a non-negative integer");
+			}
+			if (
+				typeof maxBytes !== "number" ||
+				!Number.isSafeInteger(maxBytes) ||
+				maxBytes < 1 ||
+				maxBytes > MAX_WEB_CHUNK_BYTES
+			) {
+				throw new Error(
+					`maxBytes must be between 1 and ${MAX_WEB_CHUNK_BYTES}`,
+				);
+			}
+			const { bytes } = metadata;
+			if (offset > bytes.length)
+				throw new Error("offset exceeds serialized data");
+			const end = Math.min(bytes.length, offset + maxBytes);
+			this.send(socket, {
+				...(command.id === undefined ? {} : { id: command.id }),
+				type: "response",
+				command: command.type,
+				success: true,
+				data: {
+					token,
+					encoding: "base64-json",
+					data: bytes.subarray(offset, end).toString("base64"),
+					offset,
+					nextOffset: end,
+					totalBytes: bytes.length,
+					complete: end === bytes.length,
+				},
+			});
+		} catch (error) {
+			this.send(socket, {
+				...(command.id === undefined ? {} : { id: command.id }),
+				type: "response",
+				command: command.type,
+				success: false,
+				error: parseError(error),
+			});
+		}
+	}
+
+	private serializedProjectedMessage(message: unknown): Buffer {
+		const serialized = JSON.stringify(this.projectRecord(message));
+		if (serialized === undefined)
+			throw new Error("Message cannot be serialized");
+		return Buffer.from(serialized, "utf8");
+	}
+
+	private createMessageReference(message: unknown, messageIndex: number) {
+		const bytes = this.serializedProjectedMessage(message);
+		if (bytes.length > MAX_MESSAGE_CHUNK_CACHE_BYTES) {
+			return {
+				type: "message_unavailable",
+				messageIndex,
+				serializedBytes: bytes.length,
+				reason: "exceeds_recovery_limit",
+			};
+		}
+		while (
+			this.messageChunkTokens.size >= MAX_MESSAGE_CHUNK_TOKENS ||
+			this.messageChunkCacheBytes + bytes.length > MAX_MESSAGE_CHUNK_CACHE_BYTES
+		) {
+			const oldest = this.messageChunkTokens.keys().next().value;
+			if (typeof oldest !== "string") break;
+			const removed = this.messageChunkTokens.get(oldest);
+			this.messageChunkTokens.delete(oldest);
+			if (removed) this.messageChunkCacheBytes -= removed.bytes.length;
+		}
+		const token = randomUUID();
+		this.messageChunkTokens.set(token, { bytes });
+		this.messageChunkCacheBytes += bytes.length;
+		return {
+			type: "message_reference",
+			messageIndex,
+			token,
+			serializedBytes: bytes.length,
+			recoveryCommand: "get_message_chunk",
+		};
+	}
+
+	private prepareWebResponse(command: RpcCommand, record: unknown): unknown {
+		let prepared = record;
+		if (
+			command.type === "get_capabilities" &&
+			isRecord(record) &&
+			record.success === true &&
+			isRecord(record.data)
+		) {
+			prepared = {
+				...record,
+				data: {
+					...record.data,
+					...(Array.isArray(record.data.commands)
+						? {
+								commands: [
+									...record.data.commands,
+									...(!record.data.commands.includes("get_message_chunk")
+										? ["get_message_chunk"]
+										: []),
+								],
+							}
+						: {}),
+					eventSequencing: {
+						supported: true,
+						resume: "websocket_query",
+						streamId: this.journal.streamId,
+						latestSequence: this.journal.latestSequence,
+						...this.journal.retention,
+					},
+				},
+			};
+		}
+		if (command.type === "get_messages") {
+			return this.boundMessageResponse(prepared);
+		}
+		if (command.type === "get_pending_interactions") {
+			return this.boundInteractionResponse(prepared);
+		}
+		return this.projectRecord(prepared);
+	}
+
+	private boundMessageResponse(record: unknown): unknown {
+		if (
+			!isRecord(record) ||
+			!isRecord(record.data) ||
+			!Array.isArray(record.data.messages)
+		) {
+			return this.projectRecord(record);
+		}
+		const rawMessages = record.data.messages;
+		const offset =
+			typeof record.data.offset === "number" ? record.data.offset : 0;
+		const totalMessageCount =
+			typeof record.data.totalMessageCount === "number"
+				? record.data.totalMessageCount
+				: rawMessages.length;
+		const response = this.projectRecord({
+			...record,
+			data: { ...record.data, messages: [] },
+		}) as Record<string, unknown> & {
+			data: Record<string, unknown> & { messages: unknown[] };
+		};
+		let consumed = 0;
+		let contentOmitted = false;
+		for (const [index, rawMessage] of rawMessages.entries()) {
+			const message = this.projectMessage(rawMessage, offset + index);
+			response.data.messages.push(message);
+			if (this.serializedBytes(response) <= MAX_SNAPSHOT_BYTES) {
+				consumed += 1;
+				continue;
+			}
+			response.data.messages.pop();
+			if (consumed === 0) {
+				response.data.messages.push(
+					this.createMessageReference(message, offset),
+				);
+				consumed = 1;
+				contentOmitted = true;
+			}
+			break;
+		}
+		if (contentOmitted || offset + consumed < totalMessageCount) {
+			response.data.messagesTruncated = true;
+			response.data.hasMore = offset + consumed < totalMessageCount;
+			response.data.offset = offset;
+			response.data.totalMessageCount = totalMessageCount;
+		}
+		return response;
+	}
+
+	private projectMessage(message: unknown, messageIndex: number): unknown {
+		try {
+			return this.projectRecord(message);
+		} catch {
+			return {
+				type: "message_unavailable",
+				messageIndex,
+				reason: "projection_failed",
+			};
+		}
+	}
+
+	private boundInteractionResponse(record: unknown): unknown {
+		if (
+			!isRecord(record) ||
+			!isRecord(record.data) ||
+			!Array.isArray(record.data.requests)
+		) {
+			return this.projectRecord(record);
+		}
+		const offset =
+			typeof record.data.offset === "number" ? record.data.offset : 0;
+		const response = this.projectRecord({
+			...record,
+			data: { ...record.data, requests: [] },
+		}) as Record<string, unknown> & {
+			data: Record<string, unknown> & { requests: unknown[] };
+		};
+		let consumed = 0;
+		for (const rawRequest of record.data.requests) {
+			const request = this.interactionReference(
+				this.projectRecord(rawRequest),
+				offset + consumed,
+			);
+			response.data.requests.push(request);
+			if (this.serializedBytes(response) > MAX_SNAPSHOT_BYTES) {
+				response.data.requests.pop();
+				break;
+			}
+			consumed += 1;
+		}
+		if (consumed < record.data.requests.length) {
+			response.data.hasMore = true;
+			response.data.requestsTruncated = true;
+		}
+		return response;
+	}
+
+	private interactionReference(request: unknown, index: number): unknown {
+		if (!isRecord(request) || this.serializedBytes(request) <= 16 * 1024) {
+			return request;
+		}
+		return {
+			id: request.id,
+			kind: request.kind,
+			createdAt: request.createdAt,
+			requestIndex: index,
+			payloadOmitted: true,
+			recoveryCommand: "get_pending_interaction_chunk",
+		};
+	}
+
+	private boundedConnectionSnapshot(): Record<string, unknown> {
+		const snapshot = this.rpcHost.getConnectionSnapshot(MAX_SNAPSHOT_MESSAGES);
+		const pendingInteractions: unknown[] = [];
+		const record: Record<string, unknown> = {
+			state: this.projectRecord(snapshot.state),
+			messages: [],
+			messageOffset: snapshot.messageOffset + snapshot.messages.length,
+			totalMessageCount: snapshot.totalMessageCount,
+			pendingInteractions,
+			pendingInteractionOffset: 0,
+			totalPendingInteractionCount: snapshot.pendingInteractions.length,
+		};
+		let pendingTruncated = false;
+		for (const [
+			index,
+			rawInteraction,
+		] of snapshot.pendingInteractions.entries()) {
+			const interaction = this.interactionReference(
+				this.projectRecord(rawInteraction),
+				index,
+			);
+			pendingInteractions.push(interaction);
+			if (this.serializedBytes(record) > MAX_SNAPSHOT_BYTES) {
+				pendingInteractions.pop();
+				pendingTruncated = true;
+				break;
+			}
+			if (isRecord(interaction) && interaction.payloadOmitted === true) {
+				pendingTruncated = true;
+			}
+		}
+		if (pendingTruncated) record.pendingInteractionsTruncated = true;
+
+		const messages = record.messages as unknown[];
+		let messageOffset = snapshot.messageOffset + snapshot.messages.length;
+		for (let index = snapshot.messages.length - 1; index >= 0; index -= 1) {
+			const messageIndex = snapshot.messageOffset + index;
+			const message = this.projectMessage(
+				snapshot.messages[index],
+				messageIndex,
+			);
+			messages.unshift(message);
+			if (this.serializedBytes(record) > MAX_SNAPSHOT_BYTES) {
+				messages.shift();
+				break;
+			}
+			messageOffset = snapshot.messageOffset + index;
+			record.messageOffset = messageOffset;
+		}
+		if (messageOffset > 0) record.messagesTruncated = true;
+		return record;
+	}
+
+	private serializedBytes(value: unknown): number {
+		try {
+			return Buffer.byteLength(JSON.stringify(value), "utf8");
+		} catch {
+			return Number.POSITIVE_INFINITY;
+		}
+	}
+
+	private synchronizeClient(socket: ServerWebSocket<WebSocketData>): boolean {
+		const cursor = socket.data.resume;
+		const latestSequence = this.journal.latestSequence;
+		if (
+			cursor.requested &&
+			cursor.valid &&
+			cursor.streamId === this.journal.streamId &&
+			cursor.after !== undefined &&
+			cursor.after <= latestSequence
+		) {
+			const replay = this.journal.replayAfter(cursor.after);
+			if (replay) {
+				if (
+					!this.send(socket, {
+						type: "sync",
+						mode: "replay",
+						protocolVersion: RPC_PROTOCOL_VERSION,
+						streamId: this.journal.streamId,
+						sequence: cursor.after,
+						targetSequence: latestSequence,
+					})
+				) {
+					return false;
+				}
+				for (const event of replay) {
+					if (!this.send(socket, event)) return false;
+				}
+				return this.send(socket, {
+					type: "sync_complete",
+					mode: "replay",
+					streamId: this.journal.streamId,
+					sequence: latestSequence,
+				});
+			}
+		}
+
+		let reason = "initial";
+		if (cursor.requested && !cursor.valid) reason = "invalid_cursor";
+		else if (cursor.requested && cursor.streamId !== this.journal.streamId) {
+			reason = "stream_changed";
+		} else if (
+			cursor.requested &&
+			cursor.after !== undefined &&
+			cursor.after > latestSequence
+		) {
+			reason = "invalid_cursor";
+		} else if (cursor.requested) reason = "history_unavailable";
+
+		const snapshot = this.boundedConnectionSnapshot();
+		if (
+			!this.send(socket, {
+				type: "sync",
+				mode: "snapshot",
+				reason,
+				protocolVersion: RPC_PROTOCOL_VERSION,
+				streamId: this.journal.streamId,
+				sequence: latestSequence,
+				...snapshot,
+			})
+		) {
+			return false;
+		}
+		return this.send(socket, {
+			type: "sync_complete",
+			mode: "snapshot",
+			streamId: this.journal.streamId,
+			sequence: latestSequence,
+		});
 	}
 
 	private async handleAttachmentRequest(
@@ -375,31 +843,44 @@ export class WebRpcServer {
 		if (isRecord(record) && record.type === "agent_end") {
 			const projected = { ...record };
 			delete projected.messages;
-			return this.projectValue(projected);
+			return this.projectValue(projected, new WeakSet());
 		}
-		return this.projectValue(record);
+		return this.projectValue(record, new WeakSet());
 	}
 
-	private projectValue(value: unknown): unknown {
+	private projectValue(value: unknown, ancestors: WeakSet<object>): unknown {
+		if (typeof value === "bigint") return value.toString();
 		if (Array.isArray(value)) {
-			return value.map((item) => this.projectValue(item));
+			if (ancestors.has(value)) return "[Circular]";
+			ancestors.add(value);
+			try {
+				return value.map((item) => this.projectValue(item, ancestors));
+			} finally {
+				ancestors.delete(value);
+			}
 		}
 		if (!isRecord(value)) return value;
-		if (value.type === "image" && typeof value.data === "string") {
-			const projected: Record<string, unknown> = {
-				...value,
-				dataOmitted: true,
-			};
-			delete projected.data;
-			delete projected.sourcePath;
-			return projected;
+		if (ancestors.has(value)) return "[Circular]";
+		ancestors.add(value);
+		try {
+			if (value.type === "image" && typeof value.data === "string") {
+				const projected: Record<string, unknown> = {
+					...value,
+					dataOmitted: true,
+				};
+				delete projected.data;
+				delete projected.sourcePath;
+				return projected;
+			}
+			return Object.fromEntries(
+				Object.entries(value).map(([key, item]) => [
+					key,
+					this.projectValue(item, ancestors),
+				]),
+			);
+		} finally {
+			ancestors.delete(value);
 		}
-		return Object.fromEntries(
-			Object.entries(value).map(([key, item]) => [
-				key,
-				this.projectValue(item),
-			]),
-		);
 	}
 
 	private allowedHosts(): Set<string> {

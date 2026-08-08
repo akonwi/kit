@@ -33,7 +33,7 @@ accepted the prompt; `agent_settled` marks the end of the resulting run.
 
 ## Commands
 
-The current protocol version is 1. Send `get_capabilities` to discover the
+The current protocol version is 2. Send `get_capabilities` to discover the
 commands supported by the running Kit host. For example, stdio RPC omits
 `ui_response` because it does not install a remote interaction broker.
 
@@ -52,7 +52,10 @@ commands supported by the running Kit host. For example, stdio RPC omits
 | `execute_command` | `commandId`, optional `args` | Execute a listed transport-neutral command. |
 | `ui_response` | `requestId`, `response` | Resolve a pending interaction when `interactiveUI` is enabled. |
 | `get_state` | | Return model, thinking, streaming, session, cwd, and message counts. |
-| `get_messages` | | Return the active transcript messages. |
+| `get_messages` | optional `offset`, `limit` | Return all active transcript messages, or a page of at most 200 with pagination metadata. |
+| `get_message_chunk` | `token`, optional `offset`, `maxBytes` | Web-only: return up to 32 KiB of one browser-safe JSON message as base64. |
+| `get_pending_interactions` | optional `offset`, `limit` | Page pending remote interaction requests when interactive UI is enabled. |
+| `get_pending_interaction_chunk` | `requestId`, optional `offset`, `maxBytes` | Return up to 48 KiB of one pending request as base64 JSON. |
 | `get_last_assistant_text` | | Return the last assistant message's text. |
 | `get_available_models` | | Return authenticated models. |
 | `set_model` | `provider`, `modelId` | Change model while idle. |
@@ -88,6 +91,48 @@ Kit currently publishes these event types:
 `state_changed` carries a fresh state snapshot after shared state mutations such
 as session, model, or thinking-level changes. Web mode broadcasts runtime events
 to every connected client.
+
+## Event sequencing and reconnection
+
+Web events include one host-instance `streamId` and a monotonically increasing
+`sequence`. The same shared event has the same sequence for every client;
+connection-scoped command responses are not sequenced. Web capability responses
+advertise `eventSequencing`, the current stream and sequence, and retention
+limits. Stdio capabilities report sequencing as unsupported.
+
+Every WebSocket connection begins with `sync` and ends synchronization with
+`sync_complete` before live delivery starts. With no resume cursor, or when a
+cursor is invalid, stale, or from another host instance, `sync` uses
+`mode: "snapshot"` and includes current state, pending interactions, and a
+bounded transcript tail. Snapshots retain at most the latest 200 messages and
+64 KiB; `messageOffset`, `totalMessageCount`, and `messagesTruncated` identify
+missing history, which clients retrieve through paginated `get_messages`
+commands. Web message pages are also capped at 64 KiB. An individually oversized
+message becomes a `message_reference` and is reconstructed through bounded
+`get_message_chunk` responses. Reference tokens address immutable browser-safe
+serialized bytes in a 16 MiB bounded cache, so transcript mutation cannot mix
+chunk versions and chunks never restore projected image data or server paths.
+Evicted tokens are rejected; a single projected message above the cache limit is
+reported as `message_unavailable`.
+
+A reconnecting client requests replay with:
+
+```text
+/api/rpc?streamId=<previous-stream-id>&after=<last-applied-sequence>
+```
+
+When the cursor remains in the journal, the server sends a replay `sync` whose
+`sequence` is the requested starting cursor and whose `targetSequence` is the
+captured high-water mark, followed by retained events and `sync_complete`.
+Clients advance their durable cursor only as each event is applied; they must
+not persist `targetSequence` before receiving the replayed tail. The server then
+adds the connection to live broadcasts, so replay and live delivery cannot
+interleave or leave a gap.
+
+The journal retains a contiguous suffix of at most 2,048 projected events and
+8 MiB. Oversized or evicted history causes snapshot fallback. If an internal
+event cannot be serialized, clients receive `resync_required` and should
+reconnect without a cursor to obtain a snapshot.
 
 ## Remote interactions
 
@@ -129,6 +174,10 @@ Supported response bodies are:
 Select option ids are opaque transport values; the server maps them back to the
 in-process values owned by the requesting plugin. Guided-question answers are
 validated against their declared kinds, required fields, and options.
+
+Snapshot and listing records replace an interaction payload over 16 KiB with a
+reference. Clients reconstruct it through `get_pending_interaction_chunk`; they
+can page omitted interaction listings through `get_pending_interactions`.
 
 Requests are broadcast to every connected client. The first valid response
 wins, and `ui_resolved` tells all clients to dismiss the interaction. Invalid,
@@ -202,8 +251,11 @@ Web mode defaults to `127.0.0.1:4782` and serves:
 
 ```text
 GET /                 browser entry point
-GET /api/health       process health and connected-client count
-WS  /api/rpc          commands, responses, and events
+GET  /api/health              process health and connected-client count
+POST /api/attachments         multipart attachment upload
+GET  /api/attachments/<id>    attachment content
+DELETE /api/attachments/<id>  release attachment content
+WS   /api/rpc                 commands, responses, events, and synchronization
 ```
 
 Multiple WebSocket clients may control the same runtime. Command responses go
@@ -235,7 +287,6 @@ Before web mode reaches feature parity it still needs:
 
 - the Mica-based transcript and composer client
 - transport-neutral adapters for additional renderer-owned built-in commands
-- sequenced event replay and snapshot-based reconnection
 
 See ADR 0027 and `backlog/remote-session-server.md` for the intended design and
 delivery sequence.

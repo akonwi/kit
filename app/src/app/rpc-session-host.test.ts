@@ -82,15 +82,46 @@ describe("RpcSessionHost", () => {
 				id: "capabilities",
 				success: true,
 				data: expect.objectContaining({
-					protocolVersion: 1,
+					protocolVersion: 2,
 					interactiveUI: false,
 					attachmentReferences: false,
 					maxAttachmentsPerPrompt: 0,
+					eventSequencing: { supported: false },
 				}),
 			}),
 		]);
 		const response = responses[0] as { data: { commands: string[] } };
 		expect(response.data.commands).not.toContain("ui_response");
+		host.dispose();
+	});
+
+	test("paginates transcript snapshots on request", async () => {
+		const messages = Array.from({ length: 5 }, (_, index) => ({
+			role: "user",
+			content: `message-${index}`,
+		}));
+		const host = new RpcSessionHost(
+			createRuntime({ getMessages: () => messages }),
+		);
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{ id: "messages", type: "get_messages", offset: 2, limit: 2 },
+			async (record) => {
+				responses.push(record);
+			},
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "messages",
+				data: {
+					messages: messages.slice(2, 4),
+					offset: 2,
+					totalMessageCount: 5,
+					hasMore: true,
+				},
+			}),
+		]);
 		host.dispose();
 	});
 
@@ -187,6 +218,55 @@ describe("RpcSessionHost", () => {
 			type: "error",
 			error: "submission failed",
 		});
+		host.dispose();
+	});
+
+	test("pages and chunks pending remote interactions", async () => {
+		const interactions = new RemoteInteractionBroker();
+		const abortController = new AbortController();
+		const pending = interactions.confirm({
+			title: "Confirm",
+			message: "x".repeat(20 * 1024),
+			signal: abortController.signal,
+		});
+		const request = interactions.getPendingRequests()[0];
+		if (!request) throw new Error("Expected pending interaction");
+		const host = new RpcSessionHost(createRuntime(), { interactions });
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{ id: "pending", type: "get_pending_interactions", limit: 1 },
+			async (record) => {
+				responses.push(record);
+			},
+		);
+		await host.handleCommand(
+			{
+				id: "chunk",
+				type: "get_pending_interaction_chunk",
+				requestId: request.id,
+			},
+			async (record) => {
+				responses.push(record);
+			},
+		);
+
+		expect(responses[0]).toEqual(
+			expect.objectContaining({
+				data: {
+					requests: [request],
+					offset: 0,
+					totalRequestCount: 1,
+					hasMore: false,
+				},
+			}),
+		);
+		const chunk = responses[1] as { data: { data: string; complete: boolean } };
+		expect(chunk.data.complete).toBe(true);
+		expect(
+			JSON.parse(Buffer.from(chunk.data.data, "base64").toString()),
+		).toEqual(request);
+		abortController.abort();
+		expect(await pending).toBe(false);
 		host.dispose();
 	});
 

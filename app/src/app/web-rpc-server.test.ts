@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
 import type {
 	RpcCommand,
+	RpcConnectionSnapshot,
 	RpcEventListener,
 	RpcWriter,
 } from "./rpc-session-host";
@@ -9,10 +10,25 @@ import { type WebRpcHost, WebRpcServer } from "./web-rpc-server";
 
 class FakeRpcHost implements WebRpcHost {
 	private readonly listeners = new Set<RpcEventListener>();
+	private snapshot: RpcConnectionSnapshot = {
+		state: { sessionId: "session-1", isStreaming: false },
+		messages: [],
+		messageOffset: 0,
+		totalMessageCount: 0,
+		pendingInteractions: [],
+	};
 
 	subscribe(listener: RpcEventListener): () => void {
 		this.listeners.add(listener);
 		return () => this.listeners.delete(listener);
+	}
+
+	getConnectionSnapshot(_maxMessages?: number): RpcConnectionSnapshot {
+		return this.snapshot;
+	}
+
+	setSnapshot(snapshot: RpcConnectionSnapshot): void {
+		this.snapshot = snapshot;
 	}
 
 	async handleCommand(command: RpcCommand, respond: RpcWriter): Promise<void> {
@@ -21,6 +37,33 @@ class FakeRpcHost implements WebRpcHost {
 			type: "response",
 			command: command.type,
 			success: true,
+			...(command.type === "get_capabilities"
+				? {
+						data: {
+							protocolVersion: 2,
+							commands: [],
+							eventSequencing: { supported: false },
+						},
+					}
+				: command.type === "get_messages"
+					? {
+							data: {
+								messages: this.snapshot.messages,
+								offset: this.snapshot.messageOffset,
+								totalMessageCount: this.snapshot.totalMessageCount,
+								hasMore: false,
+							},
+						}
+					: command.type === "get_pending_interactions"
+						? {
+								data: {
+									requests: this.snapshot.pendingInteractions,
+									offset: 0,
+									totalRequestCount: this.snapshot.pendingInteractions.length,
+									hasMore: false,
+								},
+							}
+						: {}),
 		});
 	}
 
@@ -29,41 +72,62 @@ class FakeRpcHost implements WebRpcHost {
 	}
 }
 
-function openWebSocket(url: string): Promise<WebSocket> {
-	return new Promise((resolve, reject) => {
-		const origin = new URL(url);
-		origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
-		const WebSocketWithOptions = WebSocket as unknown as new (
-			url: string,
-			options: Bun.WebSocketOptions,
-		) => WebSocket;
-		const socket = new WebSocketWithOptions(url, {
-			headers: { origin: origin.origin },
-		});
-		socket.addEventListener("open", () => resolve(socket), { once: true });
+type SocketConnection = {
+	socket: WebSocket;
+	sync: Record<string, unknown>;
+	complete: Record<string, unknown>;
+	replayed: unknown[];
+	next(): Promise<unknown>;
+};
+
+async function openWebSocket(url: string): Promise<SocketConnection> {
+	const origin = new URL(url);
+	origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
+	const WebSocketWithOptions = WebSocket as unknown as new (
+		url: string,
+		options: Bun.WebSocketOptions,
+	) => WebSocket;
+	const socket = new WebSocketWithOptions(url, {
+		headers: { origin: origin.origin },
+	});
+	const queued: unknown[] = [];
+	const waiters: Array<(record: unknown) => void> = [];
+	socket.addEventListener("message", (event) => {
+		const record = JSON.parse(String(event.data));
+		const waiter = waiters.shift();
+		if (waiter) waiter(record);
+		else queued.push(record);
+	});
+	await new Promise<void>((resolve, reject) => {
+		socket.addEventListener("open", () => resolve(), { once: true });
 		socket.addEventListener(
 			"error",
 			() => reject(new Error("WebSocket failed to connect")),
 			{ once: true },
 		);
 	});
-}
-
-function nextMessage(socket: WebSocket): Promise<unknown> {
-	return new Promise((resolve, reject) => {
-		const timer = setTimeout(
-			() => reject(new Error("Timed out waiting for message")),
-			1000,
-		);
-		socket.addEventListener(
-			"message",
-			(event) => {
+	const next = (): Promise<unknown> => {
+		const record = queued.shift();
+		if (record !== undefined) return Promise.resolve(record);
+		return new Promise((resolve, reject) => {
+			const timer = setTimeout(
+				() => reject(new Error("Timed out waiting for message")),
+				1000,
+			);
+			waiters.push((value) => {
 				clearTimeout(timer);
-				resolve(JSON.parse(String(event.data)));
-			},
-			{ once: true },
-		);
-	});
+				resolve(value);
+			});
+		});
+	};
+	const sync = (await next()) as Record<string, unknown>;
+	const replayed: unknown[] = [];
+	let complete = (await next()) as Record<string, unknown>;
+	while (complete.type !== "sync_complete") {
+		replayed.push(complete);
+		complete = (await next()) as Record<string, unknown>;
+	}
+	return { socket, sync, complete, replayed, next };
 }
 
 describe("WebRpcServer", () => {
@@ -79,6 +143,9 @@ describe("WebRpcServer", () => {
 		options: {
 			allowedOrigins?: string[];
 			attachments?: RemoteAttachmentStore;
+			eventStreamId?: string;
+			eventHistoryMaxEvents?: number;
+			eventHistoryMaxBytes?: number;
 		} = {},
 	) {
 		const host = new FakeRpcHost();
@@ -162,35 +229,87 @@ describe("WebRpcServer", () => {
 		attachments.dispose();
 	});
 
-	test("broadcasts events to multiple clients and scopes responses", async () => {
-		const { host, address } = start();
+	test("broadcasts sequenced events to multiple clients and scopes responses", async () => {
+		const { host, address } = start({ eventStreamId: "stream-1" });
 		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
 		const first = await openWebSocket(webSocketUrl);
 		const second = await openWebSocket(webSocketUrl);
-		sockets.push(first, second);
+		sockets.push(first.socket, second.socket);
+		expect(first.sync).toEqual({
+			type: "sync",
+			mode: "snapshot",
+			reason: "initial",
+			protocolVersion: 2,
+			streamId: "stream-1",
+			sequence: 0,
+			state: { sessionId: "session-1", isStreaming: false },
+			messages: [],
+			messageOffset: 0,
+			totalMessageCount: 0,
+			pendingInteractions: [],
+			pendingInteractionOffset: 0,
+			totalPendingInteractionCount: 0,
+		});
+		expect(first.complete).toEqual({
+			type: "sync_complete",
+			mode: "snapshot",
+			streamId: "stream-1",
+			sequence: 0,
+		});
 
-		const firstEvent = nextMessage(first);
-		const secondEvent = nextMessage(second);
 		host.emit({ type: "agent_start" });
-		expect(await firstEvent).toEqual({ type: "agent_start" });
-		expect(await secondEvent).toEqual({ type: "agent_start" });
+		expect(await first.next()).toEqual({
+			type: "agent_start",
+			streamId: "stream-1",
+			sequence: 1,
+		});
+		expect(await second.next()).toEqual({
+			type: "agent_start",
+			streamId: "stream-1",
+			sequence: 1,
+		});
 
-		const firstResponse = nextMessage(first);
-		first.send(JSON.stringify({ id: "state", type: "get_state" }));
-		expect(await firstResponse).toEqual({
+		first.socket.send(JSON.stringify({ id: "state", type: "get_state" }));
+		expect(await first.next()).toEqual({
 			id: "state",
 			type: "response",
 			command: "get_state",
 			success: true,
 		});
+		first.socket.send(
+			JSON.stringify({ id: "capabilities", type: "get_capabilities" }),
+		);
+		expect(await first.next()).toEqual({
+			id: "capabilities",
+			type: "response",
+			command: "get_capabilities",
+			success: true,
+			data: {
+				protocolVersion: 2,
+				commands: ["get_message_chunk"],
+				eventSequencing: {
+					supported: true,
+					resume: "websocket_query",
+					streamId: "stream-1",
+					latestSequence: 1,
+					maxEvents: 2048,
+					maxBytes: 8 * 1024 * 1024,
+				},
+			},
+		});
 
-		const firstNext = nextMessage(first);
-		const secondNext = nextMessage(second);
 		host.emit({ type: "turn_start" });
-		expect(await firstNext).toEqual({ type: "turn_start" });
-		expect(await secondNext).toEqual({ type: "turn_start" });
+		expect(await first.next()).toEqual({
+			type: "turn_start",
+			streamId: "stream-1",
+			sequence: 2,
+		});
+		expect(await second.next()).toEqual({
+			type: "turn_start",
+			streamId: "stream-1",
+			sequence: 2,
+		});
 
-		const projectedImage = nextMessage(first);
 		host.emit({
 			type: "message_end",
 			message: {
@@ -207,8 +326,10 @@ describe("WebRpcServer", () => {
 				],
 			},
 		});
-		expect(await projectedImage).toEqual({
+		expect(await first.next()).toEqual({
 			type: "message_end",
+			streamId: "stream-1",
+			sequence: 3,
 			message: {
 				role: "user",
 				content: [
@@ -223,9 +344,319 @@ describe("WebRpcServer", () => {
 			},
 		});
 
-		const projectedEvent = nextMessage(first);
 		host.emit({ type: "agent_end", messages: [{ role: "assistant" }] });
-		expect(await projectedEvent).toEqual({ type: "agent_end" });
+		expect(await first.next()).toEqual({
+			type: "agent_end",
+			streamId: "stream-1",
+			sequence: 4,
+		});
+		const circular: Record<string, unknown> = { type: "circular" };
+		circular.self = circular;
+		host.emit(circular);
+		expect(await first.next()).toEqual({
+			type: "circular",
+			self: "[Circular]",
+			streamId: "stream-1",
+			sequence: 5,
+		});
+	});
+
+	test("replays retained events before resuming live delivery", async () => {
+		const { host, address } = start({ eventStreamId: "stream-1" });
+		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
+		const first = await openWebSocket(webSocketUrl);
+		sockets.push(first.socket);
+		host.emit({ type: "first" });
+		host.emit({ type: "second" });
+		await first.next();
+		await first.next();
+
+		const resumed = await openWebSocket(
+			`${webSocketUrl}?streamId=stream-1&after=1`,
+		);
+		sockets.push(resumed.socket);
+		expect(resumed.sync).toEqual({
+			type: "sync",
+			mode: "replay",
+			protocolVersion: 2,
+			streamId: "stream-1",
+			sequence: 1,
+			targetSequence: 2,
+		});
+		expect(resumed.replayed).toEqual([
+			{
+				type: "second",
+				streamId: "stream-1",
+				sequence: 2,
+			},
+		]);
+		expect(resumed.complete).toEqual({
+			type: "sync_complete",
+			mode: "replay",
+			streamId: "stream-1",
+			sequence: 2,
+		});
+
+		host.emit({ type: "third" });
+		expect(await resumed.next()).toEqual({
+			type: "third",
+			streamId: "stream-1",
+			sequence: 3,
+		});
+	});
+
+	test("falls back to a projected snapshot when replay history is unavailable", async () => {
+		const { host, address } = start({
+			eventStreamId: "stream-1",
+			eventHistoryMaxEvents: 1,
+		});
+		host.setSnapshot({
+			state: { sessionId: "session-2", isStreaming: true },
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "image",
+							data: "base64",
+							mimeType: "image/png",
+							attachmentId: "attachment-1",
+						},
+					],
+				},
+			],
+			messageOffset: 0,
+			totalMessageCount: 1,
+			pendingInteractions: [
+				{
+					id: "request-1",
+					kind: "confirm",
+					createdAt: "2026-01-01T00:00:00.000Z",
+					payload: { message: "x".repeat(20 * 1024) },
+				},
+			],
+		});
+		host.emit({ type: "first" });
+		host.emit({ type: "second" });
+		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
+		const connection = await openWebSocket(
+			`${webSocketUrl}?streamId=stream-1&after=0`,
+		);
+		sockets.push(connection.socket);
+
+		expect(connection.sync).toEqual({
+			type: "sync",
+			mode: "snapshot",
+			reason: "history_unavailable",
+			protocolVersion: 2,
+			streamId: "stream-1",
+			sequence: 2,
+			state: { sessionId: "session-2", isStreaming: true },
+			messages: [
+				{
+					role: "user",
+					content: [
+						{
+							type: "image",
+							mimeType: "image/png",
+							attachmentId: "attachment-1",
+							dataOmitted: true,
+						},
+					],
+				},
+			],
+			messageOffset: 0,
+			totalMessageCount: 1,
+			pendingInteractions: [
+				{
+					id: "request-1",
+					kind: "confirm",
+					createdAt: "2026-01-01T00:00:00.000Z",
+					requestIndex: 0,
+					payloadOmitted: true,
+					recoveryCommand: "get_pending_interaction_chunk",
+				},
+			],
+			pendingInteractionOffset: 0,
+			totalPendingInteractionCount: 1,
+			pendingInteractionsTruncated: true,
+		});
+		connection.socket.send(
+			JSON.stringify({ id: "pending", type: "get_pending_interactions" }),
+		);
+		expect(await connection.next()).toEqual({
+			id: "pending",
+			type: "response",
+			command: "get_pending_interactions",
+			success: true,
+			data: {
+				requests: [
+					{
+						id: "request-1",
+						kind: "confirm",
+						createdAt: "2026-01-01T00:00:00.000Z",
+						requestIndex: 0,
+						payloadOmitted: true,
+						recoveryCommand: "get_pending_interaction_chunk",
+					},
+				],
+				offset: 0,
+				totalRequestCount: 1,
+				hasMore: false,
+			},
+		});
+	});
+
+	test("bounds snapshot history and reports the retained message offset", async () => {
+		const { host, address } = start({ eventStreamId: "stream-1" });
+		host.setSnapshot({
+			state: { sessionId: "session-1" },
+			messages: [
+				{ id: "first", content: "a".repeat(30 * 1024) },
+				{ id: "second", content: "b".repeat(30 * 1024) },
+				{ id: "third", content: "c".repeat(30 * 1024) },
+			],
+			messageOffset: 0,
+			totalMessageCount: 3,
+			pendingInteractions: [],
+		});
+		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
+		const connection = await openWebSocket(webSocketUrl);
+		sockets.push(connection.socket);
+
+		expect(
+			Buffer.byteLength(JSON.stringify(connection.sync), "utf8"),
+		).toBeLessThan(64 * 1024);
+		expect(connection.sync).toEqual(
+			expect.objectContaining({
+				messageOffset: 1,
+				totalMessageCount: 3,
+				messagesTruncated: true,
+				messages: [
+					expect.objectContaining({ id: "second" }),
+					expect.objectContaining({ id: "third" }),
+				],
+			}),
+		);
+	});
+
+	test("returns bounded message references for oversized transcript pages", async () => {
+		const { host, address } = start({ eventStreamId: "stream-1" });
+		host.setSnapshot({
+			state: { sessionId: "session-1" },
+			messages: [
+				{
+					id: "large",
+					content: [
+						{ type: "text", text: "x".repeat(100 * 1024) },
+						{
+							type: "image",
+							data: "inline-base64",
+							mimeType: "image/png",
+							sourcePath: "/private/image.png",
+						},
+					],
+				},
+			],
+			messageOffset: 0,
+			totalMessageCount: 1,
+			pendingInteractions: [],
+		});
+		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
+		const connection = await openWebSocket(webSocketUrl);
+		sockets.push(connection.socket);
+		connection.socket.send(
+			JSON.stringify({ id: "messages", type: "get_messages", offset: 0 }),
+		);
+		const response = (await connection.next()) as Record<string, unknown>;
+		expect(Buffer.byteLength(JSON.stringify(response), "utf8")).toBeLessThan(
+			64 * 1024,
+		);
+		expect(response).toEqual({
+			id: "messages",
+			type: "response",
+			command: "get_messages",
+			success: true,
+			data: {
+				messages: [
+					{
+						type: "message_reference",
+						messageIndex: 0,
+						token: expect.any(String),
+						serializedBytes: expect.any(Number),
+						recoveryCommand: "get_message_chunk",
+					},
+				],
+				offset: 0,
+				totalMessageCount: 1,
+				hasMore: false,
+				messagesTruncated: true,
+			},
+		});
+		const reference = (response.data as { messages: Array<{ token: string }> })
+			.messages[0];
+		const chunks: Buffer[] = [];
+		let offset = 0;
+		let complete = false;
+		while (!complete) {
+			connection.socket.send(
+				JSON.stringify({
+					id: `chunk-${offset}`,
+					type: "get_message_chunk",
+					token: reference.token,
+					offset,
+				}),
+			);
+			const chunk = (await connection.next()) as {
+				data: {
+					data: string;
+					nextOffset: number;
+					complete: boolean;
+				};
+			};
+			chunks.push(Buffer.from(chunk.data.data, "base64"));
+			if (chunks.length === 1) {
+				host.setSnapshot({
+					state: { sessionId: "session-2" },
+					messages: [{ id: "replacement" }],
+					messageOffset: 0,
+					totalMessageCount: 1,
+					pendingInteractions: [],
+				});
+			}
+			offset = chunk.data.nextOffset;
+			complete = chunk.data.complete;
+		}
+		const reconstructed = JSON.parse(Buffer.concat(chunks).toString());
+		expect(reconstructed).toEqual({
+			id: "large",
+			content: [
+				{ type: "text", text: "x".repeat(100 * 1024) },
+				{
+					type: "image",
+					mimeType: "image/png",
+					dataOmitted: true,
+				},
+			],
+		});
+	});
+
+	test("returns a fresh snapshot when the event stream changes", async () => {
+		const { address } = start({ eventStreamId: "current-stream" });
+		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
+		const connection = await openWebSocket(
+			`${webSocketUrl}?streamId=previous-stream&after=12`,
+		);
+		sockets.push(connection.socket);
+		expect(connection.sync).toEqual(
+			expect.objectContaining({
+				type: "sync",
+				mode: "snapshot",
+				reason: "stream_changed",
+				streamId: "current-stream",
+				sequence: 0,
+			}),
+		);
 	});
 
 	test("rejects cross-origin and originless WebSocket upgrades", async () => {

@@ -89,9 +89,21 @@ versions will be discoverable rather than inferred by clients.
 
 ### Reconnection and multi-client control
 
-Runtime events will have ordered sequence identifiers. A reconnecting client
-can resume from its last observed event when retained history is available, or
-recover from a current state and message snapshot before receiving new events.
+Runtime events have a host-instance stream ID and ordered sequence identifiers.
+The web transport journals a bounded, contiguous suffix after applying its
+browser-safe projection. A reconnecting client supplies the prior stream ID and
+its last applied sequence in the WebSocket URL. The server captures one
+high-water mark, synchronously sends either the retained suffix or a bounded
+state/message/interaction snapshot, marks synchronization complete, and only
+then enables live delivery. Command responses remain connection-scoped and
+unsequenced.
+
+Replay starts from the client's supplied sequence rather than advertising the
+terminal cursor as already applied. A completion record carries the high-water
+mark after all replay records have been sent. Stream changes, invalid cursors,
+evicted history, and oversized history fall back to a snapshot. Snapshot
+transcripts are bounded and expose offsets so clients can page older messages
+through the command protocol.
 
 Multiple clients may connect to and fully control the same authoritative
 runtime. Commands are correlated per connection and serialized before mutating

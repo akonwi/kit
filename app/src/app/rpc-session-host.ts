@@ -31,7 +31,15 @@ export type RpcResponse = {
 export type RpcWriter = (record: unknown) => Promise<void>;
 export type RpcEventListener = (record: unknown) => void;
 
-export const RPC_PROTOCOL_VERSION = 1;
+export type RpcConnectionSnapshot = {
+	state: Record<string, unknown>;
+	messages: unknown[];
+	messageOffset: number;
+	totalMessageCount: number;
+	pendingInteractions: unknown[];
+};
+
+export const RPC_PROTOCOL_VERSION = 2;
 
 export const RPC_COMMAND_TYPES = [
 	"prompt",
@@ -65,6 +73,7 @@ export type RpcSessionHostOptions = {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_COMMAND_CANCELLATION_GRACE_MS = 2_000;
+const MAX_RPC_CHUNK_BYTES = 48 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -74,6 +83,19 @@ function requireString(command: RpcCommand, key: string): string {
 	const value = command[key];
 	if (typeof value !== "string" || !value.trim()) {
 		throw new Error(`${key} must be a non-empty string`);
+	}
+	return value;
+}
+
+function optionalNonnegativeInteger(
+	command: RpcCommand,
+	key: string,
+	fallback: number,
+): number {
+	const value = command[key];
+	if (value === undefined) return fallback;
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+		throw new Error(`${key} must be a non-negative integer`);
 	}
 	return value;
 }
@@ -88,6 +110,24 @@ function attachmentIds(command: RpcCommand): string[] {
 		throw new Error("attachmentIds must be an array of non-empty strings");
 	}
 	return value;
+}
+
+function jsonChunk(value: unknown, offset: number, maxBytes: number) {
+	const serialized = JSON.stringify(value, (_key, item) =>
+		typeof item === "bigint" ? item.toString() : item,
+	);
+	if (serialized === undefined) throw new Error("Value cannot be serialized");
+	const bytes = Buffer.from(serialized, "utf8");
+	if (offset > bytes.length) throw new Error("offset exceeds serialized data");
+	const end = Math.min(bytes.length, offset + maxBytes);
+	return {
+		encoding: "base64-json" as const,
+		data: bytes.subarray(offset, end).toString("base64"),
+		offset,
+		nextOffset: end,
+		totalBytes: bytes.length,
+		complete: end === bytes.length,
+	};
 }
 
 function assistantText(message: unknown): string | null {
@@ -331,6 +371,23 @@ export class RpcSessionHost {
 		if (!this.interactions || this.disposed) return () => {};
 		for (const event of this.interactions.connectClient()) listener(event);
 		return () => {};
+	}
+
+	getConnectionSnapshot(
+		maxMessages = Number.MAX_SAFE_INTEGER,
+	): RpcConnectionSnapshot {
+		const allMessages = this.runtime.getMessages();
+		const count = Number.isSafeInteger(maxMessages)
+			? Math.max(0, maxMessages)
+			: 0;
+		const messageOffset = Math.max(0, allMessages.length - count);
+		return {
+			state: this.stateSnapshot(),
+			messages: allMessages.slice(messageOffset),
+			messageOffset,
+			totalMessageCount: allMessages.length,
+			pendingInteractions: this.interactions?.getPendingRequests() ?? [],
+		};
 	}
 
 	async waitForCommands(): Promise<void> {
@@ -675,7 +732,13 @@ export class RpcSessionHost {
 						commands: [
 							...RPC_COMMAND_TYPES,
 							...(this.allowLegacySessionPaths ? ["switch_session"] : []),
-							...(this.interactions ? ["ui_response"] : []),
+							...(this.interactions
+								? [
+										"ui_response",
+										"get_pending_interactions",
+										"get_pending_interaction_chunk",
+									]
+								: []),
 							...(this.commands ? ["list_commands", "execute_command"] : []),
 						],
 						interactiveUI: this.interactions !== undefined,
@@ -685,19 +748,80 @@ export class RpcSessionHost {
 						maxAttachmentsPerPrompt: this.attachments
 							? MAX_REMOTE_ATTACHMENTS_PER_PROMPT
 							: 0,
+						eventSequencing: { supported: false },
 					}),
 				);
 				return;
 			case "get_state":
 				await respond(this.response(command, true, this.stateSnapshot()));
 				return;
-			case "get_messages":
+			case "get_messages": {
+				const messages = this.runtime.getMessages();
+				const paginated =
+					command.offset !== undefined || command.limit !== undefined;
+				if (!paginated) {
+					await respond(this.response(command, true, { messages }));
+					return;
+				}
+				const offset = optionalNonnegativeInteger(command, "offset", 0);
+				const limit = optionalNonnegativeInteger(command, "limit", 100);
+				if (limit > 200) throw new Error("limit must not exceed 200");
+				const page = messages.slice(offset, offset + limit);
 				await respond(
 					this.response(command, true, {
-						messages: this.runtime.getMessages(),
+						messages: page,
+						offset,
+						totalMessageCount: messages.length,
+						hasMore: offset + page.length < messages.length,
 					}),
 				);
 				return;
+			}
+			case "get_pending_interactions": {
+				if (!this.interactions)
+					throw new Error("Interactive UI is unavailable");
+				const pending = this.interactions.getPendingRequests();
+				const offset = optionalNonnegativeInteger(command, "offset", 0);
+				const limit = optionalNonnegativeInteger(command, "limit", 20);
+				if (limit > 50) throw new Error("limit must not exceed 50");
+				const requests = pending.slice(offset, offset + limit);
+				await respond(
+					this.response(command, true, {
+						requests,
+						offset,
+						totalRequestCount: pending.length,
+						hasMore: offset + requests.length < pending.length,
+					}),
+				);
+				return;
+			}
+			case "get_pending_interaction_chunk": {
+				if (!this.interactions)
+					throw new Error("Interactive UI is unavailable");
+				const requestId = requireString(command, "requestId");
+				const request = this.interactions
+					.getPendingRequests()
+					.find((candidate) => candidate.id === requestId);
+				if (!request) throw new Error("Interaction is no longer pending");
+				const offset = optionalNonnegativeInteger(command, "offset", 0);
+				const maxBytes = optionalNonnegativeInteger(
+					command,
+					"maxBytes",
+					MAX_RPC_CHUNK_BYTES,
+				);
+				if (maxBytes < 1 || maxBytes > MAX_RPC_CHUNK_BYTES) {
+					throw new Error(
+						`maxBytes must be between 1 and ${MAX_RPC_CHUNK_BYTES}`,
+					);
+				}
+				await respond(
+					this.response(command, true, {
+						requestId,
+						...jsonChunk(request, offset, maxBytes),
+					}),
+				);
+				return;
+			}
 			case "get_last_assistant_text": {
 				const message = this.runtime
 					.getMessages()

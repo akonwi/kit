@@ -164,6 +164,12 @@ client supplies its last observed sequence. Replay buffered events when
 possible; otherwise return a fresh state and message snapshot before resuming
 live events.
 
+Implemented: host-instance stream IDs, ordered projected-event journaling,
+count/byte-bounded retention, cursor replay through the WebSocket URL, explicit
+sync completion, bounded transcript-tail snapshots, paginated/chunked message
+and interaction recovery, and snapshot fallback for changed streams or
+unavailable history.
+
 Disconnecting a client must not terminate the Kit process or an active agent
 run.
 
@@ -240,7 +246,7 @@ separating the existing TUI's presentation state from its in-process
 - [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
 - [ ] Add a minimal Mica-based web transcript/composer client.
 - [ ] Fill remaining tool-approval, plugin-client-surface, and built-in command gaps.
-- [ ] Add event sequencing, reconnect, and interaction coordination.
+- [x] Add event sequencing, reconnect, and interaction coordination.
 - [ ] Validate local access through a trusted private tunnel.
 - [ ] Add a cloud sandbox worker using the same command and protocol.
 - [ ] Add `kit attach` for a remote TUI.
