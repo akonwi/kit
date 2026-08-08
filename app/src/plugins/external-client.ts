@@ -491,19 +491,32 @@ export class ExternalPluginClient {
 		) {
 			throw this.conflict("command", canonicalId);
 		}
+		const executeTransportNeutral = async (
+			args: string,
+			signal?: AbortSignal,
+		) => {
+			try {
+				await this.requestPlugin(
+					"kit/commands/execute",
+					{ id: params.id, args },
+					"NullResult",
+					signal,
+				);
+			} catch (error) {
+				if (signal?.aborted) await this.stop(false);
+				throw error;
+			}
+		};
 		const command: Command = {
 			name: canonicalId,
 			displayName: params.id,
 			description: params.description,
 			argName: params.argName ?? undefined,
 			category: params.category ?? undefined,
+			executeTransportNeutral,
 			execute: async (commandContext) => {
 				try {
-					await this.requestPlugin(
-						"kit/commands/execute",
-						{ id: params.id, args: commandContext.args },
-						"NullResult",
-					);
+					await executeTransportNeutral(commandContext.args);
 				} catch (error) {
 					this.context.ui.toast({
 						title: `/${params.id} failed`,

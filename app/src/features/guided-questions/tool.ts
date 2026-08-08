@@ -6,8 +6,11 @@
 import type { ToolDefinition, ToolResult } from "../../plugins";
 import { type Static, Type } from "../../runtime/agent";
 import { ringBell } from "../notifications/notifications";
-import type { GuidedQuestionsController } from "./controller";
-import { type GuidedQuestionsInput, normalizeQuestion } from "./types";
+import {
+	type GuidedQuestionsInput,
+	type GuidedQuestionsRequester,
+	normalizeQuestions,
+} from "./types";
 
 const GUIDED_QUESTIONS_POLICY = [
 	"When you need clarification from the user and there are 2 or more missing inputs, call guided_questions instead of asking a long list in plain chat.",
@@ -61,14 +64,14 @@ export type GuidedQuestionsToolOptions = {
 };
 
 export function createGuidedQuestionsTool(
-	guidedQuestions: GuidedQuestionsController,
+	guidedQuestions: GuidedQuestionsRequester,
 	options: GuidedQuestionsToolOptions,
 ): ToolDefinition<typeof parameters, Record<string, unknown>> {
 	return {
 		name: "guided_questions",
 		label: "Guided Questions",
 		description:
-			"Ask the user a structured, one-question-at-a-time questionnaire in the terminal UI.",
+			"Ask the user a structured, one-question-at-a-time questionnaire in the interactive UI.",
 		promptSnippet:
 			"Collect structured user answers via an interactive questionnaire when multiple clarifying questions are needed.",
 		promptGuidelines: [
@@ -80,13 +83,13 @@ export function createGuidedQuestionsTool(
 		async execute(
 			_toolCallId: string,
 			input: Static<typeof parameters>,
-			_signal: AbortSignal | undefined,
+			signal: AbortSignal | undefined,
 			_onUpdate: unknown,
 		): Promise<ToolResult<Record<string, unknown>>> {
 			const params: GuidedQuestionsInput = {
 				title: input.title,
 				intro: input.intro,
-				questions: (input.questions || []).map(normalizeQuestion),
+				questions: normalizeQuestions(input.questions || []),
 			};
 
 			if (options.notify) {
@@ -94,7 +97,7 @@ export function createGuidedQuestionsTool(
 			} else {
 				ringBell(false);
 			}
-			const result = await guidedQuestions.activate(params);
+			const result = await guidedQuestions.activate(params, signal);
 			const title =
 				typeof params.title === "string" && params.title.trim()
 					? params.title.trim()

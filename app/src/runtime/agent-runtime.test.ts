@@ -7,6 +7,7 @@ import {
 	deleteSession,
 	SESSION_VERSION,
 	type Session,
+	writeSession,
 } from "../session";
 import { scratchpadPath } from "../storage/session-sidecars";
 import type { AgentTool } from "./agent";
@@ -84,7 +85,7 @@ describe("AgentRuntime cwd changes", () => {
 		}
 	});
 
-	test("switchSession changes cwd and emits a cwd event", async () => {
+	test("switchSessionById requires an exact id, changes cwd, and emits a cwd event", async () => {
 		const originalCwd = process.cwd();
 		const firstDir = await mkdtemp(path.join(tmpdir(), "kit-runtime-cwd-a-"));
 		const secondDir = await mkdtemp(path.join(tmpdir(), "kit-runtime-cwd-b-"));
@@ -98,13 +99,18 @@ describe("AgentRuntime cwd changes", () => {
 			turns: [],
 		};
 		const target = await createSession(secondDir);
+		await writeSession(target);
 		const runtime = new AgentRuntime(session, { disableGitWatcher: true });
 		const cwdEvents: string[] = [];
 		runtime.subscribe("session.active.changed.cwd", (event) => {
 			cwdEvents.push(event.cwd);
 		});
 		try {
-			expect(await runtime.switchSession(target.id)).toBe(true);
+			expect(await runtime.switchSessionById(target.id.slice(0, 8))).toBe(
+				false,
+			);
+			expect(runtime.getSession().id).toBe(session.id);
+			expect(await runtime.switchSessionById(target.id)).toBe(true);
 			expect(runtime.getSession().id).toBe(target.id);
 			expect(process.cwd()).toBe(await realpath(secondDir));
 			expect(cwdEvents).toEqual([secondDir]);

@@ -1,4 +1,5 @@
 import { createHeadlessHost } from "./headless-host";
+import { RemoteInteractionBroker } from "./remote-interaction-broker";
 import { resolveRpcSession, selectStartupModel } from "./rpc-mode";
 import { RpcSessionHost } from "./rpc-session-host";
 import { WebRpcServer } from "./web-rpc-server";
@@ -18,6 +19,7 @@ export async function runWebMode(
 ): Promise<number> {
 	let headlessHost: Awaited<ReturnType<typeof createHeadlessHost>> | null =
 		null;
+	let interactions: RemoteInteractionBroker | null = null;
 	let rpcHost: RpcSessionHost | null = null;
 	let webServer: WebRpcServer | null = null;
 	let signalExitCode = 0;
@@ -42,8 +44,11 @@ export async function runWebMode(
 			noSession: false,
 			sessionId: options.sessionId,
 		});
+		interactions = new RemoteInteractionBroker();
 		headlessHost = await createHeadlessHost(resolved.session, {
 			persistSession: true,
+			interactions,
+			externalPlugins: true,
 		});
 		if (options.model) {
 			const model = selectStartupModel(
@@ -54,7 +59,13 @@ export async function runWebMode(
 			await headlessHost.runtime.waitForModelAdaptation();
 		}
 
-		rpcHost = new RpcSessionHost(headlessHost.runtime, true);
+		rpcHost = new RpcSessionHost(headlessHost.runtime, {
+			persistSessions: true,
+			interactions,
+			commands: headlessHost.commands,
+			waitForWorkspaceReady: headlessHost.waitForWorkspaceReady,
+			allowLegacySessionPaths: false,
+		});
 		webServer = new WebRpcServer(rpcHost, {
 			hostname: options.hostname,
 			port: options.port,
@@ -83,6 +94,7 @@ export async function runWebMode(
 			cleanupErrors.push(error);
 		} finally {
 			rpcHost?.dispose();
+			interactions?.dispose();
 		}
 		try {
 			await headlessHost?.dispose();

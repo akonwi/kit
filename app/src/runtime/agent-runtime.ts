@@ -1587,10 +1587,22 @@ export class AgentRuntime {
 		return child;
 	}
 
+	async switchSessionById(id: string): Promise<boolean> {
+		const target = await findSessionById(id);
+		if (!target || target.id !== id) return false;
+		await this.activateSession(target);
+		return true;
+	}
+
 	async switchSession(id: string): Promise<boolean> {
-		const previousCwd = this.session.cwd;
 		const target = (await findSessionById(id)) ?? (await readSession(id));
 		if (!target) return false;
+		await this.activateSession(target);
+		return true;
+	}
+
+	private async activateSession(target: Session): Promise<void> {
+		const previousCwd = this.session.cwd;
 		await ensureCwdDirectory(target.cwd, "Session working directory");
 		chdirIfNeeded(target.cwd);
 		this.agent.clearAllQueues();
@@ -1615,7 +1627,6 @@ export class AgentRuntime {
 				source: "user",
 			});
 		}
-		return true;
 	}
 
 	private async createMergeSummary(child: Session): Promise<{

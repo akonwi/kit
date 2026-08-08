@@ -113,8 +113,10 @@ describe("WebRpcServer", () => {
 			success: true,
 		});
 
+		const firstNext = nextMessage(first);
 		const secondNext = nextMessage(second);
 		host.emit({ type: "turn_start" });
+		expect(await firstNext).toEqual({ type: "turn_start" });
 		expect(await secondNext).toEqual({ type: "turn_start" });
 
 		const projectedEvent = nextMessage(first);

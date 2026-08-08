@@ -1,4 +1,6 @@
 import type { Readable } from "node:stream";
+import type { CommandRegistry } from "../features/commands";
+import type { Api, Model } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { createHeadlessHost, takeOverStdout } from "./headless-host";
 import { applyStartupModel } from "./headless-model";
@@ -24,8 +26,15 @@ export class RpcModeServer {
 		private readonly input: Readable,
 		private readonly writeRecord: RpcWriter,
 		persistSessions = false,
+		commands?: CommandRegistry,
+		waitForWorkspaceReady?: () => Promise<void>,
 	) {
-		this.host = new RpcSessionHost(runtime, persistSessions);
+		this.host = new RpcSessionHost(runtime, {
+			persistSessions,
+			commands,
+			waitForWorkspaceReady,
+			allowLegacySessionPaths: true,
+		});
 		this.unsubscribeHost = this.host.subscribe((record) => {
 			void this.write(record);
 		});
@@ -132,6 +141,8 @@ export async function runRpcMode(
 			process.stdin,
 			(record) => stdout.write(`${JSON.stringify(record)}\n`),
 			resolved.persistSession,
+			host.commands,
+			host.waitForWorkspaceReady,
 		);
 		await server.start();
 		await server.abortAndWait();

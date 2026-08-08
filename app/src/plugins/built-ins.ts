@@ -1,5 +1,9 @@
 import { ClaudeCompatibilityPlugin } from "../features/claude-compat";
-import { GuidedQuestionsPlugin } from "../features/guided-questions";
+import {
+	createRemoteGuidedQuestionsPlugin,
+	GuidedQuestionsPlugin,
+} from "../features/guided-questions";
+import type { GuidedQuestionsRequester } from "../features/guided-questions/types";
 import { createMcpPlugin } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
 import { PagerPlugin } from "../features/pager";
@@ -18,7 +22,10 @@ import type {
 	SubagentsWorkspaceController,
 } from "../features/subagents";
 import { createSubagentsPlugin } from "../features/subagents";
-import { UserInteractionToolsPlugin } from "../features/user-interaction-tools";
+import {
+	RemoteUserInteractionToolsPlugin,
+	UserInteractionToolsPlugin,
+} from "../features/user-interaction-tools";
 import { VcsStatusPlugin } from "../features/vcs/plugin";
 import type { PluginManagerInput } from "./PluginManager";
 import type { InternalPluginDefinition, PluginContext } from "./types";
@@ -42,6 +49,7 @@ export type BuiltInPluginOptions = {
 	subagentStorage?: SubagentSessionStorage;
 	subagentsWorkspace?: SubagentsWorkspaceController;
 	releasesWorkspace?: ReleasesWorkspaceController;
+	remoteGuidedQuestions?: GuidedQuestionsRequester;
 };
 
 // Built-in plugins that are always enabled as core features.
@@ -86,7 +94,14 @@ export function createBuiltInPlugins(
 				]),
 		internalPlugin(SessionCwdPlugin),
 		...(options.headless
-			? []
+			? options.remoteGuidedQuestions
+				? [
+						internalPlugin(
+							createRemoteGuidedQuestionsPlugin(options.remoteGuidedQuestions),
+						),
+						internalPlugin(RemoteUserInteractionToolsPlugin),
+					]
+				: []
 			: [
 					internalPlugin(PagerPlugin),
 					internalPlugin(GuidedQuestionsPlugin),

@@ -113,15 +113,24 @@ commands. Support:
 
 Interactive requests are broadcast to all connected clients. The first valid
 response wins, and the server broadcasts the resolution so other clients close
-the interaction. If every client disconnects, keep the request pending for a
-bounded reconnection window and send it to clients that reconnect; cancel or
-deny it when that window expires.
+the interaction. Requests are not owned by a connection: keep them pending
+across any number of disconnects, replay them to every client that connects,
+and reject responses once the originating operation has already resolved,
+aborted, or shut down.
+
+Implemented: the transport-neutral broker, `ui_request` / `ui_response`
+protocol, connection-independent pending requests, safe abort/shutdown behavior,
+remote plugin UI primitives, and remote guided-question/user-interaction tools.
+Browser rendering remains in the client milestone.
 
 ### Plugins
 
-Initialize the external plugin manager in server mode. The current headless
-host only initializes built-in plugins, so global and project JSON-RPC plugins
-are unavailable.
+Server mode must initialize the external plugin manager without changing the
+reduced plugin surface used by print and stdio RPC modes.
+
+Implemented for web mode: user and project external plugins initialize and
+retarget with the hosted runtime. Remote-safe URL opening, chrome contributions,
+and user-visible plugin failure reporting remain client-protocol work.
 
 ### Commands and sessions
 
@@ -132,6 +141,11 @@ Add protocol operations for:
 - changing the active cwd/workspace
 - executing slash commands and prompt commands
 - retrieving complete state and messages
+
+Implemented: capability discovery, state/messages, session listing and opening,
+new sessions, cwd changes, and listing/execution for commands that explicitly
+provide transport-neutral handlers. Additional renderer-owned built-in commands
+need deliberate remote adapters rather than fabricated TUI context.
 
 ### Attachments
 

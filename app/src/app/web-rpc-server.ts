@@ -8,6 +8,7 @@ import type {
 export type WebRpcHost = {
 	subscribe(listener: RpcEventListener): () => void;
 	handleCommand(command: RpcCommand, respond: RpcWriter): Promise<void>;
+	connectClient?(listener: RpcEventListener): () => void;
 };
 
 export type WebRpcServerOptions = {
@@ -57,6 +58,10 @@ export class WebRpcServer {
 	private server: Server<WebSocketData> | null = null;
 	private unsubscribeHost: (() => void) | null = null;
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
+	private readonly clientDisposers = new Map<
+		ServerWebSocket<WebSocketData>,
+		() => void
+	>();
 
 	constructor(
 		private readonly rpcHost: WebRpcHost,
@@ -101,6 +106,14 @@ export class WebRpcServer {
 				closeOnBackpressureLimit: true,
 				open: (socket) => {
 					this.clients.add(socket);
+					const disconnect = this.rpcHost.connectClient?.((record) => {
+						this.send(socket, record);
+					});
+					if (disconnect && this.clients.has(socket)) {
+						this.clientDisposers.set(socket, disconnect);
+					} else {
+						disconnect?.();
+					}
 				},
 				message: (socket, message) => {
 					let command: RpcCommand;
@@ -120,7 +133,7 @@ export class WebRpcServer {
 					});
 				},
 				close: (socket) => {
-					this.clients.delete(socket);
+					this.removeClient(socket);
 				},
 			},
 		});
@@ -135,27 +148,36 @@ export class WebRpcServer {
 	async stop(): Promise<void> {
 		this.unsubscribeHost?.();
 		this.unsubscribeHost = null;
-		this.clients.clear();
+		for (const client of [...this.clients]) this.removeClient(client);
 		const server = this.server;
 		this.server = null;
 		await server?.stop(true);
 	}
 
 	private send(socket: ServerWebSocket<WebSocketData>, record: unknown): void {
-		if (socket.readyState !== WebSocket.OPEN) return;
+		if (socket.readyState !== WebSocket.OPEN) {
+			this.removeClient(socket);
+			return;
+		}
 		try {
 			const status = socket.send(JSON.stringify(record));
-			if (status === 0) {
-				this.clients.delete(socket);
-				socket.terminate();
-			}
+			if (status === 0) this.removeClient(socket, true);
 		} catch (error) {
-			this.clients.delete(socket);
-			socket.terminate();
+			this.removeClient(socket, true);
 			console.error(
 				`WebSocket send failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
+	}
+
+	private removeClient(
+		socket: ServerWebSocket<WebSocketData>,
+		terminate = false,
+	): void {
+		this.clients.delete(socket);
+		this.clientDisposers.get(socket)?.();
+		this.clientDisposers.delete(socket);
+		if (terminate) socket.terminate();
 	}
 
 	private broadcast(record: unknown): void {

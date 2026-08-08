@@ -33,6 +33,7 @@ export type JsonRpcEndpointOptions = {
 	maxFrameBytes?: number;
 	maxQueuedBytes?: number;
 	maxIncomingRequests?: number;
+	incomingCancellationGraceMs?: number;
 };
 
 export type JsonRpcRequestOptions = {
@@ -76,6 +77,7 @@ type JsonRpcResponse =
 const DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_QUEUED_BYTES = 32 * 1024 * 1024;
 const DEFAULT_MAX_INCOMING_REQUESTS = 128;
+const DEFAULT_INCOMING_CANCELLATION_GRACE_MS = 1_000;
 
 const protocolMessageSchema = protocolSchema as TSchema;
 const genericSingleMessageSchema = {
@@ -160,7 +162,9 @@ export class JsonRpcEndpoint {
 	private readonly maxFrameBytes: number;
 	private readonly maxQueuedBytes: number;
 	private readonly maxIncomingRequests: number;
+	private readonly incomingCancellationGraceMs: number;
 	private readonly pendingRequests = new Map<string, PendingRequest>();
+	private readonly cancelledRequestKeys = new Set<string>();
 	private readonly incomingRequests = new Map<string, IncomingRequest>();
 	private readonly writeQueue: QueuedFrame[] = [];
 	private readBuffer = Buffer.alloc(0);
@@ -181,6 +185,9 @@ export class JsonRpcEndpoint {
 		this.maxQueuedBytes = options.maxQueuedBytes ?? DEFAULT_MAX_QUEUED_BYTES;
 		this.maxIncomingRequests =
 			options.maxIncomingRequests ?? DEFAULT_MAX_INCOMING_REQUESTS;
+		this.incomingCancellationGraceMs =
+			options.incomingCancellationGraceMs ??
+			DEFAULT_INCOMING_CANCELLATION_GRACE_MS;
 
 		this.input.on("data", this.onData);
 		this.input.on("error", this.onInputError);
@@ -219,8 +226,10 @@ export class JsonRpcEndpoint {
 				const abort = () => {
 					if (pending.settled) return;
 					pending.settled = true;
+					this.pendingRequests.delete(requestKey(id));
+					this.rememberCancelledRequest(requestKey(id));
 					pending.reject(new JsonRpcError(-32001, "Request cancelled"));
-					void this.notify("kit/cancel", { id });
+					void this.notify("kit/cancel", { id }).catch(() => {});
 				};
 				options.signal.addEventListener("abort", abort, { once: true });
 				pending.abortCleanup = () =>
@@ -262,6 +271,7 @@ export class JsonRpcEndpoint {
 			}
 		}
 		this.pendingRequests.clear();
+		this.cancelledRequestKeys.clear();
 
 		for (const incoming of this.incomingRequests.values()) {
 			incoming.abort.abort();
@@ -275,9 +285,12 @@ export class JsonRpcEndpoint {
 	cancelPendingRequests(
 		error: Error = new JsonRpcError(-32001, "Request cancelled"),
 	): void {
-		for (const pending of this.pendingRequests.values()) {
+		for (const pending of [...this.pendingRequests.values()]) {
 			if (pending.settled) continue;
 			pending.settled = true;
+			const key = requestKey(pending.id);
+			this.pendingRequests.delete(key);
+			this.rememberCancelledRequest(key);
 			pending.abortCleanup?.();
 			pending.reject(error);
 			void this.notify("kit/cancel", { id: pending.id }).catch(() => {});
@@ -434,23 +447,23 @@ export class JsonRpcEndpoint {
 		const active: IncomingRequest = { abort: new AbortController() };
 		this.incomingRequests.set(key, active);
 
+		const params =
+			"params" in message ? asJsonValue(message.params) : undefined;
+		const handlerExecution = Promise.resolve().then(() =>
+			this.handleRequest(String(message.method), params, active.abort.signal),
+		);
+		let rejectCancellation: ((error: Error) => void) | undefined;
+		const cancellation = new Promise<never>((_resolve, reject) => {
+			rejectCancellation = reject;
+		});
+		const abortListener = () =>
+			rejectCancellation?.(new JsonRpcError(-32001, "Request cancelled"));
+		active.abort.signal.addEventListener("abort", abortListener, {
+			once: true,
+		});
+
 		try {
-			const params =
-				"params" in message ? asJsonValue(message.params) : undefined;
-			const result = await Promise.race([
-				this.handleRequest(String(message.method), params, active.abort.signal),
-				new Promise<never>((_resolve, reject) => {
-					if (active.abort.signal.aborted) {
-						reject(new JsonRpcError(-32001, "Request cancelled"));
-						return;
-					}
-					active.abort.signal.addEventListener(
-						"abort",
-						() => reject(new JsonRpcError(-32001, "Request cancelled")),
-						{ once: true },
-					);
-				}),
-			]);
+			const result = await Promise.race([handlerExecution, cancellation]);
 			return { jsonrpc: "2.0", id, result };
 		} catch (error) {
 			if (error instanceof JsonRpcError) {
@@ -458,8 +471,37 @@ export class JsonRpcEndpoint {
 			}
 			return this.errorResponse(id, -32603, errorMessage(error));
 		} finally {
+			active.abort.signal.removeEventListener("abort", abortListener);
+			if (
+				active.abort.signal.aborted &&
+				!(await this.settlesWithin(
+					handlerExecution,
+					this.incomingCancellationGraceMs,
+				))
+			) {
+				this.fatal(new Error("Cancelled JSON-RPC handler did not stop"));
+			}
 			this.incomingRequests.delete(key);
 		}
+	}
+
+	private settlesWithin(
+		promise: Promise<unknown>,
+		timeoutMs: number,
+	): Promise<boolean> {
+		return new Promise((resolve) => {
+			const timeout = setTimeout(() => resolve(false), timeoutMs);
+			promise.then(
+				() => {
+					clearTimeout(timeout);
+					resolve(true);
+				},
+				() => {
+					clearTimeout(timeout);
+					resolve(true);
+				},
+			);
+		});
 	}
 
 	private processResponse(message: Record<string, unknown>): void {
@@ -473,6 +515,7 @@ export class JsonRpcEndpoint {
 		const key = requestKey(id);
 		const pending = this.pendingRequests.get(key);
 		if (!pending) {
+			if (this.cancelledRequestKeys.delete(key)) return;
 			this.fatal(new Error(`Plugin sent a response for unknown request ${id}`));
 			return;
 		}
@@ -512,6 +555,13 @@ export class JsonRpcEndpoint {
 			pending.settled = true;
 			pending.resolve(result);
 		}
+	}
+
+	private rememberCancelledRequest(key: string): void {
+		this.cancelledRequestKeys.add(key);
+		if (this.cancelledRequestKeys.size <= 1024) return;
+		const oldest = this.cancelledRequestKeys.values().next().value;
+		if (typeof oldest === "string") this.cancelledRequestKeys.delete(oldest);
 	}
 
 	private errorResponse(

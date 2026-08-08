@@ -34,7 +34,8 @@ accepted the prompt; `agent_settled` marks the end of the resulting run.
 ## Commands
 
 The current protocol version is 1. Send `get_capabilities` to discover the
-commands supported by the running Kit version.
+commands supported by the running Kit host. For example, stdio RPC omits
+`ui_response` because it does not install a remote interaction broker.
 
 | Command | Important fields | Behavior |
 | --- | --- | --- |
@@ -44,6 +45,12 @@ commands supported by the running Kit version.
 | `follow_up` | `message` | Queue a follow-up message. |
 | `abort` | | Abort active work and wait for accepted runs to stop. |
 | `new_session` | | Create and activate a session. |
+| `list_sessions` | optional `cwd` | List lightweight session summaries. |
+| `open_session` | `sessionId` | Open a persisted session by exact opaque id while idle. |
+| `change_cwd` | `cwd` | Change the hosted workspace while idle. |
+| `list_commands` | | List commands with transport-neutral handlers. |
+| `execute_command` | `commandId`, optional `args` | Execute a listed transport-neutral command. |
+| `ui_response` | `requestId`, `response` | Resolve a pending interaction when `interactiveUI` is enabled. |
 | `get_state` | | Return model, thinking, streaming, session, cwd, and message counts. |
 | `get_messages` | | Return the active transcript messages. |
 | `get_last_assistant_text` | | Return the last assistant message's text. |
@@ -51,11 +58,18 @@ commands supported by the running Kit version.
 | `set_model` | `provider`, `modelId` | Change model while idle. |
 | `get_available_thinking_levels` | | Return thinking levels for the active model. |
 | `set_thinking_level` | `level` | Change the thinking level. |
-| `switch_session` | `sessionPath` | Open an existing session while idle. |
+| `switch_session` | `sessionPath` | Legacy session-open operation retained for stdio compatibility. |
 
 Commands are serialized by one authoritative session host. Different network
 clients may reuse the same command id because response correlation is scoped to
-the connection that sent the command.
+the connection that sent the command. `ui_response` bypasses the mutation queue
+so it can resolve an interaction requested by a currently executing command.
+Only commands with an explicit transport-neutral execution handler are exposed
+through `list_commands`; renderer-owned commands are not run with fabricated
+TUI context. Remote commands execute only while the agent is idle, receive an
+abort signal, and time out after 30 seconds. `abort` runs out of band, cancels
+the active command, and invalidates commands that were already queued behind
+it.
 
 ## Events
 
@@ -68,11 +82,60 @@ Kit currently publishes these event types:
 - `queue_update`
 - `auto_retry_start` and `auto_retry_end`
 - `state_changed`
+- `ui_request` and `ui_resolved`
 - `error`
 
 `state_changed` carries a fresh state snapshot after shared state mutations such
 as session, model, or thinking-level changes. Web mode broadcasts runtime events
 to every connected client.
+
+## Remote interactions
+
+Web-mode capability responses set `interactiveUI` to true and list supported
+`interactionKinds`. The server emits a request such as:
+
+```json
+{
+  "type": "ui_request",
+  "request": {
+    "id": "request-id",
+    "kind": "confirm",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "payload": { "title": "Proceed?", "message": "Run the command" }
+  }
+}
+```
+
+A client answers with a normal correlated command:
+
+```json
+{
+  "id": "command-id",
+  "type": "ui_response",
+  "requestId": "request-id",
+  "response": { "confirmed": true }
+}
+```
+
+Supported response bodies are:
+
+| Interaction kind | Response |
+| --- | --- |
+| `confirm` | `{ "confirmed": boolean }` |
+| `input` | `{ "value": string \| null }` |
+| `select` | `{ "optionId": string \| null }` |
+| `guided_questions` | `{ "cancelled": boolean, "answers": object }` |
+
+Select option ids are opaque transport values; the server maps them back to the
+in-process values owned by the requesting plugin. Guided-question answers are
+validated against their declared kinds, required fields, and options.
+
+Requests are broadcast to every connected client. The first valid response
+wins, and `ui_resolved` tells all clients to dismiss the interaction. Invalid,
+duplicate, and late responses fail without resolving another request. Pending
+requests are independent of client connections: they are replayed to every
+client that connects and remain pending until any client answers, the
+originating operation aborts, or the server shuts down.
 
 ## Stdio transport
 
@@ -134,14 +197,14 @@ needed.
 
 ## Current web-mode limitations
 
-The initial web transport establishes the shared host, HTTP lifecycle, and
-multi-client WebSocket behavior. The browser route is currently a placeholder.
+The initial web transport establishes the shared host, HTTP lifecycle,
+multi-client WebSocket behavior, remote interactions, external-plugin loading,
+and transport-neutral command/session operations. The browser route is
+currently a placeholder.
 Before web mode reaches feature parity it still needs:
 
 - the Mica-based transcript and composer client
-- remote confirm, input, select, guided-question, and approval interactions
-- external-plugin initialization
-- remote-safe command execution and opaque session-id operations
+- transport-neutral adapters for additional renderer-owned built-in commands
 - attachment upload and prompt references
 - sequenced event replay and snapshot-based reconnection
 

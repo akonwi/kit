@@ -1,7 +1,12 @@
+import type { CommandRegistry } from "../features/commands";
 import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
 import { writeSession } from "../session";
+import {
+	REMOTE_INTERACTION_KINDS,
+	type RemoteInteractionBroker,
+} from "./remote-interaction-broker";
 
 export type RpcCommand = {
 	id?: string;
@@ -29,6 +34,9 @@ export const RPC_COMMAND_TYPES = [
 	"follow_up",
 	"abort",
 	"new_session",
+	"list_sessions",
+	"open_session",
+	"change_cwd",
 	"get_capabilities",
 	"get_state",
 	"get_messages",
@@ -37,8 +45,20 @@ export const RPC_COMMAND_TYPES = [
 	"set_model",
 	"get_available_thinking_levels",
 	"set_thinking_level",
-	"switch_session",
 ] as const;
+
+export type RpcSessionHostOptions = {
+	persistSessions?: boolean;
+	interactions?: RemoteInteractionBroker;
+	commands?: CommandRegistry;
+	waitForWorkspaceReady?: () => Promise<void>;
+	allowLegacySessionPaths?: boolean;
+	commandTimeoutMs?: number;
+	commandCancellationGraceMs?: number;
+};
+
+const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
+const DEFAULT_COMMAND_CANCELLATION_GRACE_MS = 2_000;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -182,14 +202,37 @@ export class RpcSessionHost {
 	private readonly acceptedRuns = new Set<Promise<void>>();
 	private readonly listeners = new Set<RpcEventListener>();
 	private readonly unsubscribeRuntime: () => void;
+	private readonly unsubscribeInteractions: (() => void) | null;
+	private readonly persistSessions: boolean;
+	private readonly interactions?: RemoteInteractionBroker;
+	private readonly commands?: CommandRegistry;
+	private readonly waitForWorkspaceReady: () => Promise<void>;
+	private readonly allowLegacySessionPaths: boolean;
+	private readonly commandTimeoutMs: number;
+	private readonly commandCancellationGraceMs: number;
+	private activeCommandAbort: AbortController | null = null;
+	private activeCommandExecution: Promise<void> | null = null;
+	private commandGeneration = 0;
+	private commandExecutionCompromised = false;
 	private promptReserved = false;
 	private acceptingCommands = true;
 	private disposed = false;
 
 	constructor(
 		private readonly runtime: AgentRuntime,
-		private readonly persistSessions = false,
+		options: RpcSessionHostOptions = {},
 	) {
+		this.persistSessions = options.persistSessions ?? false;
+		this.interactions = options.interactions;
+		this.commands = options.commands;
+		this.waitForWorkspaceReady =
+			options.waitForWorkspaceReady ?? (async () => {});
+		this.allowLegacySessionPaths = options.allowLegacySessionPaths ?? true;
+		this.commandTimeoutMs =
+			options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
+		this.commandCancellationGraceMs =
+			options.commandCancellationGraceMs ??
+			DEFAULT_COMMAND_CANCELLATION_GRACE_MS;
 		this.unsubscribeRuntime = runtime.subscribe((event) => {
 			for (const record of rpcRecordsForRuntimeEvent(event)) {
 				this.publish(record);
@@ -202,6 +245,8 @@ export class RpcSessionHost {
 				this.publishStateChanged();
 			}
 		});
+		this.unsubscribeInteractions =
+			this.interactions?.subscribe((event) => this.publish(event)) ?? null;
 	}
 
 	subscribe(listener: RpcEventListener): () => void {
@@ -216,10 +261,39 @@ export class RpcSessionHost {
 				this.response(command, false, undefined, "RPC host is disposed"),
 			);
 		}
+		if (command.type === "ui_response") {
+			return this.handleInteractionResponse(command, respond);
+		}
+		if (command.type === "abort") {
+			return this.handleAbort(command, respond);
+		}
+		const generation = this.commandGeneration;
 		const operation = this.commandQueue.then(async () => {
 			if (!this.acceptingCommands) {
 				await respond(
 					this.response(command, false, undefined, "RPC host is shutting down"),
+				);
+				return;
+			}
+			if (generation !== this.commandGeneration) {
+				await respond(
+					this.response(
+						command,
+						false,
+						undefined,
+						"Command cancelled by abort",
+					),
+				);
+				return;
+			}
+			if (this.commandExecutionCompromised) {
+				await respond(
+					this.response(
+						command,
+						false,
+						undefined,
+						"A cancelled command did not stop; restart the RPC host",
+					),
 				);
 				return;
 			}
@@ -233,12 +307,21 @@ export class RpcSessionHost {
 		return operation;
 	}
 
+	connectClient(listener: RpcEventListener): () => void {
+		if (!this.interactions || this.disposed) return () => {};
+		for (const event of this.interactions.connectClient()) listener(event);
+		return () => {};
+	}
+
 	async waitForCommands(): Promise<void> {
 		await this.commandQueue;
 	}
 
 	async abortAndWait(): Promise<void> {
 		this.acceptingCommands = false;
+		this.commandGeneration += 1;
+		this.interactions?.dispose();
+		this.activeCommandAbort?.abort(new Error("Command execution aborted"));
 		this.runtime.abort();
 		await this.commandQueue;
 		await Promise.allSettled(this.acceptedRuns);
@@ -248,6 +331,8 @@ export class RpcSessionHost {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.unsubscribeRuntime();
+		this.unsubscribeInteractions?.();
+		this.interactions?.dispose();
 		this.listeners.clear();
 	}
 
@@ -279,6 +364,112 @@ export class RpcSessionHost {
 
 	private publishStateChanged(): void {
 		this.publish({ type: "state_changed", state: this.stateSnapshot() });
+	}
+
+	private async handleInteractionResponse(
+		command: RpcCommand,
+		respond: RpcWriter,
+	): Promise<void> {
+		try {
+			if (!this.acceptingCommands) throw new Error("RPC host is shutting down");
+			if (!this.interactions) throw new Error("Interactive UI is unavailable");
+			const result = this.interactions.respond(
+				requireString(command, "requestId"),
+				command.response,
+			);
+			if (!result.accepted) throw new Error(result.error);
+			await respond(this.response(command, true));
+		} catch (error) {
+			await respond(this.response(command, false, undefined, error));
+		}
+	}
+
+	private async handleAbort(
+		command: RpcCommand,
+		respond: RpcWriter,
+	): Promise<void> {
+		try {
+			const queuedBeforeAbort = this.commandQueue;
+			this.commandGeneration += 1;
+			this.activeCommandAbort?.abort(new Error("Command execution aborted"));
+			this.runtime.abort();
+			await Promise.allSettled([
+				...this.acceptedRuns,
+				...(this.activeCommandExecution ? [this.activeCommandExecution] : []),
+			]);
+			await queuedBeforeAbort;
+			await respond(this.response(command, true));
+		} catch (error) {
+			await respond(this.response(command, false, undefined, error));
+		}
+	}
+
+	private async executeTransportNeutralCommand(
+		handler: (args: string, signal?: AbortSignal) => void | Promise<void>,
+		args: string,
+	): Promise<void> {
+		const abortController = new AbortController();
+		const timeout = setTimeout(() => {
+			abortController.abort(new Error("Command execution timed out"));
+		}, this.commandTimeoutMs);
+		const handlerExecution = Promise.resolve().then(() =>
+			handler(args, abortController.signal),
+		);
+		const execution = new Promise<void>((resolve, reject) => {
+			const handleAbort = () => {
+				reject(
+					abortController.signal.reason instanceof Error
+						? abortController.signal.reason
+						: new Error("Command execution aborted"),
+				);
+			};
+			abortController.signal.addEventListener("abort", handleAbort, {
+				once: true,
+			});
+			handlerExecution.then(resolve, reject).finally(() => {
+				abortController.signal.removeEventListener("abort", handleAbort);
+			});
+		});
+		this.activeCommandAbort = abortController;
+		this.activeCommandExecution = execution;
+		try {
+			await execution;
+		} catch (error) {
+			if (
+				abortController.signal.aborted &&
+				!(await this.waitForCommandHandlerToStop(handlerExecution))
+			) {
+				this.commandExecutionCompromised = true;
+			}
+			throw error;
+		} finally {
+			clearTimeout(timeout);
+			if (this.activeCommandAbort === abortController) {
+				this.activeCommandAbort = null;
+				this.activeCommandExecution = null;
+			}
+		}
+	}
+
+	private waitForCommandHandlerToStop(
+		handlerExecution: Promise<unknown>,
+	): Promise<boolean> {
+		return new Promise((resolve) => {
+			const timeout = setTimeout(
+				() => resolve(false),
+				this.commandCancellationGraceMs,
+			);
+			handlerExecution.then(
+				() => {
+					clearTimeout(timeout);
+					resolve(true);
+				},
+				() => {
+					clearTimeout(timeout);
+					resolve(true);
+				},
+			);
+		});
 	}
 
 	private async dispatch(
@@ -331,11 +522,6 @@ export class RpcSessionHost {
 				this.runtime.sendFollowUp(requireString(command, "message"));
 				await respond(this.response(command, true));
 				return;
-			case "abort":
-				this.runtime.abort();
-				await Promise.allSettled(this.acceptedRuns);
-				await respond(this.response(command, true));
-				return;
 			case "new_session":
 				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
 					throw new Error(
@@ -344,6 +530,7 @@ export class RpcSessionHost {
 				}
 				await this.runtime.newSession();
 				await this.runtime.waitForModelAdaptation();
+				await this.waitForWorkspaceReady();
 				if (this.persistSessions) await writeSession(this.runtime.getSession());
 				await respond(
 					this.response(command, true, {
@@ -351,11 +538,98 @@ export class RpcSessionHost {
 					}),
 				);
 				return;
+			case "list_sessions": {
+				const cwd = command.cwd;
+				if (cwd !== undefined && typeof cwd !== "string") {
+					throw new Error("cwd must be a string");
+				}
+				const sessions = cwd
+					? await this.runtime.listSessionsForCwd(cwd)
+					: await this.runtime.listAllSessions();
+				await respond(this.response(command, true, { sessions }));
+				return;
+			}
+			case "open_session": {
+				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
+					throw new Error(
+						"Cannot switch sessions while the agent is streaming",
+					);
+				}
+				const switched = await this.runtime.switchSessionById(
+					requireString(command, "sessionId"),
+				);
+				if (!switched) throw new Error("Session not found");
+				await this.runtime.waitForModelAdaptation();
+				await this.waitForWorkspaceReady();
+				await respond(this.response(command, true, this.stateSnapshot()));
+				return;
+			}
+			case "change_cwd": {
+				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
+					throw new Error(
+						"Cannot change the working directory while the agent is streaming",
+					);
+				}
+				await this.runtime.changeCwd(requireString(command, "cwd"));
+				await this.waitForWorkspaceReady();
+				await respond(this.response(command, true, this.stateSnapshot()));
+				return;
+			}
+			case "list_commands": {
+				if (!this.commands) throw new Error("Command registry is unavailable");
+				const commands = this.commands
+					.getAll()
+					.filter((candidate) => candidate.executeTransportNeutral)
+					.map((candidate) => ({
+						id: candidate.name,
+						name: candidate.displayName ?? candidate.name,
+						description: candidate.description,
+						argName: candidate.argName,
+						category: candidate.category,
+					}));
+				await respond(this.response(command, true, { commands }));
+				return;
+			}
+			case "execute_command": {
+				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
+					throw new Error(
+						"Cannot execute commands while the agent is streaming",
+					);
+				}
+				if (!this.commands) throw new Error("Command registry is unavailable");
+				const commandId = requireString(command, "commandId");
+				const args = command.args;
+				if (args !== undefined && typeof args !== "string") {
+					throw new Error("args must be a string");
+				}
+				const registered = this.commands
+					.getAll()
+					.find((candidate) => candidate.name === commandId);
+				if (!registered) throw new Error(`Command not found: ${commandId}`);
+				if (!registered.executeTransportNeutral) {
+					throw new Error(`Command is not available remotely: ${commandId}`);
+				}
+				await this.executeTransportNeutralCommand(
+					registered.executeTransportNeutral,
+					args ?? "",
+				);
+				await this.waitForWorkspaceReady();
+				await respond(this.response(command, true));
+				return;
+			}
 			case "get_capabilities":
 				await respond(
 					this.response(command, true, {
 						protocolVersion: RPC_PROTOCOL_VERSION,
-						commands: RPC_COMMAND_TYPES,
+						commands: [
+							...RPC_COMMAND_TYPES,
+							...(this.allowLegacySessionPaths ? ["switch_session"] : []),
+							...(this.interactions ? ["ui_response"] : []),
+							...(this.commands ? ["list_commands", "execute_command"] : []),
+						],
+						interactiveUI: this.interactions !== undefined,
+						interactionKinds:
+							this.interactions === undefined ? [] : REMOTE_INTERACTION_KINDS,
 					}),
 				);
 				return;
@@ -425,6 +699,9 @@ export class RpcSessionHost {
 				return;
 			}
 			case "switch_session": {
+				if (!this.allowLegacySessionPaths) {
+					throw new Error("Legacy session paths are unavailable");
+				}
 				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
 					throw new Error(
 						"Cannot switch sessions while the agent is streaming",
@@ -435,6 +712,7 @@ export class RpcSessionHost {
 				);
 				if (!switched) throw new Error("Session not found");
 				await this.runtime.waitForModelAdaptation();
+				await this.waitForWorkspaceReady();
 				await respond(
 					this.response(command, true, {
 						cancelled: false,

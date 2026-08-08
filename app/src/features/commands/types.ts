@@ -30,4 +30,9 @@ export type Command = {
 	argName?: string;
 	category?: string;
 	execute: (ctx: CommandContext) => void | Promise<void>;
+	/** Execute without renderer-owned context when exposed through a remote host. */
+	executeTransportNeutral?: (
+		args: string,
+		signal?: AbortSignal,
+	) => void | Promise<void>;
 };
