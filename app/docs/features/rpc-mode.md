@@ -40,7 +40,7 @@ commands supported by the running Kit host. For example, stdio RPC omits
 | Command | Important fields | Behavior |
 | --- | --- | --- |
 | `get_capabilities` | | Return protocol version and command names. |
-| `prompt` | `message`, optional `streamingBehavior` | Start a run, or steer/follow up while streaming. |
+| `prompt` | optional `message`, `attachmentIds`, `streamingBehavior` | Start a run with text and uploaded attachments, or steer/follow up with text while streaming. |
 | `steer` | `message` | Inject steering into the active run. |
 | `follow_up` | `message` | Queue a follow-up message. |
 | `abort` | | Abort active work and wait for accepted runs to stop. |
@@ -137,6 +137,36 @@ requests are independent of client connections: they are replayed to every
 client that connects and remain pending until any client answers, the
 originating operation aborts, or the server shuts down.
 
+## Attachments
+
+Web mode accepts one multipart `file` field at `POST /api/attachments` and
+returns `{ "attachment": { "id", "filename", "mimeType", "size", "kind",
+"createdAt" } }`. A subsequent idle `prompt` command references up to eight
+opaque ids through `attachmentIds`; `message` may be empty when at least one
+attachment is present. Read an available or accepted upload with
+`GET /api/attachments/<id>`, and delete an unused or no-longer-needed retained
+upload with `DELETE /api/attachments/<id>`. Text downloads use passive
+attachment semantics and MIME sniffing is disabled.
+
+Non-interlaced PNG, baseline JPEG, bounded GIF, and single-image WebP uploads
+become image message parts after structural and dimension validation. Other
+uploads must be UTF-8 text and become delimited prompt text. Images are limited
+to 10 MiB each, text files to 1 MiB each, and one prompt to 20 MiB total with at
+most 1 MiB of text files. The host enforces a 50 MiB staged-and-accepted
+attachment budget with a 64 KiB minimum charge per accepted attachment;
+deleting an unsubmitted upload releases its charge, while accepted history
+remains charged until the host stops. Uploads are one-shot once the runtime
+accepts the user message; failed pre-acceptance submission releases the ids for
+retry.
+
+Accepted remote images retain their attachment id until the client deletes its
+download copy or the web host stops; deleting the copy does not release the
+accepted-history budget. WebSocket records omit inline image base64 and report
+`dataOmitted: true` with `attachmentId` and image metadata instead; clients
+render the image through the authenticated/trusted HTTP boundary. This keeps
+uploads and persisted image messages from exceeding WebSocket backpressure
+limits.
+
 ## Stdio transport
 
 Run:
@@ -205,7 +235,6 @@ Before web mode reaches feature parity it still needs:
 
 - the Mica-based transcript and composer client
 - transport-neutral adapters for additional renderer-owned built-in commands
-- attachment upload and prompt references
 - sequenced event replay and snapshot-based reconnection
 
 See ADR 0027 and `backlog/remote-session-server.md` for the intended design and

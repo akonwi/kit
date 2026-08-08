@@ -1,4 +1,9 @@
 import type { Server, ServerWebSocket } from "bun";
+import {
+	MAX_REMOTE_ATTACHMENT_BYTES,
+	RemoteAttachmentError,
+	type RemoteAttachmentStore,
+} from "./remote-attachment-store";
 import type {
 	RpcCommand,
 	RpcEventListener,
@@ -17,9 +22,13 @@ export type WebRpcServerOptions = {
 	allowedHosts?: string[];
 	allowedOrigins?: string[];
 	allowOriginless?: boolean;
+	attachments?: RemoteAttachmentStore;
 };
 
 type WebSocketData = Record<string, never>;
+
+const MAX_MULTIPART_BODY_BYTES = MAX_REMOTE_ATTACHMENT_BYTES + 1024 * 1024;
+const MAX_CONCURRENT_UPLOADS = 4;
 
 const PLACEHOLDER_HTML = `<!doctype html>
 <html lang="en">
@@ -57,6 +66,7 @@ function parseError(error: unknown): string {
 export class WebRpcServer {
 	private server: Server<WebSocketData> | null = null;
 	private unsubscribeHost: (() => void) | null = null;
+	private activeUploads = 0;
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
 	private readonly clientDisposers = new Map<
 		ServerWebSocket<WebSocketData>,
@@ -77,7 +87,8 @@ export class WebRpcServer {
 		const server = Bun.serve<WebSocketData>({
 			hostname: this.options.hostname ?? "127.0.0.1",
 			port: this.options.port ?? 4782,
-			fetch: (request, bunServer) => {
+			maxRequestBodySize: MAX_MULTIPART_BODY_BYTES,
+			fetch: async (request, bunServer) => {
 				const url = new URL(request.url);
 				if (url.pathname === "/api/health") {
 					return Response.json({
@@ -85,6 +96,12 @@ export class WebRpcServer {
 						mode: "web",
 						clients: this.clients.size,
 					});
+				}
+				if (
+					url.pathname === "/api/attachments" ||
+					url.pathname.startsWith("/api/attachments/")
+				) {
+					return this.handleAttachmentRequest(request, url);
 				}
 				if (url.pathname === "/api/rpc") {
 					if (!this.isAllowedWebSocketRequest(request, url)) {
@@ -160,7 +177,7 @@ export class WebRpcServer {
 			return;
 		}
 		try {
-			const status = socket.send(JSON.stringify(record));
+			const status = socket.send(JSON.stringify(this.projectRecord(record)));
 			if (status === 0) this.removeClient(socket, true);
 		} catch (error) {
 			this.removeClient(socket, true);
@@ -181,34 +198,208 @@ export class WebRpcServer {
 	}
 
 	private broadcast(record: unknown): void {
-		const projected = this.projectEvent(record);
-		for (const client of [...this.clients]) this.send(client, projected);
+		for (const client of [...this.clients]) this.send(client, record);
+	}
+
+	private async handleAttachmentRequest(
+		request: Request,
+		url: URL,
+	): Promise<Response> {
+		if (!this.isAllowedHttpRequest(request, url)) {
+			return new Response("Origin or host not allowed", { status: 403 });
+		}
+		const corsHeaders = this.corsHeaders(request);
+		if (request.method === "OPTIONS") {
+			return new Response(null, {
+				status: 204,
+				headers: {
+					...corsHeaders,
+					"access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
+				},
+			});
+		}
+		if (!this.options.attachments) {
+			return Response.json(
+				{ error: "Attachments are unavailable" },
+				{ status: 404, headers: corsHeaders },
+			);
+		}
+
+		if (url.pathname === "/api/attachments" && request.method === "POST") {
+			const contentLength = Number(request.headers.get("content-length"));
+			if (
+				Number.isFinite(contentLength) &&
+				contentLength > MAX_MULTIPART_BODY_BYTES
+			) {
+				return Response.json(
+					{ error: "Upload exceeds the request size limit" },
+					{ status: 413, headers: corsHeaders },
+				);
+			}
+			if (this.activeUploads >= MAX_CONCURRENT_UPLOADS) {
+				return Response.json(
+					{ error: "Too many concurrent uploads" },
+					{ status: 429, headers: corsHeaders },
+				);
+			}
+			this.activeUploads += 1;
+			try {
+				const form = await request.formData();
+				const files = form.getAll("file");
+				if (files.length !== 1 || !(files[0] instanceof File)) {
+					throw new RemoteAttachmentError(
+						'Multipart upload requires exactly one "file" field',
+						400,
+					);
+				}
+				const attachment = await this.options.attachments.add(files[0]);
+				return Response.json(
+					{ attachment },
+					{ status: 201, headers: corsHeaders },
+				);
+			} catch (error) {
+				const status =
+					error instanceof RemoteAttachmentError ? error.status : 400;
+				return Response.json(
+					{ error: parseError(error) },
+					{ status, headers: corsHeaders },
+				);
+			} finally {
+				this.activeUploads -= 1;
+			}
+		}
+
+		const attachmentId = url.pathname.slice("/api/attachments/".length);
+		if (
+			request.method === "GET" &&
+			attachmentId &&
+			!attachmentId.includes("/")
+		) {
+			const download = this.options.attachments.download(attachmentId);
+			if (!download) {
+				return Response.json(
+					{ error: "Attachment not found" },
+					{ status: 404, headers: corsHeaders },
+				);
+			}
+			const isImage = download.metadata.kind === "image";
+			return new Response(download.bytes, {
+				headers: {
+					...corsHeaders,
+					"cache-control": "private, no-store",
+					"content-disposition": isImage ? "inline" : "attachment",
+					"content-type": isImage
+						? download.metadata.mimeType
+						: "application/octet-stream",
+					"x-content-type-options": "nosniff",
+				},
+			});
+		}
+		if (
+			request.method === "DELETE" &&
+			attachmentId &&
+			!attachmentId.includes("/")
+		) {
+			if (!this.options.attachments.remove(attachmentId)) {
+				return Response.json(
+					{ error: "Attachment not found" },
+					{ status: 404, headers: corsHeaders },
+				);
+			}
+			return new Response(null, { status: 204, headers: corsHeaders });
+		}
+
+		return new Response("Method not allowed", {
+			status: 405,
+			headers: { ...corsHeaders, allow: "GET, POST, DELETE, OPTIONS" },
+		});
 	}
 
 	private isAllowedWebSocketRequest(request: Request, url: URL): boolean {
-		if (!this.allowedHosts().has(url.host.toLowerCase())) return false;
-		const origin = request.headers.get("origin");
-		if (!origin) return this.options.allowOriginless === true;
+		return (
+			this.allowedHosts().has(url.host.toLowerCase()) &&
+			this.isAllowedOrigin(
+				request.headers.get("origin"),
+				url,
+				this.options.allowOriginless === true,
+			)
+		);
+	}
+
+	private isAllowedHttpRequest(request: Request, url: URL): boolean {
+		return (
+			this.allowedHosts().has(url.host.toLowerCase()) &&
+			this.isAllowedOrigin(
+				request.headers.get("origin"),
+				url,
+				request.method === "GET" || this.options.allowOriginless === true,
+			)
+		);
+	}
+
+	private isAllowedOrigin(
+		origin: string | null,
+		url: URL,
+		allowOriginless: boolean,
+	): boolean {
+		if (!origin) return allowOriginless;
 		try {
-			const requestOrigin = new URL(origin).origin.toLowerCase();
-			const configuredOrigins = this.options.allowedOrigins ?? [];
-			const allowedOrigins = new Set(
-				configuredOrigins.map((value) => new URL(value).origin.toLowerCase()),
-			);
-			if (configuredOrigins.length === 0) {
-				allowedOrigins.add(url.origin.toLowerCase());
-			}
-			return allowedOrigins.has(requestOrigin);
+			return this.allowedOrigins(url).has(new URL(origin).origin.toLowerCase());
 		} catch {
 			return false;
 		}
 	}
 
-	private projectEvent(record: unknown): unknown {
-		if (!isRecord(record) || record.type !== "agent_end") return record;
-		const projected = { ...record };
-		delete projected.messages;
-		return projected;
+	private allowedOrigins(url: URL): Set<string> {
+		const configuredOrigins = this.options.allowedOrigins ?? [];
+		const origins = new Set(
+			configuredOrigins.map((value) => new URL(value).origin.toLowerCase()),
+		);
+		if (configuredOrigins.length === 0) {
+			origins.add(url.origin.toLowerCase());
+		}
+		return origins;
+	}
+
+	private corsHeaders(request: Request): Record<string, string> {
+		const origin = request.headers.get("origin");
+		return origin
+			? {
+					"access-control-allow-origin": new URL(origin).origin,
+					vary: "origin",
+				}
+			: {};
+	}
+
+	private projectRecord(record: unknown): unknown {
+		if (isRecord(record) && record.type === "agent_end") {
+			const projected = { ...record };
+			delete projected.messages;
+			return this.projectValue(projected);
+		}
+		return this.projectValue(record);
+	}
+
+	private projectValue(value: unknown): unknown {
+		if (Array.isArray(value)) {
+			return value.map((item) => this.projectValue(item));
+		}
+		if (!isRecord(value)) return value;
+		if (value.type === "image" && typeof value.data === "string") {
+			const projected: Record<string, unknown> = {
+				...value,
+				dataOmitted: true,
+			};
+			delete projected.data;
+			delete projected.sourcePath;
+			return projected;
+		}
+		return Object.fromEntries(
+			Object.entries(value).map(([key, item]) => [
+				key,
+				this.projectValue(item),
+			]),
+		);
 	}
 
 	private allowedHosts(): Set<string> {

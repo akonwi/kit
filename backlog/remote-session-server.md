@@ -153,6 +153,10 @@ Upload files and images through multipart HTTP. Return an attachment ID that a
 subsequent prompt can reference instead of embedding binary data in WebSocket
 JSON.
 
+Implemented for web mode: bounded multipart uploads, opaque one-shot prompt
+references, explicit deletion, UTF-8 text and validated image conversion, and
+WebSocket projection that omits inline image data.
+
 ### Reconnection
 
 Assign monotonically increasing sequence numbers to events. A reconnecting
@@ -235,7 +239,7 @@ separating the existing TUI's presentation state from its in-process
 - [x] Extract transport-independent RPC dispatch from the stdio server.
 - [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
 - [ ] Add a minimal Mica-based web transcript/composer client.
-- [ ] Fill interactive UI, external-plugin, command, session, and attachment gaps.
+- [ ] Fill remaining tool-approval, plugin-client-surface, and built-in command gaps.
 - [ ] Add event sequencing, reconnect, and interaction coordination.
 - [ ] Validate local access through a trusted private tunnel.
 - [ ] Add a cloud sandbox worker using the same command and protocol.

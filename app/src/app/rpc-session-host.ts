@@ -1,8 +1,13 @@
 import type { CommandRegistry } from "../features/commands";
+import type { MessagePart } from "../messages/parts";
 import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
 import { writeSession } from "../session";
+import {
+	MAX_REMOTE_ATTACHMENTS_PER_PROMPT,
+	type RemoteAttachmentStore,
+} from "./remote-attachment-store";
 import {
 	REMOTE_INTERACTION_KINDS,
 	type RemoteInteractionBroker,
@@ -50,6 +55,7 @@ export const RPC_COMMAND_TYPES = [
 export type RpcSessionHostOptions = {
 	persistSessions?: boolean;
 	interactions?: RemoteInteractionBroker;
+	attachments?: RemoteAttachmentStore;
 	commands?: CommandRegistry;
 	waitForWorkspaceReady?: () => Promise<void>;
 	allowLegacySessionPaths?: boolean;
@@ -68,6 +74,18 @@ function requireString(command: RpcCommand, key: string): string {
 	const value = command[key];
 	if (typeof value !== "string" || !value.trim()) {
 		throw new Error(`${key} must be a non-empty string`);
+	}
+	return value;
+}
+
+function attachmentIds(command: RpcCommand): string[] {
+	const value = command.attachmentIds;
+	if (value === undefined) return [];
+	if (
+		!Array.isArray(value) ||
+		!value.every((id) => typeof id === "string" && id.trim())
+	) {
+		throw new Error("attachmentIds must be an array of non-empty strings");
 	}
 	return value;
 }
@@ -205,6 +223,7 @@ export class RpcSessionHost {
 	private readonly unsubscribeInteractions: (() => void) | null;
 	private readonly persistSessions: boolean;
 	private readonly interactions?: RemoteInteractionBroker;
+	private readonly attachments?: RemoteAttachmentStore;
 	private readonly commands?: CommandRegistry;
 	private readonly waitForWorkspaceReady: () => Promise<void>;
 	private readonly allowLegacySessionPaths: boolean;
@@ -224,6 +243,7 @@ export class RpcSessionHost {
 	) {
 		this.persistSessions = options.persistSessions ?? false;
 		this.interactions = options.interactions;
+		this.attachments = options.attachments;
 		this.commands = options.commands;
 		this.waitForWorkspaceReady =
 			options.waitForWorkspaceReady ?? (async () => {});
@@ -333,6 +353,7 @@ export class RpcSessionHost {
 		this.unsubscribeRuntime();
 		this.unsubscribeInteractions?.();
 		this.interactions?.dispose();
+		this.attachments?.dispose();
 		this.listeners.clear();
 	}
 
@@ -478,8 +499,19 @@ export class RpcSessionHost {
 	): Promise<void> {
 		switch (command.type) {
 			case "prompt": {
-				const message = requireString(command, "message");
+				const ids = attachmentIds(command);
+				const messageValue = command.message;
+				if (messageValue !== undefined && typeof messageValue !== "string") {
+					throw new Error("message must be a string");
+				}
+				const message = messageValue ?? "";
+				if (!message.trim() && ids.length === 0) {
+					throw new Error("message or attachmentIds is required");
+				}
 				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
+					if (ids.length > 0) {
+						throw new Error("Attachments cannot be submitted while streaming");
+					}
 					if (command.streamingBehavior === "steer") {
 						this.runtime.sendSteer(message);
 					} else if (command.streamingBehavior === "followUp") {
@@ -492,16 +524,35 @@ export class RpcSessionHost {
 					await respond(this.response(command, true));
 					return;
 				}
+				if (ids.length > 0 && !this.attachments) {
+					throw new Error("Attachments are unavailable");
+				}
+				const claim = ids.length > 0 ? this.attachments?.claim(ids) : undefined;
+				const parts: MessagePart[] = [
+					...(message.trim() ? [{ type: "text" as const, text: message }] : []),
+					...(claim?.parts ?? []),
+				];
+				const input = ids.length > 0 ? parts : message;
 				this.promptReserved = true;
-				await respond(this.response(command, true));
+				try {
+					await respond(this.response(command, true));
+				} catch (error) {
+					this.promptReserved = false;
+					claim?.release();
+					throw error;
+				}
 				if (!this.acceptingCommands) {
 					this.promptReserved = false;
+					claim?.release();
 					return;
 				}
 				let run: Promise<void>;
 				run = Promise.resolve()
-					.then(() => this.runtime.submitUserMessage(message))
+					.then(() =>
+						this.runtime.submitUserMessage(input, () => claim?.commit()),
+					)
 					.catch((error) => {
+						claim?.release();
 						this.publish({
 							type: "error",
 							error: error instanceof Error ? error.message : String(error),
@@ -630,6 +681,10 @@ export class RpcSessionHost {
 						interactiveUI: this.interactions !== undefined,
 						interactionKinds:
 							this.interactions === undefined ? [] : REMOTE_INTERACTION_KINDS,
+						attachmentReferences: this.attachments !== undefined,
+						maxAttachmentsPerPrompt: this.attachments
+							? MAX_REMOTE_ATTACHMENTS_PER_PROMPT
+							: 0,
 					}),
 				);
 				return;

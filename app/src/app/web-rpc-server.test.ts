@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { RemoteAttachmentStore } from "./remote-attachment-store";
 import type {
 	RpcCommand,
 	RpcEventListener,
@@ -74,7 +75,12 @@ describe("WebRpcServer", () => {
 		for (const socket of sockets.splice(0)) socket.close();
 	});
 
-	function start(options: { allowedOrigins?: string[] } = {}) {
+	function start(
+		options: {
+			allowedOrigins?: string[];
+			attachments?: RemoteAttachmentStore;
+		} = {},
+	) {
 		const host = new FakeRpcHost();
 		const server = new WebRpcServer(host, { port: 0, ...options });
 		servers.push(server);
@@ -89,6 +95,71 @@ describe("WebRpcServer", () => {
 		expect(await health.json()).toEqual({ ok: true, mode: "web", clients: 0 });
 		expect(page.headers.get("content-type")).toContain("text/html");
 		expect(await page.text()).toContain("Kit web mode");
+	});
+
+	test("uploads and removes opaque attachments", async () => {
+		const attachments = new RemoteAttachmentStore();
+		const { address } = start({ attachments });
+		const form = new FormData();
+		form.append(
+			"file",
+			new File(["remote contents"], "notes.txt", { type: "text/plain" }),
+		);
+		const uploaded = await fetch(`${address.url}/api/attachments`, {
+			method: "POST",
+			headers: { origin: address.url },
+			body: form,
+		});
+		expect(uploaded.status).toBe(201);
+		expect(uploaded.headers.get("access-control-allow-origin")).toBe(
+			address.url,
+		);
+		const payload = (await uploaded.json()) as {
+			attachment: { id: string; filename: string; kind: string };
+		};
+		expect(payload.attachment).toMatchObject({
+			filename: "notes.txt",
+			kind: "text",
+		});
+
+		const downloaded = await fetch(
+			`${address.url}/api/attachments/${payload.attachment.id}`,
+		);
+		expect(downloaded.headers.get("content-type")).toBe(
+			"application/octet-stream",
+		);
+		expect(downloaded.headers.get("content-disposition")).toBe("attachment");
+		expect(downloaded.headers.get("x-content-type-options")).toBe("nosniff");
+		expect(await downloaded.text()).toBe("remote contents");
+
+		const removed = await fetch(
+			`${address.url}/api/attachments/${payload.attachment.id}`,
+			{ method: "DELETE", headers: { origin: address.url } },
+		);
+		expect(removed.status).toBe(204);
+		const missing = await fetch(
+			`${address.url}/api/attachments/${payload.attachment.id}`,
+			{ method: "DELETE", headers: { origin: address.url } },
+		);
+		expect(missing.status).toBe(404);
+		attachments.dispose();
+	});
+
+	test("rejects cross-origin attachment uploads", async () => {
+		const attachments = new RemoteAttachmentStore();
+		const { address } = start({ attachments });
+		const response = await fetch(`${address.url}/api/attachments`, {
+			method: "POST",
+			headers: { origin: "https://example.com" },
+			body: new FormData(),
+		});
+		const originless = await fetch(`${address.url}/api/attachments`, {
+			method: "POST",
+			body: new FormData(),
+		});
+		expect(response.status).toBe(403);
+		expect(originless.status).toBe(403);
+		attachments.dispose();
 	});
 
 	test("broadcasts events to multiple clients and scopes responses", async () => {
@@ -118,6 +189,39 @@ describe("WebRpcServer", () => {
 		host.emit({ type: "turn_start" });
 		expect(await firstNext).toEqual({ type: "turn_start" });
 		expect(await secondNext).toEqual({ type: "turn_start" });
+
+		const projectedImage = nextMessage(first);
+		host.emit({
+			type: "message_end",
+			message: {
+				role: "user",
+				content: [
+					{
+						type: "image",
+						data: "large-base64-payload",
+						mimeType: "image/png",
+						filename: "image.png",
+						attachmentId: "attachment-1",
+						sourcePath: "/private/image.png",
+					},
+				],
+			},
+		});
+		expect(await projectedImage).toEqual({
+			type: "message_end",
+			message: {
+				role: "user",
+				content: [
+					{
+						type: "image",
+						mimeType: "image/png",
+						filename: "image.png",
+						attachmentId: "attachment-1",
+						dataOmitted: true,
+					},
+				],
+			},
+		});
 
 		const projectedEvent = nextMessage(first);
 		host.emit({ type: "agent_end", messages: [{ role: "assistant" }] });

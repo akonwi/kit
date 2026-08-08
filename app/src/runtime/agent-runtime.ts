@@ -1140,7 +1140,10 @@ export class AgentRuntime {
 		this.syncPendingState();
 	}
 
-	async submitUserMessage(input: string | MessagePart[]): Promise<void> {
+	async submitUserMessage(
+		input: string | MessagePart[],
+		onAccepted?: () => void,
+	): Promise<void> {
 		const parts: MessagePart[] =
 			typeof input === "string" ? [{ type: "text", text: input }] : input;
 		const message: UserMultipartMessage = {
@@ -1148,7 +1151,9 @@ export class AgentRuntime {
 			content: parts,
 			timestamp: Date.now(),
 		};
-		await this.agent.prompt(message as unknown as AgentMessage);
+		const run = this.agent.prompt(message as unknown as AgentMessage);
+		onAccepted?.();
+		await run;
 		await this.waitForRecovery();
 	}
 

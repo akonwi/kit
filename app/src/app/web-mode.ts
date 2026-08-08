@@ -1,4 +1,5 @@
 import { createHeadlessHost } from "./headless-host";
+import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
 import { resolveRpcSession, selectStartupModel } from "./rpc-mode";
 import { RpcSessionHost } from "./rpc-session-host";
@@ -20,6 +21,7 @@ export async function runWebMode(
 	let headlessHost: Awaited<ReturnType<typeof createHeadlessHost>> | null =
 		null;
 	let interactions: RemoteInteractionBroker | null = null;
+	let attachments: RemoteAttachmentStore | null = null;
 	let rpcHost: RpcSessionHost | null = null;
 	let webServer: WebRpcServer | null = null;
 	let signalExitCode = 0;
@@ -45,6 +47,7 @@ export async function runWebMode(
 			sessionId: options.sessionId,
 		});
 		interactions = new RemoteInteractionBroker();
+		attachments = new RemoteAttachmentStore();
 		headlessHost = await createHeadlessHost(resolved.session, {
 			persistSession: true,
 			interactions,
@@ -62,6 +65,7 @@ export async function runWebMode(
 		rpcHost = new RpcSessionHost(headlessHost.runtime, {
 			persistSessions: true,
 			interactions,
+			attachments,
 			commands: headlessHost.commands,
 			waitForWorkspaceReady: headlessHost.waitForWorkspaceReady,
 			allowLegacySessionPaths: false,
@@ -71,6 +75,7 @@ export async function runWebMode(
 			port: options.port,
 			allowedHosts: options.allowedHosts,
 			allowedOrigins: options.allowedOrigins,
+			attachments,
 		});
 		const address = webServer.start();
 		console.log(`Kit web mode listening at ${address.url}`);
@@ -95,6 +100,7 @@ export async function runWebMode(
 		} finally {
 			rpcHost?.dispose();
 			interactions?.dispose();
+			attachments?.dispose();
 		}
 		try {
 			await headlessHost?.dispose();

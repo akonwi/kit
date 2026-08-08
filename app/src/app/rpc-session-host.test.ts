@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createCommandRegistry } from "../features/commands";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
+import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
 import { RpcSessionHost } from "./rpc-session-host";
 
@@ -83,11 +84,109 @@ describe("RpcSessionHost", () => {
 				data: expect.objectContaining({
 					protocolVersion: 1,
 					interactiveUI: false,
+					attachmentReferences: false,
+					maxAttachmentsPerPrompt: 0,
 				}),
 			}),
 		]);
 		const response = responses[0] as { data: { commands: string[] } };
 		expect(response.data.commands).not.toContain("ui_response");
+		host.dispose();
+	});
+
+	test("submits uploaded attachments and consumes their opaque ids", async () => {
+		const attachments = new RemoteAttachmentStore();
+		const attachment = await attachments.add(
+			new File(["hello from a file"], "notes.txt", { type: "text/plain" }),
+		);
+		const submissions: unknown[] = [];
+		const host = new RpcSessionHost(
+			createRuntime({
+				submitUserMessage: async (input: unknown, onAccepted?: () => void) => {
+					submissions.push(input);
+					onAccepted?.();
+				},
+			}),
+			{ attachments },
+		);
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{
+				id: "prompt",
+				type: "prompt",
+				message: "Review this",
+				attachmentIds: [attachment.id],
+			},
+			async (record) => {
+				responses.push(record);
+			},
+		);
+		await Bun.sleep(0);
+
+		expect(responses[0]).toEqual(
+			expect.objectContaining({ id: "prompt", success: true }),
+		);
+		expect(submissions).toEqual([
+			[
+				{ type: "text", text: "Review this" },
+				{
+					type: "text",
+					text: '<uploaded_file filename="notes.txt" mime_type="text/plain">\nhello from a file\n</uploaded_file>',
+				},
+			],
+		]);
+		await host.handleCommand(
+			{
+				id: "reuse",
+				type: "prompt",
+				attachmentIds: [attachment.id],
+			},
+			async (record) => {
+				responses.push(record);
+			},
+		);
+		expect(responses.at(-1)).toEqual(
+			expect.objectContaining({
+				id: "reuse",
+				success: false,
+				error: `Attachment is unavailable: ${attachment.id}`,
+			}),
+		);
+		host.dispose();
+	});
+
+	test("releases attachment claims when prompt submission fails", async () => {
+		const attachments = new RemoteAttachmentStore();
+		const attachment = await attachments.add(new File(["retry"], "retry.txt"));
+		let attempts = 0;
+		const host = new RpcSessionHost(
+			createRuntime({
+				submitUserMessage: async (_input: unknown, onAccepted?: () => void) => {
+					attempts += 1;
+					if (attempts === 1) throw new Error("submission failed");
+					onAccepted?.();
+				},
+			}),
+			{ attachments },
+		);
+		const events: unknown[] = [];
+		host.subscribe((event) => events.push(event));
+		await host.handleCommand(
+			{ id: "first", type: "prompt", attachmentIds: [attachment.id] },
+			async () => {},
+		);
+		await Bun.sleep(0);
+		await host.handleCommand(
+			{ id: "retry", type: "prompt", attachmentIds: [attachment.id] },
+			async () => {},
+		);
+		await Bun.sleep(0);
+
+		expect(attempts).toBe(2);
+		expect(events).toContainEqual({
+			type: "error",
+			error: "submission failed",
+		});
 		host.dispose();
 	});
 
