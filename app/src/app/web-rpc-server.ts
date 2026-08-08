@@ -1,5 +1,16 @@
 import { randomUUID } from "node:crypto";
+// @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
+import micaCss from "@akonwi/mica/mica.css" with { type: "text" };
 import type { Server, ServerWebSocket } from "bun";
+// @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
+import clientCss from "../web/client.css" with { type: "text" };
+// @ts-expect-error: Bun's text loader intentionally reads this module as source text.
+import clientTypeScript from "../web/client.ts" with { type: "text" };
+// @ts-expect-error: Bun's text loader intentionally reads this module as source text.
+import clientStateTypeScript from "../web/client-state.ts" with {
+	type: "text",
+};
+import clientHtml from "../web/index.html" with { type: "text" };
 import {
 	MAX_REMOTE_ATTACHMENT_BYTES,
 	RemoteAttachmentError,
@@ -59,20 +70,31 @@ const MAX_WEB_CHUNK_BYTES = 32 * 1024;
 const MAX_MESSAGE_CHUNK_TOKENS = 1024;
 const MAX_MESSAGE_CHUNK_CACHE_BYTES = 16 * 1024 * 1024;
 
-const PLACEHOLDER_HTML = `<!doctype html>
-<html lang="en">
-<head>
-	<meta charset="utf-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1">
-	<title>Kit web mode</title>
-</head>
-<body>
-	<main>
-		<h1>Kit web mode</h1>
-		<p>The RPC server is running. The browser client is coming next.</p>
-	</main>
-</body>
-</html>`;
+const browserTranspiler = new Bun.Transpiler({ loader: "ts" });
+const WEB_ASSETS = new Map<string, { body: string; contentType: string }>([
+	[
+		"/assets/mica.css",
+		{ body: micaCss, contentType: "text/css; charset=utf-8" },
+	],
+	[
+		"/assets/client.css",
+		{ body: clientCss, contentType: "text/css; charset=utf-8" },
+	],
+	[
+		"/assets/client-state.js",
+		{
+			body: browserTranspiler.transformSync(clientStateTypeScript),
+			contentType: "text/javascript; charset=utf-8",
+		},
+	],
+	[
+		"/assets/client.js",
+		{
+			body: browserTranspiler.transformSync(clientTypeScript),
+			contentType: "text/javascript; charset=utf-8",
+		},
+	],
+]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -90,6 +112,27 @@ function parseCommand(message: string | Buffer): RpcCommand {
 
 function parseError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
+}
+
+function webDocumentHeaders(url: URL): HeadersInit {
+	const webSocketOrigins = `ws://${url.host} wss://${url.host}`;
+	return {
+		"content-type": "text/html; charset=utf-8",
+		"content-security-policy": [
+			"default-src 'self'",
+			"base-uri 'none'",
+			`connect-src 'self' ${webSocketOrigins}`,
+			"font-src 'self'",
+			"form-action 'self'",
+			"frame-ancestors 'none'",
+			"img-src 'self' data:",
+			"object-src 'none'",
+			"script-src 'self'",
+			"style-src 'self'",
+		].join("; "),
+		"referrer-policy": "no-referrer",
+		"x-content-type-options": "nosniff",
+	};
 }
 
 function parseResumeCursor(url: URL): ResumeCursor {
@@ -145,6 +188,16 @@ export class WebRpcServer {
 			maxRequestBodySize: MAX_MULTIPART_BODY_BYTES,
 			fetch: async (request, bunServer) => {
 				const url = new URL(request.url);
+				const webAsset = WEB_ASSETS.get(url.pathname);
+				if (webAsset) {
+					return new Response(webAsset.body, {
+						headers: {
+							"cache-control": "no-cache",
+							"content-type": webAsset.contentType,
+							"x-content-type-options": "nosniff",
+						},
+					});
+				}
 				if (url.pathname === "/api/health") {
 					return Response.json({
 						ok: true,
@@ -172,8 +225,8 @@ export class WebRpcServer {
 					return new Response("WebSocket upgrade required", { status: 426 });
 				}
 				if (url.pathname === "/") {
-					return new Response(PLACEHOLDER_HTML, {
-						headers: { "content-type": "text/html; charset=utf-8" },
+					return new Response(clientHtml as unknown as string, {
+						headers: webDocumentHeaders(url),
 					});
 				}
 				return new Response("Not found", { status: 404 });
@@ -356,9 +409,14 @@ export class WebRpcServer {
 
 	private createMessageReference(message: unknown, messageIndex: number) {
 		const bytes = this.serializedProjectedMessage(message);
+		const role =
+			isRecord(message) && typeof message.role === "string"
+				? message.role
+				: undefined;
 		if (bytes.length > MAX_MESSAGE_CHUNK_CACHE_BYTES) {
 			return {
 				type: "message_unavailable",
+				...(role ? { role } : {}),
 				messageIndex,
 				serializedBytes: bytes.length,
 				reason: "exceeds_recovery_limit",
@@ -379,6 +437,7 @@ export class WebRpcServer {
 		this.messageChunkCacheBytes += bytes.length;
 		return {
 			type: "message_reference",
+			...(role ? { role } : {}),
 			messageIndex,
 			token,
 			serializedBytes: bytes.length,
@@ -582,6 +641,11 @@ export class WebRpcServer {
 			messages.unshift(message);
 			if (this.serializedBytes(record) > MAX_SNAPSHOT_BYTES) {
 				messages.shift();
+				if (messages.length === 0) {
+					messages.unshift(this.createMessageReference(message, messageIndex));
+					messageOffset = messageIndex;
+					record.messageOffset = messageOffset;
+				}
 				break;
 			}
 			messageOffset = snapshot.messageOffset + index;

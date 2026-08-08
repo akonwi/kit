@@ -96,9 +96,12 @@ to every connected client.
 
 Web events include one host-instance `streamId` and a monotonically increasing
 `sequence`. The same shared event has the same sequence for every client;
-connection-scoped command responses are not sequenced. Web capability responses
-advertise `eventSequencing`, the current stream and sequence, and retention
-limits. Stdio capabilities report sequencing as unsupported.
+connection-scoped command responses are not sequenced. A browser client that
+batches sequenced records must reduce records received earlier on the socket
+before resolving a later command response; otherwise response-driven pagination
+or recovery can commit stale state. Web capability responses advertise
+`eventSequencing`, the current stream and sequence, and retention limits. Stdio
+capabilities report sequencing as unsupported.
 
 Every WebSocket connection begins with `sync` and ends synchronization with
 `sync_complete` before live delivery starts. With no resume cursor, or when a
@@ -113,7 +116,11 @@ message becomes a `message_reference` and is reconstructed through bounded
 serialized bytes in a 16 MiB bounded cache, so transcript mutation cannot mix
 chunk versions and chunks never restore projected image data or server paths.
 Evicted tokens are rejected; a single projected message above the cache limit is
-reported as `message_unavailable`.
+reported as `message_unavailable`. A snapshot may use a reference for the active
+streaming assistant message. Clients retain it as the active message and buffer
+live continuation deltas until the immutable snapshot reference is hydrated. If
+the token has expired, a fresh message page is already rebased to current server
+state and buffered deltas must not be applied to it again.
 
 A reconnecting client requests replay with:
 
@@ -279,14 +286,20 @@ needed.
 
 ## Current web-mode limitations
 
-The initial web transport establishes the shared host, HTTP lifecycle,
-multi-client WebSocket behavior, remote interactions, external-plugin loading,
-and transport-neutral command/session operations. The browser route is
-currently a placeholder.
-Before web mode reaches feature parity it still needs:
+The initial Mica browser client provides snapshot/replay recovery, streaming
+transcript and tool activity, a responsive composer, attachments, aborts,
+paginated history, and native remote-interaction dialogs. It uses same-origin
+assets and keeps protocol reduction separate from DOM rendering.
 
-- the Mica-based transcript and composer client
-- transport-neutral adapters for additional renderer-owned built-in commands
+Protocol version 2 still contains legacy Pi-shaped lifecycle records for raw
+turn and message boundaries. These must migrate to transport-safe projections of
+Kit's semantic `AgentRuntime` events before the protocol is treated as the
+stable boundary for browser and remote-TUI clients; Pi remains private to the
+core `Agent`.
+
+Before web mode reaches feature parity it still needs richer session/model
+management, plugin-provided client surfaces, and transport-neutral adapters for
+additional renderer-owned built-in commands.
 
 See ADR 0027 and `backlog/remote-session-server.md` for the intended design and
 delivery sequence.

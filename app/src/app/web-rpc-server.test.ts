@@ -154,14 +154,25 @@ describe("WebRpcServer", () => {
 		return { host, address: server.start() };
 	}
 
-	test("serves health and the browser entry point", async () => {
+	test("serves health and the same-origin browser client", async () => {
 		const { address } = start();
 		const health = await fetch(`${address.url}/api/health`);
 		const page = await fetch(address.url);
+		const mica = await fetch(`${address.url}/assets/mica.css`);
+		const client = await fetch(`${address.url}/assets/client.js`);
+		const state = await fetch(`${address.url}/assets/client-state.js`);
 
 		expect(await health.json()).toEqual({ ok: true, mode: "web", clients: 0 });
 		expect(page.headers.get("content-type")).toContain("text/html");
-		expect(await page.text()).toContain("Kit web mode");
+		expect(page.headers.get("content-security-policy")).toContain(
+			"script-src 'self'",
+		);
+		expect(await page.text()).toContain("Conversation transcript");
+		expect(mica.headers.get("content-type")).toContain("text/css");
+		expect((await mica.text()).length).toBeGreaterThan(60_000);
+		expect(client.headers.get("content-type")).toContain("text/javascript");
+		expect(await client.text()).toContain("new WebSocket");
+		expect(await state.text()).toContain("reduceClientRecord");
 	});
 
 	test("uploads and removes opaque attachments", async () => {
@@ -547,6 +558,7 @@ describe("WebRpcServer", () => {
 			messages: [
 				{
 					id: "large",
+					role: "assistant",
 					content: [
 						{ type: "text", text: "x".repeat(100 * 1024) },
 						{
@@ -565,6 +577,18 @@ describe("WebRpcServer", () => {
 		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
 		const connection = await openWebSocket(webSocketUrl);
 		sockets.push(connection.socket);
+		expect(connection.sync).toEqual(
+			expect.objectContaining({
+				messages: [
+					expect.objectContaining({
+						type: "message_reference",
+						role: "assistant",
+						messageIndex: 0,
+					}),
+				],
+				messageOffset: 0,
+			}),
+		);
 		connection.socket.send(
 			JSON.stringify({ id: "messages", type: "get_messages", offset: 0 }),
 		);
@@ -581,6 +605,7 @@ describe("WebRpcServer", () => {
 				messages: [
 					{
 						type: "message_reference",
+						role: "assistant",
 						messageIndex: 0,
 						token: expect.any(String),
 						serializedBytes: expect.any(Number),
@@ -630,6 +655,7 @@ describe("WebRpcServer", () => {
 		const reconstructed = JSON.parse(Buffer.concat(chunks).toString());
 		expect(reconstructed).toEqual({
 			id: "large",
+			role: "assistant",
 			content: [
 				{ type: "text", text: "x".repeat(100 * 1024) },
 				{

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="color-scheme" content="light dark">
+	<title>Kit</title>
+	<link rel="stylesheet" href="/assets/mica.css">
+	<link rel="stylesheet" href="/assets/client.css">
+	<script type="module" src="/assets/client.js"></script>
+</head>
+<body>
+	<a href="#transcript" data-visually-hidden="focusable">Skip to transcript</a>
+	<m-vstack class="app-shell" gap="none">
+		<header class="session-header">
+			<m-hstack gap="sm" align="center">
+				<h1 class="wordmark">kit</h1>
+				<span id="connection-status" class="connection-status" role="status" aria-live="polite">Connecting</span>
+			</m-hstack>
+			<m-hstack class="session-meta" gap="sm" align="center">
+				<span id="workspace-label"></span>
+				<span id="model-label"></span>
+				<span id="session-label"></span>
+			</m-hstack>
+		</header>
+
+		<main id="transcript" class="transcript" tabindex="0" aria-label="Conversation transcript">
+			<button id="load-earlier" class="load-earlier" data-variant="ghost" data-size="small" type="button" hidden>
+				Load earlier messages
+			</button>
+			<div id="empty-state" class="empty-state">
+				<strong>k&nbsp;&nbsp;&nbsp;&nbsp;i&nbsp;&nbsp;&nbsp;&nbsp;t</strong>
+				<span>Start a conversation with your coding agent.</span>
+			</div>
+			<div id="message-list" class="message-list"></div>
+			<section id="activity" class="activity" aria-label="Tool activity" hidden>
+				<h2>Current activity</h2>
+				<div id="activity-list"></div>
+			</section>
+		</main>
+
+		<footer class="composer-dock">
+			<div id="attachment-list" class="attachment-list"></div>
+			<form id="composer-form" class="composer-form">
+				<label for="composer-input" data-visually-hidden>Message Kit</label>
+				<textarea id="composer-input" name="message" rows="1" placeholder="Ask Kit…"></textarea>
+				<m-hstack class="composer-actions" gap="xs" align="center">
+					<button id="attachment-button" type="button" data-variant="ghost">Attach</button>
+					<input id="attachment-input" type="file" multiple hidden>
+					<span id="queue-status" class="queue-status"></span>
+					<span class="composer-spacer"></span>
+					<button id="abort-button" type="button" data-variant="danger" hidden>Abort</button>
+					<button id="submit-button" type="submit" data-variant="primary">Send</button>
+				</m-hstack>
+			</form>
+			<p id="app-status" class="app-status" role="status" aria-live="polite"></p>
+		</footer>
+	</m-vstack>
+
+	<dialog id="interaction-dialog" aria-labelledby="interaction-title">
+		<form id="interaction-form" method="dialog">
+			<m-vstack gap="md">
+				<header>
+					<h2 id="interaction-title">Kit needs your input</h2>
+					<p id="interaction-message"></p>
+				</header>
+				<div id="interaction-fields"></div>
+				<m-hstack id="interaction-actions" gap="sm" justify="end"></m-hstack>
+			</m-vstack>
+		</form>
+	</dialog>
+</body>
+</html>

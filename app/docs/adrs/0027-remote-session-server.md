@@ -49,8 +49,12 @@ process-ownership relationship.
 
 ### Shared session host
 
-RPC dispatch and event publication will be transport-independent. The same
-session host will back:
+RPC dispatch and event publication will be transport-independent. The event
+source is Kit's semantic `AgentRuntime` surface above the core `Agent`; the host
+will not expose raw Pi lifecycle events or provider-specific payload types.
+Transport-safe records preserve Kit event names, turn/message identities, and
+lifecycle meaning while projecting or bounding unsafe data. The same session
+host will back:
 
 - the existing `kit --rpc` stdio adapter
 - the `kit --mode web` HTTP and WebSocket adapter

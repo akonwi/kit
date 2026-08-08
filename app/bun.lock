@@ -5,6 +5,7 @@
     "": {
       "name": "pi-kit",
       "dependencies": {
+        "@akonwi/mica": "0.6.0",
         "@earendil-works/pi-agent-core": "0.83.0",
         "@earendil-works/pi-ai": "0.83.0",
         "@fontsource-variable/inter": "5.3.0",
@@ -34,6 +35,8 @@
     },
   },
   "packages": {
+    "@akonwi/mica": ["@akonwi/mica@0.6.0", "", {}, "sha512-Uifrrcxitj4av7MfiLpEcd3elEskTTRY2l9j97FyLjyt61vXD6B3hnIZa9bdAoQfzX2iirTnxY59UvL8mf17GA=="],
+
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 
     "@anthropic-ai/sdk": ["@anthropic-ai/sdk@0.91.1", "", { "dependencies": { "json-schema-to-ts": "^3.1.1" }, "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" }, "optionalPeers": ["zod"], "bin": { "anthropic-ai-sdk": "bin/cli" } }, "sha512-LAmu761tSN9r66ixvmciswUj/ZC+1Q4iAfpedTfSVLeswRwnY3n2Nb6Tsk+cLPP28aLOPWeMgIuTuCcMC6W/iw=="],

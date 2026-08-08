@@ -240,11 +240,36 @@ separating the existing TUI's presentation state from its in-process
 - Allow native authentication and authorization to be layered on later without
   changing the session protocol.
 
+## Browser-client findings
+
+The first browser client exposed follow-up protocol work that should be solved
+for every remote client rather than hidden in renderer-specific code:
+
+- [ ] Replace the protocol's legacy Pi-shaped `turn_start` and
+  `message_start/update/end` records with projections of Kit's semantic
+  `AgentRuntime` events (`agent.turn.*`, `agent.message.*`,
+  `user.message.created`, and `session.message.appended`). Pi event names,
+  payloads, and types must remain
+  private to the core `Agent`.
+- [ ] Preserve Kit's existing `Turn.id` consistently in snapshot and live
+  protocol records, and add a stable message identity (potentially promoting
+  persisted message-entry IDs) instead of deriving DOM keys from transcript
+  position.
+- [ ] Add a server-owned generation to pending-interaction snapshots, pages, and
+  events so clients can reject pages invalidated by live mutations.
+- [ ] Advertise attachment quotas, upload concurrency, page sizes, and recovery
+  limits through capability discovery.
+- [ ] Add automated browser coverage for prompt streaming, reconnect/snapshot
+  fallback, background-tab event processing, attachment lifecycle, dialog focus,
+  and narrow layouts.
+- [ ] Define explicit shared-session control UX for session/model changes made by
+  another connected client; session changes currently force a fresh snapshot.
+
 ## Suggested delivery order
 
 - [x] Extract transport-independent RPC dispatch from the stdio server.
 - [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
-- [ ] Add a minimal Mica-based web transcript/composer client.
+- [x] Add a minimal Mica-based web transcript/composer client.
 - [ ] Fill remaining tool-approval, plugin-client-surface, and built-in command gaps.
 - [x] Add event sequencing, reconnect, and interaction coordination.
 - [ ] Validate local access through a trusted private tunnel.
