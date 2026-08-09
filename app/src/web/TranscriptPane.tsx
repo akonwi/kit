@@ -18,7 +18,7 @@ type ScrollAnchor = {
 	top: number;
 };
 
-export function Transcript(): JSX.Element {
+export function TranscriptPane(): JSX.Element {
 	const { snapshot, controller } = useWebClient();
 	let transcript: HTMLElement | undefined;
 	let stickToBottom = true;
@@ -83,7 +83,7 @@ export function Transcript(): JSX.Element {
 		<main
 			ref={transcript}
 			id="transcript"
-			class="transcript"
+			class="transcript-pane"
 			tabIndex={0}
 			aria-label="Conversation transcript"
 			onScroll={() => {
@@ -110,7 +110,7 @@ export function Transcript(): JSX.Element {
 			<Show when={messageKeys().length === 0}>
 				<div class="empty-state">
 					<strong>k&nbsp;&nbsp;&nbsp;&nbsp;i&nbsp;&nbsp;&nbsp;&nbsp;t</strong>
-					<span>Start a conversation with your coding agent.</span>
+					<span>Ask a question or give a task.</span>
 				</div>
 			</Show>
 			<div class="message-list">

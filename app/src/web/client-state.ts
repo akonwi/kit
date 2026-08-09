@@ -25,6 +25,7 @@ export type ClientState = {
 	activeMessageIndex: number | null;
 	pendingActiveMessageDeltas: Array<Record<string, unknown>>;
 	tools: ToolActivity[];
+	pendingStatus: string | null;
 	pendingInteractions: unknown[];
 	pendingInteractionOffset: number;
 	totalPendingInteractionCount: number;
@@ -52,6 +53,7 @@ export function createClientState(): ClientState {
 		activeMessageIndex: null,
 		pendingActiveMessageDeltas: [],
 		tools: [],
+		pendingStatus: null,
 		pendingInteractions: [],
 		pendingInteractionOffset: 0,
 		totalPendingInteractionCount: 0,
@@ -204,16 +206,18 @@ function applyEvent(
 			return {
 				...state,
 				serverState: { ...state.serverState, isStreaming: true },
+				pendingStatus: "Working…",
 				lastError: null,
 			};
 		case "agent.turn.started":
-			return { ...state, tools: [] };
+			return { ...state, tools: [], pendingStatus: "Working…" };
 		case "agent.settled":
 			return {
 				...state,
 				serverState: { ...state.serverState, isStreaming: false },
 				activeMessageIndex: null,
 				pendingActiveMessageDeltas: [],
+				pendingStatus: null,
 			};
 		case "user.message.created":
 		case "agent.message.started":
@@ -335,6 +339,23 @@ function applyEvent(
 				),
 			};
 		}
+		case "agent.retry.started": {
+			const attempt = typeof record.attempt === "number" ? record.attempt : "?";
+			const maxAttempts =
+				typeof record.maxAttempts === "number" ? record.maxAttempts : "?";
+			const delaySeconds =
+				typeof record.delayMs === "number"
+					? Math.ceil(record.delayMs / 1000)
+					: 0;
+			return {
+				...state,
+				pendingStatus: `Retrying (${attempt}/${maxAttempts}) in ${delaySeconds}s…`,
+			};
+		}
+		case "agent.retry.completed":
+			return { ...state, pendingStatus: "Working…" };
+		case "agent.retry.failed":
+			return { ...state, pendingStatus: null };
 		case "chat.message-queue.changed":
 			return { ...state, queuedMessageCount: queuedCount(record) };
 		case "ui_snapshot": {
@@ -419,6 +440,7 @@ function applyEvent(
 		case "error":
 			return {
 				...state,
+				pendingStatus: null,
 				lastError:
 					typeof record.error === "string"
 						? record.error
@@ -480,6 +502,7 @@ export function reduceClientRecord(
 				activeMessageIndex,
 				pendingActiveMessageDeltas: [],
 				tools: [],
+				pendingStatus: serverState.isStreaming === true ? "Working…" : null,
 				pendingInteractions: Array.isArray(record.pendingInteractions)
 					? record.pendingInteractions
 					: [],

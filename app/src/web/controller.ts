@@ -121,12 +121,24 @@ export class WebClientController {
 
 	async submit(messageValue: string): Promise<boolean> {
 		if (this.view.submitting()) return false;
+		if (!this.transport.drainProtocolRecords()) {
+			this.view.reportError(new Error("Protocol synchronization failed"));
+			return false;
+		}
 		const message = messageValue.trim();
 		const submittedAttachments = this.view.attachments();
+		const submissionWasStreaming = this.isStreaming();
 		if (!message && submittedAttachments.length === 0) return false;
+		if (submissionWasStreaming && submittedAttachments.length > 0) {
+			this.view.setStatus(
+				"Remove attachments before sending a follow-up message",
+				true,
+			);
+			this.view.notify();
+			return false;
+		}
 		const submissionStreamId = this.state.streamId;
 		const submissionSessionId = this.state.serverState.sessionId;
-		const submissionWasStreaming = this.isStreaming();
 		this.view.setSubmitting(true);
 		this.view.setStatus(
 			submittedAttachments.length > 0 ? "Uploading attachments…" : "Sending…",

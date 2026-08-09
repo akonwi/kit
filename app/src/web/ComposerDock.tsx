@@ -2,7 +2,7 @@
 import { createMemo, For, type JSX, onCleanup, onMount } from "solid-js";
 import { useWebClient } from "./WebClientContext";
 
-export function Composer(): JSX.Element {
+export function ComposerDock(): JSX.Element {
 	const { snapshot, controller, registerComposerFocus } = useWebClient();
 	let input: HTMLTextAreaElement | undefined;
 	let attachmentInput: HTMLInputElement | undefined;
@@ -13,17 +13,13 @@ export function Composer(): JSX.Element {
 	const streaming = createMemo(
 		() => protocol().serverState.isStreaming === true,
 	);
-	const queueStatus = createMemo(() =>
-		protocol().queuedMessageCount > 0
-			? `${protocol().queuedMessageCount} queued`
-			: streaming()
-				? "Send queues a follow-up"
-				: "",
+	const canSubmit = createMemo(
+		() => enabled() && !(streaming() && snapshot().attachments.length > 0),
 	);
 
 	const submit = async (event: SubmitEvent) => {
 		event.preventDefault();
-		if (!input) return;
+		if (!input || !enabled()) return;
 		const submittedValue = input.value;
 		if (
 			(await controller.submit(submittedValue)) &&
@@ -44,22 +40,26 @@ export function Composer(): JSX.Element {
 	onCleanup(() => unregisterComposerFocus?.());
 
 	return (
-		<footer class="composer-dock">
+		<section class="composer-dock" aria-label="Message composer">
 			<div class="attachment-list">
 				<For each={snapshot().attachments}>
 					{(attachment) => (
-						<span class="attachment-chip">
-							{attachment.file.name}
+						<div class="attachment-row">
+							<span class="attachment-name" title={attachment.file.name}>
+								{attachment.file.name}
+							</span>
 							<button
+								class="attachment-remove"
 								type="button"
 								data-variant="ghost"
 								data-size="small"
 								disabled={snapshot().submitting}
+								aria-label={`Remove ${attachment.file.name}`}
 								onClick={() => void controller.removeAttachment(attachment)}
 							>
-								Remove
+								×
 							</button>
-						</span>
+						</div>
 					)}
 				</For>
 			</div>
@@ -72,7 +72,7 @@ export function Composer(): JSX.Element {
 					id="composer-input"
 					name="message"
 					rows={1}
-					placeholder="Ask Kit…"
+					placeholder="Ask kit to do something..."
 					onKeyDown={(event) => {
 						if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
 							return;
@@ -82,10 +82,11 @@ export function Composer(): JSX.Element {
 						else controller.reportComposerUnavailable();
 					}}
 				/>
-				<m-hstack class="composer-actions" gap="xs" align="center">
+				<div class="composer-actions">
 					<button
 						type="button"
 						data-variant="ghost"
+						data-size="small"
 						disabled={!enabled() || streaming()}
 						onClick={() => attachmentInput?.click()}
 					>
@@ -104,30 +105,34 @@ export function Composer(): JSX.Element {
 							event.currentTarget.value = "";
 						}}
 					/>
-					<span class="queue-status">{queueStatus()}</span>
-					<span class="composer-spacer" />
 					<button
+						class="abort-action"
+						classList={{ "is-visible": streaming() }}
 						type="button"
-						data-variant="danger"
-						hidden={!streaming()}
-						disabled={!enabled()}
+						data-variant="ghost"
+						data-size="small"
+						disabled={!enabled() || !streaming()}
+						aria-hidden={!streaming()}
+						tabIndex={streaming() ? undefined : -1}
 						onClick={() => void controller.abort()}
 					>
 						Abort
 					</button>
-					<button type="submit" data-variant="primary" disabled={!enabled()}>
+					<button
+						type="submit"
+						data-variant="ghost"
+						data-size="small"
+						disabled={!canSubmit()}
+						title={
+							streaming() && snapshot().attachments.length > 0
+								? "Remove attachments before sending a follow-up"
+								: undefined
+						}
+					>
 						{snapshot().submitting ? "Sending…" : "Send"}
 					</button>
-				</m-hstack>
+				</div>
 			</form>
-			<p
-				class="app-status"
-				role="status"
-				aria-live="polite"
-				data-error={String(snapshot().status.isError)}
-			>
-				{snapshot().status.message}
-			</p>
-		</footer>
+		</section>
 	);
 }
