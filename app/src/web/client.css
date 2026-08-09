@@ -161,94 +161,347 @@ body {
 	border-block-end: 2px solid var(--kit-border-accent);
 }
 
-.message-list {
+.transcript-list {
 	display: flex;
 	flex-direction: column;
-	gap: var(--space-sm);
+	gap: var(--space-md);
 	inline-size: 100%;
 }
 
-.message {
+.transcript-entry {
 	inline-size: 100%;
-	margin: 0;
-	white-space: pre-wrap;
+	min-inline-size: 0;
 	overflow-wrap: anywhere;
 }
 
-.message[data-role="user"] {
+.transcript-entry.is-aborted {
+	color: var(--kit-text-muted);
+	opacity: 0.72;
+}
+
+.user-entry.is-aborted :is(.markdown-content, .prompt-command) {
+	text-decoration: line-through;
+}
+
+.user-entry {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
 	padding-inline-start: var(--kit-shell-padding);
 	border-inline-start: 2px solid var(--kit-user-border);
 }
 
-.message[data-role="assistant"] {
+.assistant-entry {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
 	color: var(--kit-text-primary);
 }
 
-.message[data-role="toolResult"] {
-	padding-inline-start: var(--kit-shell-padding);
-	color: var(--kit-text-muted);
+.assistant-error {
+	color: var(--kit-error-text);
 }
 
-.message-label,
-.activity h2 {
-	margin: 0 0 var(--space-2xs);
-	color: var(--kit-text-muted);
-	font-size: 0.75rem;
-	font-weight: 400;
+.markdown-content {
+	min-inline-size: 0;
+	line-height: 1.5;
 }
 
-.message-content,
-.tool-result {
-	margin: 0;
+.markdown-content > :first-child {
+	margin-block-start: 0;
+}
+
+.markdown-content > :last-child {
+	margin-block-end: 0;
+}
+
+.markdown-content :is(p, ul, ol, blockquote, pre, table) {
+	margin-block: 0 var(--space-sm);
+}
+
+.markdown-content :is(ul, ol) {
+	padding-inline-start: var(--space-lg);
+}
+
+.markdown-content li + li {
+	margin-block-start: var(--space-2xs);
+}
+
+.markdown-content :is(h1, h2, h3, h4, h5, h6) {
+	margin: var(--space-md) 0 var(--space-xs);
+	font-size: 1em;
+	line-height: 1.5;
+}
+
+.markdown-content blockquote {
+	padding-inline-start: var(--space-sm);
+	border-inline-start: 2px solid var(--kit-border-default);
+	color: var(--kit-text-secondary);
+}
+
+.markdown-content code,
+.prompt-command,
+.tool-output,
+.bash-entry code {
 	font-family: var(--font-mono);
-	white-space: pre-wrap;
 }
 
-.message img {
+.markdown-content :not(pre) > code {
+	padding-inline: var(--space-2xs);
+	background: var(--kit-bg-surface);
+}
+
+.markdown-content pre,
+.tool-output {
+	overflow-x: auto;
+	padding: var(--space-sm);
+	border: 1px solid var(--kit-border-default);
+	background: var(--kit-bg-surface);
+	white-space: pre;
+}
+
+.markdown-content pre code {
+	padding: 0;
+	background: transparent;
+}
+
+.markdown-content a {
+	color: var(--color-accent-contrast, var(--color-accent));
+	text-decoration-thickness: 1px;
+	text-underline-offset: 0.15em;
+}
+
+.markdown-content table {
+	max-inline-size: 100%;
+	border-collapse: collapse;
+}
+
+.markdown-content :is(th, td) {
+	padding: var(--space-2xs) var(--space-xs);
+	border: 1px solid var(--kit-border-default);
+	text-align: start;
+}
+
+.intermediate-prose {
+	color: var(--kit-text-secondary);
+}
+
+.user-attachment-summary {
+	color: var(--kit-attachment-text);
+	font-size: 0.8125rem;
+}
+
+.user-image-link {
+	display: block;
+	inline-size: fit-content;
+}
+
+.user-image-link img {
+	display: block;
 	max-inline-size: min(100%, 40rem);
 	max-block-size: 32rem;
 	object-fit: contain;
 }
 
-.activity {
+.tool-drawer {
 	inline-size: 100%;
-	margin-block-start: var(--space-md);
-	padding-block-start: var(--space-sm);
-	border-block-start: 1px solid var(--kit-border-default);
-}
-
-.tool-activity {
-	padding-block: var(--space-2xs);
-}
-
-.tool-activity summary {
-	color: var(--kit-tool-text);
-	font-family: var(--font-mono);
-}
-
-.tool-activity[data-status="running"] summary::after {
-	content: " · running";
+	margin: 0;
+	border-block-end: 0;
 	color: var(--kit-text-muted);
-}
-
-.tool-activity[data-error="true"] summary {
-	color: var(--kit-error-text);
-}
-
-.standalone-tool-result {
-	inline-size: 100%;
-	color: var(--kit-tool-text);
 	font-size: 0.8125rem;
 }
 
-.standalone-tool-result[data-error="true"] {
+.tool-drawer > summary {
+	inline-size: 100%;
+	max-inline-size: 100%;
+	justify-content: flex-start;
+	gap: var(--space-xs);
+	padding: var(--space-2xs) var(--space-xs);
+	background: var(--kit-bg-surface);
+	font-size: inherit;
+	font-weight: 400;
+	cursor: pointer;
+}
+
+.drawer-state[data-status="complete"] {
+	display: none;
+}
+
+.drawer-state[data-status="running"],
+.tool-state[data-status="running"] {
+	display: inline-block;
+	inline-size: 0.65rem;
+	block-size: 0.65rem;
+	margin-inline-end: var(--space-xs);
+	border: 1px solid currentColor;
+	border-inline-end-color: transparent;
+	border-radius: var(--radius-full);
+	animation: pending-spin 800ms linear infinite;
+}
+
+.drawer-tool-names {
+	color: var(--kit-text-placeholder);
+}
+
+.tool-drawer-body {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2xs);
+	margin: 0;
+	padding: var(--space-xs) var(--space-xs) 0;
+	font-size: inherit;
+}
+
+.turn-work-step {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-xs);
+}
+
+.tool-drawer > summary,
+.tool-row > summary,
+.handoff-summary-entry > summary,
+.bash-entry > summary {
+	list-style: none;
+}
+
+.tool-drawer > summary::-webkit-details-marker,
+.tool-row > summary::-webkit-details-marker,
+.handoff-summary-entry > summary::-webkit-details-marker,
+.bash-entry > summary::-webkit-details-marker {
+	display: none;
+}
+
+.tool-drawer > summary::after,
+.tool-row > summary::after,
+.handoff-summary-entry > summary::after,
+.bash-entry > summary::after {
+	display: none;
+	content: none;
+}
+
+.disclosure-marker {
+	flex: 0 0 auto;
+	inline-size: 0.4rem;
+	block-size: 0.4rem;
+	border-inline-end: 1px solid currentColor;
+	border-block-end: 1px solid currentColor;
+	transform: rotate(-45deg);
+}
+
+details[open] > summary > .disclosure-marker {
+	transform: rotate(45deg);
+}
+
+.tool-row {
+	margin: 0;
+	border-block-end: 0;
+}
+
+.tool-row > summary,
+.tool-row-static {
+	display: flex;
+	align-items: baseline;
+	justify-content: flex-start;
+	gap: var(--space-xs);
+	inline-size: 100%;
+	padding: var(--space-2xs) var(--space-xs);
+	color: var(--kit-tool-text);
+	font-size: inherit;
+	font-weight: 400;
+	cursor: pointer;
+}
+
+.tool-row > summary:hover {
+	text-decoration: none;
+}
+
+.tool-row-static {
+	cursor: default;
+}
+
+.tool-state[data-status="complete"] {
+	display: inline-block;
+	inline-size: 0.5rem;
+	block-size: 0.5rem;
+	border-radius: var(--radius-full);
+	background: currentColor;
+}
+
+.tool-state[data-status="aborted"] {
+	display: inline-block;
+	inline-size: 0.5rem;
+	block-size: 1px;
+	background: var(--kit-text-muted);
+}
+
+.tool-state[data-error="true"],
+.tool-row[data-error="true"] > summary {
 	color: var(--kit-error-text);
 }
 
-.standalone-tool-result-body {
-	padding-block-start: var(--space-2xs);
-	padding-inline-start: calc(var(--kit-shell-padding) + var(--space-xs));
+.tool-state[data-error="true"] {
+	border-radius: 0;
+	transform: rotate(45deg);
+}
+
+.tool-name {
+	color: currentColor;
+}
+
+.tool-args {
+	min-inline-size: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	color: var(--kit-text-primary);
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.tool-output {
+	max-block-size: 28rem;
+	margin: var(--space-xs) 0 0 var(--space-lg);
 	color: var(--kit-text-muted);
+	font-size: 0.8125rem;
+	white-space: pre-wrap;
+}
+
+.handoff-summary-entry {
+	color: var(--kit-text-secondary);
+}
+
+.handoff-summary-entry > summary {
+	display: flex;
+	align-items: center;
+	gap: var(--space-xs);
+	color: var(--kit-text-secondary);
+	cursor: pointer;
+}
+
+.handoff-divider {
+	flex: 1 1 auto;
+	border-block-start: 1px solid var(--kit-border-default);
+}
+
+.handoff-summary-entry > .markdown-content {
+	padding: var(--space-sm) var(--space-lg) 0;
+}
+
+.bash-entry {
+	padding-inline-start: var(--kit-shell-padding);
+	border-inline-start: 2px solid var(--kit-tool-text);
+}
+
+.bash-entry > summary {
+	display: flex;
+	align-items: baseline;
+	gap: var(--space-xs);
+	color: var(--kit-text-primary);
+	cursor: pointer;
+}
+
+.bash-entry > .tool-output {
+	margin-inline-start: var(--space-lg);
 }
 
 .composer-stack {
@@ -470,7 +723,9 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.pending-spinner {
+	.pending-spinner,
+	.drawer-state[data-status="running"],
+	.tool-state[data-status="running"] {
 		animation: none;
 		border-inline-end-color: currentColor;
 	}

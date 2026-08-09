@@ -6,8 +6,10 @@ export type ConnectionPhase =
 
 export type ToolActivity = {
 	id: string;
+	turnId: string;
 	name: string;
 	args?: unknown;
+	partialResult?: unknown;
 	result?: unknown;
 	isError: boolean;
 	status: "running" | "complete";
@@ -23,6 +25,7 @@ export type ClientState = {
 	messageOffset: number;
 	totalMessageCount: number;
 	activeMessageIndex: number | null;
+	activeTurnId: string | null;
 	pendingActiveMessageDeltas: Array<Record<string, unknown>>;
 	tools: ToolActivity[];
 	pendingStatus: string | null;
@@ -51,6 +54,7 @@ export function createClientState(): ClientState {
 		messageOffset: 0,
 		totalMessageCount: 0,
 		activeMessageIndex: null,
+		activeTurnId: null,
 		pendingActiveMessageDeltas: [],
 		tools: [],
 		pendingStatus: null,
@@ -200,7 +204,12 @@ function applyEvent(
 			) {
 				throw new ProtocolSyncError("The active session changed");
 			}
-			return { ...state, serverState: record.state };
+			return {
+				...state,
+				serverState: record.state,
+				activeTurnId:
+					record.state.isStreaming === false ? null : state.activeTurnId,
+			};
 		}
 		case "agent.start":
 			return {
@@ -210,12 +219,30 @@ function applyEvent(
 				lastError: null,
 			};
 		case "agent.turn.started":
-			return { ...state, tools: [], pendingStatus: "Working…" };
+			return {
+				...state,
+				activeTurnId:
+					typeof record.turnId === "string"
+						? record.turnId
+						: state.activeTurnId,
+				tools: [],
+				pendingStatus: "Working…",
+			};
+		case "agent.turn.completed":
+			return {
+				...state,
+				activeTurnId:
+					typeof record.turnId !== "string" ||
+					record.turnId === state.activeTurnId
+						? null
+						: state.activeTurnId,
+			};
 		case "agent.settled":
 			return {
 				...state,
 				serverState: { ...state.serverState, isStreaming: false },
 				activeMessageIndex: null,
+				activeTurnId: null,
 				pendingActiveMessageDeltas: [],
 				pendingStatus: null,
 			};
@@ -302,13 +329,19 @@ function applyEvent(
 			};
 		}
 		case "agent.tool.started": {
-			if (typeof record.toolCallId !== "string") return state;
+			if (
+				typeof record.toolCallId !== "string" ||
+				typeof record.turnId !== "string"
+			) {
+				return state;
+			}
 			return {
 				...state,
 				tools: [
 					...state.tools.filter((tool) => tool.id !== record.toolCallId),
 					{
 						id: record.toolCallId,
+						turnId: record.turnId,
 						name:
 							typeof record.toolName === "string" ? record.toolName : "tool",
 						args: record.args,
@@ -320,23 +353,42 @@ function applyEvent(
 		}
 		case "agent.tool.updated":
 		case "agent.tool.ended": {
-			if (typeof record.toolCallId !== "string") return state;
+			if (
+				typeof record.toolCallId !== "string" ||
+				typeof record.turnId !== "string"
+			) {
+				return state;
+			}
+			const existing = state.tools.find(
+				(tool) => tool.id === record.toolCallId,
+			);
+			const updated: ToolActivity = {
+				id: record.toolCallId,
+				turnId: record.turnId,
+				name:
+					typeof record.toolName === "string"
+						? record.toolName
+						: (existing?.name ?? "tool"),
+				args: record.args ?? existing?.args,
+				partialResult:
+					record.type === "agent.tool.updated"
+						? record.partialResult
+						: existing?.partialResult,
+				result:
+					record.type === "agent.tool.ended" ? record.result : existing?.result,
+				isError:
+					record.type === "agent.tool.ended"
+						? record.isError === true
+						: (existing?.isError ?? false),
+				status: record.type === "agent.tool.ended" ? "complete" : "running",
+			};
 			return {
 				...state,
-				tools: state.tools.map((tool) =>
-					tool.id === record.toolCallId
-						? {
-								...tool,
-								result:
-									record.type === "agent.tool.ended"
-										? record.result
-										: record.partialResult,
-								isError: record.isError === true,
-								status:
-									record.type === "agent.tool.ended" ? "complete" : "running",
-							}
-						: tool,
-				),
+				tools: existing
+					? state.tools.map((tool) =>
+							tool.id === record.toolCallId ? updated : tool,
+						)
+					: [...state.tools, updated],
 			};
 		}
 		case "agent.retry.started": {
@@ -355,7 +407,7 @@ function applyEvent(
 		case "agent.retry.completed":
 			return { ...state, pendingStatus: "Working…" };
 		case "agent.retry.failed":
-			return { ...state, pendingStatus: null };
+			return { ...state, activeTurnId: null, pendingStatus: null };
 		case "chat.message-queue.changed":
 			return { ...state, queuedMessageCount: queuedCount(record) };
 		case "ui_snapshot": {
@@ -440,6 +492,7 @@ function applyEvent(
 		case "error":
 			return {
 				...state,
+				activeTurnId: null,
 				pendingStatus: null,
 				lastError:
 					typeof record.error === "string"
@@ -480,6 +533,12 @@ export function reduceClientRecord(
 				finalMessage.role === "assistant"
 					? messages.length - 1
 					: null;
+			const activeTurnId =
+				serverState.isStreaming === true &&
+				isRecord(finalMessage) &&
+				typeof finalMessage.turnId === "string"
+					? finalMessage.turnId
+					: null;
 			return {
 				...state,
 				phase: "synchronizing",
@@ -500,6 +559,7 @@ export function reduceClientRecord(
 						? record.totalMessageCount
 						: messages.length,
 				activeMessageIndex,
+				activeTurnId,
 				pendingActiveMessageDeltas: [],
 				tools: [],
 				pendingStatus: serverState.isStreaming === true ? "Working…" : null,

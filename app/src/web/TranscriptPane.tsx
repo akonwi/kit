@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+
 import {
 	createEffect,
 	createMemo,
@@ -9,8 +10,9 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import { ActivitySection } from "./ActivitySection";
-import { MessageArticle } from "./MessageArticle";
+import { type DisplayItem, displayItemKey } from "../shell/transcript/turns";
+import { TurnEntry } from "./TurnEntry";
+import { protocolMessagesToDisplayItems } from "./transcript-model";
 import { useWebClient } from "./WebClientContext";
 
 type ScrollAnchor = {
@@ -26,17 +28,22 @@ export function TranscriptPane(): JSX.Element {
 	let scrollFrame: number | null = null;
 	const protocol = createMemo(() => snapshot().protocol);
 	const messages = createMemo(() => protocol().messages);
-	const messageKeys = createMemo(() => protocol().messageKeys);
 	const messageOffset = createMemo(() => protocol().messageOffset);
 	const lastMessage = createMemo(() => messages().at(-1));
 	const lastTool = createMemo(() => protocol().tools.at(-1));
-	const messagesByKey = createMemo(() => {
-		const byKey = new Map<string, unknown>();
-		for (const [index, key] of messageKeys().entries()) {
-			byKey.set(key, messages()[index]);
-		}
-		return byKey;
-	});
+	const displayItems = createMemo<DisplayItem[]>((previous) =>
+		protocolMessagesToDisplayItems(
+			messages(),
+			protocol().activeTurnId,
+			previous,
+		),
+	);
+	const displayItemKeys = createMemo(() => displayItems().map(displayItemKey));
+	const displayItemsByKey = createMemo(
+		() => new Map(displayItems().map((item) => [displayItemKey(item), item])),
+	);
+	const liveToolsForTurn = (turnId: string) =>
+		protocol().tools.filter((tool) => tool.turnId === turnId);
 
 	const scheduleScroll = () => {
 		if (!transcript || scrollFrame !== null) return;
@@ -107,21 +114,34 @@ export function TranscriptPane(): JSX.Element {
 					{snapshot().loadingEarlier ? "Loading…" : "Load earlier messages"}
 				</button>
 			</Show>
-			<Show when={messageKeys().length === 0}>
+			<Show when={protocol().messageKeys.length === 0}>
 				<div class="empty-state">
 					<strong>k&nbsp;&nbsp;&nbsp;&nbsp;i&nbsp;&nbsp;&nbsp;&nbsp;t</strong>
 					<span>Ask a question or give a task.</span>
 				</div>
 			</Show>
-			<div class="message-list">
-				<For each={messageKeys()}>
+			<div class="transcript-list">
+				<For each={displayItemKeys()}>
 					{(key) => {
-						const message = createMemo(() => messagesByKey().get(key));
-						return <MessageArticle message={message} />;
+						const displayItem = createMemo(() => displayItemsByKey().get(key));
+						const turnId = createMemo(() => {
+							const current = displayItem();
+							if (!current) return "";
+							return current.kind === "turn-work"
+								? current.turnId
+								: current.item.turnId;
+						});
+						return (
+							<Show when={displayItem()}>
+								<TurnEntry
+									displayItem={displayItem}
+									liveTools={liveToolsForTurn(turnId())}
+								/>
+							</Show>
+						);
 					}}
 				</For>
 			</div>
-			<ActivitySection />
 		</main>
 	);
 }
