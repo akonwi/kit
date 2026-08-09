@@ -1,5 +1,9 @@
 export { type CommandRegistry, createCommandRegistry } from "./registry";
-export type { Command, CommandContext } from "./types";
+export type {
+	Command,
+	CommandContext,
+	TransportNeutralCommandContext,
+} from "./types";
 
 import { compactCommand } from "./compact";
 import { handoffCommand } from "./handoff";

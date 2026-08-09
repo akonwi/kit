@@ -21,6 +21,14 @@ export type CommandContext = {
 	) => Promise<T>;
 };
 
+export type TransportNeutralCommandContext = {
+	runtime: AgentRuntime;
+	args: string;
+	persistSessions: boolean;
+	schedulePrompt(message: string): void;
+	signal?: AbortSignal;
+};
+
 export type Command = {
 	/** Stable canonical id used for ownership, keybindings, and execution. */
 	name: string;
@@ -29,10 +37,10 @@ export type Command = {
 	description: string;
 	argName?: string;
 	category?: string;
+	/** Execute with renderer-owned context and presentation semantics. */
 	execute: (ctx: CommandContext) => void | Promise<void>;
 	/** Execute without renderer-owned context when exposed through a remote host. */
 	executeTransportNeutral?: (
-		args: string,
-		signal?: AbortSignal,
+		ctx: TransportNeutralCommandContext,
 	) => void | Promise<void>;
 };

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createCommandRegistry } from "../features/commands";
+import { BUILT_IN_COMMANDS, createCommandRegistry } from "../features/commands";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Turn } from "../session/types";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
@@ -590,6 +590,286 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("exposes and executes the transport-neutral built-in command batch", async () => {
+		const calls: Array<[string, string?]> = [];
+		const persistencePolicies: boolean[] = [];
+		const runtime = createRuntime({
+			compactOrThrow: async () => calls.push(["compact"]),
+			handoffSession: async (
+				message: string,
+				options: { persist?: boolean },
+			) => {
+				calls.push(["handoff", message]);
+				persistencePolicies.push(options.persist === true);
+			},
+			setSessionName: async (name: string) => calls.push(["name", name]),
+			newSession: async (
+				_cwd: string | undefined,
+				options: { persist?: boolean },
+			) => {
+				calls.push(["new"]);
+				persistencePolicies.push(options.persist === true);
+			},
+		});
+		const host = new RpcSessionHost(runtime, {
+			commands: createCommandRegistry(BUILT_IN_COMMANDS),
+		});
+		const responses: Array<Record<string, unknown>> = [];
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand({ id: "list", type: "list_commands" }, respond);
+		await host.handleCommand(
+			{
+				id: "compact",
+				type: "execute_command",
+				commandId: "compact",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "handoff",
+				type: "execute_command",
+				commandId: "handoff",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "name",
+				type: "execute_command",
+				commandId: "name",
+				args: "Renamed session",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "new",
+				type: "execute_command",
+				commandId: "new",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "empty-name",
+				type: "execute_command",
+				commandId: "name",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+
+		expect(responses[0]).toEqual(
+			expect.objectContaining({
+				id: "list",
+				data: expect.objectContaining({
+					registryGeneration: 0,
+					commands: [
+						expect.objectContaining({ id: "compact" }),
+						expect.objectContaining({ id: "handoff" }),
+						expect.objectContaining({ id: "name" }),
+						expect.objectContaining({ id: "new" }),
+					],
+				}),
+			}),
+		);
+		expect(calls).toEqual([
+			["compact"],
+			["handoff", undefined],
+			["name", "Renamed session"],
+			["new"],
+		]);
+		expect(persistencePolicies).toEqual([false, false]);
+		expect(responses.at(-1)).toEqual(
+			expect.objectContaining({
+				id: "empty-name",
+				success: false,
+				error: "Session name is required",
+			}),
+		);
+		host.dispose();
+	});
+
+	test("passes persistent-session policy to session-creating commands", async () => {
+		const persistencePolicies: boolean[] = [];
+		const runtime = createRuntime({
+			handoffSession: async (
+				_message: string,
+				options: { persist?: boolean },
+			) => {
+				persistencePolicies.push(options.persist === true);
+			},
+			newSession: async (
+				_cwd: string | undefined,
+				options: { persist?: boolean },
+			) => {
+				persistencePolicies.push(options.persist === true);
+			},
+		});
+		const host = new RpcSessionHost(runtime, {
+			commands: createCommandRegistry(BUILT_IN_COMMANDS),
+			persistSessions: true,
+		});
+		const respond = async () => {};
+
+		await host.handleCommand(
+			{
+				id: "handoff",
+				type: "execute_command",
+				commandId: "handoff",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "new",
+				type: "execute_command",
+				commandId: "new",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+
+		expect(persistencePolicies).toEqual([true, true]);
+		host.dispose();
+	});
+
+	test("acknowledges a handoff before its scheduled prompt settles", async () => {
+		let finishPrompt: (() => void) | undefined;
+		let prompted = "";
+		let promptSettled = false;
+		const runtime = createRuntime({
+			handoffSession: async () => {},
+			submitUserMessage: async (message: string) => {
+				prompted = message;
+				await new Promise<void>((resolve) => {
+					finishPrompt = resolve;
+				});
+				promptSettled = true;
+			},
+			abort: () => finishPrompt?.(),
+		});
+		const host = new RpcSessionHost(runtime, {
+			commands: createCommandRegistry(BUILT_IN_COMMANDS),
+		});
+		const responses: Array<Record<string, unknown>> = [];
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand(
+			{
+				id: "handoff",
+				type: "execute_command",
+				commandId: "handoff",
+				args: "continue elsewhere",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await Bun.sleep(0);
+
+		expect(responses).toEqual([
+			expect.objectContaining({ id: "handoff", success: true }),
+		]);
+		expect(prompted).toBe("continue elsewhere");
+		expect(promptSettled).toBe(false);
+
+		await host.handleCommand({ id: "abort", type: "abort" }, respond);
+		expect(promptSettled).toBe(true);
+		host.dispose();
+	});
+
+	test("cancels a transport-neutral handoff without compromising the host", async () => {
+		let handoffAborted = false;
+		const runtime = createRuntime({
+			handoffSession: (_message: string, options: { signal?: AbortSignal }) =>
+				new Promise<void>((_resolve, reject) => {
+					options.signal?.addEventListener(
+						"abort",
+						() => {
+							handoffAborted = true;
+							reject(options.signal?.reason);
+						},
+						{ once: true },
+					);
+				}),
+		});
+		const host = new RpcSessionHost(runtime, {
+			commands: createCommandRegistry(BUILT_IN_COMMANDS),
+			commandTimeoutMs: 1,
+			commandCancellationGraceMs: 20,
+		});
+		const responses: Array<Record<string, unknown>> = [];
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand(
+			{
+				id: "handoff",
+				type: "execute_command",
+				commandId: "handoff",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand({ id: "state", type: "get_state" }, respond);
+
+		expect(handoffAborted).toBe(true);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "handoff",
+				success: false,
+				error: "Command execution timed out",
+			}),
+			expect.objectContaining({ id: "state", success: true }),
+		]);
+		host.dispose();
+	});
+
+	test("returns strict built-in failures through RPC", async () => {
+		const runtime = createRuntime({
+			compactOrThrow: async () => {
+				throw new Error("No model selected.");
+			},
+		});
+		const host = new RpcSessionHost(runtime, {
+			commands: createCommandRegistry(BUILT_IN_COMMANDS),
+		});
+		const responses: Array<Record<string, unknown>> = [];
+
+		await host.handleCommand(
+			{
+				id: "compact",
+				type: "execute_command",
+				commandId: "compact",
+				registryGeneration: 0,
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "compact",
+				success: false,
+				error: "No model selected.",
+			}),
+		]);
+		host.dispose();
+	});
+
 	test("executes transport-neutral commands without blocking UI responses", async () => {
 		const interactions = new RemoteInteractionBroker();
 		let receivedArgs = "";
@@ -604,7 +884,7 @@ describe("RpcSessionHost", () => {
 				displayName: "toggle",
 				description: "Toggle the plugin",
 				execute: () => {},
-				executeTransportNeutral: async (args) => {
+				executeTransportNeutral: async ({ args }) => {
 					receivedArgs = args;
 					await interactions.confirm({ title: "Enable?" });
 				},
@@ -951,6 +1231,98 @@ describe("RpcSessionHost", () => {
 		finishAdaptation?.();
 		await Promise.all([first, second]);
 		expect(responses).toEqual(["model", "state"]);
+		host.dispose();
+	});
+
+	test("does not launch a scheduled prompt when aborted during workspace readiness", async () => {
+		let finishWorkspace: (() => void) | undefined;
+		let submitted = false;
+		const responses: Array<Record<string, unknown>> = [];
+		const host = new RpcSessionHost(
+			createRuntime({
+				handoffSession: async () => {},
+				submitUserMessage: async () => {
+					submitted = true;
+				},
+			}),
+			{
+				commands: createCommandRegistry(BUILT_IN_COMMANDS),
+				waitForWorkspaceReady: () =>
+					new Promise<void>((resolve) => {
+						finishWorkspace = resolve;
+					}),
+			},
+		);
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		const handoff = host.handleCommand(
+			{
+				id: "handoff",
+				type: "execute_command",
+				commandId: "handoff",
+				args: "continue elsewhere",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await Bun.sleep(0);
+		const abort = host.handleCommand({ id: "abort", type: "abort" }, respond);
+		finishWorkspace?.();
+		await Promise.all([handoff, abort]);
+
+		expect(submitted).toBe(false);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "handoff",
+				success: false,
+				error: "Command cancelled by abort",
+			}),
+			expect.objectContaining({ id: "abort", success: true }),
+		]);
+		host.dispose();
+	});
+
+	test("does not launch a scheduled prompt when abort wins the response race", async () => {
+		let submitted = false;
+		let abort: Promise<void> | undefined;
+		const responses: Array<Record<string, unknown>> = [];
+		const host = new RpcSessionHost(
+			createRuntime({
+				handoffSession: async () => {},
+				submitUserMessage: async () => {
+					submitted = true;
+				},
+			}),
+			{ commands: createCommandRegistry(BUILT_IN_COMMANDS) },
+		);
+
+		await host.handleCommand(
+			{
+				id: "handoff",
+				type: "execute_command",
+				commandId: "handoff",
+				args: "continue elsewhere",
+				registryGeneration: 0,
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+				abort = host.handleCommand(
+					{ id: "abort", type: "abort" },
+					async (abortRecord) => {
+						responses.push(abortRecord as Record<string, unknown>);
+					},
+				);
+			},
+		);
+		await abort;
+
+		expect(submitted).toBe(false);
+		expect(responses).toEqual([
+			expect.objectContaining({ id: "handoff", success: true }),
+			expect.objectContaining({ id: "abort", success: true }),
+		]);
 		host.dispose();
 	});
 

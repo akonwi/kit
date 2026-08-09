@@ -104,6 +104,31 @@ RPC host incarnation, so clients must discard them after reconnecting to a new
 event stream. The generation remains optional for compatibility with
 controllers that execute a known command ID directly.
 
+### Remote command exposure
+
+Remote command execution is explicit rather than inferred from ordinary command
+registration. A transport-neutral handler must not depend on renderer-owned
+pickers, workspaces, or local process controls, and must propagate failures
+through RPC instead of converting them only into TUI toasts.
+
+The exposed built-in transport-neutral batch is `/compact`, `/handoff`, `/name`
+(with an explicit name), `/new`, and `/cd` (with an explicit path). Transport
+handlers receive host-provided runtime, persistence, cancellation, and prompt
+scheduling context rather than capturing one session inside the static built-in
+command definitions. Internal plugin commands must also opt in individually;
+they are not remotely executable by default.
+
+`/new` and `/handoff` follow the host's persistent or ephemeral session policy.
+When `/handoff` includes a message, command success acknowledges the completed
+fork and accepts the message as an asynchronous prompt; normal agent lifecycle
+events report its progress and settlement.
+
+Model and thinking selection should use their existing discovery and mutation
+RPC commands through browser-native pickers. Sessions, authentication, review,
+diagnostics, sub-agents, MCP status, settings, and release notes require
+purpose-built remote surfaces. `/quit`, `/reload`, `/theme`, and `/pager` remain
+host- or renderer-local.
+
 A normal `prompt` is rejected while the agent is streaming unless
 `streamingBehavior` says where to queue it. The dedicated `steer` and
 `follow_up` commands provide the same queue controls directly. `set_model`,

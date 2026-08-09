@@ -12,10 +12,12 @@ import { openExternal } from "../shell/open-external";
 import { resolveAndApplyTheme } from "../shell/theme";
 import type {
 	CommandContext,
+	CommandOptions,
 	Disposer,
 	EventContext,
 	InternalPluginAPI,
 	InternalPluginCommandContext,
+	InternalPluginCommandOptions,
 	InternalPluginEventContext,
 	PluginAPI,
 	PluginContext,
@@ -341,7 +343,7 @@ export function createPluginAPI(
 
 	const registerCommand = ((
 		id: string,
-		commandOptions: Parameters<PluginAPI["registerCommand"]>[1],
+		commandOptions: CommandOptions | InternalPluginCommandOptions,
 		handler: AnyCommandHandler,
 	) => {
 		if (
@@ -350,11 +352,21 @@ export function createPluginAPI(
 		) {
 			throw new Error(`Command /${id} is already registered.`);
 		}
+		const transportHandler =
+			options.exposeInternalUi && "executeTransportNeutral" in commandOptions
+				? commandOptions.executeTransportNeutral
+				: undefined;
 		const command: Command = {
 			name: id,
 			description: commandOptions.description ?? commandOptions.title ?? "",
 			argName: commandOptions.argName,
 			category: commandOptions.category,
+			...(transportHandler
+				? {
+						executeTransportNeutral: ({ args, signal }) =>
+							transportHandler({ args, signal }),
+					}
+				: {}),
 			execute: async (commandCtx) => {
 				await handler(createCommandContext(commandCtx.args));
 			},

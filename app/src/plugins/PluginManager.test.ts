@@ -247,6 +247,62 @@ describe("PluginManager", () => {
 		]);
 	});
 
+	test("exposes only explicitly transport-neutral internal commands remotely", async () => {
+		const commands: Command[] = [];
+		let receivedArgs = "";
+		let receivedSignal: AbortSignal | undefined;
+		const plugin: PluginRegistration = {
+			name: "internal:commands",
+			internalUi: true,
+			initialize: (kit) => {
+				kit.registerCommand("local", { description: "Local" }, () => {});
+				kit.registerCommand(
+					"remote",
+					{
+						description: "Remote",
+						executeTransportNeutral: ({ args, signal }) => {
+							receivedArgs = args;
+							receivedSignal = signal;
+						},
+					},
+					() => {},
+				);
+			},
+		};
+		const publicPlugin: PluginRegistration = {
+			name: "public:commands",
+			initialize: (kit) => {
+				const hiddenTransportOption = {
+					description: "Public",
+					executeTransportNeutral: () => {},
+				};
+				kit.registerCommand("public-hidden", hiddenTransportOption, () => {});
+			},
+		};
+		const context = createPluginContext(commands);
+		const manager = new PluginManager([plugin, publicPlugin], context);
+		manager.initialize();
+		const local = commands.find((command) => command.name === "local");
+		const remote = commands.find((command) => command.name === "remote");
+		const publicHidden = commands.find(
+			(command) => command.name === "public-hidden",
+		);
+		const abortController = new AbortController();
+
+		expect(local?.executeTransportNeutral).toBeUndefined();
+		expect(publicHidden?.executeTransportNeutral).toBeUndefined();
+		await remote?.executeTransportNeutral?.({
+			runtime: context.runtime,
+			args: "value",
+			persistSessions: false,
+			schedulePrompt: () => {},
+			signal: abortController.signal,
+		});
+		expect(receivedArgs).toBe("value");
+		expect(receivedSignal).toBe(abortController.signal);
+		manager.dispose();
+	});
+
 	test("exposes theme config through public ui", () => {
 		const expectedTheme = createThemeConfig("plugin-test");
 		let receivedTheme: ThemeConfig | undefined;

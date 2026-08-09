@@ -135,6 +135,17 @@ export type InternalPluginCommandContext = InternalPluginEventContext & {
 	args: string;
 };
 
+export type InternalTransportNeutralCommandContext = {
+	args: string;
+	signal?: AbortSignal;
+};
+
+export type InternalPluginCommandOptions = CommandOptions & {
+	executeTransportNeutral?: (
+		ctx: InternalTransportNeutralCommandContext,
+	) => void | Promise<void>;
+};
+
 export type InternalPluginEventHandler<
 	K extends RuntimeEventName = RuntimeEventName,
 > = (
@@ -170,7 +181,7 @@ export interface InternalPluginAPI {
 	): Disposer;
 	registerCommand: (
 		id: string,
-		options: CommandOptions,
+		options: InternalPluginCommandOptions,
 		handler: (ctx: InternalPluginCommandContext) => void | Promise<void>,
 	) => Disposer;
 	registerTool: <TParameters extends TSchema, TDetails>(

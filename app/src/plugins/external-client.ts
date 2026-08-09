@@ -491,7 +491,7 @@ export class ExternalPluginClient {
 		) {
 			throw this.conflict("command", canonicalId);
 		}
-		const executeTransportNeutral = async (
+		const executeExternalCommand = async (
 			args: string,
 			signal?: AbortSignal,
 		) => {
@@ -513,10 +513,11 @@ export class ExternalPluginClient {
 			description: params.description,
 			argName: params.argName ?? undefined,
 			category: params.category ?? undefined,
-			executeTransportNeutral,
+			executeTransportNeutral: ({ args, signal }) =>
+				executeExternalCommand(args, signal),
 			execute: async (commandContext) => {
 				try {
-					await executeTransportNeutral(commandContext.args);
+					await executeExternalCommand(commandContext.args);
 				} catch (error) {
 					this.context.ui.toast({
 						title: `/${params.id} failed`,

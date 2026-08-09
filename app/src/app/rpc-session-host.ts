@@ -1,9 +1,11 @@
-import type { CommandRegistry } from "../features/commands";
+import type {
+	CommandRegistry,
+	TransportNeutralCommandContext,
+} from "../features/commands";
 import type { MessagePart } from "../messages/parts";
 import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
-import { writeSession } from "../session";
 import {
 	MAX_REMOTE_ATTACHMENT_BYTES,
 	MAX_REMOTE_ATTACHMENT_TOTAL_BYTES,
@@ -536,15 +538,29 @@ export class RpcSessionHost {
 	}
 
 	private async executeTransportNeutralCommand(
-		handler: (args: string, signal?: AbortSignal) => void | Promise<void>,
+		handler: (ctx: TransportNeutralCommandContext) => void | Promise<void>,
 		args: string,
-	): Promise<void> {
+	): Promise<string | null> {
 		const abortController = new AbortController();
+		let scheduledPrompt: string | null = null;
 		const timeout = setTimeout(() => {
 			abortController.abort(new Error("Command execution timed out"));
 		}, this.commandTimeoutMs);
 		const handlerExecution = Promise.resolve().then(() =>
-			handler(args, abortController.signal),
+			handler({
+				runtime: this.runtime,
+				args,
+				persistSessions: this.persistSessions,
+				schedulePrompt: (message) => {
+					const prompt = message.trim();
+					if (!prompt) throw new Error("Scheduled prompt must not be empty");
+					if (scheduledPrompt !== null) {
+						throw new Error("Command scheduled more than one prompt");
+					}
+					scheduledPrompt = prompt;
+				},
+				signal: abortController.signal,
+			}),
 		);
 		const execution = new Promise<void>((resolve, reject) => {
 			const handleAbort = () => {
@@ -565,6 +581,7 @@ export class RpcSessionHost {
 		this.activeCommandExecution = execution;
 		try {
 			await execution;
+			return scheduledPrompt;
 		} catch (error) {
 			if (
 				abortController.signal.aborted &&
@@ -644,6 +661,7 @@ export class RpcSessionHost {
 				];
 				const input = ids.length > 0 ? parts : message;
 				this.promptReserved = true;
+				const acceptanceGeneration = this.commandGeneration;
 				try {
 					await respond(this.response(command, true));
 				} catch (error) {
@@ -651,7 +669,10 @@ export class RpcSessionHost {
 					claim?.release();
 					throw error;
 				}
-				if (!this.acceptingCommands) {
+				if (
+					!this.acceptingCommands ||
+					acceptanceGeneration !== this.commandGeneration
+				) {
 					this.promptReserved = false;
 					claim?.release();
 					return;
@@ -689,10 +710,11 @@ export class RpcSessionHost {
 						"Cannot create a session while the agent is streaming",
 					);
 				}
-				await this.runtime.newSession();
+				await this.runtime.newSession(undefined, {
+					persist: this.persistSessions,
+				});
 				await this.runtime.waitForModelAdaptation();
 				await this.waitForWorkspaceReady();
-				if (this.persistSessions) await writeSession(this.runtime.getSession());
 				await respond(
 					this.response(command, true, {
 						cancelled: false,
@@ -785,12 +807,52 @@ export class RpcSessionHost {
 				if (!registered.executeTransportNeutral) {
 					throw new Error(`Command is not available remotely: ${commandId}`);
 				}
-				await this.executeTransportNeutralCommand(
+				const executionGeneration = this.commandGeneration;
+				const scheduledPrompt = await this.executeTransportNeutralCommand(
 					registered.executeTransportNeutral,
 					args ?? "",
 				);
 				await this.waitForWorkspaceReady();
-				await respond(this.response(command, true));
+				if (executionGeneration !== this.commandGeneration) {
+					throw new Error("Command cancelled by abort");
+				}
+				if (!scheduledPrompt) {
+					await respond(this.response(command, true));
+					return;
+				}
+				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
+					throw new Error(
+						"Command cannot schedule a prompt while the agent is running",
+					);
+				}
+				this.promptReserved = true;
+				try {
+					await respond(this.response(command, true));
+				} catch (error) {
+					this.promptReserved = false;
+					throw error;
+				}
+				if (
+					!this.acceptingCommands ||
+					executionGeneration !== this.commandGeneration
+				) {
+					this.promptReserved = false;
+					return;
+				}
+				let run: Promise<void>;
+				run = Promise.resolve()
+					.then(() => this.runtime.submitUserMessage(scheduledPrompt))
+					.catch((error) => {
+						this.publish({
+							type: "error",
+							error: error instanceof Error ? error.message : String(error),
+						});
+					})
+					.finally(() => {
+						this.promptReserved = false;
+						this.acceptedRuns.delete(run);
+					});
+				this.acceptedRuns.add(run);
 				return;
 			}
 			case "get_capabilities":

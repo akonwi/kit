@@ -5,6 +5,7 @@ import path from "node:path";
 import {
 	createSession,
 	deleteSession,
+	listAllSessions,
 	SESSION_VERSION,
 	type Session,
 	writeSession,
@@ -55,6 +56,79 @@ describe("AgentRuntime tool exclusions", () => {
 			);
 		} finally {
 			runtime.dispose();
+		}
+	});
+});
+
+describe("AgentRuntime manual compaction", () => {
+	test("keeps TUI compaction non-throwing and exposes strict RPC failures", async () => {
+		const runtime = new AgentRuntime(runtimeSession("strict-compaction-test"), {
+			disableGitWatcher: true,
+		});
+		const failures: string[] = [];
+		const unsubscribe = runtime.subscribe(
+			"session.compaction.failed.manual",
+			(event) => failures.push(event.error),
+		);
+		try {
+			let strictFailure = "";
+			try {
+				await runtime.compactOrThrow();
+			} catch (error) {
+				strictFailure = error instanceof Error ? error.message : String(error);
+			}
+			expect(strictFailure.length).toBeGreaterThan(0);
+			await expect(runtime.compact()).resolves.toBeUndefined();
+			expect(failures).toEqual([strictFailure, strictFailure]);
+		} finally {
+			unsubscribe();
+			runtime.dispose();
+		}
+	});
+});
+
+describe("AgentRuntime session creation persistence", () => {
+	test("persists new sessions only when requested", async () => {
+		const runtime = new AgentRuntime(
+			runtimeSession("new-session-policy-test"),
+			{
+				disableGitWatcher: true,
+			},
+		);
+		let ephemeralId = "";
+		let persistentId = "";
+		try {
+			await runtime.newSession(undefined, { persist: false });
+			ephemeralId = runtime.getSession().id;
+			await runtime.newSession(undefined, { persist: true });
+			persistentId = runtime.getSession().id;
+			const listedIds = new Set(
+				(await listAllSessions()).map((session) => session.id),
+			);
+			expect(listedIds.has(ephemeralId)).toBe(false);
+			expect(listedIds.has(persistentId)).toBe(true);
+		} finally {
+			runtime.dispose();
+			if (ephemeralId) await deleteSession(ephemeralId);
+			if (persistentId) await deleteSession(persistentId);
+		}
+	});
+
+	test("does not persist ephemeral handoff sessions", async () => {
+		const session = runtimeSession("handoff-session-policy-test");
+		session.turns = [{ id: "turn-1", messages: [] }];
+		const runtime = new AgentRuntime(session, { disableGitWatcher: true });
+		let childId = "";
+		try {
+			const child = await runtime.handoffSession(undefined, { persist: false });
+			childId = child.id;
+			const listedIds = new Set(
+				(await listAllSessions()).map((entry) => entry.id),
+			);
+			expect(listedIds.has(child.id)).toBe(false);
+		} finally {
+			runtime.dispose();
+			if (childId) await deleteSession(childId);
 		}
 	});
 });

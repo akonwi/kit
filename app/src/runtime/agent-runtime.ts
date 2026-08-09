@@ -710,16 +710,27 @@ export class AgentRuntime {
 	}
 
 	async compact(): Promise<void> {
+		await this.runManualCompaction(undefined, false);
+	}
+
+	async compactOrThrow(signal?: AbortSignal): Promise<void> {
+		await this.runManualCompaction(signal, true);
+	}
+
+	private async runManualCompaction(
+		signal: AbortSignal | undefined,
+		propagateFailure: boolean,
+	): Promise<void> {
+		const failBeforeStart = (message: string) => {
+			this.bus.publish("session.compaction.failed.manual", { error: message });
+			if (propagateFailure) throw new Error(message);
+		};
 		if (this.isCompacting) {
-			this.bus.publish("session.compaction.failed.manual", {
-				error: "Compaction already in progress.",
-			});
+			failBeforeStart("Compaction already in progress.");
 			return;
 		}
 		if (this.agent.state.isStreaming || this.overflowRecoveryInFlight) {
-			this.bus.publish("session.compaction.failed.manual", {
-				error: "Cannot compact while the agent is running.",
-			});
+			failBeforeStart("Cannot compact while the agent is running.");
 			return;
 		}
 
@@ -727,31 +738,20 @@ export class AgentRuntime {
 		this.bus.publish("session.compaction.started.manual", {});
 
 		try {
+			signal?.throwIfAborted();
 			const model = this.agent.state.model;
-			if (!model) {
-				this.bus.publish("session.compaction.failed.manual", {
-					error: "No model selected.",
-				});
-				return;
-			}
+			if (!model) throw new Error("No model selected.");
 			const hasAuth = await hasModelAuth(model);
 			if (!hasAuth) {
-				this.bus.publish("session.compaction.failed.manual", {
-					error: `No credentials available for ${model.provider}.`,
-				});
-				return;
+				throw new Error(`No credentials available for ${model.provider}.`);
 			}
 
 			const result = await compactSessionTurns({
 				session: this.session,
 				model,
+				signal,
 			});
-			if (!result) {
-				this.bus.publish("session.compaction.failed.manual", {
-					error: "Not enough turns to compact.",
-				});
-				return;
-			}
+			if (!result) throw new Error("Not enough turns to compact.");
 
 			this.agent.replaceFromTurns(result.turns);
 			this.touchSession({
@@ -772,9 +772,11 @@ export class AgentRuntime {
 				>,
 			});
 		} catch (error) {
+			const failure = error instanceof Error ? error : new Error(String(error));
 			this.bus.publish("session.compaction.failed.manual", {
-				error: error instanceof Error ? error.message : String(error),
+				error: failure.message,
 			});
+			if (propagateFailure) throw failure;
 		} finally {
 			this.isCompacting = false;
 		}
@@ -1575,7 +1577,10 @@ export class AgentRuntime {
 		return [...this.agent.turns];
 	}
 
-	async newSession(cwd?: string): Promise<void> {
+	async newSession(
+		cwd?: string,
+		options: { persist?: boolean } = {},
+	): Promise<void> {
 		const previousCwd = this.session.cwd;
 		const targetCwd = cwd
 			? resolveCwdTarget(this.session.cwd, cwd)
@@ -1586,6 +1591,7 @@ export class AgentRuntime {
 			this.agent.state.model?.id,
 			this.agent.state.thinkingLevel,
 		);
+		if (options.persist) await writeSession(nextSession);
 		chdirIfNeeded(targetCwd);
 		this.agent.clearAllQueues();
 		this.session = nextSession;
@@ -1609,7 +1615,11 @@ export class AgentRuntime {
 		this.handleSessionChanged();
 	}
 
-	async handoffSession(firstMessage?: string): Promise<Session> {
+	async handoffSession(
+		firstMessage?: string,
+		options: { persist?: boolean; signal?: AbortSignal } = {},
+	): Promise<Session> {
+		options.signal?.throwIfAborted();
 		if (this.session.turns.length === 0) {
 			throw new Error("Nothing to hand off yet.");
 		}
@@ -1633,6 +1643,9 @@ export class AgentRuntime {
 			turns: structuredClone(this.session.turns),
 		};
 
+		if (options.persist !== false) await writeSession(child);
+		options.signal?.throwIfAborted();
+
 		this.agent.clearAllQueues();
 		this.session = child;
 		this.agent.replaceFromTurns(child.turns);
@@ -1641,10 +1654,6 @@ export class AgentRuntime {
 		);
 		this.agent.setThinkingLevel(restoredThinkingLevel);
 		this.session = { ...this.session, thinkingLevel: restoredThinkingLevel };
-		// Handoff creates a new child session pre-seeded with copied history.
-		// Persist it immediately so the child exists on disk even before the
-		// next appended turn or metadata event.
-		await writeSession(this.session);
 		this.applySessionContext(child);
 		this.syncPendingState();
 		this.handleSessionChanged();
@@ -1652,7 +1661,15 @@ export class AgentRuntime {
 
 		const prompt = firstMessage?.trim();
 		if (prompt) {
-			await this.submitUserMessage(prompt);
+			const handleAbort = () => this.abort();
+			options.signal?.addEventListener("abort", handleAbort, { once: true });
+			try {
+				options.signal?.throwIfAborted();
+				await this.submitUserMessage(prompt);
+				options.signal?.throwIfAborted();
+			} finally {
+				options.signal?.removeEventListener("abort", handleAbort);
+			}
 		}
 
 		return child;
