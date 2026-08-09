@@ -784,17 +784,13 @@ details[open] > summary > .disclosure-marker {
 	gap: var(--space-2xs);
 }
 
-.composer-actions button {
+.composer-actions button[data-variant="ghost"] {
 	color: var(--kit-text-muted);
 }
 
-.composer-actions button:hover:not(:disabled),
-.composer-actions button:focus-visible {
+.composer-actions button[data-variant="ghost"]:hover:not(:disabled),
+.composer-actions button[data-variant="ghost"]:focus-visible {
 	color: var(--kit-text-primary);
-}
-
-.abort-action:not(.is-visible) {
-	visibility: hidden;
 }
 
 .bottom-status-bar {

@@ -13,9 +13,6 @@ export function ComposerDock(): JSX.Element {
 	const streaming = createMemo(
 		() => protocol().serverState.isStreaming === true,
 	);
-	const canSubmit = createMemo(
-		() => enabled() && !(streaming() && snapshot().attachments.length > 0),
-	);
 
 	const submit = async (event: SubmitEvent) => {
 		event.preventDefault();
@@ -106,30 +103,21 @@ export function ComposerDock(): JSX.Element {
 						}}
 					/>
 					<button
-						class="abort-action"
-						classList={{ "is-visible": streaming() }}
-						type="button"
-						data-variant="ghost"
+						type={streaming() ? "button" : "submit"}
+						data-variant={streaming() ? "danger" : "ghost"}
 						data-size="small"
-						disabled={!enabled() || !streaming()}
-						aria-hidden={!streaming()}
-						tabIndex={streaming() ? undefined : -1}
-						onClick={() => void controller.abort()}
+						disabled={!enabled()}
+						onClick={(event) => {
+							if (!streaming()) return;
+							event.preventDefault();
+							void controller.abort();
+						}}
 					>
-						Abort
-					</button>
-					<button
-						type="submit"
-						data-variant="ghost"
-						data-size="small"
-						disabled={!canSubmit()}
-						title={
-							streaming() && snapshot().attachments.length > 0
-								? "Remove attachments before sending a follow-up"
-								: undefined
-						}
-					>
-						{snapshot().submitting ? "Sending…" : "Send"}
+						{streaming()
+							? "Abort"
+							: snapshot().submitting
+								? "Sending…"
+								: "Send"}
 					</button>
 				</div>
 			</form>
