@@ -345,7 +345,7 @@ body {
 	min-block-size: 3rem;
 	max-block-size: 12rem;
 	margin: 0;
-	padding: var(--space-xs) 12rem var(--space-xs) var(--kit-shell-padding);
+	padding: var(--space-sm) 12rem var(--space-sm) var(--kit-shell-padding);
 	resize: none;
 	border: 0;
 	border-radius: 0;
@@ -364,7 +364,8 @@ body {
 .composer-actions {
 	position: absolute;
 	inset-inline-end: var(--space-2xs);
-	inset-block-end: var(--space-2xs);
+	inset-block-end: 0;
+	min-block-size: 3rem;
 	display: flex;
 	align-items: center;
 	gap: var(--space-2xs);
