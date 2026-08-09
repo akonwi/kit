@@ -33,6 +33,19 @@ layer. It will not use React, a virtual DOM, or a separate browser application
 server. Transport, protocol reduction, commands, and uploads remain plain
 TypeScript and do not depend on Solid.
 
+The browser client is layered behind a stable `WebClientController` facade:
+
+- `rpc-transport.ts` owns WebSocket lifecycle, reconnect cursors, ordered event
+  draining, and command correlation without importing protocol state.
+- `remote-services.ts` owns capability parsing, attachment HTTP operations,
+  pagination, and bounded reference recovery. It returns validated values and
+  never mutates client state.
+- `view-state.ts` owns local observable UI state and immutable snapshots.
+- `controller.ts` coordinates those layers, applies the pure protocol reducer,
+  and performs domain-specific stale-result checks before committing async work.
+
+Solid remains confined to the context/provider and view components.
+
 ### Asset delivery
 
 Mica will be a pinned package dependency used at build time. Kit will bundle

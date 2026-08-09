@@ -261,12 +261,8 @@ for every remote client rather than hidden in renderer-specific code:
   and events so clients reject pages invalidated by live mutations.
 - [x] Advertise attachment quotas, upload concurrency, page sizes, snapshot
   bounds, and recovery limits through capability discovery.
-- [ ] Add automated browser coverage for prompt streaming, reconnect/snapshot
-  fallback, background-tab event processing, attachment lifecycle, dialog focus,
-  and narrow layouts.
-- [ ] Split the browser controller into independently tested transport,
-  command/upload service, and local view-state modules before additional client
-  surfaces make it another monolithic application boundary.
+- [x] Split the browser controller into transport, remote-service, and local
+  view-state modules behind the existing controller facade.
 - [ ] Define explicit shared-session control UX for session/model changes made by
   another connected client; session changes currently force a fresh snapshot.
 

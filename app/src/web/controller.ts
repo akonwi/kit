@@ -8,158 +8,71 @@ import {
 	reduceClientRecord,
 	withConnectionPhase,
 } from "./client-state";
+import { WebRemoteServices } from "./remote-services";
+import { WebSocketRpcTransport } from "./rpc-transport";
+import {
+	type PendingAttachment,
+	type WebClientSnapshot,
+	WebClientViewState,
+} from "./view-state";
 
-export type PendingAttachment = {
-	file: File;
-	id?: string;
-};
-
-export type ClientStatus = {
-	message: string;
-	isError: boolean;
-};
-
-export type WebClientSnapshot = {
-	protocol: ClientState;
-	status: ClientStatus;
-	submitting: boolean;
-	loadingEarlier: boolean;
-	answeringInteractionId: string | null;
-	attachments: PendingAttachment[];
-	interactionHydrationErrors: ReadonlyMap<string, string>;
-	interactionResponseErrors: ReadonlyMap<string, string>;
-};
-
-type PendingCommand = {
-	resolve(record: Record<string, unknown>): void;
-	reject(error: Error): void;
-};
-
-type RecoveredMessage = {
-	message: unknown;
-	rebased: boolean;
-};
-
-type ClientLimits = {
-	maxAttachmentsPerPrompt: number;
-	maxAttachmentBytes: number;
-	maxTextAttachmentBytes: number;
-	maxPromptAttachmentBytes: number;
-	maxPromptTextBytes: number;
-	messagePageSize: number;
-	interactionPageSize: number;
-	messageChunkBytes: number;
-	messageRecoveryBytes: number;
-	interactionChunkBytes: number;
-	interactionRecoveryBytes: number;
-};
-
-const DEFAULT_CLIENT_LIMITS: ClientLimits = {
-	maxAttachmentsPerPrompt: 8,
-	maxAttachmentBytes: 10 * 1024 * 1024,
-	maxTextAttachmentBytes: 1024 * 1024,
-	maxPromptAttachmentBytes: 20 * 1024 * 1024,
-	maxPromptTextBytes: 1024 * 1024,
-	messagePageSize: 50,
-	interactionPageSize: 20,
-	messageChunkBytes: 32 * 1024,
-	messageRecoveryBytes: 16 * 1024 * 1024,
-	interactionChunkBytes: 48 * 1024,
-	interactionRecoveryBytes: 2 * 1024 * 1024,
-};
-
-function positiveInteger(value: unknown, fallback: number): number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value > 0
-		? value
-		: fallback;
-}
-
-function nonnegativeInteger(value: unknown, fallback: number): number {
-	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
-		? value
-		: fallback;
-}
-
-function isRemoteImage(file: File): boolean {
-	const mimeType = file.type.split(";", 1)[0]?.trim().toLowerCase();
-	if (mimeType) {
-		return ["image/gif", "image/jpeg", "image/png", "image/webp"].includes(
-			mimeType,
-		);
-	}
-	return /\.(?:gif|jpe?g|png|webp)$/i.test(file.name);
-}
+export type {
+	ClientStatus,
+	PendingAttachment,
+	WebClientSnapshot,
+} from "./view-state";
 
 export class WebClientController {
-	private state = createClientState();
-	private socket: WebSocket | null = null;
-	private reconnectTimer: number | null = null;
-	private reconnectAttempt = 0;
-	private requireSnapshot = false;
+	private state: ClientState;
+	private readonly view: WebClientViewState;
+	private readonly transport: WebSocketRpcTransport;
+	private readonly services: WebRemoteServices;
 	private activeSyncMode: string | null = null;
-	private submitting = false;
 	private loadingPendingInteractions = false;
 	private capabilitiesStreamId: string | null = null;
 	private loadingCapabilities = false;
-	private limits = DEFAULT_CLIENT_LIMITS;
-	private commandCounter = 0;
-	private pendingAttachments: PendingAttachment[] = [];
-	private loadingEarlier = false;
-	private answeringInteractionId: string | null = null;
-	private status: ClientStatus = { message: "", isError: false };
-	private readonly interactionHydrationErrors = new Map<string, string>();
-	private readonly interactionResponseErrors = new Map<string, string>();
 	private readonly hydratingMessages = new Set<string>();
 	private readonly hydratingInteractions = new Set<string>();
-	private readonly pendingCommands = new Map<string, PendingCommand>();
-	private readonly queuedRecords: unknown[] = [];
-	private protocolTimer: number | null = null;
-	private readonly listeners = new Set<(snapshot: WebClientSnapshot) => void>();
-	private started = false;
 
-	private readonly onlineListener = () => {
-		if (!this.socket && this.reconnectTimer === null) this.connect();
-	};
+	constructor() {
+		this.state = createClientState();
+		this.view = new WebClientViewState(this.state);
+		this.transport = new WebSocketRpcTransport({
+			getResumeCursor: () =>
+				this.state.streamId
+					? { streamId: this.state.streamId, sequence: this.state.sequence }
+					: null,
+			onConnecting: () => {
+				this.setState(withConnectionPhase(this.state, "connecting"));
+				this.view.notify();
+			},
+			onDisconnected: () => {
+				this.setState(withConnectionPhase(this.state, "disconnected"));
+				this.view.notify();
+			},
+			onProtocolRecords: (records) => this.reduceProtocolRecords(records),
+			onError: (error) => this.view.reportError(error),
+		});
+		this.services = new WebRemoteServices({
+			command: (command) => this.sendCommand(command),
+		});
+	}
 
 	snapshot(): WebClientSnapshot {
-		return {
-			protocol: this.state,
-			status: this.state.lastError
-				? { message: this.state.lastError, isError: true }
-				: this.status,
-			submitting: this.submitting,
-			loadingEarlier: this.loadingEarlier,
-			answeringInteractionId: this.answeringInteractionId,
-			attachments: [...this.pendingAttachments],
-			interactionHydrationErrors: new Map(this.interactionHydrationErrors),
-			interactionResponseErrors: new Map(this.interactionResponseErrors),
-		};
+		return this.view.snapshot();
 	}
 
 	subscribe(listener: (snapshot: WebClientSnapshot) => void): () => void {
-		this.listeners.add(listener);
-		listener(this.snapshot());
-		return () => this.listeners.delete(listener);
+		return this.view.subscribe(listener);
 	}
 
 	start(): void {
-		if (this.started) return;
-		this.started = true;
-		window.addEventListener("online", this.onlineListener);
-		this.connect();
+		this.transport.start();
 	}
 
 	dispose(): void {
-		this.started = false;
-		window.removeEventListener("online", this.onlineListener);
-		if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
-		if (this.protocolTimer !== null) clearTimeout(this.protocolTimer);
-		this.reconnectTimer = null;
-		this.protocolTimer = null;
-		this.socket?.close();
-		this.socket = null;
-		this.rejectPendingCommands(new Error("Web client disposed"));
-		this.listeners.clear();
+		this.transport.dispose();
+		this.view.dispose();
 	}
 
 	isStreaming(): boolean {
@@ -167,157 +80,148 @@ export class WebClientController {
 	}
 
 	addAttachments(files: File[]): void {
-		if (this.submitting || files.length === 0) return;
-		if (
-			this.pendingAttachments.length + files.length >
-			this.limits.maxAttachmentsPerPrompt
-		) {
-			this.setStatus(
-				`A prompt supports at most ${this.limits.maxAttachmentsPerPrompt} attachments`,
-				true,
-			);
-			this.notify();
+		if (this.view.submitting() || files.length === 0) return;
+		const attachments = this.view.attachments();
+		const error = this.services.validateAttachments(attachments, files);
+		if (error) {
+			this.view.setStatus(error, true);
+			this.view.notify();
 			return;
 		}
-		if (files.some((file) => file.size > this.limits.maxAttachmentBytes)) {
-			this.setStatus("An attachment exceeds the server file-size limit", true);
-			this.notify();
-			return;
-		}
-		if (
-			files.some(
-				(file) =>
-					!isRemoteImage(file) &&
-					file.size > this.limits.maxTextAttachmentBytes,
-			)
-		) {
-			this.setStatus("A text attachment exceeds the server size limit", true);
-			this.notify();
-			return;
-		}
-		const totalBytes = [
-			...this.pendingAttachments.map(({ file }) => file),
-			...files,
-		].reduce((sum, file) => sum + file.size, 0);
-		if (totalBytes > this.limits.maxPromptAttachmentBytes) {
-			this.setStatus("Attachments exceed the server prompt-size limit", true);
-			this.notify();
-			return;
-		}
-		const totalTextBytes = [
-			...this.pendingAttachments.map(({ file }) => file),
-			...files,
-		]
-			.filter((file) => !isRemoteImage(file))
-			.reduce((sum, file) => sum + file.size, 0);
-		if (totalTextBytes > this.limits.maxPromptTextBytes) {
-			this.setStatus(
-				"Text attachments exceed the server prompt-size limit",
-				true,
-			);
-			this.notify();
-			return;
-		}
-		this.pendingAttachments = [
-			...this.pendingAttachments,
+		this.view.setAttachments([
+			...attachments,
 			...files.map((file) => ({ file })),
-		];
-		this.setStatus(`${this.pendingAttachments.length} attachments selected`);
-		this.notify();
+		]);
+		this.view.setStatus(
+			`${this.view.attachments().length} attachments selected`,
+		);
+		this.view.notify();
 	}
 
 	async removeAttachment(attachment: PendingAttachment): Promise<void> {
-		this.pendingAttachments = this.pendingAttachments.filter(
-			(item) => item !== attachment,
-		);
-		this.setStatus(
-			this.pendingAttachments.length === 0
+		const attachments = this.view
+			.attachments()
+			.filter((item) => item !== attachment);
+		this.view.setAttachments(attachments);
+		this.view.setStatus(
+			attachments.length === 0
 				? "Attachment removed"
-				: `${this.pendingAttachments.length} attachments selected`,
+				: `${attachments.length} attachments selected`,
 		);
-		this.notify();
-		if (!attachment.id) return;
+		this.view.notify();
+		if (!attachment.id || attachment.uploadStreamId !== this.state.streamId) {
+			return;
+		}
 		try {
-			const response = await fetch(
-				`/api/attachments/${encodeURIComponent(attachment.id)}`,
-				{ method: "DELETE" },
-			);
-			if (!response.ok && response.status !== 404) {
-				throw new Error(`Attachment removal failed (${response.status})`);
-			}
+			await this.services.removeAttachment(attachment.id);
 		} catch (error) {
-			this.reportError(error);
+			this.view.reportError(error);
 		}
 	}
 
 	async submit(messageValue: string): Promise<boolean> {
-		if (this.submitting) return false;
+		if (this.view.submitting()) return false;
 		const message = messageValue.trim();
-		if (!message && this.pendingAttachments.length === 0) return false;
-		const submittedAttachments = [...this.pendingAttachments];
-		this.submitting = true;
-		this.setStatus(
+		const submittedAttachments = this.view.attachments();
+		if (!message && submittedAttachments.length === 0) return false;
+		const submissionStreamId = this.state.streamId;
+		const submissionSessionId = this.state.serverState.sessionId;
+		const submissionWasStreaming = this.isStreaming();
+		this.view.setSubmitting(true);
+		this.view.setStatus(
 			submittedAttachments.length > 0 ? "Uploading attachments…" : "Sending…",
 		);
-		this.notify();
+		this.view.notify();
 		try {
 			const attachmentIds: string[] = [];
-			for (const attachment of submittedAttachments) {
-				attachmentIds.push(await this.uploadAttachment(attachment));
+			for (let index = 0; index < submittedAttachments.length; index += 1) {
+				const attachment = submittedAttachments[index];
+				if (!attachment) continue;
+				let id =
+					attachment.uploadStreamId === submissionStreamId
+						? attachment.id
+						: undefined;
+				if (!id) {
+					id = await this.services.uploadAttachment(attachment.file);
+					const uploaded = {
+						...attachment,
+						id,
+						uploadStreamId: submissionStreamId ?? undefined,
+					};
+					submittedAttachments[index] = uploaded;
+					this.view.setAttachments(
+						this.view
+							.attachments()
+							.map((item) => (item === attachment ? uploaded : item)),
+					);
+				}
+				attachmentIds.push(id);
 			}
-			await this.sendCommand({
-				type: "prompt",
-				message,
-				...(attachmentIds.length > 0 ? { attachmentIds } : {}),
-				...(this.isStreaming() ? { streamingBehavior: "followUp" } : {}),
-			});
-			this.pendingAttachments = this.pendingAttachments.filter(
-				(attachment) => !submittedAttachments.includes(attachment),
+			await this.sendCommand(
+				{
+					type: "prompt",
+					message,
+					...(attachmentIds.length > 0 ? { attachmentIds } : {}),
+					...(submissionWasStreaming ? { streamingBehavior: "followUp" } : {}),
+				},
+				() => {
+					if (
+						this.state.streamId !== submissionStreamId ||
+						this.state.serverState.sessionId !== submissionSessionId
+					) {
+						throw new Error(
+							"The Kit session changed before the prompt was sent",
+						);
+					}
+				},
 			);
-			this.setStatus("");
+			this.view.setAttachments(
+				this.view
+					.attachments()
+					.filter((attachment) => !submittedAttachments.includes(attachment)),
+			);
+			this.view.setStatus("");
 			return true;
 		} catch (error) {
-			this.reportError(error);
+			this.view.reportError(error);
 			return false;
 		} finally {
-			this.submitting = false;
-			this.notify();
+			this.view.setSubmitting(false);
+			this.view.notify();
 		}
 	}
 
 	reportComposerUnavailable(): void {
-		this.setStatus(
-			this.submitting ? "Still sending…" : "Kit is not connected",
+		this.view.setStatus(
+			this.view.submitting() ? "Still sending…" : "Kit is not connected",
 			true,
 		);
-		this.notify();
+		this.view.notify();
 	}
 
 	async abort(): Promise<void> {
 		try {
 			await this.sendCommand({ type: "abort" });
 		} catch (error) {
-			this.reportError(error);
+			this.view.reportError(error);
 		}
 	}
 
 	async answerInteraction(requestId: string, response: unknown): Promise<void> {
-		if (this.answeringInteractionId) return;
-		this.interactionResponseErrors.delete(requestId);
-		this.answeringInteractionId = requestId;
-		this.notify();
+		if (this.view.answeringInteractionId()) return;
+		this.view.clearInteractionResponseError(requestId);
+		this.view.setAnsweringInteractionId(requestId);
+		this.view.notify();
 		try {
-			await this.sendCommand({
-				type: "ui_response",
-				requestId,
-				response,
-			});
+			await this.sendCommand({ type: "ui_response", requestId, response });
 		} catch (error) {
-			this.answeringInteractionId = null;
-			const message = error instanceof Error ? error.message : String(error);
-			this.interactionResponseErrors.set(requestId, message);
-			this.reportError(error);
-			this.notify();
+			this.view.setAnsweringInteractionId(null);
+			this.view.setInteractionResponseError(
+				requestId,
+				error instanceof Error ? error.message : String(error),
+			);
+			this.view.reportError(error);
+			this.view.notify();
 		}
 	}
 
@@ -326,111 +230,52 @@ export class WebClientController {
 	}
 
 	retryInteraction(requestId: string): void {
-		this.interactionHydrationErrors.delete(requestId);
-		this.notify();
+		this.view.clearInteractionHydrationError(requestId);
+		this.view.notify();
 		this.ensureInteractionHydrated(requestId);
 	}
 
 	async loadEarlier(beforeCommit?: () => void): Promise<void> {
-		if (this.loadingEarlier || this.state.messageOffset === 0) return;
-		this.loadingEarlier = true;
-		this.notify();
+		if (this.view.loadingEarlier() || this.state.messageOffset === 0) return;
+		this.view.setLoadingEarlier(true);
+		this.view.notify();
+		const streamId = this.state.streamId;
+		const oldOffset = this.state.messageOffset;
 		try {
-			const oldOffset = this.state.messageOffset;
 			const targetOffset = Math.max(0, oldOffset - 50);
-			const messages: unknown[] = [];
-			let cursor = targetOffset;
-			let totalMessageCount = this.state.totalMessageCount;
-			while (cursor < oldOffset) {
-				const response = await this.sendCommand({
-					type: "get_messages",
-					offset: cursor,
-					limit: Math.min(this.limits.messagePageSize, oldOffset - cursor),
-				});
-				if (
-					!isRecord(response.data) ||
-					!Array.isArray(response.data.messages)
-				) {
-					throw new Error("Invalid message page response");
-				}
-				if (
-					typeof response.data.offset === "number" &&
-					response.data.offset !== cursor
-				) {
-					throw new Error("Message page is not contiguous");
-				}
-				if (response.data.messages.length === 0) {
-					throw new Error("Message history ended before the requested cursor");
-				}
-				messages.push(
-					...(await Promise.all(
-						response.data.messages.map((message) =>
-							this.resolveMessageReference(message),
-						),
-					)),
-				);
-				cursor += response.data.messages.length;
-				totalMessageCount =
-					typeof response.data.totalMessageCount === "number"
-						? response.data.totalMessageCount
-						: totalMessageCount;
+			const range = await this.services.loadMessageRange(
+				targetOffset,
+				oldOffset,
+				this.state.totalMessageCount,
+			);
+			if (
+				this.state.phase !== "live" ||
+				this.state.streamId !== streamId ||
+				this.state.messageOffset !== oldOffset
+			) {
+				return;
 			}
 			beforeCommit?.();
-			this.state = prependMessages(
-				this.state,
-				messages,
-				targetOffset,
-				totalMessageCount,
+			this.setState(
+				prependMessages(
+					this.state,
+					range.messages,
+					targetOffset,
+					range.totalMessageCount,
+				),
 			);
-			this.setStatus("");
+			this.view.setStatus("");
 		} catch (error) {
-			this.reportError(error);
+			this.view.reportError(error);
 		} finally {
-			this.loadingEarlier = false;
-			this.notify();
+			this.view.setLoadingEarlier(false);
+			this.view.notify();
 		}
 	}
 
-	private notify(): void {
-		const snapshot = this.snapshot();
-		for (const listener of this.listeners) listener(snapshot);
-	}
-
-	private setStatus(message: string, isError = false): void {
-		this.status = { message, isError };
-	}
-
-	private reportError(error: unknown): void {
-		this.setStatus(
-			error instanceof Error ? error.message : String(error),
-			true,
-		);
-		this.notify();
-	}
-
-	private rejectPendingCommands(error: Error): void {
-		for (const pending of this.pendingCommands.values()) pending.reject(error);
-		this.pendingCommands.clear();
-	}
-
-	private reconnectUrl(): string {
-		const url = new URL("/api/rpc", window.location.href);
-		url.protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-		if (!this.requireSnapshot && this.state.streamId) {
-			url.searchParams.set("streamId", this.state.streamId);
-			url.searchParams.set("after", String(this.state.sequence));
-		}
-		return url.href;
-	}
-
-	private scheduleReconnect(): void {
-		if (!this.started || this.reconnectTimer !== null) return;
-		const delay = Math.min(500 * 2 ** this.reconnectAttempt, 10_000);
-		this.reconnectAttempt += 1;
-		this.reconnectTimer = window.setTimeout(() => {
-			this.reconnectTimer = null;
-			this.connect();
-		}, delay);
+	private setState(state: ClientState): void {
+		this.state = state;
+		this.view.setProtocol(state);
 	}
 
 	private messageDelta(record: unknown): Record<string, unknown> | null {
@@ -450,178 +295,103 @@ export class WebClientController {
 			: null;
 	}
 
-	private flushProtocolRecords(): void {
-		if (this.protocolTimer !== null) clearTimeout(this.protocolTimer);
-		this.protocolTimer = null;
-		try {
-			const records = this.queuedRecords.splice(0);
-			for (let index = 0; index < records.length; index += 1) {
-				let record = records[index];
-				const delta = this.messageDelta(record);
-				if (delta && isRecord(record) && typeof record.sequence === "number") {
-					let combinedDelta = delta.delta as string;
-					let lastSequence = record.sequence;
-					while (index + 1 < records.length) {
-						const next = records[index + 1];
-						const nextDelta = this.messageDelta(next);
-						if (
-							!isRecord(next) ||
-							!nextDelta ||
-							next.streamId !== record.streamId ||
-							next.messageId !== record.messageId ||
-							next.sequence !== lastSequence + 1 ||
-							nextDelta.kind !== delta.kind ||
-							nextDelta.contentType !== delta.contentType ||
-							nextDelta.contentIndex !== delta.contentIndex
-						) {
-							break;
-						}
-						combinedDelta += nextDelta.delta as string;
-						lastSequence = next.sequence as number;
-						index += 1;
+	private reduceProtocolRecords(records: readonly unknown[]): void {
+		const previousStreamId = this.state.streamId;
+		for (let index = 0; index < records.length; index += 1) {
+			let record = records[index];
+			const delta = this.messageDelta(record);
+			if (delta && isRecord(record) && typeof record.sequence === "number") {
+				let combinedDelta = delta.delta as string;
+				let lastSequence = record.sequence;
+				while (index + 1 < records.length) {
+					const next = records[index + 1];
+					const nextDelta = this.messageDelta(next);
+					if (
+						!isRecord(next) ||
+						!nextDelta ||
+						next.streamId !== record.streamId ||
+						next.messageId !== record.messageId ||
+						next.sequence !== lastSequence + 1 ||
+						nextDelta.kind !== delta.kind ||
+						nextDelta.contentType !== delta.contentType ||
+						nextDelta.contentIndex !== delta.contentIndex
+					) {
+						break;
 					}
-					if (lastSequence !== record.sequence) {
-						record = {
-							...record,
-							update: { ...delta, delta: combinedDelta },
-						};
-						this.state = reduceClientRecord(this.state, record);
-						this.state = { ...this.state, sequence: lastSequence };
-						continue;
-					}
+					combinedDelta += nextDelta.delta as string;
+					lastSequence = next.sequence as number;
+					index += 1;
 				}
-				if (isRecord(record) && record.type === "sync") {
-					this.activeSyncMode =
-						typeof record.mode === "string" ? record.mode : null;
-				}
-				if (isRecord(record) && record.type === "resync_required") {
-					throw new ProtocolSyncError("The session requires a fresh snapshot");
-				}
-				this.state = reduceClientRecord(this.state, record);
-				if (isRecord(record) && record.type === "sync_complete") {
-					if (this.activeSyncMode === "snapshot") this.requireSnapshot = false;
-					this.activeSyncMode = null;
+				if (lastSequence !== record.sequence) {
+					record = {
+						...record,
+						update: { ...delta, delta: combinedDelta },
+					};
+					this.setState(reduceClientRecord(this.state, record));
+					this.setState({ ...this.state, sequence: lastSequence });
+					continue;
 				}
 			}
-			for (const requestId of this.interactionResponseErrors.keys()) {
-				if (
-					!this.state.pendingInteractions.some(
-						(request) => isRecord(request) && request.id === requestId,
-					)
-				) {
-					this.interactionResponseErrors.delete(requestId);
+			if (isRecord(record) && record.type === "sync") {
+				this.activeSyncMode =
+					typeof record.mode === "string" ? record.mode : null;
+			}
+			if (isRecord(record) && record.type === "resync_required") {
+				throw new ProtocolSyncError("The session requires a fresh snapshot");
+			}
+			this.setState(reduceClientRecord(this.state, record));
+			if (isRecord(record) && record.type === "sync_complete") {
+				if (this.activeSyncMode === "snapshot") {
+					this.transport.acceptSnapshot();
 				}
+				this.activeSyncMode = null;
 			}
-			if (
-				this.answeringInteractionId &&
-				!this.state.pendingInteractions.some(
-					(request) =>
-						isRecord(request) && request.id === this.answeringInteractionId,
-				)
-			) {
-				this.answeringInteractionId = null;
-			}
-			if (this.state.phase === "live") {
-				this.reconnectAttempt = 0;
-				void this.loadCapabilities();
-				void this.loadPendingInteractions();
-				void this.hydrateVisibleMessageReferences();
-			}
-			this.notify();
-		} catch (error) {
-			this.requireSnapshot = true;
-			this.reportError(error);
-			this.socket?.close();
 		}
+		if (this.state.streamId !== previousStreamId) {
+			this.view.setAttachments(
+				this.view.attachments().map(({ file }) => ({ file })),
+			);
+			this.services.resetLimits();
+			this.capabilitiesStreamId = null;
+		}
+		this.reconcileInteractions();
+		if (this.state.phase === "live") {
+			this.transport.resetReconnectBackoff();
+			void this.loadCapabilities();
+			void this.loadPendingInteractions();
+			void this.hydrateVisibleMessageReferences();
+		}
+		this.view.notify();
 	}
 
-	private enqueueProtocolRecord(record: unknown): void {
-		this.queuedRecords.push(record);
-		if (this.queuedRecords.length >= 256) {
-			this.flushProtocolRecords();
-			return;
-		}
-		if (this.protocolTimer === null) {
-			this.protocolTimer = window.setTimeout(
-				() => this.flushProtocolRecords(),
-				0,
-			);
-		}
-	}
-
-	private connect(): void {
-		if (!this.started) return;
-		this.state = withConnectionPhase(this.state, "connecting");
-		this.notify();
-		const nextSocket = new WebSocket(this.reconnectUrl());
-		this.socket = nextSocket;
-		nextSocket.addEventListener("message", (event) => {
-			if (this.socket !== nextSocket) return;
-			try {
-				const record: unknown = JSON.parse(String(event.data));
-				if (isRecord(record) && record.type === "response") {
-					if (this.queuedRecords.length > 0) this.flushProtocolRecords();
-					const id = record.id;
-					if (typeof id === "string") {
-						const pending = this.pendingCommands.get(id);
-						if (pending) {
-							this.pendingCommands.delete(id);
-							if (record.success === true) pending.resolve(record);
-							else {
-								pending.reject(
-									new Error(
-										typeof record.error === "string"
-											? record.error
-											: "Command failed",
-									),
-								);
-							}
-						}
-					}
-					return;
-				}
-				this.enqueueProtocolRecord(record);
-			} catch (error) {
-				this.requireSnapshot = true;
-				this.reportError(error);
-				nextSocket.close();
+	private reconcileInteractions(): void {
+		const pendingIds = new Set<string>();
+		for (const request of this.state.pendingInteractions) {
+			if (isRecord(request) && typeof request.id === "string") {
+				pendingIds.add(request.id);
 			}
-		});
-		nextSocket.addEventListener("close", () => {
-			if (this.socket !== nextSocket) return;
-			this.socket = null;
-			this.queuedRecords.length = 0;
-			if (this.protocolTimer !== null) clearTimeout(this.protocolTimer);
-			this.protocolTimer = null;
-			this.state = withConnectionPhase(this.state, "disconnected");
-			this.rejectPendingCommands(
-				new Error("Connection closed before a response arrived"),
-			);
-			this.notify();
-			this.scheduleReconnect();
-		});
-		nextSocket.addEventListener("error", () => {
-			this.setStatus("Unable to connect to the Kit session.", true);
-			this.notify();
-		});
+		}
+		this.view.reconcilePendingInteractionIds(pendingIds);
 	}
 
 	private sendCommand(
 		command: Record<string, unknown>,
+		beforeSend?: () => void,
 	): Promise<Record<string, unknown>> {
-		if (
-			!this.socket ||
-			this.socket.readyState !== WebSocket.OPEN ||
-			this.state.phase !== "live"
-		) {
+		if (!this.transport.drainProtocolRecords()) {
+			return Promise.reject(new Error("Protocol synchronization failed"));
+		}
+		try {
+			beforeSend?.();
+		} catch (error) {
+			return Promise.reject(
+				error instanceof Error ? error : new Error(String(error)),
+			);
+		}
+		if (this.state.phase !== "live" || !this.transport.isOpen()) {
 			return Promise.reject(new Error("Kit is not connected"));
 		}
-		this.commandCounter += 1;
-		const id = `web-${Date.now().toString(36)}-${this.commandCounter.toString(36)}`;
-		return new Promise((resolve, reject) => {
-			this.pendingCommands.set(id, { resolve, reject });
-			this.socket?.send(JSON.stringify({ ...command, id }));
-		});
+		return this.transport.command(command);
 	}
 
 	private async loadCapabilities(): Promise<void> {
@@ -634,229 +404,19 @@ export class WebClientController {
 			return;
 		}
 		this.loadingCapabilities = true;
-		let loaded = false;
 		try {
-			const response = await this.sendCommand({ type: "get_capabilities" });
-			if (this.state.streamId !== streamId || !isRecord(response.data)) return;
-			const limits = response.data.limits;
-			if (!isRecord(limits)) throw new Error("Capabilities omitted limits");
-			const attachments = limits.attachments;
-			const pagination = limits.pagination;
-			const recovery = limits.recovery;
-			if (
-				!isRecord(attachments) ||
-				!isRecord(pagination) ||
-				!isRecord(recovery)
-			) {
-				throw new Error("Capabilities contain invalid limits");
-			}
-			const messages = pagination.messages;
-			const interactions = pagination.pendingInteractions;
-			const messageRecovery = recovery.message;
-			const interactionRecovery = recovery.pendingInteraction;
-			if (
-				!isRecord(messages) ||
-				!isRecord(interactions) ||
-				!isRecord(messageRecovery) ||
-				!isRecord(interactionRecovery)
-			) {
-				throw new Error("Capabilities contain invalid page or recovery limits");
-			}
-			this.limits = {
-				maxAttachmentsPerPrompt: nonnegativeInteger(
-					attachments.maxFilesPerPrompt,
-					this.limits.maxAttachmentsPerPrompt,
-				),
-				maxAttachmentBytes: nonnegativeInteger(
-					attachments.maxFileBytes,
-					this.limits.maxAttachmentBytes,
-				),
-				maxTextAttachmentBytes: nonnegativeInteger(
-					attachments.maxTextFileBytes,
-					this.limits.maxTextAttachmentBytes,
-				),
-				maxPromptAttachmentBytes: nonnegativeInteger(
-					attachments.maxPromptBytes,
-					this.limits.maxPromptAttachmentBytes,
-				),
-				maxPromptTextBytes: nonnegativeInteger(
-					attachments.maxPromptTextBytes,
-					this.limits.maxPromptTextBytes,
-				),
-				messagePageSize: positiveInteger(
-					messages.maxPageSize,
-					this.limits.messagePageSize,
-				),
-				interactionPageSize: positiveInteger(
-					interactions.defaultPageSize,
-					this.limits.interactionPageSize,
-				),
-				messageChunkBytes: positiveInteger(
-					messageRecovery.maxChunkBytes,
-					this.limits.messageChunkBytes,
-				),
-				messageRecoveryBytes: positiveInteger(
-					messageRecovery.maxTotalBytes,
-					this.limits.messageRecoveryBytes,
-				),
-				interactionChunkBytes: positiveInteger(
-					interactionRecovery.maxChunkBytes,
-					this.limits.interactionChunkBytes,
-				),
-				interactionRecoveryBytes: positiveInteger(
-					interactionRecovery.maxTotalBytes,
-					this.limits.interactionRecoveryBytes,
-				),
-			};
-			loaded = true;
+			const limits = await this.services.fetchLimits();
+			if (this.state.streamId !== streamId) return;
+			this.services.installLimits(limits);
+			this.capabilitiesStreamId = streamId;
 		} catch (error) {
-			this.reportError(error);
+			this.view.reportError(error);
 		} finally {
-			if (loaded && this.state.streamId === streamId) {
-				this.capabilitiesStreamId = streamId;
-			}
 			this.loadingCapabilities = false;
-		}
-	}
-
-	private async uploadAttachment(
-		attachment: PendingAttachment,
-	): Promise<string> {
-		if (attachment.id) return attachment.id;
-		const form = new FormData();
-		form.append("file", attachment.file);
-		const response = await fetch("/api/attachments", {
-			method: "POST",
-			body: form,
-		});
-		const payload: unknown = await response.json();
-		if (!response.ok || !isRecord(payload) || !isRecord(payload.attachment)) {
-			throw new Error(
-				isRecord(payload) && typeof payload.error === "string"
-					? payload.error
-					: `Attachment upload failed (${response.status})`,
-			);
-		}
-		if (typeof payload.attachment.id !== "string") {
-			throw new Error("Attachment upload returned no id");
-		}
-		attachment.id = payload.attachment.id;
-		return attachment.id;
-	}
-
-	private async resolveMessageReference(message: unknown): Promise<unknown> {
-		if (
-			!isRecord(message) ||
-			message.type !== "message_reference" ||
-			typeof message.token !== "string"
-		) {
-			return message;
-		}
-		const chunks: Uint8Array[] = [];
-		let offset = 0;
-		let complete = false;
-		while (!complete) {
-			const response = await this.sendCommand({
-				type: "get_message_chunk",
-				token: message.token,
-				offset,
-				maxBytes: this.limits.messageChunkBytes,
-			});
-			if (
-				!isRecord(response.data) ||
-				response.data.token !== message.token ||
-				response.data.encoding !== "base64-json" ||
-				typeof response.data.data !== "string"
-			) {
-				throw new Error("Invalid message chunk response");
-			}
-			const totalBytes = response.data.totalBytes;
-			if (
-				typeof totalBytes !== "number" ||
-				!Number.isSafeInteger(totalBytes) ||
-				totalBytes < 0 ||
-				totalBytes > this.limits.messageRecoveryBytes ||
-				response.data.offset !== offset
-			) {
-				throw new Error("Message exceeds the client recovery limit");
-			}
-			const binary = atob(response.data.data);
-			const bytes = Uint8Array.from(binary, (character) =>
-				character.charCodeAt(0),
-			);
-			const nextOffset = response.data.nextOffset;
-			if (
-				typeof nextOffset !== "number" ||
-				!Number.isSafeInteger(nextOffset) ||
-				nextOffset !== offset + bytes.length ||
-				nextOffset > totalBytes ||
-				(nextOffset === offset && response.data.complete !== true)
-			) {
-				throw new Error("Message chunks are not contiguous");
-			}
-			chunks.push(bytes);
-			offset = nextOffset;
-			complete = response.data.complete === true;
-			if (complete && offset !== totalBytes) {
-				throw new Error("Message payload ended at the wrong offset");
+			if (this.state.phase === "live" && this.state.streamId !== streamId) {
+				void this.loadCapabilities();
 			}
 		}
-		const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-		const joined = new Uint8Array(total);
-		let cursor = 0;
-		for (const chunk of chunks) {
-			joined.set(chunk, cursor);
-			cursor += chunk.length;
-		}
-		return JSON.parse(new TextDecoder().decode(joined));
-	}
-
-	private async recoverMessageReference(
-		message: Record<string, unknown>,
-		messageIndex: number,
-	): Promise<RecoveredMessage> {
-		let candidate: unknown = message;
-		let lastError: unknown = null;
-		let rebased = false;
-		for (let attempt = 0; attempt < 3; attempt += 1) {
-			try {
-				return {
-					message: await this.resolveMessageReference(candidate),
-					rebased,
-				};
-			} catch (error) {
-				lastError = error;
-				if (this.state.phase !== "live") throw error;
-				const response = await this.sendCommand({
-					type: "get_messages",
-					offset: messageIndex,
-					limit: 1,
-				});
-				if (
-					!isRecord(response.data) ||
-					response.data.offset !== messageIndex ||
-					!Array.isArray(response.data.messages) ||
-					response.data.messages.length !== 1
-				) {
-					throw new Error("Message recovery returned the wrong record");
-				}
-				candidate = response.data.messages[0];
-				rebased = true;
-				if (!isRecord(candidate) || candidate.type !== "message_reference") {
-					return { message: candidate, rebased };
-				}
-			}
-		}
-		return {
-			message: {
-				type: "message_unavailable",
-				role: message.role,
-				messageIndex,
-				reason:
-					lastError instanceof Error ? lastError.message : "recovery_failed",
-			},
-			rebased: true,
-		};
 	}
 
 	private async hydrateVisibleMessageReferences(): Promise<void> {
@@ -875,22 +435,25 @@ export class WebClientController {
 					typeof message.messageIndex === "number"
 						? message.messageIndex
 						: this.state.messageOffset + index;
-				const recovered = await this.recoverMessageReference(
+				const recovered = await this.services.recoverMessageReference(
 					message,
 					messageIndex,
+					() => this.state.phase === "live",
 				);
 				const currentIndex = this.state.messages.indexOf(message);
 				if (currentIndex < 0) continue;
-				this.state = hydrateMessageReference(
-					this.state,
-					currentIndex,
-					message,
-					recovered.message,
-					!recovered.rebased,
+				this.setState(
+					hydrateMessageReference(
+						this.state,
+						currentIndex,
+						message,
+						recovered.message,
+						!recovered.rebased,
+					),
 				);
-				this.notify();
+				this.view.notify();
 			} catch (error) {
-				this.reportError(error);
+				this.view.reportError(error);
 			} finally {
 				this.hydratingMessages.delete(message.token);
 			}
@@ -909,63 +472,23 @@ export class WebClientController {
 		this.loadingPendingInteractions = true;
 		const generation = this.state.pendingInteractionGeneration;
 		try {
-			let offset = 0;
-			let total = this.state.totalPendingInteractionCount;
-			const requests: unknown[] = [];
-			while (offset < total) {
-				const response = await this.sendCommand({
-					type: "get_pending_interactions",
-					offset,
-					limit: Math.min(this.limits.interactionPageSize, total - offset),
-					generation,
-				});
-				if (this.state.pendingInteractionGeneration !== generation) return;
-				if (
-					!isRecord(response.data) ||
-					!Array.isArray(response.data.requests) ||
-					typeof response.data.generation !== "number"
-				) {
-					throw new Error("Invalid pending interaction page response");
-				}
-				if (response.data.stale === true) return;
-				if (response.data.generation !== generation) {
-					throw new Error("Pending interaction generation changed");
-				}
-				if (
-					typeof response.data.offset === "number" &&
-					response.data.offset !== offset
-				) {
-					throw new Error("Pending interaction page is not contiguous");
-				}
-				if (response.data.requests.length === 0) break;
-				for (const request of response.data.requests) {
-					if (
-						!isRecord(request) ||
-						typeof request.id !== "string" ||
-						requests.some(
-							(existing) => isRecord(existing) && existing.id === request.id,
-						)
-					) {
-						continue;
-					}
-					requests.push(request);
-				}
-				offset += response.data.requests.length;
-				total =
-					typeof response.data.totalRequestCount === "number"
-						? response.data.totalRequestCount
-						: total;
+			const result = await this.services.loadPendingInteractions(
+				generation,
+				this.state.totalPendingInteractionCount,
+				() => this.state.pendingInteractionGeneration === generation,
+			);
+			if (!result || this.state.pendingInteractionGeneration !== generation) {
+				return;
 			}
-			if (this.state.pendingInteractionGeneration !== generation) return;
-			this.state = {
+			this.setState({
 				...this.state,
-				pendingInteractions: requests,
+				pendingInteractions: result.requests,
 				pendingInteractionOffset: 0,
-				totalPendingInteractionCount: total,
-			};
-			this.notify();
+				totalPendingInteractionCount: result.totalRequestCount,
+			});
+			this.view.notify();
 		} catch (error) {
-			this.reportError(error);
+			this.view.reportError(error);
 		} finally {
 			this.loadingPendingInteractions = false;
 			if (
@@ -983,84 +506,39 @@ export class WebClientController {
 		if (
 			this.hydratingInteractions.has(requestId) ||
 			this.state.phase !== "live"
-		)
+		) {
 			return;
+		}
 		this.hydratingInteractions.add(requestId);
 		try {
-			const chunks: Uint8Array[] = [];
-			let offset = 0;
-			let complete = false;
-			while (!complete) {
-				const response = await this.sendCommand({
-					type: "get_pending_interaction_chunk",
-					requestId,
-					offset,
-					maxBytes: this.limits.interactionChunkBytes,
-				});
-				if (
-					!isRecord(response.data) ||
-					typeof response.data.data !== "string"
-				) {
-					throw new Error("Invalid interaction chunk response");
-				}
-				const totalBytes = response.data.totalBytes;
-				if (
-					typeof totalBytes !== "number" ||
-					!Number.isSafeInteger(totalBytes) ||
-					totalBytes < 0 ||
-					totalBytes > this.limits.interactionRecoveryBytes ||
-					response.data.offset !== offset
-				) {
-					throw new Error(
-						"Interaction payload exceeds the client recovery limit",
-					);
-				}
-				const binary = atob(response.data.data);
-				const bytes = Uint8Array.from(binary, (character) =>
-					character.charCodeAt(0),
-				);
-				chunks.push(bytes);
-				const nextOffset = response.data.nextOffset;
-				if (
-					typeof nextOffset !== "number" ||
-					!Number.isSafeInteger(nextOffset) ||
-					nextOffset !== offset + bytes.length ||
-					nextOffset > totalBytes ||
-					(nextOffset === offset && response.data.complete !== true)
-				) {
-					throw new Error("Interaction chunks are not contiguous");
-				}
-				offset = nextOffset;
-				complete = response.data.complete === true;
-				if (complete && offset !== totalBytes) {
-					throw new Error("Interaction payload ended at the wrong offset");
-				}
+			const hydrated = await this.services.recoverInteraction(requestId);
+			if (
+				!this.state.pendingInteractions.some(
+					(request) => isRecord(request) && request.id === requestId,
+				)
+			) {
+				return;
 			}
-			const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-			const joined = new Uint8Array(total);
-			let cursor = 0;
-			for (const chunk of chunks) {
-				joined.set(chunk, cursor);
-				cursor += chunk.length;
-			}
-			const hydrated: unknown = JSON.parse(new TextDecoder().decode(joined));
-			if (!isRecord(hydrated) || hydrated.id !== requestId) {
-				throw new Error("Interaction recovery returned the wrong request");
-			}
-			this.state = {
+			this.setState({
 				...this.state,
 				pendingInteractions: this.state.pendingInteractions.map((request) =>
 					isRecord(request) && request.id === requestId ? hydrated : request,
 				),
-			};
-			this.interactionHydrationErrors.delete(requestId);
+			});
+			this.view.clearInteractionHydrationError(requestId);
 		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			this.interactionHydrationErrors.set(requestId, message);
-			this.setStatus(message, true);
+			if (
+				this.state.pendingInteractions.some(
+					(request) => isRecord(request) && request.id === requestId,
+				)
+			) {
+				const message = error instanceof Error ? error.message : String(error);
+				this.view.setInteractionHydrationError(requestId, message);
+				this.view.setStatus(message, true);
+			}
 		} finally {
 			this.hydratingInteractions.delete(requestId);
-			this.notify();
+			this.view.notify();
 		}
 	}
 }
