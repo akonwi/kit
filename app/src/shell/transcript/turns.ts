@@ -536,3 +536,26 @@ export function groupItemsForDisplay(
 
 	return result;
 }
+
+export function findTurnWorkItems(
+	items: TranscriptItem[],
+	turnId: string,
+	inProgressTurnId?: string | null,
+	anchorItemId?: string,
+): TranscriptItem[] {
+	const candidates = groupItemsForDisplay(items, inProgressTurnId).filter(
+		(item): item is Extract<DisplayItem, { kind: "turn-work" }> =>
+			item.kind === "turn-work" && item.turnId === turnId,
+	);
+	const displayItem = anchorItemId
+		? candidates.find((item) =>
+				item.items.some((entry) => entry.id === anchorItemId),
+			)
+		: candidates[0];
+	if (displayItem?.kind === "turn-work") return displayItem.items;
+	if (anchorItemId) {
+		const anchoredItem = items.find((item) => item.id === anchorItemId);
+		if (anchoredItem) return [anchoredItem];
+	}
+	return [];
+}

@@ -1,12 +1,5 @@
 /** @jsxImportSource solid-js */
-import {
-	children,
-	createMemo,
-	createSignal,
-	For,
-	type JSX,
-	Show,
-} from "solid-js";
+import { createMemo, For, type JSX, Show } from "solid-js";
 import type { ToolCall, ToolResultMessage } from "../runtime/agent";
 import {
 	extractToolResultLines,
@@ -14,6 +7,7 @@ import {
 	toolArgKeys,
 	toolDisplayName,
 } from "../shell/transcript/turns";
+import { extractToolProgressLines } from "../shell/transcript-live-tools";
 import type { ToolActivity } from "./client-state";
 import { isRecord } from "./client-state";
 import { displayValue } from "./presentation";
@@ -43,7 +37,11 @@ function toolOutput(
 	live: ToolActivity | undefined,
 ): string {
 	if (result) return extractToolResultLines(result).join("\n");
-	return displayValue(live?.result ?? live?.partialResult);
+	const liveResult = live?.result ?? live?.partialResult;
+	const progressLines = extractToolProgressLines(liveResult);
+	return progressLines.length > 0
+		? progressLines.join("\n")
+		: displayValue(liveResult);
 }
 
 function ToolRow(props: {
@@ -144,10 +142,9 @@ export function ToolDrawer(props: {
 	liveTools: ToolActivity[];
 	aborted?: boolean;
 	emptyLabel?: string;
-	children?: JSX.Element;
+	active?: boolean;
+	onActivate: () => void;
 }): JSX.Element {
-	const [open, setOpen] = createSignal(false);
-	const resolvedChildren = children(() => props.children);
 	const toolCalls = createMemo(() => props.toolCalls);
 	const running = createMemo(
 		() =>
@@ -169,62 +166,50 @@ export function ToolDrawer(props: {
 	const overflowCount = createMemo(() =>
 		Math.max(0, toolCalls().length - MAX_VISIBLE_TOOL_NAMES),
 	);
+	const SummaryContent = () => (
+		<>
+			<span class="panel-launch-marker" aria-hidden="true" />
+			<span
+				class="drawer-state"
+				data-status={running() ? "running" : "complete"}
+				aria-hidden="true"
+			/>
+			<span data-visually-hidden>
+				{props.aborted ? "aborted: " : running() ? "running: " : "completed: "}
+			</span>
+			<span>{countLabel()}</span>
+			<Show when={visibleNames().length > 0}>
+				<span class="drawer-tool-names">
+					{" · "}
+					<For each={visibleNames()}>
+						{(toolCall, index) => (
+							<>
+								<Show when={index() > 0}> · </Show>
+								<span>{toolDisplayName(toolCall)}</span>
+							</>
+						)}
+					</For>
+					<Show when={overflowCount() > 0}>
+						{(count) => <> · +{count()} more</>}
+					</Show>
+				</span>
+			</Show>
+			<span data-visually-hidden> — opens activity panel</span>
+		</>
+	);
 
 	return (
-		<details
-			class="tool-drawer"
-			open={open()}
-			onToggle={(event) => setOpen(event.currentTarget.open)}
-		>
-			<summary>
-				<span class="disclosure-marker" aria-hidden="true" />
-				<span
-					class="drawer-state"
-					data-status={running() ? "running" : "complete"}
-					aria-hidden="true"
-				/>
-				<span data-visually-hidden>
-					{props.aborted
-						? "aborted: "
-						: running()
-							? "running: "
-							: "completed: "}
-				</span>
-				<span>{countLabel()}</span>
-				<Show when={visibleNames().length > 0}>
-					<span class="drawer-tool-names">
-						{" · "}
-						<For each={visibleNames()}>
-							{(toolCall, index) => (
-								<>
-									<Show when={index() > 0}> · </Show>
-									<span>{toolDisplayName(toolCall)}</span>
-								</>
-							)}
-						</For>
-						<Show when={overflowCount() > 0}>
-							{(count) => <> · +{count()} more</>}
-						</Show>
-					</span>
-				</Show>
-			</summary>
-			<Show when={open()}>
-				<div class="tool-drawer-body">
-					<Show
-						when={resolvedChildren()}
-						fallback={
-							<ToolRows
-								toolCalls={toolCalls()}
-								toolResults={props.toolResults}
-								liveTools={props.liveTools}
-								aborted={props.aborted}
-							/>
-						}
-					>
-						{resolvedChildren()}
-					</Show>
-				</div>
-			</Show>
-		</details>
+		<div class="tool-drawer">
+			<button
+				class="tool-drawer-trigger"
+				type="button"
+				data-variant="ghost"
+				aria-controls="workspace-activity"
+				aria-expanded={props.active === true}
+				onClick={props.onActivate}
+			>
+				<SummaryContent />
+			</button>
+		</div>
 	);
 }

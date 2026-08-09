@@ -27,8 +27,8 @@ import type {
 } from "./turns";
 import {
 	extractAssistantParts,
+	findTurnWorkItems,
 	flattenTurnsToTranscriptItems,
-	groupItemsForDisplay,
 } from "./turns";
 
 /**
@@ -114,13 +114,12 @@ function buildSectionsForSource(
 	// one (e.g. ≤ 1 assistant item so far, or bash/handoff-only activity).
 	// Without this, an open panel can show "No activity to display" until
 	// enough messages accumulate or the turn completes.
-	const displayItems = groupItemsForDisplay(items, inProgressTurnId);
-	for (const d of displayItems) {
-		if (d.kind === "turn-work" && d.turnId === source.turnId) {
-			return { sections: itemsToSections(d.items), turnId: d.turnId };
-		}
-	}
-	return { sections: [], turnId: source.turnId };
+	return {
+		sections: itemsToSections(
+			findTurnWorkItems(items, source.turnId, inProgressTurnId),
+		),
+		turnId: source.turnId,
+	};
 }
 
 export function countToolCalls(sections: TurnActivitySection[]): number {

@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { createMemo, For, type JSX, Match, Show, Switch } from "solid-js";
+import { createMemo, type JSX, Match, Show, Switch } from "solid-js";
 import type { ToolResultMessage } from "../runtime/agent";
 import type { DisplayItem, TranscriptItem } from "../shell/transcript/turns";
 import {
@@ -8,12 +8,15 @@ import {
 } from "../shell/transcript/turns";
 import type { ToolActivity } from "./client-state";
 import { SafeMarkdown } from "./SafeMarkdown";
-import { mergeLiveToolCalls, ToolDrawer, ToolRows } from "./ToolDrawer";
+import { mergeLiveToolCalls, ToolDrawer } from "./ToolDrawer";
 import { UserEntry } from "./UserEntry";
+import { type ActivitySource, useWorkspace } from "./workspace-context";
 
 export function AssistantEntry(props: {
 	item: Extract<TranscriptItem, { kind: "assistant" }>;
 	liveTools: ToolActivity[];
+	openActivity: (source: ActivitySource) => void;
+	isActivityOpen: (source: ActivitySource) => boolean;
 }): JSX.Element {
 	const parts = createMemo(() => extractAssistantParts(props.item.message));
 	const error = createMemo(() =>
@@ -25,6 +28,11 @@ export function AssistantEntry(props: {
 		const ids = new Set(parts().toolCalls.map((toolCall) => toolCall.id));
 		return props.liveTools.filter((tool) => ids.has(tool.id));
 	});
+	const activitySource = createMemo<ActivitySource>(() => ({
+		kind: "single-item",
+		itemId: props.item.id,
+		turnId: props.item.turnId,
+	}));
 
 	return (
 		<article
@@ -49,63 +57,25 @@ export function AssistantEntry(props: {
 					toolResults={props.item.toolResults}
 					liveTools={itemLiveTools()}
 					aborted={props.item.aborted}
+					active={props.isActivityOpen(activitySource())}
+					onActivate={() => props.openActivity(activitySource())}
 				/>
 			</Show>
 		</article>
 	);
 }
 
-function TurnWorkStep(props: {
-	item: () => Extract<TranscriptItem, { kind: "assistant" }> | undefined;
-	liveTools: ToolActivity[];
-}): JSX.Element {
-	const parts = createMemo(() => {
-		const item = props.item();
-		return item
-			? extractAssistantParts(item.message)
-			: { text: "", toolCalls: [] };
-	});
-	const itemLiveTools = createMemo(() => {
-		const ids = new Set(parts().toolCalls.map((toolCall) => toolCall.id));
-		return props.liveTools.filter((tool) => ids.has(tool.id));
-	});
-	return (
-		<div class="turn-work-step">
-			<Show when={parts().text.trim()}>
-				<SafeMarkdown
-					class="markdown-content intermediate-prose"
-					content={parts().text}
-				/>
-			</Show>
-			<Show when={props.item()}>
-				{(item) => (
-					<ToolRows
-						toolCalls={parts().toolCalls}
-						toolResults={item().toolResults}
-						liveTools={itemLiveTools()}
-						aborted={item().aborted}
-					/>
-				)}
-			</Show>
-		</div>
-	);
-}
-
 function TurnWorkEntry(props: {
 	items: TranscriptItem[];
 	liveTools: ToolActivity[];
+	openActivity: (source: ActivitySource) => void;
+	isActivityOpen: (source: ActivitySource) => boolean;
 }): JSX.Element {
 	const assistantItems = createMemo(() =>
 		props.items.filter(
 			(item): item is Extract<TranscriptItem, { kind: "assistant" }> =>
 				item.kind === "assistant",
 		),
-	);
-	const assistantItemIds = createMemo(() =>
-		assistantItems().map((item) => item.id),
-	);
-	const assistantItemsById = createMemo(
-		() => new Map(assistantItems().map((item) => [item.id, item])),
 	);
 	const persistedToolCalls = createMemo(() =>
 		assistantItems().flatMap(
@@ -114,12 +84,6 @@ function TurnWorkEntry(props: {
 	);
 	const toolCalls = createMemo(() =>
 		mergeLiveToolCalls(persistedToolCalls(), props.liveTools),
-	);
-	const persistedToolCallIds = createMemo(
-		() => new Set(persistedToolCalls().map((toolCall) => toolCall.id)),
-	);
-	const liveOnlyToolCalls = createMemo(() =>
-		toolCalls().filter((toolCall) => !persistedToolCallIds().has(toolCall.id)),
 	);
 	const toolResults = createMemo(() => {
 		const merged = new Map<string, ToolResultMessage>();
@@ -134,6 +98,11 @@ function TurnWorkEntry(props: {
 	const stepLabel = createMemo(
 		() => `${props.items.length} step${props.items.length === 1 ? "" : "s"}`,
 	);
+	const activitySource = createMemo<ActivitySource>(() => ({
+		kind: "turn-intermediate",
+		turnId: props.items[0]?.turnId ?? "",
+		anchorItemId: props.items[0]?.id ?? "",
+	}));
 
 	return (
 		<div class="transcript-entry turn-work-entry">
@@ -143,24 +112,9 @@ function TurnWorkEntry(props: {
 				liveTools={props.liveTools}
 				aborted={aborted()}
 				emptyLabel={stepLabel()}
-			>
-				<For each={assistantItemIds()}>
-					{(id) => (
-						<TurnWorkStep
-							item={() => assistantItemsById().get(id)}
-							liveTools={props.liveTools}
-						/>
-					)}
-				</For>
-				<Show when={liveOnlyToolCalls().length > 0}>
-					<ToolRows
-						toolCalls={liveOnlyToolCalls()}
-						toolResults={toolResults()}
-						liveTools={props.liveTools}
-						aborted={aborted()}
-					/>
-				</Show>
-			</ToolDrawer>
+				active={props.isActivityOpen(activitySource())}
+				onActivate={() => props.openActivity(activitySource())}
+			/>
 		</div>
 	);
 }
@@ -242,6 +196,7 @@ export function TurnEntry(props: {
 	displayItem: () => DisplayItem | undefined;
 	liveTools: ToolActivity[];
 }): JSX.Element {
+	const workspace = useWorkspace();
 	const turnWork = createMemo(() => {
 		const item = props.displayItem();
 		return item?.kind === "turn-work" ? item : null;
@@ -271,12 +226,24 @@ export function TurnEntry(props: {
 		<Switch>
 			<Match when={turnWork()}>
 				{(item) => (
-					<TurnWorkEntry items={item().items} liveTools={props.liveTools} />
+					<TurnWorkEntry
+						items={item().items}
+						liveTools={props.liveTools}
+						openActivity={workspace.openActivity}
+						isActivityOpen={workspace.isActivityOpen}
+					/>
 				)}
 			</Match>
 			<Match when={userItem()}>{(item) => <UserEntry item={item()} />}</Match>
 			<Match when={assistantItem()}>
-				{(item) => <AssistantEntry item={item()} liveTools={props.liveTools} />}
+				{(item) => (
+					<AssistantEntry
+						item={item()}
+						liveTools={props.liveTools}
+						openActivity={workspace.openActivity}
+						isActivityOpen={workspace.isActivityOpen}
+					/>
+				)}
 			</Match>
 			<Match when={handoffItem()}>
 				{(item) => <HandoffSummaryEntry item={item()} />}

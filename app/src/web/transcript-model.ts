@@ -1,11 +1,11 @@
 import type { KitAgentMessage } from "../session/types";
 import {
-	type DisplayItem,
+	extractAssistantParts,
 	flattenTurnsToTranscriptItems,
-	groupItemsForDisplay,
 	groupMessagesIntoTurns,
+	type TranscriptItem,
 } from "../shell/transcript/turns";
-import { isRecord } from "./client-state";
+import { isRecord, type ToolActivity } from "./client-state";
 
 function isOptionalString(value: unknown): boolean {
 	return value === undefined || typeof value === "string";
@@ -131,11 +131,52 @@ function placeholderMessage(
 	} as KitAgentMessage;
 }
 
-export function protocolMessagesToDisplayItems(
-	messages: unknown[],
+export function liveToolsForTranscriptItems(
+	selectedItems: TranscriptItem[],
+	allItems: TranscriptItem[],
+	tools: ToolActivity[],
 	activeTurnId: string | null,
-	previous?: DisplayItem[],
-): DisplayItem[] {
+): ToolActivity[] {
+	const turnId = selectedItems[0]?.turnId;
+	if (!turnId) return [];
+	const selectedItemIds = new Set(selectedItems.map((item) => item.id));
+	const selectedToolCallIds = new Set(
+		selectedItems.flatMap((item) =>
+			item.kind === "assistant"
+				? extractAssistantParts(item.message).toolCalls.map(
+						(toolCall) => toolCall.id,
+					)
+				: [],
+		),
+	);
+	const turnItems = allItems.filter((item) => item.turnId === turnId);
+	const allTurnToolCallIds = new Set(
+		turnItems.flatMap((item) =>
+			item.kind === "assistant"
+				? extractAssistantParts(item.message).toolCalls.map(
+						(toolCall) => toolCall.id,
+					)
+				: [],
+		),
+	);
+	const latestAssistant = turnItems.findLast(
+		(item) => item.kind === "assistant",
+	);
+	const ownsUnassociatedLiveTools =
+		activeTurnId === turnId &&
+		latestAssistant !== undefined &&
+		selectedItemIds.has(latestAssistant.id);
+	return tools.filter(
+		(tool) =>
+			tool.turnId === turnId &&
+			(selectedToolCallIds.has(tool.id) ||
+				(!allTurnToolCallIds.has(tool.id) && ownsUnassociatedLiveTools)),
+	);
+}
+
+export function protocolMessagesToTranscriptItems(
+	messages: unknown[],
+): ReturnType<typeof flattenTurnsToTranscriptItems> {
 	const transcriptMessages: KitAgentMessage[] = [];
 	for (const value of messages) {
 		if (!isRecord(value)) continue;
@@ -152,8 +193,7 @@ export function protocolMessagesToDisplayItems(
 		if (!isProtocolTranscriptMessage(value)) continue;
 		transcriptMessages.push(value as unknown as KitAgentMessage);
 	}
-	const items = flattenTurnsToTranscriptItems(
+	return flattenTurnsToTranscriptItems(
 		groupMessagesIntoTurns(transcriptMessages),
 	);
-	return groupItemsForDisplay(items, activeTurnId, previous);
 }

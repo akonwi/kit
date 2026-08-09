@@ -10,9 +10,13 @@ import {
 	onMount,
 	Show,
 } from "solid-js";
-import { type DisplayItem, displayItemKey } from "../shell/transcript/turns";
+import {
+	type DisplayItem,
+	displayItemKey,
+	groupItemsForDisplay,
+} from "../shell/transcript/turns";
 import { TurnEntry } from "./TurnEntry";
-import { protocolMessagesToDisplayItems } from "./transcript-model";
+import { liveToolsForTranscriptItems } from "./transcript-model";
 import { useWebClient } from "./WebClientContext";
 
 type ScrollAnchor = {
@@ -21,7 +25,7 @@ type ScrollAnchor = {
 };
 
 export function TranscriptPane(): JSX.Element {
-	const { snapshot, controller } = useWebClient();
+	const { snapshot, transcriptItems, controller } = useWebClient();
 	let transcript: HTMLElement | undefined;
 	let stickToBottom = true;
 	let scrollAnchor: ScrollAnchor | null = null;
@@ -32,18 +36,23 @@ export function TranscriptPane(): JSX.Element {
 	const lastMessage = createMemo(() => messages().at(-1));
 	const lastTool = createMemo(() => protocol().tools.at(-1));
 	const displayItems = createMemo<DisplayItem[]>((previous) =>
-		protocolMessagesToDisplayItems(
-			messages(),
-			protocol().activeTurnId,
-			previous,
-		),
+		groupItemsForDisplay(transcriptItems(), protocol().activeTurnId, previous),
 	);
 	const displayItemKeys = createMemo(() => displayItems().map(displayItemKey));
 	const displayItemsByKey = createMemo(
 		() => new Map(displayItems().map((item) => [displayItemKey(item), item])),
 	);
-	const liveToolsForTurn = (turnId: string) =>
-		protocol().tools.filter((tool) => tool.turnId === turnId);
+	const liveToolsForDisplayItem = (displayItem: DisplayItem | undefined) => {
+		if (!displayItem) return [];
+		const selectedItems =
+			displayItem.kind === "turn-work" ? displayItem.items : [displayItem.item];
+		return liveToolsForTranscriptItems(
+			selectedItems,
+			transcriptItems(),
+			protocol().tools,
+			protocol().activeTurnId,
+		);
+	};
 
 	const scheduleScroll = () => {
 		if (!transcript || scrollFrame !== null) return;
@@ -124,18 +133,11 @@ export function TranscriptPane(): JSX.Element {
 				<For each={displayItemKeys()}>
 					{(key) => {
 						const displayItem = createMemo(() => displayItemsByKey().get(key));
-						const turnId = createMemo(() => {
-							const current = displayItem();
-							if (!current) return "";
-							return current.kind === "turn-work"
-								? current.turnId
-								: current.item.turnId;
-						});
 						return (
 							<Show when={displayItem()}>
 								<TurnEntry
 									displayItem={displayItem}
-									liveTools={liveToolsForTurn(turnId())}
+									liveTools={liveToolsForDisplayItem(displayItem())}
 								/>
 							</Show>
 						);

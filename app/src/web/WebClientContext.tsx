@@ -2,16 +2,20 @@
 import {
 	type Accessor,
 	createContext,
+	createMemo,
 	createSignal,
 	type JSX,
 	onCleanup,
 	onMount,
 	useContext,
 } from "solid-js";
+import type { TranscriptItem } from "../shell/transcript/turns";
 import { WebClientController, type WebClientSnapshot } from "./controller";
+import { protocolMessagesToTranscriptItems } from "./transcript-model";
 
 type WebClientContextValue = {
 	snapshot: Accessor<WebClientSnapshot>;
+	transcriptItems: Accessor<TranscriptItem[]>;
 	controller: WebClientController;
 	focusComposer(): boolean;
 	registerComposerFocus(handler: () => boolean): () => void;
@@ -24,6 +28,9 @@ export function WebClientProvider(props: {
 }): JSX.Element {
 	const controller = new WebClientController();
 	const [snapshot, setSnapshot] = createSignal(controller.snapshot());
+	const transcriptItems = createMemo(() =>
+		protocolMessagesToTranscriptItems(snapshot().protocol.messages),
+	);
 	let unsubscribe: (() => void) | undefined;
 	let composerFocus: (() => boolean) | null = null;
 	const focusComposer = () => composerFocus?.() ?? false;
@@ -47,6 +54,7 @@ export function WebClientProvider(props: {
 		<WebClientContext.Provider
 			value={{
 				snapshot,
+				transcriptItems,
 				controller,
 				focusComposer,
 				registerComposerFocus,
