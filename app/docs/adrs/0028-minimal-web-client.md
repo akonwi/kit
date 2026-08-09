@@ -13,13 +13,12 @@ runtime events, correlated commands, attachments, and remote interactions.
 The first browser client now exercises that surface and has exposed constraints
 that are easy to miss when considering only the server transport.
 
-The client needs enough structure to remain reliable as transcript,
-tool, interaction, and multi-client behavior grows. A collection of direct DOM
-callbacks tied to WebSocket messages would make reconnect recovery, event
-ordering, rendering, and tests difficult to reason about. A full client
-framework would provide structure, but would conflict with the deliberately
-small HTML-first direction and add a second application runtime before that
-complexity is justified.
+The client needs enough structure to remain reliable as transcript, tool,
+interaction, and multi-client behavior grows. The initial framework-free view
+demonstrated that direct DOM callbacks require substantial manual identity
+caches, reconciliation, focus preservation, and render scheduling. Those
+mechanics obscured the otherwise clean protocol reducer and would become more
+expensive as session, model, and plugin surfaces are added.
 
 The client is also a privileged remote-control surface. Session content, tool
 output, plugin-provided labels, and model text are untrusted display data. Its
@@ -29,16 +28,19 @@ interpret remote content as markup.
 ## Decision
 
 Kit will ship a small, same-origin browser application with `kit --mode web`.
-It will use semantic HTML, Mica, app-owned CSS, and framework-free TypeScript
-modules compiled by Bun. It will not use React, a virtual DOM, or a separate
-browser application server.
+It will use semantic HTML, Mica, app-owned CSS, and SolidJS for the browser view
+layer. It will not use React, a virtual DOM, or a separate browser application
+server. Transport, protocol reduction, commands, and uploads remain plain
+TypeScript and do not depend on Solid.
 
 ### Asset delivery
 
 Mica will be a pinned package dependency used at build time. Kit will bundle
 Mica's CSS and only the opt-in enhancement modules it uses into first-party web
-assets. Browser assets will be produced by Kit's build, included with release
-artifacts, and served by the same `kit --mode web` process.
+assets. Solid JSX will compile to a browser-targeted bundle during Kit's build;
+the resulting JavaScript will be embedded in the compiled binary. Source-mode
+development and tests may build that same entry point lazily. Browser assets
+will be served by the same `kit --mode web` process.
 
 The production client will not load scripts, styles, fonts, or libraries from a
 CDN. The document will avoid inline script and style requirements so the server
@@ -56,8 +58,10 @@ The client will keep four explicit layers:
    client state model.
 3. Command and upload services translate user intent into RPC commands and HTTP
    attachment requests.
-4. View modules render semantic HTML from client state and bind native browser
-   interactions back to those services.
+4. Solid view modules render semantic HTML from client state and bind native
+   browser interactions back to those services. One provider bridges immutable
+   reducer snapshots into a Solid signal; components do not mutate protocol
+   state directly.
 
 Protocol reduction will not depend on DOM APIs. Transport code will not mutate
 rendered elements directly. The reducer consumes transport-safe projections of
@@ -195,8 +199,8 @@ being deferred to visual polish.
 
 ### Positive
 
-- The first browser client stays small and aligned with Mica's progressive,
-  native-first model.
+- The browser client stays aligned with Mica's progressive, native-first model
+  while Solid handles keyed streaming updates and component lifecycle.
 - Protocol correctness is isolated from DOM rendering and can be tested
   deterministically.
 - Same-origin assets and text-only remote-content rendering provide a strong
@@ -211,14 +215,15 @@ being deferred to visual polish.
 
 - Kit must maintain a small browser build and static-asset lifecycle alongside
   its compiled terminal binary.
-- Framework-free view modules require discipline around identity, cleanup,
-  focus, and incremental DOM updates.
+- Solid adds a browser runtime and JSX compilation step even though transport
+  and reducer logic remain framework-independent.
 - Snapshot recovery on reload favors correctness over minimizing initial data
   transfer.
 - The minimal client will initially have less presentation richness and fewer
   management surfaces than the OpenTUI application.
-- Adding a client framework later would require a deliberate migration of the
-  view layer, though the transport and reducer layers should remain reusable.
+- Mica remains the styling and native-component convention layer; Solid owns
+  composition, reactivity, and DOM lifecycle rather than introducing a second
+  visual design system.
 
 ## Related
 

@@ -4,12 +4,6 @@ import micaCss from "@akonwi/mica/mica.css" with { type: "text" };
 import type { Server, ServerWebSocket } from "bun";
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import clientCss from "../web/client.css" with { type: "text" };
-// @ts-expect-error: Bun's text loader intentionally reads this module as source text.
-import clientTypeScript from "../web/client.ts" with { type: "text" };
-// @ts-expect-error: Bun's text loader intentionally reads this module as source text.
-import clientStateTypeScript from "../web/client-state.ts" with {
-	type: "text",
-};
 import clientHtml from "../web/index.html" with { type: "text" };
 import {
 	MAX_REMOTE_ATTACHMENT_BYTES,
@@ -70,7 +64,25 @@ const MAX_WEB_CHUNK_BYTES = 32 * 1024;
 const MAX_MESSAGE_CHUNK_TOKENS = 1024;
 const MAX_MESSAGE_CHUNK_CACHE_BYTES = 16 * 1024 * 1024;
 
-const browserTranspiler = new Bun.Transpiler({ loader: "ts" });
+declare const __KIT_WEB_CLIENT_JS__: string | undefined;
+
+let developmentWebClient: Promise<string> | null = null;
+
+function webClientJavaScript(): Promise<string> {
+	if (typeof __KIT_WEB_CLIENT_JS__ === "string") {
+		return Promise.resolve(__KIT_WEB_CLIENT_JS__);
+	}
+	const developmentBuilderUrl = new URL(
+		"../web/build-client.ts",
+		import.meta.url,
+	).href;
+	developmentWebClient ??= import(developmentBuilderUrl).then(
+		({ buildWebClient }: typeof import("../web/build-client")) =>
+			buildWebClient(),
+	);
+	return developmentWebClient;
+}
+
 const WEB_ASSETS = new Map<string, { body: string; contentType: string }>([
 	[
 		"/assets/mica.css",
@@ -79,20 +91,6 @@ const WEB_ASSETS = new Map<string, { body: string; contentType: string }>([
 	[
 		"/assets/client.css",
 		{ body: clientCss, contentType: "text/css; charset=utf-8" },
-	],
-	[
-		"/assets/client-state.js",
-		{
-			body: browserTranspiler.transformSync(clientStateTypeScript),
-			contentType: "text/javascript; charset=utf-8",
-		},
-	],
-	[
-		"/assets/client.js",
-		{
-			body: browserTranspiler.transformSync(clientTypeScript),
-			contentType: "text/javascript; charset=utf-8",
-		},
 	],
 ]);
 
@@ -188,6 +186,15 @@ export class WebRpcServer {
 			maxRequestBodySize: MAX_MULTIPART_BODY_BYTES,
 			fetch: async (request, bunServer) => {
 				const url = new URL(request.url);
+				if (url.pathname === "/assets/client.js") {
+					return new Response(await webClientJavaScript(), {
+						headers: {
+							"cache-control": "no-cache",
+							"content-type": "text/javascript; charset=utf-8",
+							"x-content-type-options": "nosniff",
+						},
+					});
+				}
 				const webAsset = WEB_ASSETS.get(url.pathname);
 				if (webAsset) {
 					return new Response(webAsset.body, {

@@ -60,10 +60,14 @@
 		"yaml": "^2.8.3"
 	},
 	"devDependencies": {
+		"@babel/core": "7.28.0",
+		"@babel/preset-typescript": "7.27.1",
 		"@biomejs/biome": "2.3.14",
+		"@types/babel__core": "7.20.5",
 		"@types/bun": "latest",
 		"@types/diff": "^8.0.0",
 		"@types/proper-lockfile": "^4.1.4",
+		"babel-preset-solid": "1.9.12",
 		"typescript": "^5.9.0"
 	},
 	"engines": {

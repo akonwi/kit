@@ -286,10 +286,11 @@ needed.
 
 ## Current web-mode limitations
 
-The initial Mica browser client provides snapshot/replay recovery, streaming
-transcript and tool activity, a responsive composer, attachments, aborts,
-paginated history, and native remote-interaction dialogs. It uses same-origin
-assets and keeps protocol reduction separate from DOM rendering.
+The initial Mica and SolidJS browser client provides snapshot/replay recovery,
+streaming transcript and tool activity, a responsive composer, attachments,
+aborts, paginated history, and native remote-interaction dialogs. It uses
+same-origin, build-bundled assets and keeps its plain TypeScript protocol reducer
+separate from Solid rendering.
 
 Protocol version 2 still contains legacy Pi-shaped lifecycle records for raw
 turn and message boundaries. These must migrate to transport-safe projections of

@@ -81,18 +81,20 @@ system. The initial stack should stay HTML-first:
 - semantic HTML and native browser behavior
 - Mica's CSS-only layout custom elements and native component patterns
 - opt-in Mica JavaScript modules only where accessible behavior requires them
-- small JavaScript modules for WebSocket transport and client-state updates
-- no React
+- plain TypeScript modules for WebSocket transport, protocol reduction, and
+  services
+- SolidJS for reactive view composition and DOM lifecycle; no React or virtual
+  DOM
 
 The first client is a functional protocol client, not a complete redesign. It
 should emulate Kit's TUI hierarchy—session chrome, transcript, tool activity,
-composer, status, and dialogs—while keeping the implementation simple. Defer a
-full port and detailed interaction design until the RPC parity gaps are closed.
-A different lightweight framework remains an option later if streaming and
-multi-client state become difficult to manage with small modules.
+composer, status, and dialogs—while keeping the implementation simple. Mica
+remains the style and native-component convention layer; Solid does not own
+protocol state. Defer a full port and detailed interaction design until the RPC
+parity gaps are closed.
 
-The exact Mica dependency/distribution strategy and production web-asset build
-can be decided when implementation reaches the browser-client milestone.
+The browser bundle is produced during Kit's build and embedded in the compiled
+binary. See ADR 0028 for the client layering and asset boundary.
 
 ## Required parity work
 
@@ -262,6 +264,9 @@ for every remote client rather than hidden in renderer-specific code:
 - [ ] Add automated browser coverage for prompt streaming, reconnect/snapshot
   fallback, background-tab event processing, attachment lifecycle, dialog focus,
   and narrow layouts.
+- [ ] Split the browser controller into independently tested transport,
+  command/upload service, and local view-state modules before additional client
+  surfaces make it another monolithic application boundary.
 - [ ] Define explicit shared-session control UX for session/model changes made by
   another connected client; session changes currently force a fresh snapshot.
 

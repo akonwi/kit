@@ -160,19 +160,20 @@ describe("WebRpcServer", () => {
 		const page = await fetch(address.url);
 		const mica = await fetch(`${address.url}/assets/mica.css`);
 		const client = await fetch(`${address.url}/assets/client.js`);
-		const state = await fetch(`${address.url}/assets/client-state.js`);
 
 		expect(await health.json()).toEqual({ ok: true, mode: "web", clients: 0 });
 		expect(page.headers.get("content-type")).toContain("text/html");
 		expect(page.headers.get("content-security-policy")).toContain(
 			"script-src 'self'",
 		);
-		expect(await page.text()).toContain("Conversation transcript");
+		expect(await page.text()).toContain('<div id="app"></div>');
 		expect(mica.headers.get("content-type")).toContain("text/css");
 		expect((await mica.text()).length).toBeGreaterThan(60_000);
 		expect(client.headers.get("content-type")).toContain("text/javascript");
-		expect(await client.text()).toContain("new WebSocket");
-		expect(await state.text()).toContain("reduceClientRecord");
+		const clientJavaScript = await client.text();
+		expect(clientJavaScript).toContain("new WebSocket");
+		expect(clientJavaScript).toContain("Conversation transcript");
+		expect(clientJavaScript).toContain("solid-js");
 	});
 
 	test("uploads and removes opaque attachments", async () => {
