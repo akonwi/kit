@@ -18,6 +18,7 @@
 	);
 	--kit-panel-text: var(--color-text-muted);
 	--kit-shell-padding: var(--space-sm);
+	--kit-composer-height: 2.5rem;
 }
 
 html,
@@ -274,7 +275,8 @@ body {
 }
 
 .activity-panel-footer {
-	flex: 0 0 1.75rem;
+	/* Match the composer content height plus its one-pixel top border. */
+	flex: 0 0 calc(var(--kit-composer-height) + 1px);
 	display: flex;
 	align-items: center;
 	padding-inline: var(--space-sm);
@@ -753,10 +755,10 @@ details[open] > summary > .disclosure-marker {
 .composer-form textarea {
 	display: block;
 	inline-size: 100%;
-	min-block-size: 3rem;
+	min-block-size: var(--kit-composer-height);
 	max-block-size: 12rem;
 	margin: 0;
-	padding: var(--space-sm) 12rem var(--space-sm) var(--kit-shell-padding);
+	padding: var(--space-xs) 12rem var(--space-xs) var(--kit-shell-padding);
 	resize: none;
 	border: 0;
 	border-radius: 0;
@@ -776,7 +778,7 @@ details[open] > summary > .disclosure-marker {
 	position: absolute;
 	inset-inline-end: var(--space-2xs);
 	inset-block-end: 0;
-	min-block-size: 3rem;
+	min-block-size: var(--kit-composer-height);
 	display: flex;
 	align-items: center;
 	gap: var(--space-2xs);
