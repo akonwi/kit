@@ -335,16 +335,17 @@ export class WebClientController {
 	private messageDelta(record: unknown): Record<string, unknown> | null {
 		if (
 			!isRecord(record) ||
-			record.type !== "message_update" ||
-			!isRecord(record.assistantMessageEvent)
+			record.type !== "agent.message.updated" ||
+			!isRecord(record.update)
 		) {
 			return null;
 		}
-		const event = record.assistantMessageEvent;
-		return (event.type === "text_delta" || event.type === "thinking_delta") &&
-			typeof event.delta === "string" &&
-			typeof event.contentIndex === "number"
-			? event
+		const update = record.update;
+		return update.kind === "content.delta" &&
+			typeof update.delta === "string" &&
+			typeof update.contentIndex === "number" &&
+			typeof update.contentType === "string"
+			? update
 			: null;
 	}
 
@@ -366,8 +367,10 @@ export class WebClientController {
 							!isRecord(next) ||
 							!nextDelta ||
 							next.streamId !== record.streamId ||
+							next.messageId !== record.messageId ||
 							next.sequence !== lastSequence + 1 ||
-							nextDelta.type !== delta.type ||
+							nextDelta.kind !== delta.kind ||
+							nextDelta.contentType !== delta.contentType ||
 							nextDelta.contentIndex !== delta.contentIndex
 						) {
 							break;
@@ -379,7 +382,7 @@ export class WebClientController {
 					if (lastSequence !== record.sequence) {
 						record = {
 							...record,
-							assistantMessageEvent: { ...delta, delta: combinedDelta },
+							update: { ...delta, delta: combinedDelta },
 						};
 						this.state = reduceClientRecord(this.state, record);
 						this.state = { ...this.state, sequence: lastSequence };

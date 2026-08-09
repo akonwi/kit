@@ -26,6 +26,7 @@ function userMessage(turnId: string, text: string) {
 		role: "user" as const,
 		content: text,
 		timestamp: Date.now(),
+		messageId: `${turnId}:user:${text}`,
 		turnId,
 	};
 }
@@ -61,6 +62,7 @@ function assistantMessage(
 		},
 		stopReason: "stop" as const,
 		timestamp: Date.now(),
+		messageId: `${turnId}:assistant:${text}`,
 		turnId,
 		...(options?.synthetic ? { synthetic: options.synthetic } : {}),
 	};
@@ -146,6 +148,59 @@ describe("FilePersistence", () => {
 		persistence.dispose();
 	});
 
+	test("removes a recovered message without dropping non-transcript entries", async () => {
+		const session = await storage.createSession(
+			projectDir,
+			"claude-sonnet-4-6",
+		);
+		const user = userMessage("turn-1", "hello");
+		const failed = {
+			...assistantMessage("turn-1", "temporary failure"),
+			stopReason: "error" as const,
+			errorMessage: "connection reset",
+		};
+		const turn: Turn = { id: "turn-1", messages: [user, failed] };
+		await storage.appendSessionEntries(session, [
+			{
+				type: "subagent_started",
+				timestamp: new Date().toISOString(),
+				agentName: "scout",
+				subagentConversationId: "subagent-1",
+				source: "agent",
+			},
+		]);
+		const runtime = new FakeRuntime(session);
+		const persistence = new FilePersistence(runtime);
+		for (const message of turn.messages) {
+			runtime.emit({
+				type: "session.message.appended",
+				session,
+				turn,
+				message,
+			});
+		}
+		const recoveredSession: Session = {
+			...session,
+			turns: [{ id: turn.id, messages: [user] }],
+		};
+		runtime.emit({
+			type: "session.transcript.replaced",
+			session: recoveredSession,
+			reason: "recovery",
+			removedMessageId: failed.messageId,
+		});
+		await persistence.flush();
+
+		const restored = await storage.readSession(session.id);
+		expect(restored?.turns[0]?.messages).toEqual([user]);
+		expect(
+			(await storage.readSessionEntries(session.id)).some(
+				(entry) => entry.type === "subagent_started",
+			),
+		).toBe(true);
+		persistence.dispose();
+	});
+
 	test("persists messages from every Pi loop turn before the final completed turn", async () => {
 		const session = await storage.createSession(
 			projectDir,
@@ -220,6 +275,7 @@ describe("FilePersistence", () => {
 			appendSessionInfo: storage.appendSessionInfo,
 			appendThinkingLevelChange: storage.appendThinkingLevelChange,
 			appendTurn: storage.appendTurn,
+			removePersistedMessage: storage.removePersistedMessage,
 		});
 		persistence.onFailure((event) => failures.push(event.error));
 

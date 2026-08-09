@@ -82,6 +82,7 @@ function assistantMessage(
 		},
 		stopReason: "stop" as const,
 		timestamp: Date.now(),
+		messageId: `assistant:${text}`,
 	};
 }
 
@@ -117,6 +118,7 @@ describe("SubagentManager", () => {
 					role: "user" as const,
 					content: "kept question",
 					timestamp: Date.parse("2025-01-01T00:00:04.000Z"),
+					messageId: "kept-message",
 					turnId: "stale-turn",
 				},
 			],
@@ -755,6 +757,7 @@ describe("SubagentManager", () => {
 					role: "user" as const,
 					content: "kept question",
 					timestamp: Date.parse("2025-01-01T00:00:04.000Z"),
+					messageId: "kept-question",
 					turnId: "kept-turn",
 				},
 				{

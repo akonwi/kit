@@ -26,7 +26,7 @@ exclusive.
 - stdin carries commands; stdout carries responses and runtime events; stderr
   carries diagnostics.
 - Prompt acceptance is asynchronous. Completion is represented by
-  `agent_settled`, not by the prompt response.
+  `agent.settled`, not by the prompt response.
 - RPC and print mode share one headless host that owns runtime and built-in
   plugin initialization and cleanup.
 - RPC mode creates a persistent session by default, can open one with

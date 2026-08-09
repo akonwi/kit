@@ -7,6 +7,24 @@ import {
 	reduceClientRecord,
 } from "./client-state";
 
+const assistantMessage = (text: string) => ({
+	role: "assistant",
+	content: [{ type: "text", text }],
+	messageId: "message-assistant",
+	turnId: "turn-1",
+});
+
+const textDelta = (delta: string) => ({
+	type: "agent.message.updated",
+	messageId: "message-assistant",
+	update: {
+		kind: "content.delta",
+		contentType: "text",
+		contentIndex: 0,
+		delta,
+	},
+});
+
 describe("web client state", () => {
 	test("replaces state from a snapshot and enters live mode", () => {
 		let state = createClientState();
@@ -16,7 +34,14 @@ describe("web client state", () => {
 			streamId: "stream-1",
 			sequence: 4,
 			state: { sessionId: "session-1", isStreaming: false },
-			messages: [{ role: "user", content: "hello" }],
+			messages: [
+				{
+					role: "user",
+					content: "hello",
+					messageId: "message-user",
+					turnId: "turn-1",
+				},
+			],
 			messageOffset: 3,
 			totalMessageCount: 4,
 			pendingInteractions: [{ id: "confirm-1", kind: "confirm" }],
@@ -25,6 +50,7 @@ describe("web client state", () => {
 			phase: "synchronizing",
 			streamId: "stream-1",
 			sequence: 4,
+			messageKeys: ["message-user"],
 			messageOffset: 3,
 			totalMessageCount: 4,
 		});
@@ -52,21 +78,21 @@ describe("web client state", () => {
 			targetSequence: 3,
 		});
 		state = reduceClientRecord(state, {
-			type: "agent_start",
+			type: "agent.start",
 			streamId: "stream-1",
 			sequence: 3,
 		});
 		expect(state.sequence).toBe(3);
 		expect(
 			reduceClientRecord(state, {
-				type: "agent_start",
+				type: "agent.start",
 				streamId: "stream-1",
 				sequence: 3,
 			}),
 		).toBe(state);
 		expect(() =>
 			reduceClientRecord(state, {
-				type: "agent_settled",
+				type: "agent.settled",
 				streamId: "stream-1",
 				sequence: 5,
 			}),
@@ -90,7 +116,7 @@ describe("web client state", () => {
 		).toThrow("The active session changed");
 	});
 
-	test("continues an assistant message present in a streaming snapshot", () => {
+	test("continues an identified assistant message from a streaming snapshot", () => {
 		let state = reduceClientRecord(createClientState(), {
 			type: "sync",
 			mode: "snapshot",
@@ -101,34 +127,26 @@ describe("web client state", () => {
 				isStreaming: true,
 				pendingMessageCount: 1,
 			},
-			messages: [
-				{ role: "assistant", content: [{ type: "text", text: "hel" }] },
-			],
+			messages: [assistantMessage("hel")],
 			messageOffset: 0,
 			totalMessageCount: 1,
 			pendingInteractions: [],
 		});
 		state = reduceClientRecord(state, {
-			type: "message_update",
-			assistantMessageEvent: {
-				type: "text_delta",
-				contentIndex: 0,
-				delta: "lo",
-			},
+			...textDelta("lo"),
 			streamId: "stream-1",
 			sequence: 3,
 		});
-		expect(state.messages[0]).toEqual({
-			role: "assistant",
-			content: [{ type: "text", text: "hello" }],
-		});
+		expect(state.messages[0]).toEqual(assistantMessage("hello"));
 		expect(state.queuedMessageCount).toBe(1);
 	});
 
-	test("buffers live deltas until an active snapshot reference is hydrated", () => {
+	test("buffers live deltas until an identified snapshot reference is hydrated", () => {
 		const reference = {
 			type: "message_reference",
 			role: "assistant",
+			messageId: "message-assistant",
+			turnId: "turn-1",
 			messageIndex: 0,
 			token: "token-1",
 		};
@@ -144,27 +162,21 @@ describe("web client state", () => {
 			pendingInteractions: [],
 		});
 		state = reduceClientRecord(state, {
-			type: "message_update",
-			assistantMessageEvent: {
-				type: "text_delta",
-				contentIndex: 0,
-				delta: "lo",
-			},
+			...textDelta("lo"),
 			streamId: "stream-1",
 			sequence: 3,
 		});
-		state = hydrateMessageReference(state, 0, reference, {
-			role: "assistant",
-			content: [{ type: "text", text: "hel" }],
-		});
-		expect(state.messages[0]).toEqual({
-			role: "assistant",
-			content: [{ type: "text", text: "hello" }],
-		});
+		state = hydrateMessageReference(
+			state,
+			0,
+			reference,
+			assistantMessage("hel"),
+		);
+		expect(state.messages[0]).toEqual(assistantMessage("hello"));
 		expect(state.pendingActiveMessageDeltas).toEqual([]);
 	});
 
-	test("reduces streaming messages, tools, and interactions", () => {
+	test("reduces semantic message, tool, and interaction events", () => {
 		let state: ClientState = {
 			...createClientState(),
 			phase: "live",
@@ -178,24 +190,21 @@ describe("web client state", () => {
 			});
 		};
 		apply({
-			type: "message_start",
-			message: { role: "assistant", content: [{ type: "text", text: "" }] },
+			type: "agent.message.started",
+			turnId: "turn-1",
+			messageId: "message-assistant",
+			message: assistantMessage(""),
 		});
+		apply(textDelta("hello"));
 		apply({
-			type: "message_update",
-			assistantMessageEvent: {
-				type: "text_delta",
-				contentIndex: 0,
-				delta: "hello",
-			},
-		});
-		apply({
-			type: "tool_execution_start",
+			type: "agent.tool.started",
+			turnId: "turn-1",
 			toolCallId: "tool-1",
 			toolName: "read",
 		});
 		apply({
-			type: "tool_execution_end",
+			type: "agent.tool.ended",
+			turnId: "turn-1",
 			toolCallId: "tool-1",
 			result: "done",
 		});
@@ -204,9 +213,8 @@ describe("web client state", () => {
 			request: { id: "request-1", kind: "confirm", payload: {} },
 		});
 
-		expect(state.messages).toEqual([
-			{ role: "assistant", content: [{ type: "text", text: "hello" }] },
-		]);
+		expect(state.messages).toEqual([assistantMessage("hello")]);
+		expect(state.messageKeys).toEqual(["message-assistant"]);
 		expect(state.tools[0]).toMatchObject({
 			id: "tool-1",
 			status: "complete",
@@ -215,5 +223,61 @@ describe("web client state", () => {
 
 		apply({ type: "ui_resolved", requestId: "request-1" });
 		expect(state.pendingInteractions).toEqual([]);
+	});
+
+	test("requires a fresh snapshot when the server replaces the transcript", () => {
+		const state: ClientState = {
+			...createClientState(),
+			phase: "live",
+			streamId: "stream-1",
+		};
+		expect(() =>
+			reduceClientRecord(state, {
+				type: "session.transcript.replaced",
+				reason: "compaction",
+				streamId: "stream-1",
+				sequence: 1,
+			}),
+		).toThrow("The transcript changed");
+	});
+
+	test("deduplicates semantic lifecycle and commit events by message id", () => {
+		let state: ClientState = {
+			...createClientState(),
+			phase: "live",
+			streamId: "stream-1",
+		};
+		const records = [
+			{
+				type: "user.message.created",
+				messageId: "message-user",
+				message: {
+					role: "user",
+					content: "hello",
+					messageId: "message-user",
+					turnId: "turn-1",
+				},
+			},
+			{
+				type: "session.message.appended",
+				messageId: "message-user",
+				message: {
+					role: "user",
+					content: "hello",
+					messageId: "message-user",
+					turnId: "turn-1",
+				},
+			},
+		];
+		for (const record of records) {
+			state = reduceClientRecord(state, {
+				...record,
+				streamId: "stream-1",
+				sequence: state.sequence + 1,
+			});
+		}
+		expect(state.messages).toHaveLength(1);
+		expect(state.messageKeys).toEqual(["message-user"]);
+		expect(state.totalMessageCount).toBe(1);
 	});
 });

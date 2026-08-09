@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createCommandRegistry } from "../features/commands";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
+import type { KitAgentMessage, Turn } from "../session/types";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
 import { RpcSessionHost } from "./rpc-session-host";
@@ -41,8 +42,113 @@ describe("RpcSessionHost", () => {
 
 		runtime.emit({ type: "agent.start" } as AgentRuntimeEvent);
 
-		expect(first).toEqual([{ type: "agent_start" }]);
-		expect(second).toEqual([{ type: "agent_start" }]);
+		expect(first).toEqual([{ type: "agent.start" }]);
+		expect(second).toEqual([{ type: "agent.start" }]);
+		host.dispose();
+	});
+
+	test("projects identified Kit message events without Pi stream payloads", () => {
+		const runtime = createRuntime();
+		const host = new RpcSessionHost(runtime);
+		const records: unknown[] = [];
+		host.subscribe((record) => records.push(record));
+		const turn: Turn = { id: "turn-1", messages: [] };
+		const message = {
+			role: "assistant",
+			content: [{ type: "text", text: "hi" }],
+			api: "anthropic-messages",
+			provider: "anthropic",
+			model: "claude-sonnet-4-6",
+			usage: {
+				input: 1,
+				output: 1,
+				cacheRead: 0,
+				cacheWrite: 0,
+				totalTokens: 2,
+				cost: {
+					input: 0,
+					output: 0,
+					cacheRead: 0,
+					cacheWrite: 0,
+					total: 0,
+				},
+			},
+			stopReason: "stop",
+			timestamp: 1,
+			messageId: "message-1",
+			turnId: "turn-1",
+		} as Extract<KitAgentMessage, { role: "assistant" }>;
+
+		runtime.emit({
+			type: "agent.message.started",
+			turn,
+			message,
+		} as AgentRuntimeEvent);
+		runtime.emit({
+			type: "agent.message.updated",
+			turn,
+			message,
+			update: {
+				kind: "content.delta",
+				contentType: "text",
+				contentIndex: 0,
+				delta: "hi",
+			},
+		} as AgentRuntimeEvent);
+		runtime.emit({
+			type: "session.message.appended",
+			session: runtime.getSession(),
+			turn,
+			message,
+		} as AgentRuntimeEvent);
+		runtime.emit({
+			type: "session.handoff_summary.appended",
+			session: runtime.getSession(),
+			summaryMessage: message,
+		} as AgentRuntimeEvent);
+		runtime.emit({
+			type: "session.transcript.replaced",
+			session: runtime.getSession(),
+			reason: "recovery",
+			removedMessageId: "message-1",
+		} as AgentRuntimeEvent);
+
+		expect(records).toEqual([
+			{
+				type: "agent.message.started",
+				turnId: "turn-1",
+				messageId: "message-1",
+				message,
+			},
+			{
+				type: "agent.message.updated",
+				turnId: "turn-1",
+				messageId: "message-1",
+				update: {
+					kind: "content.delta",
+					contentType: "text",
+					contentIndex: 0,
+					delta: "hi",
+				},
+			},
+			{
+				type: "session.message.appended",
+				turnId: "turn-1",
+				messageId: "message-1",
+				message,
+			},
+			{
+				type: "session.handoff_summary.appended",
+				turnId: "turn-1",
+				messageId: "message-1",
+				message,
+			},
+			{
+				type: "session.transcript.replaced",
+				reason: "recovery",
+				removedMessageId: "message-1",
+			},
+		]);
 		host.dispose();
 	});
 
@@ -99,6 +205,8 @@ describe("RpcSessionHost", () => {
 		const messages = Array.from({ length: 5 }, (_, index) => ({
 			role: "user",
 			content: `message-${index}`,
+			messageId: `message-${index}`,
+			turnId: `turn-${index}`,
 		}));
 		const host = new RpcSessionHost(
 			createRuntime({ getMessages: () => messages }),

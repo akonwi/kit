@@ -10,9 +10,9 @@ kit --rpc --session <id-or-path>
 kit --rpc --model <provider>/<model-id>
 ```
 
-RPC mode is inspired by Pi's RPC mode and follows its command, response, and
-event envelope conventions. It is not currently a complete implementation of
-Pi's command surface.
+RPC mode follows newline-delimited command and response envelope conventions
+similar to Pi's RPC mode, but its event schema is Kit-owned. Provider and Pi
+streaming types do not cross the protocol boundary.
 
 ## Transport and lifecycle
 
@@ -24,8 +24,8 @@ Pi's command surface.
 - Responses and events can interleave while accepted prompts execute. Include
   a string `id` to correlate a response with its command.
 - A successful `prompt` response means the prompt was accepted, not that the
-  model has completed. Wait for `agent_settled` and inspect `message_end` or
-  call `get_last_assistant_text` for the final result.
+  model has completed. Wait for `agent.settled` and inspect
+  `agent.message.ended` or call `get_last_assistant_text` for the final result.
 - Closing stdin shuts down Kit. SIGINT and SIGTERM abort active work and exit
   with status 130 and 143, respectively.
 
@@ -102,29 +102,42 @@ finish before the next command is dispatched.
 
 ## Events
 
-RPC mode currently emits:
+RPC mode emits Kit semantic events using the same dotted names as the runtime:
 
-- `agent_start`, `agent_end`, and `agent_settled`
-- `turn_start` and `turn_end`
-- `message_start`, `message_update`, and `message_end`
-- `tool_execution_start`, `tool_execution_update`, and `tool_execution_end`
-- `queue_update`
-- `auto_retry_start` and `auto_retry_end`
-- `error` for an execution failure after a command was accepted
+- `agent.start`, `agent.end`, and `agent.settled`
+- `agent.turn.started` and `agent.turn.completed`
+- `user.message.created`
+- `agent.message.started`, `agent.message.updated`, and
+  `agent.message.ended`
+- `agent.tool.started`, `agent.tool.updated`, and `agent.tool.ended`
+- `session.message.appended` and `session.handoff_summary.appended`
+- `session.transcript.replaced` when recovery or compaction invalidates the
+  current transcript projection
+- `chat.message-queue.changed`
+- `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
+- `agent.run.failed` for an execution failure after a command was accepted
 
-`message_update.assistantMessageEvent` contains the model stream delta.
-`message_end.message` is the authoritative completed message.
+Every transcript message has a stable `turnId` and `messageId`.
+`agent.message.updated.update` is a Kit-owned content update with a `kind`,
+`contentType`, and `contentIndex`; content deltas also include `delta`.
+`agent.message.ended.message` is the authoritative completed assistant message.
+`session.message.appended.message` is the authoritative committed transcript
+message and also covers non-assistant messages such as tool results.
+`session.transcript.replaced` requires clients to obtain a fresh snapshot.
 
 ## Example
 
 ```text
 > {"id":"prompt-1","type":"prompt","message":"Summarize this repository"}
 < {"id":"prompt-1","type":"response","command":"prompt","success":true}
-< {"type":"agent_start"}
-< {"type":"turn_start"}
-< {"type":"message_start","message":{"role":"assistant","content":[]}}
-< {"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"..."}}
-< {"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"..."}]}}
-< {"type":"agent_end","messages":[...],"willRetry":false}
-< {"type":"agent_settled"}
+< {"type":"agent.turn.started","turnId":"turn-1"}
+< {"type":"user.message.created","turnId":"turn-1","messageId":"message-1","message":{"role":"user","content":"Summarize this repository","turnId":"turn-1","messageId":"message-1"}}
+< {"type":"session.message.appended","turnId":"turn-1","messageId":"message-1","message":{"role":"user","content":"Summarize this repository","turnId":"turn-1","messageId":"message-1"}}
+< {"type":"agent.start"}
+< {"type":"agent.message.started","turnId":"turn-1","messageId":"message-2","message":{"role":"assistant","content":[],"turnId":"turn-1","messageId":"message-2"}}
+< {"type":"agent.message.updated","turnId":"turn-1","messageId":"message-2","update":{"kind":"content.delta","contentType":"text","contentIndex":0,"delta":"..."}}
+< {"type":"agent.message.ended","turnId":"turn-1","messageId":"message-2","message":{"role":"assistant","content":[{"type":"text","text":"..."}],"turnId":"turn-1","messageId":"message-2"}}
+< {"type":"agent.end","willRetry":false}
+< {"type":"agent.turn.completed","turnId":"turn-1"}
+< {"type":"agent.settled"}
 ```

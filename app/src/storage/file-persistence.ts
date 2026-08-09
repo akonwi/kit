@@ -9,6 +9,7 @@ import {
 	appendSessionInfo,
 	appendThinkingLevelChange,
 	appendTurn,
+	removePersistedMessage,
 } from "./session-storage";
 
 type RuntimeEventSource = {
@@ -25,6 +26,7 @@ type FilePersistenceStorage = {
 	appendSessionInfo: typeof appendSessionInfo;
 	appendThinkingLevelChange: typeof appendThinkingLevelChange;
 	appendTurn: typeof appendTurn;
+	removePersistedMessage: typeof removePersistedMessage;
 };
 
 const defaultStorage: FilePersistenceStorage = {
@@ -36,6 +38,7 @@ const defaultStorage: FilePersistenceStorage = {
 	appendSessionInfo,
 	appendThinkingLevelChange,
 	appendTurn,
+	removePersistedMessage,
 };
 
 type CompactionPersistence = {
@@ -98,6 +101,14 @@ export class FilePersistence {
 						event.session,
 						event.turn.id,
 						event.message,
+					),
+				);
+				break;
+			case "session.transcript.replaced":
+				this.enqueueWrite(() =>
+					this.storage.removePersistedMessage(
+						event.session,
+						event.removedMessageId,
 					),
 				);
 				break;

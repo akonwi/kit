@@ -143,7 +143,9 @@ support requires an explicit sanitization boundary.
 
 View updates will be targeted and identity-aware so streaming updates replace
 the affected message or activity record without rebuilding the whole document.
-The reducer, not DOM shape, owns message and turn identity.
+The reducer, not DOM shape, owns message and turn identity. Stable Kit
+`messageId` and `turnId` values key live events, snapshots, references, and
+paginated transcript results.
 
 ### Protocol and rendering scheduling
 
@@ -169,14 +171,16 @@ without relying on locally observed revisions.
 ### Active message recovery
 
 A bounded snapshot may represent the currently streaming assistant message with
-a `message_reference`. The reducer must retain that message as active and buffer
-continuation deltas until its immutable snapshot bytes are hydrated. If the
+a `message_reference`. The reference carries the same `messageId` and `turnId`
+as the full message. The reducer retains that identified message as active and
+buffers continuation deltas until its immutable snapshot bytes are hydrated. If the
 reference token has expired, a fresh `get_messages` result is a rebased current
 message; buffered deltas must not be applied to it again.
 
-Session changes from another client invalidate transcript projection state. A
-client that observes a different active session requests a fresh snapshot rather
-than trying to merge the new session into its existing transcript.
+Session changes from another client and `session.transcript.replaced` events
+from compaction or retry recovery invalidate transcript projection state. A
+client requests a fresh snapshot rather than trying to merge a replacement into
+its existing transcript.
 
 ### Capability-driven limits
 

@@ -269,14 +269,14 @@ describe("WebRpcServer", () => {
 			sequence: 0,
 		});
 
-		host.emit({ type: "agent_start" });
+		host.emit({ type: "agent.start" });
 		expect(await first.next()).toEqual({
-			type: "agent_start",
+			type: "agent.start",
 			streamId: "stream-1",
 			sequence: 1,
 		});
 		expect(await second.next()).toEqual({
-			type: "agent_start",
+			type: "agent.start",
 			streamId: "stream-1",
 			sequence: 1,
 		});
@@ -310,22 +310,28 @@ describe("WebRpcServer", () => {
 			},
 		});
 
-		host.emit({ type: "turn_start" });
+		host.emit({ type: "agent.turn.started", turnId: "turn-1" });
 		expect(await first.next()).toEqual({
-			type: "turn_start",
+			type: "agent.turn.started",
+			turnId: "turn-1",
 			streamId: "stream-1",
 			sequence: 2,
 		});
 		expect(await second.next()).toEqual({
-			type: "turn_start",
+			type: "agent.turn.started",
+			turnId: "turn-1",
 			streamId: "stream-1",
 			sequence: 2,
 		});
 
 		host.emit({
-			type: "message_end",
+			type: "session.message.appended",
+			turnId: "turn-1",
+			messageId: "message-user",
 			message: {
 				role: "user",
+				turnId: "turn-1",
+				messageId: "message-user",
 				content: [
 					{
 						type: "image",
@@ -339,11 +345,15 @@ describe("WebRpcServer", () => {
 			},
 		});
 		expect(await first.next()).toEqual({
-			type: "message_end",
+			type: "session.message.appended",
+			turnId: "turn-1",
+			messageId: "message-user",
 			streamId: "stream-1",
 			sequence: 3,
 			message: {
 				role: "user",
+				turnId: "turn-1",
+				messageId: "message-user",
 				content: [
 					{
 						type: "image",
@@ -356,9 +366,9 @@ describe("WebRpcServer", () => {
 			},
 		});
 
-		host.emit({ type: "agent_end", messages: [{ role: "assistant" }] });
+		host.emit({ type: "agent.end", messages: [{ role: "assistant" }] });
 		expect(await first.next()).toEqual({
-			type: "agent_end",
+			type: "agent.end",
 			streamId: "stream-1",
 			sequence: 4,
 		});
@@ -560,6 +570,8 @@ describe("WebRpcServer", () => {
 				{
 					id: "large",
 					role: "assistant",
+					messageId: "message-large",
+					turnId: "turn-1",
 					content: [
 						{ type: "text", text: "x".repeat(100 * 1024) },
 						{
@@ -584,6 +596,8 @@ describe("WebRpcServer", () => {
 					expect.objectContaining({
 						type: "message_reference",
 						role: "assistant",
+						messageId: "message-large",
+						turnId: "turn-1",
 						messageIndex: 0,
 					}),
 				],
@@ -607,6 +621,8 @@ describe("WebRpcServer", () => {
 					{
 						type: "message_reference",
 						role: "assistant",
+						messageId: "message-large",
+						turnId: "turn-1",
 						messageIndex: 0,
 						token: expect.any(String),
 						serializedBytes: expect.any(Number),
@@ -657,6 +673,8 @@ describe("WebRpcServer", () => {
 		expect(reconstructed).toEqual({
 			id: "large",
 			role: "assistant",
+			messageId: "message-large",
+			turnId: "turn-1",
 			content: [
 				{ type: "text", text: "x".repeat(100 * 1024) },
 				{

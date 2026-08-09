@@ -33,6 +33,7 @@ export {
 	subagentSessionsDir,
 } from "../storage/subagent-session-storage";
 export type {
+	KitAgentMessage,
 	PersistedKitAgentMessage,
 	Session,
 	SessionCompactionEntry,

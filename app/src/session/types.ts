@@ -25,6 +25,7 @@ export type SyntheticMessageMetadata = {
 };
 
 export type KitAgentMessage = AgentMessage & {
+	messageId: string;
 	turnId: string;
 	synthetic?: SyntheticMessageMetadata;
 };
@@ -136,6 +137,8 @@ export interface SessionCwdChangeEntry extends SessionEntryBase {
 
 export interface SessionCompactionEntry extends SessionEntryBase {
 	type: "compaction";
+	/** Missing only on entries written before stable message identity. */
+	turnId?: string;
 	firstKeptEntryId?: string;
 	compactedTurnCount: number;
 	keptTurnCount: number;
@@ -152,6 +155,8 @@ export interface SubagentEntryBase extends SessionEntryBase {
 
 export interface SessionHandoffSummaryEntry extends SessionEntryBase {
 	type: "handoff_summary";
+	/** Missing only on entries written before stable message identity. */
+	turnId?: string;
 	message: PersistedKitAgentMessage;
 }
 

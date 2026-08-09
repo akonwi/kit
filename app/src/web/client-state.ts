@@ -94,6 +94,12 @@ export function hydrateMessageReference(
 	};
 }
 
+function messageKey(message: unknown, fallback: string): string {
+	return isRecord(message) && typeof message.messageId === "string"
+		? message.messageId
+		: fallback;
+}
+
 export function prependMessages(
 	state: ClientState,
 	messages: unknown[],
@@ -105,7 +111,9 @@ export function prependMessages(
 		...state,
 		messages: [...messages, ...state.messages],
 		messageKeys: [
-			...messages.map((_message, index) => `message:${offset + index}`),
+			...messages.map((message, index) =>
+				messageKey(message, `message:${offset + index}`),
+			),
 			...state.messageKeys,
 		],
 		messageOffset: offset,
@@ -131,20 +139,21 @@ function cloneMessageWithDelta(
 		return message;
 	}
 	const content = [...message.content];
-	const eventType = event.type;
+	const kind = event.kind;
+	const contentType = event.contentType;
 	const delta = typeof event.delta === "string" ? event.delta : "";
-	if (eventType === "text_start") {
+	if (kind === "content.started" && contentType === "text") {
 		content[contentIndex] = { type: "text", text: "" };
-	} else if (eventType === "thinking_start") {
+	} else if (kind === "content.started" && contentType === "thinking") {
 		content[contentIndex] = { type: "thinking", thinking: "" };
-	} else if (eventType === "text_delta") {
+	} else if (kind === "content.delta" && contentType === "text") {
 		const existing = content[contentIndex];
 		const text =
 			isRecord(existing) && typeof existing.text === "string"
 				? existing.text
 				: "";
 		content[contentIndex] = { type: "text", text: `${text}${delta}` };
-	} else if (eventType === "thinking_delta") {
+	} else if (kind === "content.delta" && contentType === "thinking") {
 		const existing = content[contentIndex];
 		const thinking =
 			isRecord(existing) && typeof existing.thinking === "string"
@@ -154,6 +163,15 @@ function cloneMessageWithDelta(
 			type: "thinking",
 			thinking: `${thinking}${delta}`,
 		};
+	} else if (
+		kind === "content.completed" &&
+		typeof event.content === "string" &&
+		(contentType === "text" || contentType === "thinking")
+	) {
+		content[contentIndex] =
+			contentType === "text"
+				? { type: "text", text: event.content }
+				: { type: "thinking", thinking: event.content };
 	}
 	return { ...message, content };
 }
@@ -182,69 +200,96 @@ function applyEvent(
 			}
 			return { ...state, serverState: record.state };
 		}
-		case "agent_start":
+		case "agent.start":
 			return {
 				...state,
 				serverState: { ...state.serverState, isStreaming: true },
 				lastError: null,
 			};
-		case "turn_start":
+		case "agent.turn.started":
 			return { ...state, tools: [] };
-		case "agent_settled":
+		case "agent.settled":
 			return {
 				...state,
 				serverState: { ...state.serverState, isStreaming: false },
 				activeMessageIndex: null,
 				pendingActiveMessageDeltas: [],
 			};
-		case "message_start": {
-			const messages = [...state.messages, record.message];
+		case "user.message.created":
+		case "agent.message.started":
+		case "session.message.appended":
+		case "session.handoff_summary.appended": {
+			if (!isRecord(record.message)) return state;
+			const id =
+				typeof record.messageId === "string"
+					? record.messageId
+					: typeof record.message.messageId === "string"
+						? record.message.messageId
+						: null;
+			const existingIndex = id === null ? -1 : state.messageKeys.indexOf(id);
+			const messages = [...state.messages];
+			const messageKeys = [...state.messageKeys];
+			let messageIndex = existingIndex;
+			if (existingIndex >= 0) {
+				messages[existingIndex] = record.message;
+			} else {
+				messageIndex = messages.length;
+				messages.push(record.message);
+				messageKeys.push(id ?? `message:${state.messageOffset + messageIndex}`);
+			}
+			const activates = record.type === "agent.message.started";
 			return {
 				...state,
 				messages,
-				messageKeys: [
-					...state.messageKeys,
-					`message:${state.messageOffset + messages.length - 1}`,
-				],
-				totalMessageCount: Math.max(
-					state.totalMessageCount + 1,
-					state.messageOffset + messages.length,
-				),
-				activeMessageIndex: messages.length - 1,
-				pendingActiveMessageDeltas: [],
+				messageKeys,
+				totalMessageCount:
+					existingIndex >= 0
+						? state.totalMessageCount
+						: Math.max(
+								state.totalMessageCount + 1,
+								state.messageOffset + messages.length,
+							),
+				activeMessageIndex: activates ? messageIndex : state.activeMessageIndex,
+				pendingActiveMessageDeltas: activates
+					? []
+					: state.pendingActiveMessageDeltas,
 			};
 		}
-		case "message_update": {
-			if (
-				state.activeMessageIndex === null ||
-				!isRecord(record.assistantMessageEvent)
-			) {
+		case "agent.message.updated": {
+			if (typeof record.messageId !== "string" || !isRecord(record.update)) {
 				return state;
 			}
-			const activeMessage = state.messages[state.activeMessageIndex];
+			const messageIndex = state.messageKeys.indexOf(record.messageId);
+			if (messageIndex < 0) return state;
+			const activeMessage = state.messages[messageIndex];
 			if (
 				isRecord(activeMessage) &&
 				activeMessage.type === "message_reference"
 			) {
 				return {
 					...state,
+					activeMessageIndex: messageIndex,
 					pendingActiveMessageDeltas: [
 						...state.pendingActiveMessageDeltas,
-						record.assistantMessageEvent,
+						record.update,
 					],
 				};
 			}
 			const messages = [...state.messages];
-			messages[state.activeMessageIndex] = cloneMessageWithDelta(
+			messages[messageIndex] = cloneMessageWithDelta(
 				activeMessage,
-				record.assistantMessageEvent,
+				record.update,
 			);
-			return { ...state, messages };
+			return { ...state, messages, activeMessageIndex: messageIndex };
 		}
-		case "message_end": {
-			if (state.activeMessageIndex === null) return state;
+		case "agent.message.ended": {
+			if (typeof record.messageId !== "string" || !isRecord(record.message)) {
+				return state;
+			}
+			const messageIndex = state.messageKeys.indexOf(record.messageId);
+			if (messageIndex < 0) return state;
 			const messages = [...state.messages];
-			messages[state.activeMessageIndex] = record.message;
+			messages[messageIndex] = record.message;
 			return {
 				...state,
 				messages,
@@ -252,7 +297,7 @@ function applyEvent(
 				pendingActiveMessageDeltas: [],
 			};
 		}
-		case "tool_execution_start": {
+		case "agent.tool.started": {
 			if (typeof record.toolCallId !== "string") return state;
 			return {
 				...state,
@@ -269,8 +314,8 @@ function applyEvent(
 				],
 			};
 		}
-		case "tool_execution_update":
-		case "tool_execution_end": {
+		case "agent.tool.updated":
+		case "agent.tool.ended": {
 			if (typeof record.toolCallId !== "string") return state;
 			return {
 				...state,
@@ -279,18 +324,18 @@ function applyEvent(
 						? {
 								...tool,
 								result:
-									record.type === "tool_execution_end"
+									record.type === "agent.tool.ended"
 										? record.result
 										: record.partialResult,
 								isError: record.isError === true,
 								status:
-									record.type === "tool_execution_end" ? "complete" : "running",
+									record.type === "agent.tool.ended" ? "complete" : "running",
 							}
 						: tool,
 				),
 			};
 		}
-		case "queue_update":
+		case "chat.message-queue.changed":
 			return { ...state, queuedMessageCount: queuedCount(record) };
 		case "ui_request": {
 			const incomingRequest = record.request;
@@ -333,6 +378,9 @@ function applyEvent(
 					}
 				: state;
 		}
+		case "session.transcript.replaced":
+			throw new ProtocolSyncError("The transcript changed");
+		case "agent.run.failed":
 		case "error":
 			return {
 				...state,
@@ -375,9 +423,11 @@ export function reduceClientRecord(
 				sequence: record.sequence,
 				serverState,
 				messages,
-				messageKeys: messages.map(
-					(_message, index) =>
+				messageKeys: messages.map((message, index) =>
+					messageKey(
+						message,
 						`message:${(typeof record.messageOffset === "number" ? record.messageOffset : 0) + index}`,
+					),
 				),
 				messageOffset:
 					typeof record.messageOffset === "number" ? record.messageOffset : 0,

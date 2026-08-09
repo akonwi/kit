@@ -29,7 +29,7 @@ A failed command has `success: false` and an `error` string. Runtime events do
 not carry command ids and are published independently from responses.
 
 Prompt acceptance is asynchronous. A successful prompt response means Kit
-accepted the prompt; `agent_settled` marks the end of the resulting run.
+accepted the prompt; `agent.settled` marks the end of the resulting run.
 
 ## Commands
 
@@ -76,17 +76,37 @@ it.
 
 ## Events
 
-Kit currently publishes these event types:
+Kit publishes semantic runtime event names:
 
-- `agent_start`, `agent_end`, and `agent_settled`
-- `turn_start` and `turn_end`
-- `message_start`, `message_update`, and `message_end`
-- `tool_execution_start`, `tool_execution_update`, and `tool_execution_end`
-- `queue_update`
-- `auto_retry_start` and `auto_retry_end`
+- `agent.start`, `agent.end`, and `agent.settled`
+- `agent.turn.started` and `agent.turn.completed`
+- `user.message.created`
+- `agent.message.started`, `agent.message.updated`, and
+  `agent.message.ended`
+- `agent.tool.started`, `agent.tool.updated`, and `agent.tool.ended`
+- `session.message.appended` and `session.handoff_summary.appended`
+- `session.transcript.replaced` when recovery or compaction invalidates the
+  current transcript projection
+- `chat.message-queue.changed`
+- `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
+- `agent.run.failed`
 - `state_changed`
 - `ui_request` and `ui_resolved`
-- `error`
+- `error` for transport-level failures after asynchronous command acceptance
+
+Pi event names and provider streaming payloads do not cross the core `Agent`
+boundary. `agent.message.updated` carries a Kit-owned `update` with
+`kind: "content.started" | "content.delta" | "content.completed"`, a
+`contentType`, and a `contentIndex`. Delta updates include `delta`; completed
+text and thinking updates may include authoritative `content`.
+
+Message lifecycle and commit records carry `turnId`, `messageId`, and, except
+for incremental updates, the identified message. `session.message.appended` is
+the authoritative durable transcript event and includes tool results and custom
+messages that do not have an assistant streaming lifecycle. Clients reconcile
+lifecycle and commit events by `messageId`. `session.transcript.replaced`
+invalidates the current projection; clients obtain a fresh snapshot rather than
+merging transcript positions across the replacement.
 
 `state_changed` carries a fresh state snapshot after shared state mutations such
 as session, model, or thinking-level changes. Web mode broadcasts runtime events
@@ -112,12 +132,14 @@ bounded transcript tail. Snapshots retain at most the latest 200 messages and
 missing history, which clients retrieve through paginated `get_messages`
 commands. Web message pages are also capped at 64 KiB. An individually oversized
 message becomes a `message_reference` and is reconstructed through bounded
-`get_message_chunk` responses. Reference tokens address immutable browser-safe
+`get_message_chunk` responses. References preserve the full message's
+`messageId`, `turnId`, and role. Reference tokens address immutable browser-safe
 serialized bytes in a 16 MiB bounded cache, so transcript mutation cannot mix
 chunk versions and chunks never restore projected image data or server paths.
 Evicted tokens are rejected; a single projected message above the cache limit is
-reported as `message_unavailable`. A snapshot may use a reference for the active
-streaming assistant message. Clients retain it as the active message and buffer
+reported as `message_unavailable`. Snapshots include the active identified assistant partial even though it is not
+yet committed to session storage, and may represent it with a reference. Clients
+retain it as the active message and buffer
 live continuation deltas until the immutable snapshot reference is hydrated. If
 the token has expired, a fresh message page is already rebased to current server
 state and buffered deltas must not be applied to it again.
@@ -280,9 +302,8 @@ mode.
 The server limits inbound messages to 1 MiB and buffered per-client output to
 16 MiB. A client that exceeds the backpressure limit is disconnected rather
 than being allowed to consume unbounded memory or silently lose protocol
-ordering. Web mode omits the complete message-history copy from `agent_end`;
-clients build the transcript from message events and request snapshots when
-needed.
+ordering. `agent.end` omits the complete message-history copy; clients build the
+transcript from identified message events and request snapshots when needed.
 
 ## Current web-mode limitations
 
@@ -292,11 +313,10 @@ aborts, paginated history, and native remote-interaction dialogs. It uses
 same-origin, build-bundled assets and keeps its plain TypeScript protocol reducer
 separate from Solid rendering.
 
-Protocol version 2 still contains legacy Pi-shaped lifecycle records for raw
-turn and message boundaries. These must migrate to transport-safe projections of
-Kit's semantic `AgentRuntime` events before the protocol is treated as the
-stable boundary for browser and remote-TUI clients; Pi remains private to the
-core `Agent`.
+Protocol version 2 now projects Kit's semantic `AgentRuntime` events and uses
+stable turn/message identities across streaming, persistence, snapshots,
+references, and pagination. Older sessions derive message identities from their
+persisted JSONL entry ids during load or legacy migration.
 
 Before web mode reaches feature parity it still needs richer session/model
 management, plugin-provided client surfaces, and transport-neutral adapters for

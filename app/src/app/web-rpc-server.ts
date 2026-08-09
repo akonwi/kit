@@ -416,14 +416,21 @@ export class WebRpcServer {
 
 	private createMessageReference(message: unknown, messageIndex: number) {
 		const bytes = this.serializedProjectedMessage(message);
-		const role =
-			isRecord(message) && typeof message.role === "string"
-				? message.role
-				: undefined;
+		const identity = isRecord(message)
+			? {
+					...(typeof message.role === "string" ? { role: message.role } : {}),
+					...(typeof message.messageId === "string"
+						? { messageId: message.messageId }
+						: {}),
+					...(typeof message.turnId === "string"
+						? { turnId: message.turnId }
+						: {}),
+				}
+			: {};
 		if (bytes.length > MAX_MESSAGE_CHUNK_CACHE_BYTES) {
 			return {
 				type: "message_unavailable",
-				...(role ? { role } : {}),
+				...identity,
 				messageIndex,
 				serializedBytes: bytes.length,
 				reason: "exceeds_recovery_limit",
@@ -444,7 +451,7 @@ export class WebRpcServer {
 		this.messageChunkCacheBytes += bytes.length;
 		return {
 			type: "message_reference",
-			...(role ? { role } : {}),
+			...identity,
 			messageIndex,
 			token,
 			serializedBytes: bytes.length,
@@ -911,7 +918,7 @@ export class WebRpcServer {
 	}
 
 	private projectRecord(record: unknown): unknown {
-		if (isRecord(record) && record.type === "agent_end") {
+		if (isRecord(record) && record.type === "agent.end") {
 			const projected = { ...record };
 			delete projected.messages;
 			return this.projectValue(projected, new WeakSet());

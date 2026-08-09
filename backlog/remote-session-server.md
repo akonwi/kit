@@ -247,16 +247,16 @@ separating the existing TUI's presentation state from its in-process
 The first browser client exposed follow-up protocol work that should be solved
 for every remote client rather than hidden in renderer-specific code:
 
-- [ ] Replace the protocol's legacy Pi-shaped `turn_start` and
+- [x] Replace the protocol's legacy Pi-shaped `turn_start` and
   `message_start/update/end` records with projections of Kit's semantic
   `AgentRuntime` events (`agent.turn.*`, `agent.message.*`,
   `user.message.created`, and `session.message.appended`). Pi event names,
-  payloads, and types must remain
-  private to the core `Agent`.
-- [ ] Preserve Kit's existing `Turn.id` consistently in snapshot and live
-  protocol records, and add a stable message identity (potentially promoting
-  persisted message-entry IDs) instead of deriving DOM keys from transcript
-  position.
+  payloads, and types remain private to the core `Agent`; streaming updates use
+  a Kit-owned content-update schema.
+- [x] Preserve Kit's existing `Turn.id` consistently in snapshot and live
+  protocol records, and promote persisted message-entry IDs to stable
+  `messageId` values shared by live events, snapshots, references, pagination,
+  and legacy-session migration.
 - [ ] Add a server-owned generation to pending-interaction snapshots, pages, and
   events so clients can reject pages invalidated by live mutations.
 - [ ] Advertise attachment quotas, upload concurrency, page sizes, and recovery

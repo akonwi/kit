@@ -141,7 +141,7 @@ export type RuntimeStatus = {
 	contextUsage: RuntimeContextUsage | null;
 };
 
-export type RuntimeEventMap = AgentEventMap & {
+export type RuntimeEventMap = Omit<AgentEventMap, "message.committed"> & {
 	"agent.model.changed": { model: Model<Api>; thinkingLevel: ThinkingLevel };
 	"agent.turn.completed": { turn: Turn | null };
 	"agent.settled": Record<string, never>;
@@ -149,6 +149,11 @@ export type RuntimeEventMap = AgentEventMap & {
 		session: Session;
 		turn: Turn;
 		message: KitAgentMessage;
+	};
+	"session.transcript.replaced": {
+		session: Session;
+		reason: "recovery";
+		removedMessageId: string;
 	};
 	"bash.command.started": {
 		turn: Turn;
@@ -795,6 +800,12 @@ export class AgentRuntime {
 			nextTurns.push(nextLastTurn);
 		}
 		this.agent.replaceFromTurns(nextTurns);
+		this.syncSessionFromAgentState();
+		this.bus.publish("session.transcript.replaced", {
+			session: this.session,
+			reason: "recovery",
+			removedMessageId: lastMessage.messageId,
+		});
 		this.bus.publish("session.active.changed", { session: this.session });
 	}
 
@@ -1074,21 +1085,80 @@ export class AgentRuntime {
 
 	private handleAgentEvent(event: AgentEvent) {
 		this.createRecoveryPromiseForAgentEnd(event);
-		const { type, ...payload } = event;
-
-		switch (type) {
-			// Side effect before forwarding
+		switch (event.type) {
 			case "agent.start":
 				this.runSettled = false;
-				break;
+				this.bus.publish("agent.start", {});
+				return;
 			case "agent.turn.started":
 				this.syncPendingState();
-				break;
+				this.bus.publish("agent.turn.started", { turn: event.turn });
+				return;
+			case "agent.message.started":
+				this.bus.publish("agent.message.started", {
+					turn: event.turn,
+					message: event.message,
+				});
+				return;
+			case "agent.message.updated":
+				this.bus.publish("agent.message.updated", {
+					turn: event.turn,
+					message: event.message,
+					update: event.update,
+				});
+				return;
+			case "agent.message.ended":
+				this.bus.publish("agent.message.ended", {
+					turn: event.turn,
+					message: event.message,
+				});
+				return;
 			case "user.message.created":
 				this.syncPendingState();
-				break;
-
-			// Enriched → published as a different event
+				this.bus.publish("user.message.created", {
+					turn: event.turn,
+					message: event.message,
+				});
+				return;
+			case "agent.thinking.started":
+				this.bus.publish("agent.thinking.started", { turn: event.turn });
+				return;
+			case "agent.thinking.updated":
+				this.bus.publish("agent.thinking.updated", {
+					turn: event.turn,
+					delta: event.delta,
+				});
+				return;
+			case "agent.thinking.completed":
+				this.bus.publish("agent.thinking.completed", { turn: event.turn });
+				return;
+			case "agent.tool.started":
+				this.bus.publish("agent.tool.started", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+				});
+				return;
+			case "agent.tool.updated":
+				this.bus.publish("agent.tool.updated", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					partialResult: event.partialResult,
+				});
+				return;
+			case "agent.tool.ended":
+				this.bus.publish("agent.tool.ended", {
+					turn: event.turn,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					args: event.args,
+					result: event.result,
+					isError: event.isError,
+				});
+				return;
 			case "message.committed":
 				this.syncSessionFromAgentState();
 				this.bus.publish("session.message.appended", {
@@ -1097,8 +1167,6 @@ export class AgentRuntime {
 					message: event.message,
 				});
 				return;
-
-			// Complex handler — not forwarded
 			case "agent.end":
 				this.bus.publish("agent.end", {
 					messages: event.messages,
@@ -1114,10 +1182,6 @@ export class AgentRuntime {
 				});
 				return;
 		}
-
-		// Forward all other agent events as-is
-		// biome-ignore lint/suspicious/noExplicitAny: bridge between AgentEventMap and RuntimeEventMap
-		this.bus.publish(type as any, payload as any);
 	}
 
 	async submitMessage(input: string | MessagePart[]): Promise<void> {
@@ -1493,8 +1557,10 @@ export class AgentRuntime {
 		return this.debugSections;
 	}
 
-	getMessages(): AgentMessage[] {
-		return this.agent.turns.flatMap((turn) => turn.messages);
+	getMessages(): KitAgentMessage[] {
+		const committed = this.agent.turns.flatMap((turn) => turn.messages);
+		const active = this.agent.activeAssistantMessage;
+		return active ? [...committed, active] : committed;
 	}
 
 	getTools(): AgentTool[] {

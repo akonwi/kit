@@ -148,24 +148,45 @@ function assistantText(message: unknown): string | null {
 export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 	switch (event.type) {
 		case "agent.start":
-			return [{ type: "agent_start" }];
-		case "turn.start":
-			return [{ type: "turn_start" }];
-		case "message.start":
-			return [{ type: "message_start", message: event.message }];
-		case "message.update":
+		case "agent.settled":
+			return [{ type: event.type }];
+		case "agent.end":
 			return [
 				{
-					type: "message_update",
-					assistantMessageEvent: event.assistantMessageEvent,
+					type: event.type,
+					willRetry: event.willRetry ?? false,
 				},
 			];
-		case "message.end":
-			return [{ type: "message_end", message: event.message }];
+		case "agent.turn.started":
+			return [{ type: event.type, turnId: event.turn.id }];
+		case "agent.turn.completed":
+			return [{ type: event.type, turnId: event.turn?.id ?? null }];
+		case "user.message.created":
+		case "agent.message.started":
+		case "agent.message.ended":
+		case "session.message.appended":
+			return [
+				{
+					type: event.type,
+					turnId: event.turn.id,
+					messageId: event.message.messageId,
+					message: event.message,
+				},
+			];
+		case "agent.message.updated":
+			return [
+				{
+					type: event.type,
+					turnId: event.turn.id,
+					messageId: event.message.messageId,
+					update: event.update,
+				},
+			];
 		case "agent.tool.started":
 			return [
 				{
-					type: "tool_execution_start",
+					type: event.type,
+					turnId: event.turn.id,
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
 					args: event.args,
@@ -174,7 +195,8 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 		case "agent.tool.updated":
 			return [
 				{
-					type: "tool_execution_update",
+					type: event.type,
+					turnId: event.turn.id,
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
 					args: event.args,
@@ -184,35 +206,19 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 		case "agent.tool.ended":
 			return [
 				{
-					type: "tool_execution_end",
+					type: event.type,
+					turnId: event.turn.id,
 					toolCallId: event.toolCallId,
 					toolName: event.toolName,
+					args: event.args,
 					result: event.result,
 					isError: event.isError,
 				},
 			];
-		case "agent.turn.ended":
-			return [
-				{
-					type: "turn_end",
-					message: event.message,
-					toolResults: event.toolResults,
-				},
-			];
-		case "agent.end":
-			return [
-				{
-					type: "agent_end",
-					messages: event.messages,
-					willRetry: event.willRetry ?? false,
-				},
-			];
-		case "agent.settled":
-			return [{ type: "agent_settled" }];
 		case "chat.message-queue.changed":
 			return [
 				{
-					type: "queue_update",
+					type: event.type,
 					steering: event.steering,
 					followUp: event.messages,
 				},
@@ -220,7 +226,7 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 		case "agent.retry.started":
 			return [
 				{
-					type: "auto_retry_start",
+					type: event.type,
 					attempt: event.attempt,
 					maxAttempts: event.maxAttempts,
 					delayMs: event.delayMs,
@@ -229,22 +235,37 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 		case "agent.retry.failed":
 			return [
 				{
-					type: "auto_retry_end",
-					success: false,
+					type: event.type,
 					attempt: event.attempt,
-					finalError: event.error,
+					error: event.error,
 				},
 			];
 		case "agent.retry.completed":
+			return [{ type: event.type, attempt: event.attempt }];
+		case "agent.run.failed":
+			return [{ type: event.type, error: event.error }];
+		case "session.transcript.replaced":
 			return [
 				{
-					type: "auto_retry_end",
-					success: true,
-					attempt: event.attempt,
+					type: event.type,
+					reason: event.reason,
+					removedMessageId: event.removedMessageId,
 				},
 			];
-		case "agent.run.failed":
-			return [{ type: "error", error: event.error }];
+		case "session.compaction.completed.auto":
+		case "session.compaction.completed.recovery":
+		case "session.compaction.completed.adaptation":
+		case "session.compaction.completed.manual":
+			return [{ type: "session.transcript.replaced", reason: "compaction" }];
+		case "session.handoff_summary.appended":
+			return [
+				{
+					type: event.type,
+					turnId: event.summaryMessage.turnId,
+					messageId: event.summaryMessage.messageId,
+					message: event.summaryMessage,
+				},
+			];
 		default:
 			return [];
 	}
