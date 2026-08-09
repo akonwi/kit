@@ -93,6 +93,16 @@ process.
 | `get_available_thinking_levels` | none | `{ "levels": [...] }` |
 | `set_thinking_level` | `level` | none |
 | `switch_session` | `sessionPath` (a Kit session ID or path) | `{ "cancelled": false }` |
+| `list_commands` | none | transport-neutral commands plus `registryGeneration` |
+| `execute_command` | `commandId`, optional `args`, optional `registryGeneration` | none |
+
+Clients that present commands interactively should pass the generation returned
+by `list_commands` to `execute_command`. Kit rejects stale generations when the
+command registry changes, preventing a displayed command from resolving to a
+newly registered implementation with the same ID. Generations are scoped to one
+RPC host incarnation, so clients must discard them after reconnecting to a new
+event stream. The generation remains optional for compatibility with
+controllers that execute a known command ID directly.
 
 A normal `prompt` is rejected while the agent is streaming unless
 `streamingBehavior` says where to queue it. The dedicated `steer` and

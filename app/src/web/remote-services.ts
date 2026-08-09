@@ -30,6 +30,25 @@ export type PendingInteractionSet = {
 	totalRequestCount: number;
 };
 
+export type RemoteCommand = {
+	id: string;
+	name: string;
+	description?: string;
+	argName?: string;
+	category?: string;
+};
+
+export type RemoteCommandList = {
+	commands: RemoteCommand[];
+	registryGeneration: number;
+};
+
+const MAX_REMOTE_COMMANDS = 512;
+const MAX_COMMAND_ID_LENGTH = 256;
+const MAX_COMMAND_NAME_LENGTH = 256;
+const MAX_COMMAND_DESCRIPTION_LENGTH = 2_048;
+const MAX_COMMAND_METADATA_LENGTH = 128;
+
 export const DEFAULT_CLIENT_LIMITS: ClientLimits = {
 	maxAttachmentsPerPrompt: 8,
 	maxAttachmentBytes: 10 * 1024 * 1024,
@@ -132,6 +151,82 @@ export class WebRemoteServices {
 
 	resetLimits(): void {
 		this.limitsValue = DEFAULT_CLIENT_LIMITS;
+	}
+
+	async listCommands(): Promise<RemoteCommandList> {
+		const response = await this.rpc.command({ type: "list_commands" });
+		if (!isRecord(response.data) || !Array.isArray(response.data.commands)) {
+			throw new Error("Command list omitted commands");
+		}
+		const registryGeneration = response.data.registryGeneration;
+		if (
+			typeof registryGeneration !== "number" ||
+			!Number.isSafeInteger(registryGeneration) ||
+			registryGeneration < 0
+		) {
+			throw new Error("Command list omitted its generation");
+		}
+		if (response.data.commands.length > MAX_REMOTE_COMMANDS) {
+			throw new Error("Command list exceeds the client limit");
+		}
+		const commandIds = new Set<string>();
+		const commands = response.data.commands.map((value) => {
+			if (!isRecord(value)) {
+				throw new Error("Command list contains an invalid command");
+			}
+			const id = value.id;
+			const name = value.name;
+			if (
+				typeof id !== "string" ||
+				id.trim() !== id ||
+				id.length === 0 ||
+				id.length > MAX_COMMAND_ID_LENGTH ||
+				typeof name !== "string" ||
+				name.trim().length === 0 ||
+				name.length > MAX_COMMAND_NAME_LENGTH ||
+				(value.description !== undefined &&
+					typeof value.description !== "string") ||
+				(typeof value.description === "string" &&
+					value.description.length > MAX_COMMAND_DESCRIPTION_LENGTH) ||
+				(value.argName !== undefined && typeof value.argName !== "string") ||
+				(typeof value.argName === "string" &&
+					value.argName.length > MAX_COMMAND_METADATA_LENGTH) ||
+				(value.category !== undefined && typeof value.category !== "string") ||
+				(typeof value.category === "string" &&
+					value.category.length > MAX_COMMAND_METADATA_LENGTH) ||
+				commandIds.has(id)
+			) {
+				throw new Error("Command list contains an invalid command");
+			}
+			commandIds.add(id);
+			return {
+				id,
+				name,
+				...(typeof value.description === "string"
+					? { description: value.description }
+					: {}),
+				...(typeof value.argName === "string"
+					? { argName: value.argName }
+					: {}),
+				...(typeof value.category === "string"
+					? { category: value.category }
+					: {}),
+			};
+		});
+		return { commands, registryGeneration };
+	}
+
+	executeCommand(
+		commandId: string,
+		args: string,
+		registryGeneration: number,
+	): Promise<Record<string, unknown>> {
+		return this.rpc.command({
+			type: "execute_command",
+			commandId,
+			registryGeneration,
+			...(args.trim() ? { args } : {}),
+		});
 	}
 
 	async fetchLimits(): Promise<ClientLimits> {

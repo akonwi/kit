@@ -660,6 +660,7 @@ describe("RpcSessionHost", () => {
 			expect.objectContaining({
 				id: "list",
 				data: {
+					registryGeneration: 0,
 					commands: [
 						{
 							id: "plugin.toggle",
@@ -679,6 +680,50 @@ describe("RpcSessionHost", () => {
 			]),
 		);
 		disconnect();
+		host.dispose();
+	});
+
+	test("rejects transport-neutral commands from a stale registry generation", async () => {
+		let executed = false;
+		const commands = createCommandRegistry([
+			{
+				name: "plugin.toggle",
+				description: "Toggle the plugin",
+				execute: () => {},
+				executeTransportNeutral: async () => {
+					executed = true;
+				},
+			},
+		]);
+		const host = new RpcSessionHost(createRuntime(), { commands });
+		commands.register({
+			name: "plugin.other",
+			description: "Another command",
+			execute: () => {},
+			executeTransportNeutral: async () => {},
+		});
+		const responses: Array<Record<string, unknown>> = [];
+
+		await host.handleCommand(
+			{
+				id: "execute",
+				type: "execute_command",
+				commandId: "plugin.toggle",
+				registryGeneration: 0,
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+
+		expect(executed).toBe(false);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "execute",
+				success: false,
+				error: "Command registry changed; refresh commands",
+			}),
+		]);
 		host.dispose();
 	});
 

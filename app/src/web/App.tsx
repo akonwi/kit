@@ -1,6 +1,7 @@
 /** @jsxImportSource solid-js */
 import type { JSX } from "solid-js";
 import { AppShell } from "./AppShell";
+import { CommandPalette } from "./CommandPalette";
 import { InteractionDialog } from "./InteractionDialog";
 
 export function App(): JSX.Element {
@@ -10,6 +11,7 @@ export function App(): JSX.Element {
 				Skip to transcript
 			</a>
 			<AppShell />
+			<CommandPalette />
 			<InteractionDialog />
 		</>
 	);

@@ -302,6 +302,7 @@ export class RpcSessionHost {
 	private readonly listeners = new Set<RpcEventListener>();
 	private readonly unsubscribeRuntime: () => void;
 	private readonly unsubscribeInteractions: (() => void) | null;
+	private readonly unsubscribeCommands: (() => void) | null;
 	private readonly persistSessions: boolean;
 	private readonly interactions?: RemoteInteractionBroker;
 	private readonly attachments?: RemoteAttachmentStore;
@@ -313,6 +314,7 @@ export class RpcSessionHost {
 	private activeCommandAbort: AbortController | null = null;
 	private activeCommandExecution: Promise<void> | null = null;
 	private commandGeneration = 0;
+	private commandRegistryGeneration = 0;
 	private commandExecutionCompromised = false;
 	private promptReserved = false;
 	private acceptingCommands = true;
@@ -348,6 +350,10 @@ export class RpcSessionHost {
 		});
 		this.unsubscribeInteractions =
 			this.interactions?.subscribe((event) => this.publish(event)) ?? null;
+		this.unsubscribeCommands =
+			this.commands?.subscribe(() => {
+				this.commandRegistryGeneration += 1;
+			}) ?? null;
 	}
 
 	subscribe(listener: RpcEventListener): () => void {
@@ -455,6 +461,7 @@ export class RpcSessionHost {
 		this.disposed = true;
 		this.unsubscribeRuntime();
 		this.unsubscribeInteractions?.();
+		this.unsubscribeCommands?.();
 		this.interactions?.dispose();
 		this.attachments?.dispose();
 		this.listeners.clear();
@@ -741,7 +748,12 @@ export class RpcSessionHost {
 						argName: candidate.argName,
 						category: candidate.category,
 					}));
-				await respond(this.response(command, true, { commands }));
+				await respond(
+					this.response(command, true, {
+						commands,
+						registryGeneration: this.commandRegistryGeneration,
+					}),
+				);
 				return;
 			}
 			case "execute_command": {
@@ -751,6 +763,16 @@ export class RpcSessionHost {
 					);
 				}
 				if (!this.commands) throw new Error("Command registry is unavailable");
+				if (command.registryGeneration !== undefined) {
+					const registryGeneration = optionalNonnegativeInteger(
+						command,
+						"registryGeneration",
+						this.commandRegistryGeneration,
+					);
+					if (registryGeneration !== this.commandRegistryGeneration) {
+						throw new Error("Command registry changed; refresh commands");
+					}
+				}
 				const commandId = requireString(command, "commandId");
 				const args = command.args;
 				if (args !== undefined && typeof args !== "string") {

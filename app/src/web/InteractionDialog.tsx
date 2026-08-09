@@ -9,6 +9,7 @@ import {
 	Switch,
 } from "solid-js";
 import { isRecord } from "./client-state";
+import { DialogFrame } from "./DialogFrame";
 import { useWebClient } from "./WebClientContext";
 
 function requestPayload(request: Record<string, unknown>) {
@@ -276,7 +277,6 @@ function InteractionContent(props: {
 
 export function InteractionDialog(): JSX.Element {
 	const { snapshot, controller, focusComposer } = useWebClient();
-	let dialog: HTMLDialogElement | undefined;
 	let form: HTMLFormElement | undefined;
 	const protocol = createMemo(() => snapshot().protocol);
 	const request = createMemo(() =>
@@ -287,27 +287,6 @@ export function InteractionDialog(): JSX.Element {
 		return active && typeof active.id === "string"
 			? `${active.id}:${active.payloadOmitted === true ? "omitted" : "ready"}`
 			: null;
-	});
-
-	createEffect(() => {
-		const key = requestKey();
-		if (!dialog) return;
-		if (!key) {
-			if (dialog.open) {
-				dialog.close();
-				if (!focusComposer()) {
-					document.querySelector<HTMLElement>("#transcript")?.focus();
-				}
-			}
-			return;
-		}
-		if (!dialog.open) dialog.showModal();
-		const field = form?.querySelector<HTMLElement>(
-			".interaction-fields input, .interaction-fields select, .interaction-fields textarea",
-		);
-		const submit = form?.querySelector<HTMLElement>('button[type="submit"]');
-		const fallback = form?.querySelector<HTMLElement>("button");
-		(field ?? submit ?? fallback)?.focus();
 	});
 
 	const validateMultiselects = () => {
@@ -333,12 +312,23 @@ export function InteractionDialog(): JSX.Element {
 	};
 
 	return (
-		<dialog
-			ref={dialog}
+		<DialogFrame
+			open={requestKey() !== null}
+			focusKey={requestKey()}
 			id="interaction-dialog"
-			aria-labelledby="interaction-title"
-			onCancel={(event) => {
-				event.preventDefault();
+			labelledBy="interaction-title"
+			restoreFocus={focusComposer}
+			onAfterOpen={() => {
+				const field = form?.querySelector<HTMLElement>(
+					".interaction-fields input, .interaction-fields select, .interaction-fields textarea",
+				);
+				const submit = form?.querySelector<HTMLElement>(
+					'button[type="submit"]',
+				);
+				const fallback = form?.querySelector<HTMLElement>("button");
+				(field ?? submit ?? fallback)?.focus();
+			}}
+			onCancel={() => {
 				const active = request();
 				if (!active || typeof active.id !== "string" || !form) return;
 				void controller.answerInteraction(
@@ -396,6 +386,6 @@ export function InteractionDialog(): JSX.Element {
 					}}
 				</Show>
 			</form>
-		</dialog>
+		</DialogFrame>
 	);
 }

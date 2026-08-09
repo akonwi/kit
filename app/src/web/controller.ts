@@ -8,7 +8,7 @@ import {
 	reduceClientRecord,
 	withConnectionPhase,
 } from "./client-state";
-import { WebRemoteServices } from "./remote-services";
+import { type RemoteCommandList, WebRemoteServices } from "./remote-services";
 import { WebSocketRpcTransport } from "./rpc-transport";
 import {
 	type PendingAttachment,
@@ -216,6 +216,26 @@ export class WebClientController {
 			await this.sendCommand({ type: "abort" });
 		} catch (error) {
 			this.view.reportError(error);
+		}
+	}
+
+	listCommands(): Promise<RemoteCommandList> {
+		return this.services.listCommands();
+	}
+
+	async executeCommand(
+		commandId: string,
+		args: string,
+		registryGeneration: number,
+	): Promise<boolean> {
+		try {
+			await this.services.executeCommand(commandId, args, registryGeneration);
+			this.view.setStatus("");
+			this.view.notify();
+			return true;
+		} catch (error) {
+			this.view.reportError(error);
+			return false;
 		}
 	}
 
