@@ -2,6 +2,7 @@
 
 ; Keywords (node-based)
 (break_statement) @keyword
+(defer_statement "defer" @keyword)
 (if_statement "if" @keyword)
 (while_loop "while" @keyword)
 (for_loop "for" @keyword)
@@ -9,14 +10,22 @@
 (for_in_loop "in" @keyword)
 (for_in_loop (for_binding) @variable.parameter)
 (match_expression "match" @keyword)
+(select_expression "select" @keyword)
+(select_case "let" @keyword)
+(select_case binding: (identifier) @variable.parameter)
 (try_expression "try" @keyword)
+(unsafe_block "unsafe" @keyword)
 (import_statement "use" @keyword)
 (import_statement "as" @keyword)
+(import_statement path: (module_path) @string.special)
 (variable_declaration "let" @keyword)
 (variable_declaration "mut" @keyword)
 (mutable_type "mut" @keyword)
 (function_declaration "test" @keyword)
 (function_declaration "fn" @keyword)
+(function_declaration
+  _ @keyword
+  (#eq? @keyword "mut"))
 (extern_function "extern" @keyword)
 (extern_function "fn" @keyword)
 (struct_declaration "struct" @keyword)
@@ -42,6 +51,8 @@
 (function_declaration name: (identifier) @function.definition)
 (function_declaration name: (qualified_identifier) @function.definition)
 (extern_function name: (identifier) @function.definition)
+(extern_binding (qualified_identifier) @function)
+(extern_binding_entry target: (extern_binding_target) @variable.builtin)
 (enum_variant name: (identifier) @constant)
 
 ; Parameters
@@ -59,9 +70,11 @@
 ; Literals
 (number) @number
 (string) @string
+(rune) @string
 (string_interpolation "{" @punctuation.bracket "}" @punctuation.bracket)
 (string_content) @string
 (escape_sequence) @string.escape
+(brace_escape) @string.escape
 (boolean) @boolean
 (void) @constant.builtin
 (wildcard) @variable.special
@@ -103,6 +116,7 @@
   ">"
   ">="
   "=="
+  "!="
   "!"
   "?"
   ".."
