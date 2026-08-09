@@ -40,6 +40,7 @@ describe("RemoteInteractionBroker", () => {
 		expect(await result).toBe(true);
 		expect(events.at(-1)).toEqual({
 			type: "ui_resolved",
+			generation: 2,
 			requestId: request.id,
 			kind: "confirm",
 			resolution: "answered",
@@ -61,14 +62,21 @@ describe("RemoteInteractionBroker", () => {
 		const replay = broker.connectClient();
 		expect(replay).toHaveLength(1);
 		expect(replay[0]).toMatchObject({
-			type: "ui_request",
-			request: { kind: "input", payload: { title: "Name" } },
+			type: "ui_snapshot",
+			generation: 1,
+			requests: [{ kind: "input", payload: { title: "Name" } }],
 		});
-		if (replay[0]?.type !== "ui_request") throw new Error("Expected request");
-		expect(broker.respond(replay[0].request.id, { value: "Ada" })).toEqual({
+		if (replay[0]?.type !== "ui_snapshot" || !replay[0].requests[0]) {
+			throw new Error("Expected interaction snapshot");
+		}
+		expect(broker.respond(replay[0].requests[0].id, { value: "Ada" })).toEqual({
 			accepted: true,
 		});
 		expect(await result).toBe("Ada");
+		expect(broker.getPendingSnapshot()).toEqual({
+			generation: 2,
+			requests: [],
+		});
 		broker.dispose();
 	});
 

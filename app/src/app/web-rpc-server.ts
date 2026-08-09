@@ -63,6 +63,7 @@ const MAX_WEB_MESSAGE_PAGE_SIZE = 50;
 const MAX_WEB_CHUNK_BYTES = 32 * 1024;
 const MAX_MESSAGE_CHUNK_TOKENS = 1024;
 const MAX_MESSAGE_CHUNK_CACHE_BYTES = 16 * 1024 * 1024;
+const MAX_INLINE_INTERACTION_BYTES = 16 * 1024;
 
 declare const __KIT_WEB_CLIENT_JS__: string | undefined;
 
@@ -488,6 +489,51 @@ export class WebRpcServer {
 						latestSequence: this.journal.latestSequence,
 						...this.journal.retention,
 					},
+					limits: {
+						...(isRecord(record.data.limits) ? record.data.limits : {}),
+						attachments: {
+							...(isRecord(record.data.limits) &&
+							isRecord(record.data.limits.attachments)
+								? record.data.limits.attachments
+								: {}),
+							maxConcurrentUploads: MAX_CONCURRENT_UPLOADS,
+							maxRequestBytes: MAX_MULTIPART_BODY_BYTES,
+						},
+						pagination: {
+							...(isRecord(record.data.limits) &&
+							isRecord(record.data.limits.pagination)
+								? record.data.limits.pagination
+								: {}),
+							messages: {
+								defaultPageSize: MAX_WEB_MESSAGE_PAGE_SIZE,
+								maxPageSize: MAX_WEB_MESSAGE_PAGE_SIZE,
+							},
+						},
+						snapshot: {
+							maxMessages: MAX_SNAPSHOT_MESSAGES,
+							maxBytes: MAX_SNAPSHOT_BYTES,
+						},
+						recovery: {
+							...(isRecord(record.data.limits) &&
+							isRecord(record.data.limits.recovery)
+								? record.data.limits.recovery
+								: {}),
+							message: {
+								maxChunkBytes: MAX_WEB_CHUNK_BYTES,
+								maxTotalBytes: MAX_MESSAGE_CHUNK_CACHE_BYTES,
+								maxCachedBytes: MAX_MESSAGE_CHUNK_CACHE_BYTES,
+								maxTokens: MAX_MESSAGE_CHUNK_TOKENS,
+							},
+							pendingInteraction: {
+								...(isRecord(record.data.limits) &&
+								isRecord(record.data.limits.recovery) &&
+								isRecord(record.data.limits.recovery.pendingInteraction)
+									? record.data.limits.recovery.pendingInteraction
+									: {}),
+								maxInlineBytes: MAX_INLINE_INTERACTION_BYTES,
+							},
+						},
+					},
 				},
 			};
 		}
@@ -598,7 +644,10 @@ export class WebRpcServer {
 	}
 
 	private interactionReference(request: unknown, index: number): unknown {
-		if (!isRecord(request) || this.serializedBytes(request) <= 16 * 1024) {
+		if (
+			!isRecord(request) ||
+			this.serializedBytes(request) <= MAX_INLINE_INTERACTION_BYTES
+		) {
 			return request;
 		}
 		return {
@@ -622,6 +671,7 @@ export class WebRpcServer {
 			pendingInteractions,
 			pendingInteractionOffset: 0,
 			totalPendingInteractionCount: snapshot.pendingInteractions.length,
+			pendingInteractionGeneration: snapshot.pendingInteractionGeneration,
 		};
 		let pendingTruncated = false;
 		for (const [

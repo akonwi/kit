@@ -40,7 +40,55 @@ type RecoveredMessage = {
 	rebased: boolean;
 };
 
-const MAX_INTERACTION_BYTES = 2 * 1024 * 1024;
+type ClientLimits = {
+	maxAttachmentsPerPrompt: number;
+	maxAttachmentBytes: number;
+	maxTextAttachmentBytes: number;
+	maxPromptAttachmentBytes: number;
+	maxPromptTextBytes: number;
+	messagePageSize: number;
+	interactionPageSize: number;
+	messageChunkBytes: number;
+	messageRecoveryBytes: number;
+	interactionChunkBytes: number;
+	interactionRecoveryBytes: number;
+};
+
+const DEFAULT_CLIENT_LIMITS: ClientLimits = {
+	maxAttachmentsPerPrompt: 8,
+	maxAttachmentBytes: 10 * 1024 * 1024,
+	maxTextAttachmentBytes: 1024 * 1024,
+	maxPromptAttachmentBytes: 20 * 1024 * 1024,
+	maxPromptTextBytes: 1024 * 1024,
+	messagePageSize: 50,
+	interactionPageSize: 20,
+	messageChunkBytes: 32 * 1024,
+	messageRecoveryBytes: 16 * 1024 * 1024,
+	interactionChunkBytes: 48 * 1024,
+	interactionRecoveryBytes: 2 * 1024 * 1024,
+};
+
+function positiveInteger(value: unknown, fallback: number): number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value > 0
+		? value
+		: fallback;
+}
+
+function nonnegativeInteger(value: unknown, fallback: number): number {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: fallback;
+}
+
+function isRemoteImage(file: File): boolean {
+	const mimeType = file.type.split(";", 1)[0]?.trim().toLowerCase();
+	if (mimeType) {
+		return ["image/gif", "image/jpeg", "image/png", "image/webp"].includes(
+			mimeType,
+		);
+	}
+	return /\.(?:gif|jpe?g|png|webp)$/i.test(file.name);
+}
 
 export class WebClientController {
 	private state = createClientState();
@@ -51,6 +99,9 @@ export class WebClientController {
 	private activeSyncMode: string | null = null;
 	private submitting = false;
 	private loadingPendingInteractions = false;
+	private capabilitiesStreamId: string | null = null;
+	private loadingCapabilities = false;
+	private limits = DEFAULT_CLIENT_LIMITS;
 	private commandCounter = 0;
 	private pendingAttachments: PendingAttachment[] = [];
 	private loadingEarlier = false;
@@ -117,6 +168,56 @@ export class WebClientController {
 
 	addAttachments(files: File[]): void {
 		if (this.submitting || files.length === 0) return;
+		if (
+			this.pendingAttachments.length + files.length >
+			this.limits.maxAttachmentsPerPrompt
+		) {
+			this.setStatus(
+				`A prompt supports at most ${this.limits.maxAttachmentsPerPrompt} attachments`,
+				true,
+			);
+			this.notify();
+			return;
+		}
+		if (files.some((file) => file.size > this.limits.maxAttachmentBytes)) {
+			this.setStatus("An attachment exceeds the server file-size limit", true);
+			this.notify();
+			return;
+		}
+		if (
+			files.some(
+				(file) =>
+					!isRemoteImage(file) &&
+					file.size > this.limits.maxTextAttachmentBytes,
+			)
+		) {
+			this.setStatus("A text attachment exceeds the server size limit", true);
+			this.notify();
+			return;
+		}
+		const totalBytes = [
+			...this.pendingAttachments.map(({ file }) => file),
+			...files,
+		].reduce((sum, file) => sum + file.size, 0);
+		if (totalBytes > this.limits.maxPromptAttachmentBytes) {
+			this.setStatus("Attachments exceed the server prompt-size limit", true);
+			this.notify();
+			return;
+		}
+		const totalTextBytes = [
+			...this.pendingAttachments.map(({ file }) => file),
+			...files,
+		]
+			.filter((file) => !isRemoteImage(file))
+			.reduce((sum, file) => sum + file.size, 0);
+		if (totalTextBytes > this.limits.maxPromptTextBytes) {
+			this.setStatus(
+				"Text attachments exceed the server prompt-size limit",
+				true,
+			);
+			this.notify();
+			return;
+		}
 		this.pendingAttachments = [
 			...this.pendingAttachments,
 			...files.map((file) => ({ file })),
@@ -244,7 +345,7 @@ export class WebClientController {
 				const response = await this.sendCommand({
 					type: "get_messages",
 					offset: cursor,
-					limit: Math.min(50, oldOffset - cursor),
+					limit: Math.min(this.limits.messagePageSize, oldOffset - cursor),
 				});
 				if (
 					!isRecord(response.data) ||
@@ -422,6 +523,7 @@ export class WebClientController {
 			}
 			if (this.state.phase === "live") {
 				this.reconnectAttempt = 0;
+				void this.loadCapabilities();
 				void this.loadPendingInteractions();
 				void this.hydrateVisibleMessageReferences();
 			}
@@ -522,6 +624,101 @@ export class WebClientController {
 		});
 	}
 
+	private async loadCapabilities(): Promise<void> {
+		const streamId = this.state.streamId;
+		if (
+			!streamId ||
+			this.loadingCapabilities ||
+			this.capabilitiesStreamId === streamId
+		) {
+			return;
+		}
+		this.loadingCapabilities = true;
+		let loaded = false;
+		try {
+			const response = await this.sendCommand({ type: "get_capabilities" });
+			if (this.state.streamId !== streamId || !isRecord(response.data)) return;
+			const limits = response.data.limits;
+			if (!isRecord(limits)) throw new Error("Capabilities omitted limits");
+			const attachments = limits.attachments;
+			const pagination = limits.pagination;
+			const recovery = limits.recovery;
+			if (
+				!isRecord(attachments) ||
+				!isRecord(pagination) ||
+				!isRecord(recovery)
+			) {
+				throw new Error("Capabilities contain invalid limits");
+			}
+			const messages = pagination.messages;
+			const interactions = pagination.pendingInteractions;
+			const messageRecovery = recovery.message;
+			const interactionRecovery = recovery.pendingInteraction;
+			if (
+				!isRecord(messages) ||
+				!isRecord(interactions) ||
+				!isRecord(messageRecovery) ||
+				!isRecord(interactionRecovery)
+			) {
+				throw new Error("Capabilities contain invalid page or recovery limits");
+			}
+			this.limits = {
+				maxAttachmentsPerPrompt: nonnegativeInteger(
+					attachments.maxFilesPerPrompt,
+					this.limits.maxAttachmentsPerPrompt,
+				),
+				maxAttachmentBytes: nonnegativeInteger(
+					attachments.maxFileBytes,
+					this.limits.maxAttachmentBytes,
+				),
+				maxTextAttachmentBytes: nonnegativeInteger(
+					attachments.maxTextFileBytes,
+					this.limits.maxTextAttachmentBytes,
+				),
+				maxPromptAttachmentBytes: nonnegativeInteger(
+					attachments.maxPromptBytes,
+					this.limits.maxPromptAttachmentBytes,
+				),
+				maxPromptTextBytes: nonnegativeInteger(
+					attachments.maxPromptTextBytes,
+					this.limits.maxPromptTextBytes,
+				),
+				messagePageSize: positiveInteger(
+					messages.maxPageSize,
+					this.limits.messagePageSize,
+				),
+				interactionPageSize: positiveInteger(
+					interactions.defaultPageSize,
+					this.limits.interactionPageSize,
+				),
+				messageChunkBytes: positiveInteger(
+					messageRecovery.maxChunkBytes,
+					this.limits.messageChunkBytes,
+				),
+				messageRecoveryBytes: positiveInteger(
+					messageRecovery.maxTotalBytes,
+					this.limits.messageRecoveryBytes,
+				),
+				interactionChunkBytes: positiveInteger(
+					interactionRecovery.maxChunkBytes,
+					this.limits.interactionChunkBytes,
+				),
+				interactionRecoveryBytes: positiveInteger(
+					interactionRecovery.maxTotalBytes,
+					this.limits.interactionRecoveryBytes,
+				),
+			};
+			loaded = true;
+		} catch (error) {
+			this.reportError(error);
+		} finally {
+			if (loaded && this.state.streamId === streamId) {
+				this.capabilitiesStreamId = streamId;
+			}
+			this.loadingCapabilities = false;
+		}
+	}
+
 	private async uploadAttachment(
 		attachment: PendingAttachment,
 	): Promise<string> {
@@ -563,20 +760,46 @@ export class WebClientController {
 				type: "get_message_chunk",
 				token: message.token,
 				offset,
+				maxBytes: this.limits.messageChunkBytes,
 			});
-			if (!isRecord(response.data) || typeof response.data.data !== "string") {
+			if (
+				!isRecord(response.data) ||
+				response.data.token !== message.token ||
+				response.data.encoding !== "base64-json" ||
+				typeof response.data.data !== "string"
+			) {
 				throw new Error("Invalid message chunk response");
+			}
+			const totalBytes = response.data.totalBytes;
+			if (
+				typeof totalBytes !== "number" ||
+				!Number.isSafeInteger(totalBytes) ||
+				totalBytes < 0 ||
+				totalBytes > this.limits.messageRecoveryBytes ||
+				response.data.offset !== offset
+			) {
+				throw new Error("Message exceeds the client recovery limit");
 			}
 			const binary = atob(response.data.data);
 			const bytes = Uint8Array.from(binary, (character) =>
 				character.charCodeAt(0),
 			);
+			const nextOffset = response.data.nextOffset;
+			if (
+				typeof nextOffset !== "number" ||
+				!Number.isSafeInteger(nextOffset) ||
+				nextOffset !== offset + bytes.length ||
+				nextOffset > totalBytes ||
+				(nextOffset === offset && response.data.complete !== true)
+			) {
+				throw new Error("Message chunks are not contiguous");
+			}
 			chunks.push(bytes);
-			offset =
-				typeof response.data.nextOffset === "number"
-					? response.data.nextOffset
-					: offset + bytes.length;
+			offset = nextOffset;
 			complete = response.data.complete === true;
+			if (complete && offset !== totalBytes) {
+				throw new Error("Message payload ended at the wrong offset");
+			}
 		}
 		const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
 		const joined = new Uint8Array(total);
@@ -684,7 +907,7 @@ export class WebClientController {
 			return;
 		}
 		this.loadingPendingInteractions = true;
-		const revision = this.state.interactionRevision;
+		const generation = this.state.pendingInteractionGeneration;
 		try {
 			let offset = 0;
 			let total = this.state.totalPendingInteractionCount;
@@ -693,14 +916,20 @@ export class WebClientController {
 				const response = await this.sendCommand({
 					type: "get_pending_interactions",
 					offset,
-					limit: Math.min(20, total - offset),
+					limit: Math.min(this.limits.interactionPageSize, total - offset),
+					generation,
 				});
-				if (this.state.interactionRevision !== revision) return;
+				if (this.state.pendingInteractionGeneration !== generation) return;
 				if (
 					!isRecord(response.data) ||
-					!Array.isArray(response.data.requests)
+					!Array.isArray(response.data.requests) ||
+					typeof response.data.generation !== "number"
 				) {
 					throw new Error("Invalid pending interaction page response");
+				}
+				if (response.data.stale === true) return;
+				if (response.data.generation !== generation) {
+					throw new Error("Pending interaction generation changed");
 				}
 				if (
 					typeof response.data.offset === "number" &&
@@ -727,7 +956,7 @@ export class WebClientController {
 						? response.data.totalRequestCount
 						: total;
 			}
-			if (this.state.interactionRevision !== revision) return;
+			if (this.state.pendingInteractionGeneration !== generation) return;
 			this.state = {
 				...this.state,
 				pendingInteractions: requests,
@@ -741,7 +970,7 @@ export class WebClientController {
 			this.loadingPendingInteractions = false;
 			if (
 				this.state.phase === "live" &&
-				this.state.interactionRevision !== revision &&
+				this.state.pendingInteractionGeneration !== generation &&
 				this.state.pendingInteractions.length <
 					this.state.totalPendingInteractionCount
 			) {
@@ -766,6 +995,7 @@ export class WebClientController {
 					type: "get_pending_interaction_chunk",
 					requestId,
 					offset,
+					maxBytes: this.limits.interactionChunkBytes,
 				});
 				if (
 					!isRecord(response.data) ||
@@ -778,7 +1008,7 @@ export class WebClientController {
 					typeof totalBytes !== "number" ||
 					!Number.isSafeInteger(totalBytes) ||
 					totalBytes < 0 ||
-					totalBytes > MAX_INTERACTION_BYTES ||
+					totalBytes > this.limits.interactionRecoveryBytes ||
 					response.data.offset !== offset
 				) {
 					throw new Error(

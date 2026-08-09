@@ -25,9 +25,19 @@ export type RemoteInteractionRequest = {
 };
 
 export type RemoteInteractionEvent =
-	| { type: "ui_request"; request: RemoteInteractionRequest }
+	| {
+			type: "ui_snapshot";
+			generation: number;
+			requests: RemoteInteractionRequest[];
+	  }
+	| {
+			type: "ui_request";
+			generation: number;
+			request: RemoteInteractionRequest;
+	  }
 	| {
 			type: "ui_resolved";
+			generation: number;
 			requestId: string;
 			kind: RemoteInteractionKind;
 			resolution: "answered" | "aborted" | "shutdown";
@@ -163,6 +173,7 @@ function validateGuidedAnswer(
 
 export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 	private readonly pending = new Map<string, PendingInteraction>();
+	private generation = 0;
 	private readonly listeners = new Set<
 		(event: RemoteInteractionEvent) => void
 	>();
@@ -176,14 +187,28 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 
 	connectClient(): RemoteInteractionEvent[] {
 		if (this.disposed) return [];
-		return [...this.pending.values()].map((pending) => ({
-			type: "ui_request" as const,
-			request: pending.request,
-		}));
+		const snapshot = this.getPendingSnapshot();
+		return [
+			{
+				type: "ui_snapshot",
+				generation: snapshot.generation,
+				requests: snapshot.requests,
+			},
+		];
+	}
+
+	getPendingSnapshot(): {
+		generation: number;
+		requests: RemoteInteractionRequest[];
+	} {
+		return {
+			generation: this.generation,
+			requests: [...this.pending.values()].map((pending) => pending.request),
+		};
 	}
 
 	getPendingRequests(): RemoteInteractionRequest[] {
-		return [...this.pending.values()].map((pending) => pending.request);
+		return this.getPendingSnapshot().requests;
 	}
 
 	confirm(input: RemoteConfirmInput): Promise<boolean> {
@@ -379,7 +404,12 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 				signal.addEventListener("abort", pending.abortListener, { once: true });
 			}
 			this.pending.set(request.id, pending);
-			this.publish({ type: "ui_request", request });
+			this.generation += 1;
+			this.publish({
+				type: "ui_request",
+				generation: this.generation,
+				request,
+			});
 		});
 	}
 
@@ -423,12 +453,14 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 		publicResponse: unknown,
 	): void {
 		if (!this.pending.delete(pending.request.id)) return;
+		this.generation += 1;
 		if (pending.signal && pending.abortListener) {
 			pending.signal.removeEventListener("abort", pending.abortListener);
 		}
 		pending.resolve(value);
 		this.publish({
 			type: "ui_resolved",
+			generation: this.generation,
 			requestId: pending.request.id,
 			kind: pending.request.kind,
 			resolution,

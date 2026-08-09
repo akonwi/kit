@@ -192,12 +192,71 @@ describe("RpcSessionHost", () => {
 					interactiveUI: false,
 					attachmentReferences: false,
 					maxAttachmentsPerPrompt: 0,
+					limits: {
+						attachments: {
+							maxFiles: 0,
+							maxFilesPerPrompt: 0,
+							maxFileBytes: 0,
+							maxTextFileBytes: 0,
+							maxTotalBytes: 0,
+							maxPromptBytes: 0,
+							maxPromptTextBytes: 0,
+							maxConcurrentUploads: 0,
+						},
+						pagination: {
+							messages: { defaultPageSize: 100, maxPageSize: 200 },
+							pendingInteractions: {
+								defaultPageSize: 20,
+								maxPageSize: 50,
+							},
+						},
+						recovery: {
+							pendingInteraction: {
+								maxChunkBytes: 48 * 1024,
+								maxTotalBytes: 2 * 1024 * 1024,
+							},
+						},
+					},
 					eventSequencing: { supported: false },
 				}),
 			}),
 		]);
 		const response = responses[0] as { data: { commands: string[] } };
 		expect(response.data.commands).not.toContain("ui_response");
+		host.dispose();
+	});
+
+	test("advertises attachment quotas when references are enabled", async () => {
+		const host = new RpcSessionHost(createRuntime(), {
+			attachments: new RemoteAttachmentStore(),
+		});
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{ id: "capabilities", type: "get_capabilities" },
+			async (record) => {
+				responses.push(record);
+			},
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				data: expect.objectContaining({
+					attachmentReferences: true,
+					limits: expect.objectContaining({
+						attachments: {
+							maxFiles: 32,
+							maxFilesPerPrompt: 8,
+							maxFileBytes: 10 * 1024 * 1024,
+							maxTextFileBytes: 1024 * 1024,
+							maxTotalBytes: 50 * 1024 * 1024,
+							maxPromptBytes: 20 * 1024 * 1024,
+							maxPromptTextBytes: 1024 * 1024,
+							maxConcurrentUploads: 0,
+						},
+					}),
+				}),
+			}),
+		]);
 		host.dispose();
 	});
 
@@ -363,6 +422,8 @@ describe("RpcSessionHost", () => {
 				data: {
 					requests: [request],
 					offset: 0,
+					generation: 1,
+					stale: false,
 					totalRequestCount: 1,
 					hasMore: false,
 				},
@@ -375,6 +436,86 @@ describe("RpcSessionHost", () => {
 		).toEqual(request);
 		abortController.abort();
 		expect(await pending).toBe(false);
+		host.dispose();
+	});
+
+	test("enforces the advertised interaction recovery limit", async () => {
+		const interactions = new RemoteInteractionBroker();
+		const abortController = new AbortController();
+		const pending = interactions.confirm({
+			title: "Oversized",
+			message: "x".repeat(2 * 1024 * 1024),
+			signal: abortController.signal,
+		});
+		const request = interactions.getPendingRequests()[0];
+		if (!request) throw new Error("Expected pending interaction");
+		const host = new RpcSessionHost(createRuntime(), { interactions });
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{
+				id: "oversized",
+				type: "get_pending_interaction_chunk",
+				requestId: request.id,
+			},
+			async (record) => {
+				responses.push(record);
+			},
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "oversized",
+				success: false,
+				error: `Serialized value exceeds ${2 * 1024 * 1024} bytes`,
+			}),
+		]);
+		abortController.abort();
+		expect(await pending).toBe(false);
+		host.dispose();
+	});
+
+	test("rejects pending interaction pages from a stale generation", async () => {
+		const interactions = new RemoteInteractionBroker();
+		const firstAbort = new AbortController();
+		const secondAbort = new AbortController();
+		const first = interactions.confirm({
+			title: "First",
+			signal: firstAbort.signal,
+		});
+		const generation = interactions.getPendingSnapshot().generation;
+		const second = interactions.confirm({
+			title: "Second",
+			signal: secondAbort.signal,
+		});
+		const host = new RpcSessionHost(createRuntime(), { interactions });
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{
+				id: "stale",
+				type: "get_pending_interactions",
+				generation,
+			},
+			async (record) => {
+				responses.push(record);
+			},
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				data: {
+					requests: [],
+					offset: 0,
+					generation: generation + 1,
+					stale: true,
+					totalRequestCount: 2,
+					hasMore: false,
+				},
+			}),
+		]);
+		firstAbort.abort();
+		secondAbort.abort();
+		expect(await first).toBe(false);
+		expect(await second).toBe(false);
 		host.dispose();
 	});
 

@@ -39,7 +39,7 @@ commands supported by the running Kit host. For example, stdio RPC omits
 
 | Command | Important fields | Behavior |
 | --- | --- | --- |
-| `get_capabilities` | | Return protocol version and command names. |
+| `get_capabilities` | | Return protocol version, command names, feature support, and transport limits. |
 | `prompt` | optional `message`, `attachmentIds`, `streamingBehavior` | Start a run with text and uploaded attachments, or steer/follow up with text while streaming. |
 | `steer` | `message` | Inject steering into the active run. |
 | `follow_up` | `message` | Queue a follow-up message. |
@@ -91,7 +91,7 @@ Kit publishes semantic runtime event names:
 - `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
 - `agent.run.failed`
 - `state_changed`
-- `ui_request` and `ui_resolved`
+- `ui_snapshot`, `ui_request`, and `ui_resolved`
 - `error` for transport-level failures after asynchronous command acceptance
 
 Pi event names and provider streaming payloads do not cross the core `Agent`
@@ -204,9 +204,19 @@ Select option ids are opaque transport values; the server maps them back to the
 in-process values owned by the requesting plugin. Guided-question answers are
 validated against their declared kinds, required fields, and options.
 
-Snapshot and listing records replace an interaction payload over 16 KiB with a
-reference. Clients reconstruct it through `get_pending_interaction_chunk`; they
-can page omitted interaction listings through `get_pending_interactions`.
+The broker assigns a monotonically increasing pending-interaction `generation`.
+Snapshots, `get_pending_interactions` pages, `ui_snapshot`, `ui_request`, and
+`ui_resolved` records carry it. `ui_snapshot` authoritatively replaces pending
+state for direct client attachment; request/resolution events represent one
+generation increment each. Page commands may provide their expected generation; a page
+from another generation returns `stale: true` without collection items so the
+client restarts from current state instead of merging shifted offsets.
+
+Snapshot and listing records replace an interaction payload over the advertised
+inline limit with a reference. Clients reconstruct it through
+`get_pending_interaction_chunk`; they can page omitted interaction listings
+through `get_pending_interactions`. Interaction recovery enforces the advertised
+per-chunk and total serialized-byte limits.
 
 Requests are broadcast to every connected client. The first valid response
 wins, and `ui_resolved` tells all clients to dismiss the interaction. Invalid,
@@ -236,6 +246,12 @@ deleting an unsubmitted upload releases its charge, while accepted history
 remains charged until the host stops. Uploads are one-shot once the runtime
 accepts the user message; failed pre-acceptance submission releases the ids for
 retry.
+
+`get_capabilities.limits` advertises attachment count and byte quotas, upload
+concurrency, message and interaction page sizes, snapshot bounds, and message
+and interaction recovery limits. Web transport limits override broader shared
+RPC defaults where necessary. Clients should use these values rather than copy
+server constants.
 
 Accepted remote images retain their attachment id until the client deletes its
 download copy or the web host stops; deleting the copy does not release the

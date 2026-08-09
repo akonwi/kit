@@ -84,6 +84,7 @@ process.
 | `follow_up` | `message` | none |
 | `abort` | none | none |
 | `new_session` | none | `{ "cancelled": false }` |
+| `get_capabilities` | none | protocol version, features, and transport limits |
 | `get_state` | none | current model, thinking level, session, CWD, streaming, and message counts |
 | `get_messages` | none | `{ "messages": [...] }` |
 | `get_last_assistant_text` | none | `{ "text": string \| null }` |
@@ -124,6 +125,12 @@ Every transcript message has a stable `turnId` and `messageId`.
 `session.message.appended.message` is the authoritative committed transcript
 message and also covers non-assistant messages such as tool results.
 `session.transcript.replaced` requires clients to obtain a fresh snapshot.
+
+Pending-interaction snapshots, pages, and `ui_snapshot`/`ui_request`/
+`ui_resolved` events carry a server-owned generation. Clients pass the expected generation while
+paging and restart when the server marks a page stale. Capability limits cover
+attachment quotas and upload concurrency, page sizes, snapshot bounds, event
+retention, and chunk recovery.
 
 ## Example
 

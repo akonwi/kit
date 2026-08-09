@@ -45,6 +45,7 @@ describe("web client state", () => {
 			messageOffset: 3,
 			totalMessageCount: 4,
 			pendingInteractions: [{ id: "confirm-1", kind: "confirm" }],
+			pendingInteractionGeneration: 1,
 		});
 		expect(state).toMatchObject({
 			phase: "synchronizing",
@@ -52,6 +53,7 @@ describe("web client state", () => {
 			sequence: 4,
 			messageKeys: ["message-user"],
 			messageOffset: 3,
+			pendingInteractionGeneration: 1,
 			totalMessageCount: 4,
 		});
 		state = reduceClientRecord(state, {
@@ -131,6 +133,7 @@ describe("web client state", () => {
 			messageOffset: 0,
 			totalMessageCount: 1,
 			pendingInteractions: [],
+			pendingInteractionGeneration: 0,
 		});
 		state = reduceClientRecord(state, {
 			...textDelta("lo"),
@@ -160,6 +163,7 @@ describe("web client state", () => {
 			messageOffset: 0,
 			totalMessageCount: 1,
 			pendingInteractions: [],
+			pendingInteractionGeneration: 0,
 		});
 		state = reduceClientRecord(state, {
 			...textDelta("lo"),
@@ -210,6 +214,7 @@ describe("web client state", () => {
 		});
 		apply({
 			type: "ui_request",
+			generation: 1,
 			request: { id: "request-1", kind: "confirm", payload: {} },
 		});
 
@@ -220,9 +225,52 @@ describe("web client state", () => {
 			status: "complete",
 		});
 		expect(state.pendingInteractions).toHaveLength(1);
+		expect(state.pendingInteractionGeneration).toBe(1);
 
-		apply({ type: "ui_resolved", requestId: "request-1" });
+		apply({
+			type: "ui_resolved",
+			generation: 2,
+			requestId: "request-1",
+		});
 		expect(state.pendingInteractions).toEqual([]);
+		expect(state.pendingInteractionGeneration).toBe(2);
+	});
+
+	test("accepts an authoritative pending interaction snapshot", () => {
+		const state: ClientState = {
+			...createClientState(),
+			phase: "live",
+			streamId: "stream-1",
+		};
+		const next = reduceClientRecord(state, {
+			type: "ui_snapshot",
+			generation: 7,
+			requests: [
+				{ id: "request-1", kind: "confirm", payload: {} },
+				{ id: "request-2", kind: "input", payload: {} },
+			],
+		});
+		expect(next.pendingInteractionGeneration).toBe(7);
+		expect(next.pendingInteractions).toHaveLength(2);
+		expect(next.totalPendingInteractionCount).toBe(2);
+	});
+
+	test("rejects gaps in the pending interaction generation", () => {
+		const state: ClientState = {
+			...createClientState(),
+			phase: "live",
+			streamId: "stream-1",
+			pendingInteractionGeneration: 3,
+		};
+		expect(() =>
+			reduceClientRecord(state, {
+				type: "ui_request",
+				generation: 5,
+				request: { id: "request-1", kind: "confirm", payload: {} },
+				streamId: "stream-1",
+				sequence: 1,
+			}),
+		).toThrow("Interaction generation mismatch");
 	});
 
 	test("requires a fresh snapshot when the server replaces the transcript", () => {

@@ -16,6 +16,7 @@ class FakeRpcHost implements WebRpcHost {
 		messageOffset: 0,
 		totalMessageCount: 0,
 		pendingInteractions: [],
+		pendingInteractionGeneration: 0,
 	};
 
 	subscribe(listener: RpcEventListener): () => void {
@@ -59,6 +60,8 @@ class FakeRpcHost implements WebRpcHost {
 								data: {
 									requests: this.snapshot.pendingInteractions,
 									offset: 0,
+									generation: this.snapshot.pendingInteractionGeneration,
+									stale: false,
 									totalRequestCount: this.snapshot.pendingInteractions.length,
 									hasMore: false,
 								},
@@ -259,6 +262,7 @@ describe("WebRpcServer", () => {
 			messageOffset: 0,
 			totalMessageCount: 0,
 			pendingInteractions: [],
+			pendingInteractionGeneration: 0,
 			pendingInteractionOffset: 0,
 			totalPendingInteractionCount: 0,
 		});
@@ -291,24 +295,42 @@ describe("WebRpcServer", () => {
 		first.socket.send(
 			JSON.stringify({ id: "capabilities", type: "get_capabilities" }),
 		);
-		expect(await first.next()).toEqual({
-			id: "capabilities",
-			type: "response",
-			command: "get_capabilities",
-			success: true,
-			data: {
-				protocolVersion: 2,
-				commands: ["get_message_chunk"],
-				eventSequencing: {
-					supported: true,
-					resume: "websocket_query",
-					streamId: "stream-1",
-					latestSequence: 1,
-					maxEvents: 2048,
-					maxBytes: 8 * 1024 * 1024,
-				},
-			},
-		});
+		expect(await first.next()).toEqual(
+			expect.objectContaining({
+				id: "capabilities",
+				type: "response",
+				command: "get_capabilities",
+				success: true,
+				data: expect.objectContaining({
+					protocolVersion: 2,
+					commands: ["get_message_chunk"],
+					eventSequencing: {
+						supported: true,
+						resume: "websocket_query",
+						streamId: "stream-1",
+						latestSequence: 1,
+						maxEvents: 2048,
+						maxBytes: 8 * 1024 * 1024,
+					},
+					limits: expect.objectContaining({
+						attachments: expect.objectContaining({
+							maxConcurrentUploads: 4,
+							maxRequestBytes: 11 * 1024 * 1024,
+						}),
+						pagination: expect.objectContaining({
+							messages: { defaultPageSize: 50, maxPageSize: 50 },
+						}),
+						snapshot: { maxMessages: 200, maxBytes: 64 * 1024 },
+						recovery: expect.objectContaining({
+							message: expect.objectContaining({
+								maxChunkBytes: 32 * 1024,
+								maxTotalBytes: 16 * 1024 * 1024,
+							}),
+						}),
+					}),
+				}),
+			}),
+		);
 
 		host.emit({ type: "agent.turn.started", turnId: "turn-1" });
 		expect(await first.next()).toEqual({
@@ -457,6 +479,7 @@ describe("WebRpcServer", () => {
 					payload: { message: "x".repeat(20 * 1024) },
 				},
 			],
+			pendingInteractionGeneration: 1,
 		});
 		host.emit({ type: "first" });
 		host.emit({ type: "second" });
@@ -499,6 +522,7 @@ describe("WebRpcServer", () => {
 					recoveryCommand: "get_pending_interaction_chunk",
 				},
 			],
+			pendingInteractionGeneration: 1,
 			pendingInteractionOffset: 0,
 			totalPendingInteractionCount: 1,
 			pendingInteractionsTruncated: true,
@@ -523,6 +547,8 @@ describe("WebRpcServer", () => {
 					},
 				],
 				offset: 0,
+				generation: 1,
+				stale: false,
 				totalRequestCount: 1,
 				hasMore: false,
 			},
@@ -541,6 +567,7 @@ describe("WebRpcServer", () => {
 			messageOffset: 0,
 			totalMessageCount: 3,
 			pendingInteractions: [],
+			pendingInteractionGeneration: 0,
 		});
 		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
 		const connection = await openWebSocket(webSocketUrl);
@@ -586,6 +613,7 @@ describe("WebRpcServer", () => {
 			messageOffset: 0,
 			totalMessageCount: 1,
 			pendingInteractions: [],
+			pendingInteractionGeneration: 0,
 		});
 		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
 		const connection = await openWebSocket(webSocketUrl);
@@ -664,6 +692,7 @@ describe("WebRpcServer", () => {
 					messageOffset: 0,
 					totalMessageCount: 1,
 					pendingInteractions: [],
+					pendingInteractionGeneration: 0,
 				});
 			}
 			offset = chunk.data.nextOffset;

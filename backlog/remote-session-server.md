@@ -257,10 +257,10 @@ for every remote client rather than hidden in renderer-specific code:
   protocol records, and promote persisted message-entry IDs to stable
   `messageId` values shared by live events, snapshots, references, pagination,
   and legacy-session migration.
-- [ ] Add a server-owned generation to pending-interaction snapshots, pages, and
-  events so clients can reject pages invalidated by live mutations.
-- [ ] Advertise attachment quotas, upload concurrency, page sizes, and recovery
-  limits through capability discovery.
+- [x] Add a server-owned generation to pending-interaction snapshots, pages,
+  and events so clients reject pages invalidated by live mutations.
+- [x] Advertise attachment quotas, upload concurrency, page sizes, snapshot
+  bounds, and recovery limits through capability discovery.
 - [ ] Add automated browser coverage for prompt streaming, reconnect/snapshot
   fallback, background-tab event processing, attachment lifecycle, dialog focus,
   and narrow layouts.

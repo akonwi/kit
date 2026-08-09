@@ -5,7 +5,13 @@ import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
 import { writeSession } from "../session";
 import {
+	MAX_REMOTE_ATTACHMENT_BYTES,
+	MAX_REMOTE_ATTACHMENT_TOTAL_BYTES,
+	MAX_REMOTE_ATTACHMENTS,
 	MAX_REMOTE_ATTACHMENTS_PER_PROMPT,
+	MAX_REMOTE_PROMPT_ATTACHMENT_BYTES,
+	MAX_REMOTE_PROMPT_TEXT_BYTES,
+	MAX_REMOTE_TEXT_ATTACHMENT_BYTES,
 	type RemoteAttachmentStore,
 } from "./remote-attachment-store";
 import {
@@ -37,6 +43,7 @@ export type RpcConnectionSnapshot = {
 	messageOffset: number;
 	totalMessageCount: number;
 	pendingInteractions: unknown[];
+	pendingInteractionGeneration: number;
 };
 
 export const RPC_PROTOCOL_VERSION = 2;
@@ -73,7 +80,12 @@ export type RpcSessionHostOptions = {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_COMMAND_CANCELLATION_GRACE_MS = 2_000;
-const MAX_RPC_CHUNK_BYTES = 48 * 1024;
+export const DEFAULT_RPC_MESSAGE_PAGE_SIZE = 100;
+export const MAX_RPC_MESSAGE_PAGE_SIZE = 200;
+export const DEFAULT_RPC_INTERACTION_PAGE_SIZE = 20;
+export const MAX_RPC_INTERACTION_PAGE_SIZE = 50;
+export const MAX_RPC_INTERACTION_CHUNK_BYTES = 48 * 1024;
+export const MAX_RPC_INTERACTION_RECOVERY_BYTES = 2 * 1024 * 1024;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -112,12 +124,20 @@ function attachmentIds(command: RpcCommand): string[] {
 	return value;
 }
 
-function jsonChunk(value: unknown, offset: number, maxBytes: number) {
+function jsonChunk(
+	value: unknown,
+	offset: number,
+	maxBytes: number,
+	maxTotalBytes: number,
+) {
 	const serialized = JSON.stringify(value, (_key, item) =>
 		typeof item === "bigint" ? item.toString() : item,
 	);
 	if (serialized === undefined) throw new Error("Value cannot be serialized");
 	const bytes = Buffer.from(serialized, "utf8");
+	if (bytes.length > maxTotalBytes) {
+		throw new Error(`Serialized value exceeds ${maxTotalBytes} bytes`);
+	}
 	if (offset > bytes.length) throw new Error("offset exceeds serialized data");
 	const end = Math.min(bytes.length, offset + maxBytes);
 	return {
@@ -402,12 +422,17 @@ export class RpcSessionHost {
 			? Math.max(0, maxMessages)
 			: 0;
 		const messageOffset = Math.max(0, allMessages.length - count);
+		const pending = this.interactions?.getPendingSnapshot() ?? {
+			generation: 0,
+			requests: [],
+		};
 		return {
 			state: this.stateSnapshot(),
 			messages: allMessages.slice(messageOffset),
 			messageOffset,
 			totalMessageCount: allMessages.length,
-			pendingInteractions: this.interactions?.getPendingRequests() ?? [],
+			pendingInteractions: pending.requests,
+			pendingInteractionGeneration: pending.generation,
 		};
 	}
 
@@ -769,6 +794,46 @@ export class RpcSessionHost {
 						maxAttachmentsPerPrompt: this.attachments
 							? MAX_REMOTE_ATTACHMENTS_PER_PROMPT
 							: 0,
+						limits: {
+							attachments: {
+								maxFiles: this.attachments ? MAX_REMOTE_ATTACHMENTS : 0,
+								maxFilesPerPrompt: this.attachments
+									? MAX_REMOTE_ATTACHMENTS_PER_PROMPT
+									: 0,
+								maxFileBytes: this.attachments
+									? MAX_REMOTE_ATTACHMENT_BYTES
+									: 0,
+								maxTextFileBytes: this.attachments
+									? MAX_REMOTE_TEXT_ATTACHMENT_BYTES
+									: 0,
+								maxTotalBytes: this.attachments
+									? MAX_REMOTE_ATTACHMENT_TOTAL_BYTES
+									: 0,
+								maxPromptBytes: this.attachments
+									? MAX_REMOTE_PROMPT_ATTACHMENT_BYTES
+									: 0,
+								maxPromptTextBytes: this.attachments
+									? MAX_REMOTE_PROMPT_TEXT_BYTES
+									: 0,
+								maxConcurrentUploads: 0,
+							},
+							pagination: {
+								messages: {
+									defaultPageSize: DEFAULT_RPC_MESSAGE_PAGE_SIZE,
+									maxPageSize: MAX_RPC_MESSAGE_PAGE_SIZE,
+								},
+								pendingInteractions: {
+									defaultPageSize: DEFAULT_RPC_INTERACTION_PAGE_SIZE,
+									maxPageSize: MAX_RPC_INTERACTION_PAGE_SIZE,
+								},
+							},
+							recovery: {
+								pendingInteraction: {
+									maxChunkBytes: MAX_RPC_INTERACTION_CHUNK_BYTES,
+									maxTotalBytes: MAX_RPC_INTERACTION_RECOVERY_BYTES,
+								},
+							},
+						},
 						eventSequencing: { supported: false },
 					}),
 				);
@@ -785,8 +850,14 @@ export class RpcSessionHost {
 					return;
 				}
 				const offset = optionalNonnegativeInteger(command, "offset", 0);
-				const limit = optionalNonnegativeInteger(command, "limit", 100);
-				if (limit > 200) throw new Error("limit must not exceed 200");
+				const limit = optionalNonnegativeInteger(
+					command,
+					"limit",
+					DEFAULT_RPC_MESSAGE_PAGE_SIZE,
+				);
+				if (limit > MAX_RPC_MESSAGE_PAGE_SIZE) {
+					throw new Error(`limit must not exceed ${MAX_RPC_MESSAGE_PAGE_SIZE}`);
+				}
 				const page = messages.slice(offset, offset + limit);
 				await respond(
 					this.response(command, true, {
@@ -801,17 +872,42 @@ export class RpcSessionHost {
 			case "get_pending_interactions": {
 				if (!this.interactions)
 					throw new Error("Interactive UI is unavailable");
-				const pending = this.interactions.getPendingRequests();
+				const pending = this.interactions.getPendingSnapshot();
 				const offset = optionalNonnegativeInteger(command, "offset", 0);
-				const limit = optionalNonnegativeInteger(command, "limit", 20);
-				if (limit > 50) throw new Error("limit must not exceed 50");
-				const requests = pending.slice(offset, offset + limit);
+				const limit = optionalNonnegativeInteger(
+					command,
+					"limit",
+					DEFAULT_RPC_INTERACTION_PAGE_SIZE,
+				);
+				if (limit > MAX_RPC_INTERACTION_PAGE_SIZE) {
+					throw new Error(
+						`limit must not exceed ${MAX_RPC_INTERACTION_PAGE_SIZE}`,
+					);
+				}
+				const expectedGeneration = command.generation;
+				if (
+					expectedGeneration !== undefined &&
+					(typeof expectedGeneration !== "number" ||
+						!Number.isSafeInteger(expectedGeneration) ||
+						expectedGeneration < 0)
+				) {
+					throw new Error("generation must be a non-negative integer");
+				}
+				const stale =
+					typeof expectedGeneration === "number" &&
+					expectedGeneration !== pending.generation;
+				const requests = stale
+					? []
+					: pending.requests.slice(offset, offset + limit);
 				await respond(
 					this.response(command, true, {
 						requests,
 						offset,
-						totalRequestCount: pending.length,
-						hasMore: offset + requests.length < pending.length,
+						generation: pending.generation,
+						stale,
+						totalRequestCount: pending.requests.length,
+						hasMore:
+							!stale && offset + requests.length < pending.requests.length,
 					}),
 				);
 				return;
@@ -820,25 +916,32 @@ export class RpcSessionHost {
 				if (!this.interactions)
 					throw new Error("Interactive UI is unavailable");
 				const requestId = requireString(command, "requestId");
-				const request = this.interactions
-					.getPendingRequests()
-					.find((candidate) => candidate.id === requestId);
+				const pending = this.interactions.getPendingSnapshot();
+				const request = pending.requests.find(
+					(candidate) => candidate.id === requestId,
+				);
 				if (!request) throw new Error("Interaction is no longer pending");
 				const offset = optionalNonnegativeInteger(command, "offset", 0);
 				const maxBytes = optionalNonnegativeInteger(
 					command,
 					"maxBytes",
-					MAX_RPC_CHUNK_BYTES,
+					MAX_RPC_INTERACTION_CHUNK_BYTES,
 				);
-				if (maxBytes < 1 || maxBytes > MAX_RPC_CHUNK_BYTES) {
+				if (maxBytes < 1 || maxBytes > MAX_RPC_INTERACTION_CHUNK_BYTES) {
 					throw new Error(
-						`maxBytes must be between 1 and ${MAX_RPC_CHUNK_BYTES}`,
+						`maxBytes must be between 1 and ${MAX_RPC_INTERACTION_CHUNK_BYTES}`,
 					);
 				}
 				await respond(
 					this.response(command, true, {
 						requestId,
-						...jsonChunk(request, offset, maxBytes),
+						generation: pending.generation,
+						...jsonChunk(
+							request,
+							offset,
+							maxBytes,
+							MAX_RPC_INTERACTION_RECOVERY_BYTES,
+						),
 					}),
 				);
 				return;

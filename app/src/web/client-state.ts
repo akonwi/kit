@@ -28,7 +28,7 @@ export type ClientState = {
 	pendingInteractions: unknown[];
 	pendingInteractionOffset: number;
 	totalPendingInteractionCount: number;
-	interactionRevision: number;
+	pendingInteractionGeneration: number;
 	queuedMessageCount: number;
 	lastError: string | null;
 };
@@ -55,7 +55,7 @@ export function createClientState(): ClientState {
 		pendingInteractions: [],
 		pendingInteractionOffset: 0,
 		totalPendingInteractionCount: 0,
-		interactionRevision: 0,
+		pendingInteractionGeneration: 0,
 		queuedMessageCount: 0,
 		lastError: null,
 	};
@@ -337,13 +337,40 @@ function applyEvent(
 		}
 		case "chat.message-queue.changed":
 			return { ...state, queuedMessageCount: queuedCount(record) };
+		case "ui_snapshot": {
+			if (
+				typeof record.generation !== "number" ||
+				!Number.isSafeInteger(record.generation) ||
+				record.generation < 0 ||
+				!Array.isArray(record.requests) ||
+				!record.requests.every(
+					(request) => isRecord(request) && typeof request.id === "string",
+				)
+			) {
+				throw new ProtocolSyncError("Invalid interaction snapshot");
+			}
+			return {
+				...state,
+				pendingInteractions: record.requests,
+				pendingInteractionOffset: 0,
+				totalPendingInteractionCount: record.requests.length,
+				pendingInteractionGeneration: record.generation,
+			};
+		}
 		case "ui_request": {
+			if (
+				typeof record.generation !== "number" ||
+				!Number.isSafeInteger(record.generation) ||
+				record.generation !== state.pendingInteractionGeneration + 1
+			) {
+				throw new ProtocolSyncError("Interaction generation mismatch");
+			}
 			const incomingRequest = record.request;
 			if (
 				!isRecord(incomingRequest) ||
 				typeof incomingRequest.id !== "string"
 			) {
-				return state;
+				throw new ProtocolSyncError("Invalid interaction request");
 			}
 			return {
 				...state,
@@ -354,7 +381,7 @@ function applyEvent(
 					),
 					incomingRequest,
 				],
-				interactionRevision: state.interactionRevision + 1,
+				pendingInteractionGeneration: record.generation,
 				totalPendingInteractionCount: state.pendingInteractions.some(
 					(request) => isRecord(request) && request.id === incomingRequest.id,
 				)
@@ -363,20 +390,28 @@ function applyEvent(
 			};
 		}
 		case "ui_resolved": {
+			if (
+				typeof record.generation !== "number" ||
+				!Number.isSafeInteger(record.generation) ||
+				record.generation !== state.pendingInteractionGeneration + 1
+			) {
+				throw new ProtocolSyncError("Interaction generation mismatch");
+			}
 			const requestId = record.requestId;
-			return typeof requestId === "string"
-				? {
-						...state,
-						pendingInteractions: state.pendingInteractions.filter(
-							(request) => !isRecord(request) || request.id !== requestId,
-						),
-						interactionRevision: state.interactionRevision + 1,
-						totalPendingInteractionCount: Math.max(
-							0,
-							state.totalPendingInteractionCount - 1,
-						),
-					}
-				: state;
+			if (typeof requestId !== "string") {
+				throw new ProtocolSyncError("Invalid interaction resolution");
+			}
+			return {
+				...state,
+				pendingInteractions: state.pendingInteractions.filter(
+					(request) => !isRecord(request) || request.id !== requestId,
+				),
+				pendingInteractionGeneration: record.generation,
+				totalPendingInteractionCount: Math.max(
+					0,
+					state.totalPendingInteractionCount - 1,
+				),
+			};
 		}
 		case "session.transcript.replaced":
 			throw new ProtocolSyncError("The transcript changed");
@@ -408,6 +443,13 @@ export function reduceClientRecord(
 		}
 		if (record.mode === "snapshot") {
 			const serverState = isRecord(record.state) ? record.state : {};
+			if (
+				typeof record.pendingInteractionGeneration !== "number" ||
+				!Number.isSafeInteger(record.pendingInteractionGeneration) ||
+				record.pendingInteractionGeneration < 0
+			) {
+				throw new ProtocolSyncError("Invalid pending interaction generation");
+			}
 			const messages = Array.isArray(record.messages) ? record.messages : [];
 			const finalMessage = messages.at(-1);
 			const activeMessageIndex =
@@ -451,7 +493,7 @@ export function reduceClientRecord(
 						: Array.isArray(record.pendingInteractions)
 							? record.pendingInteractions.length
 							: 0,
-				interactionRevision: state.interactionRevision + 1,
+				pendingInteractionGeneration: record.pendingInteractionGeneration,
 				queuedMessageCount:
 					typeof serverState.pendingMessageCount === "number"
 						? serverState.pendingMessageCount

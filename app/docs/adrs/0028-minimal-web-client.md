@@ -160,13 +160,10 @@ tabs. Animation frames are reserved for DOM painting.
 
 A mutable collection cannot safely use the number of currently rendered items
 as its pagination cursor. A `ui_request` or `ui_resolved` event can change the
-pending-interaction collection while pages are in flight. The initial client
-tracks an interaction revision, restarts pagination from zero when that revision
-changes, and reconciles requests by opaque ID.
-
-A future protocol revision should expose a server-owned collection generation in
-snapshots, pages, and related events. That will let clients reject stale pages
-without relying on locally observed revisions.
+pending-interaction collection while pages are in flight. The interaction
+broker owns a monotonically increasing generation exposed in snapshots, pages,
+and mutation events. Clients page from zero against one generation, reject stale
+pages, and reconcile requests by opaque ID.
 
 ### Active message recovery
 
@@ -184,10 +181,11 @@ its existing transcript.
 
 ### Capability-driven limits
 
-The first client must currently mirror server upload counts, sizes, aggregate
-budgets, and concurrency limits. These are protocol behavior, not presentation
-choices. Capability discovery should eventually advertise client-relevant
-limits so browser and future TUI clients do not hard-code server constants.
+Capability discovery advertises attachment counts, sizes, aggregate budgets,
+upload concurrency, pagination sizes, snapshot bounds, event retention, and
+chunk-recovery limits. These are protocol behavior, not presentation choices.
+The browser uses the advertised attachment, page, and interaction-recovery
+limits with conservative defaults only until capability discovery completes.
 
 ### Verification boundary
 
