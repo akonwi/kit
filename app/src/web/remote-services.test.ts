@@ -1,6 +1,51 @@
 import { describe, expect, test } from "bun:test";
 import { WebRemoteServices } from "./remote-services";
 
+describe("web remote configuration services", () => {
+	test("validates models and thinking levels", async () => {
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				if (command.type === "get_available_models") {
+					return {
+						data: {
+							models: [{ id: "model-1", provider: "test", name: "Model One" }],
+						},
+					};
+				}
+				if (command.type === "get_available_thinking_levels") {
+					return { data: { levels: ["off", "high"] } };
+				}
+				return {};
+			},
+		});
+
+		await expect(services.listModels()).resolves.toEqual([
+			{ id: "model-1", provider: "test", name: "Model One" },
+		]);
+		await expect(services.listThinkingLevels()).resolves.toEqual([
+			"off",
+			"high",
+		]);
+	});
+
+	test("sends model and thinking-level selections", async () => {
+		const seen: Record<string, unknown>[] = [];
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				seen.push(command);
+				return {};
+			},
+		});
+
+		await services.setModel({ id: "model-1", provider: "test" });
+		await services.setThinkingLevel("high");
+		expect(seen).toEqual([
+			{ type: "set_model", provider: "test", modelId: "model-1" },
+			{ type: "set_thinking_level", level: "high" },
+		]);
+	});
+});
+
 describe("web remote command services", () => {
 	test("validates and returns transport-neutral commands", async () => {
 		const services = new WebRemoteServices({

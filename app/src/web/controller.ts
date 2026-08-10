@@ -8,7 +8,11 @@ import {
 	reduceClientRecord,
 	withConnectionPhase,
 } from "./client-state";
-import { type RemoteCommandList, WebRemoteServices } from "./remote-services";
+import {
+	type RemoteCommandList,
+	type RemoteModel,
+	WebRemoteServices,
+} from "./remote-services";
 import { WebSocketRpcTransport } from "./rpc-transport";
 import {
 	type PendingAttachment,
@@ -216,6 +220,38 @@ export class WebClientController {
 			await this.sendCommand({ type: "abort" });
 		} catch (error) {
 			this.view.reportError(error);
+		}
+	}
+
+	listModels(): Promise<RemoteModel[]> {
+		return this.services.listModels();
+	}
+
+	async setModel(model: RemoteModel): Promise<boolean> {
+		try {
+			await this.services.setModel(model);
+			this.view.setStatus("");
+			this.view.notify();
+			return true;
+		} catch (error) {
+			this.view.reportError(error);
+			return false;
+		}
+	}
+
+	listThinkingLevels(): Promise<string[]> {
+		return this.services.listThinkingLevels();
+	}
+
+	async setThinkingLevel(level: string): Promise<boolean> {
+		try {
+			await this.services.setThinkingLevel(level);
+			this.view.setStatus("");
+			this.view.notify();
+			return true;
+		} catch (error) {
+			this.view.reportError(error);
+			return false;
 		}
 	}
 

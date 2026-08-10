@@ -53,6 +53,16 @@ export function DialogFrame(props: {
 			id={props.id}
 			class={props.class}
 			aria-labelledby={props.labelledBy}
+			onClick={(event) => {
+				if (event.target !== event.currentTarget) return;
+				const bounds = event.currentTarget.getBoundingClientRect();
+				const outside =
+					event.clientX < bounds.left ||
+					event.clientX > bounds.right ||
+					event.clientY < bounds.top ||
+					event.clientY > bounds.bottom;
+				if (outside) props.onCancel();
+			}}
 			onCancel={(event) => {
 				event.preventDefault();
 				props.onCancel();

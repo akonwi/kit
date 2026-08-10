@@ -1194,6 +1194,36 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("rejects thinking-level changes while a prompt is active", async () => {
+		let changed = false;
+		const runtime = createRuntime({
+			getStatus: () => ({ isStreaming: true }),
+			getCurrentModel: () => undefined,
+			setThinkingLevel: () => {
+				changed = true;
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: Array<Record<string, unknown>> = [];
+
+		await host.handleCommand(
+			{ id: "thinking", type: "set_thinking_level", level: "off" },
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+
+		expect(changed).toBe(false);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "thinking",
+				success: false,
+				error: "Cannot change thinking level while the agent is streaming",
+			}),
+		]);
+		host.dispose();
+	});
+
 	test("serializes state-changing commands from different callers", async () => {
 		let finishAdaptation: (() => void) | undefined;
 		const model = { provider: "test", id: "model-1" };

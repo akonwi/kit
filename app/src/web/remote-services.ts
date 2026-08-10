@@ -43,11 +43,21 @@ export type RemoteCommandList = {
 	registryGeneration: number;
 };
 
+export type RemoteModel = {
+	id: string;
+	provider: string;
+	name?: string;
+};
+
 const MAX_REMOTE_COMMANDS = 512;
 const MAX_COMMAND_ID_LENGTH = 256;
 const MAX_COMMAND_NAME_LENGTH = 256;
 const MAX_COMMAND_DESCRIPTION_LENGTH = 2_048;
 const MAX_COMMAND_METADATA_LENGTH = 128;
+const MAX_REMOTE_MODELS = 1_024;
+const MAX_MODEL_FIELD_LENGTH = 512;
+const MAX_THINKING_LEVELS = 32;
+const MAX_THINKING_LEVEL_LENGTH = 64;
 
 export const DEFAULT_CLIENT_LIMITS: ClientLimits = {
 	maxAttachmentsPerPrompt: 8,
@@ -73,6 +83,27 @@ function nonnegativeInteger(value: unknown, fallback: number): number {
 	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 		? value
 		: fallback;
+}
+
+function hasAsciiControlCharacter(value: string): boolean {
+	for (let index = 0; index < value.length; index += 1) {
+		const code = value.charCodeAt(index);
+		if (code <= 31 || code === 127) return true;
+	}
+	return false;
+}
+
+function boundedNonemptyString(
+	value: unknown,
+	maxLength: number,
+): string | null {
+	return typeof value === "string" &&
+		value.trim() === value &&
+		value.length > 0 &&
+		value.length <= maxLength &&
+		!hasAsciiControlCharacter(value)
+		? value
+		: null;
 }
 
 function isRemoteImage(file: File): boolean {
@@ -151,6 +182,73 @@ export class WebRemoteServices {
 
 	resetLimits(): void {
 		this.limitsValue = DEFAULT_CLIENT_LIMITS;
+	}
+
+	async listModels(): Promise<RemoteModel[]> {
+		const response = await this.rpc.command({ type: "get_available_models" });
+		if (!isRecord(response.data) || !Array.isArray(response.data.models)) {
+			throw new Error("Model list omitted models");
+		}
+		if (response.data.models.length > MAX_REMOTE_MODELS) {
+			throw new Error("Model list exceeds the client limit");
+		}
+		const identities = new Set<string>();
+		return response.data.models.map((value) => {
+			if (!isRecord(value))
+				throw new Error("Model list contains an invalid model");
+			const id = boundedNonemptyString(value.id, MAX_MODEL_FIELD_LENGTH);
+			const provider = boundedNonemptyString(
+				value.provider,
+				MAX_MODEL_FIELD_LENGTH,
+			);
+			const name =
+				value.name === undefined
+					? undefined
+					: boundedNonemptyString(value.name, MAX_MODEL_FIELD_LENGTH);
+			if (!id || !provider || (value.name !== undefined && !name)) {
+				throw new Error("Model list contains an invalid model");
+			}
+			const identity = `${provider}\u0000${id}`;
+			if (identities.has(identity)) {
+				throw new Error("Model list contains a duplicate model");
+			}
+			identities.add(identity);
+			return { id, provider, ...(name ? { name } : {}) };
+		});
+	}
+
+	setModel(model: RemoteModel): Promise<Record<string, unknown>> {
+		return this.rpc.command({
+			type: "set_model",
+			provider: model.provider,
+			modelId: model.id,
+		});
+	}
+
+	async listThinkingLevels(): Promise<string[]> {
+		const response = await this.rpc.command({
+			type: "get_available_thinking_levels",
+		});
+		if (!isRecord(response.data) || !Array.isArray(response.data.levels)) {
+			throw new Error("Thinking-level list omitted levels");
+		}
+		if (response.data.levels.length > MAX_THINKING_LEVELS) {
+			throw new Error("Thinking-level list exceeds the client limit");
+		}
+		const levels = response.data.levels.map((value) => {
+			const level = boundedNonemptyString(value, MAX_THINKING_LEVEL_LENGTH);
+			if (!level)
+				throw new Error("Thinking-level list contains an invalid level");
+			return level;
+		});
+		if (new Set(levels).size !== levels.length) {
+			throw new Error("Thinking-level list contains duplicate levels");
+		}
+		return levels;
+	}
+
+	setThinkingLevel(level: string): Promise<Record<string, unknown>> {
+		return this.rpc.command({ type: "set_thinking_level", level });
 	}
 
 	async listCommands(): Promise<RemoteCommandList> {

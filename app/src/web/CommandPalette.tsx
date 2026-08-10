@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { scoreMatch } from "../features/files/score";
 import { DialogFrame } from "./DialogFrame";
+import { OverlayHintBar } from "./OverlayHintBar";
 import type { RemoteCommand } from "./remote-services";
 import { useWebClient } from "./WebClientContext";
 
@@ -288,13 +289,14 @@ export function CommandPalette(): JSX.Element {
 					</div>
 				</Show>
 			</div>
-			<footer class="command-palette-footer">
-				<span>
-					{argumentCommand()
-						? "Enter run · Esc close"
-						: "↑↓ navigate · Enter run · Esc close"}
-				</span>
-			</footer>
+			<OverlayHintBar
+				class="command-palette-footer"
+				hints={
+					argumentCommand()
+						? ["Enter run", "Esc close"]
+						: ["Up/Down navigate", "Enter run", "Esc close"]
+				}
+			/>
 		</DialogFrame>
 	);
 }

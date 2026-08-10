@@ -123,8 +123,8 @@ When `/handoff` includes a message, command success acknowledges the completed
 fork and accepts the message as an asynchronous prompt; normal agent lifecycle
 events report its progress and settlement.
 
-Model and thinking selection should use their existing discovery and mutation
-RPC commands through browser-native pickers. Sessions, authentication, review,
+Model and thinking selection use their existing discovery and mutation RPC
+commands through reusable browser-native pickers. Sessions, authentication, review,
 diagnostics, sub-agents, MCP status, settings, and release notes require
 purpose-built remote surfaces. `/quit`, `/reload`, `/theme`, and `/pager` remain
 host- or renderer-local.

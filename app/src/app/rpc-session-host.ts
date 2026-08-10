@@ -1074,6 +1074,11 @@ export class RpcSessionHost {
 				);
 				return;
 			case "set_thinking_level": {
+				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
+					throw new Error(
+						"Cannot change thinking level while the agent is streaming",
+					);
+				}
 				const level = requireString(command, "level") as ThinkingLevel;
 				const levels = getAvailableThinkingLevels(
 					this.runtime.getCurrentModel(),
