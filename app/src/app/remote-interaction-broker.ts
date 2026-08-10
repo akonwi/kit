@@ -7,6 +7,7 @@ import type {
 	GuidedQuestionsResult,
 } from "../features/guided-questions/types";
 import { normalizeQuestions } from "../features/guided-questions/types";
+import type { ToastInput } from "../state/toasts";
 
 export const REMOTE_INTERACTION_KINDS = [
 	"confirm",
@@ -42,6 +43,10 @@ export type RemoteInteractionEvent =
 			kind: RemoteInteractionKind;
 			resolution: "answered" | "aborted" | "shutdown";
 			response: unknown;
+	  }
+	| {
+			type: "ui.toast.requested";
+			toast: ToastInput;
 	  };
 
 export type RemoteInteractionResponseResult =
@@ -173,6 +178,7 @@ function validateGuidedAnswer(
 
 export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 	private readonly pending = new Map<string, PendingInteraction>();
+	private readonly pendingToastEvents: RemoteInteractionEvent[] = [];
 	private generation = 0;
 	private readonly listeners = new Set<
 		(event: RemoteInteractionEvent) => void
@@ -182,6 +188,8 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 	subscribe(listener: (event: RemoteInteractionEvent) => void): () => void {
 		if (this.disposed) return () => {};
 		this.listeners.add(listener);
+		const pendingToasts = this.pendingToastEvents.splice(0);
+		for (const event of pendingToasts) this.notifyListener(listener, event);
 		return () => this.listeners.delete(listener);
 	}
 
@@ -209,6 +217,20 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 
 	getPendingRequests(): RemoteInteractionRequest[] {
 		return this.getPendingSnapshot().requests;
+	}
+
+	toast(input: ToastInput): void {
+		if (this.disposed) return;
+		const toast: ToastInput = {
+			title: input.title,
+			...(input.subtitle ? { subtitle: input.subtitle } : {}),
+			variant: input.variant,
+			...(input.persistent ? { persistent: true } : {}),
+		};
+		this.publish({
+			type: "ui.toast.requested",
+			toast,
+		});
 	}
 
 	confirm(input: RemoteConfirmInput): Promise<boolean> {
@@ -371,6 +393,7 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 			);
 		}
 		this.listeners.clear();
+		this.pendingToastEvents.length = 0;
 	}
 
 	private request<T>(
@@ -469,14 +492,26 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 	}
 
 	private publish(event: RemoteInteractionEvent): void {
+		if (event.type === "ui.toast.requested" && this.listeners.size === 0) {
+			this.pendingToastEvents.push(event);
+			if (this.pendingToastEvents.length > 32) this.pendingToastEvents.shift();
+			return;
+		}
 		for (const listener of [...this.listeners]) {
-			try {
-				listener(event);
-			} catch (error) {
-				console.error(
-					`Remote interaction listener failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
+			this.notifyListener(listener, event);
+		}
+	}
+
+	private notifyListener(
+		listener: (event: RemoteInteractionEvent) => void,
+		event: RemoteInteractionEvent,
+	): void {
+		try {
+			listener(event);
+		} catch (error) {
+			console.error(
+				`Remote interaction listener failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 }

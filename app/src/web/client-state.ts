@@ -39,6 +39,8 @@ export type ClientState = {
 
 export class ProtocolSyncError extends Error {}
 
+export class ProtocolRebaseRequired extends ProtocolSyncError {}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -202,7 +204,7 @@ function applyEvent(
 				typeof nextSessionId === "string" &&
 				currentSessionId !== nextSessionId
 			) {
-				throw new ProtocolSyncError("The active session changed");
+				throw new ProtocolRebaseRequired("The active session changed");
 			}
 			return {
 				...state,
@@ -487,7 +489,7 @@ function applyEvent(
 			};
 		}
 		case "session.transcript.replaced":
-			throw new ProtocolSyncError("The transcript changed");
+			throw new ProtocolRebaseRequired("The transcript changed");
 		case "agent.run.failed":
 		case "error":
 			return {

@@ -5,7 +5,7 @@ import { createThreadIndex, type ThreadIndex } from "../features/threads";
 import { safeProcessCwd } from "../process-cwd";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { Session } from "../session";
-import type { Toast, ToastInput } from "./toasts";
+import { type Toast, type ToastInput, toastForRuntimeRecord } from "./toasts";
 
 export type SessionMeta = {
 	id: string;
@@ -121,84 +121,9 @@ export function createAppState(runtime: AgentRuntime | null) {
 			case "chat.message-queue.changed":
 				setState("pendingMessages", event.messages);
 				break;
-			case "chat.followups.promoted":
-				showToast({
-					title: "Steering",
-					subtitle:
-						event.count === 1
-							? "Promoted 1 queued follow-up into steering."
-							: `Promoted ${event.count} queued follow-ups into steering.`,
-					variant: "info",
-				});
-				break;
-			case "session.compaction.completed.auto":
-				showToast({
-					title: "Session compacted",
-					subtitle: `Context reached ${event.contextPercent}%; compacted ${event.compactedTurnCount} turns into 1 summary turn. Kept ${event.keptTurnCount} recent turns unchanged.`,
-					variant: "info",
-				});
-				break;
-			case "session.compaction.failed.auto":
-				showToast({
-					title: "Auto-compaction failed",
-					subtitle: event.error,
-					variant: "error",
-				});
-				break;
-			case "session.compaction.completed.recovery":
-				showToast({
-					title: "Session compacted",
-					subtitle: `Recovered from a context overflow by compacting ${event.compactedTurnCount} turns into 1 summary turn. Kept ${event.keptTurnCount} recent turns unchanged.`,
-					variant: "info",
-				});
-				break;
-			case "session.compaction.failed.recovery":
-				showToast({
-					title: "Context overflow recovery failed",
-					subtitle: event.error,
-					variant: "error",
-				});
-				break;
-			case "session.compaction.failed.adaptation":
-				showToast({
-					title:
-						event.cause === "compaction-error"
-							? "Model switch compaction failed"
-							: "Model too small for session",
-					subtitle: `${event.error} Start a new session or hand off to continue with this model.`,
-					variant: "error",
-				});
-				break;
-			case "session.compaction.completed.manual":
-				showToast({
-					title: "Session compacted",
-					subtitle: `Compacted ${event.compactedTurnCount} turns into 1 summary turn. Kept ${event.keptTurnCount} recent turns unchanged.`,
-					variant: "info",
-				});
-				break;
-			case "session.compaction.failed.manual":
-				showToast({
-					title: "Compaction failed",
-					subtitle: event.error,
-					variant: "error",
-				});
-				break;
-			case "agent.retry.failed":
-				if (event.error === "Retry cancelled before continue.") break;
-				showToast({
-					title: "Retry failed",
-					subtitle: event.error,
-					variant: "error",
-				});
-				break;
-			case "agent.run.failed":
-				showToast({
-					title: "Agent run failed",
-					subtitle: event.error,
-					variant: "error",
-				});
-				break;
 		}
+		const toast = toastForRuntimeRecord(event);
+		if (toast) showToast(toast);
 	});
 
 	// ── Debug ─────────────────────────────────────────────────────

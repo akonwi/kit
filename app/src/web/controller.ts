@@ -3,7 +3,7 @@ import {
 	createClientState,
 	hydrateMessageReference,
 	isRecord,
-	ProtocolSyncError,
+	ProtocolRebaseRequired,
 	prependMessages,
 	reduceClientRecord,
 	withConnectionPhase,
@@ -19,12 +19,26 @@ import {
 	type WebClientSnapshot,
 	WebClientViewState,
 } from "./view-state";
+import { toastForProtocolRecord, type WebToastSink } from "./web-toasts";
 
 export type {
 	ClientStatus,
 	PendingAttachment,
 	WebClientSnapshot,
 } from "./view-state";
+
+export type WebClientControllerOptions = {
+	showToast?: WebToastSink;
+};
+
+function persistentToastKey(record: unknown): string | null {
+	return isRecord(record) &&
+		record.type === "ui.toast.requested" &&
+		isRecord(record.toast) &&
+		record.toast.persistent === true
+		? JSON.stringify(record.toast)
+		: null;
+}
 
 export class WebClientController {
 	private state: ClientState;
@@ -37,10 +51,19 @@ export class WebClientController {
 	private loadingCapabilities = false;
 	private readonly hydratingMessages = new Set<string>();
 	private readonly hydratingInteractions = new Set<string>();
+	private readonly showToast?: WebToastSink;
+	private disposed = false;
+	private readonly seenSnapshotToasts = new Set<string>();
+	private lastProtocolToast: {
+		sequence: number;
+		type: string;
+		description?: string;
+	} | null = null;
 
-	constructor() {
+	constructor(options: WebClientControllerOptions = {}) {
 		this.state = createClientState();
-		this.view = new WebClientViewState(this.state);
+		this.showToast = options.showToast;
+		this.view = new WebClientViewState(this.state, options.showToast);
 		this.transport = new WebSocketRpcTransport({
 			getResumeCursor: () =>
 				this.state.streamId
@@ -55,7 +78,10 @@ export class WebClientController {
 				this.view.notify();
 			},
 			onProtocolRecords: (records) => this.reduceProtocolRecords(records),
-			onError: (error) => this.view.reportError(error),
+			onError: (error) => {
+				if (error instanceof ProtocolRebaseRequired) return;
+				this.view.reportError(error, "Connection error");
+			},
 		});
 		this.services = new WebRemoteServices({
 			command: (command) => this.sendCommand(command),
@@ -75,6 +101,7 @@ export class WebClientController {
 	}
 
 	dispose(): void {
+		this.disposed = true;
 		this.transport.dispose();
 		this.view.dispose();
 	}
@@ -119,7 +146,7 @@ export class WebClientController {
 		try {
 			await this.services.removeAttachment(attachment.id);
 		} catch (error) {
-			this.view.reportError(error);
+			this.view.reportError(error, "Attachment removal failed");
 		}
 	}
 
@@ -199,7 +226,7 @@ export class WebClientController {
 			this.view.setStatus("");
 			return true;
 		} catch (error) {
-			this.view.reportError(error);
+			this.view.reportError(error, "Message failed");
 			return false;
 		} finally {
 			this.view.setSubmitting(false);
@@ -219,7 +246,7 @@ export class WebClientController {
 		try {
 			await this.sendCommand({ type: "abort" });
 		} catch (error) {
-			this.view.reportError(error);
+			this.view.reportError(error, "Abort failed");
 		}
 	}
 
@@ -234,7 +261,7 @@ export class WebClientController {
 			this.view.notify();
 			return true;
 		} catch (error) {
-			this.view.reportError(error);
+			this.view.reportError(error, "Model change failed");
 			return false;
 		}
 	}
@@ -250,7 +277,7 @@ export class WebClientController {
 			this.view.notify();
 			return true;
 		} catch (error) {
-			this.view.reportError(error);
+			this.view.reportError(error, "Thinking-level change failed");
 			return false;
 		}
 	}
@@ -264,13 +291,23 @@ export class WebClientController {
 		args: string,
 		registryGeneration: number,
 	): Promise<boolean> {
+		const startingSequence = this.state.sequence;
 		try {
 			await this.services.executeCommand(commandId, args, registryGeneration);
 			this.view.setStatus("");
 			this.view.notify();
 			return true;
 		} catch (error) {
-			this.view.reportError(error);
+			const errorMessage =
+				error instanceof Error ? error.message : String(error);
+			const failureAlreadyPresented =
+				commandId === "compact" &&
+				this.lastProtocolToast?.type === "session.compaction.failed.manual" &&
+				this.lastProtocolToast.sequence > startingSequence &&
+				this.lastProtocolToast.description === errorMessage;
+			if (!failureAlreadyPresented) {
+				this.view.reportError(error, "Command failed");
+			}
 			return false;
 		}
 	}
@@ -403,11 +440,33 @@ export class WebClientController {
 			if (isRecord(record) && record.type === "sync") {
 				this.activeSyncMode =
 					typeof record.mode === "string" ? record.mode : null;
+				if (record.mode === "snapshot" && Array.isArray(record.toasts)) {
+					for (const toast of record.toasts) {
+						const key = JSON.stringify(toast);
+						if (this.seenSnapshotToasts.has(key)) continue;
+						const toastRecord = { type: "ui.toast.requested", toast };
+						const input = toastForProtocolRecord(toastRecord);
+						if (input && this.presentProtocolToast(input, toastRecord)) {
+							this.seenSnapshotToasts.add(key);
+						}
+					}
+				}
 			}
 			if (isRecord(record) && record.type === "resync_required") {
-				throw new ProtocolSyncError("The session requires a fresh snapshot");
+				throw new ProtocolRebaseRequired(
+					"The session requires a fresh snapshot",
+				);
 			}
+			const toast =
+				(this.activeSyncMode === null && this.state.phase === "live") ||
+				this.activeSyncMode === "replay"
+					? toastForProtocolRecord(record)
+					: null;
+			const previousSequence = this.state.sequence;
 			this.setState(reduceClientRecord(this.state, record));
+			if (toast && this.state.sequence > previousSequence) {
+				this.presentProtocolToast(toast, record);
+			}
 			if (isRecord(record) && record.type === "sync_complete") {
 				if (this.activeSyncMode === "snapshot") {
 					this.transport.acceptSnapshot();
@@ -430,6 +489,33 @@ export class WebClientController {
 			void this.hydrateVisibleMessageReferences();
 		}
 		this.view.notify();
+	}
+
+	private presentProtocolToast(
+		input: Parameters<WebToastSink>[0],
+		record: unknown,
+	): boolean {
+		if (this.disposed || !this.showToast) return false;
+		try {
+			this.showToast(input);
+			this.lastProtocolToast = {
+				sequence: this.state.sequence,
+				type:
+					isRecord(record) && typeof record.type === "string"
+						? record.type
+						: "",
+				description: input.description,
+			};
+			const persistentKey = persistentToastKey(record);
+			if (persistentKey) this.seenSnapshotToasts.add(persistentKey);
+			return true;
+		} catch {
+			this.view.setStatus(
+				input.description ?? input.title,
+				input.variant === "error",
+			);
+			return false;
+		}
 	}
 
 	private reconcileInteractions(): void {

@@ -245,6 +245,8 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 					followUp: event.messages,
 				},
 			];
+		case "chat.followups.promoted":
+			return [{ type: event.type, count: event.count }];
 		case "agent.retry.started":
 			return [
 				{
@@ -275,10 +277,49 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 				},
 			];
 		case "session.compaction.completed.auto":
+			return [
+				{
+					type: event.type,
+					contextPercent: event.contextPercent,
+					compactedTurnCount: event.compactedTurnCount,
+					keptTurnCount: event.keptTurnCount,
+				},
+				{ type: "session.transcript.replaced", reason: "compaction" },
+			];
 		case "session.compaction.completed.recovery":
+			return [
+				{
+					type: event.type,
+					compactedTurnCount: event.compactedTurnCount,
+					keptTurnCount: event.keptTurnCount,
+				},
+				{ type: "session.transcript.replaced", reason: "compaction" },
+			];
 		case "session.compaction.completed.adaptation":
-		case "session.compaction.completed.manual":
 			return [{ type: "session.transcript.replaced", reason: "compaction" }];
+		case "session.compaction.completed.manual":
+			return [
+				{
+					type: event.type,
+					compactedTurnCount: event.compactedTurnCount,
+					keptTurnCount: event.keptTurnCount,
+				},
+				{ type: "session.transcript.replaced", reason: "compaction" },
+			];
+		case "session.compaction.failed.auto":
+		case "session.compaction.failed.recovery":
+		case "session.compaction.failed.manual":
+			return [{ type: event.type, error: event.error }];
+		case "session.compaction.failed.adaptation":
+			return [
+				{
+					type: event.type,
+					modelId: event.modelId,
+					modelName: event.modelName,
+					cause: event.cause,
+					error: event.error,
+				},
+			];
 		case "session.handoff_summary.appended":
 			return [
 				{
@@ -302,6 +343,7 @@ export class RpcSessionHost {
 	private commandQueue = Promise.resolve();
 	private readonly acceptedRuns = new Set<Promise<void>>();
 	private readonly listeners = new Set<RpcEventListener>();
+	private readonly pendingEvents: unknown[] = [];
 	private readonly unsubscribeRuntime: () => void;
 	private readonly unsubscribeInteractions: (() => void) | null;
 	private readonly unsubscribeCommands: (() => void) | null;
@@ -361,6 +403,8 @@ export class RpcSessionHost {
 	subscribe(listener: RpcEventListener): () => void {
 		if (this.disposed) return () => {};
 		this.listeners.add(listener);
+		const pending = this.pendingEvents.splice(0);
+		for (const record of pending) this.notifyListener(listener, record);
 		return () => this.listeners.delete(listener);
 	}
 
@@ -467,17 +511,27 @@ export class RpcSessionHost {
 		this.interactions?.dispose();
 		this.attachments?.dispose();
 		this.listeners.clear();
+		this.pendingEvents.length = 0;
 	}
 
 	private publish(record: unknown): void {
+		if (this.listeners.size === 0) {
+			this.pendingEvents.push(record);
+			if (this.pendingEvents.length > 64) this.pendingEvents.shift();
+			return;
+		}
 		for (const listener of [...this.listeners]) {
-			try {
-				listener(record);
-			} catch (error) {
-				console.error(
-					`RPC event listener failed: ${error instanceof Error ? error.message : String(error)}`,
-				);
-			}
+			this.notifyListener(listener, record);
+		}
+	}
+
+	private notifyListener(listener: RpcEventListener, record: unknown): void {
+		try {
+			listener(record);
+		} catch (error) {
+			console.error(
+				`RPC event listener failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
 		}
 	}
 

@@ -179,6 +179,32 @@ describe("WebRpcServer", () => {
 		expect(clientJavaScript).toContain("solid-js");
 	});
 
+	test("includes pending persistent toasts in the initial snapshot", async () => {
+		const { host, address } = start({ eventStreamId: "stream-1" });
+		host.emit({
+			type: "ui.toast.requested",
+			toast: {
+				title: "Plugin failed",
+				subtitle: "Initialization error",
+				variant: "error",
+				persistent: true,
+			},
+		});
+		const connection = await openWebSocket(
+			`${address.url.replace("http://", "ws://")}/api/rpc`,
+		);
+		sockets.push(connection.socket);
+
+		expect(connection.sync.toasts).toEqual([
+			{
+				title: "Plugin failed",
+				subtitle: "Initialization error",
+				variant: "error",
+				persistent: true,
+			},
+		]);
+	});
+
 	test("uploads and removes opaque attachments", async () => {
 		const attachments = new RemoteAttachmentStore();
 		const { address } = start({ attachments });

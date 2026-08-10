@@ -28,6 +28,20 @@ describe("createHeadlessPluginUI", () => {
 		broker.subscribe((event) => events.push(event));
 		const ui = createHeadlessPluginUI(broker);
 
+		ui.toast({
+			title: "Plugin ready",
+			subtitle: "Remote feedback",
+			variant: "info",
+		});
+		expect(events).toContainEqual({
+			type: "ui.toast.requested",
+			toast: {
+				title: "Plugin ready",
+				subtitle: "Remote feedback",
+				variant: "info",
+			},
+		});
+
 		const result = ui.confirm({ title: "Confirm" });
 		const request = events.find((event) => event.type === "ui_request");
 		if (!request || request.type !== "ui_request") {

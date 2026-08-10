@@ -1,3 +1,10 @@
+import { ProtocolRebaseRequired } from "./client-state";
+
+// The host allows transport-neutral commands 30 seconds before timing out.
+// Keep the rebase socket alive slightly longer so committed session/model
+// changes can finish adaptation and workspace setup before snapshot reconnect.
+const REBASE_RESPONSE_GRACE_MS = 35_000;
+
 type PendingCommand = {
 	resolve(record: Record<string, unknown>): void;
 	reject(error: Error): void;
@@ -29,6 +36,8 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 	private readonly pendingCommands = new Map<string, PendingCommand>();
 	private readonly queuedRecords: unknown[] = [];
 	private protocolTimer: number | null = null;
+	private rebaseTimer: number | null = null;
+	private rebasePending = false;
 	private started = false;
 
 	private readonly onlineListener = () => {
@@ -49,8 +58,11 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 		window.removeEventListener("online", this.onlineListener);
 		if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
 		if (this.protocolTimer !== null) clearTimeout(this.protocolTimer);
+		if (this.rebaseTimer !== null) clearTimeout(this.rebaseTimer);
 		this.reconnectTimer = null;
 		this.protocolTimer = null;
+		this.rebaseTimer = null;
+		this.rebasePending = false;
 		this.socket?.close();
 		this.socket = null;
 		this.rejectPendingCommands(new Error("Web client disposed"));
@@ -69,7 +81,11 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 	}
 
 	command(command: Record<string, unknown>): Promise<Record<string, unknown>> {
-		if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+		if (
+			this.rebasePending ||
+			!this.socket ||
+			this.socket.readyState !== WebSocket.OPEN
+		) {
 			return Promise.reject(new Error("Kit is not connected"));
 		}
 		this.commandCounter += 1;
@@ -112,6 +128,10 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 		} catch (error) {
 			this.requireSnapshot = true;
 			this.hooks.onError(error);
+			if (error instanceof ProtocolRebaseRequired) {
+				this.deferRebaseUntilCommandsSettle();
+				return true;
+			}
 			this.rejectPendingCommands(
 				error instanceof Error ? error : new Error(String(error)),
 			);
@@ -120,7 +140,26 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 		}
 	}
 
+	private deferRebaseUntilCommandsSettle(): void {
+		this.rebasePending = true;
+		if (this.rebaseTimer === null) {
+			this.rebaseTimer = window.setTimeout(() => {
+				this.rebaseTimer = null;
+				this.socket?.close();
+			}, REBASE_RESPONSE_GRACE_MS);
+		}
+		this.finishDeferredRebaseIfSettled();
+	}
+
+	private finishDeferredRebaseIfSettled(): void {
+		if (!this.rebasePending || this.pendingCommands.size > 0) return;
+		if (this.rebaseTimer !== null) clearTimeout(this.rebaseTimer);
+		this.rebaseTimer = null;
+		this.socket?.close();
+	}
+
 	private enqueueProtocolRecord(record: unknown): void {
+		if (this.rebasePending) return;
 		this.queuedRecords.push(record);
 		if (this.queuedRecords.length >= 256) {
 			this.drainProtocolRecords();
@@ -162,6 +201,7 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 									),
 								);
 							}
+							this.finishDeferredRebaseIfSettled();
 						}
 					}
 					return;
@@ -176,6 +216,9 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 		nextSocket.addEventListener("close", () => {
 			if (this.socket !== nextSocket) return;
 			this.socket = null;
+			this.rebasePending = false;
+			if (this.rebaseTimer !== null) clearTimeout(this.rebaseTimer);
+			this.rebaseTimer = null;
 			this.queuedRecords.length = 0;
 			if (this.protocolTimer !== null) clearTimeout(this.protocolTimer);
 			this.protocolTimer = null;

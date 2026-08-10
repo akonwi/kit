@@ -3,6 +3,7 @@ import {
 	type ClientState,
 	createClientState,
 	hydrateMessageReference,
+	ProtocolRebaseRequired,
 	ProtocolSyncError,
 	reduceClientRecord,
 } from "./client-state";
@@ -279,14 +280,15 @@ describe("web client state", () => {
 			phase: "live",
 			streamId: "stream-1",
 		};
-		expect(() =>
+		const replaceTranscript = () =>
 			reduceClientRecord(state, {
 				type: "session.transcript.replaced",
 				reason: "compaction",
 				streamId: "stream-1",
 				sequence: 1,
-			}),
-		).toThrow("The transcript changed");
+			});
+		expect(replaceTranscript).toThrow(ProtocolRebaseRequired);
+		expect(replaceTranscript).toThrow("The transcript changed");
 	});
 
 	test("deduplicates semantic lifecycle and commit events by message id", () => {

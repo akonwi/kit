@@ -149,7 +149,10 @@ RPC mode emits Kit semantic events using the same dotted names as the runtime:
 - `session.message.appended` and `session.handoff_summary.appended`
 - `session.transcript.replaced` when recovery or compaction invalidates the
   current transcript projection
-- `chat.message-queue.changed`
+- bounded `session.compaction.completed.*` and `session.compaction.failed.*`
+  outcome records for user feedback; completed adaptation compaction remains
+  represented only by transcript replacement
+- `chat.message-queue.changed` and `chat.followups.promoted`
 - `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
 - `agent.run.failed` for an execution failure after a command was accepted
 

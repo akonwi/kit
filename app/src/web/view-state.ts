@@ -1,4 +1,5 @@
 import type { ClientState } from "./client-state";
+import { DEFAULT_WEB_TOAST_DURATION_MS, type WebToastSink } from "./web-toasts";
 
 export type PendingAttachment = {
 	file: File;
@@ -31,8 +32,12 @@ export class WebClientViewState {
 	private readonly interactionHydrationErrorsValue = new Map<string, string>();
 	private readonly interactionResponseErrorsValue = new Map<string, string>();
 	private readonly listeners = new Set<(snapshot: WebClientSnapshot) => void>();
+	private disposed = false;
 
-	constructor(private protocolValue: ClientState) {}
+	constructor(
+		private protocolValue: ClientState,
+		private readonly showToast?: WebToastSink,
+	) {}
 
 	setProtocol(state: ClientState): void {
 		this.protocolValue = state;
@@ -60,10 +65,12 @@ export class WebClientViewState {
 	}
 
 	dispose(): void {
+		this.disposed = true;
 		this.listeners.clear();
 	}
 
 	notify(): void {
+		if (this.disposed) return;
 		const snapshot = this.snapshot();
 		for (const listener of this.listeners) listener(snapshot);
 	}
@@ -72,11 +79,24 @@ export class WebClientViewState {
 		this.statusValue = { message, isError };
 	}
 
-	reportError(error: unknown): void {
-		this.setStatus(
-			error instanceof Error ? error.message : String(error),
-			true,
-		);
+	reportError(error: unknown, title = "Kit error"): void {
+		if (this.disposed) return;
+		const message = error instanceof Error ? error.message : String(error);
+		if (this.showToast) {
+			try {
+				this.showToast({
+					title,
+					description: message,
+					variant: "error",
+					duration: DEFAULT_WEB_TOAST_DURATION_MS,
+				});
+				this.statusValue = { message: "", isError: false };
+			} catch {
+				this.setStatus(message, true);
+			}
+		} else {
+			this.setStatus(message, true);
+		}
 		this.notify();
 	}
 

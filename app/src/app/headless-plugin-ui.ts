@@ -16,7 +16,7 @@ export function createHeadlessPluginUI(
 	return {
 		text: (text, style) => ({ __kitText: true, text, style }),
 		theme: getCurrentThemeConfig,
-		toast: () => {},
+		toast: interactions ? interactions.toast.bind(interactions) : () => {},
 		select: interactions ? interactions.select.bind(interactions) : noSelection,
 		input: interactions ? interactions.input.bind(interactions) : noSelection,
 		confirm: interactions

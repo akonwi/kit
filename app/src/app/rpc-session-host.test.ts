@@ -152,6 +152,47 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("projects compaction outcomes without summary payloads", () => {
+		const runtime = createRuntime();
+		const host = new RpcSessionHost(runtime);
+		const records: unknown[] = [];
+		host.subscribe((record) => records.push(record));
+
+		runtime.emit({
+			type: "chat.followups.promoted",
+			count: 2,
+		} as AgentRuntimeEvent);
+		runtime.emit({
+			type: "session.compaction.completed.auto",
+			contextPercent: 91,
+			compactedTurnCount: 4,
+			keptTurnCount: 2,
+			tokensBefore: 12_000,
+			keptTurns: [],
+			summaryMessage: {},
+		} as unknown as AgentRuntimeEvent);
+		runtime.emit({
+			type: "session.compaction.failed.manual",
+			error: "Not enough turns to compact.",
+		} as AgentRuntimeEvent);
+
+		expect(records).toEqual([
+			{ type: "chat.followups.promoted", count: 2 },
+			{
+				type: "session.compaction.completed.auto",
+				contextPercent: 91,
+				compactedTurnCount: 4,
+				keptTurnCount: 2,
+			},
+			{ type: "session.transcript.replaced", reason: "compaction" },
+			{
+				type: "session.compaction.failed.manual",
+				error: "Not enough turns to compact.",
+			},
+		]);
+		host.dispose();
+	});
+
 	test("broadcasts state snapshots for runtime state changes", () => {
 		const runtime = createRuntime();
 		const host = new RpcSessionHost(runtime);
@@ -519,6 +560,33 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("retains startup plugin toasts until the remote transport subscribes", () => {
+		const interactions = new RemoteInteractionBroker();
+		interactions.toast({
+			title: "Plugin failed",
+			subtitle: "Initialization error",
+			variant: "error",
+			persistent: true,
+		});
+		const host = new RpcSessionHost(createRuntime(), { interactions });
+		const events: unknown[] = [];
+
+		host.subscribe((record) => events.push(record));
+
+		expect(events).toEqual([
+			{
+				type: "ui.toast.requested",
+				toast: {
+					title: "Plugin failed",
+					subtitle: "Initialization error",
+					variant: "error",
+					persistent: true,
+				},
+			},
+		]);
+		host.dispose();
+	});
+
 	test("routes remote UI responses and rejects late responders", async () => {
 		const interactions = new RemoteInteractionBroker();
 		const host = new RpcSessionHost(createRuntime(), { interactions });
@@ -542,6 +610,12 @@ describe("RpcSessionHost", () => {
 				}),
 			}),
 		]);
+
+		interactions.toast({ title: "Plugin ready", variant: "info" });
+		expect(events.at(-1)).toEqual({
+			type: "ui.toast.requested",
+			toast: { title: "Plugin ready", variant: "info" },
+		});
 
 		const confirmation = interactions.confirm({ title: "Proceed?" });
 		const request = events.find((event) => event.type === "ui_request");

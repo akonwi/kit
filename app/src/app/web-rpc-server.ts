@@ -161,6 +161,7 @@ export class WebRpcServer {
 	private activeUploads = 0;
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
 	private readonly journal: RemoteEventJournal;
+	private readonly persistentToasts = new Map<string, unknown>();
 	private readonly messageChunkTokens = new Map<string, MessageChunkToken>();
 	private messageChunkCacheBytes = 0;
 
@@ -325,7 +326,9 @@ export class WebRpcServer {
 	private broadcast(record: unknown): void {
 		let event: SequencedRemoteEvent;
 		try {
-			event = this.journal.append(this.projectRecord(record));
+			const projected = this.projectRecord(record);
+			this.rememberPersistentToast(projected);
+			event = this.journal.append(projected);
 		} catch {
 			event = this.journal.append({
 				type: "resync_required",
@@ -333,6 +336,23 @@ export class WebRpcServer {
 			});
 		}
 		for (const client of [...this.clients]) this.send(client, event);
+	}
+
+	private rememberPersistentToast(record: unknown): void {
+		if (
+			!isRecord(record) ||
+			record.type !== "ui.toast.requested" ||
+			!isRecord(record.toast) ||
+			record.toast.persistent !== true
+		) {
+			return;
+		}
+		const key = JSON.stringify(record.toast);
+		this.persistentToasts.set(key, record.toast);
+		if (this.persistentToasts.size > 32) {
+			const first = this.persistentToasts.keys().next().value;
+			if (typeof first === "string") this.persistentToasts.delete(first);
+		}
 	}
 
 	private prepareWebCommand(command: RpcCommand): RpcCommand {
@@ -663,6 +683,7 @@ export class WebRpcServer {
 	private boundedConnectionSnapshot(): Record<string, unknown> {
 		const snapshot = this.rpcHost.getConnectionSnapshot(MAX_SNAPSHOT_MESSAGES);
 		const pendingInteractions: unknown[] = [];
+		const toasts: unknown[] = [];
 		const record: Record<string, unknown> = {
 			state: this.projectRecord(snapshot.state),
 			messages: [],
@@ -673,6 +694,15 @@ export class WebRpcServer {
 			totalPendingInteractionCount: snapshot.pendingInteractions.length,
 			pendingInteractionGeneration: snapshot.pendingInteractionGeneration,
 		};
+		if (this.persistentToasts.size > 0) record.toasts = toasts;
+		for (const rawToast of this.persistentToasts.values()) {
+			toasts.push(this.projectRecord(rawToast));
+			if (this.serializedBytes(record) > MAX_SNAPSHOT_BYTES) {
+				toasts.pop();
+				break;
+			}
+		}
+		if (toasts.length === 0) delete record.toasts;
 		let pendingTruncated = false;
 		for (const [
 			index,
