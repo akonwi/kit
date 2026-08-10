@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BUILT_IN_COMMANDS, createCommandRegistry } from "../features/commands";
+import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Turn } from "../session/types";
 import {
@@ -215,6 +216,91 @@ describe("RpcSessionHost", () => {
 				state: expect.objectContaining({ sessionId: "session-1" }),
 			},
 		]);
+		host.dispose();
+	});
+
+	test("reads, updates, and broadcasts scratchpad content", async () => {
+		let content = "initial";
+		const listeners = new Set<
+			(snapshot: { sessionId: string; content: string }) => void
+		>();
+		const scratchpad = {
+			sessionId: () => "session-1",
+			content: () => content,
+			subscribe: (
+				listener: (snapshot: { sessionId: string; content: string }) => void,
+			) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+			applyAtomicUpdate: (
+				sessionId: string,
+				update: (current: string) => string | null,
+			) => {
+				if (sessionId !== "session-1") return null;
+				const next = update(content);
+				if (next === null || next === content) {
+					return { updated: false, content };
+				}
+				content = next;
+				for (const listener of listeners) {
+					listener({ sessionId, content });
+				}
+				return { updated: true, content };
+			},
+		} as unknown as ScratchpadController;
+		const host = new RpcSessionHost(createRuntime(), { scratchpad });
+		const events: unknown[] = [];
+		const responses: Array<Record<string, unknown>> = [];
+		host.subscribe((record) => events.push(record));
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand({ id: "get", type: "get_scratchpad" }, respond);
+		await host.handleCommand(
+			{
+				id: "update",
+				type: "update_scratchpad",
+				sessionId: "session-1",
+				expectedContent: "initial",
+				content: "updated",
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "conflict",
+				type: "update_scratchpad",
+				sessionId: "session-1",
+				expectedContent: "initial",
+				content: "stale",
+			},
+			respond,
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "get",
+				success: true,
+				data: { sessionId: "session-1", content: "initial" },
+			}),
+			expect.objectContaining({
+				id: "update",
+				success: true,
+				data: { sessionId: "session-1", content: "updated" },
+			}),
+			expect.objectContaining({
+				id: "conflict",
+				success: false,
+				error: "Scratchpad changed elsewhere; reload before editing",
+			}),
+		]);
+		expect(events).toContainEqual({
+			type: "scratchpad.changed",
+			sessionId: "session-1",
+			content: "updated",
+		});
 		host.dispose();
 	});
 

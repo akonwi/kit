@@ -226,6 +226,8 @@ describe("createScratchpadController", () => {
 			},
 		});
 		const filePath = scratchpadPath("parent");
+		const changes: Array<{ sessionId: string; content: string }> = [];
+		controller.subscribe((snapshot) => changes.push(snapshot));
 
 		controller.enterEdit();
 		controller.setDraft("user draft");
@@ -239,6 +241,10 @@ describe("createScratchpadController", () => {
 		expect(controller.draft()).toBe("user draft\nagent edit");
 		expect(controller.dirty()).toBe(false);
 		expect(fake.contextUpdates.at(-1)).toBe("user draft\nagent edit");
+		expect(changes.at(-1)).toEqual({
+			sessionId: "parent",
+			content: "user draft\nagent edit",
+		});
 	});
 
 	test("preserves conflicting panel edits instead of overwriting the file", () => {

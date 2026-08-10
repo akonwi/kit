@@ -9,6 +9,8 @@ import {
 	Show,
 } from "solid-js";
 import { findTurnWorkItems } from "../shell/transcript/turns";
+import { ScratchpadPanel } from "./ScratchpadPanel";
+import { useScratchpad } from "./ScratchpadProvider";
 import { TurnActivityPanel } from "./TurnActivityPanel";
 import { useWebClient } from "./WebClientContext";
 import { type ActivitySource, WorkspaceContext } from "./workspace-context";
@@ -43,13 +45,14 @@ export function WorkspacePaneHost(props: {
 	children: JSX.Element;
 }): JSX.Element {
 	const { snapshot, transcriptItems } = useWebClient();
+	const scratchpad = useScratchpad();
 	let host: HTMLElement | undefined;
 	let returnFocus: HTMLElement | null = null;
 	let activePointerId: number | null = null;
 	const [hostWidth, setHostWidth] = createSignal(0);
 	const [activitySource, setActivitySource] =
 		createSignal<ActivitySource | null>(null);
-	const [narrowTab, setNarrowTab] = createSignal<"transcript" | "activity">(
+	const [narrowTab, setNarrowTab] = createSignal<"transcript" | "secondary">(
 		"transcript",
 	);
 	const [secondaryRatio, setSecondaryRatio] = createSignal(
@@ -57,12 +60,17 @@ export function WorkspacePaneHost(props: {
 	);
 	const [dragging, setDragging] = createSignal(false);
 	const [focusedSurface, setFocusedSurface] = createSignal<
-		"transcript" | "activity"
+		"transcript" | "secondary"
 	>("transcript");
 	const [lastFocusedChrome, setLastFocusedChrome] = createSignal<
 		"divider" | "tab" | null
 	>(null);
-	const panelOpen = createMemo(() => activitySource() !== null);
+	const panelOpen = createMemo(
+		() => scratchpad.open() || activitySource() !== null,
+	);
+	const secondaryLabel = createMemo(() =>
+		scratchpad.open() ? "Scratchpad" : "Activity",
+	);
 	const split = createMemo(
 		() =>
 			panelOpen() &&
@@ -123,14 +131,9 @@ export function WorkspacePaneHost(props: {
 	}
 
 	function openActivity(source: ActivitySource): void {
-		if (
-			document.activeElement instanceof HTMLElement &&
-			!document.activeElement.closest(".turn-activity-panel")
-		) {
-			returnFocus = document.activeElement;
-		}
+		scratchpad.close();
 		setActivitySource(source);
-		setNarrowTab("activity");
+		setNarrowTab("secondary");
 	}
 
 	function isActivityOpen(source: ActivitySource): boolean {
@@ -152,19 +155,14 @@ export function WorkspacePaneHost(props: {
 		).some((item) => item.id === source.anchorItemId);
 	}
 
-	function closeActivity(): void {
-		setActivitySource(null);
+	function closeSecondary(): void {
+		if (scratchpad.open()) scratchpad.close();
+		else setActivitySource(null);
 		setNarrowTab("transcript");
-		const target = returnFocus;
-		returnFocus = null;
-		queueMicrotask(() => {
-			if (target?.isConnected) target.focus();
-			else document.querySelector<HTMLElement>("#transcript")?.focus();
-		});
 	}
 
 	function selectRelativeTab(direction: -1 | 1): void {
-		const tabs = ["transcript", "activity"] as const;
+		const tabs = ["transcript", "secondary"] as const;
 		const current = tabs.indexOf(narrowTab());
 		setNarrowTab(tabs[(current + direction + tabs.length) % tabs.length]);
 	}
@@ -182,10 +180,35 @@ export function WorkspacePaneHost(props: {
 			focusSelectedTab();
 		} else if (event.key === "Home" || event.key === "End") {
 			event.preventDefault();
-			setNarrowTab(event.key === "Home" ? "transcript" : "activity");
+			setNarrowTab(event.key === "Home" ? "transcript" : "secondary");
 			focusSelectedTab();
 		}
 	}
+
+	let previousPanelOpen = false;
+	createEffect(() => {
+		const currentPanelOpen = panelOpen();
+		if (scratchpad.open()) {
+			setActivitySource(null);
+			setNarrowTab("secondary");
+		}
+		if (currentPanelOpen && !previousPanelOpen) {
+			if (
+				document.activeElement instanceof HTMLElement &&
+				!document.activeElement.closest(".workspace-secondary")
+			) {
+				returnFocus = document.activeElement;
+			}
+		} else if (!currentPanelOpen && previousPanelOpen) {
+			const target = returnFocus;
+			returnFocus = null;
+			queueMicrotask(() => {
+				if (target?.isConnected) target.focus();
+				else document.querySelector<HTMLElement>("#transcript")?.focus();
+			});
+		}
+		previousPanelOpen = currentPanelOpen;
+	});
 
 	let observedSessionId: unknown;
 	createEffect(() => {
@@ -221,7 +244,11 @@ export function WorkspacePaneHost(props: {
 		) {
 			queueMicrotask(() => {
 				const selector =
-					narrowTab() === "activity" ? ".turn-activity-panel" : "#transcript";
+					narrowTab() === "secondary"
+						? scratchpad.open()
+							? ".scratchpad-editor"
+							: ".turn-activity-panel"
+						: "#transcript";
 				host?.querySelector<HTMLElement>(selector)?.focus();
 			});
 		}
@@ -262,14 +289,14 @@ export function WorkspacePaneHost(props: {
 						setFocusedSurface("transcript");
 						setLastFocusedChrome(null);
 					} else if (target.closest(".workspace-secondary")) {
-						setFocusedSurface("activity");
+						setFocusedSurface("secondary");
 						setLastFocusedChrome(null);
 					}
 				}}
 				onKeyDown={(event) => {
 					if (event.key !== "Escape" || !panelOpen()) return;
 					event.preventDefault();
-					closeActivity();
+					closeSecondary();
 				}}
 			>
 				<Show when={narrow()}>
@@ -293,18 +320,18 @@ export function WorkspacePaneHost(props: {
 							Transcript
 						</button>
 						<button
-							id="workspace-tab-activity"
+							id="workspace-tab-secondary"
 							type="button"
 							role="tab"
 							data-variant="ghost"
-							aria-selected={narrowTab() === "activity"}
-							aria-controls="workspace-activity"
-							tabIndex={narrowTab() === "activity" ? 0 : -1}
-							onClick={() => setNarrowTab("activity")}
+							aria-selected={narrowTab() === "secondary"}
+							aria-controls="workspace-secondary"
+							tabIndex={narrowTab() === "secondary" ? 0 : -1}
+							onClick={() => setNarrowTab("secondary")}
 							onFocus={() => setLastFocusedChrome("tab")}
 							onKeyDown={handleTabKeyDown}
 						>
-							Activity
+							{secondaryLabel()}
 						</button>
 					</nav>
 				</Show>
@@ -323,7 +350,7 @@ export function WorkspacePaneHost(props: {
 						class="workspace-divider"
 						classList={{ "is-dragging": dragging() }}
 						role="separator"
-						aria-label="Resize activity panel"
+						aria-label={`Resize ${secondaryLabel().toLowerCase()} panel`}
 						aria-orientation="vertical"
 						aria-valuemin={Math.round(minRatio() * 100)}
 						aria-valuemax={Math.round(maxRatio() * 100)}
@@ -366,21 +393,33 @@ export function WorkspacePaneHost(props: {
 						}}
 					/>
 				</Show>
-				<Show when={activitySource()}>
-					{(source) => (
-						<aside
-							id="workspace-activity"
-							class="workspace-secondary"
-							role={narrow() ? "tabpanel" : undefined}
-							aria-label={narrow() ? undefined : "Turn activity"}
-							aria-labelledby={narrow() ? "workspace-tab-activity" : undefined}
-							aria-hidden={narrow() && narrowTab() !== "activity"}
-							hidden={narrow() && narrowTab() !== "activity"}
-							style={{ "--secondary-width": `${secondaryWidth()}px` }}
+				<Show when={panelOpen()}>
+					<aside
+						id="workspace-secondary"
+						class="workspace-secondary"
+						role={narrow() ? "tabpanel" : undefined}
+						aria-label={narrow() ? undefined : secondaryLabel()}
+						aria-labelledby={narrow() ? "workspace-tab-secondary" : undefined}
+						aria-hidden={narrow() && narrowTab() !== "secondary"}
+						hidden={narrow() && narrowTab() !== "secondary"}
+						style={{ "--secondary-width": `${secondaryWidth()}px` }}
+					>
+						<Show
+							when={scratchpad.open()}
+							fallback={
+								<Show when={activitySource()}>
+									{(source) => (
+										<TurnActivityPanel
+											source={source()}
+											onClose={closeSecondary}
+										/>
+									)}
+								</Show>
+							}
 						>
-							<TurnActivityPanel source={source()} onClose={closeActivity} />
-						</aside>
-					)}
+							<ScratchpadPanel />
+						</Show>
+					</aside>
 				</Show>
 			</section>
 		</WorkspaceContext.Provider>

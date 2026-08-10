@@ -1,6 +1,10 @@
 import type { RemoteCommand } from "./remote-services";
 
-export type BrowserCommandAction = "model" | "theme" | "thinking";
+export type BrowserCommandAction =
+	| "model"
+	| "theme"
+	| "thinking"
+	| "toggle-scratchpad";
 
 export type PaletteCommand = RemoteCommand & {
 	browserAction?: BrowserCommandAction;
@@ -24,6 +28,12 @@ export const BROWSER_COMMANDS: readonly PaletteCommand[] = [
 		name: "theme",
 		description: "Switch the browser color theme",
 		browserAction: "theme",
+	},
+	{
+		id: "toggle-scratchpad",
+		name: "toggle-scratchpad",
+		description: "Toggle scratchpad",
+		browserAction: "toggle-scratchpad",
 	},
 ];
 

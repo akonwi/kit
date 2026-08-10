@@ -204,7 +204,7 @@ export function ToolDrawer(props: {
 				class="tool-drawer-trigger"
 				type="button"
 				data-variant="ghost"
-				aria-controls="workspace-activity"
+				aria-controls="workspace-secondary"
 				aria-expanded={props.active === true}
 				onClick={props.onActivate}
 			>

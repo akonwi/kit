@@ -11,6 +11,7 @@ import {
 import {
 	type RemoteCommandList,
 	type RemoteModel,
+	type RemoteScratchpad,
 	WebRemoteServices,
 } from "./remote-services";
 import { WebSocketRpcTransport } from "./rpc-transport";
@@ -288,6 +289,18 @@ export class WebClientController {
 
 	listCommands(): Promise<RemoteCommandList> {
 		return this.services.listCommands();
+	}
+
+	getScratchpad(): Promise<RemoteScratchpad> {
+		return this.services.getScratchpad();
+	}
+
+	updateScratchpad(
+		sessionId: string,
+		expectedContent: string,
+		content: string,
+	): Promise<RemoteScratchpad> {
+		return this.services.updateScratchpad(sessionId, expectedContent, content);
 	}
 
 	async renameSession(name: string): Promise<boolean> {

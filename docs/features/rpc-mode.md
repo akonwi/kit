@@ -92,6 +92,8 @@ process.
 | `set_model` | `provider`, `modelId` | selected model |
 | `get_available_thinking_levels` | none | `{ "levels": [...] }` |
 | `set_thinking_level` | `level` | none |
+| `get_scratchpad` | none | active `sessionId` and Markdown `content` |
+| `update_scratchpad` | `sessionId`, `expectedContent`, `content` | saved `sessionId` and `content` |
 | `switch_session` | `sessionPath` (a Kit session ID or path) | `{ "cancelled": false }` |
 | `activate_chrome_contribution` (web mode) | `area: "header" \| "footer"`, `contributionId` | none |
 | `list_commands` | none | transport-neutral commands plus `registryGeneration` |
@@ -115,7 +117,8 @@ pickers, workspaces, or local process controls, and must propagate failures
 through RPC instead of converting them only into TUI toasts.
 
 The exposed built-in transport-neutral batch is `/compact`, `/handoff`, `/name`
-(with an explicit name), `/new`, and `/cd` (with an explicit path). Discovered
+(with an explicit name), `/new`, `/reload`, and `/cd` (with an explicit path).
+Discovered
 prompt-template commands and Claude-compatible `/cc:<name>` commands are also
 exposed when their files are available. Transport handlers receive host-provided
 runtime, persistence, cancellation, and prompt scheduling context rather than
@@ -137,7 +140,10 @@ Browser-local `/model` and `/thinking` palette commands use the existing
 discovery and mutation RPC commands through reusable browser-native pickers.
 Browser-local `/theme` offers system, light, and dark appearances without
 requiring theme tokens over RPC, and persists the choice in browser storage.
-The clickable session title similarly adapts the transport-neutral `/name`
+Browser-local `/toggle-scratchpad` opens a responsive Markdown workspace panel;
+its guarded autosaves update the session sidecar through RPC and live change
+events keep clean drafts synchronized with agent and other-client edits. The
+clickable session title similarly adapts the transport-neutral `/name`
 command through a browser-native input dialog. The transport-neutral `/reload`
 command reloads the active session, settings, and plugin state in the shared
 host, matching its TUI behavior. A disconnected browser instead shows a
@@ -174,6 +180,7 @@ RPC mode emits Kit semantic events using the same dotted names as the runtime:
 - `chat.message-queue.changed` and `chat.followups.promoted`
 - `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
 - `agent.run.failed` for an execution failure after a command was accepted
+- `scratchpad.changed` when the active session scratchpad changes
 - `shell.chrome.changed` when web-mode plugin header/footer contributions,
   declarative URL actions, or built-in visibility claims change
 

@@ -221,6 +221,23 @@ function applyEvent(
 					record.state.isStreaming === false ? null : state.activeTurnId,
 			};
 		}
+		case "scratchpad.changed":
+			if (
+				typeof record.sessionId !== "string" ||
+				typeof record.content !== "string"
+			) {
+				return state;
+			}
+			return {
+				...state,
+				serverState: {
+					...state.serverState,
+					scratchpad: {
+						sessionId: record.sessionId,
+						content: record.content,
+					},
+				},
+			};
 		case "agent.start":
 			return {
 				...state,

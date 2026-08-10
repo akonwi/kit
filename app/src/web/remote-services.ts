@@ -49,6 +49,11 @@ export type RemoteModel = {
 	name?: string;
 };
 
+export type RemoteScratchpad = {
+	sessionId: string;
+	content: string;
+};
+
 const MAX_REMOTE_COMMANDS = 512;
 const MAX_COMMAND_ID_LENGTH = 256;
 const MAX_COMMAND_NAME_LENGTH = 256;
@@ -251,6 +256,25 @@ export class WebRemoteServices {
 		return this.rpc.command({ type: "set_thinking_level", level });
 	}
 
+	async getScratchpad(): Promise<RemoteScratchpad> {
+		const response = await this.rpc.command({ type: "get_scratchpad" });
+		return this.parseScratchpad(response.data);
+	}
+
+	async updateScratchpad(
+		sessionId: string,
+		expectedContent: string,
+		content: string,
+	): Promise<RemoteScratchpad> {
+		const response = await this.rpc.command({
+			type: "update_scratchpad",
+			sessionId,
+			expectedContent,
+			content,
+		});
+		return this.parseScratchpad(response.data);
+	}
+
 	async listCommands(): Promise<RemoteCommandList> {
 		const response = await this.rpc.command({ type: "list_commands" });
 		if (!isRecord(response.data) || !Array.isArray(response.data.commands)) {
@@ -338,6 +362,18 @@ export class WebRemoteServices {
 			...(args.trim() ? { args } : {}),
 			...(expectedSessionId ? { expectedSessionId } : {}),
 		});
+	}
+
+	private parseScratchpad(value: unknown): RemoteScratchpad {
+		if (
+			!isRecord(value) ||
+			typeof value.sessionId !== "string" ||
+			!value.sessionId.trim() ||
+			typeof value.content !== "string"
+		) {
+			throw new Error("Scratchpad response is invalid");
+		}
+		return { sessionId: value.sessionId, content: value.content };
 	}
 
 	async fetchLimits(): Promise<ClientLimits> {

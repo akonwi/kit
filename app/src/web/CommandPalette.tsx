@@ -18,11 +18,13 @@ import {
 } from "./command-palette-commands";
 import { DialogFrame } from "./DialogFrame";
 import { OverlayHintBar } from "./OverlayHintBar";
+import { useScratchpad } from "./ScratchpadProvider";
 import { useWebClient } from "./WebClientContext";
 
 export function CommandPalette(): JSX.Element {
 	const { controller, snapshot } = useWebClient();
 	const { openThemePicker } = useBrowserTheme();
+	const scratchpad = useScratchpad();
 	const {
 		disabled: configurationDisabled,
 		openModelPicker,
@@ -155,11 +157,11 @@ export function CommandPalette(): JSX.Element {
 	}
 
 	function browserCommandDisabled(command: PaletteCommand): boolean {
-		return (
-			command.browserAction !== undefined &&
-			command.browserAction !== "theme" &&
-			configurationDisabled()
-		);
+		if (command.browserAction === "theme") return false;
+		if (command.browserAction === "toggle-scratchpad") {
+			return scratchpad.disabled();
+		}
+		return command.browserAction !== undefined && configurationDisabled();
 	}
 
 	function chooseCommand(command: PaletteCommand): void {
@@ -170,7 +172,8 @@ export function CommandPalette(): JSX.Element {
 			queueMicrotask(() => {
 				if (browserAction === "model") void openModelPicker();
 				else if (browserAction === "thinking") void openThinkingPicker();
-				else openThemePicker();
+				else if (browserAction === "theme") openThemePicker();
+				else scratchpad.toggle();
 			});
 			return;
 		}

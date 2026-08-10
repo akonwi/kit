@@ -68,6 +68,7 @@ export async function runWebMode(
 			persistSessions: true,
 			interactions,
 			attachments,
+			scratchpad: headlessHost.scratchpad ?? undefined,
 			commands: headlessHost.commands,
 			header: headlessHost.header,
 			footer: headlessHost.footer,

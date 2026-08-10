@@ -46,6 +46,35 @@ describe("web remote configuration services", () => {
 	});
 });
 
+describe("web remote scratchpad services", () => {
+	test("loads and updates session scratchpad content", async () => {
+		const seen: Record<string, unknown>[] = [];
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				seen.push(command);
+				return { data: { sessionId: "session-1", content: "notes" } };
+			},
+		});
+
+		await expect(services.getScratchpad()).resolves.toEqual({
+			sessionId: "session-1",
+			content: "notes",
+		});
+		await expect(
+			services.updateScratchpad("session-1", "old", "notes"),
+		).resolves.toEqual({ sessionId: "session-1", content: "notes" });
+		expect(seen).toEqual([
+			{ type: "get_scratchpad" },
+			{
+				type: "update_scratchpad",
+				sessionId: "session-1",
+				expectedContent: "old",
+				content: "notes",
+			},
+		]);
+	});
+});
+
 describe("web remote command services", () => {
 	test("validates and returns transport-neutral commands", async () => {
 		const services = new WebRemoteServices({

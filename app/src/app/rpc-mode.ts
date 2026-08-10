@@ -1,5 +1,6 @@
 import type { Readable } from "node:stream";
 import type { CommandRegistry } from "../features/commands";
+import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { Api, Model } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { createHeadlessHost, takeOverStdout } from "./headless-host";
@@ -28,13 +29,15 @@ export class RpcModeServer {
 		persistSessions = false,
 		commands?: CommandRegistry,
 		waitForWorkspaceReady?: () => Promise<void>,
-		reloadHost?: () => Promise<void>,
+		reloadHost?: (signal?: AbortSignal) => Promise<void>,
+		scratchpad?: ScratchpadController,
 	) {
 		this.host = new RpcSessionHost(runtime, {
 			persistSessions,
 			commands,
 			waitForWorkspaceReady,
 			reloadHost,
+			scratchpad,
 			allowLegacySessionPaths: true,
 		});
 		this.unsubscribeHost = this.host.subscribe((record) => {
@@ -146,6 +149,7 @@ export async function runRpcMode(
 			host.commands,
 			host.waitForWorkspaceReady,
 			host.reload,
+			host.scratchpad ?? undefined,
 		);
 		await server.start();
 		await server.abortAndWait();

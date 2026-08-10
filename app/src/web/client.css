@@ -383,6 +383,90 @@ button.remote-chrome-contribution {
 	font-size: 0.75rem;
 }
 
+.scratchpad-panel {
+	min-inline-size: 0;
+	min-block-size: 0;
+	flex: 1 1 auto;
+	display: flex;
+	flex-direction: column;
+}
+
+.scratchpad-panel-header {
+	flex: 0 0 2rem;
+	display: flex;
+	align-items: center;
+	gap: var(--space-xs);
+	padding-inline: var(--space-sm) var(--space-2xs);
+	border-block-end: 1px solid var(--kit-border-default);
+}
+
+.scratchpad-panel-header h2 {
+	min-inline-size: 0;
+	margin: 0;
+	flex: 1 1 auto;
+	font: inherit;
+	color: var(--kit-text-primary);
+}
+
+.scratchpad-panel-status {
+	max-inline-size: 60%;
+	overflow: hidden;
+	color: var(--kit-text-muted);
+	font-size: 0.75rem;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.scratchpad-panel-status.is-error {
+	color: var(--kit-error-text);
+}
+
+.scratchpad-panel-header button {
+	flex: 0 0 auto;
+	min-inline-size: 1.75rem;
+	min-block-size: 1.75rem;
+	padding: 0;
+	color: var(--kit-text-muted);
+}
+
+.scratchpad-editor {
+	min-inline-size: 0;
+	min-block-size: 0;
+	inline-size: 100%;
+	flex: 1 1 auto;
+	resize: none;
+	border: 0;
+	border-radius: 0;
+	padding: var(--space-sm);
+	background: var(--kit-bg);
+	color: var(--kit-text-primary);
+	font: inherit;
+	line-height: 1.5;
+	outline: 0;
+}
+
+.scratchpad-editor:focus-visible {
+	box-shadow: inset 0 0 0 1px var(--kit-border-focused);
+}
+
+.scratchpad-editor::placeholder {
+	color: var(--kit-text-placeholder);
+}
+
+.scratchpad-panel-footer {
+	flex: 0 0 calc(var(--kit-composer-height) + 1px);
+	display: flex;
+	align-items: center;
+	padding-inline: var(--space-sm);
+	border-block-start: 1px solid var(--kit-border-default);
+	color: var(--kit-text-muted);
+	font-size: 0.75rem;
+}
+
+.scratchpad-panel-footer button {
+	padding-inline: 0;
+}
+
 .transcript-pane {
 	min-inline-size: 0;
 	min-block-size: 0;

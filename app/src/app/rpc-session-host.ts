@@ -2,6 +2,7 @@ import type {
 	CommandRegistry,
 	TransportNeutralCommandContext,
 } from "../features/commands";
+import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { MessagePart } from "../messages/parts";
 import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
@@ -107,12 +108,15 @@ export const RPC_COMMAND_TYPES = [
 	"set_model",
 	"get_available_thinking_levels",
 	"set_thinking_level",
+	"get_scratchpad",
+	"update_scratchpad",
 ] as const;
 
 export type RpcSessionHostOptions = {
 	persistSessions?: boolean;
 	interactions?: RemoteInteractionBroker;
 	attachments?: RemoteAttachmentStore;
+	scratchpad?: ScratchpadController;
 	commands?: CommandRegistry;
 	header?: ChromeContributionsController;
 	footer?: ChromeContributionsController;
@@ -141,6 +145,12 @@ function requireString(command: RpcCommand, key: string): string {
 	if (typeof value !== "string" || !value.trim()) {
 		throw new Error(`${key} must be a non-empty string`);
 	}
+	return value;
+}
+
+function requireText(command: RpcCommand, key: string): string {
+	const value = command[key];
+	if (typeof value !== "string") throw new Error(`${key} must be a string`);
 	return value;
 }
 
@@ -493,12 +503,14 @@ export class RpcSessionHost {
 	private readonly pendingEvents: unknown[] = [];
 	private readonly unsubscribeRuntime: () => void;
 	private readonly unsubscribeInteractions: (() => void) | null;
+	private readonly unsubscribeScratchpad: (() => void) | null;
 	private readonly unsubscribeCommands: (() => void) | null;
 	private readonly unsubscribeHeader: (() => void) | null;
 	private readonly unsubscribeFooter: (() => void) | null;
 	private readonly persistSessions: boolean;
 	private readonly interactions?: RemoteInteractionBroker;
 	private readonly attachments?: RemoteAttachmentStore;
+	private readonly scratchpad?: ScratchpadController;
 	private readonly commands?: CommandRegistry;
 	private readonly header?: ChromeContributionsController;
 	private readonly footer?: ChromeContributionsController;
@@ -523,6 +535,7 @@ export class RpcSessionHost {
 		this.persistSessions = options.persistSessions ?? false;
 		this.interactions = options.interactions;
 		this.attachments = options.attachments;
+		this.scratchpad = options.scratchpad;
 		this.commands = options.commands;
 		this.header = options.header;
 		this.footer = options.footer;
@@ -549,6 +562,10 @@ export class RpcSessionHost {
 		});
 		this.unsubscribeInteractions =
 			this.interactions?.subscribe((event) => this.publish(event)) ?? null;
+		this.unsubscribeScratchpad =
+			this.scratchpad?.subscribe((snapshot) =>
+				this.publish({ type: "scratchpad.changed", ...snapshot }),
+			) ?? null;
 		this.unsubscribeCommands =
 			this.commands?.subscribe(() => {
 				this.commandRegistryGeneration += 1;
@@ -672,6 +689,7 @@ export class RpcSessionHost {
 		this.disposed = true;
 		this.unsubscribeRuntime();
 		this.unsubscribeInteractions?.();
+		this.unsubscribeScratchpad?.();
 		this.unsubscribeCommands?.();
 		this.unsubscribeHeader?.();
 		this.unsubscribeFooter?.();
@@ -1187,6 +1205,9 @@ export class RpcSessionHost {
 							...(this.header || this.footer
 								? ["activate_chrome_contribution"]
 								: []),
+							...(this.scratchpad
+								? ["get_scratchpad", "update_scratchpad"]
+								: []),
 						],
 						interactiveUI: this.interactions !== undefined,
 						chromeContributions:
@@ -1244,6 +1265,40 @@ export class RpcSessionHost {
 			case "get_state":
 				await respond(this.response(command, true, this.stateSnapshot()));
 				return;
+			case "get_scratchpad": {
+				if (!this.scratchpad) throw new Error("Scratchpad is unavailable");
+				await respond(
+					this.response(command, true, {
+						sessionId: this.scratchpad.sessionId(),
+						content: this.scratchpad.content(),
+					}),
+				);
+				return;
+			}
+			case "update_scratchpad": {
+				if (!this.scratchpad) throw new Error("Scratchpad is unavailable");
+				const sessionId = requireString(command, "sessionId");
+				if (sessionId !== this.runtime.getSession().id) {
+					throw new Error("Active session changed; reload the scratchpad");
+				}
+				const expectedContent = requireText(command, "expectedContent");
+				const content = requireText(command, "content");
+				const result = this.scratchpad.applyAtomicUpdate(
+					sessionId,
+					(current) => (current === expectedContent ? content : null),
+				);
+				if (!result)
+					throw new Error("Active session changed; retry the update");
+				if (!result.updated && result.content !== content) {
+					throw new Error(
+						"Scratchpad changed elsewhere; reload before editing",
+					);
+				}
+				await respond(
+					this.response(command, true, { sessionId, content: result.content }),
+				);
+				return;
+			}
 			case "get_messages": {
 				const messages = this.runtime.getMessages();
 				const paginated =

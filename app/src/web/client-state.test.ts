@@ -327,6 +327,11 @@ describe("web client state", () => {
 			generation: 1,
 			request: { id: "request-1", kind: "confirm", payload: {} },
 		});
+		apply({
+			type: "scratchpad.changed",
+			sessionId: "session-1",
+			content: "shared notes",
+		});
 
 		expect(state.messages).toEqual([assistantMessage("hello")]);
 		expect(state.messageKeys).toEqual(["message-assistant"]);
@@ -336,6 +341,10 @@ describe("web client state", () => {
 		});
 		expect(state.pendingInteractions).toHaveLength(1);
 		expect(state.pendingInteractionGeneration).toBe(1);
+		expect(state.serverState.scratchpad).toEqual({
+			sessionId: "session-1",
+			content: "shared notes",
+		});
 
 		apply({
 			type: "ui_resolved",

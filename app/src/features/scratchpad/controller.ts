@@ -49,11 +49,26 @@ export function createScratchpadController(
 	const [sessionId, setSessionId] = createSignal(runtime.getSession().id);
 	const pendingDrafts = new Map<string, string>();
 	const persistedContents = new Map([[initialSessionId, initialContent]]);
+	const listeners = new Set<
+		(snapshot: { sessionId: string; content: string }) => void
+	>();
+	let publishedSessionId = initialSessionId;
 	let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
 
 	function applyContent(next: string): void {
+		const nextSessionId = sessionId();
+		const changed = content() !== next || publishedSessionId !== nextSessionId;
 		setContentSignal(next);
 		runtime.setScratchpadContent(next);
+		if (!changed) return;
+		publishedSessionId = nextSessionId;
+		for (const listener of listeners) {
+			try {
+				listener({ sessionId: nextSessionId, content: next });
+			} catch {
+				// Scratchpad persistence must not fail because an observer failed.
+			}
+		}
 	}
 
 	function resetDraft(next: string): void {
@@ -272,6 +287,12 @@ export function createScratchpadController(
 		flushAutosave,
 		applyAtomicUpdate,
 		reload: reloadContent,
+		subscribe(
+			listener: (snapshot: { sessionId: string; content: string }) => void,
+		): () => void {
+			listeners.add(listener);
+			return () => listeners.delete(listener);
+		},
 		dispose(): void {
 			clearAutosaveTimer();
 			if (dirty()) persistDraft();
@@ -280,6 +301,7 @@ export function createScratchpadController(
 			}
 			unsubscribeSession();
 			unregisterFileOperations();
+			listeners.clear();
 		},
 	};
 }

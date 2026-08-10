@@ -11,6 +11,7 @@ describe("command palette commands", () => {
 			["model", "model"],
 			["thinking", "thinking"],
 			["theme", "theme"],
+			["toggle-scratchpad", "toggle-scratchpad"],
 			["compact", undefined],
 		]);
 	});
@@ -20,12 +21,14 @@ describe("command palette commands", () => {
 			{ id: "model", name: "remote model" },
 			{ id: "thinking", name: "remote thinking" },
 			{ id: "theme", name: "remote theme" },
+			{ id: "toggle-scratchpad", name: "remote scratchpad" },
 		]);
 
 		expect(commands.map((command) => command.name)).toEqual([
 			"model",
 			"thinking",
 			"theme",
+			"toggle-scratchpad",
 		]);
 		expect(commands.every((command) => command.browserAction)).toBe(true);
 	});
