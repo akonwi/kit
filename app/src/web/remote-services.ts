@@ -329,12 +329,14 @@ export class WebRemoteServices {
 		commandId: string,
 		args: string,
 		registryGeneration: number,
+		expectedSessionId?: string,
 	): Promise<Record<string, unknown>> {
 		return this.rpc.command({
 			type: "execute_command",
 			commandId,
 			registryGeneration,
 			...(args.trim() ? { args } : {}),
+			...(expectedSessionId ? { expectedSessionId } : {}),
 		});
 	}
 

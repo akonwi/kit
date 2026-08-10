@@ -118,6 +118,27 @@ body > m-toast[popover] {
 	white-space: nowrap;
 }
 
+.header-title-action {
+	min-inline-size: 0;
+	max-inline-size: 100%;
+	min-block-size: 1.5rem;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+	font: inherit;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.header-title-action:is(:hover, :focus-visible):not(:disabled) {
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
+}
+
 .header-meta {
 	min-inline-size: 0;
 	display: flex;
@@ -900,7 +921,8 @@ details[open] > summary > .disclosure-marker {
 
 #interaction-dialog,
 .command-palette-dialog,
-.picker-dialog {
+.picker-dialog,
+.input-dialog {
 	border-radius: 0;
 	border-color: var(--kit-border-default);
 	background: var(--kit-bg-surface);
@@ -925,9 +947,15 @@ details[open] > summary > .disclosure-marker {
 	block-size: min(24rem, calc(100svh - 2rem));
 }
 
+.input-dialog {
+	inline-size: min(32rem, calc(100vw - 2rem));
+	max-inline-size: calc(100vw - 2rem);
+}
+
 #interaction-dialog::backdrop,
 .command-palette-dialog::backdrop,
-.picker-dialog::backdrop {
+.picker-dialog::backdrop,
+.input-dialog::backdrop {
 	background: var(--kit-modal-backdrop);
 }
 
@@ -1144,6 +1172,49 @@ details[open] > summary > .disclosure-marker {
 }
 
 .picker-dialog-footer {
+	min-block-size: 2rem;
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	gap: var(--space-xs);
+	padding: var(--space-xs) var(--space-sm);
+	border-block-start: 1px solid var(--kit-border-default);
+	color: var(--kit-text-muted);
+	font-size: 0.75rem;
+}
+
+.input-dialog > form > header,
+.input-dialog-body {
+	padding: var(--space-sm);
+}
+
+.input-dialog > form > header h2,
+.input-dialog-error {
+	margin: 0;
+}
+
+.input-dialog-body input {
+	inline-size: 100%;
+	padding: var(--space-xs);
+	border: 1px solid var(--kit-border-default);
+	border-radius: 0;
+	outline: 0;
+	background: transparent;
+	box-shadow: none;
+	color: var(--kit-text-primary);
+	font-family: var(--font-mono);
+}
+
+.input-dialog-body input:focus {
+	border-color: var(--kit-border-focused);
+}
+
+.input-dialog-error {
+	padding-block-start: var(--space-xs);
+	color: var(--kit-error-text);
+}
+
+.input-dialog-footer {
 	min-block-size: 2rem;
 	display: flex;
 	align-items: center;

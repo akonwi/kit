@@ -1075,6 +1075,12 @@ export class RpcSessionHost {
 				if (args !== undefined && typeof args !== "string") {
 					throw new Error("args must be a string");
 				}
+				if (command.expectedSessionId !== undefined) {
+					const expectedSessionId = requireString(command, "expectedSessionId");
+					if (this.runtime.getSession().id !== expectedSessionId) {
+						throw new Error("Active session changed; retry the command");
+					}
+				}
 				const registered = this.commands
 					.getAll()
 					.find((candidate) => candidate.name === commandId);

@@ -286,6 +286,41 @@ export class WebClientController {
 		return this.services.listCommands();
 	}
 
+	async renameSession(name: string): Promise<boolean> {
+		const expectedStreamId = this.state.streamId;
+		const expectedSessionId = this.state.serverState.sessionId;
+		try {
+			if (typeof expectedSessionId !== "string") {
+				throw new Error("Active session is unavailable");
+			}
+			const commands = await this.services.listCommands();
+			if (!commands.commands.some((command) => command.id === "name")) {
+				throw new Error("Session naming command is unavailable");
+			}
+			if (
+				this.state.phase !== "live" ||
+				this.state.streamId !== expectedStreamId ||
+				this.state.serverState.sessionId !== expectedSessionId ||
+				this.state.serverState.isStreaming === true ||
+				this.view.submitting()
+			) {
+				throw new Error("Session changed before it could be renamed");
+			}
+			await this.services.executeCommand(
+				"name",
+				name,
+				commands.registryGeneration,
+				expectedSessionId,
+			);
+			this.view.setStatus("");
+			this.view.notify();
+			return true;
+		} catch (error) {
+			this.view.reportError(error, "Rename failed");
+			return false;
+		}
+	}
+
 	async activateChromeContribution(
 		area: "header" | "footer",
 		contributionId: string,

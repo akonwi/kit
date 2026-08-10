@@ -116,7 +116,7 @@ describe("web remote command services", () => {
 		]);
 	});
 
-	test("omits empty command arguments", async () => {
+	test("serializes optional command arguments and session preconditions", async () => {
 		const seen: Record<string, unknown>[] = [];
 		const services = new WebRemoteServices({
 			command: async (command) => {
@@ -126,7 +126,7 @@ describe("web remote command services", () => {
 		});
 
 		await services.executeCommand("session.list", "   ", 4);
-		await services.executeCommand("session.open", "session-1", 4);
+		await services.executeCommand("session.open", "session-1", 4, "active-1");
 		expect(seen).toEqual([
 			{
 				type: "execute_command",
@@ -138,6 +138,7 @@ describe("web remote command services", () => {
 				commandId: "session.open",
 				registryGeneration: 4,
 				args: "session-1",
+				expectedSessionId: "active-1",
 			},
 		]);
 	});

@@ -1311,6 +1311,49 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("rejects a command when its expected session is no longer active", async () => {
+		let executed = false;
+		const commands = createCommandRegistry([
+			{
+				name: "name",
+				description: "Rename the session",
+				execute: () => {},
+				executeTransportNeutral: () => {
+					executed = true;
+				},
+			},
+		]);
+		const host = new RpcSessionHost(
+			createRuntime({
+				getSession: () => ({ id: "session-2", cwd: "/workspace" }),
+			}),
+			{ commands },
+		);
+		const responses: Array<Record<string, unknown>> = [];
+
+		await host.handleCommand(
+			{
+				id: "rename",
+				type: "execute_command",
+				commandId: "name",
+				expectedSessionId: "session-1",
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+
+		expect(executed).toBe(false);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "rename",
+				success: false,
+				error: "Active session changed; retry the command",
+			}),
+		]);
+		host.dispose();
+	});
+
 	test("aborts a hung transport-neutral command out of band", async () => {
 		const commands = createCommandRegistry([
 			{

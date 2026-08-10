@@ -1,10 +1,13 @@
 /** @jsxImportSource solid-js */
 import {
+	type Accessor,
+	createContext,
 	createEffect,
 	createMemo,
 	createSignal,
 	type JSX,
 	Show,
+	useContext,
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MIDDLE_DOT } from "../shell/glyphs";
@@ -15,7 +18,30 @@ import { useWebClient } from "./WebClientContext";
 
 type ActivePicker = "model" | "thinking" | null;
 
-export function AgentConfigurationControls(): JSX.Element {
+type AgentConfigurationContextValue = {
+	modelLabel: Accessor<string>;
+	thinkingLevel: Accessor<string>;
+	disabled: Accessor<boolean>;
+	openModelPicker: () => Promise<void>;
+	openThinkingPicker: () => Promise<void>;
+};
+
+const AgentConfigurationContext =
+	createContext<AgentConfigurationContextValue>();
+
+export function useAgentConfiguration(): AgentConfigurationContextValue {
+	const value = useContext(AgentConfigurationContext);
+	if (!value) {
+		throw new Error(
+			"useAgentConfiguration must be used within AgentConfigurationProvider",
+		);
+	}
+	return value;
+}
+
+export function AgentConfigurationProvider(props: {
+	children: JSX.Element;
+}): JSX.Element {
 	const { snapshot, controller } = useWebClient();
 	let requestGeneration = 0;
 	let observedStreamId: string | null = null;
@@ -219,45 +245,17 @@ export function AgentConfigurationControls(): JSX.Element {
 		observedSessionId = nextSessionId;
 	});
 
+	const value: AgentConfigurationContextValue = {
+		modelLabel,
+		thinkingLevel,
+		disabled,
+		openModelPicker,
+		openThinkingPicker,
+	};
+
 	return (
-		<>
-			<div class="header-meta" role="group" aria-label="Agent configuration">
-				<Show when={modelLabel()}>
-					{(label) => (
-						<button
-							class="header-meta-action"
-							type="button"
-							data-variant="ghost"
-							aria-disabled={disabled()}
-							aria-label={`Choose model, current ${label()}`}
-							title={`Model: ${label()}`}
-							onClick={() => void openModelPicker()}
-						>
-							{label()}
-						</button>
-					)}
-				</Show>
-				<Show when={modelLabel() && thinkingLevel()}>
-					<span class="chrome-separator" aria-hidden="true">
-						{MIDDLE_DOT}
-					</span>
-				</Show>
-				<Show when={thinkingLevel()}>
-					{(level) => (
-						<button
-							class="header-meta-action"
-							type="button"
-							data-variant="ghost"
-							aria-disabled={disabled()}
-							aria-label={`Choose thinking level, current ${level()}`}
-							title={`Thinking level: ${level()}`}
-							onClick={() => void openThinkingPicker()}
-						>
-							{level()}
-						</button>
-					)}
-				</Show>
-			</div>
+		<AgentConfigurationContext.Provider value={value}>
+			{props.children}
 			<Portal>
 				<PickerDialog
 					open={activePicker() === "model"}
@@ -286,6 +284,56 @@ export function AgentConfigurationControls(): JSX.Element {
 					onSelect={(level) => void selectThinkingLevel(level)}
 				/>
 			</Portal>
-		</>
+		</AgentConfigurationContext.Provider>
+	);
+}
+
+export function AgentConfigurationControls(): JSX.Element {
+	const {
+		modelLabel,
+		thinkingLevel,
+		disabled,
+		openModelPicker,
+		openThinkingPicker,
+	} = useAgentConfiguration();
+
+	return (
+		<div class="header-meta" role="group" aria-label="Agent configuration">
+			<Show when={modelLabel()}>
+				{(label) => (
+					<button
+						class="header-meta-action"
+						type="button"
+						data-variant="ghost"
+						aria-disabled={disabled()}
+						aria-label={`Choose model, current ${label()}`}
+						title={`Model: ${label()}`}
+						onClick={() => void openModelPicker()}
+					>
+						{label()}
+					</button>
+				)}
+			</Show>
+			<Show when={modelLabel() && thinkingLevel()}>
+				<span class="chrome-separator" aria-hidden="true">
+					{MIDDLE_DOT}
+				</span>
+			</Show>
+			<Show when={thinkingLevel()}>
+				{(level) => (
+					<button
+						class="header-meta-action"
+						type="button"
+						data-variant="ghost"
+						aria-disabled={disabled()}
+						aria-label={`Choose thinking level, current ${level()}`}
+						title={`Thinking level: ${level()}`}
+						onClick={() => void openThinkingPicker()}
+					>
+						{level()}
+					</button>
+				)}
+			</Show>
+		</div>
 	);
 }

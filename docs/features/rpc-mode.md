@@ -95,7 +95,7 @@ process.
 | `switch_session` | `sessionPath` (a Kit session ID or path) | `{ "cancelled": false }` |
 | `activate_chrome_contribution` (web mode) | `area: "header" \| "footer"`, `contributionId` | none |
 | `list_commands` | none | transport-neutral commands plus `registryGeneration` |
-| `execute_command` | `commandId`, optional `args`, optional `registryGeneration` | none |
+| `execute_command` | `commandId`, optional `args`, optional `registryGeneration`, optional `expectedSessionId` | none |
 
 Clients that present commands interactively should pass the generation returned
 by `list_commands` to `execute_command`. Kit rejects stale generations when the
@@ -103,7 +103,9 @@ command registry changes, preventing a displayed command from resolving to a
 newly registered implementation with the same ID. Generations are scoped to one
 RPC host incarnation, so clients must discard them after reconnecting to a new
 event stream. The generation remains optional for compatibility with
-controllers that execute a known command ID directly.
+controllers that execute a known command ID directly. Session-specific browser
+adapters can also pass `expectedSessionId`; Kit rejects the command if another
+client changes the active session before execution.
 
 ### Remote command exposure
 
@@ -131,11 +133,16 @@ prompt-command name, arguments, and expanded prompt in the transcript. Dynamic
 prompt and Claude command registrations refresh when the session cwd changes;
 Claude command discovery also rejects workspace-escaping paths.
 
-Model and thinking selection use their existing discovery and mutation RPC
-commands through reusable browser-native pickers. Sessions, authentication, review,
-diagnostics, sub-agents, MCP status, settings, and release notes require
-purpose-built remote surfaces. `/quit`, `/reload`, `/theme`, and `/pager` remain
-host- or renderer-local.
+Browser-local `/model` and `/thinking` palette commands use the existing
+discovery and mutation RPC commands through reusable browser-native pickers.
+The clickable session title similarly adapts the transport-neutral `/name`
+command through a browser-native input dialog. Sessions, authentication,
+review, diagnostics, sub-agents, MCP management,
+settings, and release notes
+require purpose-built remote surfaces. The MCP surface will include clearing a
+server's saved OAuth state rather than exposing `/mcp-logout` as a remote slash
+command. `/quit`, `/reload`, `/theme`, and `/pager` remain host- or
+renderer-local.
 
 A normal `prompt` is rejected while the agent is streaming unless
 `streamingBehavior` says where to queue it. The dedicated `steer` and

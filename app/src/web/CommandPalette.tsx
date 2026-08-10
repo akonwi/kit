@@ -10,17 +10,28 @@ import {
 	Show,
 } from "solid-js";
 import { scoreMatch } from "../features/files/score";
+import { useAgentConfiguration } from "./AgentConfigurationControls";
+import {
+	mergePaletteCommands,
+	type PaletteCommand,
+} from "./command-palette-commands";
 import { DialogFrame } from "./DialogFrame";
 import { OverlayHintBar } from "./OverlayHintBar";
-import type { RemoteCommand } from "./remote-services";
 import { useWebClient } from "./WebClientContext";
 
 export function CommandPalette(): JSX.Element {
 	const { controller, snapshot } = useWebClient();
+	const {
+		disabled: configurationDisabled,
+		openModelPicker,
+		openThinkingPicker,
+	} = useAgentConfiguration();
 	let input: HTMLInputElement | undefined;
 	let loadGeneration = 0;
 	const [open, setOpen] = createSignal(false);
-	const [commands, setCommands] = createSignal<RemoteCommand[]>([]);
+	const [commands, setCommands] = createSignal<PaletteCommand[]>(
+		mergePaletteCommands([]),
+	);
 	const [registryGeneration, setRegistryGeneration] = createSignal<
 		number | null
 	>(null);
@@ -29,7 +40,7 @@ export function CommandPalette(): JSX.Element {
 	const [loading, setLoading] = createSignal(false);
 	const [error, setError] = createSignal("");
 	const [argumentCommand, setArgumentCommand] =
-		createSignal<RemoteCommand | null>(null);
+		createSignal<PaletteCommand | null>(null);
 
 	const filteredCommands = createMemo(() => {
 		const needle = query().trim();
@@ -74,12 +85,12 @@ export function CommandPalette(): JSX.Element {
 		const generation = ++loadGeneration;
 		setLoading(true);
 		setError("");
-		setCommands([]);
+		setCommands(mergePaletteCommands([]));
 		setRegistryGeneration(null);
 		try {
 			const next = await controller.listCommands();
 			if (generation !== loadGeneration || !open()) return;
-			setCommands(next.commands);
+			setCommands(mergePaletteCommands(next.commands));
 			setRegistryGeneration(next.registryGeneration);
 		} catch (cause) {
 			if (generation !== loadGeneration || !open()) return;
@@ -126,7 +137,16 @@ export function CommandPalette(): JSX.Element {
 		scrollSelectedCommandIntoView();
 	}
 
-	function chooseCommand(command: RemoteCommand): void {
+	function chooseCommand(command: PaletteCommand): void {
+		if (command.browserAction && configurationDisabled()) return;
+		if (command.browserAction) {
+			closePalette();
+			queueMicrotask(() => {
+				if (command.browserAction === "model") void openModelPicker();
+				else void openThinkingPicker();
+			});
+			return;
+		}
 		const generation = registryGeneration();
 		if (generation === null) return;
 		if (command.argName) {
@@ -273,6 +293,9 @@ export function CommandPalette(): JSX.Element {
 									role="option"
 									tabIndex={-1}
 									aria-selected={index() === selectedIndex()}
+									aria-disabled={
+										command.browserAction && configurationDisabled()
+									}
 									onMouseEnter={() => setSelectedIndex(index())}
 									onClick={() => chooseCommand(command)}
 								>
