@@ -72,6 +72,7 @@ for line in sys.stdin:
         send({"jsonrpc": "2.0", "id": "p-header", "method": "kit/header/set", "params": {"id": "status", "content": [{"text": "speech", "style": {"fg": "toolText", "bold": True}}], "action": {"type": "open-url", "url": "https://example.com/status"}}})
         send({"jsonrpc": "2.0", "id": "p-footer", "method": "kit/footer/set", "params": {"id": "status", "content": [{"text": "ready", "style": {"fg": "metaText"}}], "side": "left", "clickable": True}})
         send({"jsonrpc": "2.0", "id": "p-prompt", "method": "kit/system-prompt/set", "params": {"text": "Always speak the final answer."}})
+        send({"jsonrpc": "2.0", "id": "p-open", "method": "kit/system/open-url", "params": {"url": "https://example.com/plugin"}})
     elif method == "kit/commands/execute":
         record({"command": message["params"]})
         send({"jsonrpc": "2.0", "id": message["id"], "result": None})
@@ -98,6 +99,7 @@ for line in sys.stdin:
 		const header = createChromeContributionsController();
 		const footer = createChromeContributionsController();
 		let systemPrompt = "";
+		const openedUrls: Array<{ url: string; source?: string }> = [];
 		const session = {
 			id: "session-1",
 			name: "Protocol test",
@@ -148,6 +150,9 @@ for line in sys.stdin:
 				getTranscriptViewport: () => null,
 			},
 			attachments: {},
+			openUrl: async (url: string, source?: string) => {
+				openedUrls.push({ url, source });
+			},
 			triggerNotification: () => false,
 		} as unknown as PluginContext;
 		const manifest: ExternalPluginManifest = {
@@ -175,7 +180,8 @@ for line in sys.stdin:
 				tools.length === 1 &&
 				header.getContributions().length === 1 &&
 				footer.getContributions().length === 1 &&
-				systemPrompt.length > 0,
+				systemPrompt.length > 0 &&
+				openedUrls.length === 1,
 		);
 		expect(commands.getAll()[0]).toMatchObject({
 			name: "speech.toggle",
@@ -195,6 +201,9 @@ for line in sys.stdin:
 		});
 		expect(typeof footer.getContributions()[0]?.onClick).toBe("function");
 		expect(systemPrompt).toBe("Always speak the final answer.");
+		expect(openedUrls).toEqual([
+			{ url: "https://example.com/plugin", source: "speech" },
+		]);
 
 		await footer.getContributions()[0]?.onClick?.();
 		await commands.getAll()[0]?.execute({ args: "now" } as never);

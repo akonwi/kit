@@ -1380,6 +1380,26 @@ details[open] > summary > .disclosure-marker {
 	gap: var(--space-sm);
 }
 
+.open-url-toast code {
+	display: block;
+	margin-block-start: var(--space-xs);
+	padding: var(--space-xs) var(--space-sm);
+	background: var(--kit-bg-surface);
+	color: var(--kit-text-primary);
+	overflow-wrap: anywhere;
+	user-select: text;
+}
+
+.open-url-toast > button:not(.close) {
+	margin-block-start: var(--space-sm);
+}
+
+.open-url-toast .open-url-error {
+	display: block;
+	margin-block-start: var(--space-xs);
+	color: var(--kit-error-text);
+}
+
 .interaction-actions {
 	flex: 0 0 auto;
 }

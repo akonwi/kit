@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import type { RemoteInteractionEvent } from "./remote-interaction-broker";
-import { RemoteInteractionBroker } from "./remote-interaction-broker";
+import {
+	MAX_PENDING_OPEN_URLS,
+	RemoteInteractionBroker,
+} from "./remote-interaction-broker";
 
 function requestedEvent(events: RemoteInteractionEvent[]) {
 	const event = events.find((candidate) => candidate.type === "ui_request");
@@ -77,6 +80,78 @@ describe("RemoteInteractionBroker", () => {
 			generation: 2,
 			requests: [],
 		});
+		broker.dispose();
+	});
+
+	test("queues HTTP plugin open actions without blocking the plugin", async () => {
+		const broker = new RemoteInteractionBroker();
+		const events: unknown[] = [];
+		broker.subscribe((event) => events.push(event));
+		await expect(
+			broker.openUrl({
+				url: "https://example.com/docs",
+				source: "docs-plugin",
+			}),
+		).resolves.toBeUndefined();
+		const request = broker.getPendingRequests()[0];
+		if (!request) throw new Error("Expected open URL request");
+
+		expect(request).toMatchObject({
+			kind: "open_url",
+			payload: {
+				title: "Open link",
+				url: "https://example.com/docs",
+				source: "docs-plugin",
+			},
+		});
+		expect(broker.respond(request.id, { opened: true })).toEqual({
+			accepted: true,
+		});
+		expect(events.at(-1)).toMatchObject({
+			type: "ui_resolved",
+			kind: "open_url",
+			response: { opened: true },
+		});
+		broker.dispose();
+	});
+
+	test("bounds and deduplicates pending plugin open actions", async () => {
+		const broker = new RemoteInteractionBroker();
+		for (let index = 0; index < MAX_PENDING_OPEN_URLS + 2; index += 1) {
+			await broker.openUrl({ url: `https://example.com/${index}` });
+		}
+		const pending = broker.getPendingRequests();
+		expect(pending).toHaveLength(MAX_PENDING_OPEN_URLS);
+		expect(pending[0]?.payload.url).toBe("https://example.com/2");
+
+		const generation = broker.getPendingSnapshot().generation;
+		await broker.openUrl({
+			url: `https://example.com/${MAX_PENDING_OPEN_URLS + 1}`,
+		});
+		expect(broker.getPendingSnapshot()).toMatchObject({
+			generation,
+			requests: pending,
+		});
+
+		const aborted = new AbortController();
+		aborted.abort();
+		await broker.openUrl({
+			url: "https://example.com/aborted",
+			signal: aborted.signal,
+		});
+		expect(broker.getPendingSnapshot()).toMatchObject({
+			generation,
+			requests: pending,
+		});
+		broker.dispose();
+	});
+
+	test("rejects unsafe remote plugin URLs", async () => {
+		const broker = new RemoteInteractionBroker();
+		await expect(
+			broker.openUrl({ url: "file:///tmp/private" }),
+		).rejects.toThrow("Only HTTP and HTTPS URLs can open remotely");
+		expect(broker.getPendingRequests()).toEqual([]);
 		broker.dispose();
 	});
 

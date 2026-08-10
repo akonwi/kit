@@ -453,9 +453,15 @@ export class ExternalPluginClient {
 				return null;
 			case "kit/session/submit-message":
 				return this.submitMessage(params);
-			case "kit/system/open-url":
-				await openExternal((params as unknown as { url: string }).url);
+			case "kit/system/open-url": {
+				const url = (params as unknown as { url: string }).url;
+				if (this.context.openUrl) {
+					await this.context.openUrl(url, this.manifest.manifest.id, signal);
+				} else {
+					await openExternal(url);
+				}
 				return null;
+			}
 			default:
 				throw new JsonRpcError(-32601, `Method not found: ${method}`);
 		}

@@ -375,13 +375,17 @@ export class WebClientController {
 		}
 	}
 
-	async answerInteraction(requestId: string, response: unknown): Promise<void> {
-		if (this.view.answeringInteractionId()) return;
+	async answerInteraction(
+		requestId: string,
+		response: unknown,
+	): Promise<boolean> {
+		if (this.view.answeringInteractionId()) return false;
 		this.view.clearInteractionResponseError(requestId);
 		this.view.setAnsweringInteractionId(requestId);
 		this.view.notify();
 		try {
 			await this.sendCommand({ type: "ui_response", requestId, response });
+			return true;
 		} catch (error) {
 			this.view.setAnsweringInteractionId(null);
 			this.view.setInteractionResponseError(
@@ -390,7 +394,13 @@ export class WebClientController {
 			);
 			this.view.reportError(error);
 			this.view.notify();
+			return false;
 		}
+	}
+
+	reportInteractionError(requestId: string, message: string): void {
+		this.view.setInteractionResponseError(requestId, message);
+		this.view.notify();
 	}
 
 	ensureInteractionHydrated(requestId: string): void {

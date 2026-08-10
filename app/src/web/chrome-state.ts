@@ -1,3 +1,4 @@
+import { normalizeRemoteHttpUrl } from "../app/remote-url";
 import type { ChromeThemeToken } from "../shell/chrome-contributions";
 
 export type RemoteChromeTextStyle = {
@@ -103,7 +104,6 @@ const MAX_CONTRIBUTIONS = 64;
 const MAX_SEGMENTS = 32;
 const MAX_TOTAL_TEXT_LENGTH = 8_192;
 const MAX_ID_LENGTH = 256;
-const MAX_URL_LENGTH = 8_192;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -121,24 +121,9 @@ function parseAction(
 	value: unknown,
 ): RemoteChromeContribution["action"] | undefined | null {
 	if (value === undefined) return undefined;
-	if (
-		!isRecord(value) ||
-		value.type !== "open-url" ||
-		typeof value.url !== "string" ||
-		value.url.length === 0 ||
-		value.url.length > MAX_URL_LENGTH ||
-		hasControlCharacter(value.url)
-	) {
-		return null;
-	}
-	let url: URL;
-	try {
-		url = new URL(value.url);
-	} catch {
-		return null;
-	}
-	if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-	return { type: "open-url", url: url.href };
+	if (!isRecord(value) || value.type !== "open-url") return null;
+	const url = normalizeRemoteHttpUrl(value.url);
+	return url ? { type: "open-url", url } : null;
 }
 
 function parseStyle(value: unknown): RemoteChromeTextStyle | undefined | null {

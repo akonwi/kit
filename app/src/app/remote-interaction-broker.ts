@@ -8,12 +8,16 @@ import type {
 } from "../features/guided-questions/types";
 import { normalizeQuestions } from "../features/guided-questions/types";
 import type { ToastInput } from "../state/toasts";
+import { normalizeRemoteHttpUrl } from "./remote-url";
+
+export const MAX_PENDING_OPEN_URLS = 16;
 
 export const REMOTE_INTERACTION_KINDS = [
 	"confirm",
 	"input",
 	"select",
 	"guided_questions",
+	"open_url",
 ] as const;
 
 export type RemoteInteractionKind = (typeof REMOTE_INTERACTION_KINDS)[number];
@@ -67,6 +71,12 @@ export type RemoteInputInput = {
 	message?: string;
 	placeholder?: string;
 	initialValue?: string;
+	signal?: AbortSignal;
+};
+
+export type RemoteOpenUrlInput = {
+	url: string;
+	source?: string;
 	signal?: AbortSignal;
 };
 
@@ -278,6 +288,54 @@ export class RemoteInteractionBroker implements GuidedQuestionsRequester {
 					valid: true,
 					value: response.value ?? undefined,
 					publicResponse: { value: response.value },
+				};
+			},
+			signal,
+		);
+	}
+
+	async openUrl(input: RemoteOpenUrlInput): Promise<void> {
+		const url = normalizeRemoteHttpUrl(input.url);
+		if (!url) throw new Error("Only HTTP and HTTPS URLs can open remotely");
+		const { signal } = input;
+		if (this.disposed || signal?.aborted) return;
+		const source = input.source?.trim() || undefined;
+		const pendingOpenUrls = [...this.pending.values()].filter(
+			(pending) => pending.request.kind === "open_url",
+		);
+		if (
+			pendingOpenUrls.some(
+				(pending) =>
+					pending.request.payload.url === url &&
+					pending.request.payload.source === source,
+			)
+		) {
+			return;
+		}
+		const oldest = pendingOpenUrls[0];
+		if (oldest && pendingOpenUrls.length >= MAX_PENDING_OPEN_URLS) {
+			this.settle(oldest, "aborted", false, { opened: false });
+		}
+		void this.request(
+			"open_url",
+			{
+				title: "Open link",
+				url,
+				...(source ? { source } : {}),
+			},
+			false,
+			{ opened: false },
+			(response) => {
+				if (!isRecord(response) || typeof response.opened !== "boolean") {
+					return {
+						valid: false,
+						error: "Open URL response must contain a boolean opened value",
+					};
+				}
+				return {
+					valid: true,
+					value: response.opened,
+					publicResponse: { opened: response.opened },
 				};
 			},
 			signal,

@@ -315,6 +315,33 @@ describe("PluginManager", () => {
 		manager.dispose();
 	});
 
+	test("routes plugin URL opens through the renderer adapter", async () => {
+		const opened: Array<{ url: string; source?: string }> = [];
+		const context = createPluginContext([]);
+		context.openUrl = async (url, source) => {
+			opened.push({ url, source });
+		};
+		let pending: Promise<void> | undefined;
+		const manager = new PluginManager(
+			[
+				{
+					name: "links",
+					initialize: (kit: PluginAPI) => {
+						pending = kit.system.open("https://example.com/docs");
+					},
+				},
+			],
+			context,
+		);
+
+		manager.initialize();
+		await pending;
+		expect(opened).toEqual([
+			{ url: "https://example.com/docs", source: "links" },
+		]);
+		manager.dispose();
+	});
+
 	test("exposes theme config through public ui", () => {
 		const expectedTheme = createThemeConfig("plugin-test");
 		let receivedTheme: ThemeConfig | undefined;

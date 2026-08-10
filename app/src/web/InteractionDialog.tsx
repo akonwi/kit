@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+
 import {
 	createEffect,
 	createMemo,
@@ -307,7 +308,10 @@ export function InteractionDialog(): JSX.Element {
 	let form: HTMLFormElement | undefined;
 	const protocol = createMemo(() => snapshot().protocol);
 	const request = createMemo(() =>
-		protocol().pendingInteractions.find(isRecord),
+		protocol().pendingInteractions.find(
+			(candidate): candidate is Record<string, unknown> =>
+				isRecord(candidate) && candidate.kind !== "open_url",
+		),
 	);
 	const requestKey = createMemo(() => {
 		const active = request();

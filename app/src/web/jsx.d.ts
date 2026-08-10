@@ -13,6 +13,10 @@ declare module "solid-js" {
 				align?: string;
 				justify?: string;
 			};
+			"m-toast": HTMLAttributes<HTMLElement> & {
+				popover?: "auto" | "manual";
+				duration?: string;
+			};
 		}
 	}
 }

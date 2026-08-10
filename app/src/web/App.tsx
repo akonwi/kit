@@ -5,6 +5,7 @@ import { AppShell } from "./AppShell";
 import { BrowserThemeProvider } from "./BrowserThemeProvider";
 import { CommandPalette } from "./CommandPalette";
 import { InteractionDialog } from "./InteractionDialog";
+import { OpenUrlRequests } from "./OpenUrlRequests";
 import { ScratchpadProvider } from "./ScratchpadProvider";
 
 export function App(): JSX.Element {
@@ -17,6 +18,7 @@ export function App(): JSX.Element {
 					</a>
 					<AppShell />
 					<CommandPalette />
+					<OpenUrlRequests />
 					<InteractionDialog />
 				</AgentConfigurationProvider>
 			</ScratchpadProvider>

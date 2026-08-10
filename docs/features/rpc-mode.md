@@ -151,8 +151,11 @@ host, matching its TUI behavior. A disconnected browser instead shows a
 authentication, review, diagnostics, sub-agents, MCP management, settings, and
 release notes require purpose-built remote surfaces. The MCP surface will
 include clearing a server's saved OAuth state rather than exposing
-`/mcp-logout` as a remote slash command. `/quit` remains unavailable in the
-browser; `/pager` remains renderer-local.
+`/mcp-logout` as a remote slash command. Imperative plugin `kit.system.open`
+calls enqueue a correlated, nonblocking `open_url` browser action; the pending
+action queue is bounded and deduplicated, and only HTTP and HTTPS URLs are
+accepted remotely. `/quit` remains
+unavailable in the browser; `/pager` remains renderer-local.
 
 A normal `prompt` is rejected while the agent is streaming unless
 `streamingBehavior` says where to queue it. The dedicated `steer` and
@@ -193,8 +196,10 @@ message and also covers non-assistant messages such as tool results.
 `session.transcript.replaced` requires clients to obtain a fresh snapshot.
 
 Pending-interaction snapshots, pages, and `ui_snapshot`/`ui_request`/
-`ui_resolved` events carry a server-owned generation. Clients pass the expected generation while
-paging and restart when the server marks a page stale. Capability limits cover
+`ui_resolved` events carry a server-owned generation. Supported interaction
+kinds include confirmation, input, selection, guided questions, and remote URL
+opening. Clients pass the expected generation while paging and restart when the
+server marks a page stale. Capability limits cover
 attachment quotas and upload concurrency, page sizes, snapshot bounds, event
 retention, and chunk recovery.
 

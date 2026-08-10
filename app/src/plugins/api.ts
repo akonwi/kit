@@ -241,7 +241,9 @@ export function createPluginAPI(
 			return ctx.runtime.getSession().cwd;
 		},
 		open: async (url: string | URL) => {
-			await openExternal(url.toString());
+			const value = url.toString();
+			if (ctx.openUrl) await ctx.openUrl(value, options.name);
+			else await openExternal(value);
 		},
 		notify: (message: string, title?: string) =>
 			ctx.triggerNotification(message, title),

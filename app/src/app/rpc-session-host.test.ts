@@ -861,7 +861,13 @@ describe("RpcSessionHost", () => {
 				data: expect.objectContaining({
 					interactiveUI: true,
 					commands: expect.arrayContaining(["ui_response"]),
-					interactionKinds: ["confirm", "input", "select", "guided_questions"],
+					interactionKinds: [
+						"confirm",
+						"input",
+						"select",
+						"guided_questions",
+						"open_url",
+					],
 				}),
 			}),
 		]);

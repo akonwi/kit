@@ -82,6 +82,11 @@ export type PluginContext = {
 	attachments: AttachmentsController;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	openUrl?: (
+		url: string,
+		source?: string,
+		signal?: AbortSignal,
+	) => Promise<void>;
 	triggerNotification: (message: string, title?: string) => boolean;
 };
 
