@@ -508,6 +508,10 @@ function loadDisplayLines(options: {
 	}
 }
 
+export function normalizeReviewLineText(text: string): string {
+	return text.replace(/\r?\n$/, "");
+}
+
 function buildReviewLinesFromPierreHunk(
 	file: FileDiffMetadata,
 	hunk: PierreHunk,
@@ -520,7 +524,9 @@ function buildReviewLinesFromPierreHunk(
 			for (let index = 0; index < block.lines; index += 1) {
 				lines.push({
 					kind: "context",
-					text: file.additionLines[block.additionLineIndex + index] ?? "",
+					text: normalizeReviewLineText(
+						file.additionLines[block.additionLineIndex + index] ?? "",
+					),
 					additionLineNumber: nextAdditionLineNumber + index,
 					deletionLineNumber: nextDeletionLineNumber + index,
 				});
@@ -532,14 +538,18 @@ function buildReviewLinesFromPierreHunk(
 		for (let index = 0; index < block.deletions; index += 1) {
 			lines.push({
 				kind: "delete",
-				text: file.deletionLines[block.deletionLineIndex + index] ?? "",
+				text: normalizeReviewLineText(
+					file.deletionLines[block.deletionLineIndex + index] ?? "",
+				),
 				deletionLineNumber: nextDeletionLineNumber + index,
 			});
 		}
 		for (let index = 0; index < block.additions; index += 1) {
 			lines.push({
 				kind: "add",
-				text: file.additionLines[block.additionLineIndex + index] ?? "",
+				text: normalizeReviewLineText(
+					file.additionLines[block.additionLineIndex + index] ?? "",
+				),
 				additionLineNumber: nextAdditionLineNumber + index,
 			});
 		}

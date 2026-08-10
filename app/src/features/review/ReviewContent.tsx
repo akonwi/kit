@@ -20,8 +20,6 @@ import {
 	estimateWrappedRows,
 	getReviewDiffActiveLineId,
 	getReviewDiffCommentableLines,
-	getReviewDiffLineTop,
-	getReviewDiffRangeBounds,
 	type ReviewDiffAnnotationMetadata,
 	ReviewDiffBlock,
 	type ReviewDiffCommentableLine,
@@ -31,8 +29,6 @@ import { inferFiletype } from "../../shell/filetype";
 import {
 	CHEVRON_RIGHT,
 	CIRCLE_FILLED,
-	DASHED_VERTICAL,
-	DIAMOND,
 	MIDDLE_DOT,
 	TRIANGLE_DOWN,
 	TRIANGLE_RIGHT,
@@ -257,38 +253,6 @@ function getCommentableLines(
 	return getReviewDiffCommentableLines(hunk, side, diffView);
 }
 
-function getCommentableLineTop(
-	hunk: ReviewHunk,
-	lineIndex: number,
-	diffView: ReviewDiffView,
-	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
-	contentColumns?: number,
-): number {
-	return getReviewDiffLineTop(
-		hunk,
-		lineIndex,
-		diffView,
-		annotations,
-		contentColumns,
-	);
-}
-
-function getVisualBoundsForRange(
-	hunk: ReviewHunk,
-	range: ReviewRangeDraft,
-	diffView: ReviewDiffView,
-	annotations: DiffLineAnnotation<ReviewDiffAnnotationMetadata>[] = [],
-	contentColumns?: number,
-) {
-	return getReviewDiffRangeBounds(
-		hunk,
-		range,
-		diffView,
-		annotations,
-		contentColumns,
-	);
-}
-
 /** Line-number column width for a hunk's gutter. */
 function lineNumberWidthForHunk(hunk: ReviewHunk): number {
 	const maxLineNumber = Math.max(
@@ -326,27 +290,27 @@ function lineNumberWidthForFile(file: ReviewFile): number {
 	return width;
 }
 
-// Hunk content chrome widths (matches the layout in renderHunkBlock):
-//   the patch box is full-bleed (no horizontal padding) so rows align
-//   flush with the pane header above
-//   each hunk wrapper has paddingLeft={2} (comment-marker lane)
+// Patch content is full-bleed. Only reserve the overlaid scrollbar column.
 const PATCH_CONTENT_PADDING = 0;
-const HUNK_PADDING_LEFT = 2;
+const PATCH_SCROLLBAR_COLUMNS = 1;
 
 function unifiedContentColumns(lnw: number, diffPaneWidth: number): number {
 	// Unified row: [lnw][space][lnw][sign][space]
 	const gutterCols = 2 * lnw + 3;
 	return Math.max(
-		10,
-		diffPaneWidth - PATCH_CONTENT_PADDING - HUNK_PADDING_LEFT - gutterCols,
+		1,
+		diffPaneWidth -
+			PATCH_CONTENT_PADDING -
+			PATCH_SCROLLBAR_COLUMNS -
+			gutterCols,
 	);
 }
 
 function splitContentColumns(lnw: number, diffPaneWidth: number): number {
-	const inner = diffPaneWidth - PATCH_CONTENT_PADDING - HUNK_PADDING_LEFT;
+	const inner = diffPaneWidth - PATCH_CONTENT_PADDING - PATCH_SCROLLBAR_COLUMNS;
 	const halfWidth = Math.floor(inner / 2);
 	// Split cell: [lnw][sign][space]
-	return Math.max(10, halfWidth - lnw - 2);
+	return Math.max(1, halfWidth - lnw - 2);
 }
 
 function contentColumnsFor(
@@ -366,13 +330,6 @@ function lineRangeLabel(range: ReviewRangeDraft): string {
 	return startLine === endLine
 		? `${range.side} ${startLine}`
 		: `${range.side} ${startLine}-${endLine}`;
-}
-
-function buildRangeMarker(height: number): string {
-	return Array.from(
-		{ length: Math.max(1, height) },
-		() => DASHED_VERTICAL,
-	).join("\n");
 }
 
 function buildLineSelection(
@@ -1252,39 +1209,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			rangeToAnnotation(editing, editingRangeValue(), { editing: true }),
 		];
 	});
-	const anchorLineTop = createMemo(() => {
-		const anchor = rangeAnchor();
-		const hunk = selectedHunk();
-		const file = selectedFile();
-		if (!anchor || !hunk || !file) return null;
-		const line = getCommentableLines(hunk, anchor.side, diffView()).find(
-			(candidate) => candidate.lineNumber === anchor.lineNumber,
-		);
-		return line
-			? getCommentableLineTop(
-					hunk,
-					line.index,
-					diffView(),
-					selectedFileCommentAnnotations(),
-					contentColumnsFor(file, diffView(), diffPaneWidth()),
-				)
-			: null;
-	});
-	const activeRangeLineBounds = createMemo(() => {
-		const range = selectedRange();
-		const anchor = rangeAnchor();
-		const hunk = selectedHunk();
-		const file = selectedFile();
-		if (!range || !anchor || !hunk || !file) return null;
-		return getVisualBoundsForRange(
-			hunk,
-			range,
-			diffView(),
-			selectedFileCommentAnnotations(),
-			contentColumnsFor(file, diffView(), diffPaneWidth()),
-		);
-	});
-
 	createEffect(() => {
 		const list = reviewFiles();
 		if (selectedIndex() >= list.length) {
@@ -1609,6 +1533,8 @@ export function ReviewContent(props: ReviewContentProps) {
 				rawPatch={rawPatch}
 				view={diffView()}
 				filetype={filetype}
+				contentColumns={() => unifiedContentColumns(1, diffPaneWidth())}
+				contentRightInset={PATCH_SCROLLBAR_COLUMNS}
 			/>
 		);
 	}
@@ -1624,13 +1550,16 @@ export function ReviewContent(props: ReviewContentProps) {
 	) {
 		const hunk = skippedSectionToHunk(section);
 		return (
-			<box paddingLeft={2}>
+			<box width="100%">
 				<ReviewDiffBlock
 					hunk={hunk}
 					view={diffView()}
 					filetype={file.filetype}
 					lineNumberWidth={lineNumberWidthForFile(file)}
-					contentColumns={contentColumnsFor(file, diffView(), diffPaneWidth())}
+					contentColumns={() =>
+						contentColumnsFor(file, diffView(), diffPaneWidth())
+					}
+					contentRightInset={PATCH_SCROLLBAR_COLUMNS}
 				/>
 			</box>
 		);
@@ -1725,114 +1654,57 @@ export function ReviewContent(props: ReviewContentProps) {
 		const annotations = () =>
 			interactive ? selectedFileCommentAnnotations() : [];
 		const cursor = () => lineCursorState();
-		const cursorTop = () => {
-			const current = cursor();
-			if (!interactive || current?.hunk.id !== hunk.id) return null;
-			return getCommentableLineTop(
-				hunk,
-				current.line.index,
-				diffView(),
-				annotations(),
-				contentColumnsFor(file, diffView(), diffPaneWidth()),
-			);
-		};
-		const cursorSide = () => {
-			const current = cursor();
-			if (!interactive || current?.hunk.id !== hunk.id) return null;
-			return current.line.side;
-		};
-		const rangeBounds = () => activeRangeLineBounds();
-		const anchorTop = () => anchorLineTop();
-		const splitView = () => diffView() === "split";
 		const activeLine = () => {
 			const current = cursor();
 			if (!interactive || current?.hunk.id !== hunk.id) return undefined;
 			return current.line;
 		};
-		const renderOverlayLane = (side?: ReviewSide) => (
-			<>
-				<Show when={cursorTop() !== null && (!side || cursorSide() === side)}>
-					<Show when={rangeBounds()}>
-						{(bounds) => (
-							<box
-								position="absolute"
-								left={0}
-								top={bounds().top}
-								height={bounds().height}
-								width={1}
-							>
-								<text fg={theme.borderAccent}>
-									{buildRangeMarker(bounds().height)}
-								</text>
-							</box>
-						)}
-					</Show>
-					<Show
-						when={
-							anchorTop() !== null && (!side || rangeAnchor()?.side === side)
-						}
-					>
-						<box
-							position="absolute"
-							left={0}
-							top={anchorTop() ?? 0}
-							height={1}
-							width={1}
-						>
-							<text fg={theme.borderFocused}>{DIAMOND}</text>
-						</box>
-					</Show>
-				</Show>
-			</>
-		);
+		const lineMarker = (line: ReviewDiffCommentableLine) => {
+			const current = cursor();
+			if (!interactive || current?.hunk.id !== hunk.id) return undefined;
+			const anchor = rangeAnchor();
+			if (anchor?.side === line.side && anchor.lineNumber === line.lineNumber) {
+				return "anchor" as const;
+			}
+			const range = selectedRange();
+			if (!range || range.path !== file.path || range.side !== line.side) {
+				return undefined;
+			}
+			const startLine = Math.min(range.startLine, range.endLine);
+			const endLine = Math.max(range.startLine, range.endLine);
+			return line.lineNumber >= startLine && line.lineNumber <= endLine
+				? ("range" as const)
+				: undefined;
+		};
 		return (
-			<box flexDirection="column" gap={0}>
-				<box position="relative" paddingLeft={2}>
-					<ReviewDiffBlock
-						hunk={hunk}
-						view={diffView()}
-						filetype={file.filetype}
-						annotations={annotations()}
-						activeLine={activeLine()}
-						lineNumberWidth={lineNumberWidthForFile(file)}
-						contentColumns={contentColumnsFor(
-							file,
-							diffView(),
-							diffPaneWidth(),
-						)}
-						annotationEditor={
-							editingRange()
-								? {
-										onChange: setEditingRangeValue,
-										onSubmit: saveRangeNoteEditor,
-									}
-								: undefined
-						}
-						onLineMouseDown={
-							interactive
-								? (line, event) =>
-										handleDiffLineMouseDown(file, hunk, line, event)
-								: undefined
-						}
-					/>
-					<Show when={interactive}>
-						<Show
-							when={splitView()}
-							fallback={
-								<box position="absolute" left={0} top={0}>
-									{renderOverlayLane()}
-								</box>
-							}
-						>
-							<box position="absolute" left={0} top={0} width="50%">
-								{renderOverlayLane("deletions")}
-							</box>
-							<box position="absolute" left="50%" top={0} width="50%">
-								{renderOverlayLane("additions")}
-							</box>
-						</Show>
-					</Show>
-				</box>
+			<box flexDirection="column" gap={0} width="100%">
+				<ReviewDiffBlock
+					hunk={hunk}
+					view={diffView()}
+					filetype={file.filetype}
+					annotations={annotations()}
+					activeLine={activeLine()}
+					lineMarker={lineMarker}
+					lineNumberWidth={lineNumberWidthForFile(file)}
+					contentColumns={() =>
+						contentColumnsFor(file, diffView(), diffPaneWidth())
+					}
+					contentRightInset={PATCH_SCROLLBAR_COLUMNS}
+					annotationEditor={
+						editingRange()
+							? {
+									onChange: setEditingRangeValue,
+									onSubmit: saveRangeNoteEditor,
+								}
+							: undefined
+					}
+					onLineMouseDown={
+						interactive
+							? (line, event) =>
+									handleDiffLineMouseDown(file, hunk, line, event)
+							: undefined
+					}
+				/>
 			</box>
 		);
 	}
@@ -1992,7 +1864,7 @@ export function ReviewContent(props: ReviewContentProps) {
 				? getSkippedSection(file, file.hunks.length)
 				: undefined;
 		return (
-			<box flexDirection="column" gap={0}>
+			<box flexDirection="column" gap={0} width="100%">
 				<For each={window().hunks}>
 					{(hunk) => {
 						const hunkIndex = () =>
@@ -2023,7 +1895,7 @@ export function ReviewContent(props: ReviewContentProps) {
 			return renderRawDiffBlock(file.rawPatch, file.filetype);
 		}
 		return (
-			<box flexDirection="column" gap={0}>
+			<box flexDirection="column" gap={0} width="100%">
 				<For each={file.hunks}>
 					{(hunk, hunkIndex) => (
 						<>
@@ -2833,7 +2705,9 @@ export function ReviewContent(props: ReviewContentProps) {
 												scrollY
 												style={scrollbarStyle()}
 											>
-												{renderFileDiffContent(file(), mode() === "patch")}
+												<box flexDirection="column" width="100%">
+													{renderFileDiffContent(file(), mode() === "patch")}
+												</box>
 											</scrollbox>
 										</box>
 									</box>

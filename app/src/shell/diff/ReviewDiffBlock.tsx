@@ -1,7 +1,16 @@
 import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
-import { type Accessor, createMemo, createSelector, For, Show } from "solid-js";
+import {
+	type Accessor,
+	createEffect,
+	createMemo,
+	createSelector,
+	createSignal,
+	For,
+	Show,
+} from "solid-js";
 import type { ReviewDiffView } from "../../settings";
+import { DASHED_VERTICAL, DIAMOND } from "../glyphs";
 import { MessageComposer, type TextareaRef } from "../MessageComposer";
 import { syntaxStyle, theme } from "../theme";
 import {
@@ -55,12 +64,17 @@ export type ReviewDiffBlockProps = {
 		onSubmit: () => void;
 	};
 	activeLine?: ReviewDiffCommentableLine;
+	lineMarker?: (
+		line: ReviewDiffCommentableLine,
+	) => "anchor" | "range" | undefined;
 	onLineMouseDown?: (
 		line: ReviewDiffCommentableLine,
 		event: TuiMouseEvent,
 	) => void;
 	/** Columns available for line content; enables wrap-aware row heights. */
-	contentColumns?: number;
+	contentColumns?: number | Accessor<number | undefined>;
+	/** Columns overlaid by surrounding chrome, such as a vertical scrollbar. */
+	contentRightInset?: number;
 	/**
 	 * Gutter width override. When rendering multiple blocks for one file
 	 * (hunks + expanded unchanged sections), pass a file-wide width so
@@ -79,6 +93,30 @@ export type ReviewDiffBlockProps = {
 function wrappedRowsFor(text: string, contentColumns?: number): number {
 	if (!contentColumns || contentColumns <= 0) return 1;
 	return Math.max(1, estimateWrappedRows(text, contentColumns));
+}
+
+function LineMarker(props: {
+	backgroundColor: Accessor<string>;
+	height: Accessor<number>;
+	marker: Accessor<"anchor" | "range" | undefined>;
+}) {
+	const content = () => {
+		const marker = props.marker();
+		if (!marker) return " ";
+		const glyph = marker === "anchor" ? DIAMOND : DASHED_VERTICAL;
+		return Array.from({ length: props.height() }, () => glyph).join("\n");
+	};
+	return (
+		<text
+			fg={props.marker() === "range" ? theme.borderAccent : theme.borderFocused}
+			bg={props.backgroundColor()}
+			width={1}
+			height={props.height()}
+			flexShrink={0}
+		>
+			{content()}
+		</text>
+	);
 }
 
 function getLineNumberWidth(hunk: ReviewHunk): number {
@@ -158,6 +196,7 @@ function textColorForKind(kind: ReviewDiffCellKind): string {
 type ScrollableTextRenderable = {
 	scrollX: number;
 	scrollY: number;
+	width: number;
 };
 
 function resetLineTextScroll(ref: ScrollableTextRenderable | undefined) {
@@ -177,15 +216,20 @@ function renderContentText(
 	kind: ReviewDiffCellKind,
 	filetype: string | undefined,
 	backgroundColor?: Accessor<string>,
-	height: number = 1,
+	height?: number | Accessor<number | undefined>,
+	onRenderable?: (renderable: ScrollableTextRenderable) => void,
+	width?: Accessor<number | undefined>,
 ) {
 	let contentRef: ScrollableTextRenderable | undefined;
 	const bg = () => backgroundColor?.() ?? contentBackgroundForKind(kind);
+	const resolvedHeight = () =>
+		typeof height === "function" ? height() : height;
 	if (filetype && kind !== "metadata" && kind !== "empty") {
 		return (
 			<code
 				ref={(value) => {
 					contentRef = value as ScrollableTextRenderable | undefined;
+					if (contentRef) onRenderable?.(contentRef);
 				}}
 				content={text}
 				filetype={filetype}
@@ -194,8 +238,12 @@ function renderContentText(
 				conceal={false}
 				wrapMode="word"
 				onMouseScroll={() => resetLineTextScroll(contentRef)}
-				flexGrow={1}
-				height={height}
+				flexBasis={width?.() == null ? 0 : undefined}
+				flexGrow={width?.() == null ? 1 : 0}
+				flexShrink={1}
+				minWidth={1}
+				height={resolvedHeight()}
+				width={width?.()}
 			/>
 		);
 	}
@@ -203,13 +251,18 @@ function renderContentText(
 		<text
 			ref={(value) => {
 				contentRef = value as ScrollableTextRenderable | undefined;
+				if (contentRef) onRenderable?.(contentRef);
 			}}
 			fg={textColorForKind(kind)}
 			bg={bg()}
 			onMouseScroll={() => resetLineTextScroll(contentRef)}
 			wrapMode="word"
-			flexGrow={1}
-			height={height}
+			flexBasis={width?.() == null ? 0 : undefined}
+			flexGrow={width?.() == null ? 1 : 0}
+			flexShrink={1}
+			minWidth={1}
+			height={resolvedHeight()}
+			width={width?.()}
 		>
 			{text}
 		</text>
@@ -322,69 +375,106 @@ function renderSplitAnnotationRows(
 	);
 }
 
-type RenderUnifiedRowOptions = {
+type UnifiedRowProps = {
 	row: ReviewDiffUnifiedRow;
 	lineNumberWidth: number;
 	filetype: string | undefined;
+	contentColumns?: Accessor<number | undefined>;
+	contentRightInset?: number;
 	hunk?: ReviewHunk;
 	isActiveLine?: (key: string) => boolean;
+	lineMarker?: ReviewDiffBlockProps["lineMarker"];
 	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"];
-	rowHeight?: number;
 	showLineNumbers?: boolean;
 };
 
-function renderUnifiedRow(opts: RenderUnifiedRowOptions) {
-	const {
-		row,
-		lineNumberWidth,
-		filetype,
-		hunk,
-		isActiveLine,
-		onLineMouseDown,
-		rowHeight = 1,
-		showLineNumbers = true,
-	} = opts;
+function UnifiedRow(props: UnifiedRowProps) {
+	let rowRef: { width: number; height: number } | undefined;
+	let contentRef: ScrollableTextRenderable | undefined;
+	let measuredColumns: number | undefined;
+	const gutterColumns = () =>
+		props.showLineNumbers !== false ? 2 * props.lineNumberWidth + 3 : 2;
 	const activeKey = () =>
-		row.lineIndex == null ? null : `line:${row.lineIndex}`;
+		props.row.lineIndex == null ? null : `line:${props.row.lineIndex}`;
 	const active = () => {
 		const key = activeKey();
-		return key != null && (isActiveLine?.(key) ?? false);
+		return key != null && (props.isActiveLine?.(key) ?? false);
 	};
 	const bg = () =>
-		active() ? cursorBackgroundForKind(row.kind) : backgroundForKind(row.kind);
+		active()
+			? cursorBackgroundForKind(props.row.kind)
+			: backgroundForKind(props.row.kind);
+	const rowHeight = () =>
+		wrappedRowsFor(props.row.text, props.contentColumns?.());
 	const commentableLine = () =>
-		hunk && row.lineIndex != null
-			? getReviewDiffCommentableLine(hunk, row.lineIndex)
+		props.hunk && props.row.lineIndex != null
+			? getReviewDiffCommentableLine(props.hunk, props.row.lineIndex)
 			: null;
 	const lineId = () => {
 		const line = commentableLine();
-		return hunk && line
-			? getReviewDiffActiveLineId(hunk.id, line.index)
+		return props.hunk && line
+			? getReviewDiffActiveLineId(props.hunk.id, line.index)
 			: undefined;
+	};
+	const marker = () => {
+		const line = commentableLine();
+		return line ? props.lineMarker?.(line) : undefined;
 	};
 	const handleMouseDown = (event: TuiMouseEvent) => {
 		const line = commentableLine();
 		if (!line) return;
-		onLineMouseDown?.(line, event);
+		props.onLineMouseDown?.(line, event);
 	};
+	const updateLayout = () => {
+		const ref = rowRef;
+		if (!ref) return;
+		const availableColumns = Math.max(
+			1,
+			ref.width - gutterColumns() - (props.contentRightInset ?? 0),
+		);
+		const contentColumns = Math.min(
+			availableColumns,
+			props.contentColumns?.() ?? availableColumns,
+		);
+		if (contentRef && contentRef.width !== contentColumns) {
+			contentRef.width = contentColumns;
+		}
+		if (measuredColumns === contentColumns) return;
+		measuredColumns = contentColumns;
+		const height = wrappedRowsFor(props.row.text, contentColumns);
+		if (ref.height !== height) ref.height = height;
+	};
+	createEffect(() => {
+		props.contentColumns?.();
+		props.contentRightInset;
+		updateLayout();
+	});
 	return (
 		<box
+			ref={(value) => {
+				rowRef = value as typeof rowRef;
+			}}
 			id={lineId()}
 			flexDirection="row"
 			alignItems="flex-start"
 			backgroundColor={bg()}
-			height={rowHeight}
+			height={rowHeight()}
 			flexShrink={0}
+			width="100%"
+			onSizeChange={updateLayout}
 			onMouseDown={handleMouseDown}
 		>
-			<Show when={showLineNumbers}>
+			<Show when={props.showLineNumbers !== false}>
 				<text
 					fg={theme.textMuted}
 					bg={active() ? theme.diffCursorGutterBg : bg()}
 					flexShrink={0}
 					height={1}
 				>
-					{formatLineNumber(row.deletionLineNumber, lineNumberWidth)}
+					{formatLineNumber(
+						props.row.deletionLineNumber,
+						props.lineNumberWidth,
+					)}
 				</text>
 				<text
 					fg={theme.textMuted}
@@ -393,16 +483,44 @@ function renderUnifiedRow(opts: RenderUnifiedRowOptions) {
 					height={1}
 				>
 					{" "}
-					{formatLineNumber(row.additionLineNumber, lineNumberWidth)}
+					{formatLineNumber(
+						props.row.additionLineNumber,
+						props.lineNumberWidth,
+					)}
 				</text>
 			</Show>
-			<text fg={signColorForKind(row.kind)} bg={bg()} flexShrink={0} height={1}>
-				{row.sign}{" "}
+			<text
+				fg={signColorForKind(props.row.kind)}
+				bg={bg()}
+				flexShrink={0}
+				height={1}
+			>
+				{props.row.sign}
 			</text>
-			{renderContentText(row.text, row.kind, filetype, bg, rowHeight)}
+			<LineMarker backgroundColor={bg} height={rowHeight} marker={marker} />
+			{renderContentText(
+				props.row.text,
+				props.row.kind,
+				props.filetype,
+				bg,
+				undefined,
+				(renderable) => {
+					contentRef = renderable;
+					const contentColumns = props.contentColumns?.();
+					if (contentColumns != null) {
+						renderable.width = contentColumns;
+					}
+				},
+				props.contentColumns,
+			)}
 		</box>
 	);
 }
+
+type SplitCellLayout = {
+	box?: { height: number };
+	content?: ScrollableTextRenderable;
+};
 
 type RenderSplitCellOptions = {
 	cell: ReviewDiffCell;
@@ -410,8 +528,12 @@ type RenderSplitCellOptions = {
 	filetype: string | undefined;
 	hunk: ReviewHunk;
 	isActiveLine?: (key: string) => boolean;
+	lineMarker?: ReviewDiffBlockProps["lineMarker"];
 	onLineMouseDown?: ReviewDiffBlockProps["onLineMouseDown"];
-	cellHeight?: number;
+	cellHeight: Accessor<number>;
+	contentColumns: Accessor<number | undefined>;
+	layout?: SplitCellLayout;
+	onLayoutReady?: () => void;
 	showLineNumbers?: boolean;
 };
 
@@ -422,8 +544,12 @@ function renderSplitCell(opts: RenderSplitCellOptions) {
 		filetype,
 		hunk,
 		isActiveLine,
+		lineMarker,
 		onLineMouseDown,
-		cellHeight = 1,
+		cellHeight,
+		contentColumns,
+		layout,
+		onLayoutReady,
 		showLineNumbers = true,
 	} = opts;
 	const commentableLine = () =>
@@ -441,6 +567,10 @@ function renderSplitCell(opts: RenderSplitCellOptions) {
 		const line = commentableLine();
 		return line ? getReviewDiffActiveLineId(hunk.id, line.index) : undefined;
 	};
+	const marker = () => {
+		const line = commentableLine();
+		return line ? lineMarker?.(line) : undefined;
+	};
 	const bg = () =>
 		active()
 			? cursorBackgroundForKind(cell.kind)
@@ -452,12 +582,16 @@ function renderSplitCell(opts: RenderSplitCellOptions) {
 	};
 	return (
 		<box
+			ref={(value) => {
+				if (layout) layout.box = value as SplitCellLayout["box"];
+				onLayoutReady?.();
+			}}
 			id={lineId()}
 			width="50%"
 			flexDirection="row"
 			alignItems="flex-start"
 			backgroundColor={bg()}
-			height={cellHeight}
+			height={cellHeight()}
 			flexShrink={0}
 			onMouseDown={handleMouseDown}
 		>
@@ -477,9 +611,23 @@ function renderSplitCell(opts: RenderSplitCellOptions) {
 				flexShrink={0}
 				height={1}
 			>
-				{cell.sign}{" "}
+				{cell.sign}
 			</text>
-			{renderContentText(cell.text, cell.kind, filetype, bg, cellHeight)}
+			<LineMarker backgroundColor={bg} height={cellHeight} marker={marker} />
+			{renderContentText(
+				cell.text,
+				cell.kind,
+				filetype,
+				bg,
+				cellHeight,
+				(renderable) => {
+					if (layout) layout.content = renderable;
+					const width = contentColumns();
+					if (width != null) renderable.width = width;
+					onLayoutReady?.();
+				},
+				contentColumns,
+			)}
 		</box>
 	);
 }
@@ -522,6 +670,10 @@ function rawPatchRows(rawPatch: string): ReviewDiffUnifiedRow[] {
 
 export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 	const annotations = () => props.annotations ?? [];
+	const contentColumns = () =>
+		typeof props.contentColumns === "function"
+			? props.contentColumns()
+			: props.contentColumns;
 	const activeUnifiedLineKey = createMemo(() =>
 		props.activeLine ? `line:${props.activeLine.index}` : null,
 	);
@@ -536,16 +688,18 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 		<Show
 			when={props.hunk}
 			fallback={
-				<box flexDirection="column" gap={0}>
+				<box flexDirection="column" gap={0} width="100%">
 					<For each={rawPatchRows(props.rawPatch ?? "")}>
-						{(row) =>
-							renderUnifiedRow({
-								row,
-								lineNumberWidth: 1,
-								filetype: props.filetype,
-								showLineNumbers: props.showLineNumbers !== false,
-							})
-						}
+						{(row) => (
+							<UnifiedRow
+								row={row}
+								lineNumberWidth={1}
+								filetype={props.filetype}
+								showLineNumbers={props.showLineNumbers !== false}
+								contentColumns={contentColumns}
+								contentRightInset={props.contentRightInset}
+							/>
+						)}
 					</For>
 				</box>
 			}
@@ -558,7 +712,7 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 					<Show
 						when={props.view === "split"}
 						fallback={
-							<box flexDirection="column" gap={0}>
+							<box flexDirection="column" gap={0} width="100%">
 								<For each={buildReviewDiffUnifiedRows(currentHunk())}>
 									{(row) => (
 										<box
@@ -567,19 +721,18 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 											width="100%"
 											flexShrink={0}
 										>
-											{renderUnifiedRow({
-												row,
-												lineNumberWidth: lineNumberWidth(),
-												filetype: props.filetype,
-												hunk: currentHunk(),
-												isActiveLine: isActiveUnifiedLine,
-												onLineMouseDown: props.onLineMouseDown,
-												rowHeight: wrappedRowsFor(
-													row.text,
-													props.contentColumns,
-												),
-												showLineNumbers: props.showLineNumbers !== false,
-											})}
+											<UnifiedRow
+												row={row}
+												lineNumberWidth={lineNumberWidth()}
+												filetype={props.filetype}
+												contentColumns={contentColumns}
+												contentRightInset={props.contentRightInset}
+												hunk={currentHunk()}
+												isActiveLine={isActiveUnifiedLine}
+												lineMarker={props.lineMarker}
+												onLineMouseDown={props.onLineMouseDown}
+												showLineNumbers={props.showLineNumbers !== false}
+											/>
 											<For
 												each={getReviewDiffUnifiedAnnotationsAfterRow(
 													row,
@@ -600,13 +753,54 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 							</box>
 						}
 					>
-						<box flexDirection="column" gap={0}>
+						<box flexDirection="column" gap={0} width="100%">
 							<For each={buildReviewDiffSplitRows(currentHunk())}>
 								{(row) => {
-									const rowHeight = Math.max(
-										wrappedRowsFor(row.deletion.text, props.contentColumns),
-										wrappedRowsFor(row.addition.text, props.contentColumns),
-									);
+									const [measuredContentColumns, setMeasuredContentColumns] =
+										createSignal(contentColumns());
+									let splitRowRef: { width: number } | undefined;
+									const cellLayouts: [SplitCellLayout, SplitCellLayout] = [
+										{},
+										{},
+									];
+									const updateSplitLayout = () => {
+										if (!splitRowRef) return;
+										const halfWidth = Math.floor(
+											Math.max(
+												1,
+												splitRowRef.width - (props.contentRightInset ?? 0),
+											) / 2,
+										);
+										const gutterColumns =
+											props.showLineNumbers === false
+												? 2
+												: lineNumberWidth() + 2;
+										const measured = Math.max(1, halfWidth - gutterColumns);
+										setMeasuredContentColumns(measured);
+										const height = Math.max(
+											wrappedRowsFor(row.deletion.text, measured),
+											wrappedRowsFor(row.addition.text, measured),
+										);
+										for (const layout of cellLayouts) {
+											if (layout.box && layout.box.height !== height) {
+												layout.box.height = height;
+											}
+											if (layout.content && layout.content.width !== measured) {
+												layout.content.width = measured;
+											}
+										}
+									};
+									const rowHeight = () =>
+										Math.max(
+											wrappedRowsFor(
+												row.deletion.text,
+												measuredContentColumns(),
+											),
+											wrappedRowsFor(
+												row.addition.text,
+												measuredContentColumns(),
+											),
+										);
 									return (
 										<box
 											flexDirection="column"
@@ -615,10 +809,15 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 											flexShrink={0}
 										>
 											<box
+												ref={(value) => {
+													splitRowRef = value as typeof splitRowRef;
+													updateSplitLayout();
+												}}
 												flexDirection="row"
 												alignItems="flex-start"
 												width="100%"
 												flexShrink={0}
+												onSizeChange={updateSplitLayout}
 											>
 												{renderSplitCell({
 													cell: row.deletion,
@@ -626,8 +825,12 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 													filetype: props.filetype,
 													hunk: currentHunk(),
 													isActiveLine: isActiveSplitLine,
+													lineMarker: props.lineMarker,
 													onLineMouseDown: props.onLineMouseDown,
 													cellHeight: rowHeight,
+													contentColumns: measuredContentColumns,
+													layout: cellLayouts[0],
+													onLayoutReady: updateSplitLayout,
 													showLineNumbers: props.showLineNumbers !== false,
 												})}
 												{renderSplitCell({
@@ -636,8 +839,12 @@ export function ReviewDiffBlock(props: ReviewDiffBlockProps) {
 													filetype: props.filetype,
 													hunk: currentHunk(),
 													isActiveLine: isActiveSplitLine,
+													lineMarker: props.lineMarker,
 													onLineMouseDown: props.onLineMouseDown,
 													cellHeight: rowHeight,
+													contentColumns: measuredContentColumns,
+													layout: cellLayouts[1],
+													onLayoutReady: updateSplitLayout,
 													showLineNumbers: props.showLineNumbers !== false,
 												})}
 											</box>

@@ -6,8 +6,16 @@ import path from "node:path";
 import {
 	buildSkippedSectionsForFile,
 	loadReviewFiles,
+	normalizeReviewLineText,
 	type ReviewHunk,
 } from "./model";
+
+test("normalizes parser line endings before layout", () => {
+	expect(normalizeReviewLineText("source\n")).toBe("source");
+	expect(normalizeReviewLineText("source\r\n")).toBe("source");
+	expect(normalizeReviewLineText("source")).toBe("source");
+	expect(normalizeReviewLineText("\n")).toBe("");
+});
 
 function makeHunk(overrides: Partial<ReviewHunk>): ReviewHunk {
 	return {

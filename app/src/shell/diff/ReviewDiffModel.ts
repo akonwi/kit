@@ -1,3 +1,4 @@
+import { TextBuffer, TextBufferView } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import type { ReviewDiffView } from "../../settings";
 import type { ReviewHunk, ReviewLine } from "./types";
@@ -269,39 +270,55 @@ function estimateTextLineCount(text: string): number {
 	);
 }
 
-/**
- * Approximate how many terminal rows a single text line will occupy when
- * rendered with word wrap at the given width. Mirrors OpenTUI's "word" wrap
- * mode closely enough for positioning math without re-implementing layout.
- */
-export function estimateWrappedRows(text: string, width: number): number {
-	if (width <= 0) return 1;
-	if (text.length === 0) return 1;
-	if (text.length <= width) return 1;
+/** Measure wrapped row count with the same OpenTUI text-buffer engine used by
+ * the rendered diff, keeping cursor and annotation offsets aligned with it. */
+const WRAP_MEASUREMENT_CACHE_LIMIT = 5_000;
+const WRAP_MEASUREMENT_CACHE_CHAR_LIMIT = 1_000_000;
+type WrapMeasurementCacheEntry = { keyChars: number; rows: number };
+const wrapMeasurementCache = new Map<string, WrapMeasurementCacheEntry>();
+let wrapMeasurementCacheChars = 0;
+let wrapMeasurementBuffer: TextBuffer | undefined;
+let wrapMeasurementView: TextBufferView | undefined;
 
-	let rows = 1;
-	let col = 0;
-	const segments = text.split(/(\s+)/);
-	for (const seg of segments) {
-		if (seg.length === 0) continue;
-		if (col + seg.length <= width) {
-			col += seg.length;
-			continue;
+function getWrapMeasurer(): {
+	buffer: TextBuffer;
+	view: TextBufferView;
+} {
+	if (!wrapMeasurementBuffer || !wrapMeasurementView) {
+		wrapMeasurementBuffer = TextBuffer.create("unicode");
+		wrapMeasurementBuffer.setTabWidth(2);
+		wrapMeasurementView = TextBufferView.create(wrapMeasurementBuffer);
+		wrapMeasurementView.setWrapMode("word");
+	}
+	return { buffer: wrapMeasurementBuffer, view: wrapMeasurementView };
+}
+
+export function estimateWrappedRows(text: string, width: number): number {
+	if (width <= 0 || text.length === 0) return 1;
+	const cacheKey = `${width}\0${text}`;
+	const cached = wrapMeasurementCache.get(cacheKey);
+	if (cached !== undefined) return cached.rows;
+
+	const { buffer, view } = getWrapMeasurer();
+	buffer.setText(text);
+	view.setWrapWidth(width);
+	view.setViewportSize(width, 1);
+	const rows = Math.max(1, view.measureForDimensions(width, 1)?.lineCount ?? 1);
+
+	const keyChars = cacheKey.length;
+	if (keyChars <= WRAP_MEASUREMENT_CACHE_CHAR_LIMIT) {
+		while (
+			wrapMeasurementCache.size >= WRAP_MEASUREMENT_CACHE_LIMIT ||
+			wrapMeasurementCacheChars + keyChars > WRAP_MEASUREMENT_CACHE_CHAR_LIMIT
+		) {
+			const oldestKey = wrapMeasurementCache.keys().next().value;
+			if (oldestKey === undefined) break;
+			const oldest = wrapMeasurementCache.get(oldestKey);
+			if (oldest) wrapMeasurementCacheChars -= oldest.keyChars;
+			wrapMeasurementCache.delete(oldestKey);
 		}
-		if (seg.length > width) {
-			// Word longer than width — break it char-wise.
-			if (col > 0) {
-				rows += 1;
-				col = 0;
-			}
-			const fullLines = Math.floor(seg.length / width);
-			const remainder = seg.length % width;
-			rows += remainder === 0 ? fullLines - 1 : fullLines;
-			col = remainder === 0 ? width : remainder;
-			continue;
-		}
-		rows += 1;
-		col = seg.length;
+		wrapMeasurementCache.set(cacheKey, { keyChars, rows });
+		wrapMeasurementCacheChars += keyChars;
 	}
 	return rows;
 }

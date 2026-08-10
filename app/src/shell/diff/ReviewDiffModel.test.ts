@@ -174,12 +174,23 @@ describe("estimateWrappedRows", () => {
 
 	test("counts whitespace segments consistently", () => {
 		expect(estimateWrappedRows("aa  bb  cc", 6)).toBe(2);
-		expect(estimateWrappedRows("aa      bb", 6)).toBe(3);
+		expect(estimateWrappedRows("aa      bb", 6)).toBe(2);
+		expect(estimateWrappedRows("a ".repeat(11), 11)).toBe(3);
 	});
 
 	test("breaks words longer than width", () => {
 		// 25-char word into 10-col width → 3 rows
 		expect(estimateWrappedRows("a".repeat(25), 10)).toBe(3);
+	});
+
+	test("measures tabs and wide glyphs in terminal cells", () => {
+		expect(estimateWrappedRows("\t123", 4)).toBe(2);
+		expect(estimateWrappedRows("a\t\tbb", 3)).toBe(3);
+		expect(estimateWrappedRows("a\t\tbb", 4)).toBe(2);
+		expect(estimateWrappedRows("\t\tbb", 3)).toBe(3);
+		expect(estimateWrappedRows("\t\t\t\tbb", 5)).toBe(3);
+		expect(estimateWrappedRows("界界界", 4)).toBe(2);
+		expect(estimateWrappedRows("界界界", 3)).toBe(3);
 	});
 
 	test("handles unknown width gracefully", () => {
