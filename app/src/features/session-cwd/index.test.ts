@@ -26,9 +26,10 @@ describe("SessionCwdPlugin", () => {
 		const execute = commandOptions?.executeTransportNeutral;
 		if (!execute) throw new Error("Expected transport-neutral cd command");
 
-		await execute({ args: "  /tmp/project  " });
+		const schedulePromptCommand = () => {};
+		await execute({ args: "  /tmp/project  ", schedulePromptCommand });
 		expect(changes).toEqual([["/tmp/project", "user"]]);
-		await expect(execute({ args: " " })).rejects.toThrow(
+		await expect(execute({ args: " ", schedulePromptCommand })).rejects.toThrow(
 			"Working directory path is required",
 		);
 	});

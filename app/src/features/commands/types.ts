@@ -26,6 +26,11 @@ export type TransportNeutralCommandContext = {
 	args: string;
 	persistSessions: boolean;
 	schedulePrompt(message: string): void;
+	schedulePromptCommand(
+		command: string,
+		args: string,
+		expandedPrompt: string,
+	): void;
 	signal?: AbortSignal;
 };
 

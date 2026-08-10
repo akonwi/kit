@@ -253,6 +253,7 @@ describe("PluginManager", () => {
 		const commands: Command[] = [];
 		let receivedArgs = "";
 		let receivedSignal: AbortSignal | undefined;
+		let scheduledPromptCommand: [string, string, string] | undefined;
 		const plugin: PluginRegistration = {
 			name: "internal:commands",
 			internalUi: true,
@@ -262,9 +263,14 @@ describe("PluginManager", () => {
 					"remote",
 					{
 						description: "Remote",
-						executeTransportNeutral: ({ args, signal }) => {
+						executeTransportNeutral: ({
+							args,
+							schedulePromptCommand,
+							signal,
+						}) => {
 							receivedArgs = args;
 							receivedSignal = signal;
+							schedulePromptCommand("remote", args, "expanded");
 						},
 					},
 					() => {},
@@ -298,10 +304,14 @@ describe("PluginManager", () => {
 			args: "value",
 			persistSessions: false,
 			schedulePrompt: () => {},
+			schedulePromptCommand: (command, args, expandedPrompt) => {
+				scheduledPromptCommand = [command, args, expandedPrompt];
+			},
 			signal: abortController.signal,
 		});
 		expect(receivedArgs).toBe("value");
 		expect(receivedSignal).toBe(abortController.signal);
+		expect(scheduledPromptCommand).toEqual(["remote", "value", "expanded"]);
 		manager.dispose();
 	});
 

@@ -364,8 +364,11 @@ export function createPluginAPI(
 			category: commandOptions.category,
 			...(transportHandler
 				? {
-						executeTransportNeutral: ({ args, signal }) =>
-							transportHandler({ args, signal }),
+						executeTransportNeutral: ({
+							args,
+							schedulePromptCommand,
+							signal,
+						}) => transportHandler({ args, schedulePromptCommand, signal }),
 					}
 				: {}),
 			execute: async (commandCtx) => {

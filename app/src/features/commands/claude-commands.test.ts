@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -47,6 +47,19 @@ describe("Claude Code command discovery", () => {
 		expect(commands).toHaveLength(1);
 		expect(commands[0]?.name).toBe("cc:draft-pr");
 		expect(commands[0]?.argName).toBe("scope");
+	});
+
+	test("skips command directories outside the workspace", async () => {
+		const root = await mkdtemp(path.join(tmpdir(), "kit-claude-safe-read-"));
+		const outside = await mkdtemp(path.join(tmpdir(), "kit-claude-outside-"));
+		tempDirs.push(root, outside);
+		const claudeDir = path.join(root, ".claude");
+		const commandsDir = path.join(claudeDir, "commands");
+		await mkdir(claudeDir, { recursive: true });
+		await writeFile(path.join(outside, "escaped.md"), "Outside content");
+		await symlink(outside, commandsDir);
+
+		expect(discoverClaudeCommandFiles(root)).toEqual([]);
 	});
 
 	test("substitutes Claude command arguments on execution", async () => {

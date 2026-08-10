@@ -1032,6 +1032,51 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("preserves prompt-command identity for scheduled remote commands", async () => {
+		let submitted: [string, string, string] | undefined;
+		const runtime = createRuntime({
+			submitPromptCommandMessage: async (
+				command: string,
+				args: string,
+				expandedPrompt: string,
+			) => {
+				submitted = [command, args, expandedPrompt];
+			},
+		});
+		const commands = createCommandRegistry([
+			{
+				name: "cc:review",
+				description: "Review a module",
+				execute: () => {},
+				executeTransportNeutral: ({ args, schedulePromptCommand }) => {
+					schedulePromptCommand("cc:review", args, "Review the auth module");
+				},
+			},
+		]);
+		const host = new RpcSessionHost(runtime, { commands });
+		const responses: Array<Record<string, unknown>> = [];
+
+		await host.handleCommand(
+			{
+				id: "review",
+				type: "execute_command",
+				commandId: "cc:review",
+				args: "auth",
+				registryGeneration: 0,
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		await Bun.sleep(0);
+
+		expect(responses).toEqual([
+			expect.objectContaining({ id: "review", success: true }),
+		]);
+		expect(submitted).toEqual(["cc:review", "auth", "Review the auth module"]);
+		host.dispose();
+	});
+
 	test("cancels a transport-neutral handoff without compromising the host", async () => {
 		let handoffAborted = false;
 		const runtime = createRuntime({

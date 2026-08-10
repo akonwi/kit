@@ -138,6 +138,11 @@ export type InternalPluginCommandContext = InternalPluginEventContext & {
 
 export type InternalTransportNeutralCommandContext = {
 	args: string;
+	schedulePromptCommand(
+		command: string,
+		args: string,
+		expandedPrompt: string,
+	): void;
 	signal?: AbortSignal;
 };
 

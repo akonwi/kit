@@ -79,6 +79,15 @@ export type RpcChromeSnapshot = {
 	footer: RpcChromeAreaSnapshot;
 };
 
+type ScheduledPrompt =
+	| { kind: "message"; message: string }
+	| {
+			kind: "promptCommand";
+			command: string;
+			args: string;
+			expandedPrompt: string;
+	  };
+
 export const RPC_PROTOCOL_VERSION = 2;
 
 export const RPC_COMMAND_TYPES = [
@@ -762,12 +771,18 @@ export class RpcSessionHost {
 	private async executeTransportNeutralCommand(
 		handler: (ctx: TransportNeutralCommandContext) => void | Promise<void>,
 		args: string,
-	): Promise<string | null> {
+	): Promise<ScheduledPrompt | null> {
 		const abortController = new AbortController();
-		let scheduledPrompt: string | null = null;
+		let scheduledPrompt: ScheduledPrompt | null = null;
 		const timeout = setTimeout(() => {
 			abortController.abort(new Error("Command execution timed out"));
 		}, this.commandTimeoutMs);
+		const schedule = (prompt: ScheduledPrompt) => {
+			if (scheduledPrompt !== null) {
+				throw new Error("Command scheduled more than one prompt");
+			}
+			scheduledPrompt = prompt;
+		};
 		const handlerExecution = Promise.resolve().then(() =>
 			handler({
 				runtime: this.runtime,
@@ -776,10 +791,21 @@ export class RpcSessionHost {
 				schedulePrompt: (message) => {
 					const prompt = message.trim();
 					if (!prompt) throw new Error("Scheduled prompt must not be empty");
-					if (scheduledPrompt !== null) {
-						throw new Error("Command scheduled more than one prompt");
+					schedule({ kind: "message", message: prompt });
+				},
+				schedulePromptCommand: (command, commandArgs, expandedPrompt) => {
+					const commandName = command.trim();
+					const prompt = expandedPrompt.trim();
+					if (!commandName) {
+						throw new Error("Scheduled prompt command must not be empty");
 					}
-					scheduledPrompt = prompt;
+					if (!prompt) throw new Error("Scheduled prompt must not be empty");
+					schedule({
+						kind: "promptCommand",
+						command: commandName,
+						args: commandArgs,
+						expandedPrompt: prompt,
+					});
 				},
 				signal: abortController.signal,
 			}),
@@ -1085,7 +1111,15 @@ export class RpcSessionHost {
 				}
 				let run: Promise<void>;
 				run = Promise.resolve()
-					.then(() => this.runtime.submitUserMessage(scheduledPrompt))
+					.then(() =>
+						scheduledPrompt.kind === "message"
+							? this.runtime.submitUserMessage(scheduledPrompt.message)
+							: this.runtime.submitPromptCommandMessage(
+									scheduledPrompt.command,
+									scheduledPrompt.args,
+									scheduledPrompt.expandedPrompt,
+								),
+					)
 					.catch((error) => {
 						this.publish({
 							type: "error",
