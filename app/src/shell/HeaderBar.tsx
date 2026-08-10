@@ -11,6 +11,7 @@ import {
 	ChromeContributionLine,
 } from "./ChromeContributionLine";
 import {
+	BUILT_IN_CHROME_CONTRIBUTION_IDS,
 	type ChromeContribution,
 	createChromeTextContent,
 	normalizeChromeTextContent,
@@ -35,8 +36,8 @@ function progressColor(pct: number): string {
 }
 
 export const HEADER_CONTRIBUTION_IDS = {
-	title: "kit.header.title",
-	model: "kit.header.model",
+	title: BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle,
+	model: BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel,
 } as const;
 
 export type HeaderBarProps = {

@@ -196,7 +196,7 @@ export type ChromeContributionSide = "left" | "right";
 
 export type ChromeContributionOptions = {
 	side?: ChromeContributionSide;
-	onClick?: () => void | Promise<void>;
+	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
 
 type ChromeContributionAPI = {

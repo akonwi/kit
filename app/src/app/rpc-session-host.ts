@@ -7,6 +7,12 @@ import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
 import {
+	BUILT_IN_CHROME_CONTRIBUTION_IDS,
+	type ChromeContribution,
+	type ChromeContributionsController,
+	type ChromeTextStyle,
+} from "../shell/chrome-contributions";
+import {
 	MAX_REMOTE_ATTACHMENT_BYTES,
 	MAX_REMOTE_ATTACHMENT_TOTAL_BYTES,
 	MAX_REMOTE_ATTACHMENTS,
@@ -42,10 +48,34 @@ export type RpcEventListener = (record: unknown) => void;
 export type RpcConnectionSnapshot = {
 	state: Record<string, unknown>;
 	messages: unknown[];
+	chrome?: RpcChromeSnapshot;
 	messageOffset: number;
 	totalMessageCount: number;
 	pendingInteractions: unknown[];
 	pendingInteractionGeneration: number;
+};
+
+export type RpcChromeSegment = {
+	text: string;
+	style?: Omit<ChromeTextStyle, "bg" | "fg">;
+};
+
+export type RpcChromeContribution = {
+	id: string;
+	content: RpcChromeSegment[];
+	plainText: string;
+	side: "left" | "right";
+	clickable: boolean;
+};
+
+export type RpcChromeAreaSnapshot = {
+	contributions: RpcChromeContribution[];
+	hiddenBuiltinIds: string[];
+};
+
+export type RpcChromeSnapshot = {
+	header: RpcChromeAreaSnapshot;
+	footer: RpcChromeAreaSnapshot;
 };
 
 export const RPC_PROTOCOL_VERSION = 2;
@@ -74,6 +104,8 @@ export type RpcSessionHostOptions = {
 	interactions?: RemoteInteractionBroker;
 	attachments?: RemoteAttachmentStore;
 	commands?: CommandRegistry;
+	header?: ChromeContributionsController;
+	footer?: ChromeContributionsController;
 	waitForWorkspaceReady?: () => Promise<void>;
 	allowLegacySessionPaths?: boolean;
 	commandTimeoutMs?: number;
@@ -165,6 +197,109 @@ function assistantText(message: unknown): string | null {
 		.map((block) => block.text)
 		.join("\n");
 	return text || null;
+}
+
+const MAX_REMOTE_CHROME_CONTRIBUTIONS = 64;
+const MAX_REMOTE_CHROME_SEGMENTS = 32;
+const MAX_REMOTE_CHROME_TEXT_LENGTH = 8_192;
+const MAX_REMOTE_CHROME_ID_LENGTH = 256;
+const MAX_REMOTE_CHROME_AREA_BYTES = 8 * 1024;
+
+function hasAsciiControlCharacter(value: string): boolean {
+	for (let index = 0; index < value.length; index += 1) {
+		const code = value.charCodeAt(index);
+		if (code < 32 || code === 127) return true;
+	}
+	return false;
+}
+
+function remoteChromeStyle(
+	style: ChromeTextStyle | undefined,
+): RpcChromeSegment["style"] {
+	if (!style) return undefined;
+	const projected: RpcChromeSegment["style"] = {};
+	if (style.fgToken) projected.fgToken = style.fgToken;
+	if (style.bgToken) projected.bgToken = style.bgToken;
+	if (style.bold) projected.bold = true;
+	if (style.dim) projected.dim = true;
+	if (style.italic) projected.italic = true;
+	if (style.underline) projected.underline = true;
+	if (style.strikethrough) projected.strikethrough = true;
+	return Object.keys(projected).length > 0 ? projected : undefined;
+}
+
+function remoteChromeContribution(
+	contribution: ChromeContribution,
+	remainingTextLength: number,
+): { contribution: RpcChromeContribution; textLength: number } | null {
+	if (
+		!contribution.id ||
+		contribution.id.length > MAX_REMOTE_CHROME_ID_LENGTH ||
+		hasAsciiControlCharacter(contribution.id)
+	) {
+		return null;
+	}
+	let textLength = 0;
+	const content: RpcChromeSegment[] = [];
+	for (const segment of contribution.content.slice(
+		0,
+		MAX_REMOTE_CHROME_SEGMENTS,
+	)) {
+		const remaining = remainingTextLength - textLength;
+		if (remaining <= 0) break;
+		const text = segment.text.slice(0, remaining);
+		if (!text) continue;
+		textLength += text.length;
+		const style = remoteChromeStyle(segment.style);
+		content.push({ text, ...(style ? { style } : {}) });
+	}
+	const plainText = content.map((segment) => segment.text).join("");
+	if (!plainText.trim()) return null;
+	return {
+		contribution: {
+			id: contribution.id,
+			content,
+			plainText,
+			side: contribution.side,
+			clickable: contribution.onClick !== undefined,
+		},
+		textLength,
+	};
+}
+
+function remoteChromeArea(
+	controller: ChromeContributionsController | undefined,
+	builtinIds: readonly string[],
+): RpcChromeAreaSnapshot {
+	if (!controller) return { contributions: [], hiddenBuiltinIds: [] };
+	const contributions: RpcChromeContribution[] = [];
+	const hiddenBuiltinIds = builtinIds.filter((id) => controller.isHidden(id));
+	let remainingTextLength = MAX_REMOTE_CHROME_TEXT_LENGTH;
+	for (const contribution of controller
+		.getContributions()
+		.slice(0, MAX_REMOTE_CHROME_CONTRIBUTIONS)) {
+		const projected = remoteChromeContribution(
+			contribution,
+			remainingTextLength,
+		);
+		if (!projected) continue;
+		const nextContributions = [...contributions, projected.contribution];
+		if (
+			Buffer.byteLength(
+				JSON.stringify({
+					contributions: nextContributions,
+					hiddenBuiltinIds,
+				}),
+				"utf8",
+			) > MAX_REMOTE_CHROME_AREA_BYTES
+		) {
+			break;
+		}
+		contributions.push(projected.contribution);
+		remainingTextLength -= projected.textLength;
+		if (remainingTextLength <= 0) break;
+	}
+	return { contributions, hiddenBuiltinIds };
 }
 
 export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
@@ -347,10 +482,14 @@ export class RpcSessionHost {
 	private readonly unsubscribeRuntime: () => void;
 	private readonly unsubscribeInteractions: (() => void) | null;
 	private readonly unsubscribeCommands: (() => void) | null;
+	private readonly unsubscribeHeader: (() => void) | null;
+	private readonly unsubscribeFooter: (() => void) | null;
 	private readonly persistSessions: boolean;
 	private readonly interactions?: RemoteInteractionBroker;
 	private readonly attachments?: RemoteAttachmentStore;
 	private readonly commands?: CommandRegistry;
+	private readonly header?: ChromeContributionsController;
+	private readonly footer?: ChromeContributionsController;
 	private readonly waitForWorkspaceReady: () => Promise<void>;
 	private readonly allowLegacySessionPaths: boolean;
 	private readonly commandTimeoutMs: number;
@@ -372,6 +511,8 @@ export class RpcSessionHost {
 		this.interactions = options.interactions;
 		this.attachments = options.attachments;
 		this.commands = options.commands;
+		this.header = options.header;
+		this.footer = options.footer;
 		this.waitForWorkspaceReady =
 			options.waitForWorkspaceReady ?? (async () => {});
 		this.allowLegacySessionPaths = options.allowLegacySessionPaths ?? true;
@@ -398,6 +539,15 @@ export class RpcSessionHost {
 			this.commands?.subscribe(() => {
 				this.commandRegistryGeneration += 1;
 			}) ?? null;
+		const publishChromeChanged = () =>
+			this.publish({
+				type: "shell.chrome.changed",
+				chrome: this.chromeSnapshot(),
+			});
+		this.unsubscribeHeader =
+			this.header?.subscribe(publishChromeChanged) ?? null;
+		this.unsubscribeFooter =
+			this.footer?.subscribe(publishChromeChanged) ?? null;
 	}
 
 	subscribe(listener: RpcEventListener): () => void {
@@ -481,6 +631,7 @@ export class RpcSessionHost {
 		return {
 			state: this.stateSnapshot(),
 			messages: allMessages.slice(messageOffset),
+			chrome: this.chromeSnapshot(),
 			messageOffset,
 			totalMessageCount: allMessages.length,
 			pendingInteractions: pending.requests,
@@ -508,6 +659,8 @@ export class RpcSessionHost {
 		this.unsubscribeRuntime();
 		this.unsubscribeInteractions?.();
 		this.unsubscribeCommands?.();
+		this.unsubscribeHeader?.();
+		this.unsubscribeFooter?.();
 		this.interactions?.dispose();
 		this.attachments?.dispose();
 		this.listeners.clear();
@@ -533,6 +686,19 @@ export class RpcSessionHost {
 				`RPC event listener failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
 		}
+	}
+
+	private chromeSnapshot(): RpcChromeSnapshot {
+		return {
+			header: remoteChromeArea(this.header, [
+				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle,
+				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel,
+				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerUpdate,
+			]),
+			footer: remoteChromeArea(this.footer, [
+				BUILT_IN_CHROME_CONTRIBUTION_IDS.footerLocation,
+			]),
+		};
 	}
 
 	private stateSnapshot(): Record<string, unknown> {
@@ -812,6 +978,28 @@ export class RpcSessionHost {
 				await respond(this.response(command, true, this.stateSnapshot()));
 				return;
 			}
+			case "activate_chrome_contribution": {
+				const area = requireString(command, "area");
+				if (area !== "header" && area !== "footer") {
+					throw new Error("area must be header or footer");
+				}
+				const contributionId = requireString(command, "contributionId");
+				const controller = area === "header" ? this.header : this.footer;
+				if (!controller)
+					throw new Error(`${area} contributions are unavailable`);
+				let activated = false;
+				await this.executeTransportNeutralCommand(async ({ signal }) => {
+					activated = await controller.activateContribution(
+						contributionId,
+						signal,
+					);
+				}, "");
+				if (!activated) {
+					throw new Error("Chrome contribution is no longer actionable");
+				}
+				await respond(this.response(command, true));
+				return;
+			}
 			case "list_commands": {
 				if (!this.commands) throw new Error("Command registry is unavailable");
 				const commands = this.commands
@@ -924,8 +1112,13 @@ export class RpcSessionHost {
 									]
 								: []),
 							...(this.commands ? ["list_commands", "execute_command"] : []),
+							...(this.header || this.footer
+								? ["activate_chrome_contribution"]
+								: []),
 						],
 						interactiveUI: this.interactions !== undefined,
+						chromeContributions:
+							this.header !== undefined || this.footer !== undefined,
 						interactionKinds:
 							this.interactions === undefined ? [] : REMOTE_INTERACTION_KINDS,
 						attachmentReferences: this.attachments !== undefined,

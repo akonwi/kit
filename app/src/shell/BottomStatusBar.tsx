@@ -6,6 +6,7 @@ import {
 } from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
 import {
+	BUILT_IN_CHROME_CONTRIBUTION_IDS,
 	type ChromeContribution,
 	createChromeTextContent,
 	normalizeChromeTextContent,
@@ -22,7 +23,8 @@ import { theme } from "./theme";
 
 const PRIMARY_MOUSE_BUTTON = 0;
 
-export const VCS_LOCATION_CONTRIBUTION_ID = "kit.footer.location";
+export const VCS_LOCATION_CONTRIBUTION_ID =
+	BUILT_IN_CHROME_CONTRIBUTION_IDS.footerLocation;
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;

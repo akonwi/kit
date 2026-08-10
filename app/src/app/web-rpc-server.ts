@@ -687,6 +687,9 @@ export class WebRpcServer {
 		const record: Record<string, unknown> = {
 			state: this.projectRecord(snapshot.state),
 			messages: [],
+			...(snapshot.chrome
+				? { chrome: this.projectRecord(snapshot.chrome) }
+				: {}),
 			messageOffset: snapshot.messageOffset + snapshot.messages.length,
 			totalMessageCount: snapshot.totalMessageCount,
 			pendingInteractions,

@@ -1,5 +1,12 @@
 import type { ThemeColorTokens } from "./themes/types";
 
+export const BUILT_IN_CHROME_CONTRIBUTION_IDS = {
+	headerTitle: "kit.header.title",
+	headerModel: "kit.header.model",
+	headerUpdate: "kit.header.update",
+	footerLocation: "kit.footer.location",
+} as const;
+
 export type ChromeContributionSide = "left" | "right";
 
 export type ChromeThemeToken = keyof ThemeColorTokens;
@@ -31,14 +38,14 @@ export type ChromeContribution = {
 	content: ChromeTextSegment[];
 	plainText: string;
 	side: ChromeContributionSide;
-	onClick?: () => void | Promise<void>;
+	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
 
 export type ChromeContributionInput = {
 	id: string;
 	content: ChromeTextContent;
 	side?: ChromeContributionSide;
-	onClick?: () => void | Promise<void>;
+	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
 
 function sanitizeText(text: string): string {
@@ -217,6 +224,16 @@ export function createChromeContributionsController() {
 			: visible;
 	}
 
+	async function activateContribution(
+		id: string,
+		signal?: AbortSignal,
+	): Promise<boolean> {
+		const contribution = getContributions().find((item) => item.id === id);
+		if (!contribution?.onClick) return false;
+		await contribution.onClick(signal);
+		return true;
+	}
+
 	function subscribe(listener: () => void): () => void {
 		listeners.add(listener);
 		return () => listeners.delete(listener);
@@ -229,6 +246,7 @@ export function createChromeContributionsController() {
 		hideContribution,
 		isHidden,
 		getContributions,
+		activateContribution,
 		subscribe,
 	};
 }

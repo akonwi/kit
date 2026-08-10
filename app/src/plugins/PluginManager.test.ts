@@ -52,6 +52,7 @@ function createPluginContext(
 			hideContribution: () => () => {},
 			isHidden: () => false,
 			getContributions: () => [],
+			activateContribution: async () => false,
 			subscribe: () => () => {},
 		},
 		header: {
@@ -61,6 +62,7 @@ function createPluginContext(
 			hideContribution: () => () => {},
 			isHidden: () => false,
 			getContributions: () => [],
+			activateContribution: async () => false,
 			subscribe: () => () => {},
 		},
 		triggerNotification: () => false,
@@ -374,6 +376,7 @@ describe("PluginManager", () => {
 	test("supports styled clickable chrome contributions", async () => {
 		const footer = createChromeContributionsController();
 		let clicked = false;
+		let clickSignal: AbortSignal | undefined;
 		const plugin: PluginRegistration = {
 			name: "external:chrome",
 			initialize: (kit) => {
@@ -382,8 +385,9 @@ describe("PluginManager", () => {
 					[kit.ui.text("✓", { fg: "green", bold: true }), " passing"],
 					{
 						side: "right",
-						onClick: () => {
+						onClick: (signal) => {
 							clicked = true;
+							clickSignal = signal;
 						},
 					},
 				);
@@ -403,8 +407,10 @@ describe("PluginManager", () => {
 			{ text: " passing" },
 		]);
 
-		await contribution.onClick?.();
+		const abortController = new AbortController();
+		await contribution.onClick?.(abortController.signal);
 		expect(clicked).toBe(true);
+		expect(clickSignal).toBe(abortController.signal);
 	});
 
 	test("supports stable public chrome prefixes", () => {

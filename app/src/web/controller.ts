@@ -286,6 +286,17 @@ export class WebClientController {
 		return this.services.listCommands();
 	}
 
+	async activateChromeContribution(
+		area: "header" | "footer",
+		contributionId: string,
+	): Promise<void> {
+		try {
+			await this.services.activateChromeContribution(area, contributionId);
+		} catch (error) {
+			this.view.reportError(error, "Plugin action failed");
+		}
+	}
+
 	async executeCommand(
 		commandId: string,
 		args: string,

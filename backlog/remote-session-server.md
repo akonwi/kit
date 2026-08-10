@@ -133,8 +133,10 @@ Server mode must initialize the external plugin manager without changing the
 reduced plugin surface used by print and stdio RPC modes.
 
 Implemented for web mode: user and project external plugins initialize and
-retarget with the hosted runtime. Remote-safe URL opening, chrome contributions,
-and user-visible plugin failure reporting remain client-protocol work.
+retarget with the hosted runtime; user-visible failures become browser toasts;
+and styled, clickable header/footer contributions are synchronized across
+snapshots, reconnects, and live updates. Remote-safe URL opening remains
+client-protocol work.
 
 ### Commands and sessions
 
@@ -274,13 +276,16 @@ for every remote client rather than hidden in renderer-specific code:
   slots can mirror the TUI queue rows.
 - [ ] Define explicit shared-session control UX for session/model changes made by
   another connected client; session changes currently force a fresh snapshot.
+- [x] Project plugin header/footer contributions with semantic token styling,
+  built-in hide claims, stable identities, live updates, and remote click
+  activation.
 
 ## Suggested delivery order
 
 - [x] Extract transport-independent RPC dispatch from the stdio server.
 - [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
 - [x] Add a minimal Mica-based web transcript/composer client.
-- [ ] Fill remaining plugin-client-surface and built-in command gaps.
+- [ ] Fill the remaining plugin URL-opening and built-in command gaps.
 - [x] Add event sequencing, reconnect, and interaction coordination.
 - [ ] Validate local access through a trusted private tunnel.
 - [ ] Add a cloud sandbox worker using the same command and protocol.

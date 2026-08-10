@@ -189,12 +189,12 @@ export function createPluginAPI(
 
 	function createChromeClickHandler(
 		id: string,
-		onClick: (() => void | Promise<void>) | undefined,
-	): (() => Promise<void>) | undefined {
+		onClick: ((signal?: AbortSignal) => void | Promise<void>) | undefined,
+	): ((signal?: AbortSignal) => Promise<void>) | undefined {
 		if (!onClick) return undefined;
-		return async () => {
+		return async (signal) => {
 			try {
-				await onClick();
+				await onClick(signal);
 			} catch (error) {
 				logger.log(`Chrome contribution ${id} click handler failed:`, error);
 			}

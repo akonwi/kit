@@ -2,6 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { BUILT_IN_COMMANDS, createCommandRegistry } from "../features/commands";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Turn } from "../session/types";
+import {
+	BUILT_IN_CHROME_CONTRIBUTION_IDS,
+	createChromeContributionsController,
+} from "../shell/chrome-contributions";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
 import { RpcSessionHost } from "./rpc-session-host";
@@ -264,6 +268,163 @@ describe("RpcSessionHost", () => {
 		]);
 		const response = responses[0] as { data: { commands: string[] } };
 		expect(response.data.commands).not.toContain("ui_response");
+		host.dispose();
+	});
+
+	test("snapshots, broadcasts, and activates remote chrome contributions", async () => {
+		const header = createChromeContributionsController();
+		const footer = createChromeContributionsController();
+		let clicks = 0;
+		header.setContribution({
+			id: "speech.status",
+			content: [
+				{ text: "speech ", style: { fg: "#fff", fgToken: "textMuted" } },
+				{ text: "on", style: { fgToken: "toolText", bold: true } },
+			],
+			side: "right",
+			onClick: () => {
+				clicks += 1;
+			},
+		});
+		header.hideContribution(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle);
+		const host = new RpcSessionHost(createRuntime(), { header, footer });
+		const events: unknown[] = [];
+		host.subscribe((record) => events.push(record));
+		const capabilities: Array<Record<string, unknown>> = [];
+		await host.handleCommand(
+			{ id: "capabilities", type: "get_capabilities" },
+			async (record) => {
+				capabilities.push(record as Record<string, unknown>);
+			},
+		);
+		expect(capabilities[0]).toMatchObject({
+			data: {
+				chromeContributions: true,
+				commands: expect.arrayContaining(["activate_chrome_contribution"]),
+			},
+		});
+
+		expect(host.getConnectionSnapshot().chrome).toEqual({
+			header: {
+				contributions: [
+					{
+						id: "speech.status",
+						content: [
+							{ text: "speech ", style: { fgToken: "textMuted" } },
+							{ text: "on", style: { fgToken: "toolText", bold: true } },
+						],
+						plainText: "speech on",
+						side: "right",
+						clickable: true,
+					},
+				],
+				hiddenBuiltinIds: [BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle],
+			},
+			footer: { contributions: [], hiddenBuiltinIds: [] },
+		});
+
+		footer.setContribution({
+			id: "test.footer",
+			content: "ready",
+			side: "left",
+		});
+		expect(events.at(-1)).toMatchObject({
+			type: "shell.chrome.changed",
+			chrome: {
+				footer: {
+					contributions: [
+						expect.objectContaining({ id: "test.footer", plainText: "ready" }),
+					],
+				},
+			},
+		});
+
+		const responses: Array<Record<string, unknown>> = [];
+		await host.handleCommand(
+			{
+				id: "click",
+				type: "activate_chrome_contribution",
+				area: "header",
+				contributionId: "speech.status",
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		expect(clicks).toBe(1);
+		expect(responses).toEqual([
+			expect.objectContaining({ id: "click", success: true }),
+		]);
+		host.dispose();
+	});
+
+	test("bounds serialized remote chrome state", () => {
+		const header = createChromeContributionsController();
+		for (let index = 0; index < 64; index += 1) {
+			header.setContribution({
+				id: `plugin.item-${index}`,
+				content: Array.from({ length: 32 }, () => ({
+					text: "x".repeat(512),
+					style: {
+						fgToken: "toolText" as const,
+						bgToken: "bgMuted" as const,
+						bold: true,
+						italic: true,
+						underline: true,
+					},
+				})),
+			});
+		}
+		const host = new RpcSessionHost(createRuntime(), { header });
+		const chrome = host.getConnectionSnapshot().chrome;
+		expect(
+			Buffer.byteLength(JSON.stringify(chrome?.header), "utf8"),
+		).toBeLessThanOrEqual(8 * 1024);
+		expect(chrome?.header.contributions.length).toBeLessThan(64);
+		host.dispose();
+	});
+
+	test("times out cancellable chrome actions without deadlocking commands", async () => {
+		const header = createChromeContributionsController();
+		header.setContribution({
+			id: "plugin.hung",
+			content: "hung",
+			onClick: (signal) =>
+				new Promise<void>((resolve) => {
+					signal?.addEventListener("abort", () => resolve(), { once: true });
+				}),
+		});
+		const host = new RpcSessionHost(createRuntime(), {
+			header,
+			commandTimeoutMs: 1,
+			commandCancellationGraceMs: 20,
+		});
+		const responses: Array<Record<string, unknown>> = [];
+		await host.handleCommand(
+			{
+				id: "click",
+				type: "activate_chrome_contribution",
+				area: "header",
+				contributionId: "plugin.hung",
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		await host.handleCommand(
+			{ id: "state", type: "get_state" },
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "click",
+				success: false,
+				error: "Command execution timed out",
+			}),
+			expect.objectContaining({ id: "state", success: true }),
+		]);
 		host.dispose();
 	});
 

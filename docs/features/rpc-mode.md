@@ -93,6 +93,7 @@ process.
 | `get_available_thinking_levels` | none | `{ "levels": [...] }` |
 | `set_thinking_level` | `level` | none |
 | `switch_session` | `sessionPath` (a Kit session ID or path) | `{ "cancelled": false }` |
+| `activate_chrome_contribution` (web mode) | `area: "header" \| "footer"`, `contributionId` | none |
 | `list_commands` | none | transport-neutral commands plus `registryGeneration` |
 | `execute_command` | `commandId`, optional `args`, optional `registryGeneration` | none |
 
@@ -155,6 +156,8 @@ RPC mode emits Kit semantic events using the same dotted names as the runtime:
 - `chat.message-queue.changed` and `chat.followups.promoted`
 - `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
 - `agent.run.failed` for an execution failure after a command was accepted
+- `shell.chrome.changed` when web-mode plugin header/footer contributions or
+  built-in visibility claims change
 
 Every transcript message has a stable `turnId` and `messageId`.
 `agent.message.updated.update` is a Kit-owned content update with a `kind`,

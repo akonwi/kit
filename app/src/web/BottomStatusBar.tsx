@@ -1,9 +1,11 @@
 /** @jsxImportSource solid-js */
 import { createMemo, type JSX, Show } from "solid-js";
+import { BUILT_IN_CHROME_CONTRIBUTION_IDS } from "../shell/chrome-contributions";
+import { RemoteChromeLine } from "./chrome-contributions";
 import { useWebClient } from "./WebClientContext";
 
 export function BottomStatusBar(): JSX.Element {
-	const { snapshot } = useWebClient();
+	const { snapshot, controller } = useWebClient();
 	const protocol = createMemo(() => snapshot().protocol);
 	const connectionStatus = createMemo(() => {
 		switch (protocol().phase) {
@@ -34,27 +36,57 @@ export function BottomStatusBar(): JSX.Element {
 		const value = protocol().serverState.cwd;
 		return typeof value === "string" ? value : "";
 	});
+	const hidden = createMemo(
+		() => new Set(protocol().chrome.footer.hiddenBuiltinIds),
+	);
+	const locationVisible = createMemo(
+		() =>
+			cwd().length > 0 &&
+			!hidden().has(BUILT_IN_CHROME_CONTRIBUTION_IDS.footerLocation),
+	);
+	const disabled = createMemo(() => protocol().phase !== "live");
+	const activate = (area: "header" | "footer", contributionId: string) => {
+		void controller.activateChromeContribution(area, contributionId);
+	};
 
 	return (
 		<footer class="bottom-status-bar" data-phase={protocol().phase}>
 			<span data-visually-hidden role="status" aria-live="polite">
 				{protocol().phase === "live" ? "Connected" : ""}
 			</span>
-			<span
-				class="bottom-guidance"
-				classList={{ "is-error": snapshot().status.isError }}
-				role="status"
-				aria-live="polite"
-			>
-				{guidance()}
-			</span>
-			<Show when={cwd()}>
-				{(value) => (
-					<span class="bottom-location" title={value()}>
-						{value()}
+			<div class="footer-chrome-side footer-chrome-left">
+				<span
+					class="bottom-guidance"
+					classList={{ "is-error": snapshot().status.isError }}
+					role="status"
+					aria-live="polite"
+				>
+					{guidance()}
+				</span>
+				<RemoteChromeLine
+					area="footer"
+					contributions={protocol().chrome.footer.contributions}
+					side="left"
+					leadingSeparator={guidance().length > 0}
+					disabled={disabled()}
+					onActivate={activate}
+				/>
+			</div>
+			<div class="footer-chrome-side footer-chrome-right">
+				<Show when={locationVisible()}>
+					<span class="bottom-location" title={cwd()}>
+						{cwd()}
 					</span>
-				)}
-			</Show>
+				</Show>
+				<RemoteChromeLine
+					area="footer"
+					contributions={protocol().chrome.footer.contributions}
+					side="right"
+					leadingSeparator={locationVisible()}
+					disabled={disabled()}
+					onActivate={activate}
+				/>
+			</div>
 		</footer>
 	);
 }

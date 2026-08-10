@@ -24,8 +24,9 @@ describe("createChromeContributionsController", () => {
 			{ text: " passing" },
 		]);
 
-		await contribution.onClick?.();
+		expect(await controller.activateContribution("plugin:ci")).toBe(true);
 		expect(clicked).toBe(true);
+		expect(await controller.activateContribution("missing")).toBe(false);
 	});
 
 	test("tracks hidden contribution ids", () => {

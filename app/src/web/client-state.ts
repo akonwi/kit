@@ -1,3 +1,9 @@
+import {
+	EMPTY_REMOTE_CHROME,
+	parseRemoteChromeSnapshot,
+	type RemoteChromeSnapshot,
+} from "./chrome-state";
+
 export type ConnectionPhase =
 	| "disconnected"
 	| "connecting"
@@ -20,6 +26,7 @@ export type ClientState = {
 	streamId: string | null;
 	sequence: number;
 	serverState: Record<string, unknown>;
+	chrome: RemoteChromeSnapshot;
 	messages: unknown[];
 	messageKeys: string[];
 	messageOffset: number;
@@ -51,6 +58,7 @@ export function createClientState(): ClientState {
 		streamId: null,
 		sequence: 0,
 		serverState: {},
+		chrome: EMPTY_REMOTE_CHROME,
 		messages: [],
 		messageKeys: [],
 		messageOffset: 0,
@@ -412,6 +420,12 @@ function applyEvent(
 			return { ...state, activeTurnId: null, pendingStatus: null };
 		case "chat.message-queue.changed":
 			return { ...state, queuedMessageCount: queuedCount(record) };
+		case "shell.chrome.changed": {
+			const chrome = parseRemoteChromeSnapshot(record.chrome);
+			if (!chrome)
+				throw new ProtocolSyncError("Invalid chrome contribution state");
+			return { ...state, chrome };
+		}
 		case "ui_snapshot": {
 			if (
 				typeof record.generation !== "number" ||
@@ -528,6 +542,13 @@ export function reduceClientRecord(
 				throw new ProtocolSyncError("Invalid pending interaction generation");
 			}
 			const messages = Array.isArray(record.messages) ? record.messages : [];
+			const chrome =
+				record.chrome === undefined
+					? EMPTY_REMOTE_CHROME
+					: parseRemoteChromeSnapshot(record.chrome);
+			if (!chrome) {
+				throw new ProtocolSyncError("Invalid chrome contribution snapshot");
+			}
 			const finalMessage = messages.at(-1);
 			const activeMessageIndex =
 				serverState.isStreaming === true &&
@@ -547,6 +568,7 @@ export function reduceClientRecord(
 				streamId: record.streamId,
 				sequence: record.sequence,
 				serverState,
+				chrome,
 				messages,
 				messageKeys: messages.map((message, index) =>
 					messageKey(

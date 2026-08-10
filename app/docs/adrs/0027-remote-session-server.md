@@ -88,6 +88,12 @@ connected clients; the first valid response resolves the interaction, and that
 resolution is broadcast so other clients dismiss it. Interactive requests must
 have defined behavior when no client is connected.
 
+Plugin header and footer contributions remain host-owned state. Web snapshots
+and live events project their stable ids, side, semantic token styling,
+clickability, and built-in hide claims; clients activate clickable items through
+a correlated host command rather than receiving plugin callbacks or literal
+terminal colors.
+
 The remote protocol will expose the session, command, workspace, model,
 thinking, attachment, steering, abort, and state-retrieval operations required
 for a client to provide the normal Kit workflow. Protocol capabilities and

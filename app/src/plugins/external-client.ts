@@ -687,12 +687,13 @@ export class ExternalPluginClient {
 			content: toChromeContent(params),
 			side: params.side ?? "right",
 			onClick: params.clickable
-				? async () => {
+				? async (signal) => {
 						try {
 							await this.requestPlugin(
 								`kit/${area}/click`,
 								{ id: params.id },
 								"NullResult",
+								signal,
 							);
 						} catch (error) {
 							this.context.ui.toast({

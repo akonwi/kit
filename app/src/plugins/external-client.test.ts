@@ -70,6 +70,7 @@ for line in sys.stdin:
         send({"jsonrpc": "2.0", "id": "p-command", "method": "kit/commands/register", "params": {"id": "toggle", "description": "Toggle speech"}})
         send({"jsonrpc": "2.0", "id": "p-tool", "method": "kit/tools/register", "params": {"id": "speak_text", "description": "Speak text", "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"], "additionalProperties": False}}})
         send({"jsonrpc": "2.0", "id": "p-header", "method": "kit/header/set", "params": {"id": "status", "content": [{"text": "speech", "style": {"fg": "toolText", "bold": True}}], "clickable": False}})
+        send({"jsonrpc": "2.0", "id": "p-footer", "method": "kit/footer/set", "params": {"id": "status", "content": [{"text": "ready", "style": {"fg": "metaText"}}], "side": "left", "clickable": True}})
         send({"jsonrpc": "2.0", "id": "p-prompt", "method": "kit/system-prompt/set", "params": {"text": "Always speak the final answer."}})
     elif method == "kit/commands/execute":
         record({"command": message["params"]})
@@ -77,6 +78,9 @@ for line in sys.stdin:
     elif method == "kit/tools/execute":
         record({"tool": message["params"]})
         send({"jsonrpc": "2.0", "id": message["id"], "result": {"content": [{"type": "text", "text": "spoken"}], "details": None, "terminate": False}})
+    elif method == "kit/footer/click":
+        record({"footerClick": message["params"]})
+        send({"jsonrpc": "2.0", "id": message["id"], "result": None})
     elif method == "shutdown":
         record({"shutdown": True})
         send({"jsonrpc": "2.0", "id": message["id"], "result": None})
@@ -170,6 +174,7 @@ for line in sys.stdin:
 				commands.getAll().length === 1 &&
 				tools.length === 1 &&
 				header.getContributions().length === 1 &&
+				footer.getContributions().length === 1 &&
 				systemPrompt.length > 0,
 		);
 		expect(commands.getAll()[0]).toMatchObject({
@@ -182,8 +187,15 @@ for line in sys.stdin:
 			id: "speech.status",
 			content: [{ text: "speech", style: { fgToken: "toolText", bold: true } }],
 		});
+		expect(footer.getContributions()[0]).toMatchObject({
+			id: "speech.status",
+			content: [{ text: "ready", style: { fgToken: "metaText" } }],
+			side: "left",
+		});
+		expect(typeof footer.getContributions()[0]?.onClick).toBe("function");
 		expect(systemPrompt).toBe("Always speak the final answer.");
 
+		await footer.getContributions()[0]?.onClick?.();
 		await commands.getAll()[0]?.execute({ args: "now" } as never);
 		const toolResult = await tools[0]?.execute(
 			"call-1",
@@ -202,6 +214,7 @@ for line in sys.stdin:
 		expect(commands.getAll()).toEqual([]);
 		expect(tools).toEqual([]);
 		expect(header.getContributions()).toEqual([]);
+		expect(footer.getContributions()).toEqual([]);
 		expect(systemPrompt).toBe("");
 		const records = (await readFile(statePath, "utf8"))
 			.trim()
@@ -217,6 +230,7 @@ for line in sys.stdin:
 				},
 			},
 		});
+		expect(records).toContainEqual({ footerClick: { id: "status" } });
 		expect(records).toContainEqual({ command: { id: "toggle", args: "now" } });
 		expect(records).toContainEqual({
 			tool: {

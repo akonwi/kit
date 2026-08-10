@@ -50,6 +50,7 @@ commands supported by the running Kit host. For example, stdio RPC omits
 | `change_cwd` | `cwd` | Change the hosted workspace while idle. |
 | `list_commands` | | List commands with transport-neutral handlers. |
 | `execute_command` | `commandId`, optional `args` | Execute a listed transport-neutral command. |
+| `activate_chrome_contribution` | `area`, `contributionId` | Web-only: activate a currently visible clickable plugin header/footer item. |
 | `ui_response` | `requestId`, `response` | Resolve a pending interaction when `interactiveUI` is enabled. |
 | `get_state` | | Return model, thinking, streaming, session, cwd, and message counts. |
 | `get_messages` | optional `offset`, `limit` | Return all active transcript messages, or a page of at most 200 with pagination metadata. |
@@ -92,6 +93,8 @@ Kit publishes semantic runtime event names:
 - `agent.run.failed`
 - `state_changed`
 - `ui_snapshot`, `ui_request`, and `ui_resolved`
+- `shell.chrome.changed` when web-mode plugin chrome or built-in visibility
+  claims change
 - `error` for transport-level failures after asynchronous command acceptance
 
 Pi event names and provider streaming payloads do not cross the core `Agent`
@@ -126,8 +129,8 @@ capabilities report sequencing as unsupported.
 Every WebSocket connection begins with `sync` and ends synchronization with
 `sync_complete` before live delivery starts. With no resume cursor, or when a
 cursor is invalid, stale, or from another host instance, `sync` uses
-`mode: "snapshot"` and includes current state, pending interactions, and a
-bounded transcript tail. Snapshots retain at most the latest 200 messages and
+`mode: "snapshot"` and includes current state, pending interactions, plugin
+header/footer chrome, and a bounded transcript tail. Snapshots retain at most the latest 200 messages and
 64 KiB; `messageOffset`, `totalMessageCount`, and `messagesTruncated` identify
 missing history, which clients retrieve through paginated `get_messages`
 commands. Web message pages are also capped at 64 KiB. An individually oversized

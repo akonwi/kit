@@ -314,6 +314,17 @@ export class WebRemoteServices {
 		return { commands, registryGeneration };
 	}
 
+	activateChromeContribution(
+		area: "header" | "footer",
+		contributionId: string,
+	): Promise<Record<string, unknown>> {
+		return this.rpc.command({
+			type: "activate_chrome_contribution",
+			area,
+			contributionId,
+		});
+	}
+
 	executeCommand(
 		commandId: string,
 		args: string,

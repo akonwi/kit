@@ -77,9 +77,35 @@ body {
 	border-block-end: 1px solid var(--kit-border-default);
 }
 
+.header-chrome-side,
+.footer-chrome-side {
+	min-inline-size: 0;
+	display: flex;
+	align-items: center;
+	gap: var(--space-xs);
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+.header-chrome-left,
+.footer-chrome-left {
+	flex: 1 1 auto;
+}
+
+.header-chrome-right,
+.footer-chrome-right {
+	flex: 0 1 auto;
+	justify-content: flex-end;
+}
+
+.header-chrome-right {
+	max-inline-size: 70%;
+}
+
 .header-title {
 	min-inline-size: 0;
 	margin: 0;
+	flex: 0 1 auto;
 	font: inherit;
 	overflow: hidden;
 	color: var(--kit-text-primary);
@@ -117,6 +143,32 @@ body {
 
 .chrome-separator {
 	flex: 0 0 auto;
+}
+
+.remote-chrome-contribution {
+	min-inline-size: 0;
+	flex: 0 1 auto;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+button.remote-chrome-contribution {
+	min-block-size: 1.5rem;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	box-shadow: none;
+	color: inherit;
+	font: inherit;
+}
+
+button.remote-chrome-contribution:is(:hover, :focus-visible):not(:disabled) {
+	color: var(--kit-text-primary);
+	text-decoration: underline;
+	text-underline-offset: 0.15em;
 }
 
 .workspace-pane-host {
@@ -821,7 +873,7 @@ details[open] > summary > .disclosure-marker {
 }
 
 .bottom-guidance {
-	flex: 1 1 auto;
+	flex: 0 1 auto;
 }
 
 .bottom-guidance.is-error,

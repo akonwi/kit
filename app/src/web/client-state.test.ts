@@ -66,6 +66,87 @@ describe("web client state", () => {
 		expect(state.phase).toBe("live");
 	});
 
+	test("validates chrome snapshots and live contribution changes", () => {
+		let state = reduceClientRecord(createClientState(), {
+			type: "sync",
+			mode: "snapshot",
+			streamId: "stream-1",
+			sequence: 0,
+			state: { sessionId: "session-1", isStreaming: false },
+			messages: [],
+			pendingInteractions: [],
+			pendingInteractionGeneration: 0,
+			chrome: {
+				header: {
+					contributions: [
+						{
+							id: "speech.status",
+							content: [
+								{ text: "speech ", style: { fgToken: "textMuted" } },
+								{ text: "on", style: { fgToken: "toolText", bold: true } },
+							],
+							plainText: "speech on",
+							side: "right",
+							clickable: true,
+						},
+					],
+					hiddenBuiltinIds: ["kit.header.title"],
+				},
+				footer: { contributions: [], hiddenBuiltinIds: [] },
+			},
+		});
+		expect(state.chrome.header).toMatchObject({
+			contributions: [
+				expect.objectContaining({ id: "speech.status", clickable: true }),
+			],
+			hiddenBuiltinIds: ["kit.header.title"],
+		});
+
+		state = reduceClientRecord(state, {
+			type: "shell.chrome.changed",
+			streamId: "stream-1",
+			sequence: 1,
+			chrome: {
+				header: { contributions: [], hiddenBuiltinIds: [] },
+				footer: {
+					contributions: [
+						{
+							id: "plugin.footer",
+							content: [{ text: "ready" }],
+							plainText: "ready",
+							side: "left",
+							clickable: false,
+						},
+					],
+					hiddenBuiltinIds: [],
+				},
+			},
+		});
+		expect(state.chrome.footer.contributions[0]?.plainText).toBe("ready");
+		expect(() =>
+			reduceClientRecord(state, {
+				type: "shell.chrome.changed",
+				streamId: "stream-1",
+				sequence: 2,
+				chrome: {
+					header: {
+						contributions: [
+							{
+								id: "bad",
+								content: [{ text: "bad", style: { fgToken: "unknown" } }],
+								plainText: "bad",
+								side: "left",
+								clickable: false,
+							},
+						],
+						hiddenBuiltinIds: [],
+					},
+					footer: { contributions: [], hiddenBuiltinIds: [] },
+				},
+			}),
+		).toThrow("Invalid chrome contribution state");
+	});
+
 	test("applies ordered replay, ignores duplicates, and rejects gaps", () => {
 		let state: ClientState = {
 			...createClientState(),

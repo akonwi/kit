@@ -67,6 +67,8 @@ export async function runWebMode(
 			interactions,
 			attachments,
 			commands: headlessHost.commands,
+			header: headlessHost.header,
+			footer: headlessHost.footer,
 			waitForWorkspaceReady: headlessHost.waitForWorkspaceReady,
 			allowLegacySessionPaths: false,
 		});

@@ -97,6 +97,25 @@ describe("web remote command services", () => {
 		);
 	});
 
+	test("activates chrome contributions by area and stable id", async () => {
+		const seen: Record<string, unknown>[] = [];
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				seen.push(command);
+				return {};
+			},
+		});
+
+		await services.activateChromeContribution("header", "speech.status");
+		expect(seen).toEqual([
+			{
+				type: "activate_chrome_contribution",
+				area: "header",
+				contributionId: "speech.status",
+			},
+		]);
+	});
+
 	test("omits empty command arguments", async () => {
 		const seen: Record<string, unknown>[] = [];
 		const services = new WebRemoteServices({
