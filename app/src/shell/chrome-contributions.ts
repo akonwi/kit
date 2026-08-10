@@ -9,6 +9,11 @@ export const BUILT_IN_CHROME_CONTRIBUTION_IDS = {
 
 export type ChromeContributionSide = "left" | "right";
 
+export type ChromeContributionAction = {
+	type: "open-url";
+	url: string;
+};
+
 export type ChromeThemeToken = keyof ThemeColorTokens;
 
 export type ChromeTextStyle = {
@@ -38,6 +43,7 @@ export type ChromeContribution = {
 	content: ChromeTextSegment[];
 	plainText: string;
 	side: ChromeContributionSide;
+	action?: ChromeContributionAction;
 	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
 
@@ -45,8 +51,28 @@ export type ChromeContributionInput = {
 	id: string;
 	content: ChromeTextContent;
 	side?: ChromeContributionSide;
+	action?: ChromeContributionAction;
 	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
+
+function normalizeChromeAction(
+	action: ChromeContributionAction | undefined,
+): ChromeContributionAction | undefined {
+	if (!action) return undefined;
+	if (action.type !== "open-url") {
+		throw new Error("Unsupported chrome contribution action");
+	}
+	let url: URL;
+	try {
+		url = new URL(action.url);
+	} catch {
+		throw new Error("Chrome contribution URL must be absolute");
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error("Chrome contribution URL must use HTTP or HTTPS");
+	}
+	return { type: "open-url", url: url.href };
+}
 
 function sanitizeText(text: string): string {
 	let sanitized = "";
@@ -147,6 +173,11 @@ export function createChromeContributionsController() {
 	}
 
 	function setContribution(input: ChromeContributionInput) {
+		if (input.action && input.onClick) {
+			throw new Error(
+				"Chrome contributions cannot define both an action and an onClick handler",
+			);
+		}
 		const content = normalizeChromeTextContent(input.content);
 		const plainText = getPlainChromeText(content);
 		if (!plainText.trim()) {
@@ -158,6 +189,7 @@ export function createChromeContributionsController() {
 			content,
 			plainText,
 			side: input.side ?? "right",
+			action: normalizeChromeAction(input.action),
 			onClick: input.onClick,
 		};
 		const existingIndex = contributions.findIndex(

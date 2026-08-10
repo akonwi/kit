@@ -69,6 +69,7 @@ type ChromeSetParams = {
 	}>;
 	side?: "left" | "right";
 	clickable?: boolean;
+	action?: { type: "open-url"; url: string };
 };
 
 type SubagentRegisterParams = {
@@ -686,6 +687,7 @@ export class ExternalPluginClient {
 			id: canonicalId,
 			content: toChromeContent(params),
 			side: params.side ?? "right",
+			action: params.action,
 			onClick: params.clickable
 				? async (signal) => {
 						try {

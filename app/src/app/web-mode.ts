@@ -52,6 +52,7 @@ export async function runWebMode(
 			persistSession: true,
 			interactions,
 			externalPlugins: true,
+			remoteChrome: true,
 		});
 		if (options.model) {
 			const model = selectStartupModel(

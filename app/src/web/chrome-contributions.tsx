@@ -42,25 +42,43 @@ function RemoteChromeContributionView(props: {
 	);
 	return (
 		<Show
-			when={props.contribution.clickable}
+			when={props.contribution.action}
 			fallback={
-				<span
-					class="remote-chrome-contribution"
+				<Show
+					when={props.contribution.clickable}
+					fallback={
+						<span
+							class="remote-chrome-contribution"
+							title={props.contribution.plainText}
+						>
+							{content()}
+						</span>
+					}
+				>
+					<button
+						class="remote-chrome-contribution is-clickable"
+						type="button"
+						disabled={props.disabled}
+						title={props.contribution.plainText}
+						onClick={() => props.onActivate(props.area, props.contribution.id)}
+					>
+						{content()}
+					</button>
+				</Show>
+			}
+		>
+			{(action) => (
+				<a
+					class="remote-chrome-contribution is-link"
+					href={action().url}
+					target="_blank"
+					rel="noopener noreferrer"
+					aria-label={`${props.contribution.plainText} (opens in new tab)`}
 					title={props.contribution.plainText}
 				>
 					{content()}
-				</span>
-			}
-		>
-			<button
-				class="remote-chrome-contribution is-clickable"
-				type="button"
-				disabled={props.disabled}
-				title={props.contribution.plainText}
-				onClick={() => props.onActivate(props.area, props.contribution.id)}
-			>
-				{content()}
-			</button>
+				</a>
+			)}
 		</Show>
 	);
 }

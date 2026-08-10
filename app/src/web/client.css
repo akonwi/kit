@@ -153,6 +153,11 @@ body {
 	white-space: nowrap;
 }
 
+a.remote-chrome-contribution {
+	color: inherit;
+	text-decoration: none;
+}
+
 button.remote-chrome-contribution {
 	min-block-size: 1.5rem;
 	margin: 0;
@@ -165,7 +170,7 @@ button.remote-chrome-contribution {
 	font: inherit;
 }
 
-button.remote-chrome-contribution:is(:hover, :focus-visible):not(:disabled) {
+.remote-chrome-contribution:is(:hover, :focus-visible):not(:disabled) {
 	color: var(--kit-text-primary);
 	text-decoration: underline;
 	text-underline-offset: 0.15em;

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { parseRemoteChromeSnapshot } from "./chrome-state";
 import {
 	type ClientState,
 	createClientState,
@@ -27,6 +28,26 @@ const textDelta = (delta: string) => ({
 });
 
 describe("web client state", () => {
+	test("rejects unsafe declarative chrome URLs", () => {
+		expect(
+			parseRemoteChromeSnapshot({
+				header: {
+					contributions: [
+						{
+							id: "bad.link",
+							content: [{ text: "bad" }],
+							plainText: "bad",
+							side: "right",
+							action: { type: "open-url", url: "javascript:alert(1)" },
+							clickable: false,
+						},
+					],
+					hiddenBuiltinIds: [],
+				},
+				footer: { contributions: [], hiddenBuiltinIds: [] },
+			}),
+		).toBeNull();
+	});
 	test("replaces state from a snapshot and enters live mode", () => {
 		let state = createClientState();
 		state = reduceClientRecord(state, {
@@ -115,6 +136,10 @@ describe("web client state", () => {
 							content: [{ text: "ready" }],
 							plainText: "ready",
 							side: "left",
+							action: {
+								type: "open-url",
+								url: "https://example.com/status",
+							},
 							clickable: false,
 						},
 					],
@@ -122,7 +147,10 @@ describe("web client state", () => {
 				},
 			},
 		});
-		expect(state.chrome.footer.contributions[0]?.plainText).toBe("ready");
+		expect(state.chrome.footer.contributions[0]).toMatchObject({
+			plainText: "ready",
+			action: { type: "open-url", url: "https://example.com/status" },
+		});
 		expect(() =>
 			reduceClientRecord(state, {
 				type: "shell.chrome.changed",

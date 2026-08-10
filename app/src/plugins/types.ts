@@ -25,6 +25,7 @@ import type {
 } from "./sdk";
 
 export type {
+	ChromeContributionAction,
 	ChromeContributionOptions,
 	ChromeContributionSide,
 	CommandContext,

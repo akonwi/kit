@@ -156,8 +156,8 @@ RPC mode emits Kit semantic events using the same dotted names as the runtime:
 - `chat.message-queue.changed` and `chat.followups.promoted`
 - `agent.retry.started`, `agent.retry.failed`, and `agent.retry.completed`
 - `agent.run.failed` for an execution failure after a command was accepted
-- `shell.chrome.changed` when web-mode plugin header/footer contributions or
-  built-in visibility claims change
+- `shell.chrome.changed` when web-mode plugin header/footer contributions,
+  declarative URL actions, or built-in visibility claims change
 
 Every transcript message has a stable `turnId` and `messageId`.
 `agent.message.updated.update` is a Kit-owned content update with a `kind`,

@@ -194,10 +194,22 @@ type ModelAPI = {
 
 export type ChromeContributionSide = "left" | "right";
 
-export type ChromeContributionOptions = {
-	side?: ChromeContributionSide;
-	onClick?: (signal?: AbortSignal) => void | Promise<void>;
+export type ChromeContributionAction = {
+	type: "open-url";
+	url: string;
 };
+
+export type ChromeContributionOptions =
+	| {
+			side?: ChromeContributionSide;
+			action?: undefined;
+			onClick?: (signal?: AbortSignal) => void | Promise<void>;
+	  }
+	| {
+			side?: ChromeContributionSide;
+			action: ChromeContributionAction;
+			onClick?: never;
+	  };
 
 type ChromeContributionAPI = {
 	set: (

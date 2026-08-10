@@ -327,13 +327,21 @@ describe("RpcSessionHost", () => {
 			id: "test.footer",
 			content: "ready",
 			side: "left",
+			action: { type: "open-url", url: "https://example.com/status" },
 		});
 		expect(events.at(-1)).toMatchObject({
 			type: "shell.chrome.changed",
 			chrome: {
 				footer: {
 					contributions: [
-						expect.objectContaining({ id: "test.footer", plainText: "ready" }),
+						expect.objectContaining({
+							id: "test.footer",
+							plainText: "ready",
+							action: {
+								type: "open-url",
+								url: "https://example.com/status",
+							},
+						}),
 					],
 				},
 			},

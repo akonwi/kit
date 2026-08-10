@@ -65,6 +65,7 @@ export type RpcChromeContribution = {
 	content: RpcChromeSegment[];
 	plainText: string;
 	side: "left" | "right";
+	action?: { type: "open-url"; url: string };
 	clickable: boolean;
 };
 
@@ -261,6 +262,7 @@ function remoteChromeContribution(
 			content,
 			plainText,
 			side: contribution.side,
+			...(contribution.action ? { action: contribution.action } : {}),
 			clickable: contribution.onClick !== undefined,
 		},
 		textLength,

@@ -813,6 +813,21 @@
 			},
 			"additionalProperties": false
 		},
+		"ChromeAction": {
+			"type": "object",
+			"required": ["type", "url"],
+			"properties": {
+				"type": {
+					"const": "open-url"
+				},
+				"url": {
+					"type": "string",
+					"format": "uri",
+					"pattern": "^https?://"
+				}
+			},
+			"additionalProperties": false
+		},
 		"ChromeSetParams": {
 			"type": "object",
 			"required": ["id", "content"],
@@ -834,7 +849,13 @@
 				"clickable": {
 					"type": "boolean",
 					"default": false
+				},
+				"action": {
+					"$ref": "#/$defs/ChromeAction"
 				}
+			},
+			"not": {
+				"required": ["clickable", "action"]
 			},
 			"additionalProperties": false
 		},

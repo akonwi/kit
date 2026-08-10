@@ -93,8 +93,8 @@ Kit publishes semantic runtime event names:
 - `agent.run.failed`
 - `state_changed`
 - `ui_snapshot`, `ui_request`, and `ui_resolved`
-- `shell.chrome.changed` when web-mode plugin chrome or built-in visibility
-  claims change
+- `shell.chrome.changed` when web-mode plugin chrome, declarative URL actions,
+  or built-in visibility claims change
 - `error` for transport-level failures after asynchronous command acceptance
 
 Pi event names and provider streaming payloads do not cross the core `Agent`

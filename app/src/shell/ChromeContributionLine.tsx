@@ -5,9 +5,12 @@ import type {
 } from "./chrome-contributions";
 import { terminalTextWidth } from "./chrome-layout";
 import { MIDDLE_DOT } from "./glyphs";
+import { openExternal } from "./open-external";
 import { theme } from "./theme";
 
 const PRIMARY_MOUSE_BUTTON = 0;
+
+type OpenUrl = (url: string) => void | Promise<void>;
 
 type ChromeContributionLineProps = {
 	contributions: readonly ChromeContribution[];
@@ -15,10 +18,35 @@ type ChromeContributionLineProps = {
 	separatorFg?: string;
 	fallback?: string;
 	wrap?: boolean;
+	onOpenUrl?: OpenUrl;
 };
 
-function handleClick(contribution: ChromeContribution) {
-	void contribution.onClick?.();
+function isActionable(contribution: ChromeContribution): boolean {
+	return (
+		contribution.onClick !== undefined || contribution.action !== undefined
+	);
+}
+
+export async function activateChromeContribution(
+	contribution: ChromeContribution,
+	onOpenUrl: OpenUrl = openExternal,
+): Promise<boolean> {
+	if (contribution.action?.type === "open-url") {
+		await onOpenUrl(contribution.action.url);
+		return true;
+	}
+	if (!contribution.onClick) return false;
+	await contribution.onClick();
+	return true;
+}
+
+function handleClick(
+	contribution: ChromeContribution,
+	onOpenUrl: OpenUrl = openExternal,
+) {
+	void activateChromeContribution(contribution, onOpenUrl).catch((error) => {
+		console.error("Could not activate chrome contribution:", error);
+	});
 }
 
 function contributionAtX(
@@ -40,6 +68,7 @@ export function activateChromeContributionAtX(input: {
 	right: readonly ChromeContribution[];
 	shellWidth: number;
 	x: number;
+	onOpenUrl?: OpenUrl;
 }): boolean {
 	const rightWidth =
 		input.right.reduce(
@@ -51,8 +80,8 @@ export function activateChromeContributionAtX(input: {
 	const contribution =
 		contributionAtX(input.right, input.shellWidth - 1 - rightWidth, input.x) ??
 		contributionAtX(input.left, 1, input.x);
-	if (!contribution?.onClick) return false;
-	handleClick(contribution);
+	if (!contribution || !isActionable(contribution)) return false;
+	handleClick(contribution, input.onOpenUrl);
 	return true;
 }
 
@@ -86,23 +115,24 @@ export function ChromeContributionText(props: {
 	contribution: ChromeContribution;
 	fg?: string;
 	focused?: boolean;
+	onOpenUrl?: OpenUrl;
 }) {
 	return (
 		<text
 			fg={props.focused ? theme.pickerFocusedText : props.fg}
 			bg={props.focused ? theme.pickerFocusedBg : undefined}
 			onMouseDown={
-				props.contribution.onClick
+				isActionable(props.contribution)
 					? (event) => {
 							if (event.button !== PRIMARY_MOUSE_BUTTON) return;
 							event.preventDefault();
 							event.stopPropagation();
-							handleClick(props.contribution);
+							handleClick(props.contribution, props.onOpenUrl);
 						}
 					: undefined
 			}
 			onMouseUp={
-				props.contribution.onClick
+				isActionable(props.contribution)
 					? (event) => {
 							if (event.button !== PRIMARY_MOUSE_BUTTON) return;
 							event.preventDefault();
@@ -154,6 +184,7 @@ export function ChromeContributionLine(props: ChromeContributionLineProps) {
 							<ChromeContributionText
 								contribution={contribution}
 								fg={props.fg}
+								onOpenUrl={props.onOpenUrl}
 							/>
 						</>
 					)}

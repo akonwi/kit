@@ -420,7 +420,9 @@ describe("PluginManager", () => {
 			internalUi: true,
 			chromePrefix: "kit.footer",
 			initialize: (kit) => {
-				kit.footer.set("location", "main");
+				kit.footer.set("location", "main", {
+					action: { type: "open-url", url: "https://example.com/pr/25" },
+				});
 			},
 		};
 		const context = createPluginContext([]);
@@ -428,7 +430,10 @@ describe("PluginManager", () => {
 		const manager = new PluginManager([plugin], context);
 
 		manager.initialize();
-		expect(footer.getContributions()[0]?.id).toBe("kit.footer.location");
+		expect(footer.getContributions()[0]).toMatchObject({
+			id: "kit.footer.location",
+			action: { type: "open-url", url: "https://example.com/pr/25" },
+		});
 		manager.dispose();
 		expect(footer.getContributions()).toEqual([]);
 	});

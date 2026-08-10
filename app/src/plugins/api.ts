@@ -215,6 +215,7 @@ export function createPluginAPI(
 					id: contributionId,
 					content,
 					side: itemOptions?.side,
+					action: itemOptions?.action,
 					onClick: createChromeClickHandler(
 						contributionId,
 						itemOptions?.onClick,

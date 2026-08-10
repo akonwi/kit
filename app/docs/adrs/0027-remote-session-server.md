@@ -92,7 +92,9 @@ Plugin header and footer contributions remain host-owned state. Web snapshots
 and live events project their stable ids, side, semantic token styling,
 clickability, and built-in hide claims; clients activate clickable items through
 a correlated host command rather than receiving plugin callbacks or literal
-terminal colors.
+terminal colors. Declarative HTTP(S) chrome actions cross as validated data:
+browsers render native isolated links, while terminal renderers retain their
+platform opener.
 
 The remote protocol will expose the session, command, workspace, model,
 thinking, attachment, steering, abort, and state-retrieval operations required

@@ -20,6 +20,7 @@ export type RemoteChromeContribution = {
 	content: RemoteChromeSegment[];
 	plainText: string;
 	side: "left" | "right";
+	action?: { type: "open-url"; url: string };
 	clickable: boolean;
 };
 
@@ -102,6 +103,7 @@ const MAX_CONTRIBUTIONS = 64;
 const MAX_SEGMENTS = 32;
 const MAX_TOTAL_TEXT_LENGTH = 8_192;
 const MAX_ID_LENGTH = 256;
+const MAX_URL_LENGTH = 8_192;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -113,6 +115,30 @@ function hasControlCharacter(value: string): boolean {
 		if (code < 32 || code === 127) return true;
 	}
 	return false;
+}
+
+function parseAction(
+	value: unknown,
+): RemoteChromeContribution["action"] | undefined | null {
+	if (value === undefined) return undefined;
+	if (
+		!isRecord(value) ||
+		value.type !== "open-url" ||
+		typeof value.url !== "string" ||
+		value.url.length === 0 ||
+		value.url.length > MAX_URL_LENGTH ||
+		hasControlCharacter(value.url)
+	) {
+		return null;
+	}
+	let url: URL;
+	try {
+		url = new URL(value.url);
+	} catch {
+		return null;
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+	return { type: "open-url", url: url.href };
 }
 
 function parseStyle(value: unknown): RemoteChromeTextStyle | undefined | null {
@@ -171,6 +197,8 @@ function parseArea(value: unknown): RemoteChromeArea | null {
 		) {
 			return null;
 		}
+		const action = parseAction(raw.action);
+		if (action === null || (action && raw.clickable)) return null;
 		ids.add(raw.id);
 		const content: RemoteChromeSegment[] = [];
 		for (const rawSegment of raw.content) {
@@ -198,6 +226,7 @@ function parseArea(value: unknown): RemoteChromeArea | null {
 			content,
 			plainText: raw.plainText,
 			side: raw.side,
+			...(action ? { action } : {}),
 			clickable: raw.clickable,
 		});
 	}

@@ -40,6 +40,7 @@ function contribution(input: {
 	id: string;
 	content: ChromeContribution["content"];
 	side: "left" | "right";
+	action?: ChromeContribution["action"];
 	onClick?: ChromeContribution["onClick"];
 }): ChromeContribution {
 	return {
@@ -47,6 +48,7 @@ function contribution(input: {
 		content: input.content,
 		plainText: input.content.map((segment) => segment.text).join(""),
 		side: input.side,
+		action: input.action,
 		onClick: input.onClick,
 	};
 }
@@ -161,6 +163,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			id: raw.id,
 			content: createChromeTextContent(truncateStart(raw.plainText, maxWidth)),
 			side: "right",
+			action: raw.action,
 			onClick: raw.onClick,
 		});
 	});

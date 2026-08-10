@@ -69,7 +69,7 @@ for line in sys.stdin:
         send({"jsonrpc": "2.0", "id": "p-confirm", "method": "kit/ui/confirm", "params": {"title": "Continue?"}})
         send({"jsonrpc": "2.0", "id": "p-command", "method": "kit/commands/register", "params": {"id": "toggle", "description": "Toggle speech"}})
         send({"jsonrpc": "2.0", "id": "p-tool", "method": "kit/tools/register", "params": {"id": "speak_text", "description": "Speak text", "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"], "additionalProperties": False}}})
-        send({"jsonrpc": "2.0", "id": "p-header", "method": "kit/header/set", "params": {"id": "status", "content": [{"text": "speech", "style": {"fg": "toolText", "bold": True}}], "clickable": False}})
+        send({"jsonrpc": "2.0", "id": "p-header", "method": "kit/header/set", "params": {"id": "status", "content": [{"text": "speech", "style": {"fg": "toolText", "bold": True}}], "action": {"type": "open-url", "url": "https://example.com/status"}}})
         send({"jsonrpc": "2.0", "id": "p-footer", "method": "kit/footer/set", "params": {"id": "status", "content": [{"text": "ready", "style": {"fg": "metaText"}}], "side": "left", "clickable": True}})
         send({"jsonrpc": "2.0", "id": "p-prompt", "method": "kit/system-prompt/set", "params": {"text": "Always speak the final answer."}})
     elif method == "kit/commands/execute":
@@ -186,6 +186,7 @@ for line in sys.stdin:
 		expect(header.getContributions()[0]).toMatchObject({
 			id: "speech.status",
 			content: [{ text: "speech", style: { fgToken: "toolText", bold: true } }],
+			action: { type: "open-url", url: "https://example.com/status" },
 		});
 		expect(footer.getContributions()[0]).toMatchObject({
 			id: "speech.status",

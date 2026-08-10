@@ -26,6 +26,14 @@ describe("parsePullRequest", () => {
 		expect(parsePullRequest("not json")).toBeNull();
 	});
 
+	test("returns null for an unsafe PR URL", () => {
+		expect(
+			parsePullRequest(
+				JSON.stringify({ number: 123, url: "javascript:alert(1)" }),
+			),
+		).toBeNull();
+	});
+
 	test("returns null when the PR number is missing", () => {
 		expect(
 			parsePullRequest(JSON.stringify({ title: "missing number" })),

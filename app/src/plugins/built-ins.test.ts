@@ -23,6 +23,18 @@ describe("createBuiltInPlugins", () => {
 		expect(names).not.toContain("SettingsPlugin");
 	});
 
+	test("adds renderer-neutral chrome for web headless mode", () => {
+		const plugins = createBuiltInPlugins({ runtime: {} } as PluginContext, {
+			headless: true,
+			remoteChrome: true,
+		});
+		const names = plugins.map((plugin) => plugin.name);
+
+		expect(names).toContain("VcsStatusPlugin");
+		expect(names).not.toContain("ReleasesPlugin");
+		expect(names).not.toContain("PromptsPlugin");
+	});
+
 	test("adds transport-safe interaction tools for remote headless mode", () => {
 		const plugins = createBuiltInPlugins({ runtime: {} } as PluginContext, {
 			headless: true,

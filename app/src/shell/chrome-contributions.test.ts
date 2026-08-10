@@ -29,6 +29,37 @@ describe("createChromeContributionsController", () => {
 		expect(await controller.activateContribution("missing")).toBe(false);
 	});
 
+	test("normalizes declarative URL actions and rejects ambiguous actions", () => {
+		const controller = createChromeContributionsController();
+		controller.setContribution({
+			id: "git.pr",
+			content: "PR #25",
+			action: {
+				type: "open-url",
+				url: "https://github.com/owner/repo/pull/25",
+			},
+		});
+		expect(controller.getContributions()[0]?.action).toEqual({
+			type: "open-url",
+			url: "https://github.com/owner/repo/pull/25",
+		});
+		expect(() =>
+			controller.setContribution({
+				id: "bad.protocol",
+				content: "bad",
+				action: { type: "open-url", url: "javascript:alert(1)" },
+			}),
+		).toThrow("must use HTTP or HTTPS");
+		expect(() =>
+			controller.setContribution({
+				id: "bad.ambiguous",
+				content: "bad",
+				action: { type: "open-url", url: "https://example.com" },
+				onClick: () => {},
+			}),
+		).toThrow("cannot define both");
+	});
+
 	test("tracks hidden contribution ids", () => {
 		const controller = createChromeContributionsController();
 

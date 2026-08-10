@@ -39,9 +39,16 @@ export function BottomStatusBar(): JSX.Element {
 	const hidden = createMemo(
 		() => new Set(protocol().chrome.footer.hiddenBuiltinIds),
 	);
+	const hasRemoteLocation = createMemo(() =>
+		protocol().chrome.footer.contributions.some(
+			(contribution) =>
+				contribution.id === BUILT_IN_CHROME_CONTRIBUTION_IDS.footerLocation,
+		),
+	);
 	const locationVisible = createMemo(
 		() =>
 			cwd().length > 0 &&
+			!hasRemoteLocation() &&
 			!hidden().has(BUILT_IN_CHROME_CONTRIBUTION_IDS.footerLocation),
 	);
 	const disabled = createMemo(() => protocol().phase !== "live");

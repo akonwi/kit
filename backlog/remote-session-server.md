@@ -135,8 +135,9 @@ reduced plugin surface used by print and stdio RPC modes.
 Implemented for web mode: user and project external plugins initialize and
 retarget with the hosted runtime; user-visible failures become browser toasts;
 and styled, clickable header/footer contributions are synchronized across
-snapshots, reconnects, and live updates. Remote-safe URL opening remains
-client-protocol work.
+snapshots, reconnects, and live updates. Declarative chrome URL actions open in
+the rendering client; remote handling for imperative `kit.system.open` calls
+remains client-protocol work.
 
 ### Commands and sessions
 
@@ -285,7 +286,7 @@ for every remote client rather than hidden in renderer-specific code:
 - [x] Extract transport-independent RPC dispatch from the stdio server.
 - [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
 - [x] Add a minimal Mica-based web transcript/composer client.
-- [ ] Fill the remaining plugin URL-opening and built-in command gaps.
+- [ ] Fill the remaining imperative plugin URL-opening and built-in command gaps.
 - [x] Add event sequencing, reconnect, and interaction coordination.
 - [ ] Validate local access through a trusted private tunnel.
 - [ ] Add a cloud sandbox worker using the same command and protocol.

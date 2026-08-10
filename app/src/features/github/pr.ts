@@ -37,11 +37,13 @@ export function parsePullRequest(json: string): GitHubPullRequest | null {
 	if (!isRecord(value)) return null;
 	const number = value.number;
 	if (typeof number !== "number" || !Number.isInteger(number)) return null;
+	const url = httpUrl(value.url);
+	if (!url) return null;
 
 	return {
 		number,
 		title: optionalString(value.title),
-		url: optionalString(value.url),
+		url,
 		headRefName: optionalString(value.headRefName),
 		baseRefName: optionalString(value.baseRefName),
 	};
@@ -58,6 +60,18 @@ function isNamedBranch(branch: string | null): branch is string {
 
 function optionalString(value: unknown): string {
 	return typeof value === "string" ? value : "";
+}
+
+function httpUrl(value: unknown): string | null {
+	if (typeof value !== "string") return null;
+	try {
+		const url = new URL(value);
+		return url.protocol === "http:" || url.protocol === "https:"
+			? url.href
+			: null;
+	} catch {
+		return null;
+	}
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

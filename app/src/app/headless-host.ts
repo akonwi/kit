@@ -134,6 +134,7 @@ export async function createHeadlessHost(
 			: {}),
 		triggerNotification: () => false,
 	};
+<<<<<<< HEAD
 	let builtInPlugins: PluginManager | null = null;
 	let externalPlugins: ExternalPluginManager | null = null;
 
@@ -188,6 +189,23 @@ export async function createHeadlessHost(
 		if (cleanupError) throw cleanupError;
 	}
 
+=======
+	const pluginReadiness: Promise<void>[] = [];
+	const builtInPlugins = new PluginManager(
+		createBuiltInPlugins(pluginContext, {
+			headless: true,
+			onReady: (ready) => pluginReadiness.push(ready),
+			subagentParentStorage: createMemorySubagentParentStorage(),
+			subagentStorage: createMemorySubagentSessionStorage(),
+			remoteGuidedQuestions: options.interactions,
+			remoteChrome: options.remoteChrome,
+		}),
+		pluginContext,
+	);
+	const externalPlugins = options.externalPlugins
+		? new ExternalPluginManager(pluginContext)
+		: null;
+>>>>>>> b3682fb (feat(plugins): add declarative chrome links)
 	const persistence = options.persistSession
 		? new FilePersistence(runtime)
 		: null;

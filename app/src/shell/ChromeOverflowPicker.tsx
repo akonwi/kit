@@ -1,6 +1,9 @@
 import { createEffect, createMemo, createSignal, For } from "solid-js";
 import { useKeymapLayer } from "../keymap/useKeymapLayer";
-import { ChromeContributionText } from "./ChromeContributionLine";
+import {
+	activateChromeContribution,
+	ChromeContributionText,
+} from "./ChromeContributionLine";
 import type { ChromeContribution } from "./chrome-contributions";
 import { CHEVRON_RIGHT } from "./glyphs";
 import { scrollbarStyle, theme } from "./theme";
@@ -33,9 +36,10 @@ export function ChromeOverflowPicker(props: ChromeOverflowPickerProps) {
 	}
 
 	function activate(contribution: ChromeContribution | null) {
-		if (!contribution?.onClick) return;
+		if (!contribution || (!contribution.onClick && !contribution.action))
+			return;
 		props.onClose();
-		void Promise.resolve(contribution.onClick()).catch(props.onError);
+		void activateChromeContribution(contribution).catch(props.onError);
 	}
 
 	useKeymapLayer(() => ({
@@ -60,7 +64,11 @@ export function ChromeOverflowPicker(props: ChromeOverflowPickerProps) {
 	const rows = createMemo(() =>
 		props.contributions.map((contribution) => ({
 			contribution,
-			displayContribution: { ...contribution, onClick: undefined },
+			displayContribution: {
+				...contribution,
+				action: undefined,
+				onClick: undefined,
+			},
 		})),
 	);
 
@@ -123,7 +131,9 @@ export function ChromeOverflowPicker(props: ChromeOverflowPickerProps) {
 									fg={focused() ? theme.pickerFocusedText : theme.textMuted}
 									bg={focused() ? theme.pickerFocusedBg : theme.pickerBg}
 								>
-									{row.contribution.onClick ? CHEVRON_RIGHT : ""}
+									{row.contribution.onClick || row.contribution.action
+										? CHEVRON_RIGHT
+										: ""}
 								</text>
 							</box>
 						);

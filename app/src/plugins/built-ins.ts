@@ -50,6 +50,7 @@ export type BuiltInPluginOptions = {
 	subagentsWorkspace?: SubagentsWorkspaceController;
 	releasesWorkspace?: ReleasesWorkspaceController;
 	remoteGuidedQuestions?: GuidedQuestionsRequester;
+	remoteChrome?: boolean;
 };
 
 // Built-in plugins that are always enabled as core features.
@@ -77,11 +78,11 @@ export function createBuiltInPlugins(
 				persistState: !options.headless,
 			}),
 		),
-		...(options.headless
+		...(options.headless && !options.remoteChrome
 			? []
 			: [
 					internalPlugin(VcsStatusPlugin, { chromePrefix: "kit.footer" }),
-					...(options.releasesWorkspace
+					...(!options.headless && options.releasesWorkspace
 						? [
 								internalPlugin(
 									createReleasesPlugin({
