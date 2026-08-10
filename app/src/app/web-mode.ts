@@ -72,6 +72,7 @@ export async function runWebMode(
 			header: headlessHost.header,
 			footer: headlessHost.footer,
 			waitForWorkspaceReady: headlessHost.waitForWorkspaceReady,
+			reloadHost: headlessHost.reload,
 			allowLegacySessionPaths: false,
 		});
 		webServer = new WebRpcServer(rpcHost, {

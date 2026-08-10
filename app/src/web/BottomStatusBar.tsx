@@ -70,6 +70,17 @@ export function BottomStatusBar(): JSX.Element {
 				>
 					{guidance()}
 				</span>
+				<Show when={protocol().phase === "disconnected"}>
+					<button
+						class="bottom-reconnect"
+						type="button"
+						data-variant="ghost"
+						data-size="small"
+						onClick={() => controller.reconnect()}
+					>
+						Reconnect
+					</button>
+				</Show>
 				<RemoteChromeLine
 					area="footer"
 					contributions={protocol().chrome.footer.contributions}

@@ -28,11 +28,13 @@ export class RpcModeServer {
 		persistSessions = false,
 		commands?: CommandRegistry,
 		waitForWorkspaceReady?: () => Promise<void>,
+		reloadHost?: () => Promise<void>,
 	) {
 		this.host = new RpcSessionHost(runtime, {
 			persistSessions,
 			commands,
 			waitForWorkspaceReady,
+			reloadHost,
 			allowLegacySessionPaths: true,
 		});
 		this.unsubscribeHost = this.host.subscribe((record) => {
@@ -143,6 +145,7 @@ export async function runRpcMode(
 			resolved.persistSession,
 			host.commands,
 			host.waitForWorkspaceReady,
+			host.reload,
 		);
 		await server.start();
 		await server.abortAndWait();

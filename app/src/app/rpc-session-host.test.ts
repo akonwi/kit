@@ -856,6 +856,9 @@ describe("RpcSessionHost", () => {
 		});
 		const host = new RpcSessionHost(runtime, {
 			commands: createCommandRegistry(BUILT_IN_COMMANDS),
+			reloadHost: async () => {
+				calls.push(["reload"]);
+			},
 		});
 		const responses: Array<Record<string, unknown>> = [];
 		const respond = async (record: unknown) => {
@@ -902,6 +905,15 @@ describe("RpcSessionHost", () => {
 		);
 		await host.handleCommand(
 			{
+				id: "reload",
+				type: "execute_command",
+				commandId: "reload",
+				registryGeneration: 0,
+			},
+			respond,
+		);
+		await host.handleCommand(
+			{
 				id: "empty-name",
 				type: "execute_command",
 				commandId: "name",
@@ -920,6 +932,7 @@ describe("RpcSessionHost", () => {
 						expect.objectContaining({ id: "handoff" }),
 						expect.objectContaining({ id: "name" }),
 						expect.objectContaining({ id: "new" }),
+						expect.objectContaining({ id: "reload" }),
 					],
 				}),
 			}),
@@ -929,6 +942,7 @@ describe("RpcSessionHost", () => {
 			["handoff", undefined],
 			["name", "Renamed session"],
 			["new"],
+			["reload"],
 		]);
 		expect(persistencePolicies).toEqual([false, false]);
 		expect(responses.at(-1)).toEqual(
@@ -1422,6 +1436,67 @@ describe("RpcSessionHost", () => {
 			}),
 		);
 		await host.abortAndWait();
+		host.dispose();
+	});
+
+	test("waits for safe transport-neutral cleanup after abort", async () => {
+		let settled = false;
+		const commands = createCommandRegistry([
+			{
+				name: "host.reload",
+				description: "Reload host state",
+				execute: () => {},
+				executeTransportNeutral: ({ signal }) =>
+					new Promise<void>((resolve) => {
+						signal?.addEventListener(
+							"abort",
+							() => {
+								setTimeout(() => {
+									settled = true;
+									resolve();
+								}, 5);
+							},
+							{ once: true },
+						);
+					}),
+				transportNeutralTimeoutMs: null,
+				transportNeutralCancellation: "settle",
+			},
+		]);
+		const host = new RpcSessionHost(createRuntime(), {
+			commands,
+			commandCancellationGraceMs: 1,
+		});
+		const responses: Array<Record<string, unknown>> = [];
+		const execution = host.handleCommand(
+			{
+				id: "execute",
+				type: "execute_command",
+				commandId: "host.reload",
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		await Bun.sleep(0);
+		const abort = host.handleCommand(
+			{ id: "abort", type: "abort" },
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		await Promise.all([execution, abort]);
+
+		expect(settled).toBe(true);
+		await host.handleCommand(
+			{ id: "after", type: "get_state" },
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+		expect(responses.at(-1)).toEqual(
+			expect.objectContaining({ id: "after", success: true }),
+		);
 		host.dispose();
 	});
 

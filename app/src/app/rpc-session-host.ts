@@ -117,6 +117,7 @@ export type RpcSessionHostOptions = {
 	header?: ChromeContributionsController;
 	footer?: ChromeContributionsController;
 	waitForWorkspaceReady?: () => Promise<void>;
+	reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	allowLegacySessionPaths?: boolean;
 	commandTimeoutMs?: number;
 	commandCancellationGraceMs?: number;
@@ -502,6 +503,7 @@ export class RpcSessionHost {
 	private readonly header?: ChromeContributionsController;
 	private readonly footer?: ChromeContributionsController;
 	private readonly waitForWorkspaceReady: () => Promise<void>;
+	private readonly reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	private readonly allowLegacySessionPaths: boolean;
 	private readonly commandTimeoutMs: number;
 	private readonly commandCancellationGraceMs: number;
@@ -526,6 +528,7 @@ export class RpcSessionHost {
 		this.footer = options.footer;
 		this.waitForWorkspaceReady =
 			options.waitForWorkspaceReady ?? (async () => {});
+		this.reloadHost = options.reloadHost;
 		this.allowLegacySessionPaths = options.allowLegacySessionPaths ?? true;
 		this.commandTimeoutMs =
 			options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
@@ -771,12 +774,23 @@ export class RpcSessionHost {
 	private async executeTransportNeutralCommand(
 		handler: (ctx: TransportNeutralCommandContext) => void | Promise<void>,
 		args: string,
+		options: {
+			timeoutMs?: number | null;
+			cancellation?: "grace" | "settle";
+		} = {},
 	): Promise<ScheduledPrompt | null> {
 		const abortController = new AbortController();
 		let scheduledPrompt: ScheduledPrompt | null = null;
-		const timeout = setTimeout(() => {
-			abortController.abort(new Error("Command execution timed out"));
-		}, this.commandTimeoutMs);
+		const timeoutMs =
+			options.timeoutMs === undefined
+				? this.commandTimeoutMs
+				: options.timeoutMs;
+		const timeout =
+			timeoutMs === null
+				? null
+				: setTimeout(() => {
+						abortController.abort(new Error("Command execution timed out"));
+					}, timeoutMs);
 		const schedule = (prompt: ScheduledPrompt) => {
 			if (scheduledPrompt !== null) {
 				throw new Error("Command scheduled more than one prompt");
@@ -807,6 +821,10 @@ export class RpcSessionHost {
 						expandedPrompt: prompt,
 					});
 				},
+				reloadHost: async (signal) => {
+					if (!this.reloadHost) throw new Error("Host reload is unavailable");
+					await this.reloadHost(signal);
+				},
 				signal: abortController.signal,
 			}),
 		);
@@ -831,15 +849,18 @@ export class RpcSessionHost {
 			await execution;
 			return scheduledPrompt;
 		} catch (error) {
-			if (
-				abortController.signal.aborted &&
-				!(await this.waitForCommandHandlerToStop(handlerExecution))
-			) {
-				this.commandExecutionCompromised = true;
+			if (abortController.signal.aborted) {
+				if (options.cancellation === "settle") {
+					await handlerExecution.catch(() => {});
+				} else if (
+					!(await this.waitForCommandHandlerToStop(handlerExecution))
+				) {
+					this.commandExecutionCompromised = true;
+				}
 			}
 			throw error;
 		} finally {
-			clearTimeout(timeout);
+			if (timeout !== null) clearTimeout(timeout);
 			if (this.activeCommandAbort === abortController) {
 				this.activeCommandAbort = null;
 				this.activeCommandExecution = null;
@@ -1092,6 +1113,10 @@ export class RpcSessionHost {
 				const scheduledPrompt = await this.executeTransportNeutralCommand(
 					registered.executeTransportNeutral,
 					args ?? "",
+					{
+						timeoutMs: registered.transportNeutralTimeoutMs,
+						cancellation: registered.transportNeutralCancellation,
+					},
 				);
 				await this.waitForWorkspaceReady();
 				if (executionGeneration !== this.commandGeneration) {

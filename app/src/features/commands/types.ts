@@ -31,6 +31,7 @@ export type TransportNeutralCommandContext = {
 		args: string,
 		expandedPrompt: string,
 	): void;
+	reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	signal?: AbortSignal;
 };
 
@@ -48,4 +49,8 @@ export type Command = {
 	executeTransportNeutral?: (
 		ctx: TransportNeutralCommandContext,
 	) => void | Promise<void>;
+	/** Override the remote host timeout; null waits until completion or abort. */
+	transportNeutralTimeoutMs?: number | null;
+	/** Wait for cooperative cleanup after abort instead of applying the grace limit. */
+	transportNeutralCancellation?: "grace" | "settle";
 };

@@ -100,6 +100,10 @@ export class WebClientController {
 		this.transport.start();
 	}
 
+	reconnect(): void {
+		this.transport.reconnectNow();
+	}
+
 	dispose(): void {
 		this.disposed = true;
 		this.transport.dispose();

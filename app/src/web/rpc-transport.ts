@@ -76,6 +76,14 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 		this.reconnectAttempt = 0;
 	}
 
+	reconnectNow(): void {
+		if (!this.started || this.socket) return;
+		if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+		this.reconnectTimer = null;
+		this.reconnectAttempt = 0;
+		this.connect();
+	}
+
 	acceptSnapshot(): void {
 		this.requireSnapshot = false;
 	}

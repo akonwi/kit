@@ -136,13 +136,15 @@ Claude command discovery also rejects workspace-escaping paths.
 Browser-local `/model` and `/thinking` palette commands use the existing
 discovery and mutation RPC commands through reusable browser-native pickers.
 The clickable session title similarly adapts the transport-neutral `/name`
-command through a browser-native input dialog. Sessions, authentication,
-review, diagnostics, sub-agents, MCP management,
-settings, and release notes
-require purpose-built remote surfaces. The MCP surface will include clearing a
-server's saved OAuth state rather than exposing `/mcp-logout` as a remote slash
-command. `/quit`, `/reload`, `/theme`, and `/pager` remain host- or
-renderer-local.
+command through a browser-native input dialog. The transport-neutral `/reload`
+command reloads the active session, settings, and plugin state in the shared
+host, matching its TUI behavior. A disconnected browser instead shows a
+`Reconnect` button for an immediate connection attempt. Sessions,
+authentication, review, diagnostics, sub-agents, MCP management, settings, and
+release notes require purpose-built remote surfaces. The MCP surface will
+include clearing a server's saved OAuth state rather than exposing
+`/mcp-logout` as a remote slash command. `/quit` remains unavailable in the
+browser; `/theme` and `/pager` remain renderer-local.
 
 A normal `prompt` is rejected while the agent is streaming unless
 `streamingBehavior` says where to queue it. The dedicated `steer` and
