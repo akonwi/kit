@@ -846,7 +846,9 @@ details[open] > summary > .disclosure-marker {
 }
 
 #interaction-dialog {
-	inline-size: min(32rem, calc(100% - 2rem));
+	inline-size: min(36rem, calc(100% - 2rem));
+	max-block-size: calc(100svh - 2rem);
+	overflow: hidden;
 }
 
 .command-palette-dialog {
@@ -1091,21 +1093,85 @@ details[open] > summary > .disclosure-marker {
 	font-size: 0.75rem;
 }
 
-#interaction-dialog header > * {
-	margin-block: 0 var(--space-xs);
+#interaction-dialog > form {
+	min-block-size: 0;
+	max-block-size: calc(100svh - 4rem);
+	overflow: hidden;
+}
+
+#interaction-dialog > form > m-vstack {
+	min-block-size: 0;
+	max-block-size: calc(100svh - 6rem);
+	display: flex;
+	flex-direction: column;
+}
+
+.interaction-header {
+	flex: 0 0 auto;
+	min-inline-size: 0;
+	overflow-wrap: anywhere;
+}
+
+.interaction-title-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: var(--space-sm);
+}
+
+.interaction-title-row > * {
+	margin: 0;
+}
+
+.interaction-title-row > small {
+	flex: 0 0 auto;
+	color: var(--kit-text-muted);
+}
+
+.interaction-message {
+	margin: 0;
+	color: var(--kit-text-secondary);
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
 }
 
 .interaction-frame {
 	margin: 0;
 	padding: 0;
 	border: 0;
+	display: contents;
+}
+
+.interaction-layout {
+	min-block-size: 0;
 	display: grid;
+	flex: 1 1 auto;
+	overflow: hidden;
+	grid-template-rows: minmax(0, 1fr) auto;
 	gap: var(--space-md);
+}
+
+.interaction-body {
+	min-block-size: 0;
+	display: grid;
+	gap: var(--space-sm);
+	overflow-y: auto;
 }
 
 .interaction-fields {
 	display: grid;
 	gap: var(--space-sm);
+}
+
+.interaction-actions {
+	flex: 0 0 auto;
+}
+
+.interaction-actions button {
+	max-inline-size: 14rem;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .interaction-error {

@@ -81,7 +81,9 @@ hosted workspace.
 
 Renderer-dependent interactions will go through a remote UI boundary. The
 server can issue correlated interaction requests for confirmation, input,
-selection, guided questions, and tool approval. Requests are broadcast to all
+selection, and guided questions. Tool approval remains policy-owned by runtime
+interceptors and composes through a nested confirmation request rather than a
+second approval-specific protocol primitive. Requests are broadcast to all
 connected clients; the first valid response resolves the interaction, and that
 resolution is broadcast so other clients dismiss it. Interactive requests must
 have defined behavior when no client is connected.

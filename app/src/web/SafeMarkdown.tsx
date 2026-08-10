@@ -16,13 +16,19 @@ const FORBIDDEN_MARKDOWN_TAGS = [
 	"video",
 ];
 
-function safeMarkdownHtml(markdown: string): string {
+function safeMarkdownHtml(
+	markdown: string,
+	profile: "document" | "interaction",
+): string {
 	const parsed = marked.parse(markdown, { async: false }) as string;
 	const sanitized = DOMPurify.sanitize(parsed, {
 		ALLOW_ARIA_ATTR: false,
 		ALLOW_DATA_ATTR: false,
-		ALLOWED_ATTR: ["href", "title"],
-		FORBID_TAGS: FORBIDDEN_MARKDOWN_TAGS,
+		ALLOWED_ATTR: profile === "document" ? ["href", "title"] : [],
+		FORBID_TAGS:
+			profile === "document"
+				? FORBIDDEN_MARKDOWN_TAGS
+				: [...FORBIDDEN_MARKDOWN_TAGS, "a", "h1", "h2", "h3", "h4", "h5", "h6"],
 		USE_PROFILES: { html: true },
 	});
 	const template = document.createElement("template");
@@ -48,7 +54,17 @@ function safeMarkdownHtml(markdown: string): string {
 export function SafeMarkdown(props: {
 	content: string;
 	class?: string;
+	id?: string;
+	profile?: "document" | "interaction";
 }): JSX.Element {
-	const html = createMemo(() => safeMarkdownHtml(props.content));
-	return <div class={props.class ?? "markdown-content"} innerHTML={html()} />;
+	const html = createMemo(() =>
+		safeMarkdownHtml(props.content, props.profile ?? "document"),
+	);
+	return (
+		<div
+			id={props.id}
+			class={props.class ?? "markdown-content"}
+			innerHTML={html()}
+		/>
+	);
 }

@@ -10,6 +10,7 @@ import {
 } from "solid-js";
 import { isRecord } from "./client-state";
 import { DialogFrame } from "./DialogFrame";
+import { SafeMarkdown } from "./SafeMarkdown";
 import { useWebClient } from "./WebClientContext";
 
 function requestPayload(request: Record<string, unknown>) {
@@ -216,67 +217,93 @@ function InteractionContent(props: {
 
 	return (
 		<m-vstack gap="md">
-			<header>
-				<h2 id="interaction-title">
-					{typeof payload.title === "string"
-						? payload.title
-						: "Kit needs your input"}
-				</h2>
-				<p>
-					{props.request.payloadOmitted === true
-						? (hydrationError() ?? "Loading interaction…")
-						: typeof payload.message === "string"
-							? payload.message
-							: ""}
-				</p>
-			</header>
-			<Show when={responseError()}>
-				<p class="interaction-error" role="alert">
-					{responseError()}
-				</p>
-			</Show>
-			<fieldset class="interaction-frame" disabled={disabled()}>
-				<div class="interaction-fields">
-					<Show when={props.request.payloadOmitted !== true}>
-						<InteractionFields request={props.request} />
+			<header class="interaction-header">
+				<div class="interaction-title-row">
+					<h2 id="interaction-title">
+						{typeof payload.title === "string"
+							? payload.title
+							: "Kit needs your input"}
+					</h2>
+					<Show when={snapshot().protocol.pendingInteractions.length > 1}>
+						<small>1 of {snapshot().protocol.pendingInteractions.length}</small>
 					</Show>
 				</div>
-				<m-hstack class="interaction-actions" gap="sm" justify="end">
-					<button
-						type="button"
-						data-variant="ghost"
-						onClick={() => answer(true)}
-					>
-						{typeof payload.cancelLabel === "string"
-							? payload.cancelLabel
-							: "Cancel"}
-					</button>
-					<Show when={hydrationError()}>
+			</header>
+			<fieldset class="interaction-frame" disabled={disabled()}>
+				<div class="interaction-layout">
+					<div class="interaction-body">
+						<Show
+							when={
+								props.request.payloadOmitted === true ||
+								typeof payload.message === "string"
+							}
+						>
+							<SafeMarkdown
+								id="interaction-message"
+								class="interaction-message"
+								profile="interaction"
+								content={
+									props.request.payloadOmitted === true
+										? (hydrationError() ?? "Loading interaction…")
+										: typeof payload.message === "string"
+											? payload.message
+											: ""
+								}
+							/>
+						</Show>
+						<Show when={responseError()}>
+							<p class="interaction-error" role="alert">
+								{responseError()}
+							</p>
+						</Show>
+						<div class="interaction-fields">
+							<Show when={props.request.payloadOmitted !== true}>
+								<InteractionFields request={props.request} />
+							</Show>
+						</div>
+					</div>
+					<m-hstack class="interaction-actions" gap="sm" justify="end">
 						<button
 							type="button"
-							data-variant="primary"
-							onClick={() => controller.retryInteraction(requestId)}
+							data-interaction-action="cancel"
+							data-variant="ghost"
+							onClick={() => answer(true)}
 						>
-							Retry
+							{typeof payload.cancelLabel === "string"
+								? payload.cancelLabel
+								: "Cancel"}
 						</button>
-					</Show>
-					<Show when={props.request.payloadOmitted !== true}>
-						<button type="submit" data-variant="primary">
-							{typeof payload.confirmLabel === "string"
-								? payload.confirmLabel
-								: props.request.kind === "confirm"
-									? "Confirm"
-									: "Submit"}
-						</button>
-					</Show>
-				</m-hstack>
+						<Show when={hydrationError()}>
+							<button
+								type="button"
+								data-variant="primary"
+								onClick={() => controller.retryInteraction(requestId)}
+							>
+								Retry
+							</button>
+						</Show>
+						<Show when={props.request.payloadOmitted !== true}>
+							<button
+								type="submit"
+								data-interaction-action="confirm"
+								data-variant="primary"
+							>
+								{typeof payload.confirmLabel === "string"
+									? payload.confirmLabel
+									: props.request.kind === "confirm"
+										? "Confirm"
+										: "Submit"}
+							</button>
+						</Show>
+					</m-hstack>
+				</div>
 			</fieldset>
 		</m-vstack>
 	);
 }
 
 export function InteractionDialog(): JSX.Element {
-	const { snapshot, controller, focusComposer } = useWebClient();
+	const { snapshot, controller } = useWebClient();
 	let form: HTMLFormElement | undefined;
 	const protocol = createMemo(() => snapshot().protocol);
 	const request = createMemo(() =>
@@ -287,6 +314,14 @@ export function InteractionDialog(): JSX.Element {
 		return active && typeof active.id === "string"
 			? `${active.id}:${active.payloadOmitted === true ? "omitted" : "ready"}`
 			: null;
+	});
+	const requestDescriptionId = createMemo(() => {
+		const active = request();
+		if (!active) return undefined;
+		return active.payloadOmitted === true ||
+			typeof requestPayload(active).message === "string"
+			? "interaction-message"
+			: undefined;
 	});
 
 	const validateMultiselects = () => {
@@ -317,8 +352,19 @@ export function InteractionDialog(): JSX.Element {
 			focusKey={requestKey()}
 			id="interaction-dialog"
 			labelledBy="interaction-title"
-			restoreFocus={focusComposer}
+			describedBy={requestDescriptionId()}
 			onAfterOpen={() => {
+				const active = request();
+				if (active?.kind === "confirm") {
+					const payload = requestPayload(active);
+					const action = payload.defaultValue === true ? "confirm" : "cancel";
+					form
+						?.querySelector<HTMLElement>(
+							`button[data-interaction-action="${action}"]`,
+						)
+						?.focus();
+					return;
+				}
 				const field = form?.querySelector<HTMLElement>(
 					".interaction-fields input, .interaction-fields select, .interaction-fields textarea",
 				);

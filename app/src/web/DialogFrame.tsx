@@ -6,6 +6,7 @@ export function DialogFrame(props: {
 	id: string;
 	class?: string;
 	labelledBy: string;
+	describedBy?: string;
 	focusKey?: unknown;
 	children: JSX.Element;
 	onCancel: () => void;
@@ -53,6 +54,7 @@ export function DialogFrame(props: {
 			id={props.id}
 			class={props.class}
 			aria-labelledby={props.labelledBy}
+			aria-describedby={props.describedBy}
 			onClick={(event) => {
 				if (event.target !== event.currentTarget) return;
 				const bounds = event.currentTarget.getBoundingClientRect();

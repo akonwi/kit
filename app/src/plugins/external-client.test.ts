@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { createCommandRegistry } from "../features/commands";
 import type { AgentTool } from "../runtime/agent";
+import type { ToolApprovalHandler } from "../runtime/agent-runtime";
 import { createChromeContributionsController } from "../shell/chrome-contributions";
 import type { ExternalPluginFailure, ExternalPluginManifest } from "./external";
 import { ExternalPluginClient } from "./external-client";
@@ -230,5 +231,192 @@ for line in sys.stdin:
 		});
 		expect(records).toContainEqual({ confirm: false });
 		expect(records).toContainEqual({ shutdown: true });
+	});
+
+	test("composes plugin tool interception with nested remote confirmation", async () => {
+		const root = path.resolve(import.meta.dir, "fixtures");
+		const commands = createCommandRegistry();
+		const header = createChromeContributionsController();
+		const footer = createChromeContributionsController();
+		let approvalHandler: ToolApprovalHandler | undefined;
+		let approvalDisposed = false;
+		let cancellationCount = 0;
+		let nestedRequestRegistered = false;
+		const confirmations: Array<Record<string, unknown>> = [];
+		const decisions = [false, true];
+		const runtime = {
+			vcsInfo: null,
+			getSession: () => ({ id: "session-1", name: null, cwd: root }),
+			getTools: () => [],
+			addTool: () => () => {},
+			addToolApprovalHandler: (handler: ToolApprovalHandler) => {
+				approvalHandler = handler;
+				return () => {
+					approvalDisposed = true;
+					approvalHandler = undefined;
+				};
+			},
+			getAllSubagents: () => [],
+			addPluginSubagent: () => () => {},
+			createSystemPromptSlot: () => ({
+				set: () => {},
+				clear: () => {},
+				dispose: () => {},
+			}),
+			submitMessage: async () => {},
+		};
+		const context = {
+			runtime,
+			commands,
+			header,
+			footer,
+			settings: { settings: {}, paths: {} },
+			ui: {
+				text: (text: string, style?: object) => ({
+					__kitText: true,
+					text,
+					style,
+				}),
+				theme: () => ({ name: "test", tokens: {}, syntaxPalette: {} }),
+				toast: (input: Record<string, unknown>) => {
+					if (input.title === "Nested request registered") {
+						nestedRequestRegistered = true;
+					}
+				},
+				select: async () => undefined,
+				input: async () => undefined,
+				confirm: async (input: Record<string, unknown>) => {
+					confirmations.push(input);
+					if (confirmations.length <= decisions.length) {
+						return decisions[confirmations.length - 1];
+					}
+					return new Promise<boolean>((resolve) => {
+						const signal = input.signal;
+						if (!(signal instanceof AbortSignal)) return resolve(false);
+						if (signal.aborted) {
+							cancellationCount += 1;
+							return resolve(false);
+						}
+						signal.addEventListener(
+							"abort",
+							() => {
+								cancellationCount += 1;
+								resolve(false);
+							},
+							{ once: true },
+						);
+					});
+				},
+				custom: async () => undefined,
+				getTranscriptViewport: () => null,
+			},
+			attachments: {},
+			triggerNotification: () => false,
+		} as unknown as PluginContext;
+		const manifest: ExternalPluginManifest = {
+			source: "project",
+			installationName: "tool-approval",
+			root,
+			manifestPath: path.join(root, "tool-approval.plugin.json"),
+			manifest: {
+				manifestVersion: 1,
+				id: "tool-approval",
+				transport: {
+					type: "stdio",
+					command: "python3",
+					args: ["-u", "tool-approval.py"],
+				},
+			},
+		};
+		const failures: ExternalPluginFailure[] = [];
+		const client = new ExternalPluginClient({
+			manifest,
+			context,
+			onFailure: (failure) => failures.push(failure),
+		});
+
+		await client.start();
+		await waitFor(() => approvalHandler !== undefined);
+		const handler = approvalHandler;
+		if (!handler) throw new Error("Expected tool approval handler");
+		expect(
+			await handler({
+				toolCallId: "safe",
+				toolName: "bash",
+				args: { command: "git status" },
+			}),
+		).toEqual({ approved: true });
+		expect(confirmations).toEqual([]);
+
+		expect(
+			await handler({
+				toolCallId: "blocked",
+				toolName: "bash",
+				args: { command: "git commit -m 'test'" },
+			}),
+		).toEqual({ approved: false, reason: "The user rejected bash." });
+		expect(confirmations[0]).toMatchObject({
+			title: "Allow bash?",
+			confirmLabel: "Allow",
+			cancelLabel: "Block",
+			defaultValue: false,
+		});
+
+		expect(
+			await handler({
+				toolCallId: "allowed",
+				toolName: "bash",
+				args: { command: "npm publish" },
+			}),
+		).toEqual({ approved: true });
+
+		const abortController = new AbortController();
+		const cancelled = handler(
+			{
+				toolCallId: "cancelled",
+				toolName: "bash",
+				args: { command: "git commit --amend" },
+			},
+			abortController.signal,
+		);
+		await waitFor(() => confirmations.length === 3);
+		abortController.abort();
+		await expect(cancelled).rejects.toThrow("cancelled");
+		await waitFor(() => cancellationCount === 1);
+
+		const earlyAbort = new AbortController();
+		const cancelledBeforeNestedRequest = handler(
+			{
+				toolCallId: "cancelled-early",
+				toolName: "bash",
+				args: { command: "git commit --delay-approval" },
+			},
+			earlyAbort.signal,
+		);
+		await Bun.sleep(10);
+		earlyAbort.abort();
+		await expect(cancelledBeforeNestedRequest).rejects.toThrow("cancelled");
+		await Bun.sleep(70);
+		expect(confirmations).toHaveLength(3);
+
+		const registeredAbort = new AbortController();
+		const cancellationCountBeforeSendRace = cancellationCount;
+		const cancelledBeforeNestedSend = handler(
+			{
+				toolCallId: "cancelled-before-send",
+				toolName: "bash",
+				args: { command: "git commit --delay-nested-send" },
+			},
+			registeredAbort.signal,
+		);
+		await waitFor(() => nestedRequestRegistered);
+		registeredAbort.abort();
+		await expect(cancelledBeforeNestedSend).rejects.toThrow("cancelled");
+		await waitFor(() => cancellationCount > cancellationCountBeforeSendRace);
+		expect(confirmations).toHaveLength(4);
+
+		await client.stop();
+		expect(approvalDisposed).toBe(true);
+		expect(failures).toEqual([]);
 	});
 });

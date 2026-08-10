@@ -110,8 +110,8 @@ commands. Support:
 - confirmation
 - text input
 - selection
-- tool approval
 - guided questions
+- plugin-owned tool approval through an interceptor's nested confirmation
 
 Interactive requests are broadcast to all connected clients. The first valid
 response wins, and the server broadcasts the resolution so other clients close
@@ -122,8 +122,10 @@ aborted, or shut down.
 
 Implemented: the transport-neutral broker, `ui_request` / `ui_response`
 protocol, connection-independent pending requests, safe abort/shutdown behavior,
-remote plugin UI primitives, and remote guided-question/user-interaction tools.
-Browser rendering remains in the client milestone.
+remote plugin UI primitives, remote guided-question/user-interaction tools, and
+plugin-owned tool approvals composed from interceptors and nested confirmations.
+The browser uses deny-by-default focus, bounded scrollable approval content, and
+reconnect-safe first-response-wins resolution.
 
 ### Plugins
 
@@ -146,8 +148,11 @@ Add protocol operations for:
 
 Implemented: capability discovery, state/messages, session listing and opening,
 new sessions, cwd changes, and listing/execution for commands that explicitly
-provide transport-neutral handlers. Additional renderer-owned built-in commands
-need deliberate remote adapters rather than fabricated TUI context.
+provide transport-neutral handlers. Browser UI for creating, listing, switching,
+renaming, and deleting sessions is explicitly deferred; only existing
+transport-neutral session commands remain available in web mode. Additional
+renderer-owned built-in commands need deliberate remote adapters rather than
+fabricated TUI context.
 
 ### Attachments
 
@@ -275,7 +280,7 @@ for every remote client rather than hidden in renderer-specific code:
 - [x] Extract transport-independent RPC dispatch from the stdio server.
 - [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
 - [x] Add a minimal Mica-based web transcript/composer client.
-- [ ] Fill remaining tool-approval, plugin-client-surface, and built-in command gaps.
+- [ ] Fill remaining plugin-client-surface and built-in command gaps.
 - [x] Add event sequencing, reconnect, and interaction coordination.
 - [ ] Validate local access through a trusted private tunnel.
 - [ ] Add a cloud sandbox worker using the same command and protocol.
