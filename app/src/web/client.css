@@ -38,6 +38,11 @@ body {
 	font-family: var(--font-mono);
 }
 
+/* Match the TUI stack: directly below the header, aligned to the right. */
+body > m-toast[popover] {
+	inset: calc(2rem + var(--m-toast-offset, 0px)) var(--space-md) auto auto;
+}
+
 #app > [data-visually-hidden="focusable"]:focus {
 	position: fixed;
 	inset-block-start: var(--space-xs);
