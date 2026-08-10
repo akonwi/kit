@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mergePaletteCommands } from "./command-palette-commands";
 
 describe("command palette commands", () => {
-	test("adds browser model controls before remote commands", () => {
+	test("adds browser adapters before remote commands", () => {
 		expect(
 			mergePaletteCommands([
 				{ id: "compact", name: "compact", description: "Compact context" },
@@ -10,6 +10,7 @@ describe("command palette commands", () => {
 		).toEqual([
 			["model", "model"],
 			["thinking", "thinking"],
+			["theme", "theme"],
 			["compact", undefined],
 		]);
 	});
@@ -18,11 +19,13 @@ describe("command palette commands", () => {
 		const commands = mergePaletteCommands([
 			{ id: "model", name: "remote model" },
 			{ id: "thinking", name: "remote thinking" },
+			{ id: "theme", name: "remote theme" },
 		]);
 
 		expect(commands.map((command) => command.name)).toEqual([
 			"model",
 			"thinking",
+			"theme",
 		]);
 		expect(commands.every((command) => command.browserAction)).toBe(true);
 	});

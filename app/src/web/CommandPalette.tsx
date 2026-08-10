@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { scoreMatch } from "../features/files/score";
 import { useAgentConfiguration } from "./AgentConfigurationControls";
+import { useBrowserTheme } from "./BrowserThemeProvider";
 import {
 	mergePaletteCommands,
 	type PaletteCommand,
@@ -21,6 +22,7 @@ import { useWebClient } from "./WebClientContext";
 
 export function CommandPalette(): JSX.Element {
 	const { controller, snapshot } = useWebClient();
+	const { openThemePicker } = useBrowserTheme();
 	const {
 		disabled: configurationDisabled,
 		openModelPicker,
@@ -69,16 +71,25 @@ export function CommandPalette(): JSX.Element {
 	});
 
 	let observedStreamId: string | null = null;
+	let observedPhase = snapshot().protocol.phase;
 	createEffect(() => {
 		const protocol = snapshot().protocol;
-		if (
-			open() &&
-			(protocol.phase !== "live" ||
-				(observedStreamId !== null && protocol.streamId !== observedStreamId))
-		) {
-			closePalette();
+		if (open()) {
+			if (observedStreamId !== null && protocol.streamId !== observedStreamId) {
+				closePalette();
+			} else if (protocol.phase !== "live") {
+				loadGeneration += 1;
+				setCommands(mergePaletteCommands([]));
+				setRegistryGeneration(null);
+				setArgumentCommand(null);
+				setError("");
+				setLoading(false);
+			} else if (observedPhase !== "live") {
+				void loadCommands();
+			}
 		}
 		observedStreamId = protocol.streamId;
+		observedPhase = protocol.phase;
 	});
 
 	async function loadCommands(): Promise<void> {
@@ -107,7 +118,13 @@ export function CommandPalette(): JSX.Element {
 		setSelectedIndex(0);
 		setArgumentCommand(null);
 		setOpen(true);
-		void loadCommands();
+		if (snapshot().protocol.phase === "live") void loadCommands();
+		else {
+			setCommands(mergePaletteCommands([]));
+			setRegistryGeneration(null);
+			setLoading(false);
+			setError("");
+		}
 	}
 
 	function closePalette(): void {
@@ -137,13 +154,23 @@ export function CommandPalette(): JSX.Element {
 		scrollSelectedCommandIntoView();
 	}
 
+	function browserCommandDisabled(command: PaletteCommand): boolean {
+		return (
+			command.browserAction !== undefined &&
+			command.browserAction !== "theme" &&
+			configurationDisabled()
+		);
+	}
+
 	function chooseCommand(command: PaletteCommand): void {
-		if (command.browserAction && configurationDisabled()) return;
-		if (command.browserAction) {
+		const browserAction = command.browserAction;
+		if (browserAction && browserCommandDisabled(command)) return;
+		if (browserAction) {
 			closePalette();
 			queueMicrotask(() => {
-				if (command.browserAction === "model") void openModelPicker();
-				else void openThinkingPicker();
+				if (browserAction === "model") void openModelPicker();
+				else if (browserAction === "thinking") void openThinkingPicker();
+				else openThemePicker();
 			});
 			return;
 		}
@@ -293,9 +320,7 @@ export function CommandPalette(): JSX.Element {
 									role="option"
 									tabIndex={-1}
 									aria-selected={index() === selectedIndex()}
-									aria-disabled={
-										command.browserAction && configurationDisabled()
-									}
+									aria-disabled={browserCommandDisabled(command)}
 									onMouseEnter={() => setSelectedIndex(index())}
 									onClick={() => chooseCommand(command)}
 								>
