@@ -35,6 +35,16 @@ describe("createBuiltInPlugins", () => {
 		expect(names).not.toContain("PromptsPlugin");
 	});
 
+	test("adds prompt commands for web headless mode", () => {
+		const plugins = createBuiltInPlugins({ runtime: {} } as PluginContext, {
+			headless: true,
+			remotePromptCommands: true,
+		});
+		const names = plugins.map((plugin) => plugin.name);
+
+		expect(names).toContain("PromptsPlugin");
+	});
+
 	test("adds transport-safe interaction tools for remote headless mode", () => {
 		const plugins = createBuiltInPlugins({ runtime: {} } as PluginContext, {
 			headless: true,

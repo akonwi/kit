@@ -1030,9 +1030,14 @@ export class RpcSessionHost {
 			}
 			case "list_commands": {
 				if (!this.commands) throw new Error("Command registry is unavailable");
+				const seenCommandIds = new Set<string>();
 				const commands = this.commands
 					.getAll()
-					.filter((candidate) => candidate.executeTransportNeutral)
+					.filter((candidate) => {
+						if (seenCommandIds.has(candidate.name)) return false;
+						seenCommandIds.add(candidate.name);
+						return candidate.executeTransportNeutral !== undefined;
+					})
 					.map((candidate) => ({
 						id: candidate.name,
 						name: candidate.displayName ?? candidate.name,

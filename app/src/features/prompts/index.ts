@@ -1,38 +1,74 @@
 import type { InternalPluginAPI } from "../../plugins";
+import type { PromptTemplate } from "./discovery";
 import { loadPromptTemplates } from "./discovery";
 import { parseCommandArgs, substituteArgs } from "./substitute";
 
 export type { PromptTemplate } from "./discovery";
 export { loadPromptTemplates } from "./discovery";
 
-export function PromptsPlugin(kit: InternalPluginAPI): void {
-	const templates = loadPromptTemplates(kit.system.cwd);
+function expandPromptTemplate(template: PromptTemplate, args: string): string {
+	return substituteArgs(template.content, parseCommandArgs(args));
+}
 
-	// Register each template as a slash command
-	for (const template of templates) {
-		kit.registerCommand(
-			template.name,
-			{
-				description: template.description || template.filePath,
-				argName: "args",
-			},
-			async (ctx) => {
-				const args = parseCommandArgs(ctx.args);
-				const expanded = substituteArgs(template.content, args);
-				await ctx.session.submitPromptCommandMessage(
+export function PromptsPlugin(kit: InternalPluginAPI): () => void {
+	const contributionDisposers: Array<() => void> = [];
+
+	function clearContributions(): void {
+		for (const dispose of contributionDisposers.splice(0)) dispose();
+	}
+
+	function registerWorkspaceTemplates(cwd: string): void {
+		const templates = loadPromptTemplates(cwd);
+		clearContributions();
+
+		for (const template of templates) {
+			contributionDisposers.push(
+				kit.registerCommand(
 					template.name,
-					ctx.args,
-					expanded,
-				);
-			},
+					{
+						description: template.description || template.filePath,
+						argName: "args",
+						executeTransportNeutral: ({
+							args,
+							schedulePromptCommand,
+							signal,
+						}) => {
+							signal?.throwIfAborted();
+							schedulePromptCommand(
+								template.name,
+								args,
+								expandPromptTemplate(template, args),
+							);
+							signal?.throwIfAborted();
+						},
+					},
+					async (ctx) => {
+						await ctx.session.submitPromptCommandMessage(
+							template.name,
+							ctx.args,
+							expandPromptTemplate(template, ctx.args),
+						);
+					},
+				),
+			);
+		}
+
+		contributionDisposers.push(
+			kit.addDebugSection(
+				"Prompt commands",
+				templates.length > 0
+					? templates.map(
+							(template) =>
+								`- /${template.name} (${template.source}) ${template.filePath}`,
+						)
+					: ["(none)"],
+			),
 		);
 	}
 
-	// Register debug info
-	kit.addDebugSection(
-		"Prompt commands",
-		templates.length > 0
-			? templates.map((t) => `- /${t.name} (${t.source}) ${t.filePath}`)
-			: ["(none)"],
-	);
+	registerWorkspaceTemplates(kit.system.cwd);
+	kit.on("session.active.changed.cwd", (event) => {
+		registerWorkspaceTemplates(event.cwd);
+	});
+	return clearContributions;
 }

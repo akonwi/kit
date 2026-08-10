@@ -51,6 +51,7 @@ export type BuiltInPluginOptions = {
 	releasesWorkspace?: ReleasesWorkspaceController;
 	remoteGuidedQuestions?: GuidedQuestionsRequester;
 	remoteChrome?: boolean;
+	remotePromptCommands?: boolean;
 };
 
 // Built-in plugins that are always enabled as core features.
@@ -69,7 +70,9 @@ export function createBuiltInPlugins(
 				workspace: options.subagentsWorkspace,
 			}),
 		),
-		...(options.headless ? [] : [internalPlugin(PromptsPlugin)]),
+		...(!options.headless || options.remotePromptCommands
+			? [internalPlugin(PromptsPlugin)]
+			: []),
 		internalPlugin(ClaudeCompatibilityPlugin),
 		internalPlugin(
 			createMcpPlugin({

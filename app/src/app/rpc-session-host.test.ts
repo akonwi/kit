@@ -1168,6 +1168,14 @@ describe("RpcSessionHost", () => {
 				execute: () => {},
 			},
 			{
+				name: "local-only",
+				description: "Shadowed remote command",
+				execute: () => {},
+				executeTransportNeutral: () => {
+					throw new Error("Shadowed command must not execute");
+				},
+			},
+			{
 				name: "plugin.toggle",
 				displayName: "toggle",
 				description: "Toggle the plugin",
@@ -1175,6 +1183,14 @@ describe("RpcSessionHost", () => {
 				executeTransportNeutral: async ({ args }) => {
 					receivedArgs = args;
 					await interactions.confirm({ title: "Enable?" });
+				},
+			},
+			{
+				name: "plugin.toggle",
+				description: "Shadowed plugin command",
+				execute: () => {},
+				executeTransportNeutral: () => {
+					throw new Error("Shadowed command must not execute");
 				},
 			},
 		]);

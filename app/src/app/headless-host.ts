@@ -199,6 +199,7 @@ export async function createHeadlessHost(
 			subagentStorage: createMemorySubagentSessionStorage(),
 			remoteGuidedQuestions: options.interactions,
 			remoteChrome: options.remoteChrome,
+			remotePromptCommands: options.remotePromptCommands,
 		}),
 		pluginContext,
 	);

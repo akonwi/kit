@@ -114,21 +114,22 @@ through RPC instead of converting them only into TUI toasts.
 
 The exposed built-in transport-neutral batch is `/compact`, `/handoff`, `/name`
 (with an explicit name), `/new`, and `/cd` (with an explicit path). Discovered
-Claude-compatible `/cc:<name>` commands are also exposed when their command
-files are available in the workspace. Transport handlers receive host-provided
+prompt-template commands and Claude-compatible `/cc:<name>` commands are also
+exposed when their files are available. Transport handlers receive host-provided
 runtime, persistence, cancellation, and prompt scheduling context rather than
 capturing one session inside the static built-in command definitions. Internal
 plugin commands must also opt in individually; they are not remotely executable
-by default.
+by default. When multiple registrations use the same command ID, the first
+registration owns that ID for both remote listing and execution.
 
 `/new` and `/handoff` follow the host's persistent or ephemeral session policy.
 When `/handoff` includes a message, command success acknowledges the completed
 fork and accepts the message as an asynchronous prompt; normal agent lifecycle
 events report its progress and settlement. Claude-compatible commands use the
 same asynchronous acceptance boundary while preserving their structured
-prompt-command name, arguments, and expanded prompt in the transcript. Remote
-Claude command discovery rejects workspace-escaping paths and refreshes the
-command registry when the session cwd changes.
+prompt-command name, arguments, and expanded prompt in the transcript. Dynamic
+prompt and Claude command registrations refresh when the session cwd changes;
+Claude command discovery also rejects workspace-escaping paths.
 
 Model and thinking selection use their existing discovery and mutation RPC
 commands through reusable browser-native pickers. Sessions, authentication, review,
