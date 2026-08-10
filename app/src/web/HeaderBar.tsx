@@ -9,6 +9,12 @@ import {
 import { BUILT_IN_CHROME_CONTRIBUTION_IDS } from "../shell/chrome-contributions";
 import { AgentConfigurationControls } from "./AgentConfigurationControls";
 import { RemoteChromeLine } from "./chrome-contributions";
+import {
+	clampContextPercent,
+	contextProgressTone,
+	formatContextUsage,
+	parseRemoteContextUsage,
+} from "./context-usage";
 import { SessionNameDialog } from "./SessionNameDialog";
 import { useWebClient } from "./WebClientContext";
 
@@ -25,6 +31,16 @@ export function HeaderBar(): JSX.Element {
 	const sessionId = createMemo(() => {
 		const id = protocol().serverState.sessionId;
 		return typeof id === "string" ? id : null;
+	});
+	const contextProgress = createMemo(() => {
+		const usage = parseRemoteContextUsage(protocol().serverState.contextUsage);
+		if (!usage || usage.percent <= 0) return null;
+		return {
+			usage,
+			width: clampContextPercent(usage.percent),
+			tone: contextProgressTone(usage.percent),
+			label: formatContextUsage(usage),
+		};
 	});
 	const [nameDialogOpen, setNameDialogOpen] = createSignal(false);
 	let observedStreamId: string | null = null;
@@ -110,6 +126,21 @@ export function HeaderBar(): JSX.Element {
 						onActivate={activate}
 					/>
 				</div>
+				<Show when={contextProgress()}>
+					{(progress) => (
+						<div
+							class={`header-context-progress is-${progress().tone}`}
+							style={{ width: `${progress().width}%` }}
+							role="progressbar"
+							aria-label="Context usage"
+							aria-valuemin="0"
+							aria-valuemax="100"
+							aria-valuenow={progress().width}
+							aria-valuetext={progress().label}
+							title={progress().label}
+						/>
+					)}
+				</Show>
 			</header>
 			<SessionNameDialog
 				open={nameDialogOpen()}

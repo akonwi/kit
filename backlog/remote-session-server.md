@@ -272,7 +272,7 @@ for every remote client rather than hidden in renderer-specific code:
   bounds, and recovery limits through capability discovery.
 - [x] Split the browser controller into transport, remote-service, and local
   view-state modules behind the existing controller facade.
-- [ ] Expose context-usage statistics so remote headers can render the TUI's
+- [x] Expose context-usage statistics so remote headers can render the TUI's
   threshold-colored context progress line.
 - [ ] Expose queued follow-up previews, not only their count, so remote pending
   slots can mirror the TUI queue rows.

@@ -52,6 +52,7 @@ describe("RPC mode protocol", () => {
 				data: {
 					thinkingLevel: "off",
 					isStreaming: false,
+					contextUsage: null,
 					sessionId: "session-1",
 					cwd: "/workspace",
 					messageCount: 0,
@@ -378,6 +379,7 @@ describe("RPC mode protocol", () => {
 			"session.message.appended",
 			"agent.end",
 			"agent.turn.completed",
+			"state_changed",
 			"agent.settled",
 		]);
 	});

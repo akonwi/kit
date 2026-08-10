@@ -553,9 +553,11 @@ export class RpcSessionHost {
 				this.publish(record);
 			}
 			if (
+				event.type === "agent.turn.completed" ||
 				event.type === "session.active.changed" ||
 				event.type === "session.model.changed" ||
-				event.type === "session.thinking_level.changed"
+				event.type === "session.thinking_level.changed" ||
+				event.type.startsWith("session.compaction.completed.")
 			) {
 				this.publishStateChanged();
 			}
@@ -735,10 +737,19 @@ export class RpcSessionHost {
 
 	private stateSnapshot(): Record<string, unknown> {
 		const session = this.runtime.getSession();
+		const status = this.runtime.getStatus();
+		const contextUsage = status.contextUsage;
 		return {
 			model: this.runtime.getCurrentModel(),
 			thinkingLevel: this.runtime.agentInfo.thinkingLevel,
-			isStreaming: this.runtime.getStatus().isStreaming,
+			isStreaming: status.isStreaming,
+			contextUsage: contextUsage
+				? {
+						tokens: contextUsage.tokens,
+						contextWindow: contextUsage.contextWindow,
+						percent: contextUsage.percent,
+					}
+				: null,
 			sessionId: session.id,
 			sessionName: session.name,
 			cwd: session.cwd,

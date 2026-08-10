@@ -191,8 +191,57 @@ describe("RpcSessionHost", () => {
 			},
 			{ type: "session.transcript.replaced", reason: "compaction" },
 			{
+				type: "state_changed",
+				state: expect.objectContaining({ contextUsage: null }),
+			},
+			{
 				type: "session.compaction.failed.manual",
 				error: "Not enough turns to compact.",
+			},
+		]);
+		host.dispose();
+	});
+
+	test("snapshots and broadcasts updated context usage", () => {
+		let contextUsage = {
+			tokens: 12_000,
+			contextWindow: 200_000,
+			percent: 6,
+			usageTokens: 11_500,
+			trailingTokens: 500,
+			lastUsageIndex: 2,
+		};
+		const runtime = createRuntime({
+			getStatus: () => ({ isStreaming: false, contextUsage }),
+		});
+		const host = new RpcSessionHost(runtime);
+		expect(host.getConnectionSnapshot().state).toMatchObject({
+			contextUsage: {
+				tokens: 12_000,
+				contextWindow: 200_000,
+				percent: 6,
+			},
+		});
+		const records: unknown[] = [];
+		host.subscribe((record) => records.push(record));
+		contextUsage = { ...contextUsage, tokens: 162_000, percent: 81 };
+
+		runtime.emit({
+			type: "agent.turn.completed",
+			turn: null,
+		} as AgentRuntimeEvent);
+
+		expect(records).toEqual([
+			{ type: "agent.turn.completed", turnId: null },
+			{
+				type: "state_changed",
+				state: expect.objectContaining({
+					contextUsage: {
+						tokens: 162_000,
+						contextWindow: 200_000,
+						percent: 81,
+					},
+				}),
 			},
 		]);
 		host.dispose();

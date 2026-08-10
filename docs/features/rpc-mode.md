@@ -85,7 +85,7 @@ process.
 | `abort` | none | none |
 | `new_session` | none | `{ "cancelled": false }` |
 | `get_capabilities` | none | protocol version, features, and transport limits |
-| `get_state` | none | current model, thinking level, session, CWD, streaming, and message counts |
+| `get_state` | none | current model, thinking level, session, CWD, streaming, message counts, and context usage |
 | `get_messages` | none | `{ "messages": [...] }` |
 | `get_last_assistant_text` | none | `{ "text": string \| null }` |
 | `get_available_models` | none | `{ "models": [...] }` |
@@ -186,6 +186,12 @@ RPC mode emits Kit semantic events using the same dotted names as the runtime:
 - `scratchpad.changed` when the active session scratchpad changes
 - `shell.chrome.changed` when web-mode plugin header/footer contributions,
   declarative URL actions, or built-in visibility claims change
+
+Connection snapshots, `get_state` responses, and `state_changed` events include
+`contextUsage` as `{ tokens, contextWindow, percent }` when a model provides a
+context window, or `null` otherwise. Updated usage is published after completed
+turns, compaction, model changes, and session changes so remote clients can
+render the same threshold-colored progress indicator as the TUI.
 
 Every transcript message has a stable `turnId` and `messageId`.
 `agent.message.updated.update` is a Kit-owned content update with a `kind`,

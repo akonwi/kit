@@ -79,7 +79,25 @@ body > m-toast[popover] {
 }
 
 .header-bar {
+	position: relative;
 	border-block-end: 1px solid var(--kit-border-default);
+}
+
+.header-context-progress {
+	position: absolute;
+	inset-block-end: -1px;
+	inset-inline-start: 0;
+	block-size: 1px;
+	background: var(--kit-border-accent);
+	pointer-events: none;
+}
+
+.header-context-progress.is-warning {
+	background: var(--color-warn-text);
+}
+
+.header-context-progress.is-critical {
+	background: var(--kit-error-text);
 }
 
 .header-chrome-side,
