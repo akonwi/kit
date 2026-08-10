@@ -276,6 +276,13 @@ for every remote client rather than hidden in renderer-specific code:
   threshold-colored context progress line.
 - [x] Expose queued follow-up previews, not only their count, so remote pending
   slots can mirror the TUI queue rows.
+- [ ] Add transport-neutral queued follow-up mutations for restoring queued
+  messages into a client-local draft and promoting follow-ups to steering.
+  Define first-writer and stale-state behavior so simultaneous clients cannot
+  restore, edit, or promote the same queue inconsistently.
+- [ ] Add browser controls for restoring/editing queued follow-ups and promoting
+  them to steering without turning the compact stacked preview into a queue
+  management surface.
 - [ ] Define explicit shared-session control UX for session/model changes made by
   another connected client; session changes currently force a fresh snapshot.
 - [x] Project plugin header/footer contributions with semantic token styling,
