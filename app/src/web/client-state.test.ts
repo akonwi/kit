@@ -55,7 +55,12 @@ describe("web client state", () => {
 			mode: "snapshot",
 			streamId: "stream-1",
 			sequence: 4,
-			state: { sessionId: "session-1", isStreaming: false },
+			state: {
+				sessionId: "session-1",
+				isStreaming: false,
+				pendingMessageCount: 4,
+				pendingMessagePreviews: ["first", "second", "third"],
+			},
 			messages: [
 				{
 					role: "user",
@@ -77,6 +82,8 @@ describe("web client state", () => {
 			messageOffset: 3,
 			pendingInteractionGeneration: 1,
 			totalMessageCount: 4,
+			queuedMessageCount: 4,
+			queuedMessagePreviews: ["first", "second", "third"],
 		});
 		state = reduceClientRecord(state, {
 			type: "sync_complete",
@@ -85,6 +92,54 @@ describe("web client state", () => {
 			sequence: 4,
 		});
 		expect(state.phase).toBe("live");
+	});
+
+	test("updates queued follow-up previews from live and legacy events", () => {
+		const state = {
+			...createClientState(),
+			phase: "live" as const,
+			streamId: "stream-1",
+		};
+		const legacy = reduceClientRecord(state, {
+			type: "chat.message-queue.changed",
+			streamId: "stream-1",
+			sequence: 1,
+			steering: [],
+			followUp: [" first\nmessage ", "second message"],
+		});
+		expect(legacy).toMatchObject({
+			queuedMessageCount: 2,
+			queuedMessagePreviews: ["first message", "second message"],
+		});
+		const updated = reduceClientRecord(state, {
+			type: "chat.message-queue.changed",
+			streamId: "stream-1",
+			sequence: 1,
+			count: 5,
+			previews: ["first", "second", "third"],
+		});
+		expect(updated).toMatchObject({
+			queuedMessageCount: 5,
+			queuedMessagePreviews: ["first", "second", "third"],
+		});
+		expect(() =>
+			reduceClientRecord(updated, {
+				type: "chat.message-queue.changed",
+				streamId: "stream-1",
+				sequence: 2,
+				count: 1,
+				previews: ["one", "too many"],
+			}),
+		).toThrow("Invalid queued message state");
+		expect(() =>
+			reduceClientRecord(updated, {
+				type: "chat.message-queue.changed",
+				streamId: "stream-1",
+				sequence: 2,
+				count: 1,
+				previews: ["x".repeat(241)],
+			}),
+		).toThrow("Invalid queued message state");
 	});
 
 	test("validates chrome snapshots and live contribution changes", () => {
@@ -252,6 +307,7 @@ describe("web client state", () => {
 		});
 		expect(state.messages[0]).toEqual(assistantMessage("hello"));
 		expect(state.queuedMessageCount).toBe(1);
+		expect(state.queuedMessagePreviews).toEqual([]);
 	});
 
 	test("buffers live deltas until an identified snapshot reference is hydrated", () => {

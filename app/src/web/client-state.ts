@@ -1,4 +1,9 @@
 import {
+	MAX_REMOTE_MESSAGE_PREVIEW_LENGTH,
+	MAX_REMOTE_MESSAGE_PREVIEWS,
+	remoteMessagePreviews,
+} from "../app/remote-message-queue";
+import {
 	EMPTY_REMOTE_CHROME,
 	parseRemoteChromeSnapshot,
 	type RemoteChromeSnapshot,
@@ -41,6 +46,7 @@ export type ClientState = {
 	totalPendingInteractionCount: number;
 	pendingInteractionGeneration: number;
 	queuedMessageCount: number;
+	queuedMessagePreviews: string[];
 	lastError: string | null;
 };
 
@@ -73,6 +79,7 @@ export function createClientState(): ClientState {
 		totalPendingInteractionCount: 0,
 		pendingInteractionGeneration: 0,
 		queuedMessageCount: 0,
+		queuedMessagePreviews: [],
 		lastError: null,
 	};
 }
@@ -192,10 +199,52 @@ function cloneMessageWithDelta(
 	return { ...message, content };
 }
 
-function queuedCount(record: Record<string, unknown>): number {
-	const steering = Array.isArray(record.steering) ? record.steering.length : 0;
-	const followUp = Array.isArray(record.followUp) ? record.followUp.length : 0;
-	return steering + followUp;
+function messageQueueState(
+	record: Record<string, unknown>,
+	source: "event" | "snapshot",
+): {
+	count: number;
+	previews: string[];
+} | null {
+	const count = record.count;
+	const previews = record.previews;
+	if (count === undefined && previews === undefined) {
+		if (
+			Array.isArray(record.followUp) &&
+			record.followUp.every((message) => typeof message === "string")
+		) {
+			return {
+				count: record.followUp.length,
+				previews: remoteMessagePreviews(record.followUp),
+			};
+		}
+		return source === "snapshot" ? { count: 0, previews: [] } : null;
+	}
+	if (
+		source === "snapshot" &&
+		typeof count === "number" &&
+		Number.isSafeInteger(count) &&
+		count >= 0 &&
+		previews === undefined
+	) {
+		return { count, previews: [] };
+	}
+	if (
+		typeof count !== "number" ||
+		!Number.isSafeInteger(count) ||
+		count < 0 ||
+		!Array.isArray(previews) ||
+		previews.length > MAX_REMOTE_MESSAGE_PREVIEWS ||
+		previews.length > count ||
+		!previews.every(
+			(preview) =>
+				typeof preview === "string" &&
+				Array.from(preview).length <= MAX_REMOTE_MESSAGE_PREVIEW_LENGTH,
+		)
+	) {
+		return null;
+	}
+	return { count, previews };
 }
 
 function applyEvent(
@@ -435,8 +484,17 @@ function applyEvent(
 			return { ...state, pendingStatus: "Working…" };
 		case "agent.retry.failed":
 			return { ...state, activeTurnId: null, pendingStatus: null };
-		case "chat.message-queue.changed":
-			return { ...state, queuedMessageCount: queuedCount(record) };
+		case "chat.message-queue.changed": {
+			const queue = messageQueueState(record, "event");
+			if (!queue) {
+				throw new ProtocolSyncError("Invalid queued message state");
+			}
+			return {
+				...state,
+				queuedMessageCount: queue.count,
+				queuedMessagePreviews: queue.previews,
+			};
+		}
 		case "shell.chrome.changed": {
 			const chrome = parseRemoteChromeSnapshot(record.chrome);
 			if (!chrome)
@@ -579,6 +637,16 @@ export function reduceClientRecord(
 				typeof finalMessage.turnId === "string"
 					? finalMessage.turnId
 					: null;
+			const messageQueue = messageQueueState(
+				{
+					count: serverState.pendingMessageCount,
+					previews: serverState.pendingMessagePreviews,
+				},
+				"snapshot",
+			);
+			if (!messageQueue) {
+				throw new ProtocolSyncError("Invalid queued message snapshot");
+			}
 			return {
 				...state,
 				phase: "synchronizing",
@@ -618,10 +686,8 @@ export function reduceClientRecord(
 							? record.pendingInteractions.length
 							: 0,
 				pendingInteractionGeneration: record.pendingInteractionGeneration,
-				queuedMessageCount:
-					typeof serverState.pendingMessageCount === "number"
-						? serverState.pendingMessageCount
-						: 0,
+				queuedMessageCount: messageQueue.count,
+				queuedMessagePreviews: messageQueue.previews,
 				lastError: null,
 			};
 		}

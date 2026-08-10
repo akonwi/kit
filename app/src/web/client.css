@@ -902,6 +902,38 @@ details[open] > summary > .disclosure-marker {
 	white-space: nowrap;
 }
 
+.pending-followups {
+	display: flex;
+	flex-direction: column;
+	gap: var(--space-2xs);
+	margin: 0;
+	padding: 0 var(--space-sm);
+	list-style: none;
+	color: var(--kit-text-muted);
+}
+
+.pending-followup {
+	min-inline-size: 0;
+	display: flex;
+	gap: var(--space-xs);
+}
+
+.pending-followup-label {
+	flex: 0 0 auto;
+}
+
+.pending-followup-preview {
+	min-inline-size: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.pending-followup-more {
+	padding: var(--space-2xs) var(--space-sm) var(--space-xs);
+	color: var(--kit-text-placeholder);
+}
+
 @keyframes pending-spin {
 	to {
 		transform: rotate(1turn);

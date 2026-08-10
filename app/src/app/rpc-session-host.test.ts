@@ -26,6 +26,7 @@ function createRuntime(overrides: Record<string, unknown> = {}) {
 		agentInfo: { thinkingLevel: "off" },
 		getMessages: () => [],
 		getPendingMessageCount: () => 0,
+		getPendingMessages: () => [],
 		abort: () => {},
 		submitUserMessage: async () => {},
 		emit: (event: AgentRuntimeEvent) => listener?.(event),
@@ -242,6 +243,52 @@ describe("RpcSessionHost", () => {
 						percent: 81,
 					},
 				}),
+			},
+		]);
+		host.dispose();
+	});
+
+	test("bounds queued follow-up previews in snapshots and events", () => {
+		const longMessage = "x".repeat(300);
+		const pendingMessages = [
+			"  first\nfollow-up  ",
+			"second follow-up",
+			longMessage,
+			"hidden follow-up",
+		];
+		const runtime = createRuntime({
+			getPendingMessageCount: () => pendingMessages.length,
+			getPendingMessages: () => pendingMessages,
+		});
+		const host = new RpcSessionHost(runtime);
+		const snapshot = host.getConnectionSnapshot().state;
+		expect(snapshot.pendingMessageCount).toBe(4);
+		expect(snapshot.pendingMessagePreviews).toEqual([
+			"first follow-up",
+			"second follow-up",
+			expect.stringMatching(/^x{237}\.\.\.$/),
+		]);
+		const records: unknown[] = [];
+		host.subscribe((record) => records.push(record));
+
+		runtime.emit({
+			type: "chat.message-queue.changed",
+			count: pendingMessages.length,
+			messages: pendingMessages,
+			steering: [],
+		} as AgentRuntimeEvent);
+
+		expect(records).toEqual([
+			{
+				type: "chat.message-queue.changed",
+				steering: [],
+				followUp: pendingMessages,
+				count: 4,
+				previews: [
+					"first follow-up",
+					"second follow-up",
+					expect.stringMatching(/^x{237}\.\.\.$/),
+				],
 			},
 		]);
 		host.dispose();

@@ -27,6 +27,7 @@ import {
 	REMOTE_INTERACTION_KINDS,
 	type RemoteInteractionBroker,
 } from "./remote-interaction-broker";
+import { remoteMessagePreviews } from "./remote-message-queue";
 
 export type RpcCommand = {
 	id?: string;
@@ -400,6 +401,8 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 					type: event.type,
 					steering: event.steering,
 					followUp: event.messages,
+					count: event.count,
+					previews: remoteMessagePreviews(event.messages),
 				},
 			];
 		case "chat.followups.promoted":
@@ -755,6 +758,9 @@ export class RpcSessionHost {
 			cwd: session.cwd,
 			messageCount: this.runtime.getMessages().length,
 			pendingMessageCount: this.runtime.getPendingMessageCount(),
+			pendingMessagePreviews: remoteMessagePreviews(
+				this.runtime.getPendingMessages(),
+			),
 		};
 	}
 

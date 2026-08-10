@@ -1,5 +1,5 @@
 /** @jsxImportSource solid-js */
-import { createMemo, type JSX, Show } from "solid-js";
+import { createMemo, For, type JSX, Show } from "solid-js";
 import { isRecord } from "./client-state";
 import { useWebClient } from "./WebClientContext";
 
@@ -43,6 +43,12 @@ export function PendingSlot(): JSX.Element {
 				? "Kit is working"
 				: "",
 	);
+	const hiddenQueueCount = createMemo(() =>
+		Math.max(
+			0,
+			protocol().queuedMessageCount - protocol().queuedMessagePreviews.length,
+		),
+	);
 
 	return (
 		<div class="pending-slot">
@@ -53,6 +59,29 @@ export function PendingSlot(): JSX.Element {
 				<div class="pending-display" aria-hidden="true">
 					<span class="pending-spinner" />
 					<span class="pending-content">{content()}</span>
+				</div>
+			</Show>
+			<Show when={protocol().queuedMessagePreviews.length > 0}>
+				<ol
+					class="pending-followups"
+					role="list"
+					aria-label="Queued follow-up messages"
+				>
+					<For each={protocol().queuedMessagePreviews}>
+						{(preview, index) => (
+							<li class="pending-followup">
+								<span class="pending-followup-label">
+									Follow-up {index() + 1}:
+								</span>
+								<span class="pending-followup-preview">{preview}</span>
+							</li>
+						)}
+					</For>
+				</ol>
+			</Show>
+			<Show when={hiddenQueueCount() > 0}>
+				<div class="pending-followup-more">
+					+{hiddenQueueCount()} more queued
 				</div>
 			</Show>
 		</div>

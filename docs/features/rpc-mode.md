@@ -85,7 +85,7 @@ process.
 | `abort` | none | none |
 | `new_session` | none | `{ "cancelled": false }` |
 | `get_capabilities` | none | protocol version, features, and transport limits |
-| `get_state` | none | current model, thinking level, session, CWD, streaming, message counts, and context usage |
+| `get_state` | none | current model, thinking level, session, CWD, streaming, message counts, queued follow-up previews, and context usage |
 | `get_messages` | none | `{ "messages": [...] }` |
 | `get_last_assistant_text` | none | `{ "text": string \| null }` |
 | `get_available_models` | none | `{ "models": [...] }` |
@@ -192,6 +192,12 @@ Connection snapshots, `get_state` responses, and `state_changed` events include
 context window, or `null` otherwise. Updated usage is published after completed
 turns, compaction, model changes, and session changes so remote clients can
 render the same threshold-colored progress indicator as the TUI.
+
+State also includes `pendingMessageCount` and up to three normalized,
+length-bounded `pendingMessagePreviews`. Live `chat.message-queue.changed`
+events add the same total `count` and bounded `previews`; the existing
+`steering` and `followUp` fields remain for protocol-v2 compatibility. New
+remote clients use the bounded fields to render a compact queue.
 
 Every transcript message has a stable `turnId` and `messageId`.
 `agent.message.updated.update` is a Kit-owned content update with a `kind`,

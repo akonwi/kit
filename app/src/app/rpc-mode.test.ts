@@ -18,6 +18,7 @@ function createRuntime(overrides: Record<string, unknown> = {}) {
 		agentInfo: { thinkingLevel: "off" },
 		getMessages: () => [],
 		getPendingMessageCount: () => 0,
+		getPendingMessages: () => [],
 		abort: () => listener?.({ type: "agent.start" } as AgentRuntimeEvent),
 		submitUserMessage: async () => {},
 		...overrides,
@@ -57,6 +58,7 @@ describe("RPC mode protocol", () => {
 					cwd: "/workspace",
 					messageCount: 0,
 					pendingMessageCount: 0,
+					pendingMessagePreviews: [],
 				},
 			},
 			{

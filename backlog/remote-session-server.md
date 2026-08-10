@@ -274,7 +274,7 @@ for every remote client rather than hidden in renderer-specific code:
   view-state modules behind the existing controller facade.
 - [x] Expose context-usage statistics so remote headers can render the TUI's
   threshold-colored context progress line.
-- [ ] Expose queued follow-up previews, not only their count, so remote pending
+- [x] Expose queued follow-up previews, not only their count, so remote pending
   slots can mirror the TUI queue rows.
 - [ ] Define explicit shared-session control UX for session/model changes made by
   another connected client; session changes currently force a fresh snapshot.
