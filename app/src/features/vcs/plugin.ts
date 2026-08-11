@@ -14,6 +14,14 @@ type CachedPrLookup = {
 	updatedAt: number;
 };
 
+export function createPullRequestOpenHandler(
+	pullRequest: Pick<GitHubPullRequest, "url"> | null,
+	open: (url: string) => Promise<void>,
+): (() => Promise<void>) | undefined {
+	const url = pullRequest?.url;
+	return url ? () => open(url) : undefined;
+}
+
 export function VcsStatusPlugin(kit: InternalPluginAPI) {
 	let disposed = false;
 	let refreshGeneration = 0;
@@ -39,6 +47,10 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 			formatLocation(currentVcsInfo, currentPullRequest),
 			{
 				side: "right",
+				onClick: createPullRequestOpenHandler(
+					currentPullRequest,
+					kit.system.open,
+				),
 			},
 		);
 	}
