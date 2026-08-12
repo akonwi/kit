@@ -123,6 +123,16 @@ function credentialDigest(value: string): Buffer {
 	return createHash("sha256").update(value, "utf8").digest();
 }
 
+function normalizeOrigin(value: string): string | null {
+	if (value === "null") return value;
+	try {
+		const origin = new URL(value).origin.toLowerCase();
+		return origin === "null" ? null : origin;
+	} catch {
+		return null;
+	}
+}
+
 function decodeBasicAuthorization(header: string | null): string | null {
 	const match = header?.match(
 		/^Basic ((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/i,
@@ -219,7 +229,7 @@ export class WebRpcServer {
 			maxRequestBodySize: MAX_MULTIPART_BODY_BYTES,
 			fetch: async (request, bunServer) => {
 				const url = new URL(request.url);
-				if (!this.allowedHosts().has(url.host.toLowerCase())) {
+				if (!this.isAllowedHost(url.host)) {
 					return new Response("Host not allowed", { status: 403 });
 				}
 				const isAttachmentRequest =
@@ -1010,7 +1020,7 @@ export class WebRpcServer {
 
 	private isAllowedWebSocketRequest(request: Request, url: URL): boolean {
 		return (
-			this.allowedHosts().has(url.host.toLowerCase()) &&
+			this.isAllowedHost(url.host) &&
 			this.isAllowedOrigin(
 				request.headers.get("origin"),
 				url,
@@ -1021,7 +1031,7 @@ export class WebRpcServer {
 
 	private isAllowedHttpRequest(request: Request, url: URL): boolean {
 		return (
-			this.allowedHosts().has(url.host.toLowerCase()) &&
+			this.isAllowedHost(url.host) &&
 			this.isAllowedOrigin(
 				request.headers.get("origin"),
 				url,
@@ -1036,32 +1046,33 @@ export class WebRpcServer {
 		allowOriginless: boolean,
 	): boolean {
 		if (!origin) return allowOriginless;
-		try {
-			return this.allowedOrigins(url).has(new URL(origin).origin.toLowerCase());
-		} catch {
-			return false;
-		}
+		const normalizedOrigin = normalizeOrigin(origin);
+		if (!normalizedOrigin) return false;
+		return (
+			this.options.allowedOrigins?.includes("*") === true ||
+			this.allowedOrigins(url).has(normalizedOrigin)
+		);
 	}
 
 	private allowedOrigins(url: URL): Set<string> {
-		const configuredOrigins = this.options.allowedOrigins ?? [];
-		const origins = new Set(
-			configuredOrigins.map((value) => new URL(value).origin.toLowerCase()),
-		);
-		if (configuredOrigins.length === 0) {
-			origins.add(url.origin.toLowerCase());
+		const origins = new Set<string>([url.origin.toLowerCase()]);
+		for (const value of this.options.allowedOrigins ?? []) {
+			if (value === "*") continue;
+			const origin = normalizeOrigin(value);
+			if (origin) origins.add(origin);
 		}
 		return origins;
 	}
 
 	private corsHeaders(request: Request): Record<string, string> {
-		const origin = request.headers.get("origin");
+		const header = request.headers.get("origin");
+		const origin = header ? normalizeOrigin(header) : null;
 		return origin
 			? {
 					...(this.expectedBasicAuthDigest
 						? { "access-control-allow-credentials": "true" }
 						: {}),
-					"access-control-allow-origin": new URL(origin).origin,
+					"access-control-allow-origin": origin,
 					vary: "origin",
 				}
 			: {};
@@ -1109,6 +1120,13 @@ export class WebRpcServer {
 		} finally {
 			ancestors.delete(value);
 		}
+	}
+
+	private isAllowedHost(host: string): boolean {
+		return (
+			this.options.allowedHosts?.includes("*") === true ||
+			this.allowedHosts().has(host.toLowerCase())
+		);
 	}
 
 	private allowedHosts(): Set<string> {

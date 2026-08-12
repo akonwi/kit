@@ -155,6 +155,7 @@ describe("WebRpcServer", () => {
 
 	function start(
 		options: {
+			allowedHosts?: string[];
 			allowedOrigins?: string[];
 			basicAuth?: WebBasicAuthCredentials;
 			attachments?: RemoteAttachmentStore;
@@ -868,11 +869,46 @@ describe("WebRpcServer", () => {
 		expect(originless.status).toBe(403);
 	});
 
-	test("uses configured origins instead of implicitly allowing backend HTTP", async () => {
+	test("keeps same-origin access when additional origins are configured", async () => {
 		const { address } = start({ allowedOrigins: ["https://kit.example"] });
-		const response = await fetch(`${address.url}/api/rpc`, {
+		const sameOrigin = await fetch(`${address.url}/api/rpc`, {
 			headers: { origin: address.url },
 		});
-		expect(response.status).toBe(403);
+		const configuredOrigin = await fetch(`${address.url}/api/rpc`, {
+			headers: { origin: "https://kit.example" },
+		});
+		expect(sameOrigin.status).not.toBe(403);
+		expect(configuredOrigin.status).not.toBe(403);
+	});
+
+	test("supports explicit host and origin wildcards", async () => {
+		const { address } = start({
+			allowedHosts: ["*"],
+			allowedOrigins: ["*"],
+		});
+		const response = await fetch(`${address.url}/api/rpc`, {
+			headers: {
+				host: "proxy.example",
+				origin: "https://client.example",
+			},
+		});
+		const opaqueOrigin = await fetch(`${address.url}/api/rpc`, {
+			headers: { host: "proxy.example", origin: "null" },
+		});
+		expect(response.status).toBe(426);
+		expect(opaqueOrigin.status).toBe(426);
+	});
+
+	test("keeps host and origin wildcard controls independent", async () => {
+		const hostWildcard = start({ allowedHosts: ["*"] }).address;
+		const blockedOrigin = await fetch(`${hostWildcard.url}/api/rpc`, {
+			headers: { host: "proxy.example", origin: "https://client.example" },
+		});
+		const originWildcard = start({ allowedOrigins: ["*"] }).address;
+		const blockedHost = await fetch(`${originWildcard.url}/api/rpc`, {
+			headers: { host: "proxy.example", origin: "https://client.example" },
+		});
+		expect(blockedOrigin.status).toBe(403);
+		expect(blockedHost.status).toBe(403);
 	});
 });

@@ -31,6 +31,13 @@ kit --mode web --host 0.0.0.0 --port 4782 \
   --allow-origin https://kit.example.internal
 ```
 
+Backlog: support a web-mode configuration file so deployments do not need to
+repeat network and authentication options in shell commands. It should cover
+bind host/port, allowed hosts/origins (including explicit wildcards), and an
+auth credential source that avoids storing a plaintext password directly in
+the config. Define precedence between file values and CLI flags, with explicit
+CLI values overriding the file.
+
 The default host is `127.0.0.1`. Web mode optionally protects every HTTP and
 WebSocket route with native HTTP Basic authentication. Remote listeners should
 use Basic authentication behind an HTTPS tunnel or reverse proxy, or remain
@@ -246,10 +253,10 @@ separating the existing TUI's presentation state from its in-process
   credentials in Kit sessions.
 - Require HTTPS before using Basic authentication across an untrusted network;
   Kit does not terminate TLS itself.
-- Require allowed-origin WebSocket connections, validate the request host
-  against the bound host or an explicit `--allow-host <host:port>` value, and
-  support explicit `--allow-origin <origin>` values for trusted reverse
-  proxies.
+- Require allowed-origin WebSocket connections and validate the request host
+  against the bound host by default. Add explicit `--allow-host <host:port>`
+  and `--allow-origin <origin>` values without replacing same-origin local
+  access, plus opt-in `*` wildcards for trusted surrounding infrastructure.
 - Treat direct public HTTP exposure as unsupported even when Basic
   authentication is enabled.
 

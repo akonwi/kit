@@ -77,6 +77,15 @@ export async function runWebMode(
 			reloadHost: headlessHost.reload,
 			allowLegacySessionPaths: false,
 		});
+		if (
+			!options.basicAuth &&
+			(options.allowedHosts?.includes("*") === true ||
+				options.allowedOrigins?.includes("*") === true)
+		) {
+			console.warn(
+				"Warning: wildcard web access is enabled without --auth; rely on a trusted network or access-control proxy.",
+			);
+		}
 		webServer = new WebRpcServer(rpcHost, {
 			hostname: options.hostname,
 			port: options.port,

@@ -79,6 +79,38 @@ proxy; Kit's web server does not terminate TLS. Command-line arguments may also
 be visible in shell history and local process inspection. Host and Origin
 validation remains active when authentication is enabled.
 
+## Web mode network validation
+
+Kit binds to `127.0.0.1` by default and permits the bound address, localhost
+aliases, and each request's same origin. Extra reverse-proxy or tunnel addresses
+can be added without losing local browser access:
+
+```sh
+kit --mode web \
+  --auth 'username:password' \
+  --allow-host kit.example.internal \
+  --allow-origin https://kit.example.internal
+```
+
+Repeat either option to add more values. A host value includes its port when the
+browser sends one; an origin includes its scheme and optional port.
+
+Deployments whose surrounding network or proxy owns these checks can explicitly
+disable either allowlist:
+
+```sh
+kit --mode web --allow-host '*' --allow-origin '*'
+```
+
+These wildcards are opt-in rather than defaults. `--allow-host '*'` accepts any
+request Host header. `--allow-origin '*'` accepts any valid Origin value,
+including the opaque `null` origin, for protected HTTP mutations and WebSocket
+upgrades; originless requests remain rejected where they were previously
+required to carry an Origin. Kit warns when
+a wildcard is used without `--auth`. Even with authentication, only use an
+origin wildcard behind HTTPS and a trusted network or access-control proxy,
+because it disables Kit's cross-site request protection.
+
 ### Mobile browser layout
 
 At phone widths, web mode keeps the transcript and composer as the primary
