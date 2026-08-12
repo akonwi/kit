@@ -277,6 +277,7 @@ describe("RPC mode protocol", () => {
 				records.push(record);
 			},
 			false,
+			undefined,
 			() =>
 				new Promise<void>((resolve) => {
 					finishPlugins = resolve;

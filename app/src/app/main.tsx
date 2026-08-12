@@ -67,8 +67,13 @@ function parseBasicAuth(value: unknown):
 	return { username, password };
 }
 
-if (values.mode === "rpc") {
-	console.error("--mode is only supported for web mode; use --rpc for RPC mode");
+if (values.rpc === true && values.mode !== undefined) {
+	console.error("kit --rpc cannot be combined with --mode");
+	process.exitCode = 1;
+} else if (values.mode === "rpc") {
+	console.error(
+		"--mode is only supported for web mode; use --rpc for RPC mode",
+	);
 	process.exitCode = 1;
 } else if (values.rpc === true && values.print === true) {
 	console.error("kit --rpc and --print are mutually exclusive");
@@ -85,7 +90,7 @@ if (values.mode === "rpc") {
 		);
 		process.exitCode = 1;
 	} else if (
-		values.model !== undefined &&
+		typeof values.model === "string" &&
 		!isValidModelSelector(values.model)
 	) {
 		console.error("kit --rpc --model expects <provider>/<model-id>");
@@ -122,7 +127,7 @@ if (values.mode === "rpc") {
 		console.error("kit --mode web --auth expects <username>:<password>");
 		process.exitCode = 1;
 	} else if (
-		values.model !== undefined &&
+		typeof values.model === "string" &&
 		!isValidModelSelector(values.model)
 	) {
 		console.error("kit --mode web --model expects <provider>/<model-id>");
@@ -156,7 +161,9 @@ if (values.mode === "rpc") {
 		});
 	}
 } else if (values.mode !== undefined) {
-	console.error("--mode is only supported for web mode; use --rpc for RPC mode");
+	console.error(
+		"--mode is only supported for web mode; use --rpc for RPC mode",
+	);
 	process.exitCode = 1;
 } else if (values.print === true) {
 	if (hasWebOnlyOptions) {

@@ -10,7 +10,10 @@ import {
 	createMemorySubagentSessionStorage,
 } from "../features/subagents/memory-storage";
 import { createBuiltInPlugins } from "../plugins/built-ins";
-import { ExternalPluginManager } from "../plugins/external";
+import {
+	type ExternalPluginFailure,
+	ExternalPluginManager,
+} from "../plugins/external";
 import { PluginManager } from "../plugins/PluginManager";
 import type { PluginContext } from "../plugins/types";
 import { AgentRuntime } from "../runtime/agent-runtime";
@@ -84,6 +87,42 @@ export function takeOverStdout(): {
 	};
 }
 
+async function waitForAbortable(
+	promise: Promise<void>,
+	signal: AbortSignal,
+): Promise<void> {
+	if (signal.aborted) throw new Error("Headless startup aborted");
+	let rejectAbort: ((error: Error) => void) | null = null;
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject;
+	});
+	const onAbort = () => rejectAbort?.(new Error("Headless startup aborted"));
+	signal.addEventListener("abort", onAbort, { once: true });
+	try {
+		await Promise.race([promise, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
+function reportExternalPluginFailure(failure: ExternalPluginFailure): void {
+	const plugin = failure.pluginId ? ` ${failure.pluginId}` : "";
+	const processExit = [
+		failure.exitCode != null ? `exit ${failure.exitCode}` : undefined,
+		failure.exitSignal ? `signal ${failure.exitSignal}` : undefined,
+	]
+		.filter(Boolean)
+		.join(", ");
+	const details = [
+		`${failure.phase}: ${failure.message}`,
+		failure.manifestPath,
+		failure.otherManifestPath,
+		processExit || undefined,
+		failure.stderr ? `stderr: ${failure.stderr}` : undefined,
+	].filter((value): value is string => Boolean(value));
+	console.error(`Plugin${plugin} failed: ${details.join(" · ")}`);
+}
+
 export type HeadlessHost = {
 	runtime: AgentRuntime;
 	commands: CommandRegistry;
@@ -98,7 +137,9 @@ export type HeadlessHost = {
 export async function createHeadlessHost(
 	session: Session,
 	options: {
+		externalPluginHome?: string;
 		persistSession?: boolean;
+		signal?: AbortSignal;
 		interactions?: RemoteInteractionBroker;
 		externalPlugins?: boolean;
 		remoteChrome?: boolean;
@@ -136,6 +177,11 @@ export async function createHeadlessHost(
 	};
 	let builtInPlugins: PluginManager | null = null;
 	let externalPlugins: ExternalPluginManager | null = null;
+	let externalPluginAbort: AbortController | null = null;
+	const removePluginBarrier = runtime.addToolPreparationBarrier(
+		(signal) =>
+			externalPlugins?.waitForProjectTransition(signal) ?? Promise.resolve(),
+	);
 
 	async function initializePlugins(): Promise<void> {
 		const pluginReadiness: Promise<void>[] = [];
@@ -151,27 +197,55 @@ export async function createHeadlessHost(
 			}),
 			pluginContext,
 		);
-		const external = options.externalPlugins
-			? new ExternalPluginManager(pluginContext)
-			: null;
+		const pluginAbort = new AbortController();
+		externalPluginAbort = pluginAbort;
+		const abortPlugins = () => pluginAbort.abort();
+		if (options.signal?.aborted) abortPlugins();
+		else
+			options.signal?.addEventListener("abort", abortPlugins, { once: true });
+		const external =
+			options.externalPlugins !== false
+				? new ExternalPluginManager(pluginContext, {
+						home: options.externalPluginHome,
+						...(options.interactions
+							? {}
+							: { onFailure: reportExternalPluginFailure }),
+						signal: pluginAbort.signal,
+					})
+				: null;
 		builtInPlugins = builtIns;
 		externalPlugins = external;
 		try {
 			builtIns.initialize();
 			await Promise.all(pluginReadiness);
-			await external?.initialize();
+			const initializeExternal = external?.initialize();
+			if (initializeExternal) {
+				if (options.signal) {
+					await waitForAbortable(initializeExternal, options.signal);
+				} else {
+					await initializeExternal;
+				}
+			}
 		} catch (error) {
 			externalPlugins = null;
 			builtInPlugins = null;
-			await external?.dispose().catch(() => {});
+			externalPluginAbort = null;
+			pluginAbort.abort();
+			await external
+				?.dispose({ graceful: options.signal?.aborted !== true })
+				.catch(() => {});
 			await builtIns.disposeAsync().catch(() => {});
 			throw error;
+		} finally {
+			options.signal?.removeEventListener("abort", abortPlugins);
 		}
 	}
 
 	async function disposePluginManagers(): Promise<void> {
 		const external = externalPlugins;
 		const builtIns = builtInPlugins;
+		externalPluginAbort?.abort();
+		externalPluginAbort = null;
 		externalPlugins = null;
 		builtInPlugins = null;
 		let cleanupError: unknown;
@@ -268,6 +342,7 @@ export async function createHeadlessHost(
 			runtime.abort();
 			await activeReload?.catch(() => {});
 			scratchpad?.dispose();
+			removePluginBarrier();
 			let cleanupError: unknown;
 			try {
 				await disposePluginManagers();

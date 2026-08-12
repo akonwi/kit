@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import {
+	createEffect,
 	createMemo,
 	createSignal,
 	For,
@@ -21,6 +22,7 @@ export function ComposerDock(): JSX.Element {
 	let input: HTMLTextAreaElement | undefined;
 	let attachmentInput: HTMLInputElement | undefined;
 	const [message, setMessage] = createSignal("");
+	const [sendCoolingDown, setSendCoolingDown] = createSignal(false);
 	const protocol = createMemo(() => snapshot().protocol);
 	const enabled = createMemo(
 		() => protocol().phase === "live" && !snapshot().submitting,
@@ -31,6 +33,17 @@ export function ComposerDock(): JSX.Element {
 	const hasPayload = createMemo(() =>
 		hasComposerPayload(message(), snapshot().attachments.length),
 	);
+	let wasStreaming = streaming();
+	let sendCooldown: ReturnType<typeof setTimeout> | undefined;
+	createEffect(() => {
+		const isStreaming = streaming();
+		if (wasStreaming && !isStreaming) {
+			setSendCoolingDown(true);
+			clearTimeout(sendCooldown);
+			sendCooldown = setTimeout(() => setSendCoolingDown(false), 400);
+		}
+		wasStreaming = isStreaming;
+	});
 
 	const submit = async (event: SubmitEvent) => {
 		event.preventDefault();
@@ -53,7 +66,10 @@ export function ComposerDock(): JSX.Element {
 			return document.activeElement === input;
 		});
 	});
-	onCleanup(() => unregisterComposerFocus?.());
+	onCleanup(() => {
+		unregisterComposerFocus?.();
+		clearTimeout(sendCooldown);
+	});
 
 	return (
 		<section class="composer-dock" aria-label="Message composer">
@@ -148,7 +164,10 @@ export function ComposerDock(): JSX.Element {
 						type={streaming() ? "button" : "submit"}
 						data-variant={streaming() ? "danger" : "primary"}
 						data-size="small"
-						disabled={!enabled() || (!streaming() && !hasPayload())}
+						disabled={
+							!enabled() ||
+							(!streaming() && (!hasPayload() || sendCoolingDown()))
+						}
 						aria-label={
 							streaming()
 								? "Abort response"

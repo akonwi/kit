@@ -1,7 +1,8 @@
 import { createHeadlessHost } from "./headless-host";
+import { applyStartupModel } from "./headless-model";
+import { resolveHeadlessSession } from "./headless-session";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
-import { resolveRpcSession, selectStartupModel } from "./rpc-mode";
 import { RpcSessionHost } from "./rpc-session-host";
 import { type WebBasicAuthCredentials, WebRpcServer } from "./web-rpc-server";
 
@@ -19,6 +20,7 @@ export async function runWebMode(
 	cwd: string,
 	options: WebModeOptions = {},
 ): Promise<number> {
+	const startupAbort = new AbortController();
 	let headlessHost: Awaited<ReturnType<typeof createHeadlessHost>> | null =
 		null;
 	let interactions: RemoteInteractionBroker | null = null;
@@ -34,6 +36,7 @@ export async function runWebMode(
 		const exitCode = signal === "SIGINT" ? 130 : 143;
 		if (signalExitCode !== 0) process.exit(exitCode);
 		signalExitCode = exitCode;
+		startupAbort.abort();
 		stop?.();
 	};
 	const handleSigint = () => handleSignal("SIGINT");
@@ -43,27 +46,21 @@ export async function runWebMode(
 
 	let exitCode = 0;
 	try {
-		const resolved = await resolveRpcSession(cwd, {
-			noSession: false,
+		const resolved = await resolveHeadlessSession(cwd, {
+			defaultPersistence: "persistent",
 			sessionId: options.sessionId,
 		});
 		interactions = new RemoteInteractionBroker();
 		attachments = new RemoteAttachmentStore();
 		headlessHost = await createHeadlessHost(resolved.session, {
 			persistSession: true,
+			signal: startupAbort.signal,
 			interactions,
 			externalPlugins: true,
 			remoteChrome: true,
 			remotePromptCommands: true,
 		});
-		if (options.model) {
-			const model = selectStartupModel(
-				headlessHost.runtime.getAvailableModels(),
-				options.model,
-			);
-			headlessHost.runtime.setModel(model);
-			await headlessHost.runtime.waitForModelAdaptation();
-		}
+		await applyStartupModel(headlessHost.runtime, options.model);
 
 		rpcHost = new RpcSessionHost(headlessHost.runtime, {
 			persistSessions: true,
@@ -99,8 +96,12 @@ export async function runWebMode(
 		await stopped;
 		exitCode = signalExitCode;
 	} catch (error) {
-		console.error(error instanceof Error ? error.message : String(error));
-		exitCode = 1;
+		if (signalExitCode !== 0) {
+			exitCode = signalExitCode;
+		} else {
+			console.error(error instanceof Error ? error.message : String(error));
+			exitCode = 1;
+		}
 	} finally {
 		process.off("SIGINT", handleSigint);
 		process.off("SIGTERM", handleSigterm);

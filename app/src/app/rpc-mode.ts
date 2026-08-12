@@ -1,7 +1,6 @@
 import type { Readable } from "node:stream";
 import type { CommandRegistry } from "../features/commands";
 import type { ScratchpadController } from "../features/scratchpad/controller";
-import type { Api, Model } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { createHeadlessHost, takeOverStdout } from "./headless-host";
 import { applyStartupModel } from "./headless-model";
@@ -111,12 +110,12 @@ export class RpcModeServer {
 	}
 }
 
-
 export async function runRpcMode(
 	cwd: string,
 	options: { model?: string; noSession?: boolean; sessionId?: string } = {},
 ): Promise<number> {
 	const stdout = takeOverStdout();
+	const startupAbort = new AbortController();
 	let host: Awaited<ReturnType<typeof createHeadlessHost>> | null = null;
 	let server: RpcModeServer | null = null;
 	let signalExitCode: number | null = null;
@@ -124,6 +123,7 @@ export async function runRpcMode(
 		const exitCode = signal === "SIGINT" ? 130 : 143;
 		if (signalExitCode !== null) process.exit(exitCode);
 		signalExitCode = exitCode;
+		startupAbort.abort();
 		host?.runtime.abort();
 		process.stdin.destroy();
 	};
@@ -139,6 +139,7 @@ export async function runRpcMode(
 		});
 		host = await createHeadlessHost(resolved.session, {
 			persistSession: resolved.persistSession,
+			signal: startupAbort.signal,
 		});
 		await applyStartupModel(host.runtime, options.model);
 		server = new RpcModeServer(

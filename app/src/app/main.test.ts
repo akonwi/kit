@@ -89,6 +89,13 @@ describe("mode selection", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("use --rpc");
 	});
+
+	test("rejects combining RPC and web mode selectors", async () => {
+		const result = await runMain(["--rpc", "--mode", "web"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("cannot be combined");
+	});
 });
 
 describe("RPC mode CLI", () => {
@@ -105,13 +112,7 @@ describe("RPC mode CLI", () => {
 	});
 
 	test("rejects conflicting session options", async () => {
-		const result = await runMain([
-			"--mode",
-			"rpc",
-			"--no-session",
-			"-s",
-			"abc",
-		]);
+		const result = await runMain(["--rpc", "--no-session", "-s", "abc"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain(
@@ -125,5 +126,4 @@ describe("RPC mode CLI", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
 	});
-
 });

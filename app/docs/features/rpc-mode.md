@@ -5,7 +5,7 @@ and streaming runtime events to another process or network client.
 
 Two transports share the same session host and record model:
 
-- `kit --mode rpc` uses newline-delimited JSON over stdio.
+- `kit --rpc` uses newline-delimited JSON over stdio.
 - `kit --mode web` uses one JSON record per WebSocket message.
 
 This protocol controls Kit itself. It is separate from the external-plugin
@@ -269,10 +269,10 @@ limits.
 Run:
 
 ```sh
-kit --mode rpc
-kit --mode rpc --session <id>
-kit --mode rpc --model <provider>/<model-id>
-kit --mode rpc --no-session
+kit --rpc
+kit --rpc --session <id>
+kit --rpc --model <provider>/<model-id>
+kit --rpc --no-session
 ```
 
 stdin carries UTF-8 JSONL commands, stdout carries responses and events, and

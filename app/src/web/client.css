@@ -41,7 +41,12 @@ body {
 
 /* Match the TUI stack: directly below the header, aligned to the right. */
 body > m-toast[popover] {
-	inset: calc(2rem + var(--m-toast-offset, 0px)) var(--space-md) auto auto;
+	inset: calc(
+			var(--kit-visual-viewport-offset-top, 0px) +
+			2rem +
+			var(--m-toast-offset, 0px)
+		)
+		var(--space-md) auto auto;
 }
 
 #app > [data-visually-hidden="focusable"]:focus {
@@ -1631,6 +1636,12 @@ details[open] > summary > .disclosure-marker {
 @media (max-width: 36rem) {
 	body {
 		font-size: 0.875rem;
+	}
+
+	input:not([type="checkbox"], [type="radio"]),
+	textarea,
+	select {
+		font-size: 1rem;
 	}
 
 	.header-bar {
