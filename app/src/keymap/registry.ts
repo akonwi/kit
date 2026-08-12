@@ -353,9 +353,15 @@ export const KEYBINDING_REGISTRY = {
 	"release-notes": {
 		"open-latest": {
 			defaultKeys: "o",
-			desc: "Open latest Kit release in a browser",
+			desc: "Open the newest Kit release in a browser",
 			group: "release-notes",
-			hint: "open release",
+			hint: "open newest",
+		},
+		"load-more": {
+			defaultKeys: "m",
+			desc: "Load more Kit releases",
+			group: "release-notes",
+			hint: "load more",
 		},
 		"scroll-up": {
 			defaultKeys: ["up", "k"],

@@ -31,7 +31,7 @@ export function createReleasesPlugin(options: {
 
 		kit.registerCommand(
 			"release-notes",
-			{ description: "Show release notes for the installed Kit version" },
+			{ description: "Browse Kit release notes" },
 			async (ctx) => {
 				if (ctx.args.trim()) {
 					ctx.ui.toast({
