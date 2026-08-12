@@ -3,10 +3,11 @@ import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
 import { resolveRpcSession, selectStartupModel } from "./rpc-mode";
 import { RpcSessionHost } from "./rpc-session-host";
-import { WebRpcServer } from "./web-rpc-server";
+import { type WebBasicAuthCredentials, WebRpcServer } from "./web-rpc-server";
 
 export type WebModeOptions = {
 	allowedHosts?: string[];
+	basicAuth?: WebBasicAuthCredentials;
 	allowedOrigins?: string[];
 	hostname?: string;
 	port?: number;
@@ -81,6 +82,7 @@ export async function runWebMode(
 			port: options.port,
 			allowedHosts: options.allowedHosts,
 			allowedOrigins: options.allowedOrigins,
+			basicAuth: options.basicAuth,
 			attachments,
 		});
 		const address = webServer.start();

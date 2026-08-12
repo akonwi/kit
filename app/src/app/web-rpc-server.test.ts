@@ -6,7 +6,11 @@ import type {
 	RpcEventListener,
 	RpcWriter,
 } from "./rpc-session-host";
-import { type WebRpcHost, WebRpcServer } from "./web-rpc-server";
+import {
+	type WebBasicAuthCredentials,
+	type WebRpcHost,
+	WebRpcServer,
+} from "./web-rpc-server";
 
 class FakeRpcHost implements WebRpcHost {
 	private readonly listeners = new Set<RpcEventListener>();
@@ -83,7 +87,14 @@ type SocketConnection = {
 	next(): Promise<unknown>;
 };
 
-async function openWebSocket(url: string): Promise<SocketConnection> {
+function basicAuthorization(username: string, password: string): string {
+	return `Basic ${Buffer.from(`${username}:${password}`, "utf8").toString("base64")}`;
+}
+
+async function openWebSocket(
+	url: string,
+	headers: Record<string, string> = {},
+): Promise<SocketConnection> {
 	const origin = new URL(url);
 	origin.protocol = origin.protocol === "wss:" ? "https:" : "http:";
 	const WebSocketWithOptions = WebSocket as unknown as new (
@@ -91,7 +102,7 @@ async function openWebSocket(url: string): Promise<SocketConnection> {
 		options: Bun.WebSocketOptions,
 	) => WebSocket;
 	const socket = new WebSocketWithOptions(url, {
-		headers: { origin: origin.origin },
+		headers: { origin: origin.origin, ...headers },
 	});
 	const queued: unknown[] = [];
 	const waiters: Array<(record: unknown) => void> = [];
@@ -145,6 +156,7 @@ describe("WebRpcServer", () => {
 	function start(
 		options: {
 			allowedOrigins?: string[];
+			basicAuth?: WebBasicAuthCredentials;
 			attachments?: RemoteAttachmentStore;
 			eventStreamId?: string;
 			eventHistoryMaxEvents?: number;
@@ -177,6 +189,93 @@ describe("WebRpcServer", () => {
 		expect(clientJavaScript).toContain("new WebSocket");
 		expect(clientJavaScript).toContain("Conversation transcript");
 		expect(clientJavaScript).toContain("solid-js");
+	});
+
+	test("protects HTTP resources and WebSocket upgrades with Basic auth", async () => {
+		const basicAuth = {
+			username: "remote-user",
+			password: "secret:with-colon",
+		};
+		const { address } = start({ basicAuth });
+		const authorization = basicAuthorization(
+			basicAuth.username,
+			basicAuth.password,
+		);
+		const unauthorized = await fetch(address.url);
+		const unauthorizedHealth = await fetch(`${address.url}/api/health`);
+		const unauthorizedAsset = await fetch(`${address.url}/assets/client.css`);
+		const unauthorizedAttachment = await fetch(
+			`${address.url}/api/attachments/missing`,
+		);
+		const wrongPassword = await fetch(address.url, {
+			headers: {
+				authorization: basicAuthorization(basicAuth.username, "wrong"),
+			},
+		});
+		const invalidHost = await fetch(address.url, {
+			headers: { host: "example.com" },
+		});
+
+		expect(unauthorized.status).toBe(401);
+		expect(unauthorized.headers.get("www-authenticate")).toBe(
+			'Basic realm="Kit web mode", charset="UTF-8"',
+		);
+		expect(unauthorized.headers.get("cache-control")).toBe("no-store");
+		expect(unauthorizedHealth.status).toBe(401);
+		expect(unauthorizedAsset.status).toBe(401);
+		expect(unauthorizedAttachment.status).toBe(401);
+		expect(wrongPassword.status).toBe(401);
+		expect(invalidHost.status).toBe(403);
+		expect(invalidHost.headers.has("www-authenticate")).toBe(false);
+
+		const page = await fetch(address.url, {
+			headers: { authorization },
+		});
+		const health = await fetch(`${address.url}/api/health`, {
+			headers: { authorization },
+		});
+		expect(page.status).toBe(200);
+		expect(await health.json()).toEqual({
+			ok: true,
+			mode: "web",
+			clients: 0,
+		});
+
+		const preflight = await fetch(`${address.url}/api/attachments/missing`, {
+			method: "OPTIONS",
+			headers: {
+				origin: address.url,
+				"access-control-request-headers": "authorization",
+				"access-control-request-method": "DELETE",
+			},
+		});
+		expect(preflight.status).toBe(204);
+		expect(preflight.headers.get("access-control-allow-origin")).toBe(
+			address.url,
+		);
+		expect(preflight.headers.get("access-control-allow-headers")).toContain(
+			"authorization",
+		);
+		expect(preflight.headers.get("access-control-allow-credentials")).toBe(
+			"true",
+		);
+
+		const webSocketUrl = `${address.url.replace("http://", "ws://")}/api/rpc`;
+		const unauthenticatedUpgrade = await fetch(`${address.url}/api/rpc`, {
+			headers: { origin: address.url },
+		});
+		const crossOriginUpgrade = await fetch(`${address.url}/api/rpc`, {
+			headers: { origin: "https://example.com" },
+		});
+		expect(unauthenticatedUpgrade.status).toBe(401);
+		expect(crossOriginUpgrade.status).toBe(403);
+		expect(crossOriginUpgrade.headers.has("www-authenticate")).toBe(false);
+		const connection = await openWebSocket(webSocketUrl, { authorization });
+		sockets.push(connection.socket);
+		expect(connection.sync).toMatchObject({
+			type: "sync",
+			mode: "snapshot",
+		});
 	});
 
 	test("includes pending persistent toasts in the initial snapshot", async () => {

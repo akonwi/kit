@@ -58,6 +58,27 @@ chrome can register but do not currently have an RPC presentation or execution
 surface. Plugin confirm, input, and select requests cannot display a terminal
 dialog; they fail or return cancellation.
 
+## Web mode authentication
+
+Web mode can protect every browser document, asset, API, attachment, health
+check, and WebSocket upgrade with HTTP Basic authentication:
+
+```sh
+kit --mode web --auth 'username:password'
+```
+
+Kit splits the value on the first colon. The username must be non-empty and
+cannot contain a colon; the non-empty password may contain additional colons.
+The browser presents its native Basic authentication prompt and reuses the
+credentials for same-origin requests and WebSocket reconnects.
+
+Basic authentication credentials are scoped to the running Kit process and are
+not written to persisted sessions. Because Basic authentication sends the
+credential with every request, remote use requires an HTTPS tunnel or reverse
+proxy; Kit's web server does not terminate TLS. Command-line arguments may also
+be visible in shell history and local process inspection. Host and Origin
+validation remains active when authentication is enabled.
+
 ## Responses
 
 Success:

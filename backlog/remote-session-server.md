@@ -24,15 +24,17 @@ kit --mode web
 # Resume an existing session.
 kit --mode web --session <id>
 
-# Listen inside a cloud sandbox or container.
+# Listen behind an HTTPS tunnel or reverse proxy with Basic authentication.
 kit --mode web --host 0.0.0.0 --port 4782 \
-  --allow-host kit.example.internal:4782 \
+  --auth 'username:password' \
+  --allow-host kit.example.internal \
   --allow-origin https://kit.example.internal
 ```
 
-The default host should be `127.0.0.1`. The initial implementation does not
-provide native access control; non-loopback listeners are expected to run
-behind a trusted private network boundary.
+The default host is `127.0.0.1`. Web mode optionally protects every HTTP and
+WebSocket route with native HTTP Basic authentication. Remote listeners should
+use Basic authentication behind an HTTPS tunnel or reverse proxy, or remain
+inside another trusted private network boundary.
 
 ## Transport
 
@@ -239,17 +241,17 @@ separating the existing TUI's presentation state from its in-process
 ## Network exposure
 
 - Bind to `127.0.0.1` by default.
-- Defer native authentication and authorization. Initial remote access is
-  expected to run through a trusted boundary such as Tailscale or an SSH
-  tunnel, which owns its access controls.
+- Support optional process-scoped HTTP Basic authentication across the browser,
+  assets, APIs, uploads, health checks, and WebSocket upgrades. Do not persist
+  credentials in Kit sessions.
+- Require HTTPS before using Basic authentication across an untrusted network;
+  Kit does not terminate TLS itself.
 - Require allowed-origin WebSocket connections, validate the request host
   against the bound host or an explicit `--allow-host <host:port>` value, and
   support explicit `--allow-origin <origin>` values for trusted reverse
   proxies.
-- Treat direct public exposure as unsupported until an authentication layer is
-  added.
-- Allow native authentication and authorization to be layered on later without
-  changing the session protocol.
+- Treat direct public HTTP exposure as unsupported even when Basic
+  authentication is enabled.
 
 ## Browser-client findings
 
