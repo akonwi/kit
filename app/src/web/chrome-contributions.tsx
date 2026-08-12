@@ -27,7 +27,7 @@ function segmentStyle(
 	};
 }
 
-function RemoteChromeContributionView(props: {
+export function RemoteChromeContributionView(props: {
 	area: "header" | "footer";
 	contribution: RemoteChromeContribution;
 	disabled: boolean;

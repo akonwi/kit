@@ -79,6 +79,30 @@ proxy; Kit's web server does not terminate TLS. Command-line arguments may also
 be visible in shell history and local process inspection. Host and Origin
 validation remains active when authentication is enabled.
 
+### Mobile browser layout
+
+At phone widths, web mode keeps the transcript and composer as the primary
+surfaces while adapting desktop chrome for touch:
+
+- Model, thinking, scratchpad, and remote header contributions move into the
+  session menu.
+- The command palette has a dedicated composer action rather than requiring a
+  hardware-keyboard shortcut.
+- Workspace activity and scratchpad tabs retain a shared, always-available
+  composer beneath either tab.
+- The desktop footer is hidden. Connection failures, synchronization, errors,
+  and queued-message state appear in a temporary strip above the composer;
+  location and footer contributions move into the session menu.
+- The command palette becomes a finger-scrollable Mica bottom sheet and opens
+  without a filter keyboard. Commands that require arguments reveal the input
+  only after selection.
+- Empty pending state does not reserve space, touch controls use larger hit
+  areas, and coarse-pointer Enter inserts a newline instead of submitting.
+- The shell tracks the visual viewport and safe-area insets so the software
+  keyboard does not cover the composer.
+
+Desktop layout and keyboard behavior remain unchanged.
+
 ## Responses
 
 Success:

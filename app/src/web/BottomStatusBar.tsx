@@ -4,7 +4,7 @@ import { BUILT_IN_CHROME_CONTRIBUTION_IDS } from "../shell/chrome-contributions"
 import { RemoteChromeLine } from "./chrome-contributions";
 import { useWebClient } from "./WebClientContext";
 
-export function BottomStatusBar(): JSX.Element {
+function StatusBarFrame(props: { class: string }): JSX.Element {
 	const { snapshot, controller } = useWebClient();
 	const protocol = createMemo(() => snapshot().protocol);
 	const connectionStatus = createMemo(() => {
@@ -57,7 +57,10 @@ export function BottomStatusBar(): JSX.Element {
 	};
 
 	return (
-		<footer class="bottom-status-bar" data-phase={protocol().phase}>
+		<footer
+			class={`bottom-status-bar ${props.class}`}
+			data-phase={protocol().phase}
+		>
 			<span data-visually-hidden role="status" aria-live="polite">
 				{protocol().phase === "live" ? "Connected" : ""}
 			</span>
@@ -106,5 +109,25 @@ export function BottomStatusBar(): JSX.Element {
 				/>
 			</div>
 		</footer>
+	);
+}
+
+export function DesktopStatusBar(): JSX.Element {
+	return <StatusBarFrame class="desktop-status-bar" />;
+}
+
+export function MobileStatusBar(): JSX.Element {
+	const { snapshot } = useWebClient();
+	const protocol = createMemo(() => snapshot().protocol);
+	const visible = createMemo(
+		() =>
+			protocol().phase !== "live" ||
+			Boolean(snapshot().status.message) ||
+			protocol().queuedMessageCount > 0,
+	);
+	return (
+		<Show when={visible()}>
+			<StatusBarFrame class="mobile-status-bar" />
+		</Show>
 	);
 }

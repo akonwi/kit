@@ -49,9 +49,15 @@ export function PendingSlot(): JSX.Element {
 			protocol().queuedMessageCount - protocol().queuedMessagePreviews.length,
 		),
 	);
+	const empty = createMemo(
+		() =>
+			!content() &&
+			protocol().queuedMessagePreviews.length === 0 &&
+			hiddenQueueCount() === 0,
+	);
 
 	return (
-		<div class="pending-slot">
+		<div class="pending-slot" classList={{ "is-empty": empty() }}>
 			<span data-visually-hidden role="status" aria-live="polite">
 				{announcement()}
 			</span>

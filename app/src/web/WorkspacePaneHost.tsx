@@ -42,7 +42,8 @@ function clampRatio(ratio: number): number {
 }
 
 export function WorkspacePaneHost(props: {
-	children: JSX.Element;
+	primary: JSX.Element;
+	dock: JSX.Element;
 }): JSX.Element {
 	const { snapshot, transcriptItems } = useWebClient();
 	const scratchpad = useScratchpad();
@@ -335,15 +336,18 @@ export function WorkspacePaneHost(props: {
 						</button>
 					</nav>
 				</Show>
-				<div
-					id="workspace-transcript"
-					class="workspace-primary"
-					role={narrow() ? "tabpanel" : undefined}
-					aria-labelledby={narrow() ? "workspace-tab-transcript" : undefined}
-					aria-hidden={narrow() && narrowTab() !== "transcript"}
-					hidden={narrow() && narrowTab() !== "transcript"}
-				>
-					{props.children}
+				<div class="workspace-primary">
+					<div
+						id="workspace-transcript"
+						class="workspace-primary-content"
+						role={narrow() ? "tabpanel" : undefined}
+						aria-labelledby={narrow() ? "workspace-tab-transcript" : undefined}
+						aria-hidden={narrow() && narrowTab() !== "transcript"}
+						hidden={narrow() && narrowTab() !== "transcript"}
+					>
+						{props.primary}
+					</div>
+					{props.dock}
 				</div>
 				<Show when={split()}>
 					<div

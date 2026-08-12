@@ -15,6 +15,7 @@ import {
 	formatContextUsage,
 	parseRemoteContextUsage,
 } from "./context-usage";
+import { MobileSessionMenu } from "./MobileSessionMenu";
 import { SessionNameDialog } from "./SessionNameDialog";
 import { useWebClient } from "./WebClientContext";
 
@@ -126,6 +127,7 @@ export function HeaderBar(): JSX.Element {
 						onActivate={activate}
 					/>
 				</div>
+				<MobileSessionMenu />
 				<Show when={contextProgress()}>
 					{(progress) => (
 						<div

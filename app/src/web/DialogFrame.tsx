@@ -7,6 +7,7 @@ export function DialogFrame(props: {
 	class?: string;
 	labelledBy: string;
 	describedBy?: string;
+	drawer?: boolean;
 	focusKey?: unknown;
 	children: JSX.Element;
 	onCancel: () => void;
@@ -52,6 +53,8 @@ export function DialogFrame(props: {
 		<dialog
 			ref={dialog}
 			id={props.id}
+			data-drawer={props.drawer ? "" : undefined}
+			tabIndex={-1}
 			class={props.class}
 			aria-labelledby={props.labelledBy}
 			aria-describedby={props.describedBy}

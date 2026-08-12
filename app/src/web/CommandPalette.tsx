@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import {
+	createContext,
 	createEffect,
 	createMemo,
 	createSignal,
@@ -8,6 +9,7 @@ import {
 	onCleanup,
 	onMount,
 	Show,
+	useContext,
 } from "solid-js";
 import { scoreMatch } from "../features/files/score";
 import { useAgentConfiguration } from "./AgentConfigurationControls";
@@ -21,7 +23,25 @@ import { OverlayHintBar } from "./OverlayHintBar";
 import { useScratchpad } from "./ScratchpadProvider";
 import { useWebClient } from "./WebClientContext";
 
-export function CommandPalette(): JSX.Element {
+type CommandPaletteContextValue = {
+	openPalette(): void;
+};
+
+const CommandPaletteContext = createContext<CommandPaletteContextValue>();
+
+export function useCommandPalette(): CommandPaletteContextValue {
+	const value = useContext(CommandPaletteContext);
+	if (!value) {
+		throw new Error(
+			"useCommandPalette must be used within CommandPaletteProvider",
+		);
+	}
+	return value;
+}
+
+export function CommandPaletteProvider(props: {
+	children: JSX.Element;
+}): JSX.Element {
 	const { controller, snapshot } = useWebClient();
 	const { openThemePicker } = useBrowserTheme();
 	const scratchpad = useScratchpad();
@@ -33,6 +53,7 @@ export function CommandPalette(): JSX.Element {
 	let input: HTMLInputElement | undefined;
 	let loadGeneration = 0;
 	const [open, setOpen] = createSignal(false);
+	const [mobile, setMobile] = createSignal(false);
 	const [commands, setCommands] = createSignal<PaletteCommand[]>(
 		mergePaletteCommands([]),
 	);
@@ -116,6 +137,7 @@ export function CommandPalette(): JSX.Element {
 	function openPalette(): void {
 		const modal = document.querySelector<HTMLDialogElement>("dialog:modal");
 		if (modal && modal.id !== "command-palette") return;
+		setMobile(window.matchMedia("(max-width: 36rem)").matches);
 		setQuery("");
 		setSelectedIndex(0);
 		setArgumentCommand(null);
@@ -182,7 +204,6 @@ export function CommandPalette(): JSX.Element {
 		if (command.argName) {
 			setArgumentCommand(command);
 			setQuery("");
-			queueMicrotask(() => input?.focus());
 			return;
 		}
 		closePalette();
@@ -198,7 +219,7 @@ export function CommandPalette(): JSX.Element {
 		void controller.executeCommand(command.id, args, generation);
 	}
 
-	function handleInputKeyDown(event: KeyboardEvent): void {
+	function handleCommandNavigationKeyDown(event: KeyboardEvent): void {
 		if (event.key === "ArrowDown") {
 			event.preventDefault();
 			moveSelection(1);
@@ -216,6 +237,10 @@ export function CommandPalette(): JSX.Element {
 	}
 
 	onMount(() => {
+		const mobileViewport = window.matchMedia("(max-width: 36rem)");
+		const syncMobile = () => setMobile(mobileViewport.matches);
+		syncMobile();
+		mobileViewport.addEventListener("change", syncMobile);
 		const handleGlobalKeyDown = (event: KeyboardEvent) => {
 			if (
 				event.defaultPrevented ||
@@ -227,127 +252,165 @@ export function CommandPalette(): JSX.Element {
 				return;
 			}
 			event.preventDefault();
-			if (open()) input?.focus();
-			else openPalette();
+			if (open()) {
+				if (mobile() && !argumentCommand()) {
+					document
+						.querySelector<HTMLElement>("#command-palette-list")
+						?.focus({ preventScroll: true });
+				} else input?.focus();
+			} else openPalette();
 		};
 		window.addEventListener("keydown", handleGlobalKeyDown);
-		onCleanup(() => window.removeEventListener("keydown", handleGlobalKeyDown));
+		onCleanup(() => {
+			mobileViewport.removeEventListener("change", syncMobile);
+			window.removeEventListener("keydown", handleGlobalKeyDown);
+		});
 	});
 
 	return (
-		<DialogFrame
-			open={open()}
-			id="command-palette"
-			class="command-palette-dialog"
-			labelledBy="command-palette-title"
-			focusKey={argumentCommand()?.id ?? "commands"}
-			onAfterOpen={() => input?.focus()}
-			onCancel={cancelPalette}
-		>
-			<header>
-				<h2 id="command-palette-title" data-visually-hidden>
-					Command palette
-				</h2>
-				<label class="command-palette-input">
-					<span aria-hidden="true">&gt;</span>
-					<input
-						ref={input}
-						type="text"
-						value={query()}
-						placeholder={
-							argumentCommand()?.argName
-								? `Enter ${argumentCommand()?.argName}`
-								: "Search commands"
-						}
-						aria-label={
-							argumentCommand()?.argName
-								? `Arguments for ${argumentCommand()?.name}`
-								: "Search commands"
-						}
-						role={argumentCommand() ? undefined : "combobox"}
-						aria-autocomplete={argumentCommand() ? undefined : "list"}
-						aria-expanded={argumentCommand() ? undefined : true}
-						aria-controls={
-							argumentCommand() ? undefined : "command-palette-list"
-						}
-						aria-activedescendant={
-							argumentCommand() || !selectedCommand()
-								? undefined
-								: `command-option-${selectedIndex()}`
-						}
-						onInput={(event) => {
-							setQuery(event.currentTarget.value);
-							setSelectedIndex(0);
-							scrollSelectedCommandIntoView();
-						}}
-						onKeyDown={handleInputKeyDown}
-					/>
-				</label>
-			</header>
-			<div class="command-palette-body">
-				<Show
-					when={!argumentCommand()}
-					fallback={
-						<div class="command-argument-help">
-							<strong>{argumentCommand()?.name}</strong>
-							<Show when={argumentCommand()?.description}>
-								{(description) => <span>{description()}</span>}
-							</Show>
-						</div>
-					}
-				>
-					<Show when={error()}>
-						{(message) => (
-							<div class="command-palette-message is-error" role="alert">
-								{message()}
+		<CommandPaletteContext.Provider value={{ openPalette }}>
+			{props.children}
+			<DialogFrame
+				open={open()}
+				id="command-palette"
+				class="command-palette-dialog"
+				drawer={mobile()}
+				labelledBy="command-palette-title"
+				focusKey={argumentCommand()?.id ?? "commands"}
+				onAfterOpen={(dialog) => {
+					if (!mobile() || argumentCommand()) input?.focus();
+					else
+						dialog
+							.querySelector<HTMLElement>("#command-palette-list")
+							?.focus({ preventScroll: true });
+				}}
+				onCancel={cancelPalette}
+			>
+				<header>
+					<h2
+						id="command-palette-title"
+						classList={{ "command-palette-mobile-title": mobile() }}
+						data-visually-hidden={!mobile()}
+					>
+						Commands
+					</h2>
+					<label
+						class="command-palette-input"
+						hidden={mobile() && !argumentCommand()}
+					>
+						<span aria-hidden="true">&gt;</span>
+						<input
+							ref={input}
+							type="text"
+							value={query()}
+							placeholder={
+								argumentCommand()?.argName
+									? `Enter ${argumentCommand()?.argName}`
+									: "Search commands"
+							}
+							aria-label={
+								argumentCommand()?.argName
+									? `Arguments for ${argumentCommand()?.name}`
+									: "Search commands"
+							}
+							role={argumentCommand() ? undefined : "combobox"}
+							aria-autocomplete={argumentCommand() ? undefined : "list"}
+							aria-expanded={argumentCommand() ? undefined : true}
+							aria-controls={
+								argumentCommand() ? undefined : "command-palette-list"
+							}
+							aria-activedescendant={
+								argumentCommand() || !selectedCommand()
+									? undefined
+									: `command-option-${selectedIndex()}`
+							}
+							onInput={(event) => {
+								setQuery(event.currentTarget.value);
+								setSelectedIndex(0);
+								scrollSelectedCommandIntoView();
+							}}
+							onKeyDown={handleCommandNavigationKeyDown}
+						/>
+					</label>
+				</header>
+				<div class="command-palette-body">
+					<Show
+						when={!argumentCommand()}
+						fallback={
+							<div class="command-argument-help">
+								<strong>{argumentCommand()?.name}</strong>
+								<Show when={argumentCommand()?.description}>
+									{(description) => <span>{description()}</span>}
+								</Show>
 							</div>
-						)}
-					</Show>
-					<Show when={!error() && filteredCommands().length === 0}>
+						}
+					>
+						<Show when={error()}>
+							{(message) => (
+								<div class="command-palette-message is-error" role="alert">
+									{message()}
+								</div>
+							)}
+						</Show>
+						<Show when={!error() && filteredCommands().length === 0}>
+							<div
+								class="command-palette-message"
+								role="status"
+								aria-live="polite"
+							>
+								{loading() ? "Loading…" : "No results"}
+							</div>
+						</Show>
 						<div
-							class="command-palette-message"
-							role="status"
-							aria-live="polite"
+							id="command-palette-list"
+							role="listbox"
+							aria-label="Commands"
+							tabIndex={mobile() ? 0 : undefined}
+							aria-activedescendant={
+								mobile() && selectedCommand()
+									? `command-option-${selectedIndex()}`
+									: undefined
+							}
+							onKeyDown={handleCommandNavigationKeyDown}
 						>
-							{loading() ? "Loading…" : "No results"}
+							<For each={filteredCommands()}>
+								{(command, index) => (
+									<button
+										id={`command-option-${index()}`}
+										class="command-palette-option"
+										type="button"
+										data-variant="ghost"
+										role="option"
+										tabIndex={-1}
+										aria-selected={index() === selectedIndex()}
+										aria-disabled={browserCommandDisabled(command)}
+										onMouseEnter={() => setSelectedIndex(index())}
+										onClick={() => chooseCommand(command)}
+									>
+										<span class="command-name">{command.name}</span>
+										<span class="command-arg">
+											{command.argName ? `[${command.argName}]` : ""}
+										</span>
+										<span class="command-description">
+											{command.description ?? command.category ?? ""}
+										</span>
+									</button>
+								)}
+							</For>
 						</div>
 					</Show>
-					<div id="command-palette-list" role="listbox" aria-label="Commands">
-						<For each={filteredCommands()}>
-							{(command, index) => (
-								<button
-									id={`command-option-${index()}`}
-									class="command-palette-option"
-									type="button"
-									data-variant="ghost"
-									role="option"
-									tabIndex={-1}
-									aria-selected={index() === selectedIndex()}
-									aria-disabled={browserCommandDisabled(command)}
-									onMouseEnter={() => setSelectedIndex(index())}
-									onClick={() => chooseCommand(command)}
-								>
-									<span class="command-name">{command.name}</span>
-									<span class="command-arg">
-										{command.argName ? `[${command.argName}]` : ""}
-									</span>
-									<span class="command-description">
-										{command.description ?? command.category ?? ""}
-									</span>
-								</button>
-							)}
-						</For>
-					</div>
+				</div>
+				<Show when={!mobile()}>
+					<OverlayHintBar
+						class="command-palette-footer"
+						hints={
+							argumentCommand()
+								? ["Enter run", "Esc close"]
+								: ["Up/Down navigate", "Enter run", "Esc close"]
+						}
+					/>
 				</Show>
-			</div>
-			<OverlayHintBar
-				class="command-palette-footer"
-				hints={
-					argumentCommand()
-						? ["Enter run", "Esc close"]
-						: ["Up/Down navigate", "Enter run", "Esc close"]
-				}
-			/>
-		</DialogFrame>
+			</DialogFrame>
+		</CommandPaletteContext.Provider>
 	);
 }

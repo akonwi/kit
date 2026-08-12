@@ -1,9 +1,12 @@
 /** @jsxImportSource solid-js */
 import { createMemo, For, type JSX, onCleanup, onMount } from "solid-js";
+import { useCommandPalette } from "./CommandPalette";
+import { shouldSubmitComposerKey } from "./composer-keyboard";
 import { useWebClient } from "./WebClientContext";
 
 export function ComposerDock(): JSX.Element {
 	const { snapshot, controller, registerComposerFocus } = useWebClient();
+	const { openPalette } = useCommandPalette();
 	let input: HTMLTextAreaElement | undefined;
 	let attachmentInput: HTMLInputElement | undefined;
 	const protocol = createMemo(() => snapshot().protocol);
@@ -71,7 +74,12 @@ export function ComposerDock(): JSX.Element {
 					rows={1}
 					placeholder="Ask kit to do something..."
 					onKeyDown={(event) => {
-						if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
+						if (
+							!shouldSubmitComposerKey(
+								event,
+								window.matchMedia("(pointer: coarse)").matches,
+							)
+						) {
 							return;
 						}
 						event.preventDefault();
@@ -81,6 +89,7 @@ export function ComposerDock(): JSX.Element {
 				/>
 				<div class="composer-actions">
 					<button
+						class="composer-attach"
 						type="button"
 						data-variant="ghost"
 						data-size="small"
@@ -103,6 +112,17 @@ export function ComposerDock(): JSX.Element {
 						}}
 					/>
 					<button
+						class="composer-command-button"
+						type="button"
+						data-variant="ghost"
+						data-size="small"
+						aria-keyshortcuts="Control+P"
+						onClick={openPalette}
+					>
+						&gt; Commands
+					</button>
+					<button
+						class="composer-send"
 						type={streaming() ? "button" : "submit"}
 						data-variant={streaming() ? "danger" : "ghost"}
 						data-size="small"
