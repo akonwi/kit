@@ -50,8 +50,13 @@ Controllers can discover those exact IDs through the protocol:
 {"id":"model","type":"set_model","provider":"<provider>","modelId":"<model-id>"}
 ```
 
-Like print mode, RPC mode loads only headless-safe built-in plugins. User and
-project plugins and UI-only tools are not loaded.
+Like print mode, RPC mode loads headless-safe built-ins plus user and project
+external plugins discovered from `~/.kit/plugins/` and the active session cwd.
+Headless-compatible contributions such as tools, tool-call interceptors,
+subagents, system-prompt slots, and lifecycle events are active. Commands and
+chrome can register but do not currently have an RPC presentation or execution
+surface. Plugin confirm, input, and select requests cannot display a terminal
+dialog; they fail or return cancellation.
 
 ## Responses
 

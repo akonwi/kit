@@ -28,12 +28,14 @@ export async function runPrintMode(
 	const stdout = takeOverStdout();
 	let runtime: AgentRuntime | null = null;
 	let host: HeadlessHost | null = null;
+	const startupAbort = new AbortController();
 	let signalExitCode: number | null = null;
 	let forcedExitTimer: ReturnType<typeof setTimeout> | null = null;
 	const handleSignal = (signal: "SIGINT" | "SIGTERM") => {
 		const exitCode = signal === "SIGINT" ? 130 : 143;
 		if (signalExitCode !== null) process.exit(exitCode);
 		signalExitCode = exitCode;
+		startupAbort.abort();
 		runtime?.abort();
 		forcedExitTimer = setTimeout(() => process.exit(exitCode), 5_000);
 	};
@@ -52,6 +54,7 @@ export async function runPrintMode(
 		} else {
 			host = await createHeadlessHost(resolved.session, {
 				persistSession: resolved.persistSession,
+				signal: startupAbort.signal,
 			});
 			runtime = host.runtime;
 			if (signalExitCode === null) {

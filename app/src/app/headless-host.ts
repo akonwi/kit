@@ -5,6 +5,10 @@ import {
 	createMemorySubagentSessionStorage,
 } from "../features/subagents/memory-storage";
 import { createBuiltInPlugins } from "../plugins/built-ins";
+import {
+	type ExternalPluginFailure,
+	ExternalPluginManager,
+} from "../plugins/external";
 import { PluginManager } from "../plugins/PluginManager";
 import type { PluginContext } from "../plugins/types";
 import { AgentRuntime } from "../runtime/agent-runtime";
@@ -74,11 +78,52 @@ export function takeOverStdout(): {
 export type HeadlessHost = {
 	runtime: AgentRuntime;
 	dispose: () => Promise<void>;
+	waitForPlugins: () => Promise<void>;
 };
+
+async function waitForAbortable(
+	promise: Promise<void>,
+	signal: AbortSignal,
+): Promise<void> {
+	if (signal.aborted) throw new Error("Headless startup aborted");
+	let rejectAbort: ((error: Error) => void) | null = null;
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject;
+	});
+	const onAbort = () => rejectAbort?.(new Error("Headless startup aborted"));
+	signal.addEventListener("abort", onAbort, { once: true });
+	try {
+		await Promise.race([promise, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
+function reportExternalPluginFailure(failure: ExternalPluginFailure): void {
+	const plugin = failure.pluginId ? ` ${failure.pluginId}` : "";
+	const processExit = [
+		failure.exitCode != null ? `exit ${failure.exitCode}` : undefined,
+		failure.exitSignal ? `signal ${failure.exitSignal}` : undefined,
+	]
+		.filter(Boolean)
+		.join(", ");
+	const details = [
+		`${failure.phase}: ${failure.message}`,
+		failure.manifestPath,
+		failure.otherManifestPath,
+		processExit || undefined,
+		failure.stderr ? `stderr: ${failure.stderr}` : undefined,
+	].filter((value): value is string => Boolean(value));
+	console.error(`Plugin${plugin} failed: ${details.join(" · ")}`);
+}
 
 export async function createHeadlessHost(
 	session: Session,
-	options: { persistSession?: boolean } = {},
+	options: {
+		externalPluginHome?: string;
+		persistSession?: boolean;
+		signal?: AbortSignal;
+	} = {},
 ): Promise<HeadlessHost> {
 	const settings = await loadSettings();
 	await resolveAndApplyTheme(settings.settings.theme ?? "system");
@@ -106,6 +151,18 @@ export async function createHeadlessHost(
 		}),
 		pluginContext,
 	);
+	const pluginAbort = new AbortController();
+	const abortPlugins = () => pluginAbort.abort();
+	if (options.signal?.aborted) abortPlugins();
+	else options.signal?.addEventListener("abort", abortPlugins, { once: true });
+	const externalPlugins = new ExternalPluginManager(pluginContext, {
+		home: options.externalPluginHome,
+		onFailure: reportExternalPluginFailure,
+		signal: pluginAbort.signal,
+	});
+	const removePluginBarrier = runtime.addToolPreparationBarrier((signal) =>
+		externalPlugins.waitForProjectTransition(signal),
+	);
 	const persistence = options.persistSession
 		? new FilePersistence(runtime)
 		: null;
@@ -116,9 +173,19 @@ export async function createHeadlessHost(
 	try {
 		builtInPlugins.initialize();
 		await Promise.all(pluginReadiness);
+		const initializeExternalPlugins = externalPlugins.initialize();
+		if (options.signal) {
+			await waitForAbortable(initializeExternalPlugins, options.signal);
+		} else {
+			await initializeExternalPlugins;
+		}
 	} catch (error) {
 		unsubscribePersistenceFailure?.();
 		persistence?.dispose();
+		pluginAbort.abort();
+		options.signal?.removeEventListener("abort", abortPlugins);
+		await externalPlugins.dispose({ graceful: !options.signal?.aborted });
+		removePluginBarrier();
 		await builtInPlugins.disposeAsync();
 		runtime.dispose();
 		throw error;
@@ -127,15 +194,24 @@ export async function createHeadlessHost(
 	let disposed = false;
 	return {
 		runtime,
+		waitForPlugins: () => externalPlugins.waitForProjectTransition(),
 		dispose: async () => {
 			if (disposed) return;
 			disposed = true;
 			runtime.abort();
+			pluginAbort.abort();
+			options.signal?.removeEventListener("abort", abortPlugins);
 			let cleanupError: unknown;
+			try {
+				await externalPlugins.dispose();
+			} catch (error) {
+				cleanupError = error;
+			}
+			removePluginBarrier();
 			try {
 				await builtInPlugins.disposeAsync();
 			} catch (error) {
-				cleanupError = error;
+				cleanupError ??= error;
 			}
 			if (persistence) {
 				try {

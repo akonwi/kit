@@ -338,6 +338,9 @@ export class AgentRuntime {
 	};
 	private debugSections = new Map<string, string[]>();
 	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
+	private readonly toolPreparationBarriers = new Set<
+		(signal?: AbortSignal) => Promise<void>
+	>();
 	private gitWatcher: VcsInfoWatcher | null = null;
 	private gitInfo: VcsInfo = null;
 	get vcsInfo() {
@@ -1196,10 +1199,32 @@ export class AgentRuntime {
 		};
 	}
 
+	addToolPreparationBarrier(
+		barrier: (signal?: AbortSignal) => Promise<void>,
+	): () => void {
+		this.toolPreparationBarriers.add(barrier);
+		return () => {
+			this.toolPreparationBarriers.delete(barrier);
+		};
+	}
+
 	private async handleBeforeToolCall(
 		context: BeforeToolCallContext,
 		signal?: AbortSignal,
 	): Promise<BeforeToolCallResult | undefined> {
+		for (const barrier of [...this.toolPreparationBarriers]) {
+			if (signal?.aborted) {
+				return { block: true, reason: "Tool call aborted before preparation." };
+			}
+			try {
+				await barrier(signal);
+			} catch (error) {
+				return {
+					block: true,
+					reason: `Tool preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+				};
+			}
+		}
 		if (this.toolApprovalHandlers.size === 0) return undefined;
 		const request: ToolApprovalRequest = {
 			toolCallId: context.toolCall.id,
@@ -1910,6 +1935,7 @@ export class AgentRuntime {
 		this.gitWatcher?.dispose();
 		this.gitWatcher = null;
 		this.toolApprovalHandlers.clear();
+		this.toolPreparationBarriers.clear();
 		this.bus.dispose();
 	}
 }

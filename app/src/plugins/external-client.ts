@@ -144,6 +144,26 @@ function delay(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForAbortable<T>(
+	promise: Promise<T>,
+	signal?: AbortSignal,
+): Promise<T> {
+	if (!signal) return promise;
+	if (signal.aborted) throw new Error("Plugin initialization aborted");
+	let rejectAbort: ((error: Error) => void) | null = null;
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject;
+	});
+	const onAbort = () =>
+		rejectAbort?.(new Error("Plugin initialization aborted"));
+	signal.addEventListener("abort", onAbort, { once: true });
+	try {
+		return await Promise.race([promise, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
 function publicTurn(turn: Turn): JsonValue {
 	const messages: JsonValue[] = [];
 	for (const message of turn.messages) {
@@ -224,7 +244,7 @@ export class ExternalPluginClient {
 		return this.state === "ready";
 	}
 
-	async start(): Promise<void> {
+	async start(signal?: AbortSignal): Promise<void> {
 		if (this.state !== "created") return;
 		this.state = "initializing";
 
@@ -259,12 +279,15 @@ export class ExternalPluginClient {
 					},
 				},
 			);
-			await Promise.race([
-				initialize,
-				delay(INITIALIZE_TIMEOUT_MS).then(() => {
-					throw new Error("Initialization timed out after 10 seconds");
-				}),
-			]);
+			await waitForAbortable(
+				Promise.race([
+					initialize,
+					delay(INITIALIZE_TIMEOUT_MS).then(() => {
+						throw new Error("Initialization timed out after 10 seconds");
+					}),
+				]),
+				signal,
+			);
 		} catch (error) {
 			this.reportFailure("initialize", error);
 			await this.stop(false);
@@ -277,14 +300,17 @@ export class ExternalPluginClient {
 		void this.endpoint.notify(method, params).catch(() => {});
 	}
 
-	stop(graceful = true): Promise<void> {
+	stop(graceful = true, signal?: AbortSignal): Promise<void> {
 		if (this.state === "stopped") return Promise.resolve();
 		if (this.stopPromise) return this.stopPromise;
-		this.stopPromise = this.performStop(graceful);
+		this.stopPromise = this.performStop(graceful, signal);
 		return this.stopPromise;
 	}
 
-	private async performStop(graceful: boolean): Promise<void> {
+	private async performStop(
+		graceful: boolean,
+		signal?: AbortSignal,
+	): Promise<void> {
 		this.state = "stopping";
 		this.removeContributions();
 		const proc = this.process;
@@ -293,30 +319,37 @@ export class ExternalPluginClient {
 			this.state = "stopped";
 			return;
 		}
+		const abort = () => this.kill("SIGTERM");
+		if (signal?.aborted) abort();
+		else signal?.addEventListener("abort", abort, { once: true });
+		try {
+			if (
+				graceful &&
+				endpoint &&
+				proc.exitCode == null &&
+				proc.signalCode == null
+			) {
+				endpoint.cancelPendingRequests();
+				void endpoint
+					.request("shutdown", undefined, {
+						validateResult: validateNullResult,
+					})
+					.catch(() => {});
+				await Promise.race([this.exitPromise, delay(SHUTDOWN_TIMEOUT_MS)]);
+			}
 
-		if (
-			graceful &&
-			endpoint &&
-			proc.exitCode == null &&
-			proc.signalCode == null
-		) {
-			endpoint.cancelPendingRequests();
-			void endpoint
-				.request("shutdown", undefined, {
-					validateResult: validateNullResult,
-				})
-				.catch(() => {});
-			await Promise.race([this.exitPromise, delay(SHUTDOWN_TIMEOUT_MS)]);
-		}
-
-		if (proc.exitCode == null && proc.signalCode == null) {
-			this.kill("SIGTERM");
+			if (proc.exitCode == null && proc.signalCode == null) {
+				this.kill("SIGTERM");
+				await Promise.race([this.exitPromise, delay(FORCE_KILL_DELAY_MS)]);
+			}
+			if (proc.exitCode == null && proc.signalCode == null)
+				this.kill("SIGKILL");
 			await Promise.race([this.exitPromise, delay(FORCE_KILL_DELAY_MS)]);
+			endpoint?.close(new JsonRpcError(-32002, "Plugin stopped"));
+			this.state = "stopped";
+		} finally {
+			signal?.removeEventListener("abort", abort);
 		}
-		if (proc.exitCode == null && proc.signalCode == null) this.kill("SIGKILL");
-		await Promise.race([this.exitPromise, delay(FORCE_KILL_DELAY_MS)]);
-		endpoint?.close(new JsonRpcError(-32002, "Plugin stopped"));
-		this.state = "stopped";
 	}
 
 	private async launch(): Promise<void> {

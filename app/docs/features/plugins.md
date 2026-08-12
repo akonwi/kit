@@ -196,3 +196,13 @@ the new cwd.
 During normal shutdown Kit removes contributions immediately, requests
 `shutdown`, waits up to two seconds for the process to exit, and then terminates
 it if necessary.
+
+## Headless modes
+
+Print (`--print`) and RPC (`--rpc`) modes load user and project plugins before
+they accept work. Tools, tool-call interceptors, subagents, system-prompt slots,
+and lifecycle events behave normally. Commands and header/footer contributions
+may register, but headless modes do not currently provide an interactive
+surface for them. Confirm, input, and select requests cannot open a terminal
+dialog in headless modes and fail or return cancellation. Plugin failures are
+written to stderr so print output and the RPC stdout protocol remain clean.

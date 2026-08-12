@@ -66,6 +66,25 @@ export type DiscoverExternalPluginsResult = {
 
 const pluginManifestSchema = manifestSchema as TSchema;
 
+async function waitForAbortable(
+	promise: Promise<void>,
+	signal?: AbortSignal,
+): Promise<void> {
+	if (!signal) return promise;
+	if (signal.aborted) throw new Error("Plugin transition aborted");
+	let rejectAbort: ((error: Error) => void) | null = null;
+	const aborted = new Promise<never>((_resolve, reject) => {
+		rejectAbort = reject;
+	});
+	const onAbort = () => rejectAbort?.(new Error("Plugin transition aborted"));
+	signal.addEventListener("abort", onAbort, { once: true });
+	try {
+		await Promise.race([promise, aborted]);
+	} finally {
+		signal.removeEventListener("abort", onAbort);
+	}
+}
+
 function scanInstallations(
 	directory: string,
 	source: ExternalPluginSource,
@@ -213,6 +232,7 @@ export class ExternalPluginManager {
 	private readonly context: PluginContext;
 	private readonly home?: string;
 	private readonly onFailure?: (failure: ExternalPluginFailure) => void;
+	private readonly signal?: AbortSignal;
 	private userManifests: ExternalPluginManifest[] = [];
 	private userClients: ExternalPluginClient[] = [];
 	private projectClients: ExternalPluginClient[] = [];
@@ -229,11 +249,13 @@ export class ExternalPluginManager {
 		options: {
 			home?: string;
 			onFailure?: (failure: ExternalPluginFailure) => void;
+			signal?: AbortSignal;
 		} = {},
 	) {
 		this.context = context;
 		this.home = options.home;
 		this.onFailure = options.onFailure;
+		this.signal = options.signal;
 		this.currentCwd = context.runtime.getSession().cwd;
 	}
 
@@ -300,7 +322,7 @@ export class ExternalPluginManager {
 		this.projectClients = [];
 		this.currentCwd = cwd;
 		this.projectTransition = this.projectTransition.then(async () => {
-			await this.stopClients(oldProjectClients);
+			await this.stopClients(oldProjectClients, true, this.signal);
 			if (
 				this.disposed ||
 				generation !== this.projectGeneration ||
@@ -328,7 +350,15 @@ export class ExternalPluginManager {
 		});
 	}
 
-	async dispose(): Promise<void> {
+	async waitForProjectTransition(signal?: AbortSignal): Promise<void> {
+		while (true) {
+			const transition = this.projectTransition;
+			await waitForAbortable(transition, signal);
+			if (transition === this.projectTransition) return;
+		}
+	}
+
+	async dispose(options: { graceful?: boolean } = {}): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
 		this.lifecycleGeneration += 1;
@@ -339,11 +369,19 @@ export class ExternalPluginManager {
 		const clients = this.allClients.splice(0).reverse();
 		this.projectClients = [];
 		this.userClients = [];
-		await this.stopClients(clients);
+		await this.stopClients(clients, options.graceful ?? true);
 	}
 
-	private async stopClients(clients: ExternalPluginClient[]): Promise<void> {
-		for (const client of clients) await client.stop();
+	private async stopClients(
+		clients: ExternalPluginClient[],
+		graceful = true,
+		signal?: AbortSignal,
+	): Promise<void> {
+		if (!graceful) {
+			await Promise.all(clients.map((client) => client.stop(false)));
+			return;
+		}
+		for (const client of clients) await client.stop(true, signal);
 	}
 
 	private async initializeCurrentGeneration(
@@ -402,6 +440,7 @@ export class ExternalPluginManager {
 		lifecycleGeneration: number,
 		projectGeneration: number,
 	): Promise<void> {
+		if (this.signal?.aborted) return;
 		const client = new ExternalPluginClient({
 			manifest,
 			context: this.context,
@@ -409,7 +448,7 @@ export class ExternalPluginManager {
 		});
 		this.allClients.push(client);
 		try {
-			await client.start();
+			await client.start(this.signal);
 		} catch {
 			this.allClients = this.allClients.filter(
 				(candidate) => candidate !== client,

@@ -255,6 +255,48 @@ describe("RPC mode protocol", () => {
 		]);
 	});
 
+	test("waits for project plugins after switching sessions", async () => {
+		let finishPlugins: (() => void) | undefined;
+		let promptSubmitted = false;
+		const runtime = createRuntime({
+			switchSession: async () => true,
+			waitForModelAdaptation: async () => {},
+			submitUserMessage: async () => {
+				promptSubmitted = true;
+			},
+		});
+		const input = new PassThrough();
+		const records: unknown[] = [];
+		const server = new RpcModeServer(
+			runtime,
+			input,
+			async (record) => {
+				records.push(record);
+			},
+			false,
+			() =>
+				new Promise<void>((resolve) => {
+					finishPlugins = resolve;
+				}),
+		);
+		input.end(
+			'{"id":"switch-1","type":"switch_session","sessionPath":"session-2"}\n{"id":"prompt-1","type":"prompt","message":"hello"}\n',
+		);
+
+		const started = server.start();
+		await Bun.sleep(0);
+		expect(promptSubmitted).toBe(false);
+		expect(records).toEqual([]);
+
+		finishPlugins?.();
+		await started;
+		expect(promptSubmitted).toBe(true);
+		expect(records.map((record) => (record as { id?: string }).id)).toEqual([
+			"switch-1",
+			"prompt-1",
+		]);
+	});
+
 	test("emits balanced Pi-style lifecycle boundaries", async () => {
 		let emit: ((event: AgentRuntimeEvent) => void) | undefined;
 		const user = { role: "user", content: "hello", timestamp: 1 };

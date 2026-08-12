@@ -168,6 +168,8 @@ export class RpcModeServer {
 		private readonly input: Readable,
 		private readonly writeRecord: RpcWriter,
 		private readonly persistSessions = false,
+		private readonly waitForPlugins: () => Promise<void> = () =>
+			Promise.resolve(),
 	) {}
 
 	async start(): Promise<void> {
@@ -373,6 +375,7 @@ export class RpcModeServer {
 				);
 				if (!switched) throw new Error("Session not found");
 				await this.runtime.waitForModelAdaptation();
+				await this.waitForPlugins();
 				await this.respond(command, true, { cancelled: false });
 				return;
 			}
@@ -411,6 +414,7 @@ export async function runRpcMode(
 	options: { model?: string; noSession?: boolean; sessionId?: string } = {},
 ): Promise<number> {
 	const stdout = takeOverStdout();
+	const startupAbort = new AbortController();
 	let host: Awaited<ReturnType<typeof createHeadlessHost>> | null = null;
 	let server: RpcModeServer | null = null;
 	let signalExitCode: number | null = null;
@@ -418,6 +422,7 @@ export async function runRpcMode(
 		const exitCode = signal === "SIGINT" ? 130 : 143;
 		if (signalExitCode !== null) process.exit(exitCode);
 		signalExitCode = exitCode;
+		startupAbort.abort();
 		host?.runtime.abort();
 		process.stdin.destroy();
 	};
@@ -433,6 +438,7 @@ export async function runRpcMode(
 		});
 		host = await createHeadlessHost(resolved.session, {
 			persistSession: resolved.persistSession,
+			signal: startupAbort.signal,
 		});
 		await applyStartupModel(host.runtime, options.model);
 		server = new RpcModeServer(
@@ -440,6 +446,7 @@ export async function runRpcMode(
 			process.stdin,
 			(record) => stdout.write(`${JSON.stringify(record)}\n`),
 			resolved.persistSession,
+			host.waitForPlugins,
 		);
 		await server.start();
 		await server.abortAndWait();

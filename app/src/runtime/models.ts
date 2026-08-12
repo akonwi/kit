@@ -23,6 +23,11 @@ export async function refreshModelAvailability(): Promise<void> {
 	availableProviderIds = new Set(available.map((model) => model.provider));
 }
 
+export function clearModelAvailabilityCache(): void {
+	availableModelKeys = null;
+	availableProviderIds = null;
+}
+
 export function hasCachedProviderAuth(providerId: string): boolean {
 	return availableProviderIds?.has(providerId) ?? false;
 }

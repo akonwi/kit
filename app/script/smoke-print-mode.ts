@@ -19,12 +19,14 @@ import {
 } from "../src/session";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
-const probePath = path.join(
+const pluginRoot = path.join(
 	repoRoot,
 	".kit",
 	"plugins",
-	"headless-print-mode-smoke.ts",
+	"headless-print-mode-smoke",
 );
+const pluginManifestPath = path.join(pluginRoot, "plugin.json");
+const pluginScriptPath = path.join(pluginRoot, "plugin.py");
 const subagentPath = path.join(
 	repoRoot,
 	".kit",
@@ -35,7 +37,7 @@ const tempDir = await mkdtemp(path.join(tmpdir(), "kit-print-mode-smoke-"));
 const readFixture = path.join(tempDir, "read-fixture.txt");
 const pluginMarker = path.join(tempDir, "external-plugin-loaded");
 
-for (const fixturePath of [probePath, subagentPath]) {
+for (const fixturePath of [pluginRoot, subagentPath]) {
 	if (existsSync(fixturePath)) {
 		throw new Error(
 			`Refusing to overwrite existing smoke fixture: ${fixturePath}`,
@@ -161,11 +163,51 @@ async function testSignalHandling(): Promise<void> {
 	console.log("PASS SIGINT: direct process exited 130 with empty stdout");
 }
 
-const skippedPluginSource = `import { writeFileSync } from "node:fs";
+const pluginManifest = {
+	manifestVersion: 1,
+	id: "print-smoke",
+	transport: {
+		type: "stdio",
+		command: "python3",
+		args: ["-u", "plugin.py"],
+	},
+};
+const pluginSource = `import json
+import pathlib
+import sys
 
-export default function ExternalPluginProbe() {
-  writeFileSync(${JSON.stringify(pluginMarker)}, "loaded");
-}
+marker = pathlib.Path(${JSON.stringify(pluginMarker)})
+
+def send(message):
+    print(json.dumps(message), flush=True)
+
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    message = json.loads(line)
+    method = message.get("method")
+    if method == "initialize":
+        marker.write_text("loaded")
+        send({"jsonrpc": "2.0", "id": message["id"], "result": {"protocolVersion": 1}})
+        send({
+            "jsonrpc": "2.0",
+            "id": "register-probe",
+            "method": "kit/tools/register",
+            "params": {
+                "id": "probe",
+                "description": "Return the print-mode plugin smoke-test token.",
+                "inputSchema": {"type": "object", "additionalProperties": False},
+            },
+        })
+    elif method == "kit/tools/execute":
+        send({
+            "jsonrpc": "2.0",
+            "id": message["id"],
+            "result": {"content": [{"type": "text", "text": "PLUGIN_TOOL_OK"}]},
+        })
+    elif method == "shutdown":
+        send({"jsonrpc": "2.0", "id": message["id"], "result": None})
+        break
 `;
 let smokeSessionId: string | null = null;
 
@@ -178,9 +220,10 @@ Follow the caller's request and return only the exact token it asks for.
 
 try {
 	await writeFile(readFixture, "READ_TOOL_OK\n");
-	await mkdir(path.dirname(probePath), { recursive: true });
+	await mkdir(pluginRoot, { recursive: true });
 	await mkdir(path.dirname(subagentPath), { recursive: true });
-	await writeFile(probePath, skippedPluginSource);
+	await writeFile(pluginManifestPath, JSON.stringify(pluginManifest));
+	await writeFile(pluginScriptPath, pluginSource);
 	await writeFile(subagentPath, subagentSource);
 
 	const sessionsRoot = SESSIONS_DIR;
@@ -250,10 +293,15 @@ try {
 	smokeSessionId = null;
 	console.log("PASS selected session persisted");
 
-	if (existsSync(pluginMarker)) {
-		throw new Error("Print mode loaded a project plugin.");
+	if (!existsSync(pluginMarker)) {
+		throw new Error("Print mode did not load the project plugin.");
 	}
-	console.log("PASS external plugins skipped");
+	console.log("PASS external plugin loaded");
+	await expectExact(
+		"external plugin tool",
+		"PLUGIN_TOOL_OK",
+		"Call the print-smoke__probe tool. After it returns, reply with exactly PLUGIN_TOOL_OK and nothing else.",
+	);
 
 	await expectExact(
 		"piped stdin",
@@ -291,7 +339,7 @@ try {
 	console.log("Print mode smoke test passed.");
 } finally {
 	if (smokeSessionId) await deleteSession(smokeSessionId);
-	await rm(probePath, { force: true });
+	await rm(pluginRoot, { force: true, recursive: true });
 	await rm(subagentPath, { force: true });
 	await rm(tempDir, { force: true, recursive: true });
 }
