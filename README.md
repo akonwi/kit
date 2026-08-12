@@ -30,8 +30,10 @@ The packaged CLI uses the compiled binary as its non-development entry point.
 
 ```bash
 kit                  # resumes the most recent session for the current directory or starts a new one
-kit -p "review this" # runs in ephemeral print mode without the TUI
+kit -p "review this" # runs without the TUI and persists a new session
+kit -p --no-session "review this" # runs in memory without persisting a session
 kit -p --model openai/gpt-5.5 "review this" # selects an exact provider/model
+kit -p --session abc123 "continue this" # continues and persists a specific session
 kit --mode rpc       # runs as a headless JSONL subprocess
 kit -s abc123        # opens a specific session by ID (long or short id)
 kit threads          # launches a session picker

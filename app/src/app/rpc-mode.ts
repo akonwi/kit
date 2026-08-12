@@ -2,19 +2,10 @@ import type { Readable } from "node:stream";
 import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
-import {
-	createSession,
-	findSessionById,
-	readSession,
-	type Session,
-	writeSession,
-} from "../session";
-import {
-	createEphemeralSession,
-	createHeadlessHost,
-	takeOverStdout,
-} from "./headless-host";
+import { writeSession } from "../session";
+import { createHeadlessHost, takeOverStdout } from "./headless-host";
 import { applyStartupModel } from "./headless-model";
+import { resolveHeadlessSession } from "./headless-session";
 
 type RpcCommand = {
 	id?: string;
@@ -415,25 +406,6 @@ export class RpcModeServer {
 	}
 }
 
-async function resolveSession(
-	cwd: string,
-	options: { noSession: boolean; sessionId?: string },
-): Promise<{ session: Session; persistSession: boolean }> {
-	if (options.noSession) {
-		return { session: createEphemeralSession(cwd), persistSession: false };
-	}
-	if (options.sessionId) {
-		const session =
-			(await findSessionById(options.sessionId)) ??
-			(await readSession(options.sessionId));
-		if (!session) throw new Error(`Session not found: ${options.sessionId}`);
-		return { session, persistSession: true };
-	}
-	const session = await createSession(cwd);
-	await writeSession(session);
-	return { session, persistSession: true };
-}
-
 export async function runRpcMode(
 	cwd: string,
 	options: { model?: string; noSession?: boolean; sessionId?: string } = {},
@@ -455,8 +427,8 @@ export async function runRpcMode(
 	process.on("SIGTERM", handleSigterm);
 	let exitCode = 0;
 	try {
-		const resolved = await resolveSession(cwd, {
-			noSession: options.noSession ?? false,
+		const resolved = await resolveHeadlessSession(cwd, {
+			defaultPersistence: options.noSession ? "ephemeral" : "persistent",
 			sessionId: options.sessionId,
 		});
 		host = await createHeadlessHost(resolved.session, {

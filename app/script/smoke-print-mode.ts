@@ -1,9 +1,22 @@
 // Manual authenticated end-to-end verification for `kit -p`. Keep this matrix
 // aligned with the lifecycle and output guarantees in app/src/app/print-mode.ts.
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import {
+	mkdir,
+	mkdtemp,
+	readdir,
+	readFile,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+	createSession,
+	deleteSession,
+	SESSIONS_DIR,
+	writeSession,
+} from "../src/session";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const probePath = path.join(
@@ -52,11 +65,27 @@ type RunResult = {
 
 async function runPrintMode(
 	prompt: string,
-	options: { model?: string; stdin?: string } = {},
+	options: {
+		model?: string;
+		noSession?: boolean;
+		sessionId?: string;
+		stdin?: string;
+	} = {},
 ): Promise<RunResult> {
 	const modelArgs = options.model ? ["--model", options.model] : [];
+	const sessionArgs = options.sessionId ? ["--session", options.sessionId] : [];
+	const noSession = options.noSession ?? options.sessionId === undefined;
+	const noSessionArgs = noSession ? ["--no-session"] : [];
 	const proc = Bun.spawn(
-		[process.execPath, "dev", "-p", ...modelArgs, prompt],
+		[
+			process.execPath,
+			"dev",
+			"-p",
+			...modelArgs,
+			...sessionArgs,
+			...noSessionArgs,
+			prompt,
+		],
 		{
 			cwd: repoRoot,
 			env: process.env,
@@ -100,6 +129,7 @@ async function testSignalHandling(): Promise<void> {
 			`--preload=${preload}`,
 			main,
 			"-p",
+			"--no-session",
 			"Use the bash tool to execute sleep 30, then reply with exactly LATE.",
 		],
 		{
@@ -137,6 +167,8 @@ export default function ExternalPluginProbe() {
   writeFileSync(${JSON.stringify(pluginMarker)}, "loaded");
 }
 `;
+let smokeSessionId: string | null = null;
+
 const subagentSource = `---
 name: headless-print-mode-smoke
 description: Smoke-test subagent
@@ -151,8 +183,34 @@ try {
 	await writeFile(probePath, skippedPluginSource);
 	await writeFile(subagentPath, subagentSource);
 
-	const sessionsRoot = path.join(process.env.HOME ?? "", ".kit", "sessions");
+	const sessionsRoot = SESSIONS_DIR;
 	const sessionsBefore = await filesBelow(sessionsRoot);
+
+	await expectExact(
+		"default persistent session",
+		"DEFAULT_SESSION_OK",
+		"Do not call tools. Reply with exactly DEFAULT_SESSION_OK and nothing else.",
+		{ noSession: false },
+	);
+	const sessionsAfterDefault = await filesBelow(sessionsRoot);
+	const defaultSessionFiles = [...sessionsAfterDefault].filter(
+		(filePath) => !sessionsBefore.has(filePath) && filePath.endsWith(".jsonl"),
+	);
+	if (defaultSessionFiles.length !== 1) {
+		throw new Error(
+			`Print mode created ${defaultSessionFiles.length} sessions by default; expected 1.`,
+		);
+	}
+	const defaultSessionFile = defaultSessionFiles[0];
+	if (!defaultSessionFile) {
+		throw new Error("Print mode did not create a default session.");
+	}
+	const defaultSessionContent = await readFile(defaultSessionFile, "utf8");
+	if (!defaultSessionContent.includes("DEFAULT_SESSION_OK")) {
+		throw new Error("Print mode did not persist its default session.");
+	}
+	await deleteSession(path.basename(defaultSessionFile, ".jsonl"));
+	console.log("PASS default session persisted");
 
 	await expectExact(
 		"plain prompt",
@@ -172,6 +230,26 @@ try {
 			"SKIP explicit model: set KIT_PRINT_MODE_SMOKE_MODEL=<provider>/<model-id>",
 		);
 	}
+	const smokeSession = await createSession(tempDir);
+	smokeSessionId = smokeSession.id;
+	await writeSession(smokeSession);
+	await expectExact(
+		"persistent session",
+		"SESSION_OK",
+		"Do not call tools. Reply with exactly SESSION_OK and nothing else.",
+		{ sessionId: smokeSession.id },
+	);
+	const persistedSession = await readFile(
+		path.join(SESSIONS_DIR, `${smokeSession.id}.jsonl`),
+		"utf8",
+	);
+	if (!persistedSession.includes("SESSION_OK")) {
+		throw new Error("Print mode did not persist the selected session.");
+	}
+	await deleteSession(smokeSession.id);
+	smokeSessionId = null;
+	console.log("PASS selected session persisted");
+
 	if (existsSync(pluginMarker)) {
 		throw new Error("Print mode loaded a project plugin.");
 	}
@@ -209,9 +287,10 @@ try {
 			`Print mode persisted sessions:\n${newSessions.join("\n")}`,
 		);
 	}
-	console.log("PASS ephemeral session storage");
+	console.log("PASS --no-session storage");
 	console.log("Print mode smoke test passed.");
 } finally {
+	if (smokeSessionId) await deleteSession(smokeSessionId);
 	await rm(probePath, { force: true });
 	await rm(subagentPath, { force: true });
 	await rm(tempDir, { force: true, recursive: true });

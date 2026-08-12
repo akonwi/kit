@@ -55,14 +55,17 @@ if (values.mode === "rpc") {
 	console.error(`Unknown mode: ${String(values.mode)}`);
 	process.exitCode = 1;
 } else if (values.print === true) {
-	if (values.session || values.version) {
-		console.error("kit -p cannot be combined with --session or --version");
+	if (values.version) {
+		console.error("kit -p cannot be combined with --version");
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
 		!isValidModelSelector(values.model)
 	) {
 		console.error("kit -p --model expects <provider>/<model-id>");
+		process.exitCode = 1;
+	} else if (values["no-session"] && values.session) {
+		console.error("kit -p cannot combine --no-session with --session");
 		process.exitCode = 1;
 	} else {
 		const stdin = await readPipedStdin();
@@ -75,6 +78,9 @@ if (values.mode === "rpc") {
 			const { runPrintMode } = await import("./print-mode");
 			process.exitCode = await runPrintMode(prompt, safeProcessCwd(), {
 				model: typeof values.model === "string" ? values.model : undefined,
+				noSession: values["no-session"] === true,
+				sessionId:
+					typeof values.session === "string" ? values.session : undefined,
 			});
 		}
 	}

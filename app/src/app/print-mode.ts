@@ -4,12 +4,9 @@ import {
 	AuthenticationRequiredError,
 } from "../runtime/agent-runtime";
 import type { HeadlessHost } from "./headless-host";
-import {
-	createEphemeralSession,
-	createHeadlessHost,
-	takeOverStdout,
-} from "./headless-host";
+import { createHeadlessHost, takeOverStdout } from "./headless-host";
 import { applyStartupModel } from "./headless-model";
+import { resolveHeadlessSession } from "./headless-session";
 
 function assistantText(message: AgentMessage | undefined): string {
 	if (message?.role !== "assistant") return "";
@@ -26,7 +23,7 @@ function assistantText(message: AgentMessage | undefined): string {
 export async function runPrintMode(
 	prompt: string,
 	cwd: string,
-	options: { model?: string } = {},
+	options: { model?: string; noSession?: boolean; sessionId?: string } = {},
 ): Promise<number> {
 	const stdout = takeOverStdout();
 	let runtime: AgentRuntime | null = null;
@@ -44,47 +41,60 @@ export async function runPrintMode(
 	const handleSigterm = () => handleSignal("SIGTERM");
 	process.on("SIGINT", handleSigint);
 	process.on("SIGTERM", handleSigterm);
+	let exitCode = 1;
 	try {
-		host = await createHeadlessHost(createEphemeralSession(cwd));
-		runtime = host.runtime;
-		if (signalExitCode !== null) return signalExitCode;
-		await applyStartupModel(runtime, options.model);
-
-		if (signalExitCode !== null) return signalExitCode;
-		await runtime.submitUserMessage(prompt);
-		if (signalExitCode !== null) return signalExitCode;
-		const lastMessage = runtime.getMessages().at(-1);
-		if (lastMessage?.role !== "assistant") {
-			console.error("Kit completed without an assistant response.");
-			return 1;
+		const resolved = await resolveHeadlessSession(cwd, {
+			defaultPersistence: options.noSession ? "ephemeral" : "persistent",
+			sessionId: options.sessionId,
+		});
+		if (signalExitCode !== null) {
+			exitCode = signalExitCode;
+		} else {
+			host = await createHeadlessHost(resolved.session, {
+				persistSession: resolved.persistSession,
+			});
+			runtime = host.runtime;
+			if (signalExitCode === null) {
+				await applyStartupModel(runtime, options.model);
+			}
+			if (signalExitCode === null) {
+				await runtime.submitUserMessage(prompt);
+			}
+			if (signalExitCode !== null) {
+				exitCode = signalExitCode;
+			} else {
+				const lastMessage = runtime.getMessages().at(-1);
+				if (lastMessage?.role !== "assistant") {
+					console.error("Kit completed without an assistant response.");
+				} else if (
+					lastMessage.stopReason === "error" ||
+					lastMessage.stopReason === "aborted" ||
+					lastMessage.stopReason === "pending"
+				) {
+					console.error(
+						lastMessage.errorMessage ?? `Request ${lastMessage.stopReason}.`,
+					);
+				} else {
+					const text = assistantText(lastMessage);
+					if (!text.trim()) {
+						console.error("Kit completed without assistant text.");
+					} else {
+						await stdout.write(`${text}\n`);
+						exitCode = 0;
+					}
+				}
+			}
 		}
-		if (
-			lastMessage.stopReason === "error" ||
-			lastMessage.stopReason === "aborted" ||
-			lastMessage.stopReason === "pending"
-		) {
-			console.error(
-				lastMessage.errorMessage ?? `Request ${lastMessage.stopReason}.`,
-			);
-			return 1;
-		}
-		const text = assistantText(lastMessage);
-		if (!text.trim()) {
-			console.error("Kit completed without assistant text.");
-			return 1;
-		}
-		await stdout.write(`${text}\n`);
-		return signalExitCode ?? 0;
 	} catch (error) {
-		if (signalExitCode !== null) return signalExitCode;
-		if (error instanceof AuthenticationRequiredError) {
+		if (signalExitCode !== null) {
+			exitCode = signalExitCode;
+		} else if (error instanceof AuthenticationRequiredError) {
 			console.error(
 				"Kit is not authenticated with an available model provider.",
 			);
 		} else {
 			console.error(error instanceof Error ? error.message : String(error));
 		}
-		return 1;
 	} finally {
 		process.off("SIGINT", handleSigint);
 		process.off("SIGTERM", handleSigterm);
@@ -94,9 +104,11 @@ export async function runPrintMode(
 			console.error(
 				`Headless cleanup failed: ${error instanceof Error ? error.message : String(error)}`,
 			);
+			if (signalExitCode === null) exitCode = 1;
 		} finally {
 			if (forcedExitTimer) clearTimeout(forcedExitTimer);
 			stdout.restore();
 		}
 	}
+	return exitCode;
 }
