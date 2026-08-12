@@ -69,15 +69,25 @@ describe("print mode CLI", () => {
 	});
 });
 
+describe("mode selection", () => {
+	test("rejects print and RPC mode together", async () => {
+		const result = await runMain(["--print", "--rpc", "hello"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("mutually exclusive");
+	});
+
+	test("rejects the removed --mode selector", async () => {
+		const result = await runMain(["--mode", "rpc"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("use --rpc");
+	});
+});
+
 describe("RPC mode CLI", () => {
 	test("rejects conflicting session options", async () => {
-		const result = await runMain([
-			"--mode",
-			"rpc",
-			"--no-session",
-			"-s",
-			"abc",
-		]);
+		const result = await runMain(["--rpc", "--no-session", "-s", "abc"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain(
@@ -86,16 +96,9 @@ describe("RPC mode CLI", () => {
 	});
 
 	test("rejects an invalid startup model selector", async () => {
-		const result = await runMain(["--mode", "rpc", "--model", "model-1"]);
+		const result = await runMain(["--rpc", "--model", "model-1"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
-	});
-
-	test("rejects unknown modes", async () => {
-		const result = await runMain(["--mode", "other"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("Unknown mode: other");
 	});
 });

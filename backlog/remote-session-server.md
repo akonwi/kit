@@ -53,7 +53,7 @@ Do not expose the raw stdio protocol directly to the network.
 
 ## Runtime architecture
 
-Avoid implementing web mode by spawning `kit --mode rpc` as a child. Extract
+Avoid implementing web mode by spawning `kit --rpc` as a child. Extract
 the current RPC dispatch into a transport-independent session host:
 
 ```text
@@ -63,7 +63,7 @@ HeadlessSessionHost
 └── dispose()
 
 Transports
-├── stdio adapter      -> kit --mode rpc
+├── stdio adapter      -> kit --rpc
 └── WebSocket adapter  -> kit --mode web
 ```
 

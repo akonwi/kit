@@ -18,7 +18,8 @@ and is not the right ownership or method surface for controlling Kit itself.
 
 ## Decision
 
-Kit provides `--mode rpc` as a Pi-inspired JSONL subprocess protocol.
+Kit provides `--rpc` as a Pi-inspired JSONL subprocess protocol. Interactive,
+`--print`, and `--rpc` modes are mutually exclusive.
 
 - stdin carries commands; stdout carries responses and runtime events; stderr
   carries diagnostics.

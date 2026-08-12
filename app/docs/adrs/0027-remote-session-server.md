@@ -52,11 +52,11 @@ process-ownership relationship.
 RPC dispatch and event publication will be transport-independent. The same
 session host will back:
 
-- the existing `kit --mode rpc` stdio adapter
+- the existing `kit --rpc` stdio adapter
 - the `kit --mode web` HTTP and WebSocket adapter
 
 Web mode will host the runtime directly rather than spawning a nested
-`kit --mode rpc` process. Closing a network connection will not terminate the
+`kit --rpc` process. Closing a network connection will not terminate the
 hosted session or abort an active agent run.
 
 ### Runtime parity

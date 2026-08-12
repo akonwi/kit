@@ -9,6 +9,7 @@ const { positionals, values } = parseArgs({
 		model: { type: "string" },
 		"no-session": { type: "boolean" },
 		print: { type: "boolean", short: "p" },
+		rpc: { type: "boolean" },
 		session: { type: "string", short: "s" },
 		version: { type: "boolean", short: "v" },
 	},
@@ -26,20 +27,26 @@ async function readPipedStdin(): Promise<string | undefined> {
 	return content;
 }
 
-if (values.mode === "rpc") {
-	if (values.print || values.version || positionals.length > 0) {
+if (values.mode !== undefined) {
+	console.error("--mode is no longer supported; use --rpc for RPC mode");
+	process.exitCode = 1;
+} else if (values.rpc === true && values.print === true) {
+	console.error("kit --rpc and --print are mutually exclusive");
+	process.exitCode = 1;
+} else if (values.rpc === true) {
+	if (values.version || positionals.length > 0) {
 		console.error(
-			"kit --mode rpc cannot be combined with --print, --version, or positional arguments",
+			"kit --rpc cannot be combined with --version or positional arguments",
 		);
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
 		!isValidModelSelector(values.model)
 	) {
-		console.error("kit --mode rpc --model expects <provider>/<model-id>");
+		console.error("kit --rpc --model expects <provider>/<model-id>");
 		process.exitCode = 1;
 	} else if (values["no-session"] && values.session) {
-		console.error("kit --mode rpc cannot combine --no-session with --session");
+		console.error("kit --rpc cannot combine --no-session with --session");
 		process.exitCode = 1;
 	} else {
 		const { safeProcessCwd } = await import("../process-cwd");
@@ -51,9 +58,6 @@ if (values.mode === "rpc") {
 				typeof values.session === "string" ? values.session : undefined,
 		});
 	}
-} else if (values.mode !== undefined) {
-	console.error(`Unknown mode: ${String(values.mode)}`);
-	process.exitCode = 1;
 } else if (values.print === true) {
 	if (values.version) {
 		console.error("kit -p cannot be combined with --version");

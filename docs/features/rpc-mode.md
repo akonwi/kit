@@ -4,10 +4,10 @@ Kit can run as a long-lived headless subprocess using newline-delimited JSON on
 stdin and stdout:
 
 ```bash
-kit --mode rpc
-kit --mode rpc --no-session
-kit --mode rpc --session <id-or-path>
-kit --mode rpc --model <provider>/<model-id>
+kit --rpc
+kit --rpc --no-session
+kit --rpc --session <id-or-path>
+kit --rpc --model <provider>/<model-id>
 ```
 
 RPC mode is inspired by Pi's RPC mode and follows its command, response, and
@@ -37,8 +37,8 @@ An existing session restores its saved model when that model is available.
 `--model` overrides it at startup using an exact `<provider>/<model-id>` pair:
 
 ```bash
-kit --mode rpc --model openai/gpt-5.5
-kit --mode rpc --model openrouter/openai/gpt-5.5
+kit --rpc --model openai/gpt-5.5
+kit --rpc --model openrouter/openai/gpt-5.5
 ```
 
 Everything after the first slash is the model ID, so model IDs that contain
