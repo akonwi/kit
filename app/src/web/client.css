@@ -1108,7 +1108,7 @@ details[open] > summary > .disclosure-marker {
 	min-block-size: var(--kit-composer-height);
 	max-block-size: 12rem;
 	margin: 0;
-	padding: var(--space-xs) 12rem var(--space-xs) var(--kit-shell-padding);
+	padding: var(--space-xs) 5rem var(--space-xs) var(--kit-shell-padding);
 	resize: none;
 	border: 0;
 	border-radius: 0;
@@ -1134,8 +1134,30 @@ details[open] > summary > .disclosure-marker {
 	gap: var(--space-2xs);
 }
 
+.web-icon {
+	inline-size: 1rem;
+	block-size: 1rem;
+	flex: 0 0 auto;
+}
+
+.composer-actions button,
+.attachment-remove {
+	inline-size: 2rem;
+	min-inline-size: 2rem;
+	padding: 0;
+}
+
 .composer-command-button {
 	display: none;
+}
+
+.composer-submit-spinner {
+	inline-size: 0.875rem;
+	block-size: 0.875rem;
+	border: 1px solid currentColor;
+	border-inline-end-color: transparent;
+	border-radius: var(--radius-full);
+	animation: pending-spin 800ms linear infinite;
 }
 
 .composer-actions button[data-variant="ghost"] {
@@ -1145,6 +1167,10 @@ details[open] > summary > .disclosure-marker {
 .composer-actions button[data-variant="ghost"]:hover:not(:disabled),
 .composer-actions button[data-variant="ghost"]:focus-visible {
 	color: var(--kit-text-primary);
+}
+
+.composer-actions .composer-send:not([data-variant="danger"]) {
+	color: var(--kit-border-accent);
 }
 
 .bottom-status-bar {
@@ -1603,6 +1629,10 @@ details[open] > summary > .disclosure-marker {
 }
 
 @media (max-width: 36rem) {
+	body {
+		font-size: 0.875rem;
+	}
+
 	.header-bar {
 		flex-basis: var(--kit-mobile-header-height);
 		padding-inline: var(--kit-shell-padding) var(--space-2xs);
@@ -1633,6 +1663,7 @@ details[open] > summary > .disclosure-marker {
 	}
 
 	.mobile-session-menu-dialog {
+		font-size: 0.8125rem;
 		inset-block-start: calc(
 			var(--kit-visual-viewport-offset-top, 0px) +
 			var(--kit-mobile-header-height) +
@@ -1651,6 +1682,7 @@ details[open] > summary > .disclosure-marker {
 
 	.workspace-tabs button {
 		min-block-size: 2.75rem;
+		font-size: 0.75rem;
 	}
 
 	.pending-slot.is-empty {
@@ -1678,7 +1710,7 @@ details[open] > summary > .disclosure-marker {
 	}
 
 	.composer-dock {
-		padding: var(--space-xs);
+		padding: var(--space-2xs);
 		background: var(--kit-bg);
 	}
 
@@ -1692,18 +1724,26 @@ details[open] > summary > .disclosure-marker {
 	}
 
 	.composer-form textarea {
-		min-block-size: 4.25rem;
-		padding: var(--space-sm) var(--kit-shell-padding) var(--space-xs);
+		min-block-size: 3rem;
+		padding: var(--space-xs) var(--space-sm) var(--space-2xs);
+		font-size: 1rem;
+		line-height: 1.4;
 	}
 
 	.composer-actions {
 		position: static;
-		min-block-size: 2.875rem;
+		min-block-size: 2.5rem;
+		gap: 0;
 		padding: 0 var(--space-2xs) var(--space-2xs);
 	}
 
 	.composer-actions button {
-		min-block-size: 2.75rem;
+		min-block-size: 2.5rem;
+	}
+
+	.composer-actions .composer-send {
+		inline-size: 2.5rem;
+		min-inline-size: 2.5rem;
 	}
 
 	.composer-command-button {
@@ -1712,16 +1752,21 @@ details[open] > summary > .disclosure-marker {
 
 	.composer-send {
 		margin-inline-start: auto;
-		color: var(--kit-border-accent);
 	}
 
 	.attachment-row {
-		min-block-size: 2.75rem;
+		min-block-size: 2.5rem;
+		padding-inline: var(--space-xs);
+	}
+
+	.attachment-name {
+		font-size: 0.75rem;
 	}
 
 	.attachment-remove {
-		min-inline-size: 2.75rem;
-		min-block-size: 2.75rem;
+		inline-size: 2.5rem;
+		min-inline-size: 2.5rem;
+		min-block-size: 2.5rem;
 	}
 
 	#command-palette-list {
@@ -1744,6 +1789,18 @@ details[open] > summary > .disclosure-marker {
 
 	.bottom-location {
 		max-inline-size: 45%;
+	}
+
+	.transcript-pane {
+		padding: var(--space-xs);
+	}
+
+	.transcript-list {
+		gap: var(--space-sm);
+	}
+
+	.markdown-content {
+		font-size: 0.875rem;
 	}
 
 	.markdown-content table {
@@ -1800,10 +1857,11 @@ details[open] > summary > .disclosure-marker {
 	}
 
 	.command-palette-dialog[data-drawer] .command-palette-option {
-		min-block-size: 3rem;
+		min-block-size: 2.75rem;
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) auto;
 		flex: 0 0 auto;
+		font-size: 0.8125rem;
 	}
 
 	.command-palette-dialog[data-drawer]
@@ -1845,6 +1903,7 @@ details[open] > summary > .disclosure-marker {
 
 @media (prefers-reduced-motion: reduce) {
 	.pending-spinner,
+	.composer-submit-spinner,
 	.drawer-state[data-status="running"],
 	.tool-state[data-status="running"] {
 		animation: none;

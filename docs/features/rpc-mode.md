@@ -96,8 +96,9 @@ surfaces while adapting desktop chrome for touch:
 - The command palette becomes a finger-scrollable Mica bottom sheet and opens
   without a filter keyboard. Commands that require arguments reveal the input
   only after selection.
-- Empty pending state does not reserve space, touch controls use larger hit
-  areas, and coarse-pointer Enter inserts a newline instead of submitting.
+- Empty pending state does not reserve space. The compact composer uses labeled
+  icon buttons, smaller mobile typography, and coarse-pointer Enter inserts a
+  newline instead of submitting.
 - The shell tracks the visual viewport and safe-area insets so the software
   keyboard does not cover the composer.
 

@@ -1,20 +1,35 @@
 /** @jsxImportSource solid-js */
-import { createMemo, For, type JSX, onCleanup, onMount } from "solid-js";
+import {
+	createMemo,
+	createSignal,
+	For,
+	type JSX,
+	onCleanup,
+	onMount,
+} from "solid-js";
 import { useCommandPalette } from "./CommandPalette";
-import { shouldSubmitComposerKey } from "./composer-keyboard";
+import {
+	hasComposerPayload,
+	shouldSubmitComposerKey,
+} from "./composer-keyboard";
 import { useWebClient } from "./WebClientContext";
+import { WebIcon } from "./WebIcon";
 
 export function ComposerDock(): JSX.Element {
 	const { snapshot, controller, registerComposerFocus } = useWebClient();
 	const { openPalette } = useCommandPalette();
 	let input: HTMLTextAreaElement | undefined;
 	let attachmentInput: HTMLInputElement | undefined;
+	const [message, setMessage] = createSignal("");
 	const protocol = createMemo(() => snapshot().protocol);
 	const enabled = createMemo(
 		() => protocol().phase === "live" && !snapshot().submitting,
 	);
 	const streaming = createMemo(
 		() => protocol().serverState.isStreaming === true,
+	);
+	const hasPayload = createMemo(() =>
+		hasComposerPayload(message(), snapshot().attachments.length),
 	);
 
 	const submit = async (event: SubmitEvent) => {
@@ -26,6 +41,7 @@ export function ComposerDock(): JSX.Element {
 			input.value === submittedValue
 		) {
 			input.value = "";
+			setMessage("");
 		}
 	};
 
@@ -55,9 +71,10 @@ export function ComposerDock(): JSX.Element {
 								data-size="small"
 								disabled={snapshot().submitting}
 								aria-label={`Remove ${attachment.file.name}`}
+								title={`Remove ${attachment.file.name}`}
 								onClick={() => void controller.removeAttachment(attachment)}
 							>
-								×
+								<WebIcon name="close" />
 							</button>
 						</div>
 					)}
@@ -73,6 +90,7 @@ export function ComposerDock(): JSX.Element {
 					name="message"
 					rows={1}
 					placeholder="Ask kit to do something..."
+					onInput={(event) => setMessage(event.currentTarget.value)}
 					onKeyDown={(event) => {
 						if (
 							!shouldSubmitComposerKey(
@@ -94,9 +112,11 @@ export function ComposerDock(): JSX.Element {
 						data-variant="ghost"
 						data-size="small"
 						disabled={!enabled() || streaming()}
+						aria-label="Attach files"
+						title="Attach files"
 						onClick={() => attachmentInput?.click()}
 					>
-						Attach
+						<WebIcon name="attach" />
 					</button>
 					<input
 						ref={attachmentInput}
@@ -116,28 +136,38 @@ export function ComposerDock(): JSX.Element {
 						type="button"
 						data-variant="ghost"
 						data-size="small"
+						aria-label="Open commands"
 						aria-keyshortcuts="Control+P"
+						title="Commands (Ctrl+P)"
 						onClick={openPalette}
 					>
-						&gt; Commands
+						<WebIcon name="command" />
 					</button>
 					<button
 						class="composer-send"
 						type={streaming() ? "button" : "submit"}
-						data-variant={streaming() ? "danger" : "ghost"}
+						data-variant={streaming() ? "danger" : "primary"}
 						data-size="small"
-						disabled={!enabled()}
+						disabled={!enabled() || (!streaming() && !hasPayload())}
+						aria-label={
+							streaming()
+								? "Abort response"
+								: snapshot().submitting
+									? "Sending message"
+									: "Send message"
+						}
+						title={streaming() ? "Abort response" : "Send message"}
 						onClick={(event) => {
 							if (!streaming()) return;
 							event.preventDefault();
 							void controller.abort();
 						}}
 					>
-						{streaming()
-							? "Abort"
-							: snapshot().submitting
-								? "Sending…"
-								: "Send"}
+						{snapshot().submitting && !streaming() ? (
+							<span class="composer-submit-spinner" />
+						) : (
+							<WebIcon name={streaming() ? "stop" : "send"} />
+						)}
 					</button>
 				</div>
 			</form>
