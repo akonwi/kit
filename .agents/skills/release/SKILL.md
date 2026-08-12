@@ -31,8 +31,9 @@ Use this skill to publish a new Kit package release.
      - `patch` for fixes, documentation, refactors, chores, and small internal improvements.
    - If the release type is ambiguous, ask the user to choose minor or patch.
 
-4. Update the bundled release notes and `package.json`.
+4. Update the release notes and `package.json`.
    - Summarize the user-facing changes being published in `app/src/features/releases/current-release.ts`.
+   - These notes are the single source for both the release notes bundled into Kit and the GitHub release body. Write them as standalone GitHub-flavored Markdown without a top-level version heading.
    - Increment the version in `app/package.json` based on the chosen release type.
    - Do not use prerelease versions unless explicitly requested.
 
@@ -68,9 +69,9 @@ Use this skill to publish a new Kit package release.
      git push origin vx.x.x
      ```
    - The tag push triggers `.github/workflows/release.yml`, which builds
-     the compiled binary on four platforms (darwin/linux × arm64/amd64)
-     and attaches `kit_vx.x.x_<platform>.tar.gz` tarballs to a GitHub
-     release.
+     the compiled binary on four platforms (darwin/linux × arm64/amd64),
+     creates the GitHub release using the bundled release notes, and attaches
+     `kit_vx.x.x_<platform>.tar.gz` tarballs.
    - Wait for the workflow to finish, for example:
      ```sh
      gh run list --workflow=release.yml --limit 1
@@ -79,6 +80,10 @@ Use this skill to publish a new Kit package release.
    - Verify all four assets exist:
      ```sh
      gh release view vx.x.x --json assets -q '.assets[].name'
+     ```
+   - Verify the GitHub release body contains the bundled notes:
+     ```sh
+     gh release view vx.x.x --json body -q .body
      ```
 
 9. Update the Homebrew formula in `../homebrew-tap`.

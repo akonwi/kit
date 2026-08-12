@@ -69,6 +69,17 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Export bundled release notes
+        working-directory: app
+        run: |
+          bun -e 'import { CURRENT_RELEASE_NOTES } from "./src/features/releases/current-release.ts"; const notes = CURRENT_RELEASE_NOTES.trim(); if (!notes) throw new Error("Release notes are empty"); await Bun.write("../release-notes.md", `${notes}\n`);'
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -81,5 +92,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file release-notes.md \
             artifacts/*.tar.gz
