@@ -17,6 +17,7 @@ const { positionals, values } = parseArgs({
 		rpc: { type: "boolean" },
 		session: { type: "string", short: "s" },
 		version: { type: "boolean", short: "v" },
+		web: { type: "boolean" },
 	},
 	strict: false,
 	allowPositionals: true,
@@ -29,6 +30,9 @@ const hasWebOnlyOptions =
 	values.port !== undefined ||
 	values["allow-host"] !== undefined ||
 	values["allow-origin"] !== undefined;
+const selectedModes = [values.print, values.rpc, values.web].filter(
+	(value) => value === true,
+).length;
 
 async function readPipedStdin(): Promise<string | undefined> {
 	if (process.stdin.isTTY) return undefined;
@@ -67,76 +71,41 @@ function parseBasicAuth(value: unknown):
 	return { username, password };
 }
 
-if (values.rpc === true && values.mode !== undefined) {
-	console.error("kit --rpc cannot be combined with --mode");
+if (values.mode !== undefined) {
+	console.error("--mode is no longer supported; use --web or --rpc");
 	process.exitCode = 1;
-} else if (values.mode === "rpc") {
-	console.error(
-		"--mode is only supported for web mode; use --rpc for RPC mode",
-	);
+} else if (selectedModes > 1) {
+	console.error("kit --print, --rpc, and --web are mutually exclusive");
 	process.exitCode = 1;
-} else if (values.rpc === true && values.print === true) {
-	console.error("kit --rpc and --print are mutually exclusive");
-	process.exitCode = 1;
-} else if (values.rpc === true) {
-	if (hasWebOnlyOptions) {
-		console.error(
-			"--auth, --host, --port, --allow-host, and --allow-origin require --mode web",
-		);
-		process.exitCode = 1;
-	} else if (values.version || positionals.length > 0) {
-		console.error(
-			"kit --rpc cannot be combined with --version or positional arguments",
-		);
-		process.exitCode = 1;
-	} else if (
-		typeof values.model === "string" &&
-		!isValidModelSelector(values.model)
-	) {
-		console.error("kit --rpc --model expects <provider>/<model-id>");
-		process.exitCode = 1;
-	} else if (values["no-session"] && values.session) {
-		console.error("kit --rpc cannot combine --no-session with --session");
-		process.exitCode = 1;
-	} else {
-		const { safeProcessCwd } = await import("../process-cwd");
-		const { runRpcMode } = await import("./rpc-mode");
-		process.exitCode = await runRpcMode(safeProcessCwd(), {
-			model: typeof values.model === "string" ? values.model : undefined,
-			noSession: values["no-session"] === true,
-			sessionId:
-				typeof values.session === "string" ? values.session : undefined,
-		});
-	}
-} else if (values.mode === "web") {
+} else if (values.web === true) {
 	const basicAuth =
 		values.auth === undefined ? undefined : parseBasicAuth(values.auth);
 	const port =
 		typeof values.port === "string" && /^\d+$/.test(values.port)
 			? Number(values.port)
 			: undefined;
-	if (values.rpc || values.print || values.version || positionals.length > 0) {
+	if (values.version || positionals.length > 0) {
 		console.error(
-			"kit --mode web cannot be combined with --rpc, --print, --version, or positional arguments",
+			"kit --web cannot be combined with --version or positional arguments",
 		);
 		process.exitCode = 1;
 	} else if (values["no-session"]) {
-		console.error("kit --mode web does not support --no-session");
+		console.error("kit --web does not support --no-session");
 		process.exitCode = 1;
 	} else if (values.auth !== undefined && !basicAuth) {
-		console.error("kit --mode web --auth expects <username>:<password>");
+		console.error("kit --web --auth expects <username>:<password>");
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
 		!isValidModelSelector(values.model)
 	) {
-		console.error("kit --mode web --model expects <provider>/<model-id>");
+		console.error("kit --web --model expects <provider>/<model-id>");
 		process.exitCode = 1;
 	} else if (
 		values.port !== undefined &&
 		(port === undefined || port < 1 || port > 65535)
 	) {
-		console.error("kit --mode web --port expects an integer from 1 to 65535");
+		console.error("kit --web --port expects an integer from 1 to 65535");
 		process.exitCode = 1;
 	} else {
 		const { safeProcessCwd } = await import("../process-cwd");
@@ -160,18 +129,38 @@ if (values.rpc === true && values.mode !== undefined) {
 				typeof values.session === "string" ? values.session : undefined,
 		});
 	}
-} else if (values.mode !== undefined) {
+} else if (hasWebOnlyOptions) {
 	console.error(
-		"--mode is only supported for web mode; use --rpc for RPC mode",
+		"--auth, --host, --port, --allow-host, and --allow-origin require --web",
 	);
 	process.exitCode = 1;
-} else if (values.print === true) {
-	if (hasWebOnlyOptions) {
+} else if (values.rpc === true) {
+	if (values.version || positionals.length > 0) {
 		console.error(
-			"--auth, --host, --port, --allow-host, and --allow-origin require --mode web",
+			"kit --rpc cannot be combined with --version or positional arguments",
 		);
 		process.exitCode = 1;
-	} else if (values.version) {
+	} else if (
+		typeof values.model === "string" &&
+		!isValidModelSelector(values.model)
+	) {
+		console.error("kit --rpc --model expects <provider>/<model-id>");
+		process.exitCode = 1;
+	} else if (values["no-session"] && values.session) {
+		console.error("kit --rpc cannot combine --no-session with --session");
+		process.exitCode = 1;
+	} else {
+		const { safeProcessCwd } = await import("../process-cwd");
+		const { runRpcMode } = await import("./rpc-mode");
+		process.exitCode = await runRpcMode(safeProcessCwd(), {
+			model: typeof values.model === "string" ? values.model : undefined,
+			noSession: values["no-session"] === true,
+			sessionId:
+				typeof values.session === "string" ? values.session : undefined,
+		});
+	}
+} else if (values.print === true) {
+	if (values.version) {
 		console.error("kit -p cannot be combined with --version");
 		process.exitCode = 1;
 	} else if (
@@ -200,11 +189,6 @@ if (values.rpc === true && values.mode !== undefined) {
 			});
 		}
 	}
-} else if (hasWebOnlyOptions) {
-	console.error(
-		"--auth, --host, --port, --allow-host, and --allow-origin require --mode web",
-	);
-	process.exitCode = 1;
 } else {
 	switch (subcommand) {
 		case "version": {

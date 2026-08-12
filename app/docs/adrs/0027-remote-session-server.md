@@ -30,7 +30,7 @@ session server needs deliberate parity rather than inheriting those omissions.
 
 ## Decision
 
-Kit will introduce `kit --mode web` as the network-hosted counterpart to the
+Kit will introduce `kit --web` as the network-hosted counterpart to the
 normal interactive and headless RPC modes. It owns a persistent Kit session
 and exposes that session to remote clients over HTTP.
 
@@ -57,7 +57,7 @@ lifecycle meaning while projecting or bounding unsafe data. The same session
 host will back:
 
 - the existing `kit --rpc` stdio adapter
-- the `kit --mode web` HTTP and WebSocket adapter
+- the `kit --web` HTTP and WebSocket adapter
 
 Web mode will host the runtime directly rather than spawning a nested
 `kit --rpc` process. Closing a network connection will not terminate the
@@ -128,7 +128,7 @@ reject or redirect operations that are invalid while an agent run is active.
 
 ### Deployment and network exposure
 
-The same `kit --mode web` process can run on a local computer or inside a cloud
+The same `kit --web` process can run on a local computer or inside a cloud
 sandbox. Tunnels, relays, sandbox platforms, and cloud control planes are
 deployment concerns outside the session protocol.
 
@@ -142,7 +142,7 @@ protocol.
 
 A local OpenTUI process and web mode must not independently mutate the same
 persisted session. Initially, remote continuation requires the session to be
-owned by `kit --mode web`. A future `kit attach` client may let the TUI consume
+owned by `kit --web`. A future `kit attach` client may let the TUI consume
 the same remote protocol, making browser and terminal interfaces clients of one
 session host.
 

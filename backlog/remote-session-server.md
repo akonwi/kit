@@ -1,7 +1,7 @@
-# Remote sessions through `kit --mode web`
+# Remote sessions through `kit --web`
 
 Kit's headless RPC mode makes it possible to separate the agent runtime from its
-UI. Explore a `kit --mode web` entry point that runs a normal persistent Kit
+UI. Explore a `kit --web` entry point that runs a normal persistent Kit
 session without OpenTUI and serves remote clients over HTTP.
 
 ## Use cases
@@ -19,13 +19,13 @@ the Kit process differs.
 
 ```sh
 # Create a persistent session in the current directory.
-kit --mode web
+kit --web
 
 # Resume an existing session.
-kit --mode web --session <id>
+kit --web --session <id>
 
 # Listen behind an HTTPS tunnel or reverse proxy with Basic authentication.
-kit --mode web --host 0.0.0.0 --port 4782 \
+kit --web --host 0.0.0.0 --port 4782 \
   --auth 'username:password' \
   --allow-host kit.example.internal \
   --allow-origin https://kit.example.internal
@@ -75,7 +75,7 @@ HeadlessSessionHost
 
 Transports
 ├── stdio adapter      -> kit --rpc
-└── WebSocket adapter  -> kit --mode web
+└── WebSocket adapter  -> kit --web
 ```
 
 Web mode should have normal Kit behavior—persistent sessions, built-in and
@@ -209,18 +209,18 @@ Allow multiple WebSocket clients to fully control one authoritative runtime:
 
 ## Local remote execution
 
-A local machine runs `kit --mode web` and exposes it through a trusted tunnel
+A local machine runs `kit --web` and exposes it through a trusted tunnel
 or relay such as Tailscale or SSH. The machine must remain awake and online.
 
 The existing TUI and web mode cannot concurrently own the same persisted
 session because they create separate runtimes. Initially, continuing remotely
-requires detaching from the TUI and resuming the session under `kit --mode web`.
+requires detaching from the TUI and resuming the session under `kit --web`.
 Longer term, make both the local TUI and web UI clients of the same session
 host.
 
 ## Cloud execution
 
-Run the same `kit --mode web --host 0.0.0.0` command inside an isolated
+Run the same `kit --web --host 0.0.0.0` command inside an isolated
 sandbox. The hosting layer remains responsible for:
 
 - repository cloning or workspace upload
@@ -309,6 +309,6 @@ for every remote client rather than hidden in renderer-specific code:
 - [ ] Add a cloud sandbox worker using the same command and protocol.
 - [ ] Add `kit attach` for a remote TUI.
 
-The core product abstraction is: `kit --mode web` turns a local or cloud
+The core product abstraction is: `kit --web` turns a local or cloud
 workspace into a remotely controllable Kit session to which compatible browser
 and terminal clients can attach.

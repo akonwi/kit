@@ -6,7 +6,7 @@ Proposed
 
 ## Context
 
-ADR 0027 establishes `kit --mode web` as a remote session server and chooses an
+ADR 0027 establishes `kit --web` as a remote session server and chooses an
 HTML-first browser client built on Mica. The server now exposes the protocol
 surface needed for an initial client: snapshots, ordered event replay, live
 runtime events, correlated commands, attachments, and remote interactions.
@@ -27,7 +27,7 @@ interpret remote content as markup.
 
 ## Decision
 
-Kit will ship a small, same-origin browser application with `kit --mode web`.
+Kit will ship a small, same-origin browser application with `kit --web`.
 It will use semantic HTML, Mica, app-owned CSS, and SolidJS for the browser view
 layer. It will not use React, a virtual DOM, or a separate browser application
 server. Transport, protocol reduction, commands, and uploads remain plain
@@ -53,7 +53,7 @@ Mica's CSS and only the opt-in enhancement modules it uses into first-party web
 assets. Solid JSX will compile to a browser-targeted bundle during Kit's build;
 the resulting JavaScript will be embedded in the compiled binary. Source-mode
 development and tests may build that same entry point lazily. Browser assets
-will be served by the same `kit --mode web` process.
+will be served by the same `kit --web` process.
 
 The production client will not load scripts, styles, fonts, or libraries from a
 CDN. The document will avoid inline script and style requirements so the server

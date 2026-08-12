@@ -35,6 +35,7 @@ kit -p --no-session "review this" # runs in memory without persisting a session
 kit -p --model openai/gpt-5.5 "review this" # selects an exact provider/model
 kit -p --session abc123 "continue this" # continues and persists a specific session
 kit --rpc            # runs as a headless JSONL subprocess
+kit --web            # serves a persistent session in the browser
 kit -s abc123        # opens a specific session by ID (long or short id)
 kit threads          # launches a session picker
 ```

@@ -64,7 +64,7 @@ Web mode can protect every browser document, asset, API, attachment, health
 check, and WebSocket upgrade with HTTP Basic authentication:
 
 ```sh
-kit --mode web --auth 'username:password'
+kit --web --auth 'username:password'
 ```
 
 Kit splits the value on the first colon. The username must be non-empty and
@@ -86,7 +86,7 @@ aliases, and each request's same origin. Extra reverse-proxy or tunnel addresses
 can be added without losing local browser access:
 
 ```sh
-kit --mode web \
+kit --web \
   --auth 'username:password' \
   --allow-host kit.example.internal \
   --allow-origin https://kit.example.internal
@@ -99,7 +99,7 @@ Deployments whose surrounding network or proxy owns these checks can explicitly
 disable either allowlist:
 
 ```sh
-kit --mode web --allow-host '*' --allow-origin '*'
+kit --web --allow-host '*' --allow-origin '*'
 ```
 
 These wildcards are opt-in rather than defaults. `--allow-host '*'` accepts any

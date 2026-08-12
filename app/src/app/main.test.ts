@@ -41,14 +41,14 @@ describe("print mode CLI", () => {
 
 describe("web mode CLI", () => {
 	test("rejects ephemeral sessions", async () => {
-		const result = await runMain(["--mode", "web", "--no-session"]);
+		const result = await runMain(["--web", "--no-session"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("does not support --no-session");
 	});
 
 	test("rejects an invalid port", async () => {
-		const result = await runMain(["--mode", "web", "--port", "70000"]);
+		const result = await runMain(["--web", "--port", "70000"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("expects an integer from 1 to 65535");
@@ -56,9 +56,9 @@ describe("web mode CLI", () => {
 
 	test("rejects invalid Basic auth credentials", async () => {
 		const results = await Promise.all([
-			runMain(["--mode", "web", "--auth", "missing-separator"]),
-			runMain(["--mode", "web", "--auth", ":password"]),
-			runMain(["--mode", "web", "--auth", "username:"]),
+			runMain(["--web", "--auth", "missing-separator"]),
+			runMain(["--web", "--auth", ":password"]),
+			runMain(["--web", "--auth", "username:"]),
 		]);
 		for (const result of results) {
 			expect(result.exitCode).toBe(1);
@@ -68,7 +68,7 @@ describe("web mode CLI", () => {
 	});
 
 	test("rejects an invalid startup model selector", async () => {
-		const result = await runMain(["--mode", "web", "--model", "model-1"]);
+		const result = await runMain(["--web", "--model", "model-1"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
@@ -76,25 +76,29 @@ describe("web mode CLI", () => {
 });
 
 describe("mode selection", () => {
-	test("rejects print and RPC mode together", async () => {
-		const result = await runMain(["--print", "--rpc", "hello"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("mutually exclusive");
+	test("rejects every pair of headless modes", async () => {
+		const results = await Promise.all([
+			runMain(["--print", "--rpc", "hello"]),
+			runMain(["--print", "--web", "hello"]),
+			runMain(["--rpc", "--web"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("mutually exclusive");
+		}
 	});
 
-	test("rejects non-web uses of --mode", async () => {
-		const result = await runMain(["--mode", "rpc"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("use --rpc");
-	});
-
-	test("rejects combining RPC and web mode selectors", async () => {
-		const result = await runMain(["--rpc", "--mode", "web"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("cannot be combined");
+	test("rejects the removed --mode selector", async () => {
+		const results = await Promise.all([
+			runMain(["--mode", "rpc"]),
+			runMain(["--mode", "web"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("no longer supported");
+		}
 	});
 });
 
@@ -107,7 +111,7 @@ describe("RPC mode CLI", () => {
 		for (const result of results) {
 			expect(result.exitCode).toBe(1);
 			expect(result.stdout).toBe("");
-			expect(result.stderr).toContain("require --mode web");
+			expect(result.stderr).toContain("require --web");
 		}
 	});
 
