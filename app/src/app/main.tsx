@@ -1,4 +1,5 @@
 import { parseArgs } from "node:util";
+import { isValidModelSelector } from "./headless-model";
 import { buildPrintModePrompt } from "./print-mode-input";
 
 const { positionals, values } = parseArgs({
@@ -33,9 +34,7 @@ if (values.mode === "rpc") {
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
-		(!values.model.includes("/") ||
-			values.model.startsWith("/") ||
-			values.model.endsWith("/"))
+		!isValidModelSelector(values.model)
 	) {
 		console.error("kit --mode rpc --model expects <provider>/<model-id>");
 		process.exitCode = 1;
@@ -59,6 +58,12 @@ if (values.mode === "rpc") {
 	if (values.session || values.version) {
 		console.error("kit -p cannot be combined with --session or --version");
 		process.exitCode = 1;
+	} else if (
+		typeof values.model === "string" &&
+		!isValidModelSelector(values.model)
+	) {
+		console.error("kit -p --model expects <provider>/<model-id>");
+		process.exitCode = 1;
 	} else {
 		const stdin = await readPipedStdin();
 		const prompt = buildPrintModePrompt(stdin, positionals);
@@ -68,7 +73,9 @@ if (values.mode === "rpc") {
 		} else {
 			const { safeProcessCwd } = await import("../process-cwd");
 			const { runPrintMode } = await import("./print-mode");
-			process.exitCode = await runPrintMode(prompt, safeProcessCwd());
+			process.exitCode = await runPrintMode(prompt, safeProcessCwd(), {
+				model: typeof values.model === "string" ? values.model : undefined,
+			});
 		}
 	}
 } else {

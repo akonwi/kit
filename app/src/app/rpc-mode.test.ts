@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { PassThrough } from "node:stream";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
-import { RpcModeServer, selectStartupModel } from "./rpc-mode";
+import { RpcModeServer } from "./rpc-mode";
 
 function createRuntime(overrides: Record<string, unknown> = {}) {
 	let listener: ((event: AgentRuntimeEvent) => void) | undefined;
@@ -36,29 +36,6 @@ async function runProtocol(inputText: string): Promise<unknown[]> {
 	server.dispose();
 	return records;
 }
-
-describe("RPC startup model selection", () => {
-	const models = [
-		{ provider: "openai", id: "gpt-5.5" },
-		{ provider: "openrouter", id: "openai/gpt-5.5" },
-	] as ReturnType<AgentRuntime["getAvailableModels"]>;
-
-	test("selects an exact provider/model-id pair", () => {
-		expect(selectStartupModel(models, "openai/gpt-5.5")).toBe(models[0]);
-	});
-
-	test("preserves slashes within the model id", () => {
-		expect(selectStartupModel(models, "openrouter/openai/gpt-5.5")).toBe(
-			models[1],
-		);
-	});
-
-	test("reports available models when the selector is unknown", () => {
-		expect(() => selectStartupModel(models, "openai/unknown")).toThrow(
-			"Available openai models: gpt-5.5",
-		);
-	});
-});
 
 describe("RPC mode protocol", () => {
 	test("accepts CRLF and a final unterminated command", async () => {

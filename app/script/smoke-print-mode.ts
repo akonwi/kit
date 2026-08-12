@@ -52,15 +52,19 @@ type RunResult = {
 
 async function runPrintMode(
 	prompt: string,
-	options: { stdin?: string } = {},
+	options: { model?: string; stdin?: string } = {},
 ): Promise<RunResult> {
-	const proc = Bun.spawn([process.execPath, "dev", "-p", prompt], {
-		cwd: repoRoot,
-		env: process.env,
-		stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
-		stdout: "pipe",
-		stderr: "pipe",
-	});
+	const modelArgs = options.model ? ["--model", options.model] : [];
+	const proc = Bun.spawn(
+		[process.execPath, "dev", "-p", ...modelArgs, prompt],
+		{
+			cwd: repoRoot,
+			env: process.env,
+			stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
+			stdout: "pipe",
+			stderr: "pipe",
+		},
+	);
 	const [exitCode, stdout, stderr] = await Promise.all([
 		proc.exited,
 		new Response(proc.stdout).text(),
@@ -155,6 +159,19 @@ try {
 		"PLAIN_OK",
 		"Do not call tools. Reply with exactly PLAIN_OK and nothing else.",
 	);
+	const explicitModel = process.env.KIT_PRINT_MODE_SMOKE_MODEL;
+	if (explicitModel) {
+		await expectExact(
+			"explicit model",
+			"MODEL_OK",
+			"Do not call tools. Reply with exactly MODEL_OK and nothing else.",
+			{ model: explicitModel },
+		);
+	} else {
+		console.log(
+			"SKIP explicit model: set KIT_PRINT_MODE_SMOKE_MODEL=<provider>/<model-id>",
+		);
+	}
 	if (existsSync(pluginMarker)) {
 		throw new Error("Print mode loaded a project plugin.");
 	}

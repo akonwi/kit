@@ -9,6 +9,7 @@ import {
 	createHeadlessHost,
 	takeOverStdout,
 } from "./headless-host";
+import { applyStartupModel } from "./headless-model";
 
 function assistantText(message: AgentMessage | undefined): string {
 	if (message?.role !== "assistant") return "";
@@ -25,6 +26,7 @@ function assistantText(message: AgentMessage | undefined): string {
 export async function runPrintMode(
 	prompt: string,
 	cwd: string,
+	options: { model?: string } = {},
 ): Promise<number> {
 	const stdout = takeOverStdout();
 	let runtime: AgentRuntime | null = null;
@@ -45,6 +47,8 @@ export async function runPrintMode(
 	try {
 		host = await createHeadlessHost(createEphemeralSession(cwd));
 		runtime = host.runtime;
+		if (signalExitCode !== null) return signalExitCode;
+		await applyStartupModel(runtime, options.model);
 
 		if (signalExitCode !== null) return signalExitCode;
 		await runtime.submitUserMessage(prompt);

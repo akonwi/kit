@@ -37,6 +37,13 @@ describe("print mode CLI", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("Usage: kit -p");
 	});
+
+	test("rejects an invalid startup model selector", async () => {
+		const result = await runMain(["-p", "--model", "model-1", "hello"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+	});
 });
 
 describe("RPC mode CLI", () => {

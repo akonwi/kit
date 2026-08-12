@@ -1,5 +1,5 @@
 import type { Readable } from "node:stream";
-import type { Api, Model, ThinkingLevel } from "../runtime/agent";
+import type { ThinkingLevel } from "../runtime/agent";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import { getAvailableThinkingLevels } from "../runtime/thinking-levels";
 import {
@@ -14,6 +14,7 @@ import {
 	createHeadlessHost,
 	takeOverStdout,
 } from "./headless-host";
+import { applyStartupModel } from "./headless-model";
 
 type RpcCommand = {
 	id?: string;
@@ -31,34 +32,6 @@ type RpcResponse = {
 };
 
 type RpcWriter = (record: unknown) => Promise<void>;
-
-export function selectStartupModel(
-	models: Array<Model<Api>>,
-	selector: string,
-): Model<Api> {
-	const separator = selector.indexOf("/");
-	const provider = selector.slice(0, separator);
-	const modelId = selector.slice(separator + 1);
-	const model = models.find(
-		(candidate) => candidate.provider === provider && candidate.id === modelId,
-	);
-	if (model) return model;
-
-	const providerModels = models.filter(
-		(candidate) => candidate.provider === provider,
-	);
-	if (providerModels.length === 0) {
-		const providers = [
-			...new Set(models.map((candidate) => candidate.provider)),
-		];
-		throw new Error(
-			`Provider not available: ${provider}. Available authenticated providers: ${providers.join(", ") || "none"}`,
-		);
-	}
-	throw new Error(
-		`Model not found: ${selector}. Available ${provider} models: ${providerModels.map((candidate) => candidate.id).join(", ")}`,
-	);
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -489,14 +462,7 @@ export async function runRpcMode(
 		host = await createHeadlessHost(resolved.session, {
 			persistSession: resolved.persistSession,
 		});
-		if (options.model) {
-			const model = selectStartupModel(
-				host.runtime.getAvailableModels(),
-				options.model,
-			);
-			host.runtime.setModel(model);
-			await host.runtime.waitForModelAdaptation();
-		}
+		await applyStartupModel(host.runtime, options.model);
 		server = new RpcModeServer(
 			host.runtime,
 			process.stdin,
