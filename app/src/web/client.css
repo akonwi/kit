@@ -972,20 +972,39 @@ details[open] > summary > .disclosure-marker {
 }
 
 .bash-entry {
-	padding-inline-start: var(--kit-shell-padding);
-	border-inline-start: 2px solid var(--kit-tool-text);
+	border-block-end: 0;
+	color: var(--kit-tool-text);
 }
 
 .bash-entry > summary {
+	min-inline-size: 0;
 	display: flex;
-	align-items: baseline;
+	align-items: center;
+	justify-content: flex-start;
 	gap: var(--space-xs);
-	color: var(--kit-text-primary);
+	padding: var(--space-2xs) var(--space-xs);
+	color: inherit;
+	font-size: 0.8125rem;
+	font-weight: 400;
 	cursor: pointer;
 }
 
+.bash-entry > summary code {
+	min-inline-size: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
+	padding: 0;
+	border: 0;
+	border-radius: 0;
+	background: transparent;
+	color: var(--kit-text-primary);
+	font-size: inherit;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
 .bash-entry > .tool-output {
-	margin-inline-start: var(--space-lg);
+	margin: var(--space-xs) var(--space-xs) 0 var(--space-lg);
 }
 
 .composer-stack {
