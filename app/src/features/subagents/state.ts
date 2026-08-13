@@ -24,6 +24,7 @@ import {
 	readSubagentSessionEntries,
 	readSubagentSessionHeader,
 } from "../../storage/subagent-session-storage";
+import { EDIT_SCRATCHPAD_TOOL_NAME } from "../../tools";
 import { SUBAGENT_TOOL_NAME } from "./constants";
 import type { SubagentDefinition } from "./discovery";
 import { isSubagentPromptAddition } from "./format";
@@ -390,7 +391,7 @@ export function buildSubagentRuntimeOptions(
 			definition.instructions,
 		),
 		extraTools: runtime.getTools(),
-		excludedToolNames: [SUBAGENT_TOOL_NAME],
+		excludedToolNames: [SUBAGENT_TOOL_NAME, EDIT_SCRATCHPAD_TOOL_NAME],
 		subagent: true,
 	} as const;
 }

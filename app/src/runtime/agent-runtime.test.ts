@@ -250,7 +250,13 @@ describe("AgentRuntime scratchpad context", () => {
 		);
 		try {
 			const filePath = scratchpadPath("session-scratchpad-test");
+			expect(
+				runtime.getTools().some((tool) => tool.name === "edit_scratchpad"),
+			).toBe(false);
 			runtime.setScratchpadContent("Remember to check auth tests.");
+			expect(
+				runtime.getTools().some((tool) => tool.name === "edit_scratchpad"),
+			).toBe(true);
 			expect(runtime.getContextFiles()).toContainEqual({
 				path: filePath,
 				content: "Remember to check auth tests.",

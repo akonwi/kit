@@ -7,6 +7,7 @@ import type {
 	SubagentSessionHeader,
 	Turn,
 } from "../../session";
+import { EDIT_SCRATCHPAD_TOOL_NAME } from "../../tools";
 import { SUBAGENT_TOOL_NAME } from "./constants";
 import type { SubagentDefinition } from "./discovery";
 import { formatSubagentsForPrompt } from "./format";
@@ -94,6 +95,7 @@ describe("SubagentManager", () => {
 		const options = buildSubagentRuntimeOptions(
 			{
 				...runtime,
+				getTools: () => [{ name: EDIT_SCRATCHPAD_TOOL_NAME }] as never,
 				getSystemPromptAdditions: () => [
 					"Shared plugin guidance",
 					subagentGuidance,
@@ -103,7 +105,13 @@ describe("SubagentManager", () => {
 		);
 
 		expect(options.subagent).toBe(true);
-		expect(options.excludedToolNames).toEqual([SUBAGENT_TOOL_NAME]);
+		expect(options.extraTools.map((tool) => tool.name)).toContain(
+			EDIT_SCRATCHPAD_TOOL_NAME,
+		);
+		expect(options.excludedToolNames).toEqual([
+			SUBAGENT_TOOL_NAME,
+			EDIT_SCRATCHPAD_TOOL_NAME,
+		]);
 		expect(options.systemPromptAdditions).toEqual([
 			"Shared plugin guidance",
 			"Scout instructions",

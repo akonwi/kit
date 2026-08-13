@@ -31,6 +31,7 @@ import { resolveRetrySettings, type Settings } from "../settings";
 import { scratchpadPath } from "../storage/session-sidecars";
 import {
 	createDefaultTools,
+	createEditScratchpadTool,
 	defaultFileOperations,
 	type FileOperationHandler,
 	type FileOperations,
@@ -340,6 +341,12 @@ export class AgentRuntime {
 				? await handler.mutate(filePath, update)
 				: defaultFileOperations.mutate(filePath, update);
 		},
+		mutateOrCreate: async (filePath, update) => {
+			const handler = this.findFileOperationHandler(filePath);
+			return handler
+				? await handler.mutate(filePath, update)
+				: defaultFileOperations.mutateOrCreate(filePath, update);
+		},
 	};
 	private debugSections = new Map<string, string[]>();
 	private toolApprovalHandlers = new Set<ToolApprovalHandler>();
@@ -461,7 +468,7 @@ export class AgentRuntime {
 
 	private getEffectiveSystemPrompt(): string {
 		const scratchpadGuidance = this.scratchpadEnabled
-			? `The active session scratchpad is the Markdown file at ${scratchpadPath(this.session.id)}. Its contents are included in context. Use the normal read, edit, and write tools to modify it.`
+			? `The active session scratchpad is the Markdown file at ${scratchpadPath(this.session.id)}. Its contents are included in context. Use edit_scratchpad for targeted changes so edits always apply to the active session; use read or write only when inspection or full replacement is necessary.`
 			: "";
 		const basePrompt = [
 			DEFAULT_SYSTEM_PROMPT,
@@ -487,6 +494,14 @@ export class AgentRuntime {
 		const seen = new Set<string>();
 		for (const tool of [
 			...createDefaultTools(this.session.cwd, this.fileOperations),
+			...(this.scratchpadEnabled
+				? [
+						createEditScratchpadTool(
+							() => scratchpadPath(this.session.id),
+							this.fileOperations,
+						),
+					]
+				: []),
 			...this.extraTools,
 		]) {
 			if (this.excludedToolNames.has(tool.name)) continue;
@@ -1534,9 +1549,11 @@ export class AgentRuntime {
 	}
 
 	setScratchpadContent(content: string): void {
+		const enableTools = !this.scratchpadEnabled;
 		this.scratchpadEnabled = true;
 		this.scratchpadContent = content;
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		if (enableTools) this.agent.setTools(this.getEffectiveTools());
 	}
 
 	registerFileOperationHandler(handler: FileOperationHandler): () => void {

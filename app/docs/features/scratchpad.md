@@ -4,7 +4,7 @@ The scratchpad is a persistent, session-scoped Markdown file shown in the shell'
 
 ## Agent updates
 
-The active scratchpad is stored at `~/.kit/sessions/<session-id>.scratchpad.md`. Interactive agents use the normal `read`, `edit`, and `write` tools to modify it; there is no scratchpad-specific update tool or confirmation step. The context supplied to the agent exactly matches the file so targeted `edit` operations can safely replace existing text without rewriting the whole scratchpad.
+The active scratchpad is stored at `~/.kit/sessions/<session-id>.scratchpad.md`. Agents use `edit_scratchpad` for targeted replacements. The tool has the same exact-match and overlap validation as `edit`, but accepts no path and resolves the active session scratchpad when each call begins. It creates a missing scratchpad and accepts one edit with an empty `oldText` to initialize empty content. This prevents inherited tool history from directing a forked or handed-off session back to its parent's scratchpad. Agents can still use `read` to inspect the file or `write` when a full replacement is necessary.
 
 The controller creates the file even when the scratchpad is empty. Normal file operations targeting it are routed through the scratchpad's guarded mutation layer: pending panel edits are flushed first, and successful reads or writes immediately synchronize the panel and subsequent agent context. Session forks continue to copy the parent scratchpad into an empty child scratchpad.
 

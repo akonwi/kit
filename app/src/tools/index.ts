@@ -11,6 +11,10 @@ import { createWriteTool } from "./write";
 export { createBashTool } from "./bash";
 export { createEditTool } from "./edit";
 export {
+	createEditScratchpadTool,
+	EDIT_SCRATCHPAD_TOOL_NAME,
+} from "./edit-scratchpad";
+export {
 	defaultFileOperations,
 	type FileOperationHandler,
 	type FileOperations,

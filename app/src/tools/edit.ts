@@ -10,32 +10,103 @@ type LegacyEditParams = {
 	newText: string;
 	edits?: never;
 };
+export type ExactEdit = { oldText: string; newText: string };
+
 type CanonicalEditParams = {
 	path: string;
-	edits: { oldText: string; newText: string }[];
+	edits: ExactEdit[];
 };
 type EditParams = CanonicalEditParams | LegacyEditParams;
+
+export const exactEditsSchema = Type.Array(
+	Type.Object({
+		oldText: Type.String({
+			description:
+				"Exact text for one targeted replacement. Must be unique in the file and must not overlap with other edits in the same call.",
+		}),
+		newText: Type.String({
+			description: "Replacement text for this targeted edit.",
+		}),
+	}),
+	{
+		description:
+			"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Merge nearby changes into one edit instead of overlapping edits.",
+		minItems: 1,
+	},
+);
 
 const editSchema = Type.Object({
 	path: Type.String({
 		description: "Path to the file to edit (relative or absolute)",
 	}),
-	edits: Type.Array(
-		Type.Object({
-			oldText: Type.String({
-				description:
-					"Exact text for one targeted replacement. Must be unique in the file and must not overlap with other edits in the same call.",
-			}),
-			newText: Type.String({
-				description: "Replacement text for this targeted edit.",
-			}),
-		}),
-		{
-			description:
-				"One or more targeted replacements. Each edit is matched against the original file, not incrementally. Merge nearby changes into one edit instead of overlapping edits.",
-		},
-	),
+	edits: exactEditsSchema,
 });
+
+type EditRange = ExactEdit & { index: number; start: number; end: number };
+
+function findMatchOffsets(content: string, search: string): number[] {
+	if (search.length === 0) return [];
+	const offsets: number[] = [];
+	let from = 0;
+	while (from <= content.length - search.length) {
+		const index = content.indexOf(search, from);
+		if (index < 0) break;
+		offsets.push(index);
+		from = index + 1;
+	}
+	return offsets;
+}
+
+export function applyExactEdits(
+	original: string,
+	edits: ExactEdit[],
+): { content: string; errors: string[] } {
+	const errors: string[] = [];
+	const ranges: EditRange[] = [];
+	for (let i = 0; i < edits.length; i++) {
+		const edit = edits[i];
+		if (edit.oldText.length === 0) {
+			errors.push(`edits[${i}]: oldText must not be empty`);
+			continue;
+		}
+		const offsets = findMatchOffsets(original, edit.oldText);
+		if (offsets.length === 0) {
+			errors.push(`edits[${i}]: oldText not found in file`);
+		} else if (offsets.length > 1) {
+			errors.push(
+				`edits[${i}]: oldText matches ${offsets.length} locations — must be unique`,
+			);
+		} else {
+			const start = offsets[0];
+			ranges.push({
+				...edit,
+				index: i,
+				start,
+				end: start + edit.oldText.length,
+			});
+		}
+	}
+
+	for (let i = 0; i < ranges.length; i++) {
+		for (let j = i + 1; j < ranges.length; j++) {
+			const left = ranges[i];
+			const right = ranges[j];
+			if (left.start < right.end && right.start < left.end) {
+				errors.push(
+					`edits[${left.index}] and edits[${right.index}] overlap — merge them into one edit`,
+				);
+			}
+		}
+	}
+
+	if (errors.length > 0) return { content: original, errors };
+	let content = original;
+	for (const range of ranges.sort((a, b) => b.start - a.start)) {
+		content =
+			content.slice(0, range.start) + range.newText + content.slice(range.end);
+	}
+	return { content, errors };
+}
 
 export function createEditTool(
 	cwd: string,
@@ -64,37 +135,10 @@ export function createEditTool(
 			const errors: string[] = [];
 			try {
 				await files.mutate(abs, (original) => {
-					// Validate all edits against original before applying any.
-					for (let i = 0; i < params.edits.length; i++) {
-						const { oldText } = params.edits[i];
-						const count = original.split(oldText).length - 1;
-						if (count === 0) {
-							errors.push(`edits[${i}]: oldText not found in file`);
-						} else if (count > 1) {
-							errors.push(
-								`edits[${i}]: oldText matches ${count} locations — must be unique`,
-							);
-						}
-					}
-
-					// Check for overlaps: no oldText should contain another.
-					for (let i = 0; i < params.edits.length; i++) {
-						for (let j = 0; j < params.edits.length; j++) {
-							if (i === j) continue;
-							if (params.edits[i].oldText.includes(params.edits[j].oldText)) {
-								errors.push(
-									`edits[${i}] and edits[${j}] overlap — merge them into one edit`,
-								);
-							}
-						}
-					}
+					const result = applyExactEdits(original, params.edits);
+					errors.push(...result.errors);
 					if (errors.length > 0) throw new Error("Invalid edits");
-
-					let result = original;
-					for (const { oldText, newText } of params.edits) {
-						result = result.replace(oldText, newText);
-					}
-					return result;
+					return result.content;
 				});
 
 				return {
