@@ -23,6 +23,7 @@
 	--kit-shell-padding: var(--space-sm);
 	--kit-composer-height: 2.5rem;
 	--kit-mobile-header-height: 3rem;
+	--toast-position: top-right;
 }
 
 html,

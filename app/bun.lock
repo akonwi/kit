@@ -5,7 +5,7 @@
     "": {
       "name": "pi-kit",
       "dependencies": {
-        "@akonwi/mica": "0.6.0",
+        "@akonwi/mica": "0.8.0",
         "@earendil-works/pi-agent-core": "0.83.0",
         "@earendil-works/pi-ai": "0.83.0",
         "@fontsource-variable/inter": "5.3.0",
@@ -41,7 +41,7 @@
     },
   },
   "packages": {
-    "@akonwi/mica": ["@akonwi/mica@0.6.0", "", {}, "sha512-Uifrrcxitj4av7MfiLpEcd3elEskTTRY2l9j97FyLjyt61vXD6B3hnIZa9bdAoQfzX2iirTnxY59UvL8mf17GA=="],
+    "@akonwi/mica": ["@akonwi/mica@0.8.0", "", {}, "sha512-rddSGoTdHrzAHSmMwE4My/VnB8iIsnR2lhfTGdqeSOiAHeh0f1m8x7BvelqJegddHcq3PjSSvGNsG84S4yGrrA=="],
 
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],
 

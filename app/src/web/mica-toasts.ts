@@ -9,12 +9,9 @@ export function showMicaToast(input: WebToastInput): void {
 	if (existing?.isConnected && existing.matches(":popover-open")) return;
 	const element = toast(input.title, {
 		description: input.description,
-		variant:
-			input.variant === "error"
-				? "danger"
-				: input.variant === "info"
-					? ""
-					: input.variant,
+		...(input.variant === "info"
+			? {}
+			: { variant: input.variant === "error" ? "danger" : input.variant }),
 		duration: input.duration,
 	});
 	activeToasts.set(key, element);
