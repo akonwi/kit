@@ -1,5 +1,5 @@
 import { useRenderer } from "@opentui/solid";
-import { createMemo, For, Show } from "solid-js";
+import { createMemo, Show } from "solid-js";
 import type { ToolCall, ToolResultMessage } from "../../runtime/agent";
 import { CHEVRON_RIGHT, MIDDLE_DOT } from "../glyphs";
 import { theme } from "../theme";
@@ -7,18 +7,6 @@ import { InlineSpinner } from "./inline-spinner";
 import { toolDisplayName } from "./turns";
 
 const MAX_VISIBLE_TOOLS = 8;
-
-/**
- * The chip is intentionally low-contrast for ordinary tool names so the
- * row reads as a quiet summary against the transcript. Subagent calls
- * are promoted because they represent a delegated agent — a higher-order
- * concern than a single tool invocation — and deserve emphasis even in
- * the collapsed preview. The expanded view (PerToolRow / activity view)
- * paints every tool with its semantic accent.
- */
-function nameColor(toolName: string): string {
-	return toolName === "subagent" ? theme.subagentText : theme.textPlaceholder;
-}
 
 /**
  * Compact chip used as the visible affordance for a tool drawer (single
@@ -66,11 +54,22 @@ export function DrawerChip(props: {
 	const overflowCount = createMemo(() =>
 		Math.max(0, props.toolCalls.length - MAX_VISIBLE_TOOLS),
 	);
+	const toolSummary = createMemo(() => {
+		const names = visibleToolCalls()
+			.map(toolDisplayName)
+			.join(` ${MIDDLE_DOT} `);
+		return overflowCount() > 0
+			? `${names} ${MIDDLE_DOT} +${overflowCount()} more`
+			: names;
+	});
 
 	return (
 		<box
 			flexDirection="row"
 			gap={1}
+			width="100%"
+			height={1}
+			overflow="hidden"
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
 			onMouseDown={(event) => {
@@ -90,25 +89,20 @@ export function DrawerChip(props: {
 			>
 				<InlineSpinner />
 			</Show>
-			<text fg={theme.textMuted}>{countLabel()}</text>
+			<text fg={theme.textMuted} flexShrink={0} wrapMode="none">
+				{countLabel()}
+			</text>
 			<Show when={props.toolCalls.length > 0}>
-				<box flexDirection="row" gap={0}>
-					<For each={visibleToolCalls()}>
-						{(tc, i) => (
-							<>
-								<Show when={i() > 0}>
-									<text fg={theme.textPlaceholder}>{` ${MIDDLE_DOT} `}</text>
-								</Show>
-								<text fg={nameColor(tc.name)}>{toolDisplayName(tc)}</text>
-							</>
-						)}
-					</For>
-					<Show when={overflowCount() > 0}>
-						<text fg={theme.textPlaceholder}>
-							{` ${MIDDLE_DOT} +${overflowCount()} more`}
-						</text>
-					</Show>
-				</box>
+				<text
+					fg={theme.textPlaceholder}
+					flexBasis={0}
+					flexGrow={1}
+					flexShrink={1}
+					wrapMode="none"
+					truncate
+				>
+					{toolSummary()}
+				</text>
 			</Show>
 		</box>
 	);
