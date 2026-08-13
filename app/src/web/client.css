@@ -840,8 +840,18 @@ button.remote-chrome-contribution {
 	animation: pending-spin 800ms linear infinite;
 }
 
+.drawer-count {
+	flex: 0 0 auto;
+	white-space: nowrap;
+}
+
 .drawer-tool-names {
+	min-inline-size: 0;
+	flex: 1 1 auto;
+	overflow: hidden;
 	color: var(--kit-text-placeholder);
+	text-overflow: ellipsis;
+	white-space: nowrap;
 }
 
 .tool-row > summary,
@@ -1705,6 +1715,10 @@ details[open] > summary > .disclosure-marker {
 
 	.workspace-pane-host[data-layout="tabs"] {
 		grid-template-rows: 2.75rem minmax(0, 1fr) auto;
+	}
+
+	.drawer-tool-names {
+		display: none;
 	}
 
 	.workspace-tabs {

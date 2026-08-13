@@ -177,7 +177,7 @@ export function ToolDrawer(props: {
 			<span data-visually-hidden>
 				{props.aborted ? "aborted: " : running() ? "running: " : "completed: "}
 			</span>
-			<span>{countLabel()}</span>
+			<span class="drawer-count">{countLabel()}</span>
 			<Show when={visibleNames().length > 0}>
 				<span class="drawer-tool-names">
 					{" · "}
