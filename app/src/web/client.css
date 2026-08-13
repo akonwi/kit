@@ -1054,6 +1054,25 @@ details[open] > summary > .disclosure-marker {
 	white-space: nowrap;
 }
 
+.pending-content > * {
+	display: inline;
+	margin: 0;
+}
+
+.pending-content :is(ul, ol) {
+	padding: 0;
+	list-style-position: inside;
+}
+
+.pending-content pre {
+	display: inline;
+	margin: 0;
+	padding: 0;
+	border: 0;
+	background: transparent;
+	white-space: nowrap;
+}
+
 .pending-followups {
 	display: flex;
 	flex-direction: column;

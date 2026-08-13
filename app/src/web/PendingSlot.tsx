@@ -2,6 +2,7 @@
 import { createMemo, For, type JSX, Show } from "solid-js";
 import { BrailleSpinner } from "./BrailleSpinner";
 import { isRecord } from "./client-state";
+import { SafeMarkdown } from "./SafeMarkdown";
 import { useWebClient } from "./WebClientContext";
 
 export function PendingSlot(): JSX.Element {
@@ -65,7 +66,11 @@ export function PendingSlot(): JSX.Element {
 			<Show when={content()}>
 				<div class="pending-display" aria-hidden="true">
 					<BrailleSpinner class="pending-spinner" />
-					<span class="pending-content">{content()}</span>
+					<SafeMarkdown
+						class="pending-content"
+						content={content()}
+						profile="interaction"
+					/>
 				</div>
 			</Show>
 			<Show when={protocol().queuedMessagePreviews.length > 0}>
