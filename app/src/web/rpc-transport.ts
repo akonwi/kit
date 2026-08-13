@@ -236,9 +236,6 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 			this.hooks.onDisconnected();
 			this.scheduleReconnect();
 		});
-		nextSocket.addEventListener("error", () => {
-			this.hooks.onError(new Error("Unable to connect to the Kit session."));
-		});
 	}
 
 	private rejectPendingCommands(error: Error): void {
