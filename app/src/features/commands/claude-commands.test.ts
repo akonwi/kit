@@ -86,6 +86,7 @@ describe("Claude Code command discovery", () => {
 
 		await command?.execute({
 			runtime,
+			persistSessions: true,
 			args: '"auth module" thoroughly',
 			picker: {} as CommandContext["picker"],
 			toast: () => {},

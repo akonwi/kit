@@ -78,6 +78,7 @@ export function commandPaletteDescription(command: Command): string {
 
 export type ComposerControllerDeps = {
 	runtime: AgentRuntime;
+	persistSessions?: boolean;
 	commands: CommandRegistry;
 	fileIndex: FileIndex;
 	threadIndex: ThreadIndex | null;
@@ -140,6 +141,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		try {
 			await command.execute({
 				runtime,
+				persistSessions: deps.persistSessions ?? true,
 				picker: commandPalette,
 				args,
 				toast,

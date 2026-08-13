@@ -14,7 +14,7 @@ export type ScratchpadController = ReturnType<
 	typeof createScratchpadController
 >;
 
-type ScratchpadStorage = {
+export type ScratchpadStorage = {
 	read: (sessionId: string) => string;
 	readForTool?: (sessionId: string) => string;
 	write: (sessionId: string, content: string) => void;
@@ -34,6 +34,29 @@ const defaultStorage: ScratchpadStorage = {
 };
 
 const AUTOSAVE_DELAY_MS = 250;
+
+export function createMemoryScratchpadStorage(): ScratchpadStorage {
+	const contents = new Map<string, string>();
+	return {
+		read: (sessionId) => contents.get(sessionId) ?? "",
+		readForTool: (sessionId) => contents.get(sessionId) ?? "",
+		write: (sessionId, content) => {
+			contents.set(sessionId, content);
+		},
+		ensure: (sessionId) => {
+			if (!contents.has(sessionId)) contents.set(sessionId, "");
+		},
+		mutate: (sessionId, update) => {
+			const current = contents.get(sessionId) ?? "";
+			const next = update(current);
+			if (next === null || next === current) {
+				return { updated: false, content: current };
+			}
+			contents.set(sessionId, next);
+			return { updated: true, content: next };
+		},
+	};
+}
 
 export function createScratchpadController(
 	runtime: AgentRuntime,

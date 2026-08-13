@@ -8,9 +8,9 @@ kit -p "review PR 345"
 
 Print mode:
 
-- creates and persists a new session by default
+- resumes the most recent session for the current directory by default, creating and persisting one when none exists
 - opens and continues an existing session with `--session <id-or-path>`
-- keeps the main and sub-agent conversations in memory with `--no-session`
+- keeps the main conversation, scratchpad, and sub-agent conversations in memory with `--no-session`
 - loads headless-safe built-in plugins plus user and project external plugins
 - skips prompt-command plugins and UI-only built-ins
 - withholds Kit's user-interaction tools and their prompt guidance

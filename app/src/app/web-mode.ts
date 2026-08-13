@@ -13,6 +13,7 @@ export type WebModeOptions = {
 	hostname?: string;
 	port?: number;
 	model?: string;
+	noSession?: boolean;
 	sessionId?: string;
 };
 
@@ -47,13 +48,13 @@ export async function runWebMode(
 	let exitCode = 0;
 	try {
 		const resolved = await resolveHeadlessSession(cwd, {
-			defaultPersistence: "persistent",
+			defaultPersistence: options.noSession ? "ephemeral" : "persistent",
 			sessionId: options.sessionId,
 		});
 		interactions = new RemoteInteractionBroker();
 		attachments = new RemoteAttachmentStore();
 		headlessHost = await createHeadlessHost(resolved.session, {
-			persistSession: true,
+			persistSession: resolved.persistSession,
 			signal: startupAbort.signal,
 			interactions,
 			externalPlugins: true,
@@ -63,7 +64,7 @@ export async function runWebMode(
 		await applyStartupModel(headlessHost.runtime, options.model);
 
 		rpcHost = new RpcSessionHost(headlessHost.runtime, {
-			persistSessions: true,
+			persistSessions: resolved.persistSession,
 			interactions,
 			attachments,
 			scratchpad: headlessHost.scratchpad ?? undefined,

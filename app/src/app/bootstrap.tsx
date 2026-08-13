@@ -53,6 +53,7 @@ function reportDanglingHandlesForDebugging(): void {
 type BootstrapOpts = {
 	sessionId?: string;
 	newSession?: boolean;
+	noSession?: boolean;
 };
 
 async function loadSession(opts?: BootstrapOpts): Promise<Session> {
@@ -77,7 +78,7 @@ async function loadSession(opts?: BootstrapOpts): Promise<Session> {
 	}
 
 	const cwd = safeProcessCwd();
-	if (opts?.newSession) {
+	if (opts?.noSession || opts?.newSession) {
 		const { createSession } = await import("../session");
 		return createSession(cwd);
 	}
@@ -266,6 +267,7 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 					<App
 						settings={settings}
 						session={session}
+						persistSession={opts?.noSession !== true}
 						updateTerminalTitle={updateTerminalTitle}
 						setTerminalTurnActive={(active) => {
 							setTerminalTitleTurnActive(active);

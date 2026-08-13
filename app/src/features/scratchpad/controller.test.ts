@@ -2,7 +2,10 @@ import { describe, expect, test } from "bun:test";
 import type { Session } from "../../session";
 import { SESSION_VERSION } from "../../session";
 import type { FileOperationHandler } from "../../tools";
-import { createScratchpadController } from "./controller";
+import {
+	createMemoryScratchpadStorage,
+	createScratchpadController,
+} from "./controller";
 import { scratchpadPath } from "./storage";
 
 function session(id: string, parentSessionId?: string): Session {
@@ -74,6 +77,21 @@ function createFakeRuntime(initial: Session) {
 		},
 	};
 }
+
+describe("memory scratchpad storage", () => {
+	test("keeps content in memory and applies guarded mutations", () => {
+		const storage = createMemoryScratchpadStorage();
+		storage.ensure?.("session-1");
+		storage.write("session-1", "notes");
+
+		expect(storage.read("session-1")).toBe("notes");
+		expect(storage.readForTool?.("session-1")).toBe("notes");
+		expect(storage.mutate?.("session-1", (current) => `${current}!`)).toEqual({
+			updated: true,
+			content: "notes!",
+		});
+	});
+});
 
 describe("createScratchpadController", () => {
 	test("updates agent context as the draft is edited", () => {

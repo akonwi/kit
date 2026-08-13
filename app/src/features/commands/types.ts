@@ -9,6 +9,7 @@ import type { ReviewWorkspaceController } from "../review/workspace-controller";
 
 export type CommandContext = {
 	runtime: AgentRuntime;
+	persistSessions: boolean;
 	picker: PickerManager;
 	args: string;
 	toast: (toast: ToastInput) => void;

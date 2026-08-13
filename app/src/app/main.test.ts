@@ -40,11 +40,13 @@ describe("print mode CLI", () => {
 });
 
 describe("web mode CLI", () => {
-	test("rejects ephemeral sessions", async () => {
-		const result = await runMain(["--web", "--no-session"]);
+	test("rejects conflicting session options", async () => {
+		const result = await runMain(["--web", "--no-session", "--session", "abc"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("does not support --no-session");
+		expect(result.stderr).toContain(
+			"cannot combine --no-session with --session",
+		);
 	});
 
 	test("rejects an invalid port", async () => {
@@ -72,6 +74,17 @@ describe("web mode CLI", () => {
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+	});
+});
+
+describe("interactive mode CLI", () => {
+	test("rejects conflicting session options", async () => {
+		const result = await runMain(["--no-session", "--session", "abc"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain(
+			"cannot combine --no-session with --session",
+		);
 	});
 });
 

@@ -89,8 +89,8 @@ if (values.mode !== undefined) {
 			"kit --web cannot be combined with --version or positional arguments",
 		);
 		process.exitCode = 1;
-	} else if (values["no-session"]) {
-		console.error("kit --web does not support --no-session");
+	} else if (values["no-session"] && values.session) {
+		console.error("kit --web cannot combine --no-session with --session");
 		process.exitCode = 1;
 	} else if (values.auth !== undefined && !basicAuth) {
 		console.error("kit --web --auth expects <username>:<password>");
@@ -125,6 +125,7 @@ if (values.mode !== undefined) {
 			hostname: typeof values.host === "string" ? values.host : undefined,
 			port,
 			model: typeof values.model === "string" ? values.model : undefined,
+			noSession: values["no-session"] === true,
 			sessionId:
 				typeof values.session === "string" ? values.session : undefined,
 		});
@@ -189,6 +190,9 @@ if (values.mode !== undefined) {
 			});
 		}
 	}
+} else if (values["no-session"] && values.session) {
+	console.error("kit cannot combine --no-session with --session");
+	process.exitCode = 1;
 } else {
 	switch (subcommand) {
 		case "version": {
@@ -197,6 +201,11 @@ if (values.mode !== undefined) {
 			break;
 		}
 		case "threads": {
+			if (values["no-session"]) {
+				console.error("kit threads cannot combine with --no-session");
+				process.exitCode = 1;
+				break;
+			}
 			const { showThreadPicker } = await import("./threads");
 			const sessionId = await showThreadPicker();
 			if (sessionId) {
@@ -207,12 +216,15 @@ if (values.mode !== undefined) {
 		}
 		case "new": {
 			const { bootstrap } = await import("./bootstrap");
-			await bootstrap({ newSession: true });
+			await bootstrap({
+				newSession: true,
+				noSession: values["no-session"] === true,
+			});
 			break;
 		}
 		default: {
 			const { bootstrap } = await import("./bootstrap");
-			await bootstrap();
+			await bootstrap({ noSession: values["no-session"] === true });
 		}
 	}
 }

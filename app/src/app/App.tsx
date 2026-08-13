@@ -7,8 +7,15 @@ import {
 import { createReleasesWorkspaceController } from "../features/releases";
 import { createReviewDraftController } from "../features/review/draft-controller";
 import { createReviewWorkspaceController } from "../features/review/workspace-controller";
-import { createScratchpadController } from "../features/scratchpad/controller";
+import {
+	createMemoryScratchpadStorage,
+	createScratchpadController,
+} from "../features/scratchpad/controller";
 import { createSubagentsWorkspaceController } from "../features/subagents";
+import {
+	createMemorySubagentParentStorage,
+	createMemorySubagentSessionStorage,
+} from "../features/subagents/memory-storage";
 import { createBuiltInPlugins } from "../plugins/built-ins";
 import { ExternalPluginManager } from "../plugins/external";
 import { PluginManager } from "../plugins/PluginManager";
@@ -44,6 +51,7 @@ export type AppProps = {
 	triggerNotification: (message: string, title?: string) => boolean;
 	quitAndDestroy: () => void;
 	registerDispose?: (dispose: () => void | Promise<void>) => void;
+	persistSession: boolean;
 };
 
 type ReadyState = {
@@ -100,12 +108,23 @@ export function App(props: AppProps) {
 		const releasesWorkspace = createReleasesWorkspaceController();
 		const reviewDrafts = createReviewDraftController(props.session.id);
 		const reviewWorkspace = createReviewWorkspaceController();
-		const scratchpad = createScratchpadController(runtime);
+		const scratchpad = createScratchpadController(
+			runtime,
+			props.persistSession ? undefined : createMemoryScratchpadStorage(),
+		);
 		const subagentsWorkspace = createSubagentsWorkspaceController();
-		const persistence = new FilePersistence(runtime);
+		const memorySubagentParentStorage = props.persistSession
+			? undefined
+			: createMemorySubagentParentStorage();
+		const memorySubagentStorage = props.persistSession
+			? undefined
+			: createMemorySubagentSessionStorage();
+		const persistence = props.persistSession
+			? new FilePersistence(runtime)
+			: null;
 		const app = createAppState(runtime);
 		showToast = app.showToast;
-		persistence.onFailure((event) => {
+		persistence?.onFailure((event) => {
 			toast({
 				title: "Session save failed",
 				subtitle: event.error,
@@ -148,6 +167,8 @@ export function App(props: AppProps) {
 				createBuiltInPlugins(pluginContext, {
 					releasesWorkspace,
 					subagentsWorkspace,
+					subagentParentStorage: memorySubagentParentStorage,
+					subagentStorage: memorySubagentStorage,
 				}),
 				pluginContext,
 			);
@@ -196,7 +217,7 @@ export function App(props: AppProps) {
 		} catch (error) {
 			await disposePluginManagers();
 			releasesWorkspace.dispose();
-			persistence.dispose();
+			persistence?.dispose();
 			runtime.dispose();
 			throw error;
 		}
@@ -246,6 +267,7 @@ export function App(props: AppProps) {
 
 		const controller = createComposerController({
 			runtime,
+			persistSessions: props.persistSession,
 			commands,
 			fileIndex: app.fileIndex,
 			threadIndex: app.threadIndex,
@@ -302,7 +324,7 @@ export function App(props: AppProps) {
 			app.dispose();
 			releasesWorkspace.dispose();
 			scratchpad.dispose();
-			persistence.dispose();
+			persistence?.dispose();
 			disposePromise = disposePluginManagers().finally(() => runtime.dispose());
 			return disposePromise;
 		};

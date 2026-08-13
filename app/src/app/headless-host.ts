@@ -4,7 +4,10 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
-import { createScratchpadController } from "../features/scratchpad/controller";
+import {
+	createMemoryScratchpadStorage,
+	createScratchpadController,
+} from "../features/scratchpad/controller";
 import {
 	createMemorySubagentParentStorage,
 	createMemorySubagentSessionStorage,
@@ -152,9 +155,10 @@ export async function createHeadlessHost(
 	await refreshModelAvailability();
 
 	const runtime = new AgentRuntime(session, { settings: settings.settings });
-	const scratchpad = options.persistSession
-		? createScratchpadController(runtime)
-		: null;
+	const scratchpad = createScratchpadController(
+		runtime,
+		options.persistSession ? undefined : createMemoryScratchpadStorage(),
+	);
 	const commands = createCommandRegistry(BUILT_IN_COMMANDS);
 	const footer = createFooterStatusController();
 	const header = createHeaderStatusController();
@@ -177,6 +181,12 @@ export async function createHeadlessHost(
 	};
 	let builtInPlugins: PluginManager | null = null;
 	let externalPlugins: ExternalPluginManager | null = null;
+	const memorySubagentParentStorage = options.persistSession
+		? undefined
+		: createMemorySubagentParentStorage();
+	const memorySubagentStorage = options.persistSession
+		? undefined
+		: createMemorySubagentSessionStorage();
 	let externalPluginAbort: AbortController | null = null;
 	const removePluginBarrier = runtime.addToolPreparationBarrier(
 		(signal) =>
@@ -189,8 +199,8 @@ export async function createHeadlessHost(
 			createBuiltInPlugins(pluginContext, {
 				headless: true,
 				onReady: (ready) => pluginReadiness.push(ready),
-				subagentParentStorage: createMemorySubagentParentStorage(),
-				subagentStorage: createMemorySubagentSessionStorage(),
+				subagentParentStorage: memorySubagentParentStorage,
+				subagentStorage: memorySubagentStorage,
 				remoteGuidedQuestions: options.interactions,
 				remoteChrome: options.remoteChrome,
 				remotePromptCommands: options.remotePromptCommands,

@@ -6,6 +6,7 @@ import {
 	mkdtemp,
 	readdir,
 	readFile,
+	realpath,
 	rm,
 	writeFile,
 } from "node:fs/promises";
@@ -36,6 +37,11 @@ const subagentPath = path.join(
 const tempDir = await mkdtemp(path.join(tmpdir(), "kit-print-mode-smoke-"));
 const readFixture = path.join(tempDir, "read-fixture.txt");
 const pluginMarker = path.join(tempDir, "external-plugin-loaded");
+const appPreload = path.join(
+	repoRoot,
+	"app/node_modules/@opentui/solid/scripts/preload.js",
+);
+const appMain = path.join(repoRoot, "app/src/app/main.tsx");
 
 for (const fixturePath of [pluginRoot, subagentPath]) {
 	if (existsSync(fixturePath)) {
@@ -72,6 +78,7 @@ async function runPrintMode(
 		noSession?: boolean;
 		sessionId?: string;
 		stdin?: string;
+		cwd?: string;
 	} = {},
 ): Promise<RunResult> {
 	const modelArgs = options.model ? ["--model", options.model] : [];
@@ -81,7 +88,8 @@ async function runPrintMode(
 	const proc = Bun.spawn(
 		[
 			process.execPath,
-			"dev",
+			`--preload=${appPreload}`,
+			appMain,
 			"-p",
 			...modelArgs,
 			...sessionArgs,
@@ -89,7 +97,7 @@ async function runPrintMode(
 			prompt,
 		],
 		{
-			cwd: repoRoot,
+			cwd: options.cwd ?? repoRoot,
 			env: process.env,
 			stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
 			stdout: "pipe",
@@ -120,16 +128,11 @@ async function expectExact(
 }
 
 async function testSignalHandling(): Promise<void> {
-	const preload = path.join(
-		repoRoot,
-		"app/node_modules/@opentui/solid/scripts/preload.js",
-	);
-	const main = path.join(repoRoot, "app/src/app/main.tsx");
 	const proc = Bun.spawn(
 		[
 			process.execPath,
-			`--preload=${preload}`,
-			main,
+			`--preload=${appPreload}`,
+			appMain,
 			"-p",
 			"--no-session",
 			"Use the bash tool to execute sleep 30, then reply with exactly LATE.",
@@ -226,35 +229,30 @@ try {
 	await writeFile(pluginScriptPath, pluginSource);
 	await writeFile(subagentPath, subagentSource);
 
-	const sessionsRoot = SESSIONS_DIR;
-	const sessionsBefore = await filesBelow(sessionsRoot);
-
+	const defaultCwd = await realpath(tempDir);
+	const defaultSession = await createSession(defaultCwd);
+	await writeSession(defaultSession);
 	await expectExact(
 		"default persistent session",
 		"DEFAULT_SESSION_OK",
 		"Do not call tools. Reply with exactly DEFAULT_SESSION_OK and nothing else.",
-		{ noSession: false },
+		{ noSession: false, cwd: defaultCwd },
 	);
-	const sessionsAfterDefault = await filesBelow(sessionsRoot);
-	const defaultSessionFiles = [...sessionsAfterDefault].filter(
-		(filePath) => !sessionsBefore.has(filePath) && filePath.endsWith(".jsonl"),
+	const defaultSessionFile = path.join(
+		SESSIONS_DIR,
+		`${defaultSession.id}.jsonl`,
 	);
-	if (defaultSessionFiles.length !== 1) {
-		throw new Error(
-			`Print mode created ${defaultSessionFiles.length} sessions by default; expected 1.`,
-		);
-	}
-	const defaultSessionFile = defaultSessionFiles[0];
-	if (!defaultSessionFile) {
-		throw new Error("Print mode did not create a default session.");
-	}
 	const defaultSessionContent = await readFile(defaultSessionFile, "utf8");
 	if (!defaultSessionContent.includes("DEFAULT_SESSION_OK")) {
-		throw new Error("Print mode did not persist its default session.");
+		throw new Error(
+			"Print mode did not resume and persist its default session.",
+		);
 	}
-	await deleteSession(path.basename(defaultSessionFile, ".jsonl"));
-	console.log("PASS default session persisted");
+	await deleteSession(defaultSession.id);
+	console.log("PASS default session resumed and persisted");
 
+	const sessionsRoot = SESSIONS_DIR;
+	const sessionsBefore = await filesBelow(sessionsRoot);
 	await expectExact(
 		"plain prompt",
 		"PLAIN_OK",
