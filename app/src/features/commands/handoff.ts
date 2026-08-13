@@ -15,4 +15,18 @@ export const handoffCommand: Command = {
 			});
 		}
 	},
+	async executeTransportNeutral({
+		runtime,
+		args,
+		persistSessions,
+		schedulePrompt,
+		signal,
+	}) {
+		await runtime.handoffSession(undefined, {
+			persist: persistSessions,
+			signal,
+		});
+		const prompt = args.trim();
+		if (prompt) schedulePrompt(prompt);
+	},
 };

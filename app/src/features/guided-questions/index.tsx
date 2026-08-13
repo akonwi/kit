@@ -3,6 +3,20 @@ import { ringBell } from "../notifications/notifications";
 import { createGuidedQuestionsController } from "./controller";
 import { GuidedQuestionsContent } from "./GuidedQuestionsContent";
 import { createGuidedQuestionsTool, GUIDED_QUESTIONS_POLICY } from "./tool";
+import type { GuidedQuestionsRequester } from "./types";
+
+export function createRemoteGuidedQuestionsPlugin(
+	guidedQuestions: GuidedQuestionsRequester,
+) {
+	return function RemoteGuidedQuestionsPlugin(kit: InternalPluginAPI): void {
+		kit.addSystemPrompt(GUIDED_QUESTIONS_POLICY);
+		kit.registerTool(
+			createGuidedQuestionsTool(guidedQuestions, {
+				notify: () => {},
+			}),
+		);
+	};
+}
 
 export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	const controller = createGuidedQuestionsController();

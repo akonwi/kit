@@ -18,13 +18,15 @@ and is not the right ownership or method surface for controlling Kit itself.
 
 ## Decision
 
-Kit provides `--rpc` as a Pi-inspired JSONL subprocess protocol. Interactive,
-`--print`, and `--rpc` modes are mutually exclusive.
+Kit provides `--rpc` as a JSONL subprocess protocol. Its framing and
+command/response envelope are Pi-inspired, but Pi is not part of Kit's public
+protocol boundary. Interactive, `--print`, and `--rpc` modes are mutually
+exclusive.
 
 - stdin carries commands; stdout carries responses and runtime events; stderr
   carries diagnostics.
 - Prompt acceptance is asynchronous. Completion is represented by
-  `agent_settled`, not by the prompt response.
+  `agent.settled`, not by the prompt response.
 - RPC and print mode share one headless host that owns runtime and built-in
   plugin initialization and cleanup.
 - RPC mode creates a persistent session by default, can open one with
@@ -34,6 +36,10 @@ Kit provides `--rpc` as a Pi-inspired JSONL subprocess protocol. Interactive,
   errors rather than compatibility shims.
 - Protocol records follow Pi's command/response/event envelope rather than
   JSON-RPC 2.0. The external-plugin protocol remains unchanged.
+- Event records project Kit's semantic `AgentRuntime` events and preserve their
+  identities and lifecycle meaning. Raw Pi event names, payloads, and types do
+  not cross the core `Agent` boundary. Transport projections may bound or omit
+  unsafe data, but they do not make Pi's event model part of Kit's API.
 
 ## Consequences
 

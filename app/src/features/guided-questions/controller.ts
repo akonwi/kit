@@ -8,7 +8,8 @@ import {
 	type AnswerValue,
 	type GuidedQuestion,
 	type GuidedQuestionsInput,
-	normalizeQuestion,
+	type GuidedQuestionsResult,
+	normalizeQuestions,
 } from "./types";
 
 export type GuidedQuestionsMode =
@@ -16,11 +17,6 @@ export type GuidedQuestionsMode =
 	| "multiselect"
 	| "text"
 	| "otherText";
-
-export type GuidedQuestionsResult = {
-	cancelled: boolean;
-	answers: Record<string, AnswerValue>;
-};
 
 export function createGuidedQuestionsController() {
 	const [active, setActive] = createSignal(false);
@@ -309,7 +305,7 @@ export function createGuidedQuestionsController() {
 	function activate(
 		params: GuidedQuestionsInput,
 	): Promise<GuidedQuestionsResult> {
-		const qs = (params.questions || []).map(normalizeQuestion);
+		const qs = normalizeQuestions(params.questions || []);
 		if (qs.length === 0) {
 			return Promise.resolve({ cancelled: true, answers: {} });
 		}

@@ -1,5 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { BUILT_IN_COMMANDS, createCommandRegistry } from "../features/commands";
+import {
+	BUILT_IN_COMMANDS,
+	type CommandRegistry,
+	createCommandRegistry,
+} from "../features/commands";
+import { createScratchpadController } from "../features/scratchpad/controller";
 import {
 	createMemorySubagentParentStorage,
 	createMemorySubagentSessionStorage,
@@ -16,12 +21,19 @@ import { refreshModelAvailability } from "../runtime/models";
 import { SESSION_VERSION, type Session } from "../session";
 import { loadSettings } from "../settings";
 import { createAttachmentsController } from "../shell/attachments-controller";
-import { createFooterStatusController } from "../shell/footer-status";
-import { createHeaderStatusController } from "../shell/header-status";
+import {
+	createFooterStatusController,
+	type FooterStatusController,
+} from "../shell/footer-status";
+import {
+	createHeaderStatusController,
+	type HeaderStatusController,
+} from "../shell/header-status";
 import { initTemplates } from "../shell/templates";
 import { resolveAndApplyTheme } from "../shell/theme";
 import { FilePersistence } from "../storage/file-persistence";
 import { createHeadlessPluginUI } from "./headless-plugin-ui";
+import type { RemoteInteractionBroker } from "./remote-interaction-broker";
 
 export function createEphemeralSession(cwd: string): Session {
 	const timestamp = new Date().toISOString();
@@ -75,12 +87,6 @@ export function takeOverStdout(): {
 	};
 }
 
-export type HeadlessHost = {
-	runtime: AgentRuntime;
-	dispose: () => Promise<void>;
-	waitForPlugins: () => Promise<void>;
-};
-
 async function waitForAbortable(
 	promise: Promise<void>,
 	signal: AbortSignal,
@@ -117,52 +123,145 @@ function reportExternalPluginFailure(failure: ExternalPluginFailure): void {
 	console.error(`Plugin${plugin} failed: ${details.join(" · ")}`);
 }
 
+export type HeadlessHost = {
+	runtime: AgentRuntime;
+	commands: CommandRegistry;
+	footer: FooterStatusController;
+	header: HeaderStatusController;
+	scratchpad: ReturnType<typeof createScratchpadController> | null;
+	waitForWorkspaceReady: () => Promise<void>;
+	reload: (signal?: AbortSignal) => Promise<void>;
+	dispose: () => Promise<void>;
+};
+
 export async function createHeadlessHost(
 	session: Session,
 	options: {
 		externalPluginHome?: string;
 		persistSession?: boolean;
 		signal?: AbortSignal;
+		interactions?: RemoteInteractionBroker;
+		externalPlugins?: boolean;
+		remoteChrome?: boolean;
+		remotePromptCommands?: boolean;
 	} = {},
 ): Promise<HeadlessHost> {
-	const settings = await loadSettings();
+	let settings = await loadSettings();
 	await resolveAndApplyTheme(settings.settings.theme ?? "system");
 	initTemplates(session.cwd);
 	await refreshModelAvailability();
 
 	const runtime = new AgentRuntime(session, { settings: settings.settings });
+	const scratchpad = options.persistSession
+		? createScratchpadController(runtime)
+		: null;
+	const commands = createCommandRegistry(BUILT_IN_COMMANDS);
+	const footer = createFooterStatusController();
+	const header = createHeaderStatusController();
+	const interactions = options.interactions;
 	const pluginContext: PluginContext = {
 		runtime,
-		commands: createCommandRegistry(BUILT_IN_COMMANDS),
+		commands,
 		settings,
-		ui: createHeadlessPluginUI(),
+		ui: createHeadlessPluginUI(interactions),
 		attachments: createAttachmentsController(),
-		footer: createFooterStatusController(),
-		header: createHeaderStatusController(),
+		footer,
+		header,
+		...(interactions
+			? {
+					openUrl: (url: string, source?: string, signal?: AbortSignal) =>
+						interactions.openUrl({ url, source, signal }),
+				}
+			: {}),
 		triggerNotification: () => false,
 	};
-	const pluginReadiness: Promise<void>[] = [];
-	const builtInPlugins = new PluginManager(
-		createBuiltInPlugins(pluginContext, {
-			headless: true,
-			onReady: (ready) => pluginReadiness.push(ready),
-			subagentParentStorage: createMemorySubagentParentStorage(),
-			subagentStorage: createMemorySubagentSessionStorage(),
-		}),
-		pluginContext,
+	let builtInPlugins: PluginManager | null = null;
+	let externalPlugins: ExternalPluginManager | null = null;
+	let externalPluginAbort: AbortController | null = null;
+	const removePluginBarrier = runtime.addToolPreparationBarrier(
+		(signal) =>
+			externalPlugins?.waitForProjectTransition(signal) ?? Promise.resolve(),
 	);
-	const pluginAbort = new AbortController();
-	const abortPlugins = () => pluginAbort.abort();
-	if (options.signal?.aborted) abortPlugins();
-	else options.signal?.addEventListener("abort", abortPlugins, { once: true });
-	const externalPlugins = new ExternalPluginManager(pluginContext, {
-		home: options.externalPluginHome,
-		onFailure: reportExternalPluginFailure,
-		signal: pluginAbort.signal,
-	});
-	const removePluginBarrier = runtime.addToolPreparationBarrier((signal) =>
-		externalPlugins.waitForProjectTransition(signal),
-	);
+
+	async function initializePlugins(): Promise<void> {
+		const pluginReadiness: Promise<void>[] = [];
+		const builtIns = new PluginManager(
+			createBuiltInPlugins(pluginContext, {
+				headless: true,
+				onReady: (ready) => pluginReadiness.push(ready),
+				subagentParentStorage: createMemorySubagentParentStorage(),
+				subagentStorage: createMemorySubagentSessionStorage(),
+				remoteGuidedQuestions: options.interactions,
+				remoteChrome: options.remoteChrome,
+				remotePromptCommands: options.remotePromptCommands,
+			}),
+			pluginContext,
+		);
+		const pluginAbort = new AbortController();
+		externalPluginAbort = pluginAbort;
+		const abortPlugins = () => pluginAbort.abort();
+		if (options.signal?.aborted) abortPlugins();
+		else
+			options.signal?.addEventListener("abort", abortPlugins, { once: true });
+		const external =
+			options.externalPlugins !== false
+				? new ExternalPluginManager(pluginContext, {
+						home: options.externalPluginHome,
+						...(options.interactions
+							? {}
+							: { onFailure: reportExternalPluginFailure }),
+						signal: pluginAbort.signal,
+					})
+				: null;
+		builtInPlugins = builtIns;
+		externalPlugins = external;
+		try {
+			builtIns.initialize();
+			await Promise.all(pluginReadiness);
+			const initializeExternal = external?.initialize();
+			if (initializeExternal) {
+				if (options.signal) {
+					await waitForAbortable(initializeExternal, options.signal);
+				} else {
+					await initializeExternal;
+				}
+			}
+		} catch (error) {
+			externalPlugins = null;
+			builtInPlugins = null;
+			externalPluginAbort = null;
+			pluginAbort.abort();
+			await external
+				?.dispose({ graceful: options.signal?.aborted !== true })
+				.catch(() => {});
+			await builtIns.disposeAsync().catch(() => {});
+			throw error;
+		} finally {
+			options.signal?.removeEventListener("abort", abortPlugins);
+		}
+	}
+
+	async function disposePluginManagers(): Promise<void> {
+		const external = externalPlugins;
+		const builtIns = builtInPlugins;
+		externalPluginAbort?.abort();
+		externalPluginAbort = null;
+		externalPlugins = null;
+		builtInPlugins = null;
+		let cleanupError: unknown;
+		try {
+			await external?.dispose();
+		} catch (error) {
+			cleanupError = error;
+		}
+		try {
+			await builtIns?.disposeAsync();
+		} catch (error) {
+			cleanupError ??= error;
+		}
+		if (cleanupError) throw cleanupError;
+	}
+
 	const persistence = options.persistSession
 		? new FilePersistence(runtime)
 		: null;
@@ -171,47 +270,84 @@ export async function createHeadlessHost(
 		persistenceFailure = new Error(event.error);
 	});
 	try {
-		builtInPlugins.initialize();
-		await Promise.all(pluginReadiness);
-		const initializeExternalPlugins = externalPlugins.initialize();
-		if (options.signal) {
-			await waitForAbortable(initializeExternalPlugins, options.signal);
-		} else {
-			await initializeExternalPlugins;
-		}
+		await initializePlugins();
 	} catch (error) {
 		unsubscribePersistenceFailure?.();
 		persistence?.dispose();
-		pluginAbort.abort();
-		options.signal?.removeEventListener("abort", abortPlugins);
-		await externalPlugins.dispose({ graceful: !options.signal?.aborted });
-		removePluginBarrier();
-		await builtInPlugins.disposeAsync();
+		scratchpad?.dispose();
 		runtime.dispose();
 		throw error;
 	}
 
 	let disposed = false;
+	let activeReload: Promise<void> | null = null;
+
+	function assertReloadActive(signal?: AbortSignal): void {
+		if (disposed) throw new Error("Headless host is disposed");
+		if (signal?.aborted) {
+			throw signal.reason instanceof Error
+				? signal.reason
+				: new Error("Host reload aborted");
+		}
+	}
+
+	async function performReload(signal?: AbortSignal): Promise<void> {
+		assertReloadActive(signal);
+		await disposePluginManagers();
+		try {
+			assertReloadActive(signal);
+			settings = await loadSettings();
+			pluginContext.settings = settings;
+			await resolveAndApplyTheme(settings.settings.theme ?? "system");
+			assertReloadActive(signal);
+			runtime.emitSettingsChanged(settings.settings);
+			await runtime.reloadSession();
+			assertReloadActive(signal);
+		} catch (error) {
+			if (!disposed) await initializePlugins().catch(() => {});
+			throw error;
+		}
+		await initializePlugins();
+		assertReloadActive(signal);
+		options.interactions?.toast({
+			title: "Session reloaded",
+			variant: "info",
+		});
+	}
+
+	function reload(signal?: AbortSignal): Promise<void> {
+		if (activeReload) return activeReload;
+		const execution = performReload(signal);
+		activeReload = execution;
+		const clear = () => {
+			if (activeReload === execution) activeReload = null;
+		};
+		execution.then(clear, clear);
+		return execution;
+	}
+
 	return {
 		runtime,
-		waitForPlugins: () => externalPlugins.waitForProjectTransition(),
+		commands,
+		footer,
+		header,
+		scratchpad,
+		waitForWorkspaceReady: async () => {
+			await externalPlugins?.waitForProjectReady();
+		},
+		reload,
 		dispose: async () => {
 			if (disposed) return;
 			disposed = true;
 			runtime.abort();
-			pluginAbort.abort();
-			options.signal?.removeEventListener("abort", abortPlugins);
+			await activeReload?.catch(() => {});
+			scratchpad?.dispose();
+			removePluginBarrier();
 			let cleanupError: unknown;
 			try {
-				await externalPlugins.dispose();
+				await disposePluginManagers();
 			} catch (error) {
 				cleanupError = error;
-			}
-			removePluginBarrier();
-			try {
-				await builtInPlugins.disposeAsync();
-			} catch (error) {
-				cleanupError ??= error;
 			}
 			if (persistence) {
 				try {

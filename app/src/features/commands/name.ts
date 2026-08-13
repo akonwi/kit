@@ -22,4 +22,11 @@ export const nameCommand: Command = {
 			},
 		});
 	},
+	async executeTransportNeutral({ runtime, args, signal }) {
+		const name = args.trim();
+		if (!name) throw new Error("Session name is required");
+		signal?.throwIfAborted();
+		await runtime.setSessionName(name);
+		signal?.throwIfAborted();
+	},
 };

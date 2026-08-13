@@ -119,7 +119,9 @@ describe("JsonRpcEndpoint", () => {
 			requestIdPrefix: "b",
 			handleRequest: (_method, _params, signal) => {
 				handlerSignal = signal;
-				return new Promise(() => {});
+				return new Promise<JsonValue>((resolve) => {
+					signal.addEventListener("abort", () => resolve(null), { once: true });
+				});
 			},
 			handleNotification: () => {},
 			onFatal: () => {},
@@ -136,6 +138,68 @@ describe("JsonRpcEndpoint", () => {
 		expect(handlerSignal?.aborted).toBe(true);
 		a.close();
 		b.close();
+	});
+
+	test("quarantines an endpoint when a cancelled incoming handler does not stop", async () => {
+		const aToB = new PassThrough();
+		const bToA = new PassThrough();
+		const fatals: Error[] = [];
+		const a = new JsonRpcEndpoint({
+			input: bToA,
+			output: aToB,
+			requestIdPrefix: "a",
+			handleRequest: () => null,
+			handleNotification: () => {},
+			onFatal: () => {},
+		});
+		const b = new JsonRpcEndpoint({
+			input: aToB,
+			output: bToA,
+			requestIdPrefix: "b",
+			incomingCancellationGraceMs: 5,
+			handleRequest: () => new Promise(() => {}),
+			handleNotification: () => {},
+			onFatal: (error) => fatals.push(error),
+		});
+		const abort = new AbortController();
+		const request = a.request("plugin/hang", undefined, {
+			signal: abort.signal,
+		});
+		await Bun.sleep(0);
+		abort.abort();
+		await expect(request).rejects.toMatchObject({ code: -32001 });
+		await Bun.sleep(10);
+		expect(fatals.at(-1)?.message).toBe(
+			"Cancelled JSON-RPC handler did not stop",
+		);
+		a.close();
+		b.close();
+	});
+
+	test("forgets cancelled pending requests and ignores one late response", async () => {
+		const input = new PassThrough();
+		const output = new PassThrough();
+		const fatals: Error[] = [];
+		const endpoint = new JsonRpcEndpoint({
+			input,
+			output,
+			requestIdPrefix: "kit",
+			handleRequest: () => null,
+			handleNotification: () => {},
+			onFatal: (error) => fatals.push(error),
+		});
+		const abort = new AbortController();
+		const request = endpoint.request("plugin/slow", undefined, {
+			signal: abort.signal,
+		});
+		await Bun.sleep(0);
+		abort.abort();
+		await expect(request).rejects.toMatchObject({ code: -32001 });
+
+		input.write('{"jsonrpc":"2.0","id":"kit-1","result":null}\n');
+		await Bun.sleep(0);
+		expect(fatals).toEqual([]);
+		endpoint.close();
 	});
 
 	test("fails malformed stdout and enforces the pending request limit", async () => {

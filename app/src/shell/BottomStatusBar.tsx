@@ -6,6 +6,7 @@ import {
 } from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
 import {
+	BUILT_IN_CHROME_CONTRIBUTION_IDS,
 	type ChromeContribution,
 	createChromeTextContent,
 	normalizeChromeTextContent,
@@ -22,7 +23,8 @@ import { theme } from "./theme";
 
 const PRIMARY_MOUSE_BUTTON = 0;
 
-export const VCS_LOCATION_CONTRIBUTION_ID = "kit.footer.location";
+export const VCS_LOCATION_CONTRIBUTION_ID =
+	BUILT_IN_CHROME_CONTRIBUTION_IDS.footerLocation;
 
 export type BottomStatusBarProps = {
 	runtime: AgentRuntime;
@@ -38,6 +40,7 @@ function contribution(input: {
 	id: string;
 	content: ChromeContribution["content"];
 	side: "left" | "right";
+	action?: ChromeContribution["action"];
 	onClick?: ChromeContribution["onClick"];
 }): ChromeContribution {
 	return {
@@ -45,6 +48,7 @@ function contribution(input: {
 		content: input.content,
 		plainText: input.content.map((segment) => segment.text).join(""),
 		side: input.side,
+		action: input.action,
 		onClick: input.onClick,
 	};
 }
@@ -159,6 +163,7 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 			id: raw.id,
 			content: createChromeTextContent(truncateStart(raw.plainText, maxWidth)),
 			side: "right",
+			action: raw.action,
 			onClick: raw.onClick,
 		});
 	});

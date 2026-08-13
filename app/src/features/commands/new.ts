@@ -6,4 +6,9 @@ export const newCommand: Command = {
 	async execute({ runtime }) {
 		await runtime.newSession();
 	},
+	async executeTransportNeutral({ runtime, persistSessions, signal }) {
+		signal?.throwIfAborted();
+		await runtime.newSession(undefined, { persist: persistSessions });
+		signal?.throwIfAborted();
+	},
 };

@@ -102,17 +102,27 @@ function makeEntryId(): string {
 	return randomUUID();
 }
 
-function stripTurnId(message: KitAgentMessage): PersistedKitAgentMessage {
-	const { turnId: _turnId, ...rest } = message;
+function messageEntryId(message: KitAgentMessage): string {
+	return typeof message.messageId === "string" && message.messageId
+		? message.messageId
+		: makeEntryId();
+}
+
+function stripMessageMetadata(
+	message: KitAgentMessage,
+): PersistedKitAgentMessage {
+	const { messageId: _messageId, turnId: _turnId, ...rest } = message;
 	return rest;
 }
 
 function restoreMessage(
+	messageId: string,
 	turnId: string,
 	message: PersistedKitAgentMessage,
 ): KitAgentMessage {
 	return {
 		...message,
+		messageId,
 		turnId,
 	};
 }
@@ -128,11 +138,13 @@ function isSummaryTurn(
 
 function summaryTurnFromPersistedMessage(
 	entryId: string,
+	turnId: string | undefined,
 	message: PersistedKitAgentMessage,
 ): Turn {
+	const restoredTurnId = turnId ?? entryId;
 	return {
-		id: entryId,
-		messages: [restoreMessage(entryId, message)],
+		id: restoredTurnId,
+		messages: [restoreMessage(entryId, restoredTurnId, message)],
 	};
 }
 
@@ -236,6 +248,7 @@ function subagentDelegationTurnFromEntries(
 				},
 				stopReason: "toolUse",
 				timestamp,
+				messageId: `${prompt.id}:assistant`,
 				synthetic: {
 					kind: "subagent-delegation",
 					subagentName: prompt.agentName,
@@ -252,6 +265,7 @@ function subagentDelegationTurnFromEntries(
 				content: [],
 				isError: false,
 				timestamp,
+				messageId: `${prompt.id}:tool-result`,
 				turnId: prompt.id,
 			} as KitAgentMessage,
 		],
@@ -343,6 +357,7 @@ type PendingSerializedEntry =
 	| {
 			kind: "compaction";
 			id: string;
+			turnId: string;
 			message: PersistedKitAgentMessage;
 			timestamp: string;
 			compactedTurnCount: number;
@@ -352,6 +367,7 @@ type PendingSerializedEntry =
 	| {
 			kind: "handoff_summary";
 			id: string;
+			turnId: string;
 			message: PersistedKitAgentMessage;
 			timestamp: string;
 	  };
@@ -364,8 +380,9 @@ function serializeSessionEntries(session: Session): SessionEntry[] {
 			const message = turn.messages[0];
 			pending.push({
 				kind: "compaction",
-				id: makeEntryId(),
-				message: stripTurnId(message),
+				id: messageEntryId(message),
+				turnId: turn.id,
+				message: stripMessageMetadata(message),
 				timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
 				compactedTurnCount: 0,
 				keptTurnCount: Math.max(session.turns.length - 1, 0),
@@ -377,8 +394,9 @@ function serializeSessionEntries(session: Session): SessionEntry[] {
 			const message = turn.messages[0];
 			pending.push({
 				kind: "handoff_summary",
-				id: makeEntryId(),
-				message: stripTurnId(message),
+				id: messageEntryId(message),
+				turnId: turn.id,
+				message: stripMessageMetadata(message),
 				timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
 			});
 			continue;
@@ -389,9 +407,9 @@ function serializeSessionEntries(session: Session): SessionEntry[] {
 		for (const message of turn.messages) {
 			pending.push({
 				kind: "message",
-				id: makeEntryId(),
+				id: messageEntryId(message),
 				turnId: turn.id,
-				message: stripTurnId(message),
+				message: stripMessageMetadata(message),
 				timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
 			});
 		}
@@ -421,6 +439,7 @@ function serializeSessionEntries(session: Session): SessionEntry[] {
 				id: item.id,
 				parentId,
 				timestamp: item.timestamp,
+				turnId: item.turnId,
 				firstKeptEntryId: next?.id,
 				compactedTurnCount: item.compactedTurnCount,
 				keptTurnCount: item.keptTurnCount,
@@ -436,6 +455,7 @@ function serializeSessionEntries(session: Session): SessionEntry[] {
 			id: item.id,
 			parentId,
 			timestamp: item.timestamp,
+			turnId: item.turnId,
 			message: item.message,
 		};
 		entries.push(entry);
@@ -548,6 +568,7 @@ function buildSessionFromState(state: SessionStorageState): Session {
 		turns.push(
 			summaryTurnFromPersistedMessage(
 				latestCompaction.id,
+				latestCompaction.turnId,
 				latestCompaction.message,
 			),
 		);
@@ -561,7 +582,7 @@ function buildSessionFromState(state: SessionStorageState): Session {
 	for (const entry of visibleEntries) {
 		if (latestCompaction && entry.id === latestCompaction.id) continue;
 		if (entry.type === "message") {
-			const restored = restoreMessage(entry.turnId, entry.message);
+			const restored = restoreMessage(entry.id, entry.turnId, entry.message);
 			const lastTurn = turns.at(-1);
 			if (lastTurn && lastTurn.id === entry.turnId) {
 				lastTurn.messages.push(restored);
@@ -613,7 +634,9 @@ function buildSessionFromState(state: SessionStorageState): Session {
 			continue;
 		}
 		if (entry.type === "handoff_summary" || entry.type === "compaction") {
-			turns.push(summaryTurnFromPersistedMessage(entry.id, entry.message));
+			turns.push(
+				summaryTurnFromPersistedMessage(entry.id, entry.turnId, entry.message),
+			);
 		}
 	}
 
@@ -879,7 +902,8 @@ async function migrateLegacySession(id: string): Promise<Session | null> {
 			version: SESSION_VERSION,
 		};
 		await writeSession(normalized);
-		return normalized;
+		const migrated = stateBySessionId.get(normalized.id);
+		return migrated ? buildSessionFromState(migrated) : normalized;
 	} catch {
 		return null;
 	}
@@ -1020,11 +1044,11 @@ export async function appendMessage(
 	await appendEntries(state, () => {
 		const entry: SessionMessageEntry = {
 			type: "message",
-			id: makeEntryId(),
+			id: messageEntryId(message),
 			parentId: state.entries.at(-1)?.id ?? null,
 			timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
 			turnId,
-			message: stripTurnId(message),
+			message: stripMessageMetadata(message),
 		};
 		return { entries: [entry], result: undefined };
 	});
@@ -1046,17 +1070,68 @@ export async function appendTurn(session: Session, turn: Turn): Promise<void> {
 		for (const message of turn.messages) {
 			const entry: SessionMessageEntry = {
 				type: "message",
-				id: makeEntryId(),
+				id: messageEntryId(message),
 				parentId,
 				timestamp: toIsoTimestamp(message.timestamp, session.updatedAt),
 				turnId: turn.id,
-				message: stripTurnId(message),
+				message: stripMessageMetadata(message),
 			};
 			entries.push(entry);
 			parentId = entry.id;
 		}
 		return { entries, result: undefined };
 	});
+}
+
+export async function removePersistedMessage(
+	session: Session,
+	messageId: string,
+): Promise<void> {
+	const state = await ensureState(session.id);
+	if (!state) return;
+	const existing = writeChains.get(session.id) ?? Promise.resolve();
+	const next = existing.then(async () => {
+		await ensureSessionsDir();
+		return withFileLock(state.filePath, async () => {
+			await refreshStorageState(state);
+			const index = state.entries.findIndex(
+				(entry) => entry.type === "message" && entry.id === messageId,
+			);
+			if (index < 0) return;
+			let parentId: string | null = null;
+			const entries = state.entries
+				.filter((_entry, entryIndex) => entryIndex !== index)
+				.map((entry) => {
+					const reparented = { ...entry, parentId } as SessionEntry;
+					parentId = reparented.id;
+					return reparented;
+				});
+			const replacement = buildState(
+				{
+					...state.header,
+					cwd: state.cwd,
+					name: state.name,
+					model: state.model,
+					thinkingLevel: state.thinkingLevel,
+				},
+				entries,
+				state.filePath,
+				state.legacyFilePath,
+				entries.length,
+				true,
+			);
+			await replaceFileAtomically(state.filePath, serializeFile(replacement));
+			applyStorageState(state, replacement);
+		});
+	});
+	writeChains.set(
+		session.id,
+		next.then(
+			() => {},
+			() => {},
+		),
+	);
+	await next;
 }
 
 export async function appendSessionInfo(
@@ -1227,14 +1302,15 @@ export async function appendCompaction(options: {
 			);
 			const compactionEntry: SessionCompactionEntry = {
 				type: "compaction",
-				id: makeEntryId(),
+				id: messageEntryId(summaryMessage),
 				parentId,
 				timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
+				turnId: summaryMessage.turnId,
 				firstKeptEntryId: retainedEntries[0]?.id,
 				compactedTurnCount,
 				keptTurnCount,
 				tokensBefore,
-				message: stripTurnId(summaryMessage),
+				message: stripMessageMetadata(summaryMessage),
 			};
 			const header: SessionHeader = {
 				...storageState.header,
@@ -1286,10 +1362,11 @@ export async function appendHandoffSummary(
 	await appendEntries(state, () => {
 		const entry: SessionHandoffSummaryEntry = {
 			type: "handoff_summary",
-			id: makeEntryId(),
+			id: messageEntryId(summaryMessage),
 			parentId: state.entries.at(-1)?.id ?? null,
 			timestamp: toIsoTimestamp(summaryMessage.timestamp, session.updatedAt),
-			message: stripTurnId(summaryMessage),
+			turnId: summaryMessage.turnId,
+			message: stripMessageMetadata(summaryMessage),
 		};
 		return { entries: [entry], result: undefined };
 	});

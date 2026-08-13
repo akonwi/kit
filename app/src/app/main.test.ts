@@ -37,55 +37,84 @@ describe("print mode CLI", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("Usage: kit -p");
 	});
+});
+
+describe("web mode CLI", () => {
+	test("rejects ephemeral sessions", async () => {
+		const result = await runMain(["--web", "--no-session"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("does not support --no-session");
+	});
+
+	test("rejects an invalid port", async () => {
+		const result = await runMain(["--web", "--port", "70000"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("expects an integer from 1 to 65535");
+	});
+
+	test("rejects invalid Basic auth credentials", async () => {
+		const results = await Promise.all([
+			runMain(["--web", "--auth", "missing-separator"]),
+			runMain(["--web", "--auth", ":password"]),
+			runMain(["--web", "--auth", "username:"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("--auth expects <username>:<password>");
+		}
+	});
 
 	test("rejects an invalid startup model selector", async () => {
-		const result = await runMain(["-p", "--model", "model-1", "hello"]);
+		const result = await runMain(["--web", "--model", "model-1"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
 	});
-
-	test("rejects conflicting session options", async () => {
-		const result = await runMain([
-			"-p",
-			"--no-session",
-			"--session",
-			"abc",
-			"hello",
-		]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain(
-			"cannot combine --no-session with --session",
-		);
-	});
-
-	test("accepts a session selector and reports a missing session", async () => {
-		const sessionId = "00000000-0000-4000-8000-000000000000";
-		const result = await runMain(["-p", "--session", sessionId, "hello"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain(`Session not found: ${sessionId}`);
-	});
 });
 
 describe("mode selection", () => {
-	test("rejects print and RPC mode together", async () => {
-		const result = await runMain(["--print", "--rpc", "hello"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("mutually exclusive");
+	test("rejects every pair of headless modes", async () => {
+		const results = await Promise.all([
+			runMain(["--print", "--rpc", "hello"]),
+			runMain(["--print", "--web", "hello"]),
+			runMain(["--rpc", "--web"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("mutually exclusive");
+		}
 	});
 
 	test("rejects the removed --mode selector", async () => {
-		const result = await runMain(["--mode", "rpc"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stdout).toBe("");
-		expect(result.stderr).toContain("use --rpc");
+		const results = await Promise.all([
+			runMain(["--mode", "rpc"]),
+			runMain(["--mode", "web"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("no longer supported");
+		}
 	});
 });
 
 describe("RPC mode CLI", () => {
+	test("rejects web-only options", async () => {
+		const results = await Promise.all([
+			runMain(["--rpc", "--port", "4782"]),
+			runMain(["--rpc", "--auth", "user:password"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stdout).toBe("");
+			expect(result.stderr).toContain("require --web");
+		}
+	});
+
 	test("rejects conflicting session options", async () => {
 		const result = await runMain(["--rpc", "--no-session", "-s", "abc"]);
 		expect(result.exitCode).toBe(1);

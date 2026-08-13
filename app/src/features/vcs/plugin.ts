@@ -9,17 +9,24 @@ import {
 const PR_CACHE_TTL_MS = 60_000;
 
 type CachedPrLookup = {
+	cwd: string;
 	branch: string | null;
 	pullRequest: GitHubPullRequest | null;
 	updatedAt: number;
 };
 
-export function createPullRequestOpenHandler(
-	pullRequest: Pick<GitHubPullRequest, "url"> | null,
-	open: (url: string) => Promise<void>,
-): (() => Promise<void>) | undefined {
-	const url = pullRequest?.url;
-	return url ? () => open(url) : undefined;
+export function isPullRequestCacheFresh(
+	cache: CachedPrLookup | null,
+	cwd: string,
+	branch: string | null,
+	now: number,
+): boolean {
+	return (
+		cache !== null &&
+		cache.cwd === cwd &&
+		cache.branch === branch &&
+		now - cache.updatedAt <= PR_CACHE_TTL_MS
+	);
 }
 
 export function VcsStatusPlugin(kit: InternalPluginAPI) {
@@ -47,49 +54,46 @@ export function VcsStatusPlugin(kit: InternalPluginAPI) {
 			formatLocation(currentVcsInfo, currentPullRequest),
 			{
 				side: "right",
-				onClick: createPullRequestOpenHandler(
-					currentPullRequest,
-					kit.system.open,
-				),
+				...(currentPullRequest?.url
+					? {
+							action: {
+								type: "open-url" as const,
+								url: currentPullRequest.url,
+							},
+						}
+					: {}),
 			},
 		);
 	}
 
 	async function refreshPullRequest(vcsInfo: VcsInfo) {
+		const cwd = kit.system.cwd;
 		const branch = vcsInfo?.branch ?? null;
 		const generation = ++refreshGeneration;
 		const now = Date.now();
 		const cached = cache;
-		const cacheFresh =
-			cached &&
-			cached.branch === branch &&
-			now - cached.updatedAt <= PR_CACHE_TTL_MS;
 
-		if (cacheFresh) {
+		if (cached && isPullRequestCacheFresh(cached, cwd, branch, now)) {
 			currentPullRequest = cached.pullRequest;
 			updateFooter();
 			return;
 		}
 
-		if (branch !== cached?.branch) {
+		if (cwd !== cached?.cwd || branch !== cached?.branch) {
 			currentPullRequest = null;
-			updateFooter();
 		}
+		updateFooter();
 
-		const pullRequest = await getCurrentBranchPullRequest(
-			kit.system.cwd,
-			branch,
-		);
+		const pullRequest = await getCurrentBranchPullRequest(cwd, branch);
 		if (disposed || generation !== refreshGeneration) return;
 
-		cache = { branch, pullRequest, updatedAt: Date.now() };
+		cache = { cwd, branch, pullRequest, updatedAt: Date.now() };
 		currentPullRequest = pullRequest;
 		updateFooter();
 	}
 
 	function update(vcsInfo: VcsInfo) {
 		currentVcsInfo = vcsInfo;
-		updateFooter();
 		void refreshPullRequest(vcsInfo);
 	}
 

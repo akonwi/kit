@@ -3,6 +3,7 @@ import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import solidPlugin from "@opentui/solid/bun-plugin";
+import { buildWebClient } from "../src/web/build-client";
 
 // Enforce minimum Bun version
 const MIN_BUN_VERSION = "1.3.0";
@@ -36,12 +37,18 @@ await fs.promises.rm(distDir, { recursive: true, force: true });
 await fs.promises.mkdir(distDir, { recursive: true });
 await fs.promises.mkdir(runtimeDir, { recursive: true });
 
+console.log("Bundling web client...");
+const webClientJavaScript = await buildWebClient({ minify: true });
+
 console.log("Compiling binary...");
 
 const bundle = await Bun.build({
 	target: "bun",
 	tsconfig: "./tsconfig.json",
 	plugins: [solidPlugin],
+	define: {
+		__KIT_WEB_CLIENT_JS__: JSON.stringify(webClientJavaScript),
+	},
 	entrypoints: ["./src/app/main.tsx"],
 	compile: {
 		outfile: binaryPath,

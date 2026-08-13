@@ -69,6 +69,7 @@ type ChromeSetParams = {
 	}>;
 	side?: "left" | "right";
 	clickable?: boolean;
+	action?: { type: "open-url"; url: string };
 };
 
 type SubagentRegisterParams = {
@@ -452,9 +453,15 @@ export class ExternalPluginClient {
 				return null;
 			case "kit/session/submit-message":
 				return this.submitMessage(params);
-			case "kit/system/open-url":
-				await openExternal((params as unknown as { url: string }).url);
+			case "kit/system/open-url": {
+				const url = (params as unknown as { url: string }).url;
+				if (this.context.openUrl) {
+					await this.context.openUrl(url, this.manifest.manifest.id, signal);
+				} else {
+					await openExternal(url);
+				}
 				return null;
+			}
 			default:
 				throw new JsonRpcError(-32601, `Method not found: ${method}`);
 		}
@@ -491,19 +498,33 @@ export class ExternalPluginClient {
 		) {
 			throw this.conflict("command", canonicalId);
 		}
+		const executeExternalCommand = async (
+			args: string,
+			signal?: AbortSignal,
+		) => {
+			try {
+				await this.requestPlugin(
+					"kit/commands/execute",
+					{ id: params.id, args },
+					"NullResult",
+					signal,
+				);
+			} catch (error) {
+				if (signal?.aborted) await this.stop(false);
+				throw error;
+			}
+		};
 		const command: Command = {
 			name: canonicalId,
 			displayName: params.id,
 			description: params.description,
 			argName: params.argName ?? undefined,
 			category: params.category ?? undefined,
+			executeTransportNeutral: ({ args, signal }) =>
+				executeExternalCommand(args, signal),
 			execute: async (commandContext) => {
 				try {
-					await this.requestPlugin(
-						"kit/commands/execute",
-						{ id: params.id, args: commandContext.args },
-						"NullResult",
-					);
+					await executeExternalCommand(commandContext.args);
 				} catch (error) {
 					this.context.ui.toast({
 						title: `/${params.id} failed`,
@@ -672,13 +693,15 @@ export class ExternalPluginClient {
 			id: canonicalId,
 			content: toChromeContent(params),
 			side: params.side ?? "right",
+			action: params.action,
 			onClick: params.clickable
-				? async () => {
+				? async (signal) => {
 						try {
 							await this.requestPlugin(
 								`kit/${area}/click`,
 								{ id: params.id },
 								"NullResult",
+								signal,
 							);
 						} catch (error) {
 							this.context.ui.toast({

@@ -18,6 +18,7 @@ function createRuntime(overrides: Record<string, unknown> = {}) {
 		agentInfo: { thinkingLevel: "off" },
 		getMessages: () => [],
 		getPendingMessageCount: () => 0,
+		getPendingMessages: () => [],
 		abort: () => listener?.({ type: "agent.start" } as AgentRuntimeEvent),
 		submitUserMessage: async () => {},
 		...overrides,
@@ -52,10 +53,12 @@ describe("RPC mode protocol", () => {
 				data: {
 					thinkingLevel: "off",
 					isStreaming: false,
+					contextUsage: null,
 					sessionId: "session-1",
 					cwd: "/workspace",
 					messageCount: 0,
 					pendingMessageCount: 0,
+					pendingMessagePreviews: [],
 				},
 			},
 			{
@@ -92,7 +95,7 @@ describe("RPC mode protocol", () => {
 		const records = await runProtocol('{"id":"abort-1","type":"abort"}\n');
 
 		expect(records).toEqual([
-			{ type: "agent_start" },
+			{ type: "agent.start" },
 			{
 				id: "abort-1",
 				type: "response",
@@ -128,7 +131,7 @@ describe("RPC mode protocol", () => {
 				command: "prompt",
 				success: true,
 			},
-			{ type: "agent_start" },
+			{ type: "agent.start" },
 		]);
 	});
 
@@ -274,6 +277,7 @@ describe("RPC mode protocol", () => {
 				records.push(record);
 			},
 			false,
+			undefined,
 			() =>
 				new Promise<void>((resolve) => {
 					finishPlugins = resolve;
@@ -297,15 +301,24 @@ describe("RPC mode protocol", () => {
 		]);
 	});
 
-	test("emits balanced Pi-style lifecycle boundaries", async () => {
+	test("emits Kit semantic lifecycle boundaries", async () => {
 		let emit: ((event: AgentRuntimeEvent) => void) | undefined;
-		const user = { role: "user", content: "hello", timestamp: 1 };
+		const user = {
+			role: "user",
+			content: "hello",
+			timestamp: 1,
+			messageId: "message-user",
+			turnId: "turn-1",
+		};
 		const assistant = {
 			role: "assistant",
 			content: [{ type: "text", text: "hi" }],
 			stopReason: "stop",
 			timestamp: 2,
+			messageId: "message-assistant",
+			turnId: "turn-1",
 		};
+		const turn = { id: "turn-1", messages: [user, assistant] };
 		const runtime = createRuntime({
 			subscribe: (listener: (event: AgentRuntimeEvent) => void) => {
 				emit = listener;
@@ -314,27 +327,35 @@ describe("RPC mode protocol", () => {
 			submitUserMessage: async () => {
 				for (const event of [
 					{ type: "agent.start" },
-					{ type: "turn.start" },
-					{ type: "message.start", message: user },
-					{ type: "message.end", message: user },
-					{ type: "message.start", message: assistant },
+					{ type: "agent.turn.started", turn },
+					{ type: "user.message.created", turn, message: user },
 					{
-						type: "message.update",
+						type: "session.message.appended",
+						session: runtime.getSession(),
+						turn,
+						message: user,
+					},
+					{ type: "agent.message.started", turn, message: assistant },
+					{
+						type: "agent.message.updated",
+						turn,
 						message: assistant,
-						assistantMessageEvent: {
-							type: "text_delta",
+						update: {
+							kind: "content.delta",
+							contentType: "text",
 							contentIndex: 0,
 							delta: "hi",
 						},
 					},
-					{ type: "message.end", message: assistant },
+					{ type: "agent.message.ended", turn, message: assistant },
 					{
-						type: "agent.turn.ended",
-						turn: null,
+						type: "session.message.appended",
+						session: runtime.getSession(),
+						turn,
 						message: assistant,
-						toolResults: [],
 					},
 					{ type: "agent.end", messages: [user, assistant], willRetry: false },
+					{ type: "agent.turn.completed", turn },
 					{ type: "agent.settled" },
 				]) {
 					emit?.(event as AgentRuntimeEvent);
@@ -351,16 +372,18 @@ describe("RPC mode protocol", () => {
 		await server.start();
 		expect(records.map((record) => record.type)).toEqual([
 			"response",
-			"agent_start",
-			"turn_start",
-			"message_start",
-			"message_end",
-			"message_start",
-			"message_update",
-			"message_end",
-			"turn_end",
-			"agent_end",
-			"agent_settled",
+			"agent.start",
+			"agent.turn.started",
+			"user.message.created",
+			"session.message.appended",
+			"agent.message.started",
+			"agent.message.updated",
+			"agent.message.ended",
+			"session.message.appended",
+			"agent.end",
+			"agent.turn.completed",
+			"state_changed",
+			"agent.settled",
 		]);
 	});
 });

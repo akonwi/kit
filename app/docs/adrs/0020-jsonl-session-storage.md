@@ -51,10 +51,13 @@ The initial implementation uses a linear parent chain, but `parentId` keeps the 
 Actual message entries persist:
 
 - `type: "message"`
+- `id`, which is also the runtime message's stable `messageId`
 - `turnId`
-- `message` payload without `turnId`
+- `message` payload without duplicated `messageId` or `turnId`
 
-`turnId` on message entries is sufficient to reconstruct runtime turns.
+`turnId` groups messages into runtime turns. The entry `id` restores stable
+message identity across persistence, protocol snapshots, live events,
+references, and pagination.
 
 On load, Kit rebuilds `Turn[]` by:
 
@@ -74,9 +77,13 @@ These include:
 - `handoff_summary`
 - metadata entries like `session_info`, `model_change`, and `thinking_level_change`
 
-Compaction and handoff summaries do **not** persist a `turnId`.
+Compaction and handoff summaries persist the synthetic `turnId` used by their
+runtime singleton turn. Older entries without it derive both turn identity and
+`message.turnId` from the entry id during migration.
 
-When Kit reconstructs transcript/runtime state, those entries may be surfaced as synthetic singleton turns for compatibility with the current UI, but they are not modeled as true turns in storage.
+When Kit reconstructs transcript/runtime state, those entries are surfaced as
+synthetic singleton turns for compatibility with the current UI, but they are
+not modeled as ordinary message entries in storage.
 
 ### Compaction
 
@@ -96,7 +103,10 @@ This preserves old history on disk while keeping active runtime context compact.
 
 Kit will continue to read legacy `.json` session files during migration.
 
-When a legacy session is loaded, Kit may rewrite it into the new `.jsonl` format and remove the old `.json` file.
+When a legacy session is loaded, Kit may rewrite it into the new `.jsonl`
+format and remove the old `.json` file. Existing JSONL sessions derive each
+message's `messageId` from its persisted entry `id`; legacy nested sessions
+receive entry ids during migration and are returned with those identities.
 
 ## Consequences
 

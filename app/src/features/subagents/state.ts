@@ -146,10 +146,13 @@ function trimToUndefined(value: string | undefined): string | undefined {
 	return trimmed ? trimmed : undefined;
 }
 
-function stripTurnId(
-	message: PersistedKitAgentMessage & { turnId?: string },
+function stripMessageMetadata(
+	message: PersistedKitAgentMessage & {
+		messageId?: string;
+		turnId?: string;
+	},
 ): PersistedKitAgentMessage {
-	const { turnId: _turnId, ...rest } = message;
+	const { messageId: _messageId, turnId: _turnId, ...rest } = message;
 	return rest;
 }
 
@@ -176,11 +179,14 @@ function latestAssistantText(turns: Turn[]): string | undefined {
 }
 
 function assistantMessageId(message: unknown): string | undefined {
-	if (!message || typeof message !== "object" || !("id" in message)) {
-		return undefined;
+	if (!message || typeof message !== "object") return undefined;
+	const identified = message as { id?: unknown; messageId?: unknown };
+	for (const candidate of [identified.messageId, identified.id]) {
+		if (typeof candidate === "string" && candidate.trim().length > 0) {
+			return candidate;
+		}
 	}
-	const id = message.id;
-	return typeof id === "string" && id.trim().length > 0 ? id : undefined;
+	return undefined;
 }
 
 function normalizeToolResultContent(result: unknown): {
@@ -223,8 +229,12 @@ function normalizeToolResultContent(result: unknown): {
 function normalizeTurn(turn: Turn): Turn {
 	return {
 		...turn,
-		messages: turn.messages.map((message) => ({
+		messages: turn.messages.map((message, index) => ({
 			...message,
+			messageId:
+				typeof message.messageId === "string"
+					? message.messageId
+					: `${turn.id}:${index}`,
 			turnId: turn.id,
 		})),
 	};
@@ -254,7 +264,7 @@ export function createSubagentCompactionEntry(
 	return {
 		...baseEntry,
 		type: "subagent_compaction",
-		message: stripTurnId(event.summaryMessage),
+		message: stripMessageMetadata(event.summaryMessage),
 		firstKeptTurnId: event.firstKeptTurnId,
 		compactedTurnCount: event.compactedTurnCount,
 		keptTurnCount: event.keptTurnCount,
@@ -283,6 +293,7 @@ export function buildSubagentTranscriptTurns(
 			messages: [
 				{
 					...latestCompaction.message,
+					messageId: latestCompaction.id,
 					turnId: summaryTurnId,
 				},
 			],
@@ -313,6 +324,7 @@ export function buildSubagentTranscriptTurns(
 						role: "user",
 						content: entry.prompt,
 						timestamp: new Date(entry.timestamp).getTime(),
+						messageId: entry.id,
 						turnId,
 					},
 				],
@@ -329,6 +341,7 @@ export function buildSubagentTranscriptTurns(
 			}
 			currentTurn.messages.push({
 				...entry.message,
+				messageId: entry.messageId,
 				turnId: currentTurn.id,
 			});
 			continue;
@@ -345,6 +358,7 @@ export function buildSubagentTranscriptTurns(
 				details: normalized.details,
 				isError: entry.isError,
 				timestamp: new Date(entry.timestamp).getTime(),
+				messageId: entry.id,
 				turnId: currentTurn.id,
 			});
 		}
@@ -434,7 +448,7 @@ async function createLiveSubagentRuntime(
 		switch (event.type) {
 			case "agent.message.started": {
 				currentMessageId = assistantMessageId(event.message) ?? randomUUID();
-				const liveMessage = stripTurnId(event.message);
+				const liveMessage = stripMessageMetadata(event.message);
 				if (liveMessage.role === "assistant") {
 					options.onLiveMessage(liveMessage);
 				}
@@ -449,7 +463,7 @@ async function createLiveSubagentRuntime(
 				break;
 			}
 			case "agent.message.updated": {
-				const liveMessage = stripTurnId(event.message);
+				const liveMessage = stripMessageMetadata(event.message);
 				if (liveMessage.role === "assistant") {
 					options.onLiveMessage(liveMessage);
 				}
@@ -505,7 +519,7 @@ async function createLiveSubagentRuntime(
 				if (event.message.role !== "assistant") break;
 				const messageId =
 					currentMessageId ?? assistantMessageId(event.message) ?? randomUUID();
-				const persisted = stripTurnId(event.message);
+				const persisted = stripMessageMetadata(event.message);
 				latestCompletedText = extractAssistantText(persisted);
 				options.onCompletedMessage(persisted, latestCompletedText);
 				if (event.message.stopReason === "error") {

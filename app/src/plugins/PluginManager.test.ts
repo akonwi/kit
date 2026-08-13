@@ -52,6 +52,7 @@ function createPluginContext(
 			hideContribution: () => () => {},
 			isHidden: () => false,
 			getContributions: () => [],
+			activateContribution: async () => false,
 			subscribe: () => () => {},
 		},
 		header: {
@@ -61,6 +62,7 @@ function createPluginContext(
 			hideContribution: () => () => {},
 			isHidden: () => false,
 			getContributions: () => [],
+			activateContribution: async () => false,
 			subscribe: () => () => {},
 		},
 		triggerNotification: () => false,
@@ -247,6 +249,99 @@ describe("PluginManager", () => {
 		]);
 	});
 
+	test("exposes only explicitly transport-neutral internal commands remotely", async () => {
+		const commands: Command[] = [];
+		let receivedArgs = "";
+		let receivedSignal: AbortSignal | undefined;
+		let scheduledPromptCommand: [string, string, string] | undefined;
+		const plugin: PluginRegistration = {
+			name: "internal:commands",
+			internalUi: true,
+			initialize: (kit) => {
+				kit.registerCommand("local", { description: "Local" }, () => {});
+				kit.registerCommand(
+					"remote",
+					{
+						description: "Remote",
+						executeTransportNeutral: ({
+							args,
+							schedulePromptCommand,
+							signal,
+						}) => {
+							receivedArgs = args;
+							receivedSignal = signal;
+							schedulePromptCommand("remote", args, "expanded");
+						},
+					},
+					() => {},
+				);
+			},
+		};
+		const publicPlugin: PluginRegistration = {
+			name: "public:commands",
+			initialize: (kit) => {
+				const hiddenTransportOption = {
+					description: "Public",
+					executeTransportNeutral: () => {},
+				};
+				kit.registerCommand("public-hidden", hiddenTransportOption, () => {});
+			},
+		};
+		const context = createPluginContext(commands);
+		const manager = new PluginManager([plugin, publicPlugin], context);
+		manager.initialize();
+		const local = commands.find((command) => command.name === "local");
+		const remote = commands.find((command) => command.name === "remote");
+		const publicHidden = commands.find(
+			(command) => command.name === "public-hidden",
+		);
+		const abortController = new AbortController();
+
+		expect(local?.executeTransportNeutral).toBeUndefined();
+		expect(publicHidden?.executeTransportNeutral).toBeUndefined();
+		await remote?.executeTransportNeutral?.({
+			runtime: context.runtime,
+			args: "value",
+			persistSessions: false,
+			schedulePrompt: () => {},
+			schedulePromptCommand: (command, args, expandedPrompt) => {
+				scheduledPromptCommand = [command, args, expandedPrompt];
+			},
+			signal: abortController.signal,
+		});
+		expect(receivedArgs).toBe("value");
+		expect(receivedSignal).toBe(abortController.signal);
+		expect(scheduledPromptCommand).toEqual(["remote", "value", "expanded"]);
+		manager.dispose();
+	});
+
+	test("routes plugin URL opens through the renderer adapter", async () => {
+		const opened: Array<{ url: string; source?: string }> = [];
+		const context = createPluginContext([]);
+		context.openUrl = async (url, source) => {
+			opened.push({ url, source });
+		};
+		let pending: Promise<void> | undefined;
+		const manager = new PluginManager(
+			[
+				{
+					name: "links",
+					initialize: (kit: PluginAPI) => {
+						pending = kit.system.open("https://example.com/docs");
+					},
+				},
+			],
+			context,
+		);
+
+		manager.initialize();
+		await pending;
+		expect(opened).toEqual([
+			{ url: "https://example.com/docs", source: "links" },
+		]);
+		manager.dispose();
+	});
+
 	test("exposes theme config through public ui", () => {
 		const expectedTheme = createThemeConfig("plugin-test");
 		let receivedTheme: ThemeConfig | undefined;
@@ -318,6 +413,7 @@ describe("PluginManager", () => {
 	test("supports styled clickable chrome contributions", async () => {
 		const footer = createChromeContributionsController();
 		let clicked = false;
+		let clickSignal: AbortSignal | undefined;
 		const plugin: PluginRegistration = {
 			name: "external:chrome",
 			initialize: (kit) => {
@@ -326,8 +422,9 @@ describe("PluginManager", () => {
 					[kit.ui.text("✓", { fg: "green", bold: true }), " passing"],
 					{
 						side: "right",
-						onClick: () => {
+						onClick: (signal) => {
 							clicked = true;
+							clickSignal = signal;
 						},
 					},
 				);
@@ -347,8 +444,10 @@ describe("PluginManager", () => {
 			{ text: " passing" },
 		]);
 
-		await contribution.onClick?.();
+		const abortController = new AbortController();
+		await contribution.onClick?.(abortController.signal);
 		expect(clicked).toBe(true);
+		expect(clickSignal).toBe(abortController.signal);
 	});
 
 	test("supports stable public chrome prefixes", () => {
@@ -358,7 +457,9 @@ describe("PluginManager", () => {
 			internalUi: true,
 			chromePrefix: "kit.footer",
 			initialize: (kit) => {
-				kit.footer.set("location", "main");
+				kit.footer.set("location", "main", {
+					action: { type: "open-url", url: "https://example.com/pr/25" },
+				});
 			},
 		};
 		const context = createPluginContext([]);
@@ -366,7 +467,10 @@ describe("PluginManager", () => {
 		const manager = new PluginManager([plugin], context);
 
 		manager.initialize();
-		expect(footer.getContributions()[0]?.id).toBe("kit.footer.location");
+		expect(footer.getContributions()[0]).toMatchObject({
+			id: "kit.footer.location",
+			action: { type: "open-url", url: "https://example.com/pr/25" },
+		});
 		manager.dispose();
 		expect(footer.getContributions()).toEqual([]);
 	});

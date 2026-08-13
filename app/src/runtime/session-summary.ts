@@ -143,6 +143,7 @@ export async function createSyntheticSummaryMessage(options: {
 	const turnId = randomUUID();
 	return {
 		...response,
+		messageId: randomUUID(),
 		turnId,
 		synthetic: {
 			kind,

@@ -9,7 +9,7 @@ export const CURRENT_RELEASE_NOTES = `
 - Added persistent sessions to print mode, including support for continuing an existing session with \`--session\`.
 - Print mode now creates and saves a session by default; use \`--no-session\` for an in-memory run.
 - Added exact provider/model selection to print mode with \`--model <provider>/<model-id>\`.
-- Replaced \`--mode rpc\` with the dedicated \`--rpc\` flag and made interactive, print, and RPC modes mutually exclusive.
+- Replaced mode selectors with dedicated \`--rpc\` and \`--web\` flags; interactive, print, RPC, and web modes are mutually exclusive.
 
 ## Pull requests
 

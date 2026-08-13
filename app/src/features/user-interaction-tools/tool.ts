@@ -48,7 +48,8 @@ function createConfirmFromUserTool(
 	return {
 		name: "confirm_from_user",
 		label: "Confirm from User",
-		description: "Ask the user for a yes/no confirmation in the terminal UI.",
+		description:
+			"Ask the user for a yes/no confirmation in the interactive UI.",
 		promptSnippet:
 			"Ask the user for a direct confirmation with confirm_from_user when a yes/no decision is needed.",
 		promptGuidelines: [
@@ -60,6 +61,7 @@ function createConfirmFromUserTool(
 		async execute(
 			_toolCallId: string,
 			input: Static<typeof confirmParameters>,
+			signal?: AbortSignal,
 		): Promise<ToolResult<ConfirmDetails>> {
 			notifyUser(options);
 			const confirmed = await options.ui.confirm({
@@ -68,6 +70,7 @@ function createConfirmFromUserTool(
 				confirmLabel: input.confirmLabel,
 				cancelLabel: input.cancelLabel,
 				defaultValue: false,
+				signal,
 			});
 			return {
 				content: [
@@ -112,12 +115,14 @@ function createInputFromUserTool(
 		async execute(
 			_toolCallId: string,
 			input: Static<typeof inputParameters>,
+			signal?: AbortSignal,
 		): Promise<ToolResult<InputDetails>> {
 			notifyUser(options);
 			const value = await options.ui.input({
 				title: input.title,
 				message: input.message,
 				placeholder: input.placeholder,
+				signal,
 			});
 			const cancelled = value === undefined;
 			return {
@@ -181,6 +186,7 @@ function createSelectFromUserTool(
 		async execute(
 			_toolCallId: string,
 			input: Static<typeof selectParameters>,
+			signal?: AbortSignal,
 		): Promise<ToolResult<SelectDetails>> {
 			notifyUser(options);
 			const selected = await options.ui.select({
@@ -193,6 +199,7 @@ function createSelectFromUserTool(
 					value: option.value,
 					description: option.description,
 				})),
+				signal,
 			});
 			const selectedOption = input.options.find(
 				(option) => option.value === selected,

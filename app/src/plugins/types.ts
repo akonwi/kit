@@ -25,6 +25,7 @@ import type {
 } from "./sdk";
 
 export type {
+	ChromeContributionAction,
 	ChromeContributionOptions,
 	ChromeContributionSide,
 	CommandContext,
@@ -81,6 +82,11 @@ export type PluginContext = {
 	attachments: AttachmentsController;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	openUrl?: (
+		url: string,
+		source?: string,
+		signal?: AbortSignal,
+	) => Promise<void>;
 	triggerNotification: (message: string, title?: string) => boolean;
 };
 
@@ -135,6 +141,22 @@ export type InternalPluginCommandContext = InternalPluginEventContext & {
 	args: string;
 };
 
+export type InternalTransportNeutralCommandContext = {
+	args: string;
+	schedulePromptCommand(
+		command: string,
+		args: string,
+		expandedPrompt: string,
+	): void;
+	signal?: AbortSignal;
+};
+
+export type InternalPluginCommandOptions = CommandOptions & {
+	executeTransportNeutral?: (
+		ctx: InternalTransportNeutralCommandContext,
+	) => void | Promise<void>;
+};
+
 export type InternalPluginEventHandler<
 	K extends RuntimeEventName = RuntimeEventName,
 > = (
@@ -170,7 +192,7 @@ export interface InternalPluginAPI {
 	): Disposer;
 	registerCommand: (
 		id: string,
-		options: CommandOptions,
+		options: InternalPluginCommandOptions,
 		handler: (ctx: InternalPluginCommandContext) => void | Promise<void>,
 	) => Disposer;
 	registerTool: <TParameters extends TSchema, TDetails>(

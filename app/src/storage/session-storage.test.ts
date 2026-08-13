@@ -35,6 +35,7 @@ function userMessage(turnId: string, text: string) {
 		role: "user" as const,
 		content: text,
 		timestamp: Date.now(),
+		messageId: `${turnId}:user:${text}`,
 		turnId,
 	};
 }
@@ -71,6 +72,7 @@ function assistantMessage(
 		},
 		stopReason: "stop" as const,
 		timestamp: Date.now(),
+		messageId: `${turnId}:assistant:${text}`,
 		turnId,
 		...(options?.synthetic ? { synthetic: options.synthetic } : {}),
 	};
@@ -170,7 +172,11 @@ describe("session storage", () => {
 		const summary = assistantMessage("summary", "compacted child summary", {
 			synthetic: { kind: "compaction-summary" },
 		});
-		const { turnId: _turnId, ...persistedSummary } = summary;
+		const {
+			messageId: _messageId,
+			turnId: _turnId,
+			...persistedSummary
+		} = summary;
 		await subagentStorage.appendSubagentSessionEntries(subagentId, [
 			{
 				type: "subagent_compaction",
@@ -289,6 +295,14 @@ describe("session storage", () => {
 		]);
 		expect(restored?.turns[0]?.messages).toHaveLength(2);
 		expect(restored?.turns[1]?.messages).toHaveLength(2);
+		expect(
+			restored?.turns.flatMap((turn) =>
+				turn.messages.map((message) => message.messageId),
+			),
+		).toEqual([
+			...turn1.messages.map((message) => message.messageId),
+			...turn2.messages.map((message) => message.messageId),
+		]);
 
 		const raw = await readFile(
 			path.join(homeDir, ".kit", "sessions", `${session.id}.jsonl`),
@@ -297,7 +311,15 @@ describe("session storage", () => {
 		const lines = raw
 			.trim()
 			.split("\n")
-			.map((line) => JSON.parse(line) as { type: string; turnId?: string });
+			.map(
+				(line) =>
+					JSON.parse(line) as {
+						id?: string;
+						type: string;
+						turnId?: string;
+						message?: { messageId?: string };
+					},
+			);
 		expect(lines[0]?.type).toBe("session");
 		expect(lines.slice(1).map((line) => line.type)).toEqual([
 			"message",
@@ -311,6 +333,11 @@ describe("session storage", () => {
 			"turn-2",
 			"turn-2",
 		]);
+		expect(lines.slice(1).map((line) => line.id)).toEqual([
+			...turn1.messages.map((message) => message.messageId),
+			...turn2.messages.map((message) => message.messageId),
+		]);
+		expect(lines.slice(1).every((line) => !line.message?.messageId)).toBe(true);
 	});
 
 	test("persists cwd changes as latest session cwd", async () => {
@@ -467,7 +494,11 @@ describe("session storage", () => {
 		const session = await storage.createSession(projectDir);
 		await storage.writeSession(session);
 		const externalMessage = userMessage("external-turn", "external work");
-		const { turnId: _turnId, ...persistedMessage } = externalMessage;
+		const {
+			messageId: _messageId,
+			turnId: _turnId,
+			...persistedMessage
+		} = externalMessage;
 		const externalEntry = {
 			type: "message",
 			id: "external-entry",
@@ -626,6 +657,11 @@ describe("session storage", () => {
 			(candidate) => candidate.id === session.id,
 		);
 		expect(listed?.model).toBe("gpt-5.5");
+		expect(restored?.turns[0]?.id).toBe("summary");
+		expect(restored?.turns[0]?.messages[0]?.messageId).toBe(
+			"summary:assistant:compacted summary",
+		);
+		expect(restored?.turns[0]?.messages[0]?.turnId).toBe("summary");
 		expect(restored?.turns[0]?.messages[0]?.synthetic?.kind).toBe(
 			"compaction-summary",
 		);
@@ -935,6 +971,7 @@ describe("session storage", () => {
 					},
 					stopReason: "toolUse",
 					timestamp: Date.now(),
+					messageId: "message-assistant",
 					turnId: "turn-1",
 				},
 				{
@@ -944,6 +981,7 @@ describe("session storage", () => {
 					content: [],
 					isError: false,
 					timestamp: Date.now(),
+					messageId: "message-tool-result",
 					turnId: "turn-1",
 				},
 			],
@@ -999,11 +1037,44 @@ describe("session storage", () => {
 			"legacy-session.json",
 		);
 		await mkdir(path.dirname(legacyPath), { recursive: true });
-		await writeFile(legacyPath, JSON.stringify(legacy, null, 2));
+		const legacyWithoutMessageIds = {
+			...legacy,
+			turns: legacy.turns.map((turn) => ({
+				...turn,
+				messages: turn.messages.map((message) => {
+					const { messageId: _messageId, ...legacyMessage } = message;
+					return legacyMessage;
+				}),
+			})),
+		};
+		await writeFile(
+			legacyPath,
+			JSON.stringify(legacyWithoutMessageIds, null, 2),
+		);
 
 		const restored = await storage.readSession("legacy-session");
 		expect(restored?.id).toBe("legacy-session");
 		expect(restored?.version).toBe(2);
+		const migratedMessageIds =
+			restored?.turns[0]?.messages.map((message) => message.messageId) ?? [];
+		expect(migratedMessageIds).toEqual([
+			expect.any(String),
+			expect.any(String),
+		]);
+		const migratedLines = (
+			await readFile(
+				path.join(homeDir, ".kit", "sessions", "legacy-session.jsonl"),
+				"utf8",
+			)
+		)
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line) as { id?: string; type: string });
+		expect(
+			migratedLines
+				.filter((line) => line.type === "message")
+				.map((line) => line.id),
+		).toEqual(migratedMessageIds);
 		expect(
 			existsSync(
 				path.join(homeDir, ".kit", "sessions", "legacy-session.jsonl"),

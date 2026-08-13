@@ -1,6 +1,18 @@
 import type { ThemeColorTokens } from "./themes/types";
 
+export const BUILT_IN_CHROME_CONTRIBUTION_IDS = {
+	headerTitle: "kit.header.title",
+	headerModel: "kit.header.model",
+	headerUpdate: "kit.header.update",
+	footerLocation: "kit.footer.location",
+} as const;
+
 export type ChromeContributionSide = "left" | "right";
+
+export type ChromeContributionAction = {
+	type: "open-url";
+	url: string;
+};
 
 export type ChromeThemeToken = keyof ThemeColorTokens;
 
@@ -31,15 +43,36 @@ export type ChromeContribution = {
 	content: ChromeTextSegment[];
 	plainText: string;
 	side: ChromeContributionSide;
-	onClick?: () => void | Promise<void>;
+	action?: ChromeContributionAction;
+	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
 
 export type ChromeContributionInput = {
 	id: string;
 	content: ChromeTextContent;
 	side?: ChromeContributionSide;
-	onClick?: () => void | Promise<void>;
+	action?: ChromeContributionAction;
+	onClick?: (signal?: AbortSignal) => void | Promise<void>;
 };
+
+function normalizeChromeAction(
+	action: ChromeContributionAction | undefined,
+): ChromeContributionAction | undefined {
+	if (!action) return undefined;
+	if (action.type !== "open-url") {
+		throw new Error("Unsupported chrome contribution action");
+	}
+	let url: URL;
+	try {
+		url = new URL(action.url);
+	} catch {
+		throw new Error("Chrome contribution URL must be absolute");
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error("Chrome contribution URL must use HTTP or HTTPS");
+	}
+	return { type: "open-url", url: url.href };
+}
 
 function sanitizeText(text: string): string {
 	let sanitized = "";
@@ -140,6 +173,11 @@ export function createChromeContributionsController() {
 	}
 
 	function setContribution(input: ChromeContributionInput) {
+		if (input.action && input.onClick) {
+			throw new Error(
+				"Chrome contributions cannot define both an action and an onClick handler",
+			);
+		}
 		const content = normalizeChromeTextContent(input.content);
 		const plainText = getPlainChromeText(content);
 		if (!plainText.trim()) {
@@ -151,6 +189,7 @@ export function createChromeContributionsController() {
 			content,
 			plainText,
 			side: input.side ?? "right",
+			action: normalizeChromeAction(input.action),
 			onClick: input.onClick,
 		};
 		const existingIndex = contributions.findIndex(
@@ -217,6 +256,16 @@ export function createChromeContributionsController() {
 			: visible;
 	}
 
+	async function activateContribution(
+		id: string,
+		signal?: AbortSignal,
+	): Promise<boolean> {
+		const contribution = getContributions().find((item) => item.id === id);
+		if (!contribution?.onClick) return false;
+		await contribution.onClick(signal);
+		return true;
+	}
+
 	function subscribe(listener: () => void): () => void {
 		listeners.add(listener);
 		return () => listeners.delete(listener);
@@ -229,6 +278,7 @@ export function createChromeContributionsController() {
 		hideContribution,
 		isHidden,
 		getContributions,
+		activateContribution,
 		subscribe,
 	};
 }

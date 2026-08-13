@@ -1,0 +1,416 @@
+/** @jsxImportSource solid-js */
+import {
+	createContext,
+	createEffect,
+	createMemo,
+	createSignal,
+	For,
+	type JSX,
+	onCleanup,
+	onMount,
+	Show,
+	useContext,
+} from "solid-js";
+import { scoreMatch } from "../features/files/score";
+import { useAgentConfiguration } from "./AgentConfigurationControls";
+import { useBrowserTheme } from "./BrowserThemeProvider";
+import {
+	mergePaletteCommands,
+	type PaletteCommand,
+} from "./command-palette-commands";
+import { DialogFrame } from "./DialogFrame";
+import { OverlayHintBar } from "./OverlayHintBar";
+import { useScratchpad } from "./ScratchpadProvider";
+import { useWebClient } from "./WebClientContext";
+
+type CommandPaletteContextValue = {
+	openPalette(): void;
+};
+
+const CommandPaletteContext = createContext<CommandPaletteContextValue>();
+
+export function useCommandPalette(): CommandPaletteContextValue {
+	const value = useContext(CommandPaletteContext);
+	if (!value) {
+		throw new Error(
+			"useCommandPalette must be used within CommandPaletteProvider",
+		);
+	}
+	return value;
+}
+
+export function CommandPaletteProvider(props: {
+	children: JSX.Element;
+}): JSX.Element {
+	const { controller, snapshot } = useWebClient();
+	const { openThemePicker } = useBrowserTheme();
+	const scratchpad = useScratchpad();
+	const {
+		disabled: configurationDisabled,
+		openModelPicker,
+		openThinkingPicker,
+	} = useAgentConfiguration();
+	let input: HTMLInputElement | undefined;
+	let loadGeneration = 0;
+	const [open, setOpen] = createSignal(false);
+	const [mobile, setMobile] = createSignal(false);
+	const [commands, setCommands] = createSignal<PaletteCommand[]>(
+		mergePaletteCommands([]),
+	);
+	const [registryGeneration, setRegistryGeneration] = createSignal<
+		number | null
+	>(null);
+	const [query, setQuery] = createSignal("");
+	const [selectedIndex, setSelectedIndex] = createSignal(0);
+	const [loading, setLoading] = createSignal(false);
+	const [error, setError] = createSignal("");
+	const [argumentCommand, setArgumentCommand] =
+		createSignal<PaletteCommand | null>(null);
+
+	const filteredCommands = createMemo(() => {
+		const needle = query().trim();
+		if (!needle) return commands();
+		return commands()
+			.map((command) => ({
+				command,
+				score: Math.max(
+					scoreMatch(command.name, needle),
+					scoreMatch(command.description ?? "", needle),
+				),
+			}))
+			.filter((entry) => entry.score > 0)
+			.sort((a, b) => b.score - a.score)
+			.map((entry) => entry.command);
+	});
+	const selectedCommand = createMemo(
+		() => filteredCommands()[selectedIndex()] ?? null,
+	);
+
+	createEffect(() => {
+		const count = filteredCommands().length;
+		setSelectedIndex((index) =>
+			count === 0 ? 0 : Math.max(0, Math.min(index, count - 1)),
+		);
+	});
+
+	let observedStreamId: string | null = null;
+	let observedPhase = snapshot().protocol.phase;
+	createEffect(() => {
+		const protocol = snapshot().protocol;
+		if (open()) {
+			if (observedStreamId !== null && protocol.streamId !== observedStreamId) {
+				closePalette();
+			} else if (protocol.phase !== "live") {
+				loadGeneration += 1;
+				setCommands(mergePaletteCommands([]));
+				setRegistryGeneration(null);
+				setArgumentCommand(null);
+				setError("");
+				setLoading(false);
+			} else if (observedPhase !== "live") {
+				void loadCommands();
+			}
+		}
+		observedStreamId = protocol.streamId;
+		observedPhase = protocol.phase;
+	});
+
+	async function loadCommands(): Promise<void> {
+		const generation = ++loadGeneration;
+		setLoading(true);
+		setError("");
+		setCommands(mergePaletteCommands([]));
+		setRegistryGeneration(null);
+		try {
+			const next = await controller.listCommands();
+			if (generation !== loadGeneration || !open()) return;
+			setCommands(mergePaletteCommands(next.commands));
+			setRegistryGeneration(next.registryGeneration);
+		} catch (cause) {
+			if (generation !== loadGeneration || !open()) return;
+			setError(cause instanceof Error ? cause.message : String(cause));
+		} finally {
+			if (generation === loadGeneration) setLoading(false);
+		}
+	}
+
+	function openPalette(): void {
+		const modal = document.querySelector<HTMLDialogElement>("dialog:modal");
+		if (modal && modal.id !== "command-palette") return;
+		setMobile(window.matchMedia("(max-width: 36rem)").matches);
+		setQuery("");
+		setSelectedIndex(0);
+		setArgumentCommand(null);
+		setOpen(true);
+		if (snapshot().protocol.phase === "live") void loadCommands();
+		else {
+			setCommands(mergePaletteCommands([]));
+			setRegistryGeneration(null);
+			setLoading(false);
+			setError("");
+		}
+	}
+
+	function closePalette(): void {
+		loadGeneration += 1;
+		setOpen(false);
+		setArgumentCommand(null);
+		setRegistryGeneration(null);
+		setError("");
+	}
+
+	function cancelPalette(): void {
+		closePalette();
+	}
+
+	function scrollSelectedCommandIntoView(): void {
+		queueMicrotask(() =>
+			document
+				.getElementById(`command-option-${selectedIndex()}`)
+				?.scrollIntoView({ block: "nearest" }),
+		);
+	}
+
+	function moveSelection(delta: -1 | 1): void {
+		const count = filteredCommands().length;
+		if (count === 0) return;
+		setSelectedIndex((index) => (index + delta + count) % count);
+		scrollSelectedCommandIntoView();
+	}
+
+	function browserCommandDisabled(command: PaletteCommand): boolean {
+		if (command.browserAction === "theme") return false;
+		if (command.browserAction === "toggle-scratchpad") {
+			return scratchpad.disabled();
+		}
+		return command.browserAction !== undefined && configurationDisabled();
+	}
+
+	function chooseCommand(command: PaletteCommand): void {
+		const browserAction = command.browserAction;
+		if (browserAction && browserCommandDisabled(command)) return;
+		if (browserAction) {
+			closePalette();
+			queueMicrotask(() => {
+				if (browserAction === "model") void openModelPicker();
+				else if (browserAction === "thinking") void openThinkingPicker();
+				else if (browserAction === "theme") openThemePicker();
+				else scratchpad.toggle();
+			});
+			return;
+		}
+		const generation = registryGeneration();
+		if (generation === null) return;
+		if (command.argName) {
+			setArgumentCommand(command);
+			setQuery("");
+			return;
+		}
+		closePalette();
+		void controller.executeCommand(command.id, "", generation);
+	}
+
+	function runArgumentCommand(): void {
+		const command = argumentCommand();
+		const generation = registryGeneration();
+		if (!command || generation === null) return;
+		const args = query();
+		closePalette();
+		void controller.executeCommand(command.id, args, generation);
+	}
+
+	function handleCommandNavigationKeyDown(event: KeyboardEvent): void {
+		if (event.key === "ArrowDown") {
+			event.preventDefault();
+			moveSelection(1);
+		} else if (event.key === "ArrowUp") {
+			event.preventDefault();
+			moveSelection(-1);
+		} else if (event.key === "Enter") {
+			event.preventDefault();
+			if (argumentCommand()) runArgumentCommand();
+			else {
+				const command = selectedCommand();
+				if (command) chooseCommand(command);
+			}
+		}
+	}
+
+	onMount(() => {
+		const mobileViewport = window.matchMedia("(max-width: 36rem)");
+		const syncMobile = () => setMobile(mobileViewport.matches);
+		syncMobile();
+		mobileViewport.addEventListener("change", syncMobile);
+		const handleGlobalKeyDown = (event: KeyboardEvent) => {
+			if (
+				event.defaultPrevented ||
+				!event.ctrlKey ||
+				event.altKey ||
+				event.shiftKey ||
+				event.key.toLowerCase() !== "p"
+			) {
+				return;
+			}
+			event.preventDefault();
+			if (open()) {
+				if (mobile() && !argumentCommand()) {
+					document
+						.querySelector<HTMLElement>("#command-palette-list")
+						?.focus({ preventScroll: true });
+				} else input?.focus();
+			} else openPalette();
+		};
+		window.addEventListener("keydown", handleGlobalKeyDown);
+		onCleanup(() => {
+			mobileViewport.removeEventListener("change", syncMobile);
+			window.removeEventListener("keydown", handleGlobalKeyDown);
+		});
+	});
+
+	return (
+		<CommandPaletteContext.Provider value={{ openPalette }}>
+			{props.children}
+			<DialogFrame
+				open={open()}
+				id="command-palette"
+				class="command-palette-dialog"
+				drawer={mobile()}
+				labelledBy="command-palette-title"
+				focusKey={argumentCommand()?.id ?? "commands"}
+				onAfterOpen={(dialog) => {
+					if (!mobile() || argumentCommand()) input?.focus();
+					else
+						dialog
+							.querySelector<HTMLElement>("#command-palette-list")
+							?.focus({ preventScroll: true });
+				}}
+				onCancel={cancelPalette}
+			>
+				<header>
+					<h2
+						id="command-palette-title"
+						classList={{ "command-palette-mobile-title": mobile() }}
+						data-visually-hidden={!mobile()}
+					>
+						Commands
+					</h2>
+					<label
+						class="command-palette-input"
+						hidden={mobile() && !argumentCommand()}
+					>
+						<span aria-hidden="true">&gt;</span>
+						<input
+							ref={input}
+							type="text"
+							value={query()}
+							placeholder={
+								argumentCommand()?.argName
+									? `Enter ${argumentCommand()?.argName}`
+									: "Search commands"
+							}
+							aria-label={
+								argumentCommand()?.argName
+									? `Arguments for ${argumentCommand()?.name}`
+									: "Search commands"
+							}
+							role={argumentCommand() ? undefined : "combobox"}
+							aria-autocomplete={argumentCommand() ? undefined : "list"}
+							aria-expanded={argumentCommand() ? undefined : true}
+							aria-controls={
+								argumentCommand() ? undefined : "command-palette-list"
+							}
+							aria-activedescendant={
+								argumentCommand() || !selectedCommand()
+									? undefined
+									: `command-option-${selectedIndex()}`
+							}
+							onInput={(event) => {
+								setQuery(event.currentTarget.value);
+								setSelectedIndex(0);
+								scrollSelectedCommandIntoView();
+							}}
+							onKeyDown={handleCommandNavigationKeyDown}
+						/>
+					</label>
+				</header>
+				<div class="command-palette-body">
+					<Show
+						when={!argumentCommand()}
+						fallback={
+							<div class="command-argument-help">
+								<strong>{argumentCommand()?.name}</strong>
+								<Show when={argumentCommand()?.description}>
+									{(description) => <span>{description()}</span>}
+								</Show>
+							</div>
+						}
+					>
+						<Show when={error()}>
+							{(message) => (
+								<div class="command-palette-message is-error" role="alert">
+									{message()}
+								</div>
+							)}
+						</Show>
+						<Show when={!error() && filteredCommands().length === 0}>
+							<div
+								class="command-palette-message"
+								role="status"
+								aria-live="polite"
+							>
+								{loading() ? "Loading…" : "No results"}
+							</div>
+						</Show>
+						<div
+							id="command-palette-list"
+							role="listbox"
+							aria-label="Commands"
+							tabIndex={mobile() ? 0 : undefined}
+							aria-activedescendant={
+								mobile() && selectedCommand()
+									? `command-option-${selectedIndex()}`
+									: undefined
+							}
+							onKeyDown={handleCommandNavigationKeyDown}
+						>
+							<For each={filteredCommands()}>
+								{(command, index) => (
+									<button
+										id={`command-option-${index()}`}
+										class="command-palette-option"
+										type="button"
+										data-variant="ghost"
+										role="option"
+										tabIndex={-1}
+										aria-selected={index() === selectedIndex()}
+										aria-disabled={browserCommandDisabled(command)}
+										onMouseEnter={() => setSelectedIndex(index())}
+										onClick={() => chooseCommand(command)}
+									>
+										<span class="command-name">{command.name}</span>
+										<span class="command-arg">
+											{command.argName ? `[${command.argName}]` : ""}
+										</span>
+										<span class="command-description">
+											{command.description ?? command.category ?? ""}
+										</span>
+									</button>
+								)}
+							</For>
+						</div>
+					</Show>
+				</div>
+				<Show when={!mobile()}>
+					<OverlayHintBar
+						class="command-palette-footer"
+						hints={
+							argumentCommand()
+								? ["Enter run", "Esc close"]
+								: ["Up/Down navigate", "Enter run", "Esc close"]
+						}
+					/>
+				</Show>
+			</DialogFrame>
+		</CommandPaletteContext.Provider>
+	);
+}

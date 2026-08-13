@@ -76,6 +76,62 @@ describe("Agent user-facing turn boundaries", () => {
 		]);
 	});
 
+	test("translates Pi streaming into identified Kit message events", () => {
+		const agent = new Agent({});
+		const events: Array<Record<string, unknown>> = [];
+		agent.subscribe((event) => events.push(event));
+		const started = assistantMessage("");
+		const updated = assistantMessage("hi");
+
+		drive(agent, { type: "turn_start" });
+		drive(agent, { type: "message_start", message: started });
+		drive(agent, {
+			type: "message_update",
+			message: updated,
+			assistantMessageEvent: {
+				type: "text_delta",
+				contentIndex: 0,
+				delta: "hi",
+				partial: updated,
+			},
+		});
+		const activeMessage = agent.activeAssistantMessage;
+		expect(typeof activeMessage?.messageId).toBe("string");
+		expect(typeof activeMessage?.turnId).toBe("string");
+		expect(activeMessage?.content).toEqual([{ type: "text", text: "hi" }]);
+		drive(agent, { type: "message_end", message: updated });
+		expect(agent.activeAssistantMessage).toBeNull();
+
+		const semantic = events.filter((event) =>
+			[
+				"agent.message.started",
+				"agent.message.updated",
+				"agent.message.ended",
+				"message.committed",
+			].includes(String(event.type)),
+		);
+		const messageIds = semantic.map((event) =>
+			"message" in event &&
+			typeof event.message === "object" &&
+			event.message !== null &&
+			"messageId" in event.message
+				? event.message.messageId
+				: null,
+		);
+		expect(new Set(messageIds).size).toBe(1);
+		expect(messageIds[0]).toEqual(expect.any(String));
+		expect(semantic[1]).toMatchObject({
+			type: "agent.message.updated",
+			update: {
+				kind: "content.delta",
+				contentType: "text",
+				contentIndex: 0,
+				delta: "hi",
+			},
+		});
+		expect(events.some((event) => event.type === "message.update")).toBe(false);
+	});
+
 	test("keeps tool-loop Pi turns inside one Kit turn", () => {
 		const agent = new Agent({});
 		const user = userMessage("review this");

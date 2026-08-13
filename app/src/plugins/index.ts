@@ -5,6 +5,7 @@ export type {
 	EventContext,
 	EventHandler,
 	InternalPluginAPI,
+	InternalPluginCommandOptions,
 	InternalPluginDefinition,
 	MessagePart,
 	Plugin,

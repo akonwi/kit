@@ -1,23 +1,26 @@
-import { describe, expect, mock, test } from "bun:test";
-import { createPullRequestOpenHandler } from "./plugin";
+import { describe, expect, test } from "bun:test";
+import { isPullRequestCacheFresh } from "./plugin";
 
-describe("VCS status contribution", () => {
-	test("opens the current pull request when its footer contribution is clicked", async () => {
-		const open = mock(async (_url: string) => {});
-		const onClick = createPullRequestOpenHandler(
-			{ url: "https://github.com/akonwi/kit/pull/25" },
-			open,
-		);
+describe("VCS pull request cache", () => {
+	test("scopes cached PR links to both repository cwd and branch", () => {
+		const cache = {
+			cwd: "/workspace/one",
+			branch: "main",
+			pullRequest: null,
+			updatedAt: 1_000,
+		};
 
-		expect(onClick).toBeDefined();
-		await onClick?.();
-		expect(open).toHaveBeenCalledWith("https://github.com/akonwi/kit/pull/25");
-	});
-
-	test("is not clickable without a pull request URL", () => {
-		const open = mock(async (_url: string) => {});
-
-		expect(createPullRequestOpenHandler(null, open)).toBeUndefined();
-		expect(createPullRequestOpenHandler({ url: "" }, open)).toBeUndefined();
+		expect(
+			isPullRequestCacheFresh(cache, "/workspace/one", "main", 2_000),
+		).toBe(true);
+		expect(
+			isPullRequestCacheFresh(cache, "/workspace/two", "main", 2_000),
+		).toBe(false);
+		expect(
+			isPullRequestCacheFresh(cache, "/workspace/one", "feature", 2_000),
+		).toBe(false);
+		expect(
+			isPullRequestCacheFresh(cache, "/workspace/one", "main", 62_000),
+		).toBe(false);
 	});
 });

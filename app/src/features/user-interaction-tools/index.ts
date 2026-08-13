@@ -5,18 +5,26 @@ import {
 	USER_INTERACTION_TOOLS_POLICY,
 } from "./tool";
 
-export function UserInteractionToolsPlugin(kit: InternalPluginAPI): void {
+function registerUserInteractionTools(
+	kit: InternalPluginAPI,
+	notify: () => void,
+): void {
 	kit.addSystemPrompt(USER_INTERACTION_TOOLS_POLICY);
-
-	for (const tool of createUserInteractionTools({
-		ui: kit.ui,
-		notify: () =>
-			ringBell(false, {
-				notify: kit.system.notify,
-				title: "Kit",
-				message: "Input needed",
-			}),
-	})) {
+	for (const tool of createUserInteractionTools({ ui: kit.ui, notify })) {
 		kit.registerTool(tool);
 	}
+}
+
+export function UserInteractionToolsPlugin(kit: InternalPluginAPI): void {
+	registerUserInteractionTools(kit, () =>
+		ringBell(false, {
+			notify: kit.system.notify,
+			title: "Kit",
+			message: "Input needed",
+		}),
+	);
+}
+
+export function RemoteUserInteractionToolsPlugin(kit: InternalPluginAPI): void {
+	registerUserInteractionTools(kit, () => {});
 }

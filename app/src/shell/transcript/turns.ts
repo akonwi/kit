@@ -72,6 +72,9 @@ function buildTranscriptItemId(
 	turnId: string,
 	index: number,
 ): string {
+	if ("messageId" in message && typeof message.messageId === "string") {
+		return message.messageId;
+	}
 	if ("id" in message && typeof message.id === "string") {
 		return `${turnId}:${message.role}:${message.id}`;
 	}
@@ -132,6 +135,19 @@ export function buildBashTranscriptItem(
 		turnId: message.turnId,
 		message: message as BashExecutionMessage,
 	};
+}
+
+export function groupMessagesIntoTurns(messages: KitAgentMessage[]): Turn[] {
+	const turns: Turn[] = [];
+	for (const message of messages) {
+		const current = turns.at(-1);
+		if (current?.id === message.turnId) {
+			current.messages.push(message);
+		} else {
+			turns.push({ id: message.turnId, messages: [message] });
+		}
+	}
+	return turns;
 }
 
 export function flattenTurnsToTranscriptItems(turns: Turn[]): TranscriptItem[] {
@@ -415,9 +431,9 @@ function reuseDisplayItem(
 		: item;
 }
 
-function displayItemKey(item: DisplayItem): string {
+export function displayItemKey(item: DisplayItem): string {
 	if (item.kind === "single") return `single:${item.item.id}`;
-	return `turn-work:${item.turnId}:${item.items.map((entry) => entry.id).join("|")}`;
+	return `turn-work:${item.turnId}:${item.items[0]?.id ?? "empty"}`;
 }
 
 function previousDisplayItemsByKey(
@@ -519,4 +535,27 @@ export function groupItemsForDisplay(
 	}
 
 	return result;
+}
+
+export function findTurnWorkItems(
+	items: TranscriptItem[],
+	turnId: string,
+	inProgressTurnId?: string | null,
+	anchorItemId?: string,
+): TranscriptItem[] {
+	const candidates = groupItemsForDisplay(items, inProgressTurnId).filter(
+		(item): item is Extract<DisplayItem, { kind: "turn-work" }> =>
+			item.kind === "turn-work" && item.turnId === turnId,
+	);
+	const displayItem = anchorItemId
+		? candidates.find((item) =>
+				item.items.some((entry) => entry.id === anchorItemId),
+			)
+		: candidates[0];
+	if (displayItem?.kind === "turn-work") return displayItem.items;
+	if (anchorItemId) {
+		const anchoredItem = items.find((item) => item.id === anchorItemId);
+		if (anchoredItem) return [anchoredItem];
+	}
+	return [];
 }

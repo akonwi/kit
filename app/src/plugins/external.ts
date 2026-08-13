@@ -358,6 +358,10 @@ export class ExternalPluginManager {
 		}
 	}
 
+	async waitForProjectReady(signal?: AbortSignal): Promise<void> {
+		await this.waitForProjectTransition(signal);
+	}
+
 	async dispose(options: { graceful?: boolean } = {}): Promise<void> {
 		if (this.disposed) return;
 		this.disposed = true;
@@ -365,7 +369,7 @@ export class ExternalPluginManager {
 		this.projectGeneration += 1;
 		this.unsubscribeRuntime?.();
 		this.unsubscribeRuntime = null;
-		await this.projectTransition;
+		if (!this.signal?.aborted) await this.projectTransition;
 		const clients = this.allClients.splice(0).reverse();
 		this.projectClients = [];
 		this.userClients = [];
