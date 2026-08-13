@@ -8,6 +8,7 @@ import {
 	toolDisplayName,
 } from "../shell/transcript/turns";
 import { extractToolProgressLines } from "../shell/transcript-live-tools";
+import { BrailleSpinner } from "./BrailleSpinner";
 import type { ToolActivity } from "./client-state";
 import { isRecord } from "./client-state";
 import { displayValue } from "./presentation";
@@ -74,14 +75,19 @@ function ToolRow(props: {
 	);
 	const header = (
 		<>
-			<span
-				class="tool-state"
-				data-status={
-					props.aborted ? "aborted" : complete() ? "complete" : "running"
+			<Show
+				when={!props.aborted && !complete()}
+				fallback={
+					<span
+						class="tool-state"
+						data-status={props.aborted ? "aborted" : "complete"}
+						data-error={String(isError())}
+						aria-hidden="true"
+					/>
 				}
-				data-error={String(isError())}
-				aria-hidden="true"
-			/>
+			>
+				<BrailleSpinner class="tool-state" />
+			</Show>
 			<span data-visually-hidden>{stateLabel()}: </span>
 			<span class="tool-name">{toolDisplayName(props.toolCall)}</span>
 			<Show when={args()}>
@@ -169,11 +175,18 @@ export function ToolDrawer(props: {
 	const SummaryContent = () => (
 		<>
 			<span class="panel-launch-marker" aria-hidden="true" />
-			<span
-				class="drawer-state"
-				data-status={running() ? "running" : "complete"}
-				aria-hidden="true"
-			/>
+			<Show
+				when={running()}
+				fallback={
+					<span
+						class="drawer-state"
+						data-status="complete"
+						aria-hidden="true"
+					/>
+				}
+			>
+				<BrailleSpinner class="drawer-state" />
+			</Show>
 			<span data-visually-hidden>
 				{props.aborted ? "aborted: " : running() ? "running: " : "completed: "}
 			</span>

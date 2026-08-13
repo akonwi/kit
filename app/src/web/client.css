@@ -828,18 +828,6 @@ button.remote-chrome-contribution {
 	display: none;
 }
 
-.drawer-state[data-status="running"],
-.tool-state[data-status="running"] {
-	display: inline-block;
-	inline-size: 0.65rem;
-	block-size: 0.65rem;
-	margin-inline-end: var(--space-xs);
-	border: 1px solid currentColor;
-	border-inline-end-color: transparent;
-	border-radius: var(--radius-full);
-	animation: pending-spin 800ms linear infinite;
-}
-
 .drawer-count {
 	flex: 0 0 auto;
 	white-space: nowrap;
@@ -1098,12 +1086,6 @@ details[open] > summary > .disclosure-marker {
 	color: var(--kit-text-placeholder);
 }
 
-@keyframes pending-spin {
-	to {
-		transform: rotate(1turn);
-	}
-}
-
 .composer-dock {
 	flex: 0 0 auto;
 	min-inline-size: 0;
@@ -1198,12 +1180,7 @@ details[open] > summary > .disclosure-marker {
 }
 
 .composer-submit-spinner {
-	inline-size: 0.875rem;
-	block-size: 0.875rem;
-	border: 1px solid currentColor;
-	border-inline-end-color: transparent;
-	border-radius: var(--radius-full);
-	animation: pending-spin 800ms linear infinite;
+	flex: 0 0 auto;
 }
 
 .composer-actions button[data-variant="ghost"] {
@@ -1975,12 +1952,5 @@ details[open] > summary > .disclosure-marker {
 
 	.braille-spinner-frame:first-child {
 		opacity: 1;
-	}
-
-	.composer-submit-spinner,
-	.drawer-state[data-status="running"],
-	.tool-state[data-status="running"] {
-		animation: none;
-		border-inline-end-color: currentColor;
 	}
 }

@@ -8,6 +8,7 @@ import {
 	onCleanup,
 	onMount,
 } from "solid-js";
+import { BrailleSpinner } from "./BrailleSpinner";
 import { useCommandPalette } from "./CommandPalette";
 import {
 	hasComposerPayload,
@@ -183,7 +184,7 @@ export function ComposerDock(): JSX.Element {
 						}}
 					>
 						{snapshot().submitting && !streaming() ? (
-							<span class="composer-submit-spinner" />
+							<BrailleSpinner class="composer-submit-spinner" />
 						) : (
 							<WebIcon name={streaming() ? "stop" : "send"} />
 						)}
