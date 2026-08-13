@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 import { createMemo, For, type JSX, Show } from "solid-js";
+import { BrailleSpinner } from "./BrailleSpinner";
 import { isRecord } from "./client-state";
 import { useWebClient } from "./WebClientContext";
 
@@ -63,7 +64,7 @@ export function PendingSlot(): JSX.Element {
 			</span>
 			<Show when={content()}>
 				<div class="pending-display" aria-hidden="true">
-					<span class="pending-spinner" />
+					<BrailleSpinner class="pending-spinner" />
 					<span class="pending-content">{content()}</span>
 				</div>
 			</Show>

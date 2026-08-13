@@ -1038,14 +1038,25 @@ details[open] > summary > .disclosure-marker {
 	gap: var(--space-xs);
 }
 
+.braille-spinner {
+	position: relative;
+	inline-size: 1ch;
+	block-size: 1lh;
+	display: inline-block;
+	font-family: var(--font-mono);
+	line-height: 1;
+}
+
+.braille-spinner-frame {
+	position: absolute;
+	inset: 0;
+	opacity: 0;
+	animation: braille-spinner-frame 800ms steps(1, end) infinite;
+	animation-delay: calc(var(--spinner-frame-index) * 80ms);
+}
+
 .pending-spinner {
 	flex: 0 0 auto;
-	inline-size: 0.75rem;
-	block-size: 0.75rem;
-	border: 1px solid currentColor;
-	border-inline-end-color: transparent;
-	border-radius: var(--radius-full);
-	animation: pending-spin 800ms linear infinite;
 }
 
 .pending-content {
@@ -1946,8 +1957,26 @@ details[open] > summary > .disclosure-marker {
 	}
 }
 
+@keyframes braille-spinner-frame {
+	0%,
+	9.999% {
+		opacity: 1;
+	}
+	10%,
+	100% {
+		opacity: 0;
+	}
+}
+
 @media (prefers-reduced-motion: reduce) {
-	.pending-spinner,
+	.braille-spinner-frame {
+		animation: none;
+	}
+
+	.braille-spinner-frame:first-child {
+		opacity: 1;
+	}
+
 	.composer-submit-spinner,
 	.drawer-state[data-status="running"],
 	.tool-state[data-status="running"] {
