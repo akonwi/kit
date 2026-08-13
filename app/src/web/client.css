@@ -1677,7 +1677,8 @@ details[open] > summary > .disclosure-marker {
 
 	input:not([type="checkbox"], [type="radio"]),
 	textarea,
-	select {
+	select,
+	.scratchpad-editor {
 		font-size: 1rem;
 	}
 
