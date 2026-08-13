@@ -178,7 +178,8 @@ export class WebRemoteServices {
 
 	constructor(
 		private readonly rpc: RpcCommandClient,
-		private readonly fetcher: typeof fetch = fetch,
+		// WebKit requires fetch to retain its global receiver.
+		private readonly fetcher: typeof fetch = globalThis.fetch.bind(globalThis),
 	) {}
 
 	installLimits(limits: ClientLimits): void {
