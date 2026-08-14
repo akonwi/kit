@@ -3,6 +3,7 @@ import type { ThemeColorTokens } from "./themes/types";
 export const BUILT_IN_CHROME_CONTRIBUTION_IDS = {
 	headerTitle: "kit.header.title",
 	headerModel: "kit.header.model",
+	headerThinking: "kit.header.thinking",
 	headerUpdate: "kit.header.update",
 	footerLocation: "kit.footer.location",
 } as const;

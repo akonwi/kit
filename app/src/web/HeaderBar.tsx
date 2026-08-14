@@ -50,6 +50,12 @@ export function HeaderBar(): JSX.Element {
 		() => new Set(protocol().chrome.header.hiddenBuiltinIds),
 	);
 	const disabled = createMemo(() => protocol().phase !== "live");
+	const showModel = createMemo(
+		() => !hidden().has(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel),
+	);
+	const showThinking = createMemo(
+		() => !hidden().has(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerThinking),
+	);
 	const namingDisabled = createMemo(
 		() =>
 			disabled() ||
@@ -111,18 +117,17 @@ export function HeaderBar(): JSX.Element {
 					/>
 				</div>
 				<div class="header-chrome-side header-chrome-right">
-					<Show
-						when={!hidden().has(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel)}
-					>
-						<AgentConfigurationControls />
+					<Show when={showModel() || showThinking()}>
+						<AgentConfigurationControls
+							showModel={showModel()}
+							showThinking={showThinking()}
+						/>
 					</Show>
 					<RemoteChromeLine
 						area="header"
 						contributions={protocol().chrome.header.contributions}
 						side="right"
-						leadingSeparator={
-							!hidden().has(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel)
-						}
+						leadingSeparator={showModel() || showThinking()}
 						disabled={disabled()}
 						onActivate={activate}
 					/>

@@ -1,7 +1,8 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
-	activateChromeContributionAtX,
+	actionableChromeContributionAtX,
+	activateChromeContribution,
 	ChromeContributionLine,
 } from "./ChromeContributionLine";
 import type { ComposerInputMode } from "./ComposerDock";
@@ -31,6 +32,7 @@ export type BottomStatusBarProps = {
 	status: FooterStatusController;
 	composerMode: ComposerInputMode;
 	shellWidth: number;
+	actionsDisabled?: () => boolean;
 	onOpenOverflow: (contributions: readonly ChromeContribution[]) => void;
 	restoreQueueBinding?: string;
 	onOverflowAvailabilityChange?: (available: boolean) => void;
@@ -54,6 +56,8 @@ function contribution(input: {
 }
 
 export function BottomStatusBar(props: BottomStatusBarProps) {
+	let barRef: { x: number; width: number } | undefined;
+	let pressedContributionId: string | null = null;
 	const [pendingMessageCount, setPendingMessageCount] = createSignal(
 		props.runtime.getPendingMessageCount(),
 	);
@@ -209,19 +213,48 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 		<box
 			flexShrink={0}
 			height={2}
+			ref={(value) => {
+				barRef = value as typeof barRef;
+			}}
 			onMouseDown={(event) => {
-				if (event.button !== PRIMARY_MOUSE_BUTTON) return;
+				pressedContributionId =
+					props.actionsDisabled?.() !== true &&
+					event.button === PRIMARY_MOUSE_BUTTON
+						? (actionableChromeContributionAtX({
+								left: displayed("left"),
+								right: displayed("right"),
+								shellWidth: barRef?.width ?? props.shellWidth,
+								x: event.x - (barRef?.x ?? 0),
+							})?.id ?? null)
+						: null;
+			}}
+			onMouseDrag={() => {
+				pressedContributionId = null;
+			}}
+			onMouseUp={(event) => {
+				const pressedId = pressedContributionId;
+				pressedContributionId = null;
+				if (!pressedId || props.actionsDisabled?.() === true) return;
 				if (
-					!activateChromeContributionAtX({
-						left: displayed("left"),
-						right: displayed("right"),
-						shellWidth: props.shellWidth,
-						x: event.x,
-					})
-				)
+					pressedId !== "BottomStatusBar:overflow" &&
+					!props.status
+						.getContributions()
+						.some((contribution) => contribution.id === pressedId)
+				) {
 					return;
+				}
+				const contribution = actionableChromeContributionAtX({
+					left: displayed("left"),
+					right: displayed("right"),
+					shellWidth: barRef?.width ?? props.shellWidth,
+					x: event.x - (barRef?.x ?? 0),
+				});
+				if (contribution?.id !== pressedId) return;
 				event.preventDefault();
 				event.stopPropagation();
+				void activateChromeContribution(contribution).catch((error) => {
+					console.error("Could not activate footer contribution:", error);
+				});
 			}}
 			border={["top"]}
 			borderColor={theme.borderStatus}
@@ -241,6 +274,8 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 					fg={theme.textMuted}
 					fallback=""
 					wrap={false}
+					disabled={props.actionsDisabled}
+					delegateActivation
 				/>
 			</box>
 			<box
@@ -254,6 +289,8 @@ export function BottomStatusBar(props: BottomStatusBarProps) {
 					fg={theme.textMuted}
 					fallback=""
 					wrap={false}
+					disabled={props.actionsDisabled}
+					delegateActivation
 				/>
 			</box>
 		</box>

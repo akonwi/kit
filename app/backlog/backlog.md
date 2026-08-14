@@ -12,7 +12,6 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] tui: improve mouse friendliness, including clickable header actions
 - [ ] ui: support editor-like tabs for files, transcripts, scratchpads, and other surfaces
 - [ ] web: add a session explorer like the TUI
 - [ ] cli: harden transport protocols by unifying transport and shared logic across modes

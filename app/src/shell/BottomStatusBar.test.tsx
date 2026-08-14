@@ -198,9 +198,94 @@ describe("BottomStatusBar", () => {
 		);
 
 		await testSetup.renderOnce();
+		const lines = testSetup.captureCharFrame().split("\n");
+		const contentY = lines.findIndex((line) => line.includes("PR #25"));
+		const contentX = lines[contentY]?.indexOf("PR #25") ?? -1;
+		expect(contentX).toBeGreaterThanOrEqual(0);
 		const mouse = createMockMouse(testSetup.renderer);
-		await mouse.pressDown(35, 1);
+		await mouse.click(contentX, contentY);
 		expect(clicks).toBe(1);
+	});
+
+	test("uses measured bounds when nested inside shell chrome", async () => {
+		const status = createFooterStatusController();
+		let clicks = 0;
+		status.setContribution({
+			id: "plugin:nested",
+			content: "Action",
+			side: "right",
+			onClick: () => {
+				clicks += 1;
+			},
+		});
+		testSetup = await testRender(
+			() => (
+				<box width={44} border paddingLeft={2}>
+					<BottomStatusBar
+						runtime={runtime()}
+						status={status}
+						composerMode="normal"
+						shellWidth={44}
+						onOpenOverflow={() => {}}
+					/>
+				</box>
+			),
+			{ width: 44, height: 6 },
+		);
+
+		await testSetup.renderOnce();
+		const lines = testSetup.captureCharFrame().split("\n");
+		const contentY = lines.findIndex((line) => line.includes("Action"));
+		const contentX = lines[contentY]?.indexOf("Action") ?? -1;
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.click(contentX, contentY);
+
+		expect(clicks).toBe(1);
+	});
+
+	test("does not activate a contribution that replaces the pressed item", async () => {
+		const status = createFooterStatusController();
+		const clicks: string[] = [];
+		status.setContribution({
+			id: "plugin:first",
+			content: "Action",
+			side: "right",
+			onClick: () => {
+				clicks.push("first");
+			},
+		});
+		testSetup = await testRender(
+			() => (
+				<BottomStatusBar
+					runtime={runtime()}
+					status={status}
+					composerMode="normal"
+					shellWidth={40}
+					onOpenOverflow={() => {}}
+				/>
+			),
+			{ width: 40, height: 6 },
+		);
+
+		await testSetup.renderOnce();
+		const lines = testSetup.captureCharFrame().split("\n");
+		const contentY = lines.findIndex((line) => line.includes("Action"));
+		const contentX = lines[contentY]?.indexOf("Action") ?? -1;
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.pressDown(contentX, contentY);
+		status.clearContribution("plugin:first");
+		status.setContribution({
+			id: "plugin:second",
+			content: "Action",
+			side: "right",
+			onClick: () => {
+				clicks.push("second");
+			},
+		});
+		await testSetup.renderOnce();
+		await mouse.release(contentX, contentY);
+
+		expect(clicks).toEqual([]);
 	});
 
 	test("shows queued-message guidance without wrapping", async () => {

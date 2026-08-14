@@ -288,7 +288,10 @@ export function AgentConfigurationProvider(props: {
 	);
 }
 
-export function AgentConfigurationControls(): JSX.Element {
+export function AgentConfigurationControls(props: {
+	showModel?: boolean;
+	showThinking?: boolean;
+}): JSX.Element {
 	const {
 		modelLabel,
 		thinkingLevel,
@@ -299,7 +302,7 @@ export function AgentConfigurationControls(): JSX.Element {
 
 	return (
 		<div class="header-meta" role="group" aria-label="Agent configuration">
-			<Show when={modelLabel()}>
+			<Show when={props.showModel !== false && modelLabel()}>
 				{(label) => (
 					<button
 						class="header-meta-action"
@@ -314,12 +317,19 @@ export function AgentConfigurationControls(): JSX.Element {
 					</button>
 				)}
 			</Show>
-			<Show when={modelLabel() && thinkingLevel()}>
+			<Show
+				when={
+					props.showModel !== false &&
+					props.showThinking !== false &&
+					modelLabel() &&
+					thinkingLevel()
+				}
+			>
 				<span class="chrome-separator" aria-hidden="true">
 					{MIDDLE_DOT}
 				</span>
 			</Show>
-			<Show when={thinkingLevel()}>
+			<Show when={props.showThinking !== false && thinkingLevel()}>
 				{(level) => (
 					<button
 						class="header-meta-action"

@@ -696,6 +696,7 @@ describe("RpcSessionHost", () => {
 			},
 		});
 		header.hideContribution(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle);
+		header.hideContribution(BUILT_IN_CHROME_CONTRIBUTION_IDS.headerThinking);
 		const host = new RpcSessionHost(createRuntime(), { header, footer });
 		const events: unknown[] = [];
 		host.subscribe((record) => events.push(record));
@@ -727,7 +728,10 @@ describe("RpcSessionHost", () => {
 						clickable: true,
 					},
 				],
-				hiddenBuiltinIds: [BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle],
+				hiddenBuiltinIds: [
+					BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle,
+					BUILT_IN_CHROME_CONTRIBUTION_IDS.headerThinking,
+				],
 			},
 			footer: { contributions: [], hiddenBuiltinIds: [] },
 		});

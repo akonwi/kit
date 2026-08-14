@@ -774,6 +774,22 @@ function AppShellContent(props: AppShellContentProps) {
 		}),
 	);
 
+	const chromeActionsDisabled = () =>
+		props.overlays().length > 0 ||
+		chromeOverflow() !== null ||
+		props.controller.picker.visible ||
+		props.controller.commandPalette.visible;
+
+	function runHeaderCommand(name: string): void {
+		if (props.overlays().length > 0 || chromeOverflow()) return;
+		if (props.controller.picker.visible) return;
+		if (props.controller.commandPalette.visible) return;
+		const command = props.commands
+			.getAll()
+			.find((candidate) => candidate.name === name);
+		if (command) void props.controller.runCommand(command, "");
+	}
+
 	useKeymapLayer(() => {
 		commandRegistryVersion();
 		const bindableCommands = props.commands
@@ -837,6 +853,7 @@ function AppShellContent(props: AppShellContentProps) {
 				sessionName={props.state.sessionMeta.name}
 				shellWidth={shellWidth()}
 				transcriptWidth={transcriptWidth()}
+				actionsDisabled={chromeActionsDisabled}
 				showContextProgress={
 					!workspaceUsesNarrowTabs() ||
 					workspaceState().narrowTab === "transcript"
@@ -850,6 +867,9 @@ function AppShellContent(props: AppShellContentProps) {
 						setChromeOverflow(null);
 					}
 				}}
+				onRenameSession={() => runHeaderCommand("name")}
+				onSelectModel={() => runHeaderCommand("model")}
+				onSelectThinkingLevel={() => runHeaderCommand("thinking")}
 			/>
 
 			{/*
@@ -1165,6 +1185,7 @@ function AppShellContent(props: AppShellContentProps) {
 				status={props.footer}
 				composerMode={composerMode()}
 				shellWidth={shellWidth()}
+				actionsDisabled={chromeActionsDisabled}
 				restoreQueueBinding={restoreQueueBinding()}
 				onOpenOverflow={(contributions) =>
 					openChromeOverflow("Footer status", "footer", contributions)

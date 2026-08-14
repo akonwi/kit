@@ -163,8 +163,8 @@ prefixes the manifest id for ownership while presenting commands by local id:
 Header/footer styles use documented theme token names such as `toolText`, not
 literal color values. Kit resolves tokens when rendering, so plugin content
 tracks theme changes automatically. Stable built-in chrome targets are
-`kit.header.title`, `kit.header.model`, `kit.header.update`, and
-`kit.footer.location`. Chrome items can also declare an `open-url` action for an
+`kit.header.title`, `kit.header.model`, `kit.header.thinking`,
+`kit.header.update`, and `kit.footer.location`. Chrome items can also declare an `open-url` action for an
 absolute HTTP(S) URL. Terminal renderers use the platform opener; web mode
 renders the action as a native isolated new-tab link.
 

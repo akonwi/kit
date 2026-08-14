@@ -6,10 +6,7 @@ import {
 	Show,
 } from "solid-js";
 import type { AgentRuntime } from "../runtime/agent-runtime";
-import {
-	activateChromeContributionAtX,
-	ChromeContributionLine,
-} from "./ChromeContributionLine";
+import { ChromeContributionLine } from "./ChromeContributionLine";
 import {
 	BUILT_IN_CHROME_CONTRIBUTION_IDS,
 	type ChromeContribution,
@@ -27,8 +24,6 @@ import { HORIZONTAL_LINE, MIDDLE_DOT } from "./glyphs";
 import type { HeaderStatusController } from "./header-status";
 import { theme } from "./theme";
 
-const PRIMARY_MOUSE_BUTTON = 0;
-
 function progressColor(pct: number): string {
 	if (pct > 90) return theme.progressCritical;
 	if (pct >= 80) return theme.progressWarning;
@@ -38,6 +33,7 @@ function progressColor(pct: number): string {
 export const HEADER_CONTRIBUTION_IDS = {
 	title: BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle,
 	model: BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel,
+	thinking: BUILT_IN_CHROME_CONTRIBUTION_IDS.headerThinking,
 } as const;
 
 export type HeaderBarProps = {
@@ -45,9 +41,13 @@ export type HeaderBarProps = {
 	shellWidth: number;
 	transcriptWidth: number;
 	showContextProgress?: boolean;
+	actionsDisabled?: () => boolean;
 	onHeightChange?: (height: number) => void;
 	onOpenOverflow: (contributions: readonly ChromeContribution[]) => void;
 	onOverflowAvailabilityChange?: (available: boolean) => void;
+	onRenameSession?: () => void;
+	onSelectModel?: () => void;
+	onSelectThinkingLevel?: () => void;
 	runtime: AgentRuntime;
 	header: HeaderStatusController;
 };
@@ -56,6 +56,7 @@ function contribution(input: {
 	id: string;
 	content: ChromeContribution["content"];
 	side: "left" | "right";
+	onClick?: () => void;
 }): ChromeContribution {
 	const plainText = input.content.map((segment) => segment.text).join("");
 	return {
@@ -63,6 +64,7 @@ function contribution(input: {
 		content: input.content,
 		plainText,
 		side: input.side,
+		onClick: input.onClick,
 	};
 }
 
@@ -119,38 +121,71 @@ export function HeaderBar(props: HeaderBarProps) {
 				style: { fg: theme.textPrimary },
 			}),
 			side: "left",
+			onClick: props.onRenameSession,
 		});
 	});
-	const modelContribution = createMemo<ChromeContribution>(() => {
-		const thinking = agentInfo().thinkingLevel;
-		const maxWidth = Math.max(
-			5,
-			Math.min(42, Math.floor(availableWidth() * 0.38)),
-		);
-		const separator = ` ${MIDDLE_DOT} `;
-		const thinkingWidth = Math.max(
-			1,
-			Math.min(
-				terminalTextWidth(thinking),
-				Math.floor((maxWidth - terminalTextWidth(separator)) / 2),
-			),
-		);
-		const compactThinking = truncateEnd(thinking, thinkingWidth);
-		const modelWidth = Math.max(
-			1,
-			maxWidth -
-				terminalTextWidth(separator) -
-				terminalTextWidth(compactThinking),
-		);
-		const model = truncateEnd(agentInfo().model?.name ?? "model?", modelWidth);
-		return contribution({
-			id: HEADER_CONTRIBUTION_IDS.model,
-			content: createChromeTextContent(
-				`${model}${separator}${compactThinking}`,
-			),
-			side: "right",
-		});
-	});
+	const agentConfigurationContributions = createMemo<ChromeContribution[]>(
+		() => {
+			// Subscribe to controller notifications for built-ins assembled locally.
+			void headerContributions();
+			const showModel = !props.header.isHidden(HEADER_CONTRIBUTION_IDS.model);
+			const showThinking = !props.header.isHidden(
+				HEADER_CONTRIBUTION_IDS.thinking,
+			);
+			if (!showModel && !showThinking) return [];
+
+			const maxWidth = Math.max(
+				5,
+				Math.min(42, Math.floor(availableWidth() * 0.38)),
+			);
+			const thinking = agentInfo().thinkingLevel;
+			let thinkingWidth = showThinking ? maxWidth : 0;
+			let modelWidth = showModel ? maxWidth : 0;
+			if (showModel && showThinking) {
+				const separatorWidth = terminalTextWidth(` ${MIDDLE_DOT} `);
+				thinkingWidth = Math.max(
+					1,
+					Math.min(
+						terminalTextWidth(thinking),
+						Math.floor((maxWidth - separatorWidth) / 2),
+					),
+				);
+				modelWidth = Math.max(
+					1,
+					maxWidth -
+						separatorWidth -
+						terminalTextWidth(truncateEnd(thinking, thinkingWidth)),
+				);
+			}
+
+			return [
+				...(showModel
+					? [
+							contribution({
+								id: HEADER_CONTRIBUTION_IDS.model,
+								content: createChromeTextContent(
+									truncateEnd(agentInfo().model?.name ?? "model?", modelWidth),
+								),
+								side: "right",
+								onClick: props.onSelectModel,
+							}),
+						]
+					: []),
+				...(showThinking
+					? [
+							contribution({
+								id: HEADER_CONTRIBUTION_IDS.thinking,
+								content: createChromeTextContent(
+									truncateEnd(thinking, thinkingWidth),
+								),
+								side: "right",
+								onClick: props.onSelectThinkingLevel,
+							}),
+						]
+					: []),
+			];
+		},
+	);
 	const privileged = createMemo(() => {
 		// Header controller notifications also cover hide/show changes for the
 		// built-ins, whose content is assembled locally rather than stored there.
@@ -158,14 +193,16 @@ export function HeaderBar(props: HeaderBarProps) {
 		const title = props.header.isHidden(HEADER_CONTRIBUTION_IDS.title)
 			? null
 			: titleContribution();
-		const model = props.header.isHidden(HEADER_CONTRIBUTION_IDS.model)
-			? null
-			: modelContribution();
-		let items = [title, model].filter(
-			(item): item is ChromeContribution => item !== null,
-		);
-		if (chromeLayoutWidth(items) > availableWidth() && model) {
-			items = items.filter((item) => item.id !== model.id);
+		const agentConfiguration = agentConfigurationContributions();
+		let items = [...(title ? [title] : []), ...agentConfiguration];
+		const removeAgentConfiguration = () => {
+			const configurationIds = new Set(
+				agentConfiguration.map((item) => item.id),
+			);
+			items = items.filter((item) => !configurationIds.has(item.id));
+		};
+		if (chromeLayoutWidth(items) > availableWidth()) {
+			removeAgentConfiguration();
 		}
 		if (standardCount > 0) {
 			const overflowProbe: ChromeContribution = {
@@ -175,7 +212,7 @@ export function HeaderBar(props: HeaderBarProps) {
 				side: "right",
 			};
 			if (chromeLayoutWidth([...items, overflowProbe]) > availableWidth()) {
-				items = items.filter((item) => item.id !== model?.id);
+				removeAgentConfiguration();
 			}
 			if (chromeLayoutWidth([...items, overflowProbe]) > availableWidth()) {
 				items = items.filter((item) => item.id !== title?.id);
@@ -242,20 +279,6 @@ export function HeaderBar(props: HeaderBarProps) {
 		>
 			<box
 				border={["bottom"]}
-				onMouseDown={(event) => {
-					if (event.button !== PRIMARY_MOUSE_BUTTON) return;
-					if (
-						!activateChromeContributionAtX({
-							left: displayed("left"),
-							right: displayed("right"),
-							shellWidth: props.shellWidth,
-							x: event.x,
-						})
-					)
-						return;
-					event.preventDefault();
-					event.stopPropagation();
-				}}
 				borderColor={theme.borderDefault}
 				paddingX={1}
 				width="100%"
@@ -273,6 +296,7 @@ export function HeaderBar(props: HeaderBarProps) {
 						contributions={displayed("left")}
 						fg={theme.textMuted}
 						wrap={false}
+						disabled={props.actionsDisabled}
 					/>
 				</box>
 				<box
@@ -286,6 +310,7 @@ export function HeaderBar(props: HeaderBarProps) {
 						fg={theme.textMuted}
 						fallback=""
 						wrap={false}
+						disabled={props.actionsDisabled}
 					/>
 				</box>
 			</box>

@@ -801,6 +801,7 @@ export class RpcSessionHost {
 			header: remoteChromeArea(this.header, [
 				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerTitle,
 				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerModel,
+				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerThinking,
 				BUILT_IN_CHROME_CONTRIBUTION_IDS.headerUpdate,
 			]),
 			footer: remoteChromeArea(this.footer, [

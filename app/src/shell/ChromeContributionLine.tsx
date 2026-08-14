@@ -1,4 +1,5 @@
-import { For, Show } from "solid-js";
+import { useRenderer } from "@opentui/solid";
+import { createEffect, For, onCleanup, Show } from "solid-js";
 import type {
 	ChromeContribution,
 	ChromeTextStyle,
@@ -18,6 +19,8 @@ type ChromeContributionLineProps = {
 	separatorFg?: string;
 	fallback?: string;
 	wrap?: boolean;
+	disabled?: boolean | (() => boolean);
+	delegateActivation?: boolean;
 	onOpenUrl?: OpenUrl;
 };
 
@@ -63,13 +66,12 @@ function contributionAtX(
 	return null;
 }
 
-export function activateChromeContributionAtX(input: {
+export function actionableChromeContributionAtX(input: {
 	left: readonly ChromeContribution[];
 	right: readonly ChromeContribution[];
 	shellWidth: number;
 	x: number;
-	onOpenUrl?: OpenUrl;
-}): boolean {
+}): ChromeContribution | null {
 	const rightWidth =
 		input.right.reduce(
 			(total, contribution) =>
@@ -80,9 +82,7 @@ export function activateChromeContributionAtX(input: {
 	const contribution =
 		contributionAtX(input.right, input.shellWidth - 1 - rightWidth, input.x) ??
 		contributionAtX(input.left, 1, input.x);
-	if (!contribution || !isActionable(contribution)) return false;
-	handleClick(contribution, input.onOpenUrl);
-	return true;
+	return contribution && isActionable(contribution) ? contribution : null;
 }
 
 function focusedSegmentStyle(
@@ -115,28 +115,73 @@ export function ChromeContributionText(props: {
 	contribution: ChromeContribution;
 	fg?: string;
 	focused?: boolean;
+	disabled?: boolean | (() => boolean);
+	delegateActivation?: boolean;
 	onOpenUrl?: OpenUrl;
 }) {
+	const renderer = useRenderer();
+	const actionable = isActionable(props.contribution);
+	const isDisabled = () =>
+		typeof props.disabled === "function" ? props.disabled() : props.disabled;
+	const isEnabled = () => !isDisabled() && actionable;
+	const handlesActivation = actionable && !props.delegateActivation;
+	let hovered = false;
+	let pressed = false;
+	createEffect(() => {
+		if (isEnabled()) return;
+		pressed = false;
+		if (!hovered) return;
+		hovered = false;
+		renderer.setMousePointer("default");
+	});
+	onCleanup(() => {
+		if (hovered) renderer.setMousePointer("default");
+	});
+
 	return (
 		<text
 			fg={props.focused ? theme.pickerFocusedText : props.fg}
 			bg={props.focused ? theme.pickerFocusedBg : undefined}
 			onMouseDown={
-				isActionable(props.contribution)
+				handlesActivation
 					? (event) => {
-							if (event.button !== PRIMARY_MOUSE_BUTTON) return;
+							pressed = isEnabled() && event.button === PRIMARY_MOUSE_BUTTON;
+						}
+					: undefined
+			}
+			onMouseDrag={
+				handlesActivation
+					? () => {
+							pressed = false;
+						}
+					: undefined
+			}
+			onMouseUp={
+				handlesActivation
+					? (event) => {
+							const shouldActivate = pressed && isEnabled();
+							pressed = false;
+							if (!shouldActivate) return;
 							event.preventDefault();
 							event.stopPropagation();
 							handleClick(props.contribution, props.onOpenUrl);
 						}
 					: undefined
 			}
-			onMouseUp={
-				isActionable(props.contribution)
-					? (event) => {
-							if (event.button !== PRIMARY_MOUSE_BUTTON) return;
-							event.preventDefault();
-							event.stopPropagation();
+			onMouseOver={
+				actionable
+					? () => {
+							if (!isEnabled()) return;
+							hovered = true;
+							renderer.setMousePointer("pointer");
+						}
+					: undefined
+			}
+			onMouseOut={
+				actionable
+					? () => {
+							hovered = false;
+							renderer.setMousePointer("default");
 						}
 					: undefined
 			}
@@ -184,6 +229,8 @@ export function ChromeContributionLine(props: ChromeContributionLineProps) {
 							<ChromeContributionText
 								contribution={contribution}
 								fg={props.fg}
+								disabled={props.disabled}
+								delegateActivation={props.delegateActivation}
 								onOpenUrl={props.onOpenUrl}
 							/>
 						</>

@@ -119,6 +119,14 @@ export function MobileSessionMenu(): JSX.Element {
 								{modelLabel() || "Unavailable"}
 							</span>
 						</button>
+					</Show>
+					<Show
+						when={
+							!hiddenHeader().has(
+								BUILT_IN_CHROME_CONTRIBUTION_IDS.headerThinking,
+							)
+						}
+					>
 						<button
 							class="mobile-session-menu-row"
 							type="button"
