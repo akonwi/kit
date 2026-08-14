@@ -47,6 +47,13 @@ export function CodeReviewPanel(): JSX.Element {
 	);
 	const [viewMenuOpen, setViewMenuOpen] = createSignal(false);
 	const currentPath = createMemo(() => review.selectedFile()?.file.path);
+	const currentNotes = createMemo(() =>
+		review.notes().filter((note) => note.path === currentPath()),
+	);
+	const currentDraft = createMemo(() => {
+		const value = review.draft();
+		return value?.path === currentPath() ? value : null;
+	});
 	let viewMenu: HTMLDivElement | undefined;
 
 	createEffect(() => localStorage.setItem(REVIEW_LAYOUT_KEY, layout()));
@@ -81,7 +88,9 @@ export function CodeReviewPanel(): JSX.Element {
 		<section class="code-review-panel" aria-label="Code review">
 			<header class="workspace-panel-header">
 				<strong>Code review</strong>
-				<span>{review.state()?.files.length ?? 0} files</span>
+				<span>
+					{`${review.state()?.files.length ?? 0} files · ${review.notes().length} ${review.notes().length === 1 ? "note" : "notes"}`}
+				</span>
 				<div ref={viewMenu} class="code-review-view-menu">
 					<button
 						type="button"
@@ -158,6 +167,14 @@ export function CodeReviewPanel(): JSX.Element {
 								type="button"
 								class="code-review-file"
 								classList={{ "is-active": file.path === currentPath() }}
+								disabled={
+									review.draft() !== null && file.path !== currentPath()
+								}
+								title={
+									review.draft() !== null && file.path !== currentPath()
+										? "Add or cancel the current note first"
+										: file.path
+								}
 								onClick={() => {
 									setMobileFilesOpen(false);
 									void review.selectFile(file.path);
@@ -170,6 +187,16 @@ export function CodeReviewPanel(): JSX.Element {
 								<span class="code-review-counts">
 									+{file.additions} −{file.deletions}
 								</span>
+								<Show
+									when={
+										review.notes().filter((note) => note.path === file.path)
+											.length
+									}
+								>
+									{(count) => (
+										<span class="code-review-note-count">{count()}</span>
+									)}
+								</Show>
 							</button>
 						)}
 					</For>
@@ -201,6 +228,25 @@ export function CodeReviewPanel(): JSX.Element {
 										file={selected()}
 										layout={layout()}
 										overflow={overflow()}
+										notes={currentNotes()}
+										draft={currentDraft()}
+										onSelectRange={(range) => {
+											const path = currentPath();
+											if (path) review.selectRange(path, range);
+										}}
+										onSaveNote={(_, comment) => {
+											const value = currentDraft();
+											if (value) review.saveNote(value, comment);
+										}}
+										onEditNote={(note) => {
+											const value = review
+												.notes()
+												.find((candidate) => candidate.id === note.id);
+											if (value) review.editNote(value);
+										}}
+										onDraftChange={review.updateDraftComment}
+										onDeleteNote={review.deleteNote}
+										onCancelNote={review.cancelNote}
 									/>
 								</div>
 							</>

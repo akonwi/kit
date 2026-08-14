@@ -1,4 +1,5 @@
 /** @jsxImportSource solid-js */
+import type { SelectedLineRange } from "@pierre/diffs";
 import {
 	type Accessor,
 	createContext,
@@ -11,16 +12,38 @@ import {
 import type { RemoteReviewFile, RemoteReviewState } from "./remote-services";
 import { useWebClient } from "./WebClientContext";
 
+export type LocalReviewNote = {
+	id: string;
+	path: string;
+	range: SelectedLineRange;
+	comment: string;
+};
+
+export type LocalReviewNoteDraft = {
+	path: string;
+	range: SelectedLineRange;
+	noteId?: string;
+	initialComment: string;
+};
+
 type CodeReviewContextValue = {
 	open: Accessor<boolean>;
 	loading: Accessor<boolean>;
 	error: Accessor<string>;
 	state: Accessor<RemoteReviewState | null>;
 	selectedFile: Accessor<RemoteReviewFile | null>;
+	notes: Accessor<LocalReviewNote[]>;
+	draft: Accessor<LocalReviewNoteDraft | null>;
 	openReview(): void;
 	close(): void;
 	selectFile(path: string): Promise<void>;
 	refresh(): Promise<void>;
+	selectRange(path: string, range: SelectedLineRange | null): void;
+	saveNote(draft: LocalReviewNoteDraft, comment: string): void;
+	editNote(note: LocalReviewNote): void;
+	updateDraftComment(comment: string): void;
+	deleteNote(noteId: string): void;
+	cancelNote(): void;
 };
 
 const CodeReviewContext = createContext<CodeReviewContextValue>();
@@ -42,6 +65,8 @@ export function CodeReviewProvider(props: {
 	const [selectedFile, setSelectedFile] = createSignal<RemoteReviewFile | null>(
 		null,
 	);
+	const [notes, setNotes] = createSignal<LocalReviewNote[]>([]);
+	const [draft, setDraft] = createSignal<LocalReviewNoteDraft | null>(null);
 	let generation = 0;
 	let observedSessionId: unknown;
 
@@ -84,6 +109,65 @@ export function CodeReviewProvider(props: {
 		generation += 1;
 		setOpen(false);
 		setError("");
+		setDraft(null);
+	}
+
+	function selectRange(path: string, range: SelectedLineRange | null): void {
+		const current = draft();
+		if (current?.initialComment.trim()) {
+			// Keep an in-progress comment and ask Pierre to restore its selection.
+			setDraft({ ...current });
+			return;
+		}
+		setDraft(range ? { path, range, initialComment: "" } : null);
+	}
+
+	function saveNote(value: LocalReviewNoteDraft, comment: string): void {
+		const normalized = comment.trim();
+		if (!normalized) return;
+		if (value.noteId) {
+			setNotes((current) =>
+				current.map((note) =>
+					note.id === value.noteId
+						? { ...note, range: value.range, comment: normalized }
+						: note,
+				),
+			);
+		} else {
+			setNotes((current) => [
+				...current,
+				{
+					id: crypto.randomUUID(),
+					path: value.path,
+					range: value.range,
+					comment: normalized,
+				},
+			]);
+		}
+		setDraft(null);
+	}
+
+	function editNote(note: LocalReviewNote): void {
+		setDraft({
+			path: note.path,
+			range: note.range,
+			noteId: note.id,
+			initialComment: note.comment,
+		});
+	}
+
+	function updateDraftComment(comment: string): void {
+		const current = draft();
+		if (current) current.initialComment = comment;
+	}
+
+	function deleteNote(noteId: string): void {
+		setNotes((current) => current.filter((note) => note.id !== noteId));
+		if (draft()?.noteId === noteId) setDraft(null);
+	}
+
+	function cancelNote(): void {
+		setDraft(null);
 	}
 
 	async function selectFile(path: string): Promise<void> {
@@ -107,6 +191,8 @@ export function CodeReviewProvider(props: {
 			close();
 			setState(null);
 			setSelectedFile(null);
+			setNotes([]);
+			setDraft(null);
 		}
 		observedSessionId = sessionId;
 	});
@@ -124,10 +210,18 @@ export function CodeReviewProvider(props: {
 				error,
 				state,
 				selectedFile,
+				notes,
+				draft,
 				openReview,
 				close,
 				selectFile,
 				refresh,
+				selectRange,
+				saveNote,
+				editNote,
+				updateDraftComment,
+				deleteNote,
+				cancelNote,
 			}}
 		>
 			{props.children}
