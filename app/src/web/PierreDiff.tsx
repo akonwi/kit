@@ -35,6 +35,7 @@ type ReviewAnnotation = {
 
 const SELECTION_CSS = `
 :host {
+  --diffs-font-family: var(--font-mono);
   --diffs-selection-color-override: var(--kit-attachment-text);
 }
 [data-separator='line-info'] [data-separator-wrapper],

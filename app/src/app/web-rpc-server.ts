@@ -1,6 +1,12 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import micaCss from "@akonwi/mica/mica.css" with { type: "text" };
+import jetbrainsMonoItalic from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-italic.woff2" with {
+	type: "file",
+};
+import jetbrainsMonoNormal from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2" with {
+	type: "file",
+};
 import type { Server, ServerWebSocket } from "bun";
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import clientCss from "../web/client.css" with { type: "text" };
@@ -90,7 +96,10 @@ function webClientJavaScript(): Promise<string> {
 	return developmentWebClient;
 }
 
-const WEB_ASSETS = new Map<string, { body: string; contentType: string }>([
+const WEB_ASSETS = new Map<
+	string,
+	{ body: string | Blob; contentType: string }
+>([
 	[
 		"/assets/mica.css",
 		{ body: micaCss, contentType: "text/css; charset=utf-8" },
@@ -98,6 +107,20 @@ const WEB_ASSETS = new Map<string, { body: string; contentType: string }>([
 	[
 		"/assets/client.css",
 		{ body: clientCss, contentType: "text/css; charset=utf-8" },
+	],
+	[
+		"/assets/jetbrains-mono-normal.woff2",
+		{
+			body: Bun.file(new URL(jetbrainsMonoNormal, import.meta.url)),
+			contentType: "font/woff2",
+		},
+	],
+	[
+		"/assets/jetbrains-mono-italic.woff2",
+		{
+			body: Bun.file(new URL(jetbrainsMonoItalic, import.meta.url)),
+			contentType: "font/woff2",
+		},
 	],
 ]);
 

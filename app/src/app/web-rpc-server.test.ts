@@ -175,6 +175,9 @@ describe("WebRpcServer", () => {
 		const health = await fetch(`${address.url}/api/health`);
 		const page = await fetch(address.url);
 		const mica = await fetch(`${address.url}/assets/mica.css`);
+		const font = await fetch(
+			`${address.url}/assets/jetbrains-mono-normal.woff2`,
+		);
 		const client = await fetch(`${address.url}/assets/client.js`);
 
 		expect(await health.json()).toEqual({ ok: true, mode: "web", clients: 0 });
@@ -185,6 +188,8 @@ describe("WebRpcServer", () => {
 		expect(await page.text()).toContain('<div id="app"></div>');
 		expect(mica.headers.get("content-type")).toContain("text/css");
 		expect((await mica.text()).length).toBeGreaterThan(60_000);
+		expect(font.headers.get("content-type")).toBe("font/woff2");
+		expect((await font.arrayBuffer()).byteLength).toBeGreaterThan(10_000);
 		expect(client.headers.get("content-type")).toContain("text/javascript");
 		const clientJavaScript = await client.text();
 		expect(clientJavaScript).toContain("new WebSocket");
