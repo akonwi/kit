@@ -2155,7 +2155,6 @@ button.code-review-view-trigger[aria-expanded="true"] {
 }
 .pierre-diff-host .kit-review-annotation {
 	margin: 0.375rem 0.5rem;
-	border-left: 3px solid var(--kit-attachment-text);
 	background: var(--kit-bg-surface);
 	color: var(--kit-text-primary);
 	font-family: var(--font-sans);

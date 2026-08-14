@@ -37,6 +37,12 @@ const SELECTION_CSS = `
 :host {
   --diffs-selection-color-override: var(--kit-attachment-text);
 }
+[data-separator='line-info'] [data-separator-wrapper],
+[data-separator='line-info'] [data-separator-content],
+[data-separator='line-info-basic'] [data-separator-wrapper],
+[data-separator='line-info-basic'] [data-separator-content] {
+  border-radius: 0 !important;
+}
 `;
 
 function themeType(): ThemeTypes {
