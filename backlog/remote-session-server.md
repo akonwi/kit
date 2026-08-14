@@ -312,3 +312,10 @@ for every remote client rather than hidden in renderer-specific code:
 The core product abstraction is: `kit --web` turns a local or cloud
 workspace into a remotely controllable Kit session to which compatible browser
 and terminal clients can attach.
+
+## Code review surface
+
+- [ ] Preserve drafts across page reloads.
+- [ ] Add commit and branch review targets; web currently reviews the working
+  tree.
+- [ ] Add file-level comments and comments on unchanged files.
