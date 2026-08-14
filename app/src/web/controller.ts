@@ -12,6 +12,7 @@ import {
 	type RemoteCommandList,
 	type RemoteModel,
 	type RemoteReviewFile,
+	type RemoteReviewNote,
 	type RemoteReviewState,
 	type RemoteScratchpad,
 	WebRemoteServices,
@@ -317,6 +318,29 @@ export class WebClientController {
 
 	getReviewFile(path: string): Promise<RemoteReviewFile> {
 		return this.services.getReviewFile(path);
+	}
+
+	submitReview(
+		submissionId: string,
+		sessionId: string,
+		generation: number,
+		notes: RemoteReviewNote[],
+	): Promise<Record<string, unknown>> {
+		const expectedStreamId = this.state.streamId;
+		return this.sendCommand(
+			{ type: "submit_review", submissionId, sessionId, generation, notes },
+			() => {
+				if (
+					this.state.streamId !== expectedStreamId ||
+					this.state.serverState.sessionId !== sessionId
+				) {
+					throw new Error("The Kit session changed before the review was sent");
+				}
+				if (this.state.serverState.isStreaming === true) {
+					throw new Error("Wait for the current response before submitting");
+				}
+			},
+		);
 	}
 
 	async renameSession(name: string): Promise<boolean> {

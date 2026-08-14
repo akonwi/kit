@@ -15,6 +15,7 @@ import {
 	type ReviewDiffLayout,
 	type ReviewDiffOverflow,
 } from "./PierreDiff";
+import { useWebClient } from "./WebClientContext";
 import { WebIcon } from "./WebIcon";
 
 const REVIEW_LAYOUT_KEY = "kit.web.codeReview.layout";
@@ -40,6 +41,7 @@ function statusLabel(status: string): string {
 
 export function CodeReviewPanel(): JSX.Element {
 	const review = useCodeReview();
+	const { snapshot } = useWebClient();
 	const [mobileFilesOpen, setMobileFilesOpen] = createSignal(false);
 	const [layout, setLayout] = createSignal<ReviewDiffLayout>(readLayout());
 	const [overflow, setOverflow] = createSignal<ReviewDiffOverflow>(
@@ -53,6 +55,17 @@ export function CodeReviewPanel(): JSX.Element {
 	const currentDraft = createMemo(() => {
 		const value = review.draft();
 		return value?.path === currentPath() ? value : null;
+	});
+	const submitHint = createMemo(() => {
+		if (review.submitting()) return "Submitting review…";
+		if (review.staleTarget()) return "Review changed · notes kept for recovery";
+		if (review.draft()) return "Finish the current note first";
+		if (snapshot().protocol.phase !== "live") return "Kit is not connected";
+		if (snapshot().protocol.serverState.isStreaming === true) {
+			return "Wait for the current response";
+		}
+		const count = review.notes().length;
+		return `${count} ${count === 1 ? "note" : "notes"} ready`;
 	});
 	let viewMenu: HTMLDivElement | undefined;
 
@@ -271,6 +284,25 @@ export function CodeReviewPanel(): JSX.Element {
 					</Show>
 				</main>
 			</div>
+			<Show when={review.notes().length > 0}>
+				<footer class="code-review-footer">
+					<span>{submitHint()}</span>
+					<button
+						type="button"
+						data-variant="primary"
+						disabled={
+							review.draft() !== null ||
+							review.submitting() ||
+							review.staleTarget() ||
+							snapshot().protocol.phase !== "live" ||
+							snapshot().protocol.serverState.isStreaming === true
+						}
+						onClick={() => void review.submitReview()}
+					>
+						{review.submitting() ? "Submitting…" : "Submit review"}
+					</button>
+				</footer>
+			</Show>
 		</section>
 	);
 }

@@ -2,7 +2,10 @@ import type {
 	CommandRegistry,
 	TransportNeutralCommandContext,
 } from "../features/commands";
-import type { RemoteReviewService } from "../features/review/remote-service";
+import type {
+	RemoteReviewNote,
+	RemoteReviewService,
+} from "../features/review/remote-service";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { MessagePart } from "../messages/parts";
 import type { ThinkingLevel } from "../runtime/agent";
@@ -157,6 +160,14 @@ function requireText(command: RpcCommand, key: string): string {
 	return value;
 }
 
+function requiredNonnegativeInteger(command: RpcCommand, key: string): number {
+	const value = command[key];
+	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+		throw new Error(`${key} must be a non-negative integer`);
+	}
+	return value;
+}
+
 function optionalNonnegativeInteger(
 	command: RpcCommand,
 	key: string,
@@ -168,6 +179,57 @@ function optionalNonnegativeInteger(
 		throw new Error(`${key} must be a non-negative integer`);
 	}
 	return value;
+}
+
+const MAX_REMOTE_REVIEW_NOTES = 128;
+const MAX_REMOTE_REVIEW_COMMENT_BYTES = 16 * 1024;
+const MAX_REMOTE_REVIEW_TOTAL_COMMENT_BYTES = 192 * 1024;
+
+function reviewSubmissionId(command: RpcCommand): string {
+	const submissionId = requireString(command, "submissionId");
+	if (submissionId.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(submissionId)) {
+		throw new Error("submissionId is invalid");
+	}
+	return submissionId;
+}
+
+function reviewNotes(command: RpcCommand): RemoteReviewNote[] {
+	const value = command.notes;
+	if (!Array.isArray(value) || value.length === 0) {
+		throw new Error("notes must be a non-empty array");
+	}
+	if (value.length > MAX_REMOTE_REVIEW_NOTES) {
+		throw new Error(`notes must not exceed ${MAX_REMOTE_REVIEW_NOTES} entries`);
+	}
+	let totalCommentBytes = 0;
+	return value.map((item) => {
+		if (!isRecord(item)) throw new Error("notes contains an invalid note");
+		const path = item.path;
+		const side = item.side;
+		const startLine = item.startLine;
+		const endLine = item.endLine;
+		const comment = typeof item.comment === "string" ? item.comment.trim() : "";
+		const commentBytes = Buffer.byteLength(comment, "utf8");
+		totalCommentBytes += commentBytes;
+		if (
+			typeof path !== "string" ||
+			!path ||
+			path.length > 4_096 ||
+			(side !== "additions" && side !== "deletions") ||
+			typeof startLine !== "number" ||
+			!Number.isSafeInteger(startLine) ||
+			startLine < 1 ||
+			typeof endLine !== "number" ||
+			!Number.isSafeInteger(endLine) ||
+			endLine < startLine ||
+			!comment ||
+			commentBytes > MAX_REMOTE_REVIEW_COMMENT_BYTES ||
+			totalCommentBytes > MAX_REMOTE_REVIEW_TOTAL_COMMENT_BYTES
+		) {
+			throw new Error("notes contains an invalid note");
+		}
+		return { path, side, startLine, endLine, comment };
+	});
 }
 
 function attachmentIds(command: RpcCommand): string[] {
@@ -1234,7 +1296,9 @@ export class RpcSessionHost {
 							...(this.scratchpad
 								? ["get_scratchpad", "update_scratchpad"]
 								: []),
-							...(this.review ? ["get_review_state", "get_review_file"] : []),
+							...(this.review
+								? ["get_review_state", "get_review_file", "submit_review"]
+								: []),
 						],
 						interactiveUI: this.interactions !== undefined,
 						chromeContributions:
@@ -1324,6 +1388,81 @@ export class RpcSessionHost {
 				await respond(
 					this.response(command, true, { sessionId, content: result.content }),
 				);
+				return;
+			}
+			case "submit_review": {
+				const review = this.review;
+				if (!review) throw new Error("Code review is unavailable");
+				const sessionId = requireString(command, "sessionId");
+				const generation = requiredNonnegativeInteger(command, "generation");
+				const dispatchGeneration = this.commandGeneration;
+				const submission = await review.prepareSubmission(
+					reviewSubmissionId(command),
+					sessionId,
+					generation,
+					reviewNotes(command),
+				);
+				if (dispatchGeneration !== this.commandGeneration) {
+					throw new Error("Command cancelled by abort");
+				}
+				if (!submission.part) {
+					await respond(this.response(command, true, { duplicate: true }));
+					return;
+				}
+				const part = submission.part;
+				if (
+					!this.acceptingCommands ||
+					this.promptReserved ||
+					this.runtime.getStatus().isStreaming
+				) {
+					throw new Error(
+						"Cannot submit a review while the agent is streaming",
+					);
+				}
+				review.assertCurrent(sessionId, generation);
+				this.promptReserved = true;
+
+				let accepted = false;
+				let resolveAcceptance: () => void = () => {};
+				let rejectAcceptance: (error: Error) => void = () => {};
+				const acceptance = new Promise<void>((resolve, reject) => {
+					resolveAcceptance = resolve;
+					rejectAcceptance = reject;
+				});
+				let run: Promise<void>;
+				run = Promise.resolve()
+					.then(() => {
+						if (
+							!this.acceptingCommands ||
+							dispatchGeneration !== this.commandGeneration
+						) {
+							throw new Error("Command cancelled by abort");
+						}
+						if (this.runtime.getStatus().isStreaming) {
+							throw new Error(
+								"Cannot submit a review while the agent is streaming",
+							);
+						}
+						review.assertCurrent(sessionId, generation);
+						return this.runtime.submitUserMessage([part], () => {
+							review.markSubmissionAccepted(submission);
+							accepted = true;
+							resolveAcceptance();
+						});
+					})
+					.catch((error) => {
+						const normalized =
+							error instanceof Error ? error : new Error(String(error));
+						if (!accepted) rejectAcceptance(normalized);
+						else this.publish({ type: "error", error: normalized.message });
+					})
+					.finally(() => {
+						this.promptReserved = false;
+						this.acceptedRuns.delete(run);
+					});
+				this.acceptedRuns.add(run);
+				await acceptance;
+				await respond(this.response(command, true));
 				return;
 			}
 			case "get_review_state": {

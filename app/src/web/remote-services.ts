@@ -94,6 +94,14 @@ export type RemoteReviewFile = {
 	};
 };
 
+export type RemoteReviewNote = {
+	path: string;
+	side: "additions" | "deletions";
+	startLine: number;
+	endLine: number;
+	comment: string;
+};
+
 const MAX_REMOTE_COMMANDS = 512;
 const MAX_COMMAND_ID_LENGTH = 256;
 const MAX_COMMAND_NAME_LENGTH = 256;
@@ -481,6 +489,21 @@ export class WebRemoteServices {
 			path,
 		});
 		return parseReviewFile(response.data);
+	}
+
+	submitReview(
+		submissionId: string,
+		sessionId: string,
+		generation: number,
+		notes: RemoteReviewNote[],
+	): Promise<Record<string, unknown>> {
+		return this.rpc.command({
+			type: "submit_review",
+			submissionId,
+			sessionId,
+			generation,
+			notes,
+		});
 	}
 
 	async listCommands(): Promise<RemoteCommandList> {

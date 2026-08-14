@@ -5,6 +5,13 @@ import { ProtocolRebaseRequired } from "./client-state";
 // changes can finish adaptation and workspace setup before snapshot reconnect.
 const REBASE_RESPONSE_GRACE_MS = 35_000;
 
+export class RpcResponseLostError extends Error {
+	constructor(readonly protocolCause?: unknown) {
+		super("Connection closed before a response arrived");
+		this.name = "RpcResponseLostError";
+	}
+}
+
 type PendingCommand = {
 	resolve(record: Record<string, unknown>): void;
 	reject(error: Error): void;
@@ -140,9 +147,7 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 				this.deferRebaseUntilCommandsSettle();
 				return true;
 			}
-			this.rejectPendingCommands(
-				error instanceof Error ? error : new Error(String(error)),
-			);
+			this.rejectPendingCommands(new RpcResponseLostError(error));
 			this.socket?.close();
 			return false;
 		}
@@ -230,9 +235,7 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 			this.queuedRecords.length = 0;
 			if (this.protocolTimer !== null) clearTimeout(this.protocolTimer);
 			this.protocolTimer = null;
-			this.rejectPendingCommands(
-				new Error("Connection closed before a response arrived"),
-			);
+			this.rejectPendingCommands(new RpcResponseLostError());
 			this.hooks.onDisconnected();
 			this.scheduleReconnect();
 		});

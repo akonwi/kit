@@ -128,6 +128,36 @@ describe("web remote review services", () => {
 		});
 		expect(seen).toEqual([{ type: "get_review_state" }]);
 	});
+
+	test("submits review notes with session and generation guards", async () => {
+		const seen: Record<string, unknown>[] = [];
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				seen.push(command);
+				return {};
+			},
+		});
+		const notes = [
+			{
+				path: "src/a.ts",
+				side: "additions" as const,
+				startLine: 2,
+				endLine: 3,
+				comment: "Check this range",
+			},
+		];
+
+		await services.submitReview("submission-1", "session-1", 4, notes);
+		expect(seen).toEqual([
+			{
+				type: "submit_review",
+				submissionId: "submission-1",
+				sessionId: "session-1",
+				generation: 4,
+				notes,
+			},
+		]);
+	});
 });
 
 describe("web remote command services", () => {
