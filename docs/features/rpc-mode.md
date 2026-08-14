@@ -174,6 +174,9 @@ process.
 | `set_thinking_level` | `level` | none |
 | `get_scratchpad` | none | active `sessionId` and Markdown `content` |
 | `update_scratchpad` | `sessionId`, `expectedContent`, `content` | saved `sessionId` and `content` |
+| `get_review_state` (web mode) | none | active session and review generation plus changed-file summaries |
+| `get_review_file` (web mode) | `path` | one changed file with its patch and hunks |
+| `submit_review` (web mode) | `submissionId`, `sessionId`, `generation`, non-empty `notes` with `path`, side, line range, and comment | none; accepted asynchronously as a code-review message |
 | `switch_session` | `sessionPath` (a Kit session ID or path) | `{ "cancelled": false }` |
 | `activate_chrome_contribution` (web mode) | `area: "header" \| "footer"`, `contributionId` | none |
 | `list_commands` | none | transport-neutral commands plus `registryGeneration` |
@@ -223,13 +226,20 @@ requiring theme tokens over RPC, and persists the choice in browser storage.
 Browser-local `/toggle-scratchpad` opens a responsive Markdown workspace panel;
 its guarded autosaves update the session sidecar through RPC and live change
 events keep clean drafts synchronized with agent and other-client edits. The
-clickable session title similarly adapts the transport-neutral `/name`
+browser code-review surface loads changed files incrementally and submits local
+line notes as a structured code-review message. Submission is guarded by both
+the active session and review generation; the host reloads the working-tree diff
+and rejects stale paths or line ranges instead of silently rebinding comments.
+Client-generated submission IDs are persisted with the review message, making
+response-loss retries idempotent while that accepted message remains in current
+session history, including across host restarts.
+The clickable session title similarly adapts the transport-neutral `/name`
 command through a browser-native input dialog. The transport-neutral `/reload`
 command reloads the active session, settings, and plugin state in the shared
 host, matching its TUI behavior. A disconnected browser instead shows a
 `Reconnect` button for an immediate connection attempt. Sessions,
-authentication, review, diagnostics, sub-agents, MCP management, settings, and
-release notes require purpose-built remote surfaces. The MCP surface will
+authentication, diagnostics, sub-agents, MCP management, settings, and release
+notes require purpose-built remote surfaces. The MCP surface will
 include clearing a server's saved OAuth state rather than exposing
 `/mcp-logout` as a remote slash command. Imperative plugin `kit.system.open`
 calls enqueue a correlated, nonblocking `open_url` browser action; the pending

@@ -36,6 +36,9 @@ export type CodeReviewMessagePart = {
 		submittedAt: string;
 		files: CodeReviewFileComment[];
 		commit?: CodeReviewCommitRef;
+		/** Opaque remote retry metadata; omitted by local TUI submissions. */
+		submissionId?: string;
+		submissionFingerprint?: string;
 	};
 };
 

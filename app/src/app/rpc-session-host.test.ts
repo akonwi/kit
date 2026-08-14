@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BUILT_IN_COMMANDS, createCommandRegistry } from "../features/commands";
+import type { RemoteReviewService } from "../features/review/remote-service";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Turn } from "../session/types";
@@ -397,6 +398,232 @@ describe("RpcSessionHost", () => {
 			sessionId: "session-1",
 			content: "updated",
 		});
+		host.dispose();
+	});
+
+	test("dispatches code-review queries and submissions", async () => {
+		const listeners = new Set<() => void>();
+		const submitted: unknown[] = [];
+		const review = {
+			subscribe: (listener: () => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+			refresh: async () => ({
+				sessionId: "session-1",
+				generation: 2,
+				repoRoot: "/workspace",
+				files: [],
+			}),
+			getFile: () => ({
+				sessionId: "session-1",
+				generation: 2,
+				file: { path: "src/a.ts", hunks: [], rawPatch: "" },
+			}),
+			assertCurrent: () => {},
+			markSubmissionAccepted: () => {},
+			prepareSubmission: async () => ({
+				submissionId: "submission-1",
+				fingerprint: "fingerprint-1",
+				part: {
+					type: "code-review" as const,
+					review: {
+						submittedAt: new Date(0).toISOString(),
+						files: [],
+					},
+				},
+			}),
+		} as unknown as RemoteReviewService;
+		const host = new RpcSessionHost(
+			createRuntime({
+				submitUserMessage: async (input: unknown, onAccepted?: () => void) => {
+					submitted.push(input);
+					onAccepted?.();
+				},
+			}),
+			{ review },
+		);
+		const events: unknown[] = [];
+		const responses: Array<Record<string, unknown>> = [];
+		host.subscribe((record) => events.push(record));
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand(
+			{ id: "state", type: "get_review_state" },
+			respond,
+		);
+		await host.handleCommand(
+			{ id: "file", type: "get_review_file", path: "src/a.ts" },
+			respond,
+		);
+		await host.handleCommand(
+			{
+				id: "submit",
+				type: "submit_review",
+				submissionId: "submission-1",
+				sessionId: "session-1",
+				generation: 2,
+				notes: [
+					{
+						path: "src/a.ts",
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+						comment: "Review note",
+					},
+				],
+			},
+			respond,
+		);
+		await host.abortAndWait();
+		for (const listener of listeners) listener();
+
+		expect(responses).toHaveLength(3);
+		expect(responses[1]).toMatchObject({
+			id: "file",
+			success: true,
+			data: { generation: 2, file: { path: "src/a.ts" } },
+		});
+		expect(responses[2]).toMatchObject({
+			id: "submit",
+			success: true,
+		});
+		expect(submitted).toEqual([
+			[
+				expect.objectContaining({
+					type: "code-review",
+				}),
+			],
+		]);
+		expect(events).toContainEqual({ type: "review.changed" });
+		host.dispose();
+	});
+
+	test("does not acknowledge a review before the runtime accepts it", async () => {
+		const review = {
+			subscribe: () => () => {},
+			assertCurrent: () => {},
+			markSubmissionAccepted: () => {},
+			prepareSubmission: async () => ({
+				submissionId: "submission-1",
+				fingerprint: "fingerprint-1",
+				part: {
+					type: "code-review" as const,
+					review: { submittedAt: new Date(0).toISOString(), files: [] },
+				},
+			}),
+		} as unknown as RemoteReviewService;
+		const host = new RpcSessionHost(
+			createRuntime({
+				submitUserMessage: async () => {
+					throw new Error("runtime rejected review");
+				},
+			}),
+			{ review },
+		);
+		const responses: Array<Record<string, unknown>> = [];
+
+		await host.handleCommand(
+			{
+				id: "submit",
+				type: "submit_review",
+				submissionId: "submission-1",
+				sessionId: "session-1",
+				generation: 2,
+				notes: [
+					{
+						path: "src/a.ts",
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+						comment: "Review note",
+					},
+				],
+			},
+			async (record) => {
+				responses.push(record as Record<string, unknown>);
+			},
+		);
+
+		expect(responses).toEqual([
+			expect.objectContaining({
+				id: "submit",
+				success: false,
+				error: "runtime rejected review",
+			}),
+		]);
+		host.dispose();
+	});
+
+	test("does not launch a review aborted during validation", async () => {
+		let finishValidation: (() => void) | undefined;
+		let submitted = false;
+		const review = {
+			subscribe: () => () => {},
+			assertCurrent: () => {},
+			markSubmissionAccepted: () => {},
+			prepareSubmission: () =>
+				new Promise((resolve) => {
+					finishValidation = () =>
+						resolve({
+							submissionId: "submission-1",
+							fingerprint: "fingerprint-1",
+							part: {
+								type: "code-review" as const,
+								review: {
+									submittedAt: new Date(0).toISOString(),
+									files: [],
+								},
+							},
+						});
+				}),
+		} as unknown as RemoteReviewService;
+		const host = new RpcSessionHost(
+			createRuntime({
+				submitUserMessage: async () => {
+					submitted = true;
+				},
+			}),
+			{ review },
+		);
+		const responses: Array<Record<string, unknown>> = [];
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+		const submit = host.handleCommand(
+			{
+				id: "submit",
+				type: "submit_review",
+				submissionId: "submission-1",
+				sessionId: "session-1",
+				generation: 2,
+				notes: [
+					{
+						path: "src/a.ts",
+						side: "additions",
+						startLine: 1,
+						endLine: 1,
+						comment: "Review note",
+					},
+				],
+			},
+			respond,
+		);
+		await Bun.sleep(0);
+		const abort = host.handleCommand({ id: "abort", type: "abort" }, respond);
+		finishValidation?.();
+		await Promise.all([submit, abort]);
+
+		expect(submitted).toBe(false);
+		expect(responses).toContainEqual(
+			expect.objectContaining({
+				id: "submit",
+				success: false,
+				error: "Command cancelled by abort",
+			}),
+		);
 		host.dispose();
 	});
 

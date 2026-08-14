@@ -11,6 +11,7 @@ import {
 import { BUILT_IN_CHROME_CONTRIBUTION_IDS } from "../shell/chrome-contributions";
 import { CHEVRON_RIGHT, ELLIPSIS } from "../shell/glyphs";
 import { useAgentConfiguration } from "./AgentConfigurationControls";
+import { useCodeReview } from "./CodeReviewProvider";
 import { RemoteChromeContributionView } from "./chrome-contributions";
 import { DialogFrame } from "./DialogFrame";
 import { useScratchpad } from "./ScratchpadProvider";
@@ -19,6 +20,7 @@ import { useWebClient } from "./WebClientContext";
 export function MobileSessionMenu(): JSX.Element {
 	const { snapshot, controller } = useWebClient();
 	const scratchpad = useScratchpad();
+	const codeReview = useCodeReview();
 	const {
 		disabled: configurationDisabled,
 		modelLabel,
@@ -138,6 +140,17 @@ export function MobileSessionMenu(): JSX.Element {
 						<span>Scratchpad</span>
 						<span class="mobile-session-menu-value">
 							{scratchpad.open() ? "Open" : CHEVRON_RIGHT}
+						</span>
+					</button>
+					<button
+						class="mobile-session-menu-row"
+						type="button"
+						disabled={disabled()}
+						onClick={() => closeThen(codeReview.openReview)}
+					>
+						<span>Code review</span>
+						<span class="mobile-session-menu-value">
+							{codeReview.open() ? "Open" : CHEVRON_RIGHT}
 						</span>
 					</button>
 					<For each={protocol().chrome.header.contributions}>
