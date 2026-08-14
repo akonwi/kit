@@ -9,6 +9,7 @@ import {
 } from "@pierre/diffs";
 import { createEffect, createSignal, type JSX, onCleanup } from "solid-js";
 import { readBrowserTheme } from "./browser-theme";
+import { MICA_DIFF_CSS, MICA_DIFF_THEME } from "./pierre-mica-theme";
 import type { RemoteReviewFile } from "./remote-services";
 
 export type ReviewDiffLayout = "unified" | "split";
@@ -32,19 +33,6 @@ type ReviewAnnotation = {
 	note: ReviewNote | null;
 	draft: ReviewNoteDraft | null;
 };
-
-const SELECTION_CSS = `
-:host {
-  --diffs-font-family: var(--font-mono);
-  --diffs-selection-color-override: var(--kit-attachment-text);
-}
-[data-separator='line-info'] [data-separator-wrapper],
-[data-separator='line-info'] [data-separator-content],
-[data-separator='line-info-basic'] [data-separator-wrapper],
-[data-separator='line-info-basic'] [data-separator-content] {
-  border-radius: 0 !important;
-}
-`;
 
 function themeType(): ThemeTypes {
 	return readBrowserTheme();
@@ -187,8 +175,9 @@ export function PierreDiff(props: {
 			lineHoverHighlight: "number",
 			onLineSelectionEnd: props.onSelectRange,
 			overflow,
+			theme: MICA_DIFF_THEME,
 			themeType: themeType(),
-			unsafeCSS: SELECTION_CSS,
+			unsafeCSS: MICA_DIFF_CSS,
 			renderAnnotation: (annotation) => {
 				const metadata = annotation.metadata;
 				const wrapper = document.createElement("div");
