@@ -2331,9 +2331,13 @@ button.code-review-view-trigger[aria-expanded="true"] {
 		grid-template-columns: auto minmax(0, 1fr) auto auto;
 		padding: 0.625rem 0.75rem;
 	}
-	.code-review-files-trigger {
-		display: inline-flex;
+	button.code-review-files-trigger {
+		display: inline-grid;
+		width: 2.25rem;
+		height: 2.25rem;
 		flex: 0 0 auto;
+		padding: 0.5rem;
+		place-items: center;
 	}
 	.code-review-file-header {
 		min-height: 2.75rem;

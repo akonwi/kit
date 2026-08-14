@@ -87,6 +87,17 @@ export function CodeReviewPanel(): JSX.Element {
 	return (
 		<section class="code-review-panel" aria-label="Code review">
 			<header class="workspace-panel-header">
+				<Show when={!mobileFilesOpen() && review.selectedFile()}>
+					<button
+						type="button"
+						data-variant="ghost"
+						class="code-review-files-trigger"
+						onClick={() => setMobileFilesOpen(true)}
+						aria-label="Back to changed files"
+					>
+						<WebIcon name="back" />
+					</button>
+				</Show>
 				<strong>Code review</strong>
 				<span>
 					{`${review.state()?.files.length ?? 0} files · ${review.notes().length} ${review.notes().length === 1 ? "note" : "notes"}`}
@@ -211,14 +222,6 @@ export function CodeReviewPanel(): JSX.Element {
 						{(selected) => (
 							<>
 								<div class="code-review-file-header">
-									<button
-										type="button"
-										data-variant="ghost"
-										class="code-review-files-trigger"
-										onClick={() => setMobileFilesOpen(true)}
-									>
-										Files
-									</button>
 									<strong title={selected().file.path}>
 										{selected().file.path}
 									</strong>

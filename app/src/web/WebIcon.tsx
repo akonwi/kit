@@ -3,6 +3,7 @@ import type { JSX } from "solid-js";
 
 export type WebIconName =
 	| "attach"
+	| "back"
 	| "close"
 	| "command"
 	| "send"
@@ -23,6 +24,8 @@ export function WebIcon(props: { name: WebIconName }): JSX.Element {
 		>
 			{props.name === "attach" ? (
 				<path d="M20.5 11.5 11 21a6 6 0 0 1-8.5-8.5l10-10a4 4 0 0 1 5.7 5.7l-10 10a2 2 0 0 1-2.9-2.8l9.3-9.3" />
+			) : props.name === "back" ? (
+				<path d="m15 18-6-6 6-6" />
 			) : props.name === "command" ? (
 				<>
 					<rect x="3" y="5" width="18" height="14" rx="1" />
