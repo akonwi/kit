@@ -4,7 +4,8 @@ export type BrowserCommandAction =
 	| "model"
 	| "theme"
 	| "thinking"
-	| "toggle-scratchpad";
+	| "toggle-scratchpad"
+	| "open-code-review";
 
 export type PaletteCommand = RemoteCommand & {
 	browserAction?: BrowserCommandAction;
@@ -34,6 +35,12 @@ export const BROWSER_COMMANDS: readonly PaletteCommand[] = [
 		name: "toggle-scratchpad",
 		description: "Toggle scratchpad",
 		browserAction: "toggle-scratchpad",
+	},
+	{
+		id: "open-code-review",
+		name: "code-review",
+		description: "Review the current changes",
+		browserAction: "open-code-review",
 	},
 ];
 

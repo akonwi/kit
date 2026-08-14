@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BUILT_IN_COMMANDS, createCommandRegistry } from "../features/commands";
+import type { RemoteReviewService } from "../features/review/remote-service";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { AgentRuntime, AgentRuntimeEvent } from "../runtime/agent-runtime";
 import type { KitAgentMessage, Turn } from "../session/types";
@@ -397,6 +398,53 @@ describe("RpcSessionHost", () => {
 			sessionId: "session-1",
 			content: "updated",
 		});
+		host.dispose();
+	});
+
+	test("dispatches read-only code-review queries", async () => {
+		const listeners = new Set<() => void>();
+		const review = {
+			subscribe: (listener: () => void) => {
+				listeners.add(listener);
+				return () => listeners.delete(listener);
+			},
+			refresh: async () => ({
+				sessionId: "session-1",
+				generation: 2,
+				repoRoot: "/workspace",
+				files: [],
+			}),
+			getFile: () => ({
+				sessionId: "session-1",
+				generation: 2,
+				file: { path: "src/a.ts", hunks: [], rawPatch: "" },
+			}),
+		} as unknown as RemoteReviewService;
+		const host = new RpcSessionHost(createRuntime(), { review });
+		const events: unknown[] = [];
+		const responses: Array<Record<string, unknown>> = [];
+		host.subscribe((record) => events.push(record));
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand(
+			{ id: "state", type: "get_review_state" },
+			respond,
+		);
+		await host.handleCommand(
+			{ id: "file", type: "get_review_file", path: "src/a.ts" },
+			respond,
+		);
+		for (const listener of listeners) listener();
+
+		expect(responses).toHaveLength(2);
+		expect(responses[1]).toMatchObject({
+			id: "file",
+			success: true,
+			data: { generation: 2, file: { path: "src/a.ts" } },
+		});
+		expect(events).toContainEqual({ type: "review.changed" });
 		host.dispose();
 	});
 

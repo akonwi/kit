@@ -1,7 +1,13 @@
 /** @jsxImportSource solid-js */
 import type { JSX } from "solid-js";
 
-export type WebIconName = "attach" | "close" | "command" | "send" | "stop";
+export type WebIconName =
+	| "attach"
+	| "close"
+	| "command"
+	| "send"
+	| "settings"
+	| "stop";
 
 export function WebIcon(props: { name: WebIconName }): JSX.Element {
 	return (
@@ -24,6 +30,12 @@ export function WebIcon(props: { name: WebIconName }): JSX.Element {
 				</>
 			) : props.name === "send" ? (
 				<path d="M12 19V5m-6 6 6-6 6 6" />
+			) : props.name === "settings" ? (
+				<>
+					<path d="M4 7h10M18 7h2M4 17h2M10 17h10" />
+					<circle cx="16" cy="7" r="2" />
+					<circle cx="8" cy="17" r="2" />
+				</>
 			) : props.name === "stop" ? (
 				<rect x="7" y="7" width="10" height="10" />
 			) : (

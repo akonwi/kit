@@ -11,6 +11,8 @@ import {
 import {
 	type RemoteCommandList,
 	type RemoteModel,
+	type RemoteReviewFile,
+	type RemoteReviewState,
 	type RemoteScratchpad,
 	WebRemoteServices,
 } from "./remote-services";
@@ -55,6 +57,7 @@ export class WebClientController {
 	private readonly showToast?: WebToastSink;
 	private disposed = false;
 	private readonly seenSnapshotToasts = new Set<string>();
+	private readonly reviewListeners = new Set<() => void>();
 	private lastProtocolToast: {
 		sequence: number;
 		type: string;
@@ -95,6 +98,11 @@ export class WebClientController {
 
 	subscribe(listener: (snapshot: WebClientSnapshot) => void): () => void {
 		return this.view.subscribe(listener);
+	}
+
+	subscribeReview(listener: () => void): () => void {
+		this.reviewListeners.add(listener);
+		return () => this.reviewListeners.delete(listener);
 	}
 
 	start(): void {
@@ -303,6 +311,14 @@ export class WebClientController {
 		return this.services.updateScratchpad(sessionId, expectedContent, content);
 	}
 
+	getReviewState(): Promise<RemoteReviewState> {
+		return this.services.getReviewState();
+	}
+
+	getReviewFile(path: string): Promise<RemoteReviewFile> {
+		return this.services.getReviewFile(path);
+	}
+
 	async renameSession(name: string): Promise<boolean> {
 		const expectedStreamId = this.state.streamId;
 		const expectedSessionId = this.state.serverState.sessionId;
@@ -477,6 +493,9 @@ export class WebClientController {
 		const previousStreamId = this.state.streamId;
 		for (let index = 0; index < records.length; index += 1) {
 			let record = records[index];
+			if (isRecord(record) && record.type === "review.changed") {
+				for (const listener of this.reviewListeners) listener();
+			}
 			const delta = this.messageDelta(record);
 			if (delta && isRecord(record) && typeof record.sequence === "number") {
 				let combinedDelta = delta.delta as string;

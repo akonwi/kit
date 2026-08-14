@@ -2,6 +2,7 @@ import type {
 	CommandRegistry,
 	TransportNeutralCommandContext,
 } from "../features/commands";
+import type { RemoteReviewService } from "../features/review/remote-service";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { MessagePart } from "../messages/parts";
 import type { ThinkingLevel } from "../runtime/agent";
@@ -118,6 +119,7 @@ export type RpcSessionHostOptions = {
 	interactions?: RemoteInteractionBroker;
 	attachments?: RemoteAttachmentStore;
 	scratchpad?: ScratchpadController;
+	review?: RemoteReviewService;
 	commands?: CommandRegistry;
 	header?: ChromeContributionsController;
 	footer?: ChromeContributionsController;
@@ -507,6 +509,7 @@ export class RpcSessionHost {
 	private readonly unsubscribeRuntime: () => void;
 	private readonly unsubscribeInteractions: (() => void) | null;
 	private readonly unsubscribeScratchpad: (() => void) | null;
+	private readonly unsubscribeReview: (() => void) | null;
 	private readonly unsubscribeCommands: (() => void) | null;
 	private readonly unsubscribeHeader: (() => void) | null;
 	private readonly unsubscribeFooter: (() => void) | null;
@@ -514,6 +517,7 @@ export class RpcSessionHost {
 	private readonly interactions?: RemoteInteractionBroker;
 	private readonly attachments?: RemoteAttachmentStore;
 	private readonly scratchpad?: ScratchpadController;
+	private readonly review?: RemoteReviewService;
 	private readonly commands?: CommandRegistry;
 	private readonly header?: ChromeContributionsController;
 	private readonly footer?: ChromeContributionsController;
@@ -539,6 +543,7 @@ export class RpcSessionHost {
 		this.interactions = options.interactions;
 		this.attachments = options.attachments;
 		this.scratchpad = options.scratchpad;
+		this.review = options.review;
 		this.commands = options.commands;
 		this.header = options.header;
 		this.footer = options.footer;
@@ -571,6 +576,9 @@ export class RpcSessionHost {
 			this.scratchpad?.subscribe((snapshot) =>
 				this.publish({ type: "scratchpad.changed", ...snapshot }),
 			) ?? null;
+		this.unsubscribeReview =
+			this.review?.subscribe(() => this.publish({ type: "review.changed" })) ??
+			null;
 		this.unsubscribeCommands =
 			this.commands?.subscribe(() => {
 				this.commandRegistryGeneration += 1;
@@ -695,6 +703,7 @@ export class RpcSessionHost {
 		this.unsubscribeRuntime();
 		this.unsubscribeInteractions?.();
 		this.unsubscribeScratchpad?.();
+		this.unsubscribeReview?.();
 		this.unsubscribeCommands?.();
 		this.unsubscribeHeader?.();
 		this.unsubscribeFooter?.();
@@ -1225,6 +1234,7 @@ export class RpcSessionHost {
 							...(this.scratchpad
 								? ["get_scratchpad", "update_scratchpad"]
 								: []),
+							...(this.review ? ["get_review_state", "get_review_file"] : []),
 						],
 						interactiveUI: this.interactions !== undefined,
 						chromeContributions:
@@ -1313,6 +1323,28 @@ export class RpcSessionHost {
 				}
 				await respond(
 					this.response(command, true, { sessionId, content: result.content }),
+				);
+				return;
+			}
+			case "get_review_state": {
+				if (!this.review) throw new Error("Code review is unavailable");
+				await respond(
+					this.response(command, true, await this.review.refresh()),
+				);
+				return;
+			}
+			case "get_review_file": {
+				if (!this.review) throw new Error("Code review is unavailable");
+				const state = await this.review.refresh();
+				await respond(
+					this.response(
+						command,
+						true,
+						this.review.getFile(
+							state.sessionId,
+							requireString(command, "path"),
+						),
+					),
 				);
 				return;
 			}

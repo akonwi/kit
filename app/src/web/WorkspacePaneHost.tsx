@@ -9,6 +9,8 @@ import {
 	Show,
 } from "solid-js";
 import { findTurnWorkItems } from "../shell/transcript/turns";
+import { CodeReviewPanel } from "./CodeReviewPanel";
+import { useCodeReview } from "./CodeReviewProvider";
 import { ScratchpadPanel } from "./ScratchpadPanel";
 import { useScratchpad } from "./ScratchpadProvider";
 import { TurnActivityPanel } from "./TurnActivityPanel";
@@ -47,6 +49,7 @@ export function WorkspacePaneHost(props: {
 }): JSX.Element {
 	const { snapshot, transcriptItems } = useWebClient();
 	const scratchpad = useScratchpad();
+	const codeReview = useCodeReview();
 	let host: HTMLElement | undefined;
 	let returnFocus: HTMLElement | null = null;
 	let activePointerId: number | null = null;
@@ -67,10 +70,14 @@ export function WorkspacePaneHost(props: {
 		"divider" | "tab" | null
 	>(null);
 	const panelOpen = createMemo(
-		() => scratchpad.open() || activitySource() !== null,
+		() => codeReview.open() || scratchpad.open() || activitySource() !== null,
 	);
 	const secondaryLabel = createMemo(() =>
-		scratchpad.open() ? "Scratchpad" : "Activity",
+		codeReview.open()
+			? "Code review"
+			: scratchpad.open()
+				? "Scratchpad"
+				: "Activity",
 	);
 	const split = createMemo(
 		() =>
@@ -132,6 +139,7 @@ export function WorkspacePaneHost(props: {
 	}
 
 	function openActivity(source: ActivitySource): void {
+		codeReview.close();
 		scratchpad.close();
 		setActivitySource(source);
 		setNarrowTab("secondary");
@@ -157,7 +165,8 @@ export function WorkspacePaneHost(props: {
 	}
 
 	function closeSecondary(): void {
-		if (scratchpad.open()) scratchpad.close();
+		if (codeReview.open()) codeReview.close();
+		else if (scratchpad.open()) scratchpad.close();
 		else setActivitySource(null);
 		setNarrowTab("transcript");
 	}
@@ -189,7 +198,11 @@ export function WorkspacePaneHost(props: {
 	let previousPanelOpen = false;
 	createEffect(() => {
 		const currentPanelOpen = panelOpen();
-		if (scratchpad.open()) {
+		if (codeReview.open()) {
+			scratchpad.close();
+			setActivitySource(null);
+			setNarrowTab("secondary");
+		} else if (scratchpad.open()) {
 			setActivitySource(null);
 			setNarrowTab("secondary");
 		}
@@ -347,7 +360,14 @@ export function WorkspacePaneHost(props: {
 					>
 						{props.primary}
 					</div>
-					{props.dock}
+					<div
+						class="workspace-dock"
+						hidden={
+							narrow() && narrowTab() === "secondary" && codeReview.open()
+						}
+					>
+						{props.dock}
+					</div>
 				</div>
 				<Show when={split()}>
 					<div
@@ -409,19 +429,26 @@ export function WorkspacePaneHost(props: {
 						style={{ "--secondary-width": `${secondaryWidth()}px` }}
 					>
 						<Show
-							when={scratchpad.open()}
+							when={codeReview.open()}
 							fallback={
-								<Show when={activitySource()}>
-									{(source) => (
-										<TurnActivityPanel
-											source={source()}
-											onClose={closeSecondary}
-										/>
-									)}
+								<Show
+									when={scratchpad.open()}
+									fallback={
+										<Show when={activitySource()}>
+											{(source) => (
+												<TurnActivityPanel
+													source={source()}
+													onClose={closeSecondary}
+												/>
+											)}
+										</Show>
+									}
+								>
+									<ScratchpadPanel />
 								</Show>
 							}
 						>
-							<ScratchpadPanel />
+							<CodeReviewPanel />
 						</Show>
 					</aside>
 				</Show>

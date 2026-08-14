@@ -1,3 +1,4 @@
+import { RemoteReviewService } from "../features/review/remote-service";
 import { createHeadlessHost } from "./headless-host";
 import { applyStartupModel } from "./headless-model";
 import { resolveHeadlessSession } from "./headless-session";
@@ -27,6 +28,7 @@ export async function runWebMode(
 	let interactions: RemoteInteractionBroker | null = null;
 	let attachments: RemoteAttachmentStore | null = null;
 	let rpcHost: RpcSessionHost | null = null;
+	let review: RemoteReviewService | null = null;
 	let webServer: WebRpcServer | null = null;
 	let signalExitCode = 0;
 	let stop: (() => void) | undefined;
@@ -63,11 +65,13 @@ export async function runWebMode(
 		});
 		await applyStartupModel(headlessHost.runtime, options.model);
 
+		review = new RemoteReviewService(headlessHost.runtime);
 		rpcHost = new RpcSessionHost(headlessHost.runtime, {
 			persistSessions: resolved.persistSession,
 			interactions,
 			attachments,
 			scratchpad: headlessHost.scratchpad ?? undefined,
+			review,
 			commands: headlessHost.commands,
 			header: headlessHost.header,
 			footer: headlessHost.footer,
@@ -118,6 +122,7 @@ export async function runWebMode(
 			cleanupErrors.push(error);
 		} finally {
 			rpcHost?.dispose();
+			review?.dispose();
 			interactions?.dispose();
 			attachments?.dispose();
 		}

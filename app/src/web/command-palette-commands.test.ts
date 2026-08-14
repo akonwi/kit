@@ -12,6 +12,7 @@ describe("command palette commands", () => {
 			["thinking", "thinking"],
 			["theme", "theme"],
 			["toggle-scratchpad", "toggle-scratchpad"],
+			["open-code-review", "open-code-review"],
 			["compact", undefined],
 		]);
 	});
@@ -22,6 +23,7 @@ describe("command palette commands", () => {
 			{ id: "thinking", name: "remote thinking" },
 			{ id: "theme", name: "remote theme" },
 			{ id: "toggle-scratchpad", name: "remote scratchpad" },
+			{ id: "open-code-review", name: "remote review" },
 		]);
 
 		expect(commands.map((command) => command.name)).toEqual([
@@ -29,6 +31,7 @@ describe("command palette commands", () => {
 			"thinking",
 			"theme",
 			"toggle-scratchpad",
+			"code-review",
 		]);
 		expect(commands.every((command) => command.browserAction)).toBe(true);
 	});

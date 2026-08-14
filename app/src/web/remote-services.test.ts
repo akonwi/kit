@@ -95,6 +95,41 @@ describe("web remote scratchpad services", () => {
 	});
 });
 
+describe("web remote review services", () => {
+	test("validates review summaries", async () => {
+		const seen: Record<string, unknown>[] = [];
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				seen.push(command);
+				return {
+					data: {
+						sessionId: "session-1",
+						generation: 4,
+						repoRoot: "/workspace",
+						files: [
+							{
+								id: "src/a.ts",
+								path: "src/a.ts",
+								status: "change",
+								source: "working",
+								additions: 1,
+								deletions: 0,
+								changeCount: 1,
+							},
+						],
+					},
+				};
+			},
+		});
+
+		await expect(services.getReviewState()).resolves.toMatchObject({
+			generation: 4,
+			files: [{ path: "src/a.ts" }],
+		});
+		expect(seen).toEqual([{ type: "get_review_state" }]);
+	});
+});
+
 describe("web remote command services", () => {
 	test("validates and returns transport-neutral commands", async () => {
 		const services = new WebRemoteServices({

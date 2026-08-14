@@ -54,6 +54,46 @@ export type RemoteScratchpad = {
 	content: string;
 };
 
+export type RemoteReviewFileSummary = {
+	id: string;
+	path: string;
+	prevPath?: string;
+	status: string;
+	source: "working" | "untracked" | "commit";
+	additions: number;
+	deletions: number;
+	changeCount: number;
+};
+
+export type RemoteReviewState = {
+	sessionId: string;
+	generation: number;
+	repoRoot: string;
+	files: RemoteReviewFileSummary[];
+};
+
+export type RemoteReviewLine = {
+	kind: "add" | "context" | "delete";
+	text: string;
+	additionLineNumber?: number;
+	deletionLineNumber?: number;
+};
+
+export type RemoteReviewHunk = {
+	id: string;
+	header: string;
+	lines: RemoteReviewLine[];
+};
+
+export type RemoteReviewFile = {
+	sessionId: string;
+	generation: number;
+	file: RemoteReviewFileSummary & {
+		rawPatch: string;
+		hunks: RemoteReviewHunk[];
+	};
+};
+
 const MAX_REMOTE_COMMANDS = 512;
 const MAX_COMMAND_ID_LENGTH = 256;
 const MAX_COMMAND_NAME_LENGTH = 256;
@@ -63,6 +103,11 @@ const MAX_REMOTE_MODELS = 1_024;
 const MAX_MODEL_FIELD_LENGTH = 512;
 const MAX_THINKING_LEVELS = 32;
 const MAX_THINKING_LEVEL_LENGTH = 64;
+const MAX_REVIEW_FILES = 10_000;
+const MAX_REVIEW_HUNKS = 10_000;
+const MAX_REVIEW_LINES = 1_000_000;
+const MAX_REVIEW_PATH_LENGTH = 4_096;
+const MAX_REVIEW_TEXT_LENGTH = 16 * 1024 * 1024;
 
 export const DEFAULT_CLIENT_LIMITS: ClientLimits = {
 	maxAttachmentsPerPrompt: 8,
@@ -173,6 +218,155 @@ function parseChunks(chunks: Uint8Array[]): unknown {
 	return JSON.parse(new TextDecoder().decode(joined));
 }
 
+function reviewInteger(value: unknown): number | null {
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+		? value
+		: null;
+}
+
+function reviewString(value: unknown, maxLength: number): string | null {
+	return typeof value === "string" && value.length <= maxLength ? value : null;
+}
+
+function parseReviewFileSummary(
+	value: unknown,
+): RemoteReviewFileSummary | null {
+	if (!isRecord(value)) return null;
+	const id = reviewString(value.id, MAX_REVIEW_PATH_LENGTH);
+	const path = reviewString(value.path, MAX_REVIEW_PATH_LENGTH);
+	const prevPath =
+		value.prevPath === undefined
+			? undefined
+			: reviewString(value.prevPath, MAX_REVIEW_PATH_LENGTH);
+	const status = reviewString(value.status, 64);
+	const source = value.source;
+	const additions = reviewInteger(value.additions);
+	const deletions = reviewInteger(value.deletions);
+	const changeCount = reviewInteger(value.changeCount);
+	if (
+		!id ||
+		!path ||
+		(value.prevPath !== undefined && !prevPath) ||
+		!status ||
+		(source !== "working" && source !== "untracked" && source !== "commit") ||
+		additions === null ||
+		deletions === null ||
+		changeCount === null
+	) {
+		return null;
+	}
+	return {
+		id,
+		path,
+		...(prevPath ? { prevPath } : {}),
+		status,
+		source,
+		additions,
+		deletions,
+		changeCount,
+	};
+}
+
+function parseReviewState(value: unknown): RemoteReviewState {
+	if (!isRecord(value) || !Array.isArray(value.files)) {
+		throw new Error("Code review response is invalid");
+	}
+	const sessionId = boundedNonemptyString(value.sessionId, 128);
+	const generation = reviewInteger(value.generation);
+	const repoRoot = reviewString(value.repoRoot, MAX_REVIEW_PATH_LENGTH);
+	if (
+		!sessionId ||
+		generation === null ||
+		repoRoot === null ||
+		value.files.length > MAX_REVIEW_FILES
+	) {
+		throw new Error("Code review response is invalid");
+	}
+	const files = value.files.map(parseReviewFileSummary);
+	if (files.some((file) => file === null)) {
+		throw new Error("Code review response is invalid");
+	}
+	return {
+		sessionId,
+		generation,
+		repoRoot,
+		files: files as RemoteReviewFileSummary[],
+	};
+}
+
+function parseReviewLine(value: unknown): RemoteReviewLine | null {
+	if (!isRecord(value)) return null;
+	const kind = value.kind;
+	const text = reviewString(value.text, MAX_REVIEW_TEXT_LENGTH);
+	const additionLineNumber =
+		value.additionLineNumber === undefined
+			? undefined
+			: reviewInteger(value.additionLineNumber);
+	const deletionLineNumber =
+		value.deletionLineNumber === undefined
+			? undefined
+			: reviewInteger(value.deletionLineNumber);
+	if (
+		(kind !== "add" && kind !== "context" && kind !== "delete") ||
+		text === null ||
+		additionLineNumber === null ||
+		deletionLineNumber === null
+	) {
+		return null;
+	}
+	return {
+		kind,
+		text,
+		...(additionLineNumber === undefined ? {} : { additionLineNumber }),
+		...(deletionLineNumber === undefined ? {} : { deletionLineNumber }),
+	};
+}
+
+function parseReviewFile(value: unknown): RemoteReviewFile {
+	if (!isRecord(value) || !isRecord(value.file)) {
+		throw new Error("Code review file response is invalid");
+	}
+	const summary = parseReviewFileSummary(value.file);
+	const sessionId = boundedNonemptyString(value.sessionId, 128);
+	const generation = reviewInteger(value.generation);
+	const rawPatch = reviewString(value.file.rawPatch, MAX_REVIEW_TEXT_LENGTH);
+	if (
+		!summary ||
+		!sessionId ||
+		generation === null ||
+		rawPatch === null ||
+		!Array.isArray(value.file.hunks) ||
+		value.file.hunks.length > MAX_REVIEW_HUNKS
+	) {
+		throw new Error("Code review file response is invalid");
+	}
+	let lineCount = 0;
+	const hunks: RemoteReviewHunk[] = [];
+	for (const valueHunk of value.file.hunks) {
+		if (!isRecord(valueHunk) || !Array.isArray(valueHunk.lines)) {
+			throw new Error("Code review file response is invalid");
+		}
+		const id = reviewString(valueHunk.id, 512);
+		const header = reviewString(valueHunk.header, 8_192);
+		const lines = valueHunk.lines.map(parseReviewLine);
+		lineCount += lines.length;
+		if (
+			!id ||
+			header === null ||
+			lineCount > MAX_REVIEW_LINES ||
+			lines.some((line) => line === null)
+		) {
+			throw new Error("Code review file response is invalid");
+		}
+		hunks.push({ id, header, lines: lines as RemoteReviewLine[] });
+	}
+	return {
+		sessionId,
+		generation,
+		file: { ...summary, rawPatch, hunks },
+	};
+}
+
 export class WebRemoteServices {
 	private limitsValue = DEFAULT_CLIENT_LIMITS;
 
@@ -274,6 +468,19 @@ export class WebRemoteServices {
 			content,
 		});
 		return this.parseScratchpad(response.data);
+	}
+
+	async getReviewState(): Promise<RemoteReviewState> {
+		const response = await this.rpc.command({ type: "get_review_state" });
+		return parseReviewState(response.data);
+	}
+
+	async getReviewFile(path: string): Promise<RemoteReviewFile> {
+		const response = await this.rpc.command({
+			type: "get_review_file",
+			path,
+		});
+		return parseReviewFile(response.data);
 	}
 
 	async listCommands(): Promise<RemoteCommandList> {
