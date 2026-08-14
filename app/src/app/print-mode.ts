@@ -23,7 +23,12 @@ function assistantText(message: AgentMessage | undefined): string {
 export async function runPrintMode(
 	prompt: string,
 	cwd: string,
-	options: { model?: string; noSession?: boolean; sessionId?: string } = {},
+	options: {
+		model?: string;
+		newSession?: boolean;
+		noSession?: boolean;
+		sessionId?: string;
+	} = {},
 ): Promise<number> {
 	const stdout = takeOverStdout();
 	let runtime: AgentRuntime | null = null;
@@ -47,6 +52,7 @@ export async function runPrintMode(
 	try {
 		const resolved = await resolveHeadlessSession(cwd, {
 			defaultPersistence: options.noSession ? "ephemeral" : "persistent",
+			newSession: options.newSession,
 			sessionId: options.sessionId,
 		});
 		if (signalExitCode !== null) {

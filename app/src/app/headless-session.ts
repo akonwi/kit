@@ -28,6 +28,7 @@ export async function resolveHeadlessSession(
 	cwd: string,
 	options: {
 		defaultPersistence: "ephemeral" | "persistent";
+		newSession?: boolean;
 		sessionId?: string;
 	},
 	storage: HeadlessSessionStorage = defaultStorage,
@@ -41,6 +42,11 @@ export async function resolveHeadlessSession(
 	}
 	if (options.defaultPersistence === "ephemeral") {
 		return { session: createEphemeralSession(cwd), persistSession: false };
+	}
+	if (options.newSession) {
+		const session = await storage.createSession(cwd);
+		await storage.writeSession(session);
+		return { session, persistSession: true };
 	}
 	const recent = await storage.listSessionsForCwd(cwd);
 	for (const summary of recent) {

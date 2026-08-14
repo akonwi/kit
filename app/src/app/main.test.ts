@@ -37,9 +37,51 @@ describe("print mode CLI", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("Usage: kit -p");
 	});
+
+	test("uses new as a session selector instead of prompt text", async () => {
+		const result = await runMain(["new", "-p"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("Usage: kit -p");
+	});
+
+	test("keeps new as prompt text when it follows the print flag", async () => {
+		const result = await runMain([
+			"-p",
+			"new",
+			"--session",
+			"missing-print-session",
+		]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("Session not found: missing-print-session");
+		expect(result.stderr).not.toContain("cannot combine with --session");
+	});
+
+	test("rejects new combined with an explicit session", async () => {
+		const result = await runMain(["new", "-p", "hello", "--session", "abc"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("cannot combine with --session");
+	});
 });
 
 describe("web mode CLI", () => {
+	test("accepts new as a session selector", async () => {
+		const result = await runMain(["new", "--web", "--port", "0"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("expects an integer from 1 to 65535");
+		expect(result.stderr).not.toContain("positional arguments");
+	});
+
+	test("rejects new combined with an explicit session", async () => {
+		const result = await runMain(["new", "--web", "--session", "abc"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("cannot combine with --session");
+	});
+
 	test("rejects conflicting session options", async () => {
 		const result = await runMain(["--web", "--no-session", "--session", "abc"]);
 		expect(result.exitCode).toBe(1);
@@ -116,6 +158,21 @@ describe("mode selection", () => {
 });
 
 describe("RPC mode CLI", () => {
+	test("accepts new as a session selector", async () => {
+		const result = await runMain(["new", "--rpc", "--model", "invalid"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+		expect(result.stderr).not.toContain("positional arguments");
+	});
+
+	test("rejects new combined with an explicit session", async () => {
+		const result = await runMain(["new", "--rpc", "--session", "abc"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("cannot combine with --session");
+	});
+
 	test("rejects web-only options", async () => {
 		const results = await Promise.all([
 			runMain(["--rpc", "--port", "4782"]),

@@ -47,6 +47,30 @@ describe("headless startup session selection", () => {
 		expect(writeSession).not.toHaveBeenCalled();
 	});
 
+	test("creates a new persistent session without resuming a recent one", async () => {
+		const created = session("new", "/project");
+		const listSessionsForCwd = mock(async () => [
+			summary(session("recent", "/project")),
+		]);
+		const writeSession = mock(async () => {});
+
+		const resolved = await resolveHeadlessSession(
+			"/project",
+			{ defaultPersistence: "persistent", newSession: true },
+			{
+				createSession: async () => created,
+				findSessionById: async () => null,
+				listSessionsForCwd,
+				readSession: async () => null,
+				writeSession,
+			},
+		);
+
+		expect(resolved).toEqual({ session: created, persistSession: true });
+		expect(listSessionsForCwd).not.toHaveBeenCalled();
+		expect(writeSession).toHaveBeenCalledWith(created);
+	});
+
 	test("keeps no-session startup ephemeral without discovering persisted sessions", async () => {
 		const listSessionsForCwd = mock(async () => [
 			summary(session("recent", "/project")),

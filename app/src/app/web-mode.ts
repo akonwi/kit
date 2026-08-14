@@ -14,6 +14,7 @@ export type WebModeOptions = {
 	hostname?: string;
 	port?: number;
 	model?: string;
+	newSession?: boolean;
 	noSession?: boolean;
 	sessionId?: string;
 };
@@ -51,6 +52,7 @@ export async function runWebMode(
 	try {
 		const resolved = await resolveHeadlessSession(cwd, {
 			defaultPersistence: options.noSession ? "ephemeral" : "persistent",
+			newSession: options.newSession,
 			sessionId: options.sessionId,
 		});
 		interactions = new RemoteInteractionBroker();

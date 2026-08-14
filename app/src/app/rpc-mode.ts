@@ -112,7 +112,12 @@ export class RpcModeServer {
 
 export async function runRpcMode(
 	cwd: string,
-	options: { model?: string; noSession?: boolean; sessionId?: string } = {},
+	options: {
+		model?: string;
+		newSession?: boolean;
+		noSession?: boolean;
+		sessionId?: string;
+	} = {},
 ): Promise<number> {
 	const stdout = takeOverStdout();
 	const startupAbort = new AbortController();
@@ -135,6 +140,7 @@ export async function runRpcMode(
 	try {
 		const resolved = await resolveHeadlessSession(cwd, {
 			defaultPersistence: options.noSession ? "ephemeral" : "persistent",
+			newSession: options.newSession,
 			sessionId: options.sessionId,
 		});
 		host = await createHeadlessHost(resolved.session, {

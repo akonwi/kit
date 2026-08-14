@@ -2,8 +2,9 @@ import { parseArgs } from "node:util";
 import { isValidModelSelector } from "./headless-model";
 import { buildPrintModePrompt } from "./print-mode-input";
 
+const cliArgs = process.argv.slice(2);
 const { positionals, values } = parseArgs({
-	args: process.argv.slice(2),
+	args: cliArgs,
 	options: {
 		"allow-host": { type: "string", multiple: true },
 		auth: { type: "string" },
@@ -24,6 +25,9 @@ const { positionals, values } = parseArgs({
 });
 
 const subcommand = values.version === true ? "version" : positionals[0];
+const selectsNewSession = cliArgs[0] === "new";
+const hasOnlyNewSessionPositional =
+	selectsNewSession && positionals.length === 1;
 const hasWebOnlyOptions =
 	values.auth !== undefined ||
 	values.host !== undefined ||
@@ -84,10 +88,16 @@ if (values.mode !== undefined) {
 		typeof values.port === "string" && /^\d+$/.test(values.port)
 			? Number(values.port)
 			: undefined;
-	if (values.version || positionals.length > 0) {
+	if (
+		values.version ||
+		(positionals.length > 0 && !hasOnlyNewSessionPositional)
+	) {
 		console.error(
-			"kit --web cannot be combined with --version or positional arguments",
+			"kit --web cannot be combined with --version or positional arguments other than new",
 		);
+		process.exitCode = 1;
+	} else if (selectsNewSession && values.session) {
+		console.error("kit new --web cannot combine with --session");
 		process.exitCode = 1;
 	} else if (values["no-session"] && values.session) {
 		console.error("kit --web cannot combine --no-session with --session");
@@ -125,6 +135,7 @@ if (values.mode !== undefined) {
 			hostname: typeof values.host === "string" ? values.host : undefined,
 			port,
 			model: typeof values.model === "string" ? values.model : undefined,
+			newSession: selectsNewSession,
 			noSession: values["no-session"] === true,
 			sessionId:
 				typeof values.session === "string" ? values.session : undefined,
@@ -136,10 +147,16 @@ if (values.mode !== undefined) {
 	);
 	process.exitCode = 1;
 } else if (values.rpc === true) {
-	if (values.version || positionals.length > 0) {
+	if (
+		values.version ||
+		(positionals.length > 0 && !hasOnlyNewSessionPositional)
+	) {
 		console.error(
-			"kit --rpc cannot be combined with --version or positional arguments",
+			"kit --rpc cannot be combined with --version or positional arguments other than new",
 		);
+		process.exitCode = 1;
+	} else if (selectsNewSession && values.session) {
+		console.error("kit new --rpc cannot combine with --session");
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
@@ -155,6 +172,7 @@ if (values.mode !== undefined) {
 		const { runRpcMode } = await import("./rpc-mode");
 		process.exitCode = await runRpcMode(safeProcessCwd(), {
 			model: typeof values.model === "string" ? values.model : undefined,
+			newSession: selectsNewSession,
 			noSession: values["no-session"] === true,
 			sessionId:
 				typeof values.session === "string" ? values.session : undefined,
@@ -170,12 +188,18 @@ if (values.mode !== undefined) {
 	) {
 		console.error("kit -p --model expects <provider>/<model-id>");
 		process.exitCode = 1;
+	} else if (selectsNewSession && values.session) {
+		console.error("kit new -p cannot combine with --session");
+		process.exitCode = 1;
 	} else if (values["no-session"] && values.session) {
 		console.error("kit -p cannot combine --no-session with --session");
 		process.exitCode = 1;
 	} else {
 		const stdin = await readPipedStdin();
-		const prompt = buildPrintModePrompt(stdin, positionals);
+		const promptPositionals = selectsNewSession
+			? positionals.slice(1)
+			: positionals;
+		const prompt = buildPrintModePrompt(stdin, promptPositionals);
 		if (!prompt.trim()) {
 			console.error('Usage: kit -p "prompt"');
 			process.exitCode = 1;
@@ -184,6 +208,7 @@ if (values.mode !== undefined) {
 			const { runPrintMode } = await import("./print-mode");
 			process.exitCode = await runPrintMode(prompt, safeProcessCwd(), {
 				model: typeof values.model === "string" ? values.model : undefined,
+				newSession: selectsNewSession,
 				noSession: values["no-session"] === true,
 				sessionId:
 					typeof values.session === "string" ? values.session : undefined,
