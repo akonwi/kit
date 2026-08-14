@@ -31,9 +31,9 @@ function readOverflow(): ReviewDiffOverflow {
 }
 
 function statusLabel(status: string): string {
-	if (status === "add") return "A";
-	if (status === "delete") return "D";
-	if (status === "rename") return "R";
+	if (status === "add" || status === "new") return "A";
+	if (status === "delete" || status === "deleted") return "D";
+	if (status === "rename" || status.startsWith("rename-")) return "R";
 	if (status === "copy") return "C";
 	return "M";
 }
@@ -100,7 +100,7 @@ export function CodeReviewPanel(): JSX.Element {
 				</Show>
 				<strong>Code review</strong>
 				<span>
-					{`${review.state()?.files.length ?? 0} files · ${review.notes().length} ${review.notes().length === 1 ? "note" : "notes"}`}
+					{`${review.notes().length} ${review.notes().length === 1 ? "note" : "notes"}`}
 				</span>
 				<div ref={viewMenu} class="code-review-view-menu">
 					<button
@@ -191,12 +191,19 @@ export function CodeReviewPanel(): JSX.Element {
 									void review.selectFile(file.path);
 								}}
 							>
-								<span class="code-review-status">
+								<span
+									class="code-review-status"
+									data-status={statusLabel(file.status)}
+								>
 									{statusLabel(file.status)}
 								</span>
 								<span class="code-review-path">{file.path}</span>
-								<span class="code-review-counts">
-									+{file.additions} −{file.deletions}
+								<span
+									class="code-review-counts"
+									aria-label={`${file.additions} additions, ${file.deletions} deletions`}
+								>
+									<span data-additions>+{file.additions}</span>
+									<span data-deletions>−{file.deletions}</span>
 								</span>
 								<Show
 									when={
@@ -225,6 +232,13 @@ export function CodeReviewPanel(): JSX.Element {
 									<strong title={selected().file.path}>
 										{selected().file.path}
 									</strong>
+									<span
+										class="code-review-file-change-counts"
+										aria-label={`${selected().file.deletions} deletions, ${selected().file.additions} additions`}
+									>
+										<span data-deletions>−{selected().file.deletions}</span>
+										<span data-additions>+{selected().file.additions}</span>
+									</span>
 								</div>
 								<div class="code-review-scroll">
 									<PierreDiff
