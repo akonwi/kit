@@ -2006,6 +2006,7 @@ details[open] > summary > .disclosure-marker {
 	min-height: 0;
 	flex-direction: column;
 	background: var(--kit-bg);
+	font-size: 0.8125rem;
 }
 
 .workspace-panel-header,
@@ -2017,6 +2018,10 @@ details[open] > summary > .disclosure-marker {
 	border-bottom: 1px solid var(--color-border);
 }
 
+.workspace-panel-header > strong,
+.code-review-file-header > strong {
+	font-weight: 600;
+}
 .workspace-panel-header > strong {
 	white-space: nowrap;
 }
@@ -2047,7 +2052,7 @@ button.code-review-view-trigger[aria-expanded="true"] {
 	z-index: 5;
 	top: calc(100% + 0.375rem);
 	right: 0;
-	width: 10.5rem;
+	width: 9.5rem;
 	padding: 0.375rem;
 	border: 1px solid var(--color-border);
 	border-radius: var(--radius-md);
@@ -2068,7 +2073,7 @@ button.code-review-view-trigger[aria-expanded="true"] {
 }
 .code-review-view-menu-content label {
 	display: flex;
-	min-height: 2rem;
+	min-height: 1.75rem;
 	align-items: center;
 	gap: 0.5rem;
 	padding: 0 0.5rem;
