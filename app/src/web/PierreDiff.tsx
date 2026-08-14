@@ -181,6 +181,7 @@ export function PierreDiff(props: {
 			disableFileHeader: true,
 			disableVirtualizationBuffers: true,
 			diffStyle: layout,
+			diffIndicators: "none",
 			enableLineSelection: true,
 			lineHoverHighlight: "number",
 			onLineSelectionEnd: props.onSelectRange,
