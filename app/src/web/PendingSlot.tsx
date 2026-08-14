@@ -6,7 +6,7 @@ import { SafeMarkdown } from "./SafeMarkdown";
 import { useWebClient } from "./WebClientContext";
 
 export function PendingSlot(): JSX.Element {
-	const { snapshot } = useWebClient();
+	const { snapshot, controller, restoreComposerMessages } = useWebClient();
 	const protocol = createMemo(() => snapshot().protocol);
 	const streaming = createMemo(
 		() => protocol().serverState.isStreaming === true,
@@ -51,6 +51,12 @@ export function PendingSlot(): JSX.Element {
 			protocol().queuedMessageCount - protocol().queuedMessagePreviews.length,
 		),
 	);
+	const hasQueuedFollowUps = createMemo(
+		() => protocol().queuedMessageCount > 0,
+	);
+	const actionsEnabled = createMemo(
+		() => protocol().phase === "live" && !snapshot().followUpMutationPending,
+	);
 	const empty = createMemo(
 		() =>
 			!content() &&
@@ -94,6 +100,36 @@ export function PendingSlot(): JSX.Element {
 			<Show when={hiddenQueueCount() > 0}>
 				<div class="pending-followup-more">
 					+{hiddenQueueCount()} more queued
+				</div>
+			</Show>
+			<Show when={hasQueuedFollowUps()}>
+				<div
+					class="pending-followup-actions"
+					role="group"
+					aria-label="Queued follow-up actions"
+				>
+					<button
+						type="button"
+						data-variant="ghost"
+						data-size="small"
+						disabled={!actionsEnabled()}
+						title="Restore queued follow-ups to the composer for editing"
+						onClick={() =>
+							void controller.restoreQueuedFollowUps(restoreComposerMessages)
+						}
+					>
+						Edit
+					</button>
+					<button
+						type="button"
+						data-variant="ghost"
+						data-size="small"
+						disabled={!actionsEnabled() || !streaming()}
+						title="Send queued follow-ups to the agent now as steering"
+						onClick={() => void controller.promoteQueuedFollowUps()}
+					>
+						Send now
+					</button>
 				</div>
 			</Show>
 		</div>

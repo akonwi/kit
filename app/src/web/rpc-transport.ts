@@ -12,6 +12,13 @@ export class RpcResponseLostError extends Error {
 	}
 }
 
+export class RpcCommandError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "RpcCommandError";
+	}
+}
+
 type PendingCommand = {
 	resolve(record: Record<string, unknown>): void;
 	reject(error: Error): void;
@@ -207,7 +214,7 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 							if (record.success === true) pending.resolve(record);
 							else {
 								pending.reject(
-									new Error(
+									new RpcCommandError(
 										typeof record.error === "string"
 											? record.error
 											: "Command failed",

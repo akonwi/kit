@@ -305,7 +305,11 @@ the same operation from that client after response loss returns its retained
 result without mutating twice. Clients acknowledge non-empty restores only after
 applying them safely. The host rejects new retained restores at
 `maxPendingMutations` rather than evicting an unacknowledged result. Empty
-restores and promotions do not consume claim capacity.
+restores and promotions do not consume claim capacity. The browser keeps the
+compact queue preview read-only and exposes batch **Edit in composer** and
+**Send now** actions. Restored messages are placed before any existing draft;
+the latter action promotes the queue to steering. Composer drafts are stored per session in browser storage so acknowledged
+restores survive reloads and tab closure.
 
 Every transcript message has a stable `turnId` and `messageId`.
 `agent.message.updated.update` is a Kit-owned content update with a `kind`,

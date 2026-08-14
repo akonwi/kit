@@ -16,6 +16,7 @@ export type WebClientSnapshot = {
 	protocol: ClientState;
 	status: ClientStatus;
 	submitting: boolean;
+	followUpMutationPending: boolean;
 	loadingEarlier: boolean;
 	answeringInteractionId: string | null;
 	attachments: PendingAttachment[];
@@ -25,6 +26,7 @@ export type WebClientSnapshot = {
 
 export class WebClientViewState {
 	private submittingValue = false;
+	private followUpMutationPendingValue = false;
 	private loadingEarlierValue = false;
 	private answeringInteractionIdValue: string | null = null;
 	private attachmentsValue: PendingAttachment[] = [];
@@ -50,6 +52,7 @@ export class WebClientViewState {
 				? { message: this.protocolValue.lastError, isError: true }
 				: this.statusValue,
 			submitting: this.submittingValue,
+			followUpMutationPending: this.followUpMutationPendingValue,
 			loadingEarlier: this.loadingEarlierValue,
 			answeringInteractionId: this.answeringInteractionIdValue,
 			attachments: [...this.attachmentsValue],
@@ -106,6 +109,14 @@ export class WebClientViewState {
 
 	setSubmitting(value: boolean): void {
 		this.submittingValue = value;
+	}
+
+	followUpMutationPending(): boolean {
+		return this.followUpMutationPendingValue;
+	}
+
+	setFollowUpMutationPending(value: boolean): void {
+		this.followUpMutationPendingValue = value;
 	}
 
 	loadingEarlier(): boolean {

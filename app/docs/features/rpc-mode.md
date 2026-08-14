@@ -92,7 +92,12 @@ Clients acknowledge a non-empty restore only after safely applying it. The host
 rejects new retained restores at `maxPendingMutations` instead of evicting
 unacknowledged results. Empty restores and promotions do not consume claim
 capacity.
-Queue-change events carry the new `generation`, count, and previews.
+Queue-change events carry the new `generation`, count, and previews. The browser
+keeps the compact preview read-only and adds two batch actions: **Edit in
+composer** restores the full queue ahead of any existing draft, while **Send
+now** promotes it to steering. Both actions disable while a queue mutation is in
+flight and remain usable on coarse pointers. Composer drafts are stored per session in browser storage, so an acknowledged
+restore remains recoverable across page reloads and tab closure.
 
 ## Events
 

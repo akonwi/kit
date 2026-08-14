@@ -19,7 +19,11 @@ type WebClientContextValue = {
 	transcriptItems: Accessor<TranscriptItem[]>;
 	controller: WebClientController;
 	focusComposer(): boolean;
+	restoreComposerMessages(messages: string[], operationId: string): boolean;
 	registerComposerFocus(handler: () => boolean): () => void;
+	registerComposerRestore(
+		handler: (messages: string[], operationId: string) => boolean,
+	): () => void;
 };
 
 const WebClientContext = createContext<WebClientContextValue>();
@@ -35,11 +39,25 @@ export function WebClientProvider(props: {
 	);
 	let unsubscribe: (() => void) | undefined;
 	let composerFocus: (() => boolean) | null = null;
+	let composerRestore:
+		| ((messages: string[], operationId: string) => boolean)
+		| null = null;
 	const focusComposer = () => composerFocus?.() ?? false;
+	const restoreComposerMessages = (messages: string[], operationId: string) =>
+		composerRestore?.(messages, operationId) ?? false;
 	const registerComposerFocus = (handler: () => boolean) => {
 		composerFocus = handler;
 		return () => {
 			if (composerFocus === handler) composerFocus = null;
+		};
+	};
+	const registerComposerRestore = (
+		handler: (messages: string[], operationId: string) => boolean,
+	) => {
+		composerRestore = handler;
+		controller.resumeQueuedFollowUpRestore(handler);
+		return () => {
+			if (composerRestore === handler) composerRestore = null;
 		};
 	};
 
@@ -59,7 +77,9 @@ export function WebClientProvider(props: {
 				transcriptItems,
 				controller,
 				focusComposer,
+				restoreComposerMessages,
 				registerComposerFocus,
+				registerComposerRestore,
 			}}
 		>
 			{props.children}

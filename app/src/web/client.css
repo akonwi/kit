@@ -1127,6 +1127,22 @@ details[open] > summary > .disclosure-marker {
 	color: var(--kit-text-placeholder);
 }
 
+.pending-followup-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--space-xs);
+	padding: var(--space-xs) var(--space-sm);
+}
+
+.pending-followup-actions button {
+	color: var(--kit-text-muted);
+}
+
+.pending-followup-actions button:hover:not(:disabled),
+.pending-followup-actions button:focus-visible {
+	color: var(--kit-text-primary);
+}
+
 .composer-dock {
 	flex: 0 0 auto;
 	min-inline-size: 0;
@@ -1973,6 +1989,11 @@ details[open] > summary > .disclosure-marker {
 	.scratchpad-panel-header button {
 		min-inline-size: 2.75rem;
 		min-block-size: 2.75rem;
+	}
+
+	.pending-followup-actions button {
+		min-block-size: 2.75rem;
+		padding-inline: var(--space-sm);
 	}
 }
 

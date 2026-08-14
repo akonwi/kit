@@ -9,6 +9,10 @@ import {
 	withConnectionPhase,
 } from "./client-state";
 import {
+	applyRestoredComposerDraft,
+	readComposerDraft,
+} from "./composer-draft-storage";
+import {
 	type RemoteCommandList,
 	type RemoteModel,
 	type RemoteReviewFile,
@@ -17,7 +21,11 @@ import {
 	type RemoteScratchpad,
 	WebRemoteServices,
 } from "./remote-services";
-import { WebSocketRpcTransport } from "./rpc-transport";
+import {
+	RpcCommandError,
+	RpcResponseLostError,
+	WebSocketRpcTransport,
+} from "./rpc-transport";
 import {
 	type PendingAttachment,
 	type WebClientSnapshot,
@@ -34,6 +42,168 @@ export type {
 export type WebClientControllerOptions = {
 	showToast?: WebToastSink;
 };
+
+export type PendingPromotion = {
+	streamId: string | null;
+	sessionId: string;
+	generation: number;
+};
+
+export type PendingRestoreClaim = {
+	operationId: string;
+	streamId: string;
+	sessionId: string;
+	generation: number;
+	status: "claiming" | "restored" | "applied";
+	messages?: string[];
+	applyDraft?: (messages: string[], operationId: string) => boolean;
+};
+
+const FOLLOW_UP_CLIENT_ID_KEY = "kit.follow-ups.client-id";
+const FOLLOW_UP_TAB_ID_KEY = "kit.follow-ups.tab-id";
+const PENDING_RESTORE_KEY_PREFIX = "kit.follow-ups.pending-restore.";
+const PENDING_RESTORE_POINTER_KEY = "kit.follow-ups.pending-restore-id";
+type RestoreStorage = Pick<
+	Storage,
+	"getItem" | "setItem" | "removeItem" | "key" | "length"
+>;
+
+function storedBrowserId(storage: Storage, key: string): string {
+	try {
+		const stored = storage.getItem(key);
+		if (stored && /^[A-Za-z0-9._:-]{1,128}$/.test(stored)) return stored;
+	} catch {
+		// Browser storage is optional for identifiers.
+	}
+	const created = crypto.randomUUID();
+	try {
+		storage.setItem(key, created);
+	} catch {
+		// Keep the in-memory id when browser storage is unavailable.
+	}
+	return created;
+}
+
+function followUpClientId(): string {
+	return storedBrowserId(localStorage, FOLLOW_UP_CLIENT_ID_KEY);
+}
+
+function followUpTabId(): string {
+	return storedBrowserId(sessionStorage, FOLLOW_UP_TAB_ID_KEY);
+}
+
+function pendingRestoreKey(clientId: string, operationId: string): string {
+	return `${PENDING_RESTORE_KEY_PREFIX}${encodeURIComponent(clientId)}.${encodeURIComponent(operationId)}`;
+}
+
+function pendingRestorePointer(): string | null {
+	try {
+		return sessionStorage.getItem(PENDING_RESTORE_POINTER_KEY);
+	} catch {
+		return null;
+	}
+}
+
+function setPendingRestorePointer(operationId: string | null): void {
+	try {
+		if (operationId) {
+			sessionStorage.setItem(PENDING_RESTORE_POINTER_KEY, operationId);
+		} else {
+			sessionStorage.removeItem(PENDING_RESTORE_POINTER_KEY);
+		}
+	} catch {
+		// The durable operation record remains discoverable without a pointer.
+	}
+}
+
+export function readPendingRestore(
+	clientId: string,
+	storage: RestoreStorage = localStorage,
+	operationId?: string | null,
+): PendingRestoreClaim | null {
+	try {
+		let value = operationId
+			? storage.getItem(pendingRestoreKey(clientId, operationId))
+			: null;
+		if (!value) {
+			const prefix = `${PENDING_RESTORE_KEY_PREFIX}${encodeURIComponent(clientId)}.`;
+			for (let index = 0; index < storage.length; index += 1) {
+				const key = storage.key(index);
+				if (!key?.startsWith(prefix)) continue;
+				value = storage.getItem(key);
+				if (value) break;
+			}
+		}
+		if (!value) return null;
+		const parsed: unknown = JSON.parse(value);
+		if (
+			!isRecord(parsed) ||
+			parsed.clientId !== clientId ||
+			typeof parsed.operationId !== "string" ||
+			typeof parsed.streamId !== "string" ||
+			typeof parsed.sessionId !== "string" ||
+			typeof parsed.generation !== "number" ||
+			!Number.isSafeInteger(parsed.generation) ||
+			parsed.generation < 0 ||
+			(parsed.status !== "claiming" &&
+				parsed.status !== "restored" &&
+				parsed.status !== "applied") ||
+			(parsed.status === "restored" &&
+				(!Array.isArray(parsed.messages) ||
+					!parsed.messages.every((message) => typeof message === "string")))
+		) {
+			return null;
+		}
+		return {
+			operationId: parsed.operationId,
+			streamId: parsed.streamId,
+			sessionId: parsed.sessionId,
+			generation: parsed.generation,
+			status: parsed.status,
+			...(parsed.status === "restored"
+				? { messages: parsed.messages as string[] }
+				: {}),
+		};
+	} catch {
+		return null;
+	}
+}
+
+export function writePendingRestore(
+	clientId: string,
+	claim: PendingRestoreClaim,
+	storage: RestoreStorage = localStorage,
+): boolean {
+	try {
+		storage.setItem(
+			pendingRestoreKey(clientId, claim.operationId),
+			JSON.stringify({
+				clientId,
+				operationId: claim.operationId,
+				streamId: claim.streamId,
+				sessionId: claim.sessionId,
+				generation: claim.generation,
+				status: claim.status,
+				...(claim.status === "restored" ? { messages: claim.messages } : {}),
+			}),
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+export function clearPendingRestore(
+	clientId: string,
+	operationId: string,
+	storage: RestoreStorage = localStorage,
+): void {
+	try {
+		storage.removeItem(pendingRestoreKey(clientId, operationId));
+	} catch {
+		// The retained server claim remains safe when storage cleanup fails.
+	}
+}
 
 function persistentToastKey(record: unknown): string | null {
 	return isRecord(record) &&
@@ -59,6 +229,12 @@ export class WebClientController {
 	private disposed = false;
 	private readonly seenSnapshotToasts = new Set<string>();
 	private readonly reviewListeners = new Set<() => void>();
+	private readonly followUpClientId = followUpClientId();
+	private readonly followUpTabId = followUpTabId();
+	private pendingRestore: PendingRestoreClaim | null = null;
+	private pendingPromotion: PendingPromotion | null = null;
+	private restoringFollowUps = false;
+	private acknowledgingRestores = false;
 	private lastProtocolToast: {
 		sequence: number;
 		type: string;
@@ -91,6 +267,20 @@ export class WebClientController {
 		this.services = new WebRemoteServices({
 			command: (command) => this.sendCommand(command),
 		});
+		this.pendingRestore = readPendingRestore(
+			this.followUpClientId,
+			localStorage,
+			pendingRestorePointer(),
+		);
+		if (this.pendingRestore) {
+			setPendingRestorePointer(this.pendingRestore.operationId);
+			this.view.setFollowUpMutationPending(true);
+			this.view.setStatus(
+				this.pendingRestore.status === "applied"
+					? "Finalizing restored follow-ups…"
+					: "Recovering queued follow-ups…",
+			);
+		}
 	}
 
 	snapshot(): WebClientSnapshot {
@@ -116,12 +306,17 @@ export class WebClientController {
 
 	dispose(): void {
 		this.disposed = true;
+		this.pendingRestore = null;
 		this.transport.dispose();
 		this.view.dispose();
 	}
 
 	isStreaming(): boolean {
 		return this.state.serverState.isStreaming === true;
+	}
+
+	composerDraftScopeId(): string {
+		return this.followUpTabId;
 	}
 
 	addAttachments(files: File[]): void {
@@ -165,7 +360,9 @@ export class WebClientController {
 	}
 
 	async submit(messageValue: string): Promise<boolean> {
-		if (this.view.submitting()) return false;
+		if (this.view.submitting() || this.view.followUpMutationPending()) {
+			return false;
+		}
 		if (!this.transport.drainProtocolRecords()) {
 			this.view.reportError(new Error("Protocol synchronization failed"));
 			return false;
@@ -250,7 +447,11 @@ export class WebClientController {
 
 	reportComposerUnavailable(): void {
 		this.view.setStatus(
-			this.view.submitting() ? "Still sending…" : "Kit is not connected",
+			this.view.submitting()
+				? "Still sending…"
+				: this.view.followUpMutationPending()
+					? "Finishing queued follow-up restore…"
+					: "Kit is not connected",
 			true,
 		);
 		this.view.notify();
@@ -261,6 +462,89 @@ export class WebClientController {
 			await this.sendCommand({ type: "abort" });
 		} catch (error) {
 			this.view.reportError(error, "Abort failed");
+		}
+	}
+
+	async restoreQueuedFollowUps(
+		applyDraft: (messages: string[], operationId: string) => boolean,
+	): Promise<boolean> {
+		if (this.view.followUpMutationPending() || this.pendingRestore)
+			return false;
+		const sessionId = this.state.serverState.sessionId;
+		const streamId = this.state.streamId;
+		if (typeof sessionId !== "string" || !streamId) {
+			this.view.reportError(
+				new Error("Active session is unavailable"),
+				"Restore failed",
+			);
+			return false;
+		}
+		const claim: PendingRestoreClaim = {
+			operationId: crypto.randomUUID(),
+			streamId,
+			sessionId,
+			generation: this.state.queuedMessageGeneration,
+			status: "claiming",
+			applyDraft,
+		};
+		if (!writePendingRestore(this.followUpClientId, claim)) {
+			this.view.reportError(
+				new Error("Browser storage is unavailable"),
+				"Restore failed",
+			);
+			return false;
+		}
+		setPendingRestorePointer(claim.operationId);
+		this.pendingRestore = claim;
+		this.view.setFollowUpMutationPending(true);
+		this.view.setStatus("Restoring queued follow-ups…");
+		this.view.notify();
+		return this.continuePendingRestore();
+	}
+
+	resumeQueuedFollowUpRestore(
+		applyDraft: (messages: string[], operationId: string) => boolean,
+	): void {
+		if (!this.pendingRestore) return;
+		this.pendingRestore.applyDraft = applyDraft;
+		if (this.state.phase === "live") void this.continuePendingRestore();
+	}
+
+	async promoteQueuedFollowUps(): Promise<boolean> {
+		if (this.view.followUpMutationPending()) return false;
+		const sessionId = this.state.serverState.sessionId;
+		if (typeof sessionId !== "string") {
+			this.view.reportError(
+				new Error("Active session is unavailable"),
+				"Send-now failed",
+			);
+			return false;
+		}
+		const promotion: PendingPromotion = {
+			streamId: this.state.streamId,
+			sessionId,
+			generation: this.state.queuedMessageGeneration,
+		};
+		this.view.setFollowUpMutationPending(true);
+		this.view.setStatus("Sending queued follow-ups now…");
+		this.view.notify();
+		try {
+			await this.services.promoteFollowUps(sessionId, promotion.generation);
+			this.view.setStatus("");
+			return true;
+		} catch (error) {
+			if (error instanceof RpcResponseLostError) {
+				this.pendingPromotion = promotion;
+				this.view.setStatus("Reconnecting to verify queued follow-ups…");
+				return false;
+			}
+			this.view.reportError(error, "Send-now failed");
+			return false;
+		} finally {
+			if (!this.pendingPromotion) {
+				this.view.setFollowUpMutationPending(false);
+			}
+			this.view.notify();
 		}
 	}
 
@@ -491,6 +775,187 @@ export class WebClientController {
 		}
 	}
 
+	private reconcilePendingPromotion(): void {
+		const promotion = this.pendingPromotion;
+		if (!promotion || this.state.phase !== "live") return;
+		const unchanged =
+			this.state.streamId === promotion.streamId &&
+			this.state.serverState.sessionId === promotion.sessionId &&
+			this.state.queuedMessageGeneration === promotion.generation &&
+			this.state.queuedMessageCount > 0;
+		this.pendingPromotion = null;
+		this.view.setFollowUpMutationPending(false);
+		this.view.setStatus(
+			unchanged
+				? "Send now was not applied; the queued follow-ups are still available"
+				: "Queued follow-up state reconciled after reconnecting",
+			unchanged,
+		);
+		this.view.notify();
+	}
+
+	private recoverNextPendingRestore(
+		applyDraft?: (messages: string[], operationId: string) => boolean,
+	): void {
+		const next = readPendingRestore(this.followUpClientId);
+		if (!next) {
+			this.pendingRestore = null;
+			setPendingRestorePointer(null);
+			this.view.setFollowUpMutationPending(false);
+			return;
+		}
+		next.applyDraft = applyDraft;
+		this.pendingRestore = next;
+		setPendingRestorePointer(next.operationId);
+		this.view.setFollowUpMutationPending(true);
+		this.view.setStatus(
+			next.status === "applied"
+				? "Finalizing restored follow-ups…"
+				: "Recovering queued follow-ups…",
+		);
+		if (this.state.phase === "live") void this.continuePendingRestore();
+	}
+
+	private async continuePendingRestore(): Promise<boolean> {
+		let claim = this.pendingRestore;
+		if (!claim || this.restoringFollowUps || this.disposed) return false;
+		if (claim.status === "applied") {
+			void this.finalizePendingRestore();
+			return true;
+		}
+		if (claim.status === "claiming" && this.state.phase !== "live") {
+			this.view.setStatus("Reconnecting to recover queued follow-ups…");
+			this.view.notify();
+			return false;
+		}
+		if (claim.status === "claiming" && this.state.streamId !== claim.streamId) {
+			clearPendingRestore(this.followUpClientId, claim.operationId);
+			this.recoverNextPendingRestore(claim.applyDraft);
+			this.view.reportError(
+				new Error("The Kit host restarted before the restore was confirmed"),
+				"Restore could not be recovered",
+			);
+			return false;
+		}
+		this.restoringFollowUps = true;
+		try {
+			if (claim.status === "claiming") {
+				const restored = await this.services.restoreFollowUps(
+					this.followUpClientId,
+					claim.operationId,
+					claim.sessionId,
+					claim.generation,
+				);
+				if (this.pendingRestore !== claim) return false;
+				claim = {
+					...claim,
+					status: "restored",
+					messages: restored.messages,
+				};
+				if (!writePendingRestore(this.followUpClientId, claim)) {
+					this.pendingRestore = claim;
+					this.view.setStatus(
+						"Restored follow-ups are safe on the server, but browser storage is unavailable",
+						true,
+					);
+					this.view.notify();
+					return false;
+				}
+				this.pendingRestore = claim;
+			}
+			const messages = claim.messages;
+			if (claim.status !== "restored" || !messages) return false;
+			const restoredDraft = applyRestoredComposerDraft(
+				this.followUpTabId,
+				claim.sessionId,
+				claim.operationId,
+				messages,
+				readComposerDraft(this.followUpTabId, claim.sessionId),
+			);
+			if (restoredDraft === null) {
+				this.view.setStatus(
+					"Restored follow-ups are safe, but browser storage is unavailable",
+					true,
+				);
+				this.view.notify();
+				return false;
+			}
+			if (this.state.serverState.sessionId === claim.sessionId) {
+				const applyDraft = claim.applyDraft;
+				if (!applyDraft || !applyDraft(messages, claim.operationId)) {
+					this.view.setStatus(
+						"Restored follow-ups are safe, but the composer is unavailable",
+						true,
+					);
+					this.view.notify();
+					return false;
+				}
+			}
+			claim = { ...claim, status: "applied", messages: undefined };
+			if (!writePendingRestore(this.followUpClientId, claim)) {
+				this.pendingRestore = claim;
+				this.view.setStatus(
+					"Follow-ups are restored, but recovery state could not be saved",
+					true,
+				);
+				this.view.notify();
+				return false;
+			}
+			this.pendingRestore = claim;
+			this.view.setStatus("Finalizing restored follow-ups…");
+			this.view.notify();
+			void this.finalizePendingRestore();
+			return true;
+		} catch (error) {
+			if (this.disposed || this.pendingRestore !== claim) return false;
+			if (error instanceof RpcCommandError) {
+				clearPendingRestore(this.followUpClientId, claim.operationId);
+				this.recoverNextPendingRestore(claim.applyDraft);
+				this.view.reportError(error, "Restore failed");
+				return false;
+			}
+			this.view.setStatus(
+				error instanceof RpcResponseLostError
+					? "Reconnecting to recover queued follow-ups…"
+					: "Waiting to retry queued follow-up recovery…",
+			);
+			this.view.notify();
+			return false;
+		} finally {
+			this.restoringFollowUps = false;
+		}
+	}
+
+	private async finalizePendingRestore(): Promise<void> {
+		const claim = this.pendingRestore;
+		if (
+			!claim ||
+			claim.status !== "applied" ||
+			this.acknowledgingRestores ||
+			this.state.phase !== "live" ||
+			this.disposed
+		) {
+			return;
+		}
+		this.acknowledgingRestores = true;
+		try {
+			await this.services.acknowledgeFollowUpMutation(
+				this.followUpClientId,
+				claim.operationId,
+			);
+			if (this.pendingRestore !== claim) return;
+			clearPendingRestore(this.followUpClientId, claim.operationId);
+			this.recoverNextPendingRestore(claim.applyDraft);
+			if (!this.pendingRestore) this.view.setStatus("");
+			this.view.notify();
+		} catch {
+			this.view.setStatus("Waiting to finalize restored follow-ups…");
+			this.view.notify();
+		} finally {
+			this.acknowledgingRestores = false;
+		}
+	}
+
 	private setState(state: ClientState): void {
 		this.state = state;
 		this.view.setProtocol(state);
@@ -600,6 +1065,10 @@ export class WebClientController {
 		this.reconcileInteractions();
 		if (this.state.phase === "live") {
 			this.transport.resetReconnectBackoff();
+			this.reconcilePendingPromotion();
+			if (this.pendingRestore && !this.restoringFollowUps) {
+				void this.continuePendingRestore();
+			}
 			void this.loadCapabilities();
 			void this.loadPendingInteractions();
 			void this.hydrateVisibleMessageReferences();
