@@ -59,6 +59,7 @@ describe("web client state", () => {
 				sessionId: "session-1",
 				isStreaming: false,
 				pendingMessageCount: 4,
+				pendingMessageGeneration: 9,
 				pendingMessagePreviews: ["first", "second", "third"],
 			},
 			messages: [
@@ -83,6 +84,7 @@ describe("web client state", () => {
 			pendingInteractionGeneration: 1,
 			totalMessageCount: 4,
 			queuedMessageCount: 4,
+			queuedMessageGeneration: 9,
 			queuedMessagePreviews: ["first", "second", "third"],
 		});
 		state = reduceClientRecord(state, {
@@ -116,10 +118,12 @@ describe("web client state", () => {
 			streamId: "stream-1",
 			sequence: 1,
 			count: 5,
+			generation: 10,
 			previews: ["first", "second", "third"],
 		});
 		expect(updated).toMatchObject({
 			queuedMessageCount: 5,
+			queuedMessageGeneration: 10,
 			queuedMessagePreviews: ["first", "second", "third"],
 		});
 		expect(() =>

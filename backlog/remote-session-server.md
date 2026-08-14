@@ -285,7 +285,7 @@ for every remote client rather than hidden in renderer-specific code:
   threshold-colored context progress line.
 - [x] Expose queued follow-up previews, not only their count, so remote pending
   slots can mirror the TUI queue rows.
-- [ ] Add transport-neutral queued follow-up mutations for restoring queued
+- [x] Add transport-neutral queued follow-up mutations for restoring queued
   messages into a client-local draft and promoting follow-ups to steering.
   Define first-writer and stale-state behavior so simultaneous clients cannot
   restore, edit, or promote the same queue inconsistently.

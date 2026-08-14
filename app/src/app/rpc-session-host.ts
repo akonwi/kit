@@ -100,6 +100,9 @@ export const RPC_COMMAND_TYPES = [
 	"prompt",
 	"steer",
 	"follow_up",
+	"restore_follow_ups",
+	"promote_follow_ups",
+	"acknowledge_follow_up_mutation",
 	"abort",
 	"new_session",
 	"list_sessions",
@@ -177,6 +180,22 @@ function optionalNonnegativeInteger(
 	if (value === undefined) return fallback;
 	if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
 		throw new Error(`${key} must be a non-negative integer`);
+	}
+	return value;
+}
+
+const MAX_FOLLOW_UP_OPERATION_ID_LENGTH = 128;
+export const MAX_PENDING_FOLLOW_UP_MUTATIONS = 16;
+export const MAX_REMOTE_FOLLOW_UP_DRAFT_ITEMS = 128;
+export const MAX_REMOTE_FOLLOW_UP_DRAFT_BYTES = MAX_REMOTE_PROMPT_TEXT_BYTES;
+
+function followUpMutationId(command: RpcCommand, key: string): string {
+	const value = requireString(command, key);
+	if (
+		value.length > MAX_FOLLOW_UP_OPERATION_ID_LENGTH ||
+		!/^[A-Za-z0-9._:-]+$/.test(value)
+	) {
+		throw new Error(`${key} is invalid`);
 	}
 	return value;
 }
@@ -466,6 +485,7 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
 					steering: event.steering,
 					followUp: event.messages,
 					count: event.count,
+					generation: event.generation,
 					previews: remoteMessagePreviews(event.messages),
 				},
 			];
@@ -565,6 +585,10 @@ export function rpcRecordsForRuntimeEvent(event: AgentRuntimeEvent): unknown[] {
  */
 export class RpcSessionHost {
 	private commandQueue = Promise.resolve();
+	private readonly followUpMutationResults = new Map<
+		string,
+		{ fingerprint: string; data: Record<string, unknown> }
+	>();
 	private readonly acceptedRuns = new Set<Promise<void>>();
 	private readonly listeners = new Set<RpcEventListener>();
 	private readonly pendingEvents: unknown[] = [];
@@ -830,6 +854,7 @@ export class RpcSessionHost {
 			cwd: session.cwd,
 			messageCount: this.runtime.getMessages().length,
 			pendingMessageCount: this.runtime.getPendingMessageCount(),
+			pendingMessageGeneration: this.runtime.getPendingMessageGeneration(),
 			pendingMessagePreviews: remoteMessagePreviews(
 				this.runtime.getPendingMessages(),
 			),
@@ -996,6 +1021,46 @@ export class RpcSessionHost {
 		});
 	}
 
+	private cachedFollowUpMutation(
+		claimKey: string,
+		fingerprint: string,
+	): Record<string, unknown> | null {
+		const cached = this.followUpMutationResults.get(claimKey);
+		if (!cached) return null;
+		if (cached.fingerprint !== fingerprint) {
+			throw new Error("operationId was already used for another mutation");
+		}
+		return cached.data;
+	}
+
+	private assertFollowUpMutationCapacity(): void {
+		if (this.followUpMutationResults.size >= MAX_PENDING_FOLLOW_UP_MUTATIONS) {
+			throw new Error(
+				"Too many unacknowledged follow-up mutations; acknowledge a prior result",
+			);
+		}
+	}
+
+	private rememberFollowUpMutation(
+		claimKey: string,
+		fingerprint: string,
+		data: Record<string, unknown>,
+	): void {
+		this.followUpMutationResults.set(claimKey, { fingerprint, data });
+	}
+
+	private assertPendingQueueCurrent(
+		sessionId: string,
+		expectedGeneration: number,
+	): void {
+		if (sessionId !== this.runtime.getSession().id) {
+			throw new Error("Active session changed; refresh queued follow-ups");
+		}
+		if (expectedGeneration !== this.runtime.getPendingMessageGeneration()) {
+			throw new Error("Queued follow-ups changed; refresh queue state");
+		}
+	}
+
 	private async dispatch(
 		command: RpcCommand,
 		respond: RpcWriter,
@@ -1080,6 +1145,89 @@ export class RpcSessionHost {
 				this.runtime.sendFollowUp(requireString(command, "message"));
 				await respond(this.response(command, true));
 				return;
+			case "acknowledge_follow_up_mutation": {
+				const clientId = followUpMutationId(command, "clientId");
+				const operationId = followUpMutationId(command, "operationId");
+				const claimKey = `${clientId}\u0000${operationId}`;
+				const acknowledged = this.followUpMutationResults.delete(claimKey);
+				await respond(
+					this.response(command, true, {
+						clientId,
+						operationId,
+						acknowledged,
+					}),
+				);
+				return;
+			}
+			case "restore_follow_ups": {
+				const clientId = followUpMutationId(command, "clientId");
+				const operationId = followUpMutationId(command, "operationId");
+				const claimKey = `${clientId}\u0000${operationId}`;
+				const sessionId = requireString(command, "sessionId");
+				const generation = requiredNonnegativeInteger(
+					command,
+					"expectedGeneration",
+				);
+				const fingerprint = `${command.type}\u0000${sessionId}\u0000${generation}`;
+				const cached = this.cachedFollowUpMutation(claimKey, fingerprint);
+				if (cached) {
+					await respond(this.response(command, true, cached));
+					return;
+				}
+				this.assertPendingQueueCurrent(sessionId, generation);
+				const messages = this.runtime.getPendingMessageDrafts();
+				if (!messages) {
+					throw new Error(
+						"Queued follow-ups contain attachments that cannot be restored remotely",
+					);
+				}
+				if (messages.length > MAX_REMOTE_FOLLOW_UP_DRAFT_ITEMS) {
+					throw new Error(
+						"Queued follow-ups exceed the remote draft item limit",
+					);
+				}
+				const draftBytes = new TextEncoder().encode(
+					JSON.stringify(messages),
+				).byteLength;
+				if (draftBytes > MAX_REMOTE_FOLLOW_UP_DRAFT_BYTES) {
+					throw new Error("Queued follow-ups exceed the remote draft limit");
+				}
+				if (messages.length > 0) this.assertFollowUpMutationCapacity();
+				this.runtime.drainPendingMessages();
+				const data = {
+					clientId,
+					operationId,
+					sessionId,
+					generation: this.runtime.getPendingMessageGeneration(),
+					messages,
+				};
+				if (messages.length > 0) {
+					this.rememberFollowUpMutation(claimKey, fingerprint, data);
+				}
+				await respond(this.response(command, true, data));
+				return;
+			}
+			case "promote_follow_ups": {
+				const sessionId = requireString(command, "sessionId");
+				const generation = requiredNonnegativeInteger(
+					command,
+					"expectedGeneration",
+				);
+				this.assertPendingQueueCurrent(sessionId, generation);
+				if (!this.runtime.getStatus().isStreaming) {
+					throw new Error("Cannot promote follow-ups while the agent is idle");
+				}
+				const count = this.runtime.getPendingMessageCount();
+				this.runtime.promotePendingFollowUpsToSteering();
+				await respond(
+					this.response(command, true, {
+						sessionId,
+						generation: this.runtime.getPendingMessageGeneration(),
+						count,
+					}),
+				);
+				return;
+			}
 			case "new_session":
 				if (this.promptReserved || this.runtime.getStatus().isStreaming) {
 					throw new Error(
@@ -1311,6 +1459,11 @@ export class RpcSessionHost {
 							? MAX_REMOTE_ATTACHMENTS_PER_PROMPT
 							: 0,
 						limits: {
+							queuedFollowUps: {
+								maxDraftBytes: MAX_REMOTE_FOLLOW_UP_DRAFT_BYTES,
+								maxDraftItems: MAX_REMOTE_FOLLOW_UP_DRAFT_ITEMS,
+								maxPendingMutations: MAX_PENDING_FOLLOW_UP_MUTATIONS,
+							},
 							attachments: {
 								maxFiles: this.attachments ? MAX_REMOTE_ATTACHMENTS : 0,
 								maxFilesPerPrompt: this.attachments

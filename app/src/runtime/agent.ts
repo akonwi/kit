@@ -215,6 +215,7 @@ export class Agent {
 	private _queuedSteering: AgentMessage[] = [];
 	private _pendingFollowUps: string[] = [];
 	private _queuedFollowUps: AgentMessage[] = [];
+	private _followUpGeneration = 0;
 	private nextPromptStartsNewTurn = false;
 	private activeAssistantMessageId: string | null = null;
 	private _activeAssistantMessage: Extract<
@@ -377,6 +378,7 @@ export class Agent {
 	followUp(message: AgentMessage): void {
 		this.pi.followUp(message);
 		this._queuedFollowUps = [...this._queuedFollowUps, message];
+		this._followUpGeneration += 1;
 		const text = extractPlainText(message);
 		if (text.trim()) {
 			this._pendingFollowUps = [...this._pendingFollowUps, text];
@@ -391,6 +393,7 @@ export class Agent {
 
 	clearFollowUpQueue(): void {
 		this.pi.clearFollowUpQueue();
+		if (this._queuedFollowUps.length > 0) this._followUpGeneration += 1;
 		this._queuedFollowUps = [];
 		this._pendingFollowUps = [];
 	}
@@ -399,6 +402,7 @@ export class Agent {
 		this.pi.clearAllQueues();
 		this._queuedSteering = [];
 		this._pendingSteering = [];
+		if (this._queuedFollowUps.length > 0) this._followUpGeneration += 1;
 		this._queuedFollowUps = [];
 		this._pendingFollowUps = [];
 	}
@@ -442,6 +446,7 @@ export class Agent {
 		this._activeFollowUpTurn = null;
 		this._pendingSteering = [];
 		this._queuedSteering = [];
+		if (this._queuedFollowUps.length > 0) this._followUpGeneration += 1;
 		this._pendingFollowUps = [];
 		this._queuedFollowUps = [];
 		this.nextPromptStartsNewTurn = false;
@@ -541,6 +546,14 @@ export class Agent {
 
 	getPendingFollowUps(): string[] {
 		return [...this._pendingFollowUps];
+	}
+
+	getPendingFollowUpMessages(): AgentMessage[] {
+		return [...this._queuedFollowUps];
+	}
+
+	getPendingFollowUpGeneration(): number {
+		return this._followUpGeneration;
 	}
 
 	getPendingSteering(): string[] {
@@ -772,6 +785,7 @@ export class Agent {
 		this._queuedFollowUps = this._queuedFollowUps.filter(
 			(_, candidateIndex) => candidateIndex !== index,
 		);
+		this._followUpGeneration += 1;
 		const textIndex = this._pendingFollowUps.indexOf(extractPlainText(message));
 		if (textIndex >= 0) {
 			this._pendingFollowUps = this._pendingFollowUps.filter(

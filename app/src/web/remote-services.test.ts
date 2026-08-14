@@ -28,6 +28,32 @@ describe("web remote configuration services", () => {
 		]);
 	});
 
+	test("accepts capabilities from hosts without queued follow-up limits", async () => {
+		const services = new WebRemoteServices({
+			command: async () => ({
+				data: {
+					limits: {
+						attachments: {},
+						pagination: {
+							messages: {},
+							pendingInteractions: {},
+						},
+						recovery: {
+							message: {},
+							pendingInteraction: {},
+						},
+					},
+				},
+			}),
+		});
+
+		await expect(services.fetchLimits()).resolves.toMatchObject({
+			maxFollowUpDraftBytes: 1024 * 1024,
+			maxFollowUpDraftItems: 128,
+			maxPendingFollowUpMutations: 16,
+		});
+	});
+
 	test("sends model and thinking-level selections", async () => {
 		const seen: Record<string, unknown>[] = [];
 		const services = new WebRemoteServices({
@@ -90,6 +116,86 @@ describe("web remote scratchpad services", () => {
 				sessionId: "session-1",
 				expectedContent: "old",
 				content: "notes",
+			},
+		]);
+	});
+});
+
+describe("web remote queued follow-up services", () => {
+	test("restores and promotes with session and generation guards", async () => {
+		const seen: Record<string, unknown>[] = [];
+		const services = new WebRemoteServices({
+			command: async (command) => {
+				seen.push(command);
+				if (command.type === "restore_follow_ups") {
+					return {
+						data: {
+							clientId: "client-a",
+							operationId: "operation-restore",
+							sessionId: "session-1",
+							generation: 6,
+							messages: ["first", "second"],
+						},
+					};
+				}
+				if (command.type === "acknowledge_follow_up_mutation") {
+					return {
+						data: {
+							clientId: "client-a",
+							operationId: "operation-restore",
+							acknowledged: true,
+						},
+					};
+				}
+				return {
+					data: {
+						sessionId: "session-1",
+						generation: 7,
+						count: 2,
+					},
+				};
+			},
+		});
+
+		await expect(
+			services.restoreFollowUps(
+				"client-a",
+				"operation-restore",
+				"session-1",
+				5,
+			),
+		).resolves.toEqual({
+			clientId: "client-a",
+			operationId: "operation-restore",
+			sessionId: "session-1",
+			generation: 6,
+			messages: ["first", "second"],
+		});
+		await expect(services.promoteFollowUps("session-1", 6)).resolves.toEqual({
+			sessionId: "session-1",
+			generation: 7,
+			count: 2,
+		});
+		await expect(
+			services.acknowledgeFollowUpMutation("client-a", "operation-restore"),
+		).resolves.toBeTrue();
+		expect(seen).toEqual([
+			{
+				type: "restore_follow_ups",
+				clientId: "client-a",
+				operationId: "operation-restore",
+				sessionId: "session-1",
+				expectedGeneration: 5,
+			},
+			{
+				type: "promote_follow_ups",
+				sessionId: "session-1",
+				expectedGeneration: 6,
+			},
+			{
+				type: "acknowledge_follow_up_mutation",
+				clientId: "client-a",
+				operationId: "operation-restore",
 			},
 		]);
 	});

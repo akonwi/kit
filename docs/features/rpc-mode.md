@@ -162,6 +162,9 @@ process.
 | `prompt` | `message`, optional `streamingBehavior: "steer" \| "followUp"` | none; accepted asynchronously |
 | `steer` | `message` | none |
 | `follow_up` | `message` | none |
+| `restore_follow_ups` | `clientId`, `operationId`, `sessionId`, `expectedGeneration` | ordered text-only `messages` plus the resulting queue `generation` |
+| `promote_follow_ups` | `sessionId`, `expectedGeneration` | promoted `count` plus the resulting queue `generation`; active runs only |
+| `acknowledge_follow_up_mutation` | `clientId`, `operationId` | release a retained non-empty restore after applying it safely |
 | `abort` | none | none |
 | `new_session` | none | `{ "cancelled": false }` |
 | `get_capabilities` | none | protocol version, features, and transport limits |
@@ -283,11 +286,26 @@ context window, or `null` otherwise. Updated usage is published after completed
 turns, compaction, model changes, and session changes so remote clients can
 render the same threshold-colored progress indicator as the TUI.
 
-State also includes `pendingMessageCount` and up to three normalized,
-length-bounded `pendingMessagePreviews`. Live `chat.message-queue.changed`
-events add the same total `count` and bounded `previews`; the existing
-`steering` and `followUp` fields remain for protocol-v2 compatibility. New
-remote clients use the bounded fields to render a compact queue.
+State also includes `pendingMessageCount`, a server-owned
+`pendingMessageGeneration`, and up to three normalized, length-bounded
+`pendingMessagePreviews`. Live `chat.message-queue.changed` events add the same
+`generation`, total `count`, and bounded `previews`; the existing `steering` and
+`followUp` fields remain for protocol-v2 compatibility. New remote clients use
+the bounded fields to render a compact queue.
+
+Restoring or promoting queued follow-ups requires the active `sessionId` and the
+observed generation. Commands are serialized, so the first client with a current
+pair claims the entire observed queue. Any later command using that generation
+fails without mutation. Restore returns the queued text messages in order for
+the winning client to merge into its local draft; promote preserves their order
+while moving them to steering. Structured follow-ups and restores above the
+advertised `queuedFollowUps.maxDraftBytes` or `maxDraftItems` limit fail before
+draining the queue. Restore requires stable client and operation IDs; retrying
+the same operation from that client after response loss returns its retained
+result without mutating twice. Clients acknowledge non-empty restores only after
+applying them safely. The host rejects new retained restores at
+`maxPendingMutations` rather than evicting an unacknowledged result. Empty
+restores and promotions do not consume claim capacity.
 
 Every transcript message has a stable `turnId` and `messageId`.
 `agent.message.updated.update` is a Kit-owned content update with a `kind`,

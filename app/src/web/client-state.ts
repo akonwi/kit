@@ -46,6 +46,7 @@ export type ClientState = {
 	totalPendingInteractionCount: number;
 	pendingInteractionGeneration: number;
 	queuedMessageCount: number;
+	queuedMessageGeneration: number;
 	queuedMessagePreviews: string[];
 	lastError: string | null;
 };
@@ -79,6 +80,7 @@ export function createClientState(): ClientState {
 		totalPendingInteractionCount: 0,
 		pendingInteractionGeneration: 0,
 		queuedMessageCount: 0,
+		queuedMessageGeneration: 0,
 		queuedMessagePreviews: [],
 		lastError: null,
 	};
@@ -204,10 +206,20 @@ function messageQueueState(
 	source: "event" | "snapshot",
 ): {
 	count: number;
+	generation: number | null;
 	previews: string[];
 } | null {
 	const count = record.count;
+	const generation = record.generation;
 	const previews = record.previews;
+	if (
+		generation !== undefined &&
+		(typeof generation !== "number" ||
+			!Number.isSafeInteger(generation) ||
+			generation < 0)
+	) {
+		return null;
+	}
 	if (count === undefined && previews === undefined) {
 		if (
 			Array.isArray(record.followUp) &&
@@ -215,10 +227,13 @@ function messageQueueState(
 		) {
 			return {
 				count: record.followUp.length,
+				generation: typeof generation === "number" ? generation : null,
 				previews: remoteMessagePreviews(record.followUp),
 			};
 		}
-		return source === "snapshot" ? { count: 0, previews: [] } : null;
+		return source === "snapshot"
+			? { count: 0, generation: 0, previews: [] }
+			: null;
 	}
 	if (
 		source === "snapshot" &&
@@ -227,7 +242,11 @@ function messageQueueState(
 		count >= 0 &&
 		previews === undefined
 	) {
-		return { count, previews: [] };
+		return {
+			count,
+			generation: typeof generation === "number" ? generation : 0,
+			previews: [],
+		};
 	}
 	if (
 		typeof count !== "number" ||
@@ -244,7 +263,16 @@ function messageQueueState(
 	) {
 		return null;
 	}
-	return { count, previews };
+	return {
+		count,
+		generation:
+			typeof generation === "number"
+				? generation
+				: source === "snapshot"
+					? 0
+					: null,
+		previews,
+	};
 }
 
 function applyEvent(
@@ -492,6 +520,8 @@ function applyEvent(
 			return {
 				...state,
 				queuedMessageCount: queue.count,
+				queuedMessageGeneration:
+					queue.generation ?? state.queuedMessageGeneration,
 				queuedMessagePreviews: queue.previews,
 			};
 		}
@@ -640,6 +670,7 @@ export function reduceClientRecord(
 			const messageQueue = messageQueueState(
 				{
 					count: serverState.pendingMessageCount,
+					generation: serverState.pendingMessageGeneration,
 					previews: serverState.pendingMessagePreviews,
 				},
 				"snapshot",
@@ -687,6 +718,7 @@ export function reduceClientRecord(
 							: 0,
 				pendingInteractionGeneration: record.pendingInteractionGeneration,
 				queuedMessageCount: messageQueue.count,
+				queuedMessageGeneration: messageQueue.generation ?? 0,
 				queuedMessagePreviews: messageQueue.previews,
 				lastError: null,
 			};

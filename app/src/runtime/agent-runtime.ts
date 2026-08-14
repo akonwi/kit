@@ -261,6 +261,7 @@ export type RuntimeEventMap = Omit<AgentEventMap, "message.committed"> & {
 	};
 	"chat.message-queue.changed": {
 		count: number;
+		generation: number;
 		messages: string[];
 		steering: string[];
 	};
@@ -640,7 +641,8 @@ export class AgentRuntime {
 	private syncPendingState() {
 		const messages = this.agent.getPendingFollowUps();
 		this.bus.publish("chat.message-queue.changed", {
-			count: messages.length,
+			count: this.agent.getPendingFollowUpMessages().length,
+			generation: this.agent.getPendingFollowUpGeneration(),
 			messages,
 			steering: this.agent.getPendingSteering(),
 		});
@@ -1533,7 +1535,39 @@ export class AgentRuntime {
 	}
 
 	getPendingMessageCount(): number {
-		return this.agent.getPendingFollowUps().length;
+		return this.agent.getPendingFollowUpMessages().length;
+	}
+
+	getPendingMessageDrafts(): string[] | null {
+		const drafts: string[] = [];
+		for (const message of this.agent.getPendingFollowUpMessages()) {
+			if (!("content" in message)) return null;
+			if (typeof message.content === "string") {
+				drafts.push(message.content);
+				continue;
+			}
+			if (!Array.isArray(message.content)) return null;
+			const textParts: string[] = [];
+			for (const part of message.content) {
+				if (
+					typeof part !== "object" ||
+					part === null ||
+					!("type" in part) ||
+					part.type !== "text" ||
+					!("text" in part) ||
+					typeof part.text !== "string"
+				) {
+					return null;
+				}
+				textParts.push(part.text);
+			}
+			drafts.push(textParts.join("\n"));
+		}
+		return drafts;
+	}
+
+	getPendingMessageGeneration(): number {
+		return this.agent.getPendingFollowUpGeneration();
 	}
 
 	getPendingMessages(): string[] {

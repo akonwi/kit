@@ -2,6 +2,9 @@ import { isRecord } from "./client-state";
 import type { RpcCommandClient } from "./rpc-transport";
 
 export type ClientLimits = {
+	maxFollowUpDraftBytes: number;
+	maxFollowUpDraftItems: number;
+	maxPendingFollowUpMutations: number;
 	maxAttachmentsPerPrompt: number;
 	maxAttachmentBytes: number;
 	maxTextAttachmentBytes: number;
@@ -52,6 +55,20 @@ export type RemoteModel = {
 export type RemoteScratchpad = {
 	sessionId: string;
 	content: string;
+};
+
+export type RemoteRestoredFollowUps = {
+	clientId: string;
+	operationId: string;
+	sessionId: string;
+	generation: number;
+	messages: string[];
+};
+
+export type RemotePromotedFollowUps = {
+	sessionId: string;
+	generation: number;
+	count: number;
 };
 
 export type RemoteReviewFileSummary = {
@@ -118,6 +135,9 @@ const MAX_REVIEW_PATH_LENGTH = 4_096;
 const MAX_REVIEW_TEXT_LENGTH = 16 * 1024 * 1024;
 
 export const DEFAULT_CLIENT_LIMITS: ClientLimits = {
+	maxFollowUpDraftBytes: 1024 * 1024,
+	maxFollowUpDraftItems: 128,
+	maxPendingFollowUpMutations: 16,
 	maxAttachmentsPerPrompt: 8,
 	maxAttachmentBytes: 10 * 1024 * 1024,
 	maxTextAttachmentBytes: 1024 * 1024,
@@ -478,6 +498,77 @@ export class WebRemoteServices {
 		return this.parseScratchpad(response.data);
 	}
 
+	async restoreFollowUps(
+		clientId: string,
+		operationId: string,
+		sessionId: string,
+		expectedGeneration: number,
+	): Promise<RemoteRestoredFollowUps> {
+		const response = await this.rpc.command({
+			type: "restore_follow_ups",
+			clientId,
+			operationId,
+			sessionId,
+			expectedGeneration,
+		});
+		const mutation = this.parseFollowUpMutation(response.data);
+		if (
+			mutation.clientId !== clientId ||
+			mutation.operationId !== operationId ||
+			!Array.isArray(mutation.messages)
+		) {
+			throw new Error("Restored follow-ups omitted messages");
+		}
+		const messages = mutation.messages.map((message) => {
+			if (typeof message !== "string") {
+				throw new Error("Restored follow-ups contain an invalid message");
+			}
+			return message;
+		});
+		return { clientId, operationId, ...mutation, messages };
+	}
+
+	async promoteFollowUps(
+		sessionId: string,
+		expectedGeneration: number,
+	): Promise<RemotePromotedFollowUps> {
+		const response = await this.rpc.command({
+			type: "promote_follow_ups",
+			sessionId,
+			expectedGeneration,
+		});
+		const mutation = this.parseFollowUpMutation(response.data);
+		const count = mutation.count;
+		if (
+			typeof count !== "number" ||
+			!Number.isSafeInteger(count) ||
+			count < 0
+		) {
+			throw new Error("Promoted follow-ups omitted their count");
+		}
+		return { ...mutation, count };
+	}
+
+	async acknowledgeFollowUpMutation(
+		clientId: string,
+		operationId: string,
+	): Promise<boolean> {
+		const response = await this.rpc.command({
+			type: "acknowledge_follow_up_mutation",
+			clientId,
+			operationId,
+		});
+		if (
+			!isRecord(response.data) ||
+			response.data.clientId !== clientId ||
+			response.data.operationId !== operationId ||
+			typeof response.data.acknowledged !== "boolean"
+		) {
+			throw new Error("Follow-up acknowledgement response is invalid");
+		}
+		return response.data.acknowledged;
+	}
+
 	async getReviewState(): Promise<RemoteReviewState> {
 		const response = await this.rpc.command({ type: "get_review_state" });
 		return parseReviewState(response.data);
@@ -595,6 +686,27 @@ export class WebRemoteServices {
 		});
 	}
 
+	private parseFollowUpMutation(value: unknown): {
+		sessionId: string;
+		generation: number;
+	} & Record<string, unknown> {
+		if (
+			!isRecord(value) ||
+			typeof value.sessionId !== "string" ||
+			!value.sessionId.trim() ||
+			typeof value.generation !== "number" ||
+			!Number.isSafeInteger(value.generation) ||
+			value.generation < 0
+		) {
+			throw new Error("Queued follow-up response is invalid");
+		}
+		return {
+			...value,
+			sessionId: value.sessionId,
+			generation: value.generation,
+		};
+	}
+
 	private parseScratchpad(value: unknown): RemoteScratchpad {
 		if (
 			!isRecord(value) ||
@@ -612,6 +724,7 @@ export class WebRemoteServices {
 		if (!isRecord(response.data)) throw new Error("Capabilities omitted data");
 		const limits = response.data.limits;
 		if (!isRecord(limits)) throw new Error("Capabilities omitted limits");
+		const queuedFollowUps = limits.queuedFollowUps;
 		const attachments = limits.attachments;
 		const pagination = limits.pagination;
 		const recovery = limits.recovery;
@@ -635,6 +748,20 @@ export class WebRemoteServices {
 			throw new Error("Capabilities contain invalid page or recovery limits");
 		}
 		return {
+			maxFollowUpDraftBytes: positiveInteger(
+				isRecord(queuedFollowUps) ? queuedFollowUps.maxDraftBytes : undefined,
+				this.limitsValue.maxFollowUpDraftBytes,
+			),
+			maxFollowUpDraftItems: positiveInteger(
+				isRecord(queuedFollowUps) ? queuedFollowUps.maxDraftItems : undefined,
+				this.limitsValue.maxFollowUpDraftItems,
+			),
+			maxPendingFollowUpMutations: positiveInteger(
+				isRecord(queuedFollowUps)
+					? queuedFollowUps.maxPendingMutations
+					: undefined,
+				this.limitsValue.maxPendingFollowUpMutations,
+			),
 			maxAttachmentsPerPrompt: nonnegativeInteger(
 				attachments.maxFilesPerPrompt,
 				this.limitsValue.maxAttachmentsPerPrompt,

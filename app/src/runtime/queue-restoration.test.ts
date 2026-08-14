@@ -10,6 +10,12 @@ type RuntimeWithQueue = {
 	drainPendingMessages: InstanceType<
 		typeof AgentRuntime
 	>["drainPendingMessages"];
+	getPendingMessageCount: InstanceType<
+		typeof AgentRuntime
+	>["getPendingMessageCount"];
+	getPendingMessageDrafts: InstanceType<
+		typeof AgentRuntime
+	>["getPendingMessageDrafts"];
 };
 
 describe("queued message restoration", () => {
@@ -30,6 +36,18 @@ describe("queued message restoration", () => {
 
 		expect(agent.getPendingSteering()).toEqual(["steer me"]);
 		expect(agent.getPendingFollowUps()).toEqual(["follow me"]);
+		expect(agent.getPendingFollowUpGeneration()).toBe(1);
+		agent.dispose();
+	});
+
+	test("advances the generation when reset clears follow-ups", () => {
+		const agent = new Agent();
+		agent.followUp({ role: "user", content: "queued", timestamp: 1 });
+
+		agent.reset();
+
+		expect(agent.getPendingFollowUps()).toEqual([]);
+		expect(agent.getPendingFollowUpGeneration()).toBe(2);
 		agent.dispose();
 	});
 
@@ -59,11 +77,15 @@ describe("queued message restoration", () => {
 			},
 		};
 
+		expect(agent.getPendingFollowUpGeneration()).toBe(1);
+		expect(runtime.getPendingMessageCount()).toBe(1);
+		expect(runtime.getPendingMessageDrafts()).toBeNull();
 		expect(runtime.drainPendingMessages()).toEqual([queued]);
 		expect(agent.getPendingFollowUps()).toEqual([]);
+		expect(agent.getPendingFollowUpGeneration()).toBe(2);
 		expect(published).toEqual({
 			type: "chat.message-queue.changed",
-			payload: { count: 0, messages: [], steering: [] },
+			payload: { count: 0, generation: 2, messages: [], steering: [] },
 		});
 	});
 });

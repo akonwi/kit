@@ -27,6 +27,8 @@ function createRuntime(overrides: Record<string, unknown> = {}) {
 		agentInfo: { thinkingLevel: "off" },
 		getMessages: () => [],
 		getPendingMessageCount: () => 0,
+		getPendingMessageDrafts: () => [],
+		getPendingMessageGeneration: () => 0,
 		getPendingMessages: () => [],
 		abort: () => {},
 		submitUserMessage: async () => {},
@@ -259,11 +261,13 @@ describe("RpcSessionHost", () => {
 		];
 		const runtime = createRuntime({
 			getPendingMessageCount: () => pendingMessages.length,
+			getPendingMessageGeneration: () => 7,
 			getPendingMessages: () => pendingMessages,
 		});
 		const host = new RpcSessionHost(runtime);
 		const snapshot = host.getConnectionSnapshot().state;
 		expect(snapshot.pendingMessageCount).toBe(4);
+		expect(snapshot.pendingMessageGeneration).toBe(7);
 		expect(snapshot.pendingMessagePreviews).toEqual([
 			"first follow-up",
 			"second follow-up",
@@ -275,6 +279,7 @@ describe("RpcSessionHost", () => {
 		runtime.emit({
 			type: "chat.message-queue.changed",
 			count: pendingMessages.length,
+			generation: 7,
 			messages: pendingMessages,
 			steering: [],
 		} as AgentRuntimeEvent);
@@ -285,11 +290,435 @@ describe("RpcSessionHost", () => {
 				steering: [],
 				followUp: pendingMessages,
 				count: 4,
+				generation: 7,
 				previews: [
 					"first follow-up",
 					"second follow-up",
 					expect.stringMatching(/^x{237}\.\.\.$/),
 				],
+			},
+		]);
+		host.dispose();
+	});
+
+	test("gives the first queued follow-up mutation exclusive ownership", async () => {
+		let generation = 2;
+		let pendingMessages = ["first", "second"];
+		const promoted: string[] = [];
+		const runtime = createRuntime({
+			getPendingMessageCount: () => pendingMessages.length,
+			getPendingMessageDrafts: () => [...pendingMessages],
+			getPendingMessageGeneration: () => generation,
+			getPendingMessages: () => [...pendingMessages],
+			drainPendingMessages: () => {
+				const drained = [...pendingMessages];
+				if (drained.length > 0) generation += 1;
+				pendingMessages = [];
+				return drained;
+			},
+			promotePendingFollowUpsToSteering: () => {
+				promoted.push(...pendingMessages);
+				if (pendingMessages.length > 0) generation += 1;
+				pendingMessages = [];
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+
+		await Promise.all([
+			host.handleCommand(
+				{
+					id: "restore",
+					type: "restore_follow_ups",
+					clientId: "client-a",
+					operationId: "operation-restore",
+					sessionId: "session-1",
+					expectedGeneration: 2,
+				},
+				async (response) => {
+					responses.push(response);
+				},
+			),
+			host.handleCommand(
+				{
+					id: "promote",
+					type: "promote_follow_ups",
+					sessionId: "session-1",
+					expectedGeneration: 2,
+				},
+				async (response) => {
+					responses.push(response);
+				},
+			),
+		]);
+
+		expect(responses).toEqual([
+			{
+				id: "restore",
+				type: "response",
+				command: "restore_follow_ups",
+				success: true,
+				data: {
+					clientId: "client-a",
+					operationId: "operation-restore",
+					sessionId: "session-1",
+					generation: 3,
+					messages: ["first", "second"],
+				},
+			},
+			{
+				id: "promote",
+				type: "response",
+				command: "promote_follow_ups",
+				success: false,
+				error: "Queued follow-ups changed; refresh queue state",
+			},
+		]);
+		expect(promoted).toEqual([]);
+		host.dispose();
+	});
+
+	test("promotes an observed follow-up queue and returns its new generation", async () => {
+		let generation = 5;
+		let pendingMessages = ["first", "second"];
+		const promoted: string[] = [];
+		const runtime = createRuntime({
+			getStatus: () => ({ isStreaming: true }),
+			getPendingMessageCount: () => pendingMessages.length,
+			getPendingMessageGeneration: () => generation,
+			getPendingMessages: () => [...pendingMessages],
+			promotePendingFollowUpsToSteering: () => {
+				promoted.push(...pendingMessages);
+				generation += 1;
+				pendingMessages = [];
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+
+		await host.handleCommand(
+			{
+				type: "promote_follow_ups",
+				sessionId: "session-1",
+				expectedGeneration: 5,
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+
+		expect(responses).toEqual([
+			{
+				type: "response",
+				command: "promote_follow_ups",
+				success: true,
+				data: {
+					sessionId: "session-1",
+					generation: 6,
+					count: 2,
+				},
+			},
+		]);
+		expect(promoted).toEqual(["first", "second"]);
+		host.dispose();
+	});
+
+	test("does not promote follow-ups while the agent is idle", async () => {
+		let promoted = false;
+		const runtime = createRuntime({
+			getPendingMessageCount: () => 1,
+			getPendingMessageGeneration: () => 3,
+			promotePendingFollowUpsToSteering: () => {
+				promoted = true;
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+
+		await host.handleCommand(
+			{
+				type: "promote_follow_ups",
+				sessionId: "session-1",
+				expectedGeneration: 3,
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+
+		expect(responses).toEqual([
+			{
+				type: "response",
+				command: "promote_follow_ups",
+				success: false,
+				error: "Cannot promote follow-ups while the agent is idle",
+			},
+		]);
+		expect(promoted).toBeFalse();
+		host.dispose();
+	});
+
+	test("does not drain a restore response above the remote draft limit", async () => {
+		let drained = false;
+		const runtime = createRuntime({
+			getPendingMessageCount: () => 1,
+			getPendingMessageDrafts: () => ["x".repeat(1024 * 1024 + 1)],
+			getPendingMessageGeneration: () => 1,
+			getPendingMessages: () => ["x".repeat(1024 * 1024 + 1)],
+			drainPendingMessages: () => {
+				drained = true;
+				return [];
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+
+		await host.handleCommand(
+			{
+				type: "restore_follow_ups",
+				clientId: "client-a",
+				operationId: "operation-restore",
+				sessionId: "session-1",
+				expectedGeneration: 1,
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+
+		expect(responses).toEqual([
+			{
+				type: "response",
+				command: "restore_follow_ups",
+				success: false,
+				error: "Queued follow-ups exceed the remote draft limit",
+			},
+		]);
+		expect(drained).toBeFalse();
+		host.dispose();
+	});
+
+	test("replays a restore result after its response is lost", async () => {
+		let generation = 1;
+		let pendingMessages = ["recover me"];
+		let drains = 0;
+		const runtime = createRuntime({
+			getPendingMessageCount: () => pendingMessages.length,
+			getPendingMessageDrafts: () => [...pendingMessages],
+			getPendingMessageGeneration: () => generation,
+			getPendingMessages: () => [...pendingMessages],
+			drainPendingMessages: () => {
+				drains += 1;
+				generation += 1;
+				pendingMessages = [];
+				return [];
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const command = {
+			type: "restore_follow_ups",
+			clientId: "client-a",
+			operationId: "operation-retry",
+			sessionId: "session-1",
+			expectedGeneration: 1,
+		};
+
+		await expect(
+			host.handleCommand(command, async () => {
+				throw new Error("connection lost");
+			}),
+		).rejects.toThrow("connection lost");
+		const otherClientResponses: unknown[] = [];
+		await host.handleCommand(
+			{ ...command, id: "other", clientId: "client-b" },
+			async (response) => {
+				otherClientResponses.push(response);
+			},
+		);
+		expect(otherClientResponses).toEqual([
+			{
+				id: "other",
+				type: "response",
+				command: "restore_follow_ups",
+				success: false,
+				error: "Queued follow-ups changed; refresh queue state",
+			},
+		]);
+
+		const responses: unknown[] = [];
+		await host.handleCommand({ ...command, id: "retry" }, async (response) => {
+			responses.push(response);
+		});
+
+		expect(drains).toBe(1);
+		expect(responses).toEqual([
+			{
+				id: "retry",
+				type: "response",
+				command: "restore_follow_ups",
+				success: true,
+				data: {
+					clientId: "client-a",
+					operationId: "operation-retry",
+					sessionId: "session-1",
+					generation: 2,
+					messages: ["recover me"],
+				},
+			},
+		]);
+		host.dispose();
+	});
+
+	test("retains mutation results until clients acknowledge them", async () => {
+		let generation = 0;
+		let pendingMessages: string[] = [];
+		const runtime = createRuntime({
+			getPendingMessageCount: () => pendingMessages.length,
+			getPendingMessageDrafts: () => [...pendingMessages],
+			getPendingMessageGeneration: () => generation,
+			getPendingMessages: () => [...pendingMessages],
+			drainPendingMessages: () => {
+				pendingMessages = [];
+				generation += 1;
+				return [];
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const send = async (command: { type: string; [key: string]: unknown }) => {
+			const responses: unknown[] = [];
+			await host.handleCommand(command, async (response) => {
+				responses.push(response);
+			});
+			return responses[0];
+		};
+
+		for (let index = 0; index < 16; index += 1) {
+			pendingMessages = [`message-${index}`];
+			generation += 1;
+			expect(
+				await send({
+					type: "restore_follow_ups",
+					clientId: "client-a",
+					operationId: `operation-${index}`,
+					sessionId: "session-1",
+					expectedGeneration: generation,
+				}),
+			).toMatchObject({ success: true });
+		}
+		pendingMessages = ["message-16"];
+		generation += 1;
+		expect(
+			await send({
+				type: "restore_follow_ups",
+				clientId: "client-a",
+				operationId: "operation-16",
+				sessionId: "session-1",
+				expectedGeneration: generation,
+			}),
+		).toMatchObject({
+			success: false,
+			error:
+				"Too many unacknowledged follow-up mutations; acknowledge a prior result",
+		});
+		expect(
+			await send({
+				type: "restore_follow_ups",
+				clientId: "client-a",
+				operationId: "operation-0",
+				sessionId: "session-1",
+				expectedGeneration: 1,
+			}),
+		).toMatchObject({ success: true });
+		expect(
+			await send({
+				type: "acknowledge_follow_up_mutation",
+				clientId: "client-a",
+				operationId: "operation-0",
+			}),
+		).toMatchObject({
+			success: true,
+			data: {
+				clientId: "client-a",
+				operationId: "operation-0",
+				acknowledged: true,
+			},
+		});
+		expect(
+			await send({
+				type: "restore_follow_ups",
+				clientId: "client-a",
+				operationId: "operation-16",
+				sessionId: "session-1",
+				expectedGeneration: generation,
+			}),
+		).toMatchObject({ success: true });
+		host.dispose();
+	});
+
+	test("does not drain structured follow-ups into a text-only draft", async () => {
+		let drained = false;
+		const runtime = createRuntime({
+			getPendingMessageCount: () => 1,
+			getPendingMessageDrafts: () => null,
+			getPendingMessageGeneration: () => 1,
+			drainPendingMessages: () => {
+				drained = true;
+				return [];
+			},
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+
+		await host.handleCommand(
+			{
+				type: "restore_follow_ups",
+				clientId: "client-a",
+				operationId: "operation-structured",
+				sessionId: "session-1",
+				expectedGeneration: 1,
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+
+		expect(responses).toEqual([
+			{
+				type: "response",
+				command: "restore_follow_ups",
+				success: false,
+				error:
+					"Queued follow-ups contain attachments that cannot be restored remotely",
+			},
+		]);
+		expect(drained).toBeFalse();
+		host.dispose();
+	});
+
+	test("rejects queued follow-up mutations after a session change", async () => {
+		const runtime = createRuntime({
+			getPendingMessageGeneration: () => 4,
+		});
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+
+		await host.handleCommand(
+			{
+				type: "promote_follow_ups",
+				sessionId: "session-old",
+				expectedGeneration: 4,
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+
+		expect(responses).toEqual([
+			{
+				type: "response",
+				command: "promote_follow_ups",
+				success: false,
+				error: "Active session changed; refresh queued follow-ups",
 			},
 		]);
 		host.dispose();
@@ -647,6 +1076,11 @@ describe("RpcSessionHost", () => {
 					attachmentReferences: false,
 					maxAttachmentsPerPrompt: 0,
 					limits: {
+						queuedFollowUps: {
+							maxDraftBytes: 1024 * 1024,
+							maxDraftItems: 128,
+							maxPendingMutations: 16,
+						},
 						attachments: {
 							maxFiles: 0,
 							maxFilesPerPrompt: 0,

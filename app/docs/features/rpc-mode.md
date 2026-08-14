@@ -43,6 +43,9 @@ commands supported by the running Kit host. For example, stdio RPC omits
 | `prompt` | optional `message`, `attachmentIds`, `streamingBehavior` | Start a run with text and uploaded attachments, or steer/follow up with text while streaming. |
 | `steer` | `message` | Inject steering into the active run. |
 | `follow_up` | `message` | Queue a follow-up message. |
+| `restore_follow_ups` | `clientId`, `operationId`, `sessionId`, `expectedGeneration` | Atomically drain the observed text-only follow-up queue into ordered client-local draft messages. |
+| `promote_follow_ups` | `sessionId`, `expectedGeneration` | Atomically promote the observed follow-up queue to steering while the agent is active. |
+| `acknowledge_follow_up_mutation` | `clientId`, `operationId` | Release a retained non-empty restore result after the client safely applies it. |
 | `abort` | | Abort active work and wait for accepted runs to stop. |
 | `new_session` | | Create and activate a session. |
 | `list_sessions` | optional `cwd` | List lightweight session summaries. |
@@ -74,6 +77,22 @@ TUI context. Remote commands execute only while the agent is idle, receive an
 abort signal, and time out after 30 seconds. `abort` runs out of band, cancels
 the active command, and invalidates commands that were already queued behind
 it.
+
+Queued follow-up state includes a server-owned `pendingMessageGeneration`.
+Clients pass the active `sessionId` and that generation when restoring or
+promoting the queue. The first serialized command with a current pair owns the
+entire observed queue; later commands with the stale generation fail without
+mutation. A successful restore returns the queued text messages in order for the
+winning client to merge into its local draft. Restore leaves the queue untouched
+when it contains structured attachments or exceeds the advertised
+`queuedFollowUps.maxDraftBytes` or `maxDraftItems` limit. Each mutation also
+requires stable client and operation IDs; retrying the same operation from that
+client after response loss returns its retained result without mutating twice.
+Clients acknowledge a non-empty restore only after safely applying it. The host
+rejects new retained restores at `maxPendingMutations` instead of evicting
+unacknowledged results. Empty restores and promotions do not consume claim
+capacity.
+Queue-change events carry the new `generation`, count, and previews.
 
 ## Events
 
