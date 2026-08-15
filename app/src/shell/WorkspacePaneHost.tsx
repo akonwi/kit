@@ -1,7 +1,7 @@
 import { MouseEvent } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import type { JSX } from "solid-js";
-import { createMemo, createSignal, onCleanup } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { ANGLE_LEFT } from "./glyphs";
 import { theme } from "./theme";
 import {
@@ -99,12 +99,13 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 	const [handleHovered, setHandleHovered] = createSignal(false);
 	const [handlePressed, setHandlePressed] = createSignal(false);
 	const [dragging, setDragging] = createSignal(false);
+	const [dragRatio, setDragRatio] = createSignal<number | null>(null);
 	const hasTabs = () => props.tabs().length > 0;
 	const layout = createMemo(() => {
 		if (!hasTabs()) return null;
 		return resolveWorkspacePaneLayout({
 			availableColumns: hostWidth(),
-			preferredPaneRatio: props.preferredPaneRatio(),
+			preferredPaneRatio: dragRatio() ?? props.preferredPaneRatio(),
 			minPrimaryColumns: props.minPrimaryColumns,
 			minSecondaryColumns: props.minSecondaryColumns(),
 		});
@@ -117,6 +118,20 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 	const secondaryVisible = () =>
 		(layout() !== null && !wideCollapsed()) ||
 		(narrowTabbed() && props.selectedSurface() !== "transcript");
+
+	function dragInvalidated(): boolean {
+		return props.drawerCollapsed() || !hasTabs() || layout() === null;
+	}
+
+	function cancelDrag(): void {
+		setDragRatio(null);
+		setDragging(false);
+		renderer.setMousePointer("default");
+	}
+
+	createEffect(() => {
+		if (dragging() && dragInvalidated()) cancelDrag();
+	});
 
 	function shouldHandleTabMouseEvent(event: MouseEvent): boolean {
 		if (rawMouseEvents.has(event)) return true;
@@ -202,23 +217,31 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 
 	function collapseDraggedPane(event: MouseEvent): void {
 		consumeMouse(event);
-		setDragging(false);
-		renderer.setMousePointer("default");
+		cancelDrag();
 		props.onCollapseDrawer();
 	}
 
 	function updateRatio(event: MouseEvent): void {
+		if (dragInvalidated()) {
+			consumeMouse(event);
+			cancelDrag();
+			return;
+		}
 		if (draggedToCollapsedWidth(event)) {
 			collapseDraggedPane(event);
 			return;
 		}
 		consumeMouse(event);
-		props.onPreferredPaneRatioChange(ratioAt(event));
+		setDragRatio(ratioAt(event));
 	}
 
 	function finishDrag(event: MouseEvent): void {
 		consumeMouse(event);
 		if (!dragging()) return;
+		if (dragInvalidated()) {
+			cancelDrag();
+			return;
+		}
 		if (draggedToCollapsedWidth(event)) {
 			collapseDraggedPane(event);
 			return;
@@ -226,6 +249,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 		const ratio = ratioAt(event);
 		props.onPreferredPaneRatioChange(ratio);
 		props.onPreferredPaneRatioCommit(ratio);
+		setDragRatio(null);
 		setDragging(false);
 		renderer.setMousePointer(dividerHovered() ? "move" : "default");
 	}
@@ -461,6 +485,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 						}
 						consumeMouse(event);
 						props.onDividerMouseDown?.();
+						setDragRatio(props.preferredPaneRatio());
 						setDragging(true);
 						renderer.setMousePointer("move");
 					}}

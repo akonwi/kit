@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import type { MousePointerStyle } from "@opentui/core";
 import { createMockMouse, MouseButtons } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
-import { onCleanup } from "solid-js";
+import { createSignal, onCleanup } from "solid-js";
 import { ANGLE_LEFT } from "./glyphs";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 
@@ -363,9 +363,11 @@ describe("WorkspacePaneHost", () => {
 		expect(changes).toHaveLength(0);
 	});
 
-	test("collapses when the divider reaches the secondary minimum width", async () => {
+	test("collapses without replacing the committed expanded ratio", async () => {
 		const changes: number[] = [];
 		const commits: number[] = [];
+		const [collapsed, setCollapsed] = createSignal(false);
+		const [ratio, setRatio] = createSignal(0.4);
 		let collapseCalls = 0;
 		testSetup = await testRender(
 			() => (
@@ -373,7 +375,56 @@ describe("WorkspacePaneHost", () => {
 					tabs={() => tabs}
 					activeTabId={() => "review"}
 					selectedSurface={() => "review"}
-					drawerCollapsed={() => false}
+					drawerCollapsed={collapsed}
+					secondary={() => <box width="100%" height="100%" />}
+					initialWidth={100}
+					preferredPaneRatio={ratio}
+					minPrimaryColumns={40}
+					minSecondaryColumns={() => 20}
+					onSelectTranscript={() => {}}
+					onSelectTab={() => {}}
+					onCloseTab={() => {}}
+					onCollapseDrawer={() => {
+						collapseCalls += 1;
+						setCollapsed(true);
+					}}
+					onExpandDrawer={() => setCollapsed(false)}
+					onOpenOverflow={() => {}}
+					onPreferredPaneRatioChange={(nextRatio) => {
+						changes.push(nextRatio);
+						setRatio(nextRatio);
+					}}
+					onPreferredPaneRatioCommit={(nextRatio) => commits.push(nextRatio)}
+				>
+					<box width="100%" height="100%" />
+				</WorkspacePaneHost>
+			),
+			{ width: 100, height: 10 },
+		);
+		await testSetup.renderOnce();
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.drag(60, 3, 80, 3);
+		expect(collapseCalls).toBe(1);
+		expect(collapsed()).toBeTrue();
+		expect(ratio()).toBe(0.4);
+		expect(changes).toHaveLength(0);
+		expect(commits).toHaveLength(0);
+		setCollapsed(false);
+		await testSetup.renderOnce();
+		expect(ratio()).toBe(0.4);
+	});
+
+	test("cancels an active drag when the drawer collapses externally", async () => {
+		const changes: number[] = [];
+		const commits: number[] = [];
+		const [collapsed, setCollapsed] = createSignal(false);
+		testSetup = await testRender(
+			() => (
+				<WorkspacePaneHost
+					tabs={() => tabs}
+					activeTabId={() => "review"}
+					selectedSurface={() => "review"}
+					drawerCollapsed={collapsed}
 					secondary={() => <box width="100%" height="100%" />}
 					initialWidth={100}
 					preferredPaneRatio={() => 0.4}
@@ -382,9 +433,7 @@ describe("WorkspacePaneHost", () => {
 					onSelectTranscript={() => {}}
 					onSelectTab={() => {}}
 					onCloseTab={() => {}}
-					onCollapseDrawer={() => {
-						collapseCalls += 1;
-					}}
+					onCollapseDrawer={() => {}}
 					onExpandDrawer={() => {}}
 					onOpenOverflow={() => {}}
 					onPreferredPaneRatioChange={(ratio) => changes.push(ratio)}
@@ -397,9 +446,12 @@ describe("WorkspacePaneHost", () => {
 		);
 		await testSetup.renderOnce();
 		const mouse = createMockMouse(testSetup.renderer);
-		await mouse.drag(60, 3, 80, 3);
-		expect(collapseCalls).toBe(1);
-		expect(changes.at(-1)).toBeGreaterThan(0.2);
+		await mouse.pressDown(60, 3);
+		await mouse.moveTo(70, 3);
+		setCollapsed(true);
+		await testSetup.renderOnce();
+		await mouse.release(70, 3);
+		expect(changes).toHaveLength(0);
 		expect(commits).toHaveLength(0);
 	});
 
