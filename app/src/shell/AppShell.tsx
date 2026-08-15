@@ -7,30 +7,13 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
-import {
-	MERMAID_PREVIEW_MIN_COLS,
-	MermaidPreviewPanel,
-} from "../features/mermaid-preview/MermaidPreviewPanel";
 import { registerMermaidPreviewHandler } from "../features/mermaid-preview/requests";
-import {
-	RELEASE_NOTES_MIN_COLS,
-	ReleaseNotesPanel,
-	type ReleasesWorkspaceController,
-} from "../features/releases";
+import type { ReleasesWorkspaceController } from "../features/releases";
 import { CodeReviewAttachment } from "../features/review/attachment";
 import type { ReviewDraftController } from "../features/review/draft-controller";
-import { ReviewContent } from "../features/review/ReviewContent";
 import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import type { ScratchpadController } from "../features/scratchpad/controller";
-import {
-	SCRATCHPAD_MIN_COLS,
-	ScratchpadPanel,
-} from "../features/scratchpad/ScratchpadPanel";
 import type { SubagentsWorkspaceController } from "../features/subagents";
-import {
-	SUBAGENTS_MIN_COLS,
-	SubagentsPanel,
-} from "../features/subagents/SubagentsPanel";
 import { createKeybindingDiagnosticReporter } from "../keymap/diagnostics";
 import { getKeybindingCommand } from "../keymap/registry";
 import { KeymapLayerProvider, useKeymapLayer } from "../keymap/useKeymapLayer";
@@ -62,13 +45,11 @@ import { HeaderBar } from "./HeaderBar";
 import type { HeaderStatusController } from "./header-status";
 import { InlinePicker } from "./InlinePicker";
 import { formatCommandBindings } from "./KeymapHintBar";
-import { openExternal } from "./open-external";
 import { PendingSlot } from "./PendingSlot";
 import { copySelection } from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
-import { TurnActivityPanel } from "./transcript/TurnActivityPanel";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
@@ -79,23 +60,22 @@ import {
 	WORKSPACE_MIN_SECONDARY_COLUMNS,
 } from "./workspace-layout";
 import {
+	type WorkspacePane,
+	type WorkspacePaneRenderContext,
+	WorkspacePaneSurface,
+	workspacePaneAvailable,
+	workspacePaneClosable,
+	workspacePaneIdentity,
+	workspacePaneLabel,
+	workspacePaneMinColumns,
+} from "./workspace-pane-registry";
+import {
 	createWorkspaceStateController,
 	DEFAULT_WORKSPACE_PANE_RATIO,
 	type WorkspaceFocusedSurface,
 	type WorkspaceState,
 } from "./workspace-state";
 import type { WorkspaceTabItem } from "./workspace-tabs-layout";
-
-const ACTIVITY_MIN_COLS = 40;
-const REVIEW_MIN_COLS = 60;
-
-type WorkspacePane =
-	| { kind: "activity"; source: ActivitySource }
-	| { kind: "mermaid"; source: string }
-	| { kind: "review" }
-	| { kind: "releases" }
-	| { kind: "scratchpad" }
-	| { kind: "subagents" };
 
 export type AppShellProps = {
 	settings: Settings;
@@ -128,26 +108,6 @@ type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
 	onReviewDiffViewChanged: (view: ReviewDiffView) => void;
 	onPreferredPaneRatioCommit: (ratio: number) => void;
 };
-
-function workspacePaneIdentity(pane: WorkspacePane): string {
-	return pane.kind === "mermaid" ? `mermaid:${pane.source}` : pane.kind;
-}
-
-function workspacePaneLabel(
-	pane: WorkspacePane,
-	tabs: readonly { pane: WorkspacePane }[],
-): string {
-	if (pane.kind === "activity") return "Activity";
-	if (pane.kind === "review") return "Code review";
-	if (pane.kind === "releases") return "Release notes";
-	if (pane.kind === "scratchpad") return "Scratchpad";
-	if (pane.kind === "subagents") return "Sub-agents";
-	const diagrams = tabs.filter((tab) => tab.pane.kind === "mermaid");
-	const index = diagrams.findIndex(
-		(tab) => tab.pane.kind === "mermaid" && tab.pane.source === pane.source,
-	);
-	return diagrams.length > 1 ? `Diagram ${index + 1}` : "Diagram";
-}
 
 function commandKeybindingGroup(command: Command): string {
 	if (command.category) return command.category;
@@ -221,18 +181,12 @@ function AppShellContent(props: AppShellContentProps) {
 			secondary.tabs.find((tab) => tab.id === secondary.activeTabId) ?? null
 		);
 	};
-	const openSecondaryPane = () => {
-		const secondary = workspaceState().secondary;
-		return secondary.status === "open"
-			? (activeWorkspaceTab()?.pane ?? null)
-			: null;
-	};
 	const workspaceTabItems = (): WorkspaceTabItem[] => {
 		const tabs = secondaryTabs();
 		return tabs.map((tab) => ({
 			id: tab.id,
 			label: workspacePaneLabel(tab.pane, tabs),
-			closable: tab.pane.kind !== "review" && tab.pane.kind !== "scratchpad",
+			closable: workspacePaneClosable(tab.pane),
 		}));
 	};
 	const focusedSurface = () => workspaceState().focusedSurface;
@@ -321,14 +275,6 @@ function AppShellContent(props: AppShellContentProps) {
 		return secondaryTabs().find((tab) => tab.pane.kind === kind) ?? null;
 	}
 	const activityTab = () => tabForKind("activity");
-	const activitySource = () =>
-		openSecondaryPane()?.kind === "activity"
-			? (openSecondaryPane() as { kind: "activity"; source: ActivitySource })
-					.source
-			: null;
-	const editableReviewOpen = () => openSecondaryPane()?.kind === "review";
-	const releasesOpen = () => openSecondaryPane()?.kind === "releases";
-	const scratchpadOpen = () => openSecondaryPane()?.kind === "scratchpad";
 	const [subagentsData, setSubagentsData] = createSignal(
 		props.subagentsWorkspace.data(),
 	);
@@ -337,21 +283,18 @@ function AppShellContent(props: AppShellContentProps) {
 			setSubagentsData(props.subagentsWorkspace.data()),
 		),
 	);
-	const subagentsOpen = () =>
-		openSecondaryPane()?.kind === "subagents" && subagentsData() !== null;
 	const secondaryPaneVisible = () => {
-		const pane = openSecondaryPane();
-		if (!pane) return false;
-		return pane.kind !== "subagents" || subagentsData() !== null;
+		if (workspaceState().secondary.status !== "open") return false;
+		const tab = activeWorkspaceTab();
+		return tab
+			? workspacePaneAvailable(tab.pane, workspacePaneContext(tab.id))
+			: false;
 	};
 	const secondaryPaneMinColumns = () => {
 		const pane = activeWorkspaceTab()?.pane;
-		if (pane?.kind === "mermaid") return MERMAID_PREVIEW_MIN_COLS;
-		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
-		if (pane?.kind === "review") return REVIEW_MIN_COLS;
-		if (pane?.kind === "releases") return RELEASE_NOTES_MIN_COLS;
-		if (pane?.kind === "subagents") return SUBAGENTS_MIN_COLS;
-		return ACTIVITY_MIN_COLS;
+		return pane
+			? workspacePaneMinColumns(pane)
+			: WORKSPACE_MIN_SECONDARY_COLUMNS;
 	};
 	const supportsNarrowWorkspaceTabs = () => secondaryTabs().length > 0;
 	const workspaceUsesNarrowTabs = () =>
@@ -413,6 +356,28 @@ function AppShellContent(props: AppShellContentProps) {
 		if (props.scratchpad.editing()) props.scratchpad.autosaveDraft();
 	}
 
+	function workspacePaneContext(tabId: string): WorkspacePaneRenderContext {
+		return {
+			active: () =>
+				activeWorkspaceTab()?.id === tabId && workspaceInteractionsEnabled(),
+			onFocusRequest: () => {
+				focusSecondarySurface(tabId);
+			},
+			onLeave: leaveWorkspaceSurface,
+			runtime: props.runtime,
+			attachments: props.attachments,
+			reviewDrafts: props.reviewDrafts,
+			defaultReviewDiffView: () => props.defaultReviewDiffView,
+			onReviewDiffViewChanged: props.onReviewDiffViewChanged,
+			onSubmitReviewMessage: () => props.controller.handleMessageSubmit(),
+			releasesWorkspace: props.releasesWorkspace,
+			scratchpad: props.scratchpad,
+			subagentsData,
+			openOverlay: props.openOverlay,
+			showToast: props.showToast,
+		};
+	}
+
 	function focusSecondarySurface(tabId?: string): boolean {
 		const target = tabId ?? activeWorkspaceTab()?.id;
 		if (!target) return false;
@@ -430,9 +395,7 @@ function AppShellContent(props: AppShellContentProps) {
 	function requestCloseTab(tabId: string): boolean {
 		const tab = secondaryTabs().find((candidate) => candidate.id === tabId);
 		if (!tab) return false;
-		if (tab.pane.kind === "review" || tab.pane.kind === "scratchpad") {
-			return false;
-		}
+		if (!workspacePaneClosable(tab.pane)) return false;
 		workspace.closeSecondary(tabId);
 		if (workspaceState().secondary.status === "empty") focusComposerSurface();
 		return true;
@@ -475,14 +438,6 @@ function AppShellContent(props: AppShellContentProps) {
 		focusComposerSurface();
 	}
 
-	function closeActivityPanel(): void {
-		leaveWorkspaceSurface();
-	}
-
-	function closeReleasesPanel(): void {
-		leaveWorkspaceSurface();
-	}
-
 	function openReleasesPanel(): void {
 		saveScratchpadDraftIfEditing();
 		workspace.openSecondary({ kind: "releases" }, { focus: "secondary" });
@@ -490,10 +445,6 @@ function AppShellContent(props: AppShellContentProps) {
 	}
 
 	onCleanup(props.releasesWorkspace.onOpenRequest(openReleasesPanel));
-
-	function closeScratchpadPanel(): void {
-		leaveWorkspaceSurface();
-	}
 
 	const toggleScratchpad = () => {
 		const tab = tabForKind("scratchpad");
@@ -511,10 +462,6 @@ function AppShellContent(props: AppShellContentProps) {
 		workspace.openSecondary({ kind: "scratchpad" }, { focus: "secondary" });
 		focusSecondarySurface();
 	};
-
-	function closeSubagentsPanel(): void {
-		leaveWorkspaceSurface();
-	}
 
 	function openSubagentsPanel(): void {
 		if (subagentsData() === null) return;
@@ -804,173 +751,13 @@ function AppShellContent(props: AppShellContentProps) {
 				onOpenOverflow={openWorkspaceOverflow}
 				secondary={() => (
 					<For each={secondaryTabs()}>
-						{(tab) => {
-							const pane = tab.pane;
-							if (pane.kind === "review") {
-								return (
-									<box
-										position="absolute"
-										left={editableReviewOpen() ? 0 : -1000}
-										top={0}
-										width="100%"
-										height="100%"
-										onMouseDown={(event) => {
-											if (event.button === 0) focusSecondarySurface(tab.id);
-										}}
-									>
-										<ReviewContent
-											onClose={leaveWorkspaceSurface}
-											onTabClose={() => {}}
-											attachments={props.attachments}
-											reviewDrafts={props.reviewDrafts}
-											toast={props.showToast}
-											defaultDiffView={props.defaultReviewDiffView}
-											onDiffViewChanged={props.onReviewDiffViewChanged}
-											onFocusRequest={() => focusSecondarySurface(tab.id)}
-											onSubmitMessage={() =>
-												props.controller.handleMessageSubmit()
-											}
-											active={
-												activeWorkspaceTab()?.id === tab.id &&
-												workspaceInteractionsEnabled()
-											}
-										/>
-									</box>
-								);
-							}
-							if (pane.kind === "activity") {
-								return (
-									<box
-										position="absolute"
-										left={activitySource() !== null ? 0 : -1000}
-										top={0}
-										width="100%"
-										height="100%"
-										onMouseDown={(event) => {
-											if (event.button === 0) focusSecondarySurface(tab.id);
-										}}
-									>
-										<TurnActivityPanel
-											runtime={props.runtime}
-											source={pane.source}
-											active={
-												activeWorkspaceTab()?.id === tab.id &&
-												workspaceInteractionsEnabled()
-											}
-											onClose={closeActivityPanel}
-											onFocusRequest={() => focusSecondarySurface(tab.id)}
-										/>
-									</box>
-								);
-							}
-							if (pane.kind === "mermaid") {
-								return (
-									<box
-										position="absolute"
-										left={activeWorkspaceTab()?.id === tab.id ? 0 : -1000}
-										top={0}
-										width="100%"
-										height="100%"
-									>
-										<MermaidPreviewPanel
-											source={pane.source}
-											active={
-												activeWorkspaceTab()?.id === tab.id &&
-												secondaryPaneVisible() &&
-												workspaceInteractionsEnabled()
-											}
-											onClose={leaveWorkspaceSurface}
-											onFocusRequest={() => focusSecondarySurface(tab.id)}
-											onActionError={(error) =>
-												props.showToast({
-													title: "Could not open diagram",
-													subtitle:
-														error instanceof Error
-															? error.message
-															: String(error),
-													variant: "error",
-												})
-											}
-										/>
-									</box>
-								);
-							}
-							if (pane.kind === "releases") {
-								return (
-									<box
-										position="absolute"
-										left={releasesOpen() ? 0 : -1000}
-										top={0}
-										width="100%"
-										height="100%"
-									>
-										<ReleaseNotesPanel
-											controller={props.releasesWorkspace}
-											active={
-												activeWorkspaceTab()?.id === tab.id &&
-												workspaceInteractionsEnabled()
-											}
-											onClose={closeReleasesPanel}
-											onFocusRequest={() => focusSecondarySurface(tab.id)}
-											onOpenRelease={openExternal}
-											onOpenError={(error) =>
-												props.showToast({
-													title: "Could not open release",
-													subtitle:
-														error instanceof Error
-															? error.message
-															: String(error),
-													variant: "error",
-												})
-											}
-										/>
-									</box>
-								);
-							}
-							if (pane.kind === "scratchpad") {
-								return (
-									<box
-										position="absolute"
-										left={scratchpadOpen() ? 0 : -1000}
-										top={0}
-										width="100%"
-										height="100%"
-									>
-										<ScratchpadPanel
-											controller={props.scratchpad}
-											active={
-												activeWorkspaceTab()?.id === tab.id &&
-												workspaceInteractionsEnabled()
-											}
-											onClose={closeScratchpadPanel}
-											onFocusRequest={() => focusSecondarySurface(tab.id)}
-										/>
-									</box>
-								);
-							}
-							const data = subagentsData();
-							if (!data) return <box />;
-							return (
-								<box
-									position="absolute"
-									left={subagentsOpen() ? 0 : -1000}
-									top={0}
-									width="100%"
-									height="100%"
-								>
-									<SubagentsPanel
-										data={data}
-										openOverlay={props.openOverlay}
-										active={
-											activeWorkspaceTab()?.id === tab.id &&
-											workspaceInteractionsEnabled()
-										}
-										onClose={closeSubagentsPanel}
-										onFocusRequest={() => focusSecondarySurface(tab.id)}
-									/>
-								</box>
-							);
-						}}
+						{(tab) => (
+							<WorkspacePaneSurface
+								pane={tab.pane}
+								selected={() => activeWorkspaceTab()?.id === tab.id}
+								context={workspacePaneContext(tab.id)}
+							/>
+						)}
 					</For>
 				)}
 			>

@@ -15,7 +15,8 @@ The same workspace state has two responsive presentations:
   workspace surface become peers in one top-level selector
 
 The workspace owns navigation and presentation. Each surface owns its content and
-any optional context/header row below the tab strip.
+any optional context/header row below the tab strip. The typed extension contract
+is documented in [`../docs/features/workspace-panes.md`](../docs/features/workspace-panes.md).
 
 See the accepted mockups:
 
