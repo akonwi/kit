@@ -19,9 +19,8 @@ describe("keybinding registry", () => {
 		expect(
 			getKeybindingCommand("workspace.toggle-secondary")?.defaultKeys,
 		).toEqual([]);
-		expect(
-			getKeybindingCommand("workspace.grow-secondary")?.defaultKeys,
-		).toEqual([]);
+		expect(getKeybindingCommand("workspace.grow-secondary")).toBeUndefined();
+		expect(getKeybindingCommand("workspace.shrink-secondary")).toBeUndefined();
 		expect(getKeybindingCommand("scratchpad.focus-next")).toBeUndefined();
 	});
 

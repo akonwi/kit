@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
 	preferredPaneRatioFromDivider,
-	resizeWorkspacePaneRatio,
 	resolveWorkspacePaneLayout,
 } from "./workspace-layout";
 
@@ -35,39 +34,6 @@ describe("workspace pane layout", () => {
 				preferredPaneRatio: 0.4,
 				minPrimaryColumns: 70,
 				minSecondaryColumns: 30,
-			}),
-		).toBeNull();
-	});
-
-	test("resizes the secondary pane in five-percent steps", () => {
-		expect(
-			resizeWorkspacePaneRatio({
-				availableColumns: 200,
-				preferredPaneRatio: 0.4,
-				minPrimaryColumns: 70,
-				minSecondaryColumns: 30,
-				direction: "grow-secondary",
-			}),
-		).toBe(0.45);
-		expect(
-			resizeWorkspacePaneRatio({
-				availableColumns: 200,
-				preferredPaneRatio: 0.4,
-				minPrimaryColumns: 70,
-				minSecondaryColumns: 30,
-				direction: "shrink-secondary",
-			}),
-		).toBe(0.35);
-	});
-
-	test("does not resize when the workspace cannot split", () => {
-		expect(
-			resizeWorkspacePaneRatio({
-				availableColumns: 99,
-				preferredPaneRatio: 0.4,
-				minPrimaryColumns: 70,
-				minSecondaryColumns: 30,
-				direction: "grow-secondary",
 			}),
 		).toBeNull();
 	});

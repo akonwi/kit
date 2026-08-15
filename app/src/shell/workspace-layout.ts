@@ -40,40 +40,6 @@ export function resolveWorkspacePaneLayout(input: {
 	};
 }
 
-export function resizeWorkspacePaneRatio(input: {
-	availableColumns: number;
-	preferredPaneRatio: number;
-	minPrimaryColumns?: number;
-	minSecondaryColumns?: number;
-	direction: "grow-secondary" | "shrink-secondary";
-	stepRatio?: number;
-}): number | null {
-	const layout = resolveWorkspacePaneLayout(input);
-	if (!layout || input.availableColumns <= 0) return null;
-	const stepColumns = Math.max(
-		1,
-		Math.round(input.availableColumns * (input.stepRatio ?? 0.05)),
-	);
-	const minPrimaryColumns = Math.max(
-		1,
-		Math.floor(input.minPrimaryColumns ?? WORKSPACE_MIN_PRIMARY_COLUMNS),
-	);
-	const minSecondaryColumns = Math.max(
-		1,
-		Math.floor(input.minSecondaryColumns ?? WORKSPACE_MIN_SECONDARY_COLUMNS),
-	);
-	const delta =
-		input.direction === "grow-secondary" ? stepColumns : -stepColumns;
-	const secondaryColumns = Math.max(
-		minSecondaryColumns,
-		Math.min(
-			input.availableColumns - minPrimaryColumns,
-			layout.secondaryColumns + delta,
-		),
-	);
-	return secondaryColumns / input.availableColumns;
-}
-
 export function preferredPaneRatioFromDivider(input: {
 	availableColumns: number;
 	containerLeft: number;

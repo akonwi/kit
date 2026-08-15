@@ -60,16 +60,6 @@ export const KEYBINDING_REGISTRY = {
 			desc: "Collapse or restore workspace drawer",
 			group: "App",
 		},
-		"grow-secondary": {
-			defaultKeys: [],
-			desc: "Grow secondary workspace pane",
-			group: "App",
-		},
-		"shrink-secondary": {
-			defaultKeys: [],
-			desc: "Shrink secondary workspace pane",
-			group: "App",
-		},
 		"reset-layout": {
 			defaultKeys: [],
 			desc: "Reset workspace pane sizes",

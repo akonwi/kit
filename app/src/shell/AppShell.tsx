@@ -74,7 +74,6 @@ import type { OpenActivity, OpenOverlay } from "./transcript/types";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 import { WorkspaceTabOverflowPicker } from "./WorkspaceTabOverflowPicker";
 import {
-	resizeWorkspacePaneRatio,
 	resolveWorkspacePaneLayout,
 	WORKSPACE_MIN_PRIMARY_COLUMNS,
 	WORKSPACE_MIN_SECONDARY_COLUMNS,
@@ -520,26 +519,6 @@ function AppShellContent(props: AppShellContentProps) {
 		return workspace.cycleSurface(direction);
 	}
 
-	function resizeSecondaryPane(
-		direction: "grow-secondary" | "shrink-secondary",
-	): boolean {
-		if (!secondaryPaneVisible()) return false;
-		const ratio = resizeWorkspacePaneRatio({
-			availableColumns: Math.max(0, shellWidth() - 2),
-			preferredPaneRatio: workspaceState().preferredPaneRatio,
-			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
-			minSecondaryColumns: Math.max(
-				WORKSPACE_MIN_SECONDARY_COLUMNS,
-				secondaryPaneMinColumns(),
-			),
-			direction,
-		});
-		if (ratio === null) return false;
-		workspace.setPreferredPaneRatio(ratio);
-		props.onPreferredPaneRatioCommit(ratio);
-		return true;
-	}
-
 	function resetWorkspaceLayout(): boolean {
 		if (!secondaryPaneVisible()) return false;
 		const canSplit = resolveWorkspacePaneLayout({
@@ -610,8 +589,6 @@ function AppShellContent(props: AppShellContentProps) {
 			return tab ? requestCloseTab(tab.id) : false;
 		},
 		"workspace.toggle-secondary": toggleSecondaryPane,
-		"workspace.grow-secondary": () => resizeSecondaryPane("grow-secondary"),
-		"workspace.shrink-secondary": () => resizeSecondaryPane("shrink-secondary"),
 		"workspace.reset-layout": resetWorkspaceLayout,
 	} as const;
 	const workspaceKeymapHandlers = Object.fromEntries(
