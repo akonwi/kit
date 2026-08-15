@@ -432,6 +432,7 @@ function AppShellContent(props: AppShellContentProps) {
 		const existing = activityTab();
 		if (existing) {
 			workspace.updateSecondary({ kind: "activity", source });
+			focusSecondarySurface(existing.id);
 			return;
 		}
 		saveScratchpadDraftIfEditing();
