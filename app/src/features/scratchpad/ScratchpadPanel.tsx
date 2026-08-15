@@ -100,16 +100,6 @@ export function ScratchpadPanel(props: ScratchpadPanelProps) {
 			}}
 		>
 			<WorkspacePanelLayout
-				header={
-					<box
-						flexShrink={0}
-						paddingX={1}
-						border={["bottom"]}
-						borderColor={theme.borderDefault}
-					>
-						<text fg={theme.textPrimary}>Scratchpad</text>
-					</box>
-				}
 				footer={<KeymapHintBar group="scratchpad" borderless />}
 			>
 				<ScratchpadContent

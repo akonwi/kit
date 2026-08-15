@@ -1,13 +1,41 @@
 import type { JSX } from "solid-js";
 import { theme } from "./theme";
 
+export type WorkspacePanelHeaderProps = {
+	left?: JSX.Element;
+	right?: JSX.Element;
+};
+
+/** A contextual metadata row below workspace tabs. Pane names belong to the tabs. */
+export function WorkspacePanelHeader(props: WorkspacePanelHeaderProps) {
+	return (
+		<box
+			flexShrink={0}
+			paddingX={1}
+			width="100%"
+			flexDirection="row"
+			border={["bottom"]}
+			borderColor={theme.borderDefault}
+			justifyContent="space-between"
+			gap={1}
+		>
+			<box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
+				{props.left}
+			</box>
+			<box flexShrink={1} height={1} overflow="hidden">
+				{props.right}
+			</box>
+		</box>
+	);
+}
+
 export type WorkspacePanelLayoutProps = {
-	header: JSX.Element;
+	header?: JSX.Element;
 	footer: JSX.Element;
 	children: JSX.Element;
 };
 
-/** Shared header/body/footer structure for persistent workspace panels. */
+/** Shared optional-context/body/footer structure for persistent workspace panels. */
 export function WorkspacePanelLayout(props: WorkspacePanelLayoutProps) {
 	return (
 		<box

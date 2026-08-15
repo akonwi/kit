@@ -22,7 +22,10 @@ import { CHEVRON_RIGHT, MIDDLE_DOT } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { scrollbarStyle, theme } from "../../shell/theme";
 import type { OpenOverlay } from "../../shell/transcript/types";
-import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
+import {
+	WorkspacePanelHeader,
+	WorkspacePanelLayout,
+} from "../../shell/WorkspacePanelLayout";
 import {
 	mergeItems,
 	relativeTime,
@@ -322,41 +325,36 @@ export function SubagentsPanel(props: SubagentsPanelProps) {
 		>
 			<WorkspacePanelLayout
 				header={
-					<box
-						flexShrink={0}
-						flexDirection="row"
-						justifyContent="space-between"
-						gap={1}
-						paddingX={1}
-						border={["bottom"]}
-						borderColor={theme.borderDefault}
-					>
-						<Show
-							when={detailConversation()}
-							fallback={
-								<>
-									<text fg={theme.textPrimary}>Sub-agents</text>
-									<text fg={theme.textMuted} flexShrink={0}>
+					<WorkspacePanelHeader
+						left={
+							<Show
+								when={detailConversation()}
+								fallback={
+									<text fg={theme.textMuted}>
 										{runningCount() > 0
 											? `${runningCount()} running ${MIDDLE_DOT} ${conversationCount()} conversations`
 											: `${conversationCount()} conversations`}
 									</text>
-								</>
-							}
-						>
-							{(conversation) => (
-								<>
+								}
+							>
+								{(conversation) => (
 									<text fg={theme.textPrimary} truncate>
 										{conversation().agentName}
 									</text>
+								)}
+							</Show>
+						}
+						right={
+							<Show when={detailConversation()}>
+								{(conversation) => (
 									<text fg={headerStatus(conversation()).color} flexShrink={0}>
 										{headerStatus(conversation()).glyph}{" "}
 										{statusLabel(conversation().status)}
 									</text>
-								</>
-							)}
-						</Show>
-					</box>
+								)}
+							</Show>
+						}
+					/>
 				}
 				footer={
 					<KeymapHintBar

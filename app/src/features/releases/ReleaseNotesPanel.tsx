@@ -4,7 +4,10 @@ import { CIRCLE_FILLED, TRIANGLE_UP } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { KitMarkdown } from "../../shell/KitMarkdown";
 import { scrollbarStyle, theme } from "../../shell/theme";
-import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
+import {
+	WorkspacePanelHeader,
+	WorkspacePanelLayout,
+} from "../../shell/WorkspacePanelLayout";
 import type { KitRelease } from "./release-check";
 import type {
 	ReleasesState,
@@ -86,28 +89,18 @@ export function ReleaseNotesPanel(props: ReleaseNotesPanelProps) {
 		>
 			<WorkspacePanelLayout
 				header={
-					<box
-						flexShrink={0}
-						paddingX={1}
-						border={["bottom"]}
-						borderColor={theme.borderDefault}
-						flexDirection="row"
-						justifyContent="space-between"
-					>
-						<text fg={theme.textPrimary}>Release notes</text>
-						<Show
-							when={state().latest}
-							fallback={
-								<text fg={theme.textMuted}>v{state().currentVersion}</text>
-							}
-						>
-							{(latest) => (
-								<text fg={theme.warningText} wrapMode="none">
-									{TRIANGLE_UP} v{latest().version} available
-								</text>
-							)}
-						</Show>
-					</box>
+					<WorkspacePanelHeader
+						left={<text fg={theme.textMuted}>v{state().currentVersion}</text>}
+						right={
+							<Show when={state().latest}>
+								{(latest) => (
+									<text fg={theme.warningText} wrapMode="none">
+										{TRIANGLE_UP} v{latest().version} available
+									</text>
+								)}
+							</Show>
+						}
+					/>
 				}
 				footer={<KeymapHintBar group="release-notes" borderless />}
 			>

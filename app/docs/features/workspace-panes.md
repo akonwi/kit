@@ -17,8 +17,10 @@ Each definition owns:
 - `render` — the retained pane body
 
 `WorkspacePaneHost` continues to own wide/narrow layout, tab navigation,
-collapse behavior, and retention. Pane bodies own their internal header,
-content, focus handling, and feature-specific actions.
+collapse behavior, and retention. The tab strip owns pane titles. Pane bodies may
+add a `WorkspacePanelHeader` only for contextual scope or live metadata; panes
+without that context omit the row. Pane bodies also own their content, focus
+handling, and feature-specific actions.
 
 ## Adding a pane
 
