@@ -171,6 +171,16 @@ export function shouldRestoreComposerFocus(options: {
 	);
 }
 
+export function activateExistingActivityTab(options: {
+	tabId: string;
+	source: ActivitySource;
+	update: (pane: { kind: "activity"; source: ActivitySource }) => void;
+	activate: (tabId: string) => void;
+}): void {
+	options.update({ kind: "activity", source: options.source });
+	options.activate(options.tabId);
+}
+
 function AppShellContent(props: AppShellContentProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
@@ -431,8 +441,14 @@ function AppShellContent(props: AppShellContentProps) {
 	const openActivity: OpenActivity = (source) => {
 		const existing = activityTab();
 		if (existing) {
-			workspace.updateSecondary({ kind: "activity", source });
-			focusSecondarySurface(existing.id);
+			activateExistingActivityTab({
+				tabId: existing.id,
+				source,
+				update: (pane) => {
+					workspace.updateSecondary(pane);
+				},
+				activate: focusSecondarySurface,
+			});
 			return;
 		}
 		saveScratchpadDraftIfEditing();

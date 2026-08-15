@@ -92,10 +92,11 @@ conversations sorted by status; selecting a conversation (Enter or click)
 drills into its live transcript in place. `Esc` steps back from the
 transcript to the roster, then closes the panel.
 
-The panel is retained: its selection, view, and scroll state survive being
-minimized, temporarily covered by another pane, or a session switch. In
-narrow terminals it participates in the standard Transcript / Sub-agents
-workspace tabs, and `F6` cycles focus between the composer and the panel.
+The panel is retained while its workspace tab remains open: its selection,
+view, and scroll state survive being minimized, hidden behind another tab, or
+reprojected by a responsive layout change. Switching sessions resets workspace
+tabs. In narrow terminals it participates in the standard Transcript /
+Sub-agents workspace tabs, and `Tab` / `Shift+Tab` cycle through surfaces.
 
 Dismissing a conversation (`ctrl+d`) is destructive — it deletes the
 transcript and aborts a running execution — so it always confirms through

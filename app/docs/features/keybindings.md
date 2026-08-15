@@ -39,8 +39,8 @@ Only user-facing workflow commands are listed here. Setup, configuration, plugin
 
 | Command id | Default keys | Description |
 | --- | --- | --- |
-| `workspace.focus-next` | `f6` | Focus the next workspace surface |
-| `workspace.focus-previous` | `shift+f6` | Focus the previous workspace surface |
+| `workspace.focus-next` | `tab` | Focus the next workspace surface |
+| `workspace.focus-previous` | `shift+tab` | Focus the previous workspace surface |
 | `workspace.focus-primary` | — | Focus the transcript and composer |
 | `workspace.focus-secondary` | — | Focus the open secondary pane |
 | `workspace.toggle-secondary` | — | Minimize or restore the remembered secondary pane |
