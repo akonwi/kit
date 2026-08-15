@@ -7,6 +7,7 @@ import {
 	workspacePaneLabel,
 	workspacePaneMinColumns,
 } from "./workspace-pane-registry";
+import { createWorkspaceStateController } from "./workspace-state";
 
 const paneKinds: WorkspacePane["kind"][] = [
 	"activity",
@@ -15,6 +16,7 @@ const paneKinds: WorkspacePane["kind"][] = [
 	"releases",
 	"scratchpad",
 	"subagents",
+	"subagent",
 ];
 
 describe("workspace pane registry", () => {
@@ -27,7 +29,7 @@ describe("workspace pane registry", () => {
 		}
 	});
 
-	test("uses singleton identities except for source-specific diagrams", () => {
+	test("uses descriptor-specific identities for diagrams and agents", () => {
 		expect(
 			workspacePaneIdentity({
 				kind: "activity",
@@ -38,6 +40,30 @@ describe("workspace pane registry", () => {
 		expect(workspacePaneIdentity({ kind: "mermaid", source: "graph TD" })).toBe(
 			"mermaid:graph TD",
 		);
+		expect(
+			workspacePaneIdentity({ kind: "subagent", agentName: "code-reviewer" }),
+		).toBe("subagent:code-reviewer");
+	});
+
+	test("reuses one transcript tab per agent name", () => {
+		const workspace = createWorkspaceStateController<WorkspacePane>({
+			identityOf: workspacePaneIdentity,
+		});
+		const first = workspace.openSecondary({
+			kind: "subagent",
+			agentName: "code-reviewer",
+		});
+		const reopened = workspace.openSecondary({
+			kind: "subagent",
+			agentName: "code-reviewer",
+		});
+		const other = workspace.openSecondary({
+			kind: "subagent",
+			agentName: "designer",
+		});
+
+		expect(reopened).toBe(first);
+		expect(other).not.toBe(first);
 	});
 
 	test("owns tab labels, close policy, and minimum widths", () => {
@@ -47,6 +73,12 @@ describe("workspace pane registry", () => {
 		];
 		expect(workspacePaneLabel(diagrams[0].pane, diagrams)).toBe("Diagram 1");
 		expect(workspacePaneLabel(diagrams[1].pane, diagrams)).toBe("Diagram 2");
+		expect(
+			workspacePaneLabel(
+				{ kind: "subagent", agentName: "code-reviewer" },
+				diagrams,
+			),
+		).toBe("code-reviewer");
 		expect(workspacePaneClosable({ kind: "review" })).toBeFalse();
 		expect(workspacePaneClosable({ kind: "scratchpad" })).toBeFalse();
 		expect(

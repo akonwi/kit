@@ -141,6 +141,37 @@ export function activateExistingActivityTab(options: {
 	options.activate(options.tabId);
 }
 
+export function unavailableSubagentPaneTabIds(
+	tabs: readonly { id: string; pane: WorkspacePane }[],
+	conversationAgentNames: readonly string[] | null,
+): string[] {
+	const activeNames = new Set(conversationAgentNames ?? []);
+	return tabs
+		.filter(
+			(tab) =>
+				(tab.pane.kind === "subagents" && conversationAgentNames === null) ||
+				(tab.pane.kind === "subagent" &&
+					(conversationAgentNames === null ||
+						!activeNames.has(tab.pane.agentName))),
+		)
+		.map((tab) => tab.id);
+}
+
+export function shouldFocusSubagentsRosterAfterRemoval(options: {
+	focusedSurface: WorkspaceFocusedSurface;
+	activeTabId: string | undefined;
+	closingTabIds: readonly string[];
+	rosterTabId: string | undefined;
+}): boolean {
+	return Boolean(
+		options.focusedSurface === "secondary" &&
+			options.activeTabId &&
+			options.closingTabIds.includes(options.activeTabId) &&
+			options.rosterTabId &&
+			!options.closingTabIds.includes(options.rosterTabId),
+	);
+}
+
 function AppShellContent(props: AppShellContentProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
@@ -278,11 +309,21 @@ function AppShellContent(props: AppShellContentProps) {
 	const [subagentsData, setSubagentsData] = createSignal(
 		props.subagentsWorkspace.data(),
 	);
+	const [subagentsRevision, setSubagentsRevision] = createSignal(0);
 	onCleanup(
 		props.subagentsWorkspace.subscribe(() =>
 			setSubagentsData(props.subagentsWorkspace.data()),
 		),
 	);
+	createEffect(() => {
+		const data = subagentsData();
+		if (!data) return;
+		onCleanup(
+			data.subscribeToChanges(() =>
+				setSubagentsRevision((revision) => revision + 1),
+			),
+		);
+	});
 	const secondaryPaneVisible = () => {
 		if (workspaceState().secondary.status !== "open") return false;
 		const tab = activeWorkspaceTab();
@@ -373,6 +414,11 @@ function AppShellContent(props: AppShellContentProps) {
 			releasesWorkspace: props.releasesWorkspace,
 			scratchpad: props.scratchpad,
 			subagentsData,
+			openSubagents: openSubagentsPanel,
+			openSubagent: openSubagentPanel,
+			closePane: () => {
+				requestCloseTab(tabId);
+			},
 			openOverlay: props.openOverlay,
 			showToast: props.showToast,
 		};
@@ -470,12 +516,44 @@ function AppShellContent(props: AppShellContentProps) {
 		focusSecondarySurface();
 	}
 
+	function openSubagentPanel(agentName: string): void {
+		const data = subagentsData();
+		if (
+			!data
+				?.getActiveConversations()
+				.some((conversation) => conversation.agentName === agentName)
+		) {
+			return;
+		}
+		saveScratchpadDraftIfEditing();
+		workspace.openSecondary(
+			{ kind: "subagent", agentName },
+			{ focus: "secondary" },
+		);
+		focusSecondarySurface();
+	}
+
 	onCleanup(props.subagentsWorkspace.onOpenRequest(openSubagentsPanel));
 
 	createEffect(() => {
-		if (subagentsData() !== null) return;
-		const tab = tabForKind("subagents");
-		if (tab) workspace.closeSecondary(tab.id);
+		void subagentsRevision();
+		const data = subagentsData();
+		const conversationAgentNames =
+			data
+				?.getActiveConversations()
+				.map((conversation) => conversation.agentName) ?? null;
+		const tabs = secondaryTabs();
+		const tabIds = unavailableSubagentPaneTabIds(tabs, conversationAgentNames);
+		const activeTabId = activeWorkspaceTab()?.id;
+		const rosterTabId = tabs.find((tab) => tab.pane.kind === "subagents")?.id;
+		const focusRoster = shouldFocusSubagentsRosterAfterRemoval({
+			focusedSurface: focusedSurface(),
+			activeTabId,
+			closingTabIds: tabIds,
+			rosterTabId,
+		});
+		for (const tabId of tabIds) workspace.closeSecondary(tabId);
+		if (focusRoster && rosterTabId) focusSecondarySurface(rosterTabId);
 	});
 
 	function cycleWorkspaceFocus(direction: -1 | 1): boolean {

@@ -16,6 +16,7 @@ import {
 	ScratchpadPanel,
 } from "../features/scratchpad/ScratchpadPanel";
 import type { SubagentsPanelData } from "../features/subagents";
+import { SubagentPanel } from "../features/subagents/SubagentPanel";
 import {
 	SUBAGENTS_MIN_COLS,
 	SubagentsPanel,
@@ -38,7 +39,8 @@ export type WorkspacePane =
 	| { kind: "review" }
 	| { kind: "releases" }
 	| { kind: "scratchpad" }
-	| { kind: "subagents" };
+	| { kind: "subagents" }
+	| { kind: "subagent"; agentName: string };
 
 export type WorkspacePaneKind = WorkspacePane["kind"];
 type PaneOfKind<K extends WorkspacePaneKind> = Extract<
@@ -59,6 +61,9 @@ export type WorkspacePaneRenderContext = {
 	releasesWorkspace: ReleasesWorkspaceController;
 	scratchpad: ScratchpadController;
 	subagentsData: () => SubagentsPanelData | null;
+	openSubagents: () => void;
+	openSubagent: (agentName: string) => void;
+	closePane: () => void;
 	openOverlay: OpenOverlay;
 	showToast: (toast: ToastInput) => void;
 };
@@ -199,10 +204,34 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 			if (!data) return <box />;
 			return (
 				<SubagentsPanel
-					data={data}
+					data={context.subagentsData}
 					openOverlay={context.openOverlay}
 					active={context.active()}
 					onClose={context.onLeave}
+					onFocusRequest={context.onFocusRequest}
+					onOpenAgent={context.openSubagent}
+				/>
+			);
+		},
+	},
+	subagent: {
+		kind: "subagent",
+		identity: (pane) => `subagent:${pane.agentName}`,
+		label: (pane) => pane.agentName,
+		closable: true,
+		minColumns: SUBAGENTS_MIN_COLS,
+		available: (context) => context.subagentsData() !== null,
+		render: (pane, context) => {
+			const data = context.subagentsData();
+			if (!data) return <box />;
+			return (
+				<SubagentPanel
+					agentName={pane.agentName}
+					data={context.subagentsData}
+					openOverlay={context.openOverlay}
+					active={context.active()}
+					onBack={context.openSubagents}
+					onDismissed={context.closePane}
 					onFocusRequest={context.onFocusRequest}
 				/>
 			);
