@@ -1,4 +1,4 @@
-import { MouseEvent } from "@opentui/core";
+import { MouseEvent, type RawMouseEvent, StdinParser } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
@@ -38,38 +38,6 @@ export type WorkspacePaneHostProps = {
 
 const PRIMARY_MOUSE_BUTTON = 0;
 const COLLAPSED_HANDLE_WIDTH = 3;
-
-/**
- * Parse the terminal's SGR primary-button press so workspace tabs can bypass
- * OpenTUI's hit grid. In the full retained/responsive workspace tree, OpenTUI
- * paints the tab strip correctly but can omit it from mouse hit testing after
- * layout and visibility transitions. Keep this workaround scoped to presses;
- * all non-workspace mouse input continues through OpenTUI normally.
- */
-export function parseSgrPrimaryMouseDown(sequence: string): MouseEvent | null {
-	if (!sequence.startsWith("\x1b[<")) return null;
-	const match = /^(\d+);(\d+);(\d+)M$/.exec(sequence.slice(3));
-	if (!match) return null;
-	const buttonCode = Number(match[1]);
-	if (
-		(buttonCode & 3) !== PRIMARY_MOUSE_BUTTON ||
-		(buttonCode & 32) !== 0 ||
-		(buttonCode & 64) !== 0
-	) {
-		return null;
-	}
-	return new MouseEvent(null, {
-		type: "down",
-		button: PRIMARY_MOUSE_BUTTON,
-		x: Number(match[2]) - 1,
-		y: Number(match[3]) - 1,
-		modifiers: {
-			shift: (buttonCode & 4) !== 0,
-			alt: (buttonCode & 8) !== 0,
-			ctrl: (buttonCode & 16) !== 0,
-		},
-	});
-}
 
 type HostRef = {
 	width: number;
@@ -254,29 +222,65 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 		renderer.setMousePointer(dividerHovered() ? "move" : "default");
 	}
 
-	// Intentional low-level workaround: real PTY testing showed that raw SGR
-	// mouse input arrived while no tab-strip or ancestor onMouseDown handler ran.
-	// Route only presses inside workspace chrome through its measured geometry.
-	// Do not replace this with JSX handlers until the full app works in a real
-	// terminal; the isolated OpenTUI test renderer does not reproduce the bug.
-	const rawStdinMouseHandler = (data: Buffer | string): void => {
-		const input = typeof data === "string" ? data : data.toString("utf8");
-		let start = input.indexOf("\x1b[<");
-		while (start >= 0) {
-			const end = input.indexOf("M", start + 3);
-			if (end < 0) return;
-			const event = parseSgrPrimaryMouseDown(input.slice(start, end + 1));
-			if (event) {
-				rawMouseEvents.add(event);
-				if (handleHostMouseDown(event)) {
-					lastHandledRawMouseDown = { x: event.x, y: event.y, at: Date.now() };
-				}
+	// Intentional low-level workaround: OpenTUI decodes mouse input before hit
+	// testing but does not expose a pre-hit-test mouse hook. Observe stdin with a
+	// second OpenTUI StdinParser so split sequences and bracketed paste retain the
+	// same protocol semantics as the renderer, then route only workspace presses.
+	let fallbackInputParser: StdinParser | null = null;
+	const routeFallbackMouseEvent = (rawEvent: RawMouseEvent): void => {
+		const event = new MouseEvent(null, rawEvent);
+		rawMouseEvents.add(event);
+		try {
+			if (handleHostMouseDown(event)) {
+				lastHandledRawMouseDown = { x: event.x, y: event.y, at: Date.now() };
 			}
-			start = input.indexOf("\x1b[<", end + 1);
+		} catch (error) {
+			// Do not misclassify workspace callback failures as parser failures or
+			// let OpenTUI dispatch the same press again against partially changed state.
+			lastHandledRawMouseDown = { x: event.x, y: event.y, at: Date.now() };
+			console.error("Workspace mouse fallback handler failed", error);
 		}
 	};
+	const drainFallbackInput = (): void => {
+		const mouseEvents: RawMouseEvent[] = [];
+		try {
+			fallbackInputParser?.drain((inputEvent) => {
+				if (
+					inputEvent.type === "mouse" &&
+					inputEvent.event.type === "down" &&
+					inputEvent.event.button === PRIMARY_MOUSE_BUTTON
+				) {
+					mouseEvents.push(inputEvent.event);
+				}
+			});
+		} catch {
+			fallbackInputParser?.reset();
+			return;
+		}
+		for (const event of mouseEvents) routeFallbackMouseEvent(event);
+	};
+	fallbackInputParser = new StdinParser({
+		timeoutMs: 20,
+		armTimeouts: true,
+		onTimeoutFlush: drainFallbackInput,
+	});
+	const rawStdinMouseHandler = (data: Buffer | string): void => {
+		try {
+			fallbackInputParser?.push(
+				typeof data === "string" ? Buffer.from(data) : data,
+			);
+		} catch {
+			fallbackInputParser?.reset();
+			return;
+		}
+		drainFallbackInput();
+	};
 	renderer.stdin.prependListener("data", rawStdinMouseHandler);
-	onCleanup(() => renderer.stdin.removeListener("data", rawStdinMouseHandler));
+	onCleanup(() => {
+		renderer.stdin.removeListener("data", rawStdinMouseHandler);
+		fallbackInputParser?.destroy();
+		fallbackInputParser = null;
+	});
 
 	onCleanup(() => {
 		if (dividerHovered() || dragging() || handleHovered()) {

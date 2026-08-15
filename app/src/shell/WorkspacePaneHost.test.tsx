@@ -6,6 +6,9 @@ import { createSignal, onCleanup } from "solid-js";
 import { ANGLE_LEFT } from "./glyphs";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 
+const BRACKETED_PASTE_START = "\x1b[200~";
+const BRACKETED_PASTE_END = "\x1b[201~";
+
 let testSetup: Awaited<ReturnType<typeof testRender>> | undefined;
 
 const tabs = [{ id: "review", label: "Code review" }];
@@ -48,6 +51,14 @@ describe("WorkspacePaneHost", () => {
 		);
 		await testSetup.renderOnce();
 		expect(testSetup.captureCharFrame()).toContain(ANGLE_LEFT);
+		testSetup.renderer.stdin.emit(
+			"data",
+			Buffer.from(
+				`${BRACKETED_PASTE_START}\x1b[<0;120;6M${BRACKETED_PASTE_END}`,
+			),
+		);
+		await testSetup.renderOnce();
+		expect(expanded).toBeFalse();
 		const mouse = createMockMouse(testSetup.renderer);
 		await mouse.click(119, 5);
 		expect(expanded).toBeTrue();

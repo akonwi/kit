@@ -25,3 +25,5 @@ Delete done items.
   `DiffLineAnnotation`/`ReviewDiffAnnotationMetadata` pipeline with an
   `author: "agent"` style; lazy staleness (drop ranges no longer in the diff),
   dismiss key, hide-all toggle
+- [ ] tui: upstream an OpenTUI decoded pre-hit-test mouse-input hook, then remove
+  Kit's parallel `StdinParser` workspace fallback
