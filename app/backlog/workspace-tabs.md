@@ -1,6 +1,6 @@
 # Workspace tabs
 
-Status: accepted design for TUI and web presentations.
+Status: TUI implemented; web presentation accepted but not implemented.
 
 ## Summary
 
@@ -24,7 +24,8 @@ See the accepted mockups:
 
 ## Lifetime and identity
 
-- Every opened tab remains available until explicitly closed.
+- Every opened tab remains available until explicitly closed, except Code Review
+  and Scratchpad, which remain process-persistent after first opening.
 - Reopening an existing surface identity selects that tab instead of duplicating
   it.
 - Tab state lasts only for the lifetime of the Kit process; it is not serialized
@@ -63,12 +64,14 @@ See the accepted mockups:
 
 ## Closing
 
-- `×` is the explicit close action.
-- The active tab always exposes `×`; inactive tabs may reveal it on hover.
-- Closing the final workspace tab removes the wide drawer or returns narrow mode
-  to Transcript.
+- `×` is the explicit close action for closable tabs.
+- Code Review and Scratchpad do not expose `×` and ignore
+  `workspace.close-tab`; selecting Transcript or collapsing the drawer hides them
+  without discarding their state.
+- Closing the final closable workspace tab removes the wide drawer or returns
+  narrow mode to Transcript when no persistent tabs remain.
 - Add a `workspace.close-tab` command with no default keybinding so users can bind
-  it or invoke it from the command palette.
+  it or invoke it from the command palette for closable tabs.
 - `Escape` returns to Transcript without closing a tab.
 
 ## Keyboard navigation

@@ -62,6 +62,8 @@ export const DASHED_VERTICAL = "┆";
 export const ELLIPSIS = "…";
 /** · */
 export const MIDDLE_DOT = "·";
+/** ‹ */
+export const CHEVRON_LEFT = "‹";
 /** › */
 export const CHEVRON_RIGHT = "›";
 /** × */

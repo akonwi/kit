@@ -86,6 +86,8 @@ import { createWorkingTreeRefreshTracker } from "./working-tree-refresh";
 
 export type ReviewContentProps = {
 	onClose: () => void;
+	onTabClose?: () => void;
+	onCloseRequestReady?: (request: (() => void) | null) => void;
 	attachments: AttachmentsController;
 	reviewDrafts: ReviewDraftController;
 	toast: (toast: ToastInput) => void;
@@ -2136,9 +2138,20 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function closeReview(): void {
-		if (queueCurrentDraft({ showBlockedWarning: true }) === "blocked") return;
 		props.onClose();
 	}
+
+	function closeReviewTab(): void {
+		if (queueCurrentDraft({ showBlockedWarning: true }) === "blocked") return;
+		(props.onTabClose ?? props.onClose)();
+	}
+
+	createEffect(() => {
+		const register = props.onCloseRequestReady;
+		if (!register) return;
+		register(closeReviewTab);
+		onCleanup(() => register(null));
+	});
 
 	async function submitReview(): Promise<void> {
 		if (

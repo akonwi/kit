@@ -12,7 +12,7 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] ui: add runtime tabs for files, diffs, scratchpads, and other workspace surfaces ([design](./workspace-tabs.md))
+- [ ] web: implement runtime workspace tabs ([design](./workspace-tabs.md))
 - [ ] web: add a session explorer like the TUI
 - [ ] cli: harden transport protocols by unifying transport and shared logic across modes
 - [ ] cli: support `kit attach` for connecting to remotely served sessions

@@ -1,4 +1,4 @@
-import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import { createSignal, For, onCleanup, Show } from "solid-js";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { CIRCLE_FILLED, TRIANGLE_UP } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
@@ -33,14 +33,7 @@ export function ReleaseNotesPanel(props: ReleaseNotesPanelProps) {
 	);
 	onCleanup(props.controller.subscribe(setState));
 	let scrollRef: ScrollRef | undefined;
-	let wasActive = false;
 	const active = () => props.active !== false;
-
-	createEffect(() => {
-		const isActive = active();
-		if (isActive && !wasActive) scrollRef?.scrollTo({ x: 0, y: 0 });
-		wasActive = isActive;
-	});
 
 	function releaseStatus(release: KitRelease): string | null {
 		if (release.tag === state().latest?.tag) return "update";

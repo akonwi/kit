@@ -1,11 +1,12 @@
 import type { KeyEvent, Renderable } from "@opentui/core";
-import type { BoxProps } from "@opentui/solid";
+import { type BoxProps, useRenderer } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import {
 	createContext,
 	createMemo,
 	createSignal,
 	For,
+	onCleanup,
 	Show,
 	useContext,
 } from "solid-js";
@@ -175,7 +176,10 @@ function Header() {
 // ── Body ────────────────────────────────────────────────────────────
 
 function Body() {
-	const { snapshot, maxVisible } = usePickerContext();
+	const renderer = useRenderer();
+	const { picker, snapshot, maxVisible } = usePickerContext();
+	const [pressedIndex, setPressedIndex] = createSignal<number | null>(null);
+	onCleanup(() => renderer.setMousePointer("default"));
 
 	const visibleSlice = createMemo(() => {
 		const p = snapshot();
@@ -251,6 +255,27 @@ function Body() {
 									overflow="hidden"
 									gap={1}
 									backgroundColor={bg()}
+									onMouseOver={() => renderer.setMousePointer("pointer")}
+									onMouseOut={() => {
+										setPressedIndex(null);
+										renderer.setMousePointer("default");
+									}}
+									onMouseDown={(event) => {
+										if (event.button !== 0) return;
+										event.preventDefault();
+										event.stopPropagation();
+										setPressedIndex(entry.index);
+									}}
+									onMouseUp={(event) => {
+										if (event.button !== 0) return;
+										event.preventDefault();
+										event.stopPropagation();
+										const shouldAccept = pressedIndex() === entry.index;
+										setPressedIndex(null);
+										if (!shouldAccept) return;
+										picker.selectIndex(entry.index);
+										picker.accept();
+									}}
 								>
 									<box width={maxNameWidth()} flexShrink={0}>
 										<text fg={fg()} bg={bg()}>

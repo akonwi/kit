@@ -42,6 +42,7 @@ import {
 	updateSettings,
 } from "../settings";
 import type { AppState } from "../state/app-state";
+import { createPickerManager } from "../state/picker-manager";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
 import {
@@ -71,6 +72,7 @@ import { TurnActivityPanel } from "./transcript/TurnActivityPanel";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
+import { WorkspaceTabOverflowPicker } from "./WorkspaceTabOverflowPicker";
 import {
 	resizeWorkspacePaneRatio,
 	resolveWorkspacePaneLayout,
@@ -83,6 +85,7 @@ import {
 	type WorkspaceFocusedSurface,
 	type WorkspaceState,
 } from "./workspace-state";
+import type { WorkspaceTabItem } from "./workspace-tabs-layout";
 
 const ACTIVITY_MIN_COLS = 40;
 const REVIEW_MIN_COLS = 60;
@@ -127,12 +130,24 @@ type AppShellContentProps = Omit<AppShellProps, "settings" | "showToast"> & {
 	onPreferredPaneRatioCommit: (ratio: number) => void;
 };
 
-function activitySourceEquals(a: ActivitySource, b: ActivitySource): boolean {
-	if (a.kind === "single-item" && b.kind === "single-item")
-		return a.itemId === b.itemId;
-	if (a.kind === "turn-intermediate" && b.kind === "turn-intermediate")
-		return a.turnId === b.turnId;
-	return false;
+function workspacePaneIdentity(pane: WorkspacePane): string {
+	return pane.kind === "mermaid" ? `mermaid:${pane.source}` : pane.kind;
+}
+
+function workspacePaneLabel(
+	pane: WorkspacePane,
+	tabs: readonly { pane: WorkspacePane }[],
+): string {
+	if (pane.kind === "activity") return "Activity";
+	if (pane.kind === "review") return "Code review";
+	if (pane.kind === "releases") return "Release notes";
+	if (pane.kind === "scratchpad") return "Scratchpad";
+	if (pane.kind === "subagents") return "Sub-agents";
+	const diagrams = tabs.filter((tab) => tab.pane.kind === "mermaid");
+	const index = diagrams.findIndex(
+		(tab) => tab.pane.kind === "mermaid" && tab.pane.source === pane.source,
+	);
+	return diagrams.length > 1 ? `Diagram ${index + 1}` : "Diagram";
 }
 
 function commandKeybindingGroup(command: Command): string {
@@ -175,16 +190,50 @@ function AppShellContent(props: AppShellContentProps) {
 
 	const workspace = createWorkspaceStateController<WorkspacePane>({
 		preferredPaneRatio: props.preferredPaneRatio,
+		identityOf: workspacePaneIdentity,
 	});
+	const workspaceOverflowPicker = createPickerManager();
+	const [workspaceOverflowGuard, setWorkspaceOverflowGuard] = createSignal<{
+		width: number;
+		tabs: string;
+	} | null>(null);
 	const [workspaceState, setWorkspaceState] = createSignal<
 		WorkspaceState<WorkspacePane>
 	>(workspace.getState());
 	onCleanup(workspace.subscribe(setWorkspaceState));
+	const secondaryTabs = () => {
+		const secondary = workspaceState().secondary;
+		return secondary.status === "empty" ? [] : secondary.tabs;
+	};
+	const activeWorkspaceTab = () => {
+		const secondary = workspaceState().secondary;
+		if (secondary.status === "empty") return null;
+		return (
+			secondary.tabs.find((tab) => tab.id === secondary.activeTabId) ?? null
+		);
+	};
 	const openSecondaryPane = () => {
 		const secondary = workspaceState().secondary;
-		return secondary.status === "open" ? secondary.pane : null;
+		return secondary.status === "open"
+			? (activeWorkspaceTab()?.pane ?? null)
+			: null;
+	};
+	const workspaceTabItems = (): WorkspaceTabItem[] => {
+		const tabs = secondaryTabs();
+		return tabs.map((tab) => ({
+			id: tab.id,
+			label: workspacePaneLabel(tab.pane, tabs),
+			closable: tab.pane.kind !== "review" && tab.pane.kind !== "scratchpad",
+		}));
 	};
 	const focusedSurface = () => workspaceState().focusedSurface;
+	const workspaceInteractionsEnabled = () =>
+		focusedSurface() === "secondary" &&
+		props.overlays().length === 0 &&
+		chromeOverflow() === null &&
+		!workspaceOverflowPicker.visible &&
+		!props.controller.picker.visible &&
+		!props.controller.commandPalette.visible;
 	function focusComposerSurface(): void {
 		workspace.setNarrowTab("transcript");
 		workspace.setFocusedSurface("composer");
@@ -197,7 +246,7 @@ function AppShellContent(props: AppShellContentProps) {
 	onCleanup(
 		props.reviewWorkspace.subscribe(() => {
 			saveScratchpadDraftIfEditing();
-			workspace.openSecondary({ kind: "review" });
+			workspace.openSecondary({ kind: "review" }, { focus: "secondary" });
 			focusReviewSurface();
 		}),
 	);
@@ -259,54 +308,18 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 	});
 
-	const activitySource = () => {
-		const panel = openSecondaryPane();
-		return panel?.kind === "activity" ? panel.source : null;
-	};
-	const isEditableReviewPane = (pane: WorkspacePane | null | undefined) =>
-		pane?.kind === "review";
-	const editableReviewOpen = () => isEditableReviewPane(openSecondaryPane());
-	const editableReviewRetained = () => {
-		const secondary = workspaceState().secondary;
-		if (secondary.status === "empty") return false;
-		return (
-			isEditableReviewPane(secondary.pane) ||
-			isEditableReviewPane(secondary.returnPane)
-		);
-	};
-	const isMermaidPane = (pane: WorkspacePane | null | undefined) =>
-		pane?.kind === "mermaid";
-	const mermaidSource = () => {
-		const pane = openSecondaryPane();
-		return pane?.kind === "mermaid" ? pane.source : null;
-	};
-	const retainedMermaidSource = () => {
-		const secondary = workspaceState().secondary;
-		if (secondary.status === "empty") return null;
-		if (isMermaidPane(secondary.pane)) return secondary.pane.source;
-		if (isMermaidPane(secondary.returnPane)) return secondary.returnPane.source;
-		return null;
-	};
-	const isReleasesPane = (pane: WorkspacePane | null | undefined) =>
-		pane?.kind === "releases";
-	const releasesOpen = () => isReleasesPane(openSecondaryPane());
-	const releasesRetained = () => {
-		const secondary = workspaceState().secondary;
-		if (secondary.status === "empty") return false;
-		return (
-			isReleasesPane(secondary.pane) || isReleasesPane(secondary.returnPane)
-		);
-	};
-	const isScratchpadPane = (pane: WorkspacePane | null | undefined) =>
-		pane?.kind === "scratchpad";
-	const scratchpadOpen = () => isScratchpadPane(openSecondaryPane());
-	const scratchpadRetained = () => {
-		const secondary = workspaceState().secondary;
-		if (secondary.status === "empty") return false;
-		return (
-			isScratchpadPane(secondary.pane) || isScratchpadPane(secondary.returnPane)
-		);
-	};
+	function tabForKind(kind: WorkspacePane["kind"]) {
+		return secondaryTabs().find((tab) => tab.pane.kind === kind) ?? null;
+	}
+	const activityTab = () => tabForKind("activity");
+	const activitySource = () =>
+		openSecondaryPane()?.kind === "activity"
+			? (openSecondaryPane() as { kind: "activity"; source: ActivitySource })
+					.source
+			: null;
+	const editableReviewOpen = () => openSecondaryPane()?.kind === "review";
+	const releasesOpen = () => openSecondaryPane()?.kind === "releases";
+	const scratchpadOpen = () => openSecondaryPane()?.kind === "scratchpad";
 	const [subagentsData, setSubagentsData] = createSignal(
 		props.subagentsWorkspace.data(),
 	);
@@ -315,27 +328,15 @@ function AppShellContent(props: AppShellContentProps) {
 			setSubagentsData(props.subagentsWorkspace.data()),
 		),
 	);
-	const isSubagentsPane = (pane: WorkspacePane | null | undefined) =>
-		pane?.kind === "subagents";
 	const subagentsOpen = () =>
-		isSubagentsPane(openSecondaryPane()) && subagentsData() !== null;
-	const subagentsRetained = () => {
-		if (subagentsData() === null) return false;
-		const secondary = workspaceState().secondary;
-		if (secondary.status === "empty") return false;
-		return (
-			isSubagentsPane(secondary.pane) || isSubagentsPane(secondary.returnPane)
-		);
-	};
-	const secondaryPaneVisible = () =>
-		editableReviewOpen() ||
-		activitySource() !== null ||
-		mermaidSource() !== null ||
-		releasesOpen() ||
-		scratchpadOpen() ||
-		subagentsOpen();
-	const secondaryPaneMinColumns = () => {
+		openSecondaryPane()?.kind === "subagents" && subagentsData() !== null;
+	const secondaryPaneVisible = () => {
 		const pane = openSecondaryPane();
+		if (!pane) return false;
+		return pane.kind !== "subagents" || subagentsData() !== null;
+	};
+	const secondaryPaneMinColumns = () => {
+		const pane = activeWorkspaceTab()?.pane;
 		if (pane?.kind === "mermaid") return MERMAID_PREVIEW_MIN_COLS;
 		if (pane?.kind === "scratchpad") return SCRATCHPAD_MIN_COLS;
 		if (pane?.kind === "review") return REVIEW_MIN_COLS;
@@ -343,7 +344,7 @@ function AppShellContent(props: AppShellContentProps) {
 		if (pane?.kind === "subagents") return SUBAGENTS_MIN_COLS;
 		return ACTIVITY_MIN_COLS;
 	};
-	const supportsNarrowWorkspaceTabs = () => secondaryPaneVisible();
+	const supportsNarrowWorkspaceTabs = () => secondaryTabs().length > 0;
 	const workspaceUsesNarrowTabs = () =>
 		supportsNarrowWorkspaceTabs() &&
 		resolveWorkspacePaneLayout({
@@ -355,48 +356,33 @@ function AppShellContent(props: AppShellContentProps) {
 				secondaryPaneMinColumns(),
 			),
 		}) === null;
-	const secondaryPaneLabel = () => {
-		if (activitySource() !== null) return "Activity";
-		if (mermaidSource() !== null) return "Diagram";
-		if (releasesOpen()) return "Release notes";
-		if (scratchpadOpen()) return "Scratchpad";
-		if (subagentsOpen()) return "Sub-agents";
-		return "Code review";
-	};
 
+	createEffect(() => {
+		if (!workspaceOverflowPicker.visible) return;
+		const guard = workspaceOverflowGuard();
+		const tabSignature = secondaryTabs()
+			.map((tab) => tab.id)
+			.join("\u0000");
+		if (
+			!guard ||
+			!workspaceUsesNarrowTabs() ||
+			guard.width !== shellWidth() ||
+			guard.tabs !== tabSignature
+		) {
+			workspaceOverflowPicker.clear();
+			setWorkspaceOverflowGuard(null);
+		}
+	});
+
+	let workspaceSessionId = props.runtime.getSession().id;
 	onCleanup(
-		props.runtime.subscribe("session.active.changed", () => {
-			const state = workspaceState();
-			const secondary = state.secondary;
-			if (secondary.status === "empty") return;
-			// Session-independent panes survive a session switch. The visible
-			// pane wins; a retained kind in the return slot is the fallback.
-			const isRetainedKind = (pane: WorkspacePane | undefined) =>
-				pane?.kind === "releases" ||
-				pane?.kind === "scratchpad" ||
-				pane?.kind === "subagents";
-			const retained = isRetainedKind(secondary.pane)
-				? secondary.pane
-				: isRetainedKind(secondary.returnPane)
-					? (secondary.returnPane ?? null)
-					: null;
-			if (retained) {
-				if (secondary.status === "open") {
-					workspace.openSecondary(retained, {
-						focus: state.focusedSurface,
-					});
-				} else {
-					workspace.setActiveSecondary(retained);
-				}
-				return;
-			}
-			if (
-				secondary.pane.kind === "review" ||
-				secondary.pane.kind === "activity" ||
-				secondary.pane.kind === "mermaid"
-			) {
-				workspace.clearSecondary();
-			}
+		props.runtime.subscribe("session.active.changed", (event) => {
+			if (event.session.id === workspaceSessionId) return;
+			workspaceSessionId = event.session.id;
+			saveScratchpadDraftIfEditing();
+			workspaceOverflowPicker.clear();
+			setWorkspaceOverflowGuard(null);
+			workspace.clearSecondary();
 		}),
 	);
 
@@ -418,150 +404,120 @@ function AppShellContent(props: AppShellContentProps) {
 		if (props.scratchpad.editing()) props.scratchpad.autosaveDraft();
 	}
 
-	const openActivity: OpenActivity = (source) => {
-		const current = openSecondaryPane();
+	function focusSecondarySurface(tabId?: string): boolean {
+		const target = tabId ?? activeWorkspaceTab()?.id;
+		if (!target) return false;
 		if (
-			current?.kind === "activity" &&
-			activitySourceEquals(current.source, source)
+			activeWorkspaceTab()?.pane.kind === "scratchpad" &&
+			activeWorkspaceTab()?.id !== target
 		) {
-			focusSecondarySurface();
+			saveScratchpadDraftIfEditing();
+		}
+		props.controller.picker.clear();
+		workspace.selectSecondary(target, { focus: "secondary" });
+		return true;
+	}
+
+	function requestCloseTab(tabId: string): boolean {
+		const tab = secondaryTabs().find((candidate) => candidate.id === tabId);
+		if (!tab) return false;
+		if (tab.pane.kind === "review" || tab.pane.kind === "scratchpad") {
+			return false;
+		}
+		workspace.closeSecondary(tabId);
+		if (workspaceState().secondary.status === "empty") focusComposerSurface();
+		return true;
+	}
+
+	const openActivity: OpenActivity = (source) => {
+		const existing = activityTab();
+		if (existing) {
+			workspace.updateSecondary({ kind: "activity", source });
 			return;
 		}
 		saveScratchpadDraftIfEditing();
-		if (current?.kind === "activity") {
-			const secondary = workspaceState().secondary;
-			if (secondary.status === "open" && secondary.returnPane) {
-				workspace.replaceSecondary(
-					{ kind: "activity", source },
-					{ focus: "secondary" },
-				);
-			} else {
-				workspace.openSecondary(
-					{ kind: "activity", source },
-					{ focus: "secondary" },
-				);
-			}
-		} else if (current) {
-			workspace.pushSecondary(
-				{ kind: "activity", source },
-				{ focus: "secondary" },
-			);
-		} else {
-			workspace.openSecondary(
-				{ kind: "activity", source },
-				{ focus: "secondary" },
-			);
-		}
+		workspace.openSecondary(
+			{ kind: "activity", source },
+			{ focus: "secondary" },
+		);
 		focusSecondarySurface();
 	};
 
 	function openMermaidPreview(source: string): void {
-		const current = openSecondaryPane();
-		if (current?.kind === "mermaid" && current.source === source) {
-			focusSecondarySurface();
-			return;
-		}
 		saveScratchpadDraftIfEditing();
-		if (current?.kind === "mermaid") {
-			const secondary = workspaceState().secondary;
-			if (secondary.status === "open" && secondary.returnPane) {
-				workspace.replaceSecondary(
-					{ kind: "mermaid", source },
-					{ focus: "secondary" },
-				);
-			} else {
-				workspace.openSecondary(
-					{ kind: "mermaid", source },
-					{ focus: "secondary" },
-				);
-			}
-		} else if (current) {
-			workspace.pushSecondary(
-				{ kind: "mermaid", source },
-				{ focus: "secondary" },
-			);
-		} else {
-			workspace.openSecondary(
-				{ kind: "mermaid", source },
-				{ focus: "secondary" },
-			);
-		}
+		workspace.openSecondary(
+			{ kind: "mermaid", source },
+			{ focus: "secondary" },
+		);
 		focusSecondarySurface();
 	}
 
 	onCleanup(registerMermaidPreviewHandler(openMermaidPreview));
 
-	function closeTemporaryPanel(): void {
-		if (!workspace.popSecondary({ focus: "secondary" })) {
-			workspace.minimizeSecondary();
-			focusComposerSurface();
-			return;
-		}
-
-		if (!focusSecondarySurface()) focusComposerSurface();
+	function leaveWorkspaceSurface(): void {
+		saveScratchpadDraftIfEditing();
+		focusComposerSurface();
 	}
 
 	function closeActivityPanel(): void {
-		closeTemporaryPanel();
-	}
-
-	function closeMermaidPreview(): void {
-		closeTemporaryPanel();
+		leaveWorkspaceSurface();
 	}
 
 	function closeReleasesPanel(): void {
-		closeTemporaryPanel();
+		leaveWorkspaceSurface();
 	}
 
 	function openReleasesPanel(): void {
-		const secondary = workspaceState().secondary;
-		const panel = openSecondaryPane();
-		if (panel?.kind === "releases") {
-			focusSecondarySurface();
-			return;
-		}
 		saveScratchpadDraftIfEditing();
-		if (
-			secondary.status === "open" &&
-			secondary.returnPane?.kind === "releases"
-		) {
-			workspace.popSecondary({ focus: "secondary" });
-		} else if (
-			secondary.status === "minimized" &&
-			secondary.pane.kind === "releases"
-		) {
-			workspace.restoreSecondary({ focus: "secondary" });
-		} else if (panel) {
-			workspace.pushSecondary({ kind: "releases" }, { focus: "secondary" });
-		} else {
-			workspace.openSecondary({ kind: "releases" }, { focus: "secondary" });
-		}
+		workspace.openSecondary({ kind: "releases" }, { focus: "secondary" });
 		focusSecondarySurface();
 	}
 
 	onCleanup(props.releasesWorkspace.onOpenRequest(openReleasesPanel));
 
-	function focusSecondarySurface(): boolean {
-		if (!secondaryPaneVisible()) return false;
-		const pane = openSecondaryPane();
-		if (!pane) return false;
-		if (pane.kind === "review") {
-			focusReviewSurface();
-		} else {
-			props.controller.picker.clear();
-			workspace.setNarrowTab("secondary");
-			workspace.setFocusedSurface("secondary");
-		}
-		return true;
+	function closeScratchpadPanel(): void {
+		leaveWorkspaceSurface();
 	}
 
-	function cycleWorkspaceFocus(): boolean {
-		if (!secondaryPaneVisible()) return false;
-		if (focusedSurface() === "secondary") {
+	const toggleScratchpad = () => {
+		const tab = tabForKind("scratchpad");
+		if (
+			tab &&
+			activeWorkspaceTab()?.id === tab.id &&
+			workspaceState().secondary.status === "open"
+		) {
+			saveScratchpadDraftIfEditing();
+			workspace.minimizeSecondary();
 			focusComposerSurface();
-			return true;
+			return;
 		}
-		return focusSecondarySurface();
+		saveScratchpadDraftIfEditing();
+		workspace.openSecondary({ kind: "scratchpad" }, { focus: "secondary" });
+		focusSecondarySurface();
+	};
+
+	function closeSubagentsPanel(): void {
+		leaveWorkspaceSurface();
+	}
+
+	function openSubagentsPanel(): void {
+		if (subagentsData() === null) return;
+		saveScratchpadDraftIfEditing();
+		workspace.openSecondary({ kind: "subagents" }, { focus: "secondary" });
+		focusSecondarySurface();
+	}
+
+	onCleanup(props.subagentsWorkspace.onOpenRequest(openSubagentsPanel));
+
+	createEffect(() => {
+		if (subagentsData() !== null) return;
+		const tab = tabForKind("subagents");
+		if (tab) workspace.closeSecondary(tab.id);
+	});
+
+	function cycleWorkspaceFocus(direction: -1 | 1): boolean {
+		if (props.scratchpad.editing()) props.scratchpad.autosaveDraft();
+		return workspace.cycleSurface(direction);
 	}
 
 	function resizeSecondaryPane(
@@ -601,110 +557,11 @@ function AppShellContent(props: AppShellContentProps) {
 		return true;
 	}
 
-	function closeScratchpadPanel(): void {
-		saveScratchpadDraftIfEditing();
-		closeTemporaryPanel();
-	}
-
-	const toggleScratchpad = () => {
-		const secondary = workspaceState().secondary;
-		const panel = openSecondaryPane();
-		if (panel?.kind === "scratchpad") {
-			closeScratchpadPanel();
-			return;
-		}
-		if (
-			secondary.status === "open" &&
-			secondary.returnPane?.kind === "scratchpad"
-		) {
-			workspace.popSecondary({ focus: "secondary" });
-			focusSecondarySurface();
-			return;
-		}
-		if (
-			secondary.status === "minimized" &&
-			secondary.pane.kind === "scratchpad"
-		) {
-			workspace.restoreSecondary({ focus: "secondary" });
-			focusSecondarySurface();
-			return;
-		}
-		if (panel) {
-			workspace.pushSecondary({ kind: "scratchpad" }, { focus: "secondary" });
-		} else {
-			workspace.openSecondary({ kind: "scratchpad" }, { focus: "secondary" });
-		}
-		focusSecondarySurface();
-	};
-
-	function closeSubagentsPanel(): void {
-		closeTemporaryPanel();
-	}
-
-	function openSubagentsPanel(): void {
-		if (subagentsData() === null) return;
-		const secondary = workspaceState().secondary;
-		const panel = openSecondaryPane();
-		if (panel?.kind === "subagents") {
-			focusSecondarySurface();
-			return;
-		}
-		saveScratchpadDraftIfEditing();
-		if (
-			secondary.status === "open" &&
-			secondary.returnPane?.kind === "subagents"
-		) {
-			workspace.popSecondary({ focus: "secondary" });
-		} else if (
-			secondary.status === "minimized" &&
-			secondary.pane.kind === "subagents"
-		) {
-			workspace.restoreSecondary({ focus: "secondary" });
-		} else if (panel) {
-			workspace.pushSecondary({ kind: "subagents" }, { focus: "secondary" });
-		} else {
-			workspace.openSecondary({ kind: "subagents" }, { focus: "secondary" });
-		}
-		focusSecondarySurface();
-	}
-
-	onCleanup(props.subagentsWorkspace.onOpenRequest(openSubagentsPanel));
-
-	// When the subagents plugin disposes (reload, failure) its panel data
-	// clears; drop the pane from the workspace so focus and narrow tabs
-	// never point at an unrendered surface.
-	createEffect(() => {
-		if (subagentsData() !== null) return;
-		const state = workspaceState();
-		const secondary = state.secondary;
-		if (secondary.status === "empty") return;
-		if (isSubagentsPane(secondary.pane)) {
-			if (secondary.status === "open" && secondary.returnPane) {
-				workspace.popSecondary({ focus: "secondary" });
-				if (!focusSecondarySurface()) focusComposerSurface();
-			} else {
-				workspace.clearSecondary();
-				if (state.focusedSurface === "secondary") focusComposerSurface();
-			}
-			return;
-		}
-		if (isSubagentsPane(secondary.returnPane)) {
-			// Strip the stale return slot while keeping the visible pane.
-			if (secondary.status === "open") {
-				workspace.openSecondary(secondary.pane, {
-					focus: state.focusedSurface,
-				});
-			} else {
-				workspace.setActiveSecondary(secondary.pane);
-			}
-		}
-	});
-
 	function toggleSecondaryPane(): boolean {
 		const secondary = workspaceState().secondary;
 		if (secondary.status === "empty") return false;
 		if (secondary.status === "open") {
-			if (secondary.pane.kind === "scratchpad") {
+			if (activeWorkspaceTab()?.pane.kind === "scratchpad") {
 				saveScratchpadDraftIfEditing();
 			}
 			workspace.minimizeSecondary();
@@ -717,14 +574,41 @@ function AppShellContent(props: AppShellContentProps) {
 		return true;
 	}
 
+	function openWorkspaceOverflow(tabs: readonly WorkspaceTabItem[]): void {
+		if (tabs.length === 0) return;
+		setWorkspaceOverflowGuard({
+			width: shellWidth(),
+			tabs: secondaryTabs()
+				.map((tab) => tab.id)
+				.join("\u0000"),
+		});
+		workspaceOverflowPicker.show({
+			label: "Workspace surfaces",
+			filterable: true,
+			options: tabs.map((tab) => ({
+				name: tab.label,
+				description: "",
+				value: tab.id,
+				action: (context) => {
+					context.dismiss();
+					focusSecondarySurface(tab.id);
+				},
+			})),
+		});
+	}
+
 	const workspaceCommandHandlers = {
-		"workspace.focus-next": cycleWorkspaceFocus,
-		"workspace.focus-previous": cycleWorkspaceFocus,
+		"workspace.focus-next": () => cycleWorkspaceFocus(1),
+		"workspace.focus-previous": () => cycleWorkspaceFocus(-1),
 		"workspace.focus-primary": () => {
 			focusComposerSurface();
 			return true;
 		},
-		"workspace.focus-secondary": focusSecondarySurface,
+		"workspace.focus-secondary": () => focusSecondarySurface(),
+		"workspace.close-tab": () => {
+			const tab = activeWorkspaceTab();
+			return tab ? requestCloseTab(tab.id) : false;
+		},
 		"workspace.toggle-secondary": toggleSecondaryPane,
 		"workspace.grow-secondary": () => resizeSecondaryPane("grow-secondary"),
 		"workspace.shrink-secondary": () => resizeSecondaryPane("shrink-secondary"),
@@ -735,6 +619,7 @@ function AppShellContent(props: AppShellContentProps) {
 			name,
 			() => {
 				if (props.controller.picker.visible) return false;
+				if (workspaceOverflowPicker.visible) return false;
 				if (props.controller.commandPalette.visible) return false;
 				return execute();
 			},
@@ -778,6 +663,7 @@ function AppShellContent(props: AppShellContentProps) {
 		props.overlays().length > 0 ||
 		chromeOverflow() !== null ||
 		props.controller.picker.visible ||
+		workspaceOverflowPicker.visible ||
 		props.controller.commandPalette.visible;
 
 	function runHeaderCommand(name: string): void {
@@ -797,7 +683,10 @@ function AppShellContent(props: AppShellContentProps) {
 			.filter((command) => !getKeybindingCommand(command.name));
 		return {
 			scope: "app",
-			when: () => props.overlays().length === 0 && chromeOverflow() === null,
+			when: () =>
+				props.overlays().length === 0 &&
+				chromeOverflow() === null &&
+				!workspaceOverflowPicker.visible,
 			commandMetadata: Object.fromEntries(
 				bindableCommands.map((command) => [
 					command.name,
@@ -838,6 +727,7 @@ function AppShellContent(props: AppShellContentProps) {
 			backgroundColor={theme.bg}
 			onMouseDown={() => {
 				if (chromeOverflow()) setChromeOverflow(null);
+				if (workspaceOverflowPicker.visible) workspaceOverflowPicker.clear();
 			}}
 			onMouseUp={() => copySelection(renderer)}
 			ref={(value) => {
@@ -881,192 +771,188 @@ function AppShellContent(props: AppShellContentProps) {
 			 * bleeds under it.
 			 */}
 			<WorkspacePaneHost
-				secondaryOpen={secondaryPaneVisible()}
+				tabs={workspaceTabItems}
+				activeTabId={() => activeWorkspaceTab()?.id ?? ""}
+				selectedSurface={() =>
+					workspaceState().narrowTab === "transcript"
+						? "transcript"
+						: (activeWorkspaceTab()?.id ?? "transcript")
+				}
+				drawerCollapsed={() =>
+					workspaceState().secondary.status === "minimized"
+				}
 				initialWidth={Math.max(1, shellWidth() - 2)}
-				preferredPaneRatio={workspaceState().preferredPaneRatio}
+				preferredPaneRatio={() => workspaceState().preferredPaneRatio}
 				minPrimaryColumns={WORKSPACE_MIN_PRIMARY_COLUMNS}
-				minSecondaryColumns={Math.max(
-					WORKSPACE_MIN_SECONDARY_COLUMNS,
-					secondaryPaneMinColumns(),
-				)}
+				minSecondaryColumns={() =>
+					Math.max(WORKSPACE_MIN_SECONDARY_COLUMNS, secondaryPaneMinColumns())
+				}
 				onPreferredPaneRatioChange={(ratio) =>
 					workspace.setPreferredPaneRatio(ratio)
 				}
 				onPreferredPaneRatioCommit={props.onPreferredPaneRatioCommit}
 				onDividerMouseDown={() => renderer.clearSelection()}
-				narrowTabs={
-					supportsNarrowWorkspaceTabs()
-						? {
-								selected: () => workspaceState().narrowTab,
-								secondaryLabel: secondaryPaneLabel,
-								onSelect: (tab) => {
-									if (tab === "secondary") focusSecondarySurface();
-									else focusComposerSurface();
-								},
+				onSelectTranscript={focusComposerSurface}
+				onSelectTab={(tabId) => focusSecondarySurface(tabId)}
+				onCloseTab={requestCloseTab}
+				onCollapseDrawer={() => {
+					saveScratchpadDraftIfEditing();
+					workspace.minimizeSecondary();
+					focusComposerSurface();
+				}}
+				onExpandDrawer={() => {
+					workspace.restoreSecondary();
+				}}
+				onOpenOverflow={openWorkspaceOverflow}
+				secondary={() => (
+					<For each={secondaryTabs()}>
+						{(tab) => {
+							const pane = tab.pane;
+							if (pane.kind === "review") {
+								return (
+									<box
+										position="absolute"
+										left={editableReviewOpen() ? 0 : -1000}
+										top={0}
+										width="100%"
+										height="100%"
+										onMouseDown={(event) => {
+											if (event.button === 0) focusSecondarySurface(tab.id);
+										}}
+									>
+										<ReviewContent
+											onClose={leaveWorkspaceSurface}
+											onTabClose={() => {}}
+											attachments={props.attachments}
+											reviewDrafts={props.reviewDrafts}
+											toast={props.showToast}
+											defaultDiffView={props.defaultReviewDiffView}
+											onDiffViewChanged={props.onReviewDiffViewChanged}
+											onFocusRequest={() => focusSecondarySurface(tab.id)}
+											onSubmitMessage={() =>
+												props.controller.handleMessageSubmit()
+											}
+											active={
+												activeWorkspaceTab()?.id === tab.id &&
+												workspaceInteractionsEnabled()
+											}
+										/>
+									</box>
+								);
 							}
-						: undefined
-				}
-				secondary={
-					<>
-						<Show when={editableReviewRetained()}>
-							<box
-								position="absolute"
-								left={editableReviewOpen() ? 0 : -1000}
-								top={0}
-								width="100%"
-								height="100%"
-								onMouseDown={(event) => {
-									if (event.button === 0) focusReviewSurface();
-								}}
-							>
-								<ReviewContent
-									onClose={() => {
-										workspace.minimizeSecondary();
-										workspace.setNarrowTab("transcript");
-										workspace.setFocusedSurface("composer");
-									}}
-									attachments={props.attachments}
-									reviewDrafts={props.reviewDrafts}
-									toast={props.showToast}
-									defaultDiffView={props.defaultReviewDiffView}
-									onDiffViewChanged={props.onReviewDiffViewChanged}
-									onFocusRequest={focusReviewSurface}
-									onSubmitMessage={() => props.controller.handleMessageSubmit()}
-									active={
-										editableReviewOpen() &&
-										focusedSurface() === "secondary" &&
-										props.overlays().length === 0 &&
-										chromeOverflow() === null &&
-										!props.controller.picker.visible &&
-										!props.controller.commandPalette.visible
-									}
-								/>
-							</box>
-						</Show>
-						{/* `keyed` so swapping activity sources remounts the model,
-						 * which captures its source statically at creation. */}
-						<Show keyed when={activitySource()}>
-							{(source) => (
-								<box
-									position="absolute"
-									left={0}
-									top={0}
-									width="100%"
-									height="100%"
-									onMouseDown={(event) => {
-										if (event.button === 0) focusSecondarySurface();
-									}}
-								>
-									<TurnActivityPanel
-										runtime={props.runtime}
-										source={source}
-										active={
-											focusedSurface() === "secondary" &&
-											props.overlays().length === 0 &&
-											chromeOverflow() === null &&
-											!props.controller.picker.visible &&
-											!props.controller.commandPalette.visible
-										}
-										onClose={closeActivityPanel}
-										onFocusRequest={focusSecondarySurface}
-									/>
-								</box>
-							)}
-						</Show>
-						<Show keyed when={retainedMermaidSource()}>
-							{(source) => (
-								<box
-									position="absolute"
-									left={mermaidSource() !== null ? 0 : -1000}
-									top={0}
-									width="100%"
-									height="100%"
-								>
-									<MermaidPreviewPanel
-										source={source}
-										active={
-											mermaidSource() !== null &&
-											props.overlays().length === 0 &&
-											chromeOverflow() === null &&
-											!props.controller.picker.visible &&
-											!props.controller.commandPalette.visible &&
-											focusedSurface() === "secondary"
-										}
-										onClose={closeMermaidPreview}
-										onFocusRequest={focusSecondarySurface}
-										onActionError={(error) =>
-											props.showToast({
-												title: "Could not open diagram",
-												subtitle:
-													error instanceof Error
-														? error.message
-														: String(error),
-												variant: "error",
-											})
-										}
-									/>
-								</box>
-							)}
-						</Show>
-						<Show when={releasesRetained()}>
-							<box
-								position="absolute"
-								left={releasesOpen() ? 0 : -1000}
-								top={0}
-								width="100%"
-								height="100%"
-							>
-								<ReleaseNotesPanel
-									controller={props.releasesWorkspace}
-									active={
-										releasesOpen() &&
-										props.overlays().length === 0 &&
-										chromeOverflow() === null &&
-										!props.controller.picker.visible &&
-										!props.controller.commandPalette.visible &&
-										focusedSurface() === "secondary"
-									}
-									onClose={closeReleasesPanel}
-									onFocusRequest={focusSecondarySurface}
-									onOpenRelease={openExternal}
-									onOpenError={(error) =>
-										props.showToast({
-											title: "Could not open release",
-											subtitle:
-												error instanceof Error ? error.message : String(error),
-											variant: "error",
-										})
-									}
-								/>
-							</box>
-						</Show>
-						<Show when={scratchpadRetained()}>
-							<box
-								position="absolute"
-								left={scratchpadOpen() ? 0 : -1000}
-								top={0}
-								width="100%"
-								height="100%"
-							>
-								<ScratchpadPanel
-									controller={props.scratchpad}
-									active={
-										scratchpadOpen() &&
-										props.overlays().length === 0 &&
-										chromeOverflow() === null &&
-										!props.controller.picker.visible &&
-										!props.controller.commandPalette.visible &&
-										focusedSurface() === "secondary"
-									}
-									onClose={closeScratchpadPanel}
-									onFocusRequest={focusSecondarySurface}
-								/>
-							</box>
-						</Show>
-						{/* `keyed` on the data so plugin reloads remount the panel
-						 * against the fresh providers. */}
-						<Show keyed when={subagentsRetained() ? subagentsData() : null}>
-							{(data) => (
+							if (pane.kind === "activity") {
+								return (
+									<box
+										position="absolute"
+										left={activitySource() !== null ? 0 : -1000}
+										top={0}
+										width="100%"
+										height="100%"
+										onMouseDown={(event) => {
+											if (event.button === 0) focusSecondarySurface(tab.id);
+										}}
+									>
+										<TurnActivityPanel
+											runtime={props.runtime}
+											source={pane.source}
+											active={
+												activeWorkspaceTab()?.id === tab.id &&
+												workspaceInteractionsEnabled()
+											}
+											onClose={closeActivityPanel}
+											onFocusRequest={() => focusSecondarySurface(tab.id)}
+										/>
+									</box>
+								);
+							}
+							if (pane.kind === "mermaid") {
+								return (
+									<box
+										position="absolute"
+										left={activeWorkspaceTab()?.id === tab.id ? 0 : -1000}
+										top={0}
+										width="100%"
+										height="100%"
+									>
+										<MermaidPreviewPanel
+											source={pane.source}
+											active={
+												activeWorkspaceTab()?.id === tab.id &&
+												secondaryPaneVisible() &&
+												workspaceInteractionsEnabled()
+											}
+											onClose={leaveWorkspaceSurface}
+											onFocusRequest={() => focusSecondarySurface(tab.id)}
+											onActionError={(error) =>
+												props.showToast({
+													title: "Could not open diagram",
+													subtitle:
+														error instanceof Error
+															? error.message
+															: String(error),
+													variant: "error",
+												})
+											}
+										/>
+									</box>
+								);
+							}
+							if (pane.kind === "releases") {
+								return (
+									<box
+										position="absolute"
+										left={releasesOpen() ? 0 : -1000}
+										top={0}
+										width="100%"
+										height="100%"
+									>
+										<ReleaseNotesPanel
+											controller={props.releasesWorkspace}
+											active={
+												activeWorkspaceTab()?.id === tab.id &&
+												workspaceInteractionsEnabled()
+											}
+											onClose={closeReleasesPanel}
+											onFocusRequest={() => focusSecondarySurface(tab.id)}
+											onOpenRelease={openExternal}
+											onOpenError={(error) =>
+												props.showToast({
+													title: "Could not open release",
+													subtitle:
+														error instanceof Error
+															? error.message
+															: String(error),
+													variant: "error",
+												})
+											}
+										/>
+									</box>
+								);
+							}
+							if (pane.kind === "scratchpad") {
+								return (
+									<box
+										position="absolute"
+										left={scratchpadOpen() ? 0 : -1000}
+										top={0}
+										width="100%"
+										height="100%"
+									>
+										<ScratchpadPanel
+											controller={props.scratchpad}
+											active={
+												activeWorkspaceTab()?.id === tab.id &&
+												workspaceInteractionsEnabled()
+											}
+											onClose={closeScratchpadPanel}
+											onFocusRequest={() => focusSecondarySurface(tab.id)}
+										/>
+									</box>
+								);
+							}
+							const data = subagentsData();
+							if (!data) return <box />;
+							return (
 								<box
 									position="absolute"
 									left={subagentsOpen() ? 0 : -1000}
@@ -1078,21 +964,17 @@ function AppShellContent(props: AppShellContentProps) {
 										data={data}
 										openOverlay={props.openOverlay}
 										active={
-											subagentsOpen() &&
-											props.overlays().length === 0 &&
-											chromeOverflow() === null &&
-											!props.controller.picker.visible &&
-											!props.controller.commandPalette.visible &&
-											focusedSurface() === "secondary"
+											activeWorkspaceTab()?.id === tab.id &&
+											workspaceInteractionsEnabled()
 										}
 										onClose={closeSubagentsPanel}
-										onFocusRequest={focusSecondarySurface}
+										onFocusRequest={() => focusSecondarySurface(tab.id)}
 									/>
 								</box>
-							)}
-						</Show>
-					</>
-				}
+							);
+						}}
+					</For>
+				)}
 			>
 				<box
 					flexGrow={1}
@@ -1161,9 +1043,14 @@ function AppShellContent(props: AppShellContentProps) {
 									});
 								});
 							}}
-							locked={props.overlays().length > 0 || chromeOverflow() !== null}
+							locked={
+								props.overlays().length > 0 ||
+								chromeOverflow() !== null ||
+								workspaceOverflowPicker.visible
+							}
 							inputFocused={
 								chromeOverflow() === null &&
+								!workspaceOverflowPicker.visible &&
 								(focusedSurface() === "composer" || props.overlays().length > 0)
 							}
 							onHeightChange={setDockHeight}
@@ -1196,6 +1083,13 @@ function AppShellContent(props: AppShellContentProps) {
 					}
 				}}
 			/>
+
+			<Show when={workspaceOverflowPicker.visible}>
+				<WorkspaceTabOverflowPicker
+					picker={workspaceOverflowPicker}
+					width={Math.max(1, Math.min(56, shellWidth() - 2))}
+				/>
+			</Show>
 
 			<Show when={chromeOverflow()}>
 				{(overflow) => (
