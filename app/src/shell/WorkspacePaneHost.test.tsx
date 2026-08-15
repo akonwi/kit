@@ -3,6 +3,7 @@ import type { MousePointerStyle } from "@opentui/core";
 import { createMockMouse, MouseButtons } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import { onCleanup } from "solid-js";
+import { ANGLE_LEFT } from "./glyphs";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | undefined;
@@ -15,6 +16,43 @@ afterEach(() => {
 });
 
 describe("WorkspacePaneHost", () => {
+	test("shows an expandable collapsed rail before any tabs open", async () => {
+		let expanded = false;
+		testSetup = await testRender(
+			() => (
+				<WorkspacePaneHost
+					tabs={() => []}
+					activeTabId={() => ""}
+					selectedSurface={() => "transcript"}
+					drawerCollapsed={() => true}
+					secondary={() => <box />}
+					initialWidth={120}
+					preferredPaneRatio={() => 0.4}
+					minPrimaryColumns={60}
+					minSecondaryColumns={() => 30}
+					onSelectTranscript={() => {}}
+					onSelectTab={() => {}}
+					onCloseTab={() => {}}
+					onCollapseDrawer={() => {}}
+					onExpandDrawer={() => {
+						expanded = true;
+					}}
+					onOpenOverflow={() => {}}
+					onPreferredPaneRatioChange={() => {}}
+					onPreferredPaneRatioCommit={() => {}}
+				>
+					<text>transcript body</text>
+				</WorkspacePaneHost>
+			),
+			{ width: 120, height: 10 },
+		);
+		await testSetup.renderOnce();
+		expect(testSetup.captureCharFrame()).toContain(ANGLE_LEFT);
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.click(119, 5);
+		expect(expanded).toBeTrue();
+	});
+
 	test("retains the hidden workspace surface in narrow transcript mode", async () => {
 		let selectedTab = "";
 		let closedTab = "";
@@ -72,6 +110,11 @@ describe("WorkspacePaneHost", () => {
 		await mouse.click(25, 0);
 		expect(closedTab).toBe("review");
 		expect(closeCalls).toBe(1);
+		selectedTab = "";
+		await mouse.click(16, 2);
+		await mouse.click(25, 2);
+		expect(selectedTab).toBe("");
+		expect(closeCalls).toBe(1);
 	});
 
 	test("shows an absolute workspace surface when selected in narrow mode", async () => {
@@ -118,6 +161,8 @@ describe("WorkspacePaneHost", () => {
 	});
 
 	test("renders a wide tab strip while both panes fit", async () => {
+		let collapsed = false;
+		let collapseCalls = 0;
 		testSetup = await testRender(
 			() => (
 				<WorkspacePaneHost
@@ -133,7 +178,10 @@ describe("WorkspacePaneHost", () => {
 					onSelectTranscript={() => {}}
 					onSelectTab={() => {}}
 					onCloseTab={() => {}}
-					onCollapseDrawer={() => {}}
+					onCollapseDrawer={() => {
+						collapsed = true;
+						collapseCalls += 1;
+					}}
 					onExpandDrawer={() => {}}
 					onOpenOverflow={() => {}}
 					onPreferredPaneRatioChange={() => {}}
@@ -149,6 +197,12 @@ describe("WorkspacePaneHost", () => {
 		expect(frame).toContain("transcript body");
 		expect(frame).toContain("Code review");
 		expect(frame).toContain("review body");
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.click(138, 0);
+		expect(collapsed).toBeTrue();
+		expect(collapseCalls).toBe(1);
+		await mouse.click(138, 2);
+		expect(collapseCalls).toBe(1);
 	});
 
 	test("gives absolute workspace surfaces a visible content viewport", async () => {
@@ -227,7 +281,7 @@ describe("WorkspacePaneHost", () => {
 			{ width: 120, height: 10 },
 		);
 		await testSetup.renderOnce();
-		expect(testSetup.captureCharFrame()).toContain("‹");
+		expect(testSetup.captureCharFrame()).toContain(ANGLE_LEFT);
 		expect(testSetup.captureCharFrame()).not.toContain("review body");
 		expect(cleanups).toBe(0);
 	});
@@ -307,6 +361,46 @@ describe("WorkspacePaneHost", () => {
 		const mouse = createMockMouse(testSetup.renderer);
 		await mouse.drag(60, 3, 50, 3, MouseButtons.RIGHT);
 		expect(changes).toHaveLength(0);
+	});
+
+	test("collapses when the divider reaches the secondary minimum width", async () => {
+		const changes: number[] = [];
+		const commits: number[] = [];
+		let collapseCalls = 0;
+		testSetup = await testRender(
+			() => (
+				<WorkspacePaneHost
+					tabs={() => tabs}
+					activeTabId={() => "review"}
+					selectedSurface={() => "review"}
+					drawerCollapsed={() => false}
+					secondary={() => <box width="100%" height="100%" />}
+					initialWidth={100}
+					preferredPaneRatio={() => 0.4}
+					minPrimaryColumns={40}
+					minSecondaryColumns={() => 20}
+					onSelectTranscript={() => {}}
+					onSelectTab={() => {}}
+					onCloseTab={() => {}}
+					onCollapseDrawer={() => {
+						collapseCalls += 1;
+					}}
+					onExpandDrawer={() => {}}
+					onOpenOverflow={() => {}}
+					onPreferredPaneRatioChange={(ratio) => changes.push(ratio)}
+					onPreferredPaneRatioCommit={(ratio) => commits.push(ratio)}
+				>
+					<box width="100%" height="100%" />
+				</WorkspacePaneHost>
+			),
+			{ width: 100, height: 10 },
+		);
+		await testSetup.renderOnce();
+		const mouse = createMockMouse(testSetup.renderer);
+		await mouse.drag(60, 3, 80, 3);
+		expect(collapseCalls).toBe(1);
+		expect(changes.at(-1)).toBeGreaterThan(0.2);
+		expect(commits).toHaveLength(0);
 	});
 
 	test("drags the divider and commits the preferred ratio", async () => {

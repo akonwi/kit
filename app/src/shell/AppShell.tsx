@@ -801,6 +801,10 @@ function AppShellContent(props: AppShellContentProps) {
 					focusComposerSurface();
 				}}
 				onExpandDrawer={() => {
+					if (workspaceState().secondary.status === "empty") {
+						toggleScratchpad();
+						return;
+					}
 					workspace.restoreSecondary();
 				}}
 				onOpenOverflow={openWorkspaceOverflow}

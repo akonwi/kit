@@ -2,7 +2,7 @@ import { MouseEvent } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import { createMemo, createSignal, onCleanup } from "solid-js";
-import { CHEVRON_LEFT } from "./glyphs";
+import { ANGLE_LEFT } from "./glyphs";
 import { theme } from "./theme";
 import {
 	type WorkspaceTabMouseHandler,
@@ -37,6 +37,7 @@ export type WorkspacePaneHostProps = {
 };
 
 const PRIMARY_MOUSE_BUTTON = 0;
+const COLLAPSED_HANDLE_WIDTH = 3;
 
 /**
  * Parse the terminal's SGR primary-button press so workspace tabs can bypass
@@ -76,16 +77,24 @@ type HostRef = {
 	screenY: number;
 };
 
+type HandleRef = {
+	width: number;
+	screenX: number;
+};
+
 export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 	const renderer = useRenderer();
 	const SecondarySurface = props.secondary;
 	let hostRef: HostRef | undefined;
+	let handleRef: HandleRef | undefined;
 	let narrowTabMouseHandler: WorkspaceTabMouseHandler | null = null;
 	let wideTabMouseHandler: WorkspaceTabMouseHandler | null = null;
 	// Synthetic events are marked so the tab strip can reject a second dispatch
 	// if OpenTUI also resolves the same raw press through its normal hit grid.
 	const rawMouseEvents = new WeakSet<MouseEvent>();
-	const [hostWidth, setHostWidth] = createSignal(props.initialWidth);
+	let lastHandledRawMouseDown: { x: number; y: number; at: number } | null =
+		null;
+	const hostWidth = () => props.initialWidth;
 	const [dividerHovered, setDividerHovered] = createSignal(false);
 	const [handleHovered, setHandleHovered] = createSignal(false);
 	const [handlePressed, setHandlePressed] = createSignal(false);
@@ -102,25 +111,47 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 	});
 	const narrowTabbed = () => hasTabs() && layout() === null;
 	const wideCollapsed = () =>
-		hasTabs() && layout() !== null && props.drawerCollapsed();
+		!hasTabs() || (layout() !== null && props.drawerCollapsed());
 	const primaryVisible = () =>
 		!narrowTabbed() || props.selectedSurface() === "transcript";
 	const secondaryVisible = () =>
 		(layout() !== null && !wideCollapsed()) ||
 		(narrowTabbed() && props.selectedSurface() !== "transcript");
 
+	function shouldHandleTabMouseEvent(event: MouseEvent): boolean {
+		if (rawMouseEvents.has(event)) return true;
+		return !(
+			lastHandledRawMouseDown &&
+			Date.now() - lastHandledRawMouseDown.at < 100 &&
+			event.x === lastHandledRawMouseDown.x &&
+			event.y === lastHandledRawMouseDown.y
+		);
+	}
+
 	function handleHostMouseDown(event: MouseEvent): boolean {
 		if (
+			!shouldHandleTabMouseEvent(event) ||
 			event.defaultPrevented ||
 			event.button !== PRIMARY_MOUSE_BUTTON ||
 			!hostRef
 		) {
 			return false;
 		}
+		if (
+			wideCollapsed() &&
+			handleRef &&
+			event.x >= handleRef.screenX &&
+			event.x < handleRef.screenX + handleRef.width
+		) {
+			consumeMouse(event);
+			props.onExpandDrawer();
+			return true;
+		}
 		const localY = event.y - hostRef.screenY;
-		// Some terminals report the painted top-border row one cell above the
-		// renderable's Yoga origin, so include that row in the chrome hit area.
-		if (localY < -1 || localY >= 2) return false;
+		// Use a coarse host-relative window here because the shell border/header can
+		// offset OpenTUI's host geometry. WorkspaceTabStrip performs the definitive
+		// check against its measured screenY and height before activating anything.
+		if (localY < -1 || localY >= 4) return false;
 		if (narrowTabbed()) {
 			return narrowTabMouseHandler?.(event) ?? false;
 		}
@@ -157,16 +188,41 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 		event.stopPropagation();
 	}
 
-	function updateRatio(event: MouseEvent): number {
+	function draggedToCollapsedWidth(event: MouseEvent): boolean {
+		const preferredPaneRatio = preferredPaneRatioFromDivider({
+			availableColumns: hostWidth(),
+			containerLeft: hostRef?.screenX ?? 0,
+			dividerX: event.x,
+		});
+		return (
+			Math.round(hostWidth() * preferredPaneRatio) <=
+			props.minSecondaryColumns()
+		);
+	}
+
+	function collapseDraggedPane(event: MouseEvent): void {
 		consumeMouse(event);
-		const ratio = ratioAt(event);
-		props.onPreferredPaneRatioChange(ratio);
-		return ratio;
+		setDragging(false);
+		renderer.setMousePointer("default");
+		props.onCollapseDrawer();
+	}
+
+	function updateRatio(event: MouseEvent): void {
+		if (draggedToCollapsedWidth(event)) {
+			collapseDraggedPane(event);
+			return;
+		}
+		consumeMouse(event);
+		props.onPreferredPaneRatioChange(ratioAt(event));
 	}
 
 	function finishDrag(event: MouseEvent): void {
 		consumeMouse(event);
 		if (!dragging()) return;
+		if (draggedToCollapsedWidth(event)) {
+			collapseDraggedPane(event);
+			return;
+		}
 		const ratio = ratioAt(event);
 		props.onPreferredPaneRatioChange(ratio);
 		props.onPreferredPaneRatioCommit(ratio);
@@ -188,7 +244,9 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 			const event = parseSgrPrimaryMouseDown(input.slice(start, end + 1));
 			if (event) {
 				rawMouseEvents.add(event);
-				handleHostMouseDown(event);
+				if (handleHostMouseDown(event)) {
+					lastHandledRawMouseDown = { x: event.x, y: event.y, at: Date.now() };
+				}
 			}
 			start = input.indexOf("\x1b[<", end + 1);
 		}
@@ -211,9 +269,6 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 			flexDirection="column"
 			ref={(value) => {
 				hostRef = value as HostRef;
-			}}
-			onSizeChange={() => {
-				if (hostRef) setHostWidth(hostRef.width);
 			}}
 			onMouseDown={handleHostMouseDown}
 			onMouseDrag={(event) => {
@@ -248,7 +303,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 					onMouseHandlerReady={(handler) => {
 						narrowTabMouseHandler = handler;
 					}}
-					shouldHandleMouseEvent={(event) => rawMouseEvents.has(event)}
+					shouldHandleMouseEvent={shouldHandleTabMouseEvent}
 				/>
 			</box>
 			<box
@@ -260,12 +315,12 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 				onMouseDown={handleHostMouseDown}
 			>
 				<box
-					flexGrow={primaryVisible() && (!layout() || wideCollapsed()) ? 1 : 0}
+					flexGrow={primaryVisible() && !layout() && !wideCollapsed() ? 1 : 0}
 					flexShrink={0}
 					width={
 						primaryVisible()
 							? wideCollapsed()
-								? undefined
+								? Math.max(1, hostWidth() - COLLAPSED_HANDLE_WIDTH)
 								: (layout()?.primaryColumns ?? "100%")
 							: 0
 					}
@@ -280,6 +335,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 				 * from off-screen absolute positioning back to relative positioning. */}
 				<box
 					position="relative"
+					visible={secondaryVisible()}
 					flexShrink={0}
 					border={layout() && secondaryVisible() ? ["left"] : false}
 					borderColor={theme.borderDefault}
@@ -315,7 +371,7 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 							onMouseHandlerReady={(handler) => {
 								wideTabMouseHandler = handler;
 							}}
-							shouldHandleMouseEvent={(event) => rawMouseEvents.has(event)}
+							shouldHandleMouseEvent={shouldHandleTabMouseEvent}
 						/>
 					</box>
 					<box position="relative" flexGrow={1} width="100%" overflow="hidden">
@@ -323,17 +379,20 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 					</box>
 				</box>
 				<box
-					position={wideCollapsed() ? "relative" : "absolute"}
-					left={wideCollapsed() ? undefined : -1000}
-					width={3}
+					position="relative"
+					visible={wideCollapsed()}
+					width={wideCollapsed() ? COLLAPSED_HANDLE_WIDTH : 0}
 					height="100%"
+					flexGrow={wideCollapsed() ? 1 : 0}
 					flexShrink={0}
-					border={["left"]}
-					borderColor={
-						handleHovered() ? theme.borderAccent : theme.borderDefault
-					}
+					overflow="hidden"
+					ref={(value) => {
+						handleRef = value as HandleRef;
+					}}
 					alignItems="center"
-					flexDirection="column"
+					backgroundColor={
+						handleHovered() || handlePressed() ? theme.bgMuted : theme.bgSurface
+					}
 					onMouseOver={() => {
 						setHandleHovered(true);
 						renderer.setMousePointer("pointer");
@@ -344,7 +403,12 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 						renderer.setMousePointer("default");
 					}}
 					onMouseDown={(event) => {
-						if (event.button !== PRIMARY_MOUSE_BUTTON) return;
+						if (
+							event.button !== PRIMARY_MOUSE_BUTTON ||
+							!shouldHandleTabMouseEvent(event)
+						) {
+							return;
+						}
 						consumeMouse(event);
 						setHandlePressed(true);
 					}}
@@ -356,8 +420,18 @@ export function WorkspacePaneHost(props: WorkspacePaneHostProps) {
 						if (shouldExpand) props.onExpandDrawer();
 					}}
 				>
-					<text fg={theme.metaText}>{CHEVRON_LEFT}</text>
-					<text fg={theme.textMuted}>{props.tabs().length}</text>
+					<box
+						position="absolute"
+						left={0}
+						top="50%"
+						width="100%"
+						height={1}
+						alignItems="flex-start"
+					>
+						<text fg={handleHovered() ? theme.textPrimary : theme.textMuted}>
+							{ANGLE_LEFT}
+						</text>
+					</box>
 				</box>
 				<box
 					position="absolute"

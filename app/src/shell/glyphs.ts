@@ -42,6 +42,8 @@ export const TRIANGLE_UP = "▲";
 
 /** ↑ */
 export const ARROW_UP = "↑";
+/** < */
+export const ANGLE_LEFT = "<";
 
 // ── Lines ───────────────────────────────────────────────────────────
 

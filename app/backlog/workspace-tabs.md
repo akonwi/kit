@@ -47,8 +47,12 @@ See the accepted mockups:
   each edge and scroll the strip when activated.
 - The drawer can be collapsed without closing its tabs.
 - The expanded tab strip has an explicit collapse control.
-- A collapsed drawer leaves a slim right-edge handle showing an expand affordance
-  and retained tab count.
+- A collapsed drawer rail is visible from startup. Before any tabs exist, its
+  expand action opens Scratchpad as the default workspace surface.
+- The rail is the secondary panel's narrowest flex-layout width, not an overlay
+  on the transcript. Dragging the divider to the panel's minimum useful width
+  snaps it into this collapsed rail. The rail centers its expand affordance
+  vertically and highlights the full target on hover.
 - Opening any workspace surface expands the drawer and selects its tab.
 
 ## Narrow presentation

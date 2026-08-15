@@ -46,7 +46,9 @@ type TabAction =
 
 export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 	const renderer = useRenderer();
-	let stripRef: { screenX: number } | undefined;
+	let stripRef:
+		| { screenX: number; screenY: number; width: number; height: number }
+		| undefined;
 	const [offset, setOffset] = createSignal(0);
 	const wideLayout = createMemo(() =>
 		resolveWideWorkspaceTabs({
@@ -91,7 +93,12 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 	}
 
 	function activate(action: TabAction, event: MouseEvent): void {
-		if (event.button !== PRIMARY_MOUSE_BUTTON) return;
+		if (
+			event.button !== PRIMARY_MOUSE_BUTTON ||
+			(props.shouldHandleMouseEvent && !props.shouldHandleMouseEvent(event))
+		) {
+			return;
+		}
 		consume(event);
 		switch (action.kind) {
 			case "select":
@@ -143,15 +150,23 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 	}
 
 	function handleStripMouseDown(event: MouseEvent): boolean {
-		// WorkspacePaneHost accepts only its marked raw-input event here. This
-		// prevents duplicate actions if OpenTUI also dispatches the same press.
+		// WorkspacePaneHost accepts the raw fallback or a normal hit-grid event,
+		// while suppressing the duplicate when both paths see the same press.
 		if (
 			event.button !== PRIMARY_MOUSE_BUTTON ||
 			(props.shouldHandleMouseEvent && !props.shouldHandleMouseEvent(event))
 		) {
 			return false;
 		}
-		const localX = event.x - (stripRef?.screenX ?? 0);
+		if (
+			!stripRef ||
+			event.y < stripRef.screenY ||
+			event.y >= stripRef.screenY + stripRef.height
+		) {
+			return false;
+		}
+		const localX = event.x - stripRef.screenX;
+		const hitWidth = stripRef?.width ?? props.width();
 		if (props.mode === "narrow") {
 			if (activateVisibleTab(narrowLayout().visible, localX, 0, event)) {
 				return true;
@@ -171,7 +186,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 		if (activateVisibleTab(wideLayout().visible, localX, beforeWidth, event)) {
 			return true;
 		}
-		if (localX >= props.width() - 2) {
+		if (localX >= hitWidth - 2) {
 			activate({ kind: "collapse" }, event);
 			return true;
 		}
@@ -179,7 +194,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 			wideLayout().hiddenAfter > 0
 				? String(wideLayout().hiddenAfter).length + 2
 				: 0;
-		if (afterWidth > 0 && localX >= props.width() - 2 - afterWidth) {
+		if (afterWidth > 0 && localX >= hitWidth - 2 - afterWidth) {
 			activate({ kind: "scroll", direction: 1 }, event);
 			return true;
 		}
@@ -214,6 +229,9 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 					fg={tabProps.selected ? theme.textPrimary : theme.textMuted}
 					onMouseOver={pointerEnter}
 					onMouseOut={pointerLeave}
+					onMouseDown={(event) =>
+						activate({ kind: "select", id: item.id }, event)
+					}
 				>
 					{` ${item.displayLabel} `}
 				</text>
@@ -223,6 +241,9 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 						fg={tabProps.selected ? theme.textSecondary : theme.textMuted}
 						onMouseOver={pointerEnter}
 						onMouseOut={pointerLeave}
+						onMouseDown={(event) =>
+							activate({ kind: "close", id: item.id }, event)
+						}
 					>
 						{` ${TIMES}`}
 					</text>
@@ -353,6 +374,7 @@ export function WorkspaceTabStrip(props: WorkspaceTabStripProps) {
 					justifyContent="center"
 					onMouseOver={pointerEnter}
 					onMouseOut={pointerLeave}
+					onMouseDown={(event) => activate({ kind: "collapse" }, event)}
 				>
 					<text fg={theme.textSecondary}>{CHEVRON_RIGHT}</text>
 				</box>
