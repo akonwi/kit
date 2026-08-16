@@ -5,7 +5,8 @@ export type BrowserCommandAction =
 	| "theme"
 	| "thinking"
 	| "toggle-scratchpad"
-	| "open-code-review";
+	| "open-code-review"
+	| "close-workspace-tab";
 
 export type PaletteCommand = RemoteCommand & {
 	browserAction?: BrowserCommandAction;
@@ -41,6 +42,12 @@ export const BROWSER_COMMANDS: readonly PaletteCommand[] = [
 		name: "code-review",
 		description: "Review the current changes",
 		browserAction: "open-code-review",
+	},
+	{
+		id: "close-workspace-tab",
+		name: "workspace.close-tab",
+		description: "Close the active workspace tab",
+		browserAction: "close-workspace-tab",
 	},
 ];
 

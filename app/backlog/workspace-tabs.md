@@ -1,6 +1,6 @@
 # Workspace tabs
 
-Status: TUI implemented; web presentation accepted but not implemented.
+Status: TUI implemented; web implemented for Activity, Code Review, and Scratchpad. Remaining TUI surfaces are tracked separately.
 
 ## Summary
 

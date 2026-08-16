@@ -11,16 +11,16 @@ import {
 import { BUILT_IN_CHROME_CONTRIBUTION_IDS } from "../shell/chrome-contributions";
 import { CHEVRON_RIGHT, ELLIPSIS } from "../shell/glyphs";
 import { useAgentConfiguration } from "./AgentConfigurationControls";
-import { useCodeReview } from "./CodeReviewProvider";
 import { RemoteChromeContributionView } from "./chrome-contributions";
 import { DialogFrame } from "./DialogFrame";
 import { useScratchpad } from "./ScratchpadProvider";
 import { useWebClient } from "./WebClientContext";
+import { useWorkspace } from "./workspace-context";
 
 export function MobileSessionMenu(): JSX.Element {
 	const { snapshot, controller } = useWebClient();
 	const scratchpad = useScratchpad();
-	const codeReview = useCodeReview();
+	const workspace = useWorkspace();
 	const {
 		disabled: configurationDisabled,
 		modelLabel,
@@ -31,6 +31,9 @@ export function MobileSessionMenu(): JSX.Element {
 	const [open, setOpen] = createSignal(false);
 	const protocol = createMemo(() => snapshot().protocol);
 	const disabled = createMemo(() => protocol().phase !== "live");
+	const openPaneKinds = createMemo(
+		() => new Set(workspace.tabs().map((tab) => tab.pane.kind)),
+	);
 	const hiddenHeader = createMemo(
 		() => new Set(protocol().chrome.header.hiddenBuiltinIds),
 	);
@@ -143,22 +146,22 @@ export function MobileSessionMenu(): JSX.Element {
 						class="mobile-session-menu-row"
 						type="button"
 						disabled={scratchpad.disabled()}
-						onClick={() => closeThen(scratchpad.toggle)}
+						onClick={() => closeThen(workspace.toggleScratchpad)}
 					>
 						<span>Scratchpad</span>
 						<span class="mobile-session-menu-value">
-							{scratchpad.open() ? "Open" : CHEVRON_RIGHT}
+							{openPaneKinds().has("scratchpad") ? "Open" : CHEVRON_RIGHT}
 						</span>
 					</button>
 					<button
 						class="mobile-session-menu-row"
 						type="button"
 						disabled={disabled()}
-						onClick={() => closeThen(codeReview.openReview)}
+						onClick={() => closeThen(workspace.openCodeReview)}
 					>
 						<span>Code review</span>
 						<span class="mobile-session-menu-value">
-							{codeReview.open() ? "Open" : CHEVRON_RIGHT}
+							{openPaneKinds().has("review") ? "Open" : CHEVRON_RIGHT}
 						</span>
 					</button>
 					<For each={protocol().chrome.header.contributions}>

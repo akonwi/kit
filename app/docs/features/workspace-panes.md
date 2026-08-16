@@ -78,3 +78,17 @@ its existing tab, as Activity does.
 Do not store JSX, component instances, or callbacks in `WorkspacePane`. Keeping
 pane descriptors as data preserves the boundary between workspace state and the
 TUI renderer and leaves room for other presentations to consume the same state.
+
+## Web presentation
+
+The browser follows the same state/presentation boundary with web-specific pane
+descriptors in `src/web/workspace-panes.ts`. `WorkspaceProvider` owns ordered
+process-lifetime state and opening actions; `WorkspacePaneHost` projects that
+state as an expanded drawer, collapsed rail, or narrow top-level tabs. Pane
+components remain mounted while hidden so drafts, selections, and scroll state
+survive tab switches and responsive layout changes.
+
+The browser does not import TUI render definitions. Each renderer owns its pane
+bodies and metadata while reusing the renderer-neutral workspace state
+controller. Activity, Code Review, and Scratchpad currently have browser pane
+implementations; other TUI pane kinds remain explicit follow-up work.

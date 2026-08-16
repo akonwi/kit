@@ -68,6 +68,8 @@ export const MIDDLE_DOT = "·";
 export const CHEVRON_LEFT = "‹";
 /** › */
 export const CHEVRON_RIGHT = "›";
+/** » */
+export const GUILLEMET_RIGHT = "»";
 /** × */
 export const TIMES = "×";
 

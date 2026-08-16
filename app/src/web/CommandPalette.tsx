@@ -14,7 +14,6 @@ import {
 import { scoreMatch } from "../features/files/score";
 import { useAgentConfiguration } from "./AgentConfigurationControls";
 import { useBrowserTheme } from "./BrowserThemeProvider";
-import { useCodeReview } from "./CodeReviewProvider";
 import {
 	mergePaletteCommands,
 	type PaletteCommand,
@@ -23,6 +22,8 @@ import { DialogFrame } from "./DialogFrame";
 import { OverlayHintBar } from "./OverlayHintBar";
 import { useScratchpad } from "./ScratchpadProvider";
 import { useWebClient } from "./WebClientContext";
+import { useWorkspace } from "./workspace-context";
+import { paneClosable } from "./workspace-panes";
 
 type CommandPaletteContextValue = {
 	openPalette(): void;
@@ -46,7 +47,7 @@ export function CommandPaletteProvider(props: {
 	const { controller, snapshot } = useWebClient();
 	const { openThemePicker } = useBrowserTheme();
 	const scratchpad = useScratchpad();
-	const codeReview = useCodeReview();
+	const workspace = useWorkspace();
 	const {
 		disabled: configurationDisabled,
 		openModelPicker,
@@ -182,6 +183,10 @@ export function CommandPaletteProvider(props: {
 
 	function browserCommandDisabled(command: PaletteCommand): boolean {
 		if (command.browserAction === "theme") return false;
+		if (command.browserAction === "close-workspace-tab") {
+			const active = workspace.activeTab();
+			return !active || !paneClosable(active.pane);
+		}
 		if (
 			command.browserAction === "toggle-scratchpad" ||
 			command.browserAction === "open-code-review"
@@ -200,8 +205,12 @@ export function CommandPaletteProvider(props: {
 				if (browserAction === "model") void openModelPicker();
 				else if (browserAction === "thinking") void openThinkingPicker();
 				else if (browserAction === "theme") openThemePicker();
-				else if (browserAction === "open-code-review") codeReview.openReview();
-				else scratchpad.toggle();
+				else if (browserAction === "open-code-review")
+					workspace.openCodeReview();
+				else if (browserAction === "close-workspace-tab") {
+					const active = workspace.activeTab();
+					if (active) workspace.closeTab(active.id);
+				} else workspace.toggleScratchpad();
 			});
 			return;
 		}

@@ -111,7 +111,6 @@ export function CodeReviewPanel(): JSX.Element {
 						<WebIcon name="back" />
 					</button>
 				</Show>
-				<strong>Code review</strong>
 				<span>
 					{`${review.notes().length} ${review.notes().length === 1 ? "note" : "notes"}`}
 				</span>
@@ -162,14 +161,6 @@ export function CodeReviewPanel(): JSX.Element {
 						</div>
 					</Show>
 				</div>
-				<button
-					type="button"
-					data-variant="ghost"
-					onClick={review.close}
-					aria-label="Close code review"
-				>
-					×
-				</button>
 			</header>
 			<Show when={review.error()}>
 				<div class="code-review-error" role="alert">

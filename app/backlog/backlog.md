@@ -14,7 +14,7 @@ Delete done items.
 ## Active items
 - [ ] tui: show live status indicators on individual sub-agent workspace tabs,
   including hidden/overflow tabs and the collapsed rail aggregate
-- [ ] web: implement runtime workspace tabs ([design](./workspace-tabs.md))
+- [ ] web: extend workspace tabs to Sub-agents, Releases, and Mermaid ([design](./workspace-tabs.md))
 - [ ] web: add a session explorer like the TUI
 - [ ] cli: harden transport protocols by unifying transport and shared logic across modes
 - [ ] cli: support `kit attach` for connecting to remotely served sessions
