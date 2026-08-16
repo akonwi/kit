@@ -15,7 +15,10 @@ import type { Binding } from "../../shell/HintBar";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { Spinner } from "../../shell/Spinner";
 import { scrollbarStyle, theme } from "../../shell/theme";
-import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
+import {
+	WorkspacePanelHeader,
+	WorkspacePanelLayout,
+} from "../../shell/WorkspacePanelLayout";
 import { openMermaidPreviewExternally } from "./external";
 import { loadMermaidPreview } from "./load";
 import type { MermaidPreviewImage } from "./render";
@@ -206,17 +209,9 @@ export function MermaidPreviewPanel(props: MermaidPreviewPanelProps) {
 		>
 			<WorkspacePanelLayout
 				header={
-					<box
-						flexShrink={0}
-						paddingX={1}
-						border={["bottom"]}
-						borderColor={theme.borderDefault}
-						flexDirection="row"
-						justifyContent="space-between"
-					>
-						<text fg={theme.textPrimary}>Mermaid diagram</text>
-						<text fg={theme.textMuted}>{Math.round(zoom() * 100)}%</text>
-					</box>
+					<WorkspacePanelHeader
+						left={<text fg={theme.textMuted}>{Math.round(zoom() * 100)}%</text>}
+					/>
 				}
 				footer={
 					<KeymapHintBar

@@ -12,7 +12,9 @@ Keep this list short and current. If an item needs more detail, link to a dedica
 Delete done items.
 
 ## Active items
-- [ ] ui: support editor-like tabs for files, transcripts, scratchpads, and other surfaces
+- [ ] tui: show live status indicators on individual sub-agent workspace tabs,
+  including hidden/overflow tabs and the collapsed rail aggregate
+- [ ] web: extend workspace tabs to Sub-agents, Releases, and Mermaid ([design](./workspace-tabs.md))
 - [ ] web: add a session explorer like the TUI
 - [ ] cli: harden transport protocols by unifying transport and shared logic across modes
 - [ ] cli: support `kit attach` for connecting to remotely served sessions
@@ -25,3 +27,5 @@ Delete done items.
   `DiffLineAnnotation`/`ReviewDiffAnnotationMetadata` pipeline with an
   `author: "agent"` style; lazy staleness (drop ranges no longer in the diff),
   dismiss key, hide-all toggle
+- [ ] tui: upstream an OpenTUI decoded pre-hit-test mouse-input hook, then remove
+  Kit's parallel `StdinParser` workspace fallback

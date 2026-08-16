@@ -27,7 +27,6 @@ import {
 } from "../../shell/diff/ReviewDiffBlock";
 import { inferFiletype } from "../../shell/filetype";
 import {
-	CHEVRON_RIGHT,
 	CIRCLE_FILLED,
 	MIDDLE_DOT,
 	TRIANGLE_DOWN,
@@ -37,7 +36,10 @@ import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
 import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
-import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
+import {
+	WorkspacePanelHeader,
+	WorkspacePanelLayout,
+} from "../../shell/WorkspacePanelLayout";
 import type { PickerOption } from "../../state/picker";
 import { createPickerManager } from "../../state/picker-manager";
 import type { ToastInput } from "../../state/toasts";
@@ -86,6 +88,8 @@ import { createWorkingTreeRefreshTracker } from "./working-tree-refresh";
 
 export type ReviewContentProps = {
 	onClose: () => void;
+	onTabClose?: () => void;
+	onCloseRequestReady?: (request: (() => void) | null) => void;
 	attachments: AttachmentsController;
 	reviewDrafts: ReviewDraftController;
 	toast: (toast: ToastInput) => void;
@@ -2136,9 +2140,20 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function closeReview(): void {
-		if (queueCurrentDraft({ showBlockedWarning: true }) === "blocked") return;
 		props.onClose();
 	}
+
+	function closeReviewTab(): void {
+		if (queueCurrentDraft({ showBlockedWarning: true }) === "blocked") return;
+		(props.onTabClose ?? props.onClose)();
+	}
+
+	createEffect(() => {
+		const register = props.onCloseRequestReady;
+		if (!register) return;
+		register(closeReviewTab);
+		onCleanup(() => register(null));
+	});
 
 	async function submitReview(): Promise<void> {
 		if (
@@ -2446,7 +2461,6 @@ export function ReviewContent(props: ReviewContentProps) {
 
 	const reviewHeaderLeft = (
 		<text fg={theme.textMuted}>
-			Code review {CHEVRON_RIGHT}{" "}
 			<Show
 				when={targetCommit()}
 				fallback={<span style={{ fg: theme.textPrimary }}>working tree</span>}
@@ -2468,24 +2482,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		</text>
 	);
 	const reviewHeader = (
-		<box
-			flexShrink={0}
-			paddingX={1}
-			width="100%"
-			height={2}
-			flexDirection="row"
-			border={["bottom"]}
-			borderColor={theme.borderDefault}
-			justifyContent="space-between"
-			gap={1}
-		>
-			<box flexGrow={1} flexShrink={1} height={1} overflow="hidden">
-				{reviewHeaderLeft}
-			</box>
-			<box flexShrink={1} height={1} overflow="hidden">
-				{reviewHeaderRight}
-			</box>
-		</box>
+		<WorkspacePanelHeader left={reviewHeaderLeft} right={reviewHeaderRight} />
 	);
 
 	return (

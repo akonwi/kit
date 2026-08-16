@@ -93,7 +93,7 @@ A persistent secondary panel mounted alongside the transcript or another primary
 
 Chrome conventions:
 - **Edge border**: `border={["left"]}` or `border={["right"]}` on the inward-facing edge as a separator from the adjacent surface. Use `borderDefault`.
-- **Header strip**: top of the panel, `paddingX={1} paddingY={0}` with `border={["bottom"]}`. Left content (title in `textPrimary`), right content (metadata in `textMuted`). One row tall.
+- **Context strip**: the workspace tab owns the pane title. Add a row below it only when the pane has useful scope or live metadata, using `WorkspacePanelHeader` (`paddingX={1}` with a bottom border). When both are present, put scope/identity within the pane on the left and live metrics/status on the right. A lone context value aligns left. Omit the strip entirely when there is no context to show.
 - **Body**: `flexGrow={1}`, a `scrollbox` for the content with theme-styled scrollbar.
 - **Hint bar**: borderless inside the shared panel footer; the footer owns the top separator.
 

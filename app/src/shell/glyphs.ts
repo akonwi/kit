@@ -42,6 +42,8 @@ export const TRIANGLE_UP = "▲";
 
 /** ↑ */
 export const ARROW_UP = "↑";
+/** < */
+export const ANGLE_LEFT = "<";
 
 // ── Lines ───────────────────────────────────────────────────────────
 
@@ -62,8 +64,12 @@ export const DASHED_VERTICAL = "┆";
 export const ELLIPSIS = "…";
 /** · */
 export const MIDDLE_DOT = "·";
+/** ‹ */
+export const CHEVRON_LEFT = "‹";
 /** › */
 export const CHEVRON_RIGHT = "›";
+/** » */
+export const GUILLEMET_RIGHT = "»";
 /** × */
 export const TIMES = "×";
 

@@ -31,12 +31,12 @@ export const KEYBINDING_REGISTRY = {
 	},
 	workspace: {
 		"focus-next": {
-			defaultKeys: "f6",
+			defaultKeys: "tab",
 			desc: "Focus next workspace surface",
 			group: "App",
 		},
 		"focus-previous": {
-			defaultKeys: "shift+f6",
+			defaultKeys: "shift+tab",
 			desc: "Focus previous workspace surface",
 			group: "App",
 		},
@@ -50,19 +50,14 @@ export const KEYBINDING_REGISTRY = {
 			desc: "Focus secondary workspace pane",
 			group: "App",
 		},
+		"close-tab": {
+			defaultKeys: [],
+			desc: "Close active workspace tab",
+			group: "App",
+		},
 		"toggle-secondary": {
 			defaultKeys: [],
-			desc: "Minimize or restore secondary workspace pane",
-			group: "App",
-		},
-		"grow-secondary": {
-			defaultKeys: [],
-			desc: "Grow secondary workspace pane",
-			group: "App",
-		},
-		"shrink-secondary": {
-			defaultKeys: [],
-			desc: "Shrink secondary workspace pane",
+			desc: "Collapse or restore workspace drawer",
 			group: "App",
 		},
 		"reset-layout": {
@@ -201,9 +196,9 @@ export const KEYBINDING_REGISTRY = {
 	subagents: {
 		close: {
 			defaultKeys: ["escape", "q"],
-			desc: "Close sub-agents panel",
+			desc: "Return to transcript",
 			group: "subagents",
-			hint: "close",
+			hint: "transcript",
 		},
 		"move-up": {
 			defaultKeys: ["up", "k"],
@@ -289,9 +284,9 @@ export const KEYBINDING_REGISTRY = {
 	"turn-activity": {
 		close: {
 			defaultKeys: "escape",
-			desc: "Close turn activity panel",
+			desc: "Return to transcript",
 			group: "turn-activity",
-			hint: "close",
+			hint: "transcript",
 		},
 	},
 	"mermaid-preview": {
@@ -345,9 +340,9 @@ export const KEYBINDING_REGISTRY = {
 		},
 		close: {
 			defaultKeys: "escape",
-			desc: "Close Mermaid preview",
+			desc: "Return to transcript",
 			group: "mermaid-preview",
-			hint: "close",
+			hint: "transcript",
 		},
 	},
 	"release-notes": {
@@ -377,17 +372,17 @@ export const KEYBINDING_REGISTRY = {
 		},
 		close: {
 			defaultKeys: "escape",
-			desc: "Close release notes",
+			desc: "Return to transcript",
 			group: "release-notes",
-			hint: "close",
+			hint: "transcript",
 		},
 	},
 	scratchpad: {
 		close: {
 			defaultKeys: "escape",
-			desc: "Close scratchpad",
+			desc: "Return to transcript",
 			group: "scratchpad",
-			hint: "close",
+			hint: "transcript",
 		},
 	},
 	"guided-questions": {
@@ -449,9 +444,9 @@ export const KEYBINDING_REGISTRY = {
 	review: {
 		close: {
 			defaultKeys: "escape",
-			desc: "Close code review",
+			desc: "Return to transcript",
 			group: "review",
-			hint: "close",
+			hint: "transcript",
 		},
 		"move-file-up": {
 			defaultKeys: ["up", "k"],
@@ -508,13 +503,13 @@ export const KEYBINDING_REGISTRY = {
 			hint: "back",
 		},
 		"previous-change": {
-			defaultKeys: "shift+tab",
+			defaultKeys: "[",
 			desc: "Move to previous change group",
 			group: "review",
 			hint: "change",
 		},
 		"next-change": {
-			defaultKeys: "tab",
+			defaultKeys: "]",
 			desc: "Move to next change group",
 			group: "review",
 			hint: "change",

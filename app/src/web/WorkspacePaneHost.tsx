@@ -3,40 +3,31 @@ import {
 	createEffect,
 	createMemo,
 	createSignal,
+	For,
 	type JSX,
 	onCleanup,
 	onMount,
 	Show,
 } from "solid-js";
-import { findTurnWorkItems } from "../shell/transcript/turns";
+import { CHEVRON_LEFT } from "../shell/glyphs";
 import { CodeReviewPanel } from "./CodeReviewPanel";
-import { useCodeReview } from "./CodeReviewProvider";
 import { ScratchpadPanel } from "./ScratchpadPanel";
-import { useScratchpad } from "./ScratchpadProvider";
 import { TurnActivityPanel } from "./TurnActivityPanel";
-import { useWebClient } from "./WebClientContext";
-import { type ActivitySource, WorkspaceContext } from "./workspace-context";
+import {
+	DesktopWorkspaceTabs,
+	focusWorkspaceTab,
+	NarrowWorkspaceTabs,
+} from "./WorkspaceTabNavigation";
+import { useWorkspace } from "./workspace-context";
+import { paneLabel } from "./workspace-panes";
 
 const DEFAULT_SECONDARY_RATIO = 0.4;
 const MIN_PRIMARY_WIDTH = 560;
 const MIN_SECONDARY_WIDTH = 320;
+const COLLAPSED_RAIL_WIDTH = 38;
 const PANE_RATIO_STORAGE_KEY = "kit.web.workspace.secondaryRatio";
 const RESIZE_STEP = 0.05;
 const DIVIDER_WIDTH = 5;
-
-function activitySourceKey(source: ActivitySource): string {
-	return source.kind === "single-item"
-		? `single:${source.itemId}`
-		: `turn:${source.turnId}:${source.anchorItemId}`;
-}
-
-function activitySourcesMatch(a: ActivitySource, b: ActivitySource): boolean {
-	if (activitySourceKey(a) === activitySourceKey(b)) return true;
-	if (a.turnId !== b.turnId) return false;
-	return a.kind === "single-item"
-		? b.kind === "turn-intermediate" && a.itemId === b.anchorItemId
-		: b.kind === "single-item" && a.anchorItemId === b.itemId;
-}
 
 function clampRatio(ratio: number): number {
 	if (!Number.isFinite(ratio)) return DEFAULT_SECONDARY_RATIO;
@@ -47,44 +38,31 @@ export function WorkspacePaneHost(props: {
 	primary: JSX.Element;
 	dock: JSX.Element;
 }): JSX.Element {
-	const { snapshot, transcriptItems } = useWebClient();
-	const scratchpad = useScratchpad();
-	const codeReview = useCodeReview();
+	const workspace = useWorkspace();
 	let host: HTMLElement | undefined;
-	let returnFocus: HTMLElement | null = null;
 	let activePointerId: number | null = null;
+	let resizeStartRatio = DEFAULT_SECONDARY_RATIO;
 	const [hostWidth, setHostWidth] = createSignal(0);
-	const [activitySource, setActivitySource] =
-		createSignal<ActivitySource | null>(null);
-	const [narrowTab, setNarrowTab] = createSignal<"transcript" | "secondary">(
-		"transcript",
-	);
+	const [drawerCollapsed, setDrawerCollapsed] = createSignal(true);
 	const [secondaryRatio, setSecondaryRatio] = createSignal(
 		DEFAULT_SECONDARY_RATIO,
 	);
 	const [dragging, setDragging] = createSignal(false);
-	const [focusedSurface, setFocusedSurface] = createSignal<
-		"transcript" | "secondary"
-	>("transcript");
-	const [lastFocusedChrome, setLastFocusedChrome] = createSignal<
-		"divider" | "tab" | null
-	>(null);
-	const panelOpen = createMemo(
-		() => codeReview.open() || scratchpad.open() || activitySource() !== null,
+	const tabs = workspace.tabs;
+	const activeTab = workspace.activeTab;
+	const selectedId = createMemo(() =>
+		workspace.state().focusedSurface === "secondary"
+			? (activeTab()?.id ?? "transcript")
+			: "transcript",
 	);
-	const secondaryLabel = createMemo(() =>
-		codeReview.open()
-			? "Code review"
-			: scratchpad.open()
-				? "Scratchpad"
-				: "Activity",
-	);
-	const split = createMemo(
+	const canSplit = createMemo(
 		() =>
-			panelOpen() &&
 			hostWidth() >= MIN_PRIMARY_WIDTH + MIN_SECONDARY_WIDTH + DIVIDER_WIDTH,
 	);
-	const narrow = createMemo(() => panelOpen() && !split());
+	const expanded = createMemo(
+		() => canSplit() && tabs().length > 0 && !drawerCollapsed(),
+	);
+	const narrow = createMemo(() => !canSplit() && tabs().length > 0);
 	const secondaryWidth = createMemo(() => {
 		const width = hostWidth();
 		return Math.max(
@@ -113,9 +91,8 @@ export function WorkspacePaneHost(props: {
 			Math.min(maxRatio(), clampRatio(ratio)),
 		);
 		setSecondaryRatio(constrained);
-		if (persist) {
+		if (persist)
 			localStorage.setItem(PANE_RATIO_STORAGE_KEY, String(constrained));
-		}
 	}
 
 	function ratioAt(clientX: number): number {
@@ -124,12 +101,28 @@ export function WorkspacePaneHost(props: {
 		return (bounds.right - clientX - DIVIDER_WIDTH / 2) / bounds.width;
 	}
 
+	function collapseDrawer(): void {
+		setDrawerCollapsed(true);
+		workspace.selectTranscript();
+		queueMicrotask(() =>
+			host?.querySelector<HTMLElement>(".workspace-collapsed-rail")?.focus(),
+		);
+	}
+
 	function finishPointerResize(event: PointerEvent, persist: boolean): void {
 		if (activePointerId !== event.pointerId) return;
 		const target = event.currentTarget;
+		const rawRatio = ratioAt(event.clientX);
 		activePointerId = null;
 		setDragging(false);
-		if (persist) setRatio(ratioAt(event.clientX), true);
+		if (persist && rawRatio * hostWidth() <= MIN_SECONDARY_WIDTH) {
+			setSecondaryRatio(resizeStartRatio);
+			collapseDrawer();
+		} else if (persist) {
+			setRatio(rawRatio, true);
+		} else {
+			setSecondaryRatio(resizeStartRatio);
+		}
 		if (
 			target instanceof Element &&
 			target.hasPointerCapture(event.pointerId)
@@ -138,139 +131,86 @@ export function WorkspacePaneHost(props: {
 		}
 	}
 
-	function openActivity(source: ActivitySource): void {
-		codeReview.close();
-		scratchpad.close();
-		setActivitySource(source);
-		setNarrowTab("secondary");
+	function selectTab(tabId: string): void {
+		workspace.selectTab(tabId);
+		if (canSplit()) setDrawerCollapsed(false);
 	}
 
-	function isActivityOpen(source: ActivitySource): boolean {
-		const active = activitySource();
-		if (active === null) return false;
-		if (activitySourcesMatch(active, source)) return true;
-		if (
-			active.kind !== "turn-intermediate" ||
-			source.kind !== "turn-intermediate" ||
-			active.turnId !== source.turnId
-		) {
-			return false;
+	function closeTab(tabId: string, restoreFocus = true): void {
+		if (!workspace.closeTab(tabId) || !restoreFocus) return;
+		const next = workspace.activeTab();
+		if (next) focusWorkspaceTab(host, next.id);
+		else {
+			workspace.selectTranscript();
+			queueMicrotask(() =>
+				host?.querySelector<HTMLElement>("#transcript")?.focus(),
+			);
 		}
-		return findTurnWorkItems(
-			transcriptItems(),
-			active.turnId,
-			snapshot().protocol.activeTurnId,
-			active.anchorItemId,
-		).some((item) => item.id === source.anchorItemId);
 	}
 
-	function closeSecondary(): void {
-		if (codeReview.open()) codeReview.close();
-		else if (scratchpad.open()) scratchpad.close();
-		else setActivitySource(null);
-		setNarrowTab("transcript");
-	}
-
-	function selectRelativeTab(direction: -1 | 1): void {
-		const tabs = ["transcript", "secondary"] as const;
-		const current = tabs.indexOf(narrowTab());
-		setNarrowTab(tabs[(current + direction + tabs.length) % tabs.length]);
-	}
-
-	function focusSelectedTab(): void {
-		queueMicrotask(() =>
-			host?.querySelector<HTMLElement>('[role="tab"][tabindex="0"]')?.focus(),
+	function closeUnavailableTab(tabId: string): void {
+		const activeElement = document.activeElement;
+		const focusedPane =
+			activeElement instanceof Element
+				? activeElement.closest(".workspace-pane-surface")
+				: null;
+		const focusedTab =
+			activeElement instanceof Element
+				? (activeElement.closest<HTMLElement>("[role=tab][data-tab-id]") ??
+					activeElement
+						.closest(".workspace-tab-item")
+						?.querySelector<HTMLElement>("[role=tab][data-tab-id]"))
+				: null;
+		closeTab(
+			tabId,
+			focusedPane?.id === `workspace-pane-${tabId}` ||
+				focusedTab?.dataset.tabId === tabId,
 		);
 	}
 
-	function handleTabKeyDown(event: KeyboardEvent): void {
-		if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
-			event.preventDefault();
-			selectRelativeTab(event.key === "ArrowLeft" ? -1 : 1);
-			focusSelectedTab();
-		} else if (event.key === "Home" || event.key === "End") {
-			event.preventDefault();
-			setNarrowTab(event.key === "Home" ? "transcript" : "secondary");
-			focusSelectedTab();
-		}
-	}
-
-	let previousPanelOpen = false;
+	let previousActiveId: string | undefined;
+	let previousCanSplit = false;
 	createEffect(() => {
-		const currentPanelOpen = panelOpen();
-		if (codeReview.open()) {
-			scratchpad.close();
-			setActivitySource(null);
-			setNarrowTab("secondary");
-		} else if (scratchpad.open()) {
-			setActivitySource(null);
-			setNarrowTab("secondary");
-		}
-		if (currentPanelOpen && !previousPanelOpen) {
-			if (
-				document.activeElement instanceof HTMLElement &&
-				!document.activeElement.closest(".workspace-secondary")
-			) {
-				returnFocus = document.activeElement;
-			}
-		} else if (!currentPanelOpen && previousPanelOpen) {
-			const target = returnFocus;
-			returnFocus = null;
-			queueMicrotask(() => {
-				if (target?.isConnected) target.focus();
-				else document.querySelector<HTMLElement>("#transcript")?.focus();
-			});
-		}
-		previousPanelOpen = currentPanelOpen;
-	});
-
-	let observedSessionId: unknown;
-	createEffect(() => {
-		const sessionId = snapshot().protocol.serverState.sessionId;
-		if (observedSessionId !== undefined && sessionId !== observedSessionId) {
-			const focusNeedsRestore =
-				document.activeElement instanceof Element &&
-				document.activeElement.closest(
-					".workspace-secondary, .workspace-tabs, .workspace-divider",
-				) !== null;
-			setActivitySource(null);
-			setNarrowTab("transcript");
-			returnFocus = null;
-			if (focusNeedsRestore) {
-				queueMicrotask(() =>
-					document.querySelector<HTMLElement>("#transcript")?.focus(),
-				);
-			}
-		}
-		observedSessionId = sessionId;
-	});
-
-	let previousLayout: "single" | "split" | "tabs" = "single";
-	createEffect(() => {
-		const currentLayout = split() ? "split" : narrow() ? "tabs" : "single";
-		if (previousLayout === "split" && currentLayout === "tabs") {
-			setNarrowTab(focusedSurface());
-			if (lastFocusedChrome() === "divider") focusSelectedTab();
-		} else if (
-			previousLayout === "tabs" &&
-			currentLayout === "split" &&
-			lastFocusedChrome() === "tab"
+		const splitAvailable = canSplit();
+		const current =
+			workspace.state().focusedSurface === "secondary"
+				? activeTab()?.id
+				: undefined;
+		if (
+			current &&
+			splitAvailable &&
+			(current !== previousActiveId || !previousCanSplit)
 		) {
-			queueMicrotask(() => {
-				const selector =
-					narrowTab() === "secondary"
-						? scratchpad.open()
-							? ".scratchpad-editor"
-							: ".turn-activity-panel"
-						: "#transcript";
-				host?.querySelector<HTMLElement>(selector)?.focus();
-			});
+			setDrawerCollapsed(false);
 		}
-		if (currentLayout !== "split" && dragging()) {
-			activePointerId = null;
-			setDragging(false);
+		if (tabs().length === 0) setDrawerCollapsed(true);
+		previousActiveId = current;
+		previousCanSplit = splitAvailable;
+	});
+
+	createEffect(() => {
+		if (expanded() || !dragging()) return;
+		activePointerId = null;
+		setSecondaryRatio(resizeStartRatio);
+		setDragging(false);
+	});
+
+	let previousTabCount = tabs().length;
+	createEffect(() => {
+		const tabCount = tabs().length;
+		if (
+			previousTabCount > 0 &&
+			tabCount === 0 &&
+			document.activeElement instanceof Element &&
+			document.activeElement.closest(
+				".workspace-secondary, .workspace-drawer-tabs, .workspace-tabs, .workspace-divider",
+			)
+		) {
+			queueMicrotask(() =>
+				host?.querySelector<HTMLElement>("#transcript")?.focus(),
+			);
 		}
-		previousLayout = currentLayout;
+		previousTabCount = tabCount;
 	});
 
 	let resizeObserver: ResizeObserver | undefined;
@@ -281,178 +221,227 @@ export function WorkspacePaneHost(props: {
 		}
 		if (!host) return;
 		resizeObserver = new ResizeObserver(([entry]) => {
-			if (entry) setHostWidth(entry.contentRect.width);
+			if (!entry) return;
+			const wasSplit = canSplit();
+			const willSplit =
+				entry.contentRect.width >=
+				MIN_PRIMARY_WIDTH + MIN_SECONDARY_WIDTH + DIVIDER_WIDTH;
+			const activeElement = document.activeElement;
+			const chromeOwnedFocus =
+				activeElement instanceof Element &&
+				activeElement.closest(
+					wasSplit
+						? ".workspace-drawer-tabs, .workspace-divider, .workspace-collapsed-rail"
+						: ".workspace-tabs, .workspace-surface-sheet",
+				) !== null;
+			const targetId = selectedId();
+			setHostWidth(entry.contentRect.width);
+			if (wasSplit === willSplit || !chromeOwnedFocus) return;
+			queueMicrotask(() => {
+				if (targetId === "transcript") {
+					const selector = willSplit
+						? "#transcript"
+						: '[role="tab"][data-tab-id="transcript"]';
+					(
+						host?.querySelector<HTMLElement>(selector) ??
+						host?.querySelector<HTMLElement>("#transcript")
+					)?.focus();
+				} else {
+					focusWorkspaceTab(host, targetId);
+				}
+			});
 		});
 		resizeObserver.observe(host);
 	});
 	onCleanup(() => resizeObserver?.disconnect());
 
 	return (
-		<WorkspaceContext.Provider value={{ openActivity, isActivityOpen }}>
-			<section
-				ref={host}
-				class="workspace-pane-host"
-				classList={{ "is-dragging": dragging() }}
-				data-layout={split() ? "split" : narrow() ? "tabs" : "single"}
-				style={{ "--workspace-divider-width": `${DIVIDER_WIDTH}px` }}
-				aria-label="Session workspace"
-				onFocusIn={(event) => {
-					const target = event.target;
-					if (!(target instanceof Element)) return;
-					if (target.closest(".workspace-primary")) {
-						setFocusedSurface("transcript");
-						setLastFocusedChrome(null);
-					} else if (target.closest(".workspace-secondary")) {
-						setFocusedSurface("secondary");
-						setLastFocusedChrome(null);
-					}
-				}}
-				onKeyDown={(event) => {
-					if (event.key !== "Escape" || !panelOpen()) return;
-					event.preventDefault();
-					closeSecondary();
-				}}
-			>
-				<Show when={narrow()}>
-					<nav
-						class="workspace-tabs"
-						role="tablist"
-						aria-label="Workspace views"
-					>
-						<button
-							id="workspace-tab-transcript"
-							type="button"
-							role="tab"
-							data-variant="ghost"
-							aria-selected={narrowTab() === "transcript"}
-							aria-controls="workspace-transcript"
-							tabIndex={narrowTab() === "transcript" ? 0 : -1}
-							onClick={() => setNarrowTab("transcript")}
-							onFocus={() => setLastFocusedChrome("tab")}
-							onKeyDown={handleTabKeyDown}
-						>
-							Transcript
-						</button>
-						<button
-							id="workspace-tab-secondary"
-							type="button"
-							role="tab"
-							data-variant="ghost"
-							aria-selected={narrowTab() === "secondary"}
-							aria-controls="workspace-secondary"
-							tabIndex={narrowTab() === "secondary" ? 0 : -1}
-							onClick={() => setNarrowTab("secondary")}
-							onFocus={() => setLastFocusedChrome("tab")}
-							onKeyDown={handleTabKeyDown}
-						>
-							{secondaryLabel()}
-						</button>
-					</nav>
-				</Show>
-				<div class="workspace-primary">
-					<div
-						id="workspace-transcript"
-						class="workspace-primary-content"
-						role={narrow() ? "tabpanel" : undefined}
-						aria-labelledby={narrow() ? "workspace-tab-transcript" : undefined}
-						aria-hidden={narrow() && narrowTab() !== "transcript"}
-						hidden={narrow() && narrowTab() !== "transcript"}
-					>
-						{props.primary}
-					</div>
-					<div
-						class="workspace-dock"
-						hidden={
-							narrow() && narrowTab() === "secondary" && codeReview.open()
-						}
-					>
-						{props.dock}
-					</div>
+		<section
+			ref={host}
+			class="workspace-pane-host"
+			classList={{ "is-dragging": dragging() }}
+			data-layout={expanded() ? "split" : narrow() ? "tabs" : "collapsed"}
+			style={{
+				"--workspace-divider-width": `${DIVIDER_WIDTH}px`,
+				"--workspace-rail-width": `${COLLAPSED_RAIL_WIDTH}px`,
+			}}
+			aria-label="Session workspace"
+			onFocusIn={(event) => {
+				const target = event.target;
+				if (!(target instanceof Element)) return;
+				if (target.closest(".workspace-primary")) workspace.selectTranscript();
+				else if (target.closest(".workspace-pane-surface")) {
+					const active = activeTab();
+					if (active) workspace.selectTab(active.id);
+				}
+			}}
+			onKeyDown={(event) => {
+				if (
+					event.key !== "Escape" ||
+					selectedId() === "transcript" ||
+					(event.target instanceof Element && event.target.closest("dialog"))
+				) {
+					return;
+				}
+				event.preventDefault();
+				workspace.selectTranscript();
+				queueMicrotask(() =>
+					host?.querySelector<HTMLElement>("#transcript")?.focus(),
+				);
+			}}
+		>
+			<Show when={narrow()}>
+				<NarrowWorkspaceTabs
+					tabs={tabs()}
+					selectedId={selectedId()}
+					onSelectTranscript={workspace.selectTranscript}
+					onSelect={selectTab}
+					onClose={closeTab}
+				/>
+			</Show>
+			<div class="workspace-primary">
+				<div
+					id="workspace-transcript"
+					class="workspace-primary-content"
+					role={narrow() ? "tabpanel" : undefined}
+					aria-labelledby={narrow() ? "workspace-tab-transcript" : undefined}
+					aria-hidden={narrow() && selectedId() !== "transcript"}
+					hidden={narrow() && selectedId() !== "transcript"}
+				>
+					{props.primary}
 				</div>
-				<Show when={split()}>
-					<div
-						class="workspace-divider"
-						classList={{ "is-dragging": dragging() }}
-						role="separator"
-						aria-label={`Resize ${secondaryLabel().toLowerCase()} panel`}
-						aria-orientation="vertical"
-						aria-valuemin={Math.round(minRatio() * 100)}
-						aria-valuemax={Math.round(maxRatio() * 100)}
-						aria-valuenow={Math.round(effectiveRatio() * 100)}
-						tabIndex={0}
-						onFocus={() => setLastFocusedChrome("divider")}
-						onDblClick={() => setRatio(DEFAULT_SECONDARY_RATIO, true)}
-						onKeyDown={(event) => {
-							if (event.key === "ArrowLeft") {
-								event.preventDefault();
-								setRatio(effectiveRatio() + RESIZE_STEP, true);
-							} else if (event.key === "ArrowRight") {
-								event.preventDefault();
-								setRatio(effectiveRatio() - RESIZE_STEP, true);
-							} else if (event.key === "Home") {
-								event.preventDefault();
-								setRatio(minRatio(), true);
-							} else if (event.key === "End") {
-								event.preventDefault();
-								setRatio(maxRatio(), true);
-							}
-						}}
-						onPointerDown={(event) => {
-							if (event.button !== 0) return;
+				<div
+					class="workspace-dock"
+					hidden={narrow() && selectedId() !== "transcript"}
+				>
+					{props.dock}
+				</div>
+			</div>
+			<Show when={expanded()}>
+				<div
+					class="workspace-divider"
+					classList={{ "is-dragging": dragging() }}
+					role="separator"
+					aria-label="Resize workspace drawer"
+					aria-orientation="vertical"
+					aria-valuemin={Math.round(minRatio() * 100)}
+					aria-valuemax={Math.round(maxRatio() * 100)}
+					aria-valuenow={Math.round(effectiveRatio() * 100)}
+					tabIndex={0}
+					onDblClick={() => setRatio(DEFAULT_SECONDARY_RATIO, true)}
+					onKeyDown={(event) => {
+						if (event.key === "ArrowLeft") {
 							event.preventDefault();
-							event.currentTarget.setPointerCapture(event.pointerId);
-							activePointerId = event.pointerId;
-							setDragging(true);
-						}}
-						onPointerMove={(event) => {
-							if (!dragging() || activePointerId !== event.pointerId) return;
-							setRatio(ratioAt(event.clientX));
-						}}
-						onPointerUp={(event) => finishPointerResize(event, true)}
-						onPointerCancel={(event) => finishPointerResize(event, false)}
-						onLostPointerCapture={(event) => {
-							if (activePointerId !== event.pointerId) return;
-							activePointerId = null;
-							setDragging(false);
-						}}
-					/>
-				</Show>
-				<Show when={panelOpen()}>
-					<aside
-						id="workspace-secondary"
-						class="workspace-secondary"
-						role={narrow() ? "tabpanel" : undefined}
-						aria-label={narrow() ? undefined : secondaryLabel()}
-						aria-labelledby={narrow() ? "workspace-tab-secondary" : undefined}
-						aria-hidden={narrow() && narrowTab() !== "secondary"}
-						hidden={narrow() && narrowTab() !== "secondary"}
-						style={{ "--secondary-width": `${secondaryWidth()}px` }}
-					>
-						<Show
-							when={codeReview.open()}
-							fallback={
-								<Show
-									when={scratchpad.open()}
-									fallback={
-										<Show when={activitySource()}>
-											{(source) => (
-												<TurnActivityPanel
-													source={source()}
-													onClose={closeSecondary}
-												/>
-											)}
-										</Show>
-									}
+							setRatio(effectiveRatio() + RESIZE_STEP, true);
+						} else if (event.key === "ArrowRight") {
+							event.preventDefault();
+							setRatio(effectiveRatio() - RESIZE_STEP, true);
+						} else if (event.key === "Home") {
+							event.preventDefault();
+							setRatio(minRatio(), true);
+						} else if (event.key === "End") {
+							event.preventDefault();
+							setRatio(maxRatio(), true);
+						}
+					}}
+					onPointerDown={(event) => {
+						if (event.button !== 0) return;
+						event.preventDefault();
+						event.currentTarget.setPointerCapture(event.pointerId);
+						activePointerId = event.pointerId;
+						resizeStartRatio = effectiveRatio();
+						setDragging(true);
+					}}
+					onPointerMove={(event) => {
+						if (!dragging() || activePointerId !== event.pointerId) return;
+						setRatio(ratioAt(event.clientX));
+					}}
+					onPointerUp={(event) => finishPointerResize(event, true)}
+					onPointerCancel={(event) => finishPointerResize(event, false)}
+					onLostPointerCapture={(event) => {
+						if (activePointerId !== event.pointerId) return;
+						activePointerId = null;
+						setSecondaryRatio(resizeStartRatio);
+						setDragging(false);
+					}}
+				/>
+			</Show>
+			<Show when={tabs().length > 0}>
+				<aside
+					class="workspace-secondary"
+					aria-label={narrow() ? undefined : "Workspace drawer"}
+					aria-hidden={
+						(canSplit() && !expanded()) ||
+						(narrow() && selectedId() === "transcript")
+					}
+					hidden={
+						(canSplit() && !expanded()) ||
+						(narrow() && selectedId() === "transcript")
+					}
+					style={{ "--secondary-width": `${secondaryWidth()}px` }}
+				>
+					<Show when={expanded() && activeTab()}>
+						<DesktopWorkspaceTabs
+							tabs={tabs()}
+							activeTabId={activeTab()?.id ?? ""}
+							onSelect={selectTab}
+							onClose={closeTab}
+							onCollapse={collapseDrawer}
+						/>
+					</Show>
+					<div class="workspace-pane-stack">
+						<For each={tabs()}>
+							{(tab) => (
+								<section
+									id={`workspace-pane-${tab.id}`}
+									class="workspace-pane-surface"
+									role="tabpanel"
+									aria-label={paneLabel(tab.pane)}
+									aria-hidden={activeTab()?.id !== tab.id}
+									hidden={activeTab()?.id !== tab.id}
 								>
-									<ScratchpadPanel />
-								</Show>
-							}
-						>
-							<CodeReviewPanel />
-						</Show>
-					</aside>
-				</Show>
-			</section>
-		</WorkspaceContext.Provider>
+									{tab.pane.kind === "activity" ? (
+										<TurnActivityPanel
+											source={tab.pane.source}
+											active={selectedId() === tab.id}
+											onUnavailable={() => closeUnavailableTab(tab.id)}
+										/>
+									) : tab.pane.kind === "review" ? (
+										<CodeReviewPanel />
+									) : (
+										<ScratchpadPanel active={selectedId() === tab.id} />
+									)}
+								</section>
+							)}
+						</For>
+					</div>
+				</aside>
+			</Show>
+			<Show when={canSplit() && !expanded()}>
+				<button
+					type="button"
+					class="workspace-collapsed-rail"
+					data-variant="ghost"
+					aria-label={
+						tabs().length > 0
+							? `Expand workspace drawer with ${tabs().length} ${tabs().length === 1 ? "tab" : "tabs"}`
+							: "Open Scratchpad in workspace drawer"
+					}
+					onClick={() => {
+						if (tabs().length === 0) workspace.toggleScratchpad();
+						else {
+							setDrawerCollapsed(false);
+							const active = activeTab();
+							if (active) workspace.selectTab(active.id);
+						}
+					}}
+				>
+					<span aria-hidden="true">{CHEVRON_LEFT}</span>
+					<Show when={tabs().length > 0}>
+						<span class="workspace-rail-count">{tabs().length}</span>
+					</Show>
+				</button>
+			</Show>
+		</section>
 	);
 }

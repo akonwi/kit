@@ -2,11 +2,11 @@ import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { KeymapHintBar } from "../KeymapHintBar";
 import { scrollbarStyle, theme } from "../theme";
-import { WorkspacePanelLayout } from "../WorkspacePanelLayout";
 import {
-	TURN_ACTIVITY_TITLE,
-	turnActivityMetaText,
-} from "./turn-activity-header";
+	WorkspacePanelHeader,
+	WorkspacePanelLayout,
+} from "../WorkspacePanelLayout";
+import { turnActivityMetaText } from "./turn-activity-header";
 import {
 	type ActivitySource,
 	createTurnActivityModel,
@@ -40,18 +40,9 @@ export function TurnActivityPanel(props: TurnActivityPanelProps) {
 	return (
 		<WorkspacePanelLayout
 			header={
-				<box
-					flexShrink={0}
-					flexDirection="row"
-					justifyContent="space-between"
-					paddingX={1}
-					paddingY={0}
-					borderColor={theme.borderDefault}
-					border={["bottom"]}
-				>
-					<text fg={theme.textPrimary}>{TURN_ACTIVITY_TITLE}</text>
-					<text fg={theme.textMuted}>{turnActivityMetaText(model)}</text>
-				</box>
+				<WorkspacePanelHeader
+					left={<text fg={theme.textMuted}>{turnActivityMetaText(model)}</text>}
+				/>
 			}
 			footer={<KeymapHintBar borderless group="turn-activity" />}
 		>

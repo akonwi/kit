@@ -157,6 +157,14 @@ export function createPickerManager() {
 		notifySelectionChange();
 	}
 
+	function selectIndex(index: number) {
+		updateTop((t) => ({
+			...t,
+			selectedIndex: Math.max(0, Math.min(index, t.options.length - 1)),
+		}));
+		notifySelectionChange();
+	}
+
 	function selectCurrent() {
 		const t = top();
 		if (!t) return;
@@ -227,6 +235,7 @@ export function createPickerManager() {
 		clear,
 		moveUp,
 		moveDown,
+		selectIndex,
 		selectCurrent,
 		accept,
 		filter,

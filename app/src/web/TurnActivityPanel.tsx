@@ -19,7 +19,7 @@ import { SafeMarkdown } from "./SafeMarkdown";
 import { mergeLiveToolCalls, ToolRows } from "./ToolDrawer";
 import { liveToolsForTranscriptItems } from "./transcript-model";
 import { useWebClient } from "./WebClientContext";
-import type { ActivitySource } from "./workspace-context";
+import type { ActivitySource } from "./workspace-panes";
 
 const EMPTY_TOOL_RESULTS = new Map<string, ToolResultMessage>();
 
@@ -78,7 +78,8 @@ function ActivityItem(props: {
 
 export function TurnActivityPanel(props: {
 	source: ActivitySource;
-	onClose: () => void;
+	active: boolean;
+	onUnavailable: () => void;
 }): JSX.Element {
 	const { snapshot, transcriptItems } = useWebClient();
 	let panel: HTMLElement | undefined;
@@ -161,7 +162,7 @@ export function TurnActivityPanel(props: {
 		on(sourceKey, () => {
 			followLive = protocol().activeTurnId === props.source.turnId;
 			queueMicrotask(() => {
-				panel?.focus();
+				if (props.active) panel?.focus();
 				if (!body) return;
 				body.scrollTop = followLive ? body.scrollHeight : 0;
 			});
@@ -175,37 +176,16 @@ export function TurnActivityPanel(props: {
 	});
 	createEffect(() => {
 		if (items().length > 0 || liveTools().length > 0) return;
-		queueMicrotask(props.onClose);
+		queueMicrotask(props.onUnavailable);
 	});
 	onCleanup(() => {
 		if (scrollFrame !== null) cancelAnimationFrame(scrollFrame);
 	});
 
 	return (
-		<section
-			ref={panel}
-			class="turn-activity-panel"
-			tabIndex={-1}
-			onKeyDown={(event) => {
-				if (event.key !== "Escape") return;
-				event.preventDefault();
-				props.onClose();
-			}}
-		>
-			<header class="activity-panel-header">
-				<h2>Turn activity</h2>
-				<span class="activity-panel-spacer" />
+		<section ref={panel} class="turn-activity-panel" tabIndex={-1}>
+			<header class="workspace-panel-context">
 				<div class="activity-panel-meta">{meta()}</div>
-				<button
-					type="button"
-					data-variant="ghost"
-					data-size="small"
-					aria-label="Close activity panel"
-					title="Close (Esc)"
-					onClick={props.onClose}
-				>
-					×
-				</button>
 			</header>
 			<div
 				ref={body}
@@ -238,7 +218,7 @@ export function TurnActivityPanel(props: {
 					</Show>
 				</Show>
 			</div>
-			<footer class="activity-panel-footer">Esc close</footer>
+			<footer class="activity-panel-footer">Esc transcript</footer>
 		</section>
 	);
 }

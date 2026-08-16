@@ -6,19 +6,21 @@ import type {
 } from "./useKeymapLayer";
 
 describe("keybinding registry", () => {
-	test("only binds workspace focus cycling by default", () => {
+	test("binds workspace surface cycling to Tab by default", () => {
 		expect(getKeybindingCommand("workspace.focus-next")?.defaultKeys).toBe(
-			"f6",
+			"tab",
 		);
 		expect(getKeybindingCommand("workspace.focus-previous")?.defaultKeys).toBe(
-			"shift+f6",
+			"shift+tab",
+		);
+		expect(getKeybindingCommand("workspace.close-tab")?.defaultKeys).toEqual(
+			[],
 		);
 		expect(
 			getKeybindingCommand("workspace.toggle-secondary")?.defaultKeys,
 		).toEqual([]);
-		expect(
-			getKeybindingCommand("workspace.grow-secondary")?.defaultKeys,
-		).toEqual([]);
+		expect(getKeybindingCommand("workspace.grow-secondary")).toBeUndefined();
+		expect(getKeybindingCommand("workspace.shrink-secondary")).toBeUndefined();
 		expect(getKeybindingCommand("scratchpad.focus-next")).toBeUndefined();
 	});
 

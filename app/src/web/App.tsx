@@ -8,22 +8,25 @@ import { CommandPaletteProvider } from "./CommandPalette";
 import { InteractionDialog } from "./InteractionDialog";
 import { OpenUrlRequests } from "./OpenUrlRequests";
 import { ScratchpadProvider } from "./ScratchpadProvider";
+import { WorkspaceProvider } from "./workspace-context";
 
 export function App(): JSX.Element {
 	return (
 		<BrowserThemeProvider>
 			<ScratchpadProvider>
 				<CodeReviewProvider>
-					<AgentConfigurationProvider>
-						<CommandPaletteProvider>
-							<a href="#transcript" data-visually-hidden="focusable">
-								Skip to transcript
-							</a>
-							<AppShell />
-							<OpenUrlRequests />
-							<InteractionDialog />
-						</CommandPaletteProvider>
-					</AgentConfigurationProvider>
+					<WorkspaceProvider>
+						<AgentConfigurationProvider>
+							<CommandPaletteProvider>
+								<a href="#transcript" data-visually-hidden="focusable">
+									Skip to transcript
+								</a>
+								<AppShell />
+								<OpenUrlRequests />
+								<InteractionDialog />
+							</CommandPaletteProvider>
+						</AgentConfigurationProvider>
+					</WorkspaceProvider>
 				</CodeReviewProvider>
 			</ScratchpadProvider>
 		</BrowserThemeProvider>

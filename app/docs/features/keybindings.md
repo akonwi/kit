@@ -39,16 +39,14 @@ Only user-facing workflow commands are listed here. Setup, configuration, plugin
 
 | Command id | Default keys | Description |
 | --- | --- | --- |
-| `workspace.focus-next` | `f6` | Focus the next workspace surface |
-| `workspace.focus-previous` | `shift+f6` | Focus the previous workspace surface |
+| `workspace.focus-next` | `tab` | Focus the next workspace surface |
+| `workspace.focus-previous` | `shift+tab` | Focus the previous workspace surface |
 | `workspace.focus-primary` | — | Focus the transcript and composer |
 | `workspace.focus-secondary` | — | Focus the open secondary pane |
 | `workspace.toggle-secondary` | — | Minimize or restore the remembered secondary pane |
-| `workspace.grow-secondary` | — | Grow the secondary pane by approximately 5% |
-| `workspace.shrink-secondary` | — | Shrink the secondary pane by approximately 5% |
 | `workspace.reset-layout` | — | Restore the default pane ratio |
 
-Focus commands select the corresponding tab in narrow workspace mode. Resize commands only act when both panes are visible, clamp to useful pane widths, and persist the resulting ratio. Workspace controls remain inactive while overlays or pickers have priority.
+Focus commands select the corresponding tab in narrow workspace mode. Workspace controls remain inactive while overlays or pickers have priority.
 
 ### Command palette
 

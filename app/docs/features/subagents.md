@@ -85,17 +85,21 @@ That means v1 has:
 
 ### Status surface
 
-`/subagents` opens the sub-agents workspace panel — a persistent secondary
-pane alongside the transcript (like activity, code review, and the
-scratchpad). The panel shows a roster of available agents and
-conversations sorted by status; selecting a conversation (Enter or click)
-drills into its live transcript in place. `Esc` steps back from the
-transcript to the roster, then closes the panel.
+`/subagents` opens the sub-agents roster as a persistent workspace pane. The
+roster shows available agents and conversations sorted by status. Selecting a
+conversation (Enter or click) opens its live transcript in a separate workspace
+tab labeled with the agent name. Each agent has at most one transcript tab;
+opening it again focuses the existing tab. `Esc` from a transcript returns to
+the roster, while `Esc` from the roster returns focus to the transcript.
 
-The panel is retained: its selection, view, and scroll state survive being
-minimized, temporarily covered by another pane, or a session switch. In
-narrow terminals it participates in the standard Transcript / Sub-agents
-workspace tabs, and `F6` cycles focus between the composer and the panel.
+The roster and every agent transcript are retained while their workspace tabs
+remain open, so selection and scroll state survive being minimized, hidden
+behind another tab, or reprojected by a responsive layout change. Completed,
+failed, and aborted conversation tabs remain available until the conversation
+is dismissed. Dismissal closes the corresponding agent tab. Switching sessions
+resets all workspace tabs. In narrow terminals the roster and individual agents
+participate in the standard workspace tabs, and `Tab` / `Shift+Tab` cycle
+through surfaces.
 
 Dismissing a conversation (`ctrl+d`) is destructive — it deletes the
 transcript and aborts a running execution — so it always confirms through
