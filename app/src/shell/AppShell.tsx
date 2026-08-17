@@ -1,3 +1,4 @@
+import type { Selection } from "@opentui/core";
 import { useKeymapSelector } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
@@ -39,6 +40,7 @@ import {
 import { CommandPalette } from "./CommandPalette";
 import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
 import type { ChromeContribution } from "./chrome-contributions";
+import { copyToClipboard } from "./clipboard";
 import type { ComposerController } from "./composer-controller";
 import type { FooterStatusController } from "./footer-status";
 import { HeaderBar } from "./HeaderBar";
@@ -46,7 +48,13 @@ import type { HeaderStatusController } from "./header-status";
 import { InlinePicker } from "./InlinePicker";
 import { formatCommandBindings } from "./KeymapHintBar";
 import { PendingSlot } from "./PendingSlot";
-import { copySelection } from "./selection";
+import { SelectionContextMenu } from "./SelectionContextMenu";
+import {
+	applySelectionColors,
+	formatSelectionAsQuote,
+	restoreSelectionColors,
+	type SelectionColorRestore,
+} from "./selection";
 import { ToastStack } from "./ToastStack";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
@@ -186,7 +194,17 @@ function AppShellContent(props: AppShellContentProps) {
 
 	// Track outer terminal width for responsive workspace presentation.
 	const [shellWidth, setShellWidth] = createSignal(renderer.terminalWidth);
-	let shellRef: { width: number; height: number } | undefined;
+	const [shellHeight, setShellHeight] = createSignal(renderer.terminalHeight);
+	let shellRef:
+		| { width: number; height: number; x: number; y: number }
+		| undefined;
+	const [selectionMenu, setSelectionMenu] = createSignal<{
+		text: string;
+		x: number;
+		y: number;
+		selection: Selection;
+	} | null>(null);
+	const selectionColorRestore: SelectionColorRestore = new Map();
 
 	const workspace = createWorkspaceStateController<WorkspacePane>({
 		preferredPaneRatio: props.preferredPaneRatio,
@@ -225,6 +243,7 @@ function AppShellContent(props: AppShellContentProps) {
 		focusedSurface() === "secondary" &&
 		props.overlays().length === 0 &&
 		chromeOverflow() === null &&
+		selectionMenu() === null &&
 		!workspaceOverflowPicker.visible &&
 		!props.controller.picker.visible &&
 		!props.controller.commandPalette.visible;
@@ -237,6 +256,60 @@ function AppShellContent(props: AppShellContentProps) {
 		workspace.setNarrowTab("secondary");
 		workspace.setFocusedSurface("secondary");
 	}
+	function colorCurrentSelection(): void {
+		if (props.overlays().length > 0) return;
+		const selection = renderer.getSelection();
+		if (!selection) return;
+		applySelectionColors(
+			selection,
+			selectionColorRestore,
+			theme.pickerFocusedBg,
+			theme.pickerFocusedText,
+		);
+	}
+	function discardSelection(): void {
+		restoreSelectionColors(selectionColorRestore);
+		renderer.clearSelection();
+	}
+	function closeSelectionMenu(): void {
+		const restoreComposerFocus =
+			focusedSurface() === "composer" && props.overlays().length === 0;
+		setSelectionMenu(null);
+		discardSelection();
+		if (restoreComposerFocus) {
+			queueMicrotask(() => props.controller.focusTextarea());
+		}
+	}
+	function copySelectedText(): void {
+		const selected = selectionMenu();
+		if (!selected) return;
+		closeSelectionMenu();
+		void copyToClipboard(selected.text).catch((error) => {
+			props.showToast({
+				title: "Could not copy selection",
+				subtitle: error instanceof Error ? error.message : String(error),
+				variant: "error",
+			});
+		});
+	}
+	function quoteSelectedText(): void {
+		const selected = selectionMenu();
+		if (!selected) return;
+		const composerText = props.controller.getTextareaText();
+		const cursorOffset = props.controller.getTextareaCursorOffset();
+		const quote = formatSelectionAsQuote(
+			selected.text,
+			cursorOffset > 0 && composerText[cursorOffset - 1] !== "\n",
+		);
+		closeSelectionMenu();
+		if (!quote) return;
+		focusComposerSurface();
+		queueMicrotask(() => {
+			props.controller.insertText(quote);
+			props.controller.focusTextarea();
+		});
+	}
+	onCleanup(discardSelection);
 	onCleanup(
 		props.reviewWorkspace.subscribe(() => {
 			saveScratchpadDraftIfEditing();
@@ -299,6 +372,18 @@ function AppShellContent(props: AppShellContentProps) {
 			props.controller.commandPalette.visible
 		) {
 			setChromeOverflow(null);
+		}
+	});
+	createEffect(() => {
+		if (!selectionMenu()) return;
+		if (
+			props.overlays().length > 0 ||
+			chromeOverflow() !== null ||
+			workspaceOverflowPicker.visible ||
+			props.controller.picker.visible ||
+			props.controller.commandPalette.visible
+		) {
+			closeSelectionMenu();
 		}
 	});
 
@@ -681,12 +766,14 @@ function AppShellContent(props: AppShellContentProps) {
 	const chromeActionsDisabled = () =>
 		props.overlays().length > 0 ||
 		chromeOverflow() !== null ||
+		selectionMenu() !== null ||
 		props.controller.picker.visible ||
 		workspaceOverflowPicker.visible ||
 		props.controller.commandPalette.visible;
 
 	function runHeaderCommand(name: string): void {
-		if (props.overlays().length > 0 || chromeOverflow()) return;
+		if (props.overlays().length > 0 || chromeOverflow() || selectionMenu())
+			return;
 		if (props.controller.picker.visible) return;
 		if (props.controller.commandPalette.visible) return;
 		const command = props.commands
@@ -705,6 +792,7 @@ function AppShellContent(props: AppShellContentProps) {
 			when: () =>
 				props.overlays().length === 0 &&
 				chromeOverflow() === null &&
+				selectionMenu() === null &&
 				!workspaceOverflowPicker.visible,
 			commandMetadata: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -745,15 +833,59 @@ function AppShellContent(props: AppShellContentProps) {
 			flexDirection="column"
 			backgroundColor={theme.bg}
 			onMouseDown={() => {
+				const openSelection = selectionMenu();
+				if (openSelection) {
+					restoreSelectionColors(selectionColorRestore);
+					setSelectionMenu(null);
+					if (renderer.getSelection() === openSelection.selection) {
+						renderer.clearSelection();
+					}
+				}
 				if (chromeOverflow()) setChromeOverflow(null);
 				if (workspaceOverflowPicker.visible) workspaceOverflowPicker.clear();
+				colorCurrentSelection();
 			}}
-			onMouseUp={() => copySelection(renderer)}
+			onMouseMove={() => colorCurrentSelection()}
+			onMouseDrag={() => colorCurrentSelection()}
+			onMouseUp={(event) => {
+				if (event.button !== 0) return;
+				if (
+					props.overlays().length > 0 ||
+					chromeOverflow() ||
+					workspaceOverflowPicker.visible ||
+					props.controller.picker.visible ||
+					props.controller.commandPalette.visible
+				) {
+					discardSelection();
+					return;
+				}
+				colorCurrentSelection();
+				const selection = renderer.getSelection();
+				const text = selection?.getSelectedText();
+				if (!selection || !text) {
+					discardSelection();
+					return;
+				}
+				setSelectionMenu({
+					text,
+					x: event.x - (shellRef?.x ?? 0),
+					y: event.y - (shellRef?.y ?? 0),
+					selection,
+				});
+			}}
 			ref={(value) => {
 				shellRef = value as typeof shellRef;
 			}}
 			onSizeChange={() => {
-				if (shellRef) setShellWidth(shellRef.width);
+				if (!shellRef) return;
+				if (
+					selectionMenu() &&
+					(shellRef.width !== shellWidth() || shellRef.height !== shellHeight())
+				) {
+					closeSelectionMenu();
+				}
+				setShellWidth(shellRef.width);
+				setShellHeight(shellRef.height);
 			}}
 		>
 			<HeaderBar
@@ -909,6 +1041,7 @@ function AppShellContent(props: AppShellContentProps) {
 							locked={
 								props.overlays().length > 0 ||
 								chromeOverflow() !== null ||
+								selectionMenu() !== null ||
 								workspaceOverflowPicker.visible
 							}
 							inputFocused={
@@ -946,6 +1079,20 @@ function AppShellContent(props: AppShellContentProps) {
 					}
 				}}
 			/>
+
+			<Show when={selectionMenu()}>
+				{(menu) => (
+					<SelectionContextMenu
+						x={menu().x}
+						y={menu().y}
+						containerWidth={shellWidth()}
+						containerHeight={shellHeight()}
+						onCopy={copySelectedText}
+						onQuote={quoteSelectedText}
+						onClose={closeSelectionMenu}
+					/>
+				)}
+			</Show>
 
 			<Show when={workspaceOverflowPicker.visible}>
 				<WorkspaceTabOverflowPicker

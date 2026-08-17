@@ -126,6 +126,10 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return textareaRef?.plainText ?? "";
 	}
 
+	function getTextareaCursorOffset(): number {
+		return textareaRef?.cursorOffset ?? 0;
+	}
+
 	function setTextareaText(text: string) {
 		textareaRef?.setText(text);
 		prevTextLength = text.length;
@@ -781,6 +785,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		showUserMessageHistoryPicker,
 		insertText,
 		getTextareaText,
+		getTextareaCursorOffset,
 		setTextareaText,
 		abort,
 		isStreaming,
