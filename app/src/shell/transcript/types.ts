@@ -19,11 +19,18 @@ export type OpenOverlay = <T>(
  */
 export type OpenActivity = (source: ActivitySource) => void;
 
+export type OpenMessageContextMenu = (request: {
+	x: number;
+	y: number;
+	markdown: string;
+}) => void;
+
 export type TranscriptProps = {
 	runtime: AgentRuntime;
 	showToast: (toast: TranscriptToast) => void;
 	openOverlay: OpenOverlay;
 	openActivity: OpenActivity;
+	openMessageContextMenu: OpenMessageContextMenu;
 };
 
 export type TranscriptPaneProps = TranscriptProps & {

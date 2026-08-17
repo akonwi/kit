@@ -10,12 +10,14 @@ import type { UserMessage } from "../../runtime/agent";
 import { PENCIL } from "../glyphs";
 import { KitMarkdown } from "../KitMarkdown";
 import { theme } from "../theme";
+import { createMessageContextMenuGesture } from "./message-context-menu";
 import {
 	extractPromptCommandSynthetic,
 	extractUserCustomParts,
+	extractUserMarkdownSource,
 	extractUserText,
 } from "./turns";
-import type { TranscriptToast } from "./types";
+import type { OpenMessageContextMenu, TranscriptToast } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -51,8 +53,8 @@ function ImagePartEntry(props: {
 	return (
 		<box
 			width="100%"
-			onMouseUp={() => {
-				if (props.aborted) return;
+			onMouseUp={(event) => {
+				if (event.button !== 0 || props.aborted) return;
 				void openImagePart(props.part).then((result) => {
 					if (result.ok) return;
 					props.showToast({
@@ -96,9 +98,17 @@ export function UserEntry(props: {
 	msg: UserMessage | UserMultipartMessage;
 	aborted?: boolean;
 	showToast: (toast: TranscriptToast) => void;
+	openMessageContextMenu?: OpenMessageContextMenu;
 }) {
 	const promptCommand = extractPromptCommandSynthetic(props.msg);
 	const text = extractUserText(props.msg);
+	const markdown = extractUserMarkdownSource(props.msg);
+	const messageContextMenuGesture = props.openMessageContextMenu
+		? createMessageContextMenuGesture(
+				() => markdown,
+				props.openMessageContextMenu,
+			)
+		: {};
 	const parts = extractUserCustomParts(props.msg);
 	return (
 		<box
@@ -108,6 +118,7 @@ export function UserEntry(props: {
 			flexDirection="column"
 			gap={1}
 			width="100%"
+			{...messageContextMenuGesture}
 		>
 			<Show
 				when={promptCommand}

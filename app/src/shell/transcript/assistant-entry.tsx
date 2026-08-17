@@ -26,7 +26,9 @@ import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
+import { createMessageContextMenuGesture } from "./message-context-menu";
 import {
+	extractAssistantMarkdownSource,
 	extractAssistantParts,
 	extractToolResultLines,
 	formatToolArgs,
@@ -34,7 +36,7 @@ import {
 	toolArgKeys,
 	toolDisplayName,
 } from "./turns";
-import type { OpenActivity } from "./types";
+import type { OpenActivity, OpenMessageContextMenu } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -631,10 +633,25 @@ export function AssistantEntry(props: {
 	aborted?: boolean;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openMessageContextMenu: OpenMessageContextMenu;
 }) {
+	const messageContextMenuGesture = createMessageContextMenuGesture(
+		() =>
+			isAssistantError(props.msg)
+				? (props.msg.errorMessage ?? "")
+				: extractAssistantMarkdownSource(props.msg),
+		props.openMessageContextMenu,
+	);
+
 	if (isAssistantError(props.msg)) {
 		return (
-			<box paddingLeft={1} flexDirection="column" gap={0} width="100%">
+			<box
+				paddingLeft={1}
+				flexDirection="column"
+				gap={0}
+				width="100%"
+				{...messageContextMenuGesture}
+			>
 				<text fg={theme.errorText}>{props.msg.errorMessage}</text>
 			</box>
 		);
@@ -649,6 +666,7 @@ export function AssistantEntry(props: {
 			flexDirection="column"
 			gap={hasToolCalls && hasText ? 1 : 0}
 			width="100%"
+			{...messageContextMenuGesture}
 		>
 			<Show when={hasToolCalls}>
 				<ToolDrawer

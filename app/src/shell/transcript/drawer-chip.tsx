@@ -73,12 +73,14 @@ export function DrawerChip(props: {
 			backgroundColor={theme.bgSurface}
 			paddingX={1}
 			onMouseDown={(event) => {
+				if (event.button !== 0) return;
 				if (renderer.getSelection()?.getSelectedText()) return;
 				event.preventDefault();
 				event.stopPropagation();
 				props.onActivate?.();
 			}}
 			onMouseUp={(event) => {
+				if (event.button !== 0) return;
 				event.preventDefault();
 				event.stopPropagation();
 			}}

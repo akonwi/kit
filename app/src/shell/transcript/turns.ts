@@ -247,6 +247,23 @@ export function extractUserText(
 		.join("\n");
 }
 
+export function extractUserMarkdownSource(
+	msg: UserMessage | UserMultipartMessage,
+): string {
+	const promptCommand = extractPromptCommandSynthetic(msg);
+	if (promptCommand) {
+		return `/${promptCommand.command}${promptCommand.args === undefined ? "" : ` ${promptCommand.args}`}`;
+	}
+	if (typeof msg.content === "string") return msg.content;
+	return getUserParts(msg)
+		.filter(
+			(part): part is { type: "text"; text: string } =>
+				part.type === "text" && "text" in part && typeof part.text === "string",
+		)
+		.map((part) => part.text)
+		.join("");
+}
+
 export function extractUserCustomParts(
 	msg: UserMessage | UserMultipartMessage,
 ): MessagePart[] {
@@ -286,6 +303,18 @@ export function extractPromptCommandSynthetic(
 			? { args: candidate.args }
 			: {}),
 	};
+}
+
+export function extractAssistantMarkdownSource(msg: AssistantMessage): string {
+	return msg.content
+		.filter(
+			(block): block is { type: "text"; text: string } =>
+				block.type === "text" &&
+				"text" in block &&
+				typeof block.text === "string",
+		)
+		.map((block) => block.text)
+		.join("");
 }
 
 export function extractAssistantParts(msg: AssistantMessage): {

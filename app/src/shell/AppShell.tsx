@@ -56,6 +56,7 @@ import {
 	type SelectionColorRestore,
 } from "./selection";
 import { ToastStack } from "./ToastStack";
+import { TranscriptMessageContextMenu } from "./TranscriptMessageContextMenu";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
 import type { ActivitySource } from "./transcript/turn-activity-view";
@@ -205,6 +206,11 @@ function AppShellContent(props: AppShellContentProps) {
 		selection: Selection;
 	} | null>(null);
 	const selectionColorRestore: SelectionColorRestore = new Map();
+	const [messageContextMenu, setMessageContextMenu] = createSignal<{
+		markdown: string;
+		x: number;
+		y: number;
+	} | null>(null);
 
 	const workspace = createWorkspaceStateController<WorkspacePane>({
 		preferredPaneRatio: props.preferredPaneRatio,
@@ -244,6 +250,7 @@ function AppShellContent(props: AppShellContentProps) {
 		props.overlays().length === 0 &&
 		chromeOverflow() === null &&
 		selectionMenu() === null &&
+		messageContextMenu() === null &&
 		!workspaceOverflowPicker.visible &&
 		!props.controller.picker.visible &&
 		!props.controller.commandPalette.visible;
@@ -287,6 +294,34 @@ function AppShellContent(props: AppShellContentProps) {
 		void copyToClipboard(selected.text).catch((error) => {
 			props.showToast({
 				title: "Could not copy selection",
+				subtitle: error instanceof Error ? error.message : String(error),
+				variant: "error",
+			});
+		});
+	}
+	function openMessageContextMenu(request: {
+		x: number;
+		y: number;
+		markdown: string;
+	}): void {
+		if (props.overlays().length > 0) return;
+		if (chromeOverflow() || workspaceOverflowPicker.visible) return;
+		if (props.controller.picker.visible) return;
+		if (props.controller.commandPalette.visible) return;
+		discardSelection();
+		setMessageContextMenu({
+			markdown: request.markdown,
+			x: request.x - (shellRef?.x ?? 0),
+			y: request.y - (shellRef?.y ?? 0),
+		});
+	}
+	function copyMessageAsMarkdown(): void {
+		const menu = messageContextMenu();
+		if (!menu) return;
+		setMessageContextMenu(null);
+		void copyToClipboard(menu.markdown).catch((error) => {
+			props.showToast({
+				title: "Could not copy message",
 				subtitle: error instanceof Error ? error.message : String(error),
 				variant: "error",
 			});
@@ -375,16 +410,14 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 	});
 	createEffect(() => {
-		if (!selectionMenu()) return;
-		if (
+		const blocked =
 			props.overlays().length > 0 ||
 			chromeOverflow() !== null ||
 			workspaceOverflowPicker.visible ||
 			props.controller.picker.visible ||
-			props.controller.commandPalette.visible
-		) {
-			closeSelectionMenu();
-		}
+			props.controller.commandPalette.visible;
+		if (selectionMenu() && blocked) closeSelectionMenu();
+		if (messageContextMenu() && blocked) setMessageContextMenu(null);
 	});
 
 	function tabForKind(kind: WorkspacePane["kind"]) {
@@ -767,12 +800,18 @@ function AppShellContent(props: AppShellContentProps) {
 		props.overlays().length > 0 ||
 		chromeOverflow() !== null ||
 		selectionMenu() !== null ||
+		messageContextMenu() !== null ||
 		props.controller.picker.visible ||
 		workspaceOverflowPicker.visible ||
 		props.controller.commandPalette.visible;
 
 	function runHeaderCommand(name: string): void {
-		if (props.overlays().length > 0 || chromeOverflow() || selectionMenu())
+		if (
+			props.overlays().length > 0 ||
+			chromeOverflow() ||
+			selectionMenu() ||
+			messageContextMenu()
+		)
 			return;
 		if (props.controller.picker.visible) return;
 		if (props.controller.commandPalette.visible) return;
@@ -793,6 +832,7 @@ function AppShellContent(props: AppShellContentProps) {
 				props.overlays().length === 0 &&
 				chromeOverflow() === null &&
 				selectionMenu() === null &&
+				messageContextMenu() === null &&
 				!workspaceOverflowPicker.visible,
 			commandMetadata: Object.fromEntries(
 				bindableCommands.map((command) => [
@@ -833,6 +873,7 @@ function AppShellContent(props: AppShellContentProps) {
 			flexDirection="column"
 			backgroundColor={theme.bg}
 			onMouseDown={() => {
+				if (messageContextMenu()) setMessageContextMenu(null);
 				const openSelection = selectionMenu();
 				if (openSelection) {
 					restoreSelectionColors(selectionColorRestore);
@@ -879,10 +920,11 @@ function AppShellContent(props: AppShellContentProps) {
 			onSizeChange={() => {
 				if (!shellRef) return;
 				if (
-					selectionMenu() &&
-					(shellRef.width !== shellWidth() || shellRef.height !== shellHeight())
+					shellRef.width !== shellWidth() ||
+					shellRef.height !== shellHeight()
 				) {
-					closeSelectionMenu();
+					if (selectionMenu()) closeSelectionMenu();
+					if (messageContextMenu()) setMessageContextMenu(null);
 				}
 				setShellWidth(shellRef.width);
 				setShellHeight(shellRef.height);
@@ -1014,6 +1056,7 @@ function AppShellContent(props: AppShellContentProps) {
 							showToast={props.showToast}
 							openOverlay={props.openOverlay}
 							openActivity={openActivity}
+							openMessageContextMenu={openMessageContextMenu}
 						/>
 					</box>
 					<box flexShrink={0} flexDirection="column" gap={0}>
@@ -1042,6 +1085,7 @@ function AppShellContent(props: AppShellContentProps) {
 								props.overlays().length > 0 ||
 								chromeOverflow() !== null ||
 								selectionMenu() !== null ||
+								messageContextMenu() !== null ||
 								workspaceOverflowPicker.visible
 							}
 							inputFocused={
@@ -1079,6 +1123,19 @@ function AppShellContent(props: AppShellContentProps) {
 					}
 				}}
 			/>
+
+			<Show when={messageContextMenu()}>
+				{(menu) => (
+					<TranscriptMessageContextMenu
+						x={menu().x}
+						y={menu().y}
+						containerWidth={shellWidth()}
+						containerHeight={shellHeight()}
+						onCopyMarkdown={copyMessageAsMarkdown}
+						onClose={() => setMessageContextMenu(null)}
+					/>
+				)}
+			</Show>
 
 			<Show when={selectionMenu()}>
 				{(menu) => (

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { Selection } from "@opentui/core";
+import type { MouseEvent, Selection } from "@opentui/core";
 import { createMockMouse } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import {
@@ -12,6 +12,8 @@ import {
 	restoreSelectionColors,
 	type SelectionColorRestore,
 } from "./selection";
+import { TranscriptMessageContextMenu } from "./TranscriptMessageContextMenu";
+import { createMessageContextMenuGesture } from "./transcript/message-context-menu";
 
 test("inverts selection colors and restores each renderable", () => {
 	const renderable = {
@@ -70,6 +72,58 @@ test("positions the menu beside the selection and clamps it to the shell", () =>
 			containerHeight: 12,
 		}),
 	).toEqual({ left: 28, top: 9 });
+});
+
+test("opens a message menu only for a completed secondary click", () => {
+	const requests: Array<{ x: number; y: number; markdown: string }> = [];
+	const gesture = createMessageContextMenuGesture(
+		() => "**original**",
+		(request) => requests.push(request),
+	);
+	const event = {
+		button: 2,
+		x: 3,
+		y: 4,
+		preventDefault() {},
+		stopPropagation() {},
+	} as MouseEvent;
+
+	gesture.onMouseDown(event);
+	gesture.onMouseUp(event);
+	expect(requests).toEqual([{ x: 3, y: 4, markdown: "**original**" }]);
+
+	gesture.onMouseDown(event);
+	gesture.onMouseDrag(event);
+	gesture.onMouseUp(event);
+	gesture.onMouseUp(event);
+	expect(requests).toHaveLength(1);
+});
+
+test("copies a whole transcript message as Markdown", async () => {
+	let copies = 0;
+	const setup = await testRender(
+		() => (
+			<TranscriptMessageContextMenu
+				x={2}
+				y={2}
+				containerWidth={30}
+				containerHeight={8}
+				onCopyMarkdown={() => {
+					copies += 1;
+				}}
+				onClose={() => {}}
+			/>
+		),
+		{ width: 30, height: 8 },
+	);
+	try {
+		await setup.renderOnce();
+		const mouse = createMockMouse(setup.renderer);
+		await mouse.click(2, 2);
+		expect(copies).toBe(1);
+	} finally {
+		setup.renderer.destroy();
+	}
 });
 
 test("activates copy and quote only on a completed click", async () => {

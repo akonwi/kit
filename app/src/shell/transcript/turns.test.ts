@@ -6,6 +6,8 @@ import type {
 	ToolResultMessage,
 } from "../../runtime/agent";
 import {
+	extractAssistantMarkdownSource,
+	extractUserMarkdownSource,
 	formatToolArgs,
 	groupItemsForDisplay,
 	reconcileTranscriptItems,
@@ -22,6 +24,35 @@ function assistantMessage(
 		timestamp: 1,
 	} as AssistantMessage;
 }
+
+test("preserves canonical Markdown source without injecting separators", () => {
+	expect(
+		extractUserMarkdownSource({
+			role: "user",
+			timestamp: 1,
+			content: [
+				{ type: "text", text: "**one**" },
+				{ type: "text", text: "\n_two_" },
+			],
+		} as Parameters<typeof extractUserMarkdownSource>[0]),
+	).toBe("**one**\n_two_");
+	expect(
+		extractUserMarkdownSource({
+			role: "user",
+			timestamp: 1,
+			content: "expanded prompt",
+			synthetic: { kind: "prompt-command", command: "ask", args: "  topic  " },
+		} as Parameters<typeof extractUserMarkdownSource>[0]),
+	).toBe("/ask   topic  ");
+	expect(
+		extractAssistantMarkdownSource(
+			assistantMessage([
+				{ type: "text", text: "first" },
+				{ type: "text", text: "\nsecond" },
+			]),
+		),
+	).toBe("first\nsecond");
+});
 
 function toolCall(name = "bash"): ToolCall {
 	return {

@@ -16,20 +16,35 @@ export type SelectionContextMenuProps = {
 	onClose: () => void;
 };
 
+export function resolveContextMenuPosition(options: {
+	x: number;
+	y: number;
+	containerWidth: number;
+	containerHeight: number;
+	menuWidth: number;
+	menuHeight: number;
+}): { left: number; top: number } {
+	const maxLeft = Math.max(1, options.containerWidth - options.menuWidth - 1);
+	const left = Math.max(1, Math.min(options.x, maxLeft));
+	const maxTop = Math.max(1, options.containerHeight - options.menuHeight - 1);
+	const preferredTop =
+		options.y + options.menuHeight <= options.containerHeight - 1
+			? options.y
+			: options.y - options.menuHeight + 1;
+	return { left, top: Math.max(1, Math.min(preferredTop, maxTop)) };
+}
+
 export function resolveSelectionMenuPosition(options: {
 	x: number;
 	y: number;
 	containerWidth: number;
 	containerHeight: number;
 }): { left: number; top: number } {
-	const maxLeft = Math.max(1, options.containerWidth - MENU_WIDTH - 1);
-	const left = Math.max(1, Math.min(options.x, maxLeft));
-	const maxTop = Math.max(1, options.containerHeight - MENU_HEIGHT - 1);
-	const preferredTop =
-		options.y + MENU_HEIGHT <= options.containerHeight - 1
-			? options.y
-			: options.y - MENU_HEIGHT + 1;
-	return { left, top: Math.max(1, Math.min(preferredTop, maxTop)) };
+	return resolveContextMenuPosition({
+		...options,
+		menuWidth: MENU_WIDTH,
+		menuHeight: MENU_HEIGHT,
+	});
 }
 
 export function SelectionContextMenu(props: SelectionContextMenuProps) {

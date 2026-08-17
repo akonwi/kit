@@ -11,7 +11,11 @@ import {
 	extractAssistantParts,
 	type TranscriptItem,
 } from "./turns";
-import type { OpenActivity, TranscriptToast } from "./types";
+import type {
+	OpenActivity,
+	OpenMessageContextMenu,
+	TranscriptToast,
+} from "./types";
 import { UserEntry } from "./user-entry";
 
 /**
@@ -78,6 +82,7 @@ export function TurnEntry(props: {
 	showToast: (toast: TranscriptToast) => void;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openMessageContextMenu: OpenMessageContextMenu;
 }) {
 	if (props.displayItem.kind === "turn-work") {
 		return (
@@ -98,6 +103,7 @@ export function TurnEntry(props: {
 					msg={item.message}
 					aborted={item.aborted}
 					showToast={props.showToast}
+					openMessageContextMenu={props.openMessageContextMenu}
 				/>
 			);
 		case "assistant":
@@ -110,6 +116,7 @@ export function TurnEntry(props: {
 					aborted={item.aborted}
 					runtime={props.runtime}
 					openActivity={props.openActivity}
+					openMessageContextMenu={props.openMessageContextMenu}
 				/>
 			);
 		case "handoff-summary":
