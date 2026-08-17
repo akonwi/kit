@@ -2,19 +2,26 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import {
 	BoxRenderable,
+	type CliRenderer,
 	CodeRenderable,
 	type ColorInput,
 	createMarkdownCodeBlockRenderer,
+	type MouseEvent,
 	RGBA,
 	StyledText,
+	TextAttributes,
 	TextRenderable,
 } from "@opentui/core";
+import { useRenderer } from "@opentui/solid";
+import { Lexer } from "marked";
+import { createMemo, onCleanup } from "solid-js";
 import {
 	hasMermaidPreviewHandler,
 	requestMermaidPreview,
 } from "../features/mermaid-preview/requests";
 import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import { CHEVRON_RIGHT } from "./glyphs";
+import { openExternal } from "./open-external";
 import { syntaxStyle, theme } from "./theme";
 
 const MAX_MERMAID_SOURCE_LENGTH = 8_000;
@@ -357,9 +364,180 @@ export type KitMarkdownProps = {
 	conceal?: boolean;
 	streaming?: boolean;
 	onOpenMermaid?: (source: string) => void;
+	onOpenLink?: (url: string) => void | Promise<void>;
 };
 
+type MarkdownLink = { href: string };
+type LinkHitBounds = { x: number; y: number; width: number; height: number };
+type UnderlinedRun = { text: string; y: number; startX: number; endX: number };
+type FrameBufferAccess = {
+	currentRenderBuffer: {
+		width: number;
+		height: number;
+		buffers: { char: Uint32Array; attributes: Uint32Array };
+	};
+};
+
+function markdownLinks(content: string): MarkdownLink[] {
+	const links: MarkdownLink[] = [];
+	const visited = new Set<object>();
+	const visit = (value: unknown): void => {
+		if (!value || typeof value !== "object") return;
+		if (visited.has(value)) return;
+		visited.add(value);
+		if (Array.isArray(value)) {
+			for (const child of value) visit(child);
+			return;
+		}
+		const token = value as Record<string, unknown>;
+		if (token.type === "link" && typeof token.href === "string") {
+			links.push({ href: token.href });
+			return;
+		}
+		for (const child of Object.values(token)) visit(child);
+	};
+	visit(Lexer.lex(content));
+	return links;
+}
+
+function underlinedRuns(
+	buffer: FrameBufferAccess["currentRenderBuffer"],
+	bounds: LinkHitBounds,
+): UnderlinedRun[] {
+	const runs: UnderlinedRun[] = [];
+	const minX = Math.max(0, bounds.x);
+	const maxX = Math.min(buffer.width, bounds.x + bounds.width);
+	const minY = Math.max(0, bounds.y);
+	const maxY = Math.min(buffer.height, bounds.y + bounds.height);
+	const attributes = buffer.buffers.attributes;
+	for (let y = minY; y < maxY; y += 1) {
+		let x = minX;
+		while (x < maxX) {
+			const isUnderlined =
+				((attributes[y * buffer.width + x] ?? 0) & TextAttributes.UNDERLINE) !==
+				0;
+			if (!isUnderlined) {
+				x += 1;
+				continue;
+			}
+			const startX = x;
+			let text = "";
+			while (
+				x < maxX &&
+				((attributes[y * buffer.width + x] ?? 0) & TextAttributes.UNDERLINE) !==
+					0
+			) {
+				const codePoint = buffer.buffers.char[y * buffer.width + x];
+				if (codePoint) text += String.fromCodePoint(codePoint);
+				x += 1;
+			}
+			runs.push({ text, y, startX, endX: x });
+		}
+	}
+	return runs;
+}
+
+function resolveRenderedUrl(
+	run: string,
+	links: MarkdownLink[],
+): { isUrl: boolean; href: string | null } {
+	const isUrl =
+		run.startsWith("(") ||
+		run.endsWith(")") ||
+		run.includes("://") ||
+		run.startsWith("mailto:");
+	if (!isUrl) return { isUrl: false, href: null };
+	const fragment = run.replace(/^\(/, "").replace(/\)$/, "");
+	if (!fragment) return { isUrl: true, href: null };
+	const matches = new Set(
+		links
+			.filter((link) => link.href.includes(fragment))
+			.map((link) => link.href),
+	);
+	return {
+		isUrl: true,
+		href: matches.size === 1 ? (matches.values().next().value ?? null) : null,
+	};
+}
+
+function markdownLinkFromLinks(
+	renderer: CliRenderer,
+	links: MarkdownLink[],
+	x: number,
+	y: number,
+	bounds?: LinkHitBounds,
+): string | null {
+	const { currentRenderBuffer } = renderer as unknown as FrameBufferAccess;
+	const hitBounds = bounds ?? {
+		x: 0,
+		y: 0,
+		width: currentRenderBuffer.width,
+		height: currentRenderBuffer.height,
+	};
+	const runs = underlinedRuns(currentRenderBuffer, hitBounds);
+	const hrefs = new Map<UnderlinedRun, string>();
+	let pendingLabelRuns: UnderlinedRun[] = [];
+	for (const run of runs) {
+		const resolution = resolveRenderedUrl(run.text, links);
+		if (!resolution.isUrl) {
+			pendingLabelRuns.push(run);
+			continue;
+		}
+		if (resolution.href) {
+			for (const labelRun of pendingLabelRuns)
+				hrefs.set(labelRun, resolution.href);
+			hrefs.set(run, resolution.href);
+		}
+		pendingLabelRuns = [];
+	}
+	const hit = runs.find(
+		(run) => run.y === y && x >= run.startX && x < run.endX,
+	);
+	return hit ? (hrefs.get(hit) ?? null) : null;
+}
+
+export function isSafeMarkdownExternalLink(url: string): boolean {
+	try {
+		return ["http:", "https:", "mailto:"].includes(new URL(url).protocol);
+	} catch {
+		return false;
+	}
+}
+
+export function markdownLinkAt(
+	renderer: CliRenderer,
+	content: string,
+	x: number,
+	y: number,
+): string | null {
+	return markdownLinkFromLinks(renderer, markdownLinks(content), x, y);
+}
+
 export function KitMarkdown(props: KitMarkdownProps) {
+	const renderer = useRenderer();
+	let pressedLink: string | null = null;
+	let linkGestureDragged = false;
+	const openLink = props.onOpenLink ?? openExternal;
+	const links = createMemo(() =>
+		markdownLinks(props.content).filter(
+			(link) =>
+				props.onOpenLink !== undefined || isSafeMarkdownExternalLink(link.href),
+		),
+	);
+	onCleanup(() => renderer.setMousePointer("default"));
+	const linkAtEvent = (event: MouseEvent) => {
+		const markdown = event.currentTarget;
+		if (!markdown) return null;
+		return markdownLinkFromLinks(renderer, links(), event.x, event.y, {
+			x: markdown.screenX,
+			y: markdown.screenY,
+			width: markdown.width,
+			height: markdown.height,
+		});
+	};
+	const updateLinkPointer = (event: MouseEvent) => {
+		renderer.setMousePointer(linkAtEvent(event) ? "pointer" : "default");
+	};
 	const openPreview =
 		props.onOpenMermaid ??
 		(hasMermaidPreviewHandler() ? requestMermaidPreview : undefined);
@@ -396,6 +574,36 @@ export function KitMarkdown(props: KitMarkdownProps) {
 			streaming={props.streaming}
 			fg={props.fg}
 			renderNode={renderMarkdownNode}
+			onMouseOver={updateLinkPointer}
+			onMouseMove={updateLinkPointer}
+			onMouseOut={() => renderer.setMousePointer("default")}
+			onMouseDown={(event) => {
+				pressedLink = event.button === 0 ? linkAtEvent(event) : null;
+				linkGestureDragged = false;
+				if (!pressedLink) return;
+				event.preventDefault();
+				event.stopPropagation();
+			}}
+			onMouseDrag={() => {
+				if (pressedLink) linkGestureDragged = true;
+			}}
+			onMouseUp={(event) => {
+				const releasedLink = event.button === 0 ? linkAtEvent(event) : null;
+				const shouldOpen =
+					!linkGestureDragged &&
+					pressedLink !== null &&
+					pressedLink === releasedLink;
+				pressedLink = null;
+				linkGestureDragged = false;
+				if (!shouldOpen || !releasedLink) return;
+				event.preventDefault();
+				event.stopPropagation();
+				try {
+					void Promise.resolve(openLink(releasedLink)).catch(() => {});
+				} catch {
+					// Opening an external target is best-effort.
+				}
+			}}
 		/>
 	);
 }
