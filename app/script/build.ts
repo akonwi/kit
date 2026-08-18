@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import solidPlugin from "@opentui/solid/bun-plugin";
 import { buildWebClient } from "../src/web/build-client";
+import { buildWebTuiClient } from "../src/web-tui/build-tui-client";
 
 // Enforce minimum Bun version
 const MIN_BUN_VERSION = "1.3.0";
@@ -40,6 +41,9 @@ await fs.promises.mkdir(runtimeDir, { recursive: true });
 console.log("Bundling web client...");
 const webClientJavaScript = await buildWebClient({ minify: true });
 
+console.log("Bundling experimental web TUI client...");
+const webTuiClientJavaScript = await buildWebTuiClient({ minify: true });
+
 console.log("Compiling binary...");
 
 const bundle = await Bun.build({
@@ -48,6 +52,7 @@ const bundle = await Bun.build({
 	plugins: [solidPlugin],
 	define: {
 		__KIT_WEB_CLIENT_JS__: JSON.stringify(webClientJavaScript),
+		__KIT_WEB_TUI_CLIENT_JS__: JSON.stringify(webTuiClientJavaScript),
 	},
 	entrypoints: ["./src/app/main.tsx"],
 	compile: {

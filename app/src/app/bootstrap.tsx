@@ -54,6 +54,21 @@ type BootstrapOpts = {
 	sessionId?: string;
 	newSession?: boolean;
 	noSession?: boolean;
+	/**
+	 * Experimental: host the OpenTUI application against custom terminal
+	 * streams instead of the process TTY (browser-TUI bridge).
+	 */
+	terminal?: BootstrapTerminal;
+};
+
+export type BootstrapTerminal = {
+	stdin: NodeJS.ReadStream;
+	stdout: NodeJS.WriteStream;
+	width: number;
+	height: number;
+	onRendererReady?: (
+		renderer: Awaited<ReturnType<typeof createCliRenderer>>,
+	) => void;
 };
 
 async function loadSession(opts?: BootstrapOpts): Promise<Session> {
@@ -180,6 +195,14 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	};
 
 	const renderer = await createCliRenderer({
+		...(opts?.terminal
+			? {
+					stdin: opts.terminal.stdin,
+					stdout: opts.terminal.stdout,
+					width: opts.terminal.width,
+					height: opts.terminal.height,
+				}
+			: {}),
 		exitOnCtrlC: false,
 		exitSignals: [
 			"SIGTERM",
@@ -213,84 +236,101 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 			sizePercent: 30,
 		},
 	});
-	// Dev console toggle is opt-in — only enable when DEBUG is set,
-	// otherwise Ctrl+D is left free for other key handlers.
-	if (process.env.DEBUG) {
-		renderer.keyInput.on("keypress", (key) => {
-			if (key.ctrl && key.name === "d") {
-				renderer.console.toggle();
-			}
+
+	try {
+		// Dev console toggle is opt-in — only enable when DEBUG is set,
+		// otherwise Ctrl+D is left free for other key handlers.
+		if (process.env.DEBUG) {
+			renderer.keyInput.on("keypress", (key) => {
+				if (key.ctrl && key.name === "d") {
+					renderer.console.toggle();
+				}
+			});
+		}
+
+		const keymap = createKitKeymap(renderer);
+
+		// Resolve theme before rendering — "system" theme needs the renderer for palette detection
+		const themeName = settings.settings.theme ?? "system";
+		await resolveAndApplyTheme(themeName, renderer);
+
+		// Re-resolve the theme when the terminal reports a color scheme change
+		// (e.g. the user switches between light and dark mode in their OS).
+		renderer.on(CliRenderEvents.THEME_MODE, () => {
+			const currentTheme = getCurrentThemeConfig().name;
+			void resolveAndApplyTheme(currentTheme, undefined, {
+				invalidateSystemCache: true,
+			});
 		});
-	}
 
-	const keymap = createKitKeymap(renderer);
+		initTerminalTitle((title) => renderer.setTerminalTitle(title));
+		updateTerminalTitle(session.name, session.cwd);
+		initTemplates(session.cwd);
 
-	// Resolve theme before rendering — "system" theme needs the renderer for palette detection
-	const themeName = settings.settings.theme ?? "system";
-	await resolveAndApplyTheme(themeName, renderer);
+		// Keep the process alive until the renderer is destroyed.
+		// In compiled binaries, the async bootstrap() returning would let
+		// the event loop drain and the process exit prematurely.
+		function quitAndDestroy(): void {
+			if (quitStarted) return;
+			quitStarted = true;
+			renderer.destroy();
+		}
 
-	// Re-resolve the theme when the terminal reports a color scheme change
-	// (e.g. the user switches between light and dark mode in their OS).
-	renderer.on(CliRenderEvents.THEME_MODE, () => {
-		const currentTheme = getCurrentThemeConfig().name;
-		void resolveAndApplyTheme(currentTheme, undefined, {
-			invalidateSystemCache: true,
+		// With a custom terminal (browser-TUI bridge), the process TTY does not
+		// own the application lifecycle; the bridge/server does.
+		const usesProcessStdio = opts?.terminal === undefined;
+		const stdioShutdown = () => quitAndDestroy();
+		if (usesProcessStdio) {
+			process.stdin.once("end", stdioShutdown);
+			process.stdin.once("close", stdioShutdown);
+			process.stdin.once("error", stdioShutdown);
+			process.stdout.once("error", stdioShutdown);
+			process.stderr.once("error", stdioShutdown);
+		}
+
+		const alive = new Promise<void>((resolve) => {
+			resolveAlive = resolve;
+			// Wire the completion resolver before exposing the renderer. A remote
+			// shutdown can destroy it synchronously from this callback.
+			opts?.terminal?.onRendererReady?.(renderer);
+			if (renderer.isDestroyed) return;
+
+			render(
+				() => (
+					<KeymapProvider keymap={keymap}>
+						<App
+							settings={settings}
+							session={session}
+							persistSession={opts?.noSession !== true}
+							updateTerminalTitle={updateTerminalTitle}
+							setTerminalTurnActive={(active) => {
+								setTerminalTitleTurnActive(active);
+								setTerminalProgress(active ? "indeterminate" : "remove");
+							}}
+							triggerNotification={(message, title) =>
+								renderer.triggerNotification(message, title)
+							}
+							quitAndDestroy={quitAndDestroy}
+							registerDispose={(dispose) => {
+								disposeApp = dispose;
+							}}
+						/>
+					</KeymapProvider>
+				),
+				renderer,
+			);
 		});
-	});
 
-	initTerminalTitle((title) => renderer.setTerminalTitle(title));
-	updateTerminalTitle(session.name, session.cwd);
-	initTemplates(session.cwd);
-
-	// Keep the process alive until the renderer is destroyed.
-	// In compiled binaries, the async bootstrap() returning would let
-	// the event loop drain and the process exit prematurely.
-	function quitAndDestroy(): void {
-		if (quitStarted) return;
-		quitStarted = true;
-		renderer.destroy();
+		await alive;
+		if (usesProcessStdio) {
+			process.stdin.off("end", stdioShutdown);
+			process.stdin.off("close", stdioShutdown);
+			process.stdin.off("error", stdioShutdown);
+			process.stdout.off("error", stdioShutdown);
+			process.stderr.off("error", stdioShutdown);
+		}
+	} catch (error) {
+		if (!renderer.isDestroyed) renderer.destroy();
+		throw error;
 	}
-
-	const stdioShutdown = () => quitAndDestroy();
-	process.stdin.once("end", stdioShutdown);
-	process.stdin.once("close", stdioShutdown);
-	process.stdin.once("error", stdioShutdown);
-	process.stdout.once("error", stdioShutdown);
-	process.stderr.once("error", stdioShutdown);
-
-	const alive = new Promise<void>((resolve) => {
-		resolveAlive = resolve;
-
-		render(
-			() => (
-				<KeymapProvider keymap={keymap}>
-					<App
-						settings={settings}
-						session={session}
-						persistSession={opts?.noSession !== true}
-						updateTerminalTitle={updateTerminalTitle}
-						setTerminalTurnActive={(active) => {
-							setTerminalTitleTurnActive(active);
-							setTerminalProgress(active ? "indeterminate" : "remove");
-						}}
-						triggerNotification={(message, title) =>
-							renderer.triggerNotification(message, title)
-						}
-						quitAndDestroy={quitAndDestroy}
-						registerDispose={(dispose) => {
-							disposeApp = dispose;
-						}}
-					/>
-				</KeymapProvider>
-			),
-			renderer,
-		);
-	});
-
-	await alive;
-	process.stdin.off("end", stdioShutdown);
-	process.stdin.off("close", stdioShutdown);
-	process.stdin.off("error", stdioShutdown);
-	process.stdout.off("error", stdioShutdown);
-	process.stderr.off("error", stdioShutdown);
 }

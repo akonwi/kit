@@ -8,6 +8,7 @@ const { positionals, values } = parseArgs({
 	options: {
 		"allow-host": { type: "string", multiple: true },
 		auth: { type: "string" },
+		"experimental-tui": { type: "boolean" },
 		"allow-origin": { type: "string", multiple: true },
 		host: { type: "string" },
 		mode: { type: "string" },
@@ -33,7 +34,8 @@ const hasWebOnlyOptions =
 	values.host !== undefined ||
 	values.port !== undefined ||
 	values["allow-host"] !== undefined ||
-	values["allow-origin"] !== undefined;
+	values["allow-origin"] !== undefined ||
+	values["experimental-tui"] !== undefined;
 const selectedModes = [values.print, values.rpc, values.web].filter(
 	(value) => value === true,
 ).length;
@@ -117,6 +119,34 @@ if (values.mode !== undefined) {
 	) {
 		console.error("kit --web --port expects an integer from 1 to 65535");
 		process.exitCode = 1;
+	} else if (values["experimental-tui"] === true) {
+		if (typeof values.model === "string") {
+			console.error(
+				"kit --web --experimental-tui does not support --model; select the model inside the TUI",
+			);
+			process.exitCode = 1;
+		} else {
+			const { runWebTuiMode } = await import("./web-tui-mode");
+			process.exitCode = await runWebTuiMode({
+				allowedHosts: Array.isArray(values["allow-host"])
+					? values["allow-host"].filter(
+							(host): host is string => typeof host === "string",
+						)
+					: undefined,
+				allowedOrigins: Array.isArray(values["allow-origin"])
+					? values["allow-origin"].filter(
+							(origin): origin is string => typeof origin === "string",
+						)
+					: undefined,
+				basicAuth,
+				hostname: typeof values.host === "string" ? values.host : undefined,
+				port,
+				newSession: selectsNewSession,
+				noSession: values["no-session"] === true,
+				sessionId:
+					typeof values.session === "string" ? values.session : undefined,
+			});
+		}
 	} else {
 		const { safeProcessCwd } = await import("../process-cwd");
 		const { runWebMode } = await import("./web-mode");
@@ -143,7 +173,7 @@ if (values.mode !== undefined) {
 	}
 } else if (hasWebOnlyOptions) {
 	console.error(
-		"--auth, --host, --port, --allow-host, and --allow-origin require --web",
+		"--auth, --host, --port, --allow-host, --allow-origin, and --experimental-tui require --web",
 	);
 	process.exitCode = 1;
 } else if (values.rpc === true) {

@@ -1,0 +1,145 @@
+import { FitAddon, Ghostty, Terminal } from "ghostty-web";
+
+const RECONNECT_MIN_MS = 500;
+const RECONNECT_MAX_MS = 5_000;
+
+function statusElement(): HTMLElement | null {
+	return document.getElementById("status");
+}
+
+function showStatus(text: string): void {
+	const status = statusElement();
+	if (!status) return;
+	status.textContent = text;
+	status.hidden = false;
+}
+
+function hideStatus(): void {
+	const status = statusElement();
+	if (status) status.hidden = true;
+}
+
+function webSocketUrl(): string {
+	const scheme = location.protocol === "https:" ? "wss" : "ws";
+	return `${scheme}://${location.host}/api/tui`;
+}
+
+class TuiConnection {
+	private socket: WebSocket | null = null;
+	private reconnectDelay = RECONNECT_MIN_MS;
+	private reconnectTimer: number | null = null;
+	private closedByPage = false;
+	private readonly encoder = new TextEncoder();
+
+	constructor(
+		private readonly terminal: Terminal,
+		private readonly fit: FitAddon,
+	) {
+		terminal.onData((data) => this.sendInput(data));
+		terminal.onResize(({ cols, rows }) =>
+			this.sendControl("resize", cols, rows),
+		);
+		terminal.onTitleChange((title) => {
+			document.title = title || "Kit (terminal)";
+		});
+		window.addEventListener("pagehide", () => {
+			this.closedByPage = true;
+			if (this.reconnectTimer !== null) clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+			this.socket?.close(1000, "page closed");
+		});
+		window.addEventListener("pageshow", (event) => {
+			if (!event.persisted) return;
+			this.closedByPage = false;
+			if (!this.socket) this.connect();
+		});
+	}
+
+	connect(): void {
+		if (this.socket) return;
+		showStatus("connecting…");
+		const socket = new WebSocket(webSocketUrl());
+		socket.binaryType = "arraybuffer";
+		this.socket = socket;
+		socket.addEventListener("open", () => {
+			this.reconnectDelay = RECONNECT_MIN_MS;
+			hideStatus();
+			this.fit.fit();
+			this.sendControl("init", this.terminal.cols, this.terminal.rows);
+			this.terminal.focus();
+		});
+		socket.addEventListener("message", (event) => {
+			if (event.data instanceof ArrayBuffer) {
+				this.terminal.write(new Uint8Array(event.data));
+			}
+		});
+		socket.addEventListener("close", (event) => {
+			if (this.socket !== socket) return;
+			this.socket = null;
+			if (this.closedByPage) return;
+			if (event.code === 4001) {
+				showStatus("disconnected — another tab took over this terminal");
+				return;
+			}
+			this.scheduleReconnect();
+		});
+		socket.addEventListener("error", () => socket.close());
+	}
+
+	private scheduleReconnect(): void {
+		showStatus("disconnected — reconnecting…");
+		const delay = this.reconnectDelay;
+		this.reconnectDelay = Math.min(RECONNECT_MAX_MS, delay * 2);
+		this.reconnectTimer = window.setTimeout(() => {
+			this.reconnectTimer = null;
+			this.connect();
+		}, delay);
+	}
+
+	private sendInput(data: string): void {
+		if (this.socket?.readyState === WebSocket.OPEN) {
+			this.socket.send(this.encoder.encode(data));
+		}
+	}
+
+	private sendControl(
+		type: "init" | "resize",
+		cols: number,
+		rows: number,
+	): void {
+		if (this.socket?.readyState === WebSocket.OPEN) {
+			this.socket.send(JSON.stringify({ type, cols, rows }));
+		}
+	}
+}
+
+async function main(): Promise<void> {
+	const element = document.getElementById("terminal");
+	if (!element) throw new Error("terminal element missing");
+	const ghostty = await Ghostty.load("/assets/ghostty-vt.wasm");
+	const terminal = new Terminal({
+		ghostty,
+		cursorBlink: true,
+		fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, monospace',
+		fontSize: 14,
+		scrollback: 10_000,
+		theme: {
+			background: "#0a0a0a",
+			foreground: "#fafafa",
+			cursor: "#fafafa",
+			selectionBackground: "#404040",
+		},
+	});
+	const fit = new FitAddon();
+	terminal.loadAddon(fit);
+	terminal.open(element);
+	fit.observeResize();
+	fit.fit();
+	new TuiConnection(terminal, fit).connect();
+}
+
+void main().catch((error) => {
+	showStatus(
+		`failed to start terminal: ${error instanceof Error ? error.message : String(error)}`,
+	);
+});
