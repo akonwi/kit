@@ -23,8 +23,6 @@ import { openMermaidPreviewExternally } from "./external";
 import { loadMermaidPreview } from "./load";
 import type { MermaidPreviewImage } from "./render";
 
-export const MERMAID_PREVIEW_MIN_COLS = 48;
-
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.5;

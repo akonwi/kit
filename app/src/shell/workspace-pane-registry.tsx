@@ -1,26 +1,16 @@
 import type { JSX } from "solid-js";
+import { MermaidPreviewPanel } from "../features/mermaid-preview/MermaidPreviewPanel";
 import {
-	MERMAID_PREVIEW_MIN_COLS,
-	MermaidPreviewPanel,
-} from "../features/mermaid-preview/MermaidPreviewPanel";
-import {
-	RELEASE_NOTES_MIN_COLS,
 	ReleaseNotesPanel,
 	type ReleasesWorkspaceController,
 } from "../features/releases";
 import type { ReviewDraftController } from "../features/review/draft-controller";
 import { ReviewContent } from "../features/review/ReviewContent";
 import type { ScratchpadController } from "../features/scratchpad/controller";
-import {
-	SCRATCHPAD_MIN_COLS,
-	ScratchpadPanel,
-} from "../features/scratchpad/ScratchpadPanel";
+import { ScratchpadPanel } from "../features/scratchpad/ScratchpadPanel";
 import type { SubagentsPanelData } from "../features/subagents";
 import { SubagentPanel } from "../features/subagents/SubagentPanel";
-import {
-	SUBAGENTS_MIN_COLS,
-	SubagentsPanel,
-} from "../features/subagents/SubagentsPanel";
+import { SubagentsPanel } from "../features/subagents/SubagentsPanel";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { ReviewDiffView } from "../settings";
 import type { ToastInput } from "../state/toasts";
@@ -29,9 +19,6 @@ import { openExternal } from "./open-external";
 import { TurnActivityPanel } from "./transcript/TurnActivityPanel";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenOverlay } from "./transcript/types";
-
-const ACTIVITY_MIN_COLS = 40;
-const REVIEW_MIN_COLS = 60;
 
 export type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
@@ -76,7 +63,6 @@ export type WorkspacePaneDefinition<K extends WorkspacePaneKind> = {
 		tabs: readonly { pane: WorkspacePane }[],
 	) => string;
 	closable: boolean;
-	minColumns: number;
 	available?: (context: WorkspacePaneRenderContext) => boolean;
 	render: (
 		pane: PaneOfKind<K>,
@@ -94,7 +80,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		identity: () => "activity",
 		label: () => "Activity",
 		closable: true,
-		minColumns: ACTIVITY_MIN_COLS,
 		render: (pane, context) => (
 			<TurnActivityPanel
 				runtime={context.runtime}
@@ -116,7 +101,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 			return diagrams.length > 1 ? `Diagram ${index + 1}` : "Diagram";
 		},
 		closable: true,
-		minColumns: MERMAID_PREVIEW_MIN_COLS,
 		render: (pane, context) => (
 			<MermaidPreviewPanel
 				source={pane.source}
@@ -138,7 +122,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		identity: () => "review",
 		label: () => "Code review",
 		closable: false,
-		minColumns: REVIEW_MIN_COLS,
 		render: (_pane, context) => (
 			<ReviewContent
 				onClose={context.onLeave}
@@ -159,7 +142,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		identity: () => "releases",
 		label: () => "Release notes",
 		closable: true,
-		minColumns: RELEASE_NOTES_MIN_COLS,
 		render: (_pane, context) => (
 			<ReleaseNotesPanel
 				controller={context.releasesWorkspace}
@@ -182,7 +164,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		identity: () => "scratchpad",
 		label: () => "Scratchpad",
 		closable: false,
-		minColumns: SCRATCHPAD_MIN_COLS,
 		render: (_pane, context) => (
 			<ScratchpadPanel
 				controller={context.scratchpad}
@@ -197,7 +178,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		identity: () => "subagents",
 		label: () => "Sub-agents",
 		closable: true,
-		minColumns: SUBAGENTS_MIN_COLS,
 		available: (context) => context.subagentsData() !== null,
 		render: (_pane, context) => {
 			const data = context.subagentsData();
@@ -219,7 +199,6 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		identity: (pane) => `subagent:${pane.agentName}`,
 		label: (pane) => pane.agentName,
 		closable: true,
-		minColumns: SUBAGENTS_MIN_COLS,
 		available: (context) => context.subagentsData() !== null,
 		render: (pane, context) => {
 			const data = context.subagentsData();
@@ -264,10 +243,6 @@ export function workspacePaneLabel(
 
 export function workspacePaneClosable(pane: WorkspacePane): boolean {
 	return definitionFor(pane.kind).closable;
-}
-
-export function workspacePaneMinColumns(pane: WorkspacePane): number {
-	return definitionFor(pane.kind).minColumns;
 }
 
 export function workspacePaneAvailable(

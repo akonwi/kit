@@ -14,8 +14,6 @@ import type {
 	ReleasesWorkspaceController,
 } from "./workspace-controller";
 
-export const RELEASE_NOTES_MIN_COLS = 40;
-
 type ScrollRef = {
 	scrollBy: (options: { x: number; y: number }) => void;
 	scrollTo: (options: { x: number; y: number }) => void;

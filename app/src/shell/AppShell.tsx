@@ -67,6 +67,7 @@ import {
 	resolveWorkspacePaneLayout,
 	WORKSPACE_MIN_PRIMARY_COLUMNS,
 	WORKSPACE_MIN_SECONDARY_COLUMNS,
+	workspaceContentColumns,
 } from "./workspace-layout";
 import {
 	type WorkspacePane,
@@ -76,7 +77,6 @@ import {
 	workspacePaneClosable,
 	workspacePaneIdentity,
 	workspacePaneLabel,
-	workspacePaneMinColumns,
 } from "./workspace-pane-registry";
 import {
 	createWorkspaceStateController,
@@ -449,23 +449,14 @@ function AppShellContent(props: AppShellContentProps) {
 			? workspacePaneAvailable(tab.pane, workspacePaneContext(tab.id))
 			: false;
 	};
-	const secondaryPaneMinColumns = () => {
-		const pane = activeWorkspaceTab()?.pane;
-		return pane
-			? workspacePaneMinColumns(pane)
-			: WORKSPACE_MIN_SECONDARY_COLUMNS;
-	};
 	const supportsNarrowWorkspaceTabs = () => secondaryTabs().length > 0;
 	const workspaceUsesNarrowTabs = () =>
 		supportsNarrowWorkspaceTabs() &&
 		resolveWorkspacePaneLayout({
-			availableColumns: Math.max(0, shellWidth() - 2),
+			availableColumns: workspaceContentColumns(shellWidth()),
 			preferredPaneRatio: workspaceState().preferredPaneRatio,
 			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
-			minSecondaryColumns: Math.max(
-				WORKSPACE_MIN_SECONDARY_COLUMNS,
-				secondaryPaneMinColumns(),
-			),
+			minSecondaryColumns: WORKSPACE_MIN_SECONDARY_COLUMNS,
 		}) === null;
 
 	createEffect(() => {
@@ -682,13 +673,10 @@ function AppShellContent(props: AppShellContentProps) {
 	function resetWorkspaceLayout(): boolean {
 		if (!secondaryPaneVisible()) return false;
 		const canSplit = resolveWorkspacePaneLayout({
-			availableColumns: Math.max(0, shellWidth() - 2),
+			availableColumns: workspaceContentColumns(shellWidth()),
 			preferredPaneRatio: workspaceState().preferredPaneRatio,
 			minPrimaryColumns: WORKSPACE_MIN_PRIMARY_COLUMNS,
-			minSecondaryColumns: Math.max(
-				WORKSPACE_MIN_SECONDARY_COLUMNS,
-				secondaryPaneMinColumns(),
-			),
+			minSecondaryColumns: WORKSPACE_MIN_SECONDARY_COLUMNS,
 		});
 		if (!canSplit) return false;
 		workspace.setPreferredPaneRatio(DEFAULT_WORKSPACE_PANE_RATIO);
@@ -974,12 +962,10 @@ function AppShellContent(props: AppShellContentProps) {
 				drawerCollapsed={() =>
 					workspaceState().secondary.status === "minimized"
 				}
-				initialWidth={Math.max(1, shellWidth() - 2)}
+				initialWidth={Math.max(1, workspaceContentColumns(shellWidth()))}
 				preferredPaneRatio={() => workspaceState().preferredPaneRatio}
 				minPrimaryColumns={WORKSPACE_MIN_PRIMARY_COLUMNS}
-				minSecondaryColumns={() =>
-					Math.max(WORKSPACE_MIN_SECONDARY_COLUMNS, secondaryPaneMinColumns())
-				}
+				minSecondaryColumns={() => WORKSPACE_MIN_SECONDARY_COLUMNS}
 				onPreferredPaneRatioChange={(ratio) =>
 					workspace.setPreferredPaneRatio(ratio)
 				}

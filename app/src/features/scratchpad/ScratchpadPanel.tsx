@@ -5,8 +5,6 @@ import { theme } from "../../shell/theme";
 import { WorkspacePanelLayout } from "../../shell/WorkspacePanelLayout";
 import type { ScratchpadController } from "./controller";
 
-export const SCRATCHPAD_MIN_COLS = 30;
-
 type TextareaRef = {
 	plainText: string;
 	cursorOffset: number;

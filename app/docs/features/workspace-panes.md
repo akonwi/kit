@@ -11,16 +11,17 @@ Each definition owns:
   distinct tab
 - `label` — the title shown in the workspace tab strip
 - `closable` — whether the tab exposes and accepts an explicit close action
-- `minColumns` — its minimum useful width before the layout becomes narrow or
-  snaps to the collapsed rail
 - `available` — an optional runtime availability check
 - `render` — the retained pane body
 
 `WorkspacePaneHost` continues to own wide/narrow layout, tab navigation,
-collapse behavior, and retention. The tab strip owns pane titles. Pane bodies may
-add a `WorkspacePanelHeader` only for contextual scope or live metadata; panes
-without that context omit the row. Pane bodies also own their content, focus
-handling, and feature-specific actions.
+collapse behavior, and retention. The workspace layout defines one minimum useful
+width for the secondary panel; individual pane definitions do not influence the
+responsive breakpoint. The split layout requires a terminal width of at least 125
+columns. The tab strip owns pane titles. Pane bodies may add a
+`WorkspacePanelHeader` only for contextual scope or live metadata; panes without
+that context omit the row. Pane bodies also own their content, focus handling,
+and feature-specific actions.
 
 ## Adding a pane
 
@@ -31,8 +32,7 @@ handling, and feature-specific actions.
 3. Add any feature controllers needed by the body to
    `WorkspacePaneRenderContext` and provide them from `AppShell`.
 4. Open the pane through the workspace controller and focus the returned tab.
-5. Add registry contract tests for identity, label, close policy, and minimum
-   width.
+5. Add registry contract tests for identity, label, and close policy.
 
 For example:
 
@@ -48,7 +48,6 @@ const WORKSPACE_PANE_DEFINITIONS = {
     identity: (pane) => `files:${pane.root}`,
     label: () => "Files",
     closable: true,
-    minColumns: 36,
     render: (pane, context) => (
       <FilesPanel
         root={pane.root}

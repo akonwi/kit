@@ -28,8 +28,6 @@ import {
 import { SubagentDismissDialog } from "./SubagentDismissDialog";
 import type { SubagentsPanelData } from "./workspace-controller";
 
-export const SUBAGENTS_MIN_COLS = 32;
-
 export type SubagentsPanelProps = {
 	data: () => SubagentsPanelData | null;
 	active?: boolean;

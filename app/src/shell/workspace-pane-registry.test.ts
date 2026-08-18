@@ -5,7 +5,6 @@ import {
 	workspacePaneClosable,
 	workspacePaneIdentity,
 	workspacePaneLabel,
-	workspacePaneMinColumns,
 } from "./workspace-pane-registry";
 import { createWorkspaceStateController } from "./workspace-state";
 
@@ -24,9 +23,6 @@ describe("workspace pane registry", () => {
 		expect(Object.keys(WORKSPACE_PANE_DEFINITIONS).sort()).toEqual(
 			paneKinds.toSorted(),
 		);
-		for (const kind of paneKinds) {
-			expect(WORKSPACE_PANE_DEFINITIONS[kind].minColumns).toBeGreaterThan(0);
-		}
 	});
 
 	test("uses descriptor-specific identities for diagrams and agents", () => {
@@ -66,7 +62,7 @@ describe("workspace pane registry", () => {
 		expect(other).not.toBe(first);
 	});
 
-	test("owns tab labels, close policy, and minimum widths", () => {
+	test("owns tab labels and close policy", () => {
 		const diagrams: { pane: WorkspacePane }[] = [
 			{ pane: { kind: "mermaid", source: "first" } },
 			{ pane: { kind: "mermaid", source: "second" } },
@@ -87,11 +83,5 @@ describe("workspace pane registry", () => {
 				source: { kind: "single-item", itemId: "one" },
 			}),
 		).toBeTrue();
-		expect(workspacePaneMinColumns({ kind: "review" })).toBeGreaterThan(
-			workspacePaneMinColumns({
-				kind: "activity",
-				source: { kind: "single-item", itemId: "one" },
-			}),
-		);
 	});
 });

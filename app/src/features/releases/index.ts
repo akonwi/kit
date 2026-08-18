@@ -1,8 +1,5 @@
 export { createReleasesPlugin } from "./plugin";
-export {
-	RELEASE_NOTES_MIN_COLS,
-	ReleaseNotesPanel,
-} from "./ReleaseNotesPanel";
+export { ReleaseNotesPanel } from "./ReleaseNotesPanel";
 export type { KitRelease, ReleaseUpdate } from "./release-check";
 export type {
 	ReleasesState,

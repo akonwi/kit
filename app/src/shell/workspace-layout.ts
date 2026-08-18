@@ -1,5 +1,18 @@
 export const WORKSPACE_MIN_PRIMARY_COLUMNS = 70;
-export const WORKSPACE_MIN_SECONDARY_COLUMNS = 30;
+export const WORKSPACE_MIN_SPLIT_TERMINAL_COLUMNS = 125;
+export const WORKSPACE_SHELL_BORDER_COLUMNS = 2;
+export const WORKSPACE_MIN_SECONDARY_COLUMNS =
+	WORKSPACE_MIN_SPLIT_TERMINAL_COLUMNS -
+	WORKSPACE_SHELL_BORDER_COLUMNS -
+	WORKSPACE_MIN_PRIMARY_COLUMNS;
+
+export function workspaceContentColumns(terminalColumns: number): number {
+	if (!Number.isFinite(terminalColumns)) return 0;
+	return Math.max(
+		0,
+		Math.floor(terminalColumns) - WORKSPACE_SHELL_BORDER_COLUMNS,
+	);
+}
 
 export type WorkspacePaneLayout = {
 	primaryColumns: number;
