@@ -20,8 +20,8 @@ Normal `kit --web` behavior is unchanged. The experimental mode has one runtime 
 browser                              server
 ┌─────────────────────────┐          ┌──────────────────────────────────┐
 │ ghostty-web Canvas      │ ws bytes │ WebTuiServer                    │
-│ Ghostty VT + key encoder│◄────────►│ WebTuiBridge virtual tty        │
-│ fit/input/mouse/paste   │ resize   │ OpenTUI CliRenderer(remote)     │
+│ Ghostty VT renderer     │◄────────►│ WebTuiBridge virtual tty        │
+│ Kit input/mouse adapter │ resize   │ OpenTUI CliRenderer(remote)     │
 └─────────────────────────┘          │ real Kit App / AppShell/runtime │
                                      └──────────────────────────────────┘
 ```
@@ -64,6 +64,30 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - typing accepted
   - page reload reconnected and recreated the Canvas without errors
 
+## Theme fidelity
+
+Custom themes are supported because this mode renders the real reactive OpenTUI shell. Theme tokens and syntax palettes resolve server-side exactly as in a local terminal, then OpenTUI emits truecolor VT cells for ghostty-web to render.
+
+A controlled light-theme test verified all three stages:
+
+| Stage | Result |
+| --- | --- |
+| `~/.kit/themes/{name}.json` resolution | Custom token values loaded and merged over the system theme |
+| OpenTUI VT output | Exact custom background `48;2;253;246;227` and foreground `38;2;18;52;86` sequences observed |
+| ghostty-web Canvas | 315,903 of 319,950 sampled pixels used the exact custom background |
+| `/theme` live preview | Canvas switched from system dark to the custom light palette without reconnecting |
+| Preview dismissal | Canvas restored the exact system background |
+
+This is materially more capable than the semantic SPA's light/dark mapping. Shell colors, overlays, diffs, Markdown, code syntax, and plugin-exposed theme tokens all use the actual selected theme.
+
+Remaining browser-owned colors are not yet synchronized:
+
+- The loading/disconnected page and `color-scheme` CSS are hardcoded dark.
+- ghostty-web's selection background and terminal fallback cursor are initialized from a dark palette.
+- ghostty-web 0.4.0 warns that changing its renderer theme after `open()` is not fully supported.
+
+These do not affect connected OpenTUI cells because they are painted with truecolor values, but they can produce mismatched browser selection and disconnected/loading chrome. A small server-to-client theme control message should update CSS variables and browser-owned colors when the resolved Kit theme changes.
+
 ## Footprint
 
 | Artifact | Bytes |
@@ -95,4 +119,4 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 
 The remote-stream architecture is viable and removes almost all presentation duplication. Keep the semantic SPA as Kit's accessible/mobile/browser-native interface, and consider a browser TUI as an optional desktop parity surface.
 
-Between the two terminal renderers, ghostty-web offers the strongest rendering fidelity, but its Canvas accessibility and duplicated WASM packaging are meaningful costs. The paired wterm experiment is likely the better default browser surface if native selection/find and a much smaller payload matter more than Canvas rendering fidelity.
+Use ghostty-web for Kit's browser TUI. It provides the strongest rendering fidelity and its Canvas output preserves Kit's full custom-theme system. Keep the semantic SPA available where accessibility and browser-native content matter more than terminal parity. Before promotion, synchronize browser-owned theme colors, retain the Kit-owned input adapter, and address the remaining lifecycle and security gaps above.
