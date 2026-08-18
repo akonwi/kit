@@ -201,6 +201,9 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 					stdout: opts.terminal.stdout,
 					width: opts.terminal.width,
 					height: opts.terminal.height,
+					// Browser input is normalized by Kit's transport adapter. Keep a
+					// deterministic legacy protocol until that adapter tracks Kitty flags.
+					useKittyKeyboard: null,
 				}
 			: {}),
 		exitOnCtrlC: false,

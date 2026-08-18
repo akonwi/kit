@@ -36,8 +36,9 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - The complete real `AppShell`, including dialogs, pickers, workspace panes, review UI, plugin chrome, and themes
 - One authoritative session/runtime owner
-- Keyboard input using ghostty-web's Ghostty key encoder, including Kitty keyboard negotiation
-- Mouse/focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
+- Kit-owned browser keyboard normalization for Escape, Ctrl combinations, navigation, and function keys
+- Kit-owned SGR mouse encoding for click, release, drag, all-motion, and wheel events
+- Focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
 - Resize and reconnect with full repaint
 - Canvas selection, links, scrollback, titles, and a hidden textarea for browser input
 - Existing Host allowlist, Origin validation, timing-safe Basic auth, and same-origin assets
@@ -48,7 +49,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 704 passing
+- `bun test`: 709 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -86,11 +87,12 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 - Terminal bell and OSC 52 paths that write directly to process stdout do not reach the browser renderer.
 - Security policy is mirrored from `WebRpcServer` rather than extracted into one shared implementation.
 - `--model` is not accepted in this mode; select the model inside the TUI.
-- Clipboard permissions, complex IME, selection, links, mouse gestures, and long-running reconnects need broader browser testing.
+- Complex IME, selection, links, touch gestures, browser-reserved shortcuts, and long-running reconnects need broader browser testing.
+- Browser input currently uses deterministic legacy key sequences. Kitty keyboard mode remains disabled until the adapter tracks Kitty protocol flags.
 - ghostty-web 0.4.0 is unofficial and young.
 
 ## Recommendation
 
 The remote-stream architecture is viable and removes almost all presentation duplication. Keep the semantic SPA as Kit's accessible/mobile/browser-native interface, and consider a browser TUI as an optional desktop parity surface.
 
-Between the two terminal renderers, ghostty-web offers the strongest terminal fidelity and Ghostty keyboard encoding, but its Canvas accessibility and duplicated WASM packaging are meaningful costs. The paired wterm experiment is likely the better default browser surface if native selection/find and a much smaller payload matter more than Canvas rendering fidelity.
+Between the two terminal renderers, ghostty-web offers the strongest rendering fidelity, but its Canvas accessibility and duplicated WASM packaging are meaningful costs. The paired wterm experiment is likely the better default browser surface if native selection/find and a much smaller payload matter more than Canvas rendering fidelity.

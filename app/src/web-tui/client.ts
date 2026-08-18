@@ -1,4 +1,8 @@
 import { FitAddon, Ghostty, Terminal } from "ghostty-web";
+import {
+	BrowserTerminalInput,
+	TerminalProtocolState,
+} from "./browser-terminal-input";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
@@ -34,6 +38,7 @@ class TuiConnection {
 	constructor(
 		private readonly terminal: Terminal,
 		private readonly fit: FitAddon,
+		private readonly protocol: TerminalProtocolState,
 	) {
 		terminal.onData((data) => this.sendInput(data));
 		terminal.onResize(({ cols, rows }) =>
@@ -70,7 +75,9 @@ class TuiConnection {
 		});
 		socket.addEventListener("message", (event) => {
 			if (event.data instanceof ArrayBuffer) {
-				this.terminal.write(new Uint8Array(event.data));
+				const bytes = new Uint8Array(event.data);
+				this.protocol.feed(bytes);
+				this.terminal.write(bytes);
 			}
 		});
 		socket.addEventListener("close", (event) => {
@@ -96,7 +103,7 @@ class TuiConnection {
 		}, delay);
 	}
 
-	private sendInput(data: string): void {
+	sendInput(data: string): void {
 		if (this.socket?.readyState === WebSocket.OPEN) {
 			this.socket.send(this.encoder.encode(data));
 		}
@@ -135,7 +142,24 @@ async function main(): Promise<void> {
 	terminal.open(element);
 	fit.observeResize();
 	fit.fit();
-	new TuiConnection(terminal, fit).connect();
+	const protocol = new TerminalProtocolState();
+	const connection = new TuiConnection(terminal, fit, protocol);
+	new BrowserTerminalInput({
+		root: element,
+		protocol,
+		geometry: () => {
+			const canvas = element.querySelector("canvas");
+			if (!canvas) return null;
+			return {
+				columns: terminal.cols,
+				rows: terminal.rows,
+				bounds: canvas.getBoundingClientRect(),
+			};
+		},
+		send: (data) => connection.sendInput(data),
+		focus: () => terminal.focus(),
+	});
+	connection.connect();
 }
 
 void main().catch((error) => {
