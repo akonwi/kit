@@ -38,6 +38,8 @@ let currentThemeConfig: ThemeConfig = {
 	syntaxPalette: { ...initialTheme.syntaxPalette },
 };
 
+const themeConfigListeners = new Set<(config: ThemeConfig) => void>();
+
 const [theme, setTheme] = createStore<ThemeTokens>({
 	...initialTheme.tokens,
 	modalBackdrop: modalBackdropFromBg(initialTheme.tokens.bg),
@@ -275,6 +277,28 @@ export function getCurrentThemeConfig(): ThemeConfig {
 	};
 }
 
+/** Subscribe to resolved theme changes without coupling consumers to Solid. */
+export function subscribeThemeConfig(
+	listener: (config: ThemeConfig) => void,
+	options: { emitCurrent?: boolean } = {},
+): () => void {
+	themeConfigListeners.add(listener);
+	if (options.emitCurrent !== false) listener(getCurrentThemeConfig());
+	return () => themeConfigListeners.delete(listener);
+}
+
+function publishThemeConfig(): void {
+	for (const listener of themeConfigListeners) {
+		try {
+			listener(getCurrentThemeConfig());
+		} catch (error) {
+			console.error(
+				`Theme subscriber failed: ${error instanceof Error ? error.message : String(error)}`,
+			);
+		}
+	}
+}
+
 async function resolveSystemThemeBase(): Promise<ResolvedTheme> {
 	if (cachedSystemTheme) return cloneResolvedTheme(cachedSystemTheme);
 
@@ -362,4 +386,5 @@ export async function resolveAndApplyTheme(
 		}),
 	);
 	setSyntaxStyle(buildSyntaxStyle(resolved.syntaxPalette));
+	publishThemeConfig();
 }

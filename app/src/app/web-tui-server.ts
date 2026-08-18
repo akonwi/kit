@@ -18,6 +18,7 @@ import jetbrainsMonoNormal from "@fontsource-variable/jetbrains-mono/files/jetbr
 };
 import type { Server, ServerWebSocket } from "bun";
 import ghosttyWasm from "ghostty-web/ghostty-vt.wasm" with { type: "file" };
+import type { BrowserTheme } from "../web-tui/browser-theme";
 import tuiHtml from "../web-tui/index.html" with { type: "text" };
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import tuiCss from "../web-tui/tui.css" with { type: "text" };
@@ -176,6 +177,7 @@ export class WebTuiServer {
 	private activeSocket: ServerWebSocket<WebSocketData> | null = null;
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
 	private readonly expectedBasicAuthDigest: Buffer | null;
+	private browserTheme: BrowserTheme | null = null;
 
 	constructor(
 		private readonly host: WebTuiHost,
@@ -190,6 +192,12 @@ export class WebTuiServer {
 
 	get clientCount(): number {
 		return this.activeSocket ? 1 : 0;
+	}
+
+	setBrowserTheme(theme: BrowserTheme): void {
+		this.browserTheme = { ...theme };
+		const socket = this.activeSocket;
+		if (socket) this.sendTheme(socket);
 	}
 
 	start(): { hostname: string; port: number; url: string } {
@@ -280,6 +288,7 @@ export class WebTuiServer {
 								send: (bytes) => this.send(socket, bytes),
 							};
 							socket.data.client = client;
+							this.sendTheme(socket);
 							this.host.attach(client, control.cols, control.rows);
 							return;
 						}
@@ -327,13 +336,21 @@ export class WebTuiServer {
 		}
 	}
 
+	private sendTheme(socket: ServerWebSocket<WebSocketData>): void {
+		if (!this.browserTheme) return;
+		this.send(
+			socket,
+			JSON.stringify({ type: "theme", theme: this.browserTheme }),
+		);
+	}
+
 	private send(
 		socket: ServerWebSocket<WebSocketData>,
-		bytes: Uint8Array,
+		data: string | Uint8Array,
 	): void {
 		if (socket.readyState !== WebSocket.OPEN) return;
 		try {
-			if (socket.send(bytes) > 0) return;
+			if (socket.send(data) > 0) return;
 		} catch (error) {
 			console.error(
 				`Web TUI send failed: ${error instanceof Error ? error.message : String(error)}`,

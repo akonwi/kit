@@ -7,8 +7,15 @@
 }
 
 :root {
+	--kit-terminal-bg: #0a0a0a;
+	--kit-terminal-fg: #fafafa;
+	--kit-terminal-cursor: #fafafa;
+	--kit-terminal-selection-bg: #404040;
+	--kit-status-bg: #171717;
+	--kit-status-fg: #d4d4d4;
+	--kit-status-border: #404040;
 	color-scheme: dark;
-	background: #0a0a0a;
+	background: var(--kit-terminal-bg);
 }
 
 * {
@@ -25,8 +32,8 @@ body,
 }
 
 body {
-	background: #0a0a0a;
-	color: #fafafa;
+	background: var(--kit-terminal-bg);
+	color: var(--kit-terminal-fg);
 	font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
 }
 
@@ -42,10 +49,10 @@ body {
 	top: max(0.75rem, env(safe-area-inset-top));
 	right: max(0.75rem, env(safe-area-inset-right));
 	padding: 0.35rem 0.55rem;
-	border: 1px solid #404040;
+	border: 1px solid var(--kit-status-border);
 	border-radius: 0.25rem;
-	background: #171717;
-	color: #d4d4d4;
+	background: var(--kit-status-bg);
+	color: var(--kit-status-fg);
 	font:
 		0.75rem / 1.2 system-ui,
 		sans-serif;

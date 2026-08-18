@@ -49,7 +49,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 709 passing
+- `bun test`: 714 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -77,16 +77,19 @@ A controlled light-theme test verified all three stages:
 | ghostty-web Canvas | 315,903 of 319,950 sampled pixels used the exact custom background |
 | `/theme` live preview | Canvas switched from system dark to the custom light palette without reconnecting |
 | Preview dismissal | Canvas restored the exact system background |
+| Browser-owned chrome | Page background, status overlay, and `color-scheme` update from live theme controls |
 
 This is materially more capable than the semantic SPA's light/dark mapping. Shell colors, overlays, diffs, Markdown, code syntax, and plugin-exposed theme tokens all use the actual selected theme.
 
-Remaining browser-owned colors are not yet synchronized:
+Resolved theme changes are also sent to the browser as bounded control messages. The client updates CSS variables for the page background, foreground, status overlay, and browser `color-scheme`. A controlled light-theme run verified the exact expected CSS values and no residual dark pixels in the connected Canvas.
 
-- The loading/disconnected page and `color-scheme` CSS are hardcoded dark.
-- ghostty-web's selection background and terminal fallback cursor are initialized from a dark palette.
-- ghostty-web 0.4.0 warns that changing its renderer theme after `open()` is not fully supported.
+Remaining browser-owned colors:
 
-These do not affect connected OpenTUI cells because they are painted with truecolor values, but they can produce mismatched browser selection and disconnected/loading chrome. A small server-to-client theme control message should update CSS variables and browser-owned colors when the resolved Kit theme changes.
+- ghostty-web's Canvas selection background and terminal fallback cursor are initialized from the startup palette.
+- ghostty-web 0.4.0 exposes a renderer-level `setTheme`, but its public `Terminal` API warns that theme changes after `open()` are not fully supported.
+- Before the first resolved theme event, loading chrome uses the safe default dark palette.
+
+These do not affect connected OpenTUI cells because they are painted with truecolor values. Full selection/fallback-cursor synchronization should wait for a supported ghostty-web terminal API rather than reaching into its private renderer.
 
 ## Footprint
 
@@ -119,4 +122,4 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 
 The remote-stream architecture is viable and removes almost all presentation duplication. Keep the semantic SPA as Kit's accessible/mobile/browser-native interface, and consider a browser TUI as an optional desktop parity surface.
 
-Use ghostty-web for Kit's browser TUI. It provides the strongest rendering fidelity and its Canvas output preserves Kit's full custom-theme system. Keep the semantic SPA available where accessibility and browser-native content matter more than terminal parity. Before promotion, synchronize browser-owned theme colors, retain the Kit-owned input adapter, and address the remaining lifecycle and security gaps above.
+Use ghostty-web for Kit's browser TUI. It provides the strongest rendering fidelity and its Canvas output preserves Kit's full custom-theme system. Keep the semantic SPA available where accessibility and browser-native content matter more than terminal parity. Before promotion, retain the Kit-owned input and theme adapters, pursue a supported dynamic selection/cursor API upstream, and address the remaining lifecycle and security gaps above.

@@ -12,11 +12,26 @@
  * queries the palette.
  */
 
+import { subscribeThemeConfig } from "../shell/theme";
+import type { ThemeConfig } from "../shell/themes/types";
+import type { BrowserTheme } from "../web-tui/browser-theme";
 import { WebTuiBridge } from "./web-tui-bridge";
 import {
 	type WebTuiBasicAuthCredentials,
 	WebTuiServer,
 } from "./web-tui-server";
+
+function browserThemeFromConfig(config: ThemeConfig): BrowserTheme {
+	return {
+		background: config.tokens.bg,
+		foreground: config.tokens.textPrimary,
+		cursor: config.tokens.cursor,
+		selectionBackground: config.tokens.bgAccent,
+		statusBackground: config.tokens.bgSurface,
+		statusForeground: config.tokens.textSecondary,
+		statusBorder: config.tokens.borderDefault,
+	};
+}
 
 export type WebTuiModeOptions = {
 	allowedHosts?: string[];
@@ -82,6 +97,13 @@ export async function runWebTuiMode(
 		},
 	);
 
+	const unsubscribeTheme = subscribeThemeConfig(
+		(config) => {
+			server.setBrowserTheme(browserThemeFromConfig(config));
+		},
+		{ emitCurrent: false },
+	);
+
 	const handleSignal = (signal: "SIGINT" | "SIGTERM") => {
 		const exitCode = signal === "SIGINT" ? 130 : 143;
 		if (signalExitCode !== 0) process.exit(exitCode);
@@ -122,6 +144,7 @@ export async function runWebTuiMode(
 		);
 		exitCode = 1;
 	} finally {
+		unsubscribeTheme();
 		process.off("SIGINT", handleSigint);
 		process.off("SIGTERM", handleSigterm);
 		bridge.shutdown();

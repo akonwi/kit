@@ -3,6 +3,7 @@ import {
 	BrowserTerminalInput,
 	TerminalProtocolState,
 } from "./browser-terminal-input";
+import { applyBrowserTheme, parseBrowserThemeMessage } from "./browser-theme";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
@@ -78,6 +79,11 @@ class TuiConnection {
 				const bytes = new Uint8Array(event.data);
 				this.protocol.feed(bytes);
 				this.terminal.write(bytes);
+				return;
+			}
+			if (typeof event.data === "string") {
+				const theme = parseBrowserThemeMessage(event.data);
+				if (theme) applyBrowserTheme(theme);
 			}
 		});
 		socket.addEventListener("close", (event) => {

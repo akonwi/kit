@@ -183,6 +183,41 @@ describe("WebTuiServer WebSocket", () => {
 		expect(host.log.detached[0]).toBe(host.log.attached[0]?.client);
 	});
 
+	test("sends the current browser theme on init and on later changes", async () => {
+		const host = recordingHost();
+		const { server, wsUrl, origin } = startServer(host);
+		const firstTheme = {
+			background: "#0a0a0a",
+			foreground: "#fafafa",
+			cursor: "#fafafa",
+			selectionBackground: "#404040",
+			statusBackground: "#171717",
+			statusForeground: "#d4d4d4",
+			statusBorder: "#404040",
+		};
+		server.setBrowserTheme(firstTheme);
+		const socket = await openSocket(wsUrl, { headers: { origin } });
+		const messages: string[] = [];
+		socket.addEventListener("message", (event) => {
+			if (typeof event.data === "string") messages.push(event.data);
+		});
+		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		await waitFor(() => messages.length === 1);
+		expect(JSON.parse(messages[0] ?? "null")).toEqual({
+			type: "theme",
+			theme: firstTheme,
+		});
+
+		const nextTheme = { ...firstTheme, background: "#fdf6e3" };
+		server.setBrowserTheme(nextTheme);
+		await waitFor(() => messages.length === 2);
+		expect(JSON.parse(messages[1] ?? "null")).toEqual({
+			type: "theme",
+			theme: nextTheme,
+		});
+		socket.close();
+	});
+
 	test("delivers host output to the attached client as binary frames", async () => {
 		const host = recordingHost();
 		const { wsUrl, origin } = startServer(host);
