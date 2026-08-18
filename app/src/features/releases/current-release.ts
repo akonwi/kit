@@ -4,16 +4,27 @@ export const CURRENT_VERSION = version;
 
 /** Release notes bundled into the binary so the installed release is readable offline. */
 export const CURRENT_RELEASE_NOTES = `
-## Web code review
+## Workspace tabs
 
-- Added a responsive code-review surface to \`kit --web\` for reviewing working-tree changes from desktop and mobile browsers.
-- Browse changed files, switch between unified and split diffs, wrap long lines, and inspect file-level change metadata.
-- Add, edit, and delete local line or range notes, then submit them as structured review feedback to the Kit agent.
-- Added guarded review submission with stale-session validation, payload limits, idempotent retries, and race protection.
+- Added responsive workspace tabs for navigating auxiliary surfaces without losing their local state.
+- Added browser tabs for Activity, Code Review, and Scratchpad, with a resizable desktop drawer, collapsed rail, mobile overflow sheet, keyboard navigation, and accessible focus handling.
+- Expanded the terminal workspace with retained tabs, overflow navigation, responsive layouts, and dedicated Sub-agent, Release Notes, Mermaid, Review, Scratchpad, and Activity surfaces.
 
-## TUI mouse interactions
+## Follow-up controls
 
-- Made the session title, model, and thinking level in the header clickable to open their existing commands.
-- Added pointer cursors and release-based activation for actionable header and footer contributions.
-- Prevented drag activation and click-through while overlays or pickers are open.
+- Added browser controls to edit queued follow-ups in the composer or send them immediately as steering messages.
+- Composer drafts now persist per session and synchronize across browser tabs.
+- Added guarded, idempotent recovery so queued-message edits survive reloads, response loss, and concurrent clients.
+- Added RPC methods for safely restoring and promoting queued follow-ups.
+
+## Transcript interactions
+
+- Added a terminal selection menu with Copy and Quote actions; Quote inserts a Markdown blockquote into the composer.
+- Added whole-message copying that preserves the original Markdown source.
+- Made safe HTTP, HTTPS, and email links in terminal Markdown clickable.
+- Improved pointer handling to prevent accidental activation while dragging or interacting with nested controls.
+
+## Fresh headless sessions
+
+- Added \`kit new --web\`, \`kit new --rpc\`, and \`kit new -p\` for starting fresh sessions instead of resuming the latest session.
 `;
