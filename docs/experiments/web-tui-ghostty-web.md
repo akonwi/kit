@@ -54,7 +54,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 743 passing
+- `bun test`: 742 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets

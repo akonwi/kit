@@ -143,14 +143,6 @@ describe("web mode CLI", () => {
 		);
 		expect(result.stderr).not.toContain("does not support --model");
 	});
-
-	test("directs the old experimental flag to --web-tui", async () => {
-		const result = await runMain(["--web", "--experimental-tui"]);
-		expect(result.exitCode).toBe(1);
-		expect(result.stderr).toContain(
-			"--experimental-tui is no longer supported; use --web-tui",
-		);
-	});
 });
 
 describe("interactive mode CLI", () => {

@@ -9,7 +9,6 @@ const { positionals, values } = parseArgs({
 	options: {
 		"allow-host": { type: "string", multiple: true },
 		auth: { type: "string" },
-		"experimental-tui": { type: "boolean" },
 		"allow-origin": { type: "string", multiple: true },
 		host: { type: "string" },
 		mode: { type: "string" },
@@ -88,9 +87,6 @@ if (values.mode !== undefined) {
 	console.error(
 		"--mode is no longer supported; use --web, --web-tui, or --rpc",
 	);
-	process.exitCode = 1;
-} else if (values["experimental-tui"] === true) {
-	console.error("--experimental-tui is no longer supported; use --web-tui");
 	process.exitCode = 1;
 } else if (selectedModes > 1) {
 	console.error(
