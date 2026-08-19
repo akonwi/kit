@@ -122,12 +122,14 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 
 	return (
 		<scrollbox
+			id="transcript-scrollbox"
 			flexGrow={1}
 			height="100%"
 			scrollY
 			stickyStart="bottom"
 			stickyScroll
 			padding={1}
+			contentOptions={{ flexDirection: "column", gap: 0, width: "100%" }}
 			style={scrollbarStyle()}
 		>
 			<Show
@@ -150,32 +152,27 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 					</box>
 				}
 			>
-				<box flexDirection="column" gap={0} width="100%">
-					<For each={displayItems()}>
-						{(displayItem, index) => {
-							const turnId =
-								displayItem.kind === "single"
-									? displayItem.item.turnId
-									: displayItem.turnId;
-							const spacerHeight = () => (index() === 0 ? 0 : 1);
-							return (
-								<>
-									<Show when={spacerHeight() > 0}>
-										<box height={spacerHeight()} />
-									</Show>
-									<TurnEntry
-										displayItem={displayItem}
-										liveTools={liveTools()[turnId] ?? {}}
-										showToast={props.showToast}
-										runtime={props.runtime}
-										openActivity={props.openActivity}
-										openMessageContextMenu={props.openMessageContextMenu}
-									/>
-								</>
-							);
-						}}
-					</For>
-				</box>
+				{/* Keep each row direct: OpenTUI culls only direct scrollbox children. */}
+				<For each={displayItems()}>
+					{(displayItem, index) => {
+						const turnId =
+							displayItem.kind === "single"
+								? displayItem.item.turnId
+								: displayItem.turnId;
+						return (
+							<box width="100%" marginTop={index() === 0 ? 0 : 1}>
+								<TurnEntry
+									displayItem={displayItem}
+									liveTools={liveTools()[turnId] ?? {}}
+									showToast={props.showToast}
+									runtime={props.runtime}
+									openActivity={props.openActivity}
+									openMessageContextMenu={props.openMessageContextMenu}
+								/>
+							</box>
+						);
+					}}
+				</For>
 			</Show>
 		</scrollbox>
 	);

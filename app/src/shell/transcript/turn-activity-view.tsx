@@ -3,10 +3,8 @@ import {
 	createMemo,
 	createSignal,
 	For,
-	Match,
 	onCleanup,
 	Show,
-	Switch,
 } from "solid-js";
 import type { AssistantMessage, ToolResultMessage } from "../../runtime/agent";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
@@ -339,10 +337,66 @@ export function createTurnActivityModel(
 	};
 }
 
+function TurnActivitySectionRow(props: {
+	model: TurnActivityModel;
+	id: string;
+}) {
+	const initial = props.model.sectionsById().get(props.id);
+	if (!initial) return null;
+
+	switch (initial.kind) {
+		case "assistant": {
+			const section = () => {
+				const current = props.model.sectionsById().get(props.id);
+				return current?.kind === "assistant" ? current : initial;
+			};
+			return (
+				<box width="100%">
+					<FlatAssistantEntry
+						msg={section().message}
+						toolResults={section().toolResults}
+						liveTools={props.model.turnLiveTools()}
+						aborted={section().aborted}
+						fullArgs
+						noTruncate
+						enrichOutput
+					/>
+				</box>
+			);
+		}
+		case "bash": {
+			const section = () => {
+				const current = props.model.sectionsById().get(props.id);
+				return current?.kind === "bash" ? current : initial;
+			};
+			return (
+				<box width="100%">
+					<BashEntry msg={section().message} noTruncate plain />
+				</box>
+			);
+		}
+		case "handoff-summary": {
+			const section = () => {
+				const current = props.model.sectionsById().get(props.id);
+				return current?.kind === "handoff-summary" ? current : initial;
+			};
+			return (
+				<box width="100%">
+					<HandoffSummaryEntry
+						msg={section().message}
+						aborted={section().aborted}
+					/>
+				</box>
+			);
+		}
+	}
+}
+
 /**
  * Inner section list rendered inside the workspace activity panel.
  * Wrapped in a scrollbox by the caller so panel chrome can apply
- * its own padding/border around the scroll region.
+ * its own padding/border around the scroll region. Rows intentionally remain
+ * direct children because OpenTUI viewport-culls only direct scrollbox children.
  */
 export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 	return (
@@ -354,57 +408,9 @@ export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 				</box>
 			}
 		>
-			<box flexDirection="column" gap={0} width="100%">
-				<For each={props.model.sectionOrder()}>
-					{(id) => {
-						// Per-kind narrowed accessors so Solid's Match keeps
-						// reactive type narrowing through the union.
-						const section = createMemo(() =>
-							props.model.sectionsById().get(id),
-						);
-						const asAssistant = createMemo(() => {
-							const s = section();
-							return s && s.kind === "assistant" ? s : undefined;
-						});
-						const asBash = createMemo(() => {
-							const s = section();
-							return s && s.kind === "bash" ? s : undefined;
-						});
-						const asHandoff = createMemo(() => {
-							const s = section();
-							return s && s.kind === "handoff-summary" ? s : undefined;
-						});
-						return (
-							<Switch>
-								<Match when={asAssistant()}>
-									{(a) => (
-										<FlatAssistantEntry
-											msg={a().message}
-											toolResults={a().toolResults}
-											liveTools={props.model.turnLiveTools()}
-											aborted={a().aborted}
-											fullArgs
-											noTruncate
-											enrichOutput
-										/>
-									)}
-								</Match>
-								<Match when={asBash()}>
-									{(b) => <BashEntry msg={b().message} noTruncate plain />}
-								</Match>
-								<Match when={asHandoff()}>
-									{(h) => (
-										<HandoffSummaryEntry
-											msg={h().message}
-											aborted={h().aborted}
-										/>
-									)}
-								</Match>
-							</Switch>
-						);
-					}}
-				</For>
-			</box>
+			<For each={props.model.sectionOrder()}>
+				{(id) => <TurnActivitySectionRow model={props.model} id={id} />}
+			</For>
 		</Show>
 	);
 }

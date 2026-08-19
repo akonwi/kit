@@ -62,6 +62,7 @@ export function TurnActivityPanel(props: TurnActivityPanelProps) {
 					scrollY
 					stickyStart={model.initiallyLive ? "bottom" : undefined}
 					stickyScroll={model.initiallyLive}
+					contentOptions={{ flexDirection: "column", gap: 0, width: "100%" }}
 					style={scrollbarStyle()}
 				>
 					<TurnActivitySectionList model={model} />
