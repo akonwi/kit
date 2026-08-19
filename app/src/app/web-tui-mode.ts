@@ -15,6 +15,7 @@
 import { subscribeThemeConfig } from "../shell/theme";
 import type { ThemeConfig } from "../shell/themes/types";
 import type { BrowserTheme } from "../web-tui/browser-theme";
+import { startShutdownWatchdog } from "./shutdown-watchdog";
 import { WebTuiBridge } from "./web-tui-bridge";
 import {
 	type WebTuiBasicAuthCredentials,
@@ -51,6 +52,7 @@ export async function runWebTuiMode(
 	let appPromise: Promise<void> | null = null;
 	let appFailed = false;
 	let signalExitCode = 0;
+	let forcedShutdownTimer: ReturnType<typeof setTimeout> | null = null;
 	let stop: (() => void) | undefined;
 	const stopped = new Promise<void>((resolve) => {
 		stop = resolve;
@@ -105,9 +107,17 @@ export async function runWebTuiMode(
 	);
 
 	const handleSignal = (signal: "SIGINT" | "SIGTERM") => {
-		const exitCode = signal === "SIGINT" ? 130 : 143;
-		if (signalExitCode !== 0) process.exit(exitCode);
-		signalExitCode = exitCode;
+		if (signalExitCode !== 0) {
+			console.error("[kit] forcing web TUI shutdown after repeated signal");
+			process.exit(signalExitCode);
+		}
+		signalExitCode = signal === "SIGINT" ? 130 : 143;
+		// A broken native integration or app disposer must not make the process
+		// permanently unkillable. Normal cleanup cancels this emergency fallback.
+		forcedShutdownTimer = setTimeout(() => {
+			console.error("[kit] forcing web TUI shutdown after cleanup timed out");
+			process.exit(signalExitCode);
+		}, 10_000);
 		// Ask the hosted app to shut down cleanly. If bootstrap is still
 		// creating the renderer, the bridge remembers the request and destroys
 		// it from onRendererReady; appPromise then resolves `stopped`.
@@ -145,11 +155,43 @@ export async function runWebTuiMode(
 		exitCode = 1;
 	} finally {
 		unsubscribeTheme();
+		const shutdownErrors: unknown[] = [];
+		try {
+			bridge.shutdown();
+		} catch (error) {
+			shutdownErrors.push(error);
+		}
+		try {
+			await appPromise;
+		} catch (error) {
+			shutdownErrors.push(error);
+		}
+		try {
+			await server.stop();
+		} catch (error) {
+			shutdownErrors.push(error);
+		}
+		if (forcedShutdownTimer) clearTimeout(forcedShutdownTimer);
+		// Keep intercepting repeated signals until every cleanup attempt finishes.
 		process.off("SIGINT", handleSigint);
 		process.off("SIGTERM", handleSigterm);
-		bridge.shutdown();
-		await appPromise;
-		await server.stop();
+		if (shutdownErrors.length === 0) {
+			if (process.env.KIT_DEBUG_SHUTDOWN) {
+				console.error("[kit] web TUI shutdown complete");
+			}
+		} else {
+			exitCode = 1;
+			for (const error of shutdownErrors) {
+				console.error(
+					`[kit] web TUI shutdown failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+			}
+		}
 	}
-	return signalExitCode !== 0 ? signalExitCode : exitCode;
+	const finalExitCode = signalExitCode !== 0 ? signalExitCode : exitCode;
+	process.exitCode = finalExitCode;
+	// Bootstrap deliberately does not own process exit for custom terminals.
+	// Arm the fallback only after renderer/session and server cleanup complete.
+	startShutdownWatchdog(finalExitCode);
+	return finalExitCode;
 }

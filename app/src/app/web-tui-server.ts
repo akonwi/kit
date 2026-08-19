@@ -326,14 +326,51 @@ export class WebTuiServer {
 		const server = this.server;
 		this.server = null;
 		if (server) {
-			const stopped = server.stop(true).catch((error) => {
-				console.error(
-					`Web TUI server stop failed: ${error instanceof Error ? error.message : String(error)}`,
+			let stopError: unknown;
+			const stopped = server.stop(true).then(
+				() => true,
+				(error) => {
+					stopError = error;
+					return false;
+				},
+			);
+			// Bun can leave this promise pending for a terminated WebSocket peer
+			// even though force-stop has already closed the listening socket.
+			const completed = await Promise.race([
+				stopped,
+				Bun.sleep(250).then(() => false),
+			]);
+			if (!completed) {
+				await this.verifyListenerReleased(
+					server.hostname ?? this.options.hostname ?? "127.0.0.1",
+					server.port ?? this.options.port ?? 4783,
 				);
-			});
-			// Bun may await a browser peer's close handshake despite force=true.
-			await Promise.race([stopped, Bun.sleep(250)]);
+			}
+			if (stopError) {
+				console.error(
+					`Web TUI server stop failed: ${stopError instanceof Error ? stopError.message : String(stopError)}`,
+				);
+			}
 		}
+	}
+
+	private async verifyListenerReleased(
+		hostname: string,
+		port: number,
+	): Promise<void> {
+		let probe: Server<undefined>;
+		try {
+			probe = Bun.serve({
+				hostname,
+				port,
+				fetch: () => new Response("shutdown probe"),
+			});
+		} catch (error) {
+			throw new Error(`Web TUI server did not release ${hostname}:${port}`, {
+				cause: error,
+			});
+		}
+		await probe.stop(true);
 	}
 
 	private sendTheme(socket: ServerWebSocket<WebSocketData>): void {

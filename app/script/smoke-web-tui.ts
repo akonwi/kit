@@ -24,8 +24,7 @@ const WebSocketWithOptions = WebSocket as unknown as new (
 ) => WebSocket;
 
 function fail(message: string): never {
-	console.error(`SMOKE FAIL: ${message}`);
-	process.exit(1);
+	throw new Error(`SMOKE FAIL: ${message}`);
 }
 
 type Connection = {
@@ -77,38 +76,53 @@ async function connect(): Promise<Connection> {
 
 console.log(`Starting kit --web --experimental-tui on port ${port}...`);
 const smokeBinary = process.env.KIT_WEB_TUI_SMOKE_BIN;
-const server = Bun.spawn({
-	cmd: [
-		...(smokeBinary
-			? [path.resolve(dir, smokeBinary)]
-			: ["bun", "--preload=@opentui/solid/preload", "src/app/main.tsx"]),
-		"--web",
-		"--experimental-tui",
-		"--no-session",
-		"--port",
-		String(port),
-	],
-	cwd: dir,
-	stdout: "pipe",
-	stderr: "pipe",
-});
+const spawnServer = () =>
+	Bun.spawn({
+		cmd: [
+			...(smokeBinary
+				? [path.resolve(dir, smokeBinary)]
+				: ["bun", "--preload=@opentui/solid/preload", "src/app/main.tsx"]),
+			"--web",
+			"--experimental-tui",
+			"--no-session",
+			"--port",
+			String(port),
+		],
+		cwd: dir,
+		env: { ...process.env, KIT_DEBUG_SHUTDOWN: "1" },
+		stdout: "pipe",
+		stderr: "pipe",
+	});
 
+async function waitForHealth(): Promise<void> {
+	const deadline = Date.now() + 20_000;
+	for (;;) {
+		try {
+			const health = await fetch(`${origin}/api/health`);
+			const body = (await health.json()) as { mode?: string };
+			if (body.mode === "web-tui") return;
+		} catch {}
+		if (Date.now() > deadline) fail("server did not become healthy");
+		await Bun.sleep(100);
+	}
+}
+
+async function assertPortReusable(): Promise<void> {
+	const probe = Bun.serve({
+		hostname: "127.0.0.1",
+		port,
+		fetch: () => new Response("ok"),
+	});
+	await probe.stop(true);
+}
+
+const server = spawnServer();
 const serverExited = server.exited.then((code) => code);
+let terminationServer: ReturnType<typeof spawnServer> | null = null;
 
 try {
 	// Wait for the health endpoint.
-	{
-		const deadline = Date.now() + 20_000;
-		for (;;) {
-			try {
-				const health = await fetch(`${origin}/api/health`);
-				const body = (await health.json()) as { mode?: string };
-				if (body.mode === "web-tui") break;
-			} catch {}
-			if (Date.now() > deadline) fail("server did not become healthy");
-			await Bun.sleep(100);
-		}
-	}
+	await waitForHealth();
 	console.log("✓ health endpoint reports web-tui mode");
 
 	// Document + assets sanity.
@@ -179,18 +193,48 @@ try {
 	console.log(
 		`✓ reconnect replayed terminal setup and repainted (${second.bytesSeen()} bytes)`,
 	);
-	second.close();
 
-	// Orderly shutdown.
+	// Orderly shutdown while a browser client remains attached.
 	server.kill("SIGINT");
 	const code = await Promise.race([
 		serverExited,
 		Bun.sleep(10_000).then(() => "timeout" as const),
 	]);
 	if (code === "timeout") fail("server did not exit after SIGINT");
-	console.log(`✓ server exited after SIGINT (code ${code})`);
+	if (code !== 130) fail(`SIGINT exit code was ${code}, expected 130`);
+	const interruptDiagnostics = await new Response(server.stderr).text();
+	if (!interruptDiagnostics.includes("[kit] web TUI shutdown complete")) {
+		fail("SIGINT process exited before reporting completed cleanup");
+	}
+	await assertPortReusable();
+	console.log("✓ SIGINT exited with code 130 after releasing the server port");
+
+	// SIGTERM before a browser attaches still owns and completes server cleanup.
+	terminationServer = spawnServer();
+	await waitForHealth();
+	terminationServer.kill("SIGTERM");
+	const terminationCode = await Promise.race([
+		terminationServer.exited,
+		Bun.sleep(10_000).then(() => "timeout" as const),
+	]);
+	if (terminationCode === "timeout") fail("server did not exit after SIGTERM");
+	if (terminationCode !== 143) {
+		fail(`SIGTERM exit code was ${terminationCode}, expected 143`);
+	}
+	const terminationDiagnostics = await new Response(
+		terminationServer.stderr,
+	).text();
+	if (!terminationDiagnostics.includes("[kit] web TUI shutdown complete")) {
+		fail("SIGTERM process exited before reporting completed cleanup");
+	}
+	await assertPortReusable();
+	console.log("✓ SIGTERM exited with code 143 after releasing the server port");
 	console.log("SMOKE PASS");
-	process.exit(0);
 } finally {
 	server.kill();
+	terminationServer?.kill();
+	await Promise.allSettled([
+		server.exited,
+		...(terminationServer ? [terminationServer.exited] : []),
+	]);
 }

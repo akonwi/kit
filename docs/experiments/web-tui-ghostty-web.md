@@ -49,7 +49,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 714 passing
+- `bun test`: 716 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -57,7 +57,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - keyboard repaint
   - resize reflow
   - suspend/resume reconnect repaint
-  - clean SIGINT shutdown
+  - orderly SIGINT/SIGTERM shutdown, exact `130`/`143` exit codes, and immediate server-port release
 - Real Chromium against the compiled binary:
   - one Canvas and one focused hidden textarea
   - WebSocket connected without console errors

@@ -22,33 +22,7 @@ import {
 } from "../shell/terminal-title";
 import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { App } from "./App";
-
-type ProcessWithActiveHandles = NodeJS.Process & {
-	_getActiveHandles?: () => unknown[];
-	_getActiveRequests?: () => unknown[];
-};
-
-function describeActiveHandle(handle: unknown): string {
-	if (typeof handle !== "object" || handle === null) return typeof handle;
-	const constructorName = handle.constructor?.name;
-	return constructorName || Object.prototype.toString.call(handle);
-}
-
-function reportDanglingHandlesForDebugging(): void {
-	if (!process.env.KIT_DEBUG_SHUTDOWN) return;
-	const proc = process as ProcessWithActiveHandles;
-	const handles = proc._getActiveHandles?.() ?? [];
-	const requests = proc._getActiveRequests?.() ?? [];
-	console.error(
-		`[kit] forcing shutdown with ${handles.length} active handle(s), ${requests.length} active request(s)`,
-	);
-	for (const handle of handles) {
-		console.error(`[kit] active handle: ${describeActiveHandle(handle)}`);
-	}
-	for (const request of requests) {
-		console.error(`[kit] active request: ${describeActiveHandle(request)}`);
-	}
-}
+import { startShutdownWatchdog } from "./shutdown-watchdog";
 
 type BootstrapOpts = {
 	sessionId?: string;
@@ -177,22 +151,10 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	let disposeApp: (() => void | Promise<void>) | null = null;
 	let resolveAlive: (() => void) | null = null;
 	let quitStarted = false;
-	let shutdownWatchdogStarted = false;
-	const startShutdownWatchdog = () => {
-		if (shutdownWatchdogStarted) return;
-		shutdownWatchdogStarted = true;
-		// OpenTUI generally discourages process.exit() because it can bypass
-		// terminal cleanup and leave the user's shell in raw/alternate-screen state.
-		// This watchdog only runs after renderer.destroy() has restored the terminal
-		// and the normal bootstrap promise has resolved. It exists because Bun or a
-		// native integration can still keep the process alive with no visible active
-		// handles, leaving users at a hung shell after quitting.
-		const shutdownWatchdog = setTimeout(() => {
-			reportDanglingHandlesForDebugging();
-			process.exit(0);
-		}, 200);
-		shutdownWatchdog.unref?.();
-	};
+	// A custom-terminal host owns the surrounding process and any additional
+	// resources (for example, a web server). Only standalone TTY bootstrap may
+	// arm the fallback process watchdog directly.
+	const usesProcessStdio = opts?.terminal === undefined;
 
 	const renderer = await createCliRenderer({
 		...(opts?.terminal
@@ -231,7 +193,11 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 				.finally(() => {
 					resolveAlive?.();
 					resolveAlive = null;
-					startShutdownWatchdog();
+					if (usesProcessStdio) {
+						startShutdownWatchdog(
+							typeof process.exitCode === "number" ? process.exitCode : 0,
+						);
+					}
 				});
 		},
 		consoleOptions: {
@@ -279,9 +245,6 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 			renderer.destroy();
 		}
 
-		// With a custom terminal (browser-TUI bridge), the process TTY does not
-		// own the application lifecycle; the bridge/server does.
-		const usesProcessStdio = opts?.terminal === undefined;
 		const stdioShutdown = () => quitAndDestroy();
 		if (usesProcessStdio) {
 			process.stdin.once("end", stdioShutdown);

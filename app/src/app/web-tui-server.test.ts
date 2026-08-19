@@ -262,6 +262,29 @@ describe("WebTuiServer WebSocket", () => {
 		socket.close();
 	});
 
+	test("stop terminates an active client and releases the listener", async () => {
+		const host = recordingHost();
+		const { server, origin, wsUrl } = startServer(host);
+		const socket = await openSocket(wsUrl, { headers: { origin } });
+		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		await waitFor(() => host.log.attached.length === 1);
+
+		await Promise.race([
+			server.stop(),
+			Bun.sleep(2_000).then(() => {
+				throw new Error("server stop timed out");
+			}),
+		]);
+		expect(host.log.detached).toHaveLength(1);
+		const url = new URL(origin);
+		const probe = Bun.serve({
+			hostname: url.hostname,
+			port: Number(url.port),
+			fetch: () => new Response("ok"),
+		});
+		await probe.stop(true);
+	});
+
 	test("a newer client replaces the active one with close code 4001", async () => {
 		const host = recordingHost();
 		const { wsUrl, origin } = startServer(host);
