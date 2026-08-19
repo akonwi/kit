@@ -3,6 +3,7 @@ import {
 	activateExistingActivityTab,
 	shouldFocusSubagentsRosterAfterRemoval,
 	shouldRestoreComposerFocus,
+	shouldReturnToComposerAfterPaneRemoval,
 	unavailableSubagentPaneTabIds,
 } from "./AppShell";
 
@@ -21,6 +22,32 @@ describe("activateExistingActivityTab", () => {
 
 		expect(updates).toEqual([{ kind: "activity", source }]);
 		expect(activations).toEqual(["workspace-tab:activity"]);
+	});
+});
+
+describe("shouldReturnToComposerAfterPaneRemoval", () => {
+	test("returns focus only when the removed pane owns the secondary surface", () => {
+		expect(
+			shouldReturnToComposerAfterPaneRemoval({
+				focusedSurface: "secondary",
+				activeTabId: "mcp",
+				closingTabId: "mcp",
+			}),
+		).toBeTrue();
+		expect(
+			shouldReturnToComposerAfterPaneRemoval({
+				focusedSurface: "secondary",
+				activeTabId: "scratchpad",
+				closingTabId: "mcp",
+			}),
+		).toBeFalse();
+		expect(
+			shouldReturnToComposerAfterPaneRemoval({
+				focusedSurface: "composer",
+				activeTabId: "mcp",
+				closingTabId: "mcp",
+			}),
+		).toBeFalse();
 	});
 });
 

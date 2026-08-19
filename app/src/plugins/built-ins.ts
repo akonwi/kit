@@ -4,7 +4,7 @@ import {
 	GuidedQuestionsPlugin,
 } from "../features/guided-questions";
 import type { GuidedQuestionsRequester } from "../features/guided-questions/types";
-import { createMcpPlugin } from "../features/mcp";
+import { createMcpPlugin, type McpWorkspaceController } from "../features/mcp";
 import { NotificationsPlugin } from "../features/notifications";
 import { PagerPlugin } from "../features/pager";
 import { PromptsPlugin } from "../features/prompts";
@@ -49,6 +49,7 @@ export type BuiltInPluginOptions = {
 	subagentStorage?: SubagentSessionStorage;
 	subagentsWorkspace?: SubagentsWorkspaceController;
 	releasesWorkspace?: ReleasesWorkspaceController;
+	mcpWorkspace?: McpWorkspaceController;
 	remoteGuidedQuestions?: GuidedQuestionsRequester;
 	remoteChrome?: boolean;
 	remotePromptCommands?: boolean;
@@ -79,6 +80,7 @@ export function createBuiltInPlugins(
 				interactive: !options.headless,
 				onReady: options.onReady,
 				persistState: !options.headless,
+				workspace: options.mcpWorkspace,
 			}),
 		),
 		...(options.headless && !options.remoteChrome

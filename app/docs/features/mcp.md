@@ -40,7 +40,7 @@ The current MCP feature is focused on:
 - lazy connection
 - persistent tool metadata cache
 - automatic OAuth handling for auth-required HTTP servers
-- lightweight MCP status/debug UI
+- retained MCP status workspace pane and lightweight debug UI
 
 It does not yet aim to provide full MCP coverage for prompts, resources, or broader MCP management UI.
 
@@ -69,7 +69,7 @@ If you want to clear saved MCP OAuth state manually, use:
 
 The MCP plugin currently provides:
 
-- `/mcp-status` — opens a modal showing configured servers, statuses, tool counts, saved OAuth state, warnings, and last errors
+- `/mcp-status` — opens the retained MCP workspace pane showing configured servers, statuses, tool counts, saved OAuth state, warnings, and last errors
 - `/mcp-logout <server>` — clears saved MCP OAuth state for one server
 - `/debug` — shows the MCP debug section with config files, warnings, and server state
 

@@ -8,6 +8,7 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
+import type { McpWorkspaceController } from "../features/mcp";
 import { registerMermaidPreviewHandler } from "../features/mermaid-preview/requests";
 import type { ReleasesWorkspaceController } from "../features/releases";
 import { CodeReviewAttachment } from "../features/review/attachment";
@@ -95,6 +96,7 @@ export type AppShellProps = {
 	copyText: (text: string) => Promise<void>;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	mcpWorkspace: McpWorkspaceController;
 	releasesWorkspace: ReleasesWorkspaceController;
 	reviewDrafts: ReviewDraftController;
 	reviewWorkspace: ReviewWorkspaceController;
@@ -148,6 +150,17 @@ export function activateExistingActivityTab(options: {
 }): void {
 	options.update({ kind: "activity", source: options.source });
 	options.activate(options.tabId);
+}
+
+export function shouldReturnToComposerAfterPaneRemoval(options: {
+	focusedSurface: WorkspaceFocusedSurface;
+	activeTabId: string | undefined;
+	closingTabId: string;
+}): boolean {
+	return (
+		options.focusedSurface === "secondary" &&
+		options.activeTabId === options.closingTabId
+	);
 }
 
 export function unavailableSubagentPaneTabIds(
@@ -424,6 +437,22 @@ function AppShellContent(props: AppShellContentProps) {
 		return secondaryTabs().find((tab) => tab.pane.kind === kind) ?? null;
 	}
 	const activityTab = () => tabForKind("activity");
+	const [mcpData, setMcpData] = createSignal(props.mcpWorkspace.data());
+	onCleanup(
+		props.mcpWorkspace.subscribe(() => setMcpData(props.mcpWorkspace.data())),
+	);
+	createEffect(() => {
+		if (mcpData()) return;
+		const tab = tabForKind("mcp");
+		if (!tab) return;
+		const returnToComposer = shouldReturnToComposerAfterPaneRemoval({
+			focusedSurface: focusedSurface(),
+			activeTabId: activeWorkspaceTab()?.id,
+			closingTabId: tab.id,
+		});
+		workspace.closeSecondary(tab.id);
+		if (returnToComposer) focusComposerSurface();
+	});
 	const [subagentsData, setSubagentsData] = createSignal(
 		props.subagentsWorkspace.data(),
 	);
@@ -515,6 +544,7 @@ function AppShellContent(props: AppShellContentProps) {
 			},
 			onLeave: leaveWorkspaceSurface,
 			runtime: props.runtime,
+			mcpData,
 			attachments: props.attachments,
 			reviewDrafts: props.reviewDrafts,
 			defaultReviewDiffView: () => props.defaultReviewDiffView,
@@ -592,6 +622,14 @@ function AppShellContent(props: AppShellContentProps) {
 		saveScratchpadDraftIfEditing();
 		focusComposerSurface();
 	}
+
+	function openMcpPanel(): void {
+		saveScratchpadDraftIfEditing();
+		workspace.openSecondary({ kind: "mcp" }, { focus: "secondary" });
+		focusSecondarySurface();
+	}
+
+	onCleanup(props.mcpWorkspace.onOpenRequest(openMcpPanel));
 
 	function openReleasesPanel(): void {
 		saveScratchpadDraftIfEditing();
@@ -1246,6 +1284,7 @@ export function AppShell(props: AppShellProps) {
 				copyText={props.copyText}
 				footer={props.footer}
 				header={props.header}
+				mcpWorkspace={props.mcpWorkspace}
 				releasesWorkspace={props.releasesWorkspace}
 				reviewDrafts={props.reviewDrafts}
 				reviewWorkspace={props.reviewWorkspace}

@@ -9,11 +9,16 @@ import { startMcpOAuthCallbackServer } from "./oauth-callback";
 import { loadMcpOAuthStore, saveMcpOAuthStore } from "./oauth-store";
 import { createMcpProxyTool, MCP_PROXY_POLICY } from "./proxy-tool";
 import type { LoadMcpConfigResult } from "./types";
+import type {
+	McpPanelData,
+	McpWorkspaceController,
+} from "./workspace-controller";
 
 export type McpPluginOptions = {
 	interactive?: boolean;
 	onReady?: (ready: Promise<void>) => void;
 	persistState?: boolean;
+	workspace?: McpWorkspaceController;
 };
 
 export function McpPlugin(
@@ -28,6 +33,22 @@ export function McpPlugin(
 	let saveCachePromise = Promise.resolve();
 	let saveAuthPromise = Promise.resolve();
 	let disposed = false;
+	const panelListeners = new Set<() => void>();
+	const panelData: McpPanelData = {
+		getStates: () => manager?.getRuntimeStates() ?? [],
+		getConfig: () => lastConfig,
+		hasOAuthSession: (serverName) =>
+			manager?.hasOAuthSession(serverName) ?? false,
+		subscribeToChanges(listener) {
+			panelListeners.add(listener);
+			return () => panelListeners.delete(listener);
+		},
+	};
+	options.workspace?.setData(panelData);
+
+	function notifyPanelChanged(): void {
+		for (const listener of [...panelListeners]) listener();
+	}
 
 	async function showAuthorizationUrlModal(
 		serverName: string,
@@ -173,6 +194,7 @@ export function McpPlugin(
 		]);
 		if (disposed) return;
 		lastConfig = config;
+		notifyPanelChanged();
 
 		unregisterTool?.();
 		unregisterTool = null;
@@ -186,6 +208,7 @@ export function McpPlugin(
 			onStateChange: () => {
 				if (disposed) return;
 				updateDebugSection();
+				notifyPanelChanged();
 				if (options.persistState !== false) {
 					void persistCache();
 					void persistAuth();
@@ -208,6 +231,7 @@ export function McpPlugin(
 		}
 
 		updateDebugSection();
+		notifyPanelChanged();
 		if (options.persistState !== false) {
 			void Promise.all([persistCache(), persistAuth()]);
 		}
@@ -219,8 +243,9 @@ export function McpPlugin(
 
 	kit.registerCommand(
 		"mcp-status",
-		{ description: "Open a modal showing configured MCP server status" },
+		{ description: "Show configured MCP server status" },
 		async (ctx) => {
+			if (options.workspace?.data() && options.workspace.open()) return;
 			await ctx.ui.custom<void>((props) =>
 				createComponent(McpStatusModal, {
 					surfaceProps: props.surfaceProps,
@@ -297,6 +322,8 @@ export function McpPlugin(
 
 	return async () => {
 		disposed = true;
+		options.workspace?.setData(null);
+		panelListeners.clear();
 		unregisterTool?.();
 		unregisterTool = null;
 		removePolicy?.();

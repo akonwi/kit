@@ -4,6 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
+import { createMcpWorkspaceController } from "../features/mcp";
 import { createReleasesWorkspaceController } from "../features/releases";
 import { createReviewDraftController } from "../features/review/draft-controller";
 import { createReviewWorkspaceController } from "../features/review/workspace-controller";
@@ -73,6 +74,7 @@ type ReadyState = {
 	attachments: ReturnType<typeof createAttachmentsController>;
 	footer: ReturnType<typeof createFooterStatusController>;
 	header: ReturnType<typeof createHeaderStatusController>;
+	mcpWorkspace: ReturnType<typeof createMcpWorkspaceController>;
 	releasesWorkspace: ReturnType<typeof createReleasesWorkspaceController>;
 	reviewDrafts: ReturnType<typeof createReviewDraftController>;
 	reviewWorkspace: ReturnType<typeof createReviewWorkspaceController>;
@@ -113,6 +115,7 @@ export function App(props: AppProps) {
 		const attachments = createAttachmentsController();
 		const footer = createFooterStatusController();
 		const header = createHeaderStatusController();
+		const mcpWorkspace = createMcpWorkspaceController();
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
 		});
@@ -177,6 +180,7 @@ export function App(props: AppProps) {
 		function initializeBuiltInPlugins(): void {
 			builtInPluginManager = new PluginManager(
 				createBuiltInPlugins(pluginContext, {
+					mcpWorkspace,
 					releasesWorkspace,
 					subagentsWorkspace,
 					subagentParentStorage: memorySubagentParentStorage,
@@ -358,6 +362,7 @@ export function App(props: AppProps) {
 			attachments,
 			footer,
 			header,
+			mcpWorkspace,
 			releasesWorkspace,
 			reviewDrafts,
 			reviewWorkspace,
@@ -477,6 +482,7 @@ export function App(props: AppProps) {
 							copyText={props.copyText}
 							footer={current.footer}
 							header={current.header}
+							mcpWorkspace={current.mcpWorkspace}
 							releasesWorkspace={current.releasesWorkspace}
 							reviewDrafts={current.reviewDrafts}
 							reviewWorkspace={current.reviewWorkspace}

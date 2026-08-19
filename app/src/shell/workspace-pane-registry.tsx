@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import { type McpPanelData, McpStatusPanel } from "../features/mcp";
 import { MermaidPreviewPanel } from "../features/mermaid-preview/MermaidPreviewPanel";
 import {
 	ReleaseNotesPanel,
@@ -23,6 +24,7 @@ import type { OpenOverlay } from "./transcript/types";
 export type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
 	| { kind: "mermaid"; source: string }
+	| { kind: "mcp" }
 	| { kind: "review" }
 	| { kind: "releases" }
 	| { kind: "scratchpad" }
@@ -40,6 +42,7 @@ export type WorkspacePaneRenderContext = {
 	onFocusRequest: () => void;
 	onLeave: () => void;
 	runtime: AgentRuntime;
+	mcpData: () => McpPanelData | null;
 	attachments: AttachmentsController;
 	reviewDrafts: ReviewDraftController;
 	defaultReviewDiffView: () => ReviewDiffView;
@@ -114,6 +117,21 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 						variant: "error",
 					})
 				}
+			/>
+		),
+	},
+	mcp: {
+		kind: "mcp",
+		identity: () => "mcp",
+		label: () => "MCP",
+		closable: true,
+		available: (context) => context.mcpData() !== null,
+		render: (_pane, context) => (
+			<McpStatusPanel
+				data={context.mcpData}
+				active={context.active()}
+				onClose={context.onLeave}
+				onFocusRequest={context.onFocusRequest}
 			/>
 		),
 	},

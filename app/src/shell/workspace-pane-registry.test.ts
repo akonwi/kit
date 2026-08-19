@@ -11,6 +11,7 @@ import { createWorkspaceStateController } from "./workspace-state";
 const paneKinds: WorkspacePane["kind"][] = [
 	"activity",
 	"mermaid",
+	"mcp",
 	"review",
 	"releases",
 	"scratchpad",
@@ -32,6 +33,7 @@ describe("workspace pane registry", () => {
 				source: { kind: "single-item", itemId: "one" },
 			}),
 		).toBe("activity");
+		expect(workspacePaneIdentity({ kind: "mcp" })).toBe("mcp");
 		expect(workspacePaneIdentity({ kind: "review" })).toBe("review");
 		expect(workspacePaneIdentity({ kind: "mermaid", source: "graph TD" })).toBe(
 			"mermaid:graph TD",
@@ -75,6 +77,8 @@ describe("workspace pane registry", () => {
 				diagrams,
 			),
 		).toBe("code-reviewer");
+		expect(workspacePaneLabel({ kind: "mcp" }, diagrams)).toBe("MCP");
+		expect(workspacePaneClosable({ kind: "mcp" })).toBeTrue();
 		expect(workspacePaneClosable({ kind: "review" })).toBeFalse();
 		expect(workspacePaneClosable({ kind: "scratchpad" })).toBeFalse();
 		expect(
