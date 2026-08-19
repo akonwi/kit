@@ -693,6 +693,140 @@ test("preserves large Unicode input and browser-owned clipboard shortcuts", asyn
 	expect(diagnostics.failedRequests).toEqual([]);
 });
 
+test("handles browser-owned notifications without prompting automatically", async ({
+	webTuiPage,
+}) => {
+	const { diagnostics, page, url } = webTuiPage;
+	await page.addInitScript(() => {
+		const state = { created: [] as string[], requested: 0 };
+		class TestNotification {
+			static permission: NotificationPermission = "default";
+			static requestPermission(): Promise<NotificationPermission> {
+				state.requested += 1;
+				TestNotification.permission = "granted";
+				return Promise.resolve("granted");
+			}
+			constructor(title: string, options?: NotificationOptions) {
+				state.created.push(`${title}: ${options?.body ?? ""}`);
+			}
+		}
+		Object.defineProperty(window, "Notification", {
+			configurable: true,
+			value: TestNotification,
+		});
+		Object.defineProperty(window, "__kitNotificationTest", { value: state });
+	});
+	await installSocketTracking(page);
+	await page.goto(url);
+	await waitForTerminal(page);
+
+	const dispatchControl = (value: Record<string, unknown>) =>
+		page.evaluate((control) => {
+			const tracking = (
+				window as typeof window & {
+					__kitSocketTracking: { sockets: WebSocket[] };
+				}
+			).__kitSocketTracking;
+			const socket = tracking.sockets.at(-1);
+			if (!socket) throw new Error("No browser-TUI WebSocket for notification");
+			socket.dispatchEvent(
+				new MessageEvent("message", { data: JSON.stringify(control) }),
+			);
+		}, value);
+
+	await dispatchControl({
+		type: "notification",
+		title: "Kit",
+		message: "Agent turn complete",
+	});
+	await expect(page.locator("#notification")).toContainText(
+		"Kit: Agent turn complete",
+	);
+	await expect(page.locator("#notification")).toBeVisible();
+	expect(
+		await page.evaluate(
+			() =>
+				(
+					window as typeof window & {
+						__kitNotificationTest: { created: string[]; requested: number };
+					}
+				).__kitNotificationTest,
+		),
+	).toEqual({ created: [], requested: 0 });
+
+	await expect(page.locator("#enable-notifications")).toBeVisible();
+	await page.locator("#enable-notifications").click();
+	await expect(page.locator("#enable-notifications")).toBeHidden();
+	await page.evaluate(() => {
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "hidden",
+		});
+		Object.defineProperty(document, "hasFocus", {
+			configurable: true,
+			value: () => false,
+		});
+	});
+	await dispatchControl({
+		type: "notification",
+		title: "Kit",
+		message: "Input needed",
+	});
+	await dispatchControl({ type: "bell", kind: "attention" });
+	await expect
+		.poll(() =>
+			page.evaluate(
+				() =>
+					(
+						window as typeof window & {
+							__kitNotificationTest: {
+								created: string[];
+								requested: number;
+							};
+						}
+					).__kitNotificationTest,
+			),
+		)
+		.toEqual({ created: ["Kit: Input needed"], requested: 1 });
+
+	await page.evaluate(() => {
+		Object.defineProperty(document, "visibilityState", {
+			configurable: true,
+			value: "visible",
+		});
+		Object.defineProperty(document, "hasFocus", {
+			configurable: true,
+			value: () => true,
+		});
+		Object.defineProperty(Notification, "permission", {
+			configurable: true,
+			value: "default",
+			writable: true,
+		});
+		Object.defineProperty(Notification, "requestPermission", {
+			configurable: true,
+			value: () => Promise.reject(new Error("permission policy denied")),
+		});
+		const button = document.getElementById("enable-notifications");
+		if (button) button.hidden = false;
+	});
+	const deniedPermissionOffset = (await socketTracking(page)).sent.length;
+	await page.locator("#enable-notifications").click();
+	await expect(page.locator("#enable-notifications")).toBeHidden();
+	await expect(page.locator("#notification")).toContainText(
+		"Browser notification permission unavailable",
+	);
+	await page.keyboard.type("z");
+	await expect
+		.poll(async () =>
+			binaryText((await socketTracking(page)).sent, deniedPermissionOffset),
+		)
+		.toContain("z");
+	expect(diagnostics.consoleErrors).toEqual([]);
+	expect(diagnostics.pageErrors).toEqual([]);
+	expect(diagnostics.failedRequests).toEqual([]);
+});
+
 test("reconnects after network loss and reloads without duplicate browser state", async ({
 	webTuiPage,
 }) => {

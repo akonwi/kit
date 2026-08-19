@@ -234,6 +234,34 @@ export class WebTuiServer {
 		if (socket) this.sendTheme(socket);
 	}
 
+	notify(message: string, title = "Kit"): boolean {
+		const socket = this.activeSocket;
+		if (!socket?.data.client) return false;
+		const safeTitle = title.trim().slice(0, 100) || "Kit";
+		const safeMessage = message.trim().slice(0, 500);
+		if (!safeMessage) return false;
+		return this.send(
+			socket,
+			JSON.stringify({
+				type: "notification",
+				title: safeTitle,
+				message: safeMessage,
+			}),
+		);
+	}
+
+	bell(isError: boolean): void {
+		const socket = this.activeSocket;
+		if (!socket?.data.client) return;
+		this.send(
+			socket,
+			JSON.stringify({
+				type: "bell",
+				kind: isError ? "error" : "attention",
+			}),
+		);
+	}
+
 	copyText(text: string): Promise<void> {
 		const byteLength = new TextEncoder().encode(text).byteLength;
 		if (byteLength > MAX_BROWSER_CLIPBOARD_BYTES) {
@@ -500,12 +528,12 @@ export class WebTuiServer {
 	private send(
 		socket: ServerWebSocket<WebSocketData>,
 		data: string | Uint8Array,
-	): void {
-		if (socket.readyState !== WebSocket.OPEN) return;
+	): boolean {
+		if (socket.readyState !== WebSocket.OPEN) return false;
 		try {
 			// Bun returns -1 when the frame was accepted under backpressure and 0
 			// only when it was dropped. The configured limit owns hard failure.
-			if (socket.send(data) !== 0) return;
+			if (socket.send(data) !== 0) return true;
 		} catch (error) {
 			console.error(
 				`Web TUI send failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -515,6 +543,7 @@ export class WebTuiServer {
 		this.clients.delete(socket);
 		if (this.activeSocket === socket) this.activeSocket = null;
 		socket.terminate();
+		return false;
 	}
 
 	private releaseSocket(socket: ServerWebSocket<WebSocketData>): void {

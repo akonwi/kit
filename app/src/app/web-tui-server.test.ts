@@ -308,6 +308,33 @@ describe("WebTuiServer WebSocket", () => {
 		socket.close();
 	});
 
+	test("routes bounded notifications and bells only to the active browser", async () => {
+		const host = recordingHost();
+		const { server, wsUrl, origin } = startServer(host);
+		expect(server.notify("before init")).toBe(false);
+		server.bell(false);
+
+		const socket = await openSocket(wsUrl, { headers: { origin } });
+		const messages: unknown[] = [];
+		socket.addEventListener("message", (event) => {
+			if (typeof event.data === "string") messages.push(JSON.parse(event.data));
+		});
+		socket.send(initControl(80, 24));
+		await waitFor(() => host.log.attached.length === 1);
+		expect(server.notify(" Agent turn complete ", " Kit ")).toBe(true);
+		server.bell(true);
+		await waitFor(() => messages.length === 2);
+		expect(messages).toEqual([
+			{
+				type: "notification",
+				title: "Kit",
+				message: "Agent turn complete",
+			},
+			{ type: "bell", kind: "error" },
+		]);
+		socket.close();
+	});
+
 	test("routes clipboard writes to the active browser and waits for acknowledgement", async () => {
 		const host = recordingHost();
 		const { server, wsUrl, origin } = startServer(host);

@@ -10,6 +10,7 @@ function notifyTurnComplete(kit: InternalPluginAPI, turn: Turn | null): void {
 	);
 	ringBell(isError, {
 		notify: kit.system.notify,
+		bell: kit.system.bell,
 		title: "Kit",
 		message: isError ? "Agent turn failed" : "Agent turn complete",
 	});

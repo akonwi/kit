@@ -38,6 +38,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 - One authoritative session/runtime owner
 - Kit-owned browser keyboard normalization for Escape, Ctrl combinations, navigation, function keys, Linux Alt prefixes, and macOS Option/composition
 - Browser-owned copy/paste shortcuts with explicit Canvas-selection copying, browser-routed whole-message Markdown copying, bracketed paste, Unicode preservation, and bounded input frames
+- Browser-owned in-page notifications, opt-in Web Notifications, and user-gesture-unlocked bell audio without host `/dev/tty` or `afplay` effects
 - Kit-owned SGR mouse encoding for click, release, drag, all-motion, and wheel events, with Shift-selection bypass and CSS-space DPR-safe coordinates
 - Focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
 - Resize and reconnect with full repaint
@@ -60,12 +61,13 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - resize reflow
   - suspend/resume reconnect repaint
   - orderly SIGINT/SIGTERM shutdown, exact `130`/`143` exit codes, and immediate server-port release
-- Automated Playwright coverage against the compiled binary: Chromium and Firefox on Linux, plus WebKit on macOS (15 tests total):
+- Automated Playwright coverage against the compiled binary: Chromium and Firefox on Linux, plus WebKit on macOS (18 tests total):
   - real ghostty-web/WASM startup with first-party CSP and asset checks
   - meaningful Canvas frames with exact custom-theme pixels and no hardcoded dark background
   - browser CSS variables and light `color-scheme`
   - exact Escape, Ctrl+C, navigation, platform Alt/Option, SGR left/right click/release/move/wheel, and resize WebSocket frames
   - Canvas selection bypass and clipboard content, bracketed Unicode paste chunking, synthetic IME completion, and DPR 1/2 coordinate parity
+  - focused and hidden browser notifications, explicit permission prompting, denied-permission focus restoration, and bell controls
   - forced WebSocket reconnect and page reload with verified full repaint and no duplicate Canvas or textarea state
   - protocol-version rejection before active-client promotion so stale browser bundles cannot silently drop controls or evict a compatible client
   - no failed requests, browser console errors, or page errors
@@ -79,6 +81,12 @@ The browser TUI targets macOS and Linux desktops. Linux Alt+printable keys use t
 Input uses deterministic legacy terminal sequences. This covers Kit's control-letter, navigation, function-key, mouse, paste, and selection workflows, but cannot represent every modified key, key release, or browser-reserved shortcut. Cmd/Ctrl shortcuts owned by browser chrome remain unavailable. Kitty keyboard mode stays disabled until Kit can track negotiated Kitty flags and encode them consistently.
 
 Playwright's macOS WebKit build is not the installed Safari application, and synthetic composition does not replace native OS IME validation. Actual Safari, macOS dead-key/IME, and Linux desktop IME behavior remain a short manual release checklist. Windows is not in the supported browser-TUI matrix. The semantic web app remains the supported mobile and touch interface.
+
+## Browser notifications
+
+Browser-TUI notification and bell effects are explicit host capabilities. Local terminal mode retains BEL, terminal notifications, and the macOS error sound; browser-TUI mode sends bounded controls only to the active initialized browser and drops them while disconnected. This prevents the server workstation from ringing or displaying completion notifications for a remote browser session.
+
+Every notification appears briefly in browser-owned chrome while the page is focused. Web Notifications are created only while hidden/unfocused and only after the user explicitly selects **Enable notifications**; Kit never prompts automatically. Bell audio is local to the browser and remains silent until a pointer or keyboard gesture unlocks Web Audio. Permission denial or policy failure leaves the in-page indicator available and restores terminal focus.
 
 ## Hosting boundary
 
@@ -133,7 +141,6 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 - Single active browser terminal only. Multiple independent clients require one renderer and geometry per client over a shared session host.
 - Canvas is poor for accessibility and browser-native find compared with DOM. It cannot replace the SPA's semantic message and form structure.
 - The browser TUI is desktop-focused; the semantic web app owns mobile/touch, native uploads, and mobile-specific layout.
-- Terminal bell and notification paths still target terminal or host integrations rather than explicit browser behavior.
 - `--model` is not accepted in this mode; select the model inside the TUI.
 - Actual Safari and native macOS/Linux IME remain manual compatibility checks; browser-reserved shortcuts are documented limitations.
 - Browser input currently uses deterministic legacy key sequences. Kitty keyboard mode remains disabled until the adapter tracks Kitty protocol flags.

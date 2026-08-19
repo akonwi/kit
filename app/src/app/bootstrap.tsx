@@ -8,6 +8,7 @@ import {
 } from "@opentui/core";
 import { KeymapProvider } from "@opentui/keymap/solid";
 import { render } from "@opentui/solid";
+import { ringLocalBell } from "../features/notifications/notifications";
 import { createKitKeymap } from "../keymap/setup";
 import { safeProcessCwd } from "../process-cwd";
 import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
@@ -45,6 +46,8 @@ export type BootstrapTerminal = {
 		renderer: Awaited<ReturnType<typeof createCliRenderer>>,
 	) => void;
 	copyText?: (text: string) => Promise<void>;
+	notify?: (message: string, title?: string) => boolean;
+	bell?: (isError: boolean) => void;
 };
 
 async function loadSession(opts?: BootstrapOpts): Promise<Session> {
@@ -276,8 +279,10 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 								setTerminalProgress(active ? "indeterminate" : "remove");
 							}}
 							triggerNotification={(message, title) =>
+								opts?.terminal?.notify?.(message, title) ??
 								renderer.triggerNotification(message, title)
 							}
+							triggerBell={opts?.terminal?.bell ?? ringLocalBell}
 							copyText={opts?.terminal?.copyText ?? copyToClipboard}
 							quitAndDestroy={quitAndDestroy}
 							registerDispose={(dispose) => {

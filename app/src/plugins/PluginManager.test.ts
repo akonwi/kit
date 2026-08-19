@@ -66,6 +66,7 @@ function createPluginContext(
 			subscribe: () => () => {},
 		},
 		triggerNotification: () => false,
+		triggerBell: () => {},
 	};
 }
 

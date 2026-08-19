@@ -49,6 +49,7 @@ export type AppProps = {
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 	setTerminalTurnActive: (active: boolean) => void;
 	triggerNotification: (message: string, title?: string) => boolean;
+	triggerBell: (isError: boolean) => void;
 	copyText: (text: string) => Promise<void>;
 	quitAndDestroy: () => void;
 	registerDispose?: (dispose: () => void | Promise<void>) => void;
@@ -142,6 +143,7 @@ export function App(props: AppProps) {
 			footer,
 			header,
 			triggerNotification: props.triggerNotification,
+			triggerBell: props.triggerBell,
 		};
 		let pluginLoadGeneration = 0;
 		let builtInReloadGeneration = 0;

@@ -1,7 +1,11 @@
 import { FitAddon, Ghostty, Terminal } from "ghostty-web";
 import {
+	type BrowserBell,
 	type BrowserClipboardWrite,
+	type BrowserNotification,
+	parseBrowserBell,
 	parseBrowserClipboardWrite,
+	parseBrowserNotification,
 	WEB_TUI_PROTOCOL_VERSION,
 } from "./browser-actions";
 import {
@@ -28,6 +32,108 @@ function showStatus(text: string): void {
 function hideStatus(): void {
 	const status = statusElement();
 	if (status) status.hidden = true;
+}
+
+let notificationTimer: number | null = null;
+let audioContext: AudioContext | null = null;
+
+function showInPageNotification(notification: BrowserNotification): void {
+	const element = document.getElementById("notification");
+	if (!element) return;
+	element.textContent = `${notification.title}: ${notification.message}`;
+	element.hidden = false;
+	if (notificationTimer !== null) window.clearTimeout(notificationTimer);
+	notificationTimer = window.setTimeout(() => {
+		notificationTimer = null;
+		element.hidden = true;
+	}, 5_000);
+}
+
+function deliverBrowserNotification(notification: BrowserNotification): void {
+	showInPageNotification(notification);
+	const permissionButton = document.getElementById("enable-notifications");
+	if (
+		permissionButton &&
+		"Notification" in window &&
+		Notification.permission === "default"
+	) {
+		permissionButton.hidden = false;
+	}
+	if (
+		"Notification" in window &&
+		Notification.permission === "granted" &&
+		(document.visibilityState === "hidden" || !document.hasFocus())
+	) {
+		try {
+			new Notification(notification.title, {
+				body: notification.message,
+				tag: "kit-browser-tui",
+			});
+		} catch {
+			// The in-page notification remains available if the browser rejects it.
+		}
+	}
+}
+
+function playBrowserBell(bell: BrowserBell): void {
+	if (!audioContext || audioContext.state !== "running") return;
+	const oscillator = audioContext.createOscillator();
+	const gain = audioContext.createGain();
+	const now = audioContext.currentTime;
+	oscillator.type = "sine";
+	oscillator.frequency.value = bell.kind === "error" ? 220 : 660;
+	gain.gain.setValueAtTime(0.025, now);
+	gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.08);
+	oscillator.connect(gain);
+	gain.connect(audioContext.destination);
+	oscillator.start(now);
+	oscillator.stop(now + 0.08);
+}
+
+function setupBrowserNotifications(focusTerminal: () => void): void {
+	const button = document.getElementById(
+		"enable-notifications",
+	) as HTMLButtonElement | null;
+	if (button && "Notification" in window) {
+		button.hidden = true;
+		button.addEventListener("click", () => {
+			void (async () => {
+				let message = "Browser notification permission unavailable";
+				try {
+					const permission = await Notification.requestPermission();
+					button.hidden = permission !== "default";
+					message =
+						permission === "granted"
+							? "Browser notifications enabled"
+							: "Browser notifications remain disabled";
+				} catch {
+					button.hidden = true;
+				} finally {
+					showInPageNotification({
+						type: "notification",
+						title: "Kit",
+						message,
+					});
+					focusTerminal();
+				}
+			})();
+		});
+	}
+
+	const unlockAudio = () => {
+		if (!audioContext && "AudioContext" in window) {
+			audioContext = new AudioContext();
+		}
+		if (audioContext?.state === "suspended") void audioContext.resume();
+	};
+	window.addEventListener("pointerdown", unlockAudio, {
+		capture: true,
+		once: true,
+	});
+	window.addEventListener("keydown", unlockAudio, {
+		capture: true,
+		once: true,
+	});
 }
 
 function webSocketUrl(): string {
@@ -133,7 +239,17 @@ class TuiConnection {
 					return;
 				}
 				const clipboard = parseBrowserClipboardWrite(event.data);
-				if (clipboard) void this.writeClipboard(socket, clipboard);
+				if (clipboard) {
+					this.writeClipboard(socket, clipboard);
+					return;
+				}
+				const notification = parseBrowserNotification(event.data);
+				if (notification) {
+					deliverBrowserNotification(notification);
+					return;
+				}
+				const bell = parseBrowserBell(event.data);
+				if (bell) playBrowserBell(bell);
 			}
 		});
 		socket.addEventListener("close", (event) => {
@@ -247,6 +363,7 @@ async function main(): Promise<void> {
 	fit.fit();
 	const protocol = new TerminalProtocolState();
 	const connection = new TuiConnection(terminal, fit, protocol);
+	setupBrowserNotifications(() => terminal.focus());
 	new BrowserTerminalInput({
 		root: element,
 		protocol,

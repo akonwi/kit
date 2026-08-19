@@ -70,6 +70,8 @@ export async function runWebTuiMode(
 					terminal: {
 						...bridge.terminal,
 						copyText: (text) => server.copyText(text),
+						notify: (message, title) => server.notify(message, title),
+						bell: (isError) => server.bell(isError),
 					},
 				}),
 			)
