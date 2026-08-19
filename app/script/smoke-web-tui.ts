@@ -2,7 +2,7 @@
 /**
  * Smoke test for the experimental browser TUI mode (ghostty-web experiment).
  *
- * Boots `kit --web --experimental-tui` with an ephemeral session, then acts as
+ * Boots `kit --web-tui` with an ephemeral session, then acts as
  * the browser terminal over the real WebSocket protocol: init, streamed ANSI
  * output, keyboard input, resize, and reconnect. Asserts the hosted OpenTUI
  * application produces genuine terminal frames (alternate screen, repaints)
@@ -75,7 +75,7 @@ async function connect(): Promise<Connection> {
 	};
 }
 
-console.log(`Starting kit --web --experimental-tui on port ${port}...`);
+console.log(`Starting kit --web-tui on port ${port}...`);
 const smokeBinary = process.env.KIT_WEB_TUI_SMOKE_BIN;
 const spawnServer = () =>
 	Bun.spawn({
@@ -83,8 +83,7 @@ const spawnServer = () =>
 			...(smokeBinary
 				? [path.resolve(dir, smokeBinary)]
 				: ["bun", "--preload=@opentui/solid/preload", "src/app/main.tsx"]),
-			"--web",
-			"--experimental-tui",
+			"--web-tui",
 			"--no-session",
 			"--port",
 			String(port),

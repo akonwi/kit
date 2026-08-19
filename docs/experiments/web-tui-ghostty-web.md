@@ -11,8 +11,8 @@ Expose Kit's existing OpenTUI interface in a browser without rebuilding it in th
 Run:
 
 ```bash
-kit --web --experimental-tui
-kit --web --experimental-tui --model provider/model-id
+kit --web-tui
+kit --web-tui --model provider/model-id
 ```
 
 Normal `kit --web` behavior is unchanged. The experimental mode has one runtime owner:
@@ -54,7 +54,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 742 passing
+- `bun test`: 743 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets

@@ -22,6 +22,7 @@ const { positionals, values } = parseArgs({
 		session: { type: "string", short: "s" },
 		version: { type: "boolean", short: "v" },
 		web: { type: "boolean" },
+		"web-tui": { type: "boolean" },
 	},
 	strict: false,
 	allowPositionals: true,
@@ -37,11 +38,14 @@ const hasWebOnlyOptions =
 	values.port !== undefined ||
 	values["public-url"] !== undefined ||
 	values["allow-host"] !== undefined ||
-	values["allow-origin"] !== undefined ||
-	values["experimental-tui"] !== undefined;
-const selectedModes = [values.print, values.rpc, values.web].filter(
-	(value) => value === true,
-).length;
+	values["allow-origin"] !== undefined;
+const selectedModes = [
+	values.print,
+	values.rpc,
+	values.web,
+	values["web-tui"],
+].filter((value) => value === true).length;
+const webModeFlag = values["web-tui"] === true ? "--web-tui" : "--web";
 
 async function readPipedStdin(): Promise<string | undefined> {
 	if (process.stdin.isTTY) return undefined;
@@ -81,12 +85,19 @@ function parseBasicAuth(value: unknown):
 }
 
 if (values.mode !== undefined) {
-	console.error("--mode is no longer supported; use --web or --rpc");
+	console.error(
+		"--mode is no longer supported; use --web, --web-tui, or --rpc",
+	);
+	process.exitCode = 1;
+} else if (values["experimental-tui"] === true) {
+	console.error("--experimental-tui is no longer supported; use --web-tui");
 	process.exitCode = 1;
 } else if (selectedModes > 1) {
-	console.error("kit --print, --rpc, and --web are mutually exclusive");
+	console.error(
+		"kit --print, --rpc, --web, and --web-tui are mutually exclusive",
+	);
 	process.exitCode = 1;
-} else if (values.web === true) {
+} else if (values.web === true || values["web-tui"] === true) {
 	const basicAuth =
 		values.auth === undefined ? undefined : parseBasicAuth(values.auth);
 	const port =
@@ -102,36 +113,40 @@ if (values.mode !== undefined) {
 		(positionals.length > 0 && !hasOnlyNewSessionPositional)
 	) {
 		console.error(
-			"kit --web cannot be combined with --version or positional arguments other than new",
+			`kit ${webModeFlag} cannot be combined with --version or positional arguments other than new`,
 		);
 		process.exitCode = 1;
 	} else if (selectsNewSession && values.session) {
-		console.error("kit new --web cannot combine with --session");
+		console.error(`kit new ${webModeFlag} cannot combine with --session`);
 		process.exitCode = 1;
 	} else if (values["no-session"] && values.session) {
-		console.error("kit --web cannot combine --no-session with --session");
+		console.error(
+			`kit ${webModeFlag} cannot combine --no-session with --session`,
+		);
 		process.exitCode = 1;
 	} else if (values.auth !== undefined && !basicAuth) {
-		console.error("kit --web --auth expects <username>:<password>");
+		console.error(`kit ${webModeFlag} --auth expects <username>:<password>`);
 		process.exitCode = 1;
 	} else if (values["public-url"] !== undefined && !publicUrl) {
 		console.error(
-			"kit --web --public-url expects an HTTP(S) origin without a path, query, credentials, or fragment",
+			`kit ${webModeFlag} --public-url expects an HTTP(S) origin without a path, query, credentials, or fragment`,
 		);
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
 		!isValidModelSelector(values.model)
 	) {
-		console.error("kit --web --model expects <provider>/<model-id>");
+		console.error(`kit ${webModeFlag} --model expects <provider>/<model-id>`);
 		process.exitCode = 1;
 	} else if (
 		values.port !== undefined &&
 		(port === undefined || port < 1 || port > 65535)
 	) {
-		console.error("kit --web --port expects an integer from 1 to 65535");
+		console.error(
+			`kit ${webModeFlag} --port expects an integer from 1 to 65535`,
+		);
 		process.exitCode = 1;
-	} else if (values["experimental-tui"] === true) {
+	} else if (values["web-tui"] === true) {
 		const { runWebTuiMode } = await import("./web-tui-mode");
 		process.exitCode = await runWebTuiMode({
 			allowedHosts: Array.isArray(values["allow-host"])
@@ -181,7 +196,7 @@ if (values.mode !== undefined) {
 	}
 } else if (hasWebOnlyOptions) {
 	console.error(
-		"--auth, --host, --port, --public-url, --allow-host, --allow-origin, and --experimental-tui require --web",
+		"--auth, --host, --port, --public-url, --allow-host, and --allow-origin require --web or --web-tui",
 	);
 	process.exitCode = 1;
 } else if (values.rpc === true) {

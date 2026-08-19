@@ -118,8 +118,7 @@ export const test = base.extend<WebTuiFixtures>({
 			child = spawn(
 				binary,
 				[
-					"--web",
-					"--experimental-tui",
+					"--web-tui",
 					"--no-session",
 					"--port",
 					String(port),

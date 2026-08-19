@@ -1,5 +1,5 @@
 /**
- * Experimental `kit --web --experimental-tui` mode (ghostty-web experiment).
+ * Experimental `kit --web-tui` mode (ghostty-web experiment).
  *
  * Hosts Kit's real OpenTUI application in-process against virtual terminal
  * streams and exposes it to a browser terminal (ghostty-web + Ghostty WASM) over a
@@ -162,7 +162,7 @@ export async function runWebTuiMode(
 		if (appFailed) exitCode = 1;
 	} catch (error) {
 		console.error(
-			`kit --web --experimental-tui failed: ${error instanceof Error ? error.message : String(error)}`,
+			`kit --web-tui failed: ${error instanceof Error ? error.message : String(error)}`,
 		);
 		exitCode = 1;
 	} finally {

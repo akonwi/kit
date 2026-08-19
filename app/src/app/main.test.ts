@@ -129,10 +129,9 @@ describe("web mode CLI", () => {
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
 	});
 
-	test("accepts a startup model selector for the experimental browser TUI", async () => {
+	test("accepts a startup model selector for the browser TUI", async () => {
 		const result = await runMain([
-			"--web",
-			"--experimental-tui",
+			"--web-tui",
 			"--model",
 			"openai/gpt-5.5",
 			"--port",
@@ -143,6 +142,14 @@ describe("web mode CLI", () => {
 			"--port expects an integer from 1 to 65535",
 		);
 		expect(result.stderr).not.toContain("does not support --model");
+	});
+
+	test("directs the old experimental flag to --web-tui", async () => {
+		const result = await runMain(["--web", "--experimental-tui"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain(
+			"--experimental-tui is no longer supported; use --web-tui",
+		);
 	});
 });
 
@@ -163,6 +170,8 @@ describe("mode selection", () => {
 			runMain(["--print", "--rpc", "hello"]),
 			runMain(["--print", "--web", "hello"]),
 			runMain(["--rpc", "--web"]),
+			runMain(["--rpc", "--web-tui"]),
+			runMain(["--web", "--web-tui"]),
 		]);
 		for (const result of results) {
 			expect(result.exitCode).toBe(1);
