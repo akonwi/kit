@@ -1,7 +1,16 @@
-import type { Page } from "@playwright/test";
+import type { Browser, Page } from "@playwright/test";
 import { expect, test } from "./web-tui.fixture";
 
-type WebSocketFrame = { opcode: number; payloadData: string };
+type TrackedFrame =
+	| { kind: "binary"; bytes: number[] }
+	| { kind: "text"; text: string };
+
+type SocketTrackingSnapshot = {
+	receivedBytes: number;
+	sent: TrackedFrame[];
+	socketCount: number;
+};
+
 type TerminalSizeControl = {
 	type: "init" | "resize";
 	cols: number;
@@ -27,36 +36,107 @@ async function waitForTerminal(page: Page): Promise<void> {
 		.toBe("#fdf6e3");
 }
 
-function binaryText(frames: WebSocketFrame[], offset = 0): string {
+async function installSocketTracking(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		type BrowserTrackedFrame =
+			| { kind: "binary"; bytes: number[] }
+			| { kind: "text"; text: string };
+		type BrowserSocketTracking = {
+			receivedBytes: number;
+			sent: BrowserTrackedFrame[];
+			sockets: WebSocket[];
+		};
+		const tracking: BrowserSocketTracking = {
+			receivedBytes: 0,
+			sent: [],
+			sockets: [],
+		};
+		const OriginalWebSocket = window.WebSocket;
+		window.WebSocket = new Proxy(OriginalWebSocket, {
+			construct(target, args, newTarget) {
+				const socket = Reflect.construct(target, args, newTarget) as WebSocket;
+				tracking.sockets.push(socket);
+				const originalSend = socket.send.bind(socket);
+				socket.send = ((
+					data: string | ArrayBufferLike | Blob | ArrayBufferView,
+				) => {
+					if (typeof data === "string") {
+						tracking.sent.push({ kind: "text", text: data });
+					} else if (data instanceof ArrayBuffer) {
+						tracking.sent.push({
+							kind: "binary",
+							bytes: Array.from(new Uint8Array(data)),
+						});
+					} else if (ArrayBuffer.isView(data)) {
+						tracking.sent.push({
+							kind: "binary",
+							bytes: Array.from(
+								new Uint8Array(data.buffer, data.byteOffset, data.byteLength),
+							),
+						});
+					}
+					originalSend(data);
+				}) as typeof socket.send;
+				socket.addEventListener("message", (event) => {
+					if (event.data instanceof ArrayBuffer) {
+						tracking.receivedBytes += event.data.byteLength;
+					} else if (event.data instanceof Blob) {
+						tracking.receivedBytes += event.data.size;
+					}
+				});
+				return socket;
+			},
+		});
+		Object.defineProperty(window, "__kitSocketTracking", {
+			value: tracking,
+		});
+	});
+}
+
+async function socketTracking(page: Page): Promise<SocketTrackingSnapshot> {
+	return page.evaluate(() => {
+		const tracking = (
+			window as typeof window & {
+				__kitSocketTracking: {
+					receivedBytes: number;
+					sent: TrackedFrame[];
+					sockets: WebSocket[];
+				};
+			}
+		).__kitSocketTracking;
+		return {
+			receivedBytes: tracking.receivedBytes,
+			sent: tracking.sent,
+			socketCount: tracking.sockets.length,
+		};
+	});
+}
+
+function binaryText(frames: TrackedFrame[], offset = 0): string {
 	return Buffer.concat(
 		frames
 			.slice(offset)
-			.filter((frame) => frame.opcode === 2)
-			.map((frame) => Buffer.from(frame.payloadData, "base64")),
+			.filter(
+				(frame): frame is Extract<TrackedFrame, { kind: "binary" }> =>
+					frame.kind === "binary",
+			)
+			.map((frame) => Buffer.from(frame.bytes)),
 	).toString("utf8");
 }
 
-function binaryBytes(frames: WebSocketFrame[], offset = 0): number {
-	return frames
-		.slice(offset)
-		.filter((frame) => frame.opcode === 2)
-		.reduce(
-			(total, frame) =>
-				total + Buffer.from(frame.payloadData, "base64").byteLength,
-			0,
-		);
-}
-
 function terminalSizeControls(
-	frames: WebSocketFrame[],
+	frames: TrackedFrame[],
 	offset = 0,
 ): TerminalSizeControl[] {
 	return frames
 		.slice(offset)
-		.filter((frame) => frame.opcode === 1)
+		.filter(
+			(frame): frame is Extract<TrackedFrame, { kind: "text" }> =>
+				frame.kind === "text",
+		)
 		.flatMap((frame) => {
 			try {
-				const value = JSON.parse(frame.payloadData) as Record<string, unknown>;
+				const value = JSON.parse(frame.text) as Record<string, unknown>;
 				if (
 					(value.type === "init" || value.type === "resize") &&
 					typeof value.cols === "number" &&
@@ -69,7 +149,54 @@ function terminalSizeControls(
 		});
 }
 
+async function clickCellAtDeviceScale(
+	browser: Browser,
+	url: string,
+	deviceScaleFactor: number,
+): Promise<{ column: number; row: number; backingScale: number }> {
+	const context = await browser.newContext({
+		deviceScaleFactor,
+		viewport: { width: 1_000, height: 700 },
+	});
+	const page = await context.newPage();
+	try {
+		await installSocketTracking(page);
+		await page.goto(url);
+		await waitForTerminal(page);
+		const canvas = page.locator("#terminal canvas");
+		const bounds = await canvas.boundingBox();
+		if (!bounds) throw new Error("Terminal Canvas has no bounds");
+		const offset = (await socketTracking(page)).sent.length;
+		await page.mouse.click(
+			bounds.x + bounds.width * 0.37,
+			bounds.y + bounds.height * 0.41,
+		);
+		const sgrPrefix = `${String.fromCharCode(27)}\\[<`;
+		let match: RegExpMatchArray | null = null;
+		await expect
+			.poll(async () => {
+				match = binaryText((await socketTracking(page)).sent, offset).match(
+					new RegExp(`${sgrPrefix}0;(\\d+);(\\d+)M`),
+				);
+				return match !== null;
+			})
+			.toBe(true);
+		if (!match) throw new Error("Terminal click did not produce an SGR cell");
+		const backingWidth = await canvas.evaluate(
+			(element) => (element as HTMLCanvasElement).width,
+		);
+		return {
+			column: Number(match[1]),
+			row: Number(match[2]),
+			backingScale: backingWidth / bounds.width,
+		};
+	} finally {
+		await context.close();
+	}
+}
+
 test("boots the compiled ghostty client and renders the custom theme", async ({
+	browserName,
 	webTuiPage,
 }) => {
 	const { diagnostics, page, server, url } = webTuiPage;
@@ -166,69 +293,104 @@ test("boots the compiled ghostty client and renders the custom theme", async ({
 	expect(diagnostics.consoleErrors).toEqual([]);
 	expect(diagnostics.pageErrors).toEqual([]);
 	expect(diagnostics.failedRequests).toEqual([]);
-	const crossOriginProbe = `http://localhost:${server.port}/api/health`;
-	const externalConnectionBlocked = await page.evaluate(async (probe) => {
-		try {
-			await fetch(probe);
-			return false;
-		} catch {
-			return true;
-		}
-	}, crossOriginProbe);
-	expect(externalConnectionBlocked).toBe(true);
-	await expect
-		.poll(() =>
-			diagnostics.consoleErrors.some(
-				(message) =>
-					message.includes("Content Security Policy") &&
-					message.includes(crossOriginProbe),
-			),
-		)
-		.toBe(true);
+	if (browserName === "chromium") {
+		const crossOriginProbe = `http://localhost:${server.port}/api/health`;
+		const externalConnectionBlocked = await page.evaluate(async (probe) => {
+			try {
+				await fetch(probe);
+				return false;
+			} catch {
+				return true;
+			}
+		}, crossOriginProbe);
+		expect(externalConnectionBlocked).toBe(true);
+		await expect
+			.poll(() =>
+				diagnostics.consoleErrors.some(
+					(message) =>
+						message.includes("Content Security Policy") &&
+						message.includes(crossOriginProbe),
+				),
+			)
+			.toBe(true);
+	}
 });
 
 test("encodes keyboard, mouse, wheel, and resize through the real browser", async ({
+	browserName,
 	webTuiPage,
 }) => {
 	const { diagnostics, page, server, url } = webTuiPage;
-	const cdp = await page.context().newCDPSession(page);
-	await cdp.send("Network.enable");
-	const sentFrames: WebSocketFrame[] = [];
-	const receivedFrames: WebSocketFrame[] = [];
-	cdp.on("Network.webSocketFrameSent", (event: { response: WebSocketFrame }) =>
-		sentFrames.push(event.response),
-	);
-	cdp.on(
-		"Network.webSocketFrameReceived",
-		(event: { response: WebSocketFrame }) =>
-			receivedFrames.push(event.response),
-	);
+	await installSocketTracking(page);
+	await page.addInitScript(() => {
+		window.addEventListener(
+			"keydown",
+			(event) => {
+				if (event.altKey) {
+					Object.defineProperty(window, "__kitLastAltKey", {
+						configurable: true,
+						value: event.key,
+					});
+				}
+			},
+			true,
+		);
+	});
 	await page.goto(url);
 	await waitForTerminal(page);
 
-	const keyboardOffset = sentFrames.length;
+	const browserUsesMacKeys = await page.evaluate(() => {
+		const navigatorWithData = navigator as Navigator & {
+			userAgentData?: { platform?: string };
+		};
+		return /mac|iphone|ipad|ipod/i.test(
+			navigatorWithData.userAgentData?.platform ?? navigator.platform,
+		);
+	});
+	const altOffset = (await socketTracking(page)).sent.length;
+	await page.keyboard.press("Alt+a");
+	await page.waitForTimeout(100);
+	const altText = binaryText((await socketTracking(page)).sent, altOffset);
+	if (browserUsesMacKeys) {
+		const producedKey = await page.evaluate(
+			() =>
+				(window as typeof window & { __kitLastAltKey?: string })
+					.__kitLastAltKey,
+		);
+		expect(producedKey).toBeTruthy();
+		expect(altText).toBe(producedKey === "Dead" ? "" : producedKey);
+	} else {
+		expect(altText).toContain("\x1ba");
+	}
+
+	// Prevent Escape from taking the empty-composer quit path while its bytes
+	// are inspected across engines.
+	await page.keyboard.type("keep alive");
+	await page.waitForTimeout(100);
+	const keyboardOffset = (await socketTracking(page)).sent.length;
 	await page.keyboard.press("Escape");
 	await page.keyboard.press("ArrowUp");
 	await expect
-		.poll(() => binaryText(sentFrames, keyboardOffset))
+		.poll(async () =>
+			binaryText((await socketTracking(page)).sent, keyboardOffset),
+		)
 		.toContain("\x1b");
 	await expect
-		.poll(() => binaryText(sentFrames, keyboardOffset))
+		.poll(async () =>
+			binaryText((await socketTracking(page)).sent, keyboardOffset),
+		)
 		.toContain("\x1b[A");
 
 	const canvas = page.locator("#terminal canvas");
 	const bounds = await canvas.boundingBox();
 	if (!bounds) throw new Error("Terminal Canvas has no bounds");
-	const mouseOffset = sentFrames.length;
+	const mouseOffset = (await socketTracking(page)).sent.length;
 	const x = bounds.x + bounds.width / 2;
 	const y = bounds.y + bounds.height / 2;
 	await page.mouse.move(x - 10, y - 5);
 	await page.mouse.down();
 	await page.mouse.move(x + 10, y + 5);
 	await page.mouse.up();
-	// Dispatch a browser WheelEvent directly on the terminal surface; Chromium's
-	// headless native wheel routing targets the page after ghostty focuses its
-	// hidden textarea and does not deterministically exercise this adapter.
 	await canvas.dispatchEvent("wheel", {
 		bubbles: true,
 		cancelable: true,
@@ -237,41 +399,93 @@ test("encodes keyboard, mouse, wheel, and resize through the real browser", asyn
 		deltaY: 100,
 	});
 	const sgrPrefix = `${String.fromCharCode(27)}\\[<`;
-	await expect
-		.poll(() => binaryText(sentFrames, mouseOffset))
-		.toMatch(new RegExp(`${sgrPrefix}0;\\d+;\\d+M`));
-	await expect
-		.poll(() => binaryText(sentFrames, mouseOffset))
-		.toMatch(new RegExp(`${sgrPrefix}0;\\d+;\\d+m`));
-	await expect
-		.poll(() => binaryText(sentFrames, mouseOffset))
-		.toMatch(new RegExp(`${sgrPrefix}(?:32|35);\\d+;\\d+M`));
-	await expect
-		.poll(() => binaryText(sentFrames, mouseOffset))
-		.toMatch(new RegExp(`${sgrPrefix}65;\\d+;\\d+M`));
+	for (const pattern of [
+		new RegExp(`${sgrPrefix}0;\\d+;\\d+M`),
+		new RegExp(`${sgrPrefix}0;\\d+;\\d+m`),
+		new RegExp(`${sgrPrefix}(?:32|35);\\d+;\\d+M`),
+		new RegExp(`${sgrPrefix}65;\\d+;\\d+M`),
+	]) {
+		await expect
+			.poll(async () =>
+				binaryText((await socketTracking(page)).sent, mouseOffset),
+			)
+			.toMatch(pattern);
+	}
+
+	const selectionOffset = (await socketTracking(page)).sent.length;
+	await page.keyboard.down("Shift");
+	await page.mouse.move(bounds.x + 10, bounds.y + 10);
+	await page.mouse.down();
+	await page.mouse.move(
+		bounds.x + bounds.width * 0.75,
+		bounds.y + bounds.height * 0.5,
+	);
+	await page.mouse.up();
+	await page.keyboard.up("Shift");
+	await page.waitForTimeout(100);
+	expect((await socketTracking(page)).sent).toHaveLength(selectionOffset);
+	if (browserName === "chromium") {
+		await page
+			.context()
+			.grantPermissions(["clipboard-read", "clipboard-write"], { origin: url });
+		await page.keyboard.press(
+			process.platform === "darwin" ? "Meta+C" : "Control+Shift+C",
+		);
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.not.toBe("");
+		expect((await socketTracking(page)).sent).toHaveLength(selectionOffset);
+
+		await page.evaluate(() => {
+			Object.defineProperty(navigator.clipboard, "writeText", {
+				configurable: true,
+				value: () => Promise.reject(new Error("forced clipboard fallback")),
+			});
+		});
+		const fallbackOffset = (await socketTracking(page)).sent.length;
+		await page.keyboard.press(
+			process.platform === "darwin" ? "Meta+C" : "Control+Shift+C",
+		);
+		await page.keyboard.type("z");
+		await expect
+			.poll(async () =>
+				binaryText((await socketTracking(page)).sent, fallbackOffset),
+			)
+			.toContain("z");
+	}
 
 	await expect
-		.poll(() => terminalSizeControls(sentFrames).length)
+		.poll(
+			async () =>
+				terminalSizeControls((await socketTracking(page)).sent).length,
+		)
 		.toBeGreaterThan(0);
-	const initialSize = terminalSizeControls(sentFrames).at(-1);
+	const initialTracking = await socketTracking(page);
+	const initialSize = terminalSizeControls(initialTracking.sent).at(-1);
 	if (!initialSize) throw new Error("Terminal did not send its initial size");
 	const initialCanvasSize = await canvas.evaluate((element) => ({
 		height: (element as HTMLCanvasElement).height,
 		width: (element as HTMLCanvasElement).width,
 	}));
-	const resizeOffset = sentFrames.length;
-	const resizeOutputOffset = receivedFrames.length;
+	const resizeOffset = initialTracking.sent.length;
+	const resizeOutputOffset = initialTracking.receivedBytes;
 	await page.setViewportSize({ width: 840, height: 560 });
 	await expect
-		.poll(() =>
-			terminalSizeControls(sentFrames, resizeOffset).some(
+		.poll(async () =>
+			terminalSizeControls(
+				(await socketTracking(page)).sent,
+				resizeOffset,
+			).some(
 				(control) =>
 					control.cols < initialSize.cols && control.rows < initialSize.rows,
 			),
 		)
 		.toBe(true);
 	await expect
-		.poll(() => binaryBytes(receivedFrames, resizeOutputOffset))
+		.poll(
+			async () =>
+				(await socketTracking(page)).receivedBytes - resizeOutputOffset,
+		)
 		.toBeGreaterThan(100);
 	await expect
 		.poll(async () => {
@@ -290,75 +504,138 @@ test("encodes keyboard, mouse, wheel, and resize through the real browser", asyn
 	expect(diagnostics.pageErrors).toEqual([]);
 	expect(diagnostics.failedRequests).toEqual([]);
 
-	// Ctrl+C is an empty-composer quit shortcut in the real app, so assert it
-	// last and permit the resulting orderly zero exit for this test only.
 	server.allowExitCode(0);
-	const interruptOffset = sentFrames.length;
+	const interruptOffset = (await socketTracking(page)).sent.length;
 	await page.keyboard.press("Control+C");
 	await expect
-		.poll(() => binaryText(sentFrames, interruptOffset))
+		.poll(async () =>
+			binaryText((await socketTracking(page)).sent, interruptOffset),
+		)
 		.toContain("\x03");
+});
+
+test("maps the same terminal cell at standard and high DPI", async ({
+	browser,
+	webTuiServer,
+}) => {
+	const standard = await clickCellAtDeviceScale(browser, webTuiServer.url, 1);
+	const highDpi = await clickCellAtDeviceScale(browser, webTuiServer.url, 2);
+	expect({ column: highDpi.column, row: highDpi.row }).toEqual({
+		column: standard.column,
+		row: standard.row,
+	});
+	expect(standard.backingScale).toBeCloseTo(1, 1);
+	expect(highDpi.backingScale).toBeCloseTo(2, 1);
+});
+
+test("preserves large Unicode input and browser-owned clipboard shortcuts", async ({
+	webTuiPage,
+}) => {
+	const { diagnostics, page, url } = webTuiPage;
+	await installSocketTracking(page);
+	await page.goto(url);
+	await waitForTerminal(page);
+
+	const value = "λ🙂".repeat(6_000);
+	const expectedPaste = `\x1b[200~${value}\x1b[201~`;
+	const inputOffset = (await socketTracking(page)).sent.length;
+	await page.locator("#terminal textarea").evaluate((element, text) => {
+		const event = new Event("paste", { bubbles: true, cancelable: true });
+		Object.defineProperty(event, "clipboardData", {
+			value: { getData: (type: string) => (type === "text/plain" ? text : "") },
+		});
+		element.dispatchEvent(event);
+	}, value);
+	await expect
+		.poll(
+			async () =>
+				binaryText((await socketTracking(page)).sent, inputOffset).length,
+		)
+		.toBe(expectedPaste.length);
+	const tracking = await socketTracking(page);
+	const inputFrames = tracking.sent
+		.slice(inputOffset)
+		.filter(
+			(frame): frame is Extract<TrackedFrame, { kind: "binary" }> =>
+				frame.kind === "binary",
+		);
+	expect(inputFrames.length).toBeGreaterThan(1);
+	expect(
+		Math.max(...inputFrames.map((frame) => frame.bytes.length)),
+	).toBeLessThanOrEqual(16 * 1024);
+	expect(binaryText(tracking.sent, inputOffset)).toBe(expectedPaste);
+
+	const compositionOffset = tracking.sent.length;
+	await page.locator("#terminal textarea").evaluate((element) => {
+		element.dispatchEvent(
+			new CompositionEvent("compositionend", {
+				bubbles: true,
+				data: "漢",
+			}),
+		);
+	});
+	await expect
+		.poll(async () =>
+			binaryText((await socketTracking(page)).sent, compositionOffset),
+		)
+		.toBe("漢");
+
+	const clipboardOffset = (await socketTracking(page)).sent.length;
+	await page.keyboard.press("Meta+C");
+	await page.keyboard.press("Control+Shift+C");
+	await page.evaluate(() => {
+		window.dispatchEvent(
+			new KeyboardEvent("keydown", {
+				bubbles: true,
+				isComposing: true,
+				key: "Process",
+			}),
+		);
+	});
+	await page.waitForTimeout(100);
+	expect((await socketTracking(page)).sent).toHaveLength(clipboardOffset);
+	expect(diagnostics.consoleErrors).toEqual([]);
+	expect(diagnostics.pageErrors).toEqual([]);
+	expect(diagnostics.failedRequests).toEqual([]);
 });
 
 test("reconnects after network loss and reloads without duplicate browser state", async ({
 	webTuiPage,
 }) => {
 	const { diagnostics, page, url } = webTuiPage;
-	const cdp = await page.context().newCDPSession(page);
-	await cdp.send("Network.enable");
-	const receivedFrames: WebSocketFrame[] = [];
-	cdp.on(
-		"Network.webSocketFrameReceived",
-		(event: { response: WebSocketFrame }) =>
-			receivedFrames.push(event.response),
-	);
-	await page.addInitScript(() => {
-		const sockets: WebSocket[] = [];
-		const OriginalWebSocket = window.WebSocket;
-		const TrackingWebSocket = new Proxy(OriginalWebSocket, {
-			construct(target, args, newTarget) {
-				const socket = Reflect.construct(target, args, newTarget) as WebSocket;
-				sockets.push(socket);
-				return socket;
-			},
-		});
-		Object.defineProperty(window, "__kitTestSockets", { value: sockets });
-		window.WebSocket = TrackingWebSocket;
-	});
+	await installSocketTracking(page);
 	await page.goto(url);
 	await waitForTerminal(page);
 
-	const reconnectOutputOffset = receivedFrames.length;
+	const reconnectOutputOffset = (await socketTracking(page)).receivedBytes;
 	await page.evaluate(() => {
-		const sockets = (
-			window as typeof window & { __kitTestSockets: WebSocket[] }
-		).__kitTestSockets;
-		const socket = sockets.at(-1);
+		const tracking = (
+			window as typeof window & {
+				__kitSocketTracking: { sockets: WebSocket[] };
+			}
+		).__kitSocketTracking;
+		const socket = tracking.sockets.at(-1);
 		if (!socket) throw new Error("No browser-TUI WebSocket to disconnect");
 		socket.close(4000, "browser test disconnect");
 	});
 	await expect(page.locator("#status")).toBeVisible();
 	await expect(page.locator("#status")).toContainText("disconnected");
 	await expect
-		.poll(() =>
-			page.evaluate(
-				() =>
-					(window as typeof window & { __kitTestSockets: WebSocket[] })
-						.__kitTestSockets.length,
-			),
-		)
+		.poll(async () => (await socketTracking(page)).socketCount)
 		.toBeGreaterThan(1);
 	await expect
-		.poll(() => binaryBytes(receivedFrames, reconnectOutputOffset))
+		.poll(
+			async () =>
+				(await socketTracking(page)).receivedBytes - reconnectOutputOffset,
+		)
 		.toBeGreaterThan(2_000);
 	await waitForTerminal(page);
 	await expect(page.locator("#terminal canvas")).toHaveCount(1);
 	await expect(page.locator("#terminal textarea")).toHaveCount(1);
 
-	const reloadOutputOffset = receivedFrames.length;
 	await page.reload();
 	await expect
-		.poll(() => binaryBytes(receivedFrames, reloadOutputOffset))
+		.poll(async () => (await socketTracking(page)).receivedBytes)
 		.toBeGreaterThan(2_000);
 	await waitForTerminal(page);
 	await expect(page.locator("#terminal canvas")).toHaveCount(1);

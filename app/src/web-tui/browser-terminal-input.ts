@@ -49,19 +49,61 @@ function modifierParameter(key: BrowserKeyLike): number {
 	);
 }
 
+export type BrowserPlatform = "mac" | "other";
+
+export function classifyBrowserPlatform(value: string): BrowserPlatform {
+	return /mac|iphone|ipad|ipod/i.test(value) ? "mac" : "other";
+}
+
+function browserPlatform(): BrowserPlatform {
+	if (typeof navigator === "undefined") return "other";
+	const navigatorWithData = navigator as Navigator & {
+		userAgentData?: { platform?: string };
+	};
+	return classifyBrowserPlatform(
+		navigatorWithData.userAgentData?.platform ?? navigator.platform,
+	);
+}
+
+export function isBrowserCopyKey(event: BrowserKeyLike): boolean {
+	return (
+		(event.metaKey && event.key.toLowerCase() === "c") ||
+		(event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") ||
+		(event.key === "Insert" && event.ctrlKey)
+	);
+}
+
+export function isBrowserOwnedKey(event: BrowserKeyLike): boolean {
+	return (
+		isBrowserCopyKey(event) ||
+		((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v") ||
+		(event.key === "Insert" && event.shiftKey)
+	);
+}
+
+function isMacOptionText(
+	event: BrowserKeyLike,
+	platform: BrowserPlatform,
+): boolean {
+	return (
+		platform === "mac" &&
+		event.altKey &&
+		!event.ctrlKey &&
+		!event.metaKey &&
+		(event.key.length === 1 || event.key === "Dead")
+	);
+}
+
 /** Encode browser keys whose native handling is unreliable or browser-owned. */
-export function encodeBrowserKey(event: BrowserKeyLike): string | null {
+export function encodeBrowserKey(
+	event: BrowserKeyLike,
+	platform: BrowserPlatform = "other",
+): string | null {
 	if (event.isComposing) return null;
 
 	// Keep browser clipboard conventions available. Ctrl+C remains the TUI
 	// interrupt; Cmd+C and Ctrl+Shift+C copy browser selection.
-	if (
-		(event.metaKey && event.key.toLowerCase() === "c") ||
-		(event.ctrlKey && event.shiftKey && event.key.toLowerCase() === "c") ||
-		((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "v")
-	) {
-		return null;
-	}
+	if (isBrowserOwnedKey(event)) return null;
 
 	if (event.ctrlKey && !event.altKey && !event.metaKey) {
 		if (event.key.length === 1) {
@@ -82,6 +124,18 @@ export function encodeBrowserKey(event: BrowserKeyLike): string | null {
 	}
 
 	if (event.key === "Tab" && event.shiftKey) return "\x1b[Z";
+
+	// Linux terminals conventionally encode Alt+printable as an Escape prefix.
+	// macOS Option is left native because it commonly drives dead keys and IME.
+	if (
+		platform !== "mac" &&
+		event.altKey &&
+		!event.ctrlKey &&
+		!event.metaKey &&
+		event.key.length === 1
+	) {
+		return `\x1b${event.key}`;
+	}
 
 	const navigation = NAVIGATION_KEYS[event.key];
 	if (navigation) {
@@ -110,6 +164,7 @@ export class TerminalProtocolState {
 	private tail = "";
 	private readonly decoder = new TextDecoder();
 	mouseSgr = false;
+	bracketedPaste = false;
 
 	get mouseTracking(): MouseTrackingMode {
 		if (this.mouseModes.has(1003)) return 1003;
@@ -129,6 +184,8 @@ export class TerminalProtocolState {
 					else this.mouseModes.delete(mode);
 				} else if (mode === 1006) {
 					this.mouseSgr = enabled;
+				} else if (mode === 2004) {
+					this.bracketedPaste = enabled;
 				}
 			}
 		}
@@ -145,9 +202,12 @@ export type TerminalGeometry = {
 export type BrowserTerminalInputOptions = {
 	root: HTMLElement;
 	protocol: TerminalProtocolState;
+	platform?: BrowserPlatform;
 	geometry: () => TerminalGeometry | null;
 	send: (data: string) => void;
 	focus: () => void;
+	copySelection?: () => string;
+	writeClipboard?: (text: string) => void | Promise<void>;
 };
 
 function mouseModifiers(event: MouseEvent): number {
@@ -167,22 +227,30 @@ function mouseButton(event: MouseEvent): number | null {
 export class BrowserTerminalInput {
 	private readonly root: HTMLElement;
 	private readonly protocol: TerminalProtocolState;
+	private readonly platform: BrowserPlatform;
 	private readonly geometry: () => TerminalGeometry | null;
 	private readonly send: (data: string) => void;
 	private readonly focus: () => void;
+	private readonly copySelection: () => string;
+	private readonly writeClipboard: (text: string) => void | Promise<void>;
 	private disposed = false;
 
 	constructor(options: BrowserTerminalInputOptions) {
 		this.root = options.root;
 		this.protocol = options.protocol;
+		this.platform = options.platform ?? browserPlatform();
 		this.geometry = options.geometry;
 		this.send = options.send;
 		this.focus = options.focus;
+		this.copySelection = options.copySelection ?? (() => "");
+		this.writeClipboard = options.writeClipboard ?? (() => {});
 		window.addEventListener("keydown", this.onKeyDown, true);
 		window.addEventListener("mousedown", this.onMouseDown, true);
 		window.addEventListener("mouseup", this.onMouseUp, true);
 		window.addEventListener("mousemove", this.onMouseMove, true);
 		window.addEventListener("contextmenu", this.onContextMenu, true);
+		window.addEventListener("paste", this.onPaste, true);
+		window.addEventListener("compositionend", this.onCompositionEnd, true);
 		window.addEventListener("wheel", this.onWheel, {
 			capture: true,
 			passive: false,
@@ -197,11 +265,41 @@ export class BrowserTerminalInput {
 		window.removeEventListener("mouseup", this.onMouseUp, true);
 		window.removeEventListener("mousemove", this.onMouseMove, true);
 		window.removeEventListener("contextmenu", this.onContextMenu, true);
+		window.removeEventListener("paste", this.onPaste, true);
+		window.removeEventListener("compositionend", this.onCompositionEnd, true);
 		window.removeEventListener("wheel", this.onWheel, true);
 	}
 
 	private readonly onKeyDown = (event: KeyboardEvent) => {
-		const sequence = encodeBrowserKey(event);
+		if (isBrowserOwnedKey(event)) {
+			// Preserve paste defaults while preventing ghostty's hidden textarea
+			// from translating the same shortcut into terminal input. Canvas
+			// selections require an explicit clipboard write.
+			event.stopImmediatePropagation();
+			if (isBrowserCopyKey(event)) {
+				const selection = this.copySelection();
+				if (selection) {
+					event.preventDefault();
+					void Promise.resolve(this.writeClipboard(selection)).catch(() => {});
+				}
+			}
+			return;
+		}
+		if (event.isComposing) {
+			event.stopImmediatePropagation();
+			return;
+		}
+		if (isMacOptionText(event, this.platform)) {
+			// A completed Option character is already represented by event.key.
+			// Dead keys continue through the browser composition pipeline.
+			event.stopImmediatePropagation();
+			if (event.key !== "Dead") {
+				event.preventDefault();
+				this.send(event.key);
+			}
+			return;
+		}
+		const sequence = encodeBrowserKey(event, this.platform);
 		if (sequence === null) return;
 		event.preventDefault();
 		event.stopImmediatePropagation();
@@ -238,6 +336,23 @@ export class BrowserTerminalInput {
 		if (!this.shouldForwardMouse(event)) return;
 		event.preventDefault();
 		event.stopImmediatePropagation();
+	};
+
+	private readonly onCompositionEnd = (event: CompositionEvent) => {
+		if (!this.root.contains(event.target as Node) || !event.data) return;
+		event.stopImmediatePropagation();
+		this.send(event.data);
+	};
+
+	private readonly onPaste = (event: ClipboardEvent) => {
+		if (!this.root.contains(event.target as Node)) return;
+		const text = event.clipboardData?.getData("text/plain");
+		if (!text) return;
+		event.preventDefault();
+		event.stopImmediatePropagation();
+		this.send(
+			this.protocol.bracketedPaste ? `\x1b[200~${text}\x1b[201~` : text,
+		);
 	};
 
 	private readonly onWheel = (event: WheelEvent) => {

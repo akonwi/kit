@@ -20,9 +20,20 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  chromium:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  browser:
+    name: ${{ matrix.os }} / ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser: chromium
+          - os: ubuntu-latest
+            browser: firefox
+          - os: macos-14
+            browser: webkit
     steps:
       - uses: actions/checkout@v4
 
@@ -34,18 +45,22 @@ jobs:
         working-directory: app
         run: bun install --frozen-lockfile
 
-      - name: Install Chromium
+      - name: Install browser
         working-directory: app
-        run: bunx playwright install --with-deps chromium
+        run: bunx playwright install --with-deps ${{ matrix.browser }}
 
-      - name: Build and test browser TUI
+      - name: Build binary
         working-directory: app
-        run: bun run test:web-tui-browser
+        run: bun run build
+
+      - name: Test browser TUI
+        working-directory: app
+        run: bunx playwright test --project=${{ matrix.browser }}
 
       - name: Upload browser artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: web-tui-browser-results
+          name: web-tui-${{ matrix.os }}-${{ matrix.browser }}-results
           path: app/test-results/web-tui
           if-no-files-found: ignore

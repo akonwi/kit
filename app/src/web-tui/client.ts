@@ -4,6 +4,7 @@ import {
 	TerminalProtocolState,
 } from "./browser-terminal-input";
 import { applyBrowserTheme, parseBrowserThemeMessage } from "./browser-theme";
+import { terminalInputFrames } from "./terminal-input-frames";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 5_000;
@@ -29,12 +30,37 @@ function webSocketUrl(): string {
 	return `${scheme}://${location.host}/api/tui`;
 }
 
+async function writeBrowserClipboard(text: string): Promise<void> {
+	if (navigator.clipboard?.writeText) {
+		try {
+			await navigator.clipboard.writeText(text);
+			return;
+		} catch {
+			// Fall through for browsers or deployment contexts that deny the API.
+		}
+	}
+	const previouslyFocused = document.activeElement;
+	const textarea = document.createElement("textarea");
+	textarea.value = text;
+	textarea.style.position = "fixed";
+	textarea.style.opacity = "0";
+	document.body.append(textarea);
+	textarea.select();
+	try {
+		document.execCommand("copy");
+	} finally {
+		textarea.remove();
+		if (previouslyFocused instanceof HTMLElement) {
+			previouslyFocused.focus({ preventScroll: true });
+		}
+	}
+}
+
 class TuiConnection {
 	private socket: WebSocket | null = null;
 	private reconnectDelay = RECONNECT_MIN_MS;
 	private reconnectTimer: number | null = null;
 	private closedByPage = false;
-	private readonly encoder = new TextEncoder();
 
 	constructor(
 		private readonly terminal: Terminal,
@@ -110,9 +136,8 @@ class TuiConnection {
 	}
 
 	sendInput(data: string): void {
-		if (this.socket?.readyState === WebSocket.OPEN) {
-			this.socket.send(this.encoder.encode(data));
-		}
+		if (this.socket?.readyState !== WebSocket.OPEN) return;
+		for (const frame of terminalInputFrames(data)) this.socket.send(frame);
 	}
 
 	private sendControl(
@@ -164,6 +189,8 @@ async function main(): Promise<void> {
 		},
 		send: (data) => connection.sendInput(data),
 		focus: () => terminal.focus(),
+		copySelection: () => terminal.getSelection(),
+		writeClipboard: writeBrowserClipboard,
 	});
 	connection.connect();
 }

@@ -36,8 +36,9 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - The complete real `AppShell`, including dialogs, pickers, workspace panes, review UI, plugin chrome, and themes
 - One authoritative session/runtime owner
-- Kit-owned browser keyboard normalization for Escape, Ctrl combinations, navigation, and function keys
-- Kit-owned SGR mouse encoding for click, release, drag, all-motion, and wheel events
+- Kit-owned browser keyboard normalization for Escape, Ctrl combinations, navigation, function keys, Linux Alt prefixes, and macOS Option/composition
+- Browser-owned copy/paste shortcuts with explicit Canvas-selection copying, bracketed paste, Unicode preservation, and bounded input frames
+- Kit-owned SGR mouse encoding for click, release, drag, all-motion, and wheel events, with Shift-selection bypass and CSS-space DPR-safe coordinates
 - Focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
 - Resize and reconnect with full repaint
 - Canvas selection, links, scrollback, titles, and a hidden textarea for browser input
@@ -50,7 +51,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 726 passing
+- `bun test`: 730 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -59,15 +60,24 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - resize reflow
   - suspend/resume reconnect repaint
   - orderly SIGINT/SIGTERM shutdown, exact `130`/`143` exit codes, and immediate server-port release
-- Automated Playwright Chromium coverage against the compiled binary:
+- Automated Playwright coverage against the compiled binary: Chromium and Firefox on Linux, plus WebKit on macOS (15 tests total):
   - real ghostty-web/WASM startup with first-party CSP and asset checks
   - meaningful Canvas frames with exact custom-theme pixels and no hardcoded dark background
   - browser CSS variables and light `color-scheme`
-  - exact Escape, Ctrl+C, navigation, SGR click/release/move/wheel, and resize WebSocket frames
-  - forced WebSocket reconnect and page reload without duplicate Canvas or textarea state
+  - exact Escape, Ctrl+C, navigation, platform Alt/Option, SGR click/release/move/wheel, and resize WebSocket frames
+  - Canvas selection bypass and clipboard content, bracketed Unicode paste chunking, synthetic IME completion, and DPR 1/2 coordinate parity
+  - forced WebSocket reconnect and page reload with verified full repaint and no duplicate Canvas or textarea state
   - no failed requests, browser console errors, or page errors
   - isolated temporary HOME/workspace and orderly process teardown
-- `bun run test:web-tui-browser` builds the binary and runs this suite locally; `.github/workflows/web-tui-browser.yml` runs it for relevant pull requests and `main`, and the release workflow gates publication on it.
+- `bun run test:web-tui-browser` builds the binary and runs all installed browser projects locally; `.github/workflows/web-tui-browser.yml` runs the platform matrix for relevant pull requests and `main`, and the release workflow gates publication on it.
+
+## Desktop input compatibility
+
+The browser TUI targets macOS and Linux desktops. Linux Alt+printable keys use the conventional Escape prefix. macOS Option-produced characters are sent as text without an Alt prefix; dead keys and IME completion use the composition path. Cmd+C/Cmd+V on macOS and Ctrl+Shift+C/Ctrl+V on Linux remain browser-owned. Canvas selections are copied explicitly because they are not DOM selections. Shift+mouse remains local selection rather than SGR input.
+
+Input uses deterministic legacy terminal sequences. This covers Kit's control-letter, navigation, function-key, mouse, paste, and selection workflows, but cannot represent every modified key, key release, or browser-reserved shortcut. Cmd/Ctrl shortcuts owned by browser chrome remain unavailable. Kitty keyboard mode stays disabled until Kit can track negotiated Kitty flags and encode them consistently.
+
+Playwright's macOS WebKit build is not the installed Safari application, and synthetic composition does not replace native OS IME validation. Actual Safari, macOS dead-key/IME, and Linux desktop IME behavior remain a short manual release checklist. Windows is not in the supported browser-TUI matrix. The semantic web app remains the supported mobile and touch interface.
 
 ## Hosting boundary
 
@@ -121,10 +131,10 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 - This mode replaces the SPA in the process. Hosting both interfaces on one session still needs ADR 0027's attach/session-host boundary.
 - Single active browser terminal only. Multiple independent clients require one renderer and geometry per client over a shared session host.
 - Canvas is poor for accessibility and browser-native find compared with DOM. It cannot replace the SPA's semantic message and form structure.
-- Mobile gets a hidden textarea and viewport fitting but no touch shortcut bar, native upload flow, or mobile-specific layout.
+- The browser TUI is desktop-focused; the semantic web app owns mobile/touch, native uploads, and mobile-specific layout.
 - Terminal bell and OSC 52 paths that write directly to process stdout do not reach the browser renderer.
 - `--model` is not accepted in this mode; select the model inside the TUI.
-- Complex IME, selection, links, touch gestures, browser-reserved shortcuts, and long-running reconnects need broader browser testing.
+- Actual Safari and native macOS/Linux IME remain manual compatibility checks; browser-reserved shortcuts are documented limitations.
 - Browser input currently uses deterministic legacy key sequences. Kitty keyboard mode remains disabled until the adapter tracks Kitty protocol flags.
 - ghostty-web 0.4.0 is unofficial and young.
 

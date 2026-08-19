@@ -9,15 +9,14 @@ export default defineConfig({
 	timeout: 90_000,
 	expect: { timeout: 30_000 },
 	reporter: process.env.CI ? "line" : "list",
+	use: {
+		screenshot: "only-on-failure",
+		trace: "retain-on-failure",
+		viewport: { width: 1_000, height: 700 },
+	},
 	projects: [
-		{
-			name: "chromium",
-			use: {
-				...devices["Desktop Chrome"],
-				screenshot: "only-on-failure",
-				trace: "retain-on-failure",
-				viewport: { width: 1_000, height: 700 },
-			},
-		},
+		{ name: "chromium", use: { ...devices["Desktop Chrome"] } },
+		{ name: "firefox", use: { ...devices["Desktop Firefox"] } },
+		{ name: "webkit", use: { ...devices["Desktop Safari"] } },
 	],
 });
