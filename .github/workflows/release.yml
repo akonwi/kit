@@ -64,9 +64,40 @@ jobs:
           path: kit_*.tar.gz
           if-no-files-found: error
 
+  browser-tui:
+    name: Browser TUI smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: app
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build and test browser TUI
+        working-directory: app
+        run: bun run test:web-tui-browser
+
+      - name: Upload browser artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-tui-browser-results
+          path: app/test-results/web-tui
+          if-no-files-found: ignore
+
   release:
     name: Create GitHub release
-    needs: build
+    needs: [build, browser-tui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

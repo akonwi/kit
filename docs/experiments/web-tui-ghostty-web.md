@@ -59,11 +59,15 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - resize reflow
   - suspend/resume reconnect repaint
   - orderly SIGINT/SIGTERM shutdown, exact `130`/`143` exit codes, and immediate server-port release
-- Real Chromium against the compiled binary:
-  - one Canvas and one focused hidden textarea
-  - WebSocket connected without console errors
-  - typing accepted
-  - page reload reconnected and recreated the Canvas without errors
+- Automated Playwright Chromium coverage against the compiled binary:
+  - real ghostty-web/WASM startup with first-party CSP and asset checks
+  - meaningful Canvas frames with exact custom-theme pixels and no hardcoded dark background
+  - browser CSS variables and light `color-scheme`
+  - exact Escape, Ctrl+C, navigation, SGR click/release/move/wheel, and resize WebSocket frames
+  - forced WebSocket reconnect and page reload without duplicate Canvas or textarea state
+  - no failed requests, browser console errors, or page errors
+  - isolated temporary HOME/workspace and orderly process teardown
+- `bun run test:web-tui-browser` builds the binary and runs this suite locally; `.github/workflows/web-tui-browser.yml` runs it for relevant pull requests and `main`, and the release workflow gates publication on it.
 
 ## Hosting boundary
 

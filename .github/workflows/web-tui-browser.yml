@@ -1,0 +1,51 @@
+name: Browser TUI smoke
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - ".github/workflows/web-tui-browser.yml"
+  push:
+    branches: [main]
+    paths:
+      - "app/**"
+      - ".github/workflows/web-tui-browser.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-tui-browser-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chromium:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Install Chromium
+        working-directory: app
+        run: bunx playwright install --with-deps chromium
+
+      - name: Build and test browser TUI
+        working-directory: app
+        run: bun run test:web-tui-browser
+
+      - name: Upload browser artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-tui-browser-results
+          path: app/test-results/web-tui
+          if-no-files-found: ignore
