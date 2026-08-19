@@ -34,15 +34,7 @@ function webSocketUrl(): string {
 	return `${scheme}://${location.host}/api/tui`;
 }
 
-async function writeBrowserClipboard(text: string): Promise<void> {
-	if (navigator.clipboard?.writeText) {
-		try {
-			await navigator.clipboard.writeText(text);
-			return;
-		} catch {
-			// Fall through for browsers or deployment contexts that deny the API.
-		}
-	}
+function writeBrowserClipboardFallback(text: string): void {
 	const previouslyFocused = document.activeElement;
 	const textarea = document.createElement("textarea");
 	textarea.value = text;
@@ -60,6 +52,26 @@ async function writeBrowserClipboard(text: string): Promise<void> {
 			previouslyFocused.focus({ preventScroll: true });
 		}
 	}
+}
+
+async function writeBrowserClipboard(text: string): Promise<void> {
+	if (navigator.clipboard?.writeText) {
+		try {
+			await navigator.clipboard.writeText(text);
+			return;
+		} catch {
+			// Fall through for browsers or deployment contexts that deny the API.
+		}
+	}
+	writeBrowserClipboardFallback(text);
+}
+
+function writeBrowserActionClipboard(text: string): void {
+	// Server actions arrive after the terminal click's transient activation has
+	// expired. Avoid permission-gated Clipboard API promises that browsers may
+	// leave pending indefinitely; the synchronous copy command either succeeds
+	// or can be acknowledged as denied immediately.
+	writeBrowserClipboardFallback(text);
 }
 
 class TuiConnection {
@@ -151,12 +163,12 @@ class TuiConnection {
 		for (const frame of terminalInputFrames(data)) this.socket.send(frame);
 	}
 
-	private async writeClipboard(
+	private writeClipboard(
 		socket: WebSocket,
 		action: BrowserClipboardWrite,
-	): Promise<void> {
+	): void {
 		try {
-			await writeBrowserClipboard(action.text);
+			writeBrowserActionClipboard(action.text);
 			this.sendClipboardResult(socket, action.id, true);
 		} catch (error) {
 			this.sendClipboardResult(

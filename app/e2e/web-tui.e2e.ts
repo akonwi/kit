@@ -124,6 +124,29 @@ function binaryText(frames: TrackedFrame[], offset = 0): string {
 	).toString("utf8");
 }
 
+function clipboardResult(
+	frames: TrackedFrame[],
+	id: number,
+): { ok: boolean; error?: string } | undefined {
+	for (const frame of frames) {
+		if (frame.kind !== "text") continue;
+		try {
+			const value = JSON.parse(frame.text) as Record<string, unknown>;
+			if (
+				value.type === "clipboard-result" &&
+				value.id === id &&
+				typeof value.ok === "boolean"
+			) {
+				return {
+					ok: value.ok,
+					...(typeof value.error === "string" ? { error: value.error } : {}),
+				};
+			}
+		} catch {}
+	}
+	return undefined;
+}
+
 function terminalSizeControls(
 	frames: TrackedFrame[],
 	offset = 0,
@@ -460,7 +483,8 @@ test("encodes keyboard, mouse, wheel, and resize through the real browser", asyn
 			.not.toBe("");
 		expect((await socketTracking(page)).sent).toHaveLength(selectionOffset);
 
-		await page.evaluate(() => {
+		await page.evaluate(async () => {
+			await navigator.clipboard.writeText("");
 			Object.defineProperty(navigator.clipboard, "writeText", {
 				configurable: true,
 				value: () => Promise.reject(new Error("forced clipboard fallback")),
@@ -470,6 +494,9 @@ test("encodes keyboard, mouse, wheel, and resize through the real browser", asyn
 		await page.keyboard.press(
 			process.platform === "darwin" ? "Meta+C" : "Control+Shift+C",
 		);
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.not.toBe("");
 		await page.keyboard.type("z");
 		await expect
 			.poll(async () =>
@@ -555,6 +582,7 @@ test("maps pointer coordinates accurately at standard and high DPI", async ({
 });
 
 test("preserves large Unicode input and browser-owned clipboard shortcuts", async ({
+	browserName,
 	webTuiPage,
 }) => {
 	const { diagnostics, page, url } = webTuiPage;
@@ -605,6 +633,46 @@ test("preserves large Unicode input and browser-owned clipboard shortcuts", asyn
 			binaryText((await socketTracking(page)).sent, compositionOffset),
 		)
 		.toBe("漢");
+
+	const actionId = 77;
+	const actionText = "**whole message**";
+	if (browserName === "chromium") {
+		await page
+			.context()
+			.grantPermissions(["clipboard-read", "clipboard-write"], { origin: url });
+		await page.evaluate(() => navigator.clipboard.writeText(""));
+	}
+	const actionOffset = (await socketTracking(page)).sent.length;
+	await page.evaluate(
+		({ id, text }) => {
+			const tracking = (
+				window as typeof window & {
+					__kitSocketTracking: { sockets: WebSocket[] };
+				}
+			).__kitSocketTracking;
+			const socket = tracking.sockets.at(-1);
+			if (!socket) throw new Error("No browser-TUI WebSocket for copy action");
+			socket.dispatchEvent(
+				new MessageEvent("message", {
+					data: JSON.stringify({ type: "clipboard-write", id, text }),
+				}),
+			);
+		},
+		{ id: actionId, text: actionText },
+	);
+	await expect
+		.poll(async () =>
+			clipboardResult(
+				(await socketTracking(page)).sent.slice(actionOffset),
+				actionId,
+			),
+		)
+		.toEqual({ ok: true });
+	if (browserName === "chromium") {
+		await expect
+			.poll(() => page.evaluate(() => navigator.clipboard.readText()))
+			.toBe(actionText);
+	}
 
 	const clipboardOffset = (await socketTracking(page)).sent.length;
 	await page.keyboard.press("Meta+C");
