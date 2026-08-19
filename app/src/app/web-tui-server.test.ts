@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { WEB_TUI_PROTOCOL_VERSION } from "../web-tui/browser-actions";
 import {
 	type WebTuiClient,
 	type WebTuiHost,
@@ -59,6 +60,15 @@ function openSocket(
 		socket.addEventListener("error", (event) =>
 			reject(new Error(`WebSocket failed: ${String(event)}`)),
 		);
+	});
+}
+
+function initControl(cols: number, rows: number): string {
+	return JSON.stringify({
+		type: "init",
+		cols,
+		rows,
+		protocolVersion: WEB_TUI_PROTOCOL_VERSION,
 	});
 }
 
@@ -196,12 +206,55 @@ describe("WebTuiServer WebSocket", () => {
 		expect(response.status).toBe(403);
 	});
 
+	test("rejects stale protocols without evicting the active browser", async () => {
+		const host = recordingHost();
+		const { wsUrl, origin } = startServer(host);
+		const active = await openSocket(wsUrl, { headers: { origin } });
+		active.send(initControl(80, 24));
+		await waitFor(() => host.log.attached.length === 1);
+
+		const legacy = await openSocket(wsUrl, { headers: { origin } });
+		const legacyClosed = nextClose(legacy);
+		legacy.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		expect((await legacyClosed).code).toBe(4001);
+
+		const incompatible = await openSocket(wsUrl, { headers: { origin } });
+		const incompatibleClosed = nextClose(incompatible);
+		incompatible.send(
+			JSON.stringify({
+				type: "init",
+				cols: 80,
+				rows: 24,
+				protocolVersion: WEB_TUI_PROTOCOL_VERSION + 1,
+			}),
+		);
+		expect((await incompatibleClosed).code).toBe(4002);
+		expect(host.log.attached).toHaveLength(1);
+		expect(host.log.detached).toHaveLength(0);
+
+		active.send(new TextEncoder().encode("still active"));
+		await waitFor(() => host.log.inputs.length === 1);
+		active.close();
+	});
+
+	test("caps sockets that have not completed the init handshake", async () => {
+		const { wsUrl, origin } = startServer(recordingHost());
+		const sockets: WebSocket[] = [];
+		for (let index = 0; index < 8; index += 1) {
+			sockets.push(await openSocket(wsUrl, { headers: { origin } }));
+		}
+		const overflow = await openSocket(wsUrl, { headers: { origin } });
+		const overflowClosed = nextClose(overflow);
+		expect((await overflowClosed).code).toBe(1013);
+		for (const socket of sockets) socket.close();
+	});
+
 	test("attaches on init, forwards input and resize, detaches on close", async () => {
 		const host = recordingHost();
 		const { wsUrl, origin } = startServer(host);
 		const socket = await openSocket(wsUrl, { headers: { origin } });
 
-		socket.send(JSON.stringify({ type: "init", cols: 120, rows: 40 }));
+		socket.send(initControl(120, 40));
 		await waitFor(() => host.log.attached.length === 1);
 		expect(host.log.attached[0]).toMatchObject({ cols: 120, rows: 40 });
 
@@ -238,7 +291,7 @@ describe("WebTuiServer WebSocket", () => {
 		socket.addEventListener("message", (event) => {
 			if (typeof event.data === "string") messages.push(event.data);
 		});
-		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		socket.send(initControl(80, 24));
 		await waitFor(() => messages.length === 1);
 		expect(JSON.parse(messages[0] ?? "null")).toEqual({
 			type: "theme",
@@ -272,7 +325,7 @@ describe("WebTuiServer WebSocket", () => {
 			};
 			if (message.type === "clipboard-write") messages.push(message);
 		});
-		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		socket.send(initControl(80, 24));
 		await waitFor(() => host.log.attached.length === 1);
 
 		const copied = server.copyText("**whole message**");
@@ -305,7 +358,7 @@ describe("WebTuiServer WebSocket", () => {
 		const host = recordingHost();
 		const { server, wsUrl, origin } = startServer(host);
 		const socket = await openSocket(wsUrl, { headers: { origin } });
-		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		socket.send(initControl(80, 24));
 		await waitFor(() => host.log.attached.length === 1);
 		const copied = server.copyText("message");
 		const closed = nextClose(socket);
@@ -324,7 +377,7 @@ describe("WebTuiServer WebSocket", () => {
 				frames.push(new Uint8Array(event.data));
 			}
 		});
-		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		socket.send(initControl(80, 24));
 		await waitFor(() => host.log.attached.length === 1);
 		host.log.attached[0]?.client.send(new TextEncoder().encode("\x1b[2Jhi"));
 		await waitFor(() => frames.length === 1);
@@ -338,7 +391,7 @@ describe("WebTuiServer WebSocket", () => {
 		const socket = await openSocket(wsUrl, { headers: { origin } });
 		socket.send(new TextEncoder().encode("early"));
 		socket.send(JSON.stringify({ type: "resize", cols: 90, rows: 30 }));
-		socket.send(JSON.stringify({ type: "init", cols: 100, rows: 30 }));
+		socket.send(initControl(100, 30));
 		await waitFor(() => host.log.attached.length === 1);
 		expect(host.log.inputs.length).toBe(0);
 		expect(host.log.resizes.length).toBe(0);
@@ -349,10 +402,10 @@ describe("WebTuiServer WebSocket", () => {
 		const host = recordingHost();
 		const { wsUrl, origin } = startServer(host);
 		const socket = await openSocket(wsUrl, { headers: { origin } });
-		socket.send(JSON.stringify({ type: "init", cols: 10_000, rows: 1 }));
+		socket.send(initControl(10_000, 1));
 		await waitFor(() => host.log.attached.length === 1);
 		expect(host.log.attached[0]).toMatchObject({ cols: 500, rows: 5 });
-		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		socket.send(initControl(80, 24));
 		await waitFor(() => host.log.resizes.length === 1);
 		expect(host.log.attached.length).toBe(1);
 		socket.close();
@@ -362,7 +415,7 @@ describe("WebTuiServer WebSocket", () => {
 		const host = recordingHost();
 		const { server, origin, wsUrl } = startServer(host);
 		const socket = await openSocket(wsUrl, { headers: { origin } });
-		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		socket.send(initControl(80, 24));
 		await waitFor(() => host.log.attached.length === 1);
 
 		await Promise.race([
@@ -385,16 +438,16 @@ describe("WebTuiServer WebSocket", () => {
 		const host = recordingHost();
 		const { wsUrl, origin } = startServer(host);
 		const first = await openSocket(wsUrl, { headers: { origin } });
-		first.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		first.send(initControl(80, 24));
 		await waitFor(() => host.log.attached.length === 1);
 
 		const firstClosed = nextClose(first);
 		const second = await openSocket(wsUrl, { headers: { origin } });
+		expect(host.log.detached).toHaveLength(0);
+		second.send(initControl(100, 40));
 		const closeEvent = await firstClosed;
 		expect(closeEvent.code).toBe(4001);
 		await waitFor(() => host.log.detached.length === 1);
-
-		second.send(JSON.stringify({ type: "init", cols: 100, rows: 40 }));
 		await waitFor(() => host.log.attached.length === 2);
 		second.close();
 	});

@@ -13,6 +13,7 @@
  */
 
 import path from "node:path";
+import { WEB_TUI_PROTOCOL_VERSION } from "../src/web-tui/browser-actions";
 
 const dir = path.resolve(import.meta.dirname, "..");
 const port = 4000 + Math.floor(Math.random() * 2000);
@@ -145,7 +146,14 @@ try {
 
 	// First client: app boots lazily, enters the alternate screen, paints.
 	const first = await connect();
-	first.socket.send(JSON.stringify({ type: "init", cols: 100, rows: 30 }));
+	first.socket.send(
+		JSON.stringify({
+			type: "init",
+			cols: 100,
+			rows: 30,
+			protocolVersion: WEB_TUI_PROTOCOL_VERSION,
+		}),
+	);
 	await first.waitForOutput("\x1b[?1049h", 30_000);
 	console.log("✓ OpenTUI entered the alternate screen after first init");
 	const paintDeadline = Date.now() + 30_000;
@@ -183,7 +191,14 @@ try {
 	first.close();
 	await Bun.sleep(500);
 	const second = await connect();
-	second.socket.send(JSON.stringify({ type: "init", cols: 90, rows: 28 }));
+	second.socket.send(
+		JSON.stringify({
+			type: "init",
+			cols: 90,
+			rows: 28,
+			protocolVersion: WEB_TUI_PROTOCOL_VERSION,
+		}),
+	);
 	await second.waitForOutput("\x1b[?1049h", 15_000);
 	{
 		const deadline = Date.now() + 15_000;

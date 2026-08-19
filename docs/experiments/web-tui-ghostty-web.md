@@ -30,7 +30,7 @@ OpenTUI 0.5.1 accepts custom stdin/stdout streams and explicit dimensions. A non
 
 The app starts lazily after the browser initializes its terminal. On disconnect, the bridge suspends OpenTUI. Reattach resumes it, replays terminal setup, reapplies dimensions, and forces a full repaint. This is deterministic and does not require a VT output journal.
 
-The WebSocket protocol uses raw binary terminal bytes in both directions and small JSON `init`/`resize` controls. A newer browser tab supersedes the old tab with close code 4001.
+The WebSocket protocol uses raw binary terminal bytes in both directions and small JSON controls. The `init` control carries an explicit protocol version, validated before a socket can replace the active client. Version-aware mismatches close with code 4002 and reload automatically; legacy pre-version clients close without entering a reconnect loop and require one manual reload. A validated newer browser tab supersedes the old tab with close code 4001.
 
 ## What works
 
@@ -51,7 +51,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 734 passing
+- `bun test`: 736 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -67,6 +67,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - exact Escape, Ctrl+C, navigation, platform Alt/Option, SGR left/right click/release/move/wheel, and resize WebSocket frames
   - Canvas selection bypass and clipboard content, bracketed Unicode paste chunking, synthetic IME completion, and DPR 1/2 coordinate parity
   - forced WebSocket reconnect and page reload with verified full repaint and no duplicate Canvas or textarea state
+  - protocol-version rejection before active-client promotion so stale browser bundles cannot silently drop controls or evict a compatible client
   - no failed requests, browser console errors, or page errors
   - isolated temporary HOME/workspace and orderly process teardown
 - `bun run test:web-tui-browser` builds the binary and runs all installed browser projects locally; `.github/workflows/web-tui-browser.yml` runs the platform matrix for relevant pull requests and `main`, and the release workflow gates publication on it.

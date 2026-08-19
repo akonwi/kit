@@ -17,7 +17,10 @@ import jetbrainsMonoNormal from "@fontsource-variable/jetbrains-mono/files/jetbr
 };
 import type { Server, ServerWebSocket } from "bun";
 import ghosttyWasm from "ghostty-web/ghostty-vt.wasm" with { type: "file" };
-import { MAX_BROWSER_CLIPBOARD_BYTES } from "../web-tui/browser-actions";
+import {
+	MAX_BROWSER_CLIPBOARD_BYTES,
+	WEB_TUI_PROTOCOL_VERSION,
+} from "../web-tui/browser-actions";
 import type { BrowserTheme } from "../web-tui/browser-theme";
 import tuiHtml from "../web-tui/index.html" with { type: "text" };
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
@@ -54,6 +57,7 @@ export type WebTuiServerOptions = {
 
 type WebSocketData = {
 	client: WebTuiClient | null;
+	initTimer: ReturnType<typeof setTimeout> | null;
 };
 
 declare const __KIT_WEB_TUI_CLIENT_JS__: string | undefined;
@@ -74,6 +78,9 @@ function webTuiClientJavaScript(): Promise<string> {
 	);
 	return developmentTuiClient;
 }
+
+const MAX_WEB_TUI_CONNECTIONS = 8;
+const WEB_TUI_INIT_TIMEOUT_MS = 5_000;
 
 const TUI_ASSETS = new Map<
 	string,
@@ -132,6 +139,7 @@ type TerminalControlMessage = {
 	type: "init" | "resize";
 	cols: number;
 	rows: number;
+	protocolVersion?: number;
 };
 type ClipboardResultMessage = {
 	type: "clipboard-result";
@@ -172,8 +180,21 @@ function parseControlMessage(message: string): ControlMessage | null {
 	) {
 		return null;
 	}
+	if (
+		record.protocolVersion !== undefined &&
+		!Number.isSafeInteger(record.protocolVersion)
+	) {
+		return null;
+	}
 	const size = clampTuiSize(record.cols, record.rows);
-	return { type: record.type, cols: size.cols, rows: size.rows };
+	return {
+		type: record.type,
+		cols: size.cols,
+		rows: size.rows,
+		...(typeof record.protocolVersion === "number"
+			? { protocolVersion: record.protocolVersion }
+			: {}),
+	};
 }
 
 export class WebTuiServer {
@@ -283,7 +304,11 @@ export class WebTuiServer {
 					});
 				}
 				if (isWebSocketRequest) {
-					if (bunServer.upgrade(request, { data: { client: null } })) {
+					if (
+						bunServer.upgrade(request, {
+							data: { client: null, initTimer: null },
+						})
+					) {
 						return undefined;
 					}
 					return new Response("WebSocket upgrade required", { status: 426 });
@@ -300,28 +325,47 @@ export class WebTuiServer {
 				backpressureLimit: 16 * 1024 * 1024,
 				closeOnBackpressureLimit: true,
 				open: (socket) => {
-					this.clients.add(socket);
-					// Single-terminal policy: a new connection replaces the old one.
-					const previous = this.activeSocket;
-					this.activeSocket = socket;
-					if (previous) {
-						this.releaseSocket(previous);
-						previous.close(4001, "replaced by a newer client");
+					// A socket is only promoted after a version-compatible init so stale
+					// reconnect loops cannot evict the valid active browser.
+					if (this.clients.size >= MAX_WEB_TUI_CONNECTIONS) {
+						socket.close(1013, "too many browser connections");
+						return;
 					}
+					this.clients.add(socket);
+					socket.data.initTimer = setTimeout(() => {
+						socket.data.initTimer = null;
+						if (!socket.data.client) socket.close(4003, "init timed out");
+					}, WEB_TUI_INIT_TIMEOUT_MS);
 				},
 				message: (socket, message) => {
-					if (this.activeSocket !== socket) return;
 					if (typeof message === "string") {
 						const control = parseControlMessage(message);
 						if (!control) return;
-						if (control.type === "clipboard-result") {
-							this.resolveClipboard(control);
-							return;
-						}
 						if (control.type === "init") {
-							if (socket.data.client) {
-								this.host.resize(control.cols, control.rows);
+							if (control.protocolVersion !== WEB_TUI_PROTOCOL_VERSION) {
+								// Pre-version clients understand 4001 as a terminal close and stop
+								// reconnecting. Version-aware clients reload on 4002.
+								socket.close(
+									control.protocolVersion === undefined ? 4001 : 4002,
+									"browser client update required",
+								);
 								return;
+							}
+							if (socket.data.initTimer) {
+								clearTimeout(socket.data.initTimer);
+								socket.data.initTimer = null;
+							}
+							if (socket.data.client) {
+								if (this.activeSocket === socket) {
+									this.host.resize(control.cols, control.rows);
+								}
+								return;
+							}
+							const previous = this.activeSocket;
+							this.activeSocket = socket;
+							if (previous && previous !== socket) {
+								this.releaseSocket(previous);
+								previous.close(4001, "replaced by a newer client");
 							}
 							const client: WebTuiClient = {
 								send: (bytes) => this.send(socket, bytes),
@@ -331,11 +375,17 @@ export class WebTuiServer {
 							this.host.attach(client, control.cols, control.rows);
 							return;
 						}
+						if (this.activeSocket !== socket) return;
+						if (control.type === "clipboard-result") {
+							this.resolveClipboard(control);
+							return;
+						}
 						if (socket.data.client) {
 							this.host.resize(control.cols, control.rows);
 						}
 						return;
 					}
+					if (this.activeSocket !== socket) return;
 					if (socket.data.client && !this.host.input(new Uint8Array(message))) {
 						socket.close(1009, "terminal input buffer exceeded");
 					}
@@ -468,6 +518,10 @@ export class WebTuiServer {
 	}
 
 	private releaseSocket(socket: ServerWebSocket<WebSocketData>): void {
+		if (socket.data.initTimer) {
+			clearTimeout(socket.data.initTimer);
+			socket.data.initTimer = null;
+		}
 		this.rejectClipboardForSocket(
 			socket,
 			"Browser disconnected before copying",

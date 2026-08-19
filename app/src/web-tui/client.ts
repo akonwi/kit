@@ -2,6 +2,7 @@ import { FitAddon, Ghostty, Terminal } from "ghostty-web";
 import {
 	type BrowserClipboardWrite,
 	parseBrowserClipboardWrite,
+	WEB_TUI_PROTOCOL_VERSION,
 } from "./browser-actions";
 import {
 	BrowserTerminalInput,
@@ -143,6 +144,11 @@ class TuiConnection {
 				showStatus("disconnected — another tab took over this terminal");
 				return;
 			}
+			if (event.code === 4002) {
+				showStatus("client update required — reloading…");
+				window.setTimeout(() => location.reload(), 100);
+				return;
+			}
 			this.scheduleReconnect();
 		});
 		socket.addEventListener("error", () => socket.close());
@@ -203,7 +209,16 @@ class TuiConnection {
 		rows: number,
 	): void {
 		if (this.socket?.readyState === WebSocket.OPEN) {
-			this.socket.send(JSON.stringify({ type, cols, rows }));
+			this.socket.send(
+				JSON.stringify({
+					type,
+					cols,
+					rows,
+					...(type === "init"
+						? { protocolVersion: WEB_TUI_PROTOCOL_VERSION }
+						: {}),
+				}),
+			);
 		}
 	}
 }
