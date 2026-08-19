@@ -17,6 +17,7 @@ import jetbrainsMonoNormal from "@fontsource-variable/jetbrains-mono/files/jetbr
 };
 import type { Server, ServerWebSocket } from "bun";
 import ghosttyWasm from "ghostty-web/ghostty-vt.wasm" with { type: "file" };
+import { MAX_BROWSER_CLIPBOARD_BYTES } from "../web-tui/browser-actions";
 import type { BrowserTheme } from "../web-tui/browser-theme";
 import tuiHtml from "../web-tui/index.html" with { type: "text" };
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
@@ -127,10 +128,21 @@ function tuiDocumentHeaders(
 	};
 }
 
-type ControlMessage = { type: "init" | "resize"; cols: number; rows: number };
+type TerminalControlMessage = {
+	type: "init" | "resize";
+	cols: number;
+	rows: number;
+};
+type ClipboardResultMessage = {
+	type: "clipboard-result";
+	id: number;
+	ok: boolean;
+	error?: string;
+};
+type ControlMessage = TerminalControlMessage | ClipboardResultMessage;
 
 function parseControlMessage(message: string): ControlMessage | null {
-	if (message.length > 256) return null;
+	if (message.length > 512) return null;
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(message);
@@ -139,6 +151,18 @@ function parseControlMessage(message: string): ControlMessage | null {
 	}
 	if (typeof parsed !== "object" || parsed === null) return null;
 	const record = parsed as Record<string, unknown>;
+	if (record.type === "clipboard-result") {
+		if (
+			!Number.isSafeInteger(record.id) ||
+			(record.id as number) <= 0 ||
+			typeof record.ok !== "boolean" ||
+			(record.error !== undefined &&
+				(typeof record.error !== "string" || record.error.length > 256))
+		) {
+			return null;
+		}
+		return record as ClipboardResultMessage;
+	}
 	if (record.type !== "init" && record.type !== "resize") return null;
 	if (
 		typeof record.cols !== "number" ||
@@ -158,6 +182,16 @@ export class WebTuiServer {
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
 	private readonly accessPolicy: WebAccessPolicy;
 	private browserTheme: BrowserTheme | null = null;
+	private nextClipboardId = 1;
+	private readonly pendingClipboard = new Map<
+		number,
+		{
+			socket: ServerWebSocket<WebSocketData>;
+			resolve: () => void;
+			reject: (error: Error) => void;
+			timer: ReturnType<typeof setTimeout>;
+		}
+	>();
 
 	constructor(
 		private readonly host: WebTuiHost,
@@ -177,6 +211,28 @@ export class WebTuiServer {
 		this.browserTheme = { ...theme };
 		const socket = this.activeSocket;
 		if (socket) this.sendTheme(socket);
+	}
+
+	copyText(text: string): Promise<void> {
+		const byteLength = new TextEncoder().encode(text).byteLength;
+		if (byteLength > MAX_BROWSER_CLIPBOARD_BYTES) {
+			return Promise.reject(
+				new Error("Clipboard content exceeds the 1 MiB browser limit"),
+			);
+		}
+		const socket = this.activeSocket;
+		if (!socket?.data.client || socket.readyState !== WebSocket.OPEN) {
+			return Promise.reject(new Error("No browser is connected"));
+		}
+		const id = this.nextClipboardId++;
+		return new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => {
+				this.pendingClipboard.delete(id);
+				reject(new Error("Browser clipboard request timed out"));
+			}, 5_000);
+			this.pendingClipboard.set(id, { socket, resolve, reject, timer });
+			this.send(socket, JSON.stringify({ type: "clipboard-write", id, text }));
+		});
 	}
 
 	start(): { hostname: string; port: number; url: string } {
@@ -258,6 +314,10 @@ export class WebTuiServer {
 					if (typeof message === "string") {
 						const control = parseControlMessage(message);
 						if (!control) return;
+						if (control.type === "clipboard-result") {
+							this.resolveClipboard(control);
+							return;
+						}
 						if (control.type === "init") {
 							if (socket.data.client) {
 								this.host.resize(control.cols, control.rows);
@@ -355,6 +415,30 @@ export class WebTuiServer {
 		await probe.stop(true);
 	}
 
+	private resolveClipboard(result: ClipboardResultMessage): void {
+		const pending = this.pendingClipboard.get(result.id);
+		if (!pending || pending.socket !== this.activeSocket) return;
+		this.pendingClipboard.delete(result.id);
+		clearTimeout(pending.timer);
+		if (result.ok) pending.resolve();
+		else
+			pending.reject(
+				new Error(result.error || "Browser clipboard write failed"),
+			);
+	}
+
+	private rejectClipboardForSocket(
+		socket: ServerWebSocket<WebSocketData>,
+		reason: string,
+	): void {
+		for (const [id, pending] of this.pendingClipboard) {
+			if (pending.socket !== socket) continue;
+			this.pendingClipboard.delete(id);
+			clearTimeout(pending.timer);
+			pending.reject(new Error(reason));
+		}
+	}
+
 	private sendTheme(socket: ServerWebSocket<WebSocketData>): void {
 		if (!this.browserTheme) return;
 		this.send(
@@ -369,7 +453,9 @@ export class WebTuiServer {
 	): void {
 		if (socket.readyState !== WebSocket.OPEN) return;
 		try {
-			if (socket.send(data) > 0) return;
+			// Bun returns -1 when the frame was accepted under backpressure and 0
+			// only when it was dropped. The configured limit owns hard failure.
+			if (socket.send(data) !== 0) return;
 		} catch (error) {
 			console.error(
 				`Web TUI send failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -382,6 +468,10 @@ export class WebTuiServer {
 	}
 
 	private releaseSocket(socket: ServerWebSocket<WebSocketData>): void {
+		this.rejectClipboardForSocket(
+			socket,
+			"Browser disconnected before copying",
+		);
 		const client = socket.data.client;
 		socket.data.client = null;
 		if (client) this.host.detach(client);

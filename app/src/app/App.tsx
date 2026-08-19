@@ -49,6 +49,7 @@ export type AppProps = {
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 	setTerminalTurnActive: (active: boolean) => void;
 	triggerNotification: (message: string, title?: string) => boolean;
+	copyText: (text: string) => Promise<void>;
 	quitAndDestroy: () => void;
 	registerDispose?: (dispose: () => void | Promise<void>) => void;
 	persistSession: boolean;
@@ -453,6 +454,7 @@ export function App(props: AppProps) {
 							commands={current.commands}
 							controller={current.controller}
 							attachments={current.attachments}
+							copyText={props.copyText}
 							footer={current.footer}
 							header={current.header}
 							releasesWorkspace={current.releasesWorkspace}

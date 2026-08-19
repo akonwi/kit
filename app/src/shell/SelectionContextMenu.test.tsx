@@ -92,11 +92,18 @@ test("opens a message menu only for a completed secondary click", () => {
 	gesture.onMouseUp(event);
 	expect(requests).toEqual([{ x: 3, y: 4, markdown: "**original**" }]);
 
+	// All-motion mouse tracking may report a drag event for browser jitter.
+	// Keep the message click valid within a one-cell tolerance.
 	gesture.onMouseDown(event);
-	gesture.onMouseDrag(event);
+	gesture.onMouseDrag({ ...event, x: 4 } as MouseEvent);
+	gesture.onMouseUp({ ...event, x: 4 } as MouseEvent);
+	expect(requests).toHaveLength(2);
+
+	gesture.onMouseDown(event);
+	gesture.onMouseDrag({ ...event, x: 5 } as MouseEvent);
+	gesture.onMouseUp({ ...event, x: 5 } as MouseEvent);
 	gesture.onMouseUp(event);
-	gesture.onMouseUp(event);
-	expect(requests).toHaveLength(1);
+	expect(requests).toHaveLength(2);
 });
 
 test("copies a whole transcript message as Markdown", async () => {

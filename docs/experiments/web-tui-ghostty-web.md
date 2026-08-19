@@ -37,7 +37,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 - The complete real `AppShell`, including dialogs, pickers, workspace panes, review UI, plugin chrome, and themes
 - One authoritative session/runtime owner
 - Kit-owned browser keyboard normalization for Escape, Ctrl combinations, navigation, function keys, Linux Alt prefixes, and macOS Option/composition
-- Browser-owned copy/paste shortcuts with explicit Canvas-selection copying, bracketed paste, Unicode preservation, and bounded input frames
+- Browser-owned copy/paste shortcuts with explicit Canvas-selection copying, browser-routed whole-message Markdown copying, bracketed paste, Unicode preservation, and bounded input frames
 - Kit-owned SGR mouse encoding for click, release, drag, all-motion, and wheel events, with Shift-selection bypass and CSS-space DPR-safe coordinates
 - Focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
 - Resize and reconnect with full repaint
@@ -51,7 +51,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 730 passing
+- `bun test`: 734 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -64,7 +64,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - real ghostty-web/WASM startup with first-party CSP and asset checks
   - meaningful Canvas frames with exact custom-theme pixels and no hardcoded dark background
   - browser CSS variables and light `color-scheme`
-  - exact Escape, Ctrl+C, navigation, platform Alt/Option, SGR click/release/move/wheel, and resize WebSocket frames
+  - exact Escape, Ctrl+C, navigation, platform Alt/Option, SGR left/right click/release/move/wheel, and resize WebSocket frames
   - Canvas selection bypass and clipboard content, bracketed Unicode paste chunking, synthetic IME completion, and DPR 1/2 coordinate parity
   - forced WebSocket reconnect and page reload with verified full repaint and no duplicate Canvas or textarea state
   - no failed requests, browser console errors, or page errors
@@ -132,7 +132,7 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 - Single active browser terminal only. Multiple independent clients require one renderer and geometry per client over a shared session host.
 - Canvas is poor for accessibility and browser-native find compared with DOM. It cannot replace the SPA's semantic message and form structure.
 - The browser TUI is desktop-focused; the semantic web app owns mobile/touch, native uploads, and mobile-specific layout.
-- Terminal bell and OSC 52 paths that write directly to process stdout do not reach the browser renderer.
+- Terminal bell and notification paths still target terminal or host integrations rather than explicit browser behavior.
 - `--model` is not accepted in this mode; select the model inside the TUI.
 - Actual Safari and native macOS/Linux IME remain manual compatibility checks; browser-reserved shortcuts are documented limitations.
 - Browser input currently uses deterministic legacy key sequences. Kitty keyboard mode remains disabled until the adapter tracks Kitty protocol flags.

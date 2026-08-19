@@ -67,7 +67,10 @@ export async function runWebTuiMode(
 					newSession: options.newSession,
 					noSession: options.noSession,
 					sessionId: options.sessionId,
-					terminal: bridge.terminal,
+					terminal: {
+						...bridge.terminal,
+						copyText: (text) => server.copyText(text),
+					},
 				}),
 			)
 			.catch((error) => {

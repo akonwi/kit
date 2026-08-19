@@ -1,5 +1,9 @@
 import { FitAddon, Ghostty, Terminal } from "ghostty-web";
 import {
+	type BrowserClipboardWrite,
+	parseBrowserClipboardWrite,
+} from "./browser-actions";
+import {
 	BrowserTerminalInput,
 	TerminalProtocolState,
 } from "./browser-terminal-input";
@@ -47,7 +51,9 @@ async function writeBrowserClipboard(text: string): Promise<void> {
 	document.body.append(textarea);
 	textarea.select();
 	try {
-		document.execCommand("copy");
+		if (!document.execCommand("copy")) {
+			throw new Error("Browser denied clipboard access");
+		}
 	} finally {
 		textarea.remove();
 		if (previouslyFocused instanceof HTMLElement) {
@@ -109,7 +115,12 @@ class TuiConnection {
 			}
 			if (typeof event.data === "string") {
 				const theme = parseBrowserThemeMessage(event.data);
-				if (theme) applyBrowserTheme(theme);
+				if (theme) {
+					applyBrowserTheme(theme);
+					return;
+				}
+				const clipboard = parseBrowserClipboardWrite(event.data);
+				if (clipboard) void this.writeClipboard(socket, clipboard);
 			}
 		});
 		socket.addEventListener("close", (event) => {
@@ -138,6 +149,40 @@ class TuiConnection {
 	sendInput(data: string): void {
 		if (this.socket?.readyState !== WebSocket.OPEN) return;
 		for (const frame of terminalInputFrames(data)) this.socket.send(frame);
+	}
+
+	private async writeClipboard(
+		socket: WebSocket,
+		action: BrowserClipboardWrite,
+	): Promise<void> {
+		try {
+			await writeBrowserClipboard(action.text);
+			this.sendClipboardResult(socket, action.id, true);
+		} catch (error) {
+			this.sendClipboardResult(
+				socket,
+				action.id,
+				false,
+				error instanceof Error ? error.message : String(error),
+			);
+		}
+	}
+
+	private sendClipboardResult(
+		socket: WebSocket,
+		id: number,
+		ok: boolean,
+		error?: string,
+	): void {
+		if (socket.readyState !== WebSocket.OPEN) return;
+		socket.send(
+			JSON.stringify({
+				type: "clipboard-result",
+				id,
+				ok,
+				...(error ? { error: error.slice(0, 256) } : {}),
+			}),
+		);
 	}
 
 	private sendControl(

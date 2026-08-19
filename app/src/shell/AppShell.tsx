@@ -40,7 +40,6 @@ import {
 import { CommandPalette } from "./CommandPalette";
 import { ComposerDock, type ComposerInputMode } from "./ComposerDock";
 import type { ChromeContribution } from "./chrome-contributions";
-import { copyToClipboard } from "./clipboard";
 import type { ComposerController } from "./composer-controller";
 import type { FooterStatusController } from "./footer-status";
 import { HeaderBar } from "./HeaderBar";
@@ -93,6 +92,7 @@ export type AppShellProps = {
 	commands: CommandRegistry;
 	controller: ComposerController;
 	attachments: AttachmentsController;
+	copyText: (text: string) => Promise<void>;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
 	releasesWorkspace: ReleasesWorkspaceController;
@@ -291,7 +291,7 @@ function AppShellContent(props: AppShellContentProps) {
 		const selected = selectionMenu();
 		if (!selected) return;
 		closeSelectionMenu();
-		void copyToClipboard(selected.text).catch((error) => {
+		void props.copyText(selected.text).catch((error) => {
 			props.showToast({
 				title: "Could not copy selection",
 				subtitle: error instanceof Error ? error.message : String(error),
@@ -319,7 +319,7 @@ function AppShellContent(props: AppShellContentProps) {
 		const menu = messageContextMenu();
 		if (!menu) return;
 		setMessageContextMenu(null);
-		void copyToClipboard(menu.markdown).catch((error) => {
+		void props.copyText(menu.markdown).catch((error) => {
 			props.showToast({
 				title: "Could not copy message",
 				subtitle: error instanceof Error ? error.message : String(error),
@@ -1243,6 +1243,7 @@ export function AppShell(props: AppShellProps) {
 				commands={props.commands}
 				controller={props.controller}
 				attachments={props.attachments}
+				copyText={props.copyText}
 				footer={props.footer}
 				header={props.header}
 				releasesWorkspace={props.releasesWorkspace}

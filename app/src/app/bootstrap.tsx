@@ -13,6 +13,7 @@ import { safeProcessCwd } from "../process-cwd";
 import { getInstalledRuntimeDir } from "../runtime/runtime-dir";
 import type { Session } from "../session";
 import { loadSettings } from "../settings";
+import { copyToClipboard } from "../shell/clipboard";
 import { initTemplates } from "../shell/templates";
 import { setTerminalProgress } from "../shell/terminal-progress";
 import {
@@ -43,6 +44,7 @@ export type BootstrapTerminal = {
 	onRendererReady?: (
 		renderer: Awaited<ReturnType<typeof createCliRenderer>>,
 	) => void;
+	copyText?: (text: string) => Promise<void>;
 };
 
 async function loadSession(opts?: BootstrapOpts): Promise<Session> {
@@ -276,6 +278,7 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 							triggerNotification={(message, title) =>
 								renderer.triggerNotification(message, title)
 							}
+							copyText={opts?.terminal?.copyText ?? copyToClipboard}
 							quitAndDestroy={quitAndDestroy}
 							registerDispose={(dispose) => {
 								disposeApp = dispose;

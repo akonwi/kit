@@ -255,6 +255,65 @@ describe("WebTuiServer WebSocket", () => {
 		socket.close();
 	});
 
+	test("routes clipboard writes to the active browser and waits for acknowledgement", async () => {
+		const host = recordingHost();
+		const { server, wsUrl, origin } = startServer(host);
+		await expect(server.copyText("before init")).rejects.toThrow(
+			"No browser is connected",
+		);
+		const socket = await openSocket(wsUrl, { headers: { origin } });
+		const messages: Array<{ type: string; id: number; text?: string }> = [];
+		socket.addEventListener("message", (event) => {
+			if (typeof event.data !== "string") return;
+			const message = JSON.parse(event.data) as {
+				type: string;
+				id: number;
+				text?: string;
+			};
+			if (message.type === "clipboard-write") messages.push(message);
+		});
+		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		await waitFor(() => host.log.attached.length === 1);
+
+		const copied = server.copyText("**whole message**");
+		await waitFor(() => messages.length === 1);
+		expect(messages[0]?.text).toBe("**whole message**");
+		socket.send(
+			JSON.stringify({
+				type: "clipboard-result",
+				id: messages[0]?.id,
+				ok: true,
+			}),
+		);
+		await expect(copied).resolves.toBeUndefined();
+
+		const denied = server.copyText("denied");
+		await waitFor(() => messages.length === 2);
+		socket.send(
+			JSON.stringify({
+				type: "clipboard-result",
+				id: messages[1]?.id,
+				ok: false,
+				error: "clipboard permission denied",
+			}),
+		);
+		await expect(denied).rejects.toThrow("clipboard permission denied");
+		socket.close();
+	});
+
+	test("rejects a pending clipboard write when its browser disconnects", async () => {
+		const host = recordingHost();
+		const { server, wsUrl, origin } = startServer(host);
+		const socket = await openSocket(wsUrl, { headers: { origin } });
+		socket.send(JSON.stringify({ type: "init", cols: 80, rows: 24 }));
+		await waitFor(() => host.log.attached.length === 1);
+		const copied = server.copyText("message");
+		const closed = nextClose(socket);
+		socket.close();
+		await closed;
+		await expect(copied).rejects.toThrow("Browser disconnected before copying");
+	});
+
 	test("delivers host output to the attached client as binary frames", async () => {
 		const host = recordingHost();
 		const { wsUrl, origin } = startServer(host);

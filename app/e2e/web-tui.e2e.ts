@@ -153,7 +153,13 @@ async function clickCellAtDeviceScale(
 	browser: Browser,
 	url: string,
 	deviceScaleFactor: number,
-): Promise<{ column: number; row: number; backingScale: number }> {
+): Promise<{
+	column: number;
+	row: number;
+	expectedColumn: number;
+	expectedRow: number;
+	backingScale: number;
+}> {
 	const context = await browser.newContext({
 		deviceScaleFactor,
 		viewport: { width: 1_000, height: 700 },
@@ -166,7 +172,10 @@ async function clickCellAtDeviceScale(
 		const canvas = page.locator("#terminal canvas");
 		const bounds = await canvas.boundingBox();
 		if (!bounds) throw new Error("Terminal Canvas has no bounds");
-		const offset = (await socketTracking(page)).sent.length;
+		const tracking = await socketTracking(page);
+		const size = terminalSizeControls(tracking.sent).at(-1);
+		if (!size) throw new Error("Terminal did not send its initial size");
+		const offset = tracking.sent.length;
 		await page.mouse.click(
 			bounds.x + bounds.width * 0.37,
 			bounds.y + bounds.height * 0.41,
@@ -188,6 +197,8 @@ async function clickCellAtDeviceScale(
 		return {
 			column: Number(match[1]),
 			row: Number(match[2]),
+			expectedColumn: Math.floor(size.cols * 0.37) + 1,
+			expectedRow: Math.floor(size.rows * 0.41) + 1,
 			backingScale: backingWidth / bounds.width,
 		};
 	} finally {
@@ -412,6 +423,19 @@ test("encodes keyboard, mouse, wheel, and resize through the real browser", asyn
 			.toMatch(pattern);
 	}
 
+	const rightClickOffset = (await socketTracking(page)).sent.length;
+	await page.mouse.click(x, y, { button: "right" });
+	for (const pattern of [
+		new RegExp(`${sgrPrefix}2;\\d+;\\d+M`),
+		new RegExp(`${sgrPrefix}2;\\d+;\\d+m`),
+	]) {
+		await expect
+			.poll(async () =>
+				binaryText((await socketTracking(page)).sent, rightClickOffset),
+			)
+			.toMatch(pattern);
+	}
+
 	const selectionOffset = (await socketTracking(page)).sent.length;
 	await page.keyboard.down("Shift");
 	await page.mouse.move(bounds.x + 10, bounds.y + 10);
@@ -514,16 +538,18 @@ test("encodes keyboard, mouse, wheel, and resize through the real browser", asyn
 		.toContain("\x03");
 });
 
-test("maps the same terminal cell at standard and high DPI", async ({
+test("maps pointer coordinates accurately at standard and high DPI", async ({
 	browser,
 	webTuiServer,
 }) => {
 	const standard = await clickCellAtDeviceScale(browser, webTuiServer.url, 1);
 	const highDpi = await clickCellAtDeviceScale(browser, webTuiServer.url, 2);
-	expect({ column: highDpi.column, row: highDpi.row }).toEqual({
-		column: standard.column,
-		row: standard.row,
-	});
+	for (const result of [standard, highDpi]) {
+		expect({ column: result.column, row: result.row }).toEqual({
+			column: result.expectedColumn,
+			row: result.expectedRow,
+		});
+	}
 	expect(standard.backingScale).toBeCloseTo(1, 1);
 	expect(highDpi.backingScale).toBeCloseTo(2, 1);
 });
