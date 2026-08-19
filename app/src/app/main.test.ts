@@ -111,11 +111,37 @@ describe("web mode CLI", () => {
 		}
 	});
 
+	test("rejects an invalid canonical public URL", async () => {
+		const results = await Promise.all([
+			runMain(["--web", "--public-url", "ftp://kit.example.com"]),
+			runMain(["--web", "--public-url", "https://kit.example.com/subpath"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toContain("--public-url expects an HTTP(S) origin");
+		}
+	});
+
 	test("rejects an invalid startup model selector", async () => {
 		const result = await runMain(["--web", "--model", "model-1"]);
 		expect(result.exitCode).toBe(1);
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+	});
+
+	test("accepts a startup model selector for the browser TUI", async () => {
+		const result = await runMain([
+			"--web-tui",
+			"--model",
+			"openai/gpt-5.5",
+			"--port",
+			"0",
+		]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain(
+			"--port expects an integer from 1 to 65535",
+		);
+		expect(result.stderr).not.toContain("does not support --model");
 	});
 });
 
@@ -136,6 +162,8 @@ describe("mode selection", () => {
 			runMain(["--print", "--rpc", "hello"]),
 			runMain(["--print", "--web", "hello"]),
 			runMain(["--rpc", "--web"]),
+			runMain(["--rpc", "--web-tui"]),
+			runMain(["--web", "--web-tui"]),
 		]);
 		for (const result of results) {
 			expect(result.exitCode).toBe(1);
@@ -177,6 +205,7 @@ describe("RPC mode CLI", () => {
 		const results = await Promise.all([
 			runMain(["--rpc", "--port", "4782"]),
 			runMain(["--rpc", "--auth", "user:password"]),
+			runMain(["--rpc", "--public-url", "https://kit.example.com"]),
 		]);
 		for (const result of results) {
 			expect(result.exitCode).toBe(1);

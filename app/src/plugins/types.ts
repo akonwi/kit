@@ -88,6 +88,7 @@ export type PluginContext = {
 		signal?: AbortSignal,
 	) => Promise<void>;
 	triggerNotification: (message: string, title?: string) => boolean;
+	triggerBell: (isError: boolean) => void;
 };
 
 export type InternalPluginSessionAPI = {
@@ -123,6 +124,7 @@ export type InternalPluginSystemAPI = {
 	readonly cwd: string;
 	open: (url: string | URL) => Promise<void>;
 	notify: (message: string, title?: string) => boolean;
+	bell: (isError?: boolean) => void;
 };
 
 export type InternalPluginEventContext = {

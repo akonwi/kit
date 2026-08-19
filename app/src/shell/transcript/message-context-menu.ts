@@ -11,14 +11,24 @@ export function createMessageContextMenuGesture(
 } {
 	let pressed = false;
 	let dragged = false;
+	let pressX = 0;
+	let pressY = 0;
 
 	return {
 		onMouseDown(event) {
 			pressed = event.button === 2;
 			dragged = false;
+			pressX = event.x;
+			pressY = event.y;
 		},
 		onMouseDrag(event) {
-			if (pressed && event.button === 2) dragged = true;
+			if (
+				pressed &&
+				event.button === 2 &&
+				(Math.abs(event.x - pressX) > 1 || Math.abs(event.y - pressY) > 1)
+			) {
+				dragged = true;
+			}
 		},
 		onMouseUp(event) {
 			const source = markdown();

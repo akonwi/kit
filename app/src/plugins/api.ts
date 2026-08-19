@@ -247,11 +247,13 @@ export function createPluginAPI(
 		},
 		notify: (message: string, title?: string) =>
 			ctx.triggerNotification(message, title),
+		bell: (isError = false) => ctx.triggerBell(isError),
 	};
 
 	function notifyUserInteraction(): void {
 		ringBell(false, {
 			notify: ctx.triggerNotification,
+			bell: ctx.triggerBell,
 			title: "Kit",
 			message: "Input needed",
 		});

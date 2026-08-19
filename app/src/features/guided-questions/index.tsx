@@ -29,6 +29,7 @@ export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 		notify: () =>
 			ringBell(false, {
 				notify: kit.system.notify,
+				bell: kit.system.bell,
 				title: "Kit",
 				message: "Input needed",
 			}),

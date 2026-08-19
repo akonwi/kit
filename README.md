@@ -37,8 +37,10 @@ kit -p --model openai/gpt-5.5 "review this" # selects an exact provider/model
 kit -p --session abc123 "continue this" # continues and persists a specific session
 kit --rpc            # runs as a headless JSONL subprocess
 kit --rpc --no-session # runs the RPC conversation in memory
-kit --web            # serves the current directory's latest session in the browser
+kit --web            # serves the current directory's latest session in the semantic browser UI
 kit --web --no-session # serves an in-memory browser session
+kit --web-tui        # serves the real interactive TUI in a desktop browser (experimental)
+kit --web-tui --model openai/gpt-5.5 # starts the browser TUI with an exact provider/model
 kit -s abc123        # opens a specific session by ID (long or short id)
 kit threads          # launches a session picker
 ```

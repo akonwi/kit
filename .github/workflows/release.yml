@@ -64,9 +64,54 @@ jobs:
           path: kit_*.tar.gz
           if-no-files-found: error
 
+  browser-tui:
+    name: Browser TUI / ${{ matrix.os }} / ${{ matrix.browser }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            browser: chromium
+          - os: ubuntu-latest
+            browser: firefox
+          - os: macos-15
+            browser: webkit
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        working-directory: app
+        run: bun install --frozen-lockfile
+
+      - name: Install browser
+        working-directory: app
+        run: bunx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Build binary
+        working-directory: app
+        run: bun run build
+
+      - name: Test browser TUI
+        working-directory: app
+        run: bunx playwright test --project=${{ matrix.browser }}
+
+      - name: Upload browser artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-web-tui-${{ matrix.os }}-${{ matrix.browser }}-results
+          path: app/test-results/web-tui
+          if-no-files-found: ignore
+
   release:
     name: Create GitHub release
-    needs: build
+    needs: [build, browser-tui]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

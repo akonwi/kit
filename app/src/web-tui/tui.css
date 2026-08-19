@@ -1,0 +1,94 @@
+@font-face {
+	font-family: "JetBrains Mono";
+	src: url("/assets/jetbrains-mono-normal.woff2") format("woff2");
+	font-style: normal;
+	font-weight: 100 800;
+	font-display: swap;
+}
+
+:root {
+	--kit-terminal-bg: #0a0a0a;
+	--kit-terminal-fg: #fafafa;
+	--kit-terminal-cursor: #fafafa;
+	--kit-terminal-selection-bg: #404040;
+	--kit-status-bg: #171717;
+	--kit-status-fg: #d4d4d4;
+	--kit-status-border: #404040;
+	color-scheme: dark;
+	background: var(--kit-terminal-bg);
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#terminal {
+	width: 100%;
+	height: 100%;
+	margin: 0;
+	overflow: hidden;
+}
+
+body {
+	background: var(--kit-terminal-bg);
+	color: var(--kit-terminal-fg);
+	font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+#terminal {
+	position: fixed;
+	inset: 0;
+	padding: env(safe-area-inset-top) env(safe-area-inset-right)
+		env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+#status {
+	position: fixed;
+	top: max(0.75rem, env(safe-area-inset-top));
+	right: max(0.75rem, env(safe-area-inset-right));
+	padding: 0.35rem 0.55rem;
+	border: 1px solid var(--kit-status-border);
+	border-radius: 0.25rem;
+	background: var(--kit-status-bg);
+	color: var(--kit-status-fg);
+	font:
+		0.75rem / 1.2 system-ui,
+		sans-serif;
+}
+
+#status[hidden],
+#notification[hidden],
+#enable-notifications[hidden] {
+	display: none;
+}
+
+#notification,
+#enable-notifications {
+	position: fixed;
+	right: max(0.75rem, env(safe-area-inset-right));
+	max-width: min(24rem, calc(100vw - 1.5rem));
+	padding: 0.35rem 0.55rem;
+	border: 0;
+	border-radius: 0.25rem;
+	background: var(--kit-status-bg);
+	color: var(--kit-status-fg);
+	font:
+		0.75rem / 1.3 system-ui,
+		sans-serif;
+}
+
+#notification {
+	top: max(0.75rem, env(safe-area-inset-top));
+}
+
+#enable-notifications {
+	bottom: max(0.75rem, env(safe-area-inset-bottom));
+	cursor: pointer;
+}
+
+#enable-notifications:focus-visible {
+	outline: 1px solid var(--kit-status-border);
+	outline-offset: 2px;
+}

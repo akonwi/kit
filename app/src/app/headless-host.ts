@@ -178,6 +178,7 @@ export async function createHeadlessHost(
 				}
 			: {}),
 		triggerNotification: () => false,
+		triggerBell: () => {},
 	};
 	let builtInPlugins: PluginManager | null = null;
 	let externalPlugins: ExternalPluginManager | null = null;

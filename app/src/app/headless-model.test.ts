@@ -3,6 +3,7 @@ import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	applyStartupModel,
 	isValidModelSelector,
+	StartupModelAuthenticationRequiredError,
 	selectStartupModel,
 } from "./headless-model";
 
@@ -31,6 +32,23 @@ describe("headless startup model selection", () => {
 		expect(() => selectStartupModel(models, "openai/unknown")).toThrow(
 			"Available openai models: gpt-5.5",
 		);
+	});
+
+	test("requests authentication when a known startup provider is unavailable", async () => {
+		const runtime = {
+			getAvailableModels: () =>
+				models.filter((model) => model.provider !== "openai"),
+			setModel: mock(() => {}),
+			waitForModelAdaptation: mock(async () => {}),
+		};
+
+		await expect(
+			applyStartupModel(runtime as never, "openai/gpt-5.5", {
+				isKnown: (provider) => provider === "openai",
+				isAuthenticated: () => false,
+			}),
+		).rejects.toBeInstanceOf(StartupModelAuthenticationRequiredError);
+		expect(runtime.setModel).not.toHaveBeenCalled();
 	});
 
 	test("sets the selected model before waiting for adaptation", async () => {

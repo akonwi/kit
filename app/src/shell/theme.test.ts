@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { getCurrentThemeConfig, resolveAndApplyTheme } from "./theme";
+import {
+	getCurrentThemeConfig,
+	resolveAndApplyTheme,
+	subscribeThemeConfig,
+} from "./theme";
 
 describe("theme config", () => {
 	test("returns the current resolved theme config", async () => {
@@ -11,6 +15,21 @@ describe("theme config", () => {
 		expect(config.tokens.textPrimary).toBeString();
 		expect(config.tokens).not.toHaveProperty("modalBackdrop");
 		expect(config.syntaxPalette.text).toBeString();
+	});
+
+	test("publishes defensive theme snapshots", async () => {
+		await resolveAndApplyTheme("system");
+		const snapshots: string[] = [];
+		const unsubscribe = subscribeThemeConfig((config) => {
+			snapshots.push(config.tokens.bg);
+			config.tokens.bg = "#123456";
+		});
+		await resolveAndApplyTheme("system");
+		unsubscribe();
+		await resolveAndApplyTheme("system");
+
+		expect(snapshots).toHaveLength(2);
+		expect(getCurrentThemeConfig().tokens.bg).not.toBe("#123456");
 	});
 
 	test("returns defensive copies", async () => {

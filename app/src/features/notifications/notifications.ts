@@ -12,6 +12,7 @@ import { platform } from "node:os";
 const FUNK_SOUND_PATH = "/System/Library/Sounds/Funk.aiff";
 
 type TerminalNotifier = (message: string, title?: string) => boolean;
+type BellNotifier = (isError: boolean) => void;
 
 // ── Bell ────────────────────────────────────────────────────────────
 
@@ -59,6 +60,11 @@ function triggerTerminalNotification(
 	}
 }
 
+export function ringLocalBell(isError: boolean): void {
+	writeBell();
+	if (isError) playErrorSound();
+}
+
 /**
  * Emit BEL for terminal bell/tab indicators and also request a terminal-mediated
  * notification when available.
@@ -67,20 +73,18 @@ export function ringBell(
 	isError: boolean,
 	options?: {
 		notify?: TerminalNotifier;
+		bell?: BellNotifier;
 		message?: string;
 		title?: string;
 	},
 ): void {
 	// OpenTUI notifications are terminal/OS dependent and may be quiet or hidden
-	// while focused, so keep BEL as the reliable bell/tab indicator.
-	writeBell();
+	// while focused, so keep a host-specific bell/tab indicator.
+	if (options?.bell) options.bell(isError);
+	else ringLocalBell(isError);
 	triggerTerminalNotification(
 		options?.notify,
 		options?.message ?? (isError ? "Turn failed" : "Turn complete"),
 		options?.title ?? "Kit",
 	);
-
-	if (isError) {
-		playErrorSound();
-	}
 }
