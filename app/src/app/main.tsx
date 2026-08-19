@@ -132,34 +132,28 @@ if (values.mode !== undefined) {
 		console.error("kit --web --port expects an integer from 1 to 65535");
 		process.exitCode = 1;
 	} else if (values["experimental-tui"] === true) {
-		if (typeof values.model === "string") {
-			console.error(
-				"kit --web --experimental-tui does not support --model; select the model inside the TUI",
-			);
-			process.exitCode = 1;
-		} else {
-			const { runWebTuiMode } = await import("./web-tui-mode");
-			process.exitCode = await runWebTuiMode({
-				allowedHosts: Array.isArray(values["allow-host"])
-					? values["allow-host"].filter(
-							(host): host is string => typeof host === "string",
-						)
-					: undefined,
-				allowedOrigins: Array.isArray(values["allow-origin"])
-					? values["allow-origin"].filter(
-							(origin): origin is string => typeof origin === "string",
-						)
-					: undefined,
-				basicAuth,
-				hostname: typeof values.host === "string" ? values.host : undefined,
-				port,
-				publicUrl: publicUrl ?? undefined,
-				newSession: selectsNewSession,
-				noSession: values["no-session"] === true,
-				sessionId:
-					typeof values.session === "string" ? values.session : undefined,
-			});
-		}
+		const { runWebTuiMode } = await import("./web-tui-mode");
+		process.exitCode = await runWebTuiMode({
+			allowedHosts: Array.isArray(values["allow-host"])
+				? values["allow-host"].filter(
+						(host): host is string => typeof host === "string",
+					)
+				: undefined,
+			allowedOrigins: Array.isArray(values["allow-origin"])
+				? values["allow-origin"].filter(
+						(origin): origin is string => typeof origin === "string",
+					)
+				: undefined,
+			basicAuth,
+			hostname: typeof values.host === "string" ? values.host : undefined,
+			port,
+			publicUrl: publicUrl ?? undefined,
+			model: typeof values.model === "string" ? values.model : undefined,
+			newSession: selectsNewSession,
+			noSession: values["no-session"] === true,
+			sessionId:
+				typeof values.session === "string" ? values.session : undefined,
+		});
 	} else {
 		const { safeProcessCwd } = await import("../process-cwd");
 		const { runWebMode } = await import("./web-mode");

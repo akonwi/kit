@@ -41,6 +41,7 @@ export type WebTuiModeOptions = {
 	hostname?: string;
 	port?: number;
 	publicUrl?: string;
+	model?: string;
 	newSession?: boolean;
 	noSession?: boolean;
 	sessionId?: string;
@@ -64,6 +65,7 @@ export async function runWebTuiMode(
 		appPromise = import("./bootstrap")
 			.then(({ bootstrap }) =>
 				bootstrap({
+					startupModel: options.model,
 					newSession: options.newSession,
 					noSession: options.noSession,
 					sessionId: options.sessionId,

@@ -24,7 +24,11 @@ import {
 	AgentRuntime,
 	AuthenticationRequiredError,
 } from "../runtime/agent-runtime";
-import { refreshModelAvailability } from "../runtime/models";
+import {
+	hasCachedProviderAuth,
+	kitModels,
+	refreshModelAvailability,
+} from "../runtime/models";
 import type { Session } from "../session";
 import { type LoadedSettings, loadSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
@@ -40,11 +44,16 @@ import type { ToastInput } from "../state/toasts";
 import { FilePersistence } from "../storage/file-persistence";
 import { AuthGateScreen } from "./AuthGateScreen";
 import { FatalScreen } from "./FatalScreen";
+import {
+	applyStartupModel,
+	StartupModelAuthenticationRequiredError,
+} from "./headless-model";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
 import { createPluginUI } from "./plugin-ui";
 
 export type AppProps = {
 	settings: LoadedSettings;
+	startupModel?: string;
 	session: Session;
 	updateTerminalTitle: (sessionName: string | undefined, cwd: string) => void;
 	setTerminalTurnActive: (active: boolean) => void;
@@ -216,10 +225,16 @@ export function App(props: AppProps) {
 		}
 
 		try {
+			await applyStartupModel(runtime, props.startupModel, {
+				isKnown: (provider) => kitModels.getProvider(provider) !== undefined,
+				isAuthenticated: hasCachedProviderAuth,
+			});
 			initializePlugins();
 		} catch (error) {
 			await disposePluginManagers();
+			app.dispose();
 			releasesWorkspace.dispose();
+			scratchpad.dispose();
 			persistence?.dispose();
 			runtime.dispose();
 			throw error;
@@ -357,7 +372,10 @@ export function App(props: AppProps) {
 		try {
 			return await buildReadyState();
 		} catch (error) {
-			if (error instanceof AuthenticationRequiredError) {
+			if (
+				error instanceof AuthenticationRequiredError ||
+				error instanceof StartupModelAuthenticationRequiredError
+			) {
 				return { kind: "unauthenticated" };
 			}
 			return {

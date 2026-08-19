@@ -12,6 +12,7 @@ Run:
 
 ```bash
 kit --web --experimental-tui
+kit --web --experimental-tui --model provider/model-id
 ```
 
 Normal `kit --web` behavior is unchanged. The experimental mode has one runtime owner:
@@ -39,6 +40,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 - Kit-owned browser keyboard normalization for Escape, Ctrl combinations, navigation, function keys, Linux Alt prefixes, and macOS Option/composition
 - Browser-owned copy/paste shortcuts with explicit Canvas-selection copying, browser-routed whole-message Markdown copying, bracketed paste, Unicode preservation, and bounded input frames
 - Browser-owned in-page notifications, opt-in Web Notifications, and user-gesture-unlocked bell audio without host `/dev/tty` or `afplay` effects
+- Optional startup model selection through the standard `--model <provider>/<model-id>` selector
 - Kit-owned SGR mouse encoding for click, release, drag, all-motion, and wheel events, with Shift-selection bypass and CSS-space DPR-safe coordinates
 - Focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
 - Resize and reconnect with full repaint
@@ -52,7 +54,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 736 passing
+- `bun test`: 742 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -81,6 +83,10 @@ The browser TUI targets macOS and Linux desktops. Linux Alt+printable keys use t
 Input uses deterministic legacy terminal sequences. This covers Kit's control-letter, navigation, function-key, mouse, paste, and selection workflows, but cannot represent every modified key, key release, or browser-reserved shortcut. Cmd/Ctrl shortcuts owned by browser chrome remain unavailable. Kitty keyboard mode stays disabled until Kit can track negotiated Kitty flags and encode them consistently.
 
 Playwright's macOS WebKit build is not the installed Safari application, and synthetic composition does not replace native OS IME validation. Actual Safari, macOS dead-key/IME, and Linux desktop IME behavior remain a short manual release checklist. Windows is not in the supported browser-TUI matrix. The semantic web app remains the supported mobile and touch interface.
+
+## Startup model
+
+`--model <provider>/<model-id>` uses the same exact provider/model selector and model-adaptation path as print, RPC, and semantic web modes. Browser-TUI startup applies the selection before plugins and the composer become ready. If the requested known provider is not authenticated, Kit remains at the authentication gate so the user can log into the correct provider and retry; unknown providers or models produce the normal fatal startup diagnostic.
 
 ## Browser notifications
 
@@ -141,7 +147,6 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 - Single active browser terminal only. Multiple independent clients require one renderer and geometry per client over a shared session host.
 - Canvas is poor for accessibility and browser-native find compared with DOM. It cannot replace the SPA's semantic message and form structure.
 - The browser TUI is desktop-focused; the semantic web app owns mobile/touch, native uploads, and mobile-specific layout.
-- `--model` is not accepted in this mode; select the model inside the TUI.
 - Actual Safari and native macOS/Linux IME remain manual compatibility checks; browser-reserved shortcuts are documented limitations.
 - Browser input currently uses deterministic legacy key sequences. Kitty keyboard mode remains disabled until the adapter tracks Kitty protocol flags.
 - ghostty-web 0.4.0 is unofficial and young.

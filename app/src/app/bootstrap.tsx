@@ -30,6 +30,7 @@ type BootstrapOpts = {
 	sessionId?: string;
 	newSession?: boolean;
 	noSession?: boolean;
+	startupModel?: string;
 	/**
 	 * Experimental: host the OpenTUI application against custom terminal
 	 * streams instead of the process TTY (browser-TUI bridge).
@@ -271,6 +272,7 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 					<KeymapProvider keymap={keymap}>
 						<App
 							settings={settings}
+							startupModel={opts?.startupModel}
 							session={session}
 							persistSession={opts?.noSession !== true}
 							updateTerminalTitle={updateTerminalTitle}

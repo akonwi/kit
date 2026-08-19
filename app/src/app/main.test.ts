@@ -128,6 +128,22 @@ describe("web mode CLI", () => {
 		expect(result.stdout).toBe("");
 		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
 	});
+
+	test("accepts a startup model selector for the experimental browser TUI", async () => {
+		const result = await runMain([
+			"--web",
+			"--experimental-tui",
+			"--model",
+			"openai/gpt-5.5",
+			"--port",
+			"0",
+		]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stderr).toContain(
+			"--port expects an integer from 1 to 65535",
+		);
+		expect(result.stderr).not.toContain("does not support --model");
+	});
 });
 
 describe("interactive mode CLI", () => {
