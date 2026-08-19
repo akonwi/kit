@@ -76,7 +76,7 @@ jobs:
             browser: chromium
           - os: ubuntu-latest
             browser: firefox
-          - os: macos-14
+          - os: macos-15
             browser: webkit
     steps:
       - uses: actions/checkout@v4
