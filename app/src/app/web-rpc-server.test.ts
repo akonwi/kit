@@ -155,6 +155,7 @@ describe("WebRpcServer", () => {
 
 	function start(
 		options: {
+			publicUrl?: string;
 			allowedHosts?: string[];
 			allowedOrigins?: string[];
 			basicAuth?: WebBasicAuthCredentials;
@@ -195,6 +196,34 @@ describe("WebRpcServer", () => {
 		expect(clientJavaScript).toContain("new WebSocket");
 		expect(clientJavaScript).toContain("Conversation transcript");
 		expect(clientJavaScript).toContain("solid-js");
+	});
+
+	test("accepts a canonical public Host and Origin without forwarded headers", async () => {
+		const { address } = start({ publicUrl: "https://kit.example.com" });
+		const page = await fetch(address.url, {
+			headers: { host: "kit.example.com" },
+		});
+		expect(page.status).toBe(200);
+		expect(page.headers.get("content-security-policy")).toContain(
+			"wss://kit.example.com",
+		);
+		const connection = await openWebSocket(
+			`${address.url.replace("http://", "ws://")}/api/rpc`,
+			{
+				host: "kit.example.com",
+				origin: "https://kit.example.com",
+			},
+		);
+		sockets.push(connection.socket);
+		expect(connection.sync).toMatchObject({ type: "sync", mode: "snapshot" });
+
+		const forwardedOnly = await fetch(address.url, {
+			headers: {
+				host: "proxy.invalid",
+				forwarded: "host=kit.example.com;proto=https",
+			},
+		});
+		expect(forwardedOnly.status).toBe(403);
 	});
 
 	test("protects HTTP resources and WebSocket upgrades with Basic auth", async () => {

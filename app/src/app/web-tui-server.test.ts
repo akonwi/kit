@@ -117,6 +117,43 @@ describe("WebTuiServer HTTP", () => {
 		});
 	});
 
+	test("derives hosted Host, Origin, and CSP sources from a public URL", async () => {
+		const { origin, wsUrl } = startServer(recordingHost(), {
+			publicUrl: "https://kit.example.com",
+		});
+		const page = await fetch(origin, {
+			headers: { host: "kit.example.com" },
+		});
+		expect(page.status).toBe(200);
+		expect(page.headers.get("content-security-policy")).toContain(
+			"wss://kit.example.com",
+		);
+		const socket = await openSocket(wsUrl, {
+			headers: {
+				host: "kit.example.com",
+				origin: "https://kit.example.com",
+			},
+		});
+		expect(socket.readyState).toBe(WebSocket.OPEN);
+		socket.close();
+		const insecureOrigin = await fetch(`${origin}/api/tui`, {
+			headers: {
+				host: "kit.example.com",
+				origin: "http://kit.example.com",
+			},
+		});
+		expect(insecureOrigin.status).toBe(403);
+
+		const forwardedOnly = await fetch(origin, {
+			headers: {
+				host: "proxy.invalid",
+				"x-forwarded-host": "kit.example.com",
+				"x-forwarded-proto": "https",
+			},
+		});
+		expect(forwardedOnly.status).toBe(403);
+	});
+
 	test("rejects disallowed Host headers", async () => {
 		const { origin } = startServer(recordingHost());
 		const response = await fetch(`${origin}/`, {

@@ -87,6 +87,8 @@ const spawnServer = () =>
 			"--no-session",
 			"--port",
 			String(port),
+			"--public-url",
+			origin,
 		],
 		cwd: dir,
 		env: { ...process.env, KIT_DEBUG_SHUTDOWN: "1" },

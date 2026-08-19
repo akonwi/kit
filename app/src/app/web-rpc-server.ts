@@ -1,4 +1,4 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import micaCss from "@akonwi/mica/mica.css" with { type: "text" };
 import jetbrainsMonoItalic from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-italic.woff2" with {
@@ -27,6 +27,10 @@ import {
 	type RpcEventListener,
 	type RpcWriter,
 } from "./rpc-session-host";
+import {
+	WebAccessPolicy,
+	type WebBasicAuthCredentials,
+} from "./web-access-policy";
 
 export type WebRpcHost = {
 	subscribe(listener: RpcEventListener): () => void;
@@ -34,14 +38,12 @@ export type WebRpcHost = {
 	getConnectionSnapshot(maxMessages?: number): RpcConnectionSnapshot;
 };
 
-export type WebBasicAuthCredentials = {
-	username: string;
-	password: string;
-};
+export type { WebBasicAuthCredentials } from "./web-access-policy";
 
 export type WebRpcServerOptions = {
 	hostname?: string;
 	port?: number;
+	publicUrl?: string;
 	allowedHosts?: string[];
 	allowedOrigins?: string[];
 	allowOriginless?: boolean;
@@ -142,37 +144,11 @@ function parseError(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-function credentialDigest(value: string): Buffer {
-	return createHash("sha256").update(value, "utf8").digest();
-}
-
-function normalizeOrigin(value: string): string | null {
-	if (value === "null") return value;
-	try {
-		const origin = new URL(value).origin.toLowerCase();
-		return origin === "null" ? null : origin;
-	} catch {
-		return null;
-	}
-}
-
-function decodeBasicAuthorization(header: string | null): string | null {
-	const match = header?.match(
-		/^Basic ((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/i,
-	);
-	const encoded = match?.[1];
-	if (!encoded) return null;
-	try {
-		return new TextDecoder("utf-8", { fatal: true }).decode(
-			Buffer.from(encoded, "base64"),
-		);
-	} catch {
-		return null;
-	}
-}
-
-function webDocumentHeaders(url: URL): HeadersInit {
-	const webSocketOrigins = `ws://${url.host} wss://${url.host}`;
+function webDocumentHeaders(
+	url: URL,
+	accessPolicy: WebAccessPolicy,
+): HeadersInit {
+	const webSocketOrigins = accessPolicy.webSocketConnectSources(url);
 	return {
 		"content-type": "text/html; charset=utf-8",
 		"content-security-policy": [
@@ -221,18 +197,17 @@ export class WebRpcServer {
 	private readonly journal: RemoteEventJournal;
 	private readonly persistentToasts = new Map<string, unknown>();
 	private readonly messageChunkTokens = new Map<string, MessageChunkToken>();
-	private readonly expectedBasicAuthDigest: Buffer | null;
+	private readonly accessPolicy: WebAccessPolicy;
 	private messageChunkCacheBytes = 0;
 
 	constructor(
 		private readonly rpcHost: WebRpcHost,
 		private readonly options: WebRpcServerOptions = {},
 	) {
-		this.expectedBasicAuthDigest = options.basicAuth
-			? credentialDigest(
-					`${options.basicAuth.username}:${options.basicAuth.password}`,
-				)
-			: null;
+		this.accessPolicy = new WebAccessPolicy({
+			...options,
+			authRealm: "Kit web mode",
+		});
 		this.journal = new RemoteEventJournal({
 			streamId: options.eventStreamId,
 			maxEvents: options.eventHistoryMaxEvents,
@@ -252,7 +227,7 @@ export class WebRpcServer {
 			maxRequestBodySize: MAX_MULTIPART_BODY_BYTES,
 			fetch: async (request, bunServer) => {
 				const url = new URL(request.url);
-				if (!this.isAllowedHost(url.host)) {
+				if (!this.accessPolicy.isAllowedHost(url.host)) {
 					return new Response("Host not allowed", { status: 403 });
 				}
 				const isAttachmentRequest =
@@ -260,16 +235,18 @@ export class WebRpcServer {
 					url.pathname.startsWith("/api/attachments/");
 				const isWebSocketRequest = url.pathname === "/api/rpc";
 				if (
-					(isAttachmentRequest && !this.isAllowedHttpRequest(request, url)) ||
-					(isWebSocketRequest && !this.isAllowedWebSocketRequest(request, url))
+					(isAttachmentRequest &&
+						!this.accessPolicy.isAllowedHttpRequest(request, url)) ||
+					(isWebSocketRequest &&
+						!this.accessPolicy.isAllowedWebSocketRequest(request, url))
 				) {
 					return new Response("Origin or host not allowed", { status: 403 });
 				}
 				if (isAttachmentRequest && request.method === "OPTIONS") {
 					return this.handleAttachmentRequest(request, url);
 				}
-				if (!this.isAuthorized(request)) {
-					return this.authenticationRequiredResponse();
+				if (!this.accessPolicy.isAuthorized(request)) {
+					return this.accessPolicy.authenticationRequiredResponse();
 				}
 				if (url.pathname === "/assets/client.js") {
 					return new Response(await webClientJavaScript(), {
@@ -312,7 +289,7 @@ export class WebRpcServer {
 				}
 				if (url.pathname === "/") {
 					return new Response(clientHtml as unknown as string, {
-						headers: webDocumentHeaders(url),
+						headers: webDocumentHeaders(url, this.accessPolicy),
 					});
 				}
 				return new Response("Not found", { status: 404 });
@@ -356,6 +333,7 @@ export class WebRpcServer {
 		const port = server.port;
 		if (port === undefined)
 			throw new Error("Web RPC server did not bind a port");
+		this.accessPolicy.setListenerAddress(hostname, port);
 		return { hostname, port, url: server.url.origin };
 	}
 
@@ -911,10 +889,10 @@ export class WebRpcServer {
 		request: Request,
 		url: URL,
 	): Promise<Response> {
-		if (!this.isAllowedHttpRequest(request, url)) {
+		if (!this.accessPolicy.isAllowedHttpRequest(request, url)) {
 			return new Response("Origin or host not allowed", { status: 403 });
 		}
-		const corsHeaders = this.corsHeaders(request);
+		const corsHeaders = this.accessPolicy.corsHeaders(request);
 		if (request.method === "OPTIONS") {
 			return new Response(null, {
 				status: 204,
@@ -1022,85 +1000,6 @@ export class WebRpcServer {
 		});
 	}
 
-	private isAuthorized(request: Request): boolean {
-		if (!this.expectedBasicAuthDigest) return true;
-		const credentials = decodeBasicAuthorization(
-			request.headers.get("authorization"),
-		);
-		const actualDigest = credentialDigest(credentials ?? "");
-		return timingSafeEqual(this.expectedBasicAuthDigest, actualDigest);
-	}
-
-	private authenticationRequiredResponse(): Response {
-		return new Response("Authentication required", {
-			status: 401,
-			headers: {
-				"cache-control": "no-store",
-				"www-authenticate": 'Basic realm="Kit web mode", charset="UTF-8"',
-			},
-		});
-	}
-
-	private isAllowedWebSocketRequest(request: Request, url: URL): boolean {
-		return (
-			this.isAllowedHost(url.host) &&
-			this.isAllowedOrigin(
-				request.headers.get("origin"),
-				url,
-				this.options.allowOriginless === true,
-			)
-		);
-	}
-
-	private isAllowedHttpRequest(request: Request, url: URL): boolean {
-		return (
-			this.isAllowedHost(url.host) &&
-			this.isAllowedOrigin(
-				request.headers.get("origin"),
-				url,
-				request.method === "GET" || this.options.allowOriginless === true,
-			)
-		);
-	}
-
-	private isAllowedOrigin(
-		origin: string | null,
-		url: URL,
-		allowOriginless: boolean,
-	): boolean {
-		if (!origin) return allowOriginless;
-		const normalizedOrigin = normalizeOrigin(origin);
-		if (!normalizedOrigin) return false;
-		return (
-			this.options.allowedOrigins?.includes("*") === true ||
-			this.allowedOrigins(url).has(normalizedOrigin)
-		);
-	}
-
-	private allowedOrigins(url: URL): Set<string> {
-		const origins = new Set<string>([url.origin.toLowerCase()]);
-		for (const value of this.options.allowedOrigins ?? []) {
-			if (value === "*") continue;
-			const origin = normalizeOrigin(value);
-			if (origin) origins.add(origin);
-		}
-		return origins;
-	}
-
-	private corsHeaders(request: Request): Record<string, string> {
-		const header = request.headers.get("origin");
-		const origin = header ? normalizeOrigin(header) : null;
-		return origin
-			? {
-					...(this.expectedBasicAuthDigest
-						? { "access-control-allow-credentials": "true" }
-						: {}),
-					"access-control-allow-origin": origin,
-					vary: "origin",
-				}
-			: {};
-	}
-
 	private projectRecord(record: unknown): unknown {
 		if (isRecord(record) && record.type === "agent.end") {
 			const projected = { ...record };
@@ -1143,28 +1042,5 @@ export class WebRpcServer {
 		} finally {
 			ancestors.delete(value);
 		}
-	}
-
-	private isAllowedHost(host: string): boolean {
-		return (
-			this.options.allowedHosts?.includes("*") === true ||
-			this.allowedHosts().has(host.toLowerCase())
-		);
-	}
-
-	private allowedHosts(): Set<string> {
-		const hostname =
-			this.server?.hostname ?? this.options.hostname ?? "127.0.0.1";
-		const port = this.server?.port ?? this.options.port ?? 4782;
-		const hosts = new Set(
-			(this.options.allowedHosts ?? []).map((host) => host.toLowerCase()),
-		);
-		hosts.add(`${hostname}:${port}`.toLowerCase());
-		if (hostname === "127.0.0.1" || hostname === "::1") {
-			hosts.add(`localhost:${port}`);
-			hosts.add(`127.0.0.1:${port}`);
-			hosts.add(`[::1]:${port}`);
-		}
-		return hosts;
 	}
 }

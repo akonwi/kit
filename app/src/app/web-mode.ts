@@ -13,6 +13,7 @@ export type WebModeOptions = {
 	allowedOrigins?: string[];
 	hostname?: string;
 	port?: number;
+	publicUrl?: string;
 	model?: string;
 	newSession?: boolean;
 	noSession?: boolean;
@@ -95,11 +96,17 @@ export async function runWebMode(
 			port: options.port,
 			allowedHosts: options.allowedHosts,
 			allowedOrigins: options.allowedOrigins,
+			publicUrl: options.publicUrl,
 			basicAuth: options.basicAuth,
 			attachments,
 		});
 		const address = webServer.start();
-		console.log(`Kit web mode listening at ${address.url}`);
+		console.log(
+			`Kit web mode available at ${options.publicUrl ?? address.url}`,
+		);
+		if (options.publicUrl) {
+			console.log(`Kit web mode listening internally at ${address.url}`);
+		}
 		await stopped;
 		exitCode = signalExitCode;
 	} catch (error) {

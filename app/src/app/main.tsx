@@ -1,6 +1,7 @@
 import { parseArgs } from "node:util";
 import { isValidModelSelector } from "./headless-model";
 import { buildPrintModePrompt } from "./print-mode-input";
+import { normalizePublicUrl } from "./web-access-policy";
 
 const cliArgs = process.argv.slice(2);
 const { positionals, values } = parseArgs({
@@ -15,6 +16,7 @@ const { positionals, values } = parseArgs({
 		model: { type: "string" },
 		"no-session": { type: "boolean" },
 		port: { type: "string" },
+		"public-url": { type: "string" },
 		print: { type: "boolean", short: "p" },
 		rpc: { type: "boolean" },
 		session: { type: "string", short: "s" },
@@ -33,6 +35,7 @@ const hasWebOnlyOptions =
 	values.auth !== undefined ||
 	values.host !== undefined ||
 	values.port !== undefined ||
+	values["public-url"] !== undefined ||
 	values["allow-host"] !== undefined ||
 	values["allow-origin"] !== undefined ||
 	values["experimental-tui"] !== undefined;
@@ -90,6 +93,10 @@ if (values.mode !== undefined) {
 		typeof values.port === "string" && /^\d+$/.test(values.port)
 			? Number(values.port)
 			: undefined;
+	const publicUrl =
+		typeof values["public-url"] === "string"
+			? normalizePublicUrl(values["public-url"])
+			: undefined;
 	if (
 		values.version ||
 		(positionals.length > 0 && !hasOnlyNewSessionPositional)
@@ -106,6 +113,11 @@ if (values.mode !== undefined) {
 		process.exitCode = 1;
 	} else if (values.auth !== undefined && !basicAuth) {
 		console.error("kit --web --auth expects <username>:<password>");
+		process.exitCode = 1;
+	} else if (values["public-url"] !== undefined && !publicUrl) {
+		console.error(
+			"kit --web --public-url expects an HTTP(S) origin without a path, query, credentials, or fragment",
+		);
 		process.exitCode = 1;
 	} else if (
 		typeof values.model === "string" &&
@@ -141,6 +153,7 @@ if (values.mode !== undefined) {
 				basicAuth,
 				hostname: typeof values.host === "string" ? values.host : undefined,
 				port,
+				publicUrl: publicUrl ?? undefined,
 				newSession: selectsNewSession,
 				noSession: values["no-session"] === true,
 				sessionId:
@@ -164,6 +177,7 @@ if (values.mode !== undefined) {
 			basicAuth,
 			hostname: typeof values.host === "string" ? values.host : undefined,
 			port,
+			publicUrl: publicUrl ?? undefined,
 			model: typeof values.model === "string" ? values.model : undefined,
 			newSession: selectsNewSession,
 			noSession: values["no-session"] === true,
@@ -173,7 +187,7 @@ if (values.mode !== undefined) {
 	}
 } else if (hasWebOnlyOptions) {
 	console.error(
-		"--auth, --host, --port, --allow-host, --allow-origin, and --experimental-tui require --web",
+		"--auth, --host, --port, --public-url, --allow-host, --allow-origin, and --experimental-tui require --web",
 	);
 	process.exitCode = 1;
 } else if (values.rpc === true) {

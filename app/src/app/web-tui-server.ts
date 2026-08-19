@@ -9,7 +9,6 @@
  * `'wasm-unsafe-eval'`, required to instantiate the Ghostty terminal core.
  */
 
-import { createHash, timingSafeEqual } from "node:crypto";
 import jetbrainsMonoItalic from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-italic.woff2" with {
 	type: "file",
 };
@@ -22,7 +21,13 @@ import type { BrowserTheme } from "../web-tui/browser-theme";
 import tuiHtml from "../web-tui/index.html" with { type: "text" };
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import tuiCss from "../web-tui/tui.css" with { type: "text" };
+import {
+	WebAccessPolicy,
+	type WebBasicAuthCredentials,
+} from "./web-access-policy";
 import { clampTuiSize } from "./web-tui-bridge";
+
+export type { WebBasicAuthCredentials as WebTuiBasicAuthCredentials } from "./web-access-policy";
 
 export type WebTuiClient = {
 	send(bytes: Uint8Array): void;
@@ -36,18 +41,14 @@ export type WebTuiHost = {
 	resize(cols: number, rows: number): void;
 };
 
-export type WebTuiBasicAuthCredentials = {
-	username: string;
-	password: string;
-};
-
 export type WebTuiServerOptions = {
 	hostname?: string;
 	port?: number;
+	publicUrl?: string;
 	allowedHosts?: string[];
 	allowedOrigins?: string[];
 	allowOriginless?: boolean;
-	basicAuth?: WebTuiBasicAuthCredentials;
+	basicAuth?: WebBasicAuthCredentials;
 };
 
 type WebSocketData = {
@@ -101,8 +102,11 @@ const TUI_ASSETS = new Map<
 	],
 ]);
 
-function tuiDocumentHeaders(url: URL): HeadersInit {
-	const webSocketOrigins = `ws://${url.host} wss://${url.host}`;
+function tuiDocumentHeaders(
+	url: URL,
+	accessPolicy: WebAccessPolicy,
+): HeadersInit {
+	const webSocketOrigins = accessPolicy.webSocketConnectSources(url);
 	return {
 		"content-type": "text/html; charset=utf-8",
 		"content-security-policy": [
@@ -121,30 +125,6 @@ function tuiDocumentHeaders(url: URL): HeadersInit {
 		"referrer-policy": "no-referrer",
 		"x-content-type-options": "nosniff",
 	};
-}
-
-function credentialDigest(value: string): Buffer {
-	return createHash("sha256").update(value, "utf8").digest();
-}
-
-function normalizeOrigin(value: string): string | null {
-	if (value === "null") return value;
-	try {
-		const origin = new URL(value).origin.toLowerCase();
-		return origin === "null" ? null : origin;
-	} catch {
-		return null;
-	}
-}
-
-function decodeBasicAuthorization(header: string | null): string | null {
-	const match = header?.match(/^Basic\s+([A-Za-z0-9+/=]+)$/i);
-	if (!match?.[1]) return null;
-	try {
-		return Buffer.from(match[1], "base64").toString("utf8");
-	} catch {
-		return null;
-	}
 }
 
 type ControlMessage = { type: "init" | "resize"; cols: number; rows: number };
@@ -176,18 +156,17 @@ export class WebTuiServer {
 	private server: Server<WebSocketData> | null = null;
 	private activeSocket: ServerWebSocket<WebSocketData> | null = null;
 	private readonly clients = new Set<ServerWebSocket<WebSocketData>>();
-	private readonly expectedBasicAuthDigest: Buffer | null;
+	private readonly accessPolicy: WebAccessPolicy;
 	private browserTheme: BrowserTheme | null = null;
 
 	constructor(
 		private readonly host: WebTuiHost,
 		private readonly options: WebTuiServerOptions = {},
 	) {
-		this.expectedBasicAuthDigest = options.basicAuth
-			? credentialDigest(
-					`${options.basicAuth.username}:${options.basicAuth.password}`,
-				)
-			: null;
+		this.accessPolicy = new WebAccessPolicy({
+			...options,
+			authRealm: "Kit web TUI mode",
+		});
 	}
 
 	get clientCount(): number {
@@ -207,18 +186,18 @@ export class WebTuiServer {
 			port: this.options.port ?? 4783,
 			fetch: async (request, bunServer) => {
 				const url = new URL(request.url);
-				if (!this.isAllowedHost(url.host)) {
+				if (!this.accessPolicy.isAllowedHost(url.host)) {
 					return new Response("Host not allowed", { status: 403 });
 				}
 				const isWebSocketRequest = url.pathname === "/api/tui";
 				if (
 					isWebSocketRequest &&
-					!this.isAllowedWebSocketRequest(request, url)
+					!this.accessPolicy.isAllowedWebSocketRequest(request, url)
 				) {
 					return new Response("Origin or host not allowed", { status: 403 });
 				}
-				if (!this.isAuthorized(request)) {
-					return this.authenticationRequiredResponse();
+				if (!this.accessPolicy.isAuthorized(request)) {
+					return this.accessPolicy.authenticationRequiredResponse();
 				}
 				if (url.pathname === "/assets/tui-client.js") {
 					return new Response(await webTuiClientJavaScript(), {
@@ -255,7 +234,7 @@ export class WebTuiServer {
 				}
 				if (url.pathname === "/") {
 					return new Response(tuiHtml as unknown as string, {
-						headers: tuiDocumentHeaders(url),
+						headers: tuiDocumentHeaders(url, this.accessPolicy),
 					});
 				}
 				return new Response("Not found", { status: 404 });
@@ -309,9 +288,12 @@ export class WebTuiServer {
 			},
 		});
 		this.server = server;
+		const hostname = server.hostname ?? this.options.hostname ?? "127.0.0.1";
+		const port = server.port ?? this.options.port ?? 4783;
+		this.accessPolicy.setListenerAddress(hostname, port);
 		return {
-			hostname: server.hostname ?? this.options.hostname ?? "127.0.0.1",
-			port: server.port ?? this.options.port ?? 4783,
+			hostname,
+			port,
 			url: server.url.toString(),
 		};
 	}
@@ -403,82 +385,5 @@ export class WebTuiServer {
 		const client = socket.data.client;
 		socket.data.client = null;
 		if (client) this.host.detach(client);
-	}
-
-	private isAuthorized(request: Request): boolean {
-		if (!this.expectedBasicAuthDigest) return true;
-		const credentials = decodeBasicAuthorization(
-			request.headers.get("authorization"),
-		);
-		const actualDigest = credentialDigest(credentials ?? "");
-		return timingSafeEqual(this.expectedBasicAuthDigest, actualDigest);
-	}
-
-	private authenticationRequiredResponse(): Response {
-		return new Response("Authentication required", {
-			status: 401,
-			headers: {
-				"cache-control": "no-store",
-				"www-authenticate": 'Basic realm="Kit web TUI mode", charset="UTF-8"',
-			},
-		});
-	}
-
-	private isAllowedWebSocketRequest(request: Request, url: URL): boolean {
-		return (
-			this.isAllowedHost(url.host) &&
-			this.isAllowedOrigin(
-				request.headers.get("origin"),
-				url,
-				this.options.allowOriginless === true,
-			)
-		);
-	}
-
-	private isAllowedOrigin(
-		origin: string | null,
-		url: URL,
-		allowOriginless: boolean,
-	): boolean {
-		if (!origin) return allowOriginless;
-		const normalizedOrigin = normalizeOrigin(origin);
-		if (!normalizedOrigin) return false;
-		return (
-			this.options.allowedOrigins?.includes("*") === true ||
-			this.allowedOrigins(url).has(normalizedOrigin)
-		);
-	}
-
-	private allowedOrigins(url: URL): Set<string> {
-		const origins = new Set<string>([url.origin.toLowerCase()]);
-		for (const value of this.options.allowedOrigins ?? []) {
-			if (value === "*") continue;
-			const origin = normalizeOrigin(value);
-			if (origin) origins.add(origin);
-		}
-		return origins;
-	}
-
-	private isAllowedHost(host: string): boolean {
-		return (
-			this.options.allowedHosts?.includes("*") === true ||
-			this.allowedHosts().has(host.toLowerCase())
-		);
-	}
-
-	private allowedHosts(): Set<string> {
-		const hostname =
-			this.server?.hostname ?? this.options.hostname ?? "127.0.0.1";
-		const port = this.server?.port ?? this.options.port ?? 4783;
-		const hosts = new Set(
-			(this.options.allowedHosts ?? []).map((host) => host.toLowerCase()),
-		);
-		hosts.add(`${hostname}:${port}`.toLowerCase());
-		if (hostname === "127.0.0.1" || hostname === "::1") {
-			hosts.add(`localhost:${port}`);
-			hosts.add(`127.0.0.1:${port}`);
-			hosts.add(`[::1]:${port}`);
-		}
-		return hosts;
 	}
 }

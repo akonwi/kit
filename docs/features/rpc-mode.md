@@ -84,12 +84,27 @@ validation remains active when authentication is enabled.
 ## Web mode network validation
 
 Kit binds to `127.0.0.1` by default and permits the bound address, localhost
-aliases, and each request's same origin. Extra reverse-proxy or tunnel addresses
-can be added without losing local browser access:
+aliases, and each request's same origin. A hosted deployment can declare one
+canonical external HTTP(S) origin:
 
 ```sh
 kit --web \
-  --auth 'username:password' \
+  --public-url https://kit.example.com \
+  --auth 'username:password'
+```
+
+`--public-url` must be an origin without credentials, a subpath, query, or
+fragment. It adds the external hostname and browser Origin to Kit's validation
+and adds the corresponding `ws://` or `wss://` source to the document CSP. It
+does not change the listener; combine it with `--host` when the process must
+bind another interface. Kit does not implicitly trust `Forwarded` or
+`X-Forwarded-*` headers.
+
+Additional reverse-proxy or tunnel addresses can still be added without losing
+local browser access:
+
+```sh
+kit --web \
   --allow-host kit.example.internal \
   --allow-origin https://kit.example.internal
 ```
@@ -108,10 +123,27 @@ These wildcards are opt-in rather than defaults. `--allow-host '*'` accepts any
 request Host header. `--allow-origin '*'` accepts any valid Origin value,
 including the opaque `null` origin, for protected HTTP mutations and WebSocket
 upgrades; originless requests remain rejected where they were previously
-required to carry an Origin. Kit warns when
-a wildcard is used without `--auth`. Even with authentication, only use an
-origin wildcard behind HTTPS and a trusted network or access-control proxy,
-because it disables Kit's cross-site request protection.
+required to carry an Origin. Kit warns when a wildcard is used without
+`--auth`. Even with authentication, only use an origin wildcard behind HTTPS
+and a trusted network or access-control proxy, because it disables Kit's
+cross-site request protection.
+
+### Hosted deployment boundary
+
+Kit's web server deliberately does not infer whether a listener is publicly
+reachable. An explicit `--host` controls binding and loopback remains the safe
+default. The hosting environment owns TLS termination, user identity, network
+ACLs, ingress exposure, rate limiting, resource limits, and egress policy.
+Kit retains application-level Origin validation because browsers can
+implicitly send proxy cookies or HTTP credentials during a cross-site
+WebSocket attempt; Host validation remains inexpensive defense-in-depth.
+
+A hosted Kit process is single-principal. It can execute commands and access its
+process user's workspace, credentials, tools, and session storage. Multi-user
+deployments must isolate principals into separate processes or containers with
+scoped workspaces and homes. Kit's optional Basic Auth is not a tenancy or
+sandbox boundary and is confidential only when the browser connects over
+HTTPS.
 
 ### Mobile browser layout
 

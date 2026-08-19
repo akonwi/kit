@@ -111,6 +111,17 @@ describe("web mode CLI", () => {
 		}
 	});
 
+	test("rejects an invalid canonical public URL", async () => {
+		const results = await Promise.all([
+			runMain(["--web", "--public-url", "ftp://kit.example.com"]),
+			runMain(["--web", "--public-url", "https://kit.example.com/subpath"]),
+		]);
+		for (const result of results) {
+			expect(result.exitCode).toBe(1);
+			expect(result.stderr).toContain("--public-url expects an HTTP(S) origin");
+		}
+	});
+
 	test("rejects an invalid startup model selector", async () => {
 		const result = await runMain(["--web", "--model", "model-1"]);
 		expect(result.exitCode).toBe(1);
@@ -177,6 +188,7 @@ describe("RPC mode CLI", () => {
 		const results = await Promise.all([
 			runMain(["--rpc", "--port", "4782"]),
 			runMain(["--rpc", "--auth", "user:password"]),
+			runMain(["--rpc", "--public-url", "https://kit.example.com"]),
 		]);
 		for (const result of results) {
 			expect(result.exitCode).toBe(1);

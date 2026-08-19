@@ -40,6 +40,7 @@ export type WebTuiModeOptions = {
 	basicAuth?: WebTuiBasicAuthCredentials;
 	hostname?: string;
 	port?: number;
+	publicUrl?: string;
 	newSession?: boolean;
 	noSession?: boolean;
 	sessionId?: string;
@@ -95,6 +96,7 @@ export async function runWebTuiMode(
 			port: options.port,
 			allowedHosts: options.allowedHosts,
 			allowedOrigins: options.allowedOrigins,
+			publicUrl: options.publicUrl,
 			basicAuth: options.basicAuth,
 		},
 	);
@@ -141,8 +143,11 @@ export async function runWebTuiMode(
 		}
 		const started = server.start();
 		console.error(
-			`kit web TUI mode (experimental) listening on ${started.url}`,
+			`kit web TUI mode (experimental) available at ${options.publicUrl ?? started.url}`,
 		);
+		if (options.publicUrl) {
+			console.error(`Internal listener: ${started.url}`);
+		}
 		console.error(
 			"The OpenTUI application starts when the first browser client connects.",
 		);

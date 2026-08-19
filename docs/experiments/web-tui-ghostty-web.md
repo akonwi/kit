@@ -41,7 +41,8 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 - Focus/bracketed-paste/synchronized-output/alternate-screen mode negotiation
 - Resize and reconnect with full repaint
 - Canvas selection, links, scrollback, titles, and a hidden textarea for browser input
-- Existing Host allowlist, Origin validation, timing-safe Basic auth, and same-origin assets
+- Shared web access policy with Host allowlisting, browser Origin validation, timing-safe Basic auth, and same-origin assets
+- Canonical `--public-url` support for hosted Host/Origin validation and CSP WebSocket sources without trusting forwarded headers
 - Route-specific CSP; only the terminal document gains `'wasm-unsafe-eval'`
 - Existing semantic SPA remains the default web mode
 
@@ -49,7 +50,7 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
 
 - `bun run typecheck`
 - `bun run check`
-- `bun test`: 716 passing
+- `bun test`: 726 passing
 - Production `bun run build`
 - `script/smoke-web-tui.ts` against both source and compiled modes:
   - health/document/assets
@@ -63,6 +64,12 @@ The WebSocket protocol uses raw binary terminal bytes in both directions and sma
   - WebSocket connected without console errors
   - typing accepted
   - page reload reconnected and recreated the Canvas without errors
+
+## Hosting boundary
+
+Loopback remains the safe default and an explicit `--host` controls other bindings. Kit does not infer public reachability or own deployment-specific TLS, identity, network ACL, ingress, rate-limit, resource-limit, or egress policy. Hosted deployments can provide a canonical external origin with `--public-url https://kit.example.com`; this configures browser Host/Origin boundaries without implicitly trusting `Forwarded` or `X-Forwarded-*` headers.
+
+Application-level Origin validation remains active for cross-site WebSocket protection, with Host validation as defense-in-depth. Optional Basic Auth is confidential only behind HTTPS. A hosted Kit process is single-principal and must be isolated from other principals by the hosting environment.
 
 ## Theme fidelity
 
@@ -112,7 +119,6 @@ The ghostty-web module contains an embedded base64 WASM fallback even when Kit l
 - Canvas is poor for accessibility and browser-native find compared with DOM. It cannot replace the SPA's semantic message and form structure.
 - Mobile gets a hidden textarea and viewport fitting but no touch shortcut bar, native upload flow, or mobile-specific layout.
 - Terminal bell and OSC 52 paths that write directly to process stdout do not reach the browser renderer.
-- Security policy is mirrored from `WebRpcServer` rather than extracted into one shared implementation.
 - `--model` is not accepted in this mode; select the model inside the TUI.
 - Complex IME, selection, links, touch gestures, browser-reserved shortcuts, and long-running reconnects need broader browser testing.
 - Browser input currently uses deterministic legacy key sequences. Kitty keyboard mode remains disabled until the adapter tracks Kitty protocol flags.
