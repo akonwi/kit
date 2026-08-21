@@ -294,6 +294,78 @@ function styleMermaidSource(fallback: CodeRenderable): CodeRenderable {
 	return fallback;
 }
 
+function diffTextChunks(content: string): StyledText["chunks"] {
+	const lines = content.split("\n");
+	const hasHunks = lines.some((line) => /^@@ -/.test(line));
+	let oldLinesRemaining = 0;
+	let newLinesRemaining = 0;
+	return lines.map((line, index) => {
+		const text = index < lines.length - 1 ? `${line}\n` : line;
+		const hunk = line.match(/^@@ -(?:\d+)(?:,(\d+))? \+(?:\d+)(?:,(\d+))? @@/);
+		if (hunk) {
+			oldLinesRemaining = hunk[1] === undefined ? 1 : Number(hunk[1]);
+			newLinesRemaining = hunk[2] === undefined ? 1 : Number(hunk[2]);
+			return {
+				__isChunk: true,
+				text,
+				fg: RGBA.fromHex(theme.metaText),
+			};
+		}
+		if (line.startsWith("@@@")) {
+			return {
+				__isChunk: true,
+				text,
+				fg: RGBA.fromHex(theme.metaText),
+			};
+		}
+
+		const insideHunk = oldLinesRemaining > 0 || newLinesRemaining > 0;
+		const isAddition = line.startsWith("+") && (insideHunk || !hasHunks);
+		const isRemoval = line.startsWith("-") && (insideHunk || !hasHunks);
+		if (isAddition) newLinesRemaining = Math.max(0, newLinesRemaining - 1);
+		else if (isRemoval) oldLinesRemaining = Math.max(0, oldLinesRemaining - 1);
+		else if (insideHunk && line.startsWith(" ")) {
+			oldLinesRemaining = Math.max(0, oldLinesRemaining - 1);
+			newLinesRemaining = Math.max(0, newLinesRemaining - 1);
+		}
+
+		if (isAddition) {
+			return {
+				__isChunk: true,
+				text,
+				fg: RGBA.fromHex(theme.toolText),
+				bg: RGBA.fromHex(theme.diffAddedContentBg),
+			};
+		}
+		if (isRemoval) {
+			return {
+				__isChunk: true,
+				text,
+				fg: RGBA.fromHex(theme.errorText),
+				bg: RGBA.fromHex(theme.diffRemovedContentBg),
+			};
+		}
+		return {
+			__isChunk: true,
+			text,
+			fg: RGBA.fromHex(
+				/^(?:diff --git|index |--- |\+\+\+ |\\ No newline)/.test(line)
+					? theme.textMuted
+					: theme.textSecondary,
+			),
+		};
+	});
+}
+
+function styleDiffSource(fallback: CodeRenderable): CodeRenderable {
+	fallback.drawUnstyledText = true;
+	fallback.onChunks = (_chunks, context) => diffTextChunks(context.content);
+	fallback.fg = theme.textSecondary;
+	fallback.conceal = false;
+	fallback.width = "100%";
+	return fallback;
+}
+
 class MermaidRenderable extends BoxRenderable {
 	private cancelRender: () => void;
 
@@ -542,6 +614,12 @@ export function KitMarkdown(props: KitMarkdownProps) {
 		props.onOpenMermaid ??
 		(hasMermaidPreviewHandler() ? requestMermaidPreview : undefined);
 	const renderMarkdownNode = createMarkdownCodeBlockRenderer({
+		diff: (_token, context) => {
+			const fallback = context.defaultRender();
+			return fallback instanceof CodeRenderable
+				? styleDiffSource(fallback)
+				: fallback;
+		},
 		mermaid: (token, context) => {
 			const decision = inspectMermaid(token.text, token.raw);
 			const defaultFallback = context.defaultRender();
