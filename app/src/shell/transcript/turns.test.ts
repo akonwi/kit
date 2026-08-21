@@ -10,6 +10,7 @@ import {
 	extractUserMarkdownSource,
 	formatToolArgs,
 	groupItemsForDisplay,
+	presentBashCommand,
 	reconcileTranscriptItems,
 	type TranscriptItem,
 	toolDisplayName,
@@ -502,6 +503,83 @@ describe("toolDisplayName", () => {
 			arguments: { action: "run", agent: "  " },
 		} as ToolCall;
 		expect(toolDisplayName(blankAgent)).toBe("subagent");
+	});
+});
+
+describe("presentBashCommand", () => {
+	test("preserves short single commands verbatim", () => {
+		expect(presentBashCommand("printf '%s' 'a  b'")).toEqual({
+			text: "printf '%s' 'a  b'",
+			summarized: false,
+			commandCount: 1,
+		});
+	});
+
+	test("summarizes pipelines and command lists structurally", () => {
+		const presentation = presentBashCommand(
+			"grep -R 'TerminalColors' app | head -10; grep DEFAULT app | head",
+		);
+		expect(presentation.text).toBe("grep → head · grep → head");
+		expect(presentation.summarized).toBeTrue();
+		expect(presentation.commandCount).toBe(4);
+	});
+
+	test("does not split separators inside quotes or substitutions", () => {
+		expect(presentBashCommand("printf '%s' 'a|b;c'").summarized).toBeFalse();
+		expect(presentBashCommand("echo $(printf 'a|b') | sed 's/a/b/'").text).toBe(
+			"echo → sed",
+		);
+	});
+
+	test("labels multiline scripts by command count", () => {
+		expect(presentBashCommand("pwd\nbun test").text).toBe(
+			"shell script · 2 commands",
+		);
+	});
+
+	test("handles background commands and ignores operators in comments", () => {
+		expect(presentBashCommand("sleep 1 & echo done").text).toBe("sleep · echo");
+		expect(presentBashCommand("echo ok # note | sed x").summarized).toBeFalse();
+	});
+
+	test("uses a conservative label for compound syntax and heredocs", () => {
+		expect(presentBashCommand("  for x in a b; do echo $x; done").text).toBe(
+			"shell command · 3 steps",
+		);
+		expect(presentBashCommand("cat <<EOF\na | b\nEOF").text).toBe(
+			"shell script · 3 lines",
+		);
+		expect(presentBashCommand('echo "literal << text"').summarized).toBeFalse();
+		expect(presentBashCommand('grep foo <<<"$text"').summarized).toBeFalse();
+	});
+
+	test("keeps continued commands on one compact script label", () => {
+		expect(presentBashCommand("echo foo \\\n  bar").text).toBe(
+			"shell script · 2 lines",
+		);
+	});
+
+	test("keeps wrappers as the conservative executable label", () => {
+		expect(presentBashCommand("sudo -u root grep x | head").text).toBe(
+			"sudo → head",
+		);
+		expect(presentBashCommand("env FOO=1 grep x | head").text).toBe(
+			"env → head",
+		);
+	});
+
+	test("does not treat file-descriptor redirections or comments as commands", () => {
+		expect(presentBashCommand("cat <&0 | wc").text).toBe("cat → wc");
+		expect(presentBashCommand("echo hi;# note | sed x").text).toBe(
+			"echo hi;# note | sed x",
+		);
+	});
+
+	test("truncates long single commands to one compact line", () => {
+		const presentation = presentBashCommand(`grep ${"x".repeat(100)}`);
+		expect(presentation.summarized).toBeTrue();
+		expect(presentation.text.length).toBeLessThanOrEqual(72);
+		expect(presentation.text.endsWith("…")).toBeTrue();
 	});
 });
 

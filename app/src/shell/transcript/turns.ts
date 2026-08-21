@@ -8,6 +8,7 @@ import type {
 	UserMessage,
 } from "../../runtime/agent";
 import type { KitAgentMessage, Turn } from "../../session/types";
+import { ARROW_RIGHT, ELLIPSIS, MIDDLE_DOT } from "../glyphs";
 
 export type BashExecutionMessage = CustomAgentMessages["bashExecution"];
 
@@ -344,6 +345,184 @@ export function extractToolResultLines(msg: ToolResultMessage): string[] {
 }
 
 const MAX_TOOL_ARG_SUMMARY_LENGTH = 80;
+const MAX_BASH_COMMAND_SUMMARY_LENGTH = 72;
+
+type BashCommandPart = {
+	command: string;
+	separator?: "pipe" | "sequence";
+};
+
+function splitBashCommand(command: string): {
+	parts: BashCommandPart[];
+	complexSyntax: boolean;
+} {
+	const parts: BashCommandPart[] = [];
+	let complexSyntax = false;
+	let start = 0;
+	let quote: "'" | '"' | "`" | null = null;
+	let escaped = false;
+	let nesting = 0;
+
+	const push = (end: number, separator?: BashCommandPart["separator"]) => {
+		const value = command.slice(start, end).trim();
+		if (value) parts.push({ command: value, separator });
+	};
+
+	for (let index = 0; index < command.length; index += 1) {
+		const char = command[index];
+		if (escaped) {
+			escaped = false;
+			continue;
+		}
+		if (char === "\\" && quote !== "'") {
+			escaped = true;
+			continue;
+		}
+		if (quote) {
+			if (char === quote) quote = null;
+			continue;
+		}
+		if (char === "'" || char === '"' || char === "`") {
+			quote = char;
+			continue;
+		}
+		if (
+			char === "#" &&
+			(index === 0 || /[\s;&|()]/.test(command[index - 1] ?? ""))
+		) {
+			const newline = command.indexOf("\n", index);
+			if (newline === -1) {
+				push(index);
+				start = command.length;
+				break;
+			}
+			push(index, "sequence");
+			start = newline + 1;
+			index = newline;
+			continue;
+		}
+		if (
+			char === "<" &&
+			command[index - 1] !== "<" &&
+			command[index + 1] === "<" &&
+			command[index + 2] !== "<"
+		) {
+			complexSyntax = true;
+		}
+		if (char === "(" || char === "{" || char === "[") {
+			nesting += 1;
+			continue;
+		}
+		if (char === ")" || char === "}" || char === "]") {
+			nesting = Math.max(0, nesting - 1);
+			continue;
+		}
+		if (nesting > 0) continue;
+
+		const next = command[index + 1];
+		if (char === "|" && next !== "|") {
+			push(index, "pipe");
+			index += next === "&" ? 1 : 0;
+			start = index + 1;
+			continue;
+		}
+		if (
+			char === ";" ||
+			char === "\n" ||
+			(char === "&" && next === "&") ||
+			(char === "&" &&
+				next !== ">" &&
+				command[index - 1] !== ">" &&
+				command[index - 1] !== "<") ||
+			(char === "|" && next === "|")
+		) {
+			push(index, "sequence");
+			if (next === char) index += 1;
+			start = index + 1;
+		}
+	}
+	push(command.length);
+	return { parts, complexSyntax };
+}
+
+function bashExecutable(command: string): string {
+	const words = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+	let index = 0;
+	while (
+		index < words.length &&
+		/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[index])
+	) {
+		index += 1;
+	}
+	const executable = words[index]?.replace(/^['"]|['"]$/g, "") ?? "shell";
+	return executable.split("/").pop() || "shell";
+}
+
+export type BashCommandPresentation = {
+	text: string;
+	summarized: boolean;
+	commandCount: number;
+};
+
+/** Compact, deterministic presentation for bash tool-call headers. */
+export function presentBashCommand(command: string): BashCommandPresentation {
+	const trimmed = command.trim();
+	const split = splitBashCommand(command);
+	const { parts } = split;
+	const lineCount = command.split("\n").filter((line) => line.trim()).length;
+	const complexSyntax =
+		split.complexSyntax ||
+		parts.some((part) =>
+			["for", "while", "until", "if", "case", "select", "function"].includes(
+				bashExecutable(part.command),
+			),
+		);
+	if (complexSyntax) {
+		return {
+			text:
+				lineCount > 1
+					? `shell script ${MIDDLE_DOT} ${lineCount} lines`
+					: `shell command ${MIDDLE_DOT} ${Math.max(1, parts.length)} steps`,
+			summarized: true,
+			commandCount: parts.length,
+		};
+	}
+	if (command.includes("\n")) {
+		return {
+			text:
+				parts.length > 1
+					? `shell script ${MIDDLE_DOT} ${parts.length} commands`
+					: `shell script ${MIDDLE_DOT} ${lineCount} lines`,
+			summarized: true,
+			commandCount: parts.length,
+		};
+	}
+	const normalizedSingleCommand = trimmed.replace(/\s+/g, " ");
+	if (parts.length <= 1 && trimmed.length <= MAX_BASH_COMMAND_SUMMARY_LENGTH) {
+		return {
+			text: trimmed,
+			summarized: false,
+			commandCount: parts.length,
+		};
+	}
+	if (parts.length <= 1) {
+		return {
+			text: `${normalizedSingleCommand.slice(0, MAX_BASH_COMMAND_SUMMARY_LENGTH - 1).trimEnd()}${ELLIPSIS}`,
+			summarized: true,
+			commandCount: parts.length,
+		};
+	}
+
+	let text = bashExecutable(parts[0]?.command ?? "");
+	for (let index = 1; index < parts.length; index += 1) {
+		const separator = parts[index - 1]?.separator;
+		text += ` ${separator === "pipe" ? ARROW_RIGHT : MIDDLE_DOT} ${bashExecutable(parts[index]?.command ?? "")}`;
+	}
+	if (text.length > MAX_BASH_COMMAND_SUMMARY_LENGTH) {
+		text = `${text.slice(0, MAX_BASH_COMMAND_SUMMARY_LENGTH - 1).trimEnd()}${ELLIPSIS}`;
+	}
+	return { text, summarized: true, commandCount: parts.length };
+}
 
 function summarizeToolArg(value: string, full: boolean): string {
 	const singleLine = value.replace(/\s+/g, " ").trim();

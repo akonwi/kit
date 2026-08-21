@@ -41,6 +41,7 @@ export const TRIANGLE_UP = "▲";
 // ── Arrows ──────────────────────────────────────────────────────────
 
 /** ↑ */
+export const ARROW_RIGHT = "→";
 export const ARROW_UP = "↑";
 /** < */
 export const ANGLE_LEFT = "<";

@@ -21,7 +21,7 @@ import {
 	TRIANGLE_RIGHT,
 } from "../glyphs";
 import { KitMarkdown } from "../KitMarkdown";
-import { theme } from "../theme";
+import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
 import { DrawerChip } from "./drawer-chip";
@@ -33,6 +33,7 @@ import {
 	extractToolResultLines,
 	formatToolArgs,
 	isAssistantError,
+	presentBashCommand,
 	toolArgKeys,
 	toolDisplayName,
 } from "./turns";
@@ -42,6 +43,48 @@ const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
 function toolAccentColor(toolName: string): string {
 	return toolName === "subagent" ? theme.subagentText : theme.toolText;
+}
+
+type ToolArgumentPresentation = {
+	text: string;
+	compact: boolean;
+	detail?: string;
+};
+
+function toolArgumentPresentation(
+	tc: ToolCall,
+	args: Record<string, unknown> | undefined,
+	fullArgs?: boolean,
+): ToolArgumentPresentation {
+	const command = args?.command;
+	if (tc.name === "bash" && typeof command === "string") {
+		const presentation = presentBashCommand(command);
+		return {
+			text: presentation.text,
+			compact: true,
+			detail: presentation.summarized ? command : undefined,
+		};
+	}
+	return {
+		text: formatToolArgs(args, {
+			full: fullArgs,
+			keys: toolArgKeys(tc),
+		}).trimStart(),
+		compact: false,
+	};
+}
+
+function BashCommandDetail(props: { command?: string }) {
+	return (
+		<code
+			filetype="bash"
+			content={props.command ?? ""}
+			syntaxStyle={syntaxStyle()}
+			fg={theme.textPrimary}
+			width="100%"
+			visible={props.command !== undefined}
+		/>
+	);
 }
 
 // ── Enriched tool output detection ────────────────────────────────
@@ -261,13 +304,10 @@ function PendingToolCall(props: {
 	aborted?: boolean;
 	fullArgs?: boolean;
 }) {
-	const argText = () =>
-		formatToolArgs(props.tc.arguments, {
-			full: props.fullArgs,
-			keys: toolArgKeys(props.tc),
-		}).trimStart();
+	const arg = () =>
+		toolArgumentPresentation(props.tc, props.tc.arguments, props.fullArgs);
 	return (
-		<box flexDirection="row" gap={1}>
+		<box flexDirection="row" gap={1} width="100%">
 			<Show
 				when={!props.aborted}
 				fallback={<text fg={theme.textMuted}>{CIRCLE_SLASH}</text>}
@@ -280,12 +320,14 @@ function PendingToolCall(props: {
 			>
 				{toolDisplayName(props.tc)}
 			</text>
-			<Show when={argText().length > 0}>
+			<Show when={arg().text.length > 0}>
 				<text
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
+					wrapMode={arg().compact ? "none" : undefined}
+					flexShrink={arg().compact ? 1 : undefined}
 				>
-					{argText()}
+					{arg().text}
 				</text>
 			</Show>
 		</box>
@@ -333,11 +375,9 @@ function LiveToolCall(props: {
 		typeof props.args === "object" && props.args !== null
 			? (props.args as Record<string, unknown>)
 			: props.tc.arguments;
-	const liveArgText = () =>
-		formatToolArgs(toolArgs(), {
-			full: props.fullArgs,
-			keys: toolArgKeys(props.tc),
-		}).trimStart();
+	const arg = () =>
+		toolArgumentPresentation(props.tc, toolArgs(), props.fullArgs);
+	const hasDetails = () => hasOutput() || arg().detail !== undefined;
 
 	return (
 		<box flexDirection="column" gap={0} width="100%">
@@ -346,7 +386,7 @@ function LiveToolCall(props: {
 				gap={1}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
-					if (hasOutput()) setExpanded(!expanded());
+					if (hasDetails()) setExpanded(!expanded());
 				}}
 			>
 				<Show when={prefix()} fallback={<InlineSpinner />}>
@@ -358,26 +398,31 @@ function LiveToolCall(props: {
 				>
 					{toolDisplayName(props.tc)}
 				</text>
-				<Show when={liveArgText().length > 0}>
+				<Show when={arg().text.length > 0}>
 					<text
 						fg={props.aborted ? theme.textMuted : theme.textPrimary}
 						attributes={props.aborted ? ABORTED_ATTRS : undefined}
+						wrapMode={arg().compact ? "none" : undefined}
+						flexShrink={arg().compact ? 1 : undefined}
 					>
-						{liveArgText()}
+						{arg().text}
 					</text>
 				</Show>
-				<Show when={hasOutput() && !props.aborted}>
-					<text fg={theme.metaText}>
+				<Show when={hasDetails() && !props.aborted}>
+					<text fg={theme.metaText} flexShrink={0}>
 						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
-			<Show when={expanded()}>
-				<box paddingLeft={2} flexDirection="column" gap={0}>
-					<For each={displayLines()}>
-						{(line) => <text fg={theme.textMuted}>{line}</text>}
-					</For>
-				</box>
+			<Show when={expanded() ? arg() : undefined}>
+				{(expandedArg) => (
+					<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
+						<BashCommandDetail command={expandedArg().detail} />
+						<For each={displayLines()}>
+							{(line) => <text fg={theme.textMuted}>{line}</text>}
+						</For>
+					</box>
+				)}
 			</Show>
 		</box>
 	);
@@ -409,10 +454,12 @@ function CompletedToolCall(props: {
 		props.enrichOutput ? detectEnrichment(props.tc, props.result) : null,
 	);
 	const hasOutput = () => enrichedDetail() !== null || lines.length > 0;
-	const argText = formatToolArgs(props.tc.arguments, {
-		full: props.fullArgs,
-		keys: toolArgKeys(props.tc),
-	}).trimStart();
+	const arg = toolArgumentPresentation(
+		props.tc,
+		props.tc.arguments,
+		props.fullArgs,
+	);
+	const hasDetails = () => hasOutput() || arg.detail !== undefined;
 
 	const displayLines = () => {
 		if (!expanded()) return [];
@@ -429,7 +476,7 @@ function CompletedToolCall(props: {
 				gap={1}
 				onMouseDown={() => {
 					if (renderer.getSelection()?.getSelectedText()) return;
-					if (hasOutput()) setExpanded(!expanded());
+					if (hasDetails()) setExpanded(!expanded());
 				}}
 			>
 				<text
@@ -438,33 +485,38 @@ function CompletedToolCall(props: {
 				>
 					{prefix} {toolDisplayName(props.tc)}
 				</text>
-				<Show when={argText.length > 0}>
+				<Show when={arg.text.length > 0}>
 					<text
 						fg={props.aborted ? theme.textMuted : theme.textPrimary}
 						attributes={props.aborted ? ABORTED_ATTRS : undefined}
+						wrapMode={arg.compact ? "none" : undefined}
+						flexShrink={arg.compact ? 1 : undefined}
 					>
-						{argText}
+						{arg.text}
 					</text>
 				</Show>
-				<Show when={hasOutput() && !props.aborted}>
-					<text fg={theme.metaText}>
+				<Show when={hasDetails() && !props.aborted}>
+					<text fg={theme.metaText} flexShrink={0}>
 						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
-			<Show when={expanded()}>
-				<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
-					<Show
-						when={enrichedDetail()}
-						fallback={
-							<For each={displayLines()}>
-								{(line) => <text fg={theme.textMuted}>{line}</text>}
-							</For>
-						}
-					>
-						{(detail) => <EnrichedDetailBlock detail={detail()} />}
-					</Show>
-				</box>
+			<Show when={expanded() ? arg : undefined}>
+				{(expandedArg) => (
+					<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
+						<BashCommandDetail command={expandedArg().detail} />
+						<Show
+							when={enrichedDetail()}
+							fallback={
+								<For each={displayLines()}>
+									{(line) => <text fg={theme.textMuted}>{line}</text>}
+								</For>
+							}
+						>
+							{(detail) => <EnrichedDetailBlock detail={detail()} />}
+						</Show>
+					</box>
+				)}
 			</Show>
 		</box>
 	);
