@@ -20,6 +20,11 @@ import type { ToastInput } from "../state/toasts";
 import type { OverlayComponentProps } from "./overlay-ui";
 
 const SELECT_MAX_VISIBLE = 8;
+const CONFIRM_DIALOG_MIN_WIDTH = 44;
+const CONFIRM_DIALOG_MAX_WIDTH = 96;
+const DIALOG_HORIZONTAL_CHROME = 4;
+const CONFIRM_ACTION_CHROME = 5;
+const CONFIRM_SCROLLBAR_WIDTH = 1;
 
 type OpenOverlay = <T>(
 	component: (props: OverlayComponentProps<T>) => JSX.Element,
@@ -67,6 +72,30 @@ type ConfirmOptions = {
 	defaultValue?: boolean;
 	signal?: AbortSignal;
 };
+
+export function measurePluginConfirmDialogWidth(
+	input: Pick<
+		ConfirmOptions,
+		"title" | "message" | "confirmLabel" | "cancelLabel"
+	>,
+): number {
+	const cancelLabel = input.cancelLabel ?? "Cancel";
+	const confirmLabel = input.confirmLabel ?? "Confirm";
+	const messageWidth = (input.message ?? "")
+		.split("\n")
+		.reduce((longest, line) => Math.max(longest, Bun.stringWidth(line)), 0);
+	const contentWidth = Math.max(
+		Bun.stringWidth(input.title),
+		messageWidth + CONFIRM_SCROLLBAR_WIDTH,
+		Bun.stringWidth(cancelLabel) +
+			Bun.stringWidth(confirmLabel) +
+			CONFIRM_ACTION_CHROME,
+	);
+	return Math.min(
+		CONFIRM_DIALOG_MAX_WIDTH,
+		Math.max(CONFIRM_DIALOG_MIN_WIDTH, contentWidth + DIALOG_HORIZONTAL_CHROME),
+	);
+}
 
 export type CreatePluginUIOptions = {
 	toast: (toast: ToastInput) => void;
@@ -459,7 +488,12 @@ function PluginConfirmOverlay(
 	let messageScrollRef:
 		| { scrollBy: (options: { x: number; y: number }) => void }
 		| undefined;
-	const [messageWidth, setMessageWidth] = createSignal(48);
+	const dialogWidth = createMemo(() =>
+		measurePluginConfirmDialogWidth(props.input),
+	);
+	const [messageWidth, setMessageWidth] = createSignal(
+		dialogWidth() - DIALOG_HORIZONTAL_CHROME,
+	);
 	const [selected, setSelected] = createSignal(
 		props.input.defaultValue ? 1 : 0,
 	);
@@ -609,9 +643,8 @@ function PluginConfirmOverlay(
 	return (
 		<Dialog.Root
 			surfaceProps={props.surfaceProps}
-			width="50%"
-			maxWidth={64}
-			minWidth={36}
+			width={dialogWidth()}
+			maxWidth={CONFIRM_DIALOG_MAX_WIDTH}
 		>
 			<Dialog.Header>
 				<Dialog.Title>{props.input.title}</Dialog.Title>
