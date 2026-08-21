@@ -24,6 +24,7 @@ import { KitMarkdown } from "../KitMarkdown";
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
+import { BashOutputWell } from "./bash-output-well";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
 import { createMessageContextMenuGesture } from "./message-context-menu";
@@ -418,9 +419,19 @@ function LiveToolCall(props: {
 				{(expandedArg) => (
 					<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
 						<BashCommandDetail command={expandedArg().detail} />
-						<For each={displayLines()}>
-							{(line) => <text fg={theme.textMuted}>{line}</text>}
-						</For>
+						<Show
+							when={props.tc.name === "bash" && lines().length > 0}
+							fallback={
+								<For each={displayLines()}>
+									{(line) => <text fg={theme.textMuted}>{line}</text>}
+								</For>
+							}
+						>
+							<BashOutputWell
+								lines={lines()}
+								stickyBottom={props.state !== "ended" || Boolean(props.isError)}
+							/>
+						</Show>
 					</box>
 				)}
 			</Show>
@@ -508,9 +519,19 @@ function CompletedToolCall(props: {
 						<Show
 							when={enrichedDetail()}
 							fallback={
-								<For each={displayLines()}>
-									{(line) => <text fg={theme.textMuted}>{line}</text>}
-								</For>
+								<Show
+									when={props.tc.name === "bash" && lines.length > 0}
+									fallback={
+										<For each={displayLines()}>
+											{(line) => <text fg={theme.textMuted}>{line}</text>}
+										</For>
+									}
+								>
+									<BashOutputWell
+										lines={lines}
+										stickyBottom={props.result.isError}
+									/>
+								</Show>
 							}
 						>
 							{(detail) => <EnrichedDetailBlock detail={detail()} />}
