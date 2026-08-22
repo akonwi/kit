@@ -94,21 +94,16 @@ describe("standard file tool operations", () => {
 		const filePath = path.join(directory, "scratchpad.md");
 		try {
 			const initialize = (value: string) =>
-				defaultFileOperations.mutateOrCreate(filePath, (current) => {
-					if (current !== "") throw new Error("already initialized");
-					return value;
-				});
-			const results = await Promise.allSettled([
+				defaultFileOperations.mutateOrCreate(filePath, (current) =>
+					current === "" ? value : current,
+				);
+			const results = await Promise.all([
 				initialize("first"),
 				initialize("second"),
 			]);
 
-			expect(
-				results.filter((result) => result.status === "fulfilled"),
-			).toHaveLength(1);
-			expect(
-				results.filter((result) => result.status === "rejected"),
-			).toHaveLength(1);
+			expect(results.filter((result) => result.updated)).toHaveLength(1);
+			expect(results.filter((result) => !result.updated)).toHaveLength(1);
 			expect(["first", "second"]).toContain(await readFile(filePath, "utf8"));
 		} finally {
 			await rm(directory, { recursive: true, force: true });
