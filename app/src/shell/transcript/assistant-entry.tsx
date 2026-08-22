@@ -344,6 +344,16 @@ function EnrichedDetailBlock(props: { detail: EnrichedDetail }) {
 	);
 }
 
+function ToolDisclosure(props: { visible: boolean; expanded?: boolean }) {
+	return (
+		<box width={1} height={1} flexShrink={0}>
+			<text fg={theme.metaText} visible={props.visible}>
+				{props.expanded ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
+			</text>
+		</box>
+	);
+}
+
 function PendingToolCall(props: {
 	tc: ToolCall;
 	aborted?: boolean;
@@ -359,6 +369,7 @@ function PendingToolCall(props: {
 			>
 				<InlineSpinner />
 			</Show>
+			<ToolDisclosure visible={false} />
 			<text
 				fg={props.aborted ? theme.textMuted : toolAccentColor(props.tc.name)}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
@@ -442,6 +453,10 @@ function LiveToolCall(props: {
 				<Show when={prefix()} fallback={<InlineSpinner />}>
 					{(value) => <text fg={headerColor()}>{value()}</text>}
 				</Show>
+				<ToolDisclosure
+					visible={hasDetails() && !props.aborted}
+					expanded={expanded()}
+				/>
 				<text
 					fg={headerColor()}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
@@ -461,11 +476,6 @@ function LiveToolCall(props: {
 						truncate
 					>
 						{arg().text}
-					</text>
-				</Show>
-				<Show when={hasDetails() && !props.aborted}>
-					<text fg={theme.metaText} flexShrink={0}>
-						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
@@ -565,7 +575,19 @@ function CompletedToolCall(props: {
 					wrapMode="none"
 					flexShrink={0}
 				>
-					{prefix} {toolDisplayName(props.tc)}
+					{prefix}
+				</text>
+				<ToolDisclosure
+					visible={hasDetails() && !props.aborted}
+					expanded={expanded()}
+				/>
+				<text
+					fg={headerColor}
+					attributes={props.aborted ? ABORTED_ATTRS : undefined}
+					wrapMode="none"
+					flexShrink={0}
+				>
+					{toolDisplayName(props.tc)}
 				</text>
 				<Show when={arg.text.length > 0}>
 					<text
@@ -578,11 +600,6 @@ function CompletedToolCall(props: {
 						truncate
 					>
 						{arg.text}
-					</text>
-				</Show>
-				<Show when={hasDetails() && !props.aborted}>
-					<text fg={theme.metaText} flexShrink={0}>
-						{expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}
 					</text>
 				</Show>
 			</box>
