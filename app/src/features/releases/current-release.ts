@@ -4,27 +4,27 @@ export const CURRENT_VERSION = version;
 
 /** Release notes bundled into the binary so the installed release is readable offline. */
 export const CURRENT_RELEASE_NOTES = `
-## Workspace tabs
+## Browser-hosted terminal
 
-- Added responsive workspace tabs for navigating auxiliary surfaces without losing their local state.
-- Added browser tabs for Activity, Code Review, and Scratchpad, with a resizable desktop drawer, collapsed rail, mobile overflow sheet, keyboard navigation, and accessible focus handling.
-- Expanded the terminal workspace with retained tabs, overflow navigation, responsive layouts, and dedicated Sub-agent, Release Notes, Mermaid, Review, Scratchpad, and Activity surfaces.
+- Added the experimental \`kit --web-tui\` mode, which runs Kit's complete OpenTUI interface in a browser through Ghostty Web.
+- Added browser-native keyboard, mouse, selection, clipboard, notification, bell, theme, resize, and reconnect handling.
+- Added optional startup model selection with \`--model provider/model-id\`.
+- Added secure host and origin validation, optional Basic authentication, canonical public URLs, and browser coverage across Chromium, Firefox, and WebKit.
 
-## Follow-up controls
+## Faster, clearer transcripts
 
-- Added browser controls to edit queued follow-ups in the composer or send them immediately as steering messages.
-- Composer drafts now persist per session and synchronize across browser tabs.
-- Added guarded, idempotent recovery so queued-message edits survive reloads, response loss, and concurrent clients.
-- Added RPC methods for safely restoring and promoting queued follow-ups.
+- Enabled viewport culling for long transcripts and activity drawers, substantially reducing rendering work as sessions grow.
+- Added compact Bash summaries and contained, scrollable output wells for expanded tool results.
+- Improved activity rows with aligned disclosure controls, single-line argument previews, and visible activated skill names.
+- Added Markdown rendering for sub-agent output and syntax highlighting for diff and patch code blocks.
 
-## Transcript interactions
+## Workspace and pager
 
-- Added a terminal selection menu with Copy and Quote actions; Quote inserts a Markdown blockquote into the composer.
-- Added whole-message copying that preserves the original Markdown source.
-- Made safe HTTP, HTTPS, and email links in terminal Markdown clickable.
-- Improved pointer handling to prevent accidental activation while dragging or interacting with nested controls.
+- Standardized workspace responsiveness around a shared 125-column split threshold instead of pane-specific minimum widths.
+- Moved MCP status into a retained workspace pane with reactive updates.
+- Added Copy and Quote selection actions to the pager; quoted text is inserted into pager notes without losing unsaved edits.
 
-## Fresh headless sessions
+## Dialogs
 
-- Added \`kit new --web\`, \`kit new --rpc\`, and \`kit new -p\` for starting fresh sessions instead of resuming the latest session.
+- Confirmation dialogs now size themselves to their content while respecting sensible minimum and maximum widths.
 `;
