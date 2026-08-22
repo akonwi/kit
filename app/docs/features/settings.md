@@ -12,6 +12,7 @@ Current behavior:
 The current settings UI exposes:
 
 - theme selection
+- default model for new sessions (`defaultModel`)
 - code review diff view default (`diffs.view`)
 - guided questions
 - automatic session naming
@@ -19,6 +20,17 @@ The current settings UI exposes:
 - automatic retry settings
 
 Settings are persisted to `~/.kit/settings.json`.
+
+The optional `defaultModel` uses a canonical `provider/model-id` selector. It is
+applied only when Kit creates a session; existing sessions keep their saved
+model, and an explicit `--model` startup option takes precedence. Selecting
+**Automatic** in the settings dialog removes the preference.
+
+```json
+{
+  "defaultModel": "anthropic/claude-sonnet-4-5"
+}
+```
 
 The shell also persists the preferred secondary-pane ratio as `workspace.paneRatio` when its divider is dragged. Terminal resizing may clamp the displayed pane widths without overwriting this preference.
 

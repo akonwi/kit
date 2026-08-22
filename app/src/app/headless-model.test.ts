@@ -3,6 +3,7 @@ import type { AgentRuntime } from "../runtime/agent-runtime";
 import {
 	applyStartupModel,
 	isValidModelSelector,
+	resolveStartupModelSelector,
 	StartupModelAuthenticationRequiredError,
 	selectStartupModel,
 } from "./headless-model";
@@ -19,6 +20,22 @@ describe("headless startup model selection", () => {
 		expect(isValidModelSelector("gpt-5.5")).toBe(false);
 		expect(isValidModelSelector("/gpt-5.5")).toBe(false);
 		expect(isValidModelSelector("openai/")).toBe(false);
+	});
+
+	test("uses configured defaults only for new sessions", () => {
+		expect(resolveStartupModelSelector(undefined, "openai/gpt-5.5", true)).toBe(
+			"openai/gpt-5.5",
+		);
+		expect(
+			resolveStartupModelSelector(undefined, "openai/gpt-5.5", false),
+		).toBeUndefined();
+		expect(
+			resolveStartupModelSelector(
+				"openrouter/openai/gpt-5.5",
+				"openai/gpt-5.5",
+				true,
+			),
+		).toBe("openrouter/openai/gpt-5.5");
 	});
 
 	test("selects an exact provider/model-id pair", () => {

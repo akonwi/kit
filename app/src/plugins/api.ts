@@ -168,6 +168,7 @@ export function createPluginAPI(
 
 	const model = {
 		getCurrent: () => ctx.runtime.getCurrentModel(),
+		getAvailable: () => ctx.runtime.getAvailableModels(),
 	};
 
 	const vcs = {

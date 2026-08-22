@@ -1,6 +1,9 @@
 import { RemoteReviewService } from "../features/review/remote-service";
 import { createHeadlessHost } from "./headless-host";
-import { applyStartupModel } from "./headless-model";
+import {
+	applyStartupModel,
+	resolveStartupModelSelector,
+} from "./headless-model";
 import { resolveHeadlessSession } from "./headless-session";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
 import { RemoteInteractionBroker } from "./remote-interaction-broker";
@@ -66,7 +69,14 @@ export async function runWebMode(
 			remoteChrome: true,
 			remotePromptCommands: true,
 		});
-		await applyStartupModel(headlessHost.runtime, options.model);
+		await applyStartupModel(
+			headlessHost.runtime,
+			resolveStartupModelSelector(
+				options.model,
+				headlessHost.runtime.settings.defaultModel,
+				resolved.isNewSession,
+			),
+		);
 
 		review = new RemoteReviewService(headlessHost.runtime);
 		rpcHost = new RpcSessionHost(headlessHost.runtime, {

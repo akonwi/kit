@@ -112,6 +112,7 @@ export type InternalPluginSettingsAPI = {
 
 export type InternalPluginModelAPI = {
 	getCurrent: () => Model<Api> | undefined;
+	getAvailable: () => Array<Model<Api>>;
 };
 
 export type InternalPluginVcsAPI = {

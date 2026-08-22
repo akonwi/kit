@@ -114,6 +114,43 @@ describe("AgentRuntime session creation persistence", () => {
 		}
 	});
 
+	test("applies the configured default model to new sessions", async () => {
+		const selector = "test-provider/configured-default";
+		const runtime = new AgentRuntime(
+			runtimeSession("new-session-default-model-test"),
+			{
+				disableGitWatcher: true,
+				settings: { defaultModel: selector },
+			},
+		);
+		const currentModel = runtime.getCurrentModel();
+		expect(currentModel).toBeDefined();
+		if (!currentModel) {
+			runtime.dispose();
+			return;
+		}
+		const configuredModel = {
+			...currentModel,
+			provider: "test-provider",
+			id: "configured-default",
+		};
+		runtime.getAvailableModels = () => [configuredModel];
+		const modelEvents: string[] = [];
+		const unsubscribe = runtime.subscribe("agent.model.changed", (event) => {
+			modelEvents.push(`${event.model?.provider}/${event.model?.id}`);
+		});
+
+		try {
+			await runtime.newSession(undefined, { persist: false });
+			expect(runtime.getCurrentModel()).toBe(configuredModel);
+			expect(runtime.getSession().model).toBe(configuredModel.id);
+			expect(modelEvents).toContain(selector);
+		} finally {
+			unsubscribe();
+			runtime.dispose();
+		}
+	});
+
 	test("does not persist ephemeral handoff sessions", async () => {
 		const session = runtimeSession("handoff-session-policy-test");
 		session.turns = [{ id: "turn-1", messages: [] }];

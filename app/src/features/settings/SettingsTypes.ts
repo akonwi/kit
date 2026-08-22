@@ -7,4 +7,19 @@ export type BooleanSettingsRowData = {
 	disabled?: boolean;
 };
 
-export type SettingsRowData = BooleanSettingsRowData;
+export type ChoiceSettingsRowData = {
+	id: "defaultModel";
+	kind: "choice";
+	label: string;
+	help: string;
+	value: string;
+	disabled?: boolean;
+};
+
+export type SettingsModelOption = {
+	label: string;
+	selector: string;
+	description: string;
+};
+
+export type SettingsRowData = BooleanSettingsRowData | ChoiceSettingsRowData;

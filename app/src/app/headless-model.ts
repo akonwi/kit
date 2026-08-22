@@ -1,5 +1,6 @@
 import type { Api, Model } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import { selectModelBySelector } from "../runtime/provider-selection";
 
 export class StartupModelAuthenticationRequiredError extends Error {
 	constructor(message: string) {
@@ -16,32 +17,19 @@ export function isValidModelSelector(selector: string): boolean {
 	);
 }
 
+export function resolveStartupModelSelector(
+	explicitSelector: string | undefined,
+	configuredDefault: string | undefined,
+	isNewSession: boolean,
+): string | undefined {
+	return explicitSelector ?? (isNewSession ? configuredDefault : undefined);
+}
+
 export function selectStartupModel(
 	models: Array<Model<Api>>,
 	selector: string,
 ): Model<Api> {
-	const separator = selector.indexOf("/");
-	const provider = selector.slice(0, separator);
-	const modelId = selector.slice(separator + 1);
-	const model = models.find(
-		(candidate) => candidate.provider === provider && candidate.id === modelId,
-	);
-	if (model) return model;
-
-	const providerModels = models.filter(
-		(candidate) => candidate.provider === provider,
-	);
-	if (providerModels.length === 0) {
-		const providers = [
-			...new Set(models.map((candidate) => candidate.provider)),
-		];
-		throw new Error(
-			`Provider not available: ${provider}. Available authenticated providers: ${providers.join(", ") || "none"}`,
-		);
-	}
-	throw new Error(
-		`Model not found: ${selector}. Available ${provider} models: ${providerModels.map((candidate) => candidate.id).join(", ")}`,
-	);
+	return selectModelBySelector(models, selector);
 }
 
 export async function applyStartupModel(

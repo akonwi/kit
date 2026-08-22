@@ -42,7 +42,11 @@ describe("headless startup session selection", () => {
 			},
 		);
 
-		expect(resolved).toEqual({ session: recent, persistSession: true });
+		expect(resolved).toEqual({
+			session: recent,
+			persistSession: true,
+			isNewSession: false,
+		});
 		expect(createSession).not.toHaveBeenCalled();
 		expect(writeSession).not.toHaveBeenCalled();
 	});
@@ -66,7 +70,11 @@ describe("headless startup session selection", () => {
 			},
 		);
 
-		expect(resolved).toEqual({ session: created, persistSession: true });
+		expect(resolved).toEqual({
+			session: created,
+			persistSession: true,
+			isNewSession: true,
+		});
 		expect(listSessionsForCwd).not.toHaveBeenCalled();
 		expect(writeSession).toHaveBeenCalledWith(created);
 	});
@@ -89,6 +97,7 @@ describe("headless startup session selection", () => {
 		);
 
 		expect(resolved.persistSession).toBe(false);
+		expect(resolved.isNewSession).toBe(true);
 		expect(resolved.session.cwd).toBe("/project");
 		expect(listSessionsForCwd).not.toHaveBeenCalled();
 	});
@@ -109,7 +118,11 @@ describe("headless startup session selection", () => {
 			},
 		);
 
-		expect(resolved).toEqual({ session: created, persistSession: true });
+		expect(resolved).toEqual({
+			session: created,
+			persistSession: true,
+			isNewSession: true,
+		});
 		expect(writeSession).toHaveBeenCalledWith(created);
 	});
 });

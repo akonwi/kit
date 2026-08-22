@@ -1,7 +1,11 @@
 import type { Accessor, JSX } from "solid-js";
 import { createContext, createMemo, createSignal, useContext } from "solid-js";
 import type { Settings } from "../../settings";
-import type { BooleanSettingsRowData, SettingsRowData } from "./SettingsTypes";
+import type {
+	BooleanSettingsRowData,
+	SettingsModelOption,
+	SettingsRowData,
+} from "./SettingsTypes";
 
 export type SettingsContextValue = {
 	focusedRowIndex: Accessor<number>;
@@ -17,6 +21,10 @@ export type SettingsContextValue = {
 
 type SettingsProviderProps = {
 	initialSettings: Settings;
+	modelOptions: SettingsModelOption[];
+	onSelectDefaultModel: (
+		currentSelector: string | undefined,
+	) => Promise<string | null | undefined>;
 	onSave: (settings: Settings) => Promise<void>;
 	children: JSX.Element;
 };
@@ -51,10 +59,24 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	);
 	const [focusedRowIndex, setFocusedRowIndex] = createSignal(0);
 	const [error, setError] = createSignal<string | null>(null);
+	let selectingModel = false;
 
 	const rows = createMemo<SettingsRowData[]>(() => {
 		const current = settings();
+		const configuredModel = current.defaultModel;
+		const configuredLabel = configuredModel
+			? (props.modelOptions.find(
+					(option) => option.selector === configuredModel,
+				)?.label ?? configuredModel)
+			: "Automatic";
 		return [
+			{
+				id: "defaultModel",
+				kind: "choice",
+				label: "Default Model",
+				help: "Used when starting a new session.",
+				value: configuredLabel,
+			},
 			{
 				id: "sessionNaming",
 				kind: "boolean",
@@ -99,6 +121,19 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		await persist(next);
 	}
 
+	async function selectDefaultModel(): Promise<void> {
+		if (selectingModel) return;
+		selectingModel = true;
+		try {
+			const current = cloneSettings(settings());
+			const selection = await props.onSelectDefaultModel(current.defaultModel);
+			if (selection === undefined) return;
+			await persist({ ...current, defaultModel: selection ?? undefined });
+		} finally {
+			selectingModel = false;
+		}
+	}
+
 	function focusRow(index: number): void {
 		const max = Math.max(0, rows().length - 1);
 		setFocusedRowIndex(Math.max(0, Math.min(index, max)));
@@ -107,6 +142,10 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	async function activateRow(index = focusedRowIndex()): Promise<void> {
 		const row = rows()[index];
 		if (!row || row.disabled) return;
+		if (row.kind === "choice") {
+			await selectDefaultModel();
+			return;
+		}
 		await toggleBoolean(row.id);
 	}
 

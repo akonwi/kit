@@ -10,6 +10,33 @@ const DEPRECATED_MODEL_PATTERNS_BY_PROVIDER: Record<string, RegExp[]> = {
 	anthropic: [/^claude-3(?:-|$)/],
 };
 
+export function selectModelBySelector<
+	TModel extends { id: string; provider: string },
+>(models: readonly TModel[], selector: string): TModel {
+	const separator = selector.indexOf("/");
+	const provider = selector.slice(0, separator);
+	const modelId = selector.slice(separator + 1);
+	const model = models.find(
+		(candidate) => candidate.provider === provider && candidate.id === modelId,
+	);
+	if (model) return model;
+
+	const providerModels = models.filter(
+		(candidate) => candidate.provider === provider,
+	);
+	if (providerModels.length === 0) {
+		const providers = [
+			...new Set(models.map((candidate) => candidate.provider)),
+		];
+		throw new Error(
+			`Provider not available: ${provider}. Available authenticated providers: ${providers.join(", ") || "none"}`,
+		);
+	}
+	throw new Error(
+		`Model not found: ${selector}. Available ${provider} models: ${providerModels.map((candidate) => candidate.id).join(", ")}`,
+	);
+}
+
 export function isDeprecatedModel(
 	provider: string,
 	model: { id: string },

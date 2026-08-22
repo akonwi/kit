@@ -146,6 +146,13 @@ describe("web mode CLI", () => {
 });
 
 describe("interactive mode CLI", () => {
+	test("rejects an invalid startup model selector", async () => {
+		const result = await runMain(["--model", "model-1"]);
+		expect(result.exitCode).toBe(1);
+		expect(result.stdout).toBe("");
+		expect(result.stderr).toContain("--model expects <provider>/<model-id>");
+	});
+
 	test("rejects conflicting session options", async () => {
 		const result = await runMain(["--no-session", "--session", "abc"]);
 		expect(result.exitCode).toBe(1);

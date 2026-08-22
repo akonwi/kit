@@ -3,7 +3,10 @@ import type { CommandRegistry } from "../features/commands";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import { createHeadlessHost, takeOverStdout } from "./headless-host";
-import { applyStartupModel } from "./headless-model";
+import {
+	applyStartupModel,
+	resolveStartupModelSelector,
+} from "./headless-model";
 import { resolveHeadlessSession } from "./headless-session";
 import {
 	type RpcCommand,
@@ -147,7 +150,14 @@ export async function runRpcMode(
 			persistSession: resolved.persistSession,
 			signal: startupAbort.signal,
 		});
-		await applyStartupModel(host.runtime, options.model);
+		await applyStartupModel(
+			host.runtime,
+			resolveStartupModelSelector(
+				options.model,
+				host.runtime.settings.defaultModel,
+				resolved.isNewSession,
+			),
+		);
 		server = new RpcModeServer(
 			host.runtime,
 			process.stdin,

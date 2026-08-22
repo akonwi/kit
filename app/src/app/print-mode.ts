@@ -5,7 +5,10 @@ import {
 } from "../runtime/agent-runtime";
 import type { HeadlessHost } from "./headless-host";
 import { createHeadlessHost, takeOverStdout } from "./headless-host";
-import { applyStartupModel } from "./headless-model";
+import {
+	applyStartupModel,
+	resolveStartupModelSelector,
+} from "./headless-model";
 import { resolveHeadlessSession } from "./headless-session";
 
 function assistantText(message: AgentMessage | undefined): string {
@@ -64,7 +67,14 @@ export async function runPrintMode(
 			});
 			runtime = host.runtime;
 			if (signalExitCode === null) {
-				await applyStartupModel(runtime, options.model);
+				await applyStartupModel(
+					runtime,
+					resolveStartupModelSelector(
+						options.model,
+						runtime.settings.defaultModel,
+						resolved.isNewSession,
+					),
+				);
 			}
 			if (signalExitCode === null) {
 				await runtime.submitUserMessage(prompt);

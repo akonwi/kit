@@ -267,7 +267,15 @@ if (values.mode !== undefined) {
 } else if (values["no-session"] && values.session) {
 	console.error("kit cannot combine --no-session with --session");
 	process.exitCode = 1;
+} else if (
+	typeof values.model === "string" &&
+	!isValidModelSelector(values.model)
+) {
+	console.error("kit --model expects <provider>/<model-id>");
+	process.exitCode = 1;
 } else {
+	const startupModel =
+		typeof values.model === "string" ? values.model : undefined;
 	switch (subcommand) {
 		case "version": {
 			const { version } = await import("../../package.json");
@@ -284,7 +292,7 @@ if (values.mode !== undefined) {
 			const sessionId = await showThreadPicker();
 			if (sessionId) {
 				const { bootstrap } = await import("./bootstrap");
-				await bootstrap({ sessionId });
+				await bootstrap({ sessionId, startupModel });
 			}
 			break;
 		}
@@ -293,12 +301,16 @@ if (values.mode !== undefined) {
 			await bootstrap({
 				newSession: true,
 				noSession: values["no-session"] === true,
+				startupModel,
 			});
 			break;
 		}
 		default: {
 			const { bootstrap } = await import("./bootstrap");
-			await bootstrap({ noSession: values["no-session"] === true });
+			await bootstrap({
+				noSession: values["no-session"] === true,
+				startupModel,
+			});
 		}
 	}
 }

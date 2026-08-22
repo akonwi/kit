@@ -61,6 +61,7 @@ import {
 	getSelectableModels,
 	listRegisteredAuthenticatedProviders,
 	resolveDefaultAuthenticatedModel,
+	selectModelBySelector,
 } from "./provider-selection";
 import { createSyntheticSummaryMessage } from "./session-summary";
 import { clampThinkingLevel } from "./thinking-levels";
@@ -1637,9 +1638,16 @@ export class AgentRuntime {
 			? resolveCwdTarget(this.session.cwd, cwd)
 			: this.session.cwd;
 		await ensureCwdDirectory(targetCwd);
+		const configuredModel = this._settings.defaultModel
+			? selectModelBySelector(
+					this.getAvailableModels(),
+					this._settings.defaultModel,
+				)
+			: undefined;
+		const nextModel = configuredModel ?? this.agent.state.model;
 		const nextSession = await createSession(
 			targetCwd,
-			this.agent.state.model?.id,
+			nextModel?.id,
 			this.agent.state.thinkingLevel,
 		);
 		if (options.persist) await writeSession(nextSession);
@@ -1647,11 +1655,11 @@ export class AgentRuntime {
 		this.agent.clearAllQueues();
 		this.session = nextSession;
 		this.agent.replaceFromTurns([]);
+		if (configuredModel) this.setModel(configuredModel);
 		const restoredThinkingLevel = this.getRestoredThinkingLevel(
 			this.agent.state.model,
 		);
-		this.agent.setThinkingLevel(restoredThinkingLevel);
-		this.session.thinkingLevel = restoredThinkingLevel;
+		this.setThinkingLevel(restoredThinkingLevel);
 		this.applySessionContext(this.session);
 		this.syncPendingState();
 		this.bus.publish("session.active.changed", { session: this.session });

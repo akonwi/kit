@@ -24,6 +24,7 @@ import {
 } from "../shell/terminal-title";
 import { getCurrentThemeConfig, resolveAndApplyTheme } from "../shell/theme";
 import { App } from "./App";
+import { resolveStartupModelSelector } from "./headless-model";
 import { startShutdownWatchdog } from "./shutdown-watchdog";
 
 type BootstrapOpts = {
@@ -51,7 +52,9 @@ export type BootstrapTerminal = {
 	bell?: (isError: boolean) => void;
 };
 
-async function loadSession(opts?: BootstrapOpts): Promise<Session> {
+async function loadSession(
+	opts?: BootstrapOpts,
+): Promise<{ session: Session; isNewSession: boolean }> {
 	// If a session ID is provided directly (e.g. from `kit threads`), use it
 	const sessionArg =
 		opts?.sessionId ??
@@ -69,17 +72,21 @@ async function loadSession(opts?: BootstrapOpts): Promise<Session> {
 			console.error(`Session not found: ${sessionArg}`);
 			process.exit(1);
 		}
-		return session;
+		return { session, isNewSession: false };
 	}
 
 	const cwd = safeProcessCwd();
+	const { createSession } = await import("../session");
 	if (opts?.noSession || opts?.newSession) {
-		const { createSession } = await import("../session");
-		return createSession(cwd);
+		return { session: await createSession(cwd), isNewSession: true };
 	}
 
-	const { openRecentSession } = await import("../session");
-	return openRecentSession(cwd);
+	const { listSessionsForCwd, readSession } = await import("../session");
+	for (const summary of await listSessionsForCwd(cwd)) {
+		const session = await readSession(summary.id);
+		if (session) return { session, isNewSession: false };
+	}
+	return { session: await createSession(cwd), isNewSession: true };
 }
 
 export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
@@ -152,7 +159,8 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 	}
 
 	const settings = await loadSettings();
-	const session = await loadSession(opts);
+	const loadedSession = await loadSession(opts);
+	const session = loadedSession.session;
 
 	let disposeApp: (() => void | Promise<void>) | null = null;
 	let resolveAlive: (() => void) | null = null;
@@ -272,7 +280,11 @@ export async function bootstrap(opts?: BootstrapOpts): Promise<void> {
 					<KeymapProvider keymap={keymap}>
 						<App
 							settings={settings}
-							startupModel={opts?.startupModel}
+							startupModel={resolveStartupModelSelector(
+								opts?.startupModel,
+								settings.settings.defaultModel,
+								loadedSession.isNewSession,
+							)}
 							session={session}
 							persistSession={opts?.noSession !== true}
 							updateTerminalTitle={updateTerminalTitle}

@@ -1,5 +1,5 @@
 import { useBindings } from "@opentui/keymap/solid";
-import { For, Show } from "solid-js";
+import { For, Match, Show, Switch } from "solid-js";
 import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { withKitKeyAliases } from "../../keymap/bindings";
 import type { Settings } from "../../settings";
@@ -7,24 +7,32 @@ import { Dialog } from "../../shell/Dialog";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
 import { BooleanSettingsRow } from "./BooleanSettingsRow";
+import { ChoiceSettingsRow } from "./ChoiceSettingsRow";
 import { SettingsProvider, useSettingsContext } from "./SettingsContext";
+import type { SettingsModelOption } from "./SettingsTypes";
 
 type SettingsContentProps = {
 	initialSettings: Settings;
+	modelOptions: SettingsModelOption[];
+	onSelectDefaultModel: (
+		currentSelector: string | undefined,
+	) => Promise<string | null | undefined>;
 	onSave: (settings: Settings) => Promise<void>;
 	onClose: () => void;
+	active?: boolean;
 	surfaceProps?: OverlaySurfaceProps;
 };
 
 function SettingsDialog(props: {
 	onClose: () => void;
+	active: boolean;
 	surfaceProps?: OverlaySurfaceProps;
 }) {
 	const settings = useSettingsContext();
 
 	useBindings(() =>
 		withKitKeyAliases({
-			enabled: true,
+			enabled: () => props.active,
 			priority: 200,
 			commands: [
 				{
@@ -110,7 +118,20 @@ function SettingsDialog(props: {
 				<scrollbox flexGrow={1} scrollY>
 					<box flexDirection="column" gap={1}>
 						<For each={settings.rows()}>
-							{(row, index) => <BooleanSettingsRow row={row} index={index()} />}
+							{(row, index) => (
+								<Switch>
+									<Match when={row.kind === "boolean" ? row : undefined}>
+										{(booleanRow) => (
+											<BooleanSettingsRow row={booleanRow()} index={index()} />
+										)}
+									</Match>
+									<Match when={row.kind === "choice" ? row : undefined}>
+										{(choiceRow) => (
+											<ChoiceSettingsRow row={choiceRow()} index={index()} />
+										)}
+									</Match>
+								</Switch>
+							)}
 						</For>
 					</box>
 				</scrollbox>
@@ -133,10 +154,13 @@ export function SettingsContent(props: SettingsContentProps) {
 	return (
 		<SettingsProvider
 			initialSettings={props.initialSettings}
+			modelOptions={props.modelOptions}
+			onSelectDefaultModel={props.onSelectDefaultModel}
 			onSave={props.onSave}
 		>
 			<SettingsDialog
 				onClose={props.onClose}
+				active={props.active !== false}
 				surfaceProps={props.surfaceProps}
 			/>
 		</SettingsProvider>

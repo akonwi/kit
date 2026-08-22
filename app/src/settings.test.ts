@@ -13,6 +13,27 @@ describe("sanitizeSettings", () => {
 	});
 });
 
+describe("sanitizeSettings default model", () => {
+	test("keeps canonical model selectors", () => {
+		expect(
+			sanitizeSettings({ defaultModel: "  anthropic/claude-sonnet-4-5  " })
+				.defaultModel,
+		).toBe("anthropic/claude-sonnet-4-5");
+	});
+
+	test("drops malformed model selectors", () => {
+		expect(
+			sanitizeSettings({ defaultModel: "claude-sonnet" }).defaultModel,
+		).toBeUndefined();
+		expect(
+			sanitizeSettings({ defaultModel: "/claude" }).defaultModel,
+		).toBeUndefined();
+		expect(
+			sanitizeSettings({ defaultModel: "anthropic/" }).defaultModel,
+		).toBeUndefined();
+	});
+});
+
 describe("sanitizeSettings workspace", () => {
 	test("keeps and clamps a finite preferred pane ratio", () => {
 		expect(

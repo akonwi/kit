@@ -13,6 +13,8 @@ export type Settings = {
 	theme?: string;
 	/** User keybinding overrides by Kit command id. Use false/null to disable. */
 	keybindings?: KeybindingSettings;
+	/** Default model selector for new sessions, in provider/model-id form. */
+	defaultModel?: string;
 	/** Auto-open the pager for long assistant responses */
 	pager?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
@@ -127,6 +129,14 @@ export function sanitizeSettings(raw: unknown): Settings {
 
 	const theme = typeof raw.theme === "string" ? raw.theme : undefined;
 	const keybindings = sanitizeKeybindings(raw.keybindings);
+	const defaultModelValue =
+		typeof raw.defaultModel === "string" ? raw.defaultModel.trim() : "";
+	const defaultModel =
+		defaultModelValue.includes("/") &&
+		!defaultModelValue.startsWith("/") &&
+		!defaultModelValue.endsWith("/")
+			? defaultModelValue
+			: undefined;
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
 	const sessionNaming =
 		typeof raw.sessionNaming === "boolean"
@@ -167,6 +177,7 @@ export function sanitizeSettings(raw: unknown): Settings {
 	return {
 		theme,
 		...(keybindings ? { keybindings } : {}),
+		...(defaultModel ? { defaultModel } : {}),
 		pager,
 		sessionNaming,
 		...(workspace?.paneRatio !== undefined ? { workspace } : {}),
