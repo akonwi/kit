@@ -537,10 +537,11 @@ function summarizeToolArg(value: string, full: boolean): string {
  *
  * Subagent calls show the agent name when available so the transcript
  * reads as e.g. `summarizer` instead of the generic `subagent` label.
- * Falls back to the raw tool name for `list_agents` (no agent arg) and
- * any non-subagent tool.
+ * Skill activation uses a human-readable action label. Other calls fall back
+ * to their raw tool name.
  */
 export function toolDisplayName(tc: ToolCall): string {
+	if (tc.name === "activate_skill") return "activate skill";
 	if (tc.name === "subagent") {
 		const agent = tc.arguments?.agent;
 		if (typeof agent === "string" && agent.trim().length > 0) {
@@ -576,11 +577,14 @@ export function formatToolArgs(
 }
 
 /**
- * The arg-preview keys to use for a tool call. Subagent calls hide the
- * `agent` arg because it's already the display label.
+ * The arg-preview keys to use for tool calls whose useful summary is not
+ * covered by the defaults. Subagent calls hide `agent` because it is already
+ * the display label; skill activation surfaces the selected skill name.
  */
 export function toolArgKeys(tc: ToolCall): readonly string[] | undefined {
-	return tc.name === "subagent" ? ["message", "action"] : undefined;
+	if (tc.name === "subagent") return ["message", "action"];
+	if (tc.name === "activate_skill") return ["name"];
+	return undefined;
 }
 
 export function isHandoffSummaryMessage(

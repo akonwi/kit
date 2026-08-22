@@ -13,6 +13,7 @@ import {
 	presentBashCommand,
 	reconcileTranscriptItems,
 	type TranscriptItem,
+	toolArgKeys,
 	toolDisplayName,
 } from "./turns";
 
@@ -487,6 +488,16 @@ describe("toolDisplayName", () => {
 		expect(toolDisplayName(tc)).toBe("summarizer");
 	});
 
+	test("humanizes skill activation", () => {
+		const tc = {
+			type: "toolCall",
+			id: "skill-1",
+			name: "activate_skill",
+			arguments: { name: "opentui" },
+		} as ToolCall;
+		expect(toolDisplayName(tc)).toBe("activate skill");
+	});
+
 	test("falls back to 'subagent' when agent arg is missing or empty", () => {
 		const noAgent = {
 			type: "toolCall",
@@ -580,6 +591,21 @@ describe("presentBashCommand", () => {
 		expect(presentation.summarized).toBeTrue();
 		expect(presentation.text.length).toBeLessThanOrEqual(72);
 		expect(presentation.text.endsWith("…")).toBeTrue();
+	});
+});
+
+describe("toolArgKeys", () => {
+	test("surfaces the selected skill for skill activation", () => {
+		const tc = {
+			type: "toolCall",
+			id: "skill-1",
+			name: "activate_skill",
+			arguments: { name: "opentui" },
+		} as ToolCall;
+		expect(toolArgKeys(tc)).toEqual(["name"]);
+		expect(formatToolArgs(tc.arguments, { keys: toolArgKeys(tc) }).trim()).toBe(
+			"opentui",
+		);
 	});
 });
 
