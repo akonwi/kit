@@ -50,7 +50,6 @@ function toolAccentColor(toolName: string): string {
 
 type ToolArgumentPresentation = {
 	text: string;
-	compact: boolean;
 	detail?: string;
 };
 
@@ -64,7 +63,6 @@ function toolArgumentPresentation(
 		const presentation = presentBashCommand(command);
 		return {
 			text: presentation.text,
-			compact: true,
 			detail: presentation.summarized ? command : undefined,
 		};
 	}
@@ -73,7 +71,6 @@ function toolArgumentPresentation(
 			full: fullArgs,
 			keys: toolArgKeys(tc),
 		}).trimStart(),
-		compact: false,
 	};
 }
 
@@ -365,6 +362,8 @@ function PendingToolCall(props: {
 			<text
 				fg={props.aborted ? theme.textMuted : toolAccentColor(props.tc.name)}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
+				wrapMode="none"
+				flexShrink={0}
 			>
 				{toolDisplayName(props.tc)}
 			</text>
@@ -372,8 +371,11 @@ function PendingToolCall(props: {
 				<text
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
-					wrapMode={arg().compact ? "none" : undefined}
-					flexShrink={arg().compact ? 1 : undefined}
+					wrapMode="none"
+					flexBasis={0}
+					flexGrow={1}
+					flexShrink={1}
+					truncate
 				>
 					{arg().text}
 				</text>
@@ -443,6 +445,8 @@ function LiveToolCall(props: {
 				<text
 					fg={headerColor()}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
+					wrapMode="none"
+					flexShrink={0}
 				>
 					{toolDisplayName(props.tc)}
 				</text>
@@ -450,8 +454,11 @@ function LiveToolCall(props: {
 					<text
 						fg={props.aborted ? theme.textMuted : theme.textPrimary}
 						attributes={props.aborted ? ABORTED_ATTRS : undefined}
-						wrapMode={arg().compact ? "none" : undefined}
-						flexShrink={arg().compact ? 1 : undefined}
+						wrapMode="none"
+						flexBasis={0}
+						flexGrow={1}
+						flexShrink={1}
+						truncate
 					>
 						{arg().text}
 					</text>
@@ -555,6 +562,8 @@ function CompletedToolCall(props: {
 				<text
 					fg={headerColor}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
+					wrapMode="none"
+					flexShrink={0}
 				>
 					{prefix} {toolDisplayName(props.tc)}
 				</text>
@@ -562,8 +571,11 @@ function CompletedToolCall(props: {
 					<text
 						fg={props.aborted ? theme.textMuted : theme.textPrimary}
 						attributes={props.aborted ? ABORTED_ATTRS : undefined}
-						wrapMode={arg.compact ? "none" : undefined}
-						flexShrink={arg.compact ? 1 : undefined}
+						wrapMode="none"
+						flexBasis={0}
+						flexGrow={1}
+						flexShrink={1}
+						truncate
 					>
 						{arg.text}
 					</text>
