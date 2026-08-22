@@ -10,6 +10,7 @@ import type {
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import { CodeView } from "../code-view";
 import { ReviewDiffBlock } from "../diff/ReviewDiffBlock";
+import { estimateWrappedRows } from "../diff/ReviewDiffModel";
 import type { ReviewHunk, ReviewLine } from "../diff/types";
 import { inferFiletype } from "../filetype";
 import {
@@ -24,10 +25,11 @@ import { KitMarkdown } from "../KitMarkdown";
 import { syntaxStyle, theme } from "../theme";
 import type { LiveToolsForTurn } from "../transcript-live-tools";
 import { extractToolProgressLines } from "../transcript-live-tools";
-import { BashOutputWell } from "./bash-output-well";
 import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
+import { MarkdownToolOutputWell } from "./markdown-tool-output-well";
 import { createMessageContextMenuGesture } from "./message-context-menu";
+import { ToolOutputWell } from "./tool-output-well";
 import {
 	extractAssistantMarkdownSource,
 	extractAssistantParts,
@@ -97,6 +99,51 @@ type EnrichedDetail =
 			path: string;
 			edits: Array<{ oldText: string; newText: string }>;
 	  };
+
+function enrichedDetailRows(
+	detail: EnrichedDetail,
+	contentColumns: number,
+): number {
+	if (detail.kind === "file") {
+		const lines = detail.content.replace(/\r\n/g, "\n").split("\n");
+		if (lines.at(-1) === "") lines.pop();
+		return Math.max(
+			1,
+			lines.reduce(
+				(total, line) =>
+					total + estimateWrappedRows(line, Math.max(1, contentColumns)),
+				0,
+			),
+		);
+	}
+	const diffColumns = Math.max(1, contentColumns - 2);
+	return Math.max(
+		1,
+		detail.edits.reduce((total, edit, index) => {
+			const hunk = buildEditHunk(
+				edit.oldText,
+				edit.newText,
+				`measure-${index}`,
+			);
+			return (
+				total +
+				hunk.lines.reduce(
+					(rows, line) => rows + estimateWrappedRows(line.text, diffColumns),
+					0,
+				) +
+				(index > 0 ? 1 : 0)
+			);
+		}, 0),
+	);
+}
+
+function enrichedDetailMetadata(detail: EnrichedDetail): string {
+	if (detail.kind === "edits") {
+		return `${detail.edits.length} ${detail.edits.length === 1 ? "edit" : "edits"}`;
+	}
+	const rows = enrichedDetailRows(detail, Number.MAX_SAFE_INTEGER);
+	return `${rows} ${rows === 1 ? "line" : "lines"}`;
+}
 
 function extractResultText(result: ToolResultMessage): string {
 	const parts: string[] = [];
@@ -420,17 +467,32 @@ function LiveToolCall(props: {
 					<box paddingLeft={2} flexDirection="column" gap={0} width="100%">
 						<BashCommandDetail command={expandedArg().detail} />
 						<Show
-							when={props.tc.name === "bash" && lines().length > 0}
+							when={lines().length > 0}
 							fallback={
 								<For each={displayLines()}>
 									{(line) => <text fg={theme.textMuted}>{line}</text>}
 								</For>
 							}
 						>
-							<BashOutputWell
-								lines={lines()}
-								stickyBottom={props.state !== "ended" || Boolean(props.isError)}
-							/>
+							<Show
+								when={props.tc.name === "subagent"}
+								fallback={
+									<ToolOutputWell
+										lines={lines()}
+										stickyBottom={
+											props.state !== "ended" || Boolean(props.isError)
+										}
+									/>
+								}
+							>
+								<MarkdownToolOutputWell
+									content={lines().join("\n")}
+									streaming={props.state !== "ended"}
+									stickyBottom={
+										props.state !== "ended" || Boolean(props.isError)
+									}
+								/>
+							</Show>
 						</Show>
 					</box>
 				)}
@@ -520,21 +582,40 @@ function CompletedToolCall(props: {
 							when={enrichedDetail()}
 							fallback={
 								<Show
-									when={props.tc.name === "bash" && lines.length > 0}
+									when={lines.length > 0}
 									fallback={
 										<For each={displayLines()}>
 											{(line) => <text fg={theme.textMuted}>{line}</text>}
 										</For>
 									}
 								>
-									<BashOutputWell
-										lines={lines}
-										stickyBottom={props.result.isError}
-									/>
+									<Show
+										when={props.tc.name === "subagent"}
+										fallback={
+											<ToolOutputWell
+												lines={lines}
+												stickyBottom={props.result.isError}
+											/>
+										}
+									>
+										<MarkdownToolOutputWell
+											content={lines.join("\n")}
+											stickyBottom={props.result.isError}
+										/>
+									</Show>
 								</Show>
 							}
 						>
-							{(detail) => <EnrichedDetailBlock detail={detail()} />}
+							{(detail) => (
+								<ToolOutputWell
+									contentRows={(contentColumns) =>
+										enrichedDetailRows(detail(), contentColumns)
+									}
+									metadata={enrichedDetailMetadata(detail())}
+								>
+									<EnrichedDetailBlock detail={detail()} />
+								</ToolOutputWell>
+							)}
 						</Show>
 					</box>
 				)}

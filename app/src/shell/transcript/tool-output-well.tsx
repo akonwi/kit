@@ -4,10 +4,17 @@ import type {
 	ScrollBoxRenderable,
 } from "@opentui/core";
 import { useRenderer } from "@opentui/solid";
-import { createMemo, createSignal, For } from "solid-js";
+import {
+	children,
+	createMemo,
+	createSignal,
+	For,
+	type JSX,
+	Show,
+} from "solid-js";
 import { scrollbarStyle, theme } from "../theme";
 
-const BASH_OUTPUT_MAX_HEIGHT = 14;
+const TOOL_OUTPUT_MAX_HEIGHT = 14;
 const OUTPUT_TAB_WIDTH = 2;
 const graphemeSegmenter = new Intl.Segmenter(undefined, {
 	granularity: "grapheme",
@@ -18,7 +25,7 @@ type ScrollableTextRenderable = {
 	scrollY: number;
 };
 
-function BashOutputLine(props: {
+function ToolOutputLine(props: {
 	children: string;
 	onMouseScroll: (event: MouseEvent) => void;
 }) {
@@ -69,22 +76,58 @@ function wrapOutputLine(line: string, maxWidth: number): string[] {
 	return rows;
 }
 
-export function BashOutputWell(props: {
-	lines: string[];
+export function ToolOutputWell(props: {
+	lines?: string[];
+	contentRows?: number | ((contentColumns: number) => number);
+	metadata?: string | (() => string);
 	stickyBottom?: boolean;
+	measureContent?: boolean;
+	renderContent?: (contentColumns: number, contentRows: number) => JSX.Element;
+	children?: JSX.Element;
 }) {
 	const renderer = useRenderer();
 	let wellRef: BoxRenderable | undefined;
+	let richContentRef: BoxRenderable | undefined;
 	let scrollRef: ScrollBoxRenderable | undefined;
 	const [contentColumns, setContentColumns] = createSignal(
 		Math.max(1, renderer.width - 3),
 	);
+	const richChildren = children(() => props.children);
 	const wrappedLines = createMemo(() =>
-		props.lines.flatMap((line) => wrapOutputLine(line, contentColumns())),
+		(props.lines ?? []).flatMap((line) =>
+			wrapOutputLine(line, contentColumns()),
+		),
 	);
+	const estimatedRichRows = createMemo(() => {
+		const rows =
+			typeof props.contentRows === "function"
+				? props.contentRows(contentColumns())
+				: (props.contentRows ?? 1);
+		return Math.max(1, rows);
+	});
+	const [measuredRichRows, setMeasuredRichRows] = createSignal(
+		TOOL_OUTPUT_MAX_HEIGHT,
+	);
+	const syncMeasuredRichRows = () => {
+		if (!props.measureContent) return;
+		queueMicrotask(() => {
+			const height = richContentRef?.height ?? 0;
+			if (height > 0) setMeasuredRichRows(height);
+		});
+	};
+	const richContentRows = () =>
+		props.measureContent ? measuredRichRows() : estimatedRichRows();
+	const contentRows = () =>
+		props.lines ? wrappedLines().length : richContentRows();
 	const viewportHeight = () =>
-		Math.min(BASH_OUTPUT_MAX_HEIGHT, Math.max(1, wrappedLines().length));
-	const overflowing = () => wrappedLines().length > viewportHeight();
+		Math.min(TOOL_OUTPUT_MAX_HEIGHT, Math.max(1, contentRows()));
+	const overflowing = () => contentRows() > viewportHeight();
+	const metadata = () => {
+		if (typeof props.metadata === "function") return props.metadata();
+		if (props.metadata) return props.metadata;
+		const lineCount = props.lines?.length ?? 0;
+		return `${lineCount} ${lineCount === 1 ? "line" : "lines"}`;
+	};
 
 	const scrollDelta = (event: MouseEvent) =>
 		event.scroll?.direction === "up"
@@ -155,13 +198,35 @@ export function BashOutputWell(props: {
 				style={scrollbarStyle()}
 				onMouseScroll={handleViewportMouseScroll}
 			>
-				<For each={wrappedLines()}>
-					{(line) => (
-						<BashOutputLine onMouseScroll={handleLineMouseScroll}>
-							{line}
-						</BashOutputLine>
-					)}
-				</For>
+				<Show
+					when={props.lines}
+					fallback={
+						<box
+							ref={(value) => {
+								richContentRef = value;
+								syncMeasuredRichRows();
+							}}
+							onSizeChange={syncMeasuredRichRows}
+							width={contentColumns()}
+							height={props.measureContent ? undefined : richContentRows()}
+							flexDirection="column"
+							flexShrink={0}
+							onMouseScroll={handleLineMouseScroll}
+						>
+							{props.renderContent
+								? props.renderContent(contentColumns(), richContentRows())
+								: richChildren()}
+						</box>
+					}
+				>
+					<For each={wrappedLines()}>
+						{(line) => (
+							<ToolOutputLine onMouseScroll={handleLineMouseScroll}>
+								{line}
+							</ToolOutputLine>
+						)}
+					</For>
+				</Show>
 			</scrollbox>
 			<box
 				visible={overflowing()}
@@ -171,9 +236,7 @@ export function BashOutputWell(props: {
 				backgroundColor={theme.bgSurface}
 			>
 				<text fg={theme.metaText} bg={theme.bgSurface}>
-					{overflowing()
-						? `${props.lines.length} ${props.lines.length === 1 ? "line" : "lines"}`
-						: " "}
+					{overflowing() ? metadata() : " "}
 				</text>
 			</box>
 		</box>

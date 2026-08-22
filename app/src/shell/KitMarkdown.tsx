@@ -435,6 +435,7 @@ export type KitMarkdownProps = {
 	fg?: ColorInput;
 	conceal?: boolean;
 	streaming?: boolean;
+	flexShrink?: number;
 	onOpenMermaid?: (source: string) => void;
 	onOpenLink?: (url: string) => void | Promise<void>;
 };
@@ -650,6 +651,7 @@ export function KitMarkdown(props: KitMarkdownProps) {
 			syntaxStyle={syntaxStyle()}
 			conceal={props.conceal ?? true}
 			streaming={props.streaming}
+			flexShrink={props.flexShrink}
 			fg={props.fg}
 			renderNode={renderMarkdownNode}
 			onMouseOver={updateLinkPointer}
