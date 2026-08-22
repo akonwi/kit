@@ -170,7 +170,17 @@ export const test = base.extend<WebTuiFixtures>({
 				child.kill("SIGKILL");
 				exit = await exited;
 			}
-			if (exit.code === null || !allowedExitCodes.has(exit.code)) {
+			const normalizedExitCode =
+				exit.code ??
+				(exit.signal === "SIGINT"
+					? 130
+					: exit.signal === "SIGTERM"
+						? 143
+						: null);
+			if (
+				normalizedExitCode === null ||
+				!allowedExitCodes.has(normalizedExitCode)
+			) {
 				cleanupErrors.push(
 					new Error(
 						`Kit browser-TUI teardown exited with code ${exit.code} and signal ${exit.signal}; expected ${[...allowedExitCodes].join(" or ")}\n${stderr}`,
