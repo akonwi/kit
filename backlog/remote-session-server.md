@@ -245,6 +245,29 @@ The remote TUI should consume the same protocol as the browser. This requires
 separating the existing TUI's presentation state from its in-process
 `AgentRuntime`; it should not require a second server protocol.
 
+[`@opentui/ssh`](https://opentui.com/docs/reference/ssh/) is complementary to
+this design, not the foundation for `kit attach`. It creates a server-side
+`CliRenderer` for each accepted SSH shell and owns SSH authentication, host
+keys, PTY sizing, resize events, terminal byte transport, limits, and renderer
+cleanup. That is closer to the browser TUI's server-rendered terminal bridge
+than to a local `kit attach` client:
+
+```text
+kit attach:  local AppShell/CliRenderer -> semantic WebSocket RPC -> remote session host
+OpenTUI SSH: ssh client -> terminal bytes -> remote AppShell/CliRenderer
+```
+
+The package does not provide the remote runtime facade, snapshot/replay state
+reduction, shared-session synchronization, or presentation/runtime separation
+that `kit attach` needs. Its renderer is also destroyed when the SSH shell
+disconnects, so Kit would still need to keep the authoritative session host
+alive and rebuild client presentation state on reconnect.
+
+Implement `kit attach` over the existing web-mode protocol first. After that
+boundary is stable, `@opentui/ssh` could support a complementary zero-install
+`ssh kit@host` entry point by creating one renderer/client projection per SSH
+shell while reusing the same persistent session host.
+
 ## Network exposure
 
 - Bind to `127.0.0.1` by default.
