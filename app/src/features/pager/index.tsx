@@ -60,6 +60,15 @@ export function PagerPlugin(kit: InternalPluginAPI): () => void {
 					<PagerContent
 						pager={pager}
 						onClose={closeOverlay}
+						copyText={props.copyText}
+						onCopyError={(error) => {
+							kit.ui.toast({
+								title: "Could not copy selection",
+								subtitle:
+									error instanceof Error ? error.message : String(error),
+								variant: "error",
+							});
+						}}
 						surfaceProps={props.surfaceProps}
 					/>
 				);

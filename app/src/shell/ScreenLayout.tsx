@@ -1,3 +1,4 @@
+import type { BoxProps } from "@opentui/solid";
 import type { JSX } from "solid-js";
 import { Show } from "solid-js";
 import type { OverlaySurfaceProps } from "../app/overlay-ui";
@@ -10,6 +11,8 @@ export type ScreenLayoutProps = {
 	zIndex?: number;
 	backgroundColor?: string;
 	surfaceProps?: OverlaySurfaceProps;
+	onMouseDown?: BoxProps["onMouseDown"];
+	onSizeChange?: BoxProps["onSizeChange"];
 };
 
 /**
@@ -29,6 +32,8 @@ export function ScreenLayout(props: ScreenLayoutProps) {
 			zIndex={props.surfaceProps?.zIndex ?? props.zIndex ?? 0}
 			backgroundColor={props.backgroundColor ?? theme.bg}
 			flexDirection="column"
+			onMouseDown={props.onMouseDown}
+			onSizeChange={props.onSizeChange}
 		>
 			<Show when={props.header}>{props.header}</Show>
 

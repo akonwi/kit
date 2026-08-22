@@ -1213,6 +1213,7 @@ function AppShellContent(props: AppShellContentProps) {
 							get active() {
 								return index() === props.overlays().length - 1;
 							},
+							copyText: props.copyText,
 						})
 					}
 				</For>

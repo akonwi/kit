@@ -2,6 +2,7 @@ import type { BoxProps } from "@opentui/solid";
 import type { JSX } from "solid-js";
 
 const CUSTOM_OVERLAY_Z_FLOOR = 1300;
+const CUSTOM_OVERLAY_Z_STEP = 10;
 
 export type OverlaySurfaceProps = Pick<BoxProps, "zIndex">;
 
@@ -9,6 +10,7 @@ export type OverlayComponentProps<T> = {
 	done: (result: T) => void;
 	surfaceProps: OverlaySurfaceProps;
 	active: boolean;
+	copyText: (text: string) => Promise<void>;
 };
 
 export type OverlayEntry = {
@@ -18,11 +20,11 @@ export type OverlayEntry = {
 };
 
 export function getOverlaySurfaceProps(index: number): OverlaySurfaceProps {
-	return { zIndex: CUSTOM_OVERLAY_Z_FLOOR + index };
+	return { zIndex: CUSTOM_OVERLAY_Z_FLOOR + index * CUSTOM_OVERLAY_Z_STEP };
 }
 
 export function getToastStackZIndex(overlayCount: number): number {
-	return CUSTOM_OVERLAY_Z_FLOOR + overlayCount;
+	return CUSTOM_OVERLAY_Z_FLOOR + overlayCount * CUSTOM_OVERLAY_Z_STEP;
 }
 
 export function createCustomOverlayHandler(

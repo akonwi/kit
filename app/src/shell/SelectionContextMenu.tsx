@@ -11,6 +11,7 @@ export type SelectionContextMenuProps = {
 	y: number;
 	containerWidth: number;
 	containerHeight: number;
+	zIndex?: number;
 	onCopy: () => void;
 	onQuote: () => void;
 	onClose: () => void;
@@ -103,7 +104,7 @@ export function SelectionContextMenu(props: SelectionContextMenuProps) {
 			top={position().top}
 			width={MENU_WIDTH}
 			height={MENU_HEIGHT}
-			zIndex={60}
+			zIndex={props.zIndex ?? 60}
 			flexDirection="column"
 			backgroundColor={theme.pickerBg}
 			focusable

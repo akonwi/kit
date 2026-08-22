@@ -4,11 +4,15 @@ import type { OverlaySurfaceProps } from "../../app/overlay-ui";
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import type { Binding } from "../../shell/HintBar";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
-import { KitMarkdown } from "../../shell/KitMarkdown";
 import { MessageComposer } from "../../shell/MessageComposer";
 import { ScreenHeader } from "../../shell/ScreenHeader";
 import { ScreenLayout } from "../../shell/ScreenLayout";
-import { scrollbarStyle, theme } from "../../shell/theme";
+import { formatSelectionAsQuote } from "../../shell/selection";
+import { theme } from "../../shell/theme";
+import {
+	PagerDocument,
+	type PagerSelectionMenuController,
+} from "./PagerDocument";
 import type { PagerController } from "./pager-controller";
 
 const EDIT_PREFIX_BINDINGS: Binding[] = [
@@ -16,9 +20,31 @@ const EDIT_PREFIX_BINDINGS: Binding[] = [
 	{ key: "Shift+Enter", action: "newline" },
 ];
 
+export function insertPagerSelectionQuote(options: {
+	text: string;
+	selection: string;
+	cursorOffset: number;
+}): { text: string; cursorOffset: number } {
+	const cursorOffset = Math.max(
+		0,
+		Math.min(options.cursorOffset, options.text.length),
+	);
+	const quote = formatSelectionAsQuote(
+		options.selection,
+		cursorOffset > 0 && options.text[cursorOffset - 1] !== "\n",
+	);
+	if (!quote) return { text: options.text, cursorOffset };
+	return {
+		text: `${options.text.slice(0, cursorOffset)}${quote}${options.text.slice(cursorOffset)}`,
+		cursorOffset: cursorOffset + quote.length,
+	};
+}
+
 export type PagerContentProps = {
 	pager: PagerController;
 	onClose: () => void;
+	copyText: (text: string) => Promise<void>;
+	onCopyError: (error: unknown) => void;
 	surfaceProps?: OverlaySurfaceProps;
 };
 
@@ -26,12 +52,18 @@ export function PagerContent(props: PagerContentProps) {
 	const pager = props.pager;
 	const [mode, setMode] = createSignal<"navigate" | "edit">("navigate");
 	const [noteText, setNoteText] = createSignal("");
+	const [selectionMenuOpen, setSelectionMenuOpen] = createSignal(false);
 	let scrollRef:
 		| { scrollBy: (opts: { x: number; y: number }) => void }
 		| undefined;
 	let textareaRef:
-		| { plainText: string; setText: (value: string) => void }
+		| {
+				plainText: string;
+				cursorOffset: number;
+				setText: (value: string) => void;
+		  }
 		| undefined;
+	let selectionMenuController: PagerSelectionMenuController | undefined;
 
 	function bindScroll(ref: typeof scrollRef) {
 		scrollRef = ref;
@@ -82,6 +114,27 @@ export function PagerContent(props: PagerContentProps) {
 		pager.setNote(pager.currentIndex, "");
 	}
 
+	function quoteSelectedText(selection: string): void {
+		const editing = mode() === "edit";
+		const current = editing
+			? (textareaRef?.plainText ?? noteText())
+			: currentNote();
+		const insertion = insertPagerSelectionQuote({
+			text: current,
+			selection,
+			cursorOffset: editing
+				? (textareaRef?.cursorOffset ?? current.length)
+				: current.length,
+		});
+		setNoteText(insertion.text);
+		setMode("edit");
+		queueMicrotask(() => {
+			if (!textareaRef) return;
+			textareaRef.setText(insertion.text);
+			textareaRef.cursorOffset = insertion.cursorOffset;
+		});
+	}
+
 	function closePager() {
 		pager.closeView();
 		props.onClose();
@@ -89,7 +142,7 @@ export function PagerContent(props: PagerContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => pager.active && mode() === "navigate",
+		when: () => pager.active && mode() === "navigate" && !selectionMenuOpen(),
 		commands: {
 			"pager.previous-section": pager.prevSection,
 			"pager.next-section": pager.nextSection,
@@ -103,7 +156,10 @@ export function PagerContent(props: PagerContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
-			pager.active && mode() === "navigate" && currentNote().length > 0,
+			pager.active &&
+			mode() === "navigate" &&
+			!selectionMenuOpen() &&
+			currentNote().length > 0,
 		commands: {
 			"pager.clear-note": clearCurrentNote,
 		},
@@ -111,7 +167,11 @@ export function PagerContent(props: PagerContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => pager.active && mode() === "navigate" && noteCount() > 0,
+		when: () =>
+			pager.active &&
+			mode() === "navigate" &&
+			!selectionMenuOpen() &&
+			noteCount() > 0,
 		commands: {
 			"pager.submit-feedback": closePager,
 		},
@@ -119,7 +179,7 @@ export function PagerContent(props: PagerContentProps) {
 
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () => pager.active && mode() === "edit",
+		when: () => pager.active && mode() === "edit" && !selectionMenuOpen(),
 		commands: {
 			"pager.back": cancelEdit,
 		},
@@ -144,6 +204,11 @@ export function PagerContent(props: PagerContentProps) {
 		<Show when={pager.active}>
 			<ScreenLayout
 				surfaceProps={props.surfaceProps}
+				onMouseDown={(event) => {
+					event.stopPropagation();
+					selectionMenuController?.close();
+				}}
+				onSizeChange={() => selectionMenuController?.close()}
 				header={
 					<ScreenHeader
 						variant="strip"
@@ -173,27 +238,19 @@ export function PagerContent(props: PagerContentProps) {
 					</box>
 				}
 			>
-				<scrollbox
-					ref={bindScroll}
-					flexGrow={1}
-					scrollY
-					stickyStart="top"
-					paddingX={1}
-					paddingY={1}
-					style={scrollbarStyle()}
-				>
-					<box flexDirection="column" width="100%">
-						<Show when={pager.currentSection?.sectionTitle}>
-							<text fg={theme.textMuted}>
-								<b>{pager.currentSection?.sectionTitle}</b>
-							</text>
-						</Show>
-						<KitMarkdown
-							content={pager.currentSection?.body ?? ""}
-							fg={theme.textPrimary}
-						/>
-					</box>
-				</scrollbox>
+				<PagerDocument
+					sectionTitle={pager.currentSection?.sectionTitle ?? ""}
+					body={pager.currentSection?.body ?? ""}
+					zIndex={props.surfaceProps?.zIndex ?? 0}
+					bindScroll={bindScroll}
+					copyText={props.copyText}
+					onCopyError={props.onCopyError}
+					onQuote={quoteSelectedText}
+					onMenuVisibilityChange={setSelectionMenuOpen}
+					registerSelectionMenu={(controller) => {
+						selectionMenuController = controller;
+					}}
+				/>
 				<box
 					flexShrink={0}
 					border={["top"]}

@@ -65,6 +65,7 @@ export type InternalPluginOverlayComponentProps<T> = {
 	done: (result: T) => void;
 	surfaceProps: InternalPluginOverlaySurfaceProps;
 	active: boolean;
+	copyText: (text: string) => Promise<void>;
 };
 
 export type InternalPluginUI = PluginAPI["ui"] & {
