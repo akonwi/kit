@@ -31,6 +31,7 @@ type ScratchpadContextValue = {
 	saving: Accessor<boolean>;
 	error: Accessor<string>;
 	disabled: Accessor<boolean>;
+	openScratchpad(): boolean;
 	toggle(): void;
 	close(): void;
 	setDraft(content: string): void;
@@ -62,6 +63,7 @@ export function ScratchpadProvider(props: {
 	const disabled = createMemo(() => protocol().phase !== "live");
 	const pendingDrafts = new Map<string, PendingDraft>();
 	let loadGeneration = 0;
+	let loadTargetSessionId: string | null = null;
 	let autosaveTimer: ReturnType<typeof setTimeout> | undefined;
 	let saveQueued = false;
 	let saveGeneration = 0;
@@ -111,6 +113,7 @@ export function ScratchpadProvider(props: {
 		const streamId = protocol().streamId;
 		const expectedSessionId = activeSessionId();
 		if (!expectedSessionId) return;
+		loadTargetSessionId = expectedSessionId;
 		const preserveDraft =
 			!discardDraft && dirty() && sessionId() === expectedSessionId;
 		setLoading(true);
@@ -166,7 +169,10 @@ export function ScratchpadProvider(props: {
 			setError(cause instanceof Error ? cause.message : String(cause));
 			rememberDraft();
 		} finally {
-			if (generation === loadGeneration) setLoading(false);
+			if (generation === loadGeneration) {
+				loadTargetSessionId = null;
+				setLoading(false);
+			}
 		}
 	}
 
@@ -241,22 +247,30 @@ export function ScratchpadProvider(props: {
 		return true;
 	}
 
+	function openScratchpad(): boolean {
+		if (disabled()) return false;
+		const targetSessionId = activeSessionId();
+		if (!targetSessionId) return false;
+		if (
+			open() &&
+			(sessionId() === targetSessionId ||
+				loadTargetSessionId === targetSessionId)
+		) {
+			return true;
+		}
+		setOpen(true);
+		restorePendingDraft(targetSessionId);
+		void load(false);
+		return true;
+	}
+
 	function toggle(): void {
 		if (open()) {
 			close();
 			return;
 		}
-		if (
-			disabled() ||
-			document.querySelector<HTMLDialogElement>("dialog:modal")
-		) {
-			return;
-		}
-		const targetSessionId = activeSessionId();
-		if (!targetSessionId) return;
-		setOpen(true);
-		restorePendingDraft(targetSessionId);
-		void load(false);
+		if (document.querySelector<HTMLDialogElement>("dialog:modal")) return;
+		openScratchpad();
 	}
 
 	function close(): void {
@@ -279,8 +293,13 @@ export function ScratchpadProvider(props: {
 		const state = protocol();
 		const nextSessionId = activeSessionId();
 		if (nextSessionId !== observedActiveSessionId) {
-			if (sessionId() !== null && nextSessionId !== sessionId()) {
+			const loadedSessionId = sessionId();
+			const sessionTargetChanged =
+				(loadedSessionId !== null && nextSessionId !== loadedSessionId) ||
+				(loadTargetSessionId !== null && nextSessionId !== loadTargetSessionId);
+			if (sessionTargetChanged) {
 				loadGeneration += 1;
+				loadTargetSessionId = null;
 				clearAutosave();
 				rememberDraft();
 				saveGeneration += 1;
@@ -366,6 +385,7 @@ export function ScratchpadProvider(props: {
 	});
 	onCleanup(() => {
 		loadGeneration += 1;
+		loadTargetSessionId = null;
 		clearAutosave();
 		rememberDraft();
 		window.removeEventListener("beforeunload", confirmUnsavedScratchpad);
@@ -381,6 +401,7 @@ export function ScratchpadProvider(props: {
 				saving,
 				error,
 				disabled,
+				openScratchpad,
 				toggle,
 				close,
 				setDraft,

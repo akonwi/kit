@@ -19,6 +19,7 @@ import { useScratchpad } from "./ScratchpadProvider";
 import { useWebClient } from "./WebClientContext";
 import {
 	type ActivitySource,
+	DEFAULT_WEB_WORKSPACE_PANES,
 	paneClosable,
 	paneIdentity,
 	type WebWorkspacePane,
@@ -45,6 +46,7 @@ type WorkspaceContextValue = {
 	state: Accessor<WorkspaceState<WebWorkspacePane>>;
 	tabs: Accessor<readonly WebWorkspaceTab[]>;
 	activeTab: Accessor<WebWorkspaceTab | null>;
+	resetRevision: Accessor<number>;
 	openActivity(source: ActivitySource): void;
 	isActivityOpen(source: ActivitySource): boolean;
 	openCodeReview(): void;
@@ -52,7 +54,7 @@ type WorkspaceContextValue = {
 	selectTranscript(): void;
 	selectTab(tabId: string): boolean;
 	closeTab(tabId: string): boolean;
-	clear(): void;
+	reset(): void;
 };
 
 export const WorkspaceContext = createContext<WorkspaceContextValue>();
@@ -66,8 +68,10 @@ export function WorkspaceProvider(props: {
 	const controller = createWorkspaceStateController<WebWorkspacePane>({
 		focusedSurface: "transcript",
 		identityOf: paneIdentity,
+		initialPanes: DEFAULT_WEB_WORKSPACE_PANES,
 	});
 	const [state, setState] = createSignal(controller.getState());
+	const [resetRevision, setResetRevision] = createSignal(0);
 	onCleanup(controller.subscribe(setState));
 
 	const tabs = createMemo<readonly WebWorkspaceTab[]>(() => {
@@ -117,6 +121,7 @@ export function WorkspaceProvider(props: {
 	}
 
 	function openCodeReview(): void {
+		if (snapshot().protocol.phase !== "live") return;
 		codeReview.openReview();
 		openPane({ kind: "review" });
 	}
@@ -132,7 +137,7 @@ export function WorkspaceProvider(props: {
 			controller.setNarrowTab("transcript");
 			return;
 		}
-		if (!scratchpad.open()) scratchpad.toggle();
+		if (!scratchpad.openScratchpad()) return;
 		openPane({ kind: "scratchpad" });
 	}
 
@@ -142,6 +147,12 @@ export function WorkspaceProvider(props: {
 	}
 
 	function selectTab(tabId: string): boolean {
+		const tab = tabs().find((candidate) => candidate.id === tabId);
+		if (!tab || snapshot().protocol.phase !== "live") return false;
+		if (tab.pane.kind === "review") codeReview.openReview();
+		if (tab.pane.kind === "scratchpad" && !scratchpad.openScratchpad()) {
+			return false;
+		}
 		return controller.selectSecondary(tabId, { focus: "secondary" });
 	}
 
@@ -151,8 +162,9 @@ export function WorkspaceProvider(props: {
 		return controller.closeSecondary(tabId);
 	}
 
-	function clear(): void {
-		controller.clearSecondary();
+	function reset(): void {
+		controller.resetSecondary();
+		setResetRevision((revision) => revision + 1);
 	}
 
 	let observedSessionId: unknown;
@@ -162,9 +174,9 @@ export function WorkspaceProvider(props: {
 			const restoreTranscriptFocus =
 				document.activeElement instanceof Element &&
 				document.activeElement.closest(
-					".workspace-secondary, .workspace-drawer-tabs, .workspace-tabs, .workspace-divider",
+					".workspace-secondary, .workspace-drawer-tabs, .workspace-tabs, .workspace-divider, .workspace-collapsed-rail",
 				) !== null;
-			clear();
+			reset();
 			if (restoreTranscriptFocus) {
 				queueMicrotask(() =>
 					document.querySelector<HTMLElement>("#transcript")?.focus(),
@@ -180,6 +192,7 @@ export function WorkspaceProvider(props: {
 				state,
 				tabs,
 				activeTab,
+				resetRevision,
 				openActivity,
 				isActivityOpen,
 				openCodeReview,
@@ -187,7 +200,7 @@ export function WorkspaceProvider(props: {
 				selectTranscript,
 				selectTab,
 				closeTab,
-				clear,
+				reset,
 			}}
 		>
 			{props.children}

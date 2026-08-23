@@ -31,6 +31,11 @@ export type WorkspacePane =
 	| { kind: "subagents" }
 	| { kind: "subagent"; agentName: string };
 
+export const DEFAULT_WORKSPACE_PANES = [
+	{ kind: "review" },
+	{ kind: "scratchpad" },
+] as const satisfies readonly WorkspacePane[];
+
 export type WorkspacePaneKind = WorkspacePane["kind"];
 type PaneOfKind<K extends WorkspacePaneKind> = Extract<
 	WorkspacePane,

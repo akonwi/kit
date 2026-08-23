@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+	DEFAULT_WORKSPACE_PANES,
 	WORKSPACE_PANE_DEFINITIONS,
 	type WorkspacePane,
 	workspacePaneClosable,
@@ -24,6 +25,19 @@ describe("workspace pane registry", () => {
 		expect(Object.keys(WORKSPACE_PANE_DEFINITIONS).sort()).toEqual(
 			paneKinds.toSorted(),
 		);
+	});
+
+	test("makes persistent singleton panes available by default", () => {
+		expect(DEFAULT_WORKSPACE_PANES).toEqual([
+			{ kind: "review" },
+			{ kind: "scratchpad" },
+		]);
+		expect(
+			DEFAULT_WORKSPACE_PANES.every((pane) => !workspacePaneClosable(pane)),
+		).toBeTrue();
+		expect(
+			new Set(DEFAULT_WORKSPACE_PANES.map(workspacePaneIdentity)).size,
+		).toBe(DEFAULT_WORKSPACE_PANES.length);
 	});
 
 	test("uses descriptor-specific identities for diagrams and agents", () => {

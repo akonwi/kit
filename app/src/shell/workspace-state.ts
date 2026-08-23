@@ -25,6 +25,27 @@ export type WorkspaceState<TPane extends { kind: string }> = {
 	narrowTab: WorkspaceNarrowTab;
 };
 
+export function retainOpenedWorkspaceTabIds<TPane extends { kind: string }>(
+	state: WorkspaceState<TPane>,
+	retained: ReadonlySet<string>,
+): ReadonlySet<string> {
+	const secondary = state.secondary;
+	const currentTabIds = new Set(
+		secondary.status === "empty" ? [] : secondary.tabs.map((tab) => tab.id),
+	);
+	const next = new Set(
+		[...retained].filter((tabId) => currentTabIds.has(tabId)),
+	);
+	if (secondary.status === "open") next.add(secondary.activeTabId);
+	if (
+		next.size === retained.size &&
+		[...next].every((tabId) => retained.has(tabId))
+	) {
+		return retained;
+	}
+	return next;
+}
+
 export type WorkspaceStateController<TPane extends { kind: string }> = {
 	getState(): WorkspaceState<TPane>;
 	subscribe(listener: (state: WorkspaceState<TPane>) => void): () => void;
@@ -42,6 +63,7 @@ export type WorkspaceStateController<TPane extends { kind: string }> = {
 	restoreSecondary(options?: { focus?: WorkspaceFocusedSurface }): boolean;
 	minimizeSecondary(): void;
 	clearSecondary(): void;
+	resetSecondary(): void;
 	setPreferredPaneRatio(ratio: number): void;
 	setFocusedSurface(surface: WorkspaceFocusedSurface): void;
 	setNarrowTab(tab: WorkspaceNarrowTab): void;
@@ -57,17 +79,37 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 		preferredPaneRatio?: number;
 		focusedSurface?: WorkspaceFocusedSurface;
 		identityOf?: (pane: TPane) => string;
+		initialPanes?: readonly TPane[];
 	} = {},
 ): WorkspaceStateController<TPane> {
 	const initialFocus = initial.focusedSurface ?? "composer";
+	const primaryInitialFocus =
+		initialFocus === "secondary" ? "composer" : initialFocus;
 	const identityOf = initial.identityOf ?? ((pane: TPane) => pane.kind);
+	const initialPanes = initial.initialPanes ?? [];
 	let nextTabId = 1;
+
+	function createInitialSecondary(): WorkspaceSecondaryState<TPane> {
+		const identities = new Set<string>();
+		const tabs: WorkspaceTab<TPane>[] = [];
+		for (const pane of initialPanes) {
+			const identity = identityOf(pane);
+			if (identities.has(identity)) continue;
+			identities.add(identity);
+			tabs.push({ id: `workspace-tab:${nextTabId++}`, identity, pane });
+		}
+		const activeTabId = tabs[0]?.id;
+		return activeTabId
+			? { status: "minimized", tabs, activeTabId }
+			: { status: "empty" };
+	}
+
 	let state: WorkspaceState<TPane> = {
-		secondary: { status: "empty" },
+		secondary: createInitialSecondary(),
 		preferredPaneRatio: normalizePreferredRatio(
 			initial.preferredPaneRatio ?? DEFAULT_WORKSPACE_PANE_RATIO,
 		),
-		focusedSurface: initialFocus === "secondary" ? "composer" : initialFocus,
+		focusedSurface: primaryInitialFocus,
 		narrowTab: "transcript",
 	};
 	const listeners = new Set<(state: WorkspaceState<TPane>) => void>();
@@ -231,6 +273,14 @@ export function createWorkspaceStateController<TPane extends { kind: string }>(
 					state.focusedSurface === "secondary"
 						? "composer"
 						: state.focusedSurface,
+				narrowTab: "transcript",
+			});
+		},
+		resetSecondary() {
+			update({
+				...state,
+				secondary: createInitialSecondary(),
+				focusedSurface: primaryInitialFocus,
 				narrowTab: "transcript",
 			});
 		},

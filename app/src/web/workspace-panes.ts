@@ -13,6 +13,11 @@ export type WebWorkspacePane =
 	| { kind: "review" }
 	| { kind: "scratchpad" };
 
+export const DEFAULT_WEB_WORKSPACE_PANES = [
+	{ kind: "review" },
+	{ kind: "scratchpad" },
+] as const satisfies readonly WebWorkspacePane[];
+
 export type WebWorkspaceTab = WorkspaceTab<WebWorkspacePane>;
 
 export function paneIdentity(pane: WebWorkspacePane): string {

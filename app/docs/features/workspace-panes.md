@@ -23,6 +23,14 @@ columns. The tab strip owns pane titles. Pane bodies may add a
 that context omit the row. Pane bodies also own their content, focus handling,
 and feature-specific actions.
 
+Code Review and Scratchpad are persistent singleton panes. Each renderer makes
+them available in that order when its workspace is created and restores them
+when the active session changes. The secondary surface starts minimized, with
+Code Review selected for the next expansion; focus and the narrow-layout
+selection remain on the transcript/composer. Default pane bodies initialize only
+when first selected, then remain mounted to preserve local state. Other panes
+open on demand and may be closed.
+
 ## Adding a pane
 
 1. Add a plain-data variant to `WorkspacePane` in

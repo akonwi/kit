@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
 	createWorkspaceStateController,
 	DEFAULT_WORKSPACE_PANE_RATIO,
+	retainOpenedWorkspaceTabIds,
 } from "./workspace-state";
 
 type Pane =
@@ -24,6 +25,69 @@ describe("workspace state", () => {
 			focusedSurface: "composer",
 			narrowTab: "transcript",
 		});
+	});
+
+	test("seeds minimized default panes and restores them on reset", () => {
+		const workspace = createWorkspaceStateController<Pane>({
+			identityOf,
+			initialPanes: [{ kind: "review" }, { kind: "scratchpad" }],
+		});
+		const initial = workspace.getState();
+
+		expect(initial.secondary).toMatchObject({
+			status: "minimized",
+			tabs: [
+				{ identity: "review:", pane: { kind: "review" } },
+				{ identity: "scratchpad:", pane: { kind: "scratchpad" } },
+			],
+		});
+		if (initial.secondary.status === "empty") {
+			throw new Error("expected default tabs");
+		}
+		expect(initial.secondary.activeTabId).toBe(initial.secondary.tabs[0]?.id);
+		expect(initial.focusedSurface).toBe("composer");
+		expect(initial.narrowTab).toBe("transcript");
+
+		workspace.openSecondary({ kind: "activity", source: "tool" });
+		workspace.setPreferredPaneRatio(0.55);
+		workspace.resetSecondary();
+		const reset = workspace.getState();
+		expect(
+			reset.secondary.status === "empty"
+				? []
+				: reset.secondary.tabs.map((tab) => tab.pane.kind),
+		).toEqual(["review", "scratchpad"]);
+		expect(reset.secondary).toMatchObject({ status: "minimized" });
+		expect(reset.preferredPaneRatio).toBe(0.55);
+		expect(reset.focusedSurface).toBe("composer");
+		expect(reset.narrowTab).toBe("transcript");
+	});
+
+	test("retains pane bodies only after their first expansion", () => {
+		const workspace = createWorkspaceStateController<Pane>({
+			identityOf,
+			initialPanes: [{ kind: "review" }, { kind: "scratchpad" }],
+		});
+		let retained: ReadonlySet<string> = new Set();
+		retained = retainOpenedWorkspaceTabIds(workspace.getState(), retained);
+		expect(retained.size).toBe(0);
+
+		expect(workspace.restoreSecondary()).toBeTrue();
+		retained = retainOpenedWorkspaceTabIds(workspace.getState(), retained);
+		expect(retained.size).toBe(1);
+		const secondary = workspace.getState().secondary;
+		if (secondary.status === "empty") throw new Error("expected default tabs");
+		expect(retained.has(secondary.tabs[0]?.id ?? "")).toBeTrue();
+
+		const scratchpadId = secondary.tabs[1]?.id;
+		if (!scratchpadId) throw new Error("expected scratchpad tab");
+		workspace.selectSecondary(scratchpadId);
+		retained = retainOpenedWorkspaceTabIds(workspace.getState(), retained);
+		expect(retained.size).toBe(2);
+
+		workspace.resetSecondary();
+		retained = retainOpenedWorkspaceTabIds(workspace.getState(), retained);
+		expect(retained.size).toBe(0);
 	});
 
 	test("opens tabs in insertion order and deduplicates by identity", () => {

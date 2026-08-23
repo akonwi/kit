@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createWorkspaceStateController } from "../shell/workspace-state";
 import {
+	DEFAULT_WEB_WORKSPACE_PANES,
 	directTabsForCount,
 	paneClosable,
 	paneIdentity,
@@ -9,6 +10,24 @@ import {
 } from "./workspace-panes";
 
 describe("web workspace panes", () => {
+	test("makes persistent panes available in a minimized workspace", () => {
+		const workspace = createWorkspaceStateController<WebWorkspacePane>({
+			focusedSurface: "transcript",
+			identityOf: paneIdentity,
+			initialPanes: DEFAULT_WEB_WORKSPACE_PANES,
+		});
+		const state = workspace.getState();
+
+		expect(
+			state.secondary.status === "empty"
+				? []
+				: state.secondary.tabs.map((tab) => tab.pane.kind),
+		).toEqual(["review", "scratchpad"]);
+		expect(state.secondary).toMatchObject({ status: "minimized" });
+		expect(state.focusedSurface).toBe("transcript");
+		expect(state.narrowTab).toBe("transcript");
+	});
+
 	test("keeps surfaces in opening order and reuses singleton identities", () => {
 		const workspace = createWorkspaceStateController<WebWorkspacePane>({
 			identityOf: paneIdentity,

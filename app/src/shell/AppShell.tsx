@@ -70,6 +70,7 @@ import {
 	workspaceContentColumns,
 } from "./workspace-layout";
 import {
+	DEFAULT_WORKSPACE_PANES,
 	type WorkspacePane,
 	type WorkspacePaneRenderContext,
 	WorkspacePaneSurface,
@@ -81,6 +82,7 @@ import {
 import {
 	createWorkspaceStateController,
 	DEFAULT_WORKSPACE_PANE_RATIO,
+	retainOpenedWorkspaceTabIds,
 	type WorkspaceFocusedSurface,
 	type WorkspaceState,
 } from "./workspace-state";
@@ -228,6 +230,7 @@ function AppShellContent(props: AppShellContentProps) {
 	const workspace = createWorkspaceStateController<WorkspacePane>({
 		preferredPaneRatio: props.preferredPaneRatio,
 		identityOf: workspacePaneIdentity,
+		initialPanes: DEFAULT_WORKSPACE_PANES,
 	});
 	const workspaceOverflowPicker = createPickerManager();
 	const [workspaceOverflowGuard, setWorkspaceOverflowGuard] = createSignal<{
@@ -237,7 +240,15 @@ function AppShellContent(props: AppShellContentProps) {
 	const [workspaceState, setWorkspaceState] = createSignal<
 		WorkspaceState<WorkspacePane>
 	>(workspace.getState());
+	const [retainedWorkspaceTabIds, setRetainedWorkspaceTabIds] = createSignal<
+		ReadonlySet<string>
+	>(new Set());
 	onCleanup(workspace.subscribe(setWorkspaceState));
+	createEffect(() => {
+		setRetainedWorkspaceTabIds((retained) =>
+			retainOpenedWorkspaceTabIds(workspaceState(), retained),
+		);
+	});
 	const secondaryTabs = () => {
 		const secondary = workspaceState().secondary;
 		return secondary.status === "empty" ? [] : secondary.tabs;
@@ -513,7 +524,7 @@ function AppShellContent(props: AppShellContentProps) {
 			saveScratchpadDraftIfEditing();
 			workspaceOverflowPicker.clear();
 			setWorkspaceOverflowGuard(null);
-			workspace.clearSecondary();
+			workspace.resetSecondary();
 		}),
 	);
 
@@ -1028,11 +1039,13 @@ function AppShellContent(props: AppShellContentProps) {
 				secondary={() => (
 					<For each={secondaryTabs()}>
 						{(tab) => (
-							<WorkspacePaneSurface
-								pane={tab.pane}
-								selected={() => activeWorkspaceTab()?.id === tab.id}
-								context={workspacePaneContext(tab.id)}
-							/>
+							<Show when={retainedWorkspaceTabIds().has(tab.id)}>
+								<WorkspacePaneSurface
+									pane={tab.pane}
+									selected={() => activeWorkspaceTab()?.id === tab.id}
+									context={workspacePaneContext(tab.id)}
+								/>
+							</Show>
 						)}
 					</For>
 				)}

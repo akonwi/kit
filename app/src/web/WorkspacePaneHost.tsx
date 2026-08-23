@@ -188,6 +188,13 @@ export function WorkspacePaneHost(props: {
 		previousCanSplit = splitAvailable;
 	});
 
+	let previousResetRevision = workspace.resetRevision();
+	createEffect(() => {
+		const revision = workspace.resetRevision();
+		if (revision !== previousResetRevision) setDrawerCollapsed(true);
+		previousResetRevision = revision;
+	});
+
 	createEffect(() => {
 		if (expanded() || !dragging()) return;
 		activePointerId = null;
