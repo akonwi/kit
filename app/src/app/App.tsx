@@ -4,6 +4,7 @@ import {
 	type CommandRegistry,
 	createCommandRegistry,
 } from "../features/commands";
+import { createFileCommentDraftController } from "../features/files/comment-draft-controller";
 import { createMcpWorkspaceController } from "../features/mcp";
 import { createReleasesWorkspaceController } from "../features/releases";
 import { createReviewDraftController } from "../features/review/draft-controller";
@@ -74,6 +75,7 @@ type ReadyState = {
 	attachments: ReturnType<typeof createAttachmentsController>;
 	footer: ReturnType<typeof createFooterStatusController>;
 	header: ReturnType<typeof createHeaderStatusController>;
+	fileCommentDrafts: ReturnType<typeof createFileCommentDraftController>;
 	mcpWorkspace: ReturnType<typeof createMcpWorkspaceController>;
 	releasesWorkspace: ReturnType<typeof createReleasesWorkspaceController>;
 	reviewDrafts: ReturnType<typeof createReviewDraftController>;
@@ -115,6 +117,9 @@ export function App(props: AppProps) {
 		const attachments = createAttachmentsController();
 		const footer = createFooterStatusController();
 		const header = createHeaderStatusController();
+		const fileCommentDrafts = createFileCommentDraftController(
+			props.session.id,
+		);
 		const mcpWorkspace = createMcpWorkspaceController();
 		const runtime = new AgentRuntime(props.session, {
 			settings: currentSettings.settings,
@@ -311,7 +316,13 @@ export function App(props: AppProps) {
 				const switchedSessions = event.session.id !== observedSessionId;
 				observedSessionId = event.session.id;
 				if (switchedSessions) {
+					fileCommentDrafts.resetForSession(event.session.id);
 					reviewDrafts.resetForSession(event.session.id);
+					for (const attachment of attachments.attachments()) {
+						if (attachment.id.startsWith("file-review:")) {
+							attachments.detach(attachment.id, "pending");
+						}
+					}
 					attachments.detach("code-review");
 					// Overlays belong to the previous active session. Resolve them so
 					// stale components unmount after a true session switch.
@@ -362,6 +373,7 @@ export function App(props: AppProps) {
 			attachments,
 			footer,
 			header,
+			fileCommentDrafts,
 			mcpWorkspace,
 			releasesWorkspace,
 			reviewDrafts,
@@ -484,6 +496,7 @@ export function App(props: AppProps) {
 							header={current.header}
 							mcpWorkspace={current.mcpWorkspace}
 							releasesWorkspace={current.releasesWorkspace}
+							fileCommentDrafts={current.fileCommentDrafts}
 							reviewDrafts={current.reviewDrafts}
 							reviewWorkspace={current.reviewWorkspace}
 							scratchpad={current.scratchpad}

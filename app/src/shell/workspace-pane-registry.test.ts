@@ -11,6 +11,7 @@ import { createWorkspaceStateController } from "./workspace-state";
 
 const paneKinds: WorkspacePane["kind"][] = [
 	"activity",
+	"file",
 	"mermaid",
 	"mcp",
 	"review",
@@ -49,6 +50,13 @@ describe("workspace pane registry", () => {
 		).toBe("activity");
 		expect(workspacePaneIdentity({ kind: "mcp" })).toBe("mcp");
 		expect(workspacePaneIdentity({ kind: "review" })).toBe("review");
+		expect(
+			workspacePaneIdentity({
+				kind: "file",
+				repoRoot: "/repo",
+				path: "src/index.ts",
+			}),
+		).toBe("file:/repo/src/index.ts");
 		expect(workspacePaneIdentity({ kind: "mermaid", source: "graph TD" })).toBe(
 			"mermaid:graph TD",
 		);
@@ -92,6 +100,26 @@ describe("workspace pane registry", () => {
 			),
 		).toBe("code-reviewer");
 		expect(workspacePaneLabel({ kind: "mcp" }, diagrams)).toBe("MCP");
+		expect(
+			workspacePaneLabel(
+				{ kind: "file", repoRoot: "/repo", path: "src/index.ts" },
+				diagrams,
+			),
+		).toBe("index.ts");
+		const duplicateFiles: { pane: WorkspacePane }[] = [
+			{ pane: { kind: "file", repoRoot: "/repo", path: "src/index.ts" } },
+			{ pane: { kind: "file", repoRoot: "/repo", path: "test/index.ts" } },
+		];
+		expect(workspacePaneLabel(duplicateFiles[0].pane, duplicateFiles)).toBe(
+			"src/index.ts",
+		);
+		expect(
+			workspacePaneClosable({
+				kind: "file",
+				repoRoot: "/repo",
+				path: "src/index.ts",
+			}),
+		).toBeTrue();
 		expect(workspacePaneClosable({ kind: "mcp" })).toBeTrue();
 		expect(workspacePaneClosable({ kind: "review" })).toBeFalse();
 		expect(workspacePaneClosable({ kind: "scratchpad" })).toBeFalse();

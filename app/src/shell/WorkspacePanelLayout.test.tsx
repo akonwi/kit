@@ -3,6 +3,7 @@ import { testRender } from "@opentui/solid";
 import {
 	WorkspacePanelHeader,
 	WorkspacePanelLayout,
+	WorkspaceSidebarToggle,
 } from "./WorkspacePanelLayout";
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | undefined;
@@ -26,6 +27,24 @@ describe("WorkspacePanelLayout", () => {
 		const frame = testSetup.captureCharFrame();
 		expect(frame.startsWith("body")).toBeTrue();
 		expect(frame).toContain("footer");
+	});
+
+	test("renders a sidebar toggle at the context edge", async () => {
+		testSetup = await testRender(
+			() => (
+				<WorkspacePanelHeader
+					leading={
+						<WorkspaceSidebarToggle expanded={false} onToggle={() => {}} />
+					}
+					left={<text>working tree</text>}
+				/>
+			),
+			{ width: 32, height: 2 },
+		);
+		await testSetup.renderOnce();
+		const firstRow = testSetup.captureCharFrame().split("\n")[0];
+		expect(firstRow.indexOf("›")).toBe(1);
+		expect(firstRow).toContain("working tree");
 	});
 
 	test("presents pane scope and live status as context", async () => {

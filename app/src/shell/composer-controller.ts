@@ -422,7 +422,18 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (picker.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
-		const submitSessionId = runtime.getSession().id;
+		const submitSession = runtime.getSession();
+		const submitSessionId = submitSession.id;
+		const submitSessionCwd = submitSession.cwd;
+		const submissionScopeIsCurrent = (): boolean => {
+			const current = runtime.getSession();
+			return current.id === submitSessionId && current.cwd === submitSessionCwd;
+		};
+		const restoreSubmittedTextIfEmpty = (): void => {
+			if (!text || !textareaRef || textareaRef.plainText !== "") return;
+			textareaRef.setText(text);
+			prevTextLength = text.length;
+		};
 		const pendingAttachments = attachments.attachments();
 		if (!text.trim() && pendingAttachments.length === 0) {
 			if (
@@ -464,13 +475,27 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		resetBashHistoryNavigation();
 
 		const preparedText = text.trim() ? await prepareMessageText(text) : "";
-		// Thread expansion is asynchronous. If the active session changed
-		// while it ran, never submit old-session text or attachments into the
-		// new session.
-		if (runtime.getSession().id !== submitSessionId) return;
+		// Thread expansion is asynchronous. If the active session or its cwd
+		// changed while it ran, never submit old-scope text or attachments.
+		if (!submissionScopeIsCurrent()) {
+			if (runtime.getSession().id === submitSessionId) {
+				restoreSubmittedTextIfEmpty();
+			}
+			return;
+		}
 		if (text.trim() && !preparedText) {
-			textareaRef?.setText(text);
-			prevTextLength = text.length;
+			restoreSubmittedTextIfEmpty();
+			return;
+		}
+		for (const attachment of pendingAttachments) {
+			const validationError = attachment.validate?.();
+			if (!validationError) continue;
+			restoreSubmittedTextIfEmpty();
+			toast({
+				title: "Attachment is no longer valid",
+				subtitle: validationError,
+				variant: "warning",
+			});
 			return;
 		}
 
@@ -503,9 +528,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				attachment.onDetach?.("consumed");
 			}
 		} catch (error) {
-			// A session switch owns a fresh composer. Never resurrect text or
-			// attachments from a failed submission started in the old session.
-			if (runtime.getSession().id === submitSessionId) {
+			// A session or cwd switch owns a fresh composer scope. Never resurrect
+			// text or attachments from a failed submission started in the old scope.
+			if (submissionScopeIsCurrent()) {
 				const currentAttachmentIds = new Set(
 					attachments.attachments().map((attachment) => attachment.id),
 				);
@@ -525,8 +550,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 					subtitle: error instanceof Error ? error.message : String(error),
 					variant: "error",
 				});
-				textareaRef?.setText(text);
-				prevTextLength = text.length;
+				restoreSubmittedTextIfEmpty();
 			}
 			console.error(error);
 		} finally {

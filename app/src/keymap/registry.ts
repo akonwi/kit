@@ -65,6 +65,117 @@ export const KEYBINDING_REGISTRY = {
 			desc: "Reset workspace pane sizes",
 			group: "App",
 		},
+		"find-file": {
+			defaultKeys: "/",
+			desc: "Find a file to open in the workspace",
+			group: "App",
+		},
+	},
+	"file-tree": {
+		close: {
+			defaultKeys: "escape",
+			desc: "Close file tree",
+			group: "files",
+			hint: "close",
+		},
+		"move-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Move to previous file",
+			group: "files",
+			hint: "move",
+		},
+		"move-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Move to next file",
+			group: "files",
+			hint: "move",
+		},
+		open: {
+			defaultKeys: "return",
+			desc: "Open selected file",
+			group: "files",
+			hint: "open",
+		},
+		toggle: {
+			defaultKeys: "space",
+			desc: "Toggle selected directory",
+			group: "files",
+			hint: "toggle",
+		},
+		expand: {
+			defaultKeys: ["right", "l"],
+			desc: "Expand selected directory",
+			group: "files",
+			hint: false,
+		},
+		collapse: {
+			defaultKeys: ["left", "h"],
+			desc: "Collapse selected directory",
+			group: "files",
+			hint: false,
+		},
+	},
+	"file-viewer": {
+		close: {
+			defaultKeys: "escape",
+			desc: "Close file tab",
+			group: "file-viewer",
+			hint: "close",
+		},
+		"scroll-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Move line cursor up",
+			group: "file-viewer",
+			hint: "move",
+		},
+		"scroll-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Move line cursor down",
+			group: "file-viewer",
+			hint: "move",
+		},
+		"comment-line": {
+			defaultKeys: "return",
+			desc: "Comment selected line or range",
+			group: "file-viewer",
+			hint: "comment",
+		},
+		"start-range": {
+			defaultKeys: "ctrl+return",
+			desc: "Start range selection",
+			group: "file-viewer",
+			hint: "range",
+		},
+		"file-note": {
+			defaultKeys: "f",
+			desc: "Edit file note",
+			group: "file-viewer",
+			hint: "file note",
+		},
+		"clear-line-note": {
+			defaultKeys: "x",
+			desc: "Clear selected line note",
+			group: "file-viewer",
+			hint: false,
+		},
+		"close-editor": {
+			defaultKeys: "escape",
+			desc: "Close note editor",
+			group: "file-viewer",
+			hint: "close",
+		},
+		"cancel-range": {
+			defaultKeys: "escape",
+			desc: "Cancel range selection",
+			group: "file-viewer",
+			hint: false,
+		},
+		submit: {
+			defaultKeys: "s",
+			desc: "Submit file comments now",
+			group: "file-viewer",
+			hint: "submit now",
+		},
 	},
 	"chrome-overflow": {
 		"move-up": {
@@ -466,6 +577,12 @@ export const KEYBINDING_REGISTRY = {
 			group: "review",
 			hint: "focus",
 		},
+		"open-file": {
+			defaultKeys: "o",
+			desc: "Open selected file in a workspace tab",
+			group: "review",
+			hint: "open file",
+		},
 		"toggle-file": {
 			defaultKeys: "space",
 			desc: "Collapse or expand selected file",
@@ -568,17 +685,11 @@ export const KEYBINDING_REGISTRY = {
 			group: "review",
 			hint: false,
 		},
-		"toggle-tree-mode": {
-			defaultKeys: "t",
-			desc: "Toggle changes / all files",
-			group: "review",
-			hint: "tree mode",
-		},
 		"search-tree": {
 			defaultKeys: "/",
-			desc: "Search file tree",
+			desc: "Find a repository file in the workspace",
 			group: "review",
-			hint: "search",
+			hint: "find file",
 		},
 		"cycle-target": {
 			defaultKeys: "g",
@@ -591,12 +702,6 @@ export const KEYBINDING_REGISTRY = {
 			desc: "Pick a commit to review",
 			group: "review",
 			hint: "pick commit",
-		},
-		"clear-search": {
-			defaultKeys: "escape",
-			desc: "Clear search",
-			group: "review",
-			hint: "clear",
 		},
 	},
 	"session-explorer": {

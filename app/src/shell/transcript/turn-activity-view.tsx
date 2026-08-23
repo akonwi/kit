@@ -340,6 +340,7 @@ export function createTurnActivityModel(
 function TurnActivitySectionRow(props: {
 	model: TurnActivityModel;
 	id: string;
+	onOpenSubagent?: (agentName: string) => boolean;
 }) {
 	const initial = props.model.sectionsById().get(props.id);
 	if (!initial) return null;
@@ -360,6 +361,7 @@ function TurnActivitySectionRow(props: {
 						fullArgs
 						noTruncate
 						enrichOutput
+						onOpenSubagent={props.onOpenSubagent}
 					/>
 				</box>
 			);
@@ -398,7 +400,10 @@ function TurnActivitySectionRow(props: {
  * its own padding/border around the scroll region. Rows intentionally remain
  * direct children because OpenTUI viewport-culls only direct scrollbox children.
  */
-export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
+export function TurnActivitySectionList(props: {
+	model: TurnActivityModel;
+	onOpenSubagent?: (agentName: string) => boolean;
+}) {
 	return (
 		<Show
 			when={props.model.sections().length > 0}
@@ -409,7 +414,13 @@ export function TurnActivitySectionList(props: { model: TurnActivityModel }) {
 			}
 		>
 			<For each={props.model.sectionOrder()}>
-				{(id) => <TurnActivitySectionRow model={props.model} id={id} />}
+				{(id) => (
+					<TurnActivitySectionRow
+						model={props.model}
+						id={id}
+						onOpenSubagent={props.onOpenSubagent}
+					/>
+				)}
 			</For>
 		</Show>
 	);

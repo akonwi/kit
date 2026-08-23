@@ -35,4 +35,34 @@ describe("code review draft attachment", () => {
 		attachment.onDetach("consumed");
 		expect(reasons).toEqual(["consumed"]);
 	});
+
+	test("labels full-file feedback with working-tree line locations", () => {
+		const attachment = new CodeReviewAttachment(
+			"file-review:/repo:src/test.ts",
+			{
+				submittedAt: new Date(0).toISOString(),
+				source: "file",
+				files: [
+					{
+						path: "src/test.ts",
+						fileComment: "",
+						ranges: [
+							{
+								side: "additions",
+								startLine: 2,
+								endLine: 4,
+								comment: "Simplify this block",
+							},
+						],
+					},
+				],
+			},
+		);
+
+		expect(attachment.summary).toContain("File feedback");
+		expect(attachment.toPromptText()).toContain(
+			"- Lines 2-4: Simplify this block",
+		);
+		expect(attachment.toPromptText()).not.toContain("additions 2-4");
+	});
 });

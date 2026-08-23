@@ -227,3 +227,18 @@ export async function scanFiles(
 
 	return { files, dirs };
 }
+
+/** List every project file available to the workspace file browser. */
+export async function listProjectFiles(
+	cwd: string,
+	signal?: AbortSignal,
+	maxEntries = 10_000,
+): Promise<string[]> {
+	const result = await scanFiles(cwd, {
+		includeIgnoreFiles: true,
+		maxEntries,
+		respectGitignore: false,
+		signal,
+	});
+	return result.files;
+}

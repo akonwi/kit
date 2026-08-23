@@ -3,6 +3,7 @@ import {
 	buildRangeNoteKey,
 	buildReviewSubmission,
 	countDraftNotes,
+	parseRangeNoteKey,
 } from "./draft";
 import type { ReviewFile } from "./model";
 
@@ -58,6 +59,17 @@ function makeFile(): ReviewFile {
 }
 
 describe("review draft", () => {
+	test("round-trips range keys for paths containing the delimiter", () => {
+		const range = {
+			path: "src/a::b.ts",
+			side: "additions" as const,
+			startLine: 2,
+			endLine: 4,
+		};
+
+		expect(parseRangeNoteKey(buildRangeNoteKey(range))).toEqual(range);
+	});
+
 	test("counts non-empty file and range notes", () => {
 		expect(
 			countDraftNotes({

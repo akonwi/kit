@@ -1,4 +1,7 @@
-import type { JSX } from "solid-js";
+import path from "node:path";
+import { type JSX, Show } from "solid-js";
+import { FileViewerPanel } from "../features/files";
+import type { FileCommentDraftController } from "../features/files/comment-draft-controller";
 import { type McpPanelData, McpStatusPanel } from "../features/mcp";
 import { MermaidPreviewPanel } from "../features/mermaid-preview/MermaidPreviewPanel";
 import {
@@ -23,6 +26,7 @@ import type { OpenOverlay } from "./transcript/types";
 
 export type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
+	| { kind: "file"; repoRoot: string; path: string }
 	| { kind: "mermaid"; source: string }
 	| { kind: "mcp" }
 	| { kind: "review" }
@@ -49,15 +53,19 @@ export type WorkspacePaneRenderContext = {
 	runtime: AgentRuntime;
 	mcpData: () => McpPanelData | null;
 	attachments: AttachmentsController;
+	fileCommentDrafts: FileCommentDraftController;
 	reviewDrafts: ReviewDraftController;
+	reviewRepoRoot: () => string;
 	defaultReviewDiffView: () => ReviewDiffView;
 	onReviewDiffViewChanged: (view: ReviewDiffView) => void;
 	onSubmitReviewMessage: () => void | Promise<void>;
 	releasesWorkspace: ReleasesWorkspaceController;
 	scratchpad: ScratchpadController;
 	subagentsData: () => SubagentsPanelData | null;
+	openFile: (path: string) => void;
+	openFileFinder: () => void;
 	openSubagents: () => void;
-	openSubagent: (agentName: string) => void;
+	openSubagent: (agentName: string) => boolean;
 	closePane: () => void;
 	openOverlay: OpenOverlay;
 	showToast: (toast: ToastInput) => void;
@@ -82,6 +90,20 @@ type WorkspacePaneDefinitionMap = {
 	[K in WorkspacePaneKind]: WorkspacePaneDefinition<K>;
 };
 
+function filePaneLabel(
+	pane: PaneOfKind<"file">,
+	tabs: readonly { pane: WorkspacePane }[],
+): string {
+	const basename = path.basename(pane.path) || pane.path;
+	const duplicate = tabs.some(
+		(tab) =>
+			tab.pane.kind === "file" &&
+			tab.pane.path !== pane.path &&
+			path.basename(tab.pane.path) === basename,
+	);
+	return duplicate ? pane.path : basename;
+}
+
 export const WORKSPACE_PANE_DEFINITIONS = {
 	activity: {
 		kind: "activity",
@@ -94,6 +116,27 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 				source={pane.source}
 				active={context.active()}
 				onClose={context.onLeave}
+				onFocusRequest={context.onFocusRequest}
+				onOpenSubagent={context.openSubagent}
+			/>
+		),
+	},
+	file: {
+		kind: "file",
+		identity: (pane) => `file:${path.resolve(pane.repoRoot, pane.path)}`,
+		label: filePaneLabel,
+		closable: true,
+		render: (pane, context) => (
+			<FileViewerPanel
+				repoRoot={pane.repoRoot}
+				path={pane.path}
+				active={context.active()}
+				onOpenFile={context.openFile}
+				onClose={context.closePane}
+				attachments={context.attachments}
+				commentDrafts={context.fileCommentDrafts}
+				toast={context.showToast}
+				onSubmitMessage={context.onSubmitReviewMessage}
 				onFocusRequest={context.onFocusRequest}
 			/>
 		),
@@ -146,18 +189,25 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 		label: () => "Code review",
 		closable: false,
 		render: (_pane, context) => (
-			<ReviewContent
-				onClose={context.onLeave}
-				onTabClose={() => {}}
-				attachments={context.attachments}
-				reviewDrafts={context.reviewDrafts}
-				toast={context.showToast}
-				defaultDiffView={context.defaultReviewDiffView()}
-				onDiffViewChanged={context.onReviewDiffViewChanged}
-				onFocusRequest={context.onFocusRequest}
-				onSubmitMessage={context.onSubmitReviewMessage}
-				active={context.active()}
-			/>
+			<Show keyed when={context.reviewRepoRoot()}>
+				{(repoRoot) => (
+					<ReviewContent
+						repoRoot={repoRoot}
+						onClose={context.onLeave}
+						onTabClose={() => {}}
+						attachments={context.attachments}
+						reviewDrafts={context.reviewDrafts}
+						toast={context.showToast}
+						defaultDiffView={context.defaultReviewDiffView()}
+						onDiffViewChanged={context.onReviewDiffViewChanged}
+						onFocusRequest={context.onFocusRequest}
+						onSubmitMessage={context.onSubmitReviewMessage}
+						active={context.active()}
+						onOpenFile={context.openFile}
+						onFindFile={context.openFileFinder}
+					/>
+				)}
+			</Show>
 		),
 	},
 	releases: {

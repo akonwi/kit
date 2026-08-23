@@ -8,11 +8,15 @@ import {
 	type OverlayEntry,
 } from "../app/overlay-ui";
 import type { Command, CommandRegistry } from "../features/commands";
+import { listProjectFiles } from "../features/files";
+import type { FileCommentDraftController } from "../features/files/comment-draft-controller";
 import type { McpWorkspaceController } from "../features/mcp";
 import { registerMermaidPreviewHandler } from "../features/mermaid-preview/requests";
 import type { ReleasesWorkspaceController } from "../features/releases";
 import { CodeReviewAttachment } from "../features/review/attachment";
 import type { ReviewDraftController } from "../features/review/draft-controller";
+import { getRepoRoot } from "../features/review/model";
+import { createReviewRepositoryScope } from "../features/review/repository-scope";
 import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { SubagentsWorkspaceController } from "../features/subagents";
@@ -61,6 +65,7 @@ import { theme } from "./theme";
 import { Transcript } from "./transcript";
 import type { ActivitySource } from "./transcript/turn-activity-view";
 import type { OpenActivity, OpenOverlay } from "./transcript/types";
+import { WorkspaceFileFinderPicker } from "./WorkspaceFileFinderPicker";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 import { WorkspaceTabOverflowPicker } from "./WorkspaceTabOverflowPicker";
 import {
@@ -98,6 +103,7 @@ export type AppShellProps = {
 	copyText: (text: string) => Promise<void>;
 	footer: FooterStatusController;
 	header: HeaderStatusController;
+	fileCommentDrafts: FileCommentDraftController;
 	mcpWorkspace: McpWorkspaceController;
 	releasesWorkspace: ReleasesWorkspaceController;
 	reviewDrafts: ReviewDraftController;
@@ -233,6 +239,18 @@ function AppShellContent(props: AppShellContentProps) {
 		initialPanes: DEFAULT_WORKSPACE_PANES,
 	});
 	const workspaceOverflowPicker = createPickerManager();
+	let workspaceFileFinderRequest = 0;
+	let workspaceFileFinderAbort: AbortController | undefined;
+	function cancelWorkspaceFileFinder(): void {
+		workspaceFileFinderRequest += 1;
+		workspaceFileFinderAbort?.abort();
+		workspaceFileFinderAbort = undefined;
+		if (workspacePickerMode() === "files") setWorkspacePickerMode(null);
+	}
+	onCleanup(cancelWorkspaceFileFinder);
+	const [workspacePickerMode, setWorkspacePickerMode] = createSignal<
+		"overflow" | "files" | null
+	>(null);
 	const [workspaceOverflowGuard, setWorkspaceOverflowGuard] = createSignal<{
 		width: number;
 		tabs: string;
@@ -500,7 +518,11 @@ function AppShellContent(props: AppShellContentProps) {
 		}) === null;
 
 	createEffect(() => {
-		if (!workspaceOverflowPicker.visible) return;
+		if (!workspaceOverflowPicker.visible) {
+			setWorkspacePickerMode(null);
+			return;
+		}
+		if (workspacePickerMode() !== "overflow") return;
 		const guard = workspaceOverflowGuard();
 		const tabSignature = secondaryTabs()
 			.map((tab) => tab.id)
@@ -516,12 +538,20 @@ function AppShellContent(props: AppShellContentProps) {
 		}
 	});
 
+	const reviewRepository = createReviewRepositoryScope({
+		initialCwd: props.runtime.getSession().cwd,
+		subscribe: (listener) =>
+			props.runtime.subscribe({ prefix: "session.active.changed" }, listener),
+	});
+	onCleanup(reviewRepository.dispose);
+
 	let workspaceSessionId = props.runtime.getSession().id;
 	onCleanup(
 		props.runtime.subscribe("session.active.changed", (event) => {
 			if (event.session.id === workspaceSessionId) return;
 			workspaceSessionId = event.session.id;
 			saveScratchpadDraftIfEditing();
+			cancelWorkspaceFileFinder();
 			workspaceOverflowPicker.clear();
 			setWorkspaceOverflowGuard(null);
 			workspace.resetSecondary();
@@ -557,13 +587,17 @@ function AppShellContent(props: AppShellContentProps) {
 			runtime: props.runtime,
 			mcpData,
 			attachments: props.attachments,
+			fileCommentDrafts: props.fileCommentDrafts,
 			reviewDrafts: props.reviewDrafts,
+			reviewRepoRoot: reviewRepository.repoRoot,
 			defaultReviewDiffView: () => props.defaultReviewDiffView,
 			onReviewDiffViewChanged: props.onReviewDiffViewChanged,
 			onSubmitReviewMessage: () => props.controller.handleMessageSubmit(),
 			releasesWorkspace: props.releasesWorkspace,
 			scratchpad: props.scratchpad,
 			subagentsData,
+			openFile: openWorkspaceFile,
+			openFileFinder: () => void openWorkspaceFileFinder(),
 			openSubagents: openSubagentsPanel,
 			openSubagent: openSubagentPanel,
 			closePane: () => {
@@ -572,6 +606,74 @@ function AppShellContent(props: AppShellContentProps) {
 			openOverlay: props.openOverlay,
 			showToast: props.showToast,
 		};
+	}
+
+	function openWorkspaceFile(filePath: string): void {
+		const repoRoot = getRepoRoot();
+		saveScratchpadDraftIfEditing();
+		const tabId = workspace.openSecondary(
+			{ kind: "file", repoRoot, path: filePath },
+			{ focus: "secondary" },
+		);
+		focusSecondarySurface(tabId);
+	}
+
+	async function openWorkspaceFileFinder(): Promise<boolean> {
+		const repoRoot = getRepoRoot();
+		const request = ++workspaceFileFinderRequest;
+		workspaceFileFinderAbort?.abort();
+		const abortController = new AbortController();
+		workspaceFileFinderAbort = abortController;
+		setWorkspacePickerMode("files");
+		workspaceOverflowPicker.show({
+			label: "Find a file",
+			filterable: true,
+			loading: true,
+			options: [],
+			onDismiss: () => {
+				if (request !== workspaceFileFinderRequest) return;
+				abortController.abort();
+				setWorkspacePickerMode(null);
+			},
+		});
+		try {
+			const files = await listProjectFiles(repoRoot, abortController.signal);
+			if (
+				request !== workspaceFileFinderRequest ||
+				workspacePickerMode() !== "files"
+			) {
+				return true;
+			}
+			workspaceFileFinderAbort = undefined;
+			workspaceOverflowPicker.updateOptions(
+				files.map((filePath) => ({
+					name: filePath,
+					description: "",
+					action: (context) => {
+						context.dismiss();
+						setWorkspacePickerMode(null);
+						openWorkspaceFile(filePath);
+					},
+				})),
+			);
+			workspaceOverflowPicker.setLoading(false);
+		} catch (error) {
+			if (
+				abortController.signal.aborted ||
+				request !== workspaceFileFinderRequest
+			) {
+				return true;
+			}
+			workspaceFileFinderAbort = undefined;
+			workspaceOverflowPicker.clear();
+			setWorkspacePickerMode(null);
+			props.showToast({
+				title: "Could not list files",
+				subtitle: error instanceof Error ? error.message : String(error),
+				variant: "error",
+			});
+		}
+		return true;
 	}
 
 	function focusSecondarySurface(tabId?: string): boolean {
@@ -674,14 +776,14 @@ function AppShellContent(props: AppShellContentProps) {
 		focusSecondarySurface();
 	}
 
-	function openSubagentPanel(agentName: string): void {
+	function openSubagentPanel(agentName: string): boolean {
 		const data = subagentsData();
 		if (
 			!data
 				?.getActiveConversations()
 				.some((conversation) => conversation.agentName === agentName)
 		) {
-			return;
+			return false;
 		}
 		saveScratchpadDraftIfEditing();
 		workspace.openSecondary(
@@ -689,6 +791,7 @@ function AppShellContent(props: AppShellContentProps) {
 			{ focus: "secondary" },
 		);
 		focusSecondarySurface();
+		return true;
 	}
 
 	onCleanup(props.subagentsWorkspace.onOpenRequest(openSubagentsPanel));
@@ -752,6 +855,8 @@ function AppShellContent(props: AppShellContentProps) {
 
 	function openWorkspaceOverflow(tabs: readonly WorkspaceTabItem[]): void {
 		if (tabs.length === 0) return;
+		cancelWorkspaceFileFinder();
+		setWorkspacePickerMode("overflow");
 		setWorkspaceOverflowGuard({
 			width: shellWidth(),
 			tabs: secondaryTabs()
@@ -787,11 +892,18 @@ function AppShellContent(props: AppShellContentProps) {
 		},
 		"workspace.toggle-secondary": toggleSecondaryPane,
 		"workspace.reset-layout": resetWorkspaceLayout,
+		"workspace.find-file": () => void openWorkspaceFileFinder(),
 	} as const;
 	const workspaceKeymapHandlers = Object.fromEntries(
 		Object.entries(workspaceCommandHandlers).map(([name, execute]) => [
 			name,
 			() => {
+				if (
+					name === "workspace.find-file" &&
+					focusedSurface() !== "secondary"
+				) {
+					return false;
+				}
 				if (props.controller.picker.visible) return false;
 				if (workspaceOverflowPicker.visible) return false;
 				if (props.controller.commandPalette.visible) return false;
@@ -1093,6 +1205,7 @@ function AppShellContent(props: AppShellContentProps) {
 							showToast={props.showToast}
 							openOverlay={props.openOverlay}
 							openActivity={openActivity}
+							openSubagent={openSubagentPanel}
 							openMessageContextMenu={openMessageContextMenu}
 						/>
 					</box>
@@ -1106,7 +1219,12 @@ function AppShellContent(props: AppShellContentProps) {
 							attachments={props.attachments}
 							onOpenAttachment={(attachment) => {
 								if (attachment instanceof CodeReviewAttachment) {
-									props.reviewWorkspace.open();
+									const file = attachment.review.files[0];
+									if (attachment.review.source === "file" && file) {
+										openWorkspaceFile(file.path);
+									} else {
+										props.reviewWorkspace.open();
+									}
 									return;
 								}
 								void Promise.resolve(attachment.onOpen?.()).catch((error) => {
@@ -1189,10 +1307,20 @@ function AppShellContent(props: AppShellContentProps) {
 			</Show>
 
 			<Show when={workspaceOverflowPicker.visible}>
-				<WorkspaceTabOverflowPicker
-					picker={workspaceOverflowPicker}
-					width={Math.max(1, Math.min(56, shellWidth() - 2))}
-				/>
+				<Show
+					when={workspacePickerMode() === "files"}
+					fallback={
+						<WorkspaceTabOverflowPicker
+							picker={workspaceOverflowPicker}
+							width={Math.max(1, Math.min(56, shellWidth() - 2))}
+						/>
+					}
+				>
+					<WorkspaceFileFinderPicker
+						picker={workspaceOverflowPicker}
+						availableWidth={shellWidth()}
+					/>
+				</Show>
 			</Show>
 
 			<Show when={chromeOverflow()}>
@@ -1295,6 +1423,7 @@ export function AppShell(props: AppShellProps) {
 				commands={props.commands}
 				controller={props.controller}
 				attachments={props.attachments}
+				fileCommentDrafts={props.fileCommentDrafts}
 				copyText={props.copyText}
 				footer={props.footer}
 				header={props.header}

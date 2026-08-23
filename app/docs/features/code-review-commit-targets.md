@@ -34,12 +34,11 @@ Shas are stored full-length everywhere (targets, note keys, submission
 payload); abbreviations are display-only, so sha ambiguity in large repos
 can't break staleness checks or the agent's `git diff`.
 
-For committed targets, file content (read-only sections, skipped-section
-sourcing) is read from the revision snapshots via `git show <rev>:<path>`
-— never the filesystem, which reflects the working tree. For the same
-reason the file tree and the file finder are restricted to the diff's own
-files, the changes/all-files toggle is disabled, and the working-tree
-read-only file viewer never opens.
+For committed targets, review content and skipped-section sourcing are read
+from revision snapshots via `git show <rev>:<path>` — never the filesystem,
+which reflects the working tree. The Code Review tree always contains only the
+target's changed files. The workspace file finder is a separate repository
+browser and opens current working-tree files in their own tabs.
 
 Committed-diff loads degrade gracefully: if a pinned sha stops resolving
 (pruned, ambiguous), the target renders as an empty diff instead of
@@ -90,10 +89,10 @@ layers are suppressed.
 
 ### Clean working tree
 
-Opening review with a clean working tree keeps the working-tree target
-and shows the normal project explorer: the file tree falls back to "all
-files" mode and files open in the read-only viewer. Commit and branch
-targets remain one keystroke away (`g` / `shift+g`).
+Opening review with a clean working tree keeps the working-tree target and
+shows an empty changed-files tree. `/` can still open the separate workspace
+file finder. Commit and branch targets remain one keystroke away (`g` /
+`shift+g`).
 
 ### Dirty-tree HEAD ambiguity
 

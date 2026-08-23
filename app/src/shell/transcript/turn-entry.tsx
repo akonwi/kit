@@ -14,6 +14,7 @@ import {
 import type {
 	OpenActivity,
 	OpenMessageContextMenu,
+	OpenSubagent,
 	TranscriptToast,
 } from "./types";
 import { UserEntry } from "./user-entry";
@@ -27,6 +28,7 @@ function TurnWorkDrawer(props: {
 	liveTools: LiveToolsForTurn;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openSubagent: OpenSubagent;
 }) {
 	if (props.items.length === 0) return null;
 
@@ -71,6 +73,7 @@ function TurnWorkDrawer(props: {
 			toolResults={allToolResults()}
 			aborted={aborted()}
 			onActivate={openActivity}
+			onOpenSubagent={props.openSubagent}
 			emptyLabel={stepLabel()}
 		/>
 	);
@@ -82,6 +85,7 @@ export function TurnEntry(props: {
 	showToast: (toast: TranscriptToast) => void;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openSubagent: OpenSubagent;
 	openMessageContextMenu: OpenMessageContextMenu;
 }) {
 	if (props.displayItem.kind === "turn-work") {
@@ -91,6 +95,7 @@ export function TurnEntry(props: {
 				liveTools={props.liveTools}
 				runtime={props.runtime}
 				openActivity={props.openActivity}
+				openSubagent={props.openSubagent}
 			/>
 		);
 	}
@@ -116,6 +121,7 @@ export function TurnEntry(props: {
 					aborted={item.aborted}
 					runtime={props.runtime}
 					openActivity={props.openActivity}
+					openSubagent={props.openSubagent}
 					openMessageContextMenu={props.openMessageContextMenu}
 				/>
 			);

@@ -29,6 +29,7 @@ import { DrawerChip } from "./drawer-chip";
 import { InlineSpinner } from "./inline-spinner";
 import { MarkdownToolOutputWell } from "./markdown-tool-output-well";
 import { createMessageContextMenuGesture } from "./message-context-menu";
+import { ToolCallName } from "./tool-call-name";
 import { ToolOutputWell } from "./tool-output-well";
 import {
 	extractAssistantMarkdownSource,
@@ -38,9 +39,12 @@ import {
 	isAssistantError,
 	presentBashCommand,
 	toolArgKeys,
-	toolDisplayName,
 } from "./turns";
-import type { OpenActivity, OpenMessageContextMenu } from "./types";
+import type {
+	OpenActivity,
+	OpenMessageContextMenu,
+	OpenSubagent,
+} from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -358,6 +362,7 @@ function PendingToolCall(props: {
 	tc: ToolCall;
 	aborted?: boolean;
 	fullArgs?: boolean;
+	onOpenSubagent?: (agentName: string) => boolean;
 }) {
 	const arg = () =>
 		toolArgumentPresentation(props.tc, props.tc.arguments, props.fullArgs);
@@ -370,14 +375,12 @@ function PendingToolCall(props: {
 				<InlineSpinner />
 			</Show>
 			<ToolDisclosure visible={false} />
-			<text
-				fg={props.aborted ? theme.textMuted : toolAccentColor(props.tc.name)}
+			<ToolCallName
+				tc={props.tc}
+				color={props.aborted ? theme.textMuted : toolAccentColor(props.tc.name)}
 				attributes={props.aborted ? ABORTED_ATTRS : undefined}
-				wrapMode="none"
-				flexShrink={0}
-			>
-				{toolDisplayName(props.tc)}
-			</text>
+				onOpenSubagent={props.onOpenSubagent}
+			/>
 			<Show when={arg().text.length > 0}>
 				<text
 					fg={props.aborted ? theme.textMuted : theme.textPrimary}
@@ -405,6 +408,7 @@ function LiveToolCall(props: {
 	aborted?: boolean;
 	fullArgs?: boolean;
 	noTruncate?: boolean;
+	onOpenSubagent?: (agentName: string) => boolean;
 }) {
 	const [expanded, setExpanded] = createSignal(false);
 	const renderer = useRenderer();
@@ -445,7 +449,8 @@ function LiveToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				onMouseDown={() => {
+				onMouseDown={(event) => {
+					if (event.button !== 0) return;
 					if (renderer.getSelection()?.getSelectedText()) return;
 					if (hasDetails()) setExpanded(!expanded());
 				}}
@@ -457,14 +462,13 @@ function LiveToolCall(props: {
 					visible={hasDetails() && !props.aborted}
 					expanded={expanded()}
 				/>
-				<text
-					fg={headerColor()}
+				<ToolCallName
+					tc={props.tc}
+					args={toolArgs()}
+					color={headerColor()}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
-					wrapMode="none"
-					flexShrink={0}
-				>
-					{toolDisplayName(props.tc)}
-				</text>
+					onOpenSubagent={props.onOpenSubagent}
+				/>
 				<Show when={arg().text.length > 0}>
 					<text
 						fg={props.aborted ? theme.textMuted : theme.textPrimary}
@@ -525,6 +529,7 @@ function CompletedToolCall(props: {
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 	enrichOutput?: boolean;
+	onOpenSubagent?: (agentName: string) => boolean;
 }) {
 	const [expanded, setExpanded] = createSignal(false);
 	const renderer = useRenderer();
@@ -564,7 +569,8 @@ function CompletedToolCall(props: {
 			<box
 				flexDirection="row"
 				gap={1}
-				onMouseDown={() => {
+				onMouseDown={(event) => {
+					if (event.button !== 0) return;
 					if (renderer.getSelection()?.getSelectedText()) return;
 					if (hasDetails()) setExpanded(!expanded());
 				}}
@@ -581,14 +587,12 @@ function CompletedToolCall(props: {
 					visible={hasDetails() && !props.aborted}
 					expanded={expanded()}
 				/>
-				<text
-					fg={headerColor}
+				<ToolCallName
+					tc={props.tc}
+					color={headerColor}
 					attributes={props.aborted ? ABORTED_ATTRS : undefined}
-					wrapMode="none"
-					flexShrink={0}
-				>
-					{toolDisplayName(props.tc)}
-				</text>
+					onOpenSubagent={props.onOpenSubagent}
+				/>
 				<Show when={arg.text.length > 0}>
 					<text
 						fg={props.aborted ? theme.textMuted : theme.textPrimary}
@@ -666,6 +670,7 @@ export function PerToolRow(props: {
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 	enrichOutput?: boolean;
+	onOpenSubagent?: (agentName: string) => boolean;
 }) {
 	const result = () => props.toolResults.get(props.tc.id);
 	const liveTool = () => props.liveTools[props.tc.id];
@@ -680,6 +685,7 @@ export function PerToolRow(props: {
 							tc={props.tc}
 							aborted={props.aborted}
 							fullArgs={props.fullArgs}
+							onOpenSubagent={props.onOpenSubagent}
 						/>
 					}
 				>
@@ -694,6 +700,7 @@ export function PerToolRow(props: {
 							aborted={props.aborted}
 							fullArgs={props.fullArgs}
 							noTruncate={props.noTruncate}
+							onOpenSubagent={props.onOpenSubagent}
 						/>
 					)}
 				</Show>
@@ -707,6 +714,7 @@ export function PerToolRow(props: {
 					fullArgs={props.fullArgs}
 					noTruncate={props.noTruncate}
 					enrichOutput={props.enrichOutput}
+					onOpenSubagent={props.onOpenSubagent}
 				/>
 			)}
 		</Show>
@@ -726,6 +734,7 @@ export function FlatAssistantEntry(props: {
 	fullArgs?: boolean;
 	noTruncate?: boolean;
 	enrichOutput?: boolean;
+	onOpenSubagent?: (agentName: string) => boolean;
 }) {
 	if (isAssistantError(props.msg)) {
 		return <text fg={theme.errorText}>{props.msg.errorMessage}</text>;
@@ -771,6 +780,7 @@ export function FlatAssistantEntry(props: {
 								fullArgs={props.fullArgs}
 								noTruncate={props.noTruncate}
 								enrichOutput={props.enrichOutput}
+								onOpenSubagent={props.onOpenSubagent}
 							/>
 						)}
 					</For>
@@ -793,6 +803,7 @@ export function ToolDrawer(props: {
 	aborted?: boolean;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openSubagent: OpenSubagent;
 }) {
 	function openActivity() {
 		props.openActivity({ kind: "single-item", itemId: props.itemId });
@@ -804,6 +815,7 @@ export function ToolDrawer(props: {
 			toolResults={props.toolResults}
 			aborted={props.aborted}
 			onActivate={openActivity}
+			onOpenSubagent={props.openSubagent}
 		/>
 	);
 }
@@ -816,6 +828,7 @@ export function AssistantEntry(props: {
 	aborted?: boolean;
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
+	openSubagent: OpenSubagent;
 	openMessageContextMenu: OpenMessageContextMenu;
 }) {
 	const messageContextMenuGesture = createMessageContextMenuGesture(
@@ -860,6 +873,7 @@ export function AssistantEntry(props: {
 					aborted={props.aborted}
 					runtime={props.runtime}
 					openActivity={props.openActivity}
+					openSubagent={props.openSubagent}
 				/>
 			</Show>
 			<Show when={hasText}>

@@ -1,10 +1,11 @@
 import { useRenderer } from "@opentui/solid";
-import { createMemo, Show } from "solid-js";
+import { createMemo, For, Show } from "solid-js";
 import type { ToolCall, ToolResultMessage } from "../../runtime/agent";
 import { CHEVRON_RIGHT, MIDDLE_DOT } from "../glyphs";
 import { theme } from "../theme";
 import { InlineSpinner } from "./inline-spinner";
-import { toolDisplayName } from "./turns";
+import { ToolCallName } from "./tool-call-name";
+import { subagentToolAgentName, toolDisplayName } from "./turns";
 
 const MAX_VISIBLE_TOOLS = 8;
 
@@ -27,6 +28,7 @@ export function DrawerChip(props: {
 	toolResults: Map<string, ToolResultMessage>;
 	aborted?: boolean;
 	onActivate?: () => void;
+	onOpenSubagent?: (agentName: string) => boolean;
 	/**
 	 * Label shown in place of the tool-call count when `toolCalls` is empty.
 	 * Lets a turn-work chip summarize non-tool activity (bash, handoffs)
@@ -54,6 +56,11 @@ export function DrawerChip(props: {
 	const overflowCount = createMemo(() =>
 		Math.max(0, props.toolCalls.length - MAX_VISIBLE_TOOLS),
 	);
+	const visibleSubagentTools = createMemo(() =>
+		props.onOpenSubagent
+			? visibleToolCalls().filter((toolCall) => subagentToolAgentName(toolCall))
+			: [],
+	);
 	const toolSummary = createMemo(() => {
 		const names = visibleToolCalls()
 			.map(toolDisplayName)
@@ -61,6 +68,13 @@ export function DrawerChip(props: {
 		return overflowCount() > 0
 			? `${names} ${MIDDLE_DOT} +${overflowCount()} more`
 			: names;
+	});
+	const remainingToolSummary = createMemo(() => {
+		const names = visibleToolCalls()
+			.filter((toolCall) => !subagentToolAgentName(toolCall))
+			.map(toolDisplayName);
+		if (overflowCount() > 0) names.push(`+${overflowCount()} more`);
+		return names.join(` ${MIDDLE_DOT} `);
 	});
 
 	return (
@@ -95,16 +109,58 @@ export function DrawerChip(props: {
 				{countLabel()}
 			</text>
 			<Show when={props.toolCalls.length > 0}>
-				<text
-					fg={theme.textPlaceholder}
-					flexBasis={0}
-					flexGrow={1}
-					flexShrink={1}
-					wrapMode="none"
-					truncate
+				<Show
+					when={visibleSubagentTools().length > 0}
+					fallback={
+						<text
+							fg={theme.textPlaceholder}
+							flexBasis={0}
+							flexGrow={1}
+							flexShrink={1}
+							wrapMode="none"
+							truncate
+						>
+							{toolSummary()}
+						</text>
+					}
 				>
-					{toolSummary()}
-				</text>
+					<box
+						flexBasis={0}
+						flexGrow={1}
+						flexShrink={1}
+						flexDirection="row"
+						gap={1}
+						height={1}
+						overflow="hidden"
+					>
+						<For each={visibleSubagentTools()}>
+							{(toolCall, index) => (
+								<box flexDirection="row" gap={1} flexShrink={0}>
+									{index() > 0 ? (
+										<text fg={theme.textPlaceholder}>{MIDDLE_DOT}</text>
+									) : null}
+									<ToolCallName
+										tc={toolCall}
+										color={theme.textPlaceholder}
+										onOpenSubagent={props.onOpenSubagent}
+									/>
+								</box>
+							)}
+						</For>
+						{remainingToolSummary() ? (
+							<text
+								fg={theme.textPlaceholder}
+								flexBasis={0}
+								flexGrow={1}
+								flexShrink={1}
+								wrapMode="none"
+								truncate
+							>
+								{`${MIDDLE_DOT} ${remainingToolSummary()}`}
+							</text>
+						) : null}
+					</box>
+				</Show>
 			</Show>
 		</box>
 	);

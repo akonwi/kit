@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { scanFiles } from "./scan-files";
+import { listProjectFiles, scanFiles } from "./scan-files";
 
 const tempDirs: string[] = [];
 
@@ -19,6 +19,25 @@ async function createTempDir(): Promise<string> {
 }
 
 describe("scanFiles", () => {
+	test("lists workspace files regardless of gitignore while respecting .kitignore", async () => {
+		const root = await createTempDir();
+		await mkdir(path.join(root, "git-ignored"));
+		await mkdir(path.join(root, "kit-ignored"));
+		await writeFile(path.join(root, ".gitignore"), "git-ignored/\n");
+		await writeFile(path.join(root, ".kitignore"), "kit-ignored/\n");
+		await writeFile(path.join(root, "tracked.txt"), "tracked\n");
+		await writeFile(path.join(root, "git-ignored", "visible.txt"), "yes\n");
+		await writeFile(path.join(root, "kit-ignored", "hidden.txt"), "no\n");
+
+		const files = await listProjectFiles(root);
+
+		expect(files).toContain(".gitignore");
+		expect(files).toContain(".kitignore");
+		expect(files).toContain("tracked.txt");
+		expect(files).toContain("git-ignored/visible.txt");
+		expect(files).not.toContain("kit-ignored/hidden.txt");
+	});
+
 	test("applies nested gitignore rules relative to their directory", async () => {
 		const root = await createTempDir();
 		await mkdir(path.join(root, ".build"), { recursive: true });

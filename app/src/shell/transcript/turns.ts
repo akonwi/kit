@@ -540,15 +540,20 @@ function summarizeToolArg(value: string, full: boolean): string {
  * Skill activation uses a human-readable action label. Other calls fall back
  * to their raw tool name.
  */
+export function subagentToolAgentName(
+	tc: ToolCall,
+	args: Record<string, unknown> | undefined = tc.arguments,
+): string | null {
+	if (tc.name !== "subagent") return null;
+	const agent = args?.agent;
+	return typeof agent === "string" && agent.trim().length > 0
+		? agent.trim()
+		: null;
+}
+
 export function toolDisplayName(tc: ToolCall): string {
 	if (tc.name === "activate_skill") return "activate skill";
-	if (tc.name === "subagent") {
-		const agent = tc.arguments?.agent;
-		if (typeof agent === "string" && agent.trim().length > 0) {
-			return agent;
-		}
-	}
-	return tc.name;
+	return subagentToolAgentName(tc) ?? tc.name;
 }
 
 const DEFAULT_TOOL_ARG_KEYS = ["command", "path", "agent"] as const;

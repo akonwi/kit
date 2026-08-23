@@ -29,6 +29,7 @@ import {
 	type ReviewDiffSplitAnnotationGroup,
 	type ReviewDiffUnifiedRow,
 } from "./ReviewDiffModel";
+import { ReviewNoteBox } from "./ReviewNoteBox";
 import type { ReviewHunk } from "./types";
 
 export {
@@ -294,19 +295,11 @@ function renderAnnotationContent(
 		);
 	}
 	return (
-		<box
-			border
-			borderColor={theme.borderDefault}
-			backgroundColor={theme.bgSurface}
-			paddingX={1}
-			width="100%"
-			height={getReviewDiffAnnotationHeight(annotation)}
-			flexShrink={0}
-		>
+		<ReviewNoteBox height={getReviewDiffAnnotationHeight(annotation)}>
 			<text fg={theme.textPrimary} bg={theme.bgSurface}>
 				{annotation.metadata.comment}
 			</text>
-		</box>
+		</ReviewNoteBox>
 	);
 }
 

@@ -1,5 +1,4 @@
-import { readFileSync, watch } from "node:fs";
-import path from "node:path";
+import { watch } from "node:fs";
 import type { MouseEvent as TuiMouseEvent } from "@opentui/core";
 import type { DiffLineAnnotation } from "@pierre/diffs";
 import {
@@ -17,7 +16,6 @@ import type { ReviewDiffView } from "../../settings";
 import type { AttachmentsController } from "../../shell/attachments-controller";
 import { Dialog } from "../../shell/Dialog";
 import {
-	estimateWrappedRows,
 	getReviewDiffActiveLineId,
 	getReviewDiffCommentableLines,
 	type ReviewDiffAnnotationMetadata,
@@ -25,7 +23,6 @@ import {
 	type ReviewDiffCommentableLine,
 	shouldResetPatchScroll,
 } from "../../shell/diff/ReviewDiffBlock";
-import { inferFiletype } from "../../shell/filetype";
 import {
 	CIRCLE_FILLED,
 	MIDDLE_DOT,
@@ -35,7 +32,7 @@ import {
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { MessageComposer, type TextareaRef } from "../../shell/MessageComposer";
 import { Picker } from "../../shell/Picker";
-import { scrollbarStyle, syntaxStyle, theme } from "../../shell/theme";
+import { scrollbarStyle, theme } from "../../shell/theme";
 import {
 	WorkspacePanelHeader,
 	WorkspacePanelLayout,
@@ -56,16 +53,15 @@ import {
 	type ReviewDraftController,
 	reviewTargetKey,
 } from "./draft-controller";
+import { reviewDraftDetachAction } from "./draft-detach";
 import { FileTreePanel } from "./FileTreePanel";
 import { reconcileReviewFiles } from "./live-files";
 import {
 	getCurrentBranch,
 	getMergeBase,
-	getRepoRoot,
 	isAncestorOfHead,
 	listLocalBranches,
 	listRecentCommits,
-	listRepoFiles,
 	loadReviewFiles,
 	type ReviewBranchSummary,
 	type ReviewCommitSummary,
@@ -78,15 +74,13 @@ import {
 	resolveCommitParent,
 	resolveDefaultBranchBase,
 } from "./model";
-import {
-	reviewStatusColor,
-	reviewStatusLabel,
-	reviewStatusText,
-} from "./status";
+import { resolveReviewWorkspaceFilePath } from "./open-workspace-file";
+import { reviewStatusLabel } from "./status";
 import { getWorkingTreeFingerprint } from "./working-tree-fingerprint";
 import { createWorkingTreeRefreshTracker } from "./working-tree-refresh";
 
 export type ReviewContentProps = {
+	repoRoot: string;
 	onClose: () => void;
 	onTabClose?: () => void;
 	onCloseRequestReady?: (request: (() => void) | null) => void;
@@ -98,6 +92,8 @@ export type ReviewContentProps = {
 	active?: boolean;
 	onFocusRequest?: () => void;
 	onSubmitMessage: () => void | Promise<void>;
+	onOpenFile: (path: string) => void;
+	onFindFile: () => void;
 };
 
 type ReviewMode = "tree" | "patch";
@@ -135,17 +131,6 @@ type PatchScrollRef = {
 	scrollLeft?: number;
 	scrollTo?: (position: number | { x: number; y: number }) => void;
 };
-
-function samePaths(
-	current: readonly string[] | undefined,
-	next: readonly string[],
-): current is string[] {
-	return (
-		current !== undefined &&
-		current.length === next.length &&
-		current.every((value, index) => value === next[index])
-	);
-}
 
 function formatNoteCount(count: number): string {
 	return `${count} note${count === 1 ? "" : "s"}`;
@@ -421,14 +406,14 @@ export function ReviewContent(props: ReviewContentProps) {
 		disposed = true;
 	});
 	const active = () => props.active !== false;
-	const repoRoot = getRepoRoot();
+	const repoRoot = props.repoRoot;
 	const draftToken = props.reviewDrafts.currentToken();
 	const savedTarget = props.reviewDrafts.getLastTarget(draftToken, repoRoot);
 	const savedCommit =
 		savedTarget.kind === "working"
 			? null
 			: resolveCommit(
-					undefined,
+					repoRoot,
 					savedTarget.kind === "commit" ? savedTarget.sha : savedTarget.head,
 				);
 	const mergeBaseResolves =
@@ -564,38 +549,6 @@ export function ReviewContent(props: ReviewContentProps) {
 	});
 	const files = () => currentLoadedReview()?.files;
 	const filesLoading = () => currentLoadedReview() === undefined;
-	const [allFilesRequest, setAllFilesRequest] = createSignal<
-		number | undefined
-	>();
-	let allFilesRequestSequence = 0;
-	let allFilesRequested = false;
-	let allFilesRefreshPending = false;
-	let allFilesAbortController: AbortController | undefined;
-	let lastAllFiles: string[] | undefined;
-	const [allFiles] = createResource(allFilesRequest, async () => {
-		allFilesAbortController?.abort();
-		const controller = new AbortController();
-		allFilesAbortController = controller;
-		try {
-			const next = await listRepoFiles(repoRoot, controller.signal);
-			if (disposed) return lastAllFiles ?? [];
-			if (samePaths(lastAllFiles, next)) return lastAllFiles;
-			lastAllFiles = next;
-			return next;
-		} catch {
-			return lastAllFiles ?? [];
-		} finally {
-			if (allFilesAbortController === controller) {
-				allFilesAbortController = undefined;
-			}
-		}
-	});
-	onCleanup(() => allFilesAbortController?.abort());
-	createEffect(() => {
-		if (allFiles.loading || !allFilesRefreshPending) return;
-		allFilesRefreshPending = false;
-		setAllFilesRequest(++allFilesRequestSequence);
-	});
 	const [commitPickerOpen, setCommitPickerOpen] = createSignal(false);
 	// The target picker's second level: choosing a different base branch
 	// for the branch-diff target.
@@ -608,22 +561,11 @@ export function ReviewContent(props: ReviewContentProps) {
 	const [treeFocusedPath, setTreeFocusedPath] = createSignal<string | null>(
 		null,
 	);
-	const [fileFinderOpen, setFileFinderOpen] = createSignal(false);
 	createEffect(() => {
 		if (active()) return;
-		setFileFinderOpen(false);
 		setCommitPickerOpen(false);
 		setPickingBranchBase(false);
 	});
-	const [viewingFilePath, setViewingFilePath] = createSignal<string | null>(
-		null,
-	);
-	const [viewingFileLine, setViewingFileLine] = createSignal(1);
-	const [viewingFileLineCount, setViewingFileLineCount] = createSignal(0);
-	const [viewingFileEditingRange, setViewingFileEditingRange] =
-		createSignal<ReviewRangeDraft | null>(null);
-	const [viewingFileEditingValue, setViewingFileEditingValue] =
-		createSignal("");
 	const [fileNotes, setFileNotes] = createSignal<Map<string, string>>(
 		initialDraft.fileNotes,
 	);
@@ -679,11 +621,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		workingTreeRefreshInFlight = true;
 		try {
-			const refreshed = await refetchReviewFiles();
-			if (refreshed?.changed && allFilesRequested) {
-				if (allFiles.loading) allFilesRefreshPending = true;
-				else setAllFilesRequest(++allFilesRequestSequence);
-			}
+			await refetchReviewFiles();
 		} catch {
 			// Working-tree refresh is best-effort; keep the last good diff and retry.
 		} finally {
@@ -791,7 +729,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			setRangeAnchor(null);
 			setEditingRange(null);
 			setEditingFileNoteKey(null);
-			setViewingFileEditingRange(null);
 			setEditorOpen(false);
 			scheduleWorkingTreeRefresh(0);
 		}),
@@ -904,7 +841,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		setEditingRange(null);
 		setEditingFileNoteKey(null);
 		setEditorOpen(false);
-		setViewingFilePath(null);
 		setSelectedIndex(0);
 		setTreeFocusedPath(null);
 		setMode("tree");
@@ -939,41 +875,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 		return map;
 	});
+	const reviewFilePaths = createMemo(() => new Set(reviewFilesByPath().keys()));
 	const selectedFile = createMemo(() => {
-		// Viewing an unchanged file — no ReviewFile to show
-		if (viewingFilePath()) return null;
-		// In tree mode, use the tree-focused path
 		const focused = treeFocusedPath();
-		if (focused) {
-			const byPath = reviewFilesByPath().get(focused);
-			if (byPath) return byPath;
+		if (mode() === "tree" && focused) {
+			return reviewFilesByPath().get(focused) ?? null;
 		}
-		// Fallback to index-based selection
 		return reviewFiles()[selectedIndex()] ?? null;
-	});
-	const fileFinderOptions = createMemo<PickerOption[]>(() => {
-		// Commit targets only offer the commit's own files: the filesystem
-		// listing (and the read-only file view it opens) reflects the
-		// working tree, not the commit snapshot.
-		const paths = Array.from(
-			new Set([
-				...(target().kind === "working" ? (allFiles() ?? []) : []),
-				...reviewFiles().map((file) => file.path),
-			]),
-		);
-		const byPath = reviewFilesByPath();
-		return paths.map((filePath) => {
-			const file = byPath.get(filePath);
-			return {
-				name: filePath,
-				description: file ? reviewStatusText(file) : "",
-				nameColor: file ? reviewStatusColor(file) : undefined,
-				action: (ctx) => {
-					ctx.dismiss();
-					selectFilePath(filePath);
-				},
-			};
-		});
 	});
 	/** Pin head + merge-base and switch to a branch target vs `base`. */
 	function switchToBranchTarget(base: string): void {
@@ -1484,51 +1392,31 @@ export function ReviewContent(props: ReviewContentProps) {
 		}
 	}
 
-	function requestAllFiles() {
-		if (target().kind !== "working" || allFilesRequested) return;
-		allFilesRequested = true;
-		setAllFilesRequest(++allFilesRequestSequence);
-	}
-
-	function openFileFinder() {
-		if (editorOpen() || fileFinderOpen() || commitPickerOpen()) return;
-		requestAllFiles();
-		setFileFinderOpen(true);
+	function openCurrentFileInWorkspace(): void {
+		const path = resolveReviewWorkspaceFilePath({
+			mode: mode(),
+			focusedPath: treeFocusedPath(),
+			changedFilePaths: reviewFilePaths(),
+			selectedPath: selectedFile()?.path ?? null,
+		});
+		if (path) props.onOpenFile(path);
 	}
 
 	function selectFilePath(filePath: string) {
-		// Mouse selection can bypass the editor-gated keymaps; never leave an
-		// orphaned note editor holding the refresh pipeline shut. Navigation
-		// commits the draft — only Escape is an intentional cancel.
 		if (editorOpen()) {
-			// Same precedence as the review.close-editor binding.
-			if (viewingFileEditingRange()) saveViewingFileRangeNote();
-			else if (editingRange()) saveRangeNoteEditor();
+			if (editingRange()) saveRangeNoteEditor();
 			else if (editingFileNoteKey()) saveFileNoteEditor();
 			else setEditorOpen(false);
 			setRangeAnchor(null);
 		}
 		setTreeFocusedPath(filePath);
 		const file = reviewFilesByPath().get(filePath);
-		if (file) {
-			const idx = reviewFiles().indexOf(file);
-			if (idx >= 0) setSelectedIndex(idx);
-			setViewingFilePath(null);
-			pendingPatchOpenReset = true;
-			setMode("patch");
-			if (file.hunks.length > 0) {
-				// Opening a file from the tree should start at the top of that file,
-				// not restore a previous hunk/line or inherit another file's viewport.
-				setSelectedHunkIndex(file.id, 0);
-			}
-		} else {
-			// The read-only viewer reads the working tree; never open it for
-			// a commit target where the filesystem may have moved on.
-			if (target().kind !== "working") return;
-			setViewingFilePath(filePath);
-			setViewingFileLine(1);
-			setMode("patch");
-		}
+		if (!file) return;
+		const index = reviewFiles().indexOf(file);
+		if (index >= 0) setSelectedIndex(index);
+		pendingPatchOpenReset = true;
+		setMode("patch");
+		if (file.hunks.length > 0) setSelectedHunkIndex(file.id, 0);
 	}
 
 	function renderRawDiffBlock(rawPatch: string, filetype?: string) {
@@ -1956,13 +1844,6 @@ export function ReviewContent(props: ReviewContentProps) {
 		setEditorOpen(true);
 	}
 
-	function openFileNoteEditorForPath(filePath: string) {
-		const key = `unchanged:${filePath}`;
-		setEditingFileNoteValue(fileNotes().get(key)?.trim() ?? "");
-		setEditingFileNoteKey(key);
-		setEditorOpen(true);
-	}
-
 	function closeFileNoteEditor() {
 		setEditingFileNoteKey(null);
 		setEditingFileNoteValue("");
@@ -2000,17 +1881,6 @@ export function ReviewContent(props: ReviewContentProps) {
 			setMapValue(prev, buildRangeNoteKey(range), editingRangeValue()),
 		);
 		closeRangeNoteEditor();
-	}
-
-	function saveViewingFileRangeNote() {
-		const range = viewingFileEditingRange();
-		if (!range) return;
-		updateRangeNotes((prev) =>
-			setMapValue(prev, buildRangeNoteKey(range), viewingFileEditingValue()),
-		);
-		setViewingFileEditingRange(null);
-		setViewingFileEditingValue("");
-		setEditorOpen(false);
 	}
 
 	function clearSelectedFileNote() {
@@ -2123,7 +1993,9 @@ export function ReviewContent(props: ReviewContentProps) {
 				repoRoot,
 				targetKey: currentKey,
 				onDetach: (reason) => {
-					if (reason === "consumed") {
+					const action = reviewDraftDetachAction(reason);
+					if (action === "preserve") return;
+					if (action === "consume") {
 						props.reviewDrafts.consumeDraft(
 							draftToken,
 							repoRoot,
@@ -2271,45 +2143,13 @@ export function ReviewContent(props: ReviewContentProps) {
 		void openRangeNoteEditor(file, range);
 	}
 
-	function handleReadOnlyLineMouseDown(
-		filePath: string,
-		line: number,
-		event: TuiMouseEvent,
-	) {
-		if (event.button !== 0) return;
-		event.preventDefault();
-		event.stopPropagation();
-		props.onFocusRequest?.();
-		setViewingFileLine(line);
-		const range: ReviewRangeDraft = {
-			path: filePath,
-			side: "additions",
-			startLine: line,
-			endLine: line,
-		};
-		const editing = viewingFileEditingRange();
-		if (editing && buildRangeNoteKey(editing) === buildRangeNoteKey(range)) {
-			setViewingFileEditingRange(null);
-			setViewingFileEditingValue("");
-			setEditorOpen(false);
-			return;
-		}
-		if (editorOpen()) return;
-		setViewingFileEditingValue(
-			rangeNotes().get(buildRangeNoteKey(range))?.trim() ?? "",
-		);
-		setViewingFileEditingRange(range);
-		setEditorOpen(true);
-	}
-
 	useKeymapLayer(() => ({
 		scope: "modal",
-		when: () =>
-			active() && !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
-		diagnosticsWhen: () =>
-			active() && !editorOpen() && !fileFinderOpen() && !commitPickerOpen(),
+		when: () => active() && !editorOpen() && !commitPickerOpen(),
+		diagnosticsWhen: () => active() && !editorOpen() && !commitPickerOpen(),
 		commands: {
-			"review.search-tree": openFileFinder,
+			"review.open-file": openCurrentFileInWorkspace,
+			"review.search-tree": props.onFindFile,
 			"review.cycle-target": cycleTarget,
 			"review.pick-commit": openCommitPicker,
 		},
@@ -2321,15 +2161,8 @@ export function ReviewContent(props: ReviewContentProps) {
 		diagnosticsWhen: () => active() && editorOpen(),
 		commands: {
 			"review.close-editor": () => {
-				if (viewingFileEditingRange()) {
-					setViewingFileEditingRange(null);
-					setViewingFileEditingValue("");
-					setEditorOpen(false);
-				} else if (editingRange()) {
-					closeRangeNoteEditor();
-				} else if (editingFileNoteKey()) {
-					closeFileNoteEditor();
-				}
+				if (editingRange()) closeRangeNoteEditor();
+				else if (editingFileNoteKey()) closeFileNoteEditor();
 			},
 		},
 	}));
@@ -2338,17 +2171,9 @@ export function ReviewContent(props: ReviewContentProps) {
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
-			active() &&
-			!editorOpen() &&
-			!fileFinderOpen() &&
-			!commitPickerOpen() &&
-			mode() === "patch" &&
-			!viewingFilePath(),
+			active() && !editorOpen() && !commitPickerOpen() && mode() === "patch",
 		diagnosticsWhen: () =>
-			active() &&
-			mode() === "patch" &&
-			!fileFinderOpen() &&
-			!commitPickerOpen(),
+			active() && mode() === "patch" && !commitPickerOpen(),
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
@@ -2374,80 +2199,12 @@ export function ReviewContent(props: ReviewContentProps) {
 		},
 	}));
 
-	// Patch mode — read-only view (unchanged files)
-	useKeymapLayer(() => ({
-		scope: "modal",
-		when: () =>
-			active() &&
-			!editorOpen() &&
-			!fileFinderOpen() &&
-			!commitPickerOpen() &&
-			mode() === "patch" &&
-			!!viewingFilePath(),
-		diagnosticsWhen: () =>
-			active() &&
-			mode() === "patch" &&
-			!fileFinderOpen() &&
-			!commitPickerOpen(),
-		commands: {
-			"review.back": () => {
-				setViewingFilePath(null);
-				setViewingFileEditingRange(null);
-				setViewingFileEditingValue("");
-				setMode("tree");
-			},
-			"review.move-line-up": () => {
-				setViewingFileLine((l) => Math.max(1, l - 1));
-			},
-			"review.move-line-down": () => {
-				setViewingFileLine((l) => Math.min(viewingFileLineCount(), l + 1));
-			},
-			"review.comment-line": () => {
-				const vp = viewingFilePath();
-				if (!vp) return;
-				const line = viewingFileLine();
-				const range: ReviewRangeDraft = {
-					path: vp,
-					side: "additions",
-					startLine: line,
-					endLine: line,
-				};
-				setViewingFileEditingValue(
-					rangeNotes().get(buildRangeNoteKey(range))?.trim() ?? "",
-				);
-				setViewingFileEditingRange(range);
-				setEditorOpen(true);
-			},
-			"review.file-note": () => {
-				const vp = viewingFilePath();
-				if (vp) openFileNoteEditorForPath(vp);
-			},
-			"review.clear-line-note": () => {
-				const vp = viewingFilePath();
-				if (!vp) return;
-				const key = buildRangeNoteKey({
-					path: vp,
-					side: "additions",
-					startLine: viewingFileLine(),
-					endLine: viewingFileLine(),
-				});
-				updateRangeNotes((prev) => setMapValue(prev, key, ""));
-			},
-			"review.submit": () => void submitReview(),
-		},
-	}));
-
 	// Tree mode: view-level bindings (navigation is handled by FileTreePanel)
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () =>
-			active() &&
-			!editorOpen() &&
-			mode() === "tree" &&
-			!fileFinderOpen() &&
-			!commitPickerOpen(),
-		diagnosticsWhen: () =>
-			active() && mode() === "tree" && !fileFinderOpen() && !commitPickerOpen(),
+			active() && !editorOpen() && mode() === "tree" && !commitPickerOpen(),
+		diagnosticsWhen: () => active() && mode() === "tree" && !commitPickerOpen(),
 		commands: {
 			"review.file-note": () => {
 				const file = selectedFile();
@@ -2544,17 +2301,9 @@ export function ReviewContent(props: ReviewContentProps) {
 						>
 							<FileTreePanel
 								reviewFiles={reviewFiles()}
-								// Commit targets restrict the tree to the commit's
-								// changes; the filesystem listing reflects the
-								// working tree, not the commit snapshot.
-								allFiles={target().kind === "working" ? (allFiles() ?? []) : []}
-								allFilesLoading={allFiles.loading}
-								canShowAllFiles={target().kind === "working"}
 								focused={active() && mode() === "tree"}
 								editorOpen={editorOpen()}
-								// Any floating picker suppresses tree navigation,
-								// not just the file finder.
-								finderOpen={fileFinderOpen() || commitPickerOpen()}
+								finderOpen={commitPickerOpen()}
 								focusedPath={treeFocusedPath()}
 								onFocusedPathChange={(path) => {
 									setTreeFocusedPath(path);
@@ -2565,7 +2314,6 @@ export function ReviewContent(props: ReviewContentProps) {
 									}
 								}}
 								onSelectFile={selectFilePath}
-								onRequestAllFiles={requestAllFiles}
 								onClose={closeReview}
 								onFocusRequest={props.onFocusRequest}
 							/>
@@ -2577,53 +2325,8 @@ export function ReviewContent(props: ReviewContentProps) {
 						<Show
 							when={selectedFile()}
 							fallback={
-								<box
-									flexGrow={1}
-									height="100%"
-									flexDirection="column"
-									overflow="hidden"
-								>
-									<Show
-										when={viewingFilePath()}
-										fallback={
-											<box
-												flexGrow={1}
-												justifyContent="center"
-												alignItems="center"
-											>
-												<text fg={theme.textMuted}>Select a file to view</text>
-											</box>
-										}
-									>
-										{(filePath) => (
-											<ReadOnlyFileView
-												repoRoot={repoRoot}
-												path={filePath()}
-												paneWidth={diffPaneWidth()}
-												interactive={active() && mode() === "patch"}
-												selectedLine={viewingFileLine()}
-												onLineMouseDown={(line, event) =>
-													handleReadOnlyLineMouseDown(filePath(), line, event)
-												}
-												onLineCountChange={setViewingFileLineCount}
-												fileNote={
-													fileNotes().get(`unchanged:${filePath()}`)?.trim() ??
-													""
-												}
-												editingFileNote={
-													editingFileNoteKey() === `unchanged:${filePath()}`
-												}
-												editingFileNoteValue={editingFileNoteValue()}
-												onEditingFileNoteChange={setEditingFileNoteValue}
-												onEditingFileNoteSubmit={saveFileNoteEditor}
-												rangeNotes={rangeNotes()}
-												editingRange={viewingFileEditingRange()}
-												editingRangeValue={viewingFileEditingValue()}
-												onEditingRangeChange={setViewingFileEditingValue}
-												onEditingRangeSubmit={saveViewingFileRangeNote}
-											/>
-										)}
-									</Show>
+								<box flexGrow={1} justifyContent="center" alignItems="center">
+									<text fg={theme.textMuted}>Select a change to view</text>
 								</box>
 							}
 						>
@@ -2713,14 +2416,6 @@ export function ReviewContent(props: ReviewContentProps) {
 						</Show>
 					</Show>
 				</box>
-				<Show when={fileFinderOpen()}>
-					<FileFinderDialog
-						options={fileFinderOptions()}
-						loading={allFiles.loading}
-						availableWidth={contentWidth()}
-						onClose={() => setFileFinderOpen(false)}
-					/>
-				</Show>
 				<Show when={commitPickerOpen()}>
 					<CommitPickerDialog
 						options={commitPickerOptions()}
@@ -2792,465 +2487,5 @@ function CommitPickerDialog(props: CommitPickerDialogProps) {
 				</box>
 			</Dialog.Root>
 		</Show>
-	);
-}
-
-// ── File finder dialog ──────────────────────────────────────────────
-
-type FileFinderDialogProps = {
-	options: PickerOption[];
-	loading: boolean;
-	availableWidth: number;
-	onClose: () => void;
-};
-
-function FileFinderDialog(props: FileFinderDialogProps) {
-	const picker = createPickerManager();
-	let didShow = false;
-
-	createEffect(() => {
-		if (didShow) return;
-		didShow = true;
-		picker.show({
-			label: "Find file",
-			options: props.options,
-			loading: props.loading,
-			filterable: true,
-			onDismiss: props.onClose,
-		});
-	});
-
-	createEffect(() => {
-		picker.updateOptions(props.options);
-		picker.setLoading(props.loading);
-	});
-
-	return (
-		<Show when={picker.current().visible}>
-			<Dialog.Root
-				width="80%"
-				minWidth={Math.min(72, Math.max(1, props.availableWidth - 2))}
-				maxWidth={120}
-				height={18}
-				padding={0}
-			>
-				<box flexGrow={1} flexDirection="column">
-					<Picker.Root
-						picker={picker}
-						maxVisible={12}
-						commandNamespace="review-file-finder"
-					>
-						<Picker.Header />
-						<Picker.Body />
-						<Picker.Footer flexDirection="column">
-							<Show when={props.loading}>
-								<text fg={theme.textMuted}>Loading repository files…</text>
-							</Show>
-							<KeymapHintBar borderless group="review-file-finder" />
-						</Picker.Footer>
-					</Picker.Root>
-				</box>
-			</Dialog.Root>
-		</Show>
-	);
-}
-
-// ── Read-only file viewer ───────────────────────────────────────────
-
-type ReadOnlyFileViewProps = {
-	repoRoot: string;
-	path: string;
-	interactive: boolean;
-	selectedLine: number;
-	onLineMouseDown: (line: number, event: TuiMouseEvent) => void;
-	onLineCountChange: (count: number) => void;
-	fileNote: string;
-	editingFileNote: boolean;
-	editingFileNoteValue: string;
-	onEditingFileNoteChange: (value: string) => void;
-	onEditingFileNoteSubmit: () => void;
-	rangeNotes: Map<string, string>;
-	editingRange: ReviewRangeDraft | null;
-	editingRangeValue: string;
-	onEditingRangeChange: (value: string) => void;
-	onEditingRangeSubmit: () => void;
-	/** Available pane width for computing wrap-aware line heights. */
-	paneWidth: number;
-};
-
-function ReadOnlyFileView(props: ReadOnlyFileViewProps) {
-	const content = createMemo(() => {
-		try {
-			return readFileSync(path.join(props.repoRoot, props.path), "utf-8");
-		} catch {
-			return null;
-		}
-	});
-
-	const filetype = createMemo(() => inferFiletype(props.path));
-	const lines = createMemo(() => {
-		const text = content();
-		if (!text) return [];
-		return text.replace(/\r\n/g, "\n").split("\n");
-	});
-	const lineNumberWidth = createMemo(() =>
-		Math.max(1, String(lines().length).length),
-	);
-	// Content area = paneWidth minus the gutter (line number column + the
-	// two-space separator). The content box is full-bleed so rows align
-	// flush with the pane header above.
-	const contentColumns = createMemo(() =>
-		Math.max(10, props.paneWidth - lineNumberWidth() - 2),
-	);
-
-	createEffect(() => {
-		props.onLineCountChange(lines().length);
-	});
-
-	type ReadOnlyScrollRef = {
-		scrollTop?: number;
-		viewport?: { height: number };
-		scrollChildIntoView?: (id: string) => void;
-		scrollTo?: (position: number | { x: number; y: number }) => void;
-	};
-	let scrollRef: ReadOnlyScrollRef | undefined;
-	let scrollTimeout: ReturnType<typeof setTimeout> | undefined;
-	let resetScrollTimeout: ReturnType<typeof setTimeout> | undefined;
-
-	function clearReadonlyScrollTimeout() {
-		if (!scrollTimeout) return;
-		clearTimeout(scrollTimeout);
-		scrollTimeout = undefined;
-	}
-
-	function clearReadonlyResetScrollTimeout() {
-		if (!resetScrollTimeout) return;
-		clearTimeout(resetScrollTimeout);
-		resetScrollTimeout = undefined;
-	}
-
-	function lineRowOffset(lineIndex: number): number {
-		const all = lines();
-		const cols = contentColumns();
-		let top = 0;
-		const end = Math.min(lineIndex, all.length);
-		for (let i = 0; i < end; i += 1) {
-			top += Math.max(1, estimateWrappedRows(all[i], cols));
-		}
-		return top;
-	}
-
-	function resetScrollToTop() {
-		const ref = scrollRef;
-		if (!ref) return;
-		if (ref.scrollTo) {
-			ref.scrollTo(0);
-		} else if (typeof ref.scrollTop === "number") {
-			ref.scrollTop = 0;
-		} else {
-			ref.scrollChildIntoView?.(`readonly-line-1`);
-		}
-	}
-
-	// Reset the scroll position whenever the file path/content changes. Runs
-	// as its own effect so it's independent of the cursor visibility logic and
-	// fires for every path transition (including the initial mount).
-	createEffect(() => {
-		void props.path;
-		void lines();
-		clearReadonlyResetScrollTimeout();
-		resetScrollTimeout = setTimeout(() => {
-			resetScrollTimeout = undefined;
-			resetScrollToTop();
-		}, 0);
-		onCleanup(clearReadonlyResetScrollTimeout);
-	});
-
-	createEffect(() => {
-		if (!props.interactive) return;
-		const line = props.selectedLine;
-		// Track paneWidth and lines so we re-scroll after the layout reflows
-		// when the terminal resizes, the diff/tree split changes, or the file
-		// content swaps in.
-		void props.paneWidth;
-		void lines();
-		void contentColumns();
-		clearReadonlyScrollTimeout();
-		scrollTimeout = setTimeout(() => {
-			scrollTimeout = undefined;
-			const ref = scrollRef;
-			if (!ref) return;
-			const cursorTop = lineRowOffset(line - 1);
-			const cursorHeight = Math.max(
-				1,
-				estimateWrappedRows(lines()[line - 1] ?? "", contentColumns()),
-			);
-			const current = ref.scrollTop ?? 0;
-			const vh = ref.viewport?.height ?? 0;
-			// Keep the cursor in view: scroll up when it's above the viewport,
-			// scroll down when it's below. Otherwise leave the scroll alone.
-			if (cursorTop < current) {
-				if (ref.scrollTo) ref.scrollTo(cursorTop);
-				else if (typeof ref.scrollTop === "number") ref.scrollTop = cursorTop;
-				else ref.scrollChildIntoView?.(`readonly-line-${line}`);
-			} else if (vh > 0 && cursorTop + cursorHeight > current + vh) {
-				const target = Math.max(0, cursorTop + cursorHeight - vh);
-				if (ref.scrollTo) ref.scrollTo(target);
-				else if (typeof ref.scrollTop === "number") ref.scrollTop = target;
-				else ref.scrollChildIntoView?.(`readonly-line-${line}`);
-			} else if (vh === 0) {
-				// Initial mount before viewport is sized — fall back to the
-				// scrollbox's own measurement so the first scroll still lands.
-				ref.scrollChildIntoView?.(`readonly-line-${line}`);
-			}
-		}, 0);
-		onCleanup(clearReadonlyScrollTimeout);
-	});
-
-	const annotationsByLine = createMemo(() => {
-		const map = new Map<number, { key: string; comment: string }>();
-		const prefix = `${props.path}::`;
-		for (const [key, value] of props.rangeNotes) {
-			if (!key.startsWith(prefix)) continue;
-			const comment = value.trim();
-			if (!comment) continue;
-			const parsed = parseRangeNoteKey(key);
-			if (!parsed) continue;
-			for (let l = parsed.startLine; l <= parsed.endLine; l++) {
-				map.set(l, { key, comment });
-			}
-		}
-		const editing = props.editingRange;
-		if (editing && editing.path === props.path) {
-			for (let l = editing.startLine; l <= editing.endLine; l++) {
-				map.set(l, { key: "editing", comment: props.editingRangeValue });
-			}
-		}
-		return map;
-	});
-
-	type ScrollableRef = { scrollX: number; scrollY: number };
-	function resetScroll(ref: ScrollableRef | undefined) {
-		queueMicrotask(() => {
-			if (!ref) return;
-			ref.scrollX = 0;
-			ref.scrollY = 0;
-		});
-	}
-
-	let composerRef: { plainText: string } | undefined;
-	let fileNoteComposerRef: { plainText: string } | undefined;
-
-	return (
-		<box flexGrow={1} flexDirection="column" backgroundColor={theme.bgMuted}>
-			<box
-				flexShrink={0}
-				paddingX={1}
-				paddingY={0}
-				flexDirection="row"
-				justifyContent="space-between"
-			>
-				<text fg={theme.textPrimary}>{props.path}</text>
-				<Show when={lines().length > 0}>
-					<text fg={theme.textMuted}>
-						{lines().length} line{lines().length === 1 ? "" : "s"}
-					</text>
-				</Show>
-			</box>
-
-			<Show when={props.editingFileNote || props.fileNote}>
-				<Show
-					when={props.editingFileNote}
-					fallback={
-						<box
-							flexShrink={0}
-							marginX={1}
-							border
-							borderColor={theme.borderDefault}
-							backgroundColor={theme.bgSurface}
-							paddingX={1}
-						>
-							<text fg={theme.textPrimary}>{props.fileNote}</text>
-						</box>
-					}
-				>
-					<box flexShrink={0} marginX={1}>
-						<MessageComposer
-							initialValue={props.editingFileNoteValue}
-							placeholder="Comment on the whole file..."
-							backgroundColor={theme.bgTransparent}
-							focusedBackgroundColor={theme.bgTransparent}
-							focused={props.interactive}
-							showCursor={props.interactive}
-							keyBindings={[
-								{ name: "return", action: "submit" },
-								{ name: "return", shift: true, action: "newline" },
-							]}
-							onContentChange={() =>
-								props.onEditingFileNoteChange(
-									fileNoteComposerRef?.plainText ?? "",
-								)
-							}
-							onSubmit={props.onEditingFileNoteSubmit}
-							ref={(el) => {
-								fileNoteComposerRef = el as typeof fileNoteComposerRef;
-							}}
-						/>
-					</box>
-				</Show>
-			</Show>
-
-			<box flexGrow={1} backgroundColor={theme.bg}>
-				<Show
-					when={content() != null}
-					fallback={<text fg={theme.textMuted}>Could not read file</text>}
-				>
-					<scrollbox
-						ref={(el) => {
-							scrollRef = el as typeof scrollRef;
-						}}
-						flexGrow={1}
-						scrollY
-						style={scrollbarStyle()}
-					>
-						<box flexDirection="column" gap={0}>
-							<For each={lines()}>
-								{(line, idx) => {
-									const lineNum = () => idx() + 1;
-									const active = () =>
-										props.interactive && lineNum() === props.selectedLine;
-									const bg = () => (active() ? theme.diffCursorBg : theme.bg);
-									const gutterBg = () =>
-										active() ? theme.diffCursorGutterBg : theme.bg;
-									const annotation = () =>
-										annotationsByLine().get(lineNum()) ?? null;
-									const rowHeight = () =>
-										Math.max(1, estimateWrappedRows(line, contentColumns()));
-									let lineRef: ScrollableRef | undefined;
-									return (
-										<>
-											<box
-												id={`readonly-line-${lineNum()}`}
-												flexDirection="row"
-												alignItems="flex-start"
-												height={rowHeight()}
-												flexShrink={0}
-												backgroundColor={bg()}
-												onMouseDown={(event) => {
-													if (!props.interactive) return;
-													props.onLineMouseDown(lineNum(), event);
-												}}
-											>
-												<text
-													fg={theme.textMuted}
-													bg={gutterBg()}
-													flexShrink={0}
-													height={1}
-												>
-													{String(lineNum()).padStart(lineNumberWidth())}
-												</text>
-												<text
-													fg={theme.textMuted}
-													bg={bg()}
-													flexShrink={0}
-													height={1}
-												>
-													{"  "}
-												</text>
-												<Show
-													when={filetype()}
-													fallback={
-														<text
-															ref={(el) => {
-																lineRef = el as ScrollableRef | undefined;
-															}}
-															fg={theme.textPrimary}
-															bg={bg()}
-															flexGrow={1}
-															wrapMode="word"
-															height={rowHeight()}
-															onMouseScroll={() => resetScroll(lineRef)}
-														>
-															{line}
-														</text>
-													}
-												>
-													{(ft) => (
-														<code
-															ref={(el) => {
-																lineRef = el as ScrollableRef | undefined;
-															}}
-															content={line}
-															filetype={ft()}
-															syntaxStyle={syntaxStyle()}
-															bg={bg()}
-															conceal={false}
-															wrapMode="word"
-															flexGrow={1}
-															height={rowHeight()}
-															onMouseScroll={() => resetScroll(lineRef)}
-														/>
-													)}
-												</Show>
-											</box>
-											<Show when={annotation()}>
-												{(ann) => (
-													<Show
-														when={ann().key === "editing"}
-														fallback={
-															<box
-																border
-																borderColor={theme.borderDefault}
-																backgroundColor={theme.bgSurface}
-																paddingX={1}
-																width="100%"
-																flexShrink={0}
-															>
-																<text fg={theme.textPrimary}>
-																	{ann().comment}
-																</text>
-															</box>
-														}
-													>
-														<MessageComposer
-															ref={(el) => {
-																composerRef = el as typeof composerRef;
-															}}
-															initialValue={props.editingRangeValue}
-															placeholder="Type your review note..."
-															backgroundColor={theme.bgTransparent}
-															focusedBackgroundColor={theme.bgTransparent}
-															focused={props.interactive}
-															showCursor={props.interactive}
-															keyBindings={[
-																{
-																	name: "return",
-																	action: "submit",
-																},
-																{
-																	name: "return",
-																	shift: true,
-																	action: "newline",
-																},
-															]}
-															onContentChange={() =>
-																props.onEditingRangeChange(
-																	composerRef?.plainText ?? "",
-																)
-															}
-															onSubmit={props.onEditingRangeSubmit}
-														/>
-													</Show>
-												)}
-											</Show>
-										</>
-									);
-								}}
-							</For>
-						</box>
-					</scrollbox>
-				</Show>
-			</box>
-		</box>
 	);
 }

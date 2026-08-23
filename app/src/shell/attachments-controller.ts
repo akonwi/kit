@@ -11,6 +11,8 @@ export interface Attachment {
 	summary: string;
 	toMessagePart(): MessagePart;
 	toPromptText(): string;
+	/** Return an error message when the attachment can no longer be submitted. */
+	validate?(): string | null;
 	onOpen?(): void | Promise<void>;
 	onDetach?(reason: AttachmentDetachReason): void;
 }

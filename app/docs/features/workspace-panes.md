@@ -31,6 +31,27 @@ selection remain on the transcript/composer. Default pane bodies initialize only
 when first selected, then remain mounted to preserve local state. Other panes
 open on demand and may be closed.
 
+The TUI also supports closable full-file panes identified by repository root and
+relative path. Reopening the same file selects its existing tab. `/` opens the
+workspace file finder from any focused secondary pane; the same action remains
+available through the command palette from other contexts. File panes render the current working-tree file with line numbers and syntax
+highlighting. Their context header owns a collapsed-by-default repository-tree
+drawer toggle, with no redundant content header below it. File panes share Code
+Review's feedback workflow: `Enter` or a line click edits a line note,
+`Ctrl+Enter` starts a range, `f` edits a whole-file note, `x` clears the selected
+line note, and `s` submits. Saved notes use file-specific session drafts, project into file-feedback
+attachments, and remain until removed or consumed. They do not share Code
+Review's diff-coordinate draft namespace. Each draft is pinned to the file
+revision where commenting began; if the working file changes, its comments are
+marked stale, its attachment is hidden, and submission is blocked until those
+notes are cleared and recreated.
+Code Review remains focused on its changed-file tree and diff presentation. It
+is scoped to the active session's Git repository and remounts when a cwd change
+moves the session to a different repository; per-repository drafts remain in the
+session draft controller and are restored when that repository is revisited. A
+long-form review feed is deferred until the workspace has a reliable
+virtualization primitive.
+
 ## Adding a pane
 
 1. Add a plain-data variant to `WorkspacePane` in

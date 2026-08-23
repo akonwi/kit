@@ -4,6 +4,7 @@ import { ImageAttachment } from "../features/images/attachment";
 import { CodeReviewAttachment } from "../features/review/attachment";
 import type { AgentMessage } from "../runtime/agent";
 import type { AgentRuntime } from "../runtime/agent-runtime";
+import type { ToastInput } from "../state/toasts";
 import { createAttachmentsController } from "./attachments-controller";
 import {
 	commandDisplayName,
@@ -55,8 +56,9 @@ describe("command presentation", () => {
 describe("composer submission", () => {
 	function setupFailedAttachmentSubmission() {
 		let rejectSubmission: ((error: Error) => void) | undefined;
+		let cwd = "/repo-a";
 		const runtime = {
-			getSession: () => ({ id: "session-1" }),
+			getSession: () => ({ id: "session-1", cwd }),
 			submitMessage: () =>
 				new Promise<never>((_resolve, reject) => {
 					rejectSubmission = reject;
@@ -84,11 +86,29 @@ describe("composer submission", () => {
 			_reload: async () => {},
 			openCustomOverlay: async () => undefined as never,
 		});
+		const textarea: TextareaHandle = {
+			plainText: "",
+			cursorOffset: 0,
+			setText: (value) => {
+				textarea.plainText = value;
+				textarea.cursorOffset = value.length;
+			},
+			insertText: (value) => {
+				textarea.setText(`${textarea.plainText}${value}`);
+			},
+			focus: () => {},
+		};
+		controller.setTextarea(textarea);
 		return {
 			attachment,
 			attachments,
 			controller,
 			rejectSubmission: () => rejectSubmission,
+			setCwd: (next: string) => {
+				cwd = next;
+			},
+			setText: textarea.setText,
+			text: () => textarea.plainText,
 		};
 	}
 
@@ -127,6 +147,83 @@ describe("composer submission", () => {
 
 			expect(setup.attachments.attachments()).toHaveLength(0);
 		});
+	});
+
+	test("restores unsent text without overwriting a newer draft after a cwd change", async () => {
+		const setup = setupFailedAttachmentSubmission();
+		setup.attachments.detach("code-review");
+		setup.setText("review this");
+
+		const pending = setup.controller.handleSubmit();
+		expect(setup.text()).toBe("");
+		setup.setCwd("/repo-b");
+		await pending;
+		expect(setup.text()).toBe("review this");
+
+		setup.setCwd("/repo-a");
+		setup.setText("old draft");
+		const secondPending = setup.controller.handleSubmit();
+		setup.setText("new draft");
+		setup.setCwd("/repo-b");
+		await secondPending;
+		expect(setup.text()).toBe("new draft");
+	});
+
+	test("does not resurrect an attachment after the cwd changes", async () => {
+		const setup = setupFailedAttachmentSubmission();
+		await withoutConsoleError(async () => {
+			const pending = setup.controller.handleSubmit();
+			setup.setCwd("/repo-b");
+			setup.rejectSubmission()?.(new Error("failed"));
+			await pending;
+
+			expect(setup.attachments.attachments()).toHaveLength(0);
+		});
+	});
+
+	test("blocks submission when an attachment is no longer valid", async () => {
+		let submissions = 0;
+		const toasts: ToastInput[] = [];
+		const runtime = {
+			getSession: () => ({ id: "session-1" }),
+			submitMessage: async () => {
+				submissions += 1;
+			},
+		} as unknown as AgentRuntime;
+		const attachments = createAttachmentsController();
+		attachments.attach({
+			id: "stale",
+			type: "test",
+			icon: "",
+			summary: "stale attachment",
+			validate: () => "The underlying file changed.",
+			toMessagePart: () => ({ type: "text", text: "stale" }),
+			toPromptText: () => "stale",
+		});
+		const controller = createComposerController({
+			runtime,
+			commands: createCommandRegistry(),
+			fileIndex: {} as never,
+			threadIndex: null,
+			attachments,
+			reviewDrafts: {} as never,
+			reviewWorkspace: {} as never,
+			toast: (toast) => toasts.push(toast),
+			_reload: async () => {},
+			openCustomOverlay: async () => undefined as never,
+		});
+
+		await controller.handleSubmit();
+
+		expect(submissions).toBe(0);
+		expect(attachments.attachments()).toHaveLength(1);
+		expect(toasts).toEqual([
+			{
+				title: "Attachment is no longer valid",
+				subtitle: "The underlying file changed.",
+				variant: "warning",
+			},
+		]);
 	});
 
 	test("message submission bypasses composer bash execution", async () => {

@@ -12,6 +12,7 @@ import {
 	groupItemsForDisplay,
 	presentBashCommand,
 	reconcileTranscriptItems,
+	subagentToolAgentName,
 	type TranscriptItem,
 	toolArgKeys,
 	toolDisplayName,
@@ -486,6 +487,7 @@ describe("toolDisplayName", () => {
 			arguments: { action: "run", agent: "summarizer", message: "hi" },
 		} as ToolCall;
 		expect(toolDisplayName(tc)).toBe("summarizer");
+		expect(subagentToolAgentName(tc)).toBe("summarizer");
 	});
 
 	test("humanizes skill activation", () => {
@@ -506,6 +508,7 @@ describe("toolDisplayName", () => {
 			arguments: { action: "list_agents" },
 		} as ToolCall;
 		expect(toolDisplayName(noAgent)).toBe("subagent");
+		expect(subagentToolAgentName(noAgent)).toBeNull();
 
 		const blankAgent = {
 			type: "toolCall",

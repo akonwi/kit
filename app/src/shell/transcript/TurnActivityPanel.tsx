@@ -19,6 +19,7 @@ export type TurnActivityPanelProps = {
 	active: boolean;
 	onClose: () => void;
 	onFocusRequest: () => void;
+	onOpenSubagent?: (agentName: string) => boolean;
 };
 
 /** Persistent workspace-panel presentation for turn activity details. */
@@ -65,7 +66,10 @@ export function TurnActivityPanel(props: TurnActivityPanelProps) {
 					contentOptions={{ flexDirection: "column", gap: 0, width: "100%" }}
 					style={scrollbarStyle()}
 				>
-					<TurnActivitySectionList model={model} />
+					<TurnActivitySectionList
+						model={model}
+						onOpenSubagent={props.onOpenSubagent}
+					/>
 				</scrollbox>
 			</box>
 		</WorkspacePanelLayout>

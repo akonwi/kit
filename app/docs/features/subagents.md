@@ -88,9 +88,11 @@ That means v1 has:
 `/subagents` opens the sub-agents roster as a persistent workspace pane. The
 roster shows available agents and conversations sorted by status. Selecting a
 conversation (Enter or click) opens its live transcript in a separate workspace
-tab labeled with the agent name. Each agent has at most one transcript tab;
-opening it again focuses the existing tab. `Esc` from a transcript returns to
-the roster, while `Esc` from the roster returns focus to the transcript.
+tab labeled with the agent name. In transcript tool drawers and turn Activity
+panes, clicking a sub-agent tool call's agent-name label opens that same
+transcript tab. Each agent has at most one transcript tab; opening it again
+focuses the existing tab. `Esc` from a transcript returns to the roster, while
+`Esc` from the roster returns focus to the transcript.
 
 The roster and every agent transcript are retained while their workspace tabs
 remain open, so selection and scroll state survive being minimized, hidden

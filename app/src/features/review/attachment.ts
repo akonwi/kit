@@ -14,6 +14,8 @@ import { PENCIL } from "../../shell/glyphs";
 export type CodeReviewSubmission = {
 	submittedAt: string;
 	files: CodeReviewFileComment[];
+	/** Full-file feedback uses working-tree line numbers rather than diff sides. */
+	source?: "file";
 	/** Present when the review targets a commit instead of the working tree. */
 	commit?: CodeReviewCommitRef;
 };
@@ -22,6 +24,7 @@ export type CodeReviewDraftAttachmentOptions = {
 	repoRoot: string;
 	targetKey: string;
 	onDetach: (reason: AttachmentDetachReason) => void;
+	validate?: () => string | null;
 };
 
 export class CodeReviewAttachment implements Attachment {
@@ -41,7 +44,12 @@ export class CodeReviewAttachment implements Attachment {
 		);
 		// Shas are stored full-length; shorten for the chip label.
 		const scope = review.commit ? ` · ${review.commit.sha.slice(0, 7)}` : "";
-		this.summary = `Code review${draft ? " draft" : ""}${scope} · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${review.files.length} file${review.files.length === 1 ? "" : "s"}`;
+		const label = review.source === "file" ? "File feedback" : "Code review";
+		this.summary = `${label}${draft ? " draft" : ""}${scope} · ${commentCount} comment${commentCount === 1 ? "" : "s"} · ${review.files.length} file${review.files.length === 1 ? "" : "s"}`;
+	}
+
+	validate(): string | null {
+		return this.draft?.validate?.() ?? null;
 	}
 
 	onDetach(reason: AttachmentDetachReason): void {

@@ -21,13 +21,19 @@ export function buildRangeNoteKey(range: ReviewRangeDraft): string {
 }
 
 export function parseRangeNoteKey(key: string): ReviewRangeDraft | null {
-	const [path, side, range] = key.split("::");
-	if (!path || !side || !range) return null;
-	if (side !== "additions" && side !== "deletions") return null;
-	const [startLineText, endLineText] = range.split("-");
-	const startLine = Number(startLineText);
-	const endLine = Number(endLineText);
-	if (!Number.isFinite(startLine) || !Number.isFinite(endLine)) return null;
+	const rangeSeparator = key.lastIndexOf("::");
+	if (rangeSeparator < 0) return null;
+	const sideSeparator = key.lastIndexOf("::", rangeSeparator - 1);
+	if (sideSeparator < 0) return null;
+	const path = key.slice(0, sideSeparator);
+	const side = key.slice(sideSeparator + 2, rangeSeparator);
+	const range = key.slice(rangeSeparator + 2);
+	if (!path || (side !== "additions" && side !== "deletions")) return null;
+	const match = /^(\d+)-(\d+)$/.exec(range);
+	if (!match) return null;
+	const startLine = Number(match[1]);
+	const endLine = Number(match[2]);
+	if (startLine < 1 || endLine < 1) return null;
 	return {
 		path,
 		side,
@@ -61,7 +67,9 @@ export function countFileDraftNotes(
 ): number {
 	let count = normalizeNote(state.fileNotes.get(file.noteKey)) ? 1 : 0;
 	for (const [key, value] of state.rangeNotes) {
-		if (key.startsWith(`${file.path}::`) && normalizeNote(value)) count += 1;
+		if (parseRangeNoteKey(key)?.path === file.path && normalizeNote(value)) {
+			count += 1;
+		}
 	}
 	return count;
 }
@@ -70,16 +78,14 @@ function collectRangesForPath(
 	filePath: string,
 	rangeNotes: Map<string, string>,
 ): CodeReviewFileComment["ranges"] {
-	const prefix = `${filePath}::`;
 	const ranges: CodeReviewFileComment["ranges"] = [];
 	for (const [key, value] of rangeNotes) {
-		if (!key.startsWith(prefix)) continue;
 		const comment = normalizeNote(value);
 		if (!comment) continue;
 		const parsed = parseRangeNoteKey(key);
-		if (!parsed) continue;
+		if (!parsed || parsed.path !== filePath) continue;
 		ranges.push({
-			side: parsed.side as CodeReviewFileComment["ranges"][number]["side"],
+			side: parsed.side,
 			startLine: parsed.startLine,
 			endLine: parsed.endLine,
 			comment,

@@ -22,20 +22,14 @@ import { reviewStatusColor } from "./status";
 
 // ── Types ───────────────────────────────────────────────────────────
 
-type TreeMode = "changes" | "all";
-
 export type FileTreePanelProps = {
 	reviewFiles: ReviewFile[];
-	allFiles: string[];
-	allFilesLoading: boolean;
-	canShowAllFiles: boolean;
 	focused: boolean;
 	editorOpen: boolean;
 	finderOpen: boolean;
 	focusedPath: string | null;
 	onFocusedPathChange: (path: string | null) => void;
 	onSelectFile: (path: string) => void;
-	onRequestAllFiles: () => void;
 	onClose: () => void;
 	onFocusRequest?: () => void;
 };
@@ -109,9 +103,6 @@ function isDirectoryHandle(
 // ── Component ───────────────────────────────────────────────────────
 
 export function FileTreePanel(props: FileTreePanelProps) {
-	const [treeMode, setTreeMode] = createSignal<TreeMode>(
-		props.reviewFiles.length > 0 ? "changes" : "all",
-	);
 	const [treeVersion, setTreeVersion] = createSignal(0);
 
 	let controller: FileTreeController | null = null;
@@ -137,14 +128,6 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			: paths;
 	}, []);
 
-	const hasChangedFiles = createMemo(() => changedPaths().length > 0);
-	// The changes/all-files toggle only makes sense when there is an
-	// "all files" listing to show — committed review targets pass an
-	// empty list because the filesystem reflects the working tree.
-	const canToggleTreeMode = createMemo(
-		() => hasChangedFiles() && props.canShowAllFiles,
-	);
-
 	const changedExpandedDirs = createMemo(() => {
 		const dirs = new Set<string>();
 		for (const filePath of changedPaths()) {
@@ -158,15 +141,10 @@ export function FileTreePanel(props: FileTreePanelProps) {
 	function resetTree() {
 		controllerUnsub?.();
 		controller?.destroy();
-		const mode = hasChangedFiles() ? treeMode() : "all";
-		const rawPaths = mode === "changes" ? changedPaths() : props.allFiles;
-		// FileTreeController's PathStore rejects duplicate paths; dedupe
-		// defensively in case the inputs include the same path twice.
-		const paths = Array.from(new Set(rawPaths));
 		controller = new FileTreeController({
-			paths,
+			paths: changedPaths(),
 			flattenEmptyDirectories: true,
-			initialExpansion: mode === "changes" ? "closed" : "closed",
+			initialExpansion: "closed",
 			initialExpandedPaths: changedExpandedDirs(),
 			fileTreeSearchMode: "hide-non-matches",
 		});
@@ -174,41 +152,20 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		setTreeVersion((v) => v + 1);
 	}
 
-	createEffect(() => {
-		if (!props.canShowAllFiles && treeMode() === "all") {
-			setTreeMode("changes");
-			return;
-		}
-		if (treeMode() === "all") props.onRequestAllFiles();
-	});
-
-	// Initialize and rebuild when inputs change
-	createEffect(
-		on([treeMode, changedPaths, () => props.allFiles], () => {
-			resetTree();
-		}),
-	);
+	createEffect(on(changedPaths, resetTree));
 
 	onCleanup(() => {
 		controllerUnsub?.();
 		controller?.destroy();
 	});
 
-	// Sync programmatic selections (for example, from the file finder) into
-	// the tree controller so the visible focus follows the selected file.
+	// Sync programmatic changed-file selections into the tree controller.
 	createEffect(() => {
 		const targetPath = props.focusedPath;
 		if (!targetPath) return;
 		const targetIsChanged = changedPaths().includes(targetPath);
-		const targetIsKnownFile =
-			targetIsChanged || props.allFiles.includes(targetPath);
-		if (treeMode() === "changes" && !targetIsChanged && targetIsKnownFile) {
-			setTreeMode("all");
-			return;
-		}
-
 		treeVersion();
-		if (!targetIsKnownFile || !controller?.getItem(targetPath)) return;
+		if (!targetIsChanged || !controller?.getItem(targetPath)) return;
 		if (controller.getFocusedPath() === targetPath) return;
 		for (const dir of getAncestorDirPaths(targetPath)) {
 			const item = controller.getItem(dir);
@@ -307,20 +264,6 @@ export function FileTreePanel(props: FileTreePanelProps) {
 		controller?.focusParentItem();
 	}
 
-	function toggleTreeMode() {
-		if (!canToggleTreeMode()) return;
-		setTreeMode((m) => (m === "changes" ? "all" : "changes"));
-	}
-
-	function chooseTreeMode(mode: TreeMode, event: TuiMouseEvent) {
-		if (mode === "changes" && !hasChangedFiles()) return;
-		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
-		event.preventDefault();
-		event.stopPropagation();
-		props.onFocusRequest?.();
-		setTreeMode(mode);
-	}
-
 	function selectPath(path: string, event: TuiMouseEvent) {
 		if (props.editorOpen || props.finderOpen || event.button !== 0) return;
 		event.preventDefault();
@@ -350,9 +293,6 @@ export function FileTreePanel(props: FileTreePanelProps) {
 			"review.toggle-file": toggleDir,
 			"review.expand-dir": expandDir,
 			"review.collapse-dir": collapseDir,
-			"review.toggle-tree-mode": canToggleTreeMode()
-				? toggleTreeMode
-				: undefined,
 		},
 	}));
 
@@ -360,36 +300,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 
 	return (
 		<box flexDirection="column" height="100%">
-			{/* Mode toggle */}
-			<Show when={canToggleTreeMode()}>
-				<box
-					flexShrink={0}
-					paddingX={1}
-					height={1}
-					flexDirection="row"
-					justifyContent="space-between"
-					gap={1}
-				>
-					<box flexDirection="row" gap={1}>
-						<text
-							fg={
-								treeMode() === "changes" ? theme.textPrimary : theme.textMuted
-							}
-							onMouseDown={(event) => chooseTreeMode("changes", event)}
-						>
-							changes
-						</text>
-						<text
-							fg={treeMode() === "all" ? theme.textPrimary : theme.textMuted}
-							onMouseDown={(event) => chooseTreeMode("all", event)}
-						>
-							all files
-						</text>
-					</box>
-				</box>
-			</Show>
-
-			{/* Tree rows */}
+			{/* Changed-file rows */}
 			<scrollbox
 				ref={(el) => {
 					scrollRef = el as typeof scrollRef;
@@ -403,11 +314,7 @@ export function FileTreePanel(props: FileTreePanelProps) {
 						when={visibleRows().length > 0}
 						fallback={
 							<box paddingX={1} paddingY={1}>
-								<text fg={theme.textMuted}>
-									{treeMode() === "all" && props.allFilesLoading
-										? "Loading files…"
-										: "No files"}
-								</text>
+								<text fg={theme.textMuted}>No changed files</text>
 							</box>
 						}
 					>

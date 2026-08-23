@@ -35,6 +35,7 @@ export type CodeReviewMessagePart = {
 	review: {
 		submittedAt: string;
 		files: CodeReviewFileComment[];
+		source?: "file";
 		commit?: CodeReviewCommitRef;
 		/** Opaque remote retry metadata; omitted by local TUI submissions. */
 		submissionId?: string;
@@ -78,7 +79,11 @@ export function messagePartToPromptText(part: MessagePart): string {
 						range.startLine === range.endLine
 							? `${range.startLine}`
 							: `${range.startLine}-${range.endLine}`;
-					notes.push(`- ${range.side} ${lineLabel}: ${range.comment.trim()}`);
+					const location =
+						part.review.source === "file"
+							? `Line${range.startLine === range.endLine ? "" : "s"} ${lineLabel}`
+							: `${range.side} ${lineLabel}`;
+					notes.push(`- ${location}: ${range.comment.trim()}`);
 				}
 				if (notes.length === 0) continue;
 				fileBlocks.push(`File: ${file.path}\n${notes.join("\n")}`);

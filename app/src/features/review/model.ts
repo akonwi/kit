@@ -6,7 +6,6 @@ import { parsePatchFiles } from "@pierre/diffs";
 import { safeProcessCwd } from "../../process-cwd";
 import type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 import { inferFiletype } from "../../shell/filetype";
-import { scanFiles } from "../files/scan-files";
 
 export type { ReviewHunk, ReviewLine } from "../../shell/diff/types";
 
@@ -858,18 +857,4 @@ export async function loadReviewFiles(
 /** Resolve the project root for the given working directory. */
 export function getRepoRoot(cwd?: string): string {
 	return getGitRepoRoot(cwd) ?? (cwd || safeProcessCwd());
-}
-
-/** List every file available to the working-tree "All files" view. */
-export async function listRepoFiles(
-	cwd?: string,
-	signal?: AbortSignal,
-): Promise<string[]> {
-	const result = await scanFiles(getRepoRoot(cwd), {
-		includeIgnoreFiles: true,
-		maxEntries: Number.POSITIVE_INFINITY,
-		respectGitignore: false,
-		signal,
-	});
-	return result.files;
 }

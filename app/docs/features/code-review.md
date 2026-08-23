@@ -42,6 +42,8 @@ In the file list:
 - move with `↑/↓` or `j/k`
 - `Enter` focuses the selected file's diff
 - `Space` collapses or expands the selected file
+- `o` opens the focused changed file in a deduplicated full-file workspace tab
+- `/` opens the workspace file finder; all-files browsing lives outside Code Review
 - `f` opens an inline file note editor
 - `v` toggles unified/split diff view for the current review session
 - `x` clears the selected file note
@@ -63,6 +65,7 @@ When focused on a file diff:
 - `Ctrl+Enter` starts a same-side line-range selection from the current line
 - `x` clears the selected saved line/range note, or cancels an active range selection
 - `f` opens an inline file note editor
+- `o` opens the current file in a deduplicated full-file workspace tab
 - `v` toggles unified/split diff view for the current review session
 - `s` submits the composer immediately with the current review attachment and keeps the workspace open
 - `Esc` cancels an active range selection first, then returns to the file list
