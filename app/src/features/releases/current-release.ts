@@ -4,27 +4,23 @@ export const CURRENT_VERSION = version;
 
 /** Release notes bundled into the binary so the installed release is readable offline. */
 export const CURRENT_RELEASE_NOTES = `
-## Browser-hosted terminal
+## Full-file review workflows
 
-- Added the experimental \`kit --web-tui\` mode, which runs Kit's complete OpenTUI interface in a browser through Ghostty Web.
-- Added browser-native keyboard, mouse, selection, clipboard, notification, bell, theme, resize, and reconnect handling.
-- Added optional startup model selection with \`--model provider/model-id\`.
-- Added secure host and origin validation, optional Basic authentication, canonical public URLs, and browser coverage across Chromium, Firefox, and WebKit.
+- Added repository file browsing through the workspace file finder and an in-pane directory drawer.
+- Unchanged files now open in deduplicated workspace tabs with syntax highlighting and secure, bounded file reads.
+- Added line, range, and whole-file comments for normal files, with revision-aware drafts and structured feedback attachments.
+- Code Review can open changed files in full-file tabs while remaining focused on diffs.
 
-## Faster, clearer transcripts
+## Workspace navigation
 
-- Enabled viewport culling for long transcripts and activity drawers, substantially reducing rendering work as sessions grow.
-- Added compact Bash summaries and contained, scrollable output wells for expanded tool results.
-- Improved activity rows with aligned disclosure controls, single-line argument previews, and visible activated skill names.
-- Added Markdown rendering for sub-agent output and syntax highlighting for diff and patch code blocks.
+- Code Review and Scratchpad are now persistent default workspace tabs that initialize lazily while the secondary surface remains minimized by default.
+- Added a header toggle for collapsing or expanding Code Review's changed-files tree in wide and narrow layouts.
+- Clicking sub-agent tool-call names now opens the matching conversation or Activity workspace pane.
+- Workspace panes and repository-scoped review drafts now follow session repository changes safely.
 
-## Workspace and pager
+## Default model preference
 
-- Standardized workspace responsiveness around a shared 125-column split threshold instead of pane-specific minimum widths.
-- Moved MCP status into a retained workspace pane with reactive updates.
-- Added Copy and Quote selection actions to the pager; quoted text is inserted into pager notes without losing unsaved edits.
-
-## Dialogs
-
-- Confirmation dialogs now size themselves to their content while respecting sensible minimum and maximum widths.
+- Added a filterable default-model setting with an Automatic option.
+- New interactive, print, RPC, and web sessions use the configured default model unless an explicit \`--model\` override is supplied.
+- Existing sessions continue using their saved model.
 `;
