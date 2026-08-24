@@ -17,7 +17,7 @@ and submit that review back into Kit as a code-review attachment.
 - keeps commit and branch targets pinned to their selected revisions
 - switches to Transcript/Code review tabs when both panes cannot remain useful
 - shows a file list and a whole-file scrollable diff for the selected file
-- keeps the file tree persistently visible when the measured review pane crosses the review UI's existing wide-layout breakpoint
+- shows the changed-files tree beside the diff by default in wide layouts and lets the header toggle collapse or expand it
 - clearly marks skipped unchanged sections between change groups
 - lets you navigate to skipped-section rows and expand or collapse them individually while reviewing a file
 - supports unified and split diff views
@@ -34,6 +34,10 @@ and submit that review back into Kit as a code-review attachment.
 The in-TUI review flow uses the existing structured code-review attachment model rather than introducing a separate terminal-only review payload format.
 
 ## Interaction model
+
+The leading header button toggles the changed-files tree. Wide layouts show it
+beside the diff when expanded; narrow layouts switch between a full-width tree
+and full-width diff.
 
 ### File list mode
 

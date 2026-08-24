@@ -45,8 +45,11 @@ Review's diff-coordinate draft namespace. Each draft is pinned to the file
 revision where commenting began; if the working file changes, its comments are
 marked stale, its attachment is hidden, and submission is blocked until those
 notes are cleared and recreated.
-Code Review remains focused on its changed-file tree and diff presentation. It
-is scoped to the active session's Git repository and remounts when a cwd change
+Code Review remains focused on its changed-file tree and diff presentation. Its
+context header uses the shared sidebar toggle to collapse or expand the changes
+tree; wide layouts split the tree and diff, while narrow layouts switch between
+them at full width. It is scoped to the active session's Git repository and
+remounts when a cwd change
 moves the session to a different repository; per-repository drafts remain in the
 session draft controller and are restored when that repository is revisited. A
 long-form review feed is deferred until the workspace has a reliable

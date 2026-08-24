@@ -36,6 +36,7 @@ import { scrollbarStyle, theme } from "../../shell/theme";
 import {
 	WorkspacePanelHeader,
 	WorkspacePanelLayout,
+	WorkspaceSidebarToggle,
 } from "../../shell/WorkspacePanelLayout";
 import type { PickerOption } from "../../state/picker";
 import { createPickerManager } from "../../state/picker-manager";
@@ -96,7 +97,33 @@ export type ReviewContentProps = {
 	onFindFile: () => void;
 };
 
-type ReviewMode = "tree" | "patch";
+export type ReviewMode = "tree" | "patch";
+
+export function resolveReviewPaneVisibility(options: {
+	wide: boolean;
+	mode: ReviewMode;
+	treeExpanded: boolean;
+	editorOpen?: boolean;
+}): { tree: boolean; diff: boolean } {
+	const mode = options.editorOpen ? "patch" : options.mode;
+	return {
+		tree: options.wide ? options.treeExpanded : mode === "tree",
+		diff: options.wide || mode === "patch",
+	};
+}
+
+export function toggleReviewTreeState(options: {
+	wide: boolean;
+	mode: ReviewMode;
+	treeExpanded: boolean;
+}): { mode: ReviewMode; treeExpanded: boolean } {
+	const expanded = resolveReviewPaneVisibility(options).tree;
+	return {
+		mode: expanded ? "patch" : "tree",
+		treeExpanded: !expanded,
+	};
+}
+
 type ReviewSide = "additions" | "deletions";
 type CommentableLine = ReviewDiffCommentableLine;
 
@@ -557,7 +584,25 @@ export function ReviewContent(props: ReviewContentProps) {
 	let targetNoticeTimeout: ReturnType<typeof setTimeout> | undefined;
 	const [selectedIndex, setSelectedIndex] = createSignal(0);
 	const [mode, setMode] = createSignal<ReviewMode>("tree");
+	const [treeExpanded, setTreeExpanded] = createSignal(true);
 	const [contentWidth, setContentWidth] = createSignal(120);
+
+	function showChangesTree(): void {
+		setTreeExpanded(true);
+		setMode("tree");
+	}
+
+	function toggleChangesTree(): void {
+		if (editorOpen() || commitPickerOpen()) return;
+		props.onFocusRequest?.();
+		const next = toggleReviewTreeState({
+			wide: isWide(),
+			mode: mode(),
+			treeExpanded: treeExpanded(),
+		});
+		setTreeExpanded(next.treeExpanded);
+		setMode(next.mode);
+	}
 	const [treeFocusedPath, setTreeFocusedPath] = createSignal<string | null>(
 		null,
 	);
@@ -759,6 +804,14 @@ export function ReviewContent(props: ReviewContentProps) {
 	let contentRef: { width: number } | undefined;
 
 	const isWide = createMemo(() => contentWidth() >= WIDE_VIEWPORT_THRESHOLD);
+	const paneVisibility = createMemo(() =>
+		resolveReviewPaneVisibility({
+			wide: isWide(),
+			mode: mode(),
+			treeExpanded: treeExpanded(),
+			editorOpen: editorOpen(),
+		}),
+	);
 	const treePanelWidth = createMemo(() =>
 		Math.max(
 			MIN_TREE_PANEL_WIDTH,
@@ -766,7 +819,9 @@ export function ReviewContent(props: ReviewContentProps) {
 		),
 	);
 	const diffPaneWidth = createMemo(() =>
-		isWide() ? Math.max(0, contentWidth() - treePanelWidth()) : contentWidth(),
+		isWide() && paneVisibility().tree
+			? Math.max(0, contentWidth() - treePanelWidth())
+			: contentWidth(),
 	);
 
 	let patchCursorScrollTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -843,7 +898,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		setEditorOpen(false);
 		setSelectedIndex(0);
 		setTreeFocusedPath(null);
-		setMode("tree");
+		showChangesTree();
 		setTarget(next);
 	}
 
@@ -1140,7 +1195,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		if (list.length === 0) {
 			setSelectedSectionIds(new Map<string, string>());
 			setExpandedSectionIds(new Set<string>());
-			setMode("tree");
+			showChangesTree();
 			setRangeAnchor(null);
 		}
 	});
@@ -1839,6 +1894,9 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function openFileNoteEditor(file: ReviewFile) {
+		// The editor lives in the diff pane. Focus that pane first so opening a
+		// note from the tree—or resizing narrow while editing—cannot hide it.
+		setMode("patch");
 		setEditingFileNoteValue(selectedFileNote(file));
 		setEditingFileNoteKey(file.noteKey);
 		setEditorOpen(true);
@@ -2177,7 +2235,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		commands: {
 			"review.back": () => {
 				if (rangeAnchor()) setRangeAnchor(null);
-				else setMode("tree");
+				else showChangesTree();
 			},
 			"review.previous-change": () => cycleHunk(-1),
 			"review.next-change": () => cycleHunk(1),
@@ -2239,7 +2297,16 @@ export function ReviewContent(props: ReviewContentProps) {
 		</text>
 	);
 	const reviewHeader = (
-		<WorkspacePanelHeader left={reviewHeaderLeft} right={reviewHeaderRight} />
+		<WorkspacePanelHeader
+			leading={
+				<WorkspaceSidebarToggle
+					expanded={paneVisibility().tree}
+					onToggle={toggleChangesTree}
+				/>
+			}
+			left={reviewHeaderLeft}
+			right={reviewHeaderRight}
+		/>
 	);
 
 	return (
@@ -2289,8 +2356,8 @@ export function ReviewContent(props: ReviewContentProps) {
 					flexDirection="row"
 					overflow="hidden"
 				>
-					{/* Tree panel */}
-					<Show when={isWide() || mode() === "tree"}>
+					{/* Changed-files tree */}
+					<Show when={paneVisibility().tree}>
 						<box
 							width={isWide() ? treePanelWidth() : undefined}
 							flexGrow={isWide() ? 0 : 1}
@@ -2321,12 +2388,16 @@ export function ReviewContent(props: ReviewContentProps) {
 					</Show>
 
 					{/* Diff pane */}
-					<Show when={isWide() || mode() === "patch"}>
+					<Show when={paneVisibility().diff}>
 						<Show
 							when={selectedFile()}
 							fallback={
 								<box flexGrow={1} justifyContent="center" alignItems="center">
-									<text fg={theme.textMuted}>Select a change to view</text>
+									<text fg={theme.textMuted}>
+										{reviewFiles().length === 0
+											? "No changed files"
+											: "Select a change to view"}
+									</text>
 								</box>
 							}
 						>
