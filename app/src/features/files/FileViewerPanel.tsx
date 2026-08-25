@@ -220,6 +220,11 @@ export function FileViewerPanel(props: FileViewerPanelProps) {
 		});
 	});
 
+	function selectDrawerFile(path: string): void {
+		setDrawerOpen(false);
+		props.onOpenFile(path);
+	}
+
 	useKeymapLayer(() => ({
 		scope: "modal",
 		when: () => props.active && !drawerOpen() && !commentEditing(),
@@ -292,7 +297,7 @@ export function FileViewerPanel(props: FileViewerPanelProps) {
 							paths={projectFiles() ?? []}
 							focused={props.active && drawerOpen()}
 							selectedPath={props.path}
-							onSelectFile={props.onOpenFile}
+							onSelectFile={selectDrawerFile}
 							onClose={() => setDrawerOpen(false)}
 							onFocusRequest={props.onFocusRequest}
 						/>

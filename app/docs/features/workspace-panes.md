@@ -36,8 +36,10 @@ relative path. Reopening the same file selects its existing tab. `/` opens the
 workspace file finder from any focused secondary pane; the same action remains
 available through the command palette from other contexts. File panes render the current working-tree file with line numbers and syntax
 highlighting. Their context header owns a collapsed-by-default repository-tree
-drawer toggle, with no redundant content header below it. File panes share Code
-Review's feedback workflow: `Enter` or a line click edits a line note,
+drawer toggle, with no redundant content header below it. Selecting a file from
+the repository tree closes the drawer before focusing the selected file, so its
+comment interactions are immediately active. File panes share Code Review's
+feedback workflow: `Enter` or a line click edits a line note,
 `Ctrl+Enter` starts a range, `f` edits a whole-file note, `x` clears the selected
 line note, and `s` submits. Saved notes use file-specific session drafts, project into file-feedback
 attachments, and remain until removed or consumed. They do not share Code
