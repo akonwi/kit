@@ -12,6 +12,7 @@ import {
 	createComposerController,
 	extractPendingComposerText,
 	mergePendingMessagesIntoComposer,
+	REFERENCE_PICKER_ESCAPE_DELAY_MS,
 	type TextareaHandle,
 } from "./composer-controller";
 
@@ -269,6 +270,290 @@ describe("composer submission", () => {
 
 		expect(bashExecutions).toBe(0);
 		expect(submitted).toEqual([{ type: "text", text: "!explain this" }]);
+	});
+});
+
+describe("reference picker escaping", () => {
+	function setupReferenceController(options?: {
+		ensureLoaded?: () => Promise<Array<{ path: string; isDir: boolean }>>;
+		runtime?: AgentRuntime;
+	}) {
+		const textarea: TextareaHandle = {
+			plainText: "",
+			cursorOffset: 0,
+			setText: (value) => {
+				textarea.plainText = value;
+				textarea.cursorOffset = value.length;
+			},
+			insertText: (value) => {
+				textarea.setText(
+					`${textarea.plainText.slice(0, textarea.cursorOffset)}${value}${textarea.plainText.slice(textarea.cursorOffset)}`,
+				);
+			},
+			focus: () => {},
+		};
+		const toasts: ToastInput[] = [];
+		const controller = createComposerController({
+			runtime: options?.runtime ?? ({} as AgentRuntime),
+			commands: createCommandRegistry(),
+			fileIndex: {
+				ensureLoaded:
+					options?.ensureLoaded ??
+					(async () => [{ path: "src/index.ts", isDir: false }]),
+			} as never,
+			threadIndex: {
+				suggest: async () => [
+					{
+						name: "Previous thread",
+						description: "recent session",
+						value: "thread-1",
+					},
+				],
+			} as never,
+			attachments: createAttachmentsController(),
+			reviewDrafts: {} as never,
+			reviewWorkspace: {} as never,
+			toast: (toast) => toasts.push(toast),
+			_reload: async () => {},
+			openCustomOverlay: async () => undefined as never,
+		});
+		controller.setTextarea(textarea);
+		return { controller, textarea, toasts };
+	}
+
+	for (const prefix of ["@", "#"] as const) {
+		test(`typing ${prefix}${prefix} during the grace period prevents the picker from opening`, async () => {
+			const { controller, textarea } = setupReferenceController();
+			textarea.setText(prefix);
+			controller.handleTextChange();
+			expect(textarea.plainText).toBe("");
+			textarea.setText(prefix);
+			controller.handleTextChange();
+			await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+			controller.picker.accept();
+
+			expect(textarea.plainText).toBe(prefix);
+		});
+
+		test(`typing ${prefix}${prefix} after its picker opens closes it`, async () => {
+			const { controller, textarea } = setupReferenceController();
+			textarea.setText(prefix);
+			controller.handleTextChange();
+			await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+			controller.picker.filter(prefix);
+			controller.picker.accept();
+
+			expect(textarea.plainText).toBe(prefix);
+		});
+	}
+
+	test("restores a literal trigger when whitespace cancels a pending query", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("@");
+		controller.handleTextChange();
+		textarea.setText("topic ");
+		controller.handleTextChange();
+
+		expect(textarea.plainText).toBe("@topic ");
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+		controller.picker.accept();
+		expect(textarea.plainText).toBe("@topic ");
+	});
+
+	test("opening the command palette invalidates a pending reference", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("@");
+		controller.handleTextChange();
+		textarea.setText("/");
+		controller.handleTextChange();
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+		controller.picker.accept();
+
+		expect(textarea.plainText).toBe("");
+	});
+
+	test("explicit cancellation removes a pending query", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("@");
+		controller.handleTextChange();
+		textarea.setText("src");
+		controller.handleTextChange();
+
+		expect(controller.cancelReferenceInteraction()).toBe(true);
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+		controller.picker.accept();
+		expect(textarea.plainText).toBe("");
+	});
+
+	test("clearing an open picker runs provisional-reference cleanup", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("@");
+		controller.handleTextChange();
+		textarea.setText("src");
+		controller.handleTextChange();
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+		controller.picker.clear();
+
+		expect(textarea.plainText).toBe("");
+	});
+
+	test("carries text typed during the grace period into the reference query", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("@");
+		controller.handleTextChange();
+		textarea.setText("src");
+		controller.handleTextChange();
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+		controller.picker.accept();
+
+		expect(textarea.plainText).toBe("@src/index.ts ");
+	});
+
+	test("cancellation removes only the tracked query after cursor movement", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("before @after");
+		textarea.cursorOffset = 8;
+		controller.handleTextChange();
+		textarea.setText("before srcafter");
+		textarea.cursorOffset = 10;
+		controller.handleTextChange();
+		textarea.cursorOffset = 0;
+
+		expect(controller.cancelReferenceInteraction()).toBe(true);
+		expect(textarea.plainText).toBe("before after");
+		expect(textarea.cursorOffset).toBe(0);
+	});
+
+	test("rebases the provisional anchor when text is inserted before it", () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("before @after");
+		textarea.cursorOffset = 8;
+		controller.handleTextChange();
+		textarea.setText("Xbefore after");
+		textarea.cursorOffset = 1;
+		controller.handleTextChange();
+
+		expect(textarea.plainText).toBe("Xbefore @after");
+		expect(textarea.cursorOffset).toBe(1);
+	});
+
+	test("rebases the provisional anchor when text is deleted before it", () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("before @after");
+		textarea.cursorOffset = 8;
+		controller.handleTextChange();
+		textarea.setText("efore after");
+		textarea.cursorOffset = 0;
+		controller.handleTextChange();
+
+		expect(textarea.plainText).toBe("efore @after");
+		expect(textarea.cursorOffset).toBe(0);
+	});
+
+	test("cursor movement restores the literal trigger instead of losing it", async () => {
+		const { controller, textarea } = setupReferenceController();
+		textarea.setText("before @after");
+		textarea.cursorOffset = 8;
+		controller.handleTextChange();
+		textarea.setText("before srcafter");
+		textarea.cursorOffset = 10;
+		controller.handleTextChange();
+		textarea.cursorOffset = 0;
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+		controller.picker.accept();
+
+		expect(textarea.plainText).toBe("before @srcafter");
+		expect(textarea.cursorOffset).toBe(0);
+	});
+
+	test("message history invalidates a pending reference", async () => {
+		const runtime = {
+			getMessages: () => [
+				{ role: "user", content: "previous message", timestamp: 1 },
+			],
+		} as unknown as AgentRuntime;
+		const { controller, textarea } = setupReferenceController({ runtime });
+		textarea.setText("@");
+		controller.handleTextChange();
+		expect(controller.showUserMessageHistoryPicker()).toBe(true);
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+
+		controller.picker.accept();
+
+		expect(textarea.plainText).toBe("previous message");
+	});
+
+	test("restores the literal trigger when suggestion loading fails", async () => {
+		const { controller, textarea, toasts } = setupReferenceController({
+			ensureLoaded: async () => {
+				throw new Error("scan failed");
+			},
+		});
+		textarea.setText("@");
+		controller.handleTextChange();
+		await Bun.sleep(0);
+
+		expect(textarea.plainText).toBe("@");
+		expect(toasts).toEqual([
+			{
+				title: "File references",
+				subtitle: "scan failed",
+				variant: "error",
+			},
+		]);
+	});
+
+	test("loads suggestions concurrently with the grace period", async () => {
+		let resolveEntries:
+			| ((entries: Array<{ path: string; isDir: boolean }>) => void)
+			| undefined;
+		const entries = new Promise<Array<{ path: string; isDir: boolean }>>(
+			(resolve) => {
+				resolveEntries = resolve;
+			},
+		);
+		const { controller, textarea } = setupReferenceController({
+			ensureLoaded: () => entries,
+		});
+		textarea.setText("@");
+		controller.handleTextChange();
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+		resolveEntries?.([{ path: "src/index.ts", isDir: false }]);
+		await Bun.sleep(0);
+
+		controller.picker.accept();
+
+		expect(textarea.plainText).toBe("@src/index.ts ");
+	});
+
+	test("typing a doubled trigger cancels a file picker that is still loading", async () => {
+		let resolveEntries:
+			| ((entries: Array<{ path: string; isDir: boolean }>) => void)
+			| undefined;
+		const entries = new Promise<Array<{ path: string; isDir: boolean }>>(
+			(resolve) => {
+				resolveEntries = resolve;
+			},
+		);
+		const { controller, textarea } = setupReferenceController({
+			ensureLoaded: () => entries,
+		});
+		textarea.setText("@");
+		controller.handleTextChange();
+		textarea.setText("@");
+		controller.handleTextChange();
+
+		expect(textarea.plainText).toBe("@");
+		resolveEntries?.([{ path: "src/index.ts", isDir: false }]);
+		await Bun.sleep(REFERENCE_PICKER_ESCAPE_DELAY_MS + 10);
+		controller.picker.accept();
+		expect(textarea.plainText).toBe("@");
 	});
 });
 

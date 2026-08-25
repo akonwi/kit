@@ -91,6 +91,11 @@ export function ComposerDock(props: ComposerDockProps) {
 				props.onOpenAttachment(attachment);
 			},
 			"composer.clear-or-quit": () => {
+				if (props.controller.cancelReferenceInteraction()) {
+					picker.clear();
+					syncComposerText();
+					return;
+				}
 				if (picker.visible) {
 					picker.clear();
 					return;

@@ -106,7 +106,12 @@ export function createPickerManager() {
 	}
 
 	function clear() {
-		setStack([]);
+		setStack((entries) => {
+			for (let index = entries.length - 1; index >= 0; index--) {
+				entries[index]?.onDismiss?.();
+			}
+			return [];
+		});
 	}
 
 	function updateOptions(options: PickerOption[]) {

@@ -301,6 +301,7 @@ function AppShellContent(props: AppShellContentProps) {
 		workspace.setFocusedSurface("composer");
 	}
 	function focusReviewSurface(): void {
+		props.controller.cancelReferenceInteraction();
 		props.controller.picker.clear();
 		workspace.setNarrowTab("secondary");
 		workspace.setFocusedSurface("secondary");
@@ -685,6 +686,7 @@ function AppShellContent(props: AppShellContentProps) {
 		) {
 			saveScratchpadDraftIfEditing();
 		}
+		props.controller.cancelReferenceInteraction();
 		props.controller.picker.clear();
 		workspace.selectSecondary(target, { focus: "secondary" });
 		return true;

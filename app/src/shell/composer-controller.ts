@@ -26,6 +26,8 @@ import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
 import { MIDDLE_DOT } from "./glyphs";
 
+export const REFERENCE_PICKER_ESCAPE_DELAY_MS = 250;
+
 export function extractPendingComposerText(message: AgentMessage): string {
 	if (!("content" in message)) return "";
 	if (typeof message.content === "string") return message.content;
@@ -113,6 +115,23 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	let textareaRef: TextareaHandle | undefined;
 	let prevTextLength = 0;
 	let expectedBashHistoryText: string | null = null;
+	let referenceOpenGeneration = 0;
+	let pendingReference:
+		| {
+				prefix: "@" | "#";
+				generation: number;
+				anchor: number;
+				queryEnd: number;
+		  }
+		| undefined;
+	let activeReference:
+		| {
+				prefix: "@" | "#";
+				generation: number;
+				anchor: number;
+				queryEnd: number;
+		  }
+		| undefined;
 
 	function setTextarea(ref: TextareaHandle | undefined) {
 		textareaRef = ref;
@@ -166,6 +185,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	function openCommandPalette() {
 		if (commandPalette.visible) return;
+		if (cancelReferenceInteraction()) picker.clear();
 		let resolvedCommand: Command | null = null;
 		let currentArgs = "";
 		const availableCommands = commands.getAll();
@@ -236,10 +256,140 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		);
 	}
 
-	async function openFileReferences(initialQuery = "") {
-		const entries = await fileIndex.ensureLoaded();
+	function removeComposerRange(start: number, end: number) {
+		if (!textareaRef) return;
+		const text = textareaRef.plainText;
+		const cursor = textareaRef.cursorOffset;
+		setTextareaText(`${text.slice(0, start)}${text.slice(end)}`);
+		if (textareaRef) {
+			textareaRef.cursorOffset =
+				cursor <= start
+					? cursor
+					: cursor >= end
+						? cursor - (end - start)
+						: start;
+		}
+	}
+
+	function cancelActiveReference(generation: number) {
+		if (activeReference?.generation !== generation) return;
+		const { anchor, queryEnd } = activeReference;
+		activeReference = undefined;
+		removeComposerRange(anchor, queryEnd);
+	}
+
+	function cancelReferenceInteraction(): boolean {
+		const pending = pendingReference;
+		const active = activeReference;
+		if (!pending && !active) return false;
+		referenceOpenGeneration += 1;
+		pendingReference = undefined;
+		activeReference = undefined;
+		if (pending && textareaRef) {
+			removeComposerRange(pending.anchor, pending.queryEnd);
+		} else if (active) {
+			removeComposerRange(active.anchor, active.queryEnd);
+		}
+		return true;
+	}
+
+	function restorePendingReferenceAsLiteral() {
+		const reference = pendingReference;
+		if (!reference || !textareaRef) return;
+		const text = textareaRef.plainText;
+		const cursor = textareaRef.cursorOffset;
+		referenceOpenGeneration += 1;
+		pendingReference = undefined;
+		setTextareaText(
+			`${text.slice(0, reference.anchor)}${reference.prefix}${text.slice(reference.anchor)}`,
+		);
+		if (textareaRef) {
+			textareaRef.cursorOffset =
+				cursor >= reference.anchor ? cursor + 1 : cursor;
+		}
+	}
+
+	function handleReferenceLoadFailure(
+		prefix: "@" | "#",
+		generation: number,
+		error: unknown,
+	) {
+		if (pendingReference?.generation !== generation) return;
+		restorePendingReferenceAsLiteral();
+		toast({
+			title: prefix === "@" ? "File references" : "Thread references",
+			subtitle: error instanceof Error ? error.message : String(error),
+			variant: "error",
+		});
+	}
+
+	function handleReferenceFilterChange(prefix: "@" | "#", query: string) {
+		if (query !== prefix) return;
+		const reference = activeReference;
+		if (reference?.prefix === prefix && textareaRef) {
+			const text = textareaRef.plainText;
+			activeReference = undefined;
+			setTextareaText(
+				`${text.slice(0, reference.anchor)}${prefix}${text.slice(reference.queryEnd)}`,
+			);
+			if (textareaRef) textareaRef.cursorOffset = reference.anchor + 1;
+		}
+		picker.pop();
+		queueMicrotask(focusTextarea);
+		return false;
+	}
+
+	function pendingReferenceQuery(reference: {
+		anchor: number;
+		queryEnd: number;
+	}): { query: string; end: number } | null {
+		if (!textareaRef) return null;
+		const text = textareaRef.plainText;
+		if (
+			reference.queryEnd < reference.anchor ||
+			reference.queryEnd > text.length ||
+			textareaRef.cursorOffset !== reference.queryEnd
+		) {
+			return null;
+		}
+		const query = text.slice(reference.anchor, reference.queryEnd);
+		if (/\s/.test(query)) return null;
+		return { query, end: reference.queryEnd };
+	}
+
+	async function waitForReferenceEscape(): Promise<void> {
+		await new Promise((resolve) =>
+			setTimeout(resolve, REFERENCE_PICKER_ESCAPE_DELAY_MS),
+		);
+	}
+
+	function referenceIsPending(generation: number): boolean {
+		return (
+			generation === referenceOpenGeneration &&
+			pendingReference?.generation === generation
+		);
+	}
+
+	async function openFileReferences(generation: number) {
+		const [entries] = await Promise.all([
+			fileIndex.ensureLoaded(),
+			waitForReferenceEscape(),
+		]);
+		if (!referenceIsPending(generation)) return;
+		const reference = pendingReference;
+		if (!reference || reference.prefix !== "@") return;
+		const initial = pendingReferenceQuery(reference);
+		if (!initial) {
+			restorePendingReferenceAsLiteral();
+			return;
+		}
+		pendingReference = undefined;
+		activeReference = { ...reference, queryEnd: initial.end };
 		picker.show({
 			filterable: true,
+			inputValue: initial.query,
+			onDismiss: () => cancelActiveReference(generation),
+			onFilterChange: (query) => handleReferenceFilterChange("@", query),
 			options: entries.map((entry) => ({
 				name: entry.path,
 				description: entry.isDir ? "directory" : "",
@@ -251,16 +401,32 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				},
 			})),
 		});
-		if (initialQuery) {
-			picker.filter(initialQuery);
+		if (initial.query) {
+			picker.filter(initial.query);
 		}
 	}
 
-	async function openThreadReferences(initialQuery = "") {
+	async function openThreadReferences(generation: number) {
 		if (!threadIndex) return;
-		const suggestions = await threadIndex.suggest(initialQuery);
+		const [suggestions] = await Promise.all([
+			threadIndex.suggest(""),
+			waitForReferenceEscape(),
+		]);
+		if (!referenceIsPending(generation)) return;
+		const reference = pendingReference;
+		if (!reference || reference.prefix !== "#") return;
+		const initial = pendingReferenceQuery(reference);
+		if (!initial) {
+			restorePendingReferenceAsLiteral();
+			return;
+		}
+		pendingReference = undefined;
+		activeReference = { ...reference, queryEnd: initial.end };
 		picker.show({
 			filterable: true,
+			inputValue: initial.query,
+			onDismiss: () => cancelActiveReference(generation),
+			onFilterChange: (query) => handleReferenceFilterChange("#", query),
 			options: suggestions.map((entry) => ({
 				name: entry.name,
 				description: entry.description,
@@ -271,31 +437,27 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				},
 			})),
 		});
-		if (initialQuery) {
-			picker.filter(initialQuery);
+		if (initial.query) {
+			picker.filter(initial.query);
 		}
 	}
 
 	function insertReference(prefix: "@" | "#", value: string) {
 		if (!textareaRef) return;
 		const text = textareaRef.plainText;
-		const cursor = textareaRef.cursorOffset;
 		const token = `${prefix}${value}`;
-		const tokenStart = findReferenceTokenStart(text, cursor, prefix);
-
-		if (tokenStart < 0) {
-			insertText(`${token} `);
+		const reference = activeReference;
+		if (reference?.prefix === prefix) {
+			activeReference = undefined;
+			const nextText = `${text.slice(0, reference.anchor)}${token} ${text.slice(reference.queryEnd)}`;
+			setTextareaText(nextText);
+			if (textareaRef) {
+				textareaRef.cursorOffset = reference.anchor + token.length + 1;
+			}
 			return;
 		}
 
-		let end = cursor;
-		while (end < text.length && !/\s/.test(text[end] ?? "")) {
-			end++;
-		}
-
-		const nextText = `${text.slice(0, tokenStart)}${token} ${text.slice(end)}`;
-		setTextareaText(nextText);
-		if (textareaRef) textareaRef.cursorOffset = tokenStart + token.length + 1;
+		insertText(`${token} `);
 	}
 
 	async function handlePaste(event: PasteEvent) {
@@ -375,7 +537,8 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		}
 
 		const cursor = textareaRef?.cursorOffset ?? text.length;
-		const grew = text.length > prevTextLength;
+		const lengthDelta = text.length - prevTextLength;
+		const grew = lengthDelta > 0;
 		prevTextLength = text.length;
 
 		if (
@@ -390,13 +553,58 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			return;
 		}
 
-		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "#") {
-			void openThreadReferences();
-			return;
+		if (pendingReference && lengthDelta !== 0) {
+			const reference = pendingReference;
+			const editStart = lengthDelta > 0 ? cursor - lengthDelta : cursor;
+			if (editStart < reference.anchor) {
+				reference.anchor = Math.max(editStart, reference.anchor + lengthDelta);
+				reference.queryEnd = Math.max(
+					reference.anchor,
+					reference.queryEnd + lengthDelta,
+				);
+				restorePendingReferenceAsLiteral();
+				return;
+			}
+			const editIsInQuery = editStart <= reference.queryEnd;
+			const nextQueryEnd = reference.queryEnd + lengthDelta;
+			if (!editIsInQuery || nextQueryEnd < reference.anchor) {
+				restorePendingReferenceAsLiteral();
+				return;
+			}
+			reference.queryEnd = nextQueryEnd;
+			if (/\s/.test(text.slice(reference.anchor, reference.queryEnd))) {
+				restorePendingReferenceAsLiteral();
+				return;
+			}
 		}
 
-		if (!picker.visible && grew && cursor > 0 && text[cursor - 1] === "@") {
-			void openFileReferences();
+		if (!picker.visible && grew && cursor > 0) {
+			const prefix = text[cursor - 1];
+			if (prefix !== "@" && prefix !== "#") return;
+			if (prefix === "#" && !threadIndex) return;
+
+			if (
+				pendingReference?.prefix === prefix &&
+				pendingReference.anchor === cursor - 1
+			) {
+				referenceOpenGeneration += 1;
+				pendingReference = undefined;
+				return;
+			}
+
+			const generation = ++referenceOpenGeneration;
+			const anchor = cursor - 1;
+			removeComposerRange(anchor, cursor);
+			pendingReference = { prefix, generation, anchor, queryEnd: anchor };
+			if (prefix === "#") {
+				void openThreadReferences(generation).catch((error) =>
+					handleReferenceLoadFailure("#", generation, error),
+				);
+				return;
+			}
+			void openFileReferences(generation).catch((error) =>
+				handleReferenceLoadFailure("@", generation, error),
+			);
 		}
 	}
 
@@ -579,6 +787,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	function restorePendingMessages(): boolean {
 		const pending = runtime.drainPendingMessages();
 		if (pending.length === 0) return false;
+		cancelReferenceInteraction();
 		const restored = mergePendingMessagesIntoComposer(
 			pending.map(extractPendingComposerText).filter(Boolean),
 			textareaRef?.plainText ?? "",
@@ -645,6 +854,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (history.length === 0) return false;
 
 		const query = text.replace(/^!+/, "").trimStart();
+		cancelReferenceInteraction();
 		picker.show({
 			filterable: true,
 			label: "Bash history",
@@ -703,6 +913,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		const history = getUserMessageHistory();
 		if (history.length === 0) return false;
 
+		cancelReferenceInteraction();
 		picker.show({
 			filterable: true,
 			label: "Message history",
@@ -797,6 +1008,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		commandPalette,
 		openCommandPalette,
 		runCommand: executeCommand,
+		cancelReferenceInteraction,
 		setTextarea,
 		focusTextarea,
 		handlePaste,
@@ -827,21 +1039,6 @@ function formatThreadReference(id: string, name: string): string {
 		.replace(/\s+/g, " ")
 		.trim();
 	return `[thread:${id}:${safeName}]`;
-}
-
-function findReferenceTokenStart(
-	text: string,
-	cursor: number,
-	prefix: "@" | "#",
-): number {
-	let start = cursor - 1;
-	while (start >= 0) {
-		const char = text[start];
-		if (char === prefix) return start;
-		if (/\s/.test(char)) return -1;
-		start--;
-	}
-	return -1;
 }
 
 async function readImageAttachmentFromPath(
