@@ -15,6 +15,7 @@ The architecture is recorded in:
 - [`app/docs/adrs/0026-headless-rpc-mode.md`](../app/docs/adrs/0026-headless-rpc-mode.md)
 - [`app/docs/adrs/0027-remote-session-server.md`](../app/docs/adrs/0027-remote-session-server.md)
 - [`app/docs/adrs/0028-minimal-web-client.md`](../app/docs/adrs/0028-minimal-web-client.md)
+- [`app/docs/adrs/0029-session-client-and-repository-boundaries.md`](../app/docs/adrs/0029-session-client-and-repository-boundaries.md)
 
 ## Remaining server and browser work
 
@@ -37,12 +38,13 @@ OpenTUI renderer as a semantic WebSocket client of an authoritative `kit --web`
 host:
 
 ```text
-local AppShell/CliRenderer -> semantic WebSocket RPC -> remote RpcSessionHost
+local AppShell/CliRenderer -> session-bound WebSocket RPC -> KitHost -> RpcSessionHost
 ```
 
-It must reuse the existing web-mode protocol rather than introduce another
-server protocol or stream terminal bytes. This requires separating the TUI's
-presentation state from direct ownership of an in-process `AgentRuntime`.
+It must evolve the existing web-mode protocol with host-level session discovery
+and immutable connection-to-session binding rather than introduce an unrelated
+server protocol or stream terminal bytes. This also requires separating the
+TUI's presentation state from direct ownership of an in-process `AgentRuntime`.
 
 `kit --web-tui` and a possible future OpenTUI SSH entry point are complementary
 server-rendered terminal modes:
@@ -54,6 +56,7 @@ browser/SSH client -> terminal bytes -> server-side AppShell/CliRenderer
 They do not provide the local renderer, protocol reduction, shared-session
 synchronization, or reconnect behavior required by `kit attach`.
 
-A focused `kit attach` design should settle the CLI and authentication contract,
-the local/remote shell-facing interface, synchronization and reconnect behavior,
-capability-based feature support, and detach-versus-host-shutdown semantics.
+A focused `kit attach` design should still settle the CLI and authentication
+contract, host/session routing syntax, and detach-versus-host-shutdown semantics.
+ADR 0029 defines the local/remote client boundary, immutable session binding,
+and capability ownership.
