@@ -215,6 +215,50 @@ function skippedSectionLineLabel(section: ReviewSkippedSection): string {
 	return start === end ? `line ${start}` : `lines ${start}-${end}`;
 }
 
+export function ReviewSkippedSectionRow(props: {
+	section: ReviewSkippedSection;
+	interactive: boolean;
+	selected: boolean;
+	expanded: boolean;
+	onActivate: () => void;
+}) {
+	const [hovered, setHovered] = createSignal(false);
+	const highlighted = () => props.selected || (props.interactive && hovered());
+	return (
+		<box
+			id={`review-skipped-section-${props.section.id}`}
+			paddingX={1}
+			paddingY={0}
+			flexDirection="row"
+			justifyContent="space-between"
+			backgroundColor={highlighted() ? theme.bgMuted : theme.bgSurface}
+			onMouseOver={() => {
+				if (props.interactive) setHovered(true);
+			}}
+			onMouseOut={() => setHovered(false)}
+			onMouseDown={(event) => {
+				if (!props.interactive || event.button !== 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				props.onActivate();
+			}}
+		>
+			<text fg={props.selected ? theme.metaText : theme.textMuted}>
+				{props.expanded ? TRIANGLE_DOWN : TRIANGLE_RIGHT}{" "}
+				{props.section.lineCount} unchanged line
+				{props.section.lineCount === 1 ? "" : "s"}{" "}
+				{props.expanded ? "shown" : "hidden"}
+			</text>
+			<text fg={props.selected ? theme.textSecondary : theme.textPlaceholder}>
+				{skippedSectionLineLabel(props.section)}
+				{props.interactive && props.selected
+					? ` · Space ${props.expanded ? "collapse" : "expand"}`
+					: ""}
+			</text>
+		</box>
+	);
+}
+
 /**
  * Builds a synthetic context-only hunk for a skipped (unchanged) section
  * so its expanded view renders through the structured hunk path — with a
@@ -1513,6 +1557,7 @@ export function ReviewContent(props: ReviewContentProps) {
 	}
 
 	function renderSkippedSectionRow(
+		file: ReviewFile,
 		section: ReviewSkippedSection,
 		options: {
 			interactive: boolean;
@@ -1521,29 +1566,17 @@ export function ReviewContent(props: ReviewContentProps) {
 		},
 	) {
 		return (
-			<box
-				id={`review-skipped-section-${section.id}`}
-				paddingX={1}
-				paddingY={0}
-				flexDirection="row"
-				justifyContent="space-between"
-				backgroundColor={options.selected() ? theme.bgMuted : theme.bgSurface}
-			>
-				<text fg={options.selected() ? theme.metaText : theme.textMuted}>
-					{options.expanded() ? TRIANGLE_DOWN : TRIANGLE_RIGHT}{" "}
-					{section.lineCount} unchanged line
-					{section.lineCount === 1 ? "" : "s"}{" "}
-					{options.expanded() ? "shown" : "hidden"}
-				</text>
-				<text
-					fg={options.selected() ? theme.textSecondary : theme.textPlaceholder}
-				>
-					{skippedSectionLineLabel(section)}
-					{options.interactive && options.selected()
-						? ` · Space ${options.expanded() ? "collapse" : "expand"}`
-						: ""}
-				</text>
-			</box>
+			<ReviewSkippedSectionRow
+				section={section}
+				interactive={options.interactive}
+				selected={options.selected()}
+				expanded={options.expanded()}
+				onActivate={() => {
+					props.onFocusRequest?.();
+					focusSkippedSection(file, section);
+					toggleExpandedContext(section.id);
+				}}
+			/>
 		);
 	}
 
@@ -1792,7 +1825,7 @@ export function ReviewContent(props: ReviewContentProps) {
 		const selected = () => selectedSkippedSection()?.id === section.id;
 		return (
 			<>
-				{renderSkippedSectionRow(section, {
+				{renderSkippedSectionRow(file, section, {
 					interactive: true,
 					selected,
 					expanded,
@@ -1854,7 +1887,7 @@ export function ReviewContent(props: ReviewContentProps) {
 										selectedSkippedSection()?.id === section().id;
 									return (
 										<>
-											{renderSkippedSectionRow(section(), {
+											{renderSkippedSectionRow(file, section(), {
 												interactive,
 												selected,
 												expanded,
@@ -1877,7 +1910,7 @@ export function ReviewContent(props: ReviewContentProps) {
 							interactive && selectedSkippedSection()?.id === section().id;
 						return (
 							<>
-								{renderSkippedSectionRow(section(), {
+								{renderSkippedSectionRow(file, section(), {
 									interactive,
 									selected,
 									expanded,
