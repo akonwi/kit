@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed
+Accepted
+
+The browser view-layer choice was refined by ADR 0028. Operational protocol and
+hosting behavior is documented in the canonical
+[`../../../docs/features/rpc-mode.md`](../../../docs/features/rpc-mode.md).
 
 ## Context
 
@@ -22,11 +26,11 @@ These are the same architectural problem with different runtime placement. A
 separate protocol or server for each environment would duplicate session,
 streaming, interaction, and reconnection behavior.
 
-The current headless host also provides less functionality than interactive
-Kit. It initializes built-in plugins with an inert UI implementation, does not
-initialize external plugins, and cannot delegate confirmation, input,
+Before this decision, the headless host provided less functionality than
+interactive Kit. It initialized built-in plugins with an inert UI implementation,
+did not initialize external plugins, and could not delegate confirmation, input,
 selection, approval, or attachment interactions to a remote client. A remote
-session server needs deliberate parity rather than inheriting those omissions.
+session server needed deliberate parity rather than inheriting those omissions.
 
 ## Decision
 
@@ -132,13 +136,12 @@ The same `kit --web` process can run on a local computer or inside a cloud
 sandbox. Tunnels, relays, sandbox platforms, and cloud control planes are
 deployment concerns outside the session protocol.
 
-The server will bind to loopback by default. Native authentication and
-authorization are deferred from the initial mode. Remote access is expected to
-run through a trusted boundary such as Tailscale or an SSH tunnel, which owns
-its access controls. The server will reject permissive cross-origin access,
-and direct public exposure is unsupported until an authentication layer is
-added. Authentication can be layered on later without changing the session
-protocol.
+The server binds to loopback by default and validates request hosts and browser
+origins. Hosted deployments may add process-scoped HTTP Basic authentication,
+a canonical public origin, and explicit host/origin allowlists. Basic
+authentication requires HTTPS supplied by a tunnel or reverse proxy; Kit does
+not terminate TLS, provide tenancy, or replace deployment-level access controls.
+Direct public HTTP exposure remains unsupported.
 
 A local OpenTUI process and web mode must not independently mutate the same
 persisted session. Initially, remote continuation requires the session to be
@@ -187,6 +190,7 @@ around it.
 
 ## Related
 
-- `docs/adrs/0025-json-rpc-plugin-protocol.md`
-- `docs/adrs/0026-headless-rpc-mode.md`
-- `backlog/remote-session-server.md`
+- [`0025-json-rpc-plugin-protocol.md`](0025-json-rpc-plugin-protocol.md)
+- [`0026-headless-rpc-mode.md`](0026-headless-rpc-mode.md)
+- [`../../../docs/features/rpc-mode.md`](../../../docs/features/rpc-mode.md)
+- [`../../../backlog/remote-session-server.md`](../../../backlog/remote-session-server.md)

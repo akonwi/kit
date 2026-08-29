@@ -1,6 +1,8 @@
 # Experiment: browser TUI via ghostty-web
 
-Status: experiment on `experiment/web-tui-ghostty`. This is paired with the wterm DOM experiment on `experiment/web-tui-wterm`.
+Status: implemented as the experimental `kit --web-tui` mode. The original
+prototype lived on `experiment/web-tui-ghostty` and was evaluated alongside the
+wterm DOM experiment on `experiment/web-tui-wterm`.
 
 ## Goal
 

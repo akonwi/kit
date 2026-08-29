@@ -1,344 +1,59 @@
-# Remote sessions through `kit --web`
+# Remote session follow-ups
 
-Kit's headless RPC mode makes it possible to separate the agent runtime from its
-UI. Explore a `kit --web` entry point that runs a normal persistent Kit
-session without OpenTUI and serves remote clients over HTTP.
+## Status
 
-## Use cases
+The remote-session foundation is implemented. `kit --rpc` and `kit --web` share
+the transport-independent `RpcSessionHost`; web mode provides HTTP and WebSocket
+access with optional Basic authentication, semantic protocol events,
+snapshot/replay recovery, multiple controlling clients, remote interactions,
+attachments, and the Solid
+browser client.
 
-1. Run Kit on a local computer and control the session from a web browser while
-   away from that computer. Execution, files, credentials, and tools remain
-   local.
-2. Run Kit inside a cloud sandbox and control it through either the web UI or a
-   remotely connected Kit TUI.
+Current behavior is documented in [`docs/features/rpc-mode.md`](../docs/features/rpc-mode.md).
+The architecture is recorded in:
 
-Both cases should use the same server and client protocol. Only the placement of
-the Kit process differs.
+- [`app/docs/adrs/0026-headless-rpc-mode.md`](../app/docs/adrs/0026-headless-rpc-mode.md)
+- [`app/docs/adrs/0027-remote-session-server.md`](../app/docs/adrs/0027-remote-session-server.md)
+- [`app/docs/adrs/0028-minimal-web-client.md`](../app/docs/adrs/0028-minimal-web-client.md)
 
-## Proposed interface
+## Remaining server and browser work
 
-```sh
-# Create a persistent session in the current directory.
-kit --web
-
-# Resume an existing session.
-kit --web --session <id>
-
-# Listen behind an HTTPS tunnel or reverse proxy with Basic authentication.
-kit --web --host 0.0.0.0 --port 4782 \
-  --auth 'username:password' \
-  --allow-host kit.example.internal \
-  --allow-origin https://kit.example.internal
-```
-
-Backlog: support a web-mode configuration file so deployments do not need to
-repeat network and authentication options in shell commands. It should cover
-bind host/port, allowed hosts/origins (including explicit wildcards), and an
-auth credential source that avoids storing a plaintext password directly in
-the config. Define precedence between file values and CLI flags, with explicit
-CLI values overriding the file.
-
-The default host is `127.0.0.1`. Web mode optionally protects every HTTP and
-WebSocket route with native HTTP Basic authentication. Remote listeners should
-use Basic authentication behind an HTTPS tunnel or reverse proxy, or remain
-inside another trusted private network boundary.
-
-## Transport
-
-Use HTTP for static content, health checks, and binary uploads, with WebSocket
-for the bidirectional RPC stream:
-
-```text
-GET  /                 web client
-GET  /api/health       health and basic server state
-POST /api/attachments  multipart attachment upload
-WS   /api/rpc          commands, responses, events, and UI requests
-```
-
-WebSocket starts through HTTP and works behind HTTPS proxies, tunnels, cloud
-ingress, and sandbox providers. Reuse the existing RPC command, response, and
-event envelopes, with one JSON object per WebSocket frame instead of JSONL
-framing.
-
-Do not expose the raw stdio protocol directly to the network.
-
-## Runtime architecture
-
-Avoid implementing web mode by spawning `kit --rpc` as a child. Extract
-the current RPC dispatch into a transport-independent session host:
-
-```text
-HeadlessSessionHost
-├── handleCommand(command)
-├── subscribe(listener)
-└── dispose()
-
-Transports
-├── stdio adapter      -> kit --rpc
-└── WebSocket adapter  -> kit --web
-```
-
-Web mode should have normal Kit behavior—persistent sessions, built-in and
-external plugins, approvals, models, and tools—but use a remote UI adapter in
-place of OpenTUI.
-
-## Initial browser client
-
-Use Mica from the sibling `../mica` project as the component library and design
-system. The initial stack should stay HTML-first:
-
-- semantic HTML and native browser behavior
-- Mica's CSS-only layout custom elements and native component patterns
-- opt-in Mica JavaScript modules only where accessible behavior requires them
-- plain TypeScript modules for WebSocket transport, protocol reduction, and
-  services
-- SolidJS for reactive view composition and DOM lifecycle; no React or virtual
-  DOM
-
-The first client is a functional protocol client, not a complete redesign. It
-should emulate Kit's TUI hierarchy—session chrome, transcript, tool activity,
-composer, status, and dialogs—while keeping the implementation simple. Mica
-remains the style and native-component convention layer; Solid does not own
-protocol state. Defer a full port and detailed interaction design until the RPC
-parity gaps are closed.
-
-The browser bundle is produced during Kit's build and embedded in the compiled
-binary. See ADR 0028 for the client layering and asset boundary.
-
-## Required parity work
-
-The current RPC mode is a useful foundation but does not yet expose enough of
-Kit for a complete remote client.
-
-### Interactive UI
-
-Replace the inert headless plugin UI with a remote UI implementation. The
-server sends correlated `ui_request` events and waits for `ui_response`
-commands. Support:
-
-- confirmation
-- text input
-- selection
-- guided questions
-- plugin-owned tool approval through an interceptor's nested confirmation
-
-Interactive requests are broadcast to all connected clients. The first valid
-response wins, and the server broadcasts the resolution so other clients close
-the interaction. Requests are not owned by a connection: keep them pending
-across any number of disconnects, replay them to every client that connects,
-and reject responses once the originating operation has already resolved,
-aborted, or shut down.
-
-Implemented: the transport-neutral broker, `ui_request` / `ui_response`
-protocol, connection-independent pending requests, safe abort/shutdown behavior,
-remote plugin UI primitives, remote guided-question/user-interaction tools, and
-plugin-owned tool approvals composed from interceptors and nested confirmations.
-The browser uses deny-by-default focus, bounded scrollable approval content, and
-reconnect-safe first-response-wins resolution.
-
-### Plugins
-
-Server mode must initialize the external plugin manager without changing the
-reduced plugin surface used by print and stdio RPC modes.
-
-Implemented for web mode: user and project external plugins initialize and
-retarget with the hosted runtime; user-visible failures become browser toasts;
-and styled, clickable header/footer contributions are synchronized across
-snapshots, reconnects, and live updates. Declarative chrome URL actions open in
-the rendering client. Imperative `kit.system.open` calls become reconnect-safe
-bounded, deduplicated, nonblocking browser-side link actions, so they do not
-launch a browser on the host machine or interrupt the active workflow.
-
-### Commands and sessions
-
-Add protocol operations for:
-
-- capability and protocol-version discovery
-- listing, creating, and opening sessions by opaque ID
-- changing the active cwd/workspace
-- executing slash commands and prompt commands
-- retrieving complete state and messages
-
-Implemented: capability discovery, state/messages, session listing and opening,
-new sessions, cwd changes, and listing/execution for commands that explicitly
-provide transport-neutral handlers. Browser UI for creating, listing, switching,
-renaming, and deleting sessions is explicitly deferred; only existing
-transport-neutral session commands remain available in web mode. Additional
-renderer-owned built-in commands need deliberate remote adapters rather than
-fabricated TUI context.
-
-### Attachments
-
-Upload files and images through multipart HTTP. Return an attachment ID that a
-subsequent prompt can reference instead of embedding binary data in WebSocket
-JSON.
-
-Implemented for web mode: bounded multipart uploads, opaque one-shot prompt
-references, explicit deletion, UTF-8 text and validated image conversion, and
-WebSocket projection that omits inline image data.
-
-### Reconnection
-
-Assign monotonically increasing sequence numbers to events. A reconnecting
-client supplies its last observed sequence. Replay buffered events when
-possible; otherwise return a fresh state and message snapshot before resuming
-live events.
-
-Implemented: host-instance stream IDs, ordered projected-event journaling,
-count/byte-bounded retention, cursor replay through the WebSocket URL, explicit
-sync completion, bounded transcript-tail snapshots, paginated/chunked message
-and interaction recovery, and snapshot fallback for changed streams or
-unavailable history.
-
-Disconnecting a client must not terminate the Kit process or an active agent
-run.
-
-### Multi-client control
-
-Allow multiple WebSocket clients to fully control one authoritative runtime:
-
-- correlate command responses within the originating connection
-- serialize commands before they mutate shared session state
-- broadcast runtime events and shared-state changes to every client
-- allow any client to prompt, steer, abort, change session state, or answer an
-  interaction
-- resolve an interaction with the first valid response and broadcast the
-  resolution to the remaining clients
-- rely on existing runtime rules when simultaneous actions conflict with an
-  active agent run
-
-## Local remote execution
-
-A local machine runs `kit --web` and exposes it through a trusted tunnel
-or relay such as Tailscale or SSH. The machine must remain awake and online.
-
-The existing TUI and web mode cannot concurrently own the same persisted
-session because they create separate runtimes. Initially, continuing remotely
-requires detaching from the TUI and resuming the session under `kit --web`.
-Longer term, make both the local TUI and web UI clients of the same session
-host.
-
-## Cloud execution
-
-Run the same `kit --web --host 0.0.0.0` command inside an isolated
-sandbox. The hosting layer remains responsible for:
-
-- repository cloning or workspace upload
-- persistent worktree and session storage
-- scoped Git and model credentials
-- HTTPS routing and authentication
-- sandbox isolation and egress policy
-- idle suspension, restoration, resource limits, and cleanup
-
-Prefer one sandbox per workspace and one Kit runtime per active session.
+- Define explicit shared-session UX when another client changes the active
+  session or model. Session changes currently force a fresh snapshot.
+- Fill deliberate gaps in transport-neutral built-in commands and remote
+  management surfaces.
+- Validate supported deployment recipes through private tunnels and hosted
+  sandboxes.
+- Add a web-mode configuration file for bind address, public URL, allowlists,
+  and an authentication credential source that avoids plaintext configuration.
+- Preserve browser code-review drafts across reloads and add commit/branch,
+  file-level, and unchanged-file review workflows.
 
 ## Remote TUI
 
-After the WebSocket protocol and client state reducer are stable, add a client
-entry point such as:
-
-```sh
-kit attach https://example.com/session/<id>
-```
-
-The remote TUI should consume the same protocol as the browser. This requires
-separating the existing TUI's presentation state from its in-process
-`AgentRuntime`; it should not require a second server protocol.
-
-[`@opentui/ssh`](https://opentui.com/docs/reference/ssh/) is complementary to
-this design, not the foundation for `kit attach`. It creates a server-side
-`CliRenderer` for each accepted SSH shell and owns SSH authentication, host
-keys, PTY sizing, resize events, terminal byte transport, limits, and renderer
-cleanup. That is closer to the browser TUI's server-rendered terminal bridge
-than to a local `kit attach` client:
+`kit attach` remains outstanding and is tracked in
+[`app/backlog/backlog.md`](../app/backlog/backlog.md). It should run a local
+OpenTUI renderer as a semantic WebSocket client of an authoritative `kit --web`
+host:
 
 ```text
-kit attach:  local AppShell/CliRenderer -> semantic WebSocket RPC -> remote session host
-OpenTUI SSH: ssh client -> terminal bytes -> remote AppShell/CliRenderer
+local AppShell/CliRenderer -> semantic WebSocket RPC -> remote RpcSessionHost
 ```
 
-The package does not provide the remote runtime facade, snapshot/replay state
-reduction, shared-session synchronization, or presentation/runtime separation
-that `kit attach` needs. Its renderer is also destroyed when the SSH shell
-disconnects, so Kit would still need to keep the authoritative session host
-alive and rebuild client presentation state on reconnect.
+It must reuse the existing web-mode protocol rather than introduce another
+server protocol or stream terminal bytes. This requires separating the TUI's
+presentation state from direct ownership of an in-process `AgentRuntime`.
 
-Implement `kit attach` over the existing web-mode protocol first. After that
-boundary is stable, `@opentui/ssh` could support a complementary zero-install
-`ssh kit@host` entry point by creating one renderer/client projection per SSH
-shell while reusing the same persistent session host.
+`kit --web-tui` and a possible future OpenTUI SSH entry point are complementary
+server-rendered terminal modes:
 
-## Network exposure
+```text
+browser/SSH client -> terminal bytes -> server-side AppShell/CliRenderer
+```
 
-- Bind to `127.0.0.1` by default.
-- Support optional process-scoped HTTP Basic authentication across the browser,
-  assets, APIs, uploads, health checks, and WebSocket upgrades. Do not persist
-  credentials in Kit sessions.
-- Require HTTPS before using Basic authentication across an untrusted network;
-  Kit does not terminate TLS itself.
-- Require allowed-origin WebSocket connections and validate the request host
-  against the bound host by default. Add explicit `--allow-host <host:port>`
-  and `--allow-origin <origin>` values without replacing same-origin local
-  access, plus opt-in `*` wildcards for trusted surrounding infrastructure.
-- Treat direct public HTTP exposure as unsupported even when Basic
-  authentication is enabled.
+They do not provide the local renderer, protocol reduction, shared-session
+synchronization, or reconnect behavior required by `kit attach`.
 
-## Browser-client findings
-
-The first browser client exposed follow-up protocol work that should be solved
-for every remote client rather than hidden in renderer-specific code:
-
-- [x] Replace the protocol's legacy Pi-shaped `turn_start` and
-  `message_start/update/end` records with projections of Kit's semantic
-  `AgentRuntime` events (`agent.turn.*`, `agent.message.*`,
-  `user.message.created`, and `session.message.appended`). Pi event names,
-  payloads, and types remain private to the core `Agent`; streaming updates use
-  a Kit-owned content-update schema.
-- [x] Preserve Kit's existing `Turn.id` consistently in snapshot and live
-  protocol records, and promote persisted message-entry IDs to stable
-  `messageId` values shared by live events, snapshots, references, pagination,
-  and legacy-session migration.
-- [x] Add a server-owned generation to pending-interaction snapshots, pages,
-  and events so clients reject pages invalidated by live mutations.
-- [x] Advertise attachment quotas, upload concurrency, page sizes, snapshot
-  bounds, and recovery limits through capability discovery.
-- [x] Split the browser controller into transport, remote-service, and local
-  view-state modules behind the existing controller facade.
-- [x] Expose context-usage statistics so remote headers can render the TUI's
-  threshold-colored context progress line.
-- [x] Expose queued follow-up previews, not only their count, so remote pending
-  slots can mirror the TUI queue rows.
-- [x] Add transport-neutral queued follow-up mutations for restoring queued
-  messages into a client-local draft and promoting follow-ups to steering.
-  Define first-writer and stale-state behavior so simultaneous clients cannot
-  restore, edit, or promote the same queue inconsistently.
-- [x] Add browser controls for restoring/editing queued follow-ups and promoting
-  them to steering without turning the compact stacked preview into a queue
-  management surface.
-- [ ] Define explicit shared-session control UX for session/model changes made by
-  another connected client; session changes currently force a fresh snapshot.
-- [x] Project plugin header/footer contributions with semantic token styling,
-  built-in hide claims, stable identities, live updates, and remote click
-  activation.
-
-## Suggested delivery order
-
-- [x] Extract transport-independent RPC dispatch from the stdio server.
-- [x] Build a localhost-only web mode with multi-client WebSocket broadcasting.
-- [x] Add a minimal Mica-based web transcript/composer client.
-- [ ] Fill the remaining built-in command gaps.
-- [x] Add event sequencing, reconnect, and interaction coordination.
-- [ ] Validate local access through a trusted private tunnel.
-- [ ] Add a cloud sandbox worker using the same command and protocol.
-- [ ] Add `kit attach` for a remote TUI.
-
-The core product abstraction is: `kit --web` turns a local or cloud
-workspace into a remotely controllable Kit session to which compatible browser
-and terminal clients can attach.
-
-## Code review surface
-
-- [ ] Preserve drafts across page reloads.
-- [ ] Add commit and branch review targets; web currently reviews the working
-  tree.
-- [ ] Add file-level comments and comments on unchanged files.
+A focused `kit attach` design should settle the CLI and authentication contract,
+the local/remote shell-facing interface, synchronization and reconnect behavior,
+capability-based feature support, and detach-versus-host-shutdown semantics.

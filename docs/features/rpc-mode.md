@@ -1,4 +1,7 @@
-# RPC mode
+# RPC and web modes
+
+Kit's stdio and WebSocket transports share the same `RpcSessionHost`, command
+dispatch, and semantic event model.
 
 Kit can run as a long-lived headless subprocess using newline-delimited JSON on
 stdin and stdout:
@@ -14,6 +17,19 @@ kit --web --no-session
 RPC mode follows newline-delimited command and response envelope conventions
 similar to Pi's RPC mode, but its event schema is Kit-owned. Provider and Pi
 streaming types do not cross the protocol boundary.
+
+## Remote terminal clients
+
+A future `kit attach` command will run Kit's OpenTUI shell locally while using
+the web-mode protocol to control an authoritative remote `kit --web` session.
+It is not implemented yet. The terminal client will reconstruct presentation
+state from snapshots and sequenced semantic events rather than start another
+runtime or consume terminal-byte output.
+
+`kit --web-tui` is a separate experimental mode: it runs the renderer on the
+server and streams terminal bytes to a browser. A future OpenTUI SSH entry point
+would have the same server-rendered shape. Neither is the protocol foundation
+for `kit attach`.
 
 ## Transport and lifecycle
 
@@ -55,10 +71,12 @@ Controllers can discover those exact IDs through the protocol:
 Like print mode, RPC mode loads headless-safe built-ins plus user and project
 external plugins discovered from `~/.kit/plugins/` and the active session cwd.
 Headless-compatible contributions such as tools, tool-call interceptors,
-subagents, system-prompt slots, and lifecycle events are active. Commands and
-chrome can register but do not currently have an RPC presentation or execution
-surface. Plugin confirm, input, and select requests cannot display a terminal
-dialog; they fail or return cancellation.
+subagents, system-prompt slots, and lifecycle events are active. Commands are
+remotely executable only when they provide an explicit transport-neutral
+handler. Stdio RPC has no presentation for chrome or interactive plugin UI, so
+those interactions fail or return cancellation. Web mode projects supported
+plugin chrome and routes confirmation, input, selection, and guided-question
+requests through the remote interaction protocol.
 
 ## Web mode authentication
 
@@ -145,6 +163,23 @@ scoped workspaces and homes. Kit's optional Basic Auth is not a tenancy or
 sandbox boundary and is confidential only when the browser connects over
 HTTPS.
 
+### HTTP and WebSocket boundary
+
+Web mode defaults to `127.0.0.1:4782` and serves:
+
+```text
+GET    /                       browser entry point
+GET    /api/health             process health and connected-client count
+POST   /api/attachments        multipart attachment upload
+GET    /api/attachments/<id>   attachment content
+DELETE /api/attachments/<id>   release attachment content
+WS     /api/rpc                commands, responses, events, and synchronization
+```
+
+The server limits inbound WebSocket messages to 1 MiB and buffered output per
+client to 16 MiB. A client that exceeds the backpressure limit is disconnected
+rather than being allowed to consume unbounded memory or lose protocol ordering.
+
 ### Mobile browser layout
 
 At phone widths, web mode keeps the transcript and composer as the primary
@@ -189,9 +224,12 @@ process.
 
 ## Commands
 
+The current protocol version is 2. Clients should use `get_capabilities` to
+confirm the host version, supported commands, features, and transport limits.
+
 | Command | Fields | Result data |
 | --- | --- | --- |
-| `prompt` | `message`, optional `streamingBehavior: "steer" \| "followUp"` | none; accepted asynchronously |
+| `prompt` | optional `message`, `attachmentIds`, `streamingBehavior: "steer" \| "followUp"` | none; accepted asynchronously |
 | `steer` | `message` | none |
 | `follow_up` | `message` | none |
 | `restore_follow_ups` | `clientId`, `operationId`, `sessionId`, `expectedGeneration` | ordered text-only `messages` plus the resulting queue `generation` |
@@ -199,9 +237,16 @@ process.
 | `acknowledge_follow_up_mutation` | `clientId`, `operationId` | release a retained non-empty restore after applying it safely |
 | `abort` | none | none |
 | `new_session` | none | `{ "cancelled": false }` |
+| `list_sessions` | optional `cwd` | lightweight persisted-session summaries |
+| `open_session` | `sessionId` | activate an exact opaque session while idle |
+| `change_cwd` | `cwd` | change the hosted workspace while idle |
 | `get_capabilities` | none | protocol version, features, and transport limits |
 | `get_state` | none | current model, thinking level, session, CWD, streaming, message counts, queued follow-up previews, and context usage |
-| `get_messages` | none | `{ "messages": [...] }` |
+| `get_messages` | optional `offset`, `limit` | transcript messages with pagination metadata |
+| `get_message_chunk` (web mode) | `token`, optional `offset`, `maxBytes` | one bounded chunk of an oversized projected message |
+| `get_pending_interactions` (web mode) | optional `offset`, `limit`, `generation` | a generation-guarded page of pending remote interactions |
+| `get_pending_interaction_chunk` (web mode) | `requestId`, optional `offset`, `maxBytes` | one bounded chunk of an oversized interaction |
+| `ui_response` (web mode) | `requestId`, `response` | resolve a pending remote interaction |
 | `get_last_assistant_text` | none | `{ "text": string \| null }` |
 | `get_available_models` | none | `{ "models": [...] }` |
 | `set_model` | `provider`, `modelId` | selected model |
@@ -291,7 +336,10 @@ finish before the next command is dispatched.
 
 ## Events
 
-RPC mode emits Kit semantic events using the same dotted names as the runtime:
+RPC mode emits Kit semantic events using the same dotted names as the runtime.
+`agent.end` does not contain a complete message-history copy; clients reconstruct
+the transcript from identified message events and request snapshot or paginated
+state when recovery is required.
 
 - `agent.start`, `agent.end`, and `agent.settled`
 - `agent.turn.started` and `agent.turn.completed`
@@ -358,6 +406,155 @@ opening. Clients pass the expected generation while paging and restart when the
 server marks a page stale. Capability limits cover
 attachment quotas and upload concurrency, page sizes, snapshot bounds, event
 retention, and chunk recovery.
+
+## Event sequencing and reconnection
+
+Web events include one host-instance `streamId` and a monotonically increasing
+`sequence`. The same shared event has the same sequence for every client;
+connection-scoped command responses are not sequenced. A browser client that
+batches sequenced records must reduce records received earlier on the socket
+before resolving a later command response; otherwise response-driven pagination
+or recovery can commit stale state. Web capability responses advertise
+`eventSequencing`, the current stream and sequence, and retention limits. Stdio
+capabilities report sequencing as unsupported.
+
+Every WebSocket connection begins with `sync` and ends synchronization with
+`sync_complete` before live delivery starts. With no resume cursor, or when a
+cursor is invalid, stale, or from another host instance, `sync` uses
+`mode: "snapshot"` and includes current state, pending interactions, plugin
+header/footer chrome, and a bounded transcript tail. Snapshots retain at most the latest 200 messages and
+64 KiB; `messageOffset`, `totalMessageCount`, and `messagesTruncated` identify
+missing history, which clients retrieve through paginated `get_messages`
+commands. Web message pages are also capped at 64 KiB. An individually oversized
+message becomes a `message_reference` and is reconstructed through bounded
+`get_message_chunk` responses. References preserve the full message's
+`messageId`, `turnId`, and role. Reference tokens address immutable browser-safe
+serialized bytes in a 16 MiB bounded cache, so transcript mutation cannot mix
+chunk versions and chunks never restore projected image data or server paths.
+Evicted tokens are rejected; a single projected message above the cache limit is
+reported as `message_unavailable`. Snapshots include the active identified assistant partial even though it is not
+yet committed to session storage, and may represent it with a reference. Clients
+retain it as the active message and buffer
+live continuation deltas until the immutable snapshot reference is hydrated. If
+the token has expired, a fresh message page is already rebased to current server
+state and buffered deltas must not be applied to it again.
+
+A reconnecting client requests replay with:
+
+```text
+/api/rpc?streamId=<previous-stream-id>&after=<last-applied-sequence>
+```
+
+When the cursor remains in the journal, the server sends a replay `sync` whose
+`sequence` is the requested starting cursor and whose `targetSequence` is the
+captured high-water mark, followed by retained events and `sync_complete`.
+Clients advance their durable cursor only as each event is applied; they must
+not persist `targetSequence` before receiving the replayed tail. The server then
+adds the connection to live broadcasts, so replay and live delivery cannot
+interleave or leave a gap.
+
+The journal retains a contiguous suffix of at most 2,048 projected events and
+8 MiB. Oversized or evicted history causes snapshot fallback. If an internal
+event cannot be serialized, clients receive `resync_required` and should
+reconnect without a cursor to obtain a snapshot.
+
+## Remote interactions
+
+Web-mode capability responses set `interactiveUI` to true and list supported
+`interactionKinds`. The server emits a request such as:
+
+```json
+{
+  "type": "ui_request",
+  "request": {
+    "id": "request-id",
+    "kind": "confirm",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "payload": { "title": "Proceed?", "message": "Run the command" }
+  }
+}
+```
+
+A client answers with a normal correlated command:
+
+```json
+{
+  "id": "command-id",
+  "type": "ui_response",
+  "requestId": "request-id",
+  "response": { "confirmed": true }
+}
+```
+
+Supported response bodies are:
+
+| Interaction kind | Response |
+| --- | --- |
+| `confirm` | `{ "confirmed": boolean }` |
+| `input` | `{ "value": string \| null }` |
+| `select` | `{ "optionId": string \| null }` |
+| `guided_questions` | `{ "cancelled": boolean, "answers": object }` |
+
+Select option ids are opaque transport values; the server maps them back to the
+in-process values owned by the requesting plugin. Guided-question answers are
+validated against their declared kinds, required fields, and options.
+
+The broker assigns a monotonically increasing pending-interaction `generation`.
+Snapshots, `get_pending_interactions` pages, `ui_snapshot`, `ui_request`, and
+`ui_resolved` records carry it. `ui_snapshot` authoritatively replaces pending
+state for direct client attachment; request/resolution events represent one
+generation increment each. Page commands may provide their expected generation; a page
+from another generation returns `stale: true` without collection items so the
+client restarts from current state instead of merging shifted offsets.
+
+Snapshot and listing records replace an interaction payload over the advertised
+inline limit with a reference. Clients reconstruct it through
+`get_pending_interaction_chunk`; they can page omitted interaction listings
+through `get_pending_interactions`. Interaction recovery enforces the advertised
+per-chunk and total serialized-byte limits.
+
+Requests are broadcast to every connected client. The first valid response
+wins, and `ui_resolved` tells all clients to dismiss the interaction. Invalid,
+duplicate, and late responses fail without resolving another request. Pending
+requests are independent of client connections: they are replayed to every
+client that connects and remain pending until any client answers, the
+originating operation aborts, or the server shuts down.
+
+## Attachments
+
+Web mode accepts one multipart `file` field at `POST /api/attachments` and
+returns `{ "attachment": { "id", "filename", "mimeType", "size", "kind",
+"createdAt" } }`. A subsequent idle `prompt` command references up to eight
+opaque ids through `attachmentIds`; `message` may be empty when at least one
+attachment is present. Read an available or accepted upload with
+`GET /api/attachments/<id>`, and delete an unused or no-longer-needed retained
+upload with `DELETE /api/attachments/<id>`. Text downloads use passive
+attachment semantics and MIME sniffing is disabled.
+
+Non-interlaced PNG, baseline JPEG, bounded GIF, and single-image WebP uploads
+become image message parts after structural and dimension validation. Other
+uploads must be UTF-8 text and become delimited prompt text. Images are limited
+to 10 MiB each, text files to 1 MiB each, and one prompt to 20 MiB total with at
+most 1 MiB of text files. The host enforces a 50 MiB staged-and-accepted
+attachment budget with a 64 KiB minimum charge per accepted attachment;
+deleting an unsubmitted upload releases its charge, while accepted history
+remains charged until the host stops. Uploads are one-shot once the runtime
+accepts the user message; failed pre-acceptance submission releases the ids for
+retry.
+
+`get_capabilities.limits` advertises attachment count and byte quotas, upload
+concurrency, message and interaction page sizes, snapshot bounds, and message
+and interaction recovery limits. Web transport limits override broader shared
+RPC defaults where necessary. Clients should use these values rather than copy
+server constants.
+
+Accepted remote images retain their attachment id until the client deletes its
+download copy or the web host stops; deleting the copy does not release the
+accepted-history budget. WebSocket records omit inline image base64 and report
+`dataOmitted: true` with `attachmentId` and image metadata instead; clients
+render the image through the authenticated/trusted HTTP boundary. This keeps
+uploads and persisted image messages from exceeding WebSocket backpressure
+limits.
 
 ## Example
 

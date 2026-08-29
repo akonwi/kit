@@ -46,7 +46,8 @@ exclusive.
 Process hosts can use Kit without a terminal renderer and can stream messages
 and tool execution while retaining request correlation. stdout must remain
 protocol-clean for the process lifetime. Adding commands or events is a public
-protocol change and should be reflected in `docs/features/rpc-mode.md` and
+protocol change and should be reflected in the canonical
+[`../../../docs/features/rpc-mode.md`](../../../docs/features/rpc-mode.md) and
 covered at the framing/dispatch boundary.
 
 Kit is not yet a drop-in implementation of Pi's complete RPC surface. Session

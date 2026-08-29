@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -242,11 +242,11 @@ being deferred to visual polish.
 
 ## Related
 
-- `docs/adrs/0003-custom-shell.md`
-- `docs/adrs/0023-keymap-driven-keybindings.md`
-- `docs/adrs/0026-headless-rpc-mode.md`
-- `docs/adrs/0027-remote-session-server.md`
-- `docs/features/rpc-mode.md`
-- `backlog/remote-session-server.md`
+- [`0003-custom-shell.md`](0003-custom-shell.md)
+- [`0023-keymap-driven-keybindings.md`](0023-keymap-driven-keybindings.md)
+- [`0026-headless-rpc-mode.md`](0026-headless-rpc-mode.md)
+- [`0027-remote-session-server.md`](0027-remote-session-server.md)
+- [`../../../docs/features/rpc-mode.md`](../../../docs/features/rpc-mode.md)
+- [`../../../backlog/remote-session-server.md`](../../../backlog/remote-session-server.md)
 - [Mica vision](https://github.com/akonwi/mica/blob/main/VISION.md)
 - [Mica progressive component model](https://github.com/akonwi/mica/blob/main/PROGRESSIVE.md)
