@@ -14,7 +14,6 @@ Delete done items.
 ## Active items
 - [ ] web: extend workspace tabs to Sub-agents, Releases, and Mermaid
 - [ ] web: add a session explorer like the TUI
-- [ ] cli: harden transport protocols by unifying transport and shared logic across modes
 - [ ] cli: support `kit attach` for connecting to remotely served sessions
 - [ ] idea: explore whether diff/review tools could be enhanced with Ataraxy libs
   - https://github.com/Ataraxy-Labs/sem
