@@ -1,3 +1,14 @@
+import {
+	RPC_BASE_COMMAND_TYPES,
+	RPC_PROTOCOL_VERSION,
+	type RpcChromeAreaSnapshot,
+	type RpcChromeContribution,
+	type RpcChromeSegment,
+	type RpcChromeSnapshot,
+	type RpcCommand,
+	type RpcConnectionSnapshot,
+	type RpcResponse,
+} from "@akonwi/kit-protocol";
 import type {
 	CommandRegistry,
 	TransportNeutralCommandContext,
@@ -33,57 +44,8 @@ import {
 } from "./remote-interaction-broker";
 import { remoteMessagePreviews } from "./remote-message-queue";
 
-export type RpcCommand = {
-	id?: string;
-	type: string;
-	[key: string]: unknown;
-};
-
-export type RpcResponse = {
-	id?: string;
-	type: "response";
-	command: string;
-	success: boolean;
-	data?: unknown;
-	error?: string;
-};
-
 export type RpcWriter = (record: unknown) => Promise<void>;
 export type RpcEventListener = (record: unknown) => void;
-
-export type RpcConnectionSnapshot = {
-	state: Record<string, unknown>;
-	messages: unknown[];
-	chrome?: RpcChromeSnapshot;
-	messageOffset: number;
-	totalMessageCount: number;
-	pendingInteractions: unknown[];
-	pendingInteractionGeneration: number;
-};
-
-export type RpcChromeSegment = {
-	text: string;
-	style?: Omit<ChromeTextStyle, "bg" | "fg">;
-};
-
-export type RpcChromeContribution = {
-	id: string;
-	content: RpcChromeSegment[];
-	plainText: string;
-	side: "left" | "right";
-	action?: { type: "open-url"; url: string };
-	clickable: boolean;
-};
-
-export type RpcChromeAreaSnapshot = {
-	contributions: RpcChromeContribution[];
-	hiddenBuiltinIds: string[];
-};
-
-export type RpcChromeSnapshot = {
-	header: RpcChromeAreaSnapshot;
-	footer: RpcChromeAreaSnapshot;
-};
 
 type ScheduledPrompt =
 	| { kind: "message"; message: string }
@@ -93,32 +55,6 @@ type ScheduledPrompt =
 			args: string;
 			expandedPrompt: string;
 	  };
-
-export const RPC_PROTOCOL_VERSION = 2;
-
-export const RPC_COMMAND_TYPES = [
-	"prompt",
-	"steer",
-	"follow_up",
-	"restore_follow_ups",
-	"promote_follow_ups",
-	"acknowledge_follow_up_mutation",
-	"abort",
-	"new_session",
-	"list_sessions",
-	"open_session",
-	"change_cwd",
-	"get_capabilities",
-	"get_state",
-	"get_messages",
-	"get_last_assistant_text",
-	"get_available_models",
-	"set_model",
-	"get_available_thinking_levels",
-	"set_thinking_level",
-	"get_scratchpad",
-	"update_scratchpad",
-] as const;
 
 export type RpcSessionHostOptions = {
 	persistSessions?: boolean;
@@ -1429,7 +1365,7 @@ export class RpcSessionHost {
 					this.response(command, true, {
 						protocolVersion: RPC_PROTOCOL_VERSION,
 						commands: [
-							...RPC_COMMAND_TYPES,
+							...RPC_BASE_COMMAND_TYPES,
 							...(this.allowLegacySessionPaths ? ["switch_session"] : []),
 							...(this.interactions
 								? [

@@ -4,11 +4,17 @@ on:
   pull_request:
     paths:
       - "app/**"
+      - "packages/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/web-tui-browser.yml"
   push:
     branches: [main]
     paths:
       - "app/**"
+      - "packages/**"
+      - "package.json"
+      - "bun.lock"
       - ".github/workflows/web-tui-browser.yml"
   workflow_dispatch:
 
@@ -42,8 +48,10 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        working-directory: app
         run: bun install --frozen-lockfile
+
+      - name: Validate workspace
+        run: bun run typecheck && bun test packages/protocol/src
 
       - name: Install browser
         working-directory: app

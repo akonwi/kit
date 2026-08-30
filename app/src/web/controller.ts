@@ -1,3 +1,4 @@
+import type { RpcCommand } from "@akonwi/kit-protocol";
 import {
 	type ClientState,
 	createClientState,
@@ -1114,7 +1115,7 @@ export class WebClientController {
 	}
 
 	private sendCommand(
-		command: Record<string, unknown>,
+		command: RpcCommand,
 		beforeSend?: () => void,
 	): Promise<Record<string, unknown>> {
 		if (!this.transport.drainProtocolRecords()) {

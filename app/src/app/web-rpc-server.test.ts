@@ -1,11 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { RpcCommand, RpcConnectionSnapshot } from "@akonwi/kit-protocol";
 import { RemoteAttachmentStore } from "./remote-attachment-store";
-import type {
-	RpcCommand,
-	RpcConnectionSnapshot,
-	RpcEventListener,
-	RpcWriter,
-} from "./rpc-session-host";
+import type { RpcEventListener, RpcWriter } from "./rpc-session-host";
 import {
 	type WebBasicAuthCredentials,
 	type WebRpcHost,

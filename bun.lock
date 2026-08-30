@@ -3,7 +3,14 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "pi-kit",
+      "name": "kit-workspace",
+    },
+    "app": {
+      "name": "@akonwi/kit",
+      "version": "0.33.1",
+      "bin": {
+        "kit": "dist/kit",
+      },
       "dependencies": {
         "@akonwi/mica": "0.8.0",
         "@earendil-works/pi-agent-core": "0.83.0",
@@ -30,6 +37,7 @@
         "yaml": "^2.8.3",
       },
       "devDependencies": {
+        "@akonwi/kit-protocol": "workspace:*",
         "@babel/core": "7.28.0",
         "@babel/preset-typescript": "7.27.1",
         "@biomejs/biome": "2.3.14",
@@ -42,8 +50,18 @@
         "typescript": "^5.9.0",
       },
     },
+    "packages/protocol": {
+      "name": "@akonwi/kit-protocol",
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
   },
   "packages": {
+    "@akonwi/kit": ["@akonwi/kit@workspace:app"],
+
+    "@akonwi/kit-protocol": ["@akonwi/kit-protocol@workspace:packages/protocol"],
+
     "@akonwi/mica": ["@akonwi/mica@0.8.0", "", {}, "sha512-rddSGoTdHrzAHSmMwE4My/VnB8iIsnR2lhfTGdqeSOiAHeh0f1m8x7BvelqJegddHcq3PjSSvGNsG84S4yGrrA=="],
 
     "@ampproject/remapping": ["@ampproject/remapping@2.3.0", "", { "dependencies": { "@jridgewell/gen-mapping": "^0.3.5", "@jridgewell/trace-mapping": "^0.3.24" } }, "sha512-30iZtAPgz+LTIYoeivqYo853f02jBYSd5uGnGpkFV0M3xOt9aN73erkgYAmZU43x4VfqcnLxW9Kpg3R5LC4YYw=="],

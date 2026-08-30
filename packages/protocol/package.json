@@ -1,0 +1,11 @@
+{
+	"name": "@akonwi/kit-protocol",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}

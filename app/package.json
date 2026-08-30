@@ -36,7 +36,7 @@
 		"test:web-tui-browser": "bun run build && playwright test",
 		"pack:dry": "npm pack --dry-run",
 		"prepack": "bun run build",
-		"prepublishOnly": "bun run typecheck && bun test",
+		"prepublishOnly": "bun run --cwd .. typecheck && bun run --cwd .. test",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},
@@ -66,6 +66,7 @@
 		"yaml": "^2.8.3"
 	},
 	"devDependencies": {
+		"@akonwi/kit-protocol": "workspace:*",
 		"@babel/core": "7.28.0",
 		"@babel/preset-typescript": "7.27.1",
 		"@biomejs/biome": "2.3.14",

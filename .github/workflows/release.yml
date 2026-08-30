@@ -33,7 +33,6 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        working-directory: app
         run: bun install --frozen-lockfile
 
       - name: Verify tag matches package version
@@ -86,7 +85,6 @@ jobs:
           bun-version: latest
 
       - name: Install dependencies
-        working-directory: app
         run: bun install --frozen-lockfile
 
       - name: Install browser

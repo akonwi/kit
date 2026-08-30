@@ -1,4 +1,10 @@
 import { randomUUID } from "node:crypto";
+import {
+	isRpcCommand,
+	RPC_PROTOCOL_VERSION,
+	type RpcCommand,
+	type RpcConnectionSnapshot,
+} from "@akonwi/kit-protocol";
 // @ts-expect-error: Bun's text loader embeds non-TypeScript browser assets.
 import micaCss from "@akonwi/mica/mica.css" with { type: "text" };
 import jetbrainsMonoItalic from "@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-italic.woff2" with {
@@ -20,13 +26,7 @@ import {
 	RemoteEventJournal,
 	type SequencedRemoteEvent,
 } from "./remote-event-journal";
-import {
-	RPC_PROTOCOL_VERSION,
-	type RpcCommand,
-	type RpcConnectionSnapshot,
-	type RpcEventListener,
-	type RpcWriter,
-} from "./rpc-session-host";
+import type { RpcEventListener, RpcWriter } from "./rpc-session-host";
 import {
 	WebAccessPolicy,
 	type WebBasicAuthCredentials,
@@ -134,10 +134,10 @@ function parseCommand(message: string | Buffer): RpcCommand {
 	const parsed: unknown = JSON.parse(
 		typeof message === "string" ? message : message.toString("utf8"),
 	);
-	if (!isRecord(parsed) || typeof parsed.type !== "string") {
+	if (!isRpcCommand(parsed)) {
 		throw new Error("Command must be an object with a string type");
 	}
-	return parsed as RpcCommand;
+	return parsed;
 }
 
 function parseError(error: unknown): string {

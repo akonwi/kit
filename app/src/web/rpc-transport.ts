@@ -1,3 +1,4 @@
+import type { RpcCommand } from "@akonwi/kit-protocol";
 import { ProtocolRebaseRequired } from "./client-state";
 
 // The host allows transport-neutral commands 30 seconds before timing out.
@@ -38,7 +39,7 @@ export type RpcTransportHooks = {
 };
 
 export interface RpcCommandClient {
-	command(command: Record<string, unknown>): Promise<Record<string, unknown>>;
+	command(command: RpcCommand): Promise<Record<string, unknown>>;
 }
 
 export class WebSocketRpcTransport implements RpcCommandClient {
@@ -102,7 +103,7 @@ export class WebSocketRpcTransport implements RpcCommandClient {
 		this.requireSnapshot = false;
 	}
 
-	command(command: Record<string, unknown>): Promise<Record<string, unknown>> {
+	command(command: RpcCommand): Promise<Record<string, unknown>> {
 		if (
 			this.rebasePending ||
 			!this.socket ||

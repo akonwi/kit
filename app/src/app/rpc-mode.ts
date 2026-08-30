@@ -1,4 +1,5 @@
 import type { Readable } from "node:stream";
+import { isRpcCommand } from "@akonwi/kit-protocol";
 import type { CommandRegistry } from "../features/commands";
 import type { ScratchpadController } from "../features/scratchpad/controller";
 import type { AgentRuntime } from "../runtime/agent-runtime";
@@ -8,15 +9,7 @@ import {
 	resolveStartupModelSelector,
 } from "./headless-model";
 import { resolveHeadlessSession } from "./headless-session";
-import {
-	type RpcCommand,
-	RpcSessionHost,
-	type RpcWriter,
-} from "./rpc-session-host";
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+import { RpcSessionHost, type RpcWriter } from "./rpc-session-host";
 
 /** JSONL transport adapter for the shared RPC session host. */
 export class RpcModeServer {
@@ -93,7 +86,7 @@ export class RpcModeServer {
 			});
 			return;
 		}
-		if (!isRecord(parsed) || typeof parsed.type !== "string") {
+		if (!isRpcCommand(parsed)) {
 			void this.write({
 				type: "response",
 				command: "parse",
@@ -102,9 +95,7 @@ export class RpcModeServer {
 			});
 			return;
 		}
-		void this.host.handleCommand(parsed as RpcCommand, (response) =>
-			this.write(response),
-		);
+		void this.host.handleCommand(parsed, (response) => this.write(response));
 	}
 
 	private write(record: unknown): Promise<void> {

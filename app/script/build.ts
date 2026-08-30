@@ -2,6 +2,7 @@
 import { execSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import solidPlugin from "@opentui/solid/bun-plugin";
 import { buildWebClient } from "../src/web/build-client";
 import { buildWebTuiClient } from "../src/web-tui/build-tui-client";
@@ -19,16 +20,15 @@ const dir = path.resolve(import.meta.dirname, "..");
 const distDir = path.join(dir, "dist");
 const runtimeDir = path.join(distDir, "runtime");
 const binaryPath = path.join(distDir, "kit");
-const parserWorkerPath = path.resolve(
-	dir,
-	"node_modules/@opentui/core/parser.worker.js",
+const parserWorkerPath = fileURLToPath(
+	import.meta.resolve("@opentui/core/parser.worker.js"),
 );
 const mermaidWorkerPath = path.resolve(dir, "src/shell/mermaid-worker.ts");
 const mermaidPreviewWorkerPath = path.resolve(
 	dir,
 	"src/features/mermaid-preview/mermaid-preview-worker.ts",
 );
-const coreAssetsPath = path.resolve(dir, "node_modules/@opentui/core/assets");
+const coreAssetsPath = path.join(path.dirname(parserWorkerPath), "assets");
 const kitGrammarsPath = path.resolve(dir, "grammars");
 
 process.chdir(dir);

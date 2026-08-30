@@ -39,7 +39,7 @@ const readFixture = path.join(tempDir, "read-fixture.txt");
 const pluginMarker = path.join(tempDir, "external-plugin-loaded");
 const appPreload = path.join(
 	repoRoot,
-	"app/node_modules/@opentui/solid/scripts/preload.js",
+	"node_modules/@opentui/solid/scripts/preload.js",
 );
 const appMain = path.join(repoRoot, "app/src/app/main.tsx");
 

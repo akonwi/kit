@@ -21,7 +21,7 @@ From a checkout:
 ```bash
 bun install
 bun run build
-bun link
+(cd app && bun link)
 ```
 
 The packaged CLI uses the compiled binary as its non-development entry point.
