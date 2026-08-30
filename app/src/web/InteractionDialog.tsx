@@ -1,5 +1,6 @@
 /** @jsxImportSource solid-js */
 
+import { isRecord } from "@akonwi/kit-session-client";
 import {
 	createEffect,
 	createMemo,
@@ -9,7 +10,6 @@ import {
 	Show,
 	Switch,
 } from "solid-js";
-import { isRecord } from "./client-state";
 import { DialogFrame } from "./DialogFrame";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { useWebClient } from "./WebClientContext";

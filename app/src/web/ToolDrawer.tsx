@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+
+import type { ToolActivity } from "@akonwi/kit-session-client";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import type { ToolCall, ToolResultMessage } from "../runtime/agent";
 import {
@@ -9,8 +11,6 @@ import {
 } from "../shell/transcript/turns";
 import { extractToolProgressLines } from "../shell/transcript-live-tools";
 import { BrailleSpinner } from "./BrailleSpinner";
-import type { ToolActivity } from "./client-state";
-import { isRecord } from "./client-state";
 import { displayValue } from "./presentation";
 
 const MAX_VISIBLE_TOOL_NAMES = 8;
@@ -27,7 +27,7 @@ export function mergeLiveToolCalls(
 			type: "toolCall",
 			id: tool.id,
 			name: tool.name,
-			arguments: isRecord(tool.args) ? tool.args : {},
+			arguments: tool.args ?? {},
 		});
 	}
 	return merged;
@@ -59,9 +59,7 @@ function ToolRow(props: {
 		() => props.result?.isError === true || props.live?.isError === true,
 	);
 	const args = createMemo(() => {
-		const source = isRecord(props.live?.args)
-			? props.live?.args
-			: props.toolCall.arguments;
+		const source = props.live?.args ?? props.toolCall.arguments;
 		return formatToolArgs(source, { keys: toolArgKeys(props.toolCall) }).trim();
 	});
 	const stateLabel = createMemo(() =>

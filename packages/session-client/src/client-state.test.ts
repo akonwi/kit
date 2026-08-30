@@ -27,7 +27,7 @@ const textDelta = (delta: string) => ({
 	},
 });
 
-describe("web client state", () => {
+describe("session client state", () => {
 	test("rejects unsafe declarative chrome URLs", () => {
 		expect(
 			parseRemoteChromeSnapshot({
@@ -375,11 +375,13 @@ describe("web client state", () => {
 			turnId: "turn-1",
 			toolCallId: "tool-1",
 			toolName: "read",
+			args: { path: "README.md" },
 		});
 		apply({
 			type: "agent.tool.ended",
 			turnId: "turn-1",
 			toolCallId: "tool-1",
+			args: "invalid replacement",
 			result: "done",
 		});
 		apply({
@@ -397,6 +399,7 @@ describe("web client state", () => {
 		expect(state.messageKeys).toEqual(["message-assistant"]);
 		expect(state.tools[0]).toMatchObject({
 			id: "tool-1",
+			args: { path: "README.md" },
 			status: "complete",
 		});
 		expect(state.pendingInteractions).toHaveLength(1);

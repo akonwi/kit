@@ -1,5 +1,5 @@
+import { isRecord } from "@akonwi/kit-session-client";
 import { type ToastVariant, toastForRuntimeRecord } from "../state/toasts";
-import { isRecord } from "./client-state";
 
 export type WebToastInput = {
 	title: string;

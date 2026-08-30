@@ -67,6 +67,7 @@
 	},
 	"devDependencies": {
 		"@akonwi/kit-protocol": "workspace:*",
+		"@akonwi/kit-session-client": "workspace:*",
 		"@babel/core": "7.28.0",
 		"@babel/preset-typescript": "7.27.1",
 		"@biomejs/biome": "2.3.14",

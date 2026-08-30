@@ -1,11 +1,11 @@
 /** @jsxImportSource solid-js */
+import type {
+	RemoteChromeContribution,
+	RemoteChromeTextStyle,
+} from "@akonwi/kit-session-client";
 import { For, type JSX, Show } from "solid-js";
 import { MIDDLE_DOT } from "../shell/glyphs";
-import {
-	CHROME_TOKEN_COLORS,
-	type RemoteChromeContribution,
-	type RemoteChromeTextStyle,
-} from "./chrome-state";
+import { CHROME_TOKEN_COLORS } from "./chrome-state";
 
 function segmentStyle(
 	style: RemoteChromeTextStyle | undefined,

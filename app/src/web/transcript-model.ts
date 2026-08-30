@@ -1,3 +1,4 @@
+import { isRecord, type ToolActivity } from "@akonwi/kit-session-client";
 import type { KitAgentMessage } from "../session/types";
 import {
 	extractAssistantParts,
@@ -5,7 +6,6 @@ import {
 	groupMessagesIntoTurns,
 	type TranscriptItem,
 } from "../shell/transcript/turns";
-import { isRecord, type ToolActivity } from "./client-state";
 
 function isOptionalString(value: unknown): boolean {
 	return value === undefined || typeof value === "string";

@@ -1,4 +1,7 @@
 /** @jsxImportSource solid-js */
+
+import type { RemoteModel } from "@akonwi/kit-session-client";
+import { isRecord } from "@akonwi/kit-session-client";
 import {
 	type Accessor,
 	createContext,
@@ -11,9 +14,7 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { MIDDLE_DOT } from "../shell/glyphs";
-import { isRecord } from "./client-state";
 import { PickerDialog, type PickerDialogOption } from "./PickerDialog";
-import type { RemoteModel } from "./remote-services";
 import { useWebClient } from "./WebClientContext";
 
 type ActivePicker = "model" | "thinking" | null;

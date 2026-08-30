@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+
+import type { RemoteReviewFile } from "@akonwi/kit-session-client";
 import {
 	type DiffLineAnnotation,
 	FileDiff,
@@ -10,7 +12,6 @@ import {
 import { createEffect, createSignal, type JSX, onCleanup } from "solid-js";
 import { readBrowserTheme } from "./browser-theme";
 import { MICA_DIFF_CSS, MICA_DIFF_THEME } from "./pierre-mica-theme";
-import type { RemoteReviewFile } from "./remote-services";
 
 export type ReviewDiffLayout = "unified" | "split";
 export type ReviewDiffOverflow = "scroll" | "wrap";

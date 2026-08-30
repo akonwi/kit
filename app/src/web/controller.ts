@@ -6,22 +6,20 @@ import {
 	isRecord,
 	ProtocolRebaseRequired,
 	prependMessages,
-	reduceClientRecord,
-	withConnectionPhase,
-} from "./client-state";
-import {
-	applyRestoredComposerDraft,
-	readComposerDraft,
-} from "./composer-draft-storage";
-import {
 	type RemoteCommandList,
 	type RemoteModel,
 	type RemoteReviewFile,
 	type RemoteReviewNote,
 	type RemoteReviewState,
 	type RemoteScratchpad,
-	WebRemoteServices,
-} from "./remote-services";
+	reduceClientRecord,
+	withConnectionPhase,
+} from "@akonwi/kit-session-client";
+import {
+	applyRestoredComposerDraft,
+	readComposerDraft,
+} from "./composer-draft-storage";
+import { WebRemoteServices } from "./remote-services";
 import {
 	RpcCommandError,
 	RpcResponseLostError,

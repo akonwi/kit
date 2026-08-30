@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+
+import { isRecord } from "@akonwi/kit-session-client";
 import {
 	createEffect,
 	createMemo,
@@ -9,7 +11,6 @@ import {
 } from "solid-js";
 import { normalizeRemoteHttpUrl } from "../app/remote-url";
 import { TIMES } from "../shell/glyphs";
-import { isRecord } from "./client-state";
 import { useWebClient } from "./WebClientContext";
 
 function requestPayload(request: Record<string, unknown>) {

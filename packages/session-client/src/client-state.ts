@@ -1,13 +1,13 @@
 import {
-	MAX_REMOTE_MESSAGE_PREVIEW_LENGTH,
-	MAX_REMOTE_MESSAGE_PREVIEWS,
-	remoteMessagePreviews,
-} from "../app/remote-message-queue";
-import {
 	EMPTY_REMOTE_CHROME,
 	parseRemoteChromeSnapshot,
 	type RemoteChromeSnapshot,
 } from "./chrome-state";
+import {
+	MAX_REMOTE_MESSAGE_PREVIEW_LENGTH,
+	MAX_REMOTE_MESSAGE_PREVIEWS,
+	remoteMessagePreviews,
+} from "./message-previews";
 
 export type ConnectionPhase =
 	| "disconnected"
@@ -19,7 +19,7 @@ export type ToolActivity = {
 	id: string;
 	turnId: string;
 	name: string;
-	args?: unknown;
+	args?: Record<string, unknown>;
 	partialResult?: unknown;
 	result?: unknown;
 	isError: boolean;
@@ -448,7 +448,7 @@ function applyEvent(
 						turnId: record.turnId,
 						name:
 							typeof record.toolName === "string" ? record.toolName : "tool",
-						args: record.args,
+						args: isRecord(record.args) ? record.args : undefined,
 						isError: false,
 						status: "running",
 					},
@@ -473,7 +473,7 @@ function applyEvent(
 					typeof record.toolName === "string"
 						? record.toolName
 						: (existing?.name ?? "tool"),
-				args: record.args ?? existing?.args,
+				args: isRecord(record.args) ? record.args : existing?.args,
 				partialResult:
 					record.type === "agent.tool.updated"
 						? record.partialResult

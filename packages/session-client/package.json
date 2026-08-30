@@ -1,0 +1,14 @@
+{
+	"name": "@akonwi/kit-session-client",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"dependencies": {
+		"@akonwi/kit-protocol": "workspace:*"
+	},
+	"devDependencies": {
+		"@types/bun": "latest"
+	}
+}

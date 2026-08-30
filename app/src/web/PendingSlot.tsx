@@ -1,7 +1,8 @@
 /** @jsxImportSource solid-js */
+
+import { isRecord } from "@akonwi/kit-session-client";
 import { createMemo, For, type JSX, Show } from "solid-js";
 import { BrailleSpinner } from "./BrailleSpinner";
-import { isRecord } from "./client-state";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { useWebClient } from "./WebClientContext";
 

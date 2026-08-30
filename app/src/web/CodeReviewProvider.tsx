@@ -1,4 +1,10 @@
 /** @jsxImportSource solid-js */
+
+import type {
+	RemoteReviewFile,
+	RemoteReviewNote,
+	RemoteReviewState,
+} from "@akonwi/kit-session-client";
 import type { SelectedLineRange } from "@pierre/diffs";
 import {
 	type Accessor,
@@ -9,11 +15,6 @@ import {
 	onCleanup,
 	useContext,
 } from "solid-js";
-import type {
-	RemoteReviewFile,
-	RemoteReviewNote,
-	RemoteReviewState,
-} from "./remote-services";
 import { RpcResponseLostError } from "./rpc-transport";
 import { useWebClient } from "./WebClientContext";
 

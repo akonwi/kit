@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+
+import type { ToolActivity } from "@akonwi/kit-session-client";
 import {
 	createEffect,
 	createMemo,
@@ -14,7 +16,6 @@ import {
 	findTurnWorkItems,
 	type TranscriptItem,
 } from "../shell/transcript/turns";
-import type { ToolActivity } from "./client-state";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { mergeLiveToolCalls, ToolRows } from "./ToolDrawer";
 import { liveToolsForTranscriptItems } from "./transcript-model";

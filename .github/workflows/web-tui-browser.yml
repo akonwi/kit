@@ -51,7 +51,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Validate workspace
-        run: bun run typecheck && bun test packages/protocol/src
+        run: bun run typecheck && bun test packages
 
       - name: Install browser
         working-directory: app

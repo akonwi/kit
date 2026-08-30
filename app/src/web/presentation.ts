@@ -1,4 +1,4 @@
-import { isRecord } from "./client-state";
+import { isRecord } from "@akonwi/kit-session-client";
 
 export function displayValue(value: unknown): string {
 	if (typeof value === "string") return value;

@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+
+import { isRecord } from "@akonwi/kit-session-client";
 import {
 	type Accessor,
 	createContext,
@@ -10,7 +12,6 @@ import {
 	onMount,
 	useContext,
 } from "solid-js";
-import { isRecord } from "./client-state";
 import { useWebClient } from "./WebClientContext";
 
 const AUTOSAVE_DELAY_MS = 250;

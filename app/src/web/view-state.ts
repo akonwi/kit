@@ -1,4 +1,4 @@
-import type { ClientState } from "./client-state";
+import type { ClientState } from "@akonwi/kit-session-client";
 import { DEFAULT_WEB_TOAST_DURATION_MS, type WebToastSink } from "./web-toasts";
 
 export type PendingAttachment = {

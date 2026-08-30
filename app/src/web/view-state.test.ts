@@ -1,5 +1,5 @@
 import { describe, expect, mock, test } from "bun:test";
-import { createClientState } from "./client-state";
+import { createClientState } from "@akonwi/kit-session-client";
 import { WebClientViewState } from "./view-state";
 
 describe("WebClientViewState toast errors", () => {

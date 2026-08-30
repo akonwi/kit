@@ -1,4 +1,6 @@
 /** @jsxImportSource solid-js */
+
+import type { ToolActivity } from "@akonwi/kit-session-client";
 import { createMemo, type JSX, Match, Show, Switch } from "solid-js";
 import type { ToolResultMessage } from "../runtime/agent";
 import type { DisplayItem, TranscriptItem } from "../shell/transcript/turns";
@@ -6,7 +8,6 @@ import {
 	extractAssistantParts,
 	isAssistantError,
 } from "../shell/transcript/turns";
-import type { ToolActivity } from "./client-state";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { mergeLiveToolCalls, ToolDrawer } from "./ToolDrawer";
 import { UserEntry } from "./UserEntry";

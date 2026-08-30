@@ -38,6 +38,7 @@
       },
       "devDependencies": {
         "@akonwi/kit-protocol": "workspace:*",
+        "@akonwi/kit-session-client": "workspace:*",
         "@babel/core": "7.28.0",
         "@babel/preset-typescript": "7.27.1",
         "@biomejs/biome": "2.3.14",
@@ -56,11 +57,22 @@
         "@types/bun": "latest",
       },
     },
+    "packages/session-client": {
+      "name": "@akonwi/kit-session-client",
+      "dependencies": {
+        "@akonwi/kit-protocol": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "latest",
+      },
+    },
   },
   "packages": {
     "@akonwi/kit": ["@akonwi/kit@workspace:app"],
 
     "@akonwi/kit-protocol": ["@akonwi/kit-protocol@workspace:packages/protocol"],
+
+    "@akonwi/kit-session-client": ["@akonwi/kit-session-client@workspace:packages/session-client"],
 
     "@akonwi/mica": ["@akonwi/mica@0.8.0", "", {}, "sha512-rddSGoTdHrzAHSmMwE4My/VnB8iIsnR2lhfTGdqeSOiAHeh0f1m8x7BvelqJegddHcq3PjSSvGNsG84S4yGrrA=="],
 

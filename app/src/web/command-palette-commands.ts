@@ -1,4 +1,4 @@
-import type { RemoteCommand } from "./remote-services";
+import type { RemoteCommand } from "@akonwi/kit-session-client";
 
 export type BrowserCommandAction =
 	| "model"
