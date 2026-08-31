@@ -11,6 +11,6 @@
 		"dev": "bun --preload=./node_modules/@opentui/solid/scripts/preload.js ./app/src/app/main.tsx",
 		"smoke:print-mode": "bun run ./app/script/smoke-print-mode.ts",
 		"test": "bun test --cwd app && bun test packages",
-		"typecheck": "bun run --cwd app typecheck && bunx tsc --noEmit -p packages/protocol/tsconfig.json && bunx tsc --noEmit -p packages/session-client/tsconfig.json"
+		"typecheck": "bun run --cwd app typecheck && bunx tsc --noEmit -p packages/protocol/tsconfig.json && bunx tsc --noEmit -p packages/session-client/tsconfig.json && bunx tsc --noEmit -p packages/host/tsconfig.json"
 	}
 }
