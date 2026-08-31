@@ -4,9 +4,9 @@
 
 Accepted
 
-Amended to use a server/client/protocol model. The server may run in the same
-process as a client or in a separate process; clients always communicate with it
-through a protocol transport.
+Amended to use a server/client/protocol model. A same-process client calls the
+server directly; protocol transports project server connections across process
+or network boundaries.
 
 ## Context
 
@@ -55,8 +55,7 @@ A concrete `KitServer` now owns persistent session discovery and creation,
 running-session startup, bound connections, and shutdown. It deliberately runs
 at most one in-process session until runtime cwd handling and prompt-template
 caches are session-scoped. Repository extraction, concurrent running sessions,
-the session-bound protocol, and the shared transport-backed client remain future
-work.
+the session-bound protocol, and the shared session client remain future work.
 
 ## Decision
 
@@ -67,10 +66,12 @@ Kit has three primary system components:
 - the **server**, which is the authoritative backend and session manager;
 - **clients**, which bind to individual sessions, render a UX, and may add
   client-specific behavior;
-- the **protocol and transports**, which connect clients to the server.
+- the **protocol and transports**, which project server connections to remote
+  clients.
 
-The server may be embedded in a client process or run as a separate process.
-That deployment choice does not change the client model.
+A client in the server process calls `KitServer` and its bound connection
+directly. A client in another process reaches those operations through a
+protocol transport. Local composition does not add a pass-through transport.
 
 ```mermaid
 flowchart LR
@@ -82,9 +83,10 @@ flowchart LR
         LocalState --> UI
     end
 
-    Transport["Protocol transport<br/>in-process · WebSocket · stdio"]
+    Remote["Remote client"]
+    Transport["Protocol transport<br/>WebSocket · stdio"]
 
-    subgraph ServerProcess["Same or separate process"]
+    subgraph ServerProcess["Server process"]
         Server["KitServer"]
         Runtime["Running session runtimes"]
         Persistence["Persistence"]
@@ -92,7 +94,8 @@ flowchart LR
         Runtime --> Persistence
     end
 
-    Client <--> Transport
+    Client <--> Server
+    Remote <--> Transport
     Transport <--> Server
 ```
 
@@ -391,33 +394,29 @@ Visual and focus state        -> renderer
 
 ### Local and remote connections
 
-Local and remote clients use the same `ServerClient` and `SessionClient`
-implementation. Only the transport changes:
+Local clients call the server connection directly. Remote clients use a
+protocol implementation of the same connection behavior:
 
 ```text
 Local
   OpenTUI
     -> SessionClient
-    -> InProcessTransport
-    -> KitServer
+    -> KitServerConnection
     -> AgentRuntime
 
 Remote
   OpenTUI or web UI
     -> SessionClient
-    -> WebSocketTransport
+    -> WebSocketSessionConnection
     -> KitServer (in another process)
     -> AgentRuntime
 ```
 
-The server may run in the same process as the client or in a separate process.
-An in-process transport passes protocol commands and records directly without
-JSON serialization or sockets. It still preserves the same command, binding,
-reduction, and synchronization semantics as a network transport.
-
-There is no separate embedded session-client adapter and no separate local and
-remote session-client implementation. Shared contract tests run the client over
-both in-process and WebSocket transports.
+There is no in-process transport or embedded adapter. `SessionClient` owns the
+shared reduction and semantic API; its local connection is the concrete
+`KitServerConnection`. When the WebSocket path is implemented, the smallest
+connection contract needed by both concrete connections will be extracted with
+those consumers.
 
 Platform operations remain outside the session client. The TUI receives a
 session client plus terminal/platform services for clipboard, notifications,
@@ -493,7 +492,7 @@ becoming a protocol or renderer contract change.
 
 ```text
 kit
-  KitServer + InProcessTransport + SessionClient + TUI
+  KitServer + SessionClient + TUI
 
 kit attach <server>
   WebSocketTransport + SessionClient + TUI
@@ -505,7 +504,7 @@ kit --rpc
   KitServer + stdio transport
 
 kit --web-tui
-  KitServer + InProcessTransport + SessionClient + server-side TUI
+  KitServer + SessionClient + server-side TUI
   browser client <-> terminal-byte bridge <-> server-side TUI
 ```
 
@@ -530,8 +529,7 @@ The repository will move toward this architecture incrementally:
    session-client package.
 3. Implement `KitServer` session management, introducing server-side types and
    seams only with their first concrete consumers.
-4. Implement the in-process transport and its transport-backed
-   `ServerClient`/`SessionClient` together.
+4. Implement `SessionClient` directly over `KitServerConnection`.
 5. Adapt transcript and composer workflows to consume `SessionClient`.
 6. Move remaining TUI features behind explicit client or platform boundaries.
 7. Extract runtime, persistence, server, and renderer packages as their import
@@ -559,8 +557,8 @@ The repository will move toward this architecture incrementally:
   Git, or storage must move behind client and platform ports.
 - Runtime, protocol, and client projections will intentionally duplicate some
   data shapes.
-- In-process and network transports require shared conformance tests to prevent
-  transport-specific semantic drift.
+- Direct and remote connection implementations require shared conformance tests
+  to prevent protocol-specific semantic drift.
 - Feature parity becomes explicit: unsupported remote features must be absent
   or disabled rather than accidentally operating on the client machine.
 - Converting the current package into workspaces adds build and repository
