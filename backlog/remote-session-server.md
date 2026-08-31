@@ -19,6 +19,9 @@ The architecture is recorded in:
 
 ## Remaining server and browser work
 
+- Make runtime cwd handling and prompt-template caches session-scoped. Until
+  those process-global mutations are removed, `KitServer` deliberately permits
+  only one running in-process session at a time.
 - Define explicit shared-session UX when another client changes the active
   session or model. Session changes currently force a fresh snapshot.
 - Fill deliberate gaps in transport-neutral built-in commands and remote

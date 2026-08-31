@@ -4,6 +4,7 @@ export const handoffCommand: Command = {
 	name: "handoff",
 	argName: "message",
 	description: "Fork the current session into a linked child session",
+	sessionBinding: "replaces",
 	async execute({ runtime, args, toast, persistSessions }) {
 		try {
 			await runtime.handoffSession(args, { persist: persistSessions });

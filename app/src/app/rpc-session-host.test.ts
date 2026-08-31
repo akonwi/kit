@@ -1944,6 +1944,63 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("hides and rejects commands that replace a fixed session binding", async () => {
+		const runtime = createRuntime();
+		const host = new RpcSessionHost(runtime, {
+			commands: createCommandRegistry([
+				...BUILT_IN_COMMANDS,
+				{
+					name: "unclassified-plugin-command",
+					description: "Missing fixed-binding metadata",
+					execute: () => {},
+					executeTransportNeutral: () => {},
+				},
+			]),
+			sessionBinding: "fixed",
+		});
+		const responses: Array<Record<string, unknown>> = [];
+		const respond = async (record: unknown) => {
+			responses.push(record as Record<string, unknown>);
+		};
+
+		await host.handleCommand({ type: "list_commands" }, respond);
+		for (const commandId of ["new", "handoff", "unclassified-plugin-command"]) {
+			await host.handleCommand(
+				{ type: "execute_command", commandId, registryGeneration: 0 },
+				respond,
+			);
+		}
+
+		const commandData = responses[0]?.data as {
+			commands: Array<{ id: string }>;
+		};
+		expect(commandData.commands.some(({ id }) => id === "new")).toBe(false);
+		expect(commandData.commands.some(({ id }) => id === "handoff")).toBe(false);
+		expect(
+			commandData.commands.some(
+				({ id }) => id === "unclassified-plugin-command",
+			),
+		).toBe(false);
+		expect(responses.slice(1)).toEqual([
+			expect.objectContaining({
+				command: "execute_command",
+				success: false,
+				error: "Command is unavailable on a bound server session",
+			}),
+			expect.objectContaining({
+				command: "execute_command",
+				success: false,
+				error: "Command is unavailable on a bound server session",
+			}),
+			expect.objectContaining({
+				command: "execute_command",
+				success: false,
+				error: "Command is unavailable on a bound server session",
+			}),
+		]);
+		host.dispose();
+	});
+
 	test("cancels a transport-neutral handoff without compromising the host", async () => {
 		let handoffAborted = false;
 		const runtime = createRuntime({

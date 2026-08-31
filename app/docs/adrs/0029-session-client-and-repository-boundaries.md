@@ -51,8 +51,11 @@ change its binding. Existing session-changing commands must be removed, filtered
 or adapted into server-level operations that return a session identity for the
 client shell to open.
 
-Repository extraction, the multi-session `KitServer`, the session-bound
-protocol, and the shared transport-backed client remain future implementation
+A concrete `KitServer` now owns persistent session discovery and creation,
+running-session startup, bound connections, and shutdown. It deliberately runs
+at most one in-process session until runtime cwd handling and prompt-template
+caches are session-scoped. Repository extraction, concurrent running sessions,
+the session-bound protocol, and the shared transport-backed client remain future
 work.
 
 ## Decision

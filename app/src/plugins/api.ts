@@ -369,6 +369,10 @@ export function createPluginAPI(
 			category: commandOptions.category,
 			...(transportHandler
 				? {
+						sessionBinding:
+							"sessionBinding" in commandOptions
+								? commandOptions.sessionBinding
+								: undefined,
 						executeTransportNeutral: ({
 							args,
 							schedulePromptCommand,

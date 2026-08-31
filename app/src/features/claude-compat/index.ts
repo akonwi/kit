@@ -25,6 +25,7 @@ export function ClaudeCompatibilityPlugin(kit: InternalPluginAPI): () => void {
 					{
 						description: meta.description,
 						...(meta.argName ? { argName: meta.argName } : {}),
+						sessionBinding: "preserves",
 						executeTransportNeutral: ({
 							args,
 							schedulePromptCommand,

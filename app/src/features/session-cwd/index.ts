@@ -51,6 +51,7 @@ export function SessionCwdPlugin(kit: InternalPluginAPI): void {
 		{
 			description: "Change the current working directory for this session",
 			argName: "path",
+			sessionBinding: "preserves",
 			executeTransportNeutral: async ({ args, signal }) => {
 				const target = args.trim();
 				if (!target) throw new Error("Working directory path is required");

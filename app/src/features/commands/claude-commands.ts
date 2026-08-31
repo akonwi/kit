@@ -191,6 +191,7 @@ export function discoverClaudeCommands(cwd: string): Command[] {
 			name: `cc:${meta.name}`,
 			description: meta.description,
 			...(meta.argName ? { argName: meta.argName } : {}),
+			sessionBinding: "preserves",
 			execute({ runtime, args }) {
 				const prompt = readClaudeCommandPrompt(meta.filePath, args);
 				if (prompt) {

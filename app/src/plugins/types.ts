@@ -156,6 +156,7 @@ export type InternalTransportNeutralCommandContext = {
 };
 
 export type InternalPluginCommandOptions = CommandOptions & {
+	sessionBinding?: "preserves" | "replaces";
 	executeTransportNeutral?: (
 		ctx: InternalTransportNeutralCommandContext,
 	) => void | Promise<void>;

@@ -68,9 +68,19 @@ export type RpcSessionHostOptions = {
 	waitForWorkspaceReady?: () => Promise<void>;
 	reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	allowLegacySessionPaths?: boolean;
+	// TODO(server-client): Remove the mutable mode once clients own session
+	// switching by opening a different session-bound connection.
+	sessionBinding?: "mutable" | "fixed";
 	commandTimeoutMs?: number;
 	commandCancellationGraceMs?: number;
 };
+
+const SERVER_SCOPED_COMMANDS = new Set([
+	"new_session",
+	"list_sessions",
+	"open_session",
+	"switch_session",
+]);
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 const DEFAULT_COMMAND_CANCELLATION_GRACE_MS = 2_000;
@@ -546,6 +556,7 @@ export class RpcSessionHost {
 	private readonly waitForWorkspaceReady: () => Promise<void>;
 	private readonly reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	private readonly allowLegacySessionPaths: boolean;
+	private readonly sessionBinding: "mutable" | "fixed";
 	private readonly commandTimeoutMs: number;
 	private readonly commandCancellationGraceMs: number;
 	private activeCommandAbort: AbortController | null = null;
@@ -573,6 +584,7 @@ export class RpcSessionHost {
 			options.waitForWorkspaceReady ?? (async () => {});
 		this.reloadHost = options.reloadHost;
 		this.allowLegacySessionPaths = options.allowLegacySessionPaths ?? true;
+		this.sessionBinding = options.sessionBinding ?? "mutable";
 		this.commandTimeoutMs =
 			options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
 		this.commandCancellationGraceMs =
@@ -1001,6 +1013,12 @@ export class RpcSessionHost {
 		command: RpcCommand,
 		respond: RpcWriter,
 	): Promise<void> {
+		if (
+			this.sessionBinding === "fixed" &&
+			SERVER_SCOPED_COMMANDS.has(command.type)
+		) {
+			throw new Error("Command is unavailable on a bound session");
+		}
 		switch (command.type) {
 			case "prompt": {
 				const ids = attachmentIds(command);
@@ -1248,7 +1266,11 @@ export class RpcSessionHost {
 					.filter((candidate) => {
 						if (seenCommandIds.has(candidate.name)) return false;
 						seenCommandIds.add(candidate.name);
-						return candidate.executeTransportNeutral !== undefined;
+						return (
+							candidate.executeTransportNeutral !== undefined &&
+							(this.sessionBinding === "mutable" ||
+								candidate.sessionBinding === "preserves")
+						);
 					})
 					.map((candidate) => ({
 						id: candidate.name,
@@ -1299,6 +1321,12 @@ export class RpcSessionHost {
 				if (!registered) throw new Error(`Command not found: ${commandId}`);
 				if (!registered.executeTransportNeutral) {
 					throw new Error(`Command is not available remotely: ${commandId}`);
+				}
+				if (
+					this.sessionBinding === "fixed" &&
+					registered.sessionBinding !== "preserves"
+				) {
+					throw new Error("Command is unavailable on a bound server session");
 				}
 				const executionGeneration = this.commandGeneration;
 				const scheduledPrompt = await this.executeTransportNeutralCommand(
@@ -1365,8 +1393,15 @@ export class RpcSessionHost {
 					this.response(command, true, {
 						protocolVersion: RPC_PROTOCOL_VERSION,
 						commands: [
-							...RPC_BASE_COMMAND_TYPES,
-							...(this.allowLegacySessionPaths ? ["switch_session"] : []),
+							...RPC_BASE_COMMAND_TYPES.filter(
+								(type) =>
+									this.sessionBinding === "mutable" ||
+									!SERVER_SCOPED_COMMANDS.has(type),
+							),
+							...(this.allowLegacySessionPaths &&
+							this.sessionBinding === "mutable"
+								? ["switch_session"]
+								: []),
 							...(this.interactions
 								? [
 										"ui_response",

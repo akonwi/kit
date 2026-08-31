@@ -520,6 +520,7 @@ export class ExternalPluginClient {
 			description: params.description,
 			argName: params.argName ?? undefined,
 			category: params.category ?? undefined,
+			sessionBinding: "preserves",
 			executeTransportNeutral: ({ args, signal }) =>
 				executeExternalCommand(args, signal),
 			execute: async (commandContext) => {

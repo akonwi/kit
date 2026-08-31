@@ -46,6 +46,8 @@ export type Command = {
 	category?: string;
 	/** Execute with renderer-owned context and presentation semantics. */
 	execute: (ctx: CommandContext) => void | Promise<void>;
+	/** Omission keeps transport-neutral commands unavailable on fixed bindings. */
+	sessionBinding?: "preserves" | "replaces";
 	/** Execute without renderer-owned context when exposed through a remote host. */
 	executeTransportNeutral?: (
 		ctx: TransportNeutralCommandContext,

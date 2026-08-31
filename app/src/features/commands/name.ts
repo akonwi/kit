@@ -5,6 +5,7 @@ export const nameCommand: Command = {
 	name: "name",
 	argName: "name",
 	description: "Set session display name",
+	sessionBinding: "preserves",
 	execute({ runtime, picker, args }) {
 		const trimmed = args.trim();
 		if (trimmed) {

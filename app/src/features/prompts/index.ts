@@ -28,6 +28,7 @@ export function PromptsPlugin(kit: InternalPluginAPI): () => void {
 					{
 						description: template.description || template.filePath,
 						argName: "args",
+						sessionBinding: "preserves",
 						executeTransportNeutral: ({
 							args,
 							schedulePromptCommand,
