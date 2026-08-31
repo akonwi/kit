@@ -18,9 +18,10 @@ The architecture is recorded in:
 - [`app/docs/adrs/0029-session-client-and-repository-boundaries.md`](../app/docs/adrs/0029-session-client-and-repository-boundaries.md)
 - [`app/docs/adrs/0030-local-daemon-and-loopback-rpc.md`](../app/docs/adrs/0030-local-daemon-and-loopback-rpc.md)
 
-The authenticated loopback daemon control plane is implemented: Kit can start,
-discover, inspect, restart, and stop one per-user `KitServer` process. The local
-session-bound WebSocket protocol and normal CLI migration remain outstanding.
+The authenticated loopback daemon and session protocol are implemented: Kit can
+start, discover, inspect, restart, and stop one per-user `KitServer` process,
+then attach a `SessionClient` to an immutable session WebSocket with bounded
+snapshot/replay recovery. Migrating normal CLI workflows remains outstanding.
 
 ## Remaining server and browser work
 

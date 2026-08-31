@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import type { Server } from "bun";
 import type { KitServer } from "./kit-server";
 import {
 	LOCAL_SERVER_PROTOCOL_VERSION,
@@ -7,6 +8,11 @@ import {
 	removeLocalServerRegistration,
 	writeLocalServerRegistration,
 } from "./local-server-files";
+import {
+	LocalSessionRpcChannel,
+	type LocalSessionSocketData,
+	parseLocalSessionResumeCursor,
+} from "./local-session-rpc";
 import { WebAccessPolicy } from "./web-access-policy";
 
 export type LocalKitServerOptions = {
@@ -19,8 +25,13 @@ export class LocalKitServer {
 	private readonly instanceId = randomUUID();
 	private readonly startedAt = new Date().toISOString();
 	private readonly accessPolicy: WebAccessPolicy;
-	private http: ReturnType<typeof Bun.serve> | null = null;
+	private http: Server<LocalSessionSocketData> | null = null;
 	private stopPromise: Promise<void> | null = null;
+	private readonly sessionChannels = new Map<string, LocalSessionRpcChannel>();
+	private readonly startingChannels = new Map<
+		string,
+		Promise<LocalSessionRpcChannel>
+	>();
 	private resolveStopped: (() => void) | null = null;
 	private readonly stopped = new Promise<void>((resolve) => {
 		this.resolveStopped = resolve;
@@ -44,11 +55,20 @@ export class LocalKitServer {
 
 	async start(): Promise<{ url: string; instanceId: string }> {
 		if (this.http) throw new Error("Local Kit server is already running");
-		const http = Bun.serve({
+		const http = Bun.serve<LocalSessionSocketData>({
 			hostname: "127.0.0.1",
 			port: 0,
 			maxRequestBodySize: 64 * 1024,
-			fetch: (request) => this.handleRequest(request),
+			fetch: (request, bunServer) => this.handleRequest(request, bunServer),
+			websocket: {
+				maxPayloadLength: 1024 * 1024,
+				backpressureLimit: 16 * 1024 * 1024,
+				closeOnBackpressureLimit: true,
+				open: (socket) => socket.data.channel.open(socket),
+				message: (socket, message) =>
+					socket.data.channel.message(socket, message),
+				close: (socket) => socket.data.channel.close(socket),
+			},
 		});
 		this.http = http;
 		const port = http.port;
@@ -93,6 +113,8 @@ export class LocalKitServer {
 		} catch (error) {
 			cleanupError = error;
 		}
+		for (const channel of this.sessionChannels.values()) channel.dispose();
+		this.sessionChannels.clear();
 		try {
 			await this.server.dispose();
 		} catch (error) {
@@ -109,13 +131,51 @@ export class LocalKitServer {
 		if (cleanupError) throw cleanupError;
 	}
 
-	private async handleRequest(request: Request): Promise<Response> {
+	private async handleRequest(
+		request: Request,
+		bunServer: Server<LocalSessionSocketData>,
+	): Promise<Response | undefined> {
 		const url = new URL(request.url);
-		if (!this.accessPolicy.isAllowedHttpRequest(request, url)) {
+		const rpcSessionId = this.rpcSessionId(url.pathname);
+		const accessAllowed =
+			rpcSessionId === null
+				? this.accessPolicy.isAllowedHttpRequest(request, url)
+				: this.accessPolicy.isAllowedWebSocketRequest(request, url);
+		if (!accessAllowed) {
 			return new Response("Host or origin not allowed", { status: 403 });
 		}
 		if (!this.accessPolicy.isAuthorized(request)) {
 			return this.accessPolicy.authenticationRequiredResponse();
+		}
+		if (rpcSessionId !== null) {
+			if (request.headers.get("x-kit-instance-id") !== this.instanceId) {
+				return this.json({ error: "Local server instance changed" }, 409);
+			}
+			if (request.method !== "GET") {
+				return new Response("Method not allowed", { status: 405 });
+			}
+			try {
+				const channel = await this.getSessionChannel(rpcSessionId);
+				if (
+					bunServer.upgrade(request, {
+						data: {
+							channel,
+							resume: parseLocalSessionResumeCursor(url),
+							pendingCommands: 0,
+						},
+					})
+				) {
+					return undefined;
+				}
+				return new Response("WebSocket upgrade required", { status: 426 });
+			} catch (error) {
+				return this.json(
+					{
+						error: error instanceof Error ? error.message : String(error),
+					},
+					404,
+				);
+			}
 		}
 		if (request.method === "GET" && url.pathname === "/api/health") {
 			return this.json({
@@ -155,6 +215,48 @@ export class LocalKitServer {
 			return this.json({ stopping: true });
 		}
 		return new Response("Not found", { status: 404 });
+	}
+
+	private rpcSessionId(pathname: string): string | null {
+		const match = pathname.match(/^\/api\/sessions\/([^/]+)\/rpc$/);
+		if (!match?.[1]) return null;
+		try {
+			const sessionId = decodeURIComponent(match[1]);
+			return sessionId.length <= 128 && /^[A-Za-z0-9._-]+$/.test(sessionId)
+				? sessionId
+				: null;
+		} catch {
+			return null;
+		}
+	}
+
+	private getSessionChannel(
+		sessionId: string,
+	): Promise<LocalSessionRpcChannel> {
+		const existing = this.sessionChannels.get(sessionId);
+		if (existing) return Promise.resolve(existing);
+		const pending = this.startingChannels.get(sessionId);
+		if (pending) return pending;
+		const starting = this.server
+			.connectSession(sessionId)
+			.then((connection) => {
+				if (this.stopPromise) {
+					connection.close();
+					throw new Error("Local Kit server is shutting down");
+				}
+				let channel: LocalSessionRpcChannel;
+				try {
+					channel = new LocalSessionRpcChannel(connection);
+				} catch (error) {
+					connection.close();
+					throw error;
+				}
+				this.sessionChannels.set(sessionId, channel);
+				return channel;
+			})
+			.finally(() => this.startingChannels.delete(sessionId));
+		this.startingChannels.set(sessionId, starting);
+		return starting;
 	}
 
 	private async requestBody(

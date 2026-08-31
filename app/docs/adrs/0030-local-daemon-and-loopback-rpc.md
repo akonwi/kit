@@ -79,11 +79,18 @@ session connections:
 
 ```text
 server scope
-  health · capabilities · list sessions · create session
+  GET /api/health · GET/POST /api/sessions
 
 session scope
-  attach <session-id> · synchronize · commands · events · interactions
+  /api/sessions/<session-id>/rpc
+  synchronize · commands · events · interactions
 ```
+
+WebSocket upgrades require both the local credential and expected daemon
+instance ID. Each channel bounds clients and queued commands, projects records
+to canonical wire values, limits snapshots by serialized bytes, and supports
+sequenced replay with snapshot fallback and chunked recovery for oversized
+messages.
 
 A bound connection cannot replace its session. Session switching is a client
 operation that opens another bound connection. Multiple clients may attach to
