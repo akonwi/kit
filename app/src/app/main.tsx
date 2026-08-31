@@ -83,7 +83,24 @@ function parseBasicAuth(value: unknown):
 	return { username, password };
 }
 
-if (values.mode !== undefined) {
+if (subcommand === "server") {
+	if (
+		selectedModes > 0 ||
+		values.version === true ||
+		positionals.length > 2 ||
+		hasWebOnlyOptions ||
+		values.model !== undefined ||
+		values.session !== undefined ||
+		values["no-session"] === true
+	) {
+		console.error("Usage: kit server [start|status|stop|restart]");
+		process.exitCode = 1;
+	} else {
+		const { version } = await import("../../package.json");
+		const { runLocalServerCommand } = await import("./local-server-service");
+		process.exitCode = await runLocalServerCommand(positionals[1], version);
+	}
+} else if (values.mode !== undefined) {
 	console.error(
 		"--mode is no longer supported; use --web, --web-tui, or --rpc",
 	);

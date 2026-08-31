@@ -3,6 +3,11 @@
 Kit's stdio and WebSocket transports share the same `RpcSessionHost`, command
 dispatch, and semantic event model.
 
+Normal local CLI modes do not use RPC yet. ADR 0030 establishes the migration
+target: a reusable per-user `KitServer` daemon discovered through a secured
+loopback HTTP endpoint, with local clients attaching over the session-bound
+WebSocket protocol.
+
 Kit can run as a long-lived headless subprocess using newline-delimited JSON on
 stdin and stdout:
 

@@ -4,9 +4,9 @@
 
 Accepted
 
-Amended to use a server/client/protocol model. A same-process client calls the
-server directly; protocol transports project server connections across process
-or network boundaries.
+Amended to use a server/client/protocol model. ADR 0030 further requires normal
+local clients to reach a reusable server process through authenticated loopback
+RPC rather than a direct same-process connection.
 
 ## Context
 
@@ -69,9 +69,10 @@ Kit has three primary system components:
 - the **protocol and transports**, which project server connections to remote
   clients.
 
-A client in the server process calls `KitServer` and its bound connection
-directly. A client in another process reaches those operations through a
-protocol transport. Local composition does not add a pass-through transport.
+Clients reach `KitServer` through session-bound protocol connections. Normal
+local clients use authenticated loopback HTTP and WebSocket; remote clients use
+a separately exposed WebSocket listener. Server-rendered modes may still call
+the server directly because the renderer is part of the server process.
 
 ```mermaid
 flowchart LR
@@ -84,7 +85,7 @@ flowchart LR
     end
 
     Remote["Remote client"]
-    Transport["Protocol transport<br/>WebSocket · stdio"]
+    Transport["Protocol transport<br/>loopback · WebSocket · stdio"]
 
     subgraph ServerProcess["Server process"]
         Server["KitServer"]
@@ -94,7 +95,7 @@ flowchart LR
         Runtime --> Persistence
     end
 
-    Client <--> Server
+    Client <--> Transport
     Remote <--> Transport
     Transport <--> Server
 ```
@@ -236,10 +237,10 @@ exactly once and in order. Records caused by a command are delivered before that
 command's response resolves. Transports own connection lifecycle, reconnect,
 replay, and snapshot fallback.
 
-Protocol values are limited to canonical wire-safe values. In-process transports
-must validate and clone commands, records, and responses just like network
-transports, so local behavior cannot depend on mutable references, functions,
-binary objects, or values that JSON would transform. Binary attachment content
+Protocol values are limited to canonical wire-safe values. Every transport must
+validate commands, records, and responses, so local behavior cannot depend on
+mutable references, functions, binary objects, or values that JSON would
+transform. Binary attachment content
 uses bounded base64 chunk operations with contiguous offsets. Read responses
 include `nextOffset`, `totalBytes`, and `complete`; commit may verify an expected
 SHA-256 digest and returns authoritative attachment metadata.
@@ -394,29 +395,25 @@ Visual and focus state        -> renderer
 
 ### Local and remote connections
 
-Local clients call the server connection directly. Remote clients use a
-protocol implementation of the same connection behavior:
+Local and remote clients both use protocol connections:
 
 ```text
-Local
-  OpenTUI
-    -> SessionClient
-    -> KitServerConnection
-    -> AgentRuntime
+Local OpenTUI
+  -> SessionClient
+  -> authenticated loopback WebSocket
+  -> KitServer
+  -> AgentRuntime
 
-Remote
-  OpenTUI or web UI
-    -> SessionClient
-    -> WebSocketSessionConnection
-    -> KitServer (in another process)
-    -> AgentRuntime
+Remote OpenTUI or web UI
+  -> SessionClient
+  -> remotely exposed WebSocket
+  -> KitServer
+  -> AgentRuntime
 ```
 
-There is no in-process transport or embedded adapter. `SessionClient` owns the
-shared reduction and semantic API; its local connection is the concrete
-`KitServerConnection`. When the WebSocket path is implemented, the smallest
-connection contract needed by both concrete connections will be extracted with
-those consumers.
+This is a real process and serialization boundary, not an in-process delegating
+adapter. `SessionClient` owns the shared reduction and semantic API while the
+transport owns framing, authentication, synchronization, and reconnection.
 
 Platform operations remain outside the session client. The TUI receives a
 session client plus terminal/platform services for clipboard, notifications,
@@ -492,7 +489,7 @@ becoming a protocol or renderer contract change.
 
 ```text
 kit
-  KitServer + SessionClient + TUI
+  local KitServer daemon + loopback WebSocket + SessionClient + TUI
 
 kit attach <server>
   WebSocketTransport + SessionClient + TUI
@@ -529,13 +526,13 @@ The repository will move toward this architecture incrementally:
    session-client package.
 3. Implement `KitServer` session management, introducing server-side types and
    seams only with their first concrete consumers.
-4. Implement `SessionClient` directly over `KitServerConnection`.
-5. Adapt transcript and composer workflows to consume `SessionClient`.
-6. Move remaining TUI features behind explicit client or platform boundaries.
-7. Extract runtime, persistence, server, and renderer packages as their import
+4. Implement authenticated loopback server discovery and lifecycle.
+5. Implement the session-bound local protocol and `SessionClient`.
+6. Adapt transcript and composer workflows to consume `SessionClient`.
+7. Move remaining TUI features behind explicit client or platform boundaries.
+8. Extract runtime, persistence, server, and renderer packages as their import
    boundaries become enforceable.
-8. Design and implement the session-bound protocol revision.
-9. Add the WebSocket transport and `kit attach`.
+9. Add the remotely exposed WebSocket transport and `kit attach`.
 10. Add client-local session switching and, later, native session tabs.
 
 ## Consequences
@@ -579,5 +576,6 @@ The repository will move toward this architecture incrementally:
 - [`0026-headless-rpc-mode.md`](0026-headless-rpc-mode.md)
 - [`0027-remote-session-server.md`](0027-remote-session-server.md)
 - [`0028-minimal-web-client.md`](0028-minimal-web-client.md)
+- [`0030-local-daemon-and-loopback-rpc.md`](0030-local-daemon-and-loopback-rpc.md)
 - [`../../../docs/features/rpc-mode.md`](../../../docs/features/rpc-mode.md)
 - [`../../../backlog/remote-session-server.md`](../../../backlog/remote-session-server.md)
