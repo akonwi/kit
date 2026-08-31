@@ -3,7 +3,6 @@ import {
 	parseRemoteChromeSnapshot,
 	type RemoteChromeSnapshot,
 } from "./chrome-state";
-import type { SessionClientTool } from "./contracts";
 import {
 	MAX_REMOTE_MESSAGE_PREVIEW_LENGTH,
 	MAX_REMOTE_MESSAGE_PREVIEWS,
@@ -16,7 +15,16 @@ export type ConnectionPhase =
 	| "synchronizing"
 	| "live";
 
-export type ToolActivity = SessionClientTool;
+export type ToolActivity = {
+	id: string;
+	turnId: string;
+	name: string;
+	args?: Record<string, unknown>;
+	partialResult?: unknown;
+	result?: unknown;
+	isError: boolean;
+	status: "running" | "complete";
+};
 
 export type ClientState = {
 	phase: ConnectionPhase;

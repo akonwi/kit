@@ -51,9 +51,6 @@
         "typescript": "^5.9.0",
       },
     },
-    "packages/host": {
-      "name": "@akonwi/kit-host",
-    },
     "packages/protocol": {
       "name": "@akonwi/kit-protocol",
       "devDependencies": {
@@ -72,8 +69,6 @@
   },
   "packages": {
     "@akonwi/kit": ["@akonwi/kit@workspace:app"],
-
-    "@akonwi/kit-host": ["@akonwi/kit-host@workspace:packages/host"],
 
     "@akonwi/kit-protocol": ["@akonwi/kit-protocol@workspace:packages/protocol"],
 

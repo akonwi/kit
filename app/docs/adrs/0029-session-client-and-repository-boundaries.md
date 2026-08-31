@@ -4,6 +4,10 @@
 
 Accepted
 
+Amended to use a server/client/protocol model. The server may run in the same
+process as a client or in a separate process; clients always communicate with it
+through a protocol transport.
+
 ## Context
 
 Kit currently composes its runtime, persistence, remote protocols, terminal
@@ -13,7 +17,7 @@ but it obscures the boundaries needed for remote clients and a multi-session
 server.
 
 `kit attach` will run an OpenTUI renderer locally while controlling an
-authoritative session on another machine. A future remote Kit host may keep
+authoritative session on another machine. A future Kit server may keep
 multiple sessions running concurrently. Separate terminal tabs, tmux panes,
 browser tabs, or native Kit tabs may each attach to the same or different
 sessions.
@@ -23,7 +27,7 @@ In particular:
 
 - the TUI must not require direct ownership of an `AgentRuntime`;
 - one client view must bind to one authoritative running session;
-- host-level session discovery must remain separate from session-level actions;
+- server-level session discovery must remain separate from session-level actions;
 - protocol metadata must not be mixed into observable session state;
 - shared types must have clear owners rather than accumulating in a generic
   `domain` package;
@@ -40,70 +44,77 @@ Commands such as `new_session`, `open_session`, `switch_session`, `/new`, and
 TUI also owns an `AgentRuntime` directly, and most components still live under
 `app/`.
 
-The target architecture requires a protocol revision, expected to be version 3,
-that introduces host-level session discovery and creation plus an explicit
-session-binding handshake or route. Once bound, a session connection cannot
+The target architecture requires a session-bound protocol revision, expected to
+be version 3, that introduces server-level session discovery and creation plus
+an explicit session-binding handshake or route. Once bound, a session connection cannot
 change its binding. Existing session-changing commands must be removed, filtered,
-or adapted into host-level operations that return a session identity for the
+or adapted into server-level operations that return a session identity for the
 client shell to open.
 
-Repository extraction, the multi-session `KitHost`, the session-bound protocol,
-and both client implementations remain future implementation work.
+Repository extraction, the multi-session `KitServer`, the session-bound
+protocol, and the shared transport-backed client remain future implementation
+work.
 
 ## Decision
 
 ### Architectural components
 
-Kit will evolve toward distinct runtime, host, protocol, client, and renderer
-components:
+Kit has three primary system components:
+
+- the **server**, which is the authoritative backend and session manager;
+- **clients**, which bind to individual sessions, render a UX, and may add
+  client-specific behavior;
+- the **protocol and transports**, which connect clients to the server.
+
+The server may be embedded in a client process or run as a separate process.
+That deployment choice does not change the client model.
 
 ```mermaid
 flowchart LR
-    Protocol["Remote protocol"]
-    Runtime["Agent runtime"]
-    Persistence["Persistence"]
-    Host["Multi-session host"]
-    Client["Session client"]
-    TUI["OpenTUI renderer"]
-    Web["Semantic web renderer"]
-    WebTUI["Browser terminal renderer"]
-    CLI["CLI composition root"]
+    subgraph ClientProcess["Client process"]
+        UI["TUI or web UX"]
+        Client["SessionClient"]
+        LocalState["Client-specific state and features"]
+        UI --> Client
+        LocalState --> UI
+    end
 
-    Persistence --> Runtime
-    Host --> Runtime
-    Host --> Protocol
-    Client --> Protocol
-    TUI --> Client
-    Web --> Client
-    CLI --> Host
-    CLI --> Client
-    CLI --> TUI
-    CLI --> Web
-    CLI --> WebTUI
+    Transport["Protocol transport<br/>in-process · WebSocket · stdio"]
+
+    subgraph ServerProcess["Same or separate process"]
+        Server["KitServer"]
+        Runtime["Running session runtimes"]
+        Persistence["Persistence"]
+        Server --> Runtime
+        Runtime --> Persistence
+    end
+
+    Client <--> Transport
+    Transport <--> Server
 ```
 
 The target repository shape is:
 
 ```text
 apps/
-├── cli/                # executable composition for every Kit mode
-├── web/                # semantic browser renderer
-└── web-tui/            # ghostty-web terminal client
+├── cli/                # OpenTUI client and local/remote composition
+├── web/                # semantic browser client
+└── web-tui/            # browser terminal client
 
 packages/
 ├── runtime/            # AgentRuntime and authoritative session behavior
 ├── persistence/        # session storage, sidecars, and migrations
-├── protocol/           # wire records, validation, and synchronization
-├── host/               # SessionService, RpcSessionHost, and KitHost
-├── session-client/     # client contract, state, reducer, and implementations
-├── tui/                # AppShell and terminal presentation
+├── protocol/           # records, validation, and transport contracts
+├── server/             # backend, session manager, and bound connections
+├── session-client/     # shared client state, reducer, and client API
+├── tui/                # OpenTUI presentation
 └── plugin-sdk/         # public plugin contracts
 ```
 
 These may begin as private workspace packages. A package should exist to enforce
 a meaningful ownership or dependency boundary, not merely to hold types.
 
-### Multi-session host model
+### Multi-session server model
 
 A remote Kit server may own multiple running session runtimes:
 
@@ -118,7 +129,7 @@ flowchart LR
 
     subgraph Deployment["Local or cloud Kit deployment"]
         Gateway["HTTPS / authentication"]
-        Host["KitHost"]
+        Server["KitServer"]
         Directory["Session directory"]
         Manager["Runtime manager"]
 
@@ -139,9 +150,9 @@ flowchart LR
     Browser --> Gateway
     Tabs --> Gateway
     External --> Gateway
-    Gateway --> Host
-    Host --> Directory
-    Host --> Manager
+    Gateway --> Server
+    Server --> Directory
+    Server --> Manager
     Manager --> RpcA
     Manager --> RpcB
     RpcA --> RuntimeA
@@ -150,19 +161,19 @@ flowchart LR
     RuntimeB --> Storage
 ```
 
-The target host will ensure one runtime owner for each persisted session.
+The target server will ensure one runtime owner for each persisted session.
 Multiple clients may bind to one running session, while other clients bind to
 different sessions. The first implementation will use one WebSocket per client
 view and one immutable session binding per WebSocket. Protocol-level
 multiplexing of multiple sessions over one socket is deferred.
 
-### Host client and session client
+### Server client and session client
 
-Host-level operations and bound-session operations use separate interfaces:
+Server-level operations and bound-session operations use separate interfaces:
 
 ```ts
-interface KitHostClient {
-	readonly state: ObservableState<HostClientSnapshot>;
+interface ServerClient {
+	readonly state: ObservableState<ServerClientSnapshot>;
 
 	connect(): Promise<void>;
 	listSessions(options?: SessionListOptions): Promise<SessionSummary[]>;
@@ -188,20 +199,20 @@ interface SessionClient {
 }
 ```
 
-`KitHostClient.connect()` completes host capability negotiation.
+`ServerClient.connect()` completes server capability negotiation.
 `attachSession()` completes session capability negotiation and initial
 synchronization before returning a client. Its core and optional feature facets,
 including their authoritative constraints, are therefore stable for the returned
-client's lifetime. Reconnection is managed internally; an incompatible host or
+client's lifetime. Reconnection is managed internally; an incompatible server or
 protocol transition disconnects the client instead of mutating its mounted API.
 
 A `SessionClient` represents exactly one client-side binding to one authoritative
 running session. It does not expose `switchSession`. Session selection belongs
-to `KitHostClient` and the application shell:
+to `ServerClient` and the application shell:
 
 ```text
 SessionClient A
-  -> KitHostClient.attachSession(B)
+  -> ServerClient.attachSession(B)
   -> SessionClient B
   -> replace the current view or open a new tab
 ```
@@ -211,6 +222,21 @@ active session for every client connected to a server. A bound `SessionClient`
 does not surface commands that replace its session binding. Session-creating
 workflows such as new-session and handoff must return a target session identity
 to the shell, which decides whether to replace the current view or open another.
+
+Server-scoped and bound-session commands use separate protocol types and
+validation paths. A session transport atomically installs its event listener and
+returns a complete snapshot plus a high-water cursor; later records are delivered
+exactly once and in order. Records caused by a command are delivered before that
+command's response resolves. Transports own connection lifecycle, reconnect,
+replay, and snapshot fallback.
+
+Protocol values are limited to canonical wire-safe values. In-process transports
+must validate and clone commands, records, and responses just like network
+transports, so local behavior cannot depend on mutable references, functions,
+binary objects, or values that JSON would transform. Binary attachment content
+uses bounded base64 chunk operations with contiguous offsets. Read responses
+include `nextOffset`, `totalBytes`, and `complete`; commit may verify an expected
+SHA-256 digest and returns authoritative attachment metadata.
 
 ### Observable state
 
@@ -291,6 +317,7 @@ interface AttachmentClient {
 	};
 
 	stage(source: AttachmentSource): Promise<StagedAttachment>;
+	read(id: string): Promise<AttachmentContent>;
 	remove(id: string): Promise<void>;
 }
 ```
@@ -359,29 +386,35 @@ Client-local workflow state  -> renderer controllers
 Visual and focus state        -> renderer
 ```
 
-### Local and remote implementations
+### Local and remote connections
 
-The TUI consumes the same semantic interface in local and attached modes:
+Local and remote clients use the same `ServerClient` and `SessionClient`
+implementation. Only the transport changes:
 
 ```text
-EmbeddedSessionClientAdapter (apps/cli)
-  -> in-process SessionService (packages/host)
-  -> AgentRuntime
+Local
+  OpenTUI
+    -> SessionClient
+    -> InProcessTransport
+    -> KitServer
+    -> AgentRuntime
 
-RemoteSessionClient (packages/session-client)
-  -> WebSocket protocol
-  -> KitHost
-  -> bound RpcSessionHost
-  -> SessionService
-  -> AgentRuntime
+Remote
+  OpenTUI or web UI
+    -> SessionClient
+    -> WebSocketTransport
+    -> KitServer (in another process)
+    -> AgentRuntime
 ```
 
-Local mode does not need to serialize its operations through JSON. The local
-adapter is integration code owned by `apps/cli`; `packages/session-client` does
-not depend on `packages/host`. The composition root imports both contracts and
-adapts the in-process `SessionService` to `SessionClient`. Contract tests must
-verify that embedded and remote clients produce equivalent semantic state for
-shared capabilities.
+The server may run in the same process as the client or in a separate process.
+An in-process transport passes protocol commands and records directly without
+JSON serialization or sockets. It still preserves the same command, binding,
+reduction, and synchronization semantics as a network transport.
+
+There is no separate embedded session-client adapter and no separate local and
+remote session-client implementation. Shared contract tests run the client over
+both in-process and WebSocket transports.
 
 Platform operations remain outside the session client. The TUI receives a
 session client plus terminal/platform services for clipboard, notifications,
@@ -407,7 +440,7 @@ Kit window
 ```
 
 Terminal tabs, tmux panes, and browser tabs provide the same model naturally by
-running independent client views. They may share a host and may attach to the
+running independent client views. They may share a server and may attach to the
 same or different sessions.
 
 ### Type ownership
@@ -442,7 +475,7 @@ Similar shapes at different boundaries are projected explicitly:
 
 ```text
 RuntimeMessage
-  -> host projection
+  -> server projection
   -> ProtocolMessage
   -> client reducer
   -> ClientMessage
@@ -457,19 +490,20 @@ becoming a protocol or renderer contract change.
 
 ```text
 kit
-  SessionService + EmbeddedSessionClientAdapter + TUI
+  KitServer + InProcessTransport + SessionClient + TUI
 
-kit attach <host>
-  KitHostClient + RemoteSessionClient + TUI
+kit attach <server>
+  WebSocketTransport + SessionClient + TUI
 
 kit --web
-  KitHost + HTTP/WebSocket transport + semantic web assets
+  KitServer + WebSocket transport + semantic web client
 
 kit --rpc
-  SessionService + RpcSessionHost + stdio transport
+  KitServer + stdio transport
 
 kit --web-tui
-  server-side TUI + terminal-byte bridge
+  KitServer + InProcessTransport + SessionClient + server-side TUI
+  browser client <-> terminal-byte bridge <-> server-side TUI
 ```
 
 ## Dependency rules
@@ -477,8 +511,9 @@ kit --web-tui
 - `runtime` does not import renderer or transport implementations.
 - `persistence` implements runtime-owned persistence ports.
 - `protocol` defines wire contracts independently of runtime types.
-- `host` projects runtime/service values into protocol records.
-- `session-client` maps protocol records into client-owned state.
+- `server` owns authoritative sessions and projects them into protocol records.
+- `session-client` maps protocol records into client-owned state and is
+  independent of the concrete transport.
 - `tui` consumes session-client contracts rather than `AgentRuntime`.
 - only application composition roots wire concrete implementations together.
 - a package is not created solely to hold shared types.
@@ -487,19 +522,20 @@ kit --web-tui
 
 The repository will move toward this architecture incrementally:
 
-1. Extract protocol records and validation from the current RPC host and web
-   server.
-2. Extract the browser's DOM-independent transport, services, and reducer into
-   the session-client package.
-3. Define the core `SessionService`, `KitHostClient`, and `SessionClient`
-   contracts, with the embedded adapter owned by `apps/cli`.
-4. Adapt transcript and composer workflows to consume `SessionClient`.
-5. Move remaining TUI features behind explicit feature-client contracts.
-6. Extract runtime, persistence, host, and renderer packages as their import
+1. Extract the existing protocol records and validation.
+2. Extract the browser's DOM-independent services and reducer into the
+   session-client package.
+3. Implement `KitServer` session management, introducing server-side types and
+   seams only with their first concrete consumers.
+4. Implement the in-process transport and its transport-backed
+   `ServerClient`/`SessionClient` together.
+5. Adapt transcript and composer workflows to consume `SessionClient`.
+6. Move remaining TUI features behind explicit client or platform boundaries.
+7. Extract runtime, persistence, server, and renderer packages as their import
    boundaries become enforceable.
-7. Add the multi-session `KitHost` and connection-to-session routing.
-8. Implement `RemoteSessionClient` and `kit attach`.
-9. Add client-local session switching and, later, native session tabs.
+8. Design and implement the session-bound protocol revision.
+9. Add the WebSocket transport and `kit attach`.
+10. Add client-local session switching and, later, native session tabs.
 
 ## Consequences
 
@@ -520,8 +556,8 @@ The repository will move toward this architecture incrementally:
   Git, or storage must move behind client and platform ports.
 - Runtime, protocol, and client projections will intentionally duplicate some
   data shapes.
-- Local and remote implementations require shared contract tests to prevent
-  semantic drift.
+- In-process and network transports require shared conformance tests to prevent
+  transport-specific semantic drift.
 - Feature parity becomes explicit: unsupported remote features must be absent
   or disabled rather than accidentally operating on the client machine.
 - Converting the current package into workspaces adds build and repository

@@ -38,10 +38,10 @@ OpenTUI renderer as a semantic WebSocket client of an authoritative `kit --web`
 host:
 
 ```text
-local AppShell/CliRenderer -> session-bound WebSocket RPC -> KitHost -> RpcSessionHost
+local AppShell/CliRenderer -> SessionClient -> WebSocket transport -> KitServer
 ```
 
-It must evolve the existing web-mode protocol with host-level session discovery
+It must evolve the existing web-mode protocol with server-level session discovery
 and immutable connection-to-session binding rather than introduce an unrelated
 server protocol or stream terminal bytes. This also requires separating the
 TUI's presentation state from direct ownership of an in-process `AgentRuntime`.
@@ -57,6 +57,6 @@ They do not provide the local renderer, protocol reduction, shared-session
 synchronization, or reconnect behavior required by `kit attach`.
 
 A focused `kit attach` design should still settle the CLI and authentication
-contract, host/session routing syntax, and detach-versus-host-shutdown semantics.
+contract, server/session routing syntax, and detach-versus-server-shutdown semantics.
 ADR 0029 defines the local/remote client boundary, immutable session binding,
 and capability ownership.
