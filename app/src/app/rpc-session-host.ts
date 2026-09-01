@@ -68,6 +68,7 @@ export type RpcSessionHostOptions = {
 	waitForWorkspaceReady?: () => Promise<void>;
 	reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	allowLegacySessionPaths?: boolean;
+	allowBashExecution?: boolean;
 	// TODO(server-client): Remove the mutable mode once clients own session
 	// switching by opening a different session-bound connection.
 	sessionBinding?: "mutable" | "fixed";
@@ -132,6 +133,7 @@ function optionalNonnegativeInteger(
 
 const MAX_FOLLOW_UP_OPERATION_ID_LENGTH = 128;
 export const MAX_PENDING_FOLLOW_UP_MUTATIONS = 16;
+const MAX_PENDING_BASH_ACCEPTANCES = 64;
 export const MAX_REMOTE_FOLLOW_UP_DRAFT_ITEMS = 128;
 export const MAX_REMOTE_FOLLOW_UP_DRAFT_BYTES = MAX_REMOTE_PROMPT_TEXT_BYTES;
 
@@ -536,6 +538,7 @@ export class RpcSessionHost {
 		{ fingerprint: string; data: Record<string, unknown> }
 	>();
 	private readonly acceptedRuns = new Set<Promise<void>>();
+	private readonly bashAcceptances = new Map<string, string>();
 	private readonly listeners = new Set<RpcEventListener>();
 	private readonly pendingEvents: unknown[] = [];
 	private readonly unsubscribeRuntime: () => void;
@@ -556,11 +559,13 @@ export class RpcSessionHost {
 	private readonly waitForWorkspaceReady: () => Promise<void>;
 	private readonly reloadHost?: (signal?: AbortSignal) => Promise<void>;
 	private readonly allowLegacySessionPaths: boolean;
+	private readonly allowBashExecution: boolean;
 	private readonly sessionBinding: "mutable" | "fixed";
 	private readonly commandTimeoutMs: number;
 	private readonly commandCancellationGraceMs: number;
 	private activeCommandAbort: AbortController | null = null;
 	private activeCommandExecution: Promise<void> | null = null;
+	private activeBashAbort: AbortController | null = null;
 	private commandGeneration = 0;
 	private commandRegistryGeneration = 0;
 	private commandExecutionCompromised = false;
@@ -584,6 +589,7 @@ export class RpcSessionHost {
 			options.waitForWorkspaceReady ?? (async () => {});
 		this.reloadHost = options.reloadHost;
 		this.allowLegacySessionPaths = options.allowLegacySessionPaths ?? true;
+		this.allowBashExecution = options.allowBashExecution ?? false;
 		this.sessionBinding = options.sessionBinding ?? "mutable";
 		this.commandTimeoutMs =
 			options.commandTimeoutMs ?? DEFAULT_COMMAND_TIMEOUT_MS;
@@ -726,6 +732,7 @@ export class RpcSessionHost {
 		this.commandGeneration += 1;
 		this.interactions?.dispose();
 		this.activeCommandAbort?.abort(new Error("Command execution aborted"));
+		this.activeBashAbort?.abort(new Error("Bash execution aborted"));
 		this.runtime.abort();
 		await this.commandQueue;
 		await Promise.allSettled(this.acceptedRuns);
@@ -741,6 +748,7 @@ export class RpcSessionHost {
 		this.unsubscribeCommands?.();
 		this.unsubscribeHeader?.();
 		this.unsubscribeFooter?.();
+		this.activeBashAbort?.abort(new Error("RPC host disposed"));
 		this.interactions?.dispose();
 		this.attachments?.dispose();
 		this.listeners.clear();
@@ -839,6 +847,7 @@ export class RpcSessionHost {
 			const queuedBeforeAbort = this.commandQueue;
 			this.commandGeneration += 1;
 			this.activeCommandAbort?.abort(new Error("Command execution aborted"));
+			this.activeBashAbort?.abort(new Error("Bash execution aborted"));
 			this.runtime.abort();
 			await Promise.allSettled([
 				...this.acceptedRuns,
@@ -1099,6 +1108,92 @@ export class RpcSessionHost {
 				this.runtime.sendFollowUp(requireString(command, "message"));
 				await respond(this.response(command, true));
 				return;
+			case "execute_bash": {
+				if (!this.allowBashExecution) {
+					throw new Error("Bash execution is unavailable on this host");
+				}
+				const excludeFromContext = command.excludeFromContext ?? false;
+				if (typeof excludeFromContext !== "boolean") {
+					throw new Error("excludeFromContext must be a boolean");
+				}
+				const clientId = followUpMutationId(command, "clientId");
+				const operationId = followUpMutationId(command, "operationId");
+				const acceptanceKey = `${clientId}\u0000${operationId}`;
+				const bashCommand = requireString(command, "command");
+				const fingerprint = `${bashCommand}\u0000${excludeFromContext}`;
+				const accepted = this.bashAcceptances.get(acceptanceKey);
+				if (accepted !== undefined) {
+					if (accepted !== fingerprint) {
+						throw new Error("Bash operation ID was reused for another command");
+					}
+					await respond(
+						this.response(command, true, {
+							clientId,
+							operationId,
+							accepted: true,
+						}),
+					);
+					return;
+				}
+				if (this.activeBashAbort) {
+					throw new Error("A bash command is already running");
+				}
+				if (this.bashAcceptances.size >= MAX_PENDING_BASH_ACCEPTANCES) {
+					throw new Error("Too many unacknowledged bash operations");
+				}
+				this.bashAcceptances.set(acceptanceKey, fingerprint);
+				const generation = this.commandGeneration;
+				const abort = new AbortController();
+				this.activeBashAbort = abort;
+				try {
+					await respond(
+						this.response(command, true, {
+							clientId,
+							operationId,
+							accepted: true,
+						}),
+					);
+				} catch (error) {
+					this.bashAcceptances.delete(acceptanceKey);
+					this.activeBashAbort = null;
+					throw error;
+				}
+				if (!this.acceptingCommands || generation !== this.commandGeneration) {
+					this.bashAcceptances.delete(acceptanceKey);
+					abort.abort(new Error("Bash execution cancelled before start"));
+					if (this.activeBashAbort === abort) this.activeBashAbort = null;
+					return;
+				}
+				let run: Promise<void>;
+				run = this.runtime
+					.executeBash(bashCommand, excludeFromContext, abort.signal)
+					.catch((error) => {
+						this.publish({
+							type: "error",
+							error: error instanceof Error ? error.message : String(error),
+						});
+					})
+					.finally(() => {
+						if (this.activeBashAbort === abort) this.activeBashAbort = null;
+						this.acceptedRuns.delete(run);
+					});
+				this.acceptedRuns.add(run);
+				return;
+			}
+			case "acknowledge_bash_execution": {
+				const clientId = followUpMutationId(command, "clientId");
+				const operationId = followUpMutationId(command, "operationId");
+				const acceptanceKey = `${clientId}\u0000${operationId}`;
+				const acknowledged = this.bashAcceptances.delete(acceptanceKey);
+				await respond(
+					this.response(command, true, {
+						clientId,
+						operationId,
+						acknowledged,
+					}),
+				);
+				return;
+			}
 			case "acknowledge_follow_up_mutation": {
 				const clientId = followUpMutationId(command, "clientId");
 				const operationId = followUpMutationId(command, "operationId");
@@ -1395,8 +1490,11 @@ export class RpcSessionHost {
 						commands: [
 							...RPC_BASE_COMMAND_TYPES.filter(
 								(type) =>
-									this.sessionBinding === "mutable" ||
-									!SERVER_SCOPED_COMMANDS.has(type),
+									((type !== "execute_bash" &&
+										type !== "acknowledge_bash_execution") ||
+										this.allowBashExecution) &&
+									(this.sessionBinding === "mutable" ||
+										!SERVER_SCOPED_COMMANDS.has(type)),
 							),
 							...(this.allowLegacySessionPaths &&
 							this.sessionBinding === "mutable"

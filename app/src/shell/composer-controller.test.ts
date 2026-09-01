@@ -2,8 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { createCommandRegistry } from "../features/commands";
 import { ImageAttachment } from "../features/images/attachment";
 import { CodeReviewAttachment } from "../features/review/attachment";
-import type { AgentMessage } from "../runtime/agent";
-import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { ToastInput } from "../state/toasts";
 import { createAttachmentsController } from "./attachments-controller";
 import {
@@ -15,6 +13,34 @@ import {
 	REFERENCE_PICKER_ESCAPE_DELAY_MS,
 	type TextareaHandle,
 } from "./composer-controller";
+import type { ComposerMessage, ComposerSession } from "./composer-session";
+
+function createTestSession(
+	overrides: Partial<ComposerSession> = {},
+): ComposerSession {
+	return {
+		state: () => ({
+			id: "session-1",
+			cwd: "/workspace",
+			isStreaming: false,
+			bashExecution: true,
+			pendingMessageCount: 0,
+			pendingMessageGeneration: 0,
+			messages: [],
+		}),
+		submitMessage: async () => {},
+		executeBash: async () => {},
+		sendFollowUp: () => {},
+		restorePendingMessages: async () => ({
+			messages: [],
+			acknowledge: async () => {},
+		}),
+		promotePendingFollowUpsToSteering: () => {},
+		abort: () => {},
+		quit: () => {},
+		...overrides,
+	};
+}
 
 describe("command presentation", () => {
 	test("keeps duplicate local names distinct by canonical command identity", () => {
@@ -58,13 +84,21 @@ describe("composer submission", () => {
 	function setupFailedAttachmentSubmission() {
 		let rejectSubmission: ((error: Error) => void) | undefined;
 		let cwd = "/repo-a";
-		const runtime = {
-			getSession: () => ({ id: "session-1", cwd }),
+		const session = createTestSession({
+			state: () => ({
+				id: "session-1",
+				cwd,
+				isStreaming: false,
+				bashExecution: true,
+				pendingMessageCount: 0,
+				pendingMessageGeneration: 0,
+				messages: [],
+			}),
 			submitMessage: () =>
 				new Promise<never>((_resolve, reject) => {
 					rejectSubmission = reject;
 				}),
-		} as unknown as AgentRuntime;
+		});
 		const attachments = createAttachmentsController();
 		const attachment = (summary: string) => ({
 			id: "code-review",
@@ -76,7 +110,7 @@ describe("composer submission", () => {
 		});
 		attachments.attach(attachment("old"));
 		const controller = createComposerController({
-			runtime,
+			session,
 			commands: createCommandRegistry(),
 			fileIndex: {} as never,
 			threadIndex: null,
@@ -185,12 +219,11 @@ describe("composer submission", () => {
 	test("blocks submission when an attachment is no longer valid", async () => {
 		let submissions = 0;
 		const toasts: ToastInput[] = [];
-		const runtime = {
-			getSession: () => ({ id: "session-1" }),
+		const session = createTestSession({
 			submitMessage: async () => {
 				submissions += 1;
 			},
-		} as unknown as AgentRuntime;
+		});
 		const attachments = createAttachmentsController();
 		attachments.attach({
 			id: "stale",
@@ -202,7 +235,7 @@ describe("composer submission", () => {
 			toPromptText: () => "stale",
 		});
 		const controller = createComposerController({
-			runtime,
+			session,
 			commands: createCommandRegistry(),
 			fileIndex: {} as never,
 			threadIndex: null,
@@ -227,20 +260,112 @@ describe("composer submission", () => {
 		]);
 	});
 
+	test("reports queue promotion races without rejecting submission", async () => {
+		const toasts: ToastInput[] = [];
+		const session = createTestSession({
+			state: () => ({
+				id: "session-1",
+				cwd: "/workspace",
+				isStreaming: true,
+				bashExecution: true,
+				pendingMessageCount: 1,
+				pendingMessageGeneration: 2,
+				messages: [],
+			}),
+			promotePendingFollowUpsToSteering: async () => {
+				throw new Error("queue changed");
+			},
+		});
+		const controller = createComposerController({
+			session,
+			commands: createCommandRegistry(),
+			fileIndex: {} as never,
+			threadIndex: null,
+			attachments: createAttachmentsController(),
+			reviewDrafts: {} as never,
+			reviewWorkspace: {} as never,
+			toast: (toast) => toasts.push(toast),
+			_reload: async () => {},
+			openCustomOverlay: async () => undefined as never,
+		});
+		await expect(controller.handleSubmit()).resolves.toBeUndefined();
+		expect(toasts).toEqual([
+			{
+				title: "Follow-up promotion failed",
+				subtitle: "queue changed",
+				variant: "error",
+			},
+		]);
+	});
+
+	test("restores rejected bash drafts and treats bash as text when unsupported", async () => {
+		let submitted: unknown;
+		let bashExecution = true;
+		const session = createTestSession({
+			state: () => ({
+				id: "session-1",
+				cwd: "/workspace",
+				isStreaming: false,
+				bashExecution,
+				pendingMessageCount: 0,
+				pendingMessageGeneration: 0,
+				messages: [],
+			}),
+			executeBash: async () => {
+				throw new Error("bash unavailable");
+			},
+			submitMessage: async (parts) => {
+				submitted = parts;
+			},
+		});
+		const controller = createComposerController({
+			session,
+			commands: createCommandRegistry(),
+			fileIndex: {} as never,
+			threadIndex: null,
+			attachments: createAttachmentsController(),
+			reviewDrafts: {} as never,
+			reviewWorkspace: {} as never,
+			toast: () => {},
+			_reload: async () => {},
+			openCustomOverlay: async () => undefined as never,
+		});
+		let text = "!pwd";
+		controller.setTextarea({
+			get plainText() {
+				return text;
+			},
+			cursorOffset: 0,
+			setText: (value) => {
+				text = value;
+			},
+			insertText: (value) => {
+				text += value;
+			},
+			focus: () => {},
+		});
+		await controller.handleSubmit();
+		expect(text).toBe("!pwd");
+
+		bashExecution = false;
+		await controller.handleSubmit();
+		expect(submitted).toEqual([{ type: "text", text: "!pwd" }]);
+		expect(text).toBe("");
+	});
+
 	test("message submission bypasses composer bash execution", async () => {
 		let submitted: unknown;
 		let bashExecutions = 0;
-		const runtime = {
-			getSession: () => ({ id: "session-1" }),
-			submitMessage: async (parts: unknown) => {
+		const session = createTestSession({
+			submitMessage: async (parts) => {
 				submitted = parts;
 			},
 			executeBash: async () => {
 				bashExecutions += 1;
 			},
-		} as unknown as AgentRuntime;
+		});
 		const controller = createComposerController({
-			runtime,
+			session,
 			commands: createCommandRegistry(),
 			fileIndex: {} as never,
 			threadIndex: null,
@@ -276,7 +401,7 @@ describe("composer submission", () => {
 describe("reference picker escaping", () => {
 	function setupReferenceController(options?: {
 		ensureLoaded?: () => Promise<Array<{ path: string; isDir: boolean }>>;
-		runtime?: AgentRuntime;
+		session?: ComposerSession;
 	}) {
 		const textarea: TextareaHandle = {
 			plainText: "",
@@ -294,7 +419,7 @@ describe("reference picker escaping", () => {
 		};
 		const toasts: ToastInput[] = [];
 		const controller = createComposerController({
-			runtime: options?.runtime ?? ({} as AgentRuntime),
+			session: options?.session ?? createTestSession(),
 			commands: createCommandRegistry(),
 			fileIndex: {
 				ensureLoaded:
@@ -473,12 +598,18 @@ describe("reference picker escaping", () => {
 	});
 
 	test("message history invalidates a pending reference", async () => {
-		const runtime = {
-			getMessages: () => [
-				{ role: "user", content: "previous message", timestamp: 1 },
-			],
-		} as unknown as AgentRuntime;
-		const { controller, textarea } = setupReferenceController({ runtime });
+		const session = createTestSession({
+			state: () => ({
+				id: "session-1",
+				cwd: "/workspace",
+				isStreaming: false,
+				bashExecution: true,
+				pendingMessageCount: 0,
+				pendingMessageGeneration: 0,
+				messages: [{ role: "user", content: "previous message", timestamp: 1 }],
+			}),
+		});
+		const { controller, textarea } = setupReferenceController({ session });
 		textarea.setText("@");
 		controller.handleTextChange();
 		expect(controller.showUserMessageHistoryPicker()).toBe(true);
@@ -566,7 +697,7 @@ describe("queued message restoration", () => {
 				{ type: "image", data: "data", mimeType: "image/png" },
 			],
 			timestamp: 1,
-		} as AgentMessage;
+		} satisfies ComposerMessage;
 		expect(extractPendingComposerText(message)).toBe("describe this");
 	});
 
@@ -582,7 +713,7 @@ describe("queued message restoration", () => {
 		).toBe("first\n\nsecond\n\ncurrent draft");
 	});
 
-	test("restores queued text and attachments", () => {
+	test("restores queued text and attachments", async () => {
 		const queued = {
 			role: "user",
 			content: [
@@ -609,10 +740,13 @@ describe("queued message restoration", () => {
 				},
 			],
 			timestamp: 1,
-		} as AgentMessage;
-		const runtime = {
-			drainPendingMessages: () => [queued],
-		} as unknown as AgentRuntime;
+		} satisfies ComposerMessage;
+		const session = createTestSession({
+			restorePendingMessages: async () => ({
+				messages: [queued],
+				acknowledge: async () => {},
+			}),
+		});
 		const attachments = createAttachmentsController();
 		attachments.attach({
 			id: "existing",
@@ -623,7 +757,7 @@ describe("queued message restoration", () => {
 			toPromptText: () => "existing",
 		});
 		const controller = createComposerController({
-			runtime,
+			session,
 			commands: createCommandRegistry(),
 			fileIndex: {} as never,
 			threadIndex: null,
@@ -648,7 +782,7 @@ describe("queued message restoration", () => {
 			},
 			focus: () => {},
 		} satisfies TextareaHandle);
-		expect(controller.restorePendingMessages()).toBe(true);
+		expect(await controller.restorePendingMessages()).toBe(true);
 		expect(text).toBe("queued text\n\ncurrent draft");
 		expect(attachments.attachments()[0]?.id).toBe("existing");
 		const image = attachments

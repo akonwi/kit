@@ -458,6 +458,133 @@ describe("RpcSessionHost", () => {
 		host.dispose();
 	});
 
+	test("executes bash through the bound session", async () => {
+		const executions: Array<{ command: string; excludeFromContext: boolean }> =
+			[];
+		const runtime = createRuntime({
+			executeBash: async (command: string, excludeFromContext: boolean) => {
+				executions.push({ command, excludeFromContext });
+			},
+		});
+		const host = new RpcSessionHost(runtime, { allowBashExecution: true });
+		const responses: unknown[] = [];
+
+		await host.handleCommand(
+			{
+				id: "bash-1",
+				type: "execute_bash",
+				clientId: "client-1",
+				operationId: "operation-1",
+				command: "pwd",
+				excludeFromContext: true,
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+
+		expect(executions).toEqual([{ command: "pwd", excludeFromContext: true }]);
+		expect(responses).toEqual([
+			{
+				id: "bash-1",
+				type: "response",
+				command: "execute_bash",
+				success: true,
+				data: {
+					clientId: "client-1",
+					operationId: "operation-1",
+					accepted: true,
+				},
+			},
+		]);
+		host.dispose();
+	});
+
+	test("caps and aborts accepted bash execution", async () => {
+		let signal: AbortSignal | undefined;
+		const runtime = createRuntime({
+			executeBash: async (
+				_command: string,
+				_exclude: boolean,
+				nextSignal: AbortSignal,
+			) => {
+				signal = nextSignal;
+				await new Promise<void>((resolve) => {
+					nextSignal.addEventListener("abort", () => resolve(), { once: true });
+				});
+			},
+		});
+		const host = new RpcSessionHost(runtime, { allowBashExecution: true });
+		const responses: unknown[] = [];
+		await host.handleCommand(
+			{
+				type: "execute_bash",
+				clientId: "client-1",
+				operationId: "operation-1",
+				command: "sleep 30",
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+		await host.handleCommand(
+			{
+				type: "execute_bash",
+				clientId: "client-1",
+				operationId: "operation-2",
+				command: "echo duplicate",
+			},
+			async (response) => {
+				responses.push(response);
+			},
+		);
+		await host.handleCommand({ type: "abort" }, async (response) => {
+			responses.push(response);
+		});
+
+		expect(signal?.aborted).toBe(true);
+		expect(responses).toEqual([
+			expect.objectContaining({ command: "execute_bash", success: true }),
+			expect.objectContaining({
+				command: "execute_bash",
+				success: false,
+				error: "A bash command is already running",
+			}),
+			expect.objectContaining({ command: "abort", success: true }),
+		]);
+		host.dispose();
+	});
+
+	test("does not expose bash execution unless the host opts in", async () => {
+		const runtime = createRuntime({ executeBash: async () => {} });
+		const host = new RpcSessionHost(runtime);
+		const responses: unknown[] = [];
+		await host.handleCommand({ type: "get_capabilities" }, async (response) => {
+			responses.push(response);
+		});
+		await host.handleCommand(
+			{ type: "execute_bash", command: "pwd" },
+			async (response) => {
+				responses.push(response);
+			},
+		);
+		expect(responses).toEqual([
+			expect.objectContaining({
+				success: true,
+				data: expect.objectContaining({
+					commands: expect.not.arrayContaining(["execute_bash"]),
+				}),
+			}),
+			{
+				type: "response",
+				command: "execute_bash",
+				success: false,
+				error: "Bash execution is unavailable on this host",
+			},
+		]);
+		host.dispose();
+	});
+
 	test("does not drain a restore response above the remote draft limit", async () => {
 		let drained = false;
 		const runtime = createRuntime({

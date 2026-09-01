@@ -320,6 +320,7 @@ export class AgentRuntime {
 	private readonly bus = new EventBus<RuntimeEventMap>();
 	private quitHandler: (() => void) | null = null;
 	private isCompacting = false;
+	private lastBashTimestamp = 0;
 	private unsubscribeAgent: (() => void) | null = null;
 	private contextFiles: ContextFile[] = [];
 	private scratchpadContent = "";
@@ -1439,8 +1440,10 @@ export class AgentRuntime {
 	async executeBash(
 		command: string,
 		excludeFromContext = false,
+		signal?: AbortSignal,
 	): Promise<void> {
-		const timestamp = Date.now();
+		const timestamp = Math.max(Date.now(), this.lastBashTimestamp + 1);
+		this.lastBashTimestamp = timestamp;
 		const pendingMessage: AgentMessage = {
 			role: "bashExecution",
 			command,
@@ -1460,19 +1463,18 @@ export class AgentRuntime {
 			>,
 		});
 
-		const result = await runBash(command, this.session.cwd);
+		const result = await runBash(command, this.session.cwd, undefined, signal);
 
 		const bashMessage: AgentMessage = {
 			role: "bashExecution",
 			command,
 			output: result.output,
 			exitCode: result.exitCode,
-			cancelled: false,
+			cancelled: signal?.aborted === true,
 			truncated: false,
 			excludeFromContext,
 			timestamp,
 		};
-		// Match the pending placeholder by command + timestamp (unique per executeBash call)
 		const replaced = this.agent.replaceCustomMessage(
 			(message) =>
 				message.role === "bashExecution" &&

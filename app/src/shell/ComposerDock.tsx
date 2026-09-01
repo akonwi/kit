@@ -157,14 +157,14 @@ export function ComposerDock(props: ComposerDockProps) {
 		precedence: "fallback",
 		when: shellInputAvailable,
 		commands: {
-			"composer.restore-or-recall": () => {
+			"composer.restore-or-recall": async () => {
 				if (picker.visible) return false;
 				const action = getComposerUpAction(
 					props.controller.getPendingMessageCount(),
 					props.controller.getTextareaText(),
 				);
 				if (action === "restore") {
-					if (!props.controller.restorePendingMessages()) return false;
+					if (!(await props.controller.restorePendingMessages())) return false;
 					syncComposerText();
 					return;
 				}

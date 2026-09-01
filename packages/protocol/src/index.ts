@@ -4,6 +4,8 @@ export const RPC_BASE_COMMAND_TYPES = [
 	"prompt",
 	"steer",
 	"follow_up",
+	"execute_bash",
+	"acknowledge_bash_execution",
 	"restore_follow_ups",
 	"promote_follow_ups",
 	"acknowledge_follow_up_mutation",

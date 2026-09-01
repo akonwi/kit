@@ -36,6 +36,7 @@ import { type LoadedSettings, loadSettings } from "../settings";
 import { AppShell } from "../shell/AppShell";
 import { createAttachmentsController } from "../shell/attachments-controller";
 import { createComposerController } from "../shell/composer-controller";
+import { createRuntimeComposerSession } from "../shell/composer-session";
 import { createFooterStatusController } from "../shell/footer-status";
 import { createHeaderStatusController } from "../shell/header-status";
 import { initTemplates } from "../shell/templates";
@@ -293,7 +294,8 @@ export function App(props: AppProps) {
 		}
 
 		const controller = createComposerController({
-			runtime,
+			session: createRuntimeComposerSession(runtime),
+			commandRuntime: runtime,
 			persistSessions: props.persistSession,
 			commands,
 			fileIndex: app.fileIndex,

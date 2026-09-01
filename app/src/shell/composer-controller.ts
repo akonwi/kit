@@ -14,8 +14,7 @@ import {
 import type { ReviewDraftController } from "../features/review/draft-controller";
 import type { ReviewWorkspaceController } from "../features/review/workspace-controller";
 import { expandThreadReferences, type ThreadIndex } from "../features/threads";
-import { type MessagePart, messagePartToPromptText } from "../messages/parts";
-import type { AgentMessage } from "../runtime/agent";
+import type { MessagePart } from "../messages/parts";
 import type { AgentRuntime } from "../runtime/agent-runtime";
 import type { PickerContext } from "../state/picker";
 import {
@@ -24,12 +23,13 @@ import {
 } from "../state/picker-manager";
 import type { ToastInput } from "../state/toasts";
 import type { AttachmentsController } from "./attachments-controller";
+import type { ComposerMessage, ComposerSession } from "./composer-session";
 import { MIDDLE_DOT } from "./glyphs";
 
 export const REFERENCE_PICKER_ESCAPE_DELAY_MS = 250;
 
-export function extractPendingComposerText(message: AgentMessage): string {
-	if (!("content" in message)) return "";
+export function extractPendingComposerText(message: ComposerMessage): string {
+	if (message.content === undefined) return "";
 	if (typeof message.content === "string") return message.content;
 	if (!Array.isArray(message.content)) return "";
 	return message.content
@@ -79,7 +79,9 @@ export function commandPaletteDescription(command: Command): string {
 }
 
 export type ComposerControllerDeps = {
-	runtime: AgentRuntime;
+	session: ComposerSession;
+	/** Local-only command context until command execution moves behind a client facet. */
+	commandRuntime?: AgentRuntime;
 	persistSessions?: boolean;
 	commands: CommandRegistry;
 	fileIndex: FileIndex;
@@ -98,7 +100,7 @@ export type ComposerControllerDeps = {
 
 export function createComposerController(deps: ComposerControllerDeps) {
 	const {
-		runtime,
+		session,
 		commands,
 		fileIndex,
 		threadIndex,
@@ -162,8 +164,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 
 	async function executeCommand(command: Command, args: string): Promise<void> {
 		try {
+			if (!deps.commandRuntime) {
+				throw new Error("This command is unavailable on the attached session");
+			}
 			await command.execute({
-				runtime,
+				runtime: deps.commandRuntime,
 				persistSessions: deps.persistSessions ?? true,
 				picker: commandPalette,
 				args,
@@ -609,7 +614,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	async function prepareMessageText(text: string): Promise<string | null> {
-		const result = await expandThreadReferences(text, runtime.getSession().id);
+		const result = await expandThreadReferences(text, session.state().id);
 		if (result.errors.length > 0) {
 			toast({
 				title: "Thread references",
@@ -630,11 +635,11 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		if (picker.visible) return;
 
 		const text = textareaRef?.plainText ?? "";
-		const submitSession = runtime.getSession();
+		const submitSession = session.state();
 		const submitSessionId = submitSession.id;
 		const submitSessionCwd = submitSession.cwd;
 		const submissionScopeIsCurrent = (): boolean => {
-			const current = runtime.getSession();
+			const current = session.state();
 			return current.id === submitSessionId && current.cwd === submitSessionCwd;
 		};
 		const restoreSubmittedTextIfEmpty = (): void => {
@@ -644,11 +649,16 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		};
 		const pendingAttachments = attachments.attachments();
 		if (!text.trim() && pendingAttachments.length === 0) {
-			if (
-				runtime.getStatus().isStreaming &&
-				runtime.getPendingMessageCount() > 0
-			) {
-				runtime.promotePendingFollowUpsToSteering();
+			if (submitSession.isStreaming && submitSession.pendingMessageCount > 0) {
+				try {
+					await session.promotePendingFollowUpsToSteering();
+				} catch (error) {
+					toast({
+						title: "Follow-up promotion failed",
+						subtitle: error instanceof Error ? error.message : String(error),
+						variant: "error",
+					});
+				}
 			}
 			return;
 		}
@@ -656,7 +666,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		// Handle bash command: ! for context, !! for excluded from context.
 		// Review's submit-now action bypasses this branch so it always sends the
 		// composer's contents with the projected review attachment.
-		if ((options.executeBash ?? true) && text.trim() && text.startsWith("!")) {
+		if (
+			(options.executeBash ?? true) &&
+			submitSession.bashExecution &&
+			text.trim() &&
+			text.startsWith("!")
+		) {
 			const excludeFromContext = text.startsWith("!!");
 			const command = excludeFromContext
 				? text.slice(2).trim()
@@ -666,8 +681,9 @@ export function createComposerController(deps: ComposerControllerDeps) {
 				prevTextLength = 0;
 				resetBashHistoryNavigation();
 				try {
-					await runtime.executeBash(command, excludeFromContext);
+					await session.executeBash(command, excludeFromContext);
 				} catch (error) {
+					restoreSubmittedTextIfEmpty();
 					toast({
 						title: "Bash failed",
 						subtitle: error instanceof Error ? error.message : String(error),
@@ -686,7 +702,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		// Thread expansion is asynchronous. If the active session or its cwd
 		// changed while it ran, never submit old-scope text or attachments.
 		if (!submissionScopeIsCurrent()) {
-			if (runtime.getSession().id === submitSessionId) {
+			if (session.state().id === submitSessionId) {
 				restoreSubmittedTextIfEmpty();
 			}
 			return;
@@ -731,7 +747,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		});
 
 		try {
-			await runtime.submitMessage(parts);
+			await session.submitMessage(parts);
 			for (const attachment of pendingAttachments) {
 				attachment.onDetach?.("consumed");
 			}
@@ -781,69 +797,87 @@ export function createComposerController(deps: ComposerControllerDeps) {
 			prevTextLength = text.length;
 			return;
 		}
-		runtime.sendFollowUp(preparedText);
+		try {
+			await session.sendFollowUp(preparedText);
+		} catch (error) {
+			textareaRef?.setText(text);
+			prevTextLength = text.length;
+			toast({
+				title: "Follow-up failed",
+				subtitle: error instanceof Error ? error.message : String(error),
+				variant: "error",
+			});
+		}
 	}
 
-	function restorePendingMessages(): boolean {
-		const pending = runtime.drainPendingMessages();
-		if (pending.length === 0) return false;
-		cancelReferenceInteraction();
-		const restored = mergePendingMessagesIntoComposer(
-			pending.map(extractPendingComposerText).filter(Boolean),
-			textareaRef?.plainText ?? "",
-		);
-		setTextareaText(restored);
-		if (textareaRef) textareaRef.cursorOffset = restored.length;
+	async function restorePendingMessages(): Promise<boolean> {
+		try {
+			const restoration = await session.restorePendingMessages();
+			const pending = restoration.messages;
+			if (pending.length === 0) {
+				await restoration.acknowledge();
+				return false;
+			}
+			cancelReferenceInteraction();
+			const restored = mergePendingMessagesIntoComposer(
+				pending.map(extractPendingComposerText).filter(Boolean),
+				textareaRef?.plainText ?? "",
+			);
+			setTextareaText(restored);
+			if (textareaRef) textareaRef.cursorOffset = restored.length;
 
-		for (const message of pending) {
-			if (!("content" in message) || !Array.isArray(message.content)) continue;
-			for (const part of message.content) {
-				const restoredPart = part as unknown as Record<string, unknown>;
-				if (
-					restoredPart.type === "code-review" &&
-					typeof restoredPart.review === "object" &&
-					restoredPart.review !== null
-				) {
+			for (const message of pending) {
+				if (!Array.isArray(message.content)) continue;
+				for (const part of message.content) {
+					if (
+						part.type === "code-review" &&
+						typeof part.review === "object" &&
+						part.review !== null
+					) {
+						attachments.attach(
+							new CodeReviewAttachment(
+								randomUUID(),
+								part.review as CodeReviewSubmission,
+							),
+						);
+						continue;
+					}
+					if (
+						part.type !== "image" ||
+						part.data === undefined ||
+						part.mimeType === undefined
+					) {
+						continue;
+					}
 					attachments.attach(
-						new CodeReviewAttachment(
+						new ImageAttachment(
 							randomUUID(),
-							restoredPart.review as CodeReviewSubmission,
+							part.filename ?? "queued-image",
+							part.mimeType,
+							part.data,
+							part.sourcePath,
 						),
 					);
-					continue;
 				}
-				if (
-					typeof part !== "object" ||
-					part === null ||
-					!("type" in part) ||
-					part.type !== "image" ||
-					!("data" in part) ||
-					typeof part.data !== "string" ||
-					!("mimeType" in part) ||
-					typeof part.mimeType !== "string"
-				) {
-					continue;
-				}
-				const filename =
-					"filename" in part && typeof part.filename === "string"
-						? part.filename
-						: "queued-image";
-				const sourcePath =
-					"sourcePath" in part && typeof part.sourcePath === "string"
-						? part.sourcePath
-						: undefined;
-				attachments.attach(
-					new ImageAttachment(
-						randomUUID(),
-						filename,
-						part.mimeType,
-						part.data,
-						sourcePath,
-					),
-				);
 			}
+			try {
+				await restoration.acknowledge();
+			} catch (error) {
+				toast({
+					title: "Follow-up acknowledgement failed",
+					subtitle: error instanceof Error ? error.message : String(error),
+					variant: "error",
+				});
+			}
+			return true;
+		} catch (error) {
+			toast({
+				title: "Follow-up restoration failed",
+				subtitle: error instanceof Error ? error.message : String(error),
+				variant: "error",
+			});
+			return false;
 		}
-		return true;
 	}
 
 	function showBashHistoryPicker(onSelect?: () => void): boolean {
@@ -894,16 +928,18 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		command: string;
 		excludeFromContext: boolean;
 	}> {
-		const messages = runtime.getMessages();
+		const messages = session.state().messages;
 		const history: Array<{ command: string; excludeFromContext: boolean }> = [];
 		for (let index = messages.length - 1; index >= 0; index--) {
 			const msg = messages[index];
-			if (msg.role !== "bashExecution") continue;
+			if (msg.role !== "bashExecution" || msg.command === undefined) {
+				continue;
+			}
 			const command = msg.command.trim();
 			if (!command) continue;
 			history.push({
 				command,
-				excludeFromContext: msg.excludeFromContext ?? false,
+				excludeFromContext: msg.excludeFromContext === true,
 			});
 		}
 		return history;
@@ -936,14 +972,12 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		text: string;
 		timestamp?: number;
 	}> {
-		const messages = runtime.getMessages();
+		const messages = session.state().messages;
 		const history: Array<{ text: string; timestamp?: number }> = [];
 		for (let index = messages.length - 1; index >= 0; index--) {
 			const msg = messages[index];
 			if (msg.role !== "user") continue;
-			const text = textFromUserMessageContent(
-				(msg as { content?: unknown }).content,
-			);
+			const text = textFromUserMessageContent(msg.content);
 			if (!text.trim()) continue;
 			history.push({
 				text,
@@ -955,25 +989,16 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return history;
 	}
 
-	function textFromUserMessageContent(content: unknown): string {
+	function textFromUserMessageContent(
+		content: ComposerMessage["content"],
+	): string {
 		if (typeof content === "string") return content;
-		if (!Array.isArray(content)) return "";
+		if (!content) return "";
 		return content
-			.map((part) => {
-				if (!isMessagePart(part)) return "";
-				return messagePartToPromptText(part);
-			})
-			.filter((text) => text.trim().length > 0)
+			.flatMap((part) =>
+				part.type === "text" && part.text !== undefined ? [part.text] : [],
+			)
 			.join("\n");
-	}
-
-	function isMessagePart(value: unknown): value is MessagePart {
-		return (
-			typeof value === "object" &&
-			value !== null &&
-			"type" in value &&
-			typeof value.type === "string"
-		);
 	}
 
 	function singleLineSummary(text: string): string {
@@ -987,20 +1012,36 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		return new Date(timestamp).toLocaleString();
 	}
 
+	function runDetachedSessionAction(
+		title: string,
+		action: void | Promise<void>,
+	): void {
+		void Promise.resolve(action).catch((error) => {
+			toast({
+				title,
+				subtitle: error instanceof Error ? error.message : String(error),
+				variant: "error",
+			});
+		});
+	}
+
 	function abort() {
-		runtime.abort();
+		runDetachedSessionAction("Abort failed", session.abort());
 	}
 	function isStreaming(): boolean {
-		return runtime.getStatus().isStreaming;
+		return session.state().isStreaming;
 	}
 	function getPendingMessageCount(): number {
-		return runtime.getPendingMessageCount();
+		return session.state().pendingMessageCount;
 	}
 	function promotePendingFollowUpsToSteering() {
-		runtime.promotePendingFollowUpsToSteering();
+		runDetachedSessionAction(
+			"Follow-up promotion failed",
+			session.promotePendingFollowUpsToSteering(),
+		);
 	}
 	function quit() {
-		runtime.quit();
+		session.quit();
 	}
 
 	return {

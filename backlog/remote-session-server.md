@@ -21,7 +21,10 @@ The architecture is recorded in:
 The authenticated loopback daemon and session protocol are implemented: Kit can
 start, discover, inspect, restart, and stop one per-user `KitServer` process,
 then attach a `SessionClient` to an immutable session WebSocket with bounded
-snapshot/replay recovery. Migrating normal CLI workflows remains outstanding.
+snapshot/replay recovery. The composer now consumes a typed session contract
+with runtime and `SessionClient` implementations for text, follow-ups, queue
+recovery, guarded bash, and lifecycle actions. Transcript presentation,
+attachments, slash-command composition, and normal CLI wiring remain outstanding.
 
 ## Remaining server and browser work
 

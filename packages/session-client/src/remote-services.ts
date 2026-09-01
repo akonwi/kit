@@ -436,6 +436,7 @@ function parseReviewFile(value: unknown): RemoteReviewFile {
 
 export class RemoteSessionServices {
 	private limitsValue = DEFAULT_CLIENT_LIMITS;
+	private availableCommands = new Set<string>();
 
 	constructor(private readonly rpc: RpcCommandClient) {}
 
@@ -445,6 +446,11 @@ export class RemoteSessionServices {
 
 	resetLimits(): void {
 		this.limitsValue = DEFAULT_CLIENT_LIMITS;
+		this.availableCommands.clear();
+	}
+
+	supportsCommand(command: string): boolean {
+		return this.availableCommands.has(command);
 	}
 
 	protected currentLimits(): ClientLimits {
@@ -761,6 +767,18 @@ export class RemoteSessionServices {
 	async fetchLimits(): Promise<ClientLimits> {
 		const response = await this.rpc.command({ type: "get_capabilities" });
 		if (!isRecord(response.data)) throw new Error("Capabilities omitted data");
+		if (
+			response.data.commands !== undefined &&
+			(!Array.isArray(response.data.commands) ||
+				!response.data.commands.every(
+					(command) => typeof command === "string" && command.length > 0,
+				))
+		) {
+			throw new Error("Capabilities contain invalid commands");
+		}
+		this.availableCommands = new Set(
+			Array.isArray(response.data.commands) ? response.data.commands : [],
+		);
 		const limits = response.data.limits;
 		if (!isRecord(limits)) throw new Error("Capabilities omitted limits");
 		const queuedFollowUps = limits.queuedFollowUps;

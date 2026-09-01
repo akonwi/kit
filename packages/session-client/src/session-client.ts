@@ -34,6 +34,13 @@ export interface SessionConnection {
 	close(): void;
 }
 
+export class SessionCommandRejectedError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = "SessionCommandRejectedError";
+	}
+}
+
 export type SessionClientOptions = {
 	commandTimeoutMs?: number;
 	reconnect?: boolean;
@@ -250,7 +257,7 @@ export class SessionClient {
 			);
 		} else if (response.success !== true) {
 			pending.reject(
-				new Error(
+				new SessionCommandRejectedError(
 					typeof response.error === "string"
 						? response.error
 						: `Session command failed: ${pending.command}`,

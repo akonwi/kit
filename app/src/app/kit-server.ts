@@ -100,6 +100,7 @@ async function startSession(
 			waitForWorkspaceReady: headless.waitForWorkspaceReady,
 			reloadHost: headless.reload,
 			allowLegacySessionPaths: false,
+			allowBashExecution: true,
 			sessionBinding: "fixed",
 		});
 	} catch (error) {
