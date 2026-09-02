@@ -830,6 +830,7 @@ export function AssistantEntry(props: {
 	openActivity: OpenActivity;
 	openSubagent: OpenSubagent;
 	openMessageContextMenu: OpenMessageContextMenu;
+	hideTools?: boolean;
 }) {
 	const messageContextMenuGesture = createMessageContextMenuGesture(
 		() =>
@@ -854,7 +855,7 @@ export function AssistantEntry(props: {
 	}
 
 	const { text, toolCalls } = extractAssistantParts(props.msg);
-	const hasToolCalls = toolCalls.length > 0;
+	const hasToolCalls = !props.hideTools && toolCalls.length > 0;
 	const hasText = text.length > 0;
 
 	return (
@@ -864,6 +865,12 @@ export function AssistantEntry(props: {
 			width="100%"
 			{...messageContextMenuGesture}
 		>
+			<Show when={hasText}>
+				<KitMarkdown
+					content={text}
+					fg={props.aborted ? theme.textMuted : theme.textPrimary}
+				/>
+			</Show>
 			<Show when={hasToolCalls}>
 				<ToolDrawer
 					itemId={props.itemId}
@@ -874,12 +881,6 @@ export function AssistantEntry(props: {
 					runtime={props.runtime}
 					openActivity={props.openActivity}
 					openSubagent={props.openSubagent}
-				/>
-			</Show>
-			<Show when={hasText}>
-				<KitMarkdown
-					content={text}
-					fg={props.aborted ? theme.textMuted : theme.textPrimary}
 				/>
 			</Show>
 		</box>

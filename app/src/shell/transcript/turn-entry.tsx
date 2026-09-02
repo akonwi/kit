@@ -59,7 +59,11 @@ function TurnWorkDrawer(props: {
 	);
 
 	function openActivity() {
-		props.openActivity({ kind: "turn-intermediate", turnId });
+		props.openActivity({
+			kind: "turn-intermediate",
+			turnId,
+			anchorItemId: props.items[0]?.id ?? "",
+		});
 	}
 
 	const stepLabel = createMemo(() => {
@@ -96,6 +100,24 @@ export function TurnEntry(props: {
 				runtime={props.runtime}
 				openActivity={props.openActivity}
 				openSubagent={props.openSubagent}
+			/>
+		);
+	}
+
+	if (props.displayItem.kind === "assistant-prose") {
+		const item = props.displayItem.item;
+		return (
+			<AssistantEntry
+				itemId={item.id}
+				msg={item.message}
+				toolResults={item.toolResults}
+				liveTools={props.liveTools}
+				aborted={item.aborted}
+				runtime={props.runtime}
+				openActivity={props.openActivity}
+				openSubagent={props.openSubagent}
+				openMessageContextMenu={props.openMessageContextMenu}
+				hideTools
 			/>
 		);
 	}

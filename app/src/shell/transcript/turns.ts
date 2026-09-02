@@ -619,6 +619,10 @@ function assistantHasProse(
 export type DisplayItem =
 	| { kind: "single"; item: TranscriptItem }
 	| {
+			kind: "assistant-prose";
+			item: Extract<TranscriptItem, { kind: "assistant" }>;
+	  }
+	| {
 			kind: "turn-work";
 			items: TranscriptItem[];
 			turnId: string;
@@ -636,8 +640,8 @@ function reuseDisplayItem(
 	const key = displayItemKey(item);
 	const previous = previousByKey.get(key);
 	if (!previous || previous.kind !== item.kind) return item;
-	if (item.kind === "single") {
-		return previous.kind === "single" && previous.item === item.item
+	if (item.kind === "single" || item.kind === "assistant-prose") {
+		return previous.kind === item.kind && previous.item === item.item
 			? previous
 			: item;
 	}
@@ -650,6 +654,7 @@ function reuseDisplayItem(
 
 export function displayItemKey(item: DisplayItem): string {
 	if (item.kind === "single") return `single:${item.item.id}`;
+	if (item.kind === "assistant-prose") return `assistant-prose:${item.item.id}`;
 	return `turn-work:${item.turnId}:${item.items[0]?.id ?? "empty"}`;
 }
 
@@ -663,27 +668,19 @@ function previousDisplayItemsByKey(
 }
 
 /**
- * Groups items into display units. Within each turn:
- * - If the turn has 0 or 1 assistant message: emit all items as singles.
- * - Otherwise, fold intermediate items into a single "turn-work" drawer.
- *   The user message and the "final" assistant message (the last one with
- *   prose) render as singles; everything in between collapses.
- *   If no assistant message in the turn has prose, all assistant items
- *   collapse into the turn-work drawer.
+ * Groups items into stable display units within each turn:
+ * - Every assistant prose message is projected into the main transcript.
+ * - Tool-bearing and tool-only messages are grouped into adjacent work drawers.
+ *   Their complete messages remain available in Activity, so associated prose
+ *   may be repeated there for context.
+ * - User messages, manual bash executions, and handoff summaries stay standalone.
  *
- * Manual bash execution items always render as singles, even if they share
- * a turn id with assistant tool work. They are user-triggered transcript
- * events, not assistant turn-work.
- *
- * When `inProgressTurnId` matches a turn, that turn is treated as in flight:
- * no "final" prose item is extracted, and every non-user, non-bash item
- * collapses into a single growing turn-work drawer (even if there is
- * currently only one such item). This keeps the visible transcript stable
- * while the assistant streams multiple intermediate messages.
+ * The grouping is deliberately independent of turn completion so transcript
+ * rows and open activity drawers do not restructure when streaming ends.
  */
 export function groupItemsForDisplay(
 	items: TranscriptItem[],
-	inProgressTurnId?: string | null,
+	_inProgressTurnId?: string | null,
 	previous?: DisplayItem[],
 ): DisplayItem[] {
 	const result: DisplayItem[] = [];
@@ -699,54 +696,32 @@ export function groupItemsForDisplay(
 		const turnItems = items.slice(i, j);
 		i = j;
 
-		const isInProgress = !!inProgressTurnId && inProgressTurnId === turnId;
-
-		let assistantCount = 0;
-		for (const item of turnItems) {
-			if (item.kind === "assistant") assistantCount++;
-		}
-
-		if (assistantCount <= 1 && !isInProgress) {
-			for (const item of turnItems) {
-				pushDisplayItem({ kind: "single", item });
-			}
-			continue;
-		}
-
-		// Multiple assistant messages: identify the "final" item — the last
-		// assistant message that has prose. If none, no item is treated as final
-		// and everything intermediate collapses. In-progress turns never extract
-		// a final, since more messages may still arrive.
-		let finalIdx = -1;
-		if (!isInProgress) {
-			for (let k = turnItems.length - 1; k >= 0; k--) {
-				const item = turnItems[k];
-				if (item.kind === "assistant" && assistantHasProse(item)) {
-					finalIdx = k;
-					break;
-				}
-			}
-		}
-
 		let buffer: TranscriptItem[] = [];
 		const flushBuffer = () => {
 			if (buffer.length === 0) return;
-			if (buffer.length === 1 && !isInProgress) {
-				pushDisplayItem({ kind: "single", item: buffer[0] });
-			} else {
-				pushDisplayItem({ kind: "turn-work", items: buffer.slice(), turnId });
-			}
+			pushDisplayItem({ kind: "turn-work", items: buffer.slice(), turnId });
 			buffer = [];
 		};
 
-		for (let k = 0; k < turnItems.length; k++) {
-			const item = turnItems[k];
-			if (item.kind === "user" || item.kind === "bash" || k === finalIdx) {
+		for (const item of turnItems) {
+			if (
+				item.kind === "user" ||
+				item.kind === "bash" ||
+				item.kind === "handoff-summary"
+			) {
 				flushBuffer();
 				pushDisplayItem({ kind: "single", item });
-			} else {
-				buffer.push(item);
+				continue;
 			}
+			if (item.kind === "assistant" && assistantHasProse(item)) {
+				flushBuffer();
+				pushDisplayItem({ kind: "assistant-prose", item });
+				if (extractAssistantParts(item.message).toolCalls.length > 0) {
+					buffer.push(item);
+				}
+				continue;
+			}
+			buffer.push(item);
 		}
 		flushBuffer();
 	}

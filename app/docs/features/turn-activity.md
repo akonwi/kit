@@ -1,6 +1,6 @@
 # Turn activity panel
 
-Turn activity details open in the shell's persistent secondary workspace panel. The panel presents assistant prose, tool calls and results, bash activity, and handoff summaries while leaving the transcript available.
+Turn activity details open in the shell's persistent secondary workspace panel. The panel presents assistant prose, tool calls and results, bash activity, and handoff summaries while leaving the transcript available. Assistant prose remains visible in the main transcript throughout a turn; activity drawers primarily consolidate tool work and may repeat associated intermediate prose for context.
 
 ## Responsive behavior
 

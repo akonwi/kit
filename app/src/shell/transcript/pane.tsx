@@ -156,9 +156,9 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 				<For each={displayItems()}>
 					{(displayItem, index) => {
 						const turnId =
-							displayItem.kind === "single"
-								? displayItem.item.turnId
-								: displayItem.turnId;
+							displayItem.kind === "turn-work"
+								? displayItem.turnId
+								: displayItem.item.turnId;
 						return (
 							<box width="100%" marginTop={index() === 0 ? 0 : 1}>
 								<TurnEntry

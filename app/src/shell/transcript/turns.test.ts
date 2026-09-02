@@ -8,6 +8,7 @@ import type {
 import {
 	extractAssistantMarkdownSource,
 	extractUserMarkdownSource,
+	findTurnWorkItems,
 	formatToolArgs,
 	groupItemsForDisplay,
 	presentBashCommand,
@@ -120,10 +121,10 @@ describe("groupItemsForDisplay", () => {
 		expect(result).toEqual([{ kind: "single", item: u }]);
 	});
 
-	test("does not fold when turn has a single assistant message", () => {
+	test("uses a stable drawer for a single tool-only assistant message", () => {
 		const a1 = assistantItemWithId("a1", "t1", assistantMessage([toolCall()]));
 		const result = groupItemsForDisplay([a1]);
-		expect(result).toEqual([{ kind: "single", item: a1 }]);
+		expect(result).toEqual([{ kind: "turn-work", items: [a1], turnId: "t1" }]);
 	});
 
 	test("folds all assistant items when none has prose", () => {
@@ -152,7 +153,7 @@ describe("groupItemsForDisplay", () => {
 		}
 	});
 
-	test("folds intermediate items and emits the final prose message as single", () => {
+	test("keeps intermediate prose in the transcript beside its tool drawers", () => {
 		const a1 = assistantItemWithId(
 			"a1",
 			"t1",
@@ -176,12 +177,38 @@ describe("groupItemsForDisplay", () => {
 		);
 
 		const result = groupItemsForDisplay([a1, a2, final]);
-		expect(result).toHaveLength(2);
-		expect(result[0].kind).toBe("turn-work");
-		if (result[0].kind === "turn-work") {
-			expect(result[0].items).toHaveLength(2);
-		}
-		expect(result[1]).toEqual({ kind: "single", item: final });
+		expect(result).toHaveLength(5);
+		expect(result[0]).toEqual({ kind: "assistant-prose", item: a1 });
+		expect(result[1]).toMatchObject({ kind: "turn-work", items: [a1] });
+		expect(result[2]).toEqual({ kind: "assistant-prose", item: a2 });
+		expect(result[3]).toMatchObject({ kind: "turn-work", items: [a2] });
+		expect(result[4]).toEqual({ kind: "assistant-prose", item: final });
+	});
+
+	test("anchors activity to the selected intermediate tool drawer", () => {
+		const a1 = assistantItemWithId(
+			"a1",
+			"t1",
+			assistantMessage([
+				{ type: "text", text: "First step" },
+				toolCall("Read"),
+			]),
+		);
+		const a2 = assistantItemWithId(
+			"a2",
+			"t1",
+			assistantMessage([
+				{ type: "text", text: "Second step" },
+				toolCall("Edit"),
+			]),
+		);
+		const final = assistantItemWithId(
+			"a3",
+			"t1",
+			assistantMessage([{ type: "text", text: "Done" }]),
+		);
+
+		expect(findTurnWorkItems([a1, a2, final], "t1", null, "a2")).toEqual([a2]);
 	});
 
 	test("emits user message as single before the turn-work drawer", () => {
@@ -201,10 +228,10 @@ describe("groupItemsForDisplay", () => {
 		if (result[1].kind === "turn-work") {
 			expect(result[1].items).toHaveLength(2);
 		}
-		expect(result[2]).toEqual({ kind: "single", item: aFinal });
+		expect(result[2]).toEqual({ kind: "assistant-prose", item: aFinal });
 	});
 
-	test("does not fold a single intermediate item; emits as single", () => {
+	test("keeps a single tool step in a drawer before final prose", () => {
 		const u = userItem("u1", "t1");
 		const intermediate = assistantItemWithId(
 			"a1",
@@ -220,8 +247,12 @@ describe("groupItemsForDisplay", () => {
 		const result = groupItemsForDisplay([u, intermediate, final]);
 		expect(result).toHaveLength(3);
 		expect(result[0]).toEqual({ kind: "single", item: u });
-		expect(result[1]).toEqual({ kind: "single", item: intermediate });
-		expect(result[2]).toEqual({ kind: "single", item: final });
+		expect(result[1]).toEqual({
+			kind: "turn-work",
+			items: [intermediate],
+			turnId: "t1",
+		});
+		expect(result[2]).toEqual({ kind: "assistant-prose", item: final });
 	});
 
 	test("keeps manual bash executions standalone even when sharing a tool-work turn", () => {
@@ -248,7 +279,11 @@ describe("groupItemsForDisplay", () => {
 		const result = groupItemsForDisplay([a1, bash, a2, a3]);
 
 		expect(result).toHaveLength(3);
-		expect(result[0]).toEqual({ kind: "single", item: a1 });
+		expect(result[0]).toEqual({
+			kind: "turn-work",
+			items: [a1],
+			turnId: "t1",
+		});
 		expect(result[1]).toEqual({ kind: "single", item: bash });
 		expect(result[2].kind).toBe("turn-work");
 		if (result[2].kind === "turn-work") {
@@ -284,7 +319,7 @@ describe("groupItemsForDisplay", () => {
 		}
 	});
 
-	test("in-progress turn: does not promote the last prose message to final", () => {
+	test("in-progress turn: keeps intermediate prose visible around tool work", () => {
 		const u = userItem("u1", "t1");
 		const a1 = assistantItemWithId(
 			"a1",
@@ -298,12 +333,11 @@ describe("groupItemsForDisplay", () => {
 		);
 
 		const result = groupItemsForDisplay([u, a1, a2], "t1");
-		expect(result).toHaveLength(2);
+		expect(result).toHaveLength(4);
 		expect(result[0]).toEqual({ kind: "single", item: u });
-		expect(result[1].kind).toBe("turn-work");
-		if (result[1].kind === "turn-work") {
-			expect(result[1].items).toHaveLength(2);
-		}
+		expect(result[1]).toEqual({ kind: "assistant-prose", item: a1 });
+		expect(result[2]).toMatchObject({ kind: "turn-work", items: [a1] });
+		expect(result[3]).toEqual({ kind: "assistant-prose", item: a2 });
 	});
 
 	test("in-progress turn: user-only turn does not emit an empty drawer", () => {
@@ -312,7 +346,7 @@ describe("groupItemsForDisplay", () => {
 		expect(result).toEqual([{ kind: "single", item: u }]);
 	});
 
-	test("in-progress turn id only applies to its turn; other turns keep prior behavior", () => {
+	test("tool grouping is independent of which turn is in progress", () => {
 		const t1a1 = assistantItemWithId(
 			"t1a1",
 			"t1",
@@ -324,18 +358,14 @@ describe("groupItemsForDisplay", () => {
 			assistantMessage([toolCall()]),
 		);
 
-		// t2 is in progress; t1 should keep its old single-message behavior.
 		const result = groupItemsForDisplay([t1a1, t2a1], "t2");
-		expect(result).toHaveLength(2);
-		expect(result[0]).toEqual({ kind: "single", item: t1a1 });
-		expect(result[1].kind).toBe("turn-work");
-		if (result[1].kind === "turn-work") {
-			expect(result[1].turnId).toBe("t2");
-			expect(result[1].items).toHaveLength(1);
-		}
+		expect(result).toEqual([
+			{ kind: "turn-work", items: [t1a1], turnId: "t1" },
+			{ kind: "turn-work", items: [t2a1], turnId: "t2" },
+		]);
 	});
 
-	test("clearing in-progress turn id restores final-prose grouping for the same items", () => {
+	test("clearing the in-progress turn keeps display structure stable", () => {
 		const u = userItem("u1", "t1");
 		const a1 = assistantItemWithId("a1", "t1", assistantMessage([toolCall()]));
 		const a2 = assistantItemWithId(
@@ -345,14 +375,12 @@ describe("groupItemsForDisplay", () => {
 		);
 
 		const inProgress = groupItemsForDisplay([u, a1, a2], "t1");
-		expect(inProgress).toHaveLength(2);
+		expect(inProgress).toHaveLength(3);
 		expect(inProgress[1].kind).toBe("turn-work");
+		expect(inProgress[2]).toEqual({ kind: "assistant-prose", item: a2 });
 
 		const completed = groupItemsForDisplay([u, a1, a2], null);
-		expect(completed).toHaveLength(3);
-		expect(completed[0]).toEqual({ kind: "single", item: u });
-		expect(completed[1]).toEqual({ kind: "single", item: a1 });
-		expect(completed[2]).toEqual({ kind: "single", item: a2 });
+		expect(completed).toEqual(inProgress);
 	});
 
 	test("separates folding across different turns", () => {
@@ -378,7 +406,11 @@ describe("groupItemsForDisplay", () => {
 		if (result[0].kind === "turn-work") {
 			expect(result[0].turnId).toBe("t1");
 		}
-		expect(result[1]).toEqual({ kind: "single", item: t2a1 });
+		expect(result[1]).toEqual({
+			kind: "turn-work",
+			items: [t2a1],
+			turnId: "t2",
+		});
 	});
 
 	test("reuses unchanged display item objects from previous grouping", () => {
@@ -414,7 +446,7 @@ describe("groupItemsForDisplay", () => {
 		const next = groupItemsForDisplay([updated], null, previous);
 
 		expect(next[0]).not.toBe(previous[0]);
-		expect(next[0]).toEqual({ kind: "single", item: updated });
+		expect(next[0]).toEqual({ kind: "assistant-prose", item: updated });
 	});
 });
 
