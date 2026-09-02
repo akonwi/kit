@@ -1,14 +1,8 @@
-# Docs
+# Legacy application feature documentation
 
-This directory contains project documentation for Kit.
+The files under `features/` document behavior from the implementation at the
+kit-v2 parity baseline. They remain useful while those workflows are rebuilt.
 
-## Structure
-
-- `adrs/` — architecture and design decision records
-- `features/` — feature-specific behavior, UX, and implementation notes
-
-## Conventions
-
-- Put durable architecture and design decisions in `adrs/`.
-- Put user- or feature-facing behavior docs in `features/`.
-- Capture important decisions in docs instead of leaving them only in chat history.
+Current architecture decisions now live at [`../../docs/adrs/`](../../docs/adrs/).
+The previous ADR set was intentionally removed from this branch and remains
+available at Git commit `5c6e112` and on historical branches.

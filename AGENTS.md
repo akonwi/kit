@@ -2,52 +2,79 @@
 
 ## Project identity
 
-Kit is a standalone terminal-first coding agent.
+Kit is a standalone, single-user, terminal-first coding agent distributed as one
+Go executable for macOS and Linux. Windows is intentionally unsupported. The
+current rewrite architecture is canonical in
+[`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
+and merge parity is tracked in [`docs/parity.md`](docs/parity.md).
+
+During rewrite development, Kit must use `~/.kit-v2` by default. Never read or
+mutate current `~/.kit` state without an explicit migration operation.
 
 ## Design language
 
-Kit's UI design language is documented in `.agents/skills/design/SKILL.md`. All UI work — new components, views, screens, and modifications to existing ones — must follow the conventions defined there. This covers the color palette, overlay hierarchy, layout patterns (ScreenLayout, ScreenHeader, HintBar), and component conventions.
+Kit's UI design language is documented in `.agents/skills/design/SKILL.md`. All
+TUI and web UI work must preserve its surface hierarchy, palette, layout,
+interaction, and component conventions unless a new decision explicitly changes
+it.
 
-## Implementation guidance
+The native TUI uses `go.rockorager.dev/vaxis/ui`. The semantic browser client
+uses Solid and Mica at build time and is embedded in the Go executable.
 
-- Favor modular layers such as:
-  - `runtime/`
-  - `shell/`
-  - `features/`
-- Extract reusable logic from older Pi-era code where useful, but do not carry over extension-era structure unless it still serves the standalone app.
-- Keep renderer-specific assumptions isolated from domain and compatibility logic.
-- Do not take architectural shortcuts that bypass an agreed interface or design just to get something working quickly.
-- Once we have settled on an interface or abstraction, implement through that interface unless we explicitly re-open the design decision.
-- When we make an architectural or feature design decision, capture it under `docs/`.
-- When we identify outstanding work or defer something, capture it under `backlog/`.
+## Architecture rules
+
+- The Go server is authoritative for sessions and shared state.
+- Clients consume server/session-client contracts; they do not import droids,
+  SQLite implementations, or concrete server internals.
+- Runtime, persistence, protocol, client, and renderer types have distinct
+  owners and are projected explicitly.
+- Do not introduce process-global cwd or active-session state.
+- Multiple sessions may run concurrently; serialize mutation within a session.
+- Subagents are supervised concurrent executions with durable state and mailbox
+  delivery.
+- Built-ins are compiled Go packages. Custom plugins are child processes using
+  the public RPC protocol.
+- Preserve canonical wire values and validate both sides of every process or
+  network boundary.
+- Create packages to enforce meaningful ownership/dependency boundaries, not
+  merely to hold shared types.
+- Once an interface is accepted, implement through it rather than bypassing it
+  for expediency.
+- Record architectural decisions under `docs/adrs/` and deferred work in the
+  parity ledger or `backlog/`.
+
+## Go conventions
+
+- Follow standard Go style and keep exported identifiers documented.
+- Thread `context.Context` through blocking work.
+- Make goroutine ownership, cancellation, and channel closure explicit.
+- Prefer bounded queues and concurrency over unbounded goroutine creation.
+- Keep SQLite transactions short and preserve foreign-key enforcement.
+- Keep the release build CGO-free unless an ADR explicitly changes that goal.
 
 ## Commit conventions
 
-- Use [Conventional Commits](https://www.conventionalcommits.org/) for commit messages.
-- Preferred format: `type(scope): summary`
-- Scope is optional when it does not add clarity: `type: summary`
-- Keep summaries concise and imperative.
-- Common types in this repo:
-  - `feat`
-  - `fix`
-  - `refactor`
-  - `docs`
-  - `test`
-  - `chore`
-  - `perf`
-  - `build`
-  - `ci`
+Use Conventional Commits, preferably `type(scope): summary`. Common types are
+`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `build`, and `ci`.
 
-## Pre-commit checklist
+## Validation
 
-Before asking to commit, always:
+For Go changes, run:
 
-1. **`bun run typecheck`** — zero TypeScript errors required
-2. **`bun run check`** — auto-fix formatting and safe lint fixes
-3. **Address remaining biome warnings** — fix or suppress with `// biome-ignore <rule>: <reason>`
-   - `noExplicitAny`: replace with proper types where possible
-   - `noNonNullAssertion`: prefer Solid child accessor pattern or type narrowing over `!`
-   - `noUnusedImports` / `noUnusedVariables`: remove dead code
-   - Do **not** suppress warnings without a clear reason in the comment
-4. **Re-run `bun run typecheck`** after biome changes to confirm nothing broke
-5. For changes to print mode/headless execution, run **`bun run smoke:print-mode`** from the repository root. This is an authenticated manual smoke test that makes model calls and exercises prompts, tools, external-plugin exclusion, signals, subagents, and ephemeral storage.
+```sh
+gofmt -l .
+go build ./...
+go vet ./...
+go test ./...
+```
+
+`gofmt -l .` must print nothing. Also run `go test -race ./...` for changes to
+daemon, session, subagent, plugin, or other concurrency-sensitive code when the
+platform supports it.
+
+For browser-client changes, run its formatting, lint, typecheck, unit, and
+browser suites defined by the web workspace. Bun is a development/build-time
+dependency only and must not become a user runtime requirement.
+
+Before merging the rewrite, run the authenticated print/RPC/plugin/subagent
+smoke suite and the migration suite described in `docs/parity.md`.

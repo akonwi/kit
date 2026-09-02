@@ -5,3 +5,11 @@ test-results/
 playwright-report/
 .DS_Store
 keymap-keybindings-progress.local.md
+
+# Go development artifacts
+/kit
+/kit.exe
+*.test
+coverage.out
+go.work
+go.work.sum
