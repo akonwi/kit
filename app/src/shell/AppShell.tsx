@@ -1,7 +1,8 @@
 import type { Selection } from "@opentui/core";
-import { useKeymapSelector } from "@opentui/keymap/solid";
+import { useKeymap, useKeymapSelector } from "@opentui/keymap/solid";
 import { useRenderer } from "@opentui/solid";
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js";
+import type { InteractionEntry } from "../app/interaction-ui";
 import {
 	getOverlaySurfaceProps,
 	getToastStackZIndex,
@@ -111,6 +112,7 @@ export type AppShellProps = {
 	scratchpad: ScratchpadController;
 	subagentsWorkspace: SubagentsWorkspaceController;
 	overlays: () => OverlayEntry[];
+	interactions: () => InteractionEntry[];
 	openOverlay: OpenOverlay;
 	dismissToast: (id: number) => void;
 	onTranscriptViewportChange: (viewport: {
@@ -146,6 +148,18 @@ export function shouldRestoreComposerFocus(options: {
 		!options.chromeOverflowOpen &&
 		!options.pickerVisible &&
 		!options.commandPaletteVisible &&
+		options.focusedSurface === "composer"
+	);
+}
+
+export function shouldFocusComposerAfterInteraction(options: {
+	overlayOpen: boolean;
+	interactionOpen: boolean;
+	focusedSurface: WorkspaceFocusedSurface;
+}): boolean {
+	return (
+		!options.overlayOpen &&
+		!options.interactionOpen &&
 		options.focusedSurface === "composer"
 	);
 }
@@ -205,11 +219,14 @@ export function shouldFocusSubagentsRosterAfterRemoval(options: {
 function AppShellContent(props: AppShellContentProps) {
 	const [headerHeight, setHeaderHeight] = createSignal(1);
 	const [dockHeight, setDockHeight] = createSignal(3);
+	const [composerDockHeight, setComposerDockHeight] = createSignal(3);
 	const [composerMode, setComposerMode] =
 		createSignal<ComposerInputMode>("normal");
 	const [commandRegistryVersion, setCommandRegistryVersion] = createSignal(0);
 	const renderer = useRenderer();
+	const keymap = useKeymap();
 	let transcriptRef: { width: number; height: number } | undefined;
+	let interactionDockRef: { height: number } | undefined;
 	const [transcriptWidth, setTranscriptWidth] = createSignal(
 		renderer.terminalWidth,
 	);
@@ -287,9 +304,13 @@ function AppShellContent(props: AppShellContentProps) {
 		}));
 	};
 	const focusedSurface = () => workspaceState().focusedSurface;
+	const activeInteraction = () => props.interactions()[0] ?? null;
+	const interactionOpen = () => activeInteraction() !== null;
+	const blockingSurfaceOpen = () =>
+		props.overlays().length > 0 || interactionOpen();
 	const workspaceInteractionsEnabled = () =>
 		focusedSurface() === "secondary" &&
-		props.overlays().length === 0 &&
+		!blockingSurfaceOpen() &&
 		chromeOverflow() === null &&
 		selectionMenu() === null &&
 		messageContextMenu() === null &&
@@ -300,6 +321,52 @@ function AppShellContent(props: AppShellContentProps) {
 		workspace.setNarrowTab("transcript");
 		workspace.setFocusedSurface("composer");
 	}
+	let focusedInteractionId: string | undefined;
+	let retainedComposerDraft: { text: string; cursorOffset: number } | undefined;
+	createEffect(() => {
+		const interaction = activeInteraction();
+		if (!interaction) {
+			const draft = retainedComposerDraft;
+			retainedComposerDraft = undefined;
+			focusedInteractionId = undefined;
+			setDockHeight(composerDockHeight());
+			if (draft) {
+				queueMicrotask(() => {
+					props.controller.setTextareaText(draft.text);
+					props.controller.setTextareaCursorOffset(draft.cursorOffset);
+					if (
+						shouldFocusComposerAfterInteraction({
+							overlayOpen: props.overlays().length > 0,
+							interactionOpen: interactionOpen(),
+							focusedSurface: focusedSurface(),
+						})
+					) {
+						props.controller.focusTextarea();
+					}
+				});
+			}
+			return;
+		}
+		if (focusedInteractionId === interaction.id) return;
+		if (focusedInteractionId === undefined) {
+			retainedComposerDraft = {
+				text: props.controller.getTextareaText(),
+				cursorOffset: props.controller.getTextareaCursorOffset(),
+			};
+		}
+		focusedInteractionId = interaction.id;
+		saveScratchpadDraftIfEditing();
+		discardSelection();
+		setSelectionMenu(null);
+		props.controller.cancelReferenceInteraction();
+		props.controller.picker.clear();
+		props.controller.commandPalette.clear();
+		keymap.clearPendingSequence();
+		queueMicrotask(() => keymap.clearPendingSequence());
+		if (workspaceOverflowPicker.visible) workspaceOverflowPicker.clear();
+		setMessageContextMenu(null);
+		focusComposerSurface();
+	});
 	function focusReviewSurface(): void {
 		props.controller.cancelReferenceInteraction();
 		props.controller.picker.clear();
@@ -307,7 +374,7 @@ function AppShellContent(props: AppShellContentProps) {
 		workspace.setFocusedSurface("secondary");
 	}
 	function colorCurrentSelection(): void {
-		if (props.overlays().length > 0) return;
+		if (blockingSurfaceOpen()) return;
 		const selection = renderer.getSelection();
 		if (!selection) return;
 		applySelectionColors(
@@ -323,7 +390,7 @@ function AppShellContent(props: AppShellContentProps) {
 	}
 	function closeSelectionMenu(): void {
 		const restoreComposerFocus =
-			focusedSurface() === "composer" && props.overlays().length === 0;
+			focusedSurface() === "composer" && !blockingSurfaceOpen();
 		setSelectionMenu(null);
 		discardSelection();
 		if (restoreComposerFocus) {
@@ -347,7 +414,7 @@ function AppShellContent(props: AppShellContentProps) {
 		y: number;
 		markdown: string;
 	}): void {
-		if (props.overlays().length > 0) return;
+		if (blockingSurfaceOpen()) return;
 		if (chromeOverflow() || workspaceOverflowPicker.visible) return;
 		if (props.controller.picker.visible) return;
 		if (props.controller.commandPalette.visible) return;
@@ -435,7 +502,7 @@ function AppShellContent(props: AppShellContentProps) {
 		contributions: readonly ChromeContribution[],
 	) {
 		if (contributions.length === 0) return;
-		if (props.overlays().length > 0) return;
+		if (blockingSurfaceOpen()) return;
 		if (props.controller.picker.visible) return;
 		if (props.controller.commandPalette.visible) return;
 		setChromeOverflow({ title, placement });
@@ -445,7 +512,7 @@ function AppShellContent(props: AppShellContentProps) {
 		if (!chromeOverflow()) return;
 		if (
 			currentOverflowContributions().length === 0 ||
-			props.overlays().length > 0 ||
+			blockingSurfaceOpen() ||
 			props.controller.picker.visible ||
 			props.controller.commandPalette.visible
 		) {
@@ -454,7 +521,7 @@ function AppShellContent(props: AppShellContentProps) {
 	});
 	createEffect(() => {
 		const blocked =
-			props.overlays().length > 0 ||
+			blockingSurfaceOpen() ||
 			chromeOverflow() !== null ||
 			workspaceOverflowPicker.visible ||
 			props.controller.picker.visible ||
@@ -582,7 +649,7 @@ function AppShellContent(props: AppShellContentProps) {
 			active: () =>
 				activeWorkspaceTab()?.id === tabId && workspaceInteractionsEnabled(),
 			onFocusRequest: () => {
-				focusSecondarySurface(tabId);
+				if (!interactionOpen()) focusSecondarySurface(tabId);
 			},
 			onLeave: leaveWorkspaceSurface,
 			runtime: props.runtime,
@@ -948,7 +1015,7 @@ function AppShellContent(props: AppShellContentProps) {
 	);
 
 	const chromeActionsDisabled = () =>
-		props.overlays().length > 0 ||
+		blockingSurfaceOpen() ||
 		chromeOverflow() !== null ||
 		selectionMenu() !== null ||
 		messageContextMenu() !== null ||
@@ -958,7 +1025,7 @@ function AppShellContent(props: AppShellContentProps) {
 
 	function runHeaderCommand(name: string): void {
 		if (
-			props.overlays().length > 0 ||
+			blockingSurfaceOpen() ||
 			chromeOverflow() ||
 			selectionMenu() ||
 			messageContextMenu()
@@ -980,7 +1047,7 @@ function AppShellContent(props: AppShellContentProps) {
 		return {
 			scope: "app",
 			when: () =>
-				props.overlays().length === 0 &&
+				!blockingSurfaceOpen() &&
 				chromeOverflow() === null &&
 				selectionMenu() === null &&
 				messageContextMenu() === null &&
@@ -1042,7 +1109,7 @@ function AppShellContent(props: AppShellContentProps) {
 			onMouseUp={(event) => {
 				if (event.button !== 0) return;
 				if (
-					props.overlays().length > 0 ||
+					blockingSurfaceOpen() ||
 					chromeOverflow() ||
 					workspaceOverflowPicker.visible ||
 					props.controller.picker.visible ||
@@ -1135,21 +1202,29 @@ function AppShellContent(props: AppShellContentProps) {
 				onPreferredPaneRatioCommit={props.onPreferredPaneRatioCommit}
 				onDividerMouseDown={() => renderer.clearSelection()}
 				onSelectTranscript={focusComposerSurface}
-				onSelectTab={(tabId) => focusSecondarySurface(tabId)}
-				onCloseTab={requestCloseTab}
+				onSelectTab={(tabId) =>
+					interactionOpen() ? false : focusSecondarySurface(tabId)
+				}
+				onCloseTab={(tabId) =>
+					interactionOpen() ? false : requestCloseTab(tabId)
+				}
 				onCollapseDrawer={() => {
+					if (interactionOpen()) return;
 					saveScratchpadDraftIfEditing();
 					workspace.minimizeSecondary();
 					focusComposerSurface();
 				}}
 				onExpandDrawer={() => {
+					if (interactionOpen()) return;
 					if (workspaceState().secondary.status === "empty") {
 						toggleScratchpad();
 						return;
 					}
 					workspace.restoreSecondary();
 				}}
-				onOpenOverflow={openWorkspaceOverflow}
+				onOpenOverflow={(hiddenTabIds) => {
+					if (!interactionOpen()) openWorkspaceOverflow(hiddenTabIds);
+				}}
 				secondary={() => (
 					<For each={secondaryTabs()}>
 						{(tab) => (
@@ -1174,7 +1249,7 @@ function AppShellContent(props: AppShellContentProps) {
 						queueMicrotask(() => {
 							if (
 								!shouldRestoreComposerFocus({
-									overlayOpen: props.overlays().length > 0,
+									overlayOpen: blockingSurfaceOpen(),
 									chromeOverflowOpen: chromeOverflow() !== null,
 									pickerVisible: props.controller.picker.visible,
 									commandPaletteVisible:
@@ -1212,48 +1287,89 @@ function AppShellContent(props: AppShellContentProps) {
 						/>
 					</box>
 					<box flexShrink={0} flexDirection="column" gap={0}>
-						<PendingSlot
-							runtime={props.runtime}
-							pendingMessages={props.state.pendingMessages}
-						/>
-						<ComposerDock
-							controller={props.controller}
-							attachments={props.attachments}
-							onOpenAttachment={(attachment) => {
-								if (attachment instanceof CodeReviewAttachment) {
-									const file = attachment.review.files[0];
-									if (attachment.review.source === "file" && file) {
-										openWorkspaceFile(file.path);
-									} else {
-										props.reviewWorkspace.open();
+						<Show when={!interactionOpen()}>
+							<box flexDirection="column">
+								<PendingSlot
+									runtime={props.runtime}
+									pendingMessages={props.state.pendingMessages}
+								/>
+								<ComposerDock
+									controller={props.controller}
+									attachments={props.attachments}
+									onOpenAttachment={(attachment) => {
+										if (attachment instanceof CodeReviewAttachment) {
+											const file = attachment.review.files[0];
+											if (attachment.review.source === "file" && file) {
+												openWorkspaceFile(file.path);
+											} else {
+												props.reviewWorkspace.open();
+											}
+											return;
+										}
+										void Promise.resolve(attachment.onOpen?.()).catch(
+											(error) => {
+												props.showToast({
+													title: "Could not open attachment",
+													subtitle:
+														error instanceof Error
+															? error.message
+															: String(error),
+													variant: "error",
+												});
+											},
+										);
+									}}
+									locked={
+										blockingSurfaceOpen() ||
+										chromeOverflow() !== null ||
+										selectionMenu() !== null ||
+										messageContextMenu() !== null ||
+										workspaceOverflowPicker.visible
 									}
-									return;
-								}
-								void Promise.resolve(attachment.onOpen?.()).catch((error) => {
-									props.showToast({
-										title: "Could not open attachment",
-										subtitle:
-											error instanceof Error ? error.message : String(error),
-										variant: "error",
-									});
-								});
-							}}
-							locked={
-								props.overlays().length > 0 ||
-								chromeOverflow() !== null ||
-								selectionMenu() !== null ||
-								messageContextMenu() !== null ||
-								workspaceOverflowPicker.visible
-							}
-							inputFocused={
-								chromeOverflow() === null &&
-								!workspaceOverflowPicker.visible &&
-								(focusedSurface() === "composer" || props.overlays().length > 0)
-							}
-							onHeightChange={setDockHeight}
-							onModeChange={setComposerMode}
-							onFocusRequest={focusComposerSurface}
-						/>
+									inputFocused={
+										!interactionOpen() &&
+										chromeOverflow() === null &&
+										!workspaceOverflowPicker.visible &&
+										(focusedSurface() === "composer" ||
+											props.overlays().length > 0)
+									}
+									onHeightChange={(height) => {
+										setComposerDockHeight(height);
+										if (!interactionOpen()) setDockHeight(height);
+									}}
+									onModeChange={setComposerMode}
+									onFocusRequest={focusComposerSurface}
+								/>
+							</box>
+						</Show>
+						<Show when={activeInteraction()}>
+							{(interaction) => (
+								<box
+									ref={(value) => {
+										interactionDockRef = value as typeof interactionDockRef;
+									}}
+									onSizeChange={() => {
+										if (interactionDockRef) {
+											setDockHeight(interactionDockRef.height);
+										}
+									}}
+									width="100%"
+									flexDirection="column"
+								>
+									{interaction().component({
+										done: (result: unknown) => interaction().resolve(result),
+										get active() {
+											// The dock owns keyboard input for as long as it is visible.
+											// Workspace and transient-surface openers are gated while an
+											// interaction is pending, so only a true modal can supersede it.
+											return props.overlays().length === 0;
+										},
+										copyText: props.copyText,
+										maxHeight: Math.max(11, Math.floor(shellHeight() * 0.45)),
+									})}
+								</box>
+							)}
+						</Show>
 					</box>
 					{/* Inline @/# reference picker is constrained to the primary
 					 * workspace column and floats above the composer dock. */}
@@ -1436,6 +1552,7 @@ export function AppShell(props: AppShellProps) {
 				scratchpad={props.scratchpad}
 				subagentsWorkspace={props.subagentsWorkspace}
 				overlays={props.overlays}
+				interactions={props.interactions}
 				openOverlay={props.openOverlay}
 				dismissToast={props.dismissToast}
 				onTranscriptViewportChange={props.onTranscriptViewportChange}

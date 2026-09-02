@@ -496,6 +496,80 @@ export const KEYBINDING_REGISTRY = {
 			hint: "transcript",
 		},
 	},
+	"plugin-ui": {
+		"select.cancel": {
+			defaultKeys: "escape",
+			desc: "Cancel plugin selection",
+			group: "plugin-ui.select",
+			hint: "cancel",
+		},
+		"select.submit": {
+			defaultKeys: "return",
+			desc: "Submit plugin selection",
+			group: "plugin-ui.select",
+			hint: "select",
+		},
+		"select.move-up": {
+			defaultKeys: "up",
+			desc: "Move plugin selection up",
+			group: "plugin-ui.select",
+			hint: "move",
+		},
+		"select.move-down": {
+			defaultKeys: "down",
+			desc: "Move plugin selection down",
+			group: "plugin-ui.select",
+			hint: "move",
+		},
+		"input.cancel": {
+			defaultKeys: "escape",
+			desc: "Cancel plugin input",
+			group: "plugin-ui.input",
+			hint: "cancel",
+		},
+		"input.submit": {
+			defaultKeys: "return",
+			desc: "Submit plugin input",
+			group: "plugin-ui.input",
+			hint: "submit",
+		},
+		"confirm.cancel": {
+			defaultKeys: "escape",
+			desc: "Cancel plugin confirmation",
+			group: "plugin-ui.confirm",
+			hint: "cancel",
+		},
+		"confirm.submit": {
+			defaultKeys: "return",
+			desc: "Submit plugin confirmation",
+			group: "plugin-ui.confirm",
+			hint: "confirm",
+		},
+		"confirm.choose-previous": {
+			defaultKeys: "left",
+			desc: "Choose previous confirmation option",
+			group: "plugin-ui.confirm",
+			hint: "choose",
+		},
+		"confirm.choose-next": {
+			defaultKeys: "right",
+			desc: "Choose next confirmation option",
+			group: "plugin-ui.confirm",
+			hint: "choose",
+		},
+		"confirm.scroll-up": {
+			defaultKeys: "up",
+			desc: "Scroll confirmation details up",
+			group: "plugin-ui.confirm",
+			hint: false,
+		},
+		"confirm.scroll-down": {
+			defaultKeys: "down",
+			desc: "Scroll confirmation details down",
+			group: "plugin-ui.confirm",
+			hint: false,
+		},
+	},
 	"guided-questions": {
 		previous: {
 			defaultKeys: "shift+tab",

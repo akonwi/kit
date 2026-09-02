@@ -25,6 +25,7 @@ export function createHeadlessPluginUI(
 					throw new Error("interactivity is unavailable");
 				},
 		custom: noCustomOverlay,
+		interaction: noCustomOverlay,
 		getTranscriptViewport: () => null,
 	};
 }

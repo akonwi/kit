@@ -2,6 +2,8 @@
 
 Kit exposes small interactive tools that let the model collect one focused answer from the user through Kit-owned UI instead of asking the user to type a response in chat.
 
+In the interactive TUI, requests appear in an interaction dock that temporarily replaces the composer. The transcript remains visible and mouse-scrollable while the dock owns keyboard focus. Concurrent requests are queued in request order. Plugins using Kit's `confirm`, `input`, and `select` UI primitives receive the same presentation; custom plugin UI remains modal.
+
 Available tools:
 
 - `confirm_from_user` — asks for a yes/no confirmation and returns `details.confirmed`

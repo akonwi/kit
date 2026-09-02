@@ -73,6 +73,18 @@ OpenTUI paints border cells with the box background, which can create an inset a
 
 Compose picker behavior with `Picker.Root`, `Picker.Header`, `Picker.Body`, and `Picker.Footer`. Put that composition inside `InlinePicker` for a transient picker or `Dialog.Root` for a modal picker; do not fork picker interaction and selection styling.
 
+### Interaction dock
+
+Examples: model- or plugin-invoked confirmation, short input, selection, and guided questions.
+
+- Replaces the composer while input is required and spans the primary transcript column
+- Uses a top `borderAccent` separator and `bgSurface` without a modal backdrop
+- Keeps the transcript visible and mouse-scrollable while the dock owns keyboard focus
+- Caps its height relative to the terminal and windows or scrolls long option content internally
+- Uses `InteractionDock.Root`, `InteractionDock.Header`, `InteractionDock.Body`, and `InteractionDock.Footer`
+- Queues concurrent requests rather than stacking multiple visible docks
+- Public plugin `confirm`, `input`, and `select` primitives use this surface; arbitrary custom plugin UI remains a dialog
+
 ### Full-screen takeover
 
 Examples: Pager and fatal-error presentation.

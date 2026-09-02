@@ -1,5 +1,5 @@
 import type { PasteEvent } from "@opentui/core";
-import { createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import { useKeymapLayer } from "../keymap/useKeymapLayer";
 import type {
 	Attachment,
@@ -49,6 +49,7 @@ function getComposerInputMode(text: string): ComposerInputMode {
 
 export function ComposerDock(props: ComposerDockProps) {
 	let dockRef: { width: number; height: number } | undefined;
+	onCleanup(() => props.controller.setTextarea(undefined));
 	const picker = props.controller.picker;
 	const commandPaletteVisible = () => props.controller.commandPalette.visible;
 	const [composerText, setComposerText] = createSignal(
@@ -71,6 +72,13 @@ export function ComposerDock(props: ComposerDockProps) {
 	};
 	const syncComposerText = () =>
 		setComposerText(props.controller.getTextareaText());
+
+	createEffect(() => {
+		if (!composerVisuallyFocused()) return;
+		queueMicrotask(() => {
+			if (composerVisuallyFocused()) props.controller.focusTextarea();
+		});
+	});
 
 	createEffect(() => {
 		props.onModeChange?.(composerMode());

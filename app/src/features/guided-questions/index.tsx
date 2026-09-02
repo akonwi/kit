@@ -36,16 +36,35 @@ export function GuidedQuestionsPlugin(kit: InternalPluginAPI): () => void {
 	});
 	kit.registerTool(tool);
 
+	let interactionAbort: AbortController | undefined;
 	const unsubscribe = controller.subscribe((active) => {
-		if (!active) return;
-		void kit.ui.custom((props) => (
-			<GuidedQuestionsContent
-				guidedQuestions={controller}
-				onClose={() => props.done(undefined)}
-				surfaceProps={props.surfaceProps}
-			/>
-		));
+		if (!active) {
+			interactionAbort?.abort();
+			interactionAbort = undefined;
+			return;
+		}
+		const abort = new AbortController();
+		interactionAbort = abort;
+		void kit.ui
+			.interaction(
+				(props) => (
+					<GuidedQuestionsContent
+						guidedQuestions={controller}
+						onClose={() => props.done(undefined)}
+						active={props.active}
+						maxHeight={props.maxHeight}
+					/>
+				),
+				{ signal: abort.signal, abortValue: undefined },
+			)
+			.then(() => {
+				if (controller.active) controller.cancelAll();
+			});
 	});
 
-	return unsubscribe;
+	return () => {
+		unsubscribe();
+		interactionAbort?.abort();
+		controller.cancelAll();
+	};
 }
