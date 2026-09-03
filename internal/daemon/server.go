@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
@@ -26,10 +27,11 @@ var ErrAlreadyRunning = errors.New("local daemon is already running")
 
 // RunOptions configures the internal local daemon process.
 type RunOptions struct {
-	Paths        apphome.Paths
-	Logger       *slog.Logger
-	Providers    droids.Providers
-	SystemPrompt string
+	Paths             apphome.Paths
+	Logger            *slog.Logger
+	Providers         droids.Providers
+	CredentialSources map[string]CredentialSource
+	SystemPrompt      string
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -114,10 +116,15 @@ func Run(ctx context.Context, options RunOptions) error {
 		)
 	}
 	providers := options.Providers
+	credentialSources := cloneCredentialSources(options.CredentialSources)
 	if providers == nil {
-		providers, err = providersFromEnvironment()
+		var codexSource CredentialSource
+		providers, codexSource, err = providersFromEnvironment(paths)
 		if err != nil {
 			return err
+		}
+		credentialSources = map[string]CredentialSource{
+			auth.OpenAICodexProviderID: codexSource,
 		}
 	}
 	systemPrompt := options.SystemPrompt
@@ -144,14 +151,15 @@ func Run(ctx context.Context, options RunOptions) error {
 	startedAt := time.Now().UTC()
 	baseURL := "http://" + listener.Addr().String()
 	registry := Registry{
-		RegistryVersion: version.LocalRegistryVersion,
-		ProtocolVersion: version.SessionProtocolVersion,
-		KitVersion:      version.Version,
-		Commit:          version.Commit,
-		PID:             os.Getpid(),
-		InstanceID:      instanceID,
-		URL:             baseURL,
-		StartedAt:       startedAt,
+		RegistryVersion:   version.LocalRegistryVersion,
+		ProtocolVersion:   version.SessionProtocolVersion,
+		KitVersion:        version.Version,
+		Commit:            version.Commit,
+		PID:               os.Getpid(),
+		InstanceID:        instanceID,
+		URL:               baseURL,
+		StartedAt:         startedAt,
+		CredentialSources: credentialSources,
 	}
 
 	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
@@ -292,7 +300,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 	})
 }
 
-func providersFromEnvironment() (droids.Providers, error) {
+func providersFromEnvironment(paths apphome.Paths) (droids.Providers, CredentialSource, error) {
 	configs := []droids.Provider{
 		droids.OpenAI{
 			APIKey:  os.Getenv("OPENAI_API_KEY"),
@@ -315,14 +323,14 @@ func providersFromEnvironment() (droids.Providers, error) {
 		if raw := os.Getenv("OPENAI_CODEX_FEDRAMP"); raw != "" {
 			fedRAMP, err := strconv.ParseBool(raw)
 			if err != nil {
-				return nil, fmt.Errorf("parse OPENAI_CODEX_FEDRAMP: %w", err)
+				return nil, "", fmt.Errorf("parse OPENAI_CODEX_FEDRAMP: %w", err)
 			}
 			credentials.FedRAMP = fedRAMP
 		}
 		if raw := os.Getenv("OPENAI_CODEX_EXPIRES_AT"); raw != "" {
 			expiresAt, err := strconv.ParseInt(raw, 10, 64)
 			if err != nil {
-				return nil, fmt.Errorf("parse OPENAI_CODEX_EXPIRES_AT as Unix milliseconds: %w", err)
+				return nil, "", fmt.Errorf("parse OPENAI_CODEX_EXPIRES_AT as Unix milliseconds: %w", err)
 			}
 			credentials.ExpiresAt = time.UnixMilli(expiresAt)
 		}
@@ -330,12 +338,32 @@ func providersFromEnvironment() (droids.Providers, error) {
 			Credentials: credentials,
 			Originator:  "kit",
 		})
+	} else {
+		configs = append(configs, droids.OpenAICodex{
+			CredentialStore: auth.NewStore(paths.Auth),
+			Originator:      "kit",
+		})
 	}
 	providers, err := droids.NewProviders(configs...)
 	if err != nil {
-		return nil, fmt.Errorf("configure droids providers: %w", err)
+		return nil, "", fmt.Errorf("configure droids providers: %w", err)
 	}
-	return providers, nil
+	codexSource := CredentialSourceStore
+	if accessToken != "" || refreshToken != "" {
+		codexSource = CredentialSourceEnvironment
+	}
+	return providers, codexSource, nil
+}
+
+func cloneCredentialSources(input map[string]CredentialSource) map[string]CredentialSource {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make(map[string]CredentialSource, len(input))
+	for providerID, source := range input {
+		cloned[providerID] = source
+	}
+	return cloned
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

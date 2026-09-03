@@ -32,6 +32,12 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return runInternalDaemon(ctx, args[1:], stderr)
 		case "daemon":
 			return runDaemonCommand(ctx, args[1:], stdout, stderr)
+		case "login":
+			return runLogin(ctx, args[1:], stdout, stderr)
+		case "logout":
+			return runLogout(ctx, args[1:], stdout, stderr)
+		case "auth":
+			return runAuthCommand(ctx, args[1:], stdout, stderr)
 		case "-p", "--print":
 			return runPrint(ctx, args[1:], stdout, stderr)
 		case "help", "--help", "-h":
@@ -318,6 +324,9 @@ Usage:
   kit daemon stop             stop the local daemon
   kit -p [options] PROMPT     run a persisted prompt without the TUI
   kit daemon restart          restart the local daemon
+  kit login openai-codex      log in through the Codex device flow
+  kit logout openai-codex     remove saved Codex credentials
+  kit auth status             list saved credential metadata
   kit version                 print version information
 
 Print options:

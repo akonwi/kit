@@ -18,16 +18,25 @@ import (
 	"github.com/akonwi/kit/internal/version"
 )
 
+// CredentialSource is the non-secret source used by a daemon provider.
+type CredentialSource string
+
+const (
+	CredentialSourceStore       CredentialSource = "store"
+	CredentialSourceEnvironment CredentialSource = "environment"
+)
+
 // Registry is the public, non-secret local daemon discovery record.
 type Registry struct {
-	RegistryVersion int       `json:"registryVersion"`
-	ProtocolVersion int       `json:"protocolVersion"`
-	KitVersion      string    `json:"kitVersion"`
-	Commit          string    `json:"commit"`
-	PID             int       `json:"pid"`
-	InstanceID      string    `json:"instanceId"`
-	URL             string    `json:"url"`
-	StartedAt       time.Time `json:"startedAt"`
+	RegistryVersion   int                         `json:"registryVersion"`
+	ProtocolVersion   int                         `json:"protocolVersion"`
+	KitVersion        string                      `json:"kitVersion"`
+	Commit            string                      `json:"commit"`
+	PID               int                         `json:"pid"`
+	InstanceID        string                      `json:"instanceId"`
+	URL               string                      `json:"url"`
+	StartedAt         time.Time                   `json:"startedAt"`
+	CredentialSources map[string]CredentialSource `json:"credentialSources,omitempty"`
 }
 
 func (r Registry) validate() error {
@@ -42,6 +51,16 @@ func (r Registry) validate() error {
 	}
 	if r.InstanceID == "" {
 		return errors.New("daemon instance id is empty")
+	}
+	for providerID, source := range r.CredentialSources {
+		if !validRegistryIdentifier(providerID) {
+			return fmt.Errorf("invalid credential source provider id %q", providerID)
+		}
+		switch source {
+		case CredentialSourceStore, CredentialSourceEnvironment:
+		default:
+			return fmt.Errorf("invalid credential source %q for provider %q", source, providerID)
+		}
 	}
 	parsed, err := url.Parse(r.URL)
 	if err != nil {
@@ -118,6 +137,18 @@ func loadToken(paths apphome.Paths) (string, error) {
 		return "", errors.New("daemon token is not hexadecimal")
 	}
 	return token, nil
+}
+
+func validRegistryIdentifier(value string) bool {
+	if value == "" || value != strings.TrimSpace(value) || len(value) > 256 {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func writePrivateFile(path string, body []byte) error {

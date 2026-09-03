@@ -29,6 +29,9 @@ uses Solid and Mica at build time and is embedded in the Go executable.
 - `internal/droids` is Kit's private agent core, seeded from the standalone
   repository at the commit recorded in its README. There is no implicit
   upstream sync; reconcile changes deliberately.
+- `internal/auth` owns machine-managed provider credentials. Keep auth files
+  private, locked, atomically replaced, and generation-checked; never treat
+  `~/.kit` as the v2 auth source without explicit migration.
 - Runtime, persistence, protocol, client, and renderer types have distinct
   owners and are projected explicitly.
 - Do not introduce process-global cwd or active-session state.

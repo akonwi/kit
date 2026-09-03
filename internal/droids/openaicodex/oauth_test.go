@@ -145,6 +145,39 @@ func TestDeviceAuthorizationPollsAndExchanges(t *testing.T) {
 	}
 }
 
+func TestDeviceAuthorizationAcceptsAlternateCodeAndDefaultInterval(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"device_auth_id":"device-1","usercode":"ALT-CODE"}`)
+	}))
+	defer server.Close()
+	client := testClient(t, server)
+	device, err := client.BeginDeviceAuthorization(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.UserCode != "ALT-CODE" || device.Interval != defaultDevicePollInterval {
+		t.Fatalf("device = %#v", device)
+	}
+}
+
+func TestDeviceAuthorizationRejectsUnsafeDisplayCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "{\"device_auth_id\":\"device-1\",\"user_code\":\"CODE\\u001b[31m\",\"interval\":5}")
+	}))
+	defer server.Close()
+	client := testClient(t, server)
+	if _, err := client.BeginDeviceAuthorization(context.Background()); err == nil {
+		t.Fatal("unsafe device code was accepted")
+	}
+}
+
+func TestOAuthResponseErrorSanitizesTerminalControls(t *testing.T) {
+	err := oauthResponseError("test", http.StatusBadRequest, []byte(`{"error":{"code":"bad\ncode","message":"unsafe\u001b[31m\u009b\u202emessage"}}`))
+	if strings.ContainsAny(err.Code+err.Message, "\n\r\x1b\u009b\u202e") {
+		t.Fatalf("error was not sanitized: %#v", err)
+	}
+}
+
 func TestDevicePollingAcceptsBareForbiddenAsPending(t *testing.T) {
 	var polls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {

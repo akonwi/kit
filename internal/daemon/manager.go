@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
@@ -16,6 +17,10 @@ import (
 
 // ErrIncompatibleDaemon indicates a healthy daemon that this client must not use.
 var ErrIncompatibleDaemon = errors.New("local daemon is incompatible")
+
+// ErrEnvironmentCredentialsActive indicates that a running daemon would ignore
+// a mutation to the persisted credential store.
+var ErrEnvironmentCredentialsActive = errors.New("running daemon uses environment credentials")
 
 // Manager discovers, starts, inspects, and stops the local daemon.
 type Manager struct {
@@ -53,6 +58,111 @@ func (m *Manager) Ensure(ctx context.Context) (Registry, error) {
 // one whose database is not ready.
 func (m *Manager) Status(ctx context.Context) (Registry, Health, error) {
 	return m.client.ProbeLifecycle(ctx)
+}
+
+// AcquireCredentialStoreMutation prevents a daemon restart while a client
+// verifies that providerID is backed by the persistent store. The returned
+// release function must be called after the auth-file mutation completes.
+func (m *Manager) AcquireCredentialStoreMutation(
+	ctx context.Context,
+	providerID string,
+) (func() error, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := m.paths.Ensure(); err != nil {
+		return nil, err
+	}
+	guardContext, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	startupLock := flock.New(m.paths.StartupLock)
+	locked, err := startupLock.TryLockContext(guardContext, 50*time.Millisecond)
+	if err != nil {
+		return nil, fmt.Errorf("wait for daemon startup lock before changing credentials: %w", err)
+	}
+	if !locked {
+		return nil, errors.New("daemon startup lock was not acquired")
+	}
+	lifetimeLock := flock.New(m.paths.ServerLock)
+	lifetimeHeld := false
+	var releaseOnce sync.Once
+	var releaseErr error
+	release := func() error {
+		releaseOnce.Do(func() {
+			if lifetimeHeld {
+				if err := lifetimeLock.Unlock(); err != nil {
+					releaseErr = errors.Join(
+						releaseErr,
+						fmt.Errorf("release daemon lifetime lock after changing credentials: %w", err),
+					)
+				}
+				lifetimeHeld = false
+			}
+			if err := startupLock.Unlock(); err != nil {
+				releaseErr = errors.Join(
+					releaseErr,
+					fmt.Errorf("release daemon startup lock after changing credentials: %w", err),
+				)
+			}
+		})
+		return releaseErr
+	}
+	fail := func(err error) (func() error, error) {
+		return nil, errors.Join(err, release())
+	}
+
+	var lastProbeErr error
+	for {
+		available, err := lifetimeLock.TryLock()
+		if err != nil {
+			return fail(fmt.Errorf("inspect daemon lifetime before changing credentials: %w", err))
+		}
+		if available {
+			lifetimeHeld = true
+			// With both startup and lifetime ownership, any publication belongs to
+			// a dead process and cannot race a normal replacement daemon.
+			if err := clearRegistration(m.paths); err != nil {
+				return fail(fmt.Errorf("clear stale daemon registration: %w", err))
+			}
+			return release, nil
+		}
+
+		registry, registryErr := LoadRegistry(m.paths)
+		if registryErr == nil {
+			probed, _, probeErr := m.client.ProbeLifecycle(guardContext)
+			if probeErr == nil {
+				if probed.InstanceID != registry.InstanceID {
+					return fail(errors.New("daemon changed while checking credential source"))
+				}
+				source, ok := registry.CredentialSources[providerID]
+				if !ok {
+					return fail(fmt.Errorf("running daemon does not report a credential source for %q", providerID))
+				}
+				if source == CredentialSourceEnvironment {
+					return fail(fmt.Errorf("%w for %q; restart it without provider environment credentials", ErrEnvironmentCredentialsActive, providerID))
+				}
+				if source != CredentialSourceStore {
+					return fail(fmt.Errorf("running daemon reports unsupported credential source %q for %q", source, providerID))
+				}
+				return release, nil
+			}
+			lastProbeErr = probeErr
+		} else if !errors.Is(registryErr, os.ErrNotExist) {
+			return fail(fmt.Errorf("inspect live daemon credential source: %w", registryErr))
+		}
+
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-guardContext.Done():
+			timer.Stop()
+			message := fmt.Errorf("wait for daemon credential source: %w", guardContext.Err())
+			if lastProbeErr != nil {
+				message = fmt.Errorf("%w (last probe: %v)", message, lastProbeErr)
+			}
+			return fail(message)
+		case <-timer.C:
+		}
+	}
 }
 
 // Stop asks the local daemon to shut down and waits until all daemon-owned

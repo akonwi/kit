@@ -25,7 +25,7 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
 	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "test-account")
 
-	providers, err := providersFromEnvironment()
+	providers, source, err := providersFromEnvironment(apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,12 +33,34 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	if !ok || model.Provider != "openai-codex" {
 		t.Fatalf("Codex model = %#v, %v", model, ok)
 	}
+	if source != CredentialSourceEnvironment {
+		t.Fatalf("credential source = %q", source)
+	}
+}
+
+func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
+	for _, name := range []string{
+		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
+		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
+	} {
+		t.Setenv(name, "")
+	}
+	providers, source, err := providersFromEnvironment(apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := providers.Model("openai-codex/gpt-5.6-sol"); !ok {
+		t.Fatal("stored-credential Codex provider was not registered")
+	}
+	if source != CredentialSourceStore {
+		t.Fatalf("credential source = %q", source)
+	}
 }
 
 func TestProvidersFromEnvironmentRejectsInvalidCodexMetadata(t *testing.T) {
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
 	t.Setenv("OPENAI_CODEX_FEDRAMP", "not-a-bool")
-	if _, err := providersFromEnvironment(); err == nil {
+	if _, _, err := providersFromEnvironment(apphome.FromHome(filepath.Join(t.TempDir(), "kit"))); err == nil {
 		t.Fatal("invalid OPENAI_CODEX_FEDRAMP was accepted")
 	}
 }

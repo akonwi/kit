@@ -1,14 +1,44 @@
 package daemon
 
 import (
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/version"
 )
+
+func TestRegistryValidatesCredentialSources(t *testing.T) {
+	t.Parallel()
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	valid := Registry{
+		RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
+		KitVersion: "dev", PID: 1, InstanceID: "instance", URL: "http://" + address,
+		StartedAt: time.Now(), CredentialSources: map[string]CredentialSource{"openai-codex": CredentialSourceStore},
+	}
+	if err := valid.validate(); err != nil {
+		t.Fatal(err)
+	}
+	invalid := valid
+	invalid.CredentialSources = map[string]CredentialSource{"openai-codex": "unknown"}
+	if err := invalid.validate(); err == nil {
+		t.Fatal("Registry.validate() accepted an unknown credential source")
+	}
+	invalid.CredentialSources = map[string]CredentialSource{"bad\nprovider": CredentialSourceStore}
+	if err := invalid.validate(); err == nil {
+		t.Fatal("Registry.validate() accepted an unsafe provider id")
+	}
+}
 
 func TestWritePrivateFileDoesNotReplacePublishedDestination(t *testing.T) {
 	t.Parallel()

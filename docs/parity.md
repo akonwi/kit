@@ -53,6 +53,9 @@ recorded manual verification exists.
 ## Application paths and migration
 
 - [~] Development defaults to `~/.kit-v2` with a `KIT_HOME` override.
+- [~] Store provider credentials with private permissions, locked atomic writes,
+  generation-checked OAuth rotation, and headless Codex login/logout; TUI/web
+  presentation and migration remain.
 - [ ] Preserve user-editable settings, theme, prompt, skill, agent, template,
   MCP, and plugin-manifest surfaces.
 - [ ] Inventory existing `~/.kit` data before migration.
@@ -113,8 +116,9 @@ recorded manual verification exists.
 - [~] Model selection, exact provider/model IDs, persisted session model, and
   default-model precedence.
 - [~] Thinking-level discovery, selection, and persistence.
-- [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport;
-  Kit-owned credential persistence and login/logout remain pending.
+- [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport with
+  Kit-owned persistent refresh rotation and headless device login/logout;
+  interactive client presentation remains pending.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.
 - [ ] Message and composer history.
@@ -342,6 +346,7 @@ recorded manual verification exists.
 - [ ] Final stdout, diagnostics stderr, nonzero error/abort exits, and signals.
 - [ ] Long-lived stdio RPC framing, malformed input recovery, async acceptance,
   and settlement events.
+- [~] Headless Codex device-login, non-secret auth status, and logout commands.
 - [ ] Authenticated manual smoke test covering prompts, tools, plugins, signals,
   subagents, and ephemeral storage.
 

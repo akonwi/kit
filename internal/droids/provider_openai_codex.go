@@ -25,6 +25,7 @@ const (
 	defaultOpenAICodexOriginator          = "droids"
 	openAICodexExpirySkew                 = 30 * time.Second
 	openAICodexCredentialOperationTimeout = 45 * time.Second
+	openAICodexCredentialReloadLimit      = 3
 )
 
 // OpenAICodexCredentials contains the OAuth state needed to authenticate and
@@ -33,12 +34,27 @@ const (
 // package merely to configure a provider.
 type OpenAICodexCredentials = codexauth.Credentials
 
+// ErrOpenAICodexCredentialsChanged indicates that stored credentials changed
+// since they were loaded. Stores must return it instead of overwriting a newer
+// login, logout, or refresh generation.
+var ErrOpenAICodexCredentialsChanged = errors.New("OpenAI Codex credentials changed")
+
+// OpenAICodexCredentialRecord is one application-owned credential generation.
+// Revision is an opaque compare-and-swap token and contains no secret material.
+type OpenAICodexCredentialRecord struct {
+	Credentials OpenAICodexCredentials
+	Revision    string
+}
+
 // OpenAICodexCredentialStore is the optional application-owned persistence
-// seam. The provider performs refresh orchestration; the application decides
-// where rotated credentials are durably stored.
+// seam. Load must report a non-empty revision for configured credentials and
+// return a fully empty record when no credential exists. Save only replaces a
+// non-empty expected revision that is still current and returns
+// ErrOpenAICodexCredentialsChanged otherwise. Credential creation belongs to
+// an application login operation, not Save.
 type OpenAICodexCredentialStore interface {
-	LoadOpenAICodexCredentials(context.Context) (OpenAICodexCredentials, error)
-	SaveOpenAICodexCredentials(context.Context, OpenAICodexCredentials) error
+	LoadOpenAICodexCredentials(context.Context) (OpenAICodexCredentialRecord, error)
+	SaveOpenAICodexCredentials(context.Context, string, OpenAICodexCredentials) (string, error)
 }
 
 // OpenAICodexCredentialError exposes a stable recovery class and an explicitly
@@ -144,6 +160,7 @@ func openAICodexCredentialsConfigured(credentials OpenAICodexCredentials) bool {
 
 type openAICodexCredentialManager struct {
 	current   OpenAICodexCredentials
+	revision  string
 	loaded    bool
 	dirty     bool
 	store     OpenAICodexCredentialStore
@@ -172,78 +189,127 @@ func (m *openAICodexCredentialManager) resolve(ctx context.Context) (OpenAICodex
 }
 
 func (m *openAICodexCredentialManager) resolveOwned(ctx context.Context) (OpenAICodexCredentials, error) {
-	if !m.loaded {
-		credentials, err := m.store.LoadOpenAICodexCredentials(ctx)
+	for range openAICodexCredentialReloadLimit {
+		if m.store != nil {
+			if m.dirty {
+				changed, err := m.persist(ctx)
+				if err != nil {
+					return OpenAICodexCredentials{}, err
+				}
+				if changed {
+					m.resetStoredCredentials()
+					continue
+				}
+			}
+			record, err := m.store.LoadOpenAICodexCredentials(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return OpenAICodexCredentials{}, ctx.Err()
+				}
+				return OpenAICodexCredentials{}, codexCredentialFailure(
+					ErrorTransport, "OpenAI Codex credentials could not be loaded",
+				)
+			}
+			if openAICodexCredentialsConfigured(record.Credentials) && record.Revision == "" {
+				return OpenAICodexCredentials{}, codexCredentialFailure(
+					ErrorProtocol, "OpenAI Codex credential store returned configured credentials without a revision",
+				)
+			}
+			if !openAICodexCredentialsConfigured(record.Credentials) && record.Revision != "" {
+				return OpenAICodexCredentials{}, codexCredentialFailure(
+					ErrorProtocol, "OpenAI Codex credential store returned an empty credential generation",
+				)
+			}
+			if !m.loaded || record.Revision != m.revision {
+				m.current = record.Credentials
+				m.revision = record.Revision
+				m.loaded = true
+			}
+		}
+
+		credentials, err := normalizeOpenAICodexCredentials(m.current)
+		if err != nil {
+			return OpenAICodexCredentials{}, err
+		}
+		m.current = credentials
+		if credentials.AccessToken == "" && credentials.RefreshToken == "" {
+			return OpenAICodexCredentials{}, codexCredentialFailure(
+				ErrorAuthentication, "OpenAI Codex credentials are not configured",
+			)
+		}
+		if !openAICodexNeedsRefresh(credentials, m.now()) {
+			if err := validateOpenAICodexAccess(credentials, m.now()); err != nil {
+				return OpenAICodexCredentials{}, codexCredentialFailure(ErrorAuthentication, err.Error())
+			}
+			return credentials, nil
+		}
+		if credentials.RefreshToken == "" {
+			return OpenAICodexCredentials{}, codexCredentialFailure(
+				ErrorAuthentication, "OpenAI Codex credentials expired and cannot be refreshed",
+			)
+		}
+
+		refreshed, err := m.refresher.Refresh(ctx, credentials)
 		if err != nil {
 			if ctx.Err() != nil {
 				return OpenAICodexCredentials{}, ctx.Err()
 			}
-			return OpenAICodexCredentials{}, codexCredentialFailure(
-				ErrorTransport, "OpenAI Codex credentials could not be loaded",
-			)
+			return OpenAICodexCredentials{}, classifyOpenAICodexRefreshError(err)
 		}
-		m.current = credentials
-		m.loaded = true
-	}
-
-	credentials, err := normalizeOpenAICodexCredentials(m.current)
-	if err != nil {
-		return OpenAICodexCredentials{}, err
-	}
-	m.current = credentials
-
-	if m.dirty {
-		if err := m.persist(ctx); err != nil {
+		refreshed, err = normalizeOpenAICodexCredentials(refreshed)
+		if err != nil {
 			return OpenAICodexCredentials{}, err
 		}
-	}
-	if !openAICodexNeedsRefresh(credentials, m.now()) {
-		if err := validateOpenAICodexAccess(credentials, m.now()); err != nil {
+		if err := validateOpenAICodexAccess(refreshed, m.now()); err != nil {
 			return OpenAICodexCredentials{}, codexCredentialFailure(ErrorAuthentication, err.Error())
 		}
-		return credentials, nil
-	}
-	if credentials.RefreshToken == "" {
-		return OpenAICodexCredentials{}, codexCredentialFailure(
-			ErrorAuthentication, "OpenAI Codex credentials expired and cannot be refreshed",
-		)
-	}
-
-	refreshed, err := m.refresher.Refresh(ctx, credentials)
-	if err != nil {
-		if ctx.Err() != nil {
-			return OpenAICodexCredentials{}, ctx.Err()
+		m.current = refreshed
+		if m.store != nil {
+			m.dirty = true
+			changed, err := m.persist(ctx)
+			if err != nil {
+				return OpenAICodexCredentials{}, err
+			}
+			if changed {
+				m.resetStoredCredentials()
+				continue
+			}
 		}
-		return OpenAICodexCredentials{}, classifyOpenAICodexRefreshError(err)
+		return refreshed, nil
 	}
-	refreshed, err = normalizeOpenAICodexCredentials(refreshed)
-	if err != nil {
-		return OpenAICodexCredentials{}, err
-	}
-	if err := validateOpenAICodexAccess(refreshed, m.now()); err != nil {
-		return OpenAICodexCredentials{}, codexCredentialFailure(ErrorAuthentication, err.Error())
-	}
-	m.current = refreshed
-	if m.store != nil {
-		m.dirty = true
-		if err := m.persist(ctx); err != nil {
-			return OpenAICodexCredentials{}, err
-		}
-	}
-	return refreshed, nil
+	return OpenAICodexCredentials{}, codexCredentialFailure(
+		ErrorTransport, "OpenAI Codex credentials changed repeatedly during refresh",
+	)
 }
 
-func (m *openAICodexCredentialManager) persist(ctx context.Context) error {
-	if err := m.store.SaveOpenAICodexCredentials(ctx, m.current); err != nil {
+func (m *openAICodexCredentialManager) persist(ctx context.Context) (bool, error) {
+	revision, err := m.store.SaveOpenAICodexCredentials(ctx, m.revision, m.current)
+	if errors.Is(err, ErrOpenAICodexCredentialsChanged) {
+		return true, nil
+	}
+	if err != nil {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
-		return codexCredentialFailure(
+		return false, codexCredentialFailure(
 			ErrorTransport, "refreshed OpenAI Codex credentials could not be saved",
 		)
 	}
+	if revision == "" {
+		return false, codexCredentialFailure(
+			ErrorProtocol, "OpenAI Codex credential store returned an empty revision",
+		)
+	}
+	m.revision = revision
 	m.dirty = false
-	return nil
+	return false, nil
+}
+
+func (m *openAICodexCredentialManager) resetStoredCredentials() {
+	m.current = OpenAICodexCredentials{}
+	m.revision = ""
+	m.loaded = false
+	m.dirty = false
 }
 
 func normalizeOpenAICodexCredentials(credentials OpenAICodexCredentials) (OpenAICodexCredentials, error) {

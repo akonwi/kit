@@ -439,7 +439,7 @@ func TestOpenAICodexPersistsRotatedCredentials(t *testing.T) {
 	store := &fakeOpenAICodexCredentialStore{credentials: OpenAICodexCredentials{
 		AccessToken: "stale", RefreshToken: "refresh-old", AccountID: "account",
 		ExpiresAt: fixedNow,
-	}}
+	}, revision: "stored"}
 	refresher := &fakeOpenAICodexRefresher{refresh: func(_ context.Context, previous OpenAICodexCredentials) (OpenAICodexCredentials, error) {
 		previous.AccessToken = "fresh"
 		previous.RefreshToken = "refresh-new"
@@ -458,6 +458,100 @@ func TestOpenAICodexPersistsRotatedCredentials(t *testing.T) {
 	}
 }
 
+func TestOpenAICodexReloadsStoredLoginAndLogoutGenerations(t *testing.T) {
+	fixedNow := time.Unix(1_800_000_000, 0)
+	store := &fakeOpenAICodexCredentialStore{
+		credentials: OpenAICodexCredentials{
+			AccessToken: "account-a-access", AccountID: "account-a",
+			ExpiresAt: fixedNow.Add(time.Hour),
+		},
+		revision: "login-a",
+	}
+	manager := &openAICodexCredentialManager{
+		store: store, refresher: &fakeOpenAICodexRefresher{},
+		now: func() time.Time { return fixedNow },
+	}
+	credentials, err := manager.resolve(context.Background())
+	if err != nil || credentials.AccountID != "account-a" {
+		t.Fatalf("first resolve = %#v, %v", credentials, err)
+	}
+	store.credentials = OpenAICodexCredentials{
+		AccessToken: "account-b-access", AccountID: "account-b",
+		ExpiresAt: fixedNow.Add(time.Hour),
+	}
+	store.revision = "login-b"
+	credentials, err = manager.resolve(context.Background())
+	if err != nil || credentials.AccountID != "account-b" {
+		t.Fatalf("replacement resolve = %#v, %v", credentials, err)
+	}
+	store.credentials = OpenAICodexCredentials{}
+	store.revision = ""
+	if _, err := manager.resolve(context.Background()); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("logout resolve error = %v", err)
+	}
+}
+
+func TestOpenAICodexDoesNotOverwriteConcurrentCredentialReplacement(t *testing.T) {
+	fixedNow := time.Unix(1_800_000_000, 0)
+	store := &fakeOpenAICodexCredentialStore{
+		credentials: OpenAICodexCredentials{
+			AccessToken: "stale-a", RefreshToken: "refresh-a", AccountID: "account-a",
+			ExpiresAt: fixedNow,
+		},
+		revision: "login-a",
+	}
+	refresher := &fakeOpenAICodexRefresher{refresh: func(_ context.Context, previous OpenAICodexCredentials) (OpenAICodexCredentials, error) {
+		store.credentials = OpenAICodexCredentials{
+			AccessToken: "fresh-b", RefreshToken: "refresh-b", AccountID: "account-b",
+			ExpiresAt: fixedNow.Add(time.Hour),
+		}
+		store.revision = "login-b"
+		previous.AccessToken = "fresh-a"
+		previous.ExpiresAt = fixedNow.Add(time.Hour)
+		return previous, nil
+	}}
+	manager := &openAICodexCredentialManager{
+		store: store, refresher: refresher, now: func() time.Time { return fixedNow },
+	}
+	credentials, err := manager.resolve(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if credentials.AccountID != "account-b" || store.credentials.AccountID != "account-b" {
+		t.Fatalf("resolved = %#v, stored = %#v", credentials, store.credentials)
+	}
+	if store.saved.AccountID == "account-a" {
+		t.Fatal("stale refreshed credentials overwrote the replacement login")
+	}
+}
+
+func TestOpenAICodexDoesNotRecreateConcurrentLogout(t *testing.T) {
+	fixedNow := time.Unix(1_800_000_000, 0)
+	store := &fakeOpenAICodexCredentialStore{
+		credentials: OpenAICodexCredentials{
+			AccessToken: "stale", RefreshToken: "refresh", AccountID: "account",
+			ExpiresAt: fixedNow,
+		},
+		revision: "login",
+	}
+	refresher := &fakeOpenAICodexRefresher{refresh: func(_ context.Context, previous OpenAICodexCredentials) (OpenAICodexCredentials, error) {
+		store.credentials = OpenAICodexCredentials{}
+		store.revision = ""
+		previous.AccessToken = "fresh"
+		previous.ExpiresAt = fixedNow.Add(time.Hour)
+		return previous, nil
+	}}
+	manager := &openAICodexCredentialManager{
+		store: store, refresher: refresher, now: func() time.Time { return fixedNow },
+	}
+	if _, err := manager.resolve(context.Background()); err == nil || !strings.Contains(err.Error(), "not configured") {
+		t.Fatalf("resolve after logout error = %v", err)
+	}
+	if openAICodexCredentialsConfigured(store.credentials) {
+		t.Fatalf("logout was recreated as %#v", store.credentials)
+	}
+}
+
 func TestOpenAICodexRetainsRotatedCredentialsWhenPersistenceFails(t *testing.T) {
 	fixedNow := time.Unix(1_800_000_000, 0)
 	store := &fakeOpenAICodexCredentialStore{
@@ -465,7 +559,8 @@ func TestOpenAICodexRetainsRotatedCredentialsWhenPersistenceFails(t *testing.T) 
 			AccessToken: "stale", RefreshToken: "refresh-old", AccountID: "account",
 			ExpiresAt: fixedNow,
 		},
-		saveErr: fmt.Errorf("disk unavailable with secret-refresh"),
+		revision: "stored",
+		saveErr:  fmt.Errorf("disk unavailable with secret-refresh"),
 	}
 	refresher := &fakeOpenAICodexRefresher{refresh: func(_ context.Context, previous OpenAICodexCredentials) (OpenAICodexCredentials, error) {
 		previous.AccessToken = "fresh"
@@ -574,18 +669,45 @@ func TestOpenAICodexValidatesCredentialsAndContent(t *testing.T) {
 	}); err == nil {
 		t.Fatal("direct credentials plus a store were accepted")
 	}
-	if _, err := NewProviders(OpenAICodex{Credentials: staticCodexCredentials(), Originator: "bad\nvalue"}); err == nil {
-		t.Fatal("invalid originator was accepted")
-	}
-
-	providers, err := NewProviders(OpenAICodex{Credentials: OpenAICodexCredentials{
-		AccessToken: "expired", AccountID: "account", ExpiresAt: time.Now(),
-	}})
+	providers, err := NewProviders(OpenAICodex{CredentialStore: store})
 	if err != nil {
 		t.Fatal(err)
 	}
 	model, _ := providers.Model("openai-codex/gpt-5.6-sol")
 	stream := providers.Stream(context.Background(), model, Request{})
+	for range stream.Events() {
+	}
+	if got := stream.Result(); got.ErrorKind != ErrorAuthentication || !strings.Contains(got.ErrorMessage, "not configured") {
+		t.Fatalf("missing stored credential result = %#v", got)
+	}
+	for _, malformedStore := range []*fakeOpenAICodexCredentialStore{
+		{credentials: staticCodexCredentials()},
+		{revision: "phantom"},
+	} {
+		providers, err = NewProviders(OpenAICodex{CredentialStore: malformedStore})
+		if err != nil {
+			t.Fatal(err)
+		}
+		model, _ = providers.Model("openai-codex/gpt-5.6-sol")
+		stream = providers.Stream(context.Background(), model, Request{})
+		for range stream.Events() {
+		}
+		if got := stream.Result(); got.ErrorKind != ErrorProtocol {
+			t.Fatalf("malformed store result = %#v", got)
+		}
+	}
+	if _, err := NewProviders(OpenAICodex{Credentials: staticCodexCredentials(), Originator: "bad\nvalue"}); err == nil {
+		t.Fatal("invalid originator was accepted")
+	}
+
+	providers, err = NewProviders(OpenAICodex{Credentials: OpenAICodexCredentials{
+		AccessToken: "expired", AccountID: "account", ExpiresAt: time.Now(),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, _ = providers.Model("openai-codex/gpt-5.6-sol")
+	stream = providers.Stream(context.Background(), model, Request{})
 	for range stream.Events() {
 	}
 	if got := stream.Result(); got.ErrorKind != ErrorAuthentication {
@@ -682,21 +804,30 @@ func (f *fakeOpenAICodexRefresher) Refresh(ctx context.Context, credentials Open
 type fakeOpenAICodexCredentialStore struct {
 	credentials OpenAICodexCredentials
 	saved       OpenAICodexCredentials
+	revision    string
 	loadErr     error
 	saveErr     error
 	loads       atomic.Int32
 	saves       atomic.Int32
 }
 
-func (s *fakeOpenAICodexCredentialStore) LoadOpenAICodexCredentials(context.Context) (OpenAICodexCredentials, error) {
+func (s *fakeOpenAICodexCredentialStore) LoadOpenAICodexCredentials(context.Context) (OpenAICodexCredentialRecord, error) {
 	s.loads.Add(1)
-	return s.credentials, s.loadErr
+	return OpenAICodexCredentialRecord{Credentials: s.credentials, Revision: s.revision}, s.loadErr
 }
 
-func (s *fakeOpenAICodexCredentialStore) SaveOpenAICodexCredentials(_ context.Context, credentials OpenAICodexCredentials) error {
+func (s *fakeOpenAICodexCredentialStore) SaveOpenAICodexCredentials(_ context.Context, expectedRevision string, credentials OpenAICodexCredentials) (string, error) {
 	s.saves.Add(1)
+	if expectedRevision == "" || expectedRevision != s.revision {
+		return "", ErrOpenAICodexCredentialsChanged
+	}
+	if s.saveErr != nil {
+		return "", s.saveErr
+	}
 	s.saved = credentials
-	return s.saveErr
+	s.credentials = credentials
+	s.revision = fmt.Sprintf("revision-%d", s.saves.Load())
+	return s.revision, nil
 }
 
 func testOpenAICodexJWT(t *testing.T, accountID string, fedRAMP *bool) string {

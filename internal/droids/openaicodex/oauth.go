@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 const (
@@ -27,6 +28,7 @@ const (
 	defaultAuthBaseURL        = "https://auth.openai.com"
 	deviceAuthorizationExpiry = 15 * time.Minute
 	minimumDevicePollInterval = time.Second
+	defaultDevicePollInterval = 5 * time.Second
 	maximumTokenLifetime      = 365 * 24 * time.Hour
 	maximumOAuthBody          = 1 << 20
 )
@@ -38,7 +40,7 @@ const DefaultRedirectURI = "http://localhost:1455/auth/callback"
 // DeviceVerificationURI is the page users visit for Codex device login.
 const DeviceVerificationURI = "https://auth.openai.com/codex/device"
 
-// Credentials are the complete application-owned OAuth credentials. Callers
+// Credentials are the complete application-owned OAuth credentials.
 // Applications may pass them directly to droids.OpenAICodex or expose them
 // through droids.OpenAICodexCredentialStore.
 type Credentials struct {
@@ -239,14 +241,22 @@ func (c *Client) BeginDeviceAuthorization(ctx context.Context) (*DeviceAuthoriza
 	var payload struct {
 		DeviceAuthID string          `json:"device_auth_id"`
 		UserCode     string          `json:"user_code"`
+		UserCodeAlt  string          `json:"usercode"`
 		Interval     json.RawMessage `json:"interval"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return nil, &Error{Operation: "device authorization", StatusCode: response.StatusCode, Message: "invalid JSON response"}
 	}
-	interval, err := parseInterval(payload.Interval)
-	if err != nil || payload.DeviceAuthID == "" || payload.UserCode == "" {
-		return nil, &Error{Operation: "device authorization", StatusCode: response.StatusCode, Message: "response is missing required fields"}
+	if payload.UserCode == "" {
+		payload.UserCode = payload.UserCodeAlt
+	}
+	interval := defaultDevicePollInterval
+	var intervalErr error
+	if len(payload.Interval) > 0 {
+		interval, intervalErr = parseInterval(payload.Interval)
+	}
+	if intervalErr != nil || !validOpaqueOAuthValue(payload.DeviceAuthID, 4096) || !validDeviceUserCode(payload.UserCode) {
+		return nil, &Error{Operation: "device authorization", StatusCode: response.StatusCode, Message: "response is missing or has malformed required fields"}
 	}
 	interval = clampDevicePollInterval(interval)
 	return &DeviceAuthorization{
@@ -698,10 +708,44 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 
 func truncate(value string, maximum int) string {
 	value = strings.TrimSpace(value)
-	if len(value) <= maximum {
+	value = strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) ||
+			unicode.Is(unicode.Zl, character) || unicode.Is(unicode.Zp, character) {
+			return ' '
+		}
+		return character
+	}, value)
+	characters := []rune(value)
+	if len(characters) <= maximum {
 		return value
 	}
-	return value[:maximum] + "…"
+	return string(characters[:maximum]) + "…"
+}
+
+func validDeviceUserCode(value string) bool {
+	if value == "" || value != strings.TrimSpace(value) || len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if (character < 'A' || character > 'Z') &&
+			(character < 'a' || character > 'z') &&
+			(character < '0' || character > '9') && character != '-' && character != '_' {
+			return false
+		}
+	}
+	return true
+}
+
+func validOpaqueOAuthValue(value string, maximum int) bool {
+	if value == "" || value != strings.TrimSpace(value) || len(value) > maximum {
+		return false
+	}
+	for _, character := range value {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 func validHeaderValue(value string) bool {

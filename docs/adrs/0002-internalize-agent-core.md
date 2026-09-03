@@ -53,21 +53,24 @@ droids.OpenAICodex{
 
 Before each request, the provider:
 
-1. loads credentials once from the configured store, when present;
+1. loads the current credential generation from the configured store, when
+   present;
 2. derives safe account, routing, and expiry metadata when available;
 3. refreshes credentials that are missing an access token or are near expiry;
 4. serializes concurrent refresh attempts;
 5. retains refreshed credentials in memory;
-6. saves rotated credentials through the store before using them when a store
-   is configured.
+6. compare-and-swaps rotated credentials through the store before using them.
 
-A failed save prevents the model request, keeps the fresh credential in memory,
-and retries persistence on the next resolution. This avoids publishing a
-rotated access/refresh pair that Kit failed to store. Direct credentials refresh
-in memory but are intentionally not durable across daemon restarts. Refresh is
-a bounded provider-owned single-flight operation: canceling one model request
-stops only that caller's wait and does not cancel credential maintenance needed
-by other sessions.
+The store is authoritative and returns an opaque revision on every load. A
+failed save prevents the model request, keeps the fresh credential in memory,
+and retries persistence on the next resolution. A revision conflict discards
+the stale refresh result and reloads the newer login, logout, or concurrent
+refresh generation. This prevents an old refresh-token chain from recreating a
+deleted credential or overwriting a same-account login. Direct credentials
+refresh in memory but are intentionally not durable across daemon restarts.
+Refresh is a bounded provider-owned single-flight operation: canceling one model
+request stops only that caller's wait and does not cancel credential maintenance
+needed by other sessions.
 
 Codex assistant messages carry a one-way credential-scope hash. Kit persists it
 inside the message projection, and the provider refuses to replay any prior
@@ -100,8 +103,8 @@ Trade-offs:
 
 ## Follow-up
 
-- implement Kit's `~/.kit-v2` credential store and login/logout UI through the
-  `OpenAICodexCredentialStore` seam;
+- implement native TUI and browser login/logout presentation over Kit's
+  `~/.kit-v2` credential store and headless auth commands;
 - decide after the rewrite stabilizes whether to extract droids again, maintain
   it independently, or upstream selected changes.
 

@@ -29,7 +29,12 @@ go run ./cmd/kit daemon status
 go run ./cmd/kit daemon stop
 go run ./cmd/kit version
 
-# The daemon captures provider credentials when it starts:
+# Persist OpenAI Codex OAuth credentials with a headless device flow:
+go run ./cmd/kit login openai-codex
+go run ./cmd/kit auth status
+# Remove them later with: go run ./cmd/kit logout openai-codex
+
+# The daemon captures API-key provider credentials when it starts:
 OPENAI_API_KEY=... go run ./cmd/kit daemon restart
 go run ./cmd/kit -p --model openai/gpt-4o-mini "Say hello"
 go run ./cmd/kit -p "Continue the latest session for this directory"
@@ -45,11 +50,13 @@ Print mode now creates and resumes SQLite-backed droids sessions through the
 local session-client boundary. Codex can derive account and expiry metadata from
 its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
 `OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
-available when explicit metadata is needed. Provider environment is read only
-at daemon startup, so restart the daemon after changing credentials. An
-environment-backed refresh is held in daemon memory until Kit's
-credential-store/login slice lands. Streaming
-protocol projection and the native TUI remain subsequent slices.
+available when explicit metadata is needed. Without explicit Codex environment
+credentials, the daemon uses the locked, atomic `~/.kit-v2/auth.json` store and
+persists refresh-token rotations. Provider environment is read only at daemon
+startup, takes precedence over the file store, and refreshes only in memory, so
+restart the daemon after changing it. Stored login/logout generations are
+observed without restarting the daemon. Streaming protocol projection and the
+native TUI remain subsequent slices.
 
 ## Development
 

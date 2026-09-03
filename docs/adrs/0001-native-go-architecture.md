@@ -222,6 +222,10 @@ history, but only completed turns are rehydrated into a new droids model
 transcript. A non-completed live runtime is discarded so its in-memory context
 cannot diverge from that replay rule.
 
+Provider credentials remain in a separate private, machine-managed auth file
+with locked atomic writes and generation-checked OAuth rotation; see
+[ADR 0003](./0003-provider-credential-storage.md).
+
 Human-editable configuration remains file-based:
 
 - settings;
@@ -393,6 +397,7 @@ to hold shared types.
 
 - [`../parity.md`](../parity.md)
 - [0002: Internalize the droids agent core](./0002-internalize-agent-core.md)
+- [0003: Provider credential storage](./0003-provider-credential-storage.md)
 - Historical implementation and ADRs at Git commit `5c6e112`
 - External plugin v1 specification at
   [`../../app/docs/plugin-protocol/v1.md`](../../app/docs/plugin-protocol/v1.md)

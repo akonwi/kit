@@ -43,6 +43,7 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 
 	checks := map[string]string{
 		"database": filepath.Join(home, "kit.db"),
+		"auth":     filepath.Join(home, "auth.json"),
 		"settings": filepath.Join(home, "settings.json"),
 		"registry": filepath.Join(home, "run", "server.json"),
 		"token":    filepath.Join(home, "run", "server.token"),
@@ -50,6 +51,7 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 	}
 	actual := map[string]string{
 		"database": paths.Database,
+		"auth":     paths.Auth,
 		"settings": paths.Settings,
 		"registry": paths.ServerRegistry,
 		"token":    paths.ServerToken,
