@@ -21,11 +21,12 @@ const (
 
 // Health is returned by an authenticated local daemon health check.
 type Health struct {
-	InstanceID      string `json:"instanceId"`
-	PID             int    `json:"pid"`
-	KitVersion      string `json:"kitVersion"`
-	ProtocolVersion int    `json:"protocolVersion"`
-	DatabaseReady   bool   `json:"databaseReady"`
+	InstanceID      string   `json:"instanceId"`
+	PID             int      `json:"pid"`
+	KitVersion      string   `json:"kitVersion"`
+	ProtocolVersion int      `json:"protocolVersion"`
+	DatabaseReady   bool     `json:"databaseReady"`
+	Providers       []string `json:"providers"`
 }
 
 // Client performs authenticated local daemon lifecycle requests.
@@ -110,6 +111,16 @@ func (c *Client) probe(ctx context.Context, requireDatabase bool) (Registry, Hea
 	}
 	if requireDatabase && !health.DatabaseReady {
 		return Registry{}, Health{}, errors.New("daemon database is not ready")
+	}
+	seenProviders := map[string]bool{}
+	for _, providerID := range health.Providers {
+		if providerID == "" || providerID != strings.TrimSpace(providerID) || len(providerID) > 128 || strings.ContainsAny(providerID, "/\\\r\n\t") {
+			return Registry{}, Health{}, fmt.Errorf("daemon returned invalid provider id %q", providerID)
+		}
+		if seenProviders[providerID] {
+			return Registry{}, Health{}, fmt.Errorf("daemon returned duplicate provider id %q", providerID)
+		}
+		seenProviders[providerID] = true
 	}
 	return registry, health, nil
 }

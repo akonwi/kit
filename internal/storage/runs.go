@@ -65,6 +65,97 @@ func (s *Store) ReserveParentRun(
 		}, nil
 }
 
+// GetParentRun returns one exact durable parent-run generation.
+func (s *Store) GetParentRun(ctx context.Context, sessionID, runID string) (ParentRunRecord, error) {
+	if s == nil || s.db == nil {
+		return ParentRunRecord{}, fmt.Errorf("store is closed")
+	}
+	var record ParentRunRecord
+	var createdAt string
+	var runError, startedAt, completedAt sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, session_id, turn_id, status, error, created_at, started_at, completed_at
+		FROM parent_runs
+		WHERE id = ? AND session_id = ?
+	`, runID, sessionID).Scan(
+		&record.ID, &record.SessionID, &record.TurnID, &record.Status,
+		&runError, &createdAt, &startedAt, &completedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ParentRunRecord{}, fmt.Errorf("parent run %q: %w", runID, ErrNotFound)
+	}
+	if err != nil {
+		return ParentRunRecord{}, fmt.Errorf("get parent run %q: %w", runID, err)
+	}
+	record.Error = runError.String
+	record.CreatedAt, err = parseTimestamp(createdAt)
+	if err != nil {
+		return ParentRunRecord{}, fmt.Errorf("parse parent run created_at: %w", err)
+	}
+	if startedAt.Valid {
+		value, err := parseTimestamp(startedAt.String)
+		if err != nil {
+			return ParentRunRecord{}, fmt.Errorf("parse parent run started_at: %w", err)
+		}
+		record.StartedAt = &value
+	}
+	if completedAt.Valid {
+		value, err := parseTimestamp(completedAt.String)
+		if err != nil {
+			return ParentRunRecord{}, fmt.Errorf("parse parent run completed_at: %w", err)
+		}
+		record.EndedAt = &value
+	}
+	return record, nil
+}
+
+// GetActiveParentRun returns the queued or running generation for a session.
+func (s *Store) GetActiveParentRun(ctx context.Context, sessionID string) (ParentRunRecord, error) {
+	if s == nil || s.db == nil {
+		return ParentRunRecord{}, fmt.Errorf("store is closed")
+	}
+	var record ParentRunRecord
+	var createdAt string
+	var runError, startedAt, completedAt sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, session_id, turn_id, status, error, created_at, started_at, completed_at
+		FROM parent_runs
+		WHERE session_id = ? AND status IN ('queued', 'running')
+		ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END,
+		         created_at, id
+		LIMIT 1
+	`, sessionID).Scan(
+		&record.ID, &record.SessionID, &record.TurnID, &record.Status,
+		&runError, &createdAt, &startedAt, &completedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ParentRunRecord{}, fmt.Errorf("active parent run for session %q: %w", sessionID, ErrNotFound)
+	}
+	if err != nil {
+		return ParentRunRecord{}, fmt.Errorf("get active parent run for session %q: %w", sessionID, err)
+	}
+	record.Error = runError.String
+	record.CreatedAt, err = parseTimestamp(createdAt)
+	if err != nil {
+		return ParentRunRecord{}, fmt.Errorf("parse active parent run created_at: %w", err)
+	}
+	if startedAt.Valid {
+		value, err := parseTimestamp(startedAt.String)
+		if err != nil {
+			return ParentRunRecord{}, fmt.Errorf("parse active parent run started_at: %w", err)
+		}
+		record.StartedAt = &value
+	}
+	if completedAt.Valid {
+		value, err := parseTimestamp(completedAt.String)
+		if err != nil {
+			return ParentRunRecord{}, fmt.Errorf("parse active parent run completed_at: %w", err)
+		}
+		record.EndedAt = &value
+	}
+	return record, nil
+}
+
 // StartReservedParentRun atomically transitions one queued generation to
 // running. A terminal status is returned unchanged so duplicate delivery does
 // not execute it again.

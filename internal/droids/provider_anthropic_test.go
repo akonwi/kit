@@ -11,6 +11,65 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
+func TestAnthropicResolvesAPIKeyForEveryRequest(t *testing.T) {
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "unintended-environment-token")
+
+	type requestAuth struct{ apiKey, authorization string }
+	headers := make(chan requestAuth, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		headers <- requestAuth{apiKey: request.Header.Get("x-api-key"), authorization: request.Header.Get("Authorization")}
+		http.Error(writer, "test response", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	apiKey := "first-key"
+	providers, err := NewProviders(Anthropic{
+		APIKeySource: func(context.Context) (string, error) { return apiKey, nil },
+		BaseURL:      server.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := providers.Model("claude-haiku-4-5")
+	if !ok {
+		t.Fatal("test model did not resolve")
+	}
+	for _, want := range []string{"first-key", "second-key"} {
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+		for range stream.Events() {
+		}
+		if got := <-headers; got.apiKey != want || got.authorization != "" {
+			t.Fatalf("request auth = %#v, want API key %q and no environment authorization", got, want)
+		}
+		apiKey = "second-key"
+	}
+}
+
+func TestAnthropicKeyResolutionCancellationIsAnAbort(t *testing.T) {
+	t.Parallel()
+	providers, err := NewProviders(Anthropic{APIKeySource: func(ctx context.Context) (string, error) { return "", ctx.Err() }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, _ := providers.Model("claude-haiku-4-5")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := providers.Stream(ctx, model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+	for range stream.Events() {
+	}
+	message := stream.Result()
+	if message.StopReason != StopReasonAborted || message.ErrorKind == ErrorAuthentication {
+		t.Fatalf("canceled key resolution = %#v", message)
+	}
+}
+
+func TestAnthropicRejectsStaticAndDynamicAPIKeys(t *testing.T) {
+	t.Parallel()
+	_, err := NewProviders(Anthropic{APIKey: "static", APIKeySource: func(context.Context) (string, error) { return "dynamic", nil }})
+	if err == nil {
+		t.Fatal("Anthropic accepted both APIKey and APIKeySource")
+	}
+}
+
 // Verify neutral messages/tools translate to the Anthropic wire shape.
 func TestAnthropicMessageConversion(t *testing.T) {
 	msgs := []Message{

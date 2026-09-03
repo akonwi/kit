@@ -9,15 +9,18 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/auth"
 	kitclient "github.com/akonwi/kit/internal/client"
 	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
+	"github.com/akonwi/kit/internal/tui"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -50,21 +53,137 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
+	return runInteractive(ctx, stdout, stderr)
+}
+
+func runInteractive(ctx context.Context, _ io.Writer, stderr io.Writer) int {
 	paths, err := apphome.Resolve("")
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: determine current directory: %v\n", err)
+		return 1
+	}
+	cwd, err = filepath.Abs(cwd)
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: resolve current directory: %v\n", err)
+		return 1
+	}
 	manager := daemon.NewManager(paths)
 	startContext, cancel := context.WithTimeout(ctx, 12*time.Second)
-	defer cancel()
-	registry, err := manager.Ensure(startContext)
+	_, err = manager.Ensure(startContext)
+	cancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
 		return 1
 	}
-	fmt.Fprintf(stdout, "Kit v2 daemon ready (pid %d, %s). Native TUI bootstrap is next.\n", registry.PID, registry.URL)
+
+	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+	registry, health, err := daemon.NewClient(paths).Probe(probeContext)
+	probeCancel()
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
+		return 1
+	}
+	if !supportsInteractiveAPIKeyLogin(registry) {
+		restartContext, restartCancel := context.WithTimeout(ctx, 12*time.Second)
+		err = manager.Restart(restartContext)
+		restartCancel()
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: reload local daemon for provider login: %v\n", err)
+			return 1
+		}
+		probeContext, probeCancel = context.WithTimeout(ctx, 3*time.Second)
+		_, health, err = daemon.NewClient(paths).Probe(probeContext)
+		probeCancel()
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: inspect reloaded daemon providers: %v\n", err)
+			return 1
+		}
+	}
+	providers, defaultModel := interactiveProviders(health.Providers)
+	credentialStore := auth.NewStore(paths.Auth)
+	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
+		Store: credentialStore,
+		AcquireSave: func(ctx context.Context) (func() error, error) {
+			return manager.AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: configure OpenAI Codex login: %v\n", err)
+		return 1
+	}
+	apiKeyLogin, err := auth.NewAPIKeyLogin(auth.APIKeyLoginOptions{
+		Store: credentialStore, AcquireSave: manager.AcquireCredentialStoreMutation,
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: configure API-key login: %v\n", err)
+		return 1
+	}
+	if err := tui.Run(tui.Options{
+		Context:            ctx,
+		Server:             kitclient.NewLocalServer(paths),
+		CWD:                cwd,
+		Location:           interactiveLocation(ctx, cwd),
+		DefaultModel:       defaultModel,
+		DefaultThinking:    "medium",
+		AvailableProviders: providers,
+		Authenticated:      len(providers) > 0,
+		Login:              login,
+		APIKeyLogin:        apiKeyLogin,
+	}); err != nil {
+		fmt.Fprintf(stderr, "kit: terminal UI: %v\n", err)
+		return 1
+	}
+	if ctx.Err() != nil {
+		return 130
+	}
 	return 0
+}
+
+func supportsInteractiveAPIKeyLogin(registry daemon.Registry) bool {
+	return registry.CredentialSources[auth.OpenAIProviderID] != "" &&
+		registry.CredentialSources[auth.AnthropicProviderID] != ""
+}
+
+func interactiveProviders(providerIDs []string) (map[string]bool, string) {
+	providers := make(map[string]bool, len(providerIDs))
+	for _, providerID := range providerIDs {
+		providers[providerID] = true
+	}
+	switch {
+	case providers[auth.OpenAICodexProviderID]:
+		return providers, "openai-codex/gpt-5.6-sol"
+	case providers["openai"]:
+		return providers, "openai/gpt-5.6-sol"
+	case providers["anthropic"]:
+		return providers, "anthropic/claude-sonnet-4-6"
+	default:
+		return providers, ""
+	}
+}
+
+func interactiveLocation(ctx context.Context, cwd string) string {
+	location := cwd
+	if home, err := os.UserHomeDir(); err == nil {
+		if relative, err := filepath.Rel(home, cwd); err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			location = filepath.Join("~", relative)
+		} else if relative == "." {
+			location = "~"
+		}
+	}
+	gitContext, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	defer cancel()
+	output, err := exec.CommandContext(gitContext, "git", "-C", cwd, "branch", "--show-current").Output()
+	if err == nil {
+		if branch := strings.TrimSpace(string(output)); branch != "" {
+			location += " (" + branch + ")"
+		}
+	}
+	return location
 }
 
 func runPrint(ctx context.Context, args []string, stdout, stderr io.Writer) int {

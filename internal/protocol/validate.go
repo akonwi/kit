@@ -36,6 +36,23 @@ func (reservation RunReservation) Validate() error {
 	return nil
 }
 
+// Validate checks a durable run projection received across a transport boundary.
+func (run RunInfo) Validate() error {
+	if run.SessionID == "" || run.TurnID == "" || run.RunID == "" {
+		return fmt.Errorf("run info session, turn, and run ids are required")
+	}
+	switch run.Status {
+	case RunStatusQueued, RunStatusRunning, RunStatusCompleted,
+		RunStatusFailed, RunStatusAborted, RunStatusInterrupted:
+	default:
+		return fmt.Errorf("run info status %q is invalid", run.Status)
+	}
+	if run.Status != RunStatusQueued && run.Status != RunStatusRunning && run.Status != RunStatusCompleted && run.ErrorMessage == "" {
+		return fmt.Errorf("run info status %q requires an error message", run.Status)
+	}
+	return nil
+}
+
 // Validate checks a terminal prompt outcome received across a transport boundary.
 func (outcome PromptOutcome) Validate() error {
 	if outcome.SessionID == "" || outcome.TurnID == "" || outcome.RunID == "" {

@@ -20,7 +20,10 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	List(context.Context, string) ([]protocol.SessionInfo, error)
+	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	ReserveRun(context.Context, string, string) (protocol.RunReservation, error)
+	StartPrompt(context.Context, string, string, string) (protocol.RunReservation, error)
+	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, string, string) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
 }
@@ -55,6 +58,26 @@ func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol
 	return result, nil
 }
 
+func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
+	snapshot, err := s.manager.Snapshot(ctx, sessionID)
+	if err != nil {
+		return protocol.SessionSnapshot{}, err
+	}
+	result := protocol.SessionSnapshot{
+		Session: projectSession(snapshot.Session), ActiveRunID: snapshot.ActiveRunID,
+		ContextTokens: snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
+		Messages: make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
+	}
+	for _, message := range snapshot.Messages {
+		result.Messages = append(result.Messages, protocol.TranscriptMessage{
+			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
+			Role: message.Role, Text: message.Text, ToolName: message.ToolName,
+			IsError: message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+		})
+	}
+	return result, nil
+}
+
 func (s runtimeSessionService) ReserveRun(
 	ctx context.Context,
 	sessionID, runID string,
@@ -67,6 +90,30 @@ func (s runtimeSessionService) ReserveRun(
 		SessionID: reservation.SessionID,
 		TurnID:    reservation.TurnID,
 		RunID:     reservation.RunID,
+	}, nil
+}
+
+func (s runtimeSessionService) StartPrompt(
+	ctx context.Context,
+	sessionID, runID, text string,
+) (protocol.RunReservation, error) {
+	reservation, err := s.manager.StartPrompt(ctx, sessionID, runID, text)
+	if err != nil {
+		return protocol.RunReservation{}, err
+	}
+	return protocol.RunReservation{
+		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
+	}, nil
+}
+
+func (s runtimeSessionService) Run(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
+	record, err := s.manager.GetRun(ctx, sessionID, runID)
+	if err != nil {
+		return protocol.RunInfo{}, err
+	}
+	return protocol.RunInfo{
+		SessionID: record.SessionID, TurnID: record.TurnID, RunID: record.ID,
+		Status: protocol.RunStatus(record.Status), ErrorMessage: record.Error,
 	}, nil
 }
 
@@ -118,6 +165,14 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, map[string]any{"sessions": records})
 	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
+		snapshot, err := service.Snapshot(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, snapshot)
+	})
 	mux.HandleFunc("POST /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.CreateSessionInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -146,6 +201,25 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusCreated, reservation)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompts", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.PromptInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.StartPrompt(
+			request.Context(), request.PathValue("sessionID"), input.RunID, input.Text,
+		)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if result.RunID == "" {
+			writeSessionError(writer, errors.New("session prompt returned no reservation"))
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, result)
+	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompt", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -164,6 +238,16 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/runs/{runID}", func(writer http.ResponseWriter, request *http.Request) {
+		run, err := service.Run(
+			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
+		)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, run)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/runs/{runID}/abort", func(writer http.ResponseWriter, request *http.Request) {
 		if err := service.Abort(

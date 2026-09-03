@@ -20,6 +20,9 @@ const defaultAnthropicBaseURL = "https://api.anthropic.com"
 type Anthropic struct {
 	// APIKey authenticates requests (x-api-key header).
 	APIKey string
+	// APIKeySource resolves a current key for each request. Configure at most one
+	// of APIKey and APIKeySource.
+	APIKeySource APIKeySource
 	// BaseURL overrides the default endpoint (https://api.anthropic.com).
 	BaseURL string
 	// Headers are extra headers merged into every request.
@@ -35,8 +38,11 @@ func (c Anthropic) build() (providerEntry, error) {
 	if id == "" {
 		id = "anthropic"
 	}
+	if c.APIKey != "" && c.APIKeySource != nil {
+		return providerEntry{}, fmt.Errorf("droids: Anthropic requires at most one of APIKey or APIKeySource")
+	}
 
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithoutEnvironmentDefaults()}
 	if c.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(c.APIKey))
 	}
@@ -60,7 +66,7 @@ func (c Anthropic) build() (providerEntry, error) {
 		models[model.ID] = model
 	}
 
-	impl := &anthropicProvider{client: &client}
+	impl := &anthropicProvider{client: &client, apiKeySource: c.APIKeySource, options: opts}
 	return providerEntry{
 		id:        id,
 		catalogID: "anthropic",
@@ -71,7 +77,9 @@ func (c Anthropic) build() (providerEntry, error) {
 }
 
 type anthropicProvider struct {
-	client *anthropic.Client
+	client       *anthropic.Client
+	apiKeySource APIKeySource
+	options      []option.RequestOption
 }
 
 func (p *anthropicProvider) stream(ctx context.Context, model Model, req Request, _ callOptions) Stream {
@@ -152,7 +160,24 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
 	}
 
-	stream := p.client.Messages.NewStreaming(ctx, params)
+	client, err := p.clientForRequest(ctx)
+	if err != nil {
+		reason := stopReasonForError(ctx)
+		kind := ErrorAuthentication
+		message := "Anthropic credentials are unavailable"
+		if reason == StopReasonAborted {
+			kind = ""
+			message = "Anthropic request aborted"
+		}
+		final := AssistantMessage{
+			Provider: model.Provider, Model: model.ID, StopReason: reason,
+			ErrorKind: kind, ErrorMessage: message, Timestamp: time.Now().UnixMilli(),
+		}
+		s.final = final
+		s.emit(StreamError{Message: final})
+		return
+	}
+	stream := client.Messages.NewStreaming(ctx, params)
 	var acc anthropic.Message
 
 	for stream.Next() {
@@ -183,6 +208,21 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	final := assembleAnthropicMessage(model, acc)
 	s.final = final
 	s.emit(anthropicTerminalEvent(final))
+}
+
+func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Client, error) {
+	if p.apiKeySource == nil {
+		return p.client, nil
+	}
+	apiKey, err := p.apiKeySource(ctx)
+	if err != nil || apiKey == "" {
+		return nil, fmt.Errorf("resolve Anthropic API key")
+	}
+	options := make([]option.RequestOption, 0, len(p.options)+1)
+	options = append(options, option.WithAPIKey(apiKey))
+	options = append(options, p.options...)
+	client := anthropic.NewClient(options...)
+	return &client, nil
 }
 
 func anthropicTerminalEvent(message AssistantMessage) StreamEvent {

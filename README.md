@@ -24,6 +24,9 @@ to use another isolated location.
 ## Bootstrap commands
 
 ```sh
+# Start the native TUI, resuming this directory's latest usable session:
+go run ./cmd/kit
+
 go run ./cmd/kit daemon start
 go run ./cmd/kit daemon status
 go run ./cmd/kit daemon stop
@@ -45,8 +48,15 @@ OPENAI_CODEX_ACCESS_TOKEN=... OPENAI_CODEX_REFRESH_TOKEN=... \
 go run ./cmd/kit -p --model openai-codex/gpt-5.6-sol "Say hello"
 ```
 
-A normal `go run ./cmd/kit` invocation currently starts or discovers the daemon.
-Print mode now creates and resumes SQLite-backed droids sessions through the
+A normal `go run ./cmd/kit` invocation starts the viewport-native vaxis TUI. It
+starts or discovers the daemon, offers the Codex device flow when credentials
+are missing, resumes the latest usable session for the current directory,
+restores its persisted transcript snapshot, and supports prompt submission,
+final responses, context percentage, and explicit abort status. Streaming
+transcript events, the multiline composer, command palette, and workspace panes
+remain subsequent slices.
+
+Print mode also creates and resumes SQLite-backed droids sessions through the
 local session-client boundary. Codex can derive account and expiry metadata from
 its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
 `OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
@@ -55,8 +65,7 @@ credentials, the daemon uses the locked, atomic `~/.kit-v2/auth.json` store and
 persists refresh-token rotations. Provider environment is read only at daemon
 startup, takes precedence over the file store, and refreshes only in memory, so
 restart the daemon after changing it. Stored login/logout generations are
-observed without restarting the daemon. Streaming protocol projection and the
-native TUI remain subsequent slices.
+observed without restarting the daemon.
 
 ## Development
 

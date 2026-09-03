@@ -28,6 +28,9 @@ const defaultOpenAIBaseURL = "https://api.openai.com/v1"
 type OpenAI struct {
 	// APIKey authenticates requests (sent as a Bearer token).
 	APIKey string
+	// APIKeySource resolves a current key for each request. Configure at most one
+	// of APIKey and APIKeySource.
+	APIKeySource APIKeySource
 	// BaseURL overrides the default endpoint. Point this at an AI Gateway URL
 	// to route through Cloudflare. Default: the SDK default (api.openai.com).
 	BaseURL string
@@ -44,6 +47,9 @@ func (c OpenAI) build() (providerEntry, error) {
 	id := c.ID
 	if id == "" {
 		id = "openai"
+	}
+	if c.APIKey != "" && c.APIKeySource != nil {
+		return providerEntry{}, fmt.Errorf("droids: OpenAI requires at most one of APIKey or APIKeySource")
 	}
 
 	opts := []option.RequestOption{}
@@ -70,7 +76,7 @@ func (c OpenAI) build() (providerEntry, error) {
 		models[model.ID] = model
 	}
 
-	impl := &openAIProvider{client: &client}
+	impl := &openAIProvider{client: &client, apiKeySource: c.APIKeySource, options: opts}
 	return providerEntry{
 		id:        id,
 		catalogID: "openai",
@@ -81,7 +87,9 @@ func (c OpenAI) build() (providerEntry, error) {
 }
 
 type openAIProvider struct {
-	client *openai.Client
+	client       *openai.Client
+	apiKeySource APIKeySource
+	options      []option.RequestOption
 }
 
 func (p *openAIProvider) stream(ctx context.Context, model Model, req Request, _ callOptions) Stream {
@@ -103,9 +111,38 @@ func (p *openAIProvider) run(ctx context.Context, model Model, req Request, s *p
 		return
 	}
 
-	stream := p.client.Responses.NewStreaming(ctx, params)
+	client, err := p.clientForRequest(ctx)
+	if err != nil {
+		message := "OpenAI credentials are unavailable"
+		if ctx.Err() != nil {
+			message = "OpenAI request aborted"
+		}
+		final := responseErrorMessage(model, ctx, message)
+		if final.StopReason != StopReasonAborted {
+			final.ErrorKind = ErrorAuthentication
+		}
+		s.final = final
+		s.emit(StreamError{Message: final})
+		return
+	}
+	stream := client.Responses.NewStreaming(ctx, params)
 	defer stream.Close()
 	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI"})
+}
+
+func (p *openAIProvider) clientForRequest(ctx context.Context) (*openai.Client, error) {
+	if p.apiKeySource == nil {
+		return p.client, nil
+	}
+	apiKey, err := p.apiKeySource(ctx)
+	if err != nil || apiKey == "" {
+		return nil, fmt.Errorf("resolve OpenAI API key")
+	}
+	options := make([]option.RequestOption, 0, len(p.options)+1)
+	options = append(options, option.WithAPIKey(apiKey))
+	options = append(options, p.options...)
+	client := openai.NewClient(options...)
+	return &client, nil
 }
 
 func emitOpenAIStreamStart(s *pipeStream, model Model) {

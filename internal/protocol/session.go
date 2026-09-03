@@ -38,10 +38,33 @@ type SessionInfo struct {
 	UpdatedAt     string `json:"updatedAt"`
 }
 
+// TranscriptMessage is one ordered persisted message projected for clients.
+type TranscriptMessage struct {
+	ID        string `json:"id"`
+	TurnID    string `json:"turnId"`
+	Sequence  int64  `json:"sequence"`
+	Role      string `json:"role"`
+	Text      string `json:"text"`
+	ToolName  string `json:"toolName,omitempty"`
+	IsError   bool   `json:"isError,omitempty"`
+	CreatedAt string `json:"createdAt"`
+}
+
+// SessionSnapshot is an authoritative point-in-time session presentation.
+type SessionSnapshot struct {
+	Session       SessionInfo         `json:"session"`
+	Messages      []TranscriptMessage `json:"messages"`
+	ActiveRunID   string              `json:"activeRunId,omitempty"`
+	ContextTokens int                 `json:"contextTokens,omitempty"`
+	ContextWindow int                 `json:"contextWindow,omitempty"`
+}
+
 // RunStatus is a canonical parent-run terminal state on the wire.
 type RunStatus string
 
 const (
+	RunStatusQueued      RunStatus = "queued"
+	RunStatusRunning     RunStatus = "running"
 	RunStatusCompleted   RunStatus = "completed"
 	RunStatusFailed      RunStatus = "failed"
 	RunStatusAborted     RunStatus = "aborted"
@@ -59,6 +82,15 @@ const (
 	ProviderErrorTransport      ProviderErrorKind = "transport"
 	ProviderErrorProtocol       ProviderErrorKind = "protocol"
 )
+
+// RunInfo is the durable status of one parent-run generation.
+type RunInfo struct {
+	SessionID    string    `json:"sessionId"`
+	TurnID       string    `json:"turnId"`
+	RunID        string    `json:"runId"`
+	Status       RunStatus `json:"status"`
+	ErrorMessage string    `json:"errorMessage,omitempty"`
+}
 
 // PromptOutcome is the terminal projection of one parent run.
 type PromptOutcome struct {

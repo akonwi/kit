@@ -3,11 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/daemon"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -35,6 +38,43 @@ func TestRunHelp(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "kit daemon start") {
 		t.Fatalf("stdout = %q, want daemon help", stdout.String())
+	}
+}
+
+func TestSupportsInteractiveAPIKeyLoginRequiresBothProviderSources(t *testing.T) {
+	t.Parallel()
+	registry := daemon.Registry{CredentialSources: map[string]daemon.CredentialSource{
+		auth.OpenAIProviderID: daemon.CredentialSourceStore,
+	}}
+	if supportsInteractiveAPIKeyLogin(registry) {
+		t.Fatal("partial API-key credential metadata was accepted")
+	}
+	registry.CredentialSources[auth.AnthropicProviderID] = daemon.CredentialSourceEnvironment
+	if !supportsInteractiveAPIKeyLogin(registry) {
+		t.Fatal("complete API-key credential metadata was rejected")
+	}
+}
+
+func TestInteractiveProvidersPreferCodexCredentials(t *testing.T) {
+	t.Parallel()
+	providers, model := interactiveProviders([]string{"anthropic", "openai", "openai-codex"})
+	if !providers["openai-codex"] || !providers["openai"] || !providers["anthropic"] {
+		t.Fatalf("providers = %#v", providers)
+	}
+	if model != "openai-codex/gpt-5.6-sol" {
+		t.Fatalf("default model = %q", model)
+	}
+}
+
+func TestInteractiveLocationIncludesGitBranch(t *testing.T) {
+	directory := t.TempDir()
+	command := exec.Command("git", "-C", directory, "init", "-b", "ui-slice")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
+	location := interactiveLocation(context.Background(), directory)
+	if !strings.Contains(location, "(ui-slice)") {
+		t.Fatalf("location = %q, want branch", location)
 	}
 }
 

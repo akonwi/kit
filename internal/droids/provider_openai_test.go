@@ -12,6 +12,64 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 )
 
+func TestOpenAIResolvesAPIKeyForEveryRequest(t *testing.T) {
+	t.Parallel()
+
+	headers := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		headers <- request.Header.Get("Authorization")
+		http.Error(writer, "test response", http.StatusBadRequest)
+	}))
+	defer server.Close()
+	apiKey := "first-key"
+	providers, err := NewProviders(OpenAI{
+		APIKeySource: func(context.Context) (string, error) { return apiKey, nil },
+		BaseURL:      server.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := providers.Model("gpt-4o-mini")
+	if !ok {
+		t.Fatal("test model did not resolve")
+	}
+	for _, want := range []string{"Bearer first-key", "Bearer second-key"} {
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+		for range stream.Events() {
+		}
+		if got := <-headers; got != want {
+			t.Fatalf("Authorization = %q, want %q", got, want)
+		}
+		apiKey = "second-key"
+	}
+}
+
+func TestOpenAIKeyResolutionCancellationIsAnAbort(t *testing.T) {
+	t.Parallel()
+	providers, err := NewProviders(OpenAI{APIKeySource: func(ctx context.Context) (string, error) { return "", ctx.Err() }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, _ := providers.Model("gpt-4o-mini")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	stream := providers.Stream(ctx, model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+	for range stream.Events() {
+	}
+	message := stream.Result()
+	if message.StopReason != StopReasonAborted || message.ErrorKind == ErrorAuthentication {
+		t.Fatalf("canceled key resolution = %#v", message)
+	}
+}
+
+func TestOpenAIRejectsStaticAndDynamicAPIKeys(t *testing.T) {
+	t.Parallel()
+	_, err := NewProviders(OpenAI{APIKey: "static", APIKeySource: func(context.Context) (string, error) { return "dynamic", nil }})
+	if err == nil {
+		t.Fatal("OpenAI accepted both APIKey and APIKeySource")
+	}
+}
+
 func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 	requests := make(chan map[string]any, 1)
 	server := newResponsesServer(t, requests,

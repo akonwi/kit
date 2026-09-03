@@ -72,13 +72,14 @@ type Manager struct {
 	providers    droids.Providers
 	systemPrompt string
 
-	mu       sync.Mutex
-	runtimes map[string]*runtime
-	loading  map[string]*runtimeLoad
-	closed   bool
-	runs     sync.WaitGroup
-	loads    sync.WaitGroup
-	ops      sync.WaitGroup
+	mu         sync.Mutex
+	runtimes   map[string]*runtime
+	loading    map[string]*runtimeLoad
+	closed     bool
+	runs       sync.WaitGroup
+	loads      sync.WaitGroup
+	ops        sync.WaitGroup
+	admissions sync.WaitGroup
 }
 
 type runtimeLoad struct {
@@ -165,6 +166,18 @@ func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error)
 	return m.store.ListSessions(ctx, cwd)
 }
 
+// GetRun returns one exact durable parent-run generation.
+func (m *Manager) GetRun(ctx context.Context, sessionID, runID string) (ParentRunRecord, error) {
+	if err := m.beginOperation(); err != nil {
+		return ParentRunRecord{}, err
+	}
+	defer m.ops.Done()
+	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(runID) == "" {
+		return ParentRunRecord{}, fmt.Errorf("%w: session and run ids are required", ErrInvalidInput)
+	}
+	return m.store.GetParentRun(ctx, sessionID, runID)
+}
+
 // ReservePrompt durably allocates a queued turn before a client receives its
 // generation-bound run handle.
 func (m *Manager) ReservePrompt(
@@ -189,14 +202,53 @@ func (m *Manager) ReservePrompt(
 	return RunReservation{SessionID: sessionID, TurnID: turn.ID, RunID: run.ID}, nil
 }
 
-// RunPrompt starts one daemon-owned parent run and waits for its durable
-// outcome. Cancelling ctx stops waiting but deliberately does not abort work;
-// Abort is the only client cancellation path.
-func (m *Manager) RunPrompt(ctx context.Context, sessionID, runID, prompt string) (PromptResult, error) {
-	if err := m.beginOperation(); err != nil {
-		return PromptResult{}, err
+// StartPrompt reserves and starts one daemon-owned parent run before returning
+// its generation-bound handle.
+func (m *Manager) StartPrompt(ctx context.Context, sessionID, runID, prompt string) (RunReservation, error) {
+	if err := m.beginAdmission(); err != nil {
+		return RunReservation{}, err
 	}
-	defer m.ops.Done()
+	defer m.admissions.Done()
+	reservation, err := m.ReservePrompt(ctx, sessionID, runID)
+	if err != nil {
+		return RunReservation{}, err
+	}
+	started := make(chan error, 1)
+	go func() {
+		signaled := false
+		_, runErr := m.runPrompt(context.Background(), sessionID, runID, prompt, true, func() {
+			signaled = true
+			started <- nil
+		})
+		if !signaled {
+			started <- runErr
+		}
+	}()
+	if err := <-started; err != nil {
+		return RunReservation{}, err
+	}
+	return reservation, nil
+}
+
+// RunPrompt starts one already-reserved daemon-owned parent run and waits for
+// its durable outcome. Cancelling ctx stops waiting but deliberately does not
+// abort work; Abort is the only client cancellation path.
+func (m *Manager) RunPrompt(ctx context.Context, sessionID, runID, prompt string) (PromptResult, error) {
+	return m.runPrompt(ctx, sessionID, runID, prompt, false, nil)
+}
+
+func (m *Manager) runPrompt(
+	ctx context.Context,
+	sessionID, runID, prompt string,
+	admitted bool,
+	onStarted func(),
+) (PromptResult, error) {
+	if !admitted {
+		if err := m.beginOperation(); err != nil {
+			return PromptResult{}, err
+		}
+		defer m.ops.Done()
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -266,6 +318,9 @@ func (m *Manager) RunPrompt(ctx context.Context, sessionID, runID, prompt string
 		m.runs.Done()
 		completion <- promptCompletion{result: result, err: err}
 	}()
+	if onStarted != nil {
+		onStarted()
+	}
 
 	select {
 	case completed := <-completion:
@@ -421,6 +476,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 
 	done := make(chan struct{})
 	go func() {
+		m.admissions.Wait()
 		m.loads.Wait()
 		m.runs.Wait()
 		m.ops.Wait()
@@ -555,6 +611,16 @@ func (m *Manager) evict(sessionID string, target *runtime) {
 	}
 	m.mu.Unlock()
 	target.droid.Close()
+}
+
+func (m *Manager) beginAdmission() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrClosed
+	}
+	m.admissions.Add(1)
+	return nil
 }
 
 func (m *Manager) beginOperation() error {

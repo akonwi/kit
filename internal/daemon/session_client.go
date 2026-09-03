@@ -61,6 +61,22 @@ func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.Sessi
 	return output.Sessions, nil
 }
 
+// GetSessionSnapshot returns an authoritative transcript and active-run snapshot.
+func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID)
+	var output protocol.SessionSnapshot
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.SessionSnapshot{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionSnapshot{}, fmt.Errorf("validate daemon session snapshot: %w", err)
+	}
+	if output.Session.ID != sessionID {
+		return protocol.SessionSnapshot{}, fmt.Errorf("daemon session snapshot identity mismatch")
+	}
+	return output, nil
+}
+
 // ReserveRun durably reserves a generation before prompt execution starts.
 func (c *Client) ReserveRun(
 	ctx context.Context,
@@ -87,8 +103,41 @@ func (c *Client) ReserveRun(
 	return output, nil
 }
 
-// RunPrompt executes a synchronous parent run. PromptOutcome carries durable
-// model failures and aborts; returned Go errors represent protocol failures.
+// StartPrompt atomically admits a daemon-owned parent run and returns after it
+// is running or has already reached a durable terminal state.
+func (c *Client) StartPrompt(ctx context.Context, sessionID, runID, text string) (protocol.RunReservation, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
+	var output protocol.RunReservation
+	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{RunID: runID, Text: text}, http.StatusAccepted, &output); err != nil {
+		return protocol.RunReservation{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
+	}
+	if output.SessionID != sessionID || output.RunID != runID {
+		return protocol.RunReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
+	}
+	return output, nil
+}
+
+// GetRun returns one durable parent-run generation.
+func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID)
+	var output protocol.RunInfo
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.RunInfo{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.RunInfo{}, fmt.Errorf("validate daemon run response: %w", err)
+	}
+	if output.SessionID != sessionID || output.RunID != runID {
+		return protocol.RunInfo{}, fmt.Errorf("daemon run response identity mismatch")
+	}
+	return output, nil
+}
+
+// RunPrompt executes an already reserved parent run. PromptOutcome carries
+// durable model failures and aborts; returned Go errors represent protocol failures.
 func (c *Client) RunPrompt(ctx context.Context, sessionID, runID, text string) (protocol.PromptOutcome, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt"
 	var output protocol.PromptOutcome

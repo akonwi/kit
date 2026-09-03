@@ -165,6 +165,15 @@ func (m *Manager) AcquireCredentialStoreMutation(
 	}
 }
 
+// Restart reloads daemon-owned provider configuration from its durable sources.
+func (m *Manager) Restart(ctx context.Context) error {
+	if err := m.Stop(ctx); err != nil {
+		return err
+	}
+	_, err := m.Ensure(ctx)
+	return err
+}
+
 // Stop asks the local daemon to shut down and waits until all daemon-owned
 // resources and its lifetime lock have been released. It is idempotent when no
 // daemon is registered or the registered process exits during the request.

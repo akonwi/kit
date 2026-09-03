@@ -28,8 +28,8 @@ recorded manual verification exists.
 ## Accepted differences
 
 - [-] `web-tui` is removed.
-- [ ] OpenTUI is replaced with `vaxis/ui`; behavior and visual language remain
-  parity targets.
+- [~] OpenTUI is replaced with `vaxis/ui`; the initial native shell is running,
+  while full behavior and visual parity remain targets.
 - [ ] The TypeScript/Pi runtime is replaced by the Kit-private Go
   `internal/droids` core seeded from the standalone droids repository.
 - [ ] Runtime-owned JSONL session data moves to SQLite through an idempotent,
@@ -54,8 +54,9 @@ recorded manual verification exists.
 
 - [~] Development defaults to `~/.kit-v2` with a `KIT_HOME` override.
 - [~] Store provider credentials with private permissions, locked atomic writes,
-  generation-checked OAuth rotation, and headless Codex login/logout; TUI/web
-  presentation and migration remain.
+  generation-checked OAuth rotation, headless Codex login/logout, and native TUI
+  entry for OpenAI/Anthropic API keys; headless API-key management, web
+  presentation, and migration remain.
 - [ ] Preserve user-editable settings, theme, prompt, skill, agent, template,
   MCP, and plugin-manifest surfaces.
 - [ ] Inventory existing `~/.kit` data before migration.
@@ -105,20 +106,25 @@ recorded manual verification exists.
 - [ ] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state.
 - [~] Persist explicit turn and stable message identities.
-- [ ] Render active and historical turns consistently after reconnect/restart.
+- [~] Render active and historical turns consistently after reconnect/restart;
+  the initial TUI restores completed transcript snapshots and polls an attached
+  active run, while event-driven synchronization and rich entries remain.
 - [ ] Steering, follow-up queueing, promotion, restoration, and generation
   guards.
 - [~] Abort and cooperative cancellation through providers, tools, plugins, and
   subagents.
 - [ ] Retryable provider errors with user-visible countdown/status and limits.
 - [ ] Proactive and overflow-driven compaction with durable checkpoints.
-- [ ] Context usage and model limit reporting.
+- [~] Context usage and model limit reporting; session snapshots project the
+  latest persisted usage and model window, and the TUI renders a bare header
+  percentage when meaningful.
 - [~] Model selection, exact provider/model IDs, persisted session model, and
   default-model precedence.
 - [~] Thinking-level discovery, selection, and persistence.
 - [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport with
-  Kit-owned persistent refresh rotation and headless device login/logout;
-  interactive client presentation remains pending.
+  Kit-owned persistent credentials and refresh rotation, headless Codex device
+  login/logout, and native TUI selection/login for all three providers; model
+  selection and broader credential management remain.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.
 - [ ] Message and composer history.
@@ -138,26 +144,35 @@ recorded manual verification exists.
 
 ## Native TUI shell
 
-- [ ] Recreate Kit's theme tokens, hierarchy, spacing, and terminal capability
-  behavior in vaxis/ui.
-- [ ] Transcript with selectable Markdown, streaming output, code, tool drawers,
-  and compact historical entries.
+- [~] Establish the v2 design language and recreate Kit's semantic theme,
+  hierarchy, spacing, and terminal capability behavior in vaxis/ui. Current-UI
+  research and first-run/auth explorations live under `docs/design/`; the
+  viewport-native vaxis shell, terminal-derived base theme, empty/error states,
+  and responsive auth surfaces are implemented. Full semantic theme parity and
+  user overrides remain.
+- [~] Transcript with selectable Markdown, streaming output, code, tool drawers,
+  and compact historical entries; the initial selectable plain-text transcript
+  restores persisted messages and final prompt outcomes.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
-- [ ] Fixed composer with multiline editing, cursor behavior, drafts, history,
-  attachments, pending queue, and abort state.
+- [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
+  attachments, pending queue, and abort state; the initial focused single-line
+  composer submits prompts, preserves text while busy, and exposes abort state.
 - [ ] Command palette with filtering, completion, arguments, nested pickers,
   keyboard, and mouse behavior.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
-- [ ] Toasts, confirmation/input/select dialogs, fatal/error screens, and
-  interactive tool surfaces.
+- [~] Toasts, confirmation/input/select dialogs, fatal/error screens, and
+  interactive tool surfaces; the initial shell includes startup failure,
+  three-provider selection, obscured API-key entry, and cancellable Codex
+  device-flow surfaces.
 - [ ] Wide split workspace, draggable remembered ratio, narrow tabs, retained
   pane state, and focus cycling.
 - [ ] Activity, Scratchpad, Code Review, file, subagent, MCP, release-note, and
   other registered workspace panes.
-- [ ] Header/footer status, model/thinking/context indicators, VCS/PR location,
-  plugin chrome, and update action.
+- [~] Header/footer status, model/thinking/context indicators, VCS/PR location,
+  plugin chrome, and update action; the initial shell preserves session/model
+  header and status/cwd/Git footer ownership.
 - [ ] Clipboard, terminal title, notifications, image capabilities, and clean
   terminal restoration.
 
@@ -193,7 +208,8 @@ recorded manual verification exists.
 - [~] Command correlation and ordering relative to preceding events.
 - [ ] Bounded client queues and disconnect-on-backpressure behavior.
 - [~] Server/session client conformance tests shared across local and remote
-  transports.
+  transports; the local client now consumes validated session snapshots and an
+  atomic prompt-admission endpoint.
 - [ ] Stdio RPC bridge with protocol-clean stdout and diagnostics on stderr.
 - [~] Print client with piped stdin, exit codes, session options, and exact final
   assistant text.

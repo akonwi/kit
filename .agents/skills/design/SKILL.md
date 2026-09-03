@@ -7,7 +7,57 @@ description: Kit's UI design language and visual standards. Use when building or
 
 Kit's UI is **utilitarian, pleasant, and intuitive**. It should communicate state and available actions clearly without drawing attention to decoration. Every visual choice should improve comprehension, navigation, or feedback.
 
-This skill describes the terminal UI in `app/src/`. Browser-specific presentations may reuse the same principles while using renderer-appropriate primitives.
+The legacy reference UI lives in `app/src/`; the native v2 TUI implements the same semantic language with `vaxis/ui`. Browser-specific presentations may reuse the principles while using renderer-appropriate primitives.
+
+## Root Shell Boundary
+
+The v2 TUI is **viewport-native**. The terminal viewport is the application's
+outer boundary; the root shell must not draw a complete enclosing border.
+
+- Render global header, content, composer, and status regions edge to edge.
+- Use full-width horizontal separators where adjacent regions need structure.
+- Do not spend the first/last terminal columns or rows on decorative outer
+  `│`, corner, top, or bottom border cells.
+- Paint the full viewport background so edge-to-edge presentation looks
+  intentional when the Kit theme differs from the terminal background.
+- Dialogs, focused controls, and local semantic regions may still be framed.
+  Viewport-native applies only to the root application boundary.
+- Center root empty/auth content within the measured content region, not the
+  raw viewport, so optional workspace regions do not offset it.
+- Keep the root boundary decision in the shell wrapper. Child screens and
+  panes must not recreate a full-screen frame.
+
+This lets Kit inhabit a terminal or multiplexer pane without drawing a second
+box inside its existing boundary, preserves two columns and rows, and reduces
+border junction and resize artifacts.
+
+## Root Shell Chrome
+
+Preserve the established shell information layout while removing only the
+outer frame:
+
+- The top-left header owns the attached session name.
+- The top-right header owns model and thinking settings, context usage, and
+  conditional global contributions such as update or new-release indicators.
+- Present context usage as a bare percentage inside the model-information
+  cluster, such as `41%`; do not draw the main-branch colored progress bar.
+- Do not add an elapsed-turn timer to the header.
+- The bottom-left footer owns transient status and guidance, such as queue,
+  retry, compaction, bash mode, or other actionable run state.
+- The bottom-right footer owns the current working directory and Git/VCS
+  information.
+- Workspace hints remain inside the workspace pane that owns them; do not move
+  them into global header metadata.
+- Global chrome describes only the attached session. Subagent status remains in
+  transcript activity and the Subagents workspace surfaces.
+- Width-aware contribution packing may hide lower-priority items, but it must
+  preserve these ownership roles and use labeled overflow.
+
+Show context percentage when session context exists and the value is available;
+omit an empty-session `0%` or unavailable value. Use `progressNormal`,
+`progressWarning`, and `progressCritical` on the percentage text at the existing
+thresholds. The header separator remains structural and does not visualize
+context progress.
 
 ## Theme System
 
@@ -42,7 +92,7 @@ Use semantic tokens rather than assuming a literal color:
 - Add new tokens to `ThemeTokens` and provide a system-theme value in `buildSystemTheme`; account for both dark and light terminal backgrounds.
 - Use `syntaxStyle()` for syntax-highlighted code.
 - Every `scrollbox` should use `style={scrollbarStyle()}` unless it deliberately has no visible scrollbar.
-- Context usage uses `progressNormal` below 80%, `progressWarning` from 80% through 90%, and `progressCritical` above 90%. Percentage text and progress indicator use the same token.
+- Header context usage uses `progressNormal` below 80%, `progressWarning` from 80% through 90%, and `progressCritical` above 90%.
 
 ## Surface Taxonomy
 
@@ -62,14 +112,16 @@ Examples: `InlinePicker`, compact overflow pickers, toast notifications.
 
 Examples: settings, login, guided questions, session exploration, command palette, workspace file finder.
 
-- Centered over a themed modal backdrop
+- Centered above the current screen without dimming or recoloring the background
+- Uses a trapped focus scope so the undimmed background does not remain keyboard-active
 - Uses `Dialog.Root` when its structure fits
-- Content box has a `borderDefault` outer border and `bgSurface` background
+- Content box has a `borderDefault` outer border and uses the surrounding `bg` background; do not tint the whole dialog when an undimmed shell remains visible behind it
 - Width and height are bounded for the terminal rather than tied to one assumed viewport
 - Header, tabs, and footer use `flexShrink={0}` so the body owns compression and scrolling
+- Header metadata must add useful task context. Omit obvious counts such as `1 option`; they are noise when the list itself communicates its size.
 - Avoid nested borders unless an inner border conveys a distinct interactive state
 
-OpenTUI paints border cells with the box background, which can create an inset appearance on filled surfaces. Do not add decorative inner borders to compensate.
+OpenTUI paints border cells with the box background, which can create an inset appearance on filled surfaces. Keep dialog and border-cell backgrounds continuous; do not add decorative inner borders to compensate.
 
 Compose picker behavior with `Picker.Root`, `Picker.Header`, `Picker.Body`, and `Picker.Footer`. Put that composition inside `InlinePicker` for a transient picker or `Dialog.Root` for a modal picker; do not fork picker interaction and selection styling.
 
@@ -123,6 +175,30 @@ Both support left/right content and an optional progress overlay. Keep right-sid
   progressColor={theme.progressNormal}
 />
 ```
+
+## Session Multiplexing and Subagent Oversight
+
+The native architecture supports many concurrent sessions, but the TUI presents
+one attached session at a time. Do not add global session strips, session rails,
+cross-session running counts, or other ambient multiplexing chrome. Users who
+want simultaneous session views compose Kit clients with terminal tabs, panes,
+tmux, or another native terminal workflow.
+
+- Keep session exploration and switching available on demand through the
+  universal command palette and session explorer; it is not persistent shell
+  navigation.
+- Global chrome describes only the attached session and its active run.
+- The daemon's multi-session capability should make attach/detach and terminal
+  multiplexing safe without demanding permanent visual presence.
+- Subagents belong to their owning session and use the workspace-pane model
+  from the main-branch UX.
+- A singleton Subagents pane presents the session's roster and status.
+- Opening a subagent from the roster, transcript activity, or another supported
+  entry point creates or activates one retained workspace tab for that agent.
+- Individual subagent tabs show that agent's conversation/activity. Reopening
+  the same agent focuses the existing tab rather than duplicating it.
+- In narrow mode, the roster and individual subagent views participate in the
+  standard workspace tab layout; do not introduce a separate global drawer.
 
 ## Workspace Tabs and Panes
 

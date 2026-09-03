@@ -8,10 +8,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/auth"
 )
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
@@ -25,7 +27,7 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
 	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "test-account")
 
-	providers, source, err := providersFromEnvironment(apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
+	providers, sources, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,34 +35,63 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	if !ok || model.Provider != "openai-codex" {
 		t.Fatalf("Codex model = %#v, %v", model, ok)
 	}
-	if source != CredentialSourceEnvironment {
+	if source := sources[auth.OpenAICodexProviderID]; source != CredentialSourceEnvironment {
 		t.Fatalf("credential source = %q", source)
 	}
 }
 
 func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 	for _, name := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
 		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
 	} {
 		t.Setenv(name, "")
 	}
-	providers, source, err := providersFromEnvironment(apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
+	providers, sources, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := providers.Model("openai-codex/gpt-5.6-sol"); !ok {
 		t.Fatal("stored-credential Codex provider was not registered")
 	}
-	if source != CredentialSourceStore {
-		t.Fatalf("credential source = %q", source)
+	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID, auth.OpenAICodexProviderID} {
+		if source := sources[providerID]; source != CredentialSourceStore {
+			t.Fatalf("credential source for %s = %q", providerID, source)
+		}
+	}
+}
+
+func TestProvidersFromEnvironmentLoadsStoredAPIKeys(t *testing.T) {
+	for _, name := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
+		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
+	} {
+		t.Setenv(name, "")
+	}
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	store := auth.NewStore(paths.Auth)
+	if err := store.ReplaceAPIKey(context.Background(), auth.OpenAIProviderID, "openai-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceAPIKey(context.Background(), auth.AnthropicProviderID, "anthropic-secret"); err != nil {
+		t.Fatal(err)
+	}
+	_, sources, err := providersFromEnvironment(context.Background(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := availableProviderIDs(context.Background(), paths, sources)
+	if want := []string{auth.AnthropicProviderID, auth.OpenAIProviderID}; !slices.Equal(got, want) {
+		t.Fatalf("available providers = %v, want %v", got, want)
 	}
 }
 
 func TestProvidersFromEnvironmentRejectsInvalidCodexMetadata(t *testing.T) {
 	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
 	t.Setenv("OPENAI_CODEX_FEDRAMP", "not-a-bool")
-	if _, _, err := providersFromEnvironment(apphome.FromHome(filepath.Join(t.TempDir(), "kit"))); err == nil {
+	if _, _, err := providersFromEnvironment(context.Background(), apphome.FromHome(filepath.Join(t.TempDir(), "kit"))); err == nil {
 		t.Fatal("invalid OPENAI_CODEX_FEDRAMP was accepted")
 	}
 }

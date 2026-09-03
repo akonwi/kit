@@ -30,6 +30,11 @@ type Providers interface {
 	Stream(ctx context.Context, model Model, req Request) Stream
 }
 
+// APIKeySource resolves the current API key for one provider request. It lets
+// applications rotate durable credentials without rebuilding the provider
+// registry or interrupting unrelated sessions.
+type APIKeySource func(context.Context) (string, error)
+
 // Provider is a single provider's configuration (e.g. OpenAI). Each one knows
 // how to build itself into an internal entry (models + stream fn + auth), and
 // is composed into a Providers registry by NewProviders.

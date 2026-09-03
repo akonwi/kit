@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -116,20 +117,23 @@ func Run(ctx context.Context, options RunOptions) error {
 		)
 	}
 	providers := options.Providers
+	customProviders := providers != nil
 	credentialSources := cloneCredentialSources(options.CredentialSources)
 	if providers == nil {
-		var codexSource CredentialSource
-		providers, codexSource, err = providersFromEnvironment(paths)
+		providers, credentialSources, err = providersFromEnvironment(ctx, paths)
 		if err != nil {
 			return err
-		}
-		credentialSources = map[string]CredentialSource{
-			auth.OpenAICodexProviderID: codexSource,
 		}
 	}
 	systemPrompt := options.SystemPrompt
 	if systemPrompt == "" {
 		systemPrompt = "You are Kit, a coding agent."
+	}
+	providerAvailability := func(ctx context.Context) []string {
+		if customProviders {
+			return configuredProviderIDs(providers)
+		}
+		return availableProviderIDs(ctx, paths, credentialSources)
 	}
 	sessionManager, err = kitsession.NewManager(store, providers, systemPrompt)
 	if err != nil {
@@ -181,6 +185,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		token:        token,
 		store:        store,
 		sessions:     runtimeSessionService{manager: sessionManager},
+		providers:    providerAvailability,
 		requestStop: func() {
 			select {
 			case stop <- struct{}{}:
@@ -242,6 +247,7 @@ type localHandlerOptions struct {
 	token        string
 	store        *storage.Store
 	sessions     sessionService
+	providers    func(context.Context) []string
 	requestStop  func()
 }
 
@@ -257,6 +263,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 			KitVersion:      options.registry.KitVersion,
 			ProtocolVersion: options.registry.ProtocolVersion,
 			DatabaseReady:   databaseReady,
+			Providers:       options.providers(ctx),
 		})
 	})
 	mux.HandleFunc("POST /v1/shutdown", func(writer http.ResponseWriter, _ *http.Request) {
@@ -300,20 +307,19 @@ func newHandler(options localHandlerOptions) http.Handler {
 	})
 }
 
-func providersFromEnvironment(paths apphome.Paths) (droids.Providers, CredentialSource, error) {
+func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {
+	store := auth.NewStore(paths.Auth)
+	openAIKey, openAIKeySource, openAISource := providerAPIKey(store, auth.OpenAIProviderID, os.Getenv("OPENAI_API_KEY"))
+	anthropicKey, anthropicKeySource, anthropicSource := providerAPIKey(store, auth.AnthropicProviderID, os.Getenv("ANTHROPIC_API_KEY"))
 	configs := []droids.Provider{
-		droids.OpenAI{
-			APIKey:  os.Getenv("OPENAI_API_KEY"),
-			BaseURL: os.Getenv("OPENAI_BASE_URL"),
-		},
-		droids.Anthropic{
-			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
-			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
-		},
+		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL")},
+		droids.Anthropic{APIKey: anthropicKey, APIKeySource: anthropicKeySource, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")},
 	}
 	accessToken := os.Getenv("OPENAI_CODEX_ACCESS_TOKEN")
 	refreshToken := os.Getenv("OPENAI_CODEX_REFRESH_TOKEN")
+	codexSource := CredentialSourceStore
 	if accessToken != "" || refreshToken != "" {
+		codexSource = CredentialSourceEnvironment
 		credentials := droids.OpenAICodexCredentials{
 			AccessToken:  accessToken,
 			RefreshToken: refreshToken,
@@ -323,36 +329,87 @@ func providersFromEnvironment(paths apphome.Paths) (droids.Providers, Credential
 		if raw := os.Getenv("OPENAI_CODEX_FEDRAMP"); raw != "" {
 			fedRAMP, err := strconv.ParseBool(raw)
 			if err != nil {
-				return nil, "", fmt.Errorf("parse OPENAI_CODEX_FEDRAMP: %w", err)
+				return nil, nil, fmt.Errorf("parse OPENAI_CODEX_FEDRAMP: %w", err)
 			}
 			credentials.FedRAMP = fedRAMP
 		}
 		if raw := os.Getenv("OPENAI_CODEX_EXPIRES_AT"); raw != "" {
 			expiresAt, err := strconv.ParseInt(raw, 10, 64)
 			if err != nil {
-				return nil, "", fmt.Errorf("parse OPENAI_CODEX_EXPIRES_AT as Unix milliseconds: %w", err)
+				return nil, nil, fmt.Errorf("parse OPENAI_CODEX_EXPIRES_AT as Unix milliseconds: %w", err)
 			}
 			credentials.ExpiresAt = time.UnixMilli(expiresAt)
 		}
-		configs = append(configs, droids.OpenAICodex{
-			Credentials: credentials,
-			Originator:  "kit",
-		})
+		configs = append(configs, droids.OpenAICodex{Credentials: credentials, Originator: "kit"})
 	} else {
-		configs = append(configs, droids.OpenAICodex{
-			CredentialStore: auth.NewStore(paths.Auth),
-			Originator:      "kit",
-		})
+		configs = append(configs, droids.OpenAICodex{CredentialStore: store, Originator: "kit"})
 	}
 	providers, err := droids.NewProviders(configs...)
 	if err != nil {
-		return nil, "", fmt.Errorf("configure droids providers: %w", err)
+		return nil, nil, fmt.Errorf("configure droids providers: %w", err)
 	}
-	codexSource := CredentialSourceStore
-	if accessToken != "" || refreshToken != "" {
-		codexSource = CredentialSourceEnvironment
+	return providers, map[string]CredentialSource{
+		auth.OpenAIProviderID:      openAISource,
+		auth.AnthropicProviderID:   anthropicSource,
+		auth.OpenAICodexProviderID: codexSource,
+	}, nil
+}
+
+func providerAPIKey(store *auth.Store, providerID, environmentValue string) (string, droids.APIKeySource, CredentialSource) {
+	if environmentValue != "" {
+		return environmentValue, nil, CredentialSourceEnvironment
 	}
-	return providers, codexSource, nil
+	return "", func(ctx context.Context) (string, error) {
+		record, err := store.LoadAPIKey(ctx, providerID)
+		if err != nil {
+			return "", err
+		}
+		return record.APIKey, nil
+	}, CredentialSourceStore
+}
+
+func configuredProviderIDs(providers droids.Providers) []string {
+	set := map[string]bool{}
+	for _, model := range providers.Models() {
+		if model.Provider != "" {
+			set[model.Provider] = true
+		}
+	}
+	return sortedProviderIDs(set)
+}
+
+func availableProviderIDs(ctx context.Context, paths apphome.Paths, sources map[string]CredentialSource) []string {
+	set := map[string]bool{}
+	store := auth.NewStore(paths.Auth)
+	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID} {
+		if sources[providerID] == CredentialSourceEnvironment {
+			environmentName := "OPENAI_API_KEY"
+			if providerID == auth.AnthropicProviderID {
+				environmentName = "ANTHROPIC_API_KEY"
+			}
+			set[providerID] = os.Getenv(environmentName) != ""
+			continue
+		}
+		record, err := store.LoadAPIKey(ctx, providerID)
+		set[providerID] = err == nil && record.APIKey != ""
+	}
+	if sources[auth.OpenAICodexProviderID] == CredentialSourceEnvironment {
+		set[auth.OpenAICodexProviderID] = true
+	} else if record, err := store.LoadOpenAICodexCredentials(ctx); err == nil && record.Revision != "" {
+		set[auth.OpenAICodexProviderID] = true
+	}
+	return sortedProviderIDs(set)
+}
+
+func sortedProviderIDs(set map[string]bool) []string {
+	result := make([]string, 0, len(set))
+	for provider, available := range set {
+		if available {
+			result = append(result, provider)
+		}
+	}
+	sort.Strings(result)
+	return result
 }
 
 func cloneCredentialSources(input map[string]CredentialSource) map[string]CredentialSource {

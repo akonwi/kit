@@ -97,20 +97,84 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
-	reservation, err := client.ReserveRun(context.Background(), created.ID, runID)
+	reservation, err := client.StartPrompt(context.Background(), created.ID, runID, "hello")
 	if err != nil {
-		t.Fatalf("ReserveRun() error = %v", err)
+		t.Fatalf("StartPrompt() error = %v", err)
 	}
 	if reservation.RunID != runID {
 		t.Fatalf("reservation = %+v", reservation)
 	}
-	outcome, err := client.RunPrompt(context.Background(), created.ID, runID, "hello")
+	var run protocol.RunInfo
+	runDeadline := time.Now().Add(5 * time.Second)
+	for {
+		run, err = client.GetRun(context.Background(), created.ID, runID)
+		if err != nil {
+			t.Fatalf("GetRun() error = %v", err)
+		}
+		if run.Status == protocol.RunStatusCompleted {
+			break
+		}
+		if time.Now().After(runDeadline) {
+			t.Fatalf("run did not complete: %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	snapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
-		t.Fatalf("RunPrompt() error = %v", err)
+		t.Fatalf("GetSessionSnapshot() error = %v", err)
 	}
-	if outcome.Status != protocol.RunStatusCompleted || outcome.Text != "reply 1" {
-		t.Fatalf("outcome = %+v", outcome)
+	if snapshot.Session.ID != created.ID || len(snapshot.Messages) != 2 {
+		t.Fatalf("snapshot = %+v", snapshot)
 	}
+	if snapshot.Messages[0].Role != "user" || snapshot.Messages[0].Text != "hello" ||
+		snapshot.Messages[1].Role != "assistant" || snapshot.Messages[1].Text != "reply 1" {
+		t.Fatalf("snapshot messages = %+v", snapshot.Messages)
+	}
+	if snapshot.ContextTokens != 64_000 || snapshot.ContextWindow != 128_000 {
+		t.Fatalf("snapshot context = %d/%d", snapshot.ContextTokens, snapshot.ContextWindow)
+	}
+
+	block := make(chan struct{})
+	providers.mu.Lock()
+	providers.block = block
+	providers.mu.Unlock()
+	activeRunID, err := identifier.New("run_")
+	if err != nil {
+		t.Fatalf("identifier.New() error = %v", err)
+	}
+	if _, err := client.StartPrompt(context.Background(), created.ID, activeRunID, "block"); err != nil {
+		t.Fatalf("StartPrompt() blocking run error = %v", err)
+	}
+	active, err := client.GetRun(context.Background(), created.ID, activeRunID)
+	if err != nil || active.Status != protocol.RunStatusRunning {
+		t.Fatalf("active run = %+v, %v", active, err)
+	}
+	activeSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil || activeSnapshot.ActiveRunID != activeRunID {
+		t.Fatalf("active snapshot = %+v, %v", activeSnapshot, err)
+	}
+	if err := client.AbortSession(context.Background(), created.ID, activeRunID); err != nil {
+		t.Fatalf("AbortSession() active run error = %v", err)
+	}
+	providers.mu.Lock()
+	providers.block = nil
+	providers.mu.Unlock()
+	activeDeadline := time.Now().Add(5 * time.Second)
+	for {
+		active, err = client.GetRun(context.Background(), created.ID, activeRunID)
+		if err != nil {
+			t.Fatalf("GetRun() aborted active run error = %v", err)
+		}
+		if active.Status == protocol.RunStatusAborted {
+			close(block)
+			break
+		}
+		if time.Now().After(activeDeadline) {
+			t.Fatalf("active run did not abort: %+v", active)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
 	abortedRunID, err := identifier.New("run_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
@@ -154,6 +218,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 type daemonEchoProviders struct {
 	mu    sync.Mutex
 	calls int
+	block <-chan struct{}
 }
 
 func (p *daemonEchoProviders) Models() []droids.Model { return []droids.Model{p.model()} }
@@ -165,17 +230,30 @@ func (p *daemonEchoProviders) Model(id string) (droids.Model, bool) {
 func (p *daemonEchoProviders) RefreshModels(context.Context) error { return nil }
 
 func (p *daemonEchoProviders) Stream(
-	_ context.Context,
+	ctx context.Context,
 	_ droids.Model,
 	_ droids.Request,
 ) droids.Stream {
 	p.mu.Lock()
 	p.calls++
 	text := fmt.Sprintf("reply %d", p.calls)
+	block := p.block
 	p.mu.Unlock()
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			final := droids.AssistantMessage{
+				Provider: "test", Model: "echo", StopReason: droids.StopReasonAborted,
+				Timestamp: time.Now().UnixMilli(),
+			}
+			return &daemonEchoStream{final: final}
+		}
+	}
 	final := droids.AssistantMessage{
 		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
 		Content:   []droids.Content{droids.TextContent{Text: text}},
+		Usage:     droids.Usage{TotalTokens: 64_000},
 		Timestamp: time.Now().UnixMilli(),
 	}
 	return &daemonEchoStream{final: final}

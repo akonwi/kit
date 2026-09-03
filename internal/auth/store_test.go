@@ -79,6 +79,82 @@ func TestStorePersistsCodexCredentialsAndPreservesOtherProviders(t *testing.T) {
 	}
 }
 
+func TestStorePersistsAPIKeyCredentials(t *testing.T) {
+	t.Parallel()
+	store := NewStore(filepath.Join(t.TempDir(), "kit", "auth.json"))
+	ctx := context.Background()
+	if err := store.ReplaceAPIKey(ctx, OpenAIProviderID, "openai-secret"); err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.LoadAPIKey(ctx, OpenAIProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.APIKey != "openai-secret" || first.Revision == "" {
+		t.Fatalf("stored OpenAI credential = %#v", first)
+	}
+	if err := store.ReplaceAPIKey(ctx, AnthropicProviderID, "anthropic-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ReplaceAPIKey(ctx, OpenAIProviderID, "replacement-secret"); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := store.LoadAPIKey(ctx, OpenAIProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if replacement.APIKey != "replacement-secret" || replacement.Revision == first.Revision {
+		t.Fatalf("replacement OpenAI credential = %#v; first revision %q", replacement, first.Revision)
+	}
+	anthropic, err := store.LoadAPIKey(ctx, AnthropicProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if anthropic.APIKey != "anthropic-secret" {
+		t.Fatalf("stored Anthropic key = %q", anthropic.APIKey)
+	}
+	listed, err := store.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []CredentialInfo{{ProviderID: AnthropicProviderID, Type: "api_key"}, {ProviderID: OpenAIProviderID, Type: "api_key"}}
+	if !reflect.DeepEqual(listed, want) {
+		t.Fatalf("List() = %#v, want %#v", listed, want)
+	}
+}
+
+func TestStoreRejectsMalformedAPIKeysWithoutEchoingThem(t *testing.T) {
+	t.Parallel()
+	store := NewStore(filepath.Join(t.TempDir(), "kit", "auth.json"))
+	for _, test := range []struct {
+		provider string
+		key      string
+	}{
+		{provider: OpenAICodexProviderID, key: "secret"},
+		{provider: OpenAIProviderID, key: " secret-value "},
+		{provider: AnthropicProviderID, key: "secret\nvalue"},
+	} {
+		err := store.ReplaceAPIKey(context.Background(), test.provider, test.key)
+		if err == nil {
+			t.Fatalf("ReplaceAPIKey(%q) accepted malformed input", test.provider)
+		}
+		if strings.Contains(err.Error(), test.key) {
+			t.Fatalf("error exposed API key: %v", err)
+		}
+	}
+}
+
+func TestStoreRepresentsMissingAPIKeyAsZeroValue(t *testing.T) {
+	t.Parallel()
+	record, err := NewStore(filepath.Join(t.TempDir(), "kit", "auth.json")).LoadAPIKey(context.Background(), OpenAIProviderID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record != (APIKeyRecord{}) {
+		t.Fatalf("missing API key = %#v", record)
+	}
+}
+
 func TestStoreRepresentsMissingCodexCredentialAsZeroValue(t *testing.T) {
 	t.Parallel()
 	store := NewStore(filepath.Join(t.TempDir(), "kit", "auth.json"))

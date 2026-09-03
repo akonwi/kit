@@ -109,6 +109,39 @@ func TestReservedParentRunCanAbortBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestGetActiveParentRunPrefersRunningOverQueued(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.CreateSession(ctx, NewSession{
+		ID: "session", CWD: "/workspace", Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-running", "run-running"); err != nil {
+		t.Fatal(err)
+	}
+	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-running"); err != nil || status != RunStatusRunning {
+		t.Fatalf("start running generation = %q, %v", status, err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-queued", "run-queued"); err != nil {
+		t.Fatal(err)
+	}
+	active, err := store.GetActiveParentRun(ctx, "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active.ID != "run-running" {
+		t.Fatalf("active run = %q, want running generation", active.ID)
+	}
+}
+
 func TestListSessionsFiltersByCWD(t *testing.T) {
 	t.Parallel()
 

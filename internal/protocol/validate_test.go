@@ -2,6 +2,24 @@ package protocol
 
 import "testing"
 
+func TestRunInfoValidate(t *testing.T) {
+	t.Parallel()
+
+	valid := RunInfo{SessionID: "session", TurnID: "turn", RunID: "run", Status: RunStatusRunning}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	terminal := valid
+	terminal.Status = RunStatusAborted
+	if err := terminal.Validate(); err == nil {
+		t.Fatal("Validate() accepted aborted run without an error message")
+	}
+	terminal.ErrorMessage = "aborted"
+	if err := terminal.Validate(); err != nil {
+		t.Fatalf("Validate() rejected terminal run: %v", err)
+	}
+}
+
 func TestPromptOutcomeValidate(t *testing.T) {
 	t.Parallel()
 

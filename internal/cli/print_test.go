@@ -111,6 +111,16 @@ type fakeBoundSession struct {
 
 func (c *fakeBoundSession) ID() string { return c.server.runSessionID }
 
+func (c *fakeBoundSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
+	return protocol.SessionSnapshot{}, nil
+}
+
+func (c *fakeBoundSession) Run(context.Context, string) (protocol.RunInfo, error) {
+	return protocol.RunInfo{}, nil
+}
+
+func (c *fakeBoundSession) Abort(context.Context, string) error { return nil }
+
 func (c *fakeBoundSession) StartPrompt(
 	_ context.Context,
 	prompt string,

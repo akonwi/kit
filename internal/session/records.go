@@ -95,6 +95,8 @@ type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)
+	GetParentRun(context.Context, string, string) (ParentRunRecord, error)
+	GetActiveParentRun(context.Context, string) (ParentRunRecord, error)
 	ReserveParentRun(context.Context, string, string, string) (TurnRecord, ParentRunRecord, error)
 	StartReservedParentRun(context.Context, string, string) (string, RunStatus, error)
 	AbortReservedParentRun(context.Context, string, string, string) (RunStatus, error)

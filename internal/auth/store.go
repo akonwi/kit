@@ -23,9 +23,14 @@ import (
 )
 
 const (
+	// OpenAIProviderID is the canonical auth-file key for the OpenAI API.
+	OpenAIProviderID = "openai"
+	// AnthropicProviderID is the canonical auth-file key for the Anthropic API.
+	AnthropicProviderID = "anthropic"
 	// OpenAICodexProviderID is the canonical auth-file key for ChatGPT Codex.
 	OpenAICodexProviderID = "openai-codex"
 	maximumAuthFileBytes  = 1 << 20
+	maximumAPIKeyBytes    = 64 << 10
 	lockPollInterval      = 25 * time.Millisecond
 )
 
@@ -44,6 +49,12 @@ type Store struct {
 type CredentialInfo struct {
 	ProviderID string
 	Type       string
+}
+
+// APIKeyRecord is one stored API-key credential generation.
+type APIKeyRecord struct {
+	APIKey   string
+	Revision string
 }
 
 // NewStore creates a credential store at path without touching the filesystem.
@@ -146,6 +157,54 @@ func (s *Store) ReplaceOpenAICodexCredentials(ctx context.Context, credentials d
 			return err
 		}
 		entries[OpenAICodexProviderID] = entry
+		return writeAuthEntries(s.path, entries)
+	})
+}
+
+// LoadAPIKey loads the current API-key credential generation. A missing entry
+// returns a zero record.
+func (s *Store) LoadAPIKey(ctx context.Context, providerID string) (APIKeyRecord, error) {
+	if !supportedAPIKeyProvider(providerID) {
+		return APIKeyRecord{}, fmt.Errorf("auth: API-key provider is unsupported")
+	}
+	var record APIKeyRecord
+	err := s.withLock(ctx, func() error {
+		entries, err := readAuthEntries(s.path)
+		if err != nil {
+			return err
+		}
+		raw, ok := entries[providerID]
+		if !ok {
+			return nil
+		}
+		record, err = decodeAPIKeyCredential(raw)
+		return err
+	})
+	return record, err
+}
+
+// ReplaceAPIKey atomically installs an API key as a new credential generation.
+func (s *Store) ReplaceAPIKey(ctx context.Context, providerID, apiKey string) error {
+	if !supportedAPIKeyProvider(providerID) {
+		return fmt.Errorf("auth: API-key provider is unsupported")
+	}
+	if err := validateAPIKey(apiKey); err != nil {
+		return err
+	}
+	return s.withLock(ctx, func() error {
+		entries, err := readAuthEntries(s.path)
+		if err != nil {
+			return err
+		}
+		revision, err := newCredentialRevision()
+		if err != nil {
+			return err
+		}
+		entry, err := encodeAPIKeyCredential(apiKey, revision)
+		if err != nil {
+			return err
+		}
+		entries[providerID] = entry
 		return writeAuthEntries(s.path, entries)
 	})
 }
@@ -357,6 +416,59 @@ func syncDirectory(path string) error {
 	defer directory.Close()
 	if err := directory.Sync(); err != nil {
 		return fmt.Errorf("auth: sync credential directory: %w", err)
+	}
+	return nil
+}
+
+type apiKeyEntry struct {
+	Type     string `json:"type"`
+	APIKey   string `json:"apiKey"`
+	Revision string `json:"revision"`
+}
+
+func decodeAPIKeyCredential(raw json.RawMessage) (APIKeyRecord, error) {
+	var entry apiKeyEntry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return APIKeyRecord{}, fmt.Errorf("auth: decode API-key credential: %w", err)
+	}
+	if entry.Type != "api_key" {
+		return APIKeyRecord{}, fmt.Errorf("auth: credential type is unsupported")
+	}
+	if err := validateAPIKey(entry.APIKey); err != nil {
+		return APIKeyRecord{}, err
+	}
+	if !validCredentialRevision(entry.Revision) {
+		return APIKeyRecord{}, fmt.Errorf("auth: API-key credential revision is missing or malformed")
+	}
+	return APIKeyRecord{APIKey: entry.APIKey, Revision: entry.Revision}, nil
+}
+
+func encodeAPIKeyCredential(apiKey, revision string) (json.RawMessage, error) {
+	if err := validateAPIKey(apiKey); err != nil {
+		return nil, err
+	}
+	if !validCredentialRevision(revision) {
+		return nil, fmt.Errorf("auth: API-key credential revision is missing or malformed")
+	}
+	body, err := json.Marshal(apiKeyEntry{Type: "api_key", APIKey: apiKey, Revision: revision})
+	if err != nil {
+		return nil, fmt.Errorf("auth: encode API-key credential: %w", err)
+	}
+	return body, nil
+}
+
+func supportedAPIKeyProvider(providerID string) bool {
+	return providerID == OpenAIProviderID || providerID == AnthropicProviderID
+}
+
+func validateAPIKey(apiKey string) error {
+	if apiKey == "" || len(apiKey) > maximumAPIKeyBytes || malformedSecret(apiKey) {
+		return fmt.Errorf("auth: API key is missing or malformed")
+	}
+	for _, character := range apiKey {
+		if character < 0x21 || character == 0x7f {
+			return fmt.Errorf("auth: API key is missing or malformed")
+		}
 	}
 	return nil
 }
