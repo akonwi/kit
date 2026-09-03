@@ -11,7 +11,8 @@ and replacement parity is tracked in [`docs/parity.md`](docs/parity.md).
 ## Architecture
 
 - one Go executable for the CLI, daemon/server, agent orchestration, and TUI
-- [`github.com/akonwi/droids`](https://github.com/akonwi/droids) for the agent core
+- a Kit-private [`internal/droids`](./internal/droids) agent core, seeded from
+  [`github.com/akonwi/droids`](https://github.com/akonwi/droids)
 - `vaxis/ui` for the native terminal client
 - Solid and Mica for build-time browser assets embedded in the executable
 - SQLite for authoritative session/runtime state
@@ -27,10 +28,28 @@ go run ./cmd/kit daemon start
 go run ./cmd/kit daemon status
 go run ./cmd/kit daemon stop
 go run ./cmd/kit version
+
+# The daemon captures provider credentials when it starts:
+OPENAI_API_KEY=... go run ./cmd/kit daemon restart
+go run ./cmd/kit -p --model openai/gpt-4o-mini "Say hello"
+go run ./cmd/kit -p "Continue the latest session for this directory"
+
+# OpenAI Codex accepts OAuth credentials and refreshes them in memory:
+OPENAI_CODEX_ACCESS_TOKEN=... OPENAI_CODEX_REFRESH_TOKEN=... \
+  go run ./cmd/kit daemon restart
+go run ./cmd/kit -p --model openai-codex/gpt-5.6-sol "Say hello"
 ```
 
 A normal `go run ./cmd/kit` invocation currently starts or discovers the daemon.
-The native TUI is the next vertical slice.
+Print mode now creates and resumes SQLite-backed droids sessions through the
+local session-client boundary. Codex can derive account and expiry metadata from
+its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
+`OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
+available when explicit metadata is needed. Provider environment is read only
+at daemon startup, so restart the daemon after changing credentials. An
+environment-backed refresh is held in daemon memory until Kit's
+credential-store/login slice lands. Streaming
+protocol projection and the native TUI remain subsequent slices.
 
 ## Development
 

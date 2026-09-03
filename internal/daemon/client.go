@@ -14,7 +14,10 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 )
 
-const instanceHeader = "X-Kit-Instance-ID"
+const (
+	instanceHeader = "X-Kit-Instance-ID"
+	protocolHeader = "X-Kit-Protocol-Version"
+)
 
 // Health is returned by an authenticated local daemon health check.
 type Health struct {
@@ -27,8 +30,9 @@ type Health struct {
 
 // Client performs authenticated local daemon lifecycle requests.
 type Client struct {
-	paths apphome.Paths
-	http  *http.Client
+	paths       apphome.Paths
+	http        *http.Client
+	sessionHTTP *http.Client
 }
 
 // NewClient creates a local daemon client that never uses an HTTP proxy.
@@ -42,6 +46,9 @@ func NewClient(paths apphome.Paths) *Client {
 			Transport: transport,
 			Timeout:   3 * time.Second,
 		},
+		// Model calls can legitimately run for minutes. Their caller-provided
+		// context owns the deadline; dial timeout remains bounded by transport.
+		sessionHTTP: &http.Client{Transport: transport},
 	}
 }
 

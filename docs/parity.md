@@ -30,7 +30,8 @@ recorded manual verification exists.
 - [-] `web-tui` is removed.
 - [ ] OpenTUI is replaced with `vaxis/ui`; behavior and visual language remain
   parity targets.
-- [ ] The TypeScript/Pi runtime is replaced by Go and `droids`.
+- [ ] The TypeScript/Pi runtime is replaced by the Kit-private Go
+  `internal/droids` core seeded from the standalone droids repository.
 - [ ] Runtime-owned JSONL session data moves to SQLite through an idempotent,
   backed-up migration.
 - [ ] Subagents become concurrent supervised executions with durable mailboxes.
@@ -41,7 +42,7 @@ recorded manual verification exists.
 
 - [~] One Go module and one `kit` executable composition root.
 - [ ] CGO-free macOS and Linux release builds; Windows is unsupported.
-- [ ] Embedded, versioned database migrations.
+- [~] Embedded, versioned database migrations.
 - [ ] Embedded production web assets; users need no Bun/Node runtime.
 - [ ] Version metadata, update checks, release notes, and release packaging.
 - [ ] Install and upgrade paths for existing npm-installed users.
@@ -67,27 +68,27 @@ recorded manual verification exists.
 
 - [~] Dispatch client and daemon roles from the same executable.
 - [~] Coordinate concurrent daemon startup with an inter-process lock.
-- [ ] Authenticate every local health, management, HTTP, and WebSocket request.
-- [ ] Atomically publish and validate PID, instance, version, protocol, and
+- [~] Authenticate every local health, management, HTTP, and WebSocket request.
+- [x] Atomically publish and validate PID, instance, version, protocol, and
   address metadata.
-- [ ] Detect stale registrations and incompatible daemon versions safely.
-- [ ] Implement `kit daemon start`, `status`, `stop`, and `restart`.
-- [ ] Keep active parent and subagent work running after all clients detach.
-- [ ] Distinguish detach, turn abort, ephemeral-session disposal, and daemon
+- [x] Detect stale registrations and incompatible daemon versions safely.
+- [x] Implement `kit daemon start`, `status`, `stop`, and `restart`.
+- [~] Keep active parent and subagent work running after all clients detach.
+- [~] Distinguish detach, turn abort, ephemeral-session disposal, and daemon
   shutdown.
-- [ ] Support graceful shutdown and bounded forced cleanup of tools/plugins.
+- [~] Support graceful shutdown and bounded forced cleanup of tools/plugins.
 - [ ] Add explicit resource and backpressure limits.
 
 ## Session directory and concurrency
 
-- [ ] List, create, open, rename, delete, and resume sessions.
-- [ ] Resume the most recent session for the current cwd by default.
+- [~] List, create, open, rename, delete, and resume sessions.
+- [~] Resume the most recent session for the current cwd by default.
 - [ ] Support exact long/short session identifiers and explicit ephemeral
   sessions.
-- [ ] Persist cwd, name, parent lineage, model, thinking level, timestamps, and
+- [~] Persist cwd, name, parent lineage, model, thinking level, timestamps, and
   usage metadata.
-- [ ] Run different top-level sessions concurrently.
-- [ ] Serialize one parent run per session while preserving queue semantics.
+- [~] Run different top-level sessions concurrently.
+- [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
 - [ ] Remove all process-global cwd, active-session, and model-cache state.
 - [ ] Support cwd retargeting with explicit server-side workspace context.
@@ -97,21 +98,23 @@ recorded manual verification exists.
 
 ## Agent runtime and transcript
 
-- [ ] Construct persisted Kit sessions around `droids.Droid`.
+- [~] Construct persisted Kit sessions around `internal/droids.Droid`.
 - [ ] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state.
-- [ ] Persist explicit turn and stable message identities.
+- [~] Persist explicit turn and stable message identities.
 - [ ] Render active and historical turns consistently after reconnect/restart.
 - [ ] Steering, follow-up queueing, promotion, restoration, and generation
   guards.
-- [ ] Abort and cooperative cancellation through providers, tools, plugins, and
+- [~] Abort and cooperative cancellation through providers, tools, plugins, and
   subagents.
 - [ ] Retryable provider errors with user-visible countdown/status and limits.
 - [ ] Proactive and overflow-driven compaction with durable checkpoints.
 - [ ] Context usage and model limit reporting.
-- [ ] Model selection, exact provider/model IDs, persisted session model, and
+- [~] Model selection, exact provider/model IDs, persisted session model, and
   default-model precedence.
-- [ ] Thinking-level discovery, selection, and persistence.
+- [~] Thinking-level discovery, selection, and persistence.
+- [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport;
+  Kit-owned credential persistence and login/logout remain pending.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.
 - [ ] Message and composer history.
@@ -175,20 +178,20 @@ recorded manual verification exists.
 
 ## Protocol and clients
 
-- [ ] Versioned server capability negotiation.
-- [ ] Separate server-scoped and immutable session-scoped APIs.
-- [ ] Canonical wire-safe records with runtime validation in Go and TypeScript.
+- [~] Versioned server capability negotiation.
+- [~] Separate server-scoped and immutable session-scoped APIs.
+- [~] Canonical wire-safe records with runtime validation in Go and TypeScript.
 - [ ] Snapshot plus high-water synchronization without listener races.
 - [ ] Ordered, exactly-once client reduction with duplicate/gap handling.
 - [ ] Bounded event journal, replay, resync, and snapshot fallback.
 - [ ] Paginated transcripts and generation-guarded mutable collections.
 - [ ] Chunked recovery for individually oversized messages/interactions.
-- [ ] Command correlation and ordering relative to preceding events.
+- [~] Command correlation and ordering relative to preceding events.
 - [ ] Bounded client queues and disconnect-on-backpressure behavior.
-- [ ] Server/session client conformance tests shared across local and remote
+- [~] Server/session client conformance tests shared across local and remote
   transports.
 - [ ] Stdio RPC bridge with protocol-clean stdout and diagnostics on stderr.
-- [ ] Print client with piped stdin, exit codes, session options, and exact final
+- [~] Print client with piped stdin, exit codes, session options, and exact final
   assistant text.
 - [ ] `kit attach` native remote TUI.
 

@@ -27,8 +27,8 @@ func TestOpenAppliesMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentMigration() error = %v", err)
 	}
-	if version != 1 {
-		t.Fatalf("migration version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("migration version = %d, want 2", version)
 	}
 
 	for _, table := range []string{
@@ -80,12 +80,12 @@ func TestOpenIsIdempotent(t *testing.T) {
 	var applied int
 	if err := second.db.QueryRowContext(
 		ctx,
-		"SELECT COUNT(*) FROM schema_migrations WHERE version = 1",
+		"SELECT COUNT(*) FROM schema_migrations",
 	).Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 1 {
-		t.Fatalf("migration rows = %d, want 1", applied)
+	if applied != 2 {
+		t.Fatalf("migration rows = %d, want 2", applied)
 	}
 }
 

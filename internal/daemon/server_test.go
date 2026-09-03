@@ -14,6 +14,35 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 )
 
+func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
+	for _, name := range []string{
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+		"OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN", "OPENAI_CODEX_FEDRAMP",
+		"OPENAI_CODEX_EXPIRES_AT",
+	} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
+	t.Setenv("OPENAI_CODEX_ACCOUNT_ID", "test-account")
+
+	providers, err := providersFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := providers.Model("openai-codex/gpt-5.6-sol")
+	if !ok || model.Provider != "openai-codex" {
+		t.Fatalf("Codex model = %#v, %v", model, ok)
+	}
+}
+
+func TestProvidersFromEnvironmentRejectsInvalidCodexMetadata(t *testing.T) {
+	t.Setenv("OPENAI_CODEX_ACCESS_TOKEN", "test-access")
+	t.Setenv("OPENAI_CODEX_FEDRAMP", "not-a-bool")
+	if _, err := providersFromEnvironment(); err == nil {
+		t.Fatal("invalid OPENAI_CODEX_FEDRAMP was accepted")
+	}
+}
+
 func TestRunServesHealthAndStopsGracefully(t *testing.T) {
 	t.Parallel()
 

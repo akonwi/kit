@@ -22,7 +22,8 @@ implementation.
 The rewrite has these hard constraints:
 
 - users install one Go executable and do not need Bun or Node;
-- the agent core is built on `github.com/akonwi/droids`;
+- the agent core is the Kit-private `internal/droids` package, initially seeded
+  from `github.com/akonwi/droids`;
 - subagents are concurrent supervised executions, not blocking nested tool
   calls;
 - Kit retains a native TUI and semantic browser client, but drops `web-tui`;
@@ -73,7 +74,7 @@ separate. The intended dependency direction is:
 CLI composition root
   -> daemon/server
       -> session orchestration
-          -> droids adapter
+          -> Kit-local droids core
           -> subagents
           -> plugin host
           -> persistence ports
@@ -142,6 +143,11 @@ A session connection cannot switch its authoritative binding. Switching a UI
 to another session means opening another session client and replacing or adding
 a renderer view.
 
+A client receives a run handle only after its generation is durably reserved.
+Explicit abort names that run generation, so delayed cancellation can neither
+be lost before admission nor cancel a successor run. Stopping a wait on the
+handle remains a detach operation and does not itself abort execution.
+
 Local and remote clients use the same canonical, wire-safe protocol semantics.
 The native local TUI connects through authenticated loopback rather than using
 a privileged direct-runtime path. A transport atomically establishes an event
@@ -156,10 +162,13 @@ There is no process-global active session or cwd.
 
 ### Agent runtime
 
-Kit composes its agent loop through `github.com/akonwi/droids`. Droids provider,
-message, stream, tool, and event types remain behind Kit's runtime boundary.
-The server projects droids events into Kit-owned session events and persists
-Kit-owned records.
+Kit composes its agent loop through the private `internal/droids` package,
+seeded from the standalone droids repository and allowed to evolve with the
+rewrite. Droids provider, message, stream, tool, and event types remain behind
+Kit's runtime boundary. The server projects droids events into Kit-owned session
+events and persists Kit-owned records. See
+[ADR 0002](./0002-internalize-agent-core.md) for provenance and synchronization
+policy.
 
 Each top-level session has at most one active parent run. Existing steering,
 follow-up, queue, abort, retry, tool, and compaction behavior is rebuilt around
@@ -205,6 +214,13 @@ SQLite uses transactional schema migrations and foreign-key enforcement. A
 bounded append-only event journal supports reconnect and diagnostics, but Kit
 is not implemented as a system where every state table must be rebuilt from an
 event log.
+
+On daemon startup, executions left `running` or durably queued by a previous
+process are marked `interrupted` transactionally. Messages from failed, aborted, interrupted, or
+otherwise incomplete parent turns remain available for diagnostics and UI
+history, but only completed turns are rehydrated into a new droids model
+transcript. A non-completed live runtime is discarded so its in-memory context
+cannot diverge from that replay rule.
 
 Human-editable configuration remains file-based:
 
@@ -306,7 +322,7 @@ Intentional non-parity is limited to recorded decisions, initially:
 
 - remove `web-tui`;
 - replace OpenTUI with vaxis/ui;
-- replace the TypeScript/Pi agent core with Go/droids;
+- replace the TypeScript/Pi agent core with the Kit-local Go/droids core;
 - replace runtime storage with SQLite plus migration;
 - run subagents concurrently under the runtime;
 - preserve custom plugins only through the subprocess protocol.
@@ -359,6 +375,8 @@ to hold shared types.
 - Browser development still needs Bun even though users do not.
 - Existing session data needs an explicit semantic migration into droids- and
   Kit-owned records.
+- Internalizing droids increases Kit's source and test surface and requires an
+  explicit future decision about extraction or upstream synchronization.
 
 ## Deferred
 
@@ -374,6 +392,7 @@ to hold shared types.
 ## Related
 
 - [`../parity.md`](../parity.md)
+- [0002: Internalize the droids agent core](./0002-internalize-agent-core.md)
 - Historical implementation and ADRs at Git commit `5c6e112`
 - External plugin v1 specification at
   [`../../app/docs/plugin-protocol/v1.md`](../../app/docs/plugin-protocol/v1.md)

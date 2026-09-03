@@ -10,9 +10,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/droids"
+	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
@@ -22,8 +26,10 @@ var ErrAlreadyRunning = errors.New("local daemon is already running")
 
 // RunOptions configures the internal local daemon process.
 type RunOptions struct {
-	Paths  apphome.Paths
-	Logger *slog.Logger
+	Paths        apphome.Paths
+	Logger       *slog.Logger
+	Providers    droids.Providers
+	SystemPrompt string
 }
 
 // Run serves the authenticated local daemon until cancellation or shutdown.
@@ -48,6 +54,7 @@ func Run(ctx context.Context, options RunOptions) error {
 
 	var (
 		store             *storage.Store
+		sessionManager    *kitsession.Manager
 		listener          net.Listener
 		instanceID        string
 		tokenPublished    bool
@@ -57,7 +64,20 @@ func Run(ctx context.Context, options RunOptions) error {
 		if listener != nil {
 			_ = listener.Close()
 		}
+		if sessionManager != nil {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := sessionManager.Shutdown(shutdownContext); err != nil {
+				logger.Error("stop session runtimes", "error", err)
+			}
+			cancel()
+		}
 		if store != nil {
+			recoveryContext, recoveryCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_, recoveryErr := store.InterruptActiveRuns(recoveryContext, "daemon stopped before execution finalized")
+			recoveryCancel()
+			if recoveryErr != nil {
+				logger.Error("interrupt unfinished session runs", "error", recoveryErr)
+			}
 			if err := store.Close(); err != nil {
 				logger.Error("close database", "error", err)
 			}
@@ -81,6 +101,32 @@ func Run(ctx context.Context, options RunOptions) error {
 	store, err = storage.Open(ctx, paths.Database)
 	if err != nil {
 		return err
+	}
+	recovered, err := store.InterruptActiveRuns(ctx, "daemon restarted during active execution")
+	if err != nil {
+		return fmt.Errorf("recover interrupted runs: %w", err)
+	}
+	if recovered.ParentRuns+recovered.SubagentRuns > 0 {
+		logger.Warn(
+			"recovered interrupted executions",
+			"parent_runs", recovered.ParentRuns,
+			"subagent_runs", recovered.SubagentRuns,
+		)
+	}
+	providers := options.Providers
+	if providers == nil {
+		providers, err = providersFromEnvironment()
+		if err != nil {
+			return err
+		}
+	}
+	systemPrompt := options.SystemPrompt
+	if systemPrompt == "" {
+		systemPrompt = "You are Kit, a coding agent."
+	}
+	sessionManager, err = kitsession.NewManager(store, providers, systemPrompt)
+	if err != nil {
+		return fmt.Errorf("create session manager: %w", err)
 	}
 	listener, err = net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -126,6 +172,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		registry:     registry,
 		token:        token,
 		store:        store,
+		sessions:     runtimeSessionService{manager: sessionManager},
 		requestStop: func() {
 			select {
 			case stop <- struct{}{}:
@@ -186,6 +233,7 @@ type localHandlerOptions struct {
 	registry     Registry
 	token        string
 	store        *storage.Store
+	sessions     sessionService
 	requestStop  func()
 }
 
@@ -207,6 +255,9 @@ func newHandler(options localHandlerOptions) http.Handler {
 		writeJSON(writer, http.StatusAccepted, map[string]bool{"stopping": true})
 		options.requestStop()
 	})
+	if options.sessions != nil {
+		registerSessionRoutes(mux, options.sessions)
+	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Host != options.expectedHost {
@@ -232,8 +283,59 @@ func newHandler(options localHandlerOptions) http.Handler {
 			http.Error(writer, "daemon instance mismatch", http.StatusConflict)
 			return
 		}
+		if strings.HasPrefix(request.URL.Path, "/v1/sessions") &&
+			request.Header.Get(protocolHeader) != strconv.Itoa(version.SessionProtocolVersion) {
+			http.Error(writer, "session protocol mismatch", http.StatusUpgradeRequired)
+			return
+		}
 		mux.ServeHTTP(writer, request)
 	})
+}
+
+func providersFromEnvironment() (droids.Providers, error) {
+	configs := []droids.Provider{
+		droids.OpenAI{
+			APIKey:  os.Getenv("OPENAI_API_KEY"),
+			BaseURL: os.Getenv("OPENAI_BASE_URL"),
+		},
+		droids.Anthropic{
+			APIKey:  os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
+		},
+	}
+	accessToken := os.Getenv("OPENAI_CODEX_ACCESS_TOKEN")
+	refreshToken := os.Getenv("OPENAI_CODEX_REFRESH_TOKEN")
+	if accessToken != "" || refreshToken != "" {
+		credentials := droids.OpenAICodexCredentials{
+			AccessToken:  accessToken,
+			RefreshToken: refreshToken,
+			IDToken:      os.Getenv("OPENAI_CODEX_ID_TOKEN"),
+			AccountID:    os.Getenv("OPENAI_CODEX_ACCOUNT_ID"),
+		}
+		if raw := os.Getenv("OPENAI_CODEX_FEDRAMP"); raw != "" {
+			fedRAMP, err := strconv.ParseBool(raw)
+			if err != nil {
+				return nil, fmt.Errorf("parse OPENAI_CODEX_FEDRAMP: %w", err)
+			}
+			credentials.FedRAMP = fedRAMP
+		}
+		if raw := os.Getenv("OPENAI_CODEX_EXPIRES_AT"); raw != "" {
+			expiresAt, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				return nil, fmt.Errorf("parse OPENAI_CODEX_EXPIRES_AT as Unix milliseconds: %w", err)
+			}
+			credentials.ExpiresAt = time.UnixMilli(expiresAt)
+		}
+		configs = append(configs, droids.OpenAICodex{
+			Credentials: credentials,
+			Originator:  "kit",
+		})
+	}
+	providers, err := droids.NewProviders(configs...)
+	if err != nil {
+		return nil, fmt.Errorf("configure droids providers: %w", err)
+	}
+	return providers, nil
 }
 
 func writeJSON(writer http.ResponseWriter, status int, value any) {

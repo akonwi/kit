@@ -24,8 +24,11 @@ uses Solid and Mica at build time and is embedded in the Go executable.
 ## Architecture rules
 
 - The Go server is authoritative for sessions and shared state.
-- Clients consume server/session-client contracts; they do not import droids,
-  SQLite implementations, or concrete server internals.
+- Clients consume server/session-client contracts; they do not import
+  `internal/droids`, SQLite implementations, or concrete server internals.
+- `internal/droids` is Kit's private agent core, seeded from the standalone
+  repository at the commit recorded in its README. There is no implicit
+  upstream sync; reconcile changes deliberately.
 - Runtime, persistence, protocol, client, and renderer types have distinct
   owners and are projected explicitly.
 - Do not introduce process-global cwd or active-session state.
