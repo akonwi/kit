@@ -7,7 +7,7 @@ import type {
 	UserMultipartMessage,
 } from "../../messages/parts";
 import type { UserMessage } from "../../runtime/agent";
-import { PENCIL } from "../glyphs";
+import { IMAGE, PENCIL } from "../glyphs";
 import { KitMarkdown } from "../KitMarkdown";
 import { theme } from "../theme";
 import { createMessageContextMenuGesture } from "./message-context-menu";
@@ -66,7 +66,7 @@ function ImagePartEntry(props: {
 			}}
 		>
 			<text fg={props.aborted ? theme.textMuted : theme.attachmentText}>
-				🖼️ {label}
+				{IMAGE} {label}
 			</text>
 		</box>
 	);

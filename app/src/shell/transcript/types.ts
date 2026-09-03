@@ -38,4 +38,6 @@ export type TranscriptProps = {
 
 export type TranscriptPaneProps = TranscriptProps & {
 	items: TranscriptItem[];
+	expandedImageToolCallIds?: ReadonlySet<string>;
+	setImageToolCallExpanded?: (toolCallId: string, expanded: boolean) => void;
 };

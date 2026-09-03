@@ -1,7 +1,7 @@
 # 0014: Defer inline transcript image rendering
 
 ## Status
-Accepted
+Superseded by ADR 0031
 
 ## Context
 
@@ -59,3 +59,4 @@ Possible future directions remain open, including:
 ## Related
 
 - `docs/adrs/0003-custom-shell.md`
+- `docs/adrs/0031-present-images-in-the-transcript.md`

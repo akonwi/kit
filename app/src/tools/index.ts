@@ -6,6 +6,7 @@ import { createFindTool } from "./find";
 import { createGrepTool } from "./grep";
 import { createLsTool } from "./ls";
 import { createReadTool } from "./read";
+import { createShowImageTool } from "./show-image";
 import { createWriteTool } from "./write";
 
 export { createBashTool } from "./bash";
@@ -23,6 +24,11 @@ export { createFindTool } from "./find";
 export { createGrepTool } from "./grep";
 export { createLsTool } from "./ls";
 export { createReadTool } from "./read";
+export {
+	createShowImageTool,
+	SHOW_IMAGE_TOOL_NAME,
+	type ShowImageDetails,
+} from "./show-image";
 export { createWriteTool } from "./write";
 
 /** Create the standard coding tool suite for a given working directory. */
@@ -38,5 +44,6 @@ export function createDefaultTools(
 		createLsTool(cwd),
 		createGrepTool(cwd),
 		createFindTool(cwd),
+		createShowImageTool(cwd),
 	];
 }
