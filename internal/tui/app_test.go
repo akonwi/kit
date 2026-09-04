@@ -14,6 +14,19 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestTranscriptScrollWaitsForUpdatedLayout(t *testing.T) {
+	t.Parallel()
+
+	state := appState{}
+	state.requestTranscriptScroll()
+	if !state.TickFrame(time.Now()) || !state.needsScroll || state.scrollPendingLayout {
+		t.Fatalf("first frame state = needs:%t pending:%t, want deferred scroll", state.needsScroll, state.scrollPendingLayout)
+	}
+	if state.TickFrame(time.Now()) || state.needsScroll {
+		t.Fatalf("second frame state = needs:%t, want settled unattached scroll", state.needsScroll)
+	}
+}
+
 func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 	t.Parallel()
 

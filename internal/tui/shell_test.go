@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -131,7 +132,7 @@ func TestComposerSpansFullWidthBelowReservedTurnSlot(t *testing.T) {
 	t.Parallel()
 
 	const width, height = 40, 12
-	composer := strings.Repeat("x", width*2)
+	composer := strings.Repeat("x", width-2)
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Composer: composer, Scroll: &ui.ScrollController{},
 	}})
@@ -142,7 +143,7 @@ func TestComposerSpansFullWidthBelowReservedTurnSlot(t *testing.T) {
 		t.Fatalf("idle turn slot = %q, want reserved blank row", got)
 	}
 	composerCells := []rune(rows[height-3])
-	if composerCells[0] != ' ' || composerCells[1] != 'x' || composerCells[width-2] != '…' || composerCells[width-1] != ' ' {
+	if composerCells[0] != ' ' || composerCells[1] != 'x' || composerCells[width-2] != 'x' || composerCells[width-1] != ' ' {
 		t.Fatalf("full-width composer row = %q", rows[height-3])
 	}
 
@@ -156,7 +157,7 @@ func TestComposerSpansFullWidthBelowReservedTurnSlot(t *testing.T) {
 		t.Fatalf("running turn slot = %q, want spinner state", got)
 	}
 	composerCells = []rune(rows[height-3])
-	if composerCells[1] != 'x' || composerCells[width-2] != '…' {
+	if composerCells[1] != 'x' || composerCells[width-2] != 'x' {
 		t.Fatalf("running full-width composer row = %q", rows[height-3])
 	}
 }
@@ -184,17 +185,149 @@ func TestComposerKeepsFocusAndFillsWidthAcrossActivityAndResize(t *testing.T) {
 
 	state.SetState(func() { state.composer = strings.Repeat("x", 80) })
 	app.Pump(20, 12)
-	app.Pump(20, 12)
-	narrow := []rune(paintedRows(app, 20, 12)[9])
-	if narrow[1] != 'x' || narrow[18] != '…' {
-		t.Fatalf("narrow composer row = %q", string(narrow))
+	narrow := []rune(paintedRows(app, 20, 12)[5])
+	if narrow[1] != 'x' || narrow[18] != 'x' {
+		t.Fatalf("narrow composer first row = %q", string(narrow))
 	}
 	app.Pump(50, 12)
-	app.Pump(50, 12)
-	wide := []rune(paintedRows(app, 50, 12)[9])
-	if wide[1] != 'x' || wide[48] != '…' {
-		t.Fatalf("wide composer row = %q", string(wide))
+	wide := []rune(paintedRows(app, 50, 12)[8])
+	if wide[1] != 'x' || wide[48] != 'x' {
+		t.Fatalf("wide composer first row = %q", string(wide))
 	}
+}
+
+func TestComposerGrowsWithNewlinesAndEnterSubmits(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 40, 12
+	state := &shellHarnessState{}
+	app := uitest.New(shellHarness{State: state})
+	app.Pump(width, height)
+	if got := strings.TrimSpace(paintedRows(app, width, height)[height-3]); got != "Ask kit to do something…" {
+		t.Fatalf("initial composer = %q, want one-line placeholder", got)
+	}
+
+	app.Key("a")
+	app.Pump(width, height)
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter, Modifiers: vaxis.ModShift})
+	app.Pump(width, height)
+	app.Key("b")
+	app.Pump(width, height)
+	if state.composer != "a\nb" {
+		t.Fatalf("multiline composer = %q, want a\\nb", state.composer)
+	}
+	rows := paintedRows(app, width, height)
+	if strings.TrimSpace(rows[height-4]) != "a" || strings.TrimSpace(rows[height-3]) != "b" {
+		t.Fatalf("grown composer rows = %q / %q", rows[height-4], rows[height-3])
+	}
+
+	app.Enter()
+	app.Pump(width, height)
+	if len(state.submitted) != 1 || state.submitted[0] != "a\nb" {
+		t.Fatalf("submitted prompts = %#v, want multiline prompt", state.submitted)
+	}
+	if state.composer != "" {
+		t.Fatalf("composer after submit = %q, want cleared", state.composer)
+	}
+	if got := strings.TrimSpace(paintedRows(app, width, height)[height-3]); got != "Ask kit to do something…" {
+		t.Fatalf("collapsed composer = %q, want one-line placeholder", got)
+	}
+}
+
+func TestComposerGrowthKeepsChromeVisibleInShortViewport(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 30, 10
+	lines := make([]string, 20)
+	for index := range lines {
+		lines[index] = fmt.Sprintf("line %02d", index+1)
+	}
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Composer: strings.Join(lines, "\n"),
+		Status: "composer active", Location: "~/kit-v2", Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if !strings.Contains(rows[height-1], "composer…") || !strings.Contains(rows[height-1], "~/kit-v2") {
+		t.Fatalf("footer moved outside viewport: %q", rows[height-1])
+	}
+	if strings.TrimSpace(rows[height-6]) != strings.Repeat("─", width) {
+		t.Fatalf("composer separator = %q", rows[height-6])
+	}
+	for offset, expected := range []string{"line 01", "line 02", "line 03"} {
+		if got := strings.TrimSpace(rows[height-5+offset]); got != expected {
+			t.Fatalf("composer row %d = %q, want %q", offset, got, expected)
+		}
+	}
+}
+
+func TestComposerRemainsVisibleAtMinimumShellHeight(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 20, 5
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Composer: "still visible", TurnActivity: "Working…",
+		Status: "active", Location: "~/kit", Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[2]); got != "still visible" {
+		t.Fatalf("minimum-height composer = %q", got)
+	}
+	if !strings.Contains(rows[height-1], "active") || !strings.Contains(rows[height-1], "~/kit") {
+		t.Fatalf("minimum-height footer = %q", rows[height-1])
+	}
+}
+
+func TestComposerPlaceholderPreservesNarrowHorizontalInsets(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 12, 10
+	app := uitest.New(shellView{Snapshot: shellSnapshot{Phase: phaseReady, Scroll: &ui.ScrollController{}}})
+	app.Pump(width, height)
+	cells := []rune(paintedRows(app, width, height)[height-3])
+	if cells[0] != ' ' || cells[1] != 'A' || cells[width-2] != '…' || cells[width-1] != ' ' {
+		t.Fatalf("narrow placeholder row = %q", string(cells))
+	}
+}
+
+func TestComposerPlaceholderPassesClicksToTextArea(t *testing.T) {
+	t.Parallel()
+
+	state := &composerClickHarnessState{}
+	app := uitest.New(composerClickHarness{State: state})
+	app.Pump(20, 4)
+	app.ShiftTab()
+	app.Click(2, 1)
+	app.Key("x")
+	app.Pump(20, 4)
+	if state.value != "x" {
+		t.Fatalf("composer value after placeholder click = %q, want x", state.value)
+	}
+}
+
+type composerClickHarness struct {
+	State *composerClickHarnessState
+}
+
+func (w composerClickHarness) CreateState() ui.State { return w.State }
+
+type composerClickHarnessState struct {
+	ui.StateBase
+	value string
+}
+
+func (s *composerClickHarnessState) Build(ui.BuildContext) ui.Widget {
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.Button{Label: "other"},
+		messageComposer{
+			Value:       s.value,
+			Placeholder: "Ask kit to do something…",
+			OnChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.value = value })
+			},
+		},
+	}}
 }
 
 type shellHarness struct {
@@ -205,8 +338,9 @@ func (w shellHarness) CreateState() ui.State { return w.State }
 
 type shellHarnessState struct {
 	ui.StateBase
-	composer string
-	activity string
+	composer  string
+	activity  string
+	submitted []string
 }
 
 func (s *shellHarnessState) Build(ui.BuildContext) ui.Widget {
@@ -218,6 +352,12 @@ func (s *shellHarnessState) Build(ui.BuildContext) ui.Widget {
 		Callbacks: shellCallbacks{
 			ComposerChanged: func(_ ui.EventContext, value string) {
 				s.SetState(func() { s.composer = value })
+			},
+			Submit: func(_ ui.EventContext, value string) {
+				s.SetState(func() {
+					s.submitted = append(s.submitted, value)
+					s.composer = ""
+				})
 			},
 		},
 	}

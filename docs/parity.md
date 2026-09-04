@@ -164,9 +164,9 @@ recorded manual verification exists.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
-  attachments, pending queue, and abort state; the focused single-line composer
-  now spans the full shell width, submits prompts, preserves text while busy,
-  and exposes abort state.
+  attachments, pending queue, and abort state; the focused full-width composer
+  starts at one row, grows to ten rows with multiline input, submits prompts,
+  preserves text while busy, and exposes abort state.
 - [ ] Command palette with filtering, completion, arguments, nested pickers,
   keyboard, and mouse behavior.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and

@@ -135,23 +135,22 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 }
 
 func (w shellView) baseShell(theme ui.Theme) ui.Widget {
-	children := []ui.Widget{
+	body := ui.Widget(ui.Expanded(w.body(theme)))
+	if w.Snapshot.Phase == phaseReady {
+		body = ui.Expanded(conversationLayout{
+			Transcript: w.body(theme),
+			Activity:   w.pendingSlot(theme),
+			Separator:  ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+			Composer:   w.composer(theme),
+		})
+	}
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		w.header(theme),
 		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
-		ui.Expanded(w.body(theme)),
-	}
-	if w.Snapshot.Phase == phaseReady {
-		children = append(children,
-			w.pendingSlot(theme),
-			ui.Divider{Style: ui.Style{Foreground: theme.Border}},
-			w.composer(theme),
-		)
-	}
-	children = append(children,
+		body,
 		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
 		w.footer(theme),
-	)
-	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
+	}}
 }
 
 func (w shellView) header(theme ui.Theme) ui.Widget {
@@ -277,15 +276,13 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 	composerTheme.Surface = theme.Background
 	composerTheme.SurfaceHovered = theme.Background
 	composerTheme.Selection = theme.Selection
-	field := fullWidthTextField{Field: ui.TextField{
+	composer := messageComposer{
 		Value:       w.Snapshot.Composer,
 		Placeholder: "Ask kit to do something…",
 		OnChanged:   w.Callbacks.ComposerChanged,
 		OnSubmitted: w.Callbacks.Submit,
-		Padding:     ui.Symmetric(1, 0),
-		AutoFocus:   true,
-	}}
-	return ui.SizedBox{Height: 1, Child: ui.Provider[ui.Theme]{Value: composerTheme, Child: field}}
+	}
+	return ui.Provider[ui.Theme]{Value: composerTheme, Child: composer}
 }
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {

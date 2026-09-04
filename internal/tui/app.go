@@ -116,34 +116,35 @@ type appState struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	phase          phase
-	errorText      string
-	status         string
-	composer       string
-	authFilter     string
-	authSelection  int
-	authProviderID string
-	authAPIKey     string
-	authPending    bool
-	session        protocol.SessionInfo
-	bound          sessionclient.Session
-	messages       []transcriptMessage
-	liveMessages   []transcriptMessage
-	liveAssistant  int
-	liveHasUser    bool
-	liveTools      map[string]int
-	liveContent    map[int]liveContentBlock
-	liveSequence   int64
-	turnActivity   string
-	runStopping    bool
-	contextTokens  int
-	contextWindow  int
-	scroll         ui.ScrollController
-	needsScroll    bool
-	activeRun      sessionclient.Run
-	activeRunID    string
-	runPending     bool
-	prompt         *promptAdmission
+	phase               phase
+	errorText           string
+	status              string
+	composer            string
+	authFilter          string
+	authSelection       int
+	authProviderID      string
+	authAPIKey          string
+	authPending         bool
+	session             protocol.SessionInfo
+	bound               sessionclient.Session
+	messages            []transcriptMessage
+	liveMessages        []transcriptMessage
+	liveAssistant       int
+	liveHasUser         bool
+	liveTools           map[string]int
+	liveContent         map[int]liveContentBlock
+	liveSequence        int64
+	turnActivity        string
+	runStopping         bool
+	contextTokens       int
+	contextWindow       int
+	scroll              ui.ScrollController
+	needsScroll         bool
+	scrollPendingLayout bool
+	activeRun           sessionclient.Run
+	activeRunID         string
+	runPending          bool
+	prompt              *promptAdmission
 
 	instructions auth.OpenAICodexDeviceInstructions
 	remaining    time.Duration
@@ -190,12 +191,20 @@ func (s *appState) TickFrame(_ time.Time) bool {
 	if !s.needsScroll {
 		return false
 	}
-	if !s.scroll.Attached() {
+	if s.scrollPendingLayout {
+		s.scrollPendingLayout = false
 		return true
 	}
-	s.scroll.ScrollToEnd()
+	if s.scroll.Attached() {
+		s.scroll.ScrollToEnd()
+	}
 	s.needsScroll = false
 	return false
+}
+
+func (s *appState) requestTranscriptScroll() {
+	s.needsScroll = true
+	s.scrollPendingLayout = true
 }
 
 func (s *appState) Dispose() {
@@ -271,7 +280,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 		},
 		ComposerChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.composer = value })
+			metrics := s.scroll.Metrics()
+			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
+			s.SetState(func() {
+				s.composer = value
+				if followTranscript {
+					s.requestTranscriptScroll()
+				}
+			})
 		},
 		Submit: s.submit,
 		Retry: func(ui.EventContext) {
@@ -382,7 +398,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	}
 	s.messages = projectTranscript(snapshot.Messages)
 	s.resetLiveRun()
-	s.needsScroll = true
+	s.requestTranscriptScroll()
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
 	s.activeRunID = snapshot.ActiveRunID
@@ -529,7 +545,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 		}
 	}
 	if len(events) > 0 {
-		s.needsScroll = true
+		s.requestTranscriptScroll()
 	}
 }
 
@@ -606,7 +622,7 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 	s.runPending = false
 	s.prompt = nil
 	s.status = "Transcript refresh failed; the next turn will retry · " + snapshotErr.Error()
-	s.needsScroll = true
+	s.requestTranscriptScroll()
 }
 
 func (s *appState) watchSession(bound sessionclient.Session, operation uint64, runID string) {
@@ -966,7 +982,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		s.turnActivity = "Working…"
 		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: text})
 		s.liveHasUser = true
-		s.needsScroll = true
+		s.requestTranscriptScroll()
 		s.runPending = true
 		s.prompt = admission
 	})
@@ -1019,7 +1035,7 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 			s.runPending = false
 			s.prompt = nil
 			s.status = ""
-			s.needsScroll = true
+			s.requestTranscriptScroll()
 			if runErr != nil {
 				s.messages = append(s.messages, s.liveMessages...)
 				s.resetLiveRun()
