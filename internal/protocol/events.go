@@ -1,9 +1,6 @@
 package protocol
 
-import (
-	"encoding/json"
-	"fmt"
-)
+import "fmt"
 
 const maxSessionEventPayloadBytes = 128 << 10
 
@@ -26,23 +23,24 @@ const (
 
 // SessionEvent is one durable ordered update in a session stream.
 type SessionEvent struct {
-	StreamID     string            `json:"streamId"`
-	Sequence     int64             `json:"sequence"`
-	SessionID    string            `json:"sessionId"`
-	TurnID       string            `json:"turnId"`
-	RunID        string            `json:"runId"`
-	Kind         SessionEventKind  `json:"kind"`
-	ContentIndex int               `json:"contentIndex,omitempty"`
-	Delta        string            `json:"delta,omitempty"`
-	Text         string            `json:"text,omitempty"`
-	Thinking     string            `json:"thinking,omitempty"`
-	ToolCallID   string            `json:"toolCallId,omitempty"`
-	ToolName     string            `json:"toolName,omitempty"`
-	Arguments    string            `json:"arguments,omitempty"`
-	IsError      bool              `json:"isError,omitempty"`
-	Status       RunStatus         `json:"status,omitempty"`
-	ErrorKind    ProviderErrorKind `json:"errorKind,omitempty"`
-	ErrorMessage string            `json:"errorMessage,omitempty"`
+	StreamID           string            `json:"streamId"`
+	Sequence           int64             `json:"sequence"`
+	SessionID          string            `json:"sessionId"`
+	TurnID             string            `json:"turnId"`
+	RunID              string            `json:"runId"`
+	Kind               SessionEventKind  `json:"kind"`
+	ContentIndex       int               `json:"contentIndex,omitempty"`
+	Delta              string            `json:"delta,omitempty"`
+	Text               string            `json:"text,omitempty"`
+	Thinking           string            `json:"thinking,omitempty"`
+	ToolCallID         string            `json:"toolCallId,omitempty"`
+	ToolName           string            `json:"toolName,omitempty"`
+	Arguments          string            `json:"arguments,omitempty"`
+	ArgumentsTruncated bool              `json:"argumentsTruncated,omitempty"`
+	IsError            bool              `json:"isError,omitempty"`
+	Status             RunStatus         `json:"status,omitempty"`
+	ErrorKind          ProviderErrorKind `json:"errorKind,omitempty"`
+	ErrorMessage       string            `json:"errorMessage,omitempty"`
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -83,8 +81,11 @@ func (event SessionEvent) Validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("tool event requires call id and name")
 		}
-		if (event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted) && event.Arguments != "" && !json.Valid([]byte(event.Arguments)) {
-			return fmt.Errorf("tool arguments are not valid JSON")
+		if event.Kind == SessionEventToolPlanned && (event.Arguments != "" || event.ArgumentsTruncated) {
+			return fmt.Errorf("planned tool call cannot carry complete arguments")
+		}
+		if event.Kind == SessionEventToolStarted && (event.Arguments == "") == !event.ArgumentsTruncated {
+			return fmt.Errorf("started tool call requires either complete or explicitly truncated arguments")
 		}
 	case SessionEventRunFinished:
 		switch event.Status {
@@ -116,11 +117,11 @@ func (event SessionEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
 	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
-	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.IsError) {
+	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
 	}
-	if (event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted) && event.Arguments != "" {
-		return fmt.Errorf("tool result event cannot carry arguments")
+	if event.Kind != SessionEventToolPlanned && event.Kind != SessionEventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
+		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
 	return nil
 }
@@ -151,6 +152,9 @@ func (batch SessionEventBatch) Validate() error {
 		}
 		if event.Sequence <= previous {
 			return fmt.Errorf("event %d sequence is not increasing", index)
+		}
+		if index > 0 && event.Sequence != previous+1 {
+			return fmt.Errorf("event %d sequence is not contiguous", index)
 		}
 		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)

@@ -19,6 +19,20 @@ import (
 	"github.com/akonwi/kit/internal/version"
 )
 
+func protocolContentText(message protocol.TranscriptMessage, kind protocol.TranscriptContentKind) string {
+	var result string
+	for _, block := range message.Content {
+		if block.Kind != kind {
+			continue
+		}
+		if result != "" {
+			result += "\n"
+		}
+		result += block.Text
+	}
+	return result
+}
+
 func TestProjectProviderErrorKind(t *testing.T) {
 	t.Parallel()
 	if got := projectProviderErrorKind(kitsession.ProviderErrorAuthentication); got != protocol.ProviderErrorAuthentication {
@@ -126,8 +140,10 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if snapshot.Session.ID != created.ID || len(snapshot.Messages) != 2 {
 		t.Fatalf("snapshot = %+v", snapshot)
 	}
-	if snapshot.Messages[0].Role != "user" || snapshot.Messages[0].Text != "hello" ||
-		snapshot.Messages[1].Role != "assistant" || snapshot.Messages[1].Text != "reply 1" {
+	if snapshot.Messages[0].Role != "user" ||
+		protocolContentText(snapshot.Messages[0], protocol.TranscriptContentText) != "hello" ||
+		snapshot.Messages[1].Role != "assistant" ||
+		protocolContentText(snapshot.Messages[1], protocol.TranscriptContentText) != "reply 1" {
 		t.Fatalf("snapshot messages = %+v", snapshot.Messages)
 	}
 	if snapshot.ContextTokens != 64_000 || snapshot.ContextWindow != 128_000 {

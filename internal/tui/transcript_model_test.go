@@ -1,0 +1,183 @@
+package tui
+
+import (
+	"encoding/json"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/akonwi/kit/internal/protocol"
+)
+
+func transcriptMessageWithContent(id, turnID, role string, content ...protocol.TranscriptContent) protocol.TranscriptMessage {
+	return protocol.TranscriptMessage{ID: id, TurnID: turnID, Role: role, Content: content}
+}
+
+func textBlock(text string) protocol.TranscriptContent {
+	return protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: text}
+}
+
+func toolCallBlock(id, name, arguments string) protocol.TranscriptContent {
+	return protocol.TranscriptContent{
+		Kind: protocol.TranscriptContentToolCall, ToolCallID: id,
+		ToolName: name, Arguments: arguments,
+	}
+}
+
+func TestBuildTurnTranscriptItemsPairsResultsAndMarksAbortedTurns(t *testing.T) {
+	t.Parallel()
+
+	messages := []protocol.TranscriptMessage{
+		transcriptMessageWithContent("user_1", "turn_1", "user", textBlock("inspect")),
+		transcriptMessageWithContent("assistant_1", "turn_1", "assistant",
+			textBlock("reading"), toolCallBlock("call_1", "read", `{"path":"README.md"}`)),
+		{
+			ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read",
+			Content: []protocol.TranscriptContent{textBlock("contents")},
+		},
+		{
+			ID: "assistant_2", TurnID: "turn_1", Role: "assistant", StopReason: "aborted",
+			ErrorMessage: "stopped", IsError: true,
+		},
+	}
+
+	items := buildTurnTranscriptItems(messages)
+	if len(items) != 3 {
+		t.Fatalf("item count = %d, want 3: %+v", len(items), items)
+	}
+	if result, ok := items[1].ToolResults["call_1"]; !ok || result.ID != "result_1" {
+		t.Fatalf("paired result = %+v, present %v", result, ok)
+	}
+	for index, item := range items {
+		if !item.Aborted {
+			t.Errorf("item %d was not marked aborted", index)
+		}
+	}
+}
+
+func TestGroupTranscriptDisplayItemsKeepsProseAndConsolidatesTurnWork(t *testing.T) {
+	t.Parallel()
+
+	messages := []protocol.TranscriptMessage{
+		transcriptMessageWithContent("user_1", "turn_1", "user", textBlock("inspect")),
+		transcriptMessageWithContent("assistant_1", "turn_1", "assistant",
+			textBlock("I will read it."), toolCallBlock("call_1", "read", `{"path":"README.md"}`)),
+		transcriptMessageWithContent("assistant_2", "turn_1", "assistant",
+			toolCallBlock("call_2", "grep", `{"pattern":"TODO"}`)),
+		transcriptMessageWithContent("assistant_3", "turn_1", "assistant", textBlock("Done.")),
+	}
+
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems(messages))
+	gotKinds := make([]transcriptDisplayKind, len(display))
+	for index := range display {
+		gotKinds[index] = display[index].Kind
+	}
+	wantKinds := []transcriptDisplayKind{
+		transcriptDisplaySingle,
+		transcriptDisplayAssistantProse,
+		transcriptDisplayTurnWork,
+		transcriptDisplayAssistantProse,
+	}
+	if !reflect.DeepEqual(gotKinds, wantKinds) {
+		t.Fatalf("display kinds = %v, want %v", gotKinds, wantKinds)
+	}
+	if got := assistantProse(display[1].Item.Message); got != "I will read it." {
+		t.Fatalf("assistant prose = %q", got)
+	}
+	work := display[2]
+	if work.ID != "turn-work:turn_1:call_1" || len(work.Items) != 2 {
+		t.Fatalf("turn work = %+v", work)
+	}
+	calls := displayItemToolCalls(work)
+	if len(calls) != 2 || calls[0].Name != "read" || calls[1].Name != "grep" {
+		t.Fatalf("turn-work calls = %+v", calls)
+	}
+}
+
+func TestGroupTranscriptDisplayItemsKeepsWorkIdentityStableAcrossCompletion(t *testing.T) {
+	t.Parallel()
+
+	assistant := transcriptMessageWithContent(
+		"assistant_1", "turn_1", "assistant", toolCallBlock("call_1", "read", `{"path":"README.md"}`),
+	)
+	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{assistant}))
+	result := protocol.TranscriptMessage{
+		ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read",
+		Content: []protocol.TranscriptContent{textBlock("contents")},
+	}
+	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{assistant, result}))
+	if len(before) != 1 || len(after) != 1 || before[0].ID != after[0].ID {
+		t.Fatalf("display identity changed: before=%+v after=%+v", before, after)
+	}
+	if _, ok := after[0].Items[0].ToolResults["call_1"]; !ok {
+		t.Fatalf("completed result was not paired: %+v", after[0])
+	}
+}
+
+func TestPresentBashCommandMatchesMainPresentation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		command    string
+		text       string
+		summarized bool
+		count      int
+	}{
+		{`printf '%s' 'a  b'`, `printf '%s' 'a  b'`, false, 1},
+		{`grep -R 'TerminalColors' app | head -10; grep DEFAULT app | head`, "grep → head · grep → head", true, 4},
+		{`printf '%s' 'a|b;c'`, `printf '%s' 'a|b;c'`, false, 1},
+		{`echo $(printf 'a|b') | sed 's/a/b/'`, "echo → sed", true, 2},
+		{"pwd\nbun test", "shell script · 2 commands", true, 2},
+		{"sleep 1 & echo done", "sleep · echo", true, 2},
+		{"echo ok # note | sed x", "echo ok # note | sed x", false, 1},
+		{"  for x in a b; do echo $x; done", "shell command · 3 steps", true, 3},
+		{"cat <<EOF\na | b\nEOF", "shell script · 3 lines", true, 4},
+		{"echo foo \\\n  bar", "shell script · 2 lines", true, 1},
+		{"sudo -u root grep x | head", "sudo → head", true, 2},
+		{`FOO="a b" grep x | head`, "grep → head", true, 2},
+		{`my\ command | head`, `my\ command → head`, true, 2},
+		{"cat <&0 | wc", "cat → wc", true, 2},
+		{"echo hi;# note | sed x", "echo hi;# note | sed x", false, 1},
+	}
+	for _, test := range tests {
+		t.Run(test.command, func(t *testing.T) {
+			got := presentBashCommand(test.command)
+			if got.Text != test.text || got.Summarized != test.summarized || got.CommandCount != test.count {
+				t.Fatalf("presentBashCommand() = %+v, want text %q summarized %v count %d", got, test.text, test.summarized, test.count)
+			}
+		})
+	}
+
+	long := presentBashCommand("grep " + strings.Repeat("x", 100))
+	if !long.Summarized || len([]rune(long.Text)) > maxBashCommandSummaryLength || !strings.HasSuffix(long.Text, "…") {
+		t.Fatalf("long command presentation = %+v", long)
+	}
+}
+
+func TestToolPresentationHelpersMatchMainRules(t *testing.T) {
+	t.Parallel()
+
+	read := transcriptToolCall{ID: "read_1", Name: "read", Arguments: json.RawMessage(`{"path":"/tmp/file"}`)}
+	if got := toolDisplayName(read); got != "read" {
+		t.Fatalf("read display name = %q", got)
+	}
+	if got := formatToolArguments(read, false); got != "/tmp/file" {
+		t.Fatalf("read argument = %q", got)
+	}
+
+	subagent := transcriptToolCall{ID: "agent_1", Name: "subagent", Arguments: json.RawMessage(`{"action":"run","agent":"reviewer","message":"inspect changes"}`)}
+	if got := toolDisplayName(subagent); got != "reviewer" {
+		t.Fatalf("subagent display name = %q", got)
+	}
+	if got := formatToolArguments(subagent, false); got != "inspect changes" {
+		t.Fatalf("subagent argument = %q", got)
+	}
+
+	skill := transcriptToolCall{ID: "skill_1", Name: "activate_skill", Arguments: json.RawMessage(`{"name":"vaxis-ui"}`)}
+	if got := toolDisplayName(skill); got != "activate skill" {
+		t.Fatalf("skill display name = %q", got)
+	}
+	if got := formatToolArguments(skill, false); got != "vaxis-ui" {
+		t.Fatalf("skill argument = %q", got)
+	}
+}

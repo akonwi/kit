@@ -286,6 +286,12 @@ func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
 	if final.Model == "" {
 		final.Model = d.model.ID
 	}
+	if err := validateAssistantToolCalls(final); err != nil {
+		final.Content = nil
+		final.StopReason = StopReasonError
+		final.ErrorKind = ErrorProtocol
+		final.ErrorMessage = err.Error()
+	}
 	// A context-window rejection is a failed request rather than a completed
 	// assistant message. Keep it out of active and durable history so a compacted
 	// retry can proceed from the original transcript.
@@ -297,6 +303,31 @@ func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
 	}
 	d.emit(MessageEnd{Message: final})
 	return final
+}
+
+func validateAssistantToolCalls(message AssistantMessage) error {
+	calls := message.ToolCalls()
+	if message.StopReason == StopReasonToolUse && len(calls) == 0 {
+		return fmt.Errorf("droids: provider ended with tool use but returned no tool calls")
+	}
+	return validateToolCallIdentities(calls, "provider")
+}
+
+func validateToolCallIdentities(calls []ToolCall, source string) error {
+	seen := make(map[string]struct{}, len(calls))
+	for index, call := range calls {
+		if call.ID == "" {
+			return fmt.Errorf("droids: %s tool call %d has an empty id", source, index)
+		}
+		if call.Name == "" {
+			return fmt.Errorf("droids: %s tool call %d has an empty name", source, index)
+		}
+		if _, duplicate := seen[call.ID]; duplicate {
+			return fmt.Errorf("droids: %s tool call %d has duplicate id %q", source, index, call.ID)
+		}
+		seen[call.ID] = struct{}{}
+	}
+	return nil
 }
 
 // toolOutcome is the finalized result of a single tool call.
@@ -522,19 +553,10 @@ func (d *Droid) validateContinuation() error {
 			len(results), len(calls),
 		)
 	}
-	seenIDs := make(map[string]struct{}, len(calls))
+	if err := validateToolCallIdentities(calls, "continuation"); err != nil {
+		return err
+	}
 	for i, call := range calls {
-		if call.ID == "" {
-			return fmt.Errorf("droids: continuation tool call %d has an empty id", i)
-		}
-		if call.Name == "" {
-			return fmt.Errorf("droids: continuation tool call %d has an empty name", i)
-		}
-		if _, exists := seenIDs[call.ID]; exists {
-			return fmt.Errorf("droids: continuation tool call %d has duplicate id %q", i, call.ID)
-		}
-		seenIDs[call.ID] = struct{}{}
-
 		result := results[i].(ToolResultMessage)
 		if result.ToolCallID != call.ID {
 			return fmt.Errorf(

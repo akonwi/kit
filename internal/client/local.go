@@ -174,7 +174,7 @@ func (r *localRun) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 			for index := len(snapshot.Messages) - 1; index >= 0; index-- {
 				message := snapshot.Messages[index]
 				if message.TurnID == r.turnID && message.Role == "assistant" {
-					text = message.Text
+					text = message.TextContent()
 					break
 				}
 			}

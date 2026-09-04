@@ -103,12 +103,12 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 6, Kind: protocol.SessionEventAssistantCompleted},
-		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
 		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Text: "file contents"},
 		{Sequence: 9, Kind: protocol.SessionEventRunFinished},
 	})
 	tool := state.liveMessages[2]
-	if tool.ToolName != "read" || tool.ToolStatus != "Completed" || tool.Text != "file contents" || tool.Pending {
+	if tool.ToolName != "read" || tool.ToolArguments != `{"path":"README.md"}` || tool.ToolStatus != "Completed" || tool.Text != "file contents" || tool.Pending {
 		t.Fatalf("live tool = %+v", tool)
 	}
 	app = uitest.New(shellView{Snapshot: shellSnapshot{

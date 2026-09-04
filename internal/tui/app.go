@@ -92,13 +92,15 @@ const (
 )
 
 type transcriptMessage struct {
-	Role       string
-	Text       string
-	Thinking   string
-	ToolName   string
-	ToolStatus string
-	IsError    bool
-	Pending    bool
+	Role                   string
+	Text                   string
+	Thinking               string
+	ToolName               string
+	ToolArguments          string
+	ToolArgumentsTruncated bool
+	ToolStatus             string
+	IsError                bool
+	Pending                bool
 }
 
 type liveContentBlock struct {
@@ -479,7 +481,25 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessage {
 	result := make([]transcriptMessage, 0, len(messages))
 	for _, message := range messages {
-		if strings.TrimSpace(message.Text) == "" && strings.TrimSpace(message.Thinking) == "" && message.ToolName == "" {
+		var textParts, thinkingParts []string
+		for _, block := range message.Content {
+			switch block.Kind {
+			case protocol.TranscriptContentText:
+				textParts = append(textParts, block.Text)
+			case protocol.TranscriptContentThinking:
+				thinkingParts = append(thinkingParts, block.Text)
+			case protocol.TranscriptContentImage:
+				textParts = append(textParts, "[image]")
+			case protocol.TranscriptContentFile:
+				textParts = append(textParts, "[file: "+block.Filename+"]")
+			}
+		}
+		text := strings.Join(textParts, "\n")
+		thinking := strings.Join(thinkingParts, "\n")
+		if text == "" && message.ErrorMessage != "" {
+			text = message.ErrorMessage
+		}
+		if strings.TrimSpace(text) == "" && strings.TrimSpace(thinking) == "" && message.ToolName == "" {
 			continue
 		}
 		role := message.Role
@@ -487,7 +507,7 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 			role = "error"
 		}
 		result = append(result, transcriptMessage{
-			Role: role, Text: message.Text, Thinking: message.Thinking,
+			Role: role, Text: text, Thinking: thinking,
 			ToolName: message.ToolName, IsError: message.IsError,
 		})
 	}
@@ -572,26 +592,18 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventToolPlanned, protocol.SessionEventToolStarted:
 			s.setTurnActivity("Working…")
-			index, ok := s.liveTools[event.ToolCallID]
-			if !ok {
-				index = len(s.liveMessages)
-				s.liveTools[event.ToolCallID] = index
-				s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "tool", ToolName: event.ToolName})
-			}
+			index := s.ensureLiveTool(event.ToolCallID, event.ToolName)
 			s.liveMessages[index].Pending = true
 			if event.Kind == protocol.SessionEventToolPlanned {
 				s.liveMessages[index].ToolStatus = "Preparing…"
 			} else {
+				s.liveMessages[index].ToolArguments = event.Arguments
+				s.liveMessages[index].ToolArgumentsTruncated = event.ArgumentsTruncated
 				s.liveMessages[index].ToolStatus = "Running…"
 			}
 		case protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted:
 			s.setTurnActivity("Working…")
-			index, ok := s.liveTools[event.ToolCallID]
-			if !ok {
-				index = len(s.liveMessages)
-				s.liveTools[event.ToolCallID] = index
-				s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "tool", ToolName: event.ToolName})
-			}
+			index := s.ensureLiveTool(event.ToolCallID, event.ToolName)
 			s.liveMessages[index].Text = event.Text
 			s.liveMessages[index].IsError = event.IsError
 			if event.Kind == protocol.SessionEventToolCompleted {
@@ -610,6 +622,16 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 	if len(events) > 0 {
 		s.requestTranscriptScroll()
 	}
+}
+
+func (s *appState) ensureLiveTool(callID, name string) int {
+	if index, ok := s.liveTools[callID]; ok {
+		return index
+	}
+	index := len(s.liveMessages)
+	s.liveTools[callID] = index
+	s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "tool", ToolName: name})
+	return index
 }
 
 func (s *appState) removeLiveMessage(index int) {

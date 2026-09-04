@@ -1,26 +1,55 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
 )
 
+// TranscriptContentKind identifies one ordered renderer-neutral content block.
+type TranscriptContentKind string
+
+const (
+	TranscriptContentText     TranscriptContentKind = "text"
+	TranscriptContentThinking TranscriptContentKind = "thinking"
+	TranscriptContentToolCall TranscriptContentKind = "toolCall"
+	TranscriptContentImage    TranscriptContentKind = "image"
+	TranscriptContentFile     TranscriptContentKind = "file"
+)
+
+// TranscriptContent is one renderer-neutral projection of persisted content.
+type TranscriptContent struct {
+	Kind               TranscriptContentKind
+	Text               string
+	ToolCallID         string
+	ToolName           string
+	Arguments          string
+	ArgumentsTruncated bool
+	Filename           string
+	MediaType          string
+}
+
 // TranscriptMessage is a renderer-neutral projection of one persisted message.
 type TranscriptMessage struct {
-	ID        string
-	TurnID    string
-	Sequence  int64
-	Role      string
-	Text      string
-	Thinking  string
-	ToolName  string
-	IsError   bool
-	CreatedAt time.Time
+	ID           string
+	TurnID       string
+	Sequence     int64
+	Role         string
+	Content      []TranscriptContent
+	StopReason   string
+	ErrorMessage string
+	ToolCallID   string
+	ToolName     string
+	Details      json.RawMessage
+	IsError      bool
+	CreatedAt    time.Time
 }
 
 // Snapshot is an authoritative point-in-time view of one session.
@@ -80,26 +109,12 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("decode message %q: %w", messageRecord.ID, err)
 		}
-		projected := TranscriptMessage{
-			ID: messageRecord.ID, TurnID: messageRecord.TurnID,
-			Sequence: messageRecord.Sequence, Role: messageRecord.Role,
-			Text: transcriptText(message), CreatedAt: messageRecord.CreatedAt,
+		projected, err := projectTranscriptMessage(messageRecord, message)
+		if err != nil {
+			return Snapshot{}, fmt.Errorf("project message %q: %w", messageRecord.ID, err)
 		}
-		if tool, ok := message.(droids.ToolResultMessage); ok {
-			projected.ToolName = tool.ToolName
-			projected.IsError = tool.IsError
-		}
-		if assistant, ok := message.(droids.AssistantMessage); ok {
-			_, projected.Thinking = assistantPresentation(assistant)
-			if assistant.StopReason == droids.StopReasonError || assistant.StopReason == droids.StopReasonAborted {
-				projected.IsError = true
-				if projected.Text == "" {
-					projected.Text = assistant.ErrorMessage
-				}
-			}
-			if assistant.Usage.TotalTokens > 0 {
-				snapshot.ContextTokens = assistant.Usage.TotalTokens
-			}
+		if assistant, ok := message.(droids.AssistantMessage); ok && assistant.Usage.TotalTokens > 0 {
+			snapshot.ContextTokens = assistant.Usage.TotalTokens
 		}
 		snapshot.Messages = append(snapshot.Messages, projected)
 	}
@@ -122,17 +137,135 @@ func (m *Manager) durableActiveRun(ctx context.Context, sessionID string) (strin
 	return record.ID, record.TurnID, nil
 }
 
-func transcriptText(message droids.Message) string {
+func projectTranscriptMessage(record MessageRecord, message droids.Message) (TranscriptMessage, error) {
+	content, err := projectTranscriptContent(message)
+	if err != nil {
+		return TranscriptMessage{}, err
+	}
+	projected := TranscriptMessage{
+		ID: record.ID, TurnID: record.TurnID, Sequence: record.Sequence,
+		Role: record.Role, Content: content, CreatedAt: record.CreatedAt,
+	}
+	switch typed := message.(type) {
+	case droids.AssistantMessage:
+		projected.StopReason = string(typed.StopReason)
+		projected.ErrorMessage = typed.ErrorMessage
+		projected.IsError = typed.StopReason == droids.StopReasonError || typed.StopReason == droids.StopReasonAborted
+	case droids.ToolResultMessage:
+		projected.ToolCallID = typed.ToolCallID
+		projected.ToolName = typed.ToolName
+		projected.IsError = typed.IsError
+		if len(record.PayloadJSON) > 0 {
+			projected.Details, err = persistedToolDetails(record.PayloadJSON)
+			if err != nil {
+				return TranscriptMessage{}, err
+			}
+		} else if typed.Details != nil {
+			projected.Details, err = json.Marshal(typed.Details)
+			if err != nil {
+				return TranscriptMessage{}, fmt.Errorf("project tool details: %w", err)
+			}
+		}
+	}
+	return projected, nil
+}
+
+func persistedToolDetails(payload []byte) (json.RawMessage, error) {
+	var envelope struct {
+		Details json.RawMessage `json:"details"`
+	}
+	if err := json.Unmarshal(payload, &envelope); err != nil {
+		return nil, fmt.Errorf("project persisted tool details: %w", err)
+	}
+	details := bytes.TrimSpace(envelope.Details)
+	if len(details) == 0 || bytes.Equal(details, []byte("null")) {
+		return nil, nil
+	}
+	return append(json.RawMessage(nil), details...), nil
+}
+
+func projectTranscriptContent(message droids.Message) ([]TranscriptContent, error) {
+	var content []droids.Content
 	switch typed := message.(type) {
 	case droids.UserMessage:
-		return contentText(typed.Content)
+		content = typed.Content
 	case droids.AssistantMessage:
-		return typed.Text()
+		content = typed.Content
 	case droids.ToolResultMessage:
-		return contentText(typed.Content)
+		content = typed.Content
 	default:
-		return ""
+		return nil, fmt.Errorf("unsupported message %T", message)
 	}
+
+	result := make([]TranscriptContent, 0, len(content))
+	for _, block := range content {
+		switch typed := block.(type) {
+		case droids.TextContent:
+			if typed.Text != "" {
+				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: typed.Text})
+			}
+		case droids.ThinkingContent:
+			if !typed.Redacted && typed.Thinking != "" {
+				result = append(result, TranscriptContent{Kind: TranscriptContentThinking, Text: typed.Thinking})
+			}
+		case droids.ToolCall:
+			arguments, truncated := presentationToolArguments(typed.Arguments)
+			result = append(result, TranscriptContent{
+				Kind: TranscriptContentToolCall, ToolCallID: typed.ID,
+				ToolName: typed.Name, Arguments: arguments, ArgumentsTruncated: truncated,
+			})
+		case droids.ImageContent:
+			result = append(result, TranscriptContent{
+				Kind: TranscriptContentImage, MediaType: typed.MediaType,
+			})
+		case droids.FileContent:
+			result = append(result, TranscriptContent{
+				Kind: TranscriptContentFile, Filename: typed.Filename, MediaType: typed.MediaType,
+			})
+		default:
+			return nil, fmt.Errorf("unsupported content %T", block)
+		}
+	}
+	return result, nil
+}
+
+const maxPresentationToolArgumentsBytes = 64 << 10
+
+func presentationToolArguments(raw []byte) (string, bool) {
+	canonical, err := normalizeJSONObject(raw)
+	if err != nil {
+		canonical = []byte(strings.ToValidUTF8(string(raw), "�"))
+	}
+	if len(canonical) > maxPresentationToolArgumentsBytes {
+		return "", true
+	}
+	return string(canonical), false
+}
+
+func normalizeJSONObject(raw []byte) (json.RawMessage, error) {
+	if len(raw) == 0 {
+		raw = []byte("{}")
+	}
+	var value map[string]any
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil || value == nil {
+		if err == nil {
+			err = fmt.Errorf("value is not an object")
+		}
+		return nil, fmt.Errorf("decode JSON object: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = fmt.Errorf("multiple JSON values")
+		}
+		return nil, fmt.Errorf("decode JSON object: %w", err)
+	}
+	canonical, err := json.Marshal(value)
+	if err != nil {
+		return nil, fmt.Errorf("encode JSON object: %w", err)
+	}
+	return canonical, nil
 }
 
 func contentText(content []droids.Content) string {

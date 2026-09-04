@@ -111,9 +111,10 @@ recorded manual verification exists.
   recovery, and full multi-client synchronization remain.
 - [~] Persist explicit turn and stable message identities.
 - [~] Render active and historical turns consistently after reconnect/restart;
-  the native TUI restores completed and diagnostic transcript snapshots and
-  reconstructs an attached active run from its durable event journal, while
-  atomic synchronization and rich entries remain.
+  transcript snapshots now preserve ordered content blocks, tool call/result
+  identity, bounded arguments, details, errors, and stop reasons, and the native
+  TUI reconstructs an attached active run from its durable event journal. Rich
+  turn entries and atomic multi-client synchronization remain.
 - [ ] Steering, follow-up queueing, promotion, restoration, and generation
   guards.
 - [~] Abort and cooperative cancellation through providers, tools, plugins, and
@@ -144,6 +145,7 @@ recorded manual verification exists.
 - [ ] Direct composer `!`/`!!` bash execution and per-session history.
 - [ ] Git-aware operations used by review and workspace features.
 - [ ] URL/open-browser and platform operations behind client/platform ports.
+- [ ] `show_image` local-image validation and transcript presentation.
 - [ ] Attachment/image inputs with validation and provider capability handling.
 - [ ] Tool approval/interceptor behavior and remote interaction routing.
 
@@ -212,7 +214,9 @@ recorded manual verification exists.
 
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
-- [~] Canonical wire-safe records with runtime validation in Go and TypeScript.
+- [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
+  protocol v5 adds validated structured transcript content and explicit bounded
+  tool-argument truncation. TypeScript contracts remain.
 - [ ] Snapshot plus high-water synchronization without listener races.
 - [ ] Ordered, exactly-once client reduction with duplicate/gap handling.
 - [~] Bounded event journal, replay, resync, and snapshot fallback; session
@@ -338,8 +342,8 @@ recorded manual verification exists.
 - [ ] Pager sectioning, auto-open setting, notes, draft attachment, restore,
   submit, and failure recovery.
 - [ ] Turn Activity retained-pane navigation and live/completed scroll behavior.
-- [ ] Scratchpad guarded reads/edits, autosave, context injection, and
-  fork/handoff copying.
+- [ ] Scratchpad guarded reads/edits, the core `edit_scratchpad` tool, autosave,
+  context injection, and fork/handoff copying.
 
 ## Code review and workspace files
 

@@ -71,11 +71,21 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		Messages: make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 	}
 	for _, message := range snapshot.Messages {
+		content := make([]protocol.TranscriptContent, 0, len(message.Content))
+		for _, block := range message.Content {
+			content = append(content, protocol.TranscriptContent{
+				Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
+				ToolCallID: block.ToolCallID, ToolName: block.ToolName,
+				Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
+				Filename: block.Filename, MediaType: block.MediaType,
+			})
+		}
 		result.Messages = append(result.Messages, protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
-			Role: message.Role, Text: message.Text, Thinking: message.Thinking,
-			ToolName: message.ToolName, IsError: message.IsError,
-			CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+			Role: message.Role, Content: content, StopReason: message.StopReason,
+			ErrorMessage: message.ErrorMessage, ToolCallID: message.ToolCallID,
+			ToolName: message.ToolName, Details: append(json.RawMessage(nil), message.Details...),
+			IsError: message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
 	return result, nil
@@ -96,7 +106,8 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID string, aft
 			SessionID: event.SessionID, TurnID: event.TurnID, RunID: event.RunID,
 			Kind: protocol.SessionEventKind(event.Kind), ContentIndex: event.ContentIndex,
 			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
-			ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments,
+			ToolCallID: event.ToolCallID, ToolName: event.ToolName,
+			Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated,
 			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
 			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
 		})

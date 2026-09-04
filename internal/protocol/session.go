@@ -1,6 +1,11 @@
 // Package protocol owns Kit's renderer-neutral session wire vocabulary.
 package protocol
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // CreateSessionInput requests a new persisted session.
 type CreateSessionInput struct {
 	CWD           string `json:"cwd"`
@@ -38,17 +43,54 @@ type SessionInfo struct {
 	UpdatedAt     string `json:"updatedAt"`
 }
 
+// TranscriptContentKind identifies one renderer-neutral message content block.
+type TranscriptContentKind string
+
+const (
+	TranscriptContentText     TranscriptContentKind = "text"
+	TranscriptContentThinking TranscriptContentKind = "thinking"
+	TranscriptContentToolCall TranscriptContentKind = "toolCall"
+	TranscriptContentImage    TranscriptContentKind = "image"
+	TranscriptContentFile     TranscriptContentKind = "file"
+)
+
+// TranscriptContent preserves the ordered presentation content of a message.
+type TranscriptContent struct {
+	Kind               TranscriptContentKind `json:"kind"`
+	Text               string                `json:"text,omitempty"`
+	ToolCallID         string                `json:"toolCallId,omitempty"`
+	ToolName           string                `json:"toolName,omitempty"`
+	Arguments          string                `json:"arguments,omitempty"`
+	ArgumentsTruncated bool                  `json:"argumentsTruncated,omitempty"`
+	Filename           string                `json:"filename,omitempty"`
+	MediaType          string                `json:"mediaType,omitempty"`
+}
+
 // TranscriptMessage is one ordered persisted message projected for clients.
 type TranscriptMessage struct {
-	ID        string `json:"id"`
-	TurnID    string `json:"turnId"`
-	Sequence  int64  `json:"sequence"`
-	Role      string `json:"role"`
-	Text      string `json:"text"`
-	Thinking  string `json:"thinking,omitempty"`
-	ToolName  string `json:"toolName,omitempty"`
-	IsError   bool   `json:"isError,omitempty"`
-	CreatedAt string `json:"createdAt"`
+	ID           string              `json:"id"`
+	TurnID       string              `json:"turnId"`
+	Sequence     int64               `json:"sequence"`
+	Role         string              `json:"role"`
+	Content      []TranscriptContent `json:"content"`
+	StopReason   string              `json:"stopReason,omitempty"`
+	ErrorMessage string              `json:"errorMessage,omitempty"`
+	ToolCallID   string              `json:"toolCallId,omitempty"`
+	ToolName     string              `json:"toolName,omitempty"`
+	Details      json.RawMessage     `json:"details,omitempty"`
+	IsError      bool                `json:"isError,omitempty"`
+	CreatedAt    string              `json:"createdAt"`
+}
+
+// TextContent joins the message's text blocks in their original order.
+func (message TranscriptMessage) TextContent() string {
+	parts := make([]string, 0, len(message.Content))
+	for _, block := range message.Content {
+		if block.Kind == TranscriptContentText && block.Text != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // SessionSnapshot is an authoritative point-in-time session presentation.

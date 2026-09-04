@@ -52,6 +52,46 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 	}
 }
 
+func TestProjectDroidEventSuppressesMalformedPlannedToolIdentity(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+		Stream: droids.StreamToolCallStart{ContentIndex: 1, Name: "read"},
+	})
+	if len(projected) != 0 {
+		t.Fatalf("projected malformed tool event = %+v, want none", projected)
+	}
+}
+
+func TestProjectDroidEventIncludesBoundedToolArgumentsOnStart(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionStart{
+		ToolCallID: "call_1", ToolName: "read", Arguments: []byte(`{ "path": "README.md" }`),
+	})
+	if len(projected) != 1 {
+		t.Fatalf("projected event count = %d, want 1", len(projected))
+	}
+	event := projected[0]
+	if event.Kind != EventToolStarted || event.Arguments != `{"path":"README.md"}` || event.ArgumentsTruncated {
+		t.Fatalf("projected tool start = %+v", event)
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatalf("tool start validation error = %v", err)
+	}
+
+	projected = projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionStart{
+		ToolCallID: "call_2", ToolName: "write",
+		Arguments: []byte(`{"content":"` + strings.Repeat("x", maxPresentationToolArgumentsBytes) + `"}`),
+	})
+	if len(projected) != 1 || projected[0].Arguments != "" || !projected[0].ArgumentsTruncated {
+		t.Fatalf("oversized tool start = %+v", projected)
+	}
+	if err := projected[0].Validate(); err != nil {
+		t.Fatalf("truncated tool start validation error = %v", err)
+	}
+}
+
 func TestProjectDroidEventChunksLargeStreamingDeltaWithoutDataLoss(t *testing.T) {
 	t.Parallel()
 

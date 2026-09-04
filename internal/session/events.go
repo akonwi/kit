@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -34,21 +33,22 @@ const (
 
 // NewEvent is a live session update awaiting a durable stream sequence.
 type NewEvent struct {
-	SessionID    string
-	TurnID       string
-	RunID        string
-	Kind         EventKind
-	ContentIndex int
-	Delta        string
-	Text         string
-	Thinking     string
-	ToolCallID   string
-	ToolName     string
-	Arguments    string
-	IsError      bool
-	Status       RunStatus
-	ErrorKind    ProviderErrorKind
-	ErrorMessage string
+	SessionID          string
+	TurnID             string
+	RunID              string
+	Kind               EventKind
+	ContentIndex       int
+	Delta              string
+	Text               string
+	Thinking           string
+	ToolCallID         string
+	ToolName           string
+	Arguments          string
+	ArgumentsTruncated bool
+	IsError            bool
+	Status             RunStatus
+	ErrorKind          ProviderErrorKind
+	ErrorMessage       string
 }
 
 // Event is one durable, ordered live session update.
@@ -93,8 +93,11 @@ func (event NewEvent) Validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("tool start requires call id and name")
 		}
-		if event.Arguments != "" && !json.Valid([]byte(event.Arguments)) {
-			return fmt.Errorf("tool arguments are not valid JSON")
+		if event.Kind == EventToolPlanned && (event.Arguments != "" || event.ArgumentsTruncated) {
+			return fmt.Errorf("planned tool call cannot carry complete arguments")
+		}
+		if event.Kind == EventToolStarted && (event.Arguments == "") == !event.ArgumentsTruncated {
+			return fmt.Errorf("started tool call requires either complete or explicitly truncated arguments")
 		}
 	case EventToolUpdated, EventToolCompleted:
 		if event.ToolCallID == "" || event.ToolName == "" {
@@ -130,11 +133,11 @@ func (event NewEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
 	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
-	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.IsError) {
+	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
 	}
-	if (event.Kind == EventToolUpdated || event.Kind == EventToolCompleted) && event.Arguments != "" {
-		return fmt.Errorf("tool result event cannot carry arguments")
+	if event.Kind != EventToolPlanned && event.Kind != EventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
+		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
 	return nil
 }
@@ -183,6 +186,9 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			base.ContentIndex = delta.ContentIndex
 			return splitLiveDelta(base, delta.Delta)
 		case droids.StreamToolCallStart:
+			if delta.ID == "" || delta.Name == "" {
+				return nil
+			}
 			base.Kind = EventToolPlanned
 			base.ContentIndex = delta.ContentIndex
 			base.ToolCallID = delta.ID
@@ -199,6 +205,7 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		base.Kind = EventToolStarted
 		base.ToolCallID = typed.ToolCallID
 		base.ToolName = typed.ToolName
+		base.Arguments, base.ArgumentsTruncated = presentationToolArguments(typed.Arguments)
 		return []NewEvent{base}
 	case droids.ToolExecutionUpdate:
 		base.Kind = EventToolUpdated

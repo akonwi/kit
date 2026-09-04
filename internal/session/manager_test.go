@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,62 @@ import (
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
 )
+
+func projectedContentText(message kitsession.TranscriptMessage, kind kitsession.TranscriptContentKind) string {
+	var parts []string
+	for _, block := range message.Content {
+		if block.Kind == kind {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+func TestManagerRecordsMalformedProviderToolIdentityAsProtocolFailure(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	defer store.Close()
+	manager, err := kitsession.NewManager(store, malformedToolProviders{}, "You are a test agent.")
+	if err != nil {
+		t.Fatalf("kitsession.NewManager() error = %v", err)
+	}
+	defer manager.Close()
+	session, err := manager.Create(ctx, kitsession.CreateInput{CWD: t.TempDir(), Model: "test/malformed"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	result, err := runPrompt(manager, ctx, session.ID, "use a tool")
+	if err != nil {
+		t.Fatalf("RunPrompt() error = %v", err)
+	}
+	if result.Status != kitsession.RunStatusFailed || result.ErrorKind != kitsession.ProviderErrorProtocol || result.StopReason != string(droids.StopReasonError) {
+		t.Fatalf("malformed provider result = %+v", result)
+	}
+	snapshot, err := manager.Snapshot(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Messages) != 2 || snapshot.Messages[1].StopReason != string(droids.StopReasonError) || snapshot.Messages[1].ErrorMessage == "" {
+		t.Fatalf("malformed provider snapshot = %+v", snapshot.Messages)
+	}
+	page, err := manager.Events(ctx, session.ID, 0)
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	for _, event := range page.Events {
+		if event.Kind == kitsession.EventToolPlanned || event.Kind == kitsession.EventToolStarted {
+			t.Fatalf("malformed provider emitted executable tool event: %+v", event)
+		}
+	}
+	if terminal := page.Events[len(page.Events)-1]; terminal.Kind != kitsession.EventRunFinished || terminal.Status != kitsession.RunStatusFailed {
+		t.Fatalf("terminal event = %+v", terminal)
+	}
+}
 
 func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 	t.Parallel()
@@ -46,7 +103,7 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Snapshot() error = %v", err)
 	}
-	if got := firstSnapshot.Messages[1].Thinking; got != "thinking 1" {
+	if got := projectedContentText(firstSnapshot.Messages[1], kitsession.TranscriptContentThinking); got != "thinking 1" {
 		t.Fatalf("persisted assistant thinking = %q, want %q", got, "thinking 1")
 	}
 	manager.Close()
@@ -565,8 +622,10 @@ func TestManagerAbortIsExplicitAndDurable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if len(snapshot.Messages) != 2 || snapshot.Messages[0].Role != "user" || snapshot.Messages[0].Text != "abort me" ||
-		snapshot.Messages[1].Role != "assistant" || !snapshot.Messages[1].IsError || snapshot.Messages[1].Text == "" {
+	if len(snapshot.Messages) != 2 || snapshot.Messages[0].Role != "user" ||
+		projectedContentText(snapshot.Messages[0], kitsession.TranscriptContentText) != "abort me" ||
+		snapshot.Messages[1].Role != "assistant" || !snapshot.Messages[1].IsError ||
+		snapshot.Messages[1].StopReason != string(droids.StopReasonAborted) || snapshot.Messages[1].ErrorMessage == "" {
 		t.Fatalf("aborted presentation transcript = %+v", snapshot.Messages)
 	}
 }
@@ -715,6 +774,39 @@ func (r *flakyFinishRepository) FinishParentRun(
 		return errors.New("simulated terminal write failure")
 	}
 	return r.Repository.FinishParentRun(ctx, sessionID, turnID, runID, status, errorMessage)
+}
+
+type malformedToolProviders struct{}
+
+func (malformedToolProviders) Models() []droids.Model {
+	return []droids.Model{{
+		ID: "malformed", Name: "Malformed", Provider: "test",
+		API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192,
+	}}
+}
+
+func (providers malformedToolProviders) Model(id string) (droids.Model, bool) {
+	for _, model := range providers.Models() {
+		if id == model.ID || id == model.Provider+"/"+model.ID {
+			return model, true
+		}
+	}
+	return droids.Model{}, false
+}
+
+func (malformedToolProviders) RefreshModels(context.Context) error { return nil }
+
+func (malformedToolProviders) Stream(context.Context, droids.Model, droids.Request) droids.Stream {
+	final := droids.AssistantMessage{
+		Provider: "test", Model: "malformed", StopReason: droids.StopReasonToolUse,
+		Content:   []droids.Content{droids.ToolCall{Name: "read", Arguments: []byte(`{"path":"README.md"}`)}},
+		Timestamp: time.Now().UnixMilli(),
+	}
+	return &echoStream{events: []droids.StreamEvent{
+		droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "malformed"}},
+		droids.StreamToolCallStart{ContentIndex: 0, Name: "read"},
+		droids.StreamDone{Message: final},
+	}, final: final}
 }
 
 type echoProviders struct {
