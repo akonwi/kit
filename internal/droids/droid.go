@@ -69,12 +69,13 @@ type Options struct {
 
 // Droid is a live agent session.
 type Droid struct {
-	opts              Options
-	providers         Providers
-	model             Model
-	maxTokens         int
-	compactionReserve int
-	tools             map[string]AnyTool
+	opts               Options
+	providers          Providers
+	model              Model
+	maxTokens          int
+	compactionReserve  int
+	toolsByName        map[string]AnyTool // execution lookup
+	orderedToolSchemas []ToolSchema       // deterministic provider declarations
 
 	mu         sync.Mutex
 	transcript []Message
@@ -133,7 +134,7 @@ func New(opts Options) (*Droid, error) {
 		model:             model,
 		maxTokens:         maxTokens,
 		compactionReserve: maxTokens,
-		tools:             map[string]AnyTool{},
+		toolsByName:       map[string]AnyTool{},
 		accepting:         true,
 		queue:             make(chan queuedPrompt, 64),
 		closed:            make(chan struct{}),
@@ -143,10 +144,11 @@ func New(opts Options) (*Droid, error) {
 		if schema.Name == "" {
 			return nil, fmt.Errorf("droids: tool name is required")
 		}
-		if _, exists := d.tools[schema.Name]; exists {
+		if _, exists := d.toolsByName[schema.Name]; exists {
 			return nil, fmt.Errorf("droids: duplicate tool name %q", schema.Name)
 		}
-		d.tools[schema.Name] = t
+		d.toolsByName[schema.Name] = t
+		d.orderedToolSchemas = append(d.orderedToolSchemas, schema)
 	}
 
 	{

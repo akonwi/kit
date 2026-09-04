@@ -53,3 +53,43 @@ func TestExplicitParametersOverrideDerivation(t *testing.T) {
 		t.Fatalf("explicit parameters were not used: %v", got)
 	}
 }
+
+func TestToolSchemasPreserveRegistrationOrder(t *testing.T) {
+	first := NewTool(Tool[struct{}]{Name: "first"})
+	second := NewTool(Tool[struct{}]{Name: "second"})
+	droid := Droid{orderedToolSchemas: []ToolSchema{first.schema(), second.schema()}}
+
+	schemas := droid.providerToolSchemas()
+	if len(schemas) != 2 || schemas[0].Name != "first" || schemas[1].Name != "second" {
+		t.Fatalf("tool schemas = %+v, want first then second", schemas)
+	}
+}
+
+func TestToolExecutionStrictlyDecodesOneObject(t *testing.T) {
+	type args struct {
+		Value string `json:"value"`
+	}
+	tool := NewTool(Tool[args]{
+		Name: "strict",
+		Execute: func(_ context.Context, input args) (ToolResult, error) {
+			return ToolText(input.Value), nil
+		},
+	})
+	for _, raw := range []string{
+		`null`,
+		`[]`,
+		`{"value":"ok","unknown":true}`,
+		`{"value":"ok"} {"value":"again"}`,
+	} {
+		if _, err := tool.execute(context.Background(), []byte(raw)); err == nil {
+			t.Errorf("execute(%s) error = nil", raw)
+		}
+	}
+	result, err := tool.execute(context.Background(), []byte(`{"value":"ok"}`))
+	if err != nil {
+		t.Fatalf("valid execution error = %v", err)
+	}
+	if got := result.Content[0].(TextContent).Text; got != "ok" {
+		t.Fatalf("valid execution text = %q", got)
+	}
+}

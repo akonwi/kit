@@ -57,7 +57,7 @@ func (d *Droid) contextUsage(messages []Message) ContextUsage {
 	req := Request{
 		SystemPrompt: d.opts.SystemPrompt,
 		Messages:     messages,
-		Tools:        d.toolSchemas(),
+		Tools:        d.providerToolSchemas(),
 		Reasoning:    d.opts.Reasoning,
 		MaxTokens:    d.maxTokens,
 	}

@@ -10,6 +10,7 @@ require (
 	github.com/openai/openai-go/v3 v3.50.0
 	go.rockorager.dev/vaxis v0.17.1
 	golang.org/x/sync v0.21.0
+	golang.org/x/sys v0.47.0
 	modernc.org/sqlite v1.57.0
 )
 
@@ -34,7 +35,6 @@ require (
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.yaml.in/yaml/v4 v4.0.0-rc.2 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
-	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/term v0.10.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	modernc.org/libc v1.74.4 // indirect

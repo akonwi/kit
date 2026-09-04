@@ -136,11 +136,11 @@ recorded manual verification exists.
 
 ## Built-in coding tools
 
-- [ ] Read files with bounded output and line addressing.
-- [ ] Exact/surgical edit behavior and useful conflict errors.
-- [ ] Full-file writes with parent-directory creation.
-- [ ] Directory listing, glob finding, and content search.
-- [ ] Shell execution, cancellation, output bounds, exit status, and cwd.
+- [x] Read files with bounded output and line addressing.
+- [x] Exact/surgical edit behavior and useful conflict errors.
+- [x] Full-file writes with parent-directory creation.
+- [x] Directory listing, glob finding, and content search.
+- [x] Shell execution, cancellation, output bounds, exit status, and cwd.
 - [ ] Direct composer `!`/`!!` bash execution and per-session history.
 - [ ] Git-aware operations used by review and workspace features.
 - [ ] URL/open-browser and platform operations behind client/platform ports.

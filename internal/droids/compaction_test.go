@@ -625,7 +625,7 @@ func TestContextUsageRemainingUsesExactMinimum(t *testing.T) {
 	d := &Droid{
 		model:             Model{ContextWindow: 100, MaxInputTokens: 200},
 		compactionReserve: 20,
-		tools:             map[string]AnyTool{},
+		toolsByName:       map[string]AnyTool{},
 	}
 	usage := d.contextUsage([]Message{UserMessage{Content: []Content{
 		TextContent{Text: strings.Repeat("x", 92)},

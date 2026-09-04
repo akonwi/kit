@@ -26,6 +26,9 @@ import (
 
 var ErrAlreadyRunning = errors.New("local daemon is already running")
 
+const defaultSystemPrompt = `You are Kit, a coding agent running in the terminal.
+You have access to tools to read and modify files, run commands, and search code. Use them when needed.`
+
 // RunOptions configures the internal local daemon process.
 type RunOptions struct {
 	Paths             apphome.Paths
@@ -127,7 +130,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	systemPrompt := options.SystemPrompt
 	if systemPrompt == "" {
-		systemPrompt = "You are Kit, a coding agent."
+		systemPrompt = defaultSystemPrompt
 	}
 	providerAvailability := func(ctx context.Context) []string {
 		if customProviders {

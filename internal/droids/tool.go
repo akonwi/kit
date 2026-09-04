@@ -1,8 +1,11 @@
 package droids
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 
 	"github.com/invopop/jsonschema"
 )
@@ -141,11 +144,24 @@ func emptyObjectSchema() map[string]any {
 func (b boundTool[Args]) mode() ExecutionMode { return b.t.Mode }
 
 func (b boundTool[Args]) execute(ctx context.Context, raw []byte) (ToolResult, error) {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		raw = []byte("{}")
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return ToolResult{}, fmt.Errorf("tool arguments must be a JSON object")
+	}
 	var args Args
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &args); err != nil {
-			return ToolResult{}, err
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&args); err != nil {
+		return ToolResult{}, err
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return ToolResult{}, fmt.Errorf("tool arguments contain multiple JSON values")
 		}
+		return ToolResult{}, err
 	}
 	return b.t.Execute(ctx, args)
 }

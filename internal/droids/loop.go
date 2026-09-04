@@ -256,7 +256,7 @@ func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
 	req := Request{
 		SystemPrompt: d.opts.SystemPrompt,
 		Messages:     d.snapshot(),
-		Tools:        d.toolSchemas(),
+		Tools:        d.providerToolSchemas(),
 		Reasoning:    d.opts.Reasoning,
 		MaxTokens:    requestMaxTokens,
 	}
@@ -323,7 +323,7 @@ func (d *Droid) batchIsSequential(calls []ToolCall) bool {
 		return true
 	}
 	for _, call := range calls {
-		if t, ok := d.tools[call.Name]; ok && t.mode() == ModeSequential {
+		if tool, ok := d.toolsByName[call.Name]; ok && tool.mode() == ModeSequential {
 			return true
 		}
 	}
@@ -360,25 +360,29 @@ func (d *Droid) executeToolsParallel(ctx context.Context, calls []ToolCall) []To
 		execIdx = append(execIdx, i)
 	}
 
-	// Execute survivors concurrently; emit ToolExecutionEnd in completion order.
-	var wg sync.WaitGroup
-	var sem chan struct{}
+	// Execute survivors with a fixed worker count; emit ToolExecutionEnd in
+	// completion order without creating one waiting goroutine per model call.
+	workerCount := len(execIdx)
 	if d.opts.MaxParallelTools > 0 {
-		sem = make(chan struct{}, d.opts.MaxParallelTools)
+		workerCount = min(workerCount, d.opts.MaxParallelTools)
 	}
-	for _, i := range execIdx {
+	jobs := make(chan int, len(execIdx))
+	for _, index := range execIdx {
+		jobs <- index
+	}
+	close(jobs)
+	var wg sync.WaitGroup
+	for range workerCount {
 		wg.Add(1)
-		go func(i int) {
+		go func() {
 			defer wg.Done()
-			if sem != nil {
-				sem <- struct{}{}
-				defer func() { <-sem }()
+			for index := range jobs {
+				call := calls[index]
+				result, isError := d.executeAndAfter(ctx, call)
+				outcomes[index] = toolOutcome{result: result, isError: isError}
+				d.emit(ToolExecutionEnd{ToolCallID: call.ID, ToolName: call.Name, Result: result, IsError: isError})
 			}
-			call := calls[i]
-			result, isError := d.executeAndAfter(ctx, call)
-			outcomes[i] = toolOutcome{result: result, isError: isError}
-			d.emit(ToolExecutionEnd{ToolCallID: call.ID, ToolName: call.Name, Result: result, IsError: isError})
-		}(i)
+		}()
 	}
 	wg.Wait()
 
@@ -459,7 +463,7 @@ func (d *Droid) executeAndAfter(ctx context.Context, call ToolCall) (ToolResult,
 
 // executeTool looks up and runs a single tool.
 func (d *Droid) executeTool(ctx context.Context, call ToolCall) (ToolResult, bool) {
-	tool, ok := d.tools[call.Name]
+	tool, ok := d.toolsByName[call.Name]
 	if !ok {
 		return toolErrorText(fmt.Sprintf("Tool %q not found", call.Name)), true
 	}
@@ -585,12 +589,8 @@ func (d *Droid) drainSteering() []Message {
 	return out
 }
 
-func (d *Droid) toolSchemas() []ToolSchema {
-	out := make([]ToolSchema, 0, len(d.tools))
-	for _, t := range d.tools {
-		out = append(out, t.schema())
-	}
-	return out
+func (d *Droid) providerToolSchemas() []ToolSchema {
+	return append([]ToolSchema(nil), d.orderedToolSchemas...)
 }
 
 func errText(m AssistantMessage) string {

@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
 )
@@ -668,6 +669,7 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 		Model:            record.ModelProvider + "/" + record.ModelID,
 		Reasoning:        record.ThinkingLevel,
 		SystemPrompt:     m.systemPrompt,
+		Tools:            codingtools.New(record.CWD),
 		Storage:          adapter,
 		Session:          sessionID,
 		MaxSteps:         16,

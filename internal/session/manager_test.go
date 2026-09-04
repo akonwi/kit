@@ -68,6 +68,15 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 	if len(requests) != 2 {
 		t.Fatalf("provider request count = %d, want 2", len(requests))
 	}
+	wantTools := []string{"bash", "read", "write", "edit", "ls", "grep", "find"}
+	if len(requests[0].Tools) != len(wantTools) {
+		t.Fatalf("provider tool count = %d, want %d", len(requests[0].Tools), len(wantTools))
+	}
+	for index, want := range wantTools {
+		if got := requests[0].Tools[index].Name; got != want {
+			t.Errorf("provider tool %d = %q, want %q", index, got, want)
+		}
+	}
 	if len(requests[1].Messages) != 3 {
 		t.Fatalf("resumed request message count = %d, want 3", len(requests[1].Messages))
 	}
