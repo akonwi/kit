@@ -15,6 +15,17 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func liveToolMessage(t *testing.T, state *appState, callID string) transcriptMessage {
+	t.Helper()
+	for _, message := range state.liveMessages {
+		if message.Role == "tool" && message.ToolCallID == callID {
+			return message
+		}
+	}
+	t.Fatalf("live tool %q not found in %+v", callID, state.liveMessages)
+	return transcriptMessage{}
+}
+
 func TestTranscriptScrollWaitsForUpdatedLayout(t *testing.T) {
 	t.Parallel()
 
@@ -25,6 +36,32 @@ func TestTranscriptScrollWaitsForUpdatedLayout(t *testing.T) {
 	}
 	if state.TickFrame(time.Now()) || state.needsScroll {
 		t.Fatalf("second frame state = needs:%t, want settled unattached scroll", state.needsScroll)
+	}
+}
+
+func TestActivityScrollWaitsForUpdatedLayout(t *testing.T) {
+	t.Parallel()
+
+	state := appState{}
+	state.requestActivityScroll(true)
+	if !state.TickFrame(time.Now()) || !state.activityNeedsScroll || state.activityPendingLayout {
+		t.Fatalf("first activity frame = needs:%t pending:%t", state.activityNeedsScroll, state.activityPendingLayout)
+	}
+	if state.TickFrame(time.Now()) || state.activityNeedsScroll {
+		t.Fatalf("second activity frame = needs:%t, want settled", state.activityNeedsScroll)
+	}
+}
+
+func TestSnapshotClosesActivityWhenItsSourceDisappears(t *testing.T) {
+	t.Parallel()
+
+	state := appState{activitySourceID: "turn-work:turn_1:call_1", activitySelected: true}
+	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{{
+		ID: "user_1", TurnID: "turn_1", Role: "user",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "hello"}},
+	}}})
+	if state.activitySourceID != "" || state.activitySelected {
+		t.Fatalf("vanished Activity source remained open: %q selected %v", state.activitySourceID, state.activitySelected)
 	}
 }
 
@@ -40,10 +77,10 @@ func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
 		{Sequence: 6, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
 	})
-	if len(state.liveMessages) != 2 {
-		t.Fatalf("live messages = %+v, want user and one tool", state.liveMessages)
+	if len(state.liveMessages) != 3 {
+		t.Fatalf("live messages = %+v, want user, tool-bearing assistant, and tool result", state.liveMessages)
 	}
-	tool := state.liveMessages[1]
+	tool := liveToolMessage(t, &state, "call_1")
 	if tool.Role != "tool" || tool.ToolName != "read" || tool.ToolArguments != `{"path":"README.md"}` || tool.ToolStatus != "Running…" {
 		t.Fatalf("tool after assistant completion = %+v", tool)
 	}
@@ -58,7 +95,7 @@ func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
 		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "con"}}},
 		{Sequence: 3, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "tents"}}},
 	})
-	if len(state.liveMessages) != 1 || state.liveMessages[0].Text != "contents" || !state.liveMessages[0].Pending {
+	if tool := liveToolMessage(t, &state, "call_1"); tool.Text != "contents" || !tool.Pending {
 		t.Fatalf("streamed tool = %+v", state.liveMessages)
 	}
 	state.applyRunEvents([]protocol.SessionEvent{{
@@ -67,7 +104,7 @@ func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
 		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "authoritative contents"}},
 		Details: json.RawMessage(`{"lines":1}`),
 	}})
-	tool := state.liveMessages[0]
+	tool := liveToolMessage(t, &state, "call_1")
 	if tool.Text != "authoritative contents" || tool.Pending || string(tool.ToolDetails) != `{"lines":1}` {
 		t.Fatalf("completed tool = %+v", tool)
 	}
@@ -82,7 +119,7 @@ func TestToolResultDeltaPreviewIsCumulativelyBounded(t *testing.T) {
 		{Sequence: 1, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: chunk}}},
 		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: chunk}}},
 	})
-	tool := state.liveMessages[0]
+	tool := liveToolMessage(t, &state, "call_1")
 	if !tool.ToolContentTruncated || len(tool.ToolContent) != 2 || !strings.HasSuffix(tool.Text, "… live output truncated") || len(tool.Text) > maxLiveToolPreviewBytes+64 {
 		t.Fatalf("bounded tool preview = content %d text bytes %d truncated %t", len(tool.ToolContent), len(tool.Text), tool.ToolContentTruncated)
 	}
@@ -99,7 +136,7 @@ func TestUnexecutedToolPlanSettlesWhenRunFinishes(t *testing.T) {
 		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
 		{Sequence: 5, Kind: protocol.SessionEventRunFinished},
 	})
-	if len(state.liveMessages) != 1 || state.liveMessages[0].Pending || state.liveMessages[0].ToolStatus != "Not run" {
+	if tool := liveToolMessage(t, &state, "call_1"); tool.Pending || tool.ToolStatus != "Not run" {
 		t.Fatalf("settled tool plan = %+v", state.liveMessages)
 	}
 }

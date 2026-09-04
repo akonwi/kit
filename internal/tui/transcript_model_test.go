@@ -114,6 +114,45 @@ func TestGroupTranscriptDisplayItemsKeepsWorkIdentityStableAcrossCompletion(t *t
 	}
 }
 
+func TestPresentationScopesRepeatedToolCallIDsByTurn(t *testing.T) {
+	t.Parallel()
+
+	messages := []transcriptMessage{
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{}`)}}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Completed"},
+		{ID: "assistant_2", TurnID: "turn_2", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "write", Arguments: json.RawMessage(`{}`)}}},
+		{ID: "result_2", TurnID: "turn_2", Role: "tool", ToolCallID: "call_1", ToolName: "write", ToolStatus: "Failed", IsError: true},
+	}
+	presentation := presentTranscript(messages)
+	first := presentation.ToolStates[transcriptToolStateKey{TurnID: "turn_1", ToolCallID: "call_1"}]
+	second := presentation.ToolStates[transcriptToolStateKey{TurnID: "turn_2", ToolCallID: "call_1"}]
+	if first.ToolStatus != "Completed" || first.IsError || second.ToolStatus != "Failed" || !second.IsError {
+		t.Fatalf("turn-scoped tool states = first %+v second %+v", first, second)
+	}
+}
+
+func TestLocalActivitySourceIdentitySurvivesSnapshotReconciliation(t *testing.T) {
+	t.Parallel()
+
+	live := []transcriptMessage{
+		{ID: "live-assistant", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+			ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`),
+		}}},
+		{ID: "live-tool:call_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Pending: true},
+	}
+	historical := []transcriptMessage{
+		{ID: "persisted-assistant", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+			ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`),
+		}}},
+		{ID: "persisted-result", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Completed"},
+	}
+	liveSource := presentTranscript(live).Items[0].ID
+	historicalSource := presentTranscript(historical).Items[0].ID
+	if liveSource != "turn-work:turn_1:call_1" || historicalSource != liveSource {
+		t.Fatalf("activity source changed from %q to %q", liveSource, historicalSource)
+	}
+}
+
 func TestPresentBashCommandMatchesMainPresentation(t *testing.T) {
 	t.Parallel()
 

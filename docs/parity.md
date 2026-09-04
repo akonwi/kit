@@ -160,11 +160,10 @@ recorded manual verification exists.
   and responsive auth surfaces are implemented. Full semantic theme parity and
   user overrides remain.
 - [~] Transcript with selectable Markdown, streaming output, code, tool drawers,
-  and compact historical entries; the native TUI now restores persisted
-  plain-text messages, streams assistant text and tool lifecycle into the
-  transcript, and keeps live thinking/turn state in a fixed slot above the
-  composer. Markdown, code treatment, and
-  interactive tool drawers remain.
+  and compact historical entries; the native TUI now preserves assistant prose,
+  consolidates tool work into one-line chips, and opens bounded tool output in
+  Activity while keeping live thinking/turn state above the composer. Markdown,
+  code treatment, disclosure rows, and enriched tool rendering remain.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
@@ -183,10 +182,13 @@ recorded manual verification exists.
   interactive tool surfaces; the initial shell includes startup failure,
   three-provider selection, obscured API-key entry, and cancellable Codex
   device-flow surfaces.
-- [ ] Wide split workspace, draggable remembered ratio, narrow tabs, retained
-  pane state, and focus cycling.
-- [ ] Activity, Scratchpad, Code Review, file, subagent, MCP, release-note, and
-  other registered workspace panes.
+- [~] Wide split workspace, draggable remembered ratio, narrow tabs, retained
+  pane state, and focus cycling; Activity now uses a singleton responsive host
+  with split layout at 125+ columns and labeled narrow tabs. Draggable remembered
+  ratios and the general pane registry remain.
+- [~] Activity, Scratchpad, Code Review, file, subagent, MCP, release-note, and
+  other registered workspace panes; the first native Activity pane opens from
+  transcript chips with retained source replacement and responsive layout.
 - [~] Header/footer status, model/thinking/context indicators, VCS/PR location,
   plugin chrome, and update action; the initial shell preserves session/model
   header and status/cwd/Git footer ownership.
@@ -344,7 +346,9 @@ recorded manual verification exists.
 - [ ] Pending interaction replay/pagination across reconnects.
 - [ ] Pager sectioning, auto-open setting, notes, draft attachment, restore,
   submit, and failure recovery.
-- [ ] Turn Activity retained-pane navigation and live/completed scroll behavior.
+- [~] Turn Activity retained-pane navigation and live/completed scroll behavior;
+  chips open one retained source, historical sources start at the top, and live
+  sources follow the bottom.
 - [ ] Scratchpad guarded reads/edits, the core `edit_scratchpad` tool, autosave,
   context injection, and fork/handoff copying.
 

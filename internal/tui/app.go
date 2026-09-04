@@ -95,9 +95,12 @@ const (
 
 type transcriptMessage struct {
 	ID                     string
+	TurnID                 string
 	Role                   string
 	Text                   string
 	Thinking               string
+	ToolCallID             string
+	ToolCalls              []transcriptToolCall
 	ToolName               string
 	ToolArguments          string
 	ToolArgumentsTruncated bool
@@ -107,6 +110,7 @@ type transcriptMessage struct {
 	ToolDetails            json.RawMessage
 	ToolDetailsOmitted     bool
 	IsError                bool
+	Aborted                bool
 	Pending                bool
 }
 
@@ -129,37 +133,46 @@ type appState struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	phase               phase
-	errorText           string
-	status              string
-	composer            string
-	palette             paletteController
-	authReturnReady     bool
-	authFilter          string
-	authSelection       int
-	authProviderID      string
-	authAPIKey          string
-	authPending         bool
-	session             protocol.SessionInfo
-	bound               sessionclient.Session
-	messages            []transcriptMessage
-	liveMessages        []transcriptMessage
-	liveAssistant       int
-	liveHasUser         bool
-	liveTools           map[string]int
-	liveContent         map[int]liveContentBlock
-	liveSequence        int64
-	turnActivity        string
-	runStopping         bool
-	contextTokens       int
-	contextWindow       int
-	scroll              ui.ScrollController
-	needsScroll         bool
-	scrollPendingLayout bool
-	activeRun           sessionclient.Run
-	activeRunID         string
-	runPending          bool
-	prompt              *promptAdmission
+	phase                 phase
+	errorText             string
+	status                string
+	composer              string
+	palette               paletteController
+	authReturnReady       bool
+	authFilter            string
+	authSelection         int
+	authProviderID        string
+	authAPIKey            string
+	authPending           bool
+	session               protocol.SessionInfo
+	bound                 sessionclient.Session
+	messages              []transcriptMessage
+	liveMessages          []transcriptMessage
+	liveAssistant         int
+	liveHasUser           bool
+	liveTools             map[string]int
+	liveContent           map[int]liveContentBlock
+	liveSequence          int64
+	turnActivity          string
+	runStopping           bool
+	contextTokens         int
+	contextWindow         int
+	scroll                ui.ScrollController
+	activityScroll        ui.ScrollController
+	activityFocus         ui.FocusNode
+	workspaceLayout       workspaceLayoutState
+	activitySourceID      string
+	activitySelected      bool
+	hoveredActivityID     string
+	needsScroll           bool
+	scrollPendingLayout   bool
+	activityNeedsScroll   bool
+	activityPendingLayout bool
+	activityScrollToEnd   bool
+	activeRun             sessionclient.Run
+	activeRunID           string
+	runPending            bool
+	prompt                *promptAdmission
 
 	instructions auth.OpenAICodexDeviceInstructions
 	remaining    time.Duration
@@ -203,23 +216,45 @@ func (s *appState) InitState() {
 }
 
 func (s *appState) TickFrame(_ time.Time) bool {
-	if !s.needsScroll {
-		return false
+	keepTicking := false
+	if s.needsScroll {
+		if s.scrollPendingLayout {
+			s.scrollPendingLayout = false
+			keepTicking = true
+		} else {
+			if s.scroll.Attached() {
+				s.scroll.ScrollToEnd()
+			}
+			s.needsScroll = false
+		}
 	}
-	if s.scrollPendingLayout {
-		s.scrollPendingLayout = false
-		return true
+	if s.activityNeedsScroll {
+		if s.activityPendingLayout {
+			s.activityPendingLayout = false
+			keepTicking = true
+		} else {
+			if s.activityScroll.Attached() {
+				if s.activityScrollToEnd {
+					s.activityScroll.ScrollToEnd()
+				} else {
+					s.activityScroll.ScrollToStart()
+				}
+			}
+			s.activityNeedsScroll = false
+		}
 	}
-	if s.scroll.Attached() {
-		s.scroll.ScrollToEnd()
-	}
-	s.needsScroll = false
-	return false
+	return keepTicking || s.needsScroll || s.activityNeedsScroll
 }
 
 func (s *appState) requestTranscriptScroll() {
 	s.needsScroll = true
 	s.scrollPendingLayout = true
+}
+
+func (s *appState) requestActivityScroll(toEnd bool) {
+	s.activityNeedsScroll = true
+	s.activityPendingLayout = true
+	s.activityScrollToEnd = toEnd
 }
 
 func (s *appState) Dispose() {
@@ -237,29 +272,35 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
 	snapshot := shellSnapshot{
-		Phase:            s.phase,
-		Error:            s.errorText,
-		Status:           s.status,
-		Composer:         s.composer,
-		PaletteOpen:      s.palette.Open,
-		PaletteQuery:     s.palette.Query,
-		PaletteSelection: s.palette.Selection,
-		AuthReturnReady:  s.authReturnReady,
-		AuthFilter:       s.authFilter,
-		AuthSelection:    s.authSelection,
-		AuthProviderID:   s.authProviderID,
-		AuthAPIKey:       s.authAPIKey,
-		AuthPending:      s.authPending,
-		Session:          s.session,
-		Messages:         presentedMessages,
-		Running:          s.runPending,
-		TurnActivity:     s.turnActivity,
-		ContextTokens:    s.contextTokens,
-		ContextWindow:    s.contextWindow,
-		Scroll:           &s.scroll,
-		Instructions:     s.instructions,
-		Remaining:        s.remaining,
-		Location:         options.Location,
+		Phase:             s.phase,
+		Error:             s.errorText,
+		Status:            s.status,
+		Composer:          s.composer,
+		PaletteOpen:       s.palette.Open,
+		PaletteQuery:      s.palette.Query,
+		PaletteSelection:  s.palette.Selection,
+		AuthReturnReady:   s.authReturnReady,
+		AuthFilter:        s.authFilter,
+		AuthSelection:     s.authSelection,
+		AuthProviderID:    s.authProviderID,
+		AuthAPIKey:        s.authAPIKey,
+		AuthPending:       s.authPending,
+		Session:           s.session,
+		Messages:          presentedMessages,
+		Running:           s.runPending,
+		TurnActivity:      s.turnActivity,
+		ContextTokens:     s.contextTokens,
+		ContextWindow:     s.contextWindow,
+		Scroll:            &s.scroll,
+		ActivityScroll:    &s.activityScroll,
+		ActivityFocus:     &s.activityFocus,
+		WorkspaceLayout:   &s.workspaceLayout,
+		ActivitySourceID:  s.activitySourceID,
+		ActivitySelected:  s.activitySelected,
+		HoveredActivityID: s.hoveredActivityID,
+		Instructions:      s.instructions,
+		Remaining:         s.remaining,
+		Location:          options.Location,
 	}
 	callbacks := shellCallbacks{
 		OpenAuth: func(ui.EventContext) {
@@ -288,6 +329,47 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				return
 			}
 			s.SetState(func() { s.status = "Opened browser" })
+		},
+		HoverActivity: func(_ ui.EventContext, sourceID string) {
+			if s.hoveredActivityID != sourceID {
+				s.SetState(func() { s.hoveredActivityID = sourceID })
+			}
+		},
+		OpenActivity: func(_ ui.EventContext, sourceID string) {
+			s.SetState(func() {
+				changed := s.activitySourceID != sourceID
+				s.activitySourceID = sourceID
+				s.activitySelected = !s.workspaceLayout.Wide
+				if changed {
+					s.requestActivityScroll(transcriptActivityInProgress(presentTranscript(presentedMessages), sourceID))
+				}
+			})
+		},
+		ShowTranscript: func(ui.EventContext) {
+			s.SetState(func() { s.activitySelected = false })
+		},
+		ShowActivity: func(ui.EventContext) {
+			if s.activitySourceID != "" {
+				s.SetState(func() {
+					s.activitySelected = !s.workspaceLayout.Wide
+					s.requestActivityScroll(transcriptActivityInProgress(presentTranscript(presentedMessages), s.activitySourceID))
+				})
+			}
+		},
+		CloseActivity: func(ctx ui.EventContext) {
+			if s.activityFocus.HasFocus() {
+				ctx.FocusNext()
+			}
+			s.SetState(func() {
+				s.activitySourceID = ""
+				s.activitySelected = false
+				s.hoveredActivityID = ""
+			})
+		},
+		ScrollActivity: func(_ ui.EventContext, pages int) {
+			if (s.activitySelected || s.workspaceLayout.Wide) && s.activityScroll.Attached() {
+				s.activityScroll.ScrollByPages(pages)
+			}
 		},
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
@@ -470,6 +552,16 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	}
 	s.messages = projectTranscript(snapshot.Messages)
 	s.resetLiveRun()
+	if s.activitySourceID != "" {
+		presentation := presentTranscript(s.messages)
+		if _, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
+			s.requestActivityScroll(false)
+		} else {
+			s.activitySourceID = ""
+			s.activitySelected = false
+			s.hoveredActivityID = ""
+		}
+	}
 	s.requestTranscriptScroll()
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
@@ -489,12 +581,19 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 	result := make([]transcriptMessage, 0, len(messages))
 	for _, message := range messages {
 		var textParts, thinkingParts []string
+		calls := make([]transcriptToolCall, 0)
 		for _, block := range message.Content {
 			switch block.Kind {
 			case protocol.TranscriptContentText:
 				textParts = append(textParts, block.Text)
 			case protocol.TranscriptContentThinking:
 				thinkingParts = append(thinkingParts, block.Text)
+			case protocol.TranscriptContentToolCall:
+				calls = append(calls, transcriptToolCall{
+					ID: block.ToolCallID, Name: block.ToolName,
+					Arguments:          append(json.RawMessage(nil), block.Arguments...),
+					ArgumentsTruncated: block.ArgumentsTruncated,
+				})
 			case protocol.TranscriptContentImage:
 				textParts = append(textParts, "[image]")
 			case protocol.TranscriptContentFile:
@@ -506,17 +605,24 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 		if text == "" && message.ErrorMessage != "" {
 			text = message.ErrorMessage
 		}
-		if strings.TrimSpace(text) == "" && strings.TrimSpace(thinking) == "" && message.ToolName == "" {
+		if strings.TrimSpace(text) == "" && strings.TrimSpace(thinking) == "" && message.ToolName == "" && len(calls) == 0 {
 			continue
 		}
-		role := message.Role
-		if message.IsError && role != "tool" {
-			role = "error"
+		status := ""
+		if message.Role == "tool" {
+			if message.IsError {
+				status = "Failed"
+			} else {
+				status = "Completed"
+			}
 		}
 		result = append(result, transcriptMessage{
-			ID: message.ID, Role: role, Text: text, Thinking: thinking,
-			ToolName: message.ToolName, ToolContent: append([]protocol.TranscriptContent(nil), message.Content...),
+			ID: message.ID, TurnID: message.TurnID, Role: message.Role,
+			Text: text, Thinking: thinking, ToolCallID: message.ToolCallID, ToolCalls: calls,
+			ToolName: message.ToolName, ToolStatus: status,
+			ToolContent: append([]protocol.TranscriptContent(nil), message.Content...),
 			ToolDetails: append(json.RawMessage(nil), message.Details...), IsError: message.IsError,
+			Aborted: message.StopReason == "aborted",
 		})
 	}
 	return result
@@ -554,8 +660,16 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.setTurnActivity("Working…")
 			}
 			if !s.liveHasUser {
-				s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: event.Text})
+				s.liveMessages = append(s.liveMessages, transcriptMessage{ID: "live-user:" + event.TurnID, TurnID: event.TurnID, Role: "user", Text: event.Text})
 				s.liveHasUser = true
+			} else {
+				for index := range s.liveMessages {
+					if s.liveMessages[index].Role == "user" && s.liveMessages[index].TurnID == "" {
+						s.liveMessages[index].ID = "live-user:" + event.TurnID
+						s.liveMessages[index].TurnID = event.TurnID
+						break
+					}
+				}
 			}
 		case protocol.SessionEventAssistantStarted:
 			s.setTurnActivity("Working…")
@@ -568,10 +682,11 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.liveContent[-1] = liveContentBlock{kind: protocol.SessionEventAssistantTextDelta, text: event.Text}
 			}
 			s.liveMessages = append(s.liveMessages, transcriptMessage{
-				ID: event.MessageID, Role: "assistant", Text: event.Text, Thinking: event.Thinking, Pending: true,
+				ID: event.MessageID, TurnID: event.TurnID, Role: "assistant",
+				Text: event.Text, Thinking: event.Thinking, Pending: true,
 			})
 		case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta:
-			index := s.ensureLiveAssistant(event.MessageID)
+			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
 			block, exists := s.liveContent[event.ContentIndex]
 			if exists && block.kind != event.Kind {
 				continue
@@ -586,13 +701,13 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.setTurnActivity("Working…")
 			}
 		case protocol.SessionEventAssistantCompleted:
-			index := s.ensureLiveAssistant(event.MessageID)
+			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
 			if event.Text != "" || event.Thinking != "" {
 				s.liveMessages[index].Text = event.Text
 				s.liveMessages[index].Thinking = event.Thinking
 			}
 			s.liveMessages[index].Pending = false
-			if s.liveMessages[index].Text == "" && s.liveMessages[index].Thinking == "" {
+			if s.liveMessages[index].Text == "" && s.liveMessages[index].Thinking == "" && len(s.liveMessages[index].ToolCalls) == 0 {
 				s.removeLiveMessage(index)
 			}
 			s.liveAssistant = -1
@@ -600,7 +715,8 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventToolPlanned, protocol.SessionEventToolStarted:
 			s.setTurnActivity("Working…")
-			index := s.ensureLiveTool(event.ToolCallID, event.ToolName)
+			s.ensureLiveAssistantToolCall(event)
+			index := s.ensureLiveTool(event.TurnID, event.ToolCallID, event.ToolName)
 			s.liveMessages[index].Pending = true
 			s.liveMessages[index].ToolArguments = event.Arguments
 			s.liveMessages[index].ToolArgumentsTruncated = event.ArgumentsTruncated
@@ -611,7 +727,8 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			}
 		case protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted:
 			s.setTurnActivity("Working…")
-			index := s.ensureLiveTool(event.ToolCallID, event.ToolName)
+			s.ensureLiveAssistantToolCall(event)
+			index := s.ensureLiveTool(event.TurnID, event.ToolCallID, event.ToolName)
 			text := toolResultContentText(event.Content)
 			if event.Kind == protocol.SessionEventToolUpdated {
 				appendLiveToolContent(&s.liveMessages[index], event.Content)
@@ -650,16 +767,66 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 	}
 	if len(events) > 0 {
 		s.requestTranscriptScroll()
+		if s.activitySourceID != "" {
+			messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
+			messages = append(messages, s.messages...)
+			messages = append(messages, s.liveMessages...)
+			presentation := presentTranscript(messages)
+			if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
+				for _, event := range events {
+					if event.TurnID == source.TurnID {
+						s.requestActivityScroll(true)
+						break
+					}
+				}
+			}
+		}
 	}
 }
 
-func (s *appState) ensureLiveTool(callID, name string) int {
+func (s *appState) ensureLiveAssistantToolCall(event protocol.SessionEvent) {
+	for index := range s.liveMessages {
+		message := &s.liveMessages[index]
+		if message.Role != "assistant" || message.TurnID != event.TurnID {
+			continue
+		}
+		for _, call := range message.ToolCalls {
+			if call.ID == event.ToolCallID {
+				return
+			}
+		}
+		if event.MessageID == "" || message.ID == event.MessageID {
+			message.ToolCalls = append(message.ToolCalls, transcriptToolCall{
+				ID: event.ToolCallID, Name: event.ToolName,
+				Arguments:          append(json.RawMessage(nil), event.Arguments...),
+				ArgumentsTruncated: event.ArgumentsTruncated,
+			})
+			return
+		}
+	}
+	messageID := event.MessageID
+	if messageID == "" {
+		messageID = "live-assistant:" + event.ToolCallID
+	}
+	s.liveMessages = append(s.liveMessages, transcriptMessage{
+		ID: messageID, TurnID: event.TurnID, Role: "assistant",
+		ToolCalls: []transcriptToolCall{{
+			ID: event.ToolCallID, Name: event.ToolName,
+			Arguments:          append(json.RawMessage(nil), event.Arguments...),
+			ArgumentsTruncated: event.ArgumentsTruncated,
+		}},
+	})
+}
+
+func (s *appState) ensureLiveTool(turnID, callID, name string) int {
 	if index, ok := s.liveTools[callID]; ok {
 		return index
 	}
 	index := len(s.liveMessages)
 	s.liveTools[callID] = index
-	s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "tool", ToolName: name})
+	s.liveMessages = append(s.liveMessages, transcriptMessage{
+		ID: "live-tool:" + callID, TurnID: turnID, Role: "tool", ToolCallID: callID, ToolName: name,
+	})
 	return index
 }
 
@@ -673,20 +840,26 @@ func (s *appState) removeLiveMessage(index int) {
 	}
 }
 
-func (s *appState) ensureLiveAssistant(messageID string) int {
+func (s *appState) ensureLiveAssistant(messageID, turnID string) int {
 	if s.liveAssistant >= 0 && s.liveAssistant < len(s.liveMessages) &&
 		s.liveMessages[s.liveAssistant].ID == messageID {
+		if s.liveMessages[s.liveAssistant].TurnID == "" {
+			s.liveMessages[s.liveAssistant].TurnID = turnID
+		}
 		return s.liveAssistant
 	}
 	for index := len(s.liveMessages) - 1; index >= 0; index-- {
 		if s.liveMessages[index].Role == "assistant" && s.liveMessages[index].ID == messageID {
 			s.liveAssistant = index
+			if s.liveMessages[index].TurnID == "" {
+				s.liveMessages[index].TurnID = turnID
+			}
 			return index
 		}
 	}
 	s.liveAssistant = len(s.liveMessages)
 	s.liveContent = make(map[int]liveContentBlock)
-	s.liveMessages = append(s.liveMessages, transcriptMessage{ID: messageID, Role: "assistant", Pending: true})
+	s.liveMessages = append(s.liveMessages, transcriptMessage{ID: messageID, TurnID: turnID, Role: "assistant", Pending: true})
 	return s.liveAssistant
 }
 

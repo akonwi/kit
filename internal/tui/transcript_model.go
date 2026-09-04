@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -188,6 +189,108 @@ func displayItemToolCalls(item transcriptDisplayItem) []transcriptToolCall {
 	return calls
 }
 
+type transcriptToolStateKey struct {
+	TurnID     string
+	ToolCallID string
+}
+
+type transcriptPresentation struct {
+	Items      []transcriptDisplayItem
+	ToolStates map[transcriptToolStateKey]transcriptMessage
+}
+
+func presentTranscript(messages []transcriptMessage) transcriptPresentation {
+	structured := make([]protocol.TranscriptMessage, 0, len(messages))
+	toolStates := make(map[transcriptToolStateKey]transcriptMessage)
+	currentTurnID := ""
+	for index, message := range messages {
+		turnID := message.TurnID
+		if turnID == "" {
+			if message.Role == "user" || currentTurnID == "" {
+				turnID = "local-turn:" + strconv.Itoa(index)
+			} else {
+				turnID = currentTurnID
+			}
+		}
+		currentTurnID = turnID
+		messageID := message.ID
+		if messageID == "" {
+			messageID = "local-message:" + strconv.Itoa(index)
+		}
+		role := message.Role
+		content := make([]protocol.TranscriptContent, 0, 2+len(message.ToolCalls))
+		if message.Text != "" {
+			content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: message.Text})
+		}
+		if message.Thinking != "" {
+			content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentThinking, Text: message.Thinking})
+		}
+		for _, call := range message.ToolCalls {
+			content = append(content, protocol.TranscriptContent{
+				Kind: protocol.TranscriptContentToolCall, ToolCallID: call.ID, ToolName: call.Name,
+				Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated,
+			})
+		}
+		projected := protocol.TranscriptMessage{
+			ID: messageID, TurnID: turnID, Sequence: int64(index), Role: role, Content: content,
+			ToolCallID: message.ToolCallID, ToolName: message.ToolName, Details: message.ToolDetails,
+			IsError: message.IsError,
+		}
+		if role == "error" {
+			projected.Role = "assistant"
+			projected.StopReason = "error"
+			projected.ErrorMessage = message.Text
+			projected.IsError = true
+		}
+		if message.Aborted {
+			projected.StopReason = "aborted"
+			projected.ErrorMessage = message.Text
+			projected.IsError = true
+		}
+		if role == "tool" {
+			if len(message.ToolContent) > 0 {
+				projected.Content = append([]protocol.TranscriptContent(nil), message.ToolContent...)
+			}
+			toolStates[transcriptToolStateKey{TurnID: turnID, ToolCallID: message.ToolCallID}] = message
+		}
+		structured = append(structured, projected)
+	}
+	return transcriptPresentation{
+		Items:      groupTranscriptDisplayItems(buildTurnTranscriptItems(structured)),
+		ToolStates: toolStates,
+	}
+}
+
+func transcriptActivitySource(items []transcriptDisplayItem, sourceID string) (transcriptDisplayItem, bool) {
+	for _, item := range items {
+		if item.Kind == transcriptDisplayTurnWork && item.ID == sourceID {
+			return item, true
+		}
+	}
+	return transcriptDisplayItem{}, false
+}
+
+func transcriptActivityInProgress(presentation transcriptPresentation, sourceID string) bool {
+	source, ok := transcriptActivitySource(presentation.Items, sourceID)
+	if !ok {
+		return false
+	}
+	aborted := false
+	for _, item := range source.Items {
+		aborted = aborted || item.Aborted
+	}
+	if aborted {
+		return false
+	}
+	for _, call := range displayItemToolCalls(source) {
+		state, exists := presentation.ToolStates[transcriptToolStateKey{TurnID: source.TurnID, ToolCallID: call.ID}]
+		if !exists || state.Pending {
+			return true
+		}
+	}
+	return false
+}
+
 type bashCommandPresentation struct {
 	Text         string
 	Summarized   bool
@@ -221,15 +324,15 @@ func presentBashCommand(command string) bashCommandPresentation {
 	}
 	if complexSyntax {
 		if lineCount > 1 {
-			return bashCommandPresentation{Text: "shell script · " + itoa(lineCount) + " lines", Summarized: true, CommandCount: len(parts)}
+			return bashCommandPresentation{Text: "shell script · " + strconv.Itoa(lineCount) + " lines", Summarized: true, CommandCount: len(parts)}
 		}
-		return bashCommandPresentation{Text: "shell command · " + itoa(max(1, len(parts))) + " steps", Summarized: true, CommandCount: len(parts)}
+		return bashCommandPresentation{Text: "shell command · " + strconv.Itoa(max(1, len(parts))) + " steps", Summarized: true, CommandCount: len(parts)}
 	}
 	if strings.Contains(command, "\n") {
 		if len(parts) > 1 {
-			return bashCommandPresentation{Text: "shell script · " + itoa(len(parts)) + " commands", Summarized: true, CommandCount: len(parts)}
+			return bashCommandPresentation{Text: "shell script · " + strconv.Itoa(len(parts)) + " commands", Summarized: true, CommandCount: len(parts)}
 		}
-		return bashCommandPresentation{Text: "shell script · " + itoa(lineCount) + " lines", Summarized: true, CommandCount: len(parts)}
+		return bashCommandPresentation{Text: "shell script · " + strconv.Itoa(lineCount) + " lines", Summarized: true, CommandCount: len(parts)}
 	}
 	normalized := strings.Join(strings.Fields(trimmed), " ")
 	if len(parts) <= 1 && utf8.RuneCountInString(trimmed) <= maxBashCommandSummaryLength {
@@ -430,26 +533,4 @@ func truncateRunes(value string, length int) string {
 		return value
 	}
 	return string(runes[:length])
-}
-
-func itoa(value int) string {
-	if value == 0 {
-		return "0"
-	}
-	negative := value < 0
-	if negative {
-		value = -value
-	}
-	var buffer [24]byte
-	index := len(buffer)
-	for value > 0 {
-		index--
-		buffer[index] = byte('0' + value%10)
-		value /= 10
-	}
-	if negative {
-		index--
-		buffer[index] = '-'
-	}
-	return string(buffer[index:])
 }

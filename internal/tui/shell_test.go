@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -121,7 +122,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 		t.Fatalf("completed turn slot = %q, want reserved blank row", got)
 	}
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"I’ll inspect it now.", "read · Completed", "file contents"} {
+	for _, expected := range []string{"I’ll inspect it now.", "› 1 tool call read"} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("completed activity missing %q:\n%s", expected, text)
 		}
@@ -399,6 +400,493 @@ func (s *shellHarnessState) Build(ui.BuildContext) ui.Widget {
 				})
 			},
 		},
+	}
+}
+
+type activityHarness struct{ State *activityHarnessState }
+
+func (w activityHarness) CreateState() ui.State { return w.State }
+
+type activityHarnessState struct {
+	ui.StateBase
+	messages        []transcriptMessage
+	sourceID        string
+	selected        bool
+	composer        string
+	turnActivity    string
+	location        string
+	transcript      ui.ScrollController
+	activity        ui.ScrollController
+	activityFocus   ui.FocusNode
+	workspaceLayout workspaceLayoutState
+}
+
+func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Messages: s.messages, Composer: s.composer, TurnActivity: s.turnActivity,
+			Location: s.location, Scroll: &s.transcript, ActivityScroll: &s.activity, ActivityFocus: &s.activityFocus,
+			WorkspaceLayout: &s.workspaceLayout, ActivitySourceID: s.sourceID, ActivitySelected: s.selected,
+		},
+		Callbacks: shellCallbacks{
+			OpenActivity: func(_ ui.EventContext, sourceID string) {
+				s.SetState(func() { s.sourceID, s.selected = sourceID, !s.workspaceLayout.Wide })
+			},
+			ShowTranscript: func(ui.EventContext) {
+				s.SetState(func() { s.selected = false })
+			},
+			ShowActivity: func(ui.EventContext) {
+				s.SetState(func() { s.selected = !s.workspaceLayout.Wide })
+			},
+			CloseActivity: func(ctx ui.EventContext) {
+				if s.activityFocus.HasFocus() {
+					ctx.FocusNext()
+				}
+				s.SetState(func() { s.sourceID, s.selected = "", false })
+			},
+			ComposerChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.composer = value })
+			},
+		},
+	}
+}
+
+func activityHarnessMessages() []transcriptMessage {
+	return []transcriptMessage{
+		{ID: "user_1", TurnID: "turn_1", Role: "user", Text: "Inspect README"},
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Text: "I’ll inspect it.", ToolCalls: []transcriptToolCall{{
+			ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`),
+		}}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read",
+			ToolStatus: "Completed", Text: "README contents", ToolContent: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "README contents"}}},
+		{ID: "assistant_2", TurnID: "turn_1", Role: "assistant", Text: "Done."},
+	}
+}
+
+func findPaintedRow(rows []string, value string) int {
+	for index, row := range rows {
+		if strings.Contains(row, value) {
+			return index
+		}
+	}
+	return -1
+}
+
+func TestWideActivityDividerSpansThinkingAndComposerRows(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 140, 24
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+		turnActivity: "Thinking…",
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	state.SetState(func() { state.composer = "draft" })
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+
+	const dividerColumn = 83
+	for row := 2; row <= height-3; row++ {
+		want := "│"
+		switch row {
+		case 3:
+			want = glyphTeeRight
+		case height - 4:
+			want = glyphCrossJunction
+		}
+		if got := app.Cell(dividerColumn, row).Character.Grapheme; got != want {
+			t.Fatalf("workspace divider at row %d = %q, want %q:\n%s", row, got, want, strings.Join(rows, "\n"))
+		}
+	}
+	if !strings.Contains(rows[height-5], "⠋ Thinking…") {
+		t.Fatalf("thinking row is not scoped to the primary column: %q", rows[height-5])
+	}
+	if !strings.Contains(rows[height-3], "draft") || !strings.Contains(rows[height-3], "page up/down scroll") {
+		t.Fatalf("wide bottom row does not place composer beside Activity footer: %q", rows[height-3])
+	}
+}
+
+func TestWideActivityClipsPaneChromeInShortViewport(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 140, 5
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", location: "~/kit-v2",
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got := app.Cell(83, 2).Character.Grapheme; got != "│" {
+		t.Fatalf("short workspace divider = %q, want clipped vertical divider", got)
+	}
+	if !strings.HasSuffix(strings.TrimSpace(rows[height-1]), "~/kit-v2") {
+		t.Fatalf("short shell footer geometry changed: %q", rows[height-1])
+	}
+}
+
+func TestWideActivityJunctionsTrackGrowingComposer(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 140, 24
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1",
+		composer: "a\nb\nc",
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+
+	const dividerColumn = 83
+	for row, want := range map[int]string{
+		3:          glyphTeeRight,
+		height - 6: glyphTeeLeft,
+		height - 4: glyphTeeRight,
+	} {
+		if got := app.Cell(dividerColumn, row).Character.Grapheme; got != want {
+			t.Fatalf("workspace junction at row %d = %q, want %q", row, got, want)
+		}
+	}
+}
+
+func TestActivityWorkspaceOpensBesideTranscriptAtWideWidths(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 140, 24
+	state := &activityHarnessState{messages: activityHarnessMessages()}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	chipRow := findPaintedRow(rows, "› 1 tool call read")
+	if chipRow < 0 {
+		t.Fatalf("tool-work chip missing:\n%s", strings.Join(rows, "\n"))
+	}
+	app.Click(4, chipRow)
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if state.sourceID != "turn-work:turn_1:call_1" || state.selected {
+		t.Fatalf("wide activity source = %q narrow-selection %v", state.sourceID, state.selected)
+	}
+	if findPaintedRow(rows, "Inspect README") < 0 || !strings.Contains(rows[2], "1 tool call · 1 step") {
+		t.Fatalf("wide workspace did not retain transcript beside Activity metadata:\n%s", strings.Join(rows, "\n"))
+	}
+	if app.Cell(83, 2).Character.Grapheme != "│" {
+		t.Fatalf("wide workspace separator = %q, want vertical rule at column 83", app.Cell(83, 2).Character.Grapheme)
+	}
+	if findPaintedRow(rows, "1 tool call · 1 step") < 0 || findPaintedRow(rows, "read  README.md") < 0 ||
+		findPaintedRow(rows, "README contents") < 0 {
+		t.Fatalf("activity metadata, row, or output missing:\n%s", strings.Join(rows, "\n"))
+	}
+	app.Click(width-2, 2)
+	app.Pump(width, height)
+	if state.sourceID != "" || state.selected {
+		t.Fatalf("wide Activity close control left source %q selected %v", state.sourceID, state.selected)
+	}
+}
+
+func TestOpeningAnotherChipReplacesTheSingletonActivitySource(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 140, 28
+	messages := append(activityHarnessMessages(),
+		transcriptMessage{ID: "user_2", TurnID: "turn_2", Role: "user", Text: "Write notes"},
+		transcriptMessage{ID: "assistant_3", TurnID: "turn_2", Role: "assistant", ToolCalls: []transcriptToolCall{{
+			ID: "call_2", Name: "write", Arguments: json.RawMessage(`{"path":"notes.txt"}`),
+		}}},
+		transcriptMessage{ID: "result_2", TurnID: "turn_2", Role: "tool", ToolCallID: "call_2", ToolName: "write", ToolStatus: "Completed"},
+	)
+	state := &activityHarnessState{messages: messages}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	readRow := findPaintedRow(rows, "1 tool call read")
+	app.Click(4, readRow)
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	writeRow := findPaintedRow(rows, "1 tool call write")
+	app.Click(4, writeRow)
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if state.sourceID != "turn-work:turn_2:call_2" {
+		t.Fatalf("replacement activity source = %q", state.sourceID)
+	}
+	if findPaintedRow(rows, "write  notes.txt") < 0 {
+		t.Fatalf("replacement Activity content missing:\n%s", strings.Join(rows, "\n"))
+	}
+	activityHeaders := 0
+	for _, row := range rows {
+		activityHeaders += strings.Count(row, "1 tool call · 1 step")
+	}
+	if activityHeaders != 1 {
+		t.Fatalf("Activity metadata header count = %d, want singleton", activityHeaders)
+	}
+}
+
+func TestActivityWorkspaceUsesLabeledTabsAtNarrowWidths(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 100, 22
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if !strings.Contains(rows[2], "Transcript") || !strings.Contains(rows[2], "Activity") {
+		t.Fatalf("narrow workspace tabs = %q", rows[2])
+	}
+	if findPaintedRow(rows, "1 tool call · 1 step") < 0 || findPaintedRow(rows, "read  README.md") < 0 {
+		t.Fatalf("narrow Activity pane missing:\n%s", strings.Join(rows, "\n"))
+	}
+	app.Click(3, 2)
+	app.Pump(width, height)
+	if state.selected {
+		t.Fatal("Transcript tab did not select the transcript")
+	}
+	app.Click(14, 2)
+	app.Pump(width, height)
+	if !state.selected {
+		t.Fatal("Activity tab did not restore the retained pane")
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if state.selected || state.sourceID != "" || findPaintedRow(rows, "Inspect README") < 0 {
+		t.Fatalf("escape did not close Activity and return to transcript:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestWideActivityOpeningPreservesComposerFocus(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 140, 22
+	state := &activityHarnessState{messages: activityHarnessMessages()}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	chipRow := findPaintedRow(rows, "› 1 tool call read")
+	app.Click(4, chipRow)
+	app.Pump(width, height)
+	app.Key("z")
+	app.Pump(width, height)
+	if state.composer != "z" || state.selected {
+		t.Fatalf("wide Activity open changed composer focus or narrow selection: composer %q selected %v", state.composer, state.selected)
+	}
+}
+
+func TestActivityChipMouseRoutePreservesFocus(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 100, 22
+	state := &activityHarnessState{messages: activityHarnessMessages()}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	chipRow := findPaintedRow(rows, "› 1 tool call read")
+	app.Click(4, chipRow)
+	app.Pump(width, height)
+	app.Key("z")
+	app.Tab()
+	app.Key("y")
+	app.Pump(width, height)
+	if state.composer != "" {
+		t.Fatalf("composer changed while Activity owned focus: %q", state.composer)
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Pump(width, height)
+	app.Key("z")
+	app.Pump(width, height)
+	if state.composer != "z" {
+		t.Fatalf("composer focus was not restored after closing Activity: %q", state.composer)
+	}
+	rows = paintedRows(app, width, height)
+	chipRow = findPaintedRow(rows, "› 1 tool call read")
+	app.Click(4, chipRow)
+	app.Pump(width, height)
+	if state.sourceID != "turn-work:turn_1:call_1" || !state.selected {
+		t.Fatalf("reopened Activity source = %q selected %v", state.sourceID, state.selected)
+	}
+	app.Click(5, height-3)
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Pump(width, height)
+	app.Key("q")
+	app.Pump(width, height)
+	if state.composer != "zq" {
+		t.Fatalf("closing Activity advanced focus away from composer: %q", state.composer)
+	}
+}
+
+func TestActivityOutputPreviewBoundsLinesAndLongRows(t *testing.T) {
+	t.Parallel()
+
+	lines := make([]string, 20)
+	for index := range lines {
+		lines[index] = fmt.Sprintf("line %02d", index+1)
+	}
+	preview, count, truncated := activityOutputPreview(strings.Join(lines, "\n"))
+	if count != 20 || !truncated || strings.Count(preview, "\n") != 13 || !strings.Contains(preview, "line 14") {
+		t.Fatalf("multiline preview = count %d truncated %v text %q", count, truncated, preview)
+	}
+	preview, count, truncated = activityOutputPreview(strings.Repeat("x", 300))
+	if count != 1 || !truncated || len([]rune(preview)) != 240 || !strings.HasSuffix(preview, "…") {
+		t.Fatalf("long-line preview = count %d truncated %v runes %d", count, truncated, len([]rune(preview)))
+	}
+}
+
+func TestActivityShowsAbortedMissingResultsAndBoundedOutput(t *testing.T) {
+	t.Parallel()
+
+	lines := make([]string, 20)
+	for index := range lines {
+		lines[index] = fmt.Sprintf("line %02d", index+1)
+	}
+	messages := activityHarnessMessages()
+	messages[1].Aborted = true
+	messages[1].ToolCalls = append(messages[1].ToolCalls, transcriptToolCall{
+		ID: "call_2", Name: "write", Arguments: json.RawMessage(`{"path":"notes.txt"}`),
+	})
+	messages[2].Text = strings.Join(lines, "\n")
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Messages: messages, ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+		Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
+	}})
+	app.Pump(140, 40)
+	rows := paintedRows(app, 140, 40)
+	if findPaintedRow(rows, "20 lines") < 0 || findPaintedRow(rows, "line 14") < 0 {
+		t.Fatalf("bounded tool output well or line metadata missing:\n%s", strings.Join(rows, "\n"))
+	}
+	if findPaintedRow(rows, "⊘ write  notes.txt") < 0 {
+		t.Fatalf("aborted missing result glyph missing:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestRunAbortTakesPrecedenceOverClosingActivity(t *testing.T) {
+	t.Parallel()
+
+	closed, dismissed := 0, 0
+	view := func(running bool) shellView {
+		return shellView{
+			Snapshot: shellSnapshot{
+				Phase: phaseReady, Running: running, Messages: activityHarnessMessages(),
+				ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+				Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
+			},
+			Callbacks: shellCallbacks{
+				CloseActivity: func(ui.EventContext) { closed++ },
+				Dismiss:       func(ui.EventContext) { dismissed++ },
+			},
+		}
+	}
+	runningApp := uitest.New(view(true))
+	runningApp.Pump(140, 20)
+	if rows := paintedRows(runningApp, 140, 20); findPaintedRow(rows, "page up/down scroll · esc abort") < 0 {
+		t.Fatalf("running Activity hint did not advertise abort:\n%s", strings.Join(rows, "\n"))
+	}
+	runningApp.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	if dismissed != 1 || closed != 0 {
+		t.Fatalf("running escape = dismissed %d closed %d", dismissed, closed)
+	}
+	idleApp := uitest.New(view(false))
+	idleApp.Pump(140, 20)
+	idleApp.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	if dismissed != 1 || closed != 1 {
+		t.Fatalf("idle escape = dismissed %d closed %d", dismissed, closed)
+	}
+	paletteView := view(false)
+	paletteView.Snapshot.PaletteOpen = true
+	paletteApp := uitest.New(paletteView)
+	paletteApp.Pump(140, 20)
+	paletteApp.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	if dismissed != 2 || closed != 1 {
+		t.Fatalf("palette escape = dismissed %d closed %d", dismissed, closed)
+	}
+}
+
+func TestActivityUsesGlyphOnlyForPlannedTools(t *testing.T) {
+	t.Parallel()
+
+	messages := activityHarnessMessages()
+	messages[2].Pending = true
+	messages[2].ToolStatus = "Planned"
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Messages: messages,
+		ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+		Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
+	}})
+	app.Pump(140, 20)
+	rows := paintedRows(app, 140, 20)
+	if findPaintedRow(rows, "› read  README.md") < 0 {
+		t.Fatalf("planned tool glyph row missing:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestActivityPageKeysUseKeyboardScrollRoute(t *testing.T) {
+	t.Parallel()
+
+	pages := 0
+	app := uitest.New(shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Messages: activityHarnessMessages(),
+			ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+			Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
+		},
+		Callbacks: shellCallbacks{ScrollActivity: func(_ ui.EventContext, delta int) { pages += delta }},
+	})
+	app.Pump(100, 20)
+	app.Send(vaxis.Key{Keycode: vaxis.KeyPgDown})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyPgUp})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyPgDown})
+	if pages != 1 {
+		t.Fatalf("activity page delta = %d, want 1", pages)
+	}
+}
+
+func TestTurnWorkChipShowsSpinnerEightNamesAndOverflow(t *testing.T) {
+	t.Parallel()
+
+	calls := make([]transcriptToolCall, 10)
+	for index := range calls {
+		calls[index] = transcriptToolCall{
+			ID: fmt.Sprintf("call_%d", index+1), Name: fmt.Sprintf("tool%d", index+1), Arguments: json.RawMessage(`{}`),
+		}
+	}
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady,
+		Messages: []transcriptMessage{{
+			ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: calls,
+		}},
+		Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(160, 16)
+	rows := paintedRows(app, 160, 16)
+	row := findPaintedRow(rows, "10 tool calls")
+	if row < 0 {
+		t.Fatalf("running chip missing:\n%s", strings.Join(rows, "\n"))
+	}
+	for _, expected := range []string{"⠋ 10 tool calls", "tool1 · tool2 · tool3 · tool4 · tool5 · tool6 · tool7 · tool8 · +2 more"} {
+		if !strings.Contains(rows[row], expected) {
+			t.Errorf("chip row %q missing %q", rows[row], expected)
+		}
+	}
+}
+
+func TestWorkspaceSwitchesAt125Columns(t *testing.T) {
+	t.Parallel()
+
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(125, 20)
+	wideRows := paintedRows(app, 125, 20)
+	if strings.Contains(wideRows[2], "Transcript") || app.Cell(71, 2).Character.Grapheme != "│" {
+		t.Fatalf("125-column workspace did not use split layout:\n%s", strings.Join(wideRows, "\n"))
+	}
+	app.Pump(124, 20)
+	narrowRows := paintedRows(app, 124, 20)
+	if !strings.Contains(narrowRows[2], "Transcript") || !strings.Contains(narrowRows[2], "Activity") {
+		t.Fatalf("124-column workspace did not use tabs: %q", narrowRows[2])
 	}
 }
 
