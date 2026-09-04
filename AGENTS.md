@@ -58,6 +58,15 @@ uses Solid and Mica at build time and is embedded in the Go executable.
 - Keep SQLite transactions short and preserve foreign-key enforcement.
 - Keep the release build CGO-free unless an ADR explicitly changes that goal.
 
+## Testing conventions
+
+- UI presentation tests must assert the visible content, style, geometry, focus,
+  or interaction that is expected. Prefer exact expected rows, cells, snapshots,
+  and state transitions so each test documents the intended experience.
+- Do not define presentation behavior by asserting that unwanted text, glyphs,
+  or styles are absent. Use negative assertions only when a test explicitly
+  captures a discovered regression.
+
 ## Commit conventions
 
 Use Conventional Commits, preferably `type(scope): summary`. Common types are

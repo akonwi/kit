@@ -96,8 +96,15 @@ func TestAuthGateUsesShellFooterAndDeviceDialog(t *testing.T) {
 	if !strings.Contains(text, "Connect an AI provider to get started.") {
 		t.Fatalf("auth gate missing instruction:\n%s", text)
 	}
-	if strings.Contains(text, "[Connect a provider]") {
-		t.Fatalf("auth gate action has decorative brackets:\n%s", text)
+	actionRendered := false
+	for _, row := range rows {
+		if strings.TrimSpace(row) == "Connect a provider" {
+			actionRendered = true
+			break
+		}
+	}
+	if !actionRendered {
+		t.Fatalf("auth gate action label is not rendered exactly as expected:\n%s", text)
 	}
 	if !strings.Contains(rows[height-1], "enter connect") || !strings.Contains(rows[height-1], "kit-v2") {
 		t.Fatalf("auth footer = %q, want action left and location right", rows[height-1])
