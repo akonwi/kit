@@ -189,7 +189,7 @@ func (w shellView) body(theme ui.Theme) ui.Widget {
 			ui.SizedBox{Height: 1},
 			ui.Text{Value: "Connect an AI provider to get started.", Style: ui.Style{Foreground: theme.MutedForeground}},
 			ui.SizedBox{Height: 1},
-			ui.Button{Label: "Connect a provider", OnPressed: w.Callbacks.OpenAuth},
+			plainButton{Label: "Connect a provider", OnPressed: w.Callbacks.OpenAuth},
 		}})}
 	}
 }

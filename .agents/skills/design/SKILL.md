@@ -308,7 +308,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - **Picker selection:** use `pickerFocusedBg` with `pickerFocusedText`.
 - **Input:** transparent background with `borderDefault` when idle, `borderFocused` when focused, and `borderAccent` while editing when those states are distinct.
 - **Toggle:** use the established four-cell track and two-cell knob; active track uses `toggleOn`.
-- **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.
+- **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. Communicate focus with the control background instead of decorative brackets around its label. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.
 - **Navigable URL:** keep the literal target visible, underline it, and attach OSC 8 hyperlink metadata when the target is safe. When the TUI has mouse reporting enabled, also handle activation explicitly because terminal-native clicks may be delivered to the app. Do not replace useful URLs with opaque `click here` copy.
 - Handle only the primary mouse button for activation. Prevent propagation when the action should not also select or focus an ancestor.
 
