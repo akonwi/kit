@@ -252,6 +252,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - Render an image in the main transcript only when message content or an explicit presentation tool identifies it as an image; do not infer images from paths mentioned in prose.
 - Reserve fixed rows before loading an inline preview so decoding cannot shift surrounding transcript content unexpectedly.
 - Keep restored image history collapsed, allow at most one expanded transcript preview, and mount the image renderable only while expanded to bound native image memory.
+- Open clicked transcript images in a workspace preview pane by default; native application launch is an explicit pane action.
 - Use OpenTUI image protocol `auto` so Kitty, Sixel, and Unicode-block fallback follow renderer capabilities.
 - Keep image rows minimally framed. The transcript entry and disclosure row establish context; do not add a decorative preview border.
 

@@ -18,6 +18,7 @@ import {
 } from "./turns";
 import type {
 	OpenActivity,
+	OpenImage,
 	OpenMessageContextMenu,
 	OpenSubagent,
 	TranscriptToast,
@@ -57,6 +58,7 @@ function TurnWorkDrawer(props: {
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
 	openSubagent: OpenSubagent;
+	openImage: OpenImage;
 	showToast: (toast: TranscriptToast) => void;
 	expandedImageToolCallIds: ReadonlySet<string>;
 	setImageToolCallExpanded: (toolCallId: string, expanded: boolean) => void;
@@ -140,6 +142,20 @@ function TurnWorkDrawer(props: {
 						onExpandedChange={(expanded) =>
 							props.setImageToolCallExpanded(toolCallId, expanded)
 						}
+						onOpen={() =>
+							props.openImage({
+								id: toolCallId,
+								image: {
+									data: image.data,
+									mimeType: image.mimeType,
+									filename: image.filename,
+									sourcePath: image.path,
+									caption: image.caption,
+									width: image.width,
+									height: image.height,
+								},
+							})
+						}
 						aborted={aborted()}
 						showToast={props.showToast}
 					/>
@@ -156,6 +172,7 @@ export function TurnEntry(props: {
 	runtime: AgentRuntime;
 	openActivity: OpenActivity;
 	openSubagent: OpenSubagent;
+	openImage: OpenImage;
 	openMessageContextMenu: OpenMessageContextMenu;
 	expandedImageToolCallIds?: ReadonlySet<string>;
 	setImageToolCallExpanded?: (toolCallId: string, expanded: boolean) => void;
@@ -168,6 +185,7 @@ export function TurnEntry(props: {
 				runtime={props.runtime}
 				openActivity={props.openActivity}
 				openSubagent={props.openSubagent}
+				openImage={props.openImage}
 				showToast={props.showToast}
 				expandedImageToolCallIds={
 					props.expandedImageToolCallIds ?? EMPTY_TOOL_CALL_IDS
@@ -202,9 +220,10 @@ export function TurnEntry(props: {
 		case "user":
 			return (
 				<UserEntry
+					itemId={item.id}
 					msg={item.message}
 					aborted={item.aborted}
-					showToast={props.showToast}
+					openImage={props.openImage}
 					openMessageContextMenu={props.openMessageContextMenu}
 				/>
 			);

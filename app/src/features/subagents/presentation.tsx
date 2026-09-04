@@ -19,6 +19,7 @@ import {
 } from "../../shell/glyphs";
 import { scrollbarStyle, theme } from "../../shell/theme";
 import { FlatAssistantEntry } from "../../shell/transcript/assistant-entry";
+import type { OpenImage } from "../../shell/transcript/types";
 import { UserEntry } from "../../shell/transcript/user-entry";
 import type { LiveToolsForTurn } from "../../shell/transcript-live-tools";
 import type { SubagentDefinition } from "./discovery";
@@ -163,6 +164,7 @@ function liveToolsFor(
 export function SubagentTranscriptView(props: {
 	conversation: ActiveSubagentConversationState;
 	entries: SessionEntry[];
+	openImage: OpenImage;
 	setScrollRef: (
 		ref: Renderable & {
 			scrollBy: (opts: { x: number; y: number }) => void;
@@ -195,7 +197,13 @@ export function SubagentTranscriptView(props: {
 							<For each={turn.messages}>
 								{(message) => {
 									if (message.role === "user") {
-										return <UserEntry msg={message} showToast={() => {}} />;
+										return (
+											<UserEntry
+												itemId={message.messageId}
+												msg={message}
+												openImage={props.openImage}
+											/>
+										);
 									}
 									if (message.role === "assistant") {
 										return (

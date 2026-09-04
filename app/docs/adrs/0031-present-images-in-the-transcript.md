@@ -25,7 +25,9 @@ The tool:
 
 The terminal transcript promotes successful `show_image` results out of the consolidated Activity drawer and renders them below the drawer entry. The newest completed call begins expanded and replaces any previously expanded preview. Restored history begins collapsed so opening an image-heavy session does not eagerly decode every image.
 
-At most one preview is expanded at a time. Expanded previews reserve a fixed-height row before decoding, use `fit` sizing, and leave protocol selection on `auto`. Collapsing a preview unmounts the image renderable and releases its native image.
+At most one preview is expanded at a time. Expanded previews reserve a fixed-height row before decoding, use `fit` sizing, and leave protocol selection on `auto`. Collapsing a preview unmounts the image renderable and releases its native image. Clicking an expanded preview opens the persisted image in a workspace pane rather than launching a native application. The pane follows the same zoom, pan, focus, and close conventions as Mermaid previews; opening the original in a native viewer remains an explicit pane action when a source path is available.
+
+User image-attachment rows use the same image workspace pane when opened from the main transcript.
 
 Other tools may continue returning standard image blocks. They are not promoted into the main transcript unless they opt into a future explicit presentation contract.
 
@@ -36,7 +38,8 @@ Kit does not parse assistant prose for image-looking file paths. Mentioned paths
 ## Consequences
 
 - agents can intentionally present screenshots and generated raster images
-- image bytes are persisted with the tool result, so the preview does not depend on the source file remaining available
+- image bytes are persisted with the tool result, so transcript and workspace previews do not depend on the source file remaining available
+- image inspection stays inside Kit by default while retaining an explicit external-open action
 - model-facing tool calls remain small because `show_image` accepts paths only
 - terminal rendering degrades through OpenTUI's portable block protocol when native graphics are unavailable
 - headless hosts do not advertise `show_image`, avoiding large inline image records and a presentation capability they cannot fulfill

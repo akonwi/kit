@@ -168,6 +168,7 @@ export function TranscriptPane(props: TranscriptPaneProps) {
 									runtime={props.runtime}
 									openActivity={props.openActivity}
 									openSubagent={props.openSubagent}
+									openImage={props.openImage}
 									openMessageContextMenu={props.openMessageContextMenu}
 									expandedImageToolCallIds={props.expandedImageToolCallIds}
 									setImageToolCallExpanded={props.setImageToolCallExpanded}

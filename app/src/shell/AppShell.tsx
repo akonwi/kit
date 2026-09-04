@@ -65,7 +65,7 @@ import { TranscriptMessageContextMenu } from "./TranscriptMessageContextMenu";
 import { theme } from "./theme";
 import { Transcript } from "./transcript";
 import type { ActivitySource } from "./transcript/turn-activity-view";
-import type { OpenActivity, OpenOverlay } from "./transcript/types";
+import type { OpenActivity, OpenImage, OpenOverlay } from "./transcript/types";
 import { WorkspaceFileFinderPicker } from "./WorkspaceFileFinderPicker";
 import { WorkspacePaneHost } from "./WorkspacePaneHost";
 import { WorkspaceTabOverflowPicker } from "./WorkspaceTabOverflowPicker";
@@ -648,6 +648,11 @@ function AppShellContent(props: AppShellContentProps) {
 		return {
 			active: () =>
 				activeWorkspaceTab()?.id === tabId && workspaceInteractionsEnabled(),
+			visible: () =>
+				workspaceState().secondary.status === "open" &&
+				activeWorkspaceTab()?.id === tabId &&
+				(!workspaceUsesNarrowTabs() ||
+					workspaceState().narrowTab === "secondary"),
 			onFocusRequest: () => {
 				if (!interactionOpen()) focusSecondarySurface(tabId);
 			},
@@ -668,6 +673,7 @@ function AppShellContent(props: AppShellContentProps) {
 			openFileFinder: () => void openWorkspaceFileFinder(),
 			openSubagents: openSubagentsPanel,
 			openSubagent: openSubagentPanel,
+			openImage: openImagePreview,
 			closePane: () => {
 				requestCloseTab(tabId);
 			},
@@ -787,6 +793,15 @@ function AppShellContent(props: AppShellContentProps) {
 			{ focus: "secondary" },
 		);
 		focusSecondarySurface();
+	};
+
+	const openImagePreview: OpenImage = (request) => {
+		saveScratchpadDraftIfEditing();
+		const tabId = workspace.openSecondary(
+			{ kind: "image", id: request.id, image: request.image },
+			{ focus: "secondary" },
+		);
+		focusSecondarySurface(tabId);
 	};
 
 	function openMermaidPreview(source: string): void {
@@ -1283,6 +1298,7 @@ function AppShellContent(props: AppShellContentProps) {
 							openOverlay={props.openOverlay}
 							openActivity={openActivity}
 							openSubagent={openSubagentPanel}
+							openImage={openImagePreview}
 							openMessageContextMenu={openMessageContextMenu}
 						/>
 					</box>

@@ -4,6 +4,7 @@ import type {
 	InternalPluginDefinition,
 } from "../../plugins";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
+import { openImagePart } from "../images/open";
 import { loadSubagents, type SubagentDefinition } from "./discovery";
 import { formatSubagentsForPrompt } from "./format";
 import { SubagentsStatusModal } from "./SubagentsStatusModal";
@@ -221,6 +222,22 @@ export function createSubagentsPlugin(options: {
 							manager.readConversationEntries(conversationId),
 						subscribeToChanges: (listener) => manager.subscribe(listener),
 						dismissConversation: (agentName) => manager.dismiss(agentName),
+						openImage: ({ image }) => {
+							void openImagePart({
+								type: "image",
+								data: image.data,
+								mimeType: image.mimeType,
+								filename: image.filename,
+								sourcePath: image.sourcePath,
+							}).then((result) => {
+								if (result.ok) return;
+								ctx.ui.toast({
+									title: "Could not open image",
+									subtitle: result.message,
+									variant: "error",
+								});
+							});
+						},
 						get active() {
 							return props.active;
 						},

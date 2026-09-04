@@ -1,6 +1,5 @@
 import { TextAttributes } from "@opentui/core";
 import { createSignal, Show } from "solid-js";
-import { openImagePart } from "../../features/images/open";
 import type { ToolResultMessage } from "../../runtime/agent";
 import { SHOW_IMAGE_TOOL_NAME, type ShowImageDetails } from "../../tools";
 import { IMAGE, MIDDLE_DOT, TRIANGLE_DOWN, TRIANGLE_RIGHT } from "../glyphs";
@@ -100,6 +99,7 @@ export function PresentedImage(props: {
 	image: PresentedToolImage;
 	expanded: boolean;
 	onExpandedChange: (expanded: boolean) => void;
+	onOpen: () => void;
 	aborted?: boolean;
 	showToast: (toast: TranscriptToast) => void;
 }) {
@@ -108,23 +108,6 @@ export function PresentedImage(props: {
 		props.image.width && props.image.height
 			? `${props.image.width}×${props.image.height}`
 			: null;
-
-	function openOriginal() {
-		void openImagePart({
-			type: "image",
-			data: props.image.data,
-			mimeType: props.image.mimeType,
-			filename: props.image.filename,
-			sourcePath: props.image.path,
-		}).then((result) => {
-			if (result.ok) return;
-			props.showToast({
-				title: "Could not open image",
-				subtitle: result.message,
-				variant: "error",
-			});
-		});
-	}
 
 	return (
 		<box flexDirection="column" gap={props.expanded ? 1 : 0} width="100%">
@@ -155,7 +138,7 @@ export function PresentedImage(props: {
 			<Show when={props.expanded} fallback={<box visible={false} />}>
 				<ImagePreview
 					image={props.image}
-					onOpen={openOriginal}
+					onOpen={props.onOpen}
 					onError={(error) => {
 						console.warn("[images] failed to render transcript image", {
 							filename: props.image.filename,

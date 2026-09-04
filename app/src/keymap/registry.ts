@@ -400,6 +400,62 @@ export const KEYBINDING_REGISTRY = {
 			hint: "transcript",
 		},
 	},
+	"image-preview": {
+		"open-external": {
+			defaultKeys: "o",
+			desc: "Open image externally",
+			group: "image-preview",
+			hint: "open externally",
+		},
+		"zoom-in": {
+			defaultKeys: ["+", "shift+="],
+			desc: "Zoom in on image",
+			group: "image-preview",
+			hint: false,
+		},
+		"zoom-out": {
+			defaultKeys: "-",
+			desc: "Zoom out on image",
+			group: "image-preview",
+			hint: false,
+		},
+		"reset-zoom": {
+			defaultKeys: "0",
+			desc: "Reset image zoom",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Pan image up",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Pan image down",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-left": {
+			defaultKeys: ["left", "h"],
+			desc: "Pan image left",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-right": {
+			defaultKeys: ["right", "l"],
+			desc: "Pan image right",
+			group: "image-preview",
+			hint: false,
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Return to transcript",
+			group: "image-preview",
+			hint: "transcript",
+		},
+	},
 	"mermaid-preview": {
 		"open-external": {
 			defaultKeys: "o",

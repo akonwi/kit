@@ -1,5 +1,6 @@
 import type { JSX } from "solid-js";
 import type { OverlayComponentProps } from "../../app/overlay-ui";
+import type { ImagePreviewSource } from "../../features/images/types";
 import type { AgentRuntime } from "../../runtime/agent-runtime";
 import type { ActivitySource } from "./turn-activity-view";
 import type { TranscriptItem } from "./turns";
@@ -21,6 +22,11 @@ export type OpenActivity = (source: ActivitySource) => void;
 
 export type OpenSubagent = (agentName: string) => boolean;
 
+export type OpenImage = (request: {
+	id: string;
+	image: ImagePreviewSource;
+}) => void;
+
 export type OpenMessageContextMenu = (request: {
 	x: number;
 	y: number;
@@ -33,6 +39,7 @@ export type TranscriptProps = {
 	openOverlay: OpenOverlay;
 	openActivity: OpenActivity;
 	openSubagent: OpenSubagent;
+	openImage: OpenImage;
 	openMessageContextMenu: OpenMessageContextMenu;
 };
 

@@ -29,7 +29,11 @@ when the active session changes. The secondary surface starts minimized, with
 Code Review selected for the next expansion; focus and the narrow-layout
 selection remain on the transcript/composer. Default pane bodies initialize only
 when first selected, then remain mounted to preserve local state. Other panes
-open on demand and may be closed.
+open on demand and may be closed. Mermaid diagrams and transcript images open
+in dedicated closable preview panes. Image panes render persisted bytes rather
+than depending on the original file and support the same zoom and pan
+interactions as diagram panes; opening a source image in a native viewer is an
+explicit secondary action.
 
 The TUI also supports closable full-file panes identified by repository root and
 relative path. Reopening the same file selects its existing tab. `/` opens the

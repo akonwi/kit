@@ -1,6 +1,5 @@
 import { TextAttributes } from "@opentui/core";
 import { For, Show } from "solid-js";
-import { openImagePart } from "../../features/images/open";
 import type {
 	CodeReviewMessagePart,
 	ImageMessagePart,
@@ -17,7 +16,7 @@ import {
 	extractUserMarkdownSource,
 	extractUserText,
 } from "./turns";
-import type { OpenMessageContextMenu, TranscriptToast } from "./types";
+import type { OpenImage, OpenMessageContextMenu } from "./types";
 
 const ABORTED_ATTRS = TextAttributes.DIM | TextAttributes.STRIKETHROUGH;
 
@@ -45,25 +44,32 @@ function CodeReviewPartEntry(props: {
 }
 
 function ImagePartEntry(props: {
+	id: string;
 	part: ImageMessagePart;
 	aborted?: boolean;
-	showToast: (toast: TranscriptToast) => void;
+	onOpen?: OpenImage;
 }) {
 	const label = props.part.filename ?? "Image attachment";
 	return (
 		<box
 			width="100%"
-			onMouseUp={(event) => {
-				if (event.button !== 0 || props.aborted) return;
-				void openImagePart(props.part).then((result) => {
-					if (result.ok) return;
-					props.showToast({
-						title: "Could not open image",
-						subtitle: result.message,
-						variant: "error",
-					});
-				});
-			}}
+			onMouseUp={
+				props.onOpen
+					? (event) => {
+							if (event.button !== 0 || props.aborted) return;
+							event.stopPropagation();
+							props.onOpen?.({
+								id: props.id,
+								image: {
+									data: props.part.data,
+									mimeType: props.part.mimeType,
+									filename: label,
+									sourcePath: props.part.sourcePath,
+								},
+							});
+						}
+					: undefined
+			}
 		>
 			<text fg={props.aborted ? theme.textMuted : theme.attachmentText}>
 				{IMAGE} {label}
@@ -95,9 +101,10 @@ function PromptCommandEntry(props: {
 }
 
 export function UserEntry(props: {
+	itemId: string;
 	msg: UserMessage | UserMultipartMessage;
 	aborted?: boolean;
-	showToast: (toast: TranscriptToast) => void;
+	openImage?: OpenImage;
 	openMessageContextMenu?: OpenMessageContextMenu;
 }) {
 	const promptCommand = extractPromptCommandSynthetic(props.msg);
@@ -137,7 +144,7 @@ export function UserEntry(props: {
 				)}
 			</Show>
 			<For each={parts}>
-				{(part) => {
+				{(part, index) => {
 					switch (part.type) {
 						case "code-review":
 							return (
@@ -146,9 +153,10 @@ export function UserEntry(props: {
 						case "image":
 							return (
 								<ImagePartEntry
+									id={`${props.itemId}:${index()}`}
 									part={part}
 									aborted={props.aborted}
-									showToast={props.showToast}
+									onOpen={props.openImage}
 								/>
 							);
 						default:

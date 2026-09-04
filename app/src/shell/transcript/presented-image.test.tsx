@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { type BaseRenderable, ImageRenderable } from "@opentui/core";
+import { createMockMouse } from "@opentui/core/testing";
 import { testRender } from "@opentui/solid";
 import {
 	extractPresentedToolImage,
@@ -80,6 +81,7 @@ test("restored presented images remain collapsed until requested", async () => {
 				image={image}
 				expanded={false}
 				onExpandedChange={() => {}}
+				onOpen={() => {}}
 				showToast={() => {}}
 			/>
 		),
@@ -91,13 +93,17 @@ test("restored presented images remain collapsed until requested", async () => {
 	expect(findImage(testSetup.renderer.root)).toBeNull();
 });
 
-test("newly presented images render through OpenTUI's image component", async () => {
+test("newly presented images render through OpenTUI and open in the workspace", async () => {
+	let opened = false;
 	testSetup = await testRender(
 		() => (
 			<PresentedImage
 				image={image}
 				expanded
 				onExpandedChange={() => {}}
+				onOpen={() => {
+					opened = true;
+				}}
 				showToast={() => {}}
 			/>
 		),
@@ -109,4 +115,9 @@ test("newly presented images render through OpenTUI's image component", async ()
 
 	expect(renderable).toBeInstanceOf(ImageRenderable);
 	expect(testSetup.captureCharFrame()).toContain("█");
+	if (!renderable) throw new Error("Expected image renderable");
+	const mouse = createMockMouse(testSetup.renderer);
+	await mouse.pressDown(renderable.x, renderable.y);
+	await mouse.release(renderable.x, renderable.y);
+	expect(opened).toBeTrue();
 });
