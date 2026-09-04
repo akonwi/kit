@@ -77,6 +77,56 @@ func TestRunSingleTurn(t *testing.T) {
 	}
 }
 
+func TestAssistantMessageIdentitySpansLiveAndPersistedLifecycle(t *testing.T) {
+	providers, err := NewProviders(fauxProvider{
+		model: Model{ID: "test-model", MaxOutputTokens: 100},
+		reply: func(Request) AssistantMessage {
+			return AssistantMessage{Content: []Content{TextContent{Text: "done"}}, StopReason: StopReasonStop}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := NewMemoryStorage()
+	d, err := New(Options{
+		Providers: providers, Model: "test-model", Storage: store, Session: "s1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	run, err := d.Stream(context.Background(), "hi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var startedID, completedID string
+	for event := range run.Events() {
+		switch typed := event.(type) {
+		case MessageStart:
+			if assistant, ok := typed.Message.(AssistantMessage); ok {
+				startedID = assistant.ID
+			}
+		case MessageEnd:
+			if assistant, ok := typed.Message.(AssistantMessage); ok {
+				completedID = assistant.ID
+			}
+		}
+	}
+	result, err := run.Result()
+	if err != nil {
+		t.Fatal(err)
+	}
+	history, err := store.Load(context.Background(), "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	persisted := history[1].(AssistantMessage)
+	if !strings.HasPrefix(startedID, "message_") || completedID != startedID || result.ID != startedID || persisted.ID != startedID {
+		t.Fatalf("assistant ids = started %q completed %q result %q persisted %q", startedID, completedID, result.ID, persisted.ID)
+	}
+}
+
 func TestOptionsMaxTokensIsPerRequestAllowance(t *testing.T) {
 	var request Request
 	providers, err := NewProviders(fauxProvider{

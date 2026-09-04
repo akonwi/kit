@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/akonwi/kit/internal/identifier"
 )
 
 // loop.go — the bounded multi-step tool loop (Layer 2). Consumes the queue
@@ -249,6 +251,16 @@ func (d *Droid) runPrompt(qp queuedPrompt) runResult {
 // streamTurn runs one provider stream and returns the final assistant message,
 // emitting deltas and persisting the result.
 func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
+	messageID, err := identifier.New("message_")
+	if err != nil {
+		return AssistantMessage{
+			Provider: d.model.Provider, Model: d.model.ID,
+			StopReason: StopReasonError, ErrorKind: ErrorProtocol,
+			ErrorMessage: fmt.Sprintf("droids: generate assistant message id: %v", err),
+			Timestamp:    time.Now().UnixMilli(),
+		}
+	}
+
 	requestMaxTokens := d.maxTokens
 	if d.model.OutputLimitMode == OutputLimitProviderControlled {
 		requestMaxTokens = 0
@@ -268,17 +280,19 @@ func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
 		switch e := ev.(type) {
 		case StreamStart:
 			started = true
+			e.Partial.ID = messageID
 			d.emit(MessageStart{Message: e.Partial})
 		case StreamDone, StreamError:
 			// handled after loop via Result()
 		default:
 			if started {
-				d.emit(MessageDelta{Stream: ev})
+				d.emit(MessageDelta{MessageID: messageID, Stream: ev})
 			}
 		}
 	}
 
 	final := stream.Result()
+	final.ID = messageID
 	calculateCost(d.model, &final.Usage)
 	if final.Provider == "" {
 		final.Provider = d.model.Provider

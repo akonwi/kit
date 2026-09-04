@@ -27,7 +27,17 @@ func (s *Store) AppendMessages(
 	if sessionID == "" || turnID == "" {
 		return nil, fmt.Errorf("session and turn ids are required")
 	}
+	assignedIDs := make(map[string]struct{}, len(messages))
 	for index, message := range messages {
+		if message.ID != "" {
+			if !identifier.Valid(message.ID, "message_") {
+				return nil, fmt.Errorf("message %d has invalid id %q", index, message.ID)
+			}
+			if _, duplicate := assignedIDs[message.ID]; duplicate {
+				return nil, fmt.Errorf("message %d duplicates id %q", index, message.ID)
+			}
+			assignedIDs[message.ID] = struct{}{}
+		}
 		if !validMessageRole(message.Role) {
 			return nil, fmt.Errorf("message %d has invalid role %q", index, message.Role)
 		}
@@ -72,9 +82,12 @@ func (s *Store) AppendMessages(
 
 	records := make([]MessageRecord, 0, len(messages))
 	for index, message := range messages {
-		messageID, err := identifier.New("message_")
-		if err != nil {
-			return nil, err
+		messageID := message.ID
+		if messageID == "" {
+			messageID, err = identifier.New("message_")
+			if err != nil {
+				return nil, err
+			}
 		}
 		createdAt := message.CreatedAt.UTC()
 		if createdAt.IsZero() {

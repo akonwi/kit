@@ -168,6 +168,9 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 			t.Errorf("session event %d kind = %q, want %q", index, eventBatch.Events[index].Kind, want)
 		}
 	}
+	if eventBatch.Events[2].MessageID != snapshot.Messages[1].ID || eventBatch.Events[3].MessageID != snapshot.Messages[1].ID {
+		t.Errorf("live assistant ids = %q/%q, snapshot id = %q", eventBatch.Events[2].MessageID, eventBatch.Events[3].MessageID, snapshot.Messages[1].ID)
+	}
 	if eventBatch.Events[3].Kind != protocol.SessionEventAssistantCompleted || eventBatch.Events[4].Status != protocol.RunStatusCompleted {
 		t.Errorf("terminal session events = %+v", eventBatch.Events[3:])
 	}

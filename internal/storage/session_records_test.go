@@ -37,15 +37,16 @@ func TestSessionRunAndMessageLifecycle(t *testing.T) {
 		t.Fatalf("turn = %+v, run = %+v", turn, run)
 	}
 
+	const assistantMessageID = "message_0123456789abcdef0123456789abcdef"
 	payloads := []NewMessageRecord{
 		{Role: "user", PayloadJSON: json.RawMessage(`{"text":"hello"}`)},
-		{Role: "assistant", PayloadJSON: json.RawMessage(`{"text":"hi"}`)},
+		{ID: assistantMessageID, Role: "assistant", PayloadJSON: json.RawMessage(`{"text":"hi"}`)},
 	}
 	records, err := store.AppendMessages(ctx, session.ID, turn.ID, payloads)
 	if err != nil {
 		t.Fatalf("AppendMessages() error = %v", err)
 	}
-	if len(records) != 2 || records[0].Sequence != 0 || records[1].Sequence != 1 {
+	if len(records) != 2 || records[0].Sequence != 0 || records[1].Sequence != 1 || records[1].ID != assistantMessageID {
 		t.Fatalf("message records = %+v", records)
 	}
 	if err := store.FinishParentRun(ctx, session.ID, turn.ID, run.ID, RunStatusCompleted, ""); err != nil {

@@ -67,10 +67,13 @@ type MessageStart struct{ Message Message }
 func (MessageStart) isEvent() {}
 
 // MessageDelta carries a streaming update to the in-progress assistant message.
-// StreamEvent is the underlying provider delta; Partial is the message so far.
+// MessageID is copied from that message so consumers can correlate updates
+// without relying on mutable stream position. StreamEvent is the provider delta;
+// Partial is the message so far when available.
 type MessageDelta struct {
-	Partial AssistantMessage
-	Stream  StreamEvent
+	MessageID string
+	Partial   AssistantMessage
+	Stream    StreamEvent
 }
 
 func (MessageDelta) isEvent() {}

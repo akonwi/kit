@@ -104,7 +104,7 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID string, aft
 		batch.Events = append(batch.Events, protocol.SessionEvent{
 			StreamID: event.StreamID, Sequence: event.Sequence,
 			SessionID: event.SessionID, TurnID: event.TurnID, RunID: event.RunID,
-			Kind: protocol.SessionEventKind(event.Kind), ContentIndex: event.ContentIndex,
+			MessageID: event.MessageID, Kind: protocol.SessionEventKind(event.Kind), ContentIndex: event.ContentIndex,
 			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
 			ToolCallID: event.ToolCallID, ToolName: event.ToolName,
 			Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated,

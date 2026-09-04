@@ -68,7 +68,7 @@ func TestSessionEventsReceiveContiguousDurableSequences(t *testing.T) {
 		t.Fatalf("first AppendSessionEvents() error = %v", err)
 	}
 	second, err := store.AppendSessionEvents(ctx, []kitsession.NewEvent{
-		{SessionID: created.ID, TurnID: "turn-1", RunID: "run-1", Kind: kitsession.EventAssistantTextDelta, ContentIndex: 0, Delta: "hi"},
+		{SessionID: created.ID, TurnID: "turn-1", RunID: "run-1", MessageID: "message-1", Kind: kitsession.EventAssistantTextDelta, ContentIndex: 0, Delta: "hi"},
 	})
 	if err != nil {
 		t.Fatalf("second AppendSessionEvents() error = %v", err)
@@ -87,7 +87,7 @@ func TestSessionEventsReceiveContiguousDurableSequences(t *testing.T) {
 	if page.StreamID != first[0].StreamID || page.FirstSequence != 1 || page.LastSequence != 3 || len(page.Events) != 2 {
 		t.Fatalf("event page = %+v", page)
 	}
-	if page.Events[0].Kind != kitsession.EventUserMessage || page.Events[0].Text != "hello" || page.Events[1].Delta != "hi" {
+	if page.Events[0].Kind != kitsession.EventUserMessage || page.Events[0].Text != "hello" || page.Events[1].MessageID != "message-1" || page.Events[1].Delta != "hi" {
 		t.Fatalf("event page content = %+v", page.Events)
 	}
 }

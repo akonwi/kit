@@ -109,7 +109,8 @@ recorded manual verification exists.
   planning/start/completion, and terminal state. Push subscriptions, streamed
   tool updates, usage events, richer error
   recovery, and full multi-client synchronization remain.
-- [~] Persist explicit turn and stable message identities.
+- [~] Persist explicit turn and stable message identities; assistant message IDs
+  now remain stable from live start/deltas through the persisted snapshot.
 - [~] Render active and historical turns consistently after reconnect/restart;
   transcript snapshots now preserve ordered content blocks, tool call/result
   identity, bounded arguments, details, errors, and stop reasons, and the native
@@ -215,8 +216,9 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v5 adds validated structured transcript content and explicit bounded
-  tool-argument truncation. TypeScript contracts remain.
+  protocol v5 adds validated structured transcript content, explicit bounded
+  tool-argument truncation, and stable live assistant message IDs. TypeScript
+  contracts remain.
 - [ ] Snapshot plus high-water synchronization without listener races.
 - [ ] Ordered, exactly-once client reduction with duplicate/gap handling.
 - [~] Bounded event journal, replay, resync, and snapshot fallback; session

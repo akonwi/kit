@@ -259,6 +259,7 @@ func (s *localEventStream) poll(
 	polls := 0
 	terminalChecks := 0
 	seenRunStart := false
+	activeAssistantMessageID := ""
 	for {
 		if batch.ResyncRequired {
 			s.err = errEventResyncRequired
@@ -268,6 +269,7 @@ func (s *localEventStream) poll(
 			if streamID != "" && batch.StreamID != streamID {
 				after = 0
 				seenRunStart = false
+				activeAssistantMessageID = ""
 			}
 			streamID = batch.StreamID
 		}
@@ -286,6 +288,12 @@ func (s *localEventStream) poll(
 					return
 				}
 				seenRunStart = true
+			}
+			var err error
+			activeAssistantMessageID, err = reduceAssistantMessageID(activeAssistantMessageID, event)
+			if err != nil {
+				s.err = fmt.Errorf("%w: %v", errEventResyncRequired, err)
+				return
 			}
 			matching = append(matching, event)
 			if event.Kind == protocol.SessionEventRunFinished {
@@ -345,6 +353,33 @@ func (s *localEventStream) poll(
 			}
 		}
 	}
+}
+
+func reduceAssistantMessageID(current string, event protocol.SessionEvent) (string, error) {
+	switch event.Kind {
+	case protocol.SessionEventRunStarted:
+		return "", nil
+	case protocol.SessionEventAssistantStarted:
+		if current != "" {
+			return current, fmt.Errorf("assistant message %q started before %q completed", event.MessageID, current)
+		}
+		return event.MessageID, nil
+	case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta, protocol.SessionEventToolPlanned:
+		if current == "" || event.MessageID != current {
+			return current, fmt.Errorf("assistant update message id %q does not match active message %q", event.MessageID, current)
+		}
+		return current, nil
+	case protocol.SessionEventAssistantCompleted:
+		if current == "" || event.MessageID != current {
+			return current, fmt.Errorf("completed assistant message id %q does not match active message %q", event.MessageID, current)
+		}
+		return "", nil
+	case protocol.SessionEventRunFinished:
+		if current != "" {
+			return current, fmt.Errorf("run finished before assistant message %q completed", current)
+		}
+	}
+	return current, nil
 }
 
 func fetchSessionEvents(

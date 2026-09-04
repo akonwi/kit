@@ -265,11 +265,27 @@ func TestManagerPublishesOrderedTurnEvents(t *testing.T) {
 	if page.Events[4].Delta != "reply 1" {
 		t.Errorf("text delta = %q", page.Events[4].Delta)
 	}
+	assistantMessageID := page.Events[2].MessageID
+	if !identifier.Valid(assistantMessageID, "message_") {
+		t.Errorf("assistant message id = %q", assistantMessageID)
+	}
+	for _, index := range []int{3, 4, 5} {
+		if page.Events[index].MessageID != assistantMessageID {
+			t.Errorf("event %d message id = %q, want %q", index, page.Events[index].MessageID, assistantMessageID)
+		}
+	}
 	if completed := page.Events[5]; completed.Kind != kitsession.EventAssistantCompleted {
 		t.Errorf("completed assistant event = %+v", completed)
 	}
 	if terminal := page.Events[6]; terminal.Status != kitsession.RunStatusCompleted {
 		t.Errorf("terminal status = %q", terminal.Status)
+	}
+	snapshot, err := manager.Snapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Messages) != 2 || snapshot.Messages[1].Role != "assistant" || snapshot.Messages[1].ID != assistantMessageID {
+		t.Fatalf("snapshot messages = %+v, want assistant id %q", snapshot.Messages, assistantMessageID)
 	}
 }
 

@@ -39,8 +39,10 @@ func TestLocalEventStreamDeliversOnlyTheBoundRunInOrder(t *testing.T) {
 	transport := &scriptedEventTransport{pages: []protocol.SessionEventBatch{{
 		StreamID: "stream_test",
 		Events: []protocol.SessionEvent{
-			{Sequence: 3, RunID: "run_test", Kind: protocol.SessionEventAssistantTextDelta, Delta: "hello"},
-			{Sequence: 4, RunID: "run_test", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
+			{Sequence: 3, RunID: "run_test", MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
+			{Sequence: 4, RunID: "run_test", MessageID: "message_test", Kind: protocol.SessionEventAssistantTextDelta, Delta: "hello"},
+			{Sequence: 5, RunID: "run_test", MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
+			{Sequence: 6, RunID: "run_test", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
 		},
 	}}}
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
@@ -59,12 +61,14 @@ func TestLocalEventStreamDeliversOnlyTheBoundRunInOrder(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatalf("event stream error = %v", err)
 	}
-	if len(received) != 3 {
-		t.Fatalf("received event count = %d, want 3: %+v", len(received), received)
+	if len(received) != 5 {
+		t.Fatalf("received event count = %d, want 5: %+v", len(received), received)
 	}
 	wantKinds := []protocol.SessionEventKind{
 		protocol.SessionEventRunStarted,
+		protocol.SessionEventAssistantStarted,
 		protocol.SessionEventAssistantTextDelta,
+		protocol.SessionEventAssistantCompleted,
 		protocol.SessionEventRunFinished,
 	}
 	for index, want := range wantKinds {
@@ -74,6 +78,31 @@ func TestLocalEventStreamDeliversOnlyTheBoundRunInOrder(t *testing.T) {
 	}
 	if len(transport.cursors) != 1 || transport.cursors[0] != 2 {
 		t.Fatalf("poll cursors = %v, want [2]", transport.cursors)
+	}
+}
+
+func TestLocalEventStreamRejectsAssistantIdentityChangeAcrossPages(t *testing.T) {
+	t.Parallel()
+
+	transport := &scriptedEventTransport{pages: []protocol.SessionEventBatch{{
+		StreamID: "stream_test",
+		Events: []protocol.SessionEvent{
+			{Sequence: 3, RunID: "run_test", MessageID: "message_two", Kind: protocol.SessionEventAssistantTextDelta, Delta: "wrong"},
+		},
+	}}}
+	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
+	initial := protocol.SessionEventBatch{StreamID: "stream_test", Events: []protocol.SessionEvent{
+		{Sequence: 1, RunID: "run_test", Kind: protocol.SessionEventRunStarted},
+		{Sequence: 2, RunID: "run_test", MessageID: "message_one", Kind: protocol.SessionEventAssistantStarted},
+	}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	go stream.poll(ctx, transport, "session_test", "run_test", initial)
+
+	for range stream.Updates() {
+	}
+	if err := stream.Err(); !errors.Is(err, errEventResyncRequired) {
+		t.Fatalf("event stream error = %v, want resynchronization", err)
 	}
 }
 

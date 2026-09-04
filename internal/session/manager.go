@@ -481,8 +481,9 @@ func (m *Manager) drainRunEvents(run droids.Run, sessionID, turnID, runID string
 func coalescibleDelta(previous, next NewEvent) bool {
 	const maxCoalescedDeltaBytes = 16 << 10
 	isDelta := next.Kind == EventAssistantTextDelta || next.Kind == EventThinkingDelta
-	return isDelta && previous.Kind == next.Kind && previous.ContentIndex == next.ContentIndex &&
-		previous.RunID == next.RunID && len(previous.Delta)+len(next.Delta) <= maxCoalescedDeltaBytes
+	return isDelta && previous.Kind == next.Kind && previous.MessageID == next.MessageID &&
+		previous.ContentIndex == next.ContentIndex && previous.RunID == next.RunID &&
+		len(previous.Delta)+len(next.Delta) <= maxCoalescedDeltaBytes
 }
 
 func (m *Manager) appendLiveEvents(events []NewEvent) error {

@@ -249,6 +249,10 @@ const (
 
 // AssistantMessage is a full model response for one turn.
 type AssistantMessage struct {
+	// ID is assigned by Droid before a provider attempt so the live message
+	// lifecycle and durable projection share one identity. Providers ignore it;
+	// manually constructed messages may leave it empty.
+	ID            string
 	Content       []Content // TextContent | ThinkingContent | ToolCall
 	Provider      string
 	Model         string

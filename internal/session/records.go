@@ -72,8 +72,10 @@ const (
 	RunStatusInterrupted RunStatus = "interrupted"
 )
 
-// NewMessageRecord is an encoded runtime message awaiting persistence.
+// NewMessageRecord is an encoded runtime message awaiting persistence. ID may
+// be supplied when a live message identity was allocated before persistence.
 type NewMessageRecord struct {
+	ID          string
 	Role        string
 	PayloadJSON []byte
 	CreatedAt   time.Time

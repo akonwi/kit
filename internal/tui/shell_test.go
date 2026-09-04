@@ -64,8 +64,8 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
 		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "Inspect the file"},
-		{Sequence: 3, Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "Planning the inspection\nChecking retries"},
+		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "Planning the inspection\nChecking retries"},
 	})
 	if state.turnActivity != "Checking retries" {
 		t.Fatalf("thinking activity = %q, want latest line", state.turnActivity)
@@ -83,7 +83,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 5, Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "I’ll inspect it now."},
+		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "I’ll inspect it now."},
 	})
 	if state.turnActivity != "Working…" {
 		t.Fatalf("response activity = %q, want Working…", state.turnActivity)
@@ -102,7 +102,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 6, Kind: protocol.SessionEventAssistantCompleted},
+		{Sequence: 6, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
 		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
 		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Text: "file contents"},
 		{Sequence: 9, Kind: protocol.SessionEventRunFinished},

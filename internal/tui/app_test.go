@@ -34,9 +34,9 @@ func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
 		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "read it"},
-		{Sequence: 3, Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read"},
-		{Sequence: 5, Kind: protocol.SessionEventAssistantCompleted},
+		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
 		{Sequence: 6, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read"},
 	})
 	if len(state.liveMessages) != 2 {
@@ -56,7 +56,7 @@ func TestStoppingTurnActivityTakesPrecedenceUntilRunFinishes(t *testing.T) {
 		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "late output"},
+		{Sequence: 1, MessageID: "message_test", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "late output"},
 	})
 	if state.turnActivity != "Stopping…" {
 		t.Fatalf("activity after buffered delta = %q, want Stopping…", state.turnActivity)

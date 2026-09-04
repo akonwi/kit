@@ -36,6 +36,7 @@ type NewEvent struct {
 	SessionID          string
 	TurnID             string
 	RunID              string
+	MessageID          string
 	Kind               EventKind
 	ContentIndex       int
 	Delta              string
@@ -85,13 +86,19 @@ func (event NewEvent) Validate() error {
 			return fmt.Errorf("user message text is required")
 		}
 	case EventAssistantStarted, EventAssistantCompleted:
+		if event.MessageID == "" {
+			return fmt.Errorf("assistant event requires a message id")
+		}
 	case EventAssistantTextDelta, EventThinkingDelta:
-		if event.ContentIndex < 0 || event.Delta == "" {
-			return fmt.Errorf("assistant delta requires a content index and text")
+		if event.MessageID == "" || event.ContentIndex < 0 || event.Delta == "" {
+			return fmt.Errorf("assistant delta requires a message id, content index, and text")
 		}
 	case EventToolPlanned, EventToolStarted:
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("tool start requires call id and name")
+		}
+		if event.Kind == EventToolPlanned && event.MessageID == "" {
+			return fmt.Errorf("planned tool call requires an assistant message id")
 		}
 		if event.Kind == EventToolPlanned && (event.Arguments != "" || event.ArgumentsTruncated) {
 			return fmt.Errorf("planned tool call cannot carry complete arguments")
@@ -139,6 +146,11 @@ func (event NewEvent) Validate() error {
 	if event.Kind != EventToolPlanned && event.Kind != EventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
+	carriesMessageID := event.Kind == EventAssistantStarted || event.Kind == EventAssistantTextDelta ||
+		event.Kind == EventThinkingDelta || event.Kind == EventAssistantCompleted || event.Kind == EventToolPlanned
+	if !carriesMessageID && event.MessageID != "" {
+		return fmt.Errorf("event kind %q cannot carry a message id", event.Kind)
+	}
 	return nil
 }
 
@@ -164,12 +176,20 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			base.Text = boundedLiveText(contentText(message.Content))
 			return []NewEvent{base}
 		case droids.AssistantMessage:
+			if message.ID == "" {
+				return nil
+			}
 			base.Kind = EventAssistantStarted
+			base.MessageID = message.ID
 			return []NewEvent{base}
 		default:
 			return nil
 		}
 	case droids.MessageDelta:
+		if typed.MessageID == "" {
+			return nil
+		}
+		base.MessageID = typed.MessageID
 		switch delta := typed.Stream.(type) {
 		case droids.StreamTextDelta:
 			if delta.Delta == "" {
@@ -196,10 +216,12 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			return []NewEvent{base}
 		}
 	case droids.MessageEnd:
-		if _, ok := typed.Message.(droids.AssistantMessage); !ok {
+		message, ok := typed.Message.(droids.AssistantMessage)
+		if !ok || message.ID == "" {
 			return nil
 		}
 		base.Kind = EventAssistantCompleted
+		base.MessageID = message.ID
 		return []NewEvent{base}
 	case droids.ToolExecutionStart:
 		base.Kind = EventToolStarted

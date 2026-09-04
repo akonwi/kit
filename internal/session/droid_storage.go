@@ -59,6 +59,10 @@ func (s *droidStorage) Load(ctx context.Context, sessionID string) ([]droids.Mes
 		if err != nil {
 			return nil, fmt.Errorf("decode message %q: %w", record.ID, err)
 		}
+		if assistant, ok := message.(droids.AssistantMessage); ok {
+			assistant.ID = record.ID
+			message = assistant
+		}
 		messages = append(messages, message)
 	}
 	return messages, nil
@@ -93,8 +97,17 @@ func (s *droidStorage) Append(ctx context.Context, sessionID string, messages ..
 			s.recordError(err)
 			return err
 		}
+		messageID := ""
+		if assistant, ok := message.(droids.AssistantMessage); ok {
+			messageID = assistant.ID
+			if messageID == "" {
+				err := errors.New("droids appended an assistant message without an id")
+				s.recordError(err)
+				return err
+			}
+		}
 		records = append(records, NewMessageRecord{
-			Role: role, PayloadJSON: payload, CreatedAt: createdAt,
+			ID: messageID, Role: role, PayloadJSON: payload, CreatedAt: createdAt,
 		})
 	}
 	if _, err := s.store.AppendMessages(ctx, sessionID, turnID, records); err != nil {

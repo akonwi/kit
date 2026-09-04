@@ -21,6 +21,7 @@ const (
 type sessionEventPayload struct {
 	TurnID             string                       `json:"turnId"`
 	RunID              string                       `json:"runId"`
+	MessageID          string                       `json:"messageId,omitempty"`
 	ContentIndex       int                          `json:"contentIndex,omitempty"`
 	Delta              string                       `json:"delta,omitempty"`
 	Text               string                       `json:"text,omitempty"`
@@ -53,7 +54,7 @@ func (s *Store) AppendSessionEvents(ctx context.Context, events []kitsession.New
 			return nil, fmt.Errorf("event %d: %w", index, err)
 		}
 		payload, err := json.Marshal(sessionEventPayload{
-			TurnID: event.TurnID, RunID: event.RunID, ContentIndex: event.ContentIndex,
+			TurnID: event.TurnID, RunID: event.RunID, MessageID: event.MessageID, ContentIndex: event.ContentIndex,
 			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
 			ToolCallID: event.ToolCallID, ToolName: event.ToolName,
 			Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated,
@@ -215,7 +216,7 @@ func (s *Store) ListSessionEvents(ctx context.Context, sessionID string, after i
 			return kitsession.EventPage{}, fmt.Errorf("decode session event %d: %w", sequence, err)
 		}
 		event := kitsession.Event{NewEvent: kitsession.NewEvent{
-			SessionID: sessionID, TurnID: payload.TurnID, RunID: payload.RunID, Kind: kind,
+			SessionID: sessionID, TurnID: payload.TurnID, RunID: payload.RunID, MessageID: payload.MessageID, Kind: kind,
 			ContentIndex: payload.ContentIndex, Delta: payload.Delta, Text: payload.Text,
 			Thinking: payload.Thinking, ToolCallID: payload.ToolCallID, ToolName: payload.ToolName,
 			Arguments: payload.Arguments, ArgumentsTruncated: payload.ArgumentsTruncated,

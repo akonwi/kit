@@ -28,6 +28,7 @@ type SessionEvent struct {
 	SessionID          string            `json:"sessionId"`
 	TurnID             string            `json:"turnId"`
 	RunID              string            `json:"runId"`
+	MessageID          string            `json:"messageId,omitempty"`
 	Kind               SessionEventKind  `json:"kind"`
 	ContentIndex       int               `json:"contentIndex,omitempty"`
 	Delta              string            `json:"delta,omitempty"`
@@ -73,13 +74,19 @@ func (event SessionEvent) Validate() error {
 			return fmt.Errorf("user message text is required")
 		}
 	case SessionEventAssistantStarted, SessionEventAssistantCompleted:
+		if event.MessageID == "" {
+			return fmt.Errorf("assistant event requires a message id")
+		}
 	case SessionEventAssistantTextDelta, SessionEventThinkingDelta:
-		if event.ContentIndex < 0 || event.Delta == "" {
-			return fmt.Errorf("assistant delta requires a content index and text")
+		if event.MessageID == "" || event.ContentIndex < 0 || event.Delta == "" {
+			return fmt.Errorf("assistant delta requires a message id, content index, and text")
 		}
 	case SessionEventToolPlanned, SessionEventToolStarted, SessionEventToolUpdated, SessionEventToolCompleted:
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("tool event requires call id and name")
+		}
+		if event.Kind == SessionEventToolPlanned && event.MessageID == "" {
+			return fmt.Errorf("planned tool call requires an assistant message id")
 		}
 		if event.Kind == SessionEventToolPlanned && (event.Arguments != "" || event.ArgumentsTruncated) {
 			return fmt.Errorf("planned tool call cannot carry complete arguments")
@@ -123,6 +130,11 @@ func (event SessionEvent) Validate() error {
 	if event.Kind != SessionEventToolPlanned && event.Kind != SessionEventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
+	carriesMessageID := event.Kind == SessionEventAssistantStarted || event.Kind == SessionEventAssistantTextDelta ||
+		event.Kind == SessionEventThinkingDelta || event.Kind == SessionEventAssistantCompleted || event.Kind == SessionEventToolPlanned
+	if !carriesMessageID && event.MessageID != "" {
+		return fmt.Errorf("event kind %q cannot carry a message id", event.Kind)
+	}
 	return nil
 }
 
@@ -143,6 +155,8 @@ func (batch SessionEventBatch) Validate() error {
 		return fmt.Errorf("non-empty event batch requires a retention range")
 	}
 	previous := int64(0)
+	activeAssistantRunID := ""
+	activeAssistantMessageID := ""
 	for index, event := range batch.Events {
 		if err := event.Validate(); err != nil {
 			return fmt.Errorf("event %d: %w", index, err)
@@ -158,6 +172,23 @@ func (batch SessionEventBatch) Validate() error {
 		}
 		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
+		}
+		if event.RunID != activeAssistantRunID || event.Kind == SessionEventRunStarted {
+			activeAssistantRunID = event.RunID
+			activeAssistantMessageID = ""
+		}
+		if event.MessageID != "" {
+			if activeAssistantMessageID == "" {
+				activeAssistantMessageID = event.MessageID
+			} else if event.MessageID != activeAssistantMessageID {
+				return fmt.Errorf("event %d assistant message id %q does not match active message %q", index, event.MessageID, activeAssistantMessageID)
+			}
+			if event.Kind == SessionEventAssistantCompleted {
+				activeAssistantMessageID = ""
+			}
+		}
+		if event.Kind == SessionEventRunFinished {
+			activeAssistantMessageID = ""
 		}
 		previous = event.Sequence
 	}

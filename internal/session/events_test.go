@@ -17,24 +17,24 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 	}{
 		{
 			name: "thinking delta",
-			event: droids.MessageDelta{Stream: droids.StreamThinkingDelta{
+			event: droids.MessageDelta{MessageID: "message_1", Stream: droids.StreamThinkingDelta{
 				ContentIndex: 0, Delta: "considering",
 			}},
-			want: NewEvent{Kind: EventThinkingDelta, ContentIndex: 0, Delta: "considering"},
+			want: NewEvent{Kind: EventThinkingDelta, MessageID: "message_1", ContentIndex: 0, Delta: "considering"},
 		},
 		{
 			name: "assistant text delta",
-			event: droids.MessageDelta{Stream: droids.StreamTextDelta{
+			event: droids.MessageDelta{MessageID: "message_1", Stream: droids.StreamTextDelta{
 				ContentIndex: 1, Delta: "answer",
 			}},
-			want: NewEvent{Kind: EventAssistantTextDelta, ContentIndex: 1, Delta: "answer"},
+			want: NewEvent{Kind: EventAssistantTextDelta, MessageID: "message_1", ContentIndex: 1, Delta: "answer"},
 		},
 		{
 			name: "tool call planned",
-			event: droids.MessageDelta{Stream: droids.StreamToolCallStart{
+			event: droids.MessageDelta{MessageID: "message_1", Stream: droids.StreamToolCallStart{
 				ContentIndex: 2, ID: "call_1", Name: "read",
 			}},
-			want: NewEvent{Kind: EventToolPlanned, ContentIndex: 2, ToolCallID: "call_1", ToolName: "read"},
+			want: NewEvent{Kind: EventToolPlanned, MessageID: "message_1", ContentIndex: 2, ToolCallID: "call_1", ToolName: "read"},
 		},
 	}
 	for _, test := range tests {
@@ -44,7 +44,7 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 				t.Fatalf("projected event count = %d, want 1", len(projected))
 			}
 			got := projected[0]
-			if got.Kind != test.want.Kind || got.ContentIndex != test.want.ContentIndex || got.Delta != test.want.Delta ||
+			if got.Kind != test.want.Kind || got.MessageID != test.want.MessageID || got.ContentIndex != test.want.ContentIndex || got.Delta != test.want.Delta ||
 				got.ToolCallID != test.want.ToolCallID || got.ToolName != test.want.ToolName {
 				t.Fatalf("projected event = %+v, want activity %+v", got, test.want)
 			}
@@ -56,7 +56,7 @@ func TestProjectDroidEventSuppressesMalformedPlannedToolIdentity(t *testing.T) {
 	t.Parallel()
 
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
-		Stream: droids.StreamToolCallStart{ContentIndex: 1, Name: "read"},
+		MessageID: "message_1", Stream: droids.StreamToolCallStart{ContentIndex: 1, Name: "read"},
 	})
 	if len(projected) != 0 {
 		t.Fatalf("projected malformed tool event = %+v, want none", projected)
@@ -97,7 +97,7 @@ func TestProjectDroidEventChunksLargeStreamingDeltaWithoutDataLoss(t *testing.T)
 
 	delta := strings.Repeat("résumé ", maxLiveEventTextBytes/4)
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
-		Stream: droids.StreamTextDelta{ContentIndex: 1, Delta: delta},
+		MessageID: "message_1", Stream: droids.StreamTextDelta{ContentIndex: 1, Delta: delta},
 	})
 	var rebuilt strings.Builder
 	for _, event := range projected {

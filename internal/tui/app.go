@@ -92,6 +92,7 @@ const (
 )
 
 type transcriptMessage struct {
+	ID                     string
 	Role                   string
 	Text                   string
 	Thinking               string
@@ -507,7 +508,7 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 			role = "error"
 		}
 		result = append(result, transcriptMessage{
-			Role: role, Text: text, Thinking: thinking,
+			ID: message.ID, Role: role, Text: text, Thinking: thinking,
 			ToolName: message.ToolName, IsError: message.IsError,
 		})
 	}
@@ -560,10 +561,10 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.liveContent[-1] = liveContentBlock{kind: protocol.SessionEventAssistantTextDelta, text: event.Text}
 			}
 			s.liveMessages = append(s.liveMessages, transcriptMessage{
-				Role: "assistant", Text: event.Text, Thinking: event.Thinking, Pending: true,
+				ID: event.MessageID, Role: "assistant", Text: event.Text, Thinking: event.Thinking, Pending: true,
 			})
 		case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta:
-			index := s.ensureLiveAssistant()
+			index := s.ensureLiveAssistant(event.MessageID)
 			block, exists := s.liveContent[event.ContentIndex]
 			if exists && block.kind != event.Kind {
 				continue
@@ -578,7 +579,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.setTurnActivity("Working…")
 			}
 		case protocol.SessionEventAssistantCompleted:
-			index := s.ensureLiveAssistant()
+			index := s.ensureLiveAssistant(event.MessageID)
 			if event.Text != "" || event.Thinking != "" {
 				s.liveMessages[index].Text = event.Text
 				s.liveMessages[index].Thinking = event.Thinking
@@ -644,13 +645,20 @@ func (s *appState) removeLiveMessage(index int) {
 	}
 }
 
-func (s *appState) ensureLiveAssistant() int {
-	if s.liveAssistant >= 0 && s.liveAssistant < len(s.liveMessages) {
+func (s *appState) ensureLiveAssistant(messageID string) int {
+	if s.liveAssistant >= 0 && s.liveAssistant < len(s.liveMessages) &&
+		s.liveMessages[s.liveAssistant].ID == messageID {
 		return s.liveAssistant
+	}
+	for index := len(s.liveMessages) - 1; index >= 0; index-- {
+		if s.liveMessages[index].Role == "assistant" && s.liveMessages[index].ID == messageID {
+			s.liveAssistant = index
+			return index
+		}
 	}
 	s.liveAssistant = len(s.liveMessages)
 	s.liveContent = make(map[int]liveContentBlock)
-	s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "assistant", Pending: true})
+	s.liveMessages = append(s.liveMessages, transcriptMessage{ID: messageID, Role: "assistant", Pending: true})
 	return s.liveAssistant
 }
 
