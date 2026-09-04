@@ -267,7 +267,9 @@ their terminal's native workflow.
   using semantic progress color thresholds. The header separator is structural,
   not a progress bar. Omit context at zero or when unavailable.
 - Do not add an elapsed-turn timer.
-- Overlays hug their result count until reaching a named maximum height.
+- Overlays hug their result count until reaching a named maximum height. The
+  command palette keeps its input near the top quarter so filtering changes only
+  its bottom edge instead of moving the whole surface.
 - Header/footer overflow says what was hidden (`⋯ 3 more`) instead of showing an
   unexplained glyph.
 - Animation is limited to meaningful progress, entry/exit, and state change;

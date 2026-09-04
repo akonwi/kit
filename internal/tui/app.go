@@ -69,10 +69,14 @@ func Run(options Options) error {
 	done := make(chan struct{})
 	options.Context = runContext
 	options.appDone = done
-	err := ui.Run(app{Options: options})
+	err := ui.Run(app{Options: options}, ui.WithShortcuts(nativeRootShortcuts()))
 	close(done)
 	cancel()
 	return err
+}
+
+func nativeRootShortcuts() ui.ShortcutMap {
+	return ui.ShortcutMap{"Escape": ui.DismissIntent{}}
 }
 
 type phase int
@@ -120,6 +124,8 @@ type appState struct {
 	errorText           string
 	status              string
 	composer            string
+	palette             paletteController
+	authReturnReady     bool
 	authFilter          string
 	authSelection       int
 	authProviderID      string
@@ -222,34 +228,35 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
 	snapshot := shellSnapshot{
-		Phase:          s.phase,
-		Error:          s.errorText,
-		Status:         s.status,
-		Composer:       s.composer,
-		AuthFilter:     s.authFilter,
-		AuthSelection:  s.authSelection,
-		AuthProviderID: s.authProviderID,
-		AuthAPIKey:     s.authAPIKey,
-		AuthPending:    s.authPending,
-		Session:        s.session,
-		Messages:       presentedMessages,
-		Running:        s.runPending,
-		TurnActivity:   s.turnActivity,
-		ContextTokens:  s.contextTokens,
-		ContextWindow:  s.contextWindow,
-		Scroll:         &s.scroll,
-		Instructions:   s.instructions,
-		Remaining:      s.remaining,
-		Location:       options.Location,
+		Phase:            s.phase,
+		Error:            s.errorText,
+		Status:           s.status,
+		Composer:         s.composer,
+		PaletteOpen:      s.palette.Open,
+		PaletteQuery:     s.palette.Query,
+		PaletteSelection: s.palette.Selection,
+		AuthReturnReady:  s.authReturnReady,
+		AuthFilter:       s.authFilter,
+		AuthSelection:    s.authSelection,
+		AuthProviderID:   s.authProviderID,
+		AuthAPIKey:       s.authAPIKey,
+		AuthPending:      s.authPending,
+		Session:          s.session,
+		Messages:         presentedMessages,
+		Running:          s.runPending,
+		TurnActivity:     s.turnActivity,
+		ContextTokens:    s.contextTokens,
+		ContextWindow:    s.contextWindow,
+		Scroll:           &s.scroll,
+		Instructions:     s.instructions,
+		Remaining:        s.remaining,
+		Location:         options.Location,
 	}
 	callbacks := shellCallbacks{
 		OpenAuth: func(ui.EventContext) {
-			s.SetState(func() {
-				s.phase = phaseAuthSelect
-				s.errorText = ""
-				s.authFilter = ""
-				s.authSelection = 0
-			})
+			if s.phase == phaseAuthGate {
+				s.enterAuthSelect(false)
+			}
 		},
 		SelectProvider: s.selectProvider,
 		MoveProviderSelection: func(_ ui.EventContext, delta int) {
@@ -280,16 +287,43 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 		},
 		ComposerChanged: func(_ ui.EventContext, value string) {
+			if s.phase != phaseReady {
+				return
+			}
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
-				s.composer = value
+				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.runPending)
+				if intercepted {
+					return
+				}
+				s.composer = composer
 				if followTranscript {
 					s.requestTranscriptScroll()
 				}
 			})
 		},
-		Submit: s.submit,
+		OpenPalette: func(ui.EventContext) {
+			s.openPalette()
+		},
+		PaletteQueryChanged: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.palette.SetQuery(s.runPending, value) })
+		},
+		MovePaletteSelection: func(_ ui.EventContext, delta int) {
+			s.movePaletteSelection(delta)
+		},
+		RunPaletteQuery:   s.runPaletteQuery,
+		RunPaletteCommand: s.runPaletteCommand,
+		Submit: func(ctx ui.EventContext, value string) {
+			if s.phase != phaseReady {
+				return
+			}
+			if s.palette.Open {
+				s.runPaletteQuery(ctx, s.palette.Query)
+				return
+			}
+			s.submit(ctx, value)
+		},
 		Retry: func(ui.EventContext) {
 			s.SetState(func() {
 				s.phase = phaseLoading
@@ -299,6 +333,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(options.DefaultModel, options.DefaultThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.palette.Open {
+				s.SetState(func() { s.palette.Close() })
+				return
+			}
 			if s.composer != "" && s.phase == phaseReady {
 				s.SetState(func() { s.composer = "" })
 				return
@@ -308,6 +346,31 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Dismiss: s.dismiss,
 	}
 	return shellView{Snapshot: snapshot, Callbacks: callbacks}
+}
+
+func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	if ctx.Phase() != ui.CapturePhase {
+		return ui.EventIgnored
+	}
+	key, ok := event.(ui.Key)
+	if !ok || !s.palette.Open {
+		return ui.EventIgnored
+	}
+	var command paletteCommand
+	var run, handled bool
+	s.SetState(func() {
+		command, run, handled = s.palette.HandleKey(s.runPending, key)
+		if !handled {
+			handled = s.palette.HandleEditorKey(s.runPending, key)
+		}
+	})
+	if !handled {
+		return ui.EventIgnored
+	}
+	if run {
+		s.runPaletteCommand(ctx, command.ID)
+	}
+	return ui.EventHandled
 }
 
 func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
@@ -850,6 +913,17 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 			s.availableMu.Lock()
 			s.available[provider.ID] = true
 			s.availableMu.Unlock()
+			if s.authReturnReady {
+				s.SetState(func() {
+					s.phase = phaseReady
+					s.authReturnReady = false
+					s.authPending = false
+					s.authProviderID = ""
+					s.authAPIKey = ""
+					s.status = "Connected to " + provider.Name
+				})
+				return
+			}
 			s.SetState(func() {
 				s.phase = phaseLoading
 				s.authPending = false
@@ -922,6 +996,16 @@ func (s *appState) startLogin(_ ui.EventContext) {
 			s.availableMu.Lock()
 			s.available[auth.OpenAICodexProviderID] = true
 			s.availableMu.Unlock()
+			if s.authReturnReady {
+				s.SetState(func() {
+					s.phase = phaseReady
+					s.authReturnReady = false
+					s.authPending = false
+					s.status = "Connected to OpenAI Codex"
+					s.instructions = auth.OpenAICodexDeviceInstructions{}
+				})
+				return
+			}
 			s.SetState(func() {
 				s.phase = phaseLoading
 				s.authPending = false
@@ -961,6 +1045,53 @@ func (s *appState) cancelLogin() {
 		s.loginCancel()
 		s.loginCancel = nil
 	}
+}
+
+func (s *appState) openPalette() {
+	if s.phase != phaseReady || s.palette.Open {
+		return
+	}
+	s.SetState(func() { s.palette.OpenFor(s.runPending) })
+}
+
+func (s *appState) movePaletteSelection(delta int) {
+	if !s.palette.Open {
+		return
+	}
+	s.SetState(func() { s.palette.Move(s.runPending, delta) })
+}
+
+func (s *appState) runPaletteQuery(ctx ui.EventContext, query string) {
+	command, ok := s.palette.Selected(s.runPending, query)
+	if !ok {
+		return
+	}
+	s.runPaletteCommand(ctx, command.ID)
+}
+
+func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteCommandID) {
+	if !s.palette.Open || !paletteCommandAvailable(commandID, s.runPending) {
+		return
+	}
+	s.SetState(func() { s.palette.Close() })
+	switch commandID {
+	case paletteCommandLogin:
+		s.enterAuthSelect(true)
+	case paletteCommandAbort:
+		s.dismiss(ctx)
+	case paletteCommandQuit:
+		ctx.Quit()
+	}
+}
+
+func (s *appState) enterAuthSelect(returnReady bool) {
+	s.SetState(func() {
+		s.phase = phaseAuthSelect
+		s.authReturnReady = returnReady
+		s.errorText = ""
+		s.authFilter = ""
+		s.authSelection = 0
+	})
 }
 
 func (s *appState) submit(_ ui.EventContext, value string) {
@@ -1064,12 +1195,17 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.palette.Open {
+		s.SetState(func() { s.palette.Close() })
+		return
+	}
 	switch s.phase {
 	case phaseAuthSelect:
 		s.SetState(func() {
-			s.phase = phaseAuthGate
+			s.phase = authSelectionDismissTarget(s.authReturnReady)
+			s.authReturnReady = false
 			s.errorText = ""
-			s.status = "Sign-in cancelled"
+			s.status = ""
 			s.authFilter = ""
 			s.authSelection = 0
 		})
@@ -1083,7 +1219,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		s.SetState(func() {
 			s.phase = phaseAuthSelect
 			s.errorText = ""
-			s.status = "Sign-in cancelled"
+			s.status = ""
 			s.instructions = auth.OpenAICodexDeviceInstructions{}
 			s.authProviderID = ""
 			s.authAPIKey = ""
@@ -1117,6 +1253,13 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			}
 		}()
 	}
+}
+
+func authSelectionDismissTarget(returnReady bool) phase {
+	if returnReady {
+		return phaseReady
+	}
+	return phaseAuthGate
 }
 
 func (s *appState) providerAvailable(model string) bool {

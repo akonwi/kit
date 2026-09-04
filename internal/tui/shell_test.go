@@ -291,6 +291,21 @@ func TestComposerPlaceholderPreservesNarrowHorizontalInsets(t *testing.T) {
 	}
 }
 
+func TestComposerResyncsWhenParentInterceptsSlash(t *testing.T) {
+	t.Parallel()
+
+	state := &interceptedComposerHarnessState{}
+	app := uitest.New(interceptedComposerHarness{State: state})
+	app.Pump(20, 4)
+	app.Key("/")
+	app.Pump(20, 4)
+	app.Key("x")
+	app.Pump(20, 4)
+	if state.value != "x" {
+		t.Fatalf("composer value after intercepted slash = %q, want x", state.value)
+	}
+}
+
 func TestComposerPlaceholderPassesClicksToTextArea(t *testing.T) {
 	t.Parallel()
 
@@ -303,6 +318,30 @@ func TestComposerPlaceholderPassesClicksToTextArea(t *testing.T) {
 	app.Pump(20, 4)
 	if state.value != "x" {
 		t.Fatalf("composer value after placeholder click = %q, want x", state.value)
+	}
+}
+
+type interceptedComposerHarness struct {
+	State *interceptedComposerHarnessState
+}
+
+func (w interceptedComposerHarness) CreateState() ui.State { return w.State }
+
+type interceptedComposerHarnessState struct {
+	ui.StateBase
+	value string
+}
+
+func (s *interceptedComposerHarnessState) Build(ui.BuildContext) ui.Widget {
+	return messageComposer{
+		Value: s.value,
+		OnChanged: func(_ ui.EventContext, value string) {
+			if value == "/" {
+				s.SetState(func() {})
+				return
+			}
+			s.SetState(func() { s.value = value })
+		},
 	}
 }
 
@@ -530,7 +569,7 @@ func TestProviderDialogMatchesMainBranchStructure(t *testing.T) {
 		"Connect a provider", "Filter providers", ">",
 		"OpenAI Codex", "ChatGPT plan · device code",
 		"Anthropic", "API key", "OpenAI",
-		"↑ up · ↓ down · Enter select · Esc close",
+		"↑↓ move · enter select · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("provider dialog missing %q:\n%s", expected, text)
@@ -637,12 +676,53 @@ func TestAPIKeySaveCannotBeVisuallyCanceledAfterCommitStarts(t *testing.T) {
 	})
 	app.Pump(80, 20)
 	text := strings.Join(paintedRows(app, 80, 20), "\n")
-	if !strings.Contains(text, "Saving…") || strings.Contains(text, "Esc cancel") || strings.Contains(text, "Esc back") {
+	if !strings.Contains(text, "Saving…") || strings.Contains(text, "esc cancel") || strings.Contains(text, "esc back") {
 		t.Fatalf("pending API-key footer offers misleading cancellation:\n%s", text)
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
 	if dismissed {
 		t.Fatal("Escape dismissed API-key save after commit started")
+	}
+}
+
+func TestPaletteLaunchedAuthBlocksConversationInput(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 20
+	state := &authModalHarnessState{}
+	app := uitest.New(authModalHarness{State: state})
+	app.Pump(width, height)
+	app.Click(2, height-3)
+	app.Key("x")
+	app.Enter()
+	app.Pump(width, height)
+	if state.composer != "" || state.submissions != 0 {
+		t.Fatalf("background composer=%q submissions=%d", state.composer, state.submissions)
+	}
+	if state.filter != "x" {
+		t.Fatalf("provider filter = %q, want focused overlay input", state.filter)
+	}
+}
+
+func TestWaitingAuthModalRetainsFocusWithoutInteractiveInstructions(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 20
+	ready := &authWaitingFocusHarnessState{returnReady: true}
+	app := uitest.New(authWaitingFocusHarness{State: ready})
+	app.Pump(width, height)
+	app.Key("x")
+	app.Pump(width, height)
+	if ready.composer != "" {
+		t.Fatalf("ready background composer = %q", ready.composer)
+	}
+
+	firstRun := &authWaitingFocusHarnessState{}
+	app = uitest.New(authWaitingFocusHarness{State: firstRun})
+	app.Pump(width, height)
+	app.Enter()
+	if firstRun.openAuth != 0 {
+		t.Fatalf("background auth action count = %d", firstRun.openAuth)
 	}
 }
 
@@ -676,6 +756,69 @@ func TestAuthDialogDoesNotScrimBackground(t *testing.T) {
 	}
 	if got, want := dialog.Cell(left+1, top+1).Style.Background, gate.Cell(left+1, top+1).Style.Background; got != want {
 		t.Fatalf("dialog interior background = %v, want shell background %v", got, want)
+	}
+}
+
+type authWaitingFocusHarness struct{ State *authWaitingFocusHarnessState }
+
+func (w authWaitingFocusHarness) CreateState() ui.State { return w.State }
+
+type authWaitingFocusHarnessState struct {
+	ui.StateBase
+	returnReady bool
+	composer    string
+	openAuth    int
+	scroll      ui.ScrollController
+}
+
+func (s *authWaitingFocusHarnessState) Build(ui.BuildContext) ui.Widget {
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseAuthWaiting, AuthReturnReady: s.returnReady,
+			Composer: s.composer, Scroll: &s.scroll,
+			Session: protocol.SessionInfo{Name: "Attached", Model: "openai/gpt-5.3-codex"},
+		},
+		Callbacks: shellCallbacks{
+			ComposerChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.composer = value })
+			},
+			OpenAuth: func(ui.EventContext) {
+				s.SetState(func() { s.openAuth++ })
+			},
+		},
+	}
+}
+
+type authModalHarness struct{ State *authModalHarnessState }
+
+func (w authModalHarness) CreateState() ui.State { return w.State }
+
+type authModalHarnessState struct {
+	ui.StateBase
+	composer    string
+	filter      string
+	submissions int
+	scroll      ui.ScrollController
+}
+
+func (s *authModalHarnessState) Build(ui.BuildContext) ui.Widget {
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseAuthSelect, AuthReturnReady: true,
+			Composer: s.composer, AuthFilter: s.filter, Scroll: &s.scroll,
+			Session: protocol.SessionInfo{Name: "Attached", Model: "openai/gpt-5.3-codex"},
+		},
+		Callbacks: shellCallbacks{
+			ComposerChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.composer = value })
+			},
+			Submit: func(ui.EventContext, string) {
+				s.SetState(func() { s.submissions++ })
+			},
+			AuthFilterChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.filter = value })
+			},
+		},
 	}
 }
 

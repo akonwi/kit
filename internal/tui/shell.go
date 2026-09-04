@@ -13,25 +13,29 @@ import (
 )
 
 type shellSnapshot struct {
-	Phase          phase
-	Error          string
-	Status         string
-	Composer       string
-	AuthFilter     string
-	AuthSelection  int
-	AuthProviderID string
-	AuthAPIKey     string
-	AuthPending    bool
-	Session        protocol.SessionInfo
-	Messages       []transcriptMessage
-	Running        bool
-	TurnActivity   string
-	ContextTokens  int
-	ContextWindow  int
-	Scroll         *ui.ScrollController
-	Instructions   auth.OpenAICodexDeviceInstructions
-	Remaining      time.Duration
-	Location       string
+	Phase            phase
+	Error            string
+	Status           string
+	Composer         string
+	PaletteOpen      bool
+	PaletteQuery     string
+	PaletteSelection paletteCommandID
+	AuthReturnReady  bool
+	AuthFilter       string
+	AuthSelection    int
+	AuthProviderID   string
+	AuthAPIKey       string
+	AuthPending      bool
+	Session          protocol.SessionInfo
+	Messages         []transcriptMessage
+	Running          bool
+	TurnActivity     string
+	ContextTokens    int
+	ContextWindow    int
+	Scroll           *ui.ScrollController
+	Instructions     auth.OpenAICodexDeviceInstructions
+	Remaining        time.Duration
+	Location         string
 }
 
 type providerSelectedCallback func(ui.EventContext, string)
@@ -47,6 +51,11 @@ type shellCallbacks struct {
 	OpenURL               ui.TextChangedCallback
 	CopyCode              ui.VoidCallback
 	ComposerChanged       ui.TextChangedCallback
+	OpenPalette           ui.VoidCallback
+	PaletteQueryChanged   ui.TextChangedCallback
+	MovePaletteSelection  selectionMovedCallback
+	RunPaletteQuery       ui.TextChangedCallback
+	RunPaletteCommand     func(ui.EventContext, paletteCommandID)
 	Submit                ui.TextChangedCallback
 	Retry                 ui.VoidCallback
 	Quit                  ui.VoidCallback
@@ -74,12 +83,35 @@ type moveProviderIntent struct{ Delta int }
 
 func (moveProviderIntent) IntentType() ui.IntentType { return "kit.auth.move-provider" }
 
+type openPaletteIntent struct{}
+
+func (openPaletteIntent) IntentType() ui.IntentType { return "kit.command-palette.open" }
+
+type movePaletteIntent struct{ Delta int }
+
+func (movePaletteIntent) IntentType() ui.IntentType { return "kit.command-palette.move" }
+
 func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
-	content := w.baseShell(theme)
+	content := ui.Widget(ui.SelectionArea{Child: w.baseShell(theme)})
 	overlays := w.authOverlays(theme)
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
+		overlays = append(overlays, ui.OverlayEntry{
+			Modal: true, Barrier: clearModalBarrier{},
+			Child: commandPaletteSurface{
+				Snapshot: paletteSnapshot{
+					Query: w.Snapshot.PaletteQuery, Selection: w.Snapshot.PaletteSelection,
+					Running: w.Snapshot.Running,
+				},
+				Callbacks: paletteCallbacks{
+					QueryChanged: w.Callbacks.PaletteQueryChanged,
+					RunQuery:     w.Callbacks.RunPaletteQuery,
+					RunCommand:   w.Callbacks.RunPaletteCommand,
+				},
+			},
+		})
+	}
 	root := ui.Widget(ui.Overlay{Child: content, Entries: overlays})
-	root = ui.SelectionArea{Child: root}
 
 	actions := map[ui.IntentType]ui.ActionFunc{
 		quitIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
@@ -88,11 +120,39 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			return ui.EventHandled
 		},
+		ui.NextFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			ctx.FocusNext()
+			return ui.EventHandled
+		},
+		ui.PreviousFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			ctx.FocusPrevious()
+			return ui.EventHandled
+		},
 	}
-	shortcuts := ui.ShortcutMap{"Ctrl+c": quitIntent{}}
-	if w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting ||
-		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) ||
-		(w.Snapshot.Phase == phaseReady && w.Snapshot.Running) {
+	shortcuts := ui.ShortcutMap{
+		"Ctrl+c": quitIntent{}, "Tab": ui.NextFocusIntent{}, "Shift+Tab": ui.PreviousFocusIntent{},
+	}
+	if w.Snapshot.Phase == phaseReady {
+		shortcuts["Ctrl+p"] = openPaletteIntent{}
+		actions[openPaletteIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if w.Callbacks.OpenPalette != nil {
+				w.Callbacks.OpenPalette(ctx)
+			}
+			return ui.EventHandled
+		}
+	}
+	if w.Snapshot.PaletteOpen {
+		shortcuts["Up"] = movePaletteIntent{Delta: -1}
+		shortcuts["Down"] = movePaletteIntent{Delta: 1}
+		actions[movePaletteIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+			if w.Callbacks.MovePaletteSelection != nil {
+				w.Callbacks.MovePaletteSelection(ctx, intent.(movePaletteIntent).Delta)
+			}
+			return ui.EventHandled
+		}
+	}
+	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting ||
+		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
@@ -134,9 +194,13 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	)
 }
 
+func (w shellView) conversationVisible() bool {
+	return w.Snapshot.Phase == phaseReady || w.Snapshot.AuthReturnReady
+}
+
 func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 	body := ui.Widget(ui.Expanded(w.body(theme)))
-	if w.Snapshot.Phase == phaseReady {
+	if w.conversationVisible() {
 		body = ui.Expanded(conversationLayout{
 			Transcript: w.body(theme),
 			Activity:   w.pendingSlot(theme),
@@ -156,7 +220,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 func (w shellView) header(theme ui.Theme) ui.Widget {
 	left := "kit"
 	right := []ui.TextSpan(nil)
-	if w.Snapshot.Phase == phaseReady {
+	if w.conversationVisible() {
 		left = sessionDisplayName(w.Snapshot.Session)
 		right = modelInformation(w.Snapshot, theme)
 	}
@@ -171,9 +235,10 @@ func (w shellView) header(theme ui.Theme) ui.Widget {
 }
 
 func (w shellView) body(theme ui.Theme) ui.Widget {
-	switch w.Snapshot.Phase {
-	case phaseReady:
+	if w.conversationVisible() {
 		return w.transcript(theme)
+	}
+	switch w.Snapshot.Phase {
 	case phaseFailed:
 		return ui.Center(ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
 			ui.Text{Value: "Kit could not start", Style: ui.Style{Foreground: theme.DangerText, Attribute: ui.AttrBold}},
@@ -281,13 +346,14 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		Placeholder: "Ask kit to do something…",
 		OnChanged:   w.Callbacks.ComposerChanged,
 		OnSubmitted: w.Callbacks.Submit,
+		OpenPalette: w.Callbacks.OpenPalette,
 	}
 	return ui.Provider[ui.Theme]{Value: composerTheme, Child: composer}
 }
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {
 	left := w.Snapshot.Status
-	if w.Snapshot.Phase == phaseAuthGate || w.Snapshot.Phase == phaseAuthSelect {
+	if !w.Snapshot.AuthReturnReady && (w.Snapshot.Phase == phaseAuthGate || w.Snapshot.Phase == phaseAuthSelect) {
 		left = "enter connect · ctrl+c quit"
 	}
 	if w.Snapshot.Phase == phaseFailed {
@@ -306,39 +372,48 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 	switch w.Snapshot.Phase {
 	case phaseAuthSelect:
-		return []ui.OverlayEntry{{Child: dialogSurface(
+		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
 			theme,
 			"Connect a provider",
 			"",
 			w.providerSelectionBody(theme),
-			ui.Text{Value: "↑ up · ↓ down · Enter select · Esc close", Style: ui.Style{Foreground: theme.MutedForeground}},
+			ui.Text{Value: "↑↓ move · enter select · esc close", Style: ui.Style{Foreground: theme.MutedForeground}},
 			false,
-		)}}
+		))}
 	case phaseAuthWaiting:
-		return []ui.OverlayEntry{{Child: dialogSurface(
+		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
 			theme,
 			"Complete login",
 			"OpenAI Codex",
 			ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: w.deviceLoginBody(theme)},
-			ui.Text{Value: "C copy code · Esc cancel", Style: ui.Style{Foreground: theme.MutedForeground}},
+			ui.Text{Value: "c copy code · esc cancel", Style: ui.Style{Foreground: theme.MutedForeground}},
 			true,
-		)}}
+		))}
 	case phaseAuthAPIKey:
 		provider, _ := authProviderByID(w.Snapshot.AuthProviderID)
-		footer := "Enter save · Esc back"
+		footer := "enter save · esc back"
 		if w.Snapshot.AuthPending {
 			footer = "Saving…"
 		}
-		return []ui.OverlayEntry{{Child: dialogSurface(
+		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
 			theme,
 			"Connect "+provider.Name,
 			"",
 			w.apiKeyBody(theme),
 			ui.Text{Value: footer, Style: ui.Style{Foreground: theme.MutedForeground}},
 			false,
-		)}}
+		))}
 	default:
 		return nil
+	}
+}
+
+func modalDialogEntry(child ui.Widget) ui.OverlayEntry {
+	return ui.OverlayEntry{
+		Modal: true, Barrier: clearModalBarrier{},
+		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: ui.Stack{
+			Children: []ui.Widget{ui.SelectionArea{Child: child}, modalFocusAnchor{}},
+		}},
 	}
 }
 
@@ -525,15 +600,13 @@ func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget, b
 			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: bodyChildren,
 		})
 	}
-	return proportionalWidth{Percent: 70, Min: 48, Max: 96, Child: ui.FocusScope{
-		Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
-			ui.Decoration{
-				Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
-				Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
-			},
-			content,
-		),
-	}}
+	return proportionalWidth{Percent: 70, Min: 48, Max: 96, Child: ui.DecoratedBox(
+		ui.Decoration{
+			Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
+			Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
+		},
+		content,
+	)}
 }
 
 func emptyState(theme ui.Theme, instruction, hint string) ui.Widget {

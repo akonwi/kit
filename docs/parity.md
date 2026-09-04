@@ -28,8 +28,8 @@ recorded manual verification exists.
 ## Accepted differences
 
 - [-] `web-tui` is removed.
-- [~] OpenTUI is replaced with `vaxis/ui`; the initial native shell is running,
-  while full behavior and visual parity remain targets.
+- [x] OpenTUI is replaced with `vaxis/ui` as the native TUI framework.
+  Remaining behavior and visual parity are tracked under Native TUI shell.
 - [ ] The TypeScript/Pi runtime is replaced by the Kit-private Go
   `internal/droids` core seeded from the standalone droids repository.
 - [ ] Runtime-owned JSONL session data moves to SQLite through an idempotent,
@@ -167,8 +167,12 @@ recorded manual verification exists.
   attachments, pending queue, and abort state; the focused full-width composer
   starts at one row, grows to ten rows with multiline input, submits prompts,
   preserves text while busy, and exposes abort state.
-- [ ] Command palette with filtering, completion, arguments, nested pickers,
-  keyboard, and mouse behavior.
+- [~] Command palette with filtering, completion, arguments, nested pickers,
+  keyboard, and mouse behavior; the initial single-ranked palette opens from
+  `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
+  wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
+  state, and an undimmed modal boundary. Completion, arguments, nested pickers,
+  and dynamic command sources remain.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
 - [~] Toasts, confirmation/input/select dialogs, fatal/error screens, and
@@ -308,7 +312,8 @@ recorded manual verification exists.
 
 ## Commands, settings, and themes
 
-- [ ] Core command catalog and transport-neutral command subset.
+- [~] Core command catalog and transport-neutral command subset; the native
+  palette currently exposes login, conditional abort, and quit.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [ ] `/cd`, `/settings`, `/pager`, `/code-review`, `/handoff`, `/login`,
   `/logout`, `/model`, `/name`, `/new`, `/reload`, `/debug`, `/sessions`,

@@ -113,6 +113,8 @@ Examples: `InlinePicker`, compact overflow pickers, toast notifications.
 Examples: settings, login, guided questions, session exploration, command palette, workspace file finder.
 
 - Centered above the current screen without dimming or recoloring the background
+- The command palette is the placement exception: anchor its input near the top
+  quarter so content-hugging result changes move only its bottom edge
 - Uses a trapped focus scope so the undimmed background does not remain keyboard-active
 - Uses `Dialog.Root` when its structure fits
 - Content box has a `borderDefault` outer border and uses the surrounding `bg` background; do not tint the whole dialog when an undimmed shell remains visible behind it

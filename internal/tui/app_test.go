@@ -90,6 +90,17 @@ func TestTerminalSnapshotFailureSettlesLiveTurnForContinuedInput(t *testing.T) {
 	}
 }
 
+func TestAuthSelectionDismissesToItsOpeningSurface(t *testing.T) {
+	t.Parallel()
+
+	if got := authSelectionDismissTarget(false); got != phaseAuthGate {
+		t.Fatalf("first-run auth dismissal = %v, want auth gate", got)
+	}
+	if got := authSelectionDismissTarget(true); got != phaseReady {
+		t.Fatalf("palette auth dismissal = %v, want ready conversation", got)
+	}
+}
+
 func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 	t.Parallel()
 

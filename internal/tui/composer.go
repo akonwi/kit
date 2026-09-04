@@ -13,6 +13,7 @@ type messageComposer struct {
 	Placeholder string
 	OnChanged   ui.TextChangedCallback
 	OnSubmitted ui.TextChangedCallback
+	OpenPalette ui.VoidCallback
 }
 
 func (messageComposer) CreateState() ui.State { return &messageComposerState{} }
@@ -26,10 +27,9 @@ func (s *messageComposerState) InitState() {
 	s.value = s.Widget().(messageComposer).Value
 }
 
-func (s *messageComposerState) DidUpdateWidget(old ui.Widget) {
-	previous := old.(messageComposer)
+func (s *messageComposerState) DidUpdateWidget(ui.Widget) {
 	current := s.Widget().(messageComposer)
-	if current.Value != previous.Value {
+	if current.Value != s.value {
 		s.value = current.Value
 	}
 }
@@ -55,16 +55,27 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 			MaxLines: 1,
 		})})
 	}
+	actions := map[ui.IntentType]ui.ActionFunc{
+		submitComposerIntent{}.IntentType(): s.submit,
+	}
+	shortcuts := ui.ShortcutMap{
+		"Enter":       submitComposerIntent{},
+		"Shift+Enter": ui.InsertLineBreakIntent{},
+	}
+	if s.value == "" && config.OpenPalette != nil {
+		shortcuts["/"] = openPaletteIntent{}
+		actions[openPaletteIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if callback := s.Widget().(messageComposer).OpenPalette; callback != nil {
+				callback(ctx)
+			}
+			return ui.EventHandled
+		}
+	}
 	return ui.Actions{
-		Bindings: map[ui.IntentType]ui.ActionFunc{
-			submitComposerIntent{}.IntentType(): s.submit,
-		},
+		Bindings: actions,
 		Child: ui.Shortcuts{
-			Bindings: ui.ShortcutMap{
-				"Enter":       submitComposerIntent{},
-				"Shift+Enter": ui.InsertLineBreakIntent{},
-			},
-			Child: ui.Stack{Alignment: ui.TopLeft, Children: children},
+			Bindings: shortcuts,
+			Child:    ui.Stack{Alignment: ui.TopLeft, Children: children},
 		},
 	}
 }
