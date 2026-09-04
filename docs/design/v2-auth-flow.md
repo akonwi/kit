@@ -220,37 +220,57 @@ the exact runtime `VerificationURI` and `UserCode` returned by
 Wide:
 
 ```text
-        ┌ OpenAI Codex ──────────────────────────────────┐
-        │ 1  Visit   auth.openai.com/codex/device        │
-        │ 2  Enter                                       │
-        │                                                │
-        │                 FJKP-QRSA                      │
-        │                                                │
-        │ ⠹ Waiting for approval — expires in 12:41      │
-        ├────────────────────────────────────────────────┤
-        │ o open browser · c copy code · esc cancel      │
-        └────────────────────────────────────────────────┘
+        ┌──────────────────────────────────────────────────────────┐
+        │ Complete login                              OpenAI Codex │
+        │                                                          │
+        │ Open the link and enter the code to complete auth.       │
+        │                                                          │
+        │ Open this URL                                            │
+        │ https://auth.openai.com/codex/device                      │
+        │                                                          │
+        │ Enter this code                                          │
+        │ FJKP-QRSA                                                │
+        │                                                          │
+        │ ⠹ Waiting for approval — expires in 12:41                 │
+        │                                                          │
+        ├──────────────────────────────────────────────────────────┤
+        │ C copy code · Esc cancel                                 │
+        └──────────────────────────────────────────────────────────┘
 ```
 
 Narrow:
 
 ```text
-  ┌ OpenAI Codex ────────────────────┐
-  │ Visit                            │
-  │ auth.openai.com/codex/device     │
-  │ Enter                            │
-  │                                  │
-  │          FJKP-QRSA               │
-  │                                  │
-  │ ⠹ Waiting — expires in 12:41     │
-  ├──────────────────────────────────┤
-  │ o open · c copy · esc cancel     │
-  └──────────────────────────────────┘
+  ┌──────────────────────────────────────────┐
+  │ Complete login              OpenAI Codex │
+  │                                          │
+  │ Open the link and enter the code to      │
+  │ complete authentication.                 │
+  │                                          │
+  │ Open this URL                            │
+  │ https://auth.openai.com/codex/device     │
+  │                                          │
+  │ Enter this code                          │
+  │ FJKP-QRSA                                │
+  │                                          │
+  │ ⠹ Waiting — expires in 12:41             │
+  │                                          │
+  ├──────────────────────────────────────────┤
+  │ C copy code · Esc cancel                 │
+  └──────────────────────────────────────────┘
 ```
 
-The code is emphasized without inserting display characters that would corrupt
-copy/paste. The countdown is shown because expiry is actionable. Below two
-minutes it changes to warning semantics and says what to do next.
+The URL remains visible and carries OSC 8 hyperlink metadata. Because the TUI
+owns mouse reporting, activating the rendered link also invokes the platform
+browser opener directly. The URL and code are separated with labels and spacing
+rather than another border nested inside the dialog. The action footer
+retains its top border so keyboard controls remain a distinct dialog region. The
+code is emphasized without inserting display characters that would corrupt
+copy/paste.
+The wait line mounts Kit's shared spinner widget, which uses the standard
+Braille frames at an 80 ms cadence; Codex auth does not own separate animation
+state. The countdown is shown because expiry is actionable. Below two minutes it changes
+to warning semantics and says what to do next.
 
 ## Ready state
 
@@ -332,8 +352,9 @@ Credential values are never echoed. Product/provider names are used verbatim.
 - API-key input is masked; paste works; validation never reports key length or
   content.
 - Visible hints are generated from the active intent registry.
-- URLs remain visible even when an open-browser action exists, preserving SSH
-  and headless use.
+- URLs remain visible even when an open-browser action exists, preserve SSH and
+  headless use, carry OSC 8 hyperlink metadata when safe, and explicitly handle
+  activation while TUI mouse reporting is enabled.
 - Terminal title reflects `connect a provider` and `waiting for approval`.
 - Wide and narrow snapshot tests reject clipped glyphs, unlabeled truncation,
   incomplete separators, and overflow outside the measured content region.

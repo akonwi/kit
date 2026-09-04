@@ -117,6 +117,71 @@ func TestAuthGateUsesShellFooterAndDeviceDialog(t *testing.T) {
 	}
 }
 
+func TestCodexDeviceURLIsAPlainClickableLink(t *testing.T) {
+	t.Parallel()
+
+	const (
+		width  = 100
+		height = 24
+		link   = "https://auth.openai.com/codex/device"
+	)
+	opened := ""
+	app := uitest.New(shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseAuthWaiting,
+			Instructions: auth.OpenAICodexDeviceInstructions{
+				VerificationURI: link, UserCode: "TAN4-TMNGX", ExpiresAt: time.Now().Add(10 * time.Minute),
+			},
+			Remaining: 10 * time.Minute,
+		},
+		Callbacks: shellCallbacks{OpenURL: func(_ ui.EventContext, raw string) { opened = raw }},
+	})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	text := strings.Join(rows, "\n")
+	for _, expected := range []string{"Open this URL", link, "Enter this code", "TAN4-TMNGX", "⠋ Waiting for approval"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Codex dialog missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Count(text, "┌") != 1 || strings.Count(text, "└") != 1 {
+		t.Fatalf("Codex details add an unnecessary nested border:\n%s", text)
+	}
+	if strings.Count(text, "├") != 1 || strings.Count(text, "┤") != 1 {
+		t.Fatalf("Codex action footer is not a distinct bordered region:\n%s", text)
+	}
+	for row, line := range rows {
+		byteOffset := strings.Index(line, link)
+		if byteOffset < 0 {
+			continue
+		}
+		column := len([]rune(line[:byteOffset]))
+		for offset := range len(link) {
+			if got := app.Cell(column+offset, row).Hyperlink; got != link {
+				t.Fatalf("link cell %d (%q) has hyperlink %q, want %q", offset, app.Cell(column+offset, row).Grapheme, got, link)
+			}
+		}
+		app.Click(column, row)
+		if opened != link {
+			t.Fatalf("click opened %q, want %q", opened, link)
+		}
+		return
+	}
+	t.Fatal("linked URL row not found")
+}
+
+func TestSafeHTTPSHyperlinkRejectsUnsafeTargets(t *testing.T) {
+	t.Parallel()
+	if got := safeHTTPSHyperlink("https://example.test/device"); got == "" {
+		t.Fatal("safe HTTPS link was rejected")
+	}
+	for _, raw := range []string{"http://example.test/device", "https://user@example.test/device", "https://example.test/\nunsafe", "not a URL"} {
+		if got := safeHTTPSHyperlink(raw); got != "" {
+			t.Errorf("safeHTTPSHyperlink(%q) = %q, want empty", raw, got)
+		}
+	}
+}
+
 func TestAuthGateEnterOpensProviderSelection(t *testing.T) {
 	t.Parallel()
 

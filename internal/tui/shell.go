@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"math"
+	"net/url"
 	"strings"
 	"time"
 
@@ -42,6 +43,7 @@ type shellCallbacks struct {
 	AuthFilterChanged     ui.TextChangedCallback
 	AuthAPIKeyChanged     ui.TextChangedCallback
 	SubmitAPIKey          ui.TextChangedCallback
+	OpenURL               ui.TextChangedCallback
 	CopyCode              ui.VoidCallback
 	ComposerChanged       ui.TextChangedCallback
 	Submit                ui.TextChangedCallback
@@ -266,6 +268,7 @@ func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 			"",
 			w.providerSelectionBody(theme),
 			ui.Text{Value: "↑ up · ↓ down · Enter select · Esc close", Style: ui.Style{Foreground: theme.MutedForeground}},
+			false,
 		)}}
 	case phaseAuthWaiting:
 		return []ui.OverlayEntry{{Child: dialogSurface(
@@ -274,6 +277,7 @@ func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 			"OpenAI Codex",
 			ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: w.deviceLoginBody(theme)},
 			ui.Text{Value: "C copy code · Esc cancel", Style: ui.Style{Foreground: theme.MutedForeground}},
+			true,
 		)}}
 	case phaseAuthAPIKey:
 		provider, _ := authProviderByID(w.Snapshot.AuthProviderID)
@@ -287,6 +291,7 @@ func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 			"",
 			w.apiKeyBody(theme),
 			ui.Text{Value: footer, Style: ui.Style{Foreground: theme.MutedForeground}},
+			false,
 		)}}
 	default:
 		return nil
@@ -395,7 +400,7 @@ func (w shellView) deviceLoginBody(theme ui.Theme) []ui.Widget {
 		return []ui.Widget{
 			ui.Text{Value: "Complete authentication in your browser.", Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
 			ui.SizedBox{Height: 1},
-			ui.Text{Value: "Starting device authorization…", Style: ui.Style{Foreground: theme.MutedForeground}},
+			spinnerWithLabel("Starting device authorization…", ui.Style{Foreground: theme.MutedForeground}),
 		}
 	}
 	waitStyle := ui.Style{Foreground: theme.PrimaryText}
@@ -404,26 +409,48 @@ func (w shellView) deviceLoginBody(theme ui.Theme) []ui.Widget {
 		waitStyle.Foreground = theme.WarningText
 		waitText = "Code expires in " + formatRemaining(w.Snapshot.Remaining) + " — esc to get a new code"
 	}
-	details := ui.DecoratedBox(
-		ui.Decoration{Border: ui.BorderAll(ui.Style{Foreground: theme.PrimaryText})},
-		ui.Padding(ui.Insets{Left: 2, Right: 2}, ui.Flex{
-			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
-			Children: []ui.Widget{
-				ui.Text{Value: instructions.VerificationURI, Style: ui.Style{Foreground: theme.AccentText}, SoftWrap: true},
-				ui.Text{Value: "Enter code " + instructions.UserCode},
-			},
-		}),
-	)
+	linkStyle := ui.Style{Foreground: theme.AccentText, UnderlineStyle: ui.UnderlineSingle}
+	linkSpan := ui.TextSpan{Text: instructions.VerificationURI, Style: linkStyle}
+	if hyperlink := safeHTTPSHyperlink(instructions.VerificationURI); hyperlink != "" {
+		linkSpan.Style.Hyperlink = hyperlink
+		linkSpan.Style.HyperlinkParams = "id=codex-device-login"
+		if w.Callbacks.OpenURL != nil {
+			linkSpan.OnPressed = func(ctx ui.EventContext) { w.Callbacks.OpenURL(ctx, hyperlink) }
+		}
+	}
+	details := ui.Flex{
+		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
+		Children: []ui.Widget{
+			ui.Text{Value: "Open this URL", Style: ui.Style{Foreground: theme.MutedForeground}},
+			ui.RichText{Spans: []ui.TextSpan{linkSpan}, SoftWrap: true},
+			ui.SizedBox{Height: 1},
+			ui.Text{Value: "Enter this code", Style: ui.Style{Foreground: theme.MutedForeground}},
+			ui.Text{Value: instructions.UserCode, Style: ui.Style{Attribute: ui.AttrBold}},
+		},
+	}
 	return []ui.Widget{
-		ui.Text{Value: "Complete authentication in your browser. If a provider asks for a code, use the instructions shown below.", Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+		ui.Text{Value: "Open the link and enter the code to complete authentication.", Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
 		ui.SizedBox{Height: 1},
 		details,
 		ui.SizedBox{Height: 1},
-		ui.Text{Value: waitText, Style: waitStyle, SoftWrap: true},
+		spinnerWithLabel(waitText, waitStyle),
 	}
 }
 
-func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget) ui.Widget {
+func safeHTTPSHyperlink(raw string) string {
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+		return ""
+	}
+	for _, character := range raw {
+		if character < 0x20 || character == 0x7f {
+			return ""
+		}
+	}
+	return raw
+}
+
+func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget, borderedFooter bool) ui.Widget {
 	headerChildren := []ui.Widget{
 		ui.Expanded(ui.Text{Value: title, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 	}
@@ -433,9 +460,26 @@ func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget) u
 		})
 	}
 	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
-	children := []ui.Widget{header, ui.SizedBox{Height: 1}, body}
-	if footer != nil {
-		children = append(children, ui.SizedBox{Height: 1}, footer)
+	bodyChildren := []ui.Widget{header, ui.SizedBox{Height: 1}, body}
+	var content ui.Widget
+	if footer != nil && borderedFooter {
+		content = ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
+			Children: []ui.Widget{
+				ui.Padding(ui.Insets{Top: 1, Right: 2, Bottom: 1, Left: 2}, ui.Flex{
+					Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: bodyChildren,
+				}),
+				dialogDivider{Style: ui.Style{Foreground: theme.Border}},
+				ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
+			},
+		}
+	} else {
+		if footer != nil {
+			bodyChildren = append(bodyChildren, ui.SizedBox{Height: 1}, footer)
+		}
+		content = ui.Padding(ui.Insets{Top: 1, Right: 2, Bottom: 1, Left: 2}, ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: bodyChildren,
+		})
 	}
 	return proportionalWidth{Percent: 70, Min: 48, Max: 96, Child: ui.FocusScope{
 		Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
@@ -443,9 +487,7 @@ func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget) u
 				Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
 				Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
 			},
-			ui.Padding(ui.Insets{Top: 1, Right: 2, Bottom: 1, Left: 2}, ui.Flex{
-				Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children,
-			}),
+			content,
 		),
 	}}
 }

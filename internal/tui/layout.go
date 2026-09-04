@@ -80,3 +80,54 @@ func (r *renderProportionalWidth) Paint(painter *ui.Painter, offset ui.Offset) {
 }
 
 func (r *renderProportionalWidth) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
+
+// dialogDivider separates a footer while joining the dialog's outer border.
+type dialogDivider struct{ Style ui.Style }
+
+func (w dialogDivider) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+	return &renderDialogDivider{Style: w.Style}
+}
+
+func (w dialogDivider) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
+	render := object.(*renderDialogDivider)
+	if render.Style != w.Style {
+		render.Style = w.Style
+		render.MarkNeedsPaint()
+	}
+}
+
+type renderDialogDivider struct {
+	ui.LeafRenderObject
+	Style ui.Style
+}
+
+func (r *renderDialogDivider) Layout(_ ui.LayoutContext, constraints ui.Constraints) {
+	r.SetSize(r.dividerSize(constraints))
+}
+
+func (r *renderDialogDivider) DryLayout(_ ui.LayoutContext, constraints ui.Constraints) ui.Size {
+	return r.dividerSize(constraints)
+}
+
+func (r *renderDialogDivider) dividerSize(constraints ui.Constraints) ui.Size {
+	width := constraints.MinWidth
+	if constraints.HasBoundedWidth() {
+		width = constraints.MaxWidth
+	}
+	return constraints.Constrain(ui.Size{Width: width, Height: 1})
+}
+
+func (r *renderDialogDivider) Paint(painter *ui.Painter, offset ui.Offset) {
+	width := r.Size().Width
+	for column := 0; column < width; column++ {
+		grapheme := "─"
+		if column == 0 {
+			grapheme = "├"
+		} else if column == width-1 {
+			grapheme = "┤"
+		}
+		painter.DrawCell(ui.Point{X: offset.X + column, Y: offset.Y}, ui.Cell{
+			Character: ui.Character{Grapheme: grapheme, Width: 1}, Style: r.Style,
+		})
+	}
+}

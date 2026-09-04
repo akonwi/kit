@@ -230,6 +230,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() { s.authAPIKey = value })
 		},
 		SubmitAPIKey: s.submitAPIKey,
+		OpenURL: func(ctx ui.EventContext, raw string) {
+			if err := openExternalURL(raw); err != nil {
+				s.SetState(func() { s.status = "Could not open browser: " + err.Error() })
+				ctx.Notify("Could not open browser", err.Error())
+				return
+			}
+			s.SetState(func() { s.status = "Opened browser" })
+		},
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
 				ctx.Copy(s.instructions.UserCode)

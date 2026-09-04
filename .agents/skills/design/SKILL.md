@@ -309,6 +309,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - **Input:** transparent background with `borderDefault` when idle, `borderFocused` when focused, and `borderAccent` while editing when those states are distinct.
 - **Toggle:** use the established four-cell track and two-cell knob; active track uses `toggleOn`.
 - **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.
+- **Navigable URL:** keep the literal target visible, underline it, and attach OSC 8 hyperlink metadata when the target is safe. When the TUI has mouse reporting enabled, also handle activation explicitly because terminal-native clicks may be delivered to the app. Do not replace useful URLs with opaque `click here` copy.
 - Handle only the primary mouse button for activation. Prevent propagation when the action should not also select or focus an ancestor.
 
 ### Diffs and inline comments
@@ -333,7 +334,7 @@ All reusable UI glyphs live in `app/src/shell/glyphs.ts`. Import named constants
 - `CHEVRON_LEFT` / `CHEVRON_RIGHT` — directional navigation or opening/closing adjacent detail
 - `TIMES` — close or dismiss
 - `MIDDLE_DOT` — inline metadata separator
-- `SPINNER_FRAMES` — standard 80ms loading spinner
+- `SPINNER_FRAMES` — standard 80ms loading spinner. Native loading surfaces mount the shared spinner widget; feature-specific state must not own or duplicate its frames, cadence, or lifecycle.
 
 ## Empty States
 
