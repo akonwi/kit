@@ -1,8 +1,14 @@
 package protocol
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
-const maxSessionEventPayloadBytes = 128 << 10
+const (
+	maxSessionEventPayloadBytes  = 128 << 10
+	maxSessionEventContentBlocks = 128
+)
 
 // SessionEventKind identifies one live renderer-neutral session update.
 type SessionEventKind string
@@ -23,25 +29,29 @@ const (
 
 // SessionEvent is one durable ordered update in a session stream.
 type SessionEvent struct {
-	StreamID           string            `json:"streamId"`
-	Sequence           int64             `json:"sequence"`
-	SessionID          string            `json:"sessionId"`
-	TurnID             string            `json:"turnId"`
-	RunID              string            `json:"runId"`
-	MessageID          string            `json:"messageId,omitempty"`
-	Kind               SessionEventKind  `json:"kind"`
-	ContentIndex       int               `json:"contentIndex,omitempty"`
-	Delta              string            `json:"delta,omitempty"`
-	Text               string            `json:"text,omitempty"`
-	Thinking           string            `json:"thinking,omitempty"`
-	ToolCallID         string            `json:"toolCallId,omitempty"`
-	ToolName           string            `json:"toolName,omitempty"`
-	Arguments          string            `json:"arguments,omitempty"`
-	ArgumentsTruncated bool              `json:"argumentsTruncated,omitempty"`
-	IsError            bool              `json:"isError,omitempty"`
-	Status             RunStatus         `json:"status,omitempty"`
-	ErrorKind          ProviderErrorKind `json:"errorKind,omitempty"`
-	ErrorMessage       string            `json:"errorMessage,omitempty"`
+	StreamID           string              `json:"streamId"`
+	Sequence           int64               `json:"sequence"`
+	SessionID          string              `json:"sessionId"`
+	TurnID             string              `json:"turnId"`
+	RunID              string              `json:"runId"`
+	MessageID          string              `json:"messageId,omitempty"`
+	Kind               SessionEventKind    `json:"kind"`
+	ContentIndex       int                 `json:"contentIndex,omitempty"`
+	Delta              string              `json:"delta,omitempty"`
+	Text               string              `json:"text,omitempty"`
+	Thinking           string              `json:"thinking,omitempty"`
+	ToolCallID         string              `json:"toolCallId,omitempty"`
+	ToolName           string              `json:"toolName,omitempty"`
+	Arguments          string              `json:"arguments,omitempty"`
+	ArgumentsTruncated bool                `json:"argumentsTruncated,omitempty"`
+	Content            []TranscriptContent `json:"content,omitempty"`
+	ContentTruncated   bool                `json:"contentTruncated,omitempty"`
+	Details            json.RawMessage     `json:"details,omitempty"`
+	DetailsOmitted     bool                `json:"detailsOmitted,omitempty"`
+	IsError            bool                `json:"isError,omitempty"`
+	Status             RunStatus           `json:"status,omitempty"`
+	ErrorKind          ProviderErrorKind   `json:"errorKind,omitempty"`
+	ErrorMessage       string              `json:"errorMessage,omitempty"`
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -61,7 +71,14 @@ func (event SessionEvent) Validate() error {
 	if event.SessionID == "" || event.TurnID == "" || event.RunID == "" {
 		return fmt.Errorf("event session, turn, and run ids are required")
 	}
-	if len(event.Delta)+len(event.Text)+len(event.Thinking)+len(event.Arguments)+len(event.ErrorMessage) > maxSessionEventPayloadBytes {
+	if len(event.Content) > maxSessionEventContentBlocks {
+		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
+	}
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage)
+	for _, block := range event.Content {
+		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
+	}
+	if payloadBytes > maxSessionEventPayloadBytes {
 		return fmt.Errorf("event payload exceeds 128 KiB")
 	}
 	switch event.Kind {
@@ -81,16 +98,26 @@ func (event SessionEvent) Validate() error {
 		if event.MessageID == "" || event.ContentIndex < 0 || event.Delta == "" {
 			return fmt.Errorf("assistant delta requires a message id, content index, and text")
 		}
-	case SessionEventToolPlanned, SessionEventToolStarted, SessionEventToolUpdated, SessionEventToolCompleted:
+	case SessionEventToolPlanned, SessionEventToolStarted:
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("tool event requires call id and name")
 		}
 		if event.Kind == SessionEventToolPlanned && event.MessageID == "" {
 			return fmt.Errorf("planned tool call requires an assistant message id")
 		}
-		if (event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted) &&
-			(event.Arguments == "") == !event.ArgumentsTruncated {
+		if (event.Arguments == "") == !event.ArgumentsTruncated {
 			return fmt.Errorf("tool event requires either complete or explicitly truncated arguments")
+		}
+	case SessionEventToolUpdated:
+		if event.ToolCallID == "" || event.ToolName == "" || len(event.Content) == 0 {
+			return fmt.Errorf("tool update requires call id, name, and append-only content")
+		}
+		if event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted {
+			return fmt.Errorf("tool update cannot carry final result metadata")
+		}
+	case SessionEventToolCompleted:
+		if event.ToolCallID == "" || event.ToolName == "" {
+			return fmt.Errorf("completed tool requires call id and name")
 		}
 	case SessionEventRunFinished:
 		switch event.Status {
@@ -122,11 +149,31 @@ func (event SessionEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
 	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
-	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || event.IsError) {
+	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
+	}
+	if isTool && (event.Text != "" || event.Thinking != "" || event.Delta != "") {
+		return fmt.Errorf("tool event cannot carry flattened text or assistant deltas")
 	}
 	if event.Kind != SessionEventToolPlanned && event.Kind != SessionEventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
+	}
+	if event.Kind != SessionEventToolUpdated && event.Kind != SessionEventToolCompleted && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
+		return fmt.Errorf("event kind %q cannot carry tool result data", event.Kind)
+	}
+	if event.DetailsOmitted && len(event.Details) > 0 {
+		return fmt.Errorf("event cannot carry details and mark them omitted")
+	}
+	if len(event.Details) > 0 && !json.Valid(event.Details) {
+		return fmt.Errorf("tool details are not valid JSON")
+	}
+	for index, block := range event.Content {
+		if err := block.validate(); err != nil {
+			return fmt.Errorf("tool content block %d: %w", index, err)
+		}
+		if !contentAllowedForRole("tool", block.Kind) {
+			return fmt.Errorf("tool content block %d kind %q is invalid", index, block.Kind)
+		}
 	}
 	carriesMessageID := event.Kind == SessionEventAssistantStarted || event.Kind == SessionEventAssistantTextDelta ||
 		event.Kind == SessionEventThinkingDelta || event.Kind == SessionEventAssistantCompleted || event.Kind == SessionEventToolPlanned

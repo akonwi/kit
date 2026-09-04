@@ -42,7 +42,7 @@ func TestReadSelectsLinesAndBoundsOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	offset, limit := 2, 2
-	result, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "sample.txt", Offset: &offset, Limit: &limit})
+	result, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "sample.txt", Offset: &offset, Limit: &limit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestReadSelectsLinesAndBoundsOutput(t *testing.T) {
 	if err := os.WriteFile(path, []byte(strings.Repeat("é", maxReadOutputBytes)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err = newReadTool(cwd).Execute(context.Background(), readArgs{Path: "sample.txt"})
+	result, err = newReadTool(cwd).Execute(context.Background(), readArgs{Path: "sample.txt"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestReadEmptyFileIsOneEmptyLine(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, "empty"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "empty"})
+	result, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "empty"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestWriteCreatesParents(t *testing.T) {
 	t.Parallel()
 	cwd := t.TempDir()
 	content := "one\ntwo"
-	result, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "nested/file.txt", Content: &content})
+	result, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "nested/file.txt", Content: &content}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestWriteCreatesParents(t *testing.T) {
 		t.Fatalf("write result = %q", text)
 	}
 
-	missing, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "missing-content.txt"})
+	missing, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "missing-content.txt"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestEditAppliesAtomicExactReplacements(t *testing.T) {
 	result, err := newEditTool(cwd).Execute(context.Background(), editArgs{
 		Path:  "sample.txt",
 		Edits: []editInput{{OldText: &alpha, NewText: &a}, {OldText: &gamma, NewText: &g}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestEditAppliesAtomicExactReplacements(t *testing.T) {
 	result, err = newEditTool(cwd).Execute(context.Background(), editArgs{
 		Path:  "sample.txt",
 		Edits: []editInput{{OldText: &oldA, NewText: &changed}, {OldText: &missing, NewText: &x}},
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +180,7 @@ func TestListSortsAndMarksDirectories(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(cwd, "a"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	result, err := newListTool(cwd).Execute(context.Background(), listArgs{})
+	result, err := newListTool(cwd).Execute(context.Background(), listArgs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,14 +205,14 @@ func TestFindAndGrepRespectGitignore(t *testing.T) {
 	writeTestFile(t, cwd, "ignored/no.go", "Needle hidden\n")
 	writeTestFile(t, cwd, ".hidden/visible.go", "needle hidden file\n")
 
-	findResult, err := newFindTool(cwd).Execute(context.Background(), findArgs{Pattern: "**/*.go"})
+	findResult, err := newFindTool(cwd).Execute(context.Background(), findArgs{Pattern: "**/*.go"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resultText(t, findResult); got != ".hidden/visible.go\nsrc/main.go" {
 		t.Fatalf("find result = %q", got)
 	}
-	braceResult, err := newFindTool(cwd).Execute(context.Background(), findArgs{Pattern: "**/*.{go,tmp}"})
+	braceResult, err := newFindTool(cwd).Execute(context.Background(), findArgs{Pattern: "**/*.{go,tmp}"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,7 +223,7 @@ func TestFindAndGrepRespectGitignore(t *testing.T) {
 	contextLines := 1
 	grepResult, err := newGrepTool(cwd).Execute(context.Background(), grepArgs{
 		Pattern: "needle", Glob: "*.go", IgnoreCase: true, Context: &contextLines,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +242,7 @@ func TestGrepBoundsModelAndLiveOutput(t *testing.T) {
 	line := "match " + strings.Repeat("x", 1_000)
 	writeTestFile(t, cwd, "large.txt", strings.Repeat(line+"\n", 200))
 	limit := 1_000
-	result, err := newGrepTool(cwd).Execute(context.Background(), grepArgs{Pattern: "match", Limit: &limit})
+	result, err := newGrepTool(cwd).Execute(context.Background(), grepArgs{Pattern: "match", Limit: &limit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,7 +280,7 @@ func TestMutationLockAcquisitionIsCancellable(t *testing.T) {
 
 func TestBashCapturesOutputExitAndTimeout(t *testing.T) {
 	cwd := t.TempDir()
-	result, err := newBashTool(cwd).Execute(context.Background(), bashArgs{Command: "printf out; exit 3"})
+	result, err := newBashTool(cwd).Execute(context.Background(), bashArgs{Command: "printf out; exit 3"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestBashCapturesOutputExitAndTimeout(t *testing.T) {
 
 	timeout := int64(20)
 	started := time.Now()
-	result, err = newBashTool(cwd).Execute(context.Background(), bashArgs{Command: "sleep 5", Timeout: &timeout})
+	result, err = newBashTool(cwd).Execute(context.Background(), bashArgs{Command: "sleep 5", Timeout: &timeout}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestToolsHonorCanceledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := newBashTool(t.TempDir()).Execute(ctx, bashArgs{Command: "printf no"})
+	_, err := newBashTool(t.TempDir()).Execute(ctx, bashArgs{Command: "printf no"}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("bash error = %v, want context canceled", err)
 	}

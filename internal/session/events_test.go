@@ -136,6 +136,100 @@ func TestProjectDroidEventIncludesBoundedToolArgumentsOnStart(t *testing.T) {
 	}
 }
 
+func TestProjectDroidEventPreservesAppendOnlyToolResultDeltas(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionUpdate{
+		ToolCallID: "call_1", ToolName: "read",
+		Delta: droids.ToolResultDelta{Content: []droids.Content{
+			droids.TextContent{Text: "first"},
+			droids.ImageContent{MediaType: "image/png", URL: "data:image/png;base64,aW1hZ2U="},
+		}, IsError: true},
+	})
+	if len(projected) != 1 {
+		t.Fatalf("projected update count = %d, want 1: %+v", len(projected), projected)
+	}
+	event := projected[0]
+	if event.Kind != EventToolUpdated || len(event.Content) != 2 || event.Content[0].Kind != TranscriptContentText || event.Content[0].Text != "first" || !event.IsError {
+		t.Fatalf("text delta = %+v", event)
+	}
+	if event.Content[1].Kind != TranscriptContentImage || event.Content[1].MediaType != "image/png" {
+		t.Fatalf("image delta = %+v", event)
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatalf("tool update validation error = %v", err)
+	}
+}
+
+func TestProjectDroidEventPreservesAuthoritativeToolResultAndDetails(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+		ToolCallID: "call_1", ToolName: "read",
+		Result: droids.ToolResult{
+			Content: []droids.Content{
+				droids.TextContent{Text: "complete"},
+				droids.FileContent{Filename: "report.txt", MediaType: "text/plain", URL: "data:text/plain;base64,eA=="},
+			},
+			Details: map[string]any{"lines": 3},
+		},
+	})
+	if len(projected) != 1 {
+		t.Fatalf("projected completion count = %d, want 1", len(projected))
+	}
+	event := projected[0]
+	if event.Kind != EventToolCompleted || len(event.Content) != 2 || event.Content[0].Text != "complete" || event.Content[1].Filename != "report.txt" || string(event.Details) != `{"lines":3}` || event.DetailsOmitted {
+		t.Fatalf("tool completion = %+v", event)
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatalf("tool completion validation error = %v", err)
+	}
+}
+
+func TestProjectDroidEventBoundsNonTextToolContent(t *testing.T) {
+	t.Parallel()
+
+	content := make([]droids.Content, maxLiveEventContentBlocks+1)
+	for index := range content {
+		content[index] = droids.ImageContent{MediaType: "image/png", URL: "data:image/png;base64,aQ=="}
+	}
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+		ToolCallID: "call_1", ToolName: "read", Result: droids.ToolResult{Content: content},
+	})
+	if len(projected) != 1 || len(projected[0].Content) != maxLiveEventContentBlocks || !projected[0].ContentTruncated {
+		t.Fatalf("bounded non-text content = count %d truncated %t", len(projected[0].Content), projected[0].ContentTruncated)
+	}
+}
+
+func TestProjectDroidEventOmitsInvalidToolContentMetadata(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+		ToolCallID: "call_1", ToolName: "read",
+		Result: droids.ToolResult{Content: []droids.Content{
+			droids.ImageContent{MediaType: "not-a-media-type", URL: "https://example.com/image"},
+		}},
+	})
+	if len(projected) != 1 || len(projected[0].Content) != 0 || !projected[0].ContentTruncated {
+		t.Fatalf("invalid content event = %+v", projected)
+	}
+	if err := projected[0].Validate(); err != nil {
+		t.Fatalf("bounded completion validation error = %v", err)
+	}
+}
+
+func TestProjectDroidEventMarksOversizedToolDetailsOmitted(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+		ToolCallID: "call_1", ToolName: "read",
+		Result: droids.ToolResult{Details: map[string]any{"value": strings.Repeat("x", maxLiveEventDetailsBytes)}},
+	})
+	if len(projected) != 1 || len(projected[0].Details) != 0 || !projected[0].DetailsOmitted {
+		t.Fatalf("oversized details event = %+v", projected)
+	}
+}
+
 func TestProjectDroidEventChunksLargeStreamingDeltaWithoutDataLoss(t *testing.T) {
 	t.Parallel()
 

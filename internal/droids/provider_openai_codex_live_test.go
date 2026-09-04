@@ -146,7 +146,7 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 		reveal := NewTool(Tool[struct{}]{
 			Name:        "reveal_code",
 			Description: "Return the code that must be reported to the user.",
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				return ToolText("tool-replay-ok"), nil
 			},
 		})

@@ -281,7 +281,7 @@ func TestContinuationValidationOccursAtExecutionTime(t *testing.T) {
 	})
 	gate := NewTool(Tool[struct{}]{
 		Name: "gate",
-		Execute: func(context.Context, struct{}) (ToolResult, error) {
+		Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 			close(entered)
 			<-release
 			return ToolText("approved"), nil
@@ -332,7 +332,7 @@ func TestContinueGetsFreshMaxStepsBudget(t *testing.T) {
 		opts.MaxSteps = 2
 		opts.Tools = []AnyTool{NewTool(Tool[struct{}]{
 			Name: "echo",
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				return ToolText("ok"), nil
 			},
 		})}

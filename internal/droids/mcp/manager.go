@@ -143,7 +143,9 @@ func (m *Manager) Tools() []droids.AnyTool {
 			Description: namespaceDescription(ns.config),
 			Parameters:  namespaceSchema(),
 			Mode:        ns.config.ExecutionMode,
-			Execute:     ns.execute,
+			Execute: func(ctx context.Context, request namespaceRequest, _ droids.ToolUpdate) (droids.ToolResult, error) {
+				return ns.execute(ctx, request)
+			},
 		}))
 	}
 	return out

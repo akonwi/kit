@@ -19,21 +19,25 @@ const (
 )
 
 type sessionEventPayload struct {
-	TurnID             string                       `json:"turnId"`
-	RunID              string                       `json:"runId"`
-	MessageID          string                       `json:"messageId,omitempty"`
-	ContentIndex       int                          `json:"contentIndex,omitempty"`
-	Delta              string                       `json:"delta,omitempty"`
-	Text               string                       `json:"text,omitempty"`
-	Thinking           string                       `json:"thinking,omitempty"`
-	ToolCallID         string                       `json:"toolCallId,omitempty"`
-	ToolName           string                       `json:"toolName,omitempty"`
-	Arguments          string                       `json:"arguments,omitempty"`
-	ArgumentsTruncated bool                         `json:"argumentsTruncated,omitempty"`
-	IsError            bool                         `json:"isError,omitempty"`
-	Status             kitsession.RunStatus         `json:"status,omitempty"`
-	ErrorKind          kitsession.ProviderErrorKind `json:"errorKind,omitempty"`
-	ErrorMessage       string                       `json:"errorMessage,omitempty"`
+	TurnID             string                         `json:"turnId"`
+	RunID              string                         `json:"runId"`
+	MessageID          string                         `json:"messageId,omitempty"`
+	ContentIndex       int                            `json:"contentIndex,omitempty"`
+	Delta              string                         `json:"delta,omitempty"`
+	Text               string                         `json:"text,omitempty"`
+	Thinking           string                         `json:"thinking,omitempty"`
+	ToolCallID         string                         `json:"toolCallId,omitempty"`
+	ToolName           string                         `json:"toolName,omitempty"`
+	Arguments          string                         `json:"arguments,omitempty"`
+	ArgumentsTruncated bool                           `json:"argumentsTruncated,omitempty"`
+	Content            []kitsession.TranscriptContent `json:"content,omitempty"`
+	ContentTruncated   bool                           `json:"contentTruncated,omitempty"`
+	Details            json.RawMessage                `json:"details,omitempty"`
+	DetailsOmitted     bool                           `json:"detailsOmitted,omitempty"`
+	IsError            bool                           `json:"isError,omitempty"`
+	Status             kitsession.RunStatus           `json:"status,omitempty"`
+	ErrorKind          kitsession.ProviderErrorKind   `json:"errorKind,omitempty"`
+	ErrorMessage       string                         `json:"errorMessage,omitempty"`
 }
 
 // AppendSessionEvents assigns contiguous stream sequences and durably appends a batch.
@@ -58,6 +62,8 @@ func (s *Store) AppendSessionEvents(ctx context.Context, events []kitsession.New
 			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
 			ToolCallID: event.ToolCallID, ToolName: event.ToolName,
 			Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated,
+			Content: event.Content, ContentTruncated: event.ContentTruncated,
+			Details: event.Details, DetailsOmitted: event.DetailsOmitted,
 			IsError: event.IsError, Status: event.Status, ErrorKind: event.ErrorKind,
 			ErrorMessage: event.ErrorMessage,
 		})
@@ -220,6 +226,8 @@ func (s *Store) ListSessionEvents(ctx context.Context, sessionID string, after i
 			ContentIndex: payload.ContentIndex, Delta: payload.Delta, Text: payload.Text,
 			Thinking: payload.Thinking, ToolCallID: payload.ToolCallID, ToolName: payload.ToolName,
 			Arguments: payload.Arguments, ArgumentsTruncated: payload.ArgumentsTruncated,
+			Content: payload.Content, ContentTruncated: payload.ContentTruncated,
+			Details: append(json.RawMessage(nil), payload.Details...), DetailsOmitted: payload.DetailsOmitted,
 			IsError: payload.IsError, Status: payload.Status,
 			ErrorKind: payload.ErrorKind, ErrorMessage: payload.ErrorMessage,
 		}, StreamID: streamID, Sequence: sequence}

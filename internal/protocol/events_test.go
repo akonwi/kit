@@ -1,6 +1,9 @@
 package protocol
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestSessionEventBatchValidatesExpectedTurnSequence(t *testing.T) {
 	t.Parallel()
@@ -44,6 +47,39 @@ func TestSessionEventToolPlanRequiresCompleteArguments(t *testing.T) {
 	event.Arguments = `{"path":"README.md"}`
 	if err := event.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
+func TestSessionEventValidatesStructuredToolResultLifecycle(t *testing.T) {
+	t.Parallel()
+
+	update := SessionEvent{
+		StreamID: "stream_test", Sequence: 1, SessionID: "session_test",
+		TurnID: "turn_test", RunID: "run_test", Kind: SessionEventToolUpdated,
+		ToolCallID: "call_test", ToolName: "read",
+		Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "chunk"}},
+	}
+	if err := update.Validate(); err != nil {
+		t.Fatalf("update Validate() error = %v", err)
+	}
+	completed := update
+	completed.Kind = SessionEventToolCompleted
+	completed.Content = []TranscriptContent{
+		{Kind: TranscriptContentText, Text: "complete"},
+		{Kind: TranscriptContentFile, Filename: "report.txt", MediaType: "text/plain"},
+	}
+	completed.Details = json.RawMessage(`{"lines":3}`)
+	if err := completed.Validate(); err != nil {
+		t.Fatalf("completed Validate() error = %v", err)
+	}
+	completed.Text = "flattened"
+	if err := completed.Validate(); err == nil {
+		t.Fatal("Validate() accepted flattened tool text")
+	}
+	completed.Text = ""
+	completed.Content = make([]TranscriptContent, maxSessionEventContentBlocks+1)
+	if err := completed.Validate(); err == nil {
+		t.Fatal("Validate() accepted too many tool content blocks")
 	}
 }
 

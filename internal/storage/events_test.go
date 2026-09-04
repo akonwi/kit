@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -69,6 +70,12 @@ func TestSessionEventsReceiveContiguousDurableSequences(t *testing.T) {
 	}
 	second, err := store.AppendSessionEvents(ctx, []kitsession.NewEvent{
 		{SessionID: created.ID, TurnID: "turn-1", RunID: "run-1", MessageID: "message-1", Kind: kitsession.EventAssistantTextDelta, ContentIndex: 0, Delta: "hi"},
+		{
+			SessionID: created.ID, TurnID: "turn-1", RunID: "run-1",
+			Kind: kitsession.EventToolCompleted, ToolCallID: "call-1", ToolName: "read",
+			Content: []kitsession.TranscriptContent{{Kind: kitsession.TranscriptContentText, Text: "contents"}},
+			Details: json.RawMessage(`{"lines":1}`),
+		},
 	})
 	if err != nil {
 		t.Fatalf("second AppendSessionEvents() error = %v", err)
@@ -76,18 +83,22 @@ func TestSessionEventsReceiveContiguousDurableSequences(t *testing.T) {
 	if first[0].StreamID == "" || first[0].StreamID != second[0].StreamID {
 		t.Fatalf("stream ids = %q and %q", first[0].StreamID, second[0].StreamID)
 	}
-	if first[0].Sequence != 1 || first[1].Sequence != 2 || second[0].Sequence != 3 {
-		t.Fatalf("event sequences = %d, %d, %d", first[0].Sequence, first[1].Sequence, second[0].Sequence)
+	if first[0].Sequence != 1 || first[1].Sequence != 2 || second[0].Sequence != 3 || second[1].Sequence != 4 {
+		t.Fatalf("event sequences = %d, %d, %d, %d", first[0].Sequence, first[1].Sequence, second[0].Sequence, second[1].Sequence)
 	}
 
 	page, err := store.ListSessionEvents(ctx, created.ID, 1, 32)
 	if err != nil {
 		t.Fatalf("ListSessionEvents() error = %v", err)
 	}
-	if page.StreamID != first[0].StreamID || page.FirstSequence != 1 || page.LastSequence != 3 || len(page.Events) != 2 {
+	if page.StreamID != first[0].StreamID || page.FirstSequence != 1 || page.LastSequence != 4 || len(page.Events) != 3 {
 		t.Fatalf("event page = %+v", page)
 	}
 	if page.Events[0].Kind != kitsession.EventUserMessage || page.Events[0].Text != "hello" || page.Events[1].MessageID != "message-1" || page.Events[1].Delta != "hi" {
 		t.Fatalf("event page content = %+v", page.Events)
+	}
+	completed := page.Events[2]
+	if completed.Kind != kitsession.EventToolCompleted || len(completed.Content) != 1 || completed.Content[0].Text != "contents" || string(completed.Details) != `{"lines":1}` {
+		t.Fatalf("stored tool completion = %+v", completed)
 	}
 }

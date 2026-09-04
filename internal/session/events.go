@@ -1,8 +1,11 @@
 package session
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"mime"
 	"strings"
 	"unicode/utf8"
 
@@ -46,6 +49,10 @@ type NewEvent struct {
 	ToolName           string
 	Arguments          string
 	ArgumentsTruncated bool
+	Content            []TranscriptContent
+	ContentTruncated   bool
+	Details            json.RawMessage
+	DetailsOmitted     bool
 	IsError            bool
 	Status             RunStatus
 	ErrorKind          ProviderErrorKind
@@ -73,7 +80,14 @@ func (event NewEvent) Validate() error {
 	if event.SessionID == "" || event.TurnID == "" || event.RunID == "" {
 		return fmt.Errorf("session, turn, and run ids are required")
 	}
-	if len(event.Delta)+len(event.Text)+len(event.Thinking)+len(event.Arguments)+len(event.ErrorMessage) > maxEventPayloadBytes {
+	if len(event.Content) > maxLiveEventContentBlocks {
+		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
+	}
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage)
+	for _, block := range event.Content {
+		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
+	}
+	if payloadBytes > maxEventPayloadBytes {
 		return fmt.Errorf("event payload exceeds 128 KiB")
 	}
 	switch event.Kind {
@@ -103,9 +117,16 @@ func (event NewEvent) Validate() error {
 		if (event.Arguments == "") == !event.ArgumentsTruncated {
 			return fmt.Errorf("tool event requires either complete or explicitly truncated arguments")
 		}
-	case EventToolUpdated, EventToolCompleted:
+	case EventToolUpdated:
+		if event.ToolCallID == "" || event.ToolName == "" || len(event.Content) == 0 {
+			return fmt.Errorf("tool update requires call id, name, and append-only content")
+		}
+		if event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted {
+			return fmt.Errorf("tool update cannot carry final result metadata")
+		}
+	case EventToolCompleted:
 		if event.ToolCallID == "" || event.ToolName == "" {
-			return fmt.Errorf("tool event requires call id and name")
+			return fmt.Errorf("completed tool requires call id and name")
 		}
 	case EventRunFinished:
 		switch event.Status {
@@ -137,11 +158,28 @@ func (event NewEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
 	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
-	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || event.IsError) {
+	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
+	}
+	if isTool && (event.Text != "" || event.Thinking != "" || event.Delta != "") {
+		return fmt.Errorf("tool event cannot carry flattened text or assistant deltas")
 	}
 	if event.Kind != EventToolPlanned && event.Kind != EventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
+	}
+	if event.Kind != EventToolUpdated && event.Kind != EventToolCompleted && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
+		return fmt.Errorf("event kind %q cannot carry tool result data", event.Kind)
+	}
+	if event.DetailsOmitted && len(event.Details) > 0 {
+		return fmt.Errorf("event cannot carry details and mark them omitted")
+	}
+	if len(event.Details) > 0 && !json.Valid(event.Details) {
+		return fmt.Errorf("tool details are not valid JSON")
+	}
+	for index, block := range event.Content {
+		if err := validateLiveToolContent(block); err != nil {
+			return fmt.Errorf("tool content block %d: %w", index, err)
+		}
 	}
 	carriesMessageID := event.Kind == EventAssistantStarted || event.Kind == EventAssistantTextDelta ||
 		event.Kind == EventThinkingDelta || event.Kind == EventAssistantCompleted || event.Kind == EventToolPlanned
@@ -231,14 +269,14 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		base.Kind = EventToolUpdated
 		base.ToolCallID = typed.ToolCallID
 		base.ToolName = typed.ToolName
-		base.Text = boundedLiveText(contentText(typed.PartialResult.Content))
-		base.IsError = typed.PartialResult.IsError
-		return []NewEvent{base}
+		base.IsError = typed.Delta.IsError
+		return projectToolContentDelta(base, typed.Delta.Content)
 	case droids.ToolExecutionEnd:
 		base.Kind = EventToolCompleted
 		base.ToolCallID = typed.ToolCallID
 		base.ToolName = typed.ToolName
-		base.Text = boundedLiveText(contentText(typed.Result.Content))
+		base.Content, base.ContentTruncated = boundedLiveToolContent(typed.Result.Content)
+		base.Details, base.DetailsOmitted = boundedLiveToolDetails(typed.Result.Details)
 		base.IsError = typed.IsError
 		return []NewEvent{base}
 	default:
@@ -247,22 +285,132 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 	return nil
 }
 
+func projectToolContentDelta(base NewEvent, content []droids.Content) []NewEvent {
+	projected, _ := boundedLiveToolContent(content)
+	if len(projected) == 0 {
+		return nil
+	}
+	base.Content = projected
+	return []NewEvent{base}
+}
+
+const (
+	maxLiveEventContentBytes  = 60 << 10
+	maxLiveEventContentBlocks = 128
+)
+
+func boundedLiveToolContent(content []droids.Content) ([]TranscriptContent, bool) {
+	projected, err := projectDroidContent(content)
+	if err != nil {
+		return nil, true
+	}
+	result := make([]TranscriptContent, 0, min(len(projected), maxLiveEventContentBlocks))
+	remaining := maxLiveEventContentBytes
+	truncated := false
+	for _, block := range projected {
+		if len(result) == maxLiveEventContentBlocks {
+			truncated = true
+			break
+		}
+		if err := validateLiveToolContent(block); err != nil {
+			truncated = true
+			continue
+		}
+		size := liveToolContentSize(block)
+		if size <= remaining {
+			result = append(result, block)
+			remaining -= size
+			continue
+		}
+		if block.Kind == TranscriptContentText && remaining > 0 {
+			end := min(len(block.Text), remaining)
+			for end > 0 && end < len(block.Text) && !utf8.RuneStart(block.Text[end]) {
+				end--
+			}
+			if end > 0 {
+				block.Text = block.Text[:end]
+				result = append(result, block)
+			}
+		}
+		truncated = true
+		break
+	}
+	return result, truncated
+}
+
+func liveToolContentSize(block TranscriptContent) int {
+	return len(block.Kind) + len(block.Text) + len(block.Filename) + len(block.MediaType)
+}
+
+const maxLiveEventDetailsBytes = 48 << 10
+
+func boundedLiveToolDetails(details any) (json.RawMessage, bool) {
+	if details == nil {
+		return nil, false
+	}
+	encoded, err := json.Marshal(details)
+	if err != nil || len(encoded) > maxLiveEventDetailsBytes {
+		return nil, true
+	}
+	if bytes.Equal(encoded, []byte("null")) {
+		return nil, false
+	}
+	return encoded, false
+}
+
+func validateLiveToolContent(block TranscriptContent) error {
+	switch block.Kind {
+	case TranscriptContentText:
+		if block.Text == "" {
+			return fmt.Errorf("text content is empty")
+		}
+	case TranscriptContentImage:
+		if block.Text != "" || block.Filename != "" || !validLiveMediaType(block.MediaType, true) {
+			return fmt.Errorf("image content requires an image media type only")
+		}
+	case TranscriptContentFile:
+		if strings.TrimSpace(block.Filename) == "" || block.Text != "" || !validLiveMediaType(block.MediaType, false) {
+			return fmt.Errorf("file content requires filename and media type")
+		}
+	default:
+		return fmt.Errorf("kind %q is invalid for a tool result", block.Kind)
+	}
+	if block.ToolCallID != "" || block.ToolName != "" || block.Arguments != "" || block.ArgumentsTruncated {
+		return fmt.Errorf("tool result content carries tool-call metadata")
+	}
+	return nil
+}
+
+func validLiveMediaType(raw string, imageOnly bool) bool {
+	parsed, _, err := mime.ParseMediaType(raw)
+	parts := strings.Split(parsed, "/")
+	if err != nil || len(parts) != 2 || parts[0] == "" || parts[1] == "" || parts[0] == "*" || parts[1] == "*" {
+		return false
+	}
+	return !imageOnly || strings.EqualFold(parts[0], "image")
+}
+
 func splitLiveDelta(base NewEvent, delta string) []NewEvent {
 	result := make([]NewEvent, 0, len(delta)/maxLiveEventTextBytes+1)
 	for len(delta) > 0 {
-		end := min(len(delta), maxLiveEventTextBytes)
-		for end > 0 && end < len(delta) && !utf8.RuneStart(delta[end]) {
-			end--
-		}
-		if end == 0 {
-			_, end = utf8.DecodeRuneInString(delta)
-		}
+		end := liveTextChunkEnd(delta)
 		event := base
 		event.Delta = delta[:end]
 		result = append(result, event)
 		delta = delta[end:]
 	}
 	return result
+}
+
+func liveTextChunkEnd(text string) int {
+	end := min(len(text), maxLiveEventTextBytes)
+	for end > 0 && end < len(text) && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	if end == 0 {
+		_, end = utf8.DecodeRuneInString(text)
+	}
+	return end
 }
 
 func boundedLiveText(text string) string {

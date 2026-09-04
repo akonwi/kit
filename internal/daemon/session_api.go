@@ -71,24 +71,28 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		Messages: make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 	}
 	for _, message := range snapshot.Messages {
-		content := make([]protocol.TranscriptContent, 0, len(message.Content))
-		for _, block := range message.Content {
-			content = append(content, protocol.TranscriptContent{
-				Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
-				ToolCallID: block.ToolCallID, ToolName: block.ToolName,
-				Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
-				Filename: block.Filename, MediaType: block.MediaType,
-			})
-		}
 		result.Messages = append(result.Messages, protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
-			Role: message.Role, Content: content, StopReason: message.StopReason,
+			Role: message.Role, Content: projectTranscriptContent(message.Content), StopReason: message.StopReason,
 			ErrorMessage: message.ErrorMessage, ToolCallID: message.ToolCallID,
 			ToolName: message.ToolName, Details: append(json.RawMessage(nil), message.Details...),
 			IsError: message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
 	return result, nil
+}
+
+func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol.TranscriptContent {
+	result := make([]protocol.TranscriptContent, 0, len(content))
+	for _, block := range content {
+		result = append(result, protocol.TranscriptContent{
+			Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
+			ToolCallID: block.ToolCallID, ToolName: block.ToolName,
+			Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
+			Filename: block.Filename, MediaType: block.MediaType,
+		})
+	}
+	return result
 }
 
 func (s runtimeSessionService) Events(ctx context.Context, sessionID string, after int64) (protocol.SessionEventBatch, error) {
@@ -108,6 +112,8 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID string, aft
 			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
 			ToolCallID: event.ToolCallID, ToolName: event.ToolName,
 			Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated,
+			Content: projectTranscriptContent(event.Content), ContentTruncated: event.ContentTruncated,
+			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
 			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
 			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
 		})

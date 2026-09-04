@@ -31,7 +31,7 @@ func newWriteTool(cwd string) droids.Tool[writeArgs] {
 			"content": stringSchema("Content to write"),
 		}, "path", "content"),
 		Mode: droids.ModeSequential,
-		Execute: func(ctx context.Context, args writeArgs) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, args writeArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}

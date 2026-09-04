@@ -35,7 +35,7 @@ func TestDeriveSchemaFromArgs(t *testing.T) {
 func TestDeriveSchemaEmptyStruct(t *testing.T) {
 	tool := NewTool(Tool[struct{}]{
 		Name:    "now",
-		Execute: func(context.Context, struct{}) (ToolResult, error) { return ToolText("ok"), nil },
+		Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) { return ToolText("ok"), nil },
 	})
 	s := tool.schema()
 	if s.Parameters["type"] != "object" {
@@ -71,7 +71,7 @@ func TestToolExecutionStrictlyDecodesOneObject(t *testing.T) {
 	}
 	tool := NewTool(Tool[args]{
 		Name: "strict",
-		Execute: func(_ context.Context, input args) (ToolResult, error) {
+		Execute: func(_ context.Context, input args, _ ToolUpdate) (ToolResult, error) {
 			return ToolText(input.Value), nil
 		},
 	})
@@ -81,11 +81,11 @@ func TestToolExecutionStrictlyDecodesOneObject(t *testing.T) {
 		`{"value":"ok","unknown":true}`,
 		`{"value":"ok"} {"value":"again"}`,
 	} {
-		if _, err := tool.execute(context.Background(), []byte(raw)); err == nil {
+		if _, err := tool.execute(context.Background(), []byte(raw), nil); err == nil {
 			t.Errorf("execute(%s) error = nil", raw)
 		}
 	}
-	result, err := tool.execute(context.Background(), []byte(`{"value":"ok"}`))
+	result, err := tool.execute(context.Background(), []byte(`{"value":"ok"}`), nil)
 	if err != nil {
 		t.Fatalf("valid execution error = %v", err)
 	}

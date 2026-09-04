@@ -104,7 +104,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 6, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
 		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Text: "file contents"},
+		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "file contents"}}},
 		{Sequence: 9, Kind: protocol.SessionEventRunFinished},
 	})
 	tool := state.liveMessages[2]

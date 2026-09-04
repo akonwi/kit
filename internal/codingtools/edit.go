@@ -58,7 +58,7 @@ func newEditTool(cwd string) droids.Tool[editArgs] {
 			},
 		}, "path", "edits"),
 		Mode: droids.ModeSequential,
-		Execute: func(ctx context.Context, args editArgs) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, args editArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}

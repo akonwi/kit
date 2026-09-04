@@ -528,7 +528,20 @@ func (d *Droid) executeTool(ctx context.Context, call ToolCall) (ToolResult, boo
 	if !ok {
 		return toolErrorText(fmt.Sprintf("Tool %q not found", call.Name)), true
 	}
-	r, err := tool.execute(ctx, call.Arguments)
+	var updateMu sync.Mutex
+	updatesOpen := true
+	r, err := tool.execute(ctx, call.Arguments, func(delta ToolResultDelta) {
+		updateMu.Lock()
+		defer updateMu.Unlock()
+		if !updatesOpen {
+			return
+		}
+		delta.Content = append([]Content(nil), delta.Content...)
+		d.emit(ToolExecutionUpdate{ToolCallID: call.ID, ToolName: call.Name, Delta: delta})
+	})
+	updateMu.Lock()
+	updatesOpen = false
+	updateMu.Unlock()
 	if err != nil {
 		return toolErrorText(err.Error()), true
 	}

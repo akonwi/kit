@@ -236,10 +236,14 @@ func TestDroidEmitsCompletedToolCallFromValidatedAssistantMessage(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
+	var retainedUpdate ToolUpdate
 	tool := NewTool(Tool[readArgs]{
 		Name: "read",
-		Execute: func(context.Context, readArgs) (ToolResult, error) {
-			return ToolText("contents"), nil
+		Execute: func(_ context.Context, _ readArgs, update ToolUpdate) (ToolResult, error) {
+			retainedUpdate = update
+			update(ToolResultDelta{Content: []Content{TextContent{Text: "con"}}})
+			update(ToolResultDelta{Content: []Content{TextContent{Text: "tents"}}})
+			return ToolResult{Content: []Content{TextContent{Text: "contents"}}, Details: map[string]any{"lines": 1}}, nil
 		},
 	})
 	d, err := New(Options{Providers: providers, Model: "m", Tools: []AnyTool{tool}})
@@ -253,8 +257,12 @@ func TestDroidEmitsCompletedToolCallFromValidatedAssistantMessage(t *testing.T) 
 		t.Fatal(err)
 	}
 	var completed []StreamToolCallEnd
+	var updates []ToolExecutionUpdate
 	providerFragments := 0
 	for event := range run.Events() {
+		if update, ok := event.(ToolExecutionUpdate); ok {
+			updates = append(updates, update)
+		}
 		if delta, ok := event.(MessageDelta); ok {
 			switch stream := delta.Stream.(type) {
 			case StreamToolCallStart, StreamToolCallDelta:
@@ -270,9 +278,13 @@ func TestDroidEmitsCompletedToolCallFromValidatedAssistantMessage(t *testing.T) 
 	if providerFragments != 0 {
 		t.Fatalf("provider tool-call fragments emitted = %d, want 0", providerFragments)
 	}
+	if len(updates) != 2 || updates[0].Delta.Content[0].(TextContent).Text != "con" || updates[1].Delta.Content[0].(TextContent).Text != "tents" {
+		t.Fatalf("tool updates = %+v", updates)
+	}
 	if len(completed) != 1 || completed[0].ContentIndex != 0 || completed[0].ToolCall.ID != "call_1" || string(completed[0].ToolCall.Arguments) != `{"path":"README.md"}` {
 		t.Fatalf("completed tool calls = %+v", completed)
 	}
+	retainedUpdate(ToolResultDelta{Content: []Content{TextContent{Text: "late"}}})
 }
 
 func TestRunDoesNotExecuteToolCallsWithoutToolUseStop(t *testing.T) {
@@ -297,7 +309,7 @@ func TestRunDoesNotExecuteToolCallsWithoutToolUseStop(t *testing.T) {
 	}
 	tool := NewTool(Tool[struct{}]{
 		Name: "dangerous",
-		Execute: func(context.Context, struct{}) (ToolResult, error) {
+		Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 			toolCalls++
 			return ToolText("ran"), nil
 		},
@@ -333,7 +345,7 @@ func TestNewRejectsDuplicateToolNames(t *testing.T) {
 	tool := func() AnyTool {
 		return NewTool(Tool[struct{}]{
 			Name: "same",
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				return ToolText("ok"), nil
 			},
 		})
@@ -377,7 +389,7 @@ func TestRunWithToolCall(t *testing.T) {
 	}
 	echo := NewTool(Tool[echoArgs]{
 		Name: "echo",
-		Execute: func(_ context.Context, a echoArgs) (ToolResult, error) {
+		Execute: func(_ context.Context, a echoArgs, _ ToolUpdate) (ToolResult, error) {
 			return ToolText("echoed: " + a.Text), nil
 		},
 	})

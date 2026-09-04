@@ -26,14 +26,14 @@ const (
 
 // TranscriptContent is one renderer-neutral projection of persisted content.
 type TranscriptContent struct {
-	Kind               TranscriptContentKind
-	Text               string
-	ToolCallID         string
-	ToolName           string
-	Arguments          string
-	ArgumentsTruncated bool
-	Filename           string
-	MediaType          string
+	Kind               TranscriptContentKind `json:"kind"`
+	Text               string                `json:"text,omitempty"`
+	ToolCallID         string                `json:"toolCallId,omitempty"`
+	ToolName           string                `json:"toolName,omitempty"`
+	Arguments          string                `json:"arguments,omitempty"`
+	ArgumentsTruncated bool                  `json:"argumentsTruncated,omitempty"`
+	Filename           string                `json:"filename,omitempty"`
+	MediaType          string                `json:"mediaType,omitempty"`
 }
 
 // TranscriptMessage is a renderer-neutral projection of one persisted message.
@@ -197,6 +197,10 @@ func projectTranscriptContent(message droids.Message) ([]TranscriptContent, erro
 		return nil, fmt.Errorf("unsupported message %T", message)
 	}
 
+	return projectDroidContent(content)
+}
+
+func projectDroidContent(content []droids.Content) ([]TranscriptContent, error) {
 	result := make([]TranscriptContent, 0, len(content))
 	for _, block := range content {
 		switch typed := block.(type) {

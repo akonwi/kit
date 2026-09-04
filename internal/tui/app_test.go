@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -45,6 +46,45 @@ func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 	tool := state.liveMessages[1]
 	if tool.Role != "tool" || tool.ToolName != "read" || tool.ToolArguments != `{"path":"README.md"}` || tool.ToolStatus != "Running…" {
 		t.Fatalf("tool after assistant completion = %+v", tool)
+	}
+}
+
+func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "con"}}},
+		{Sequence: 3, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "tents"}}},
+	})
+	if len(state.liveMessages) != 1 || state.liveMessages[0].Text != "contents" || !state.liveMessages[0].Pending {
+		t.Fatalf("streamed tool = %+v", state.liveMessages)
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 4, Kind: protocol.SessionEventToolCompleted,
+		ToolCallID: "call_1", ToolName: "read",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "authoritative contents"}},
+		Details: json.RawMessage(`{"lines":1}`),
+	}})
+	tool := state.liveMessages[0]
+	if tool.Text != "authoritative contents" || tool.Pending || string(tool.ToolDetails) != `{"lines":1}` {
+		t.Fatalf("completed tool = %+v", tool)
+	}
+}
+
+func TestToolResultDeltaPreviewIsCumulativelyBounded(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	chunk := strings.Repeat("x", 40<<10)
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: chunk}}},
+		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: chunk}}},
+	})
+	tool := state.liveMessages[0]
+	if !tool.ToolContentTruncated || len(tool.ToolContent) != 2 || !strings.HasSuffix(tool.Text, "… live output truncated") || len(tool.Text) > maxLiveToolPreviewBytes+64 {
+		t.Fatalf("bounded tool preview = content %d text bytes %d truncated %t", len(tool.ToolContent), len(tool.Text), tool.ToolContentTruncated)
 	}
 }
 

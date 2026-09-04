@@ -32,7 +32,7 @@ func toolThenStop(t *testing.T, toolName string) Providers {
 func echoTool(name string, ran *bool) AnyTool {
 	return NewTool(Tool[struct{}]{
 		Name: name,
-		Execute: func(context.Context, struct{}) (ToolResult, error) {
+		Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 			*ran = true
 			return ToolText("executed"), nil
 		},
@@ -97,7 +97,7 @@ func TestToolResultCanMarkApplicationError(t *testing.T) {
 		Model:     "m",
 		Tools: []AnyTool{NewTool(Tool[struct{}]{
 			Name: "act",
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				result := ToolText("remote tool rejected the request")
 				result.IsError = true
 				result.Details = map[string]any{"code": "rejected"}
@@ -149,7 +149,7 @@ func TestAfterToolCallIdentityPreservesExecutionError(t *testing.T) {
 		Model:     "m",
 		Tools: []AnyTool{NewTool(Tool[struct{}]{
 			Name: "act",
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				return ToolResult{}, fmt.Errorf("failed")
 			},
 		})},

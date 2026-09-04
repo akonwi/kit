@@ -106,9 +106,10 @@ recorded manual verification exists.
 - [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state; droids events are now projected into a bounded
   durable session journal and the native TUI follows text, thinking, complete
-  tool plans with bounded arguments, execution start/completion, and terminal
-  state. Push subscriptions, streamed tool updates, usage events, richer error
-  recovery, and full multi-client synchronization remain.
+  tool plans with bounded arguments, append-only structured tool updates,
+  authoritative results/details, execution state, and terminal state. Push
+  subscriptions, usage events, richer error recovery, and full multi-client
+  synchronization remain.
 - [~] Persist explicit turn and stable message identities; assistant message IDs
   now remain stable from live start/deltas through the persisted snapshot.
 - [~] Render active and historical turns consistently after reconnect/restart;

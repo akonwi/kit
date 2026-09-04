@@ -39,7 +39,7 @@ func newFindTool(cwd string) droids.Tool[findArgs] {
 			"limit":   integerSchema("Max results (default: 1000)"),
 		}, "pattern"),
 		Mode: droids.ModeParallel,
-		Execute: func(ctx context.Context, args findArgs) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, args findArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			result, err := executeFind(ctx, cwd, args)
 			if err != nil {
 				if ctx.Err() != nil {

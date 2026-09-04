@@ -3,6 +3,7 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/protocol"
@@ -100,6 +102,10 @@ type transcriptMessage struct {
 	ToolArguments          string
 	ToolArgumentsTruncated bool
 	ToolStatus             string
+	ToolContent            []protocol.TranscriptContent
+	ToolContentTruncated   bool
+	ToolDetails            json.RawMessage
+	ToolDetailsOmitted     bool
 	IsError                bool
 	Pending                bool
 }
@@ -509,7 +515,8 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 		}
 		result = append(result, transcriptMessage{
 			ID: message.ID, Role: role, Text: text, Thinking: thinking,
-			ToolName: message.ToolName, IsError: message.IsError,
+			ToolName: message.ToolName, ToolContent: append([]protocol.TranscriptContent(nil), message.Content...),
+			ToolDetails: append(json.RawMessage(nil), message.Details...), IsError: message.IsError,
 		})
 	}
 	return result
@@ -605,7 +612,22 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 		case protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted:
 			s.setTurnActivity("Working…")
 			index := s.ensureLiveTool(event.ToolCallID, event.ToolName)
-			s.liveMessages[index].Text = event.Text
+			text := toolResultContentText(event.Content)
+			if event.Kind == protocol.SessionEventToolUpdated {
+				appendLiveToolContent(&s.liveMessages[index], event.Content)
+			} else {
+				s.liveMessages[index].Text = text
+				s.liveMessages[index].ToolContent = append([]protocol.TranscriptContent(nil), event.Content...)
+				s.liveMessages[index].ToolContentTruncated = event.ContentTruncated
+				s.liveMessages[index].ToolDetails = append(json.RawMessage(nil), event.Details...)
+				s.liveMessages[index].ToolDetailsOmitted = event.DetailsOmitted
+				if event.ContentTruncated {
+					s.liveMessages[index].Text = appendToolNotice(s.liveMessages[index].Text, "… live output truncated")
+				}
+				if event.DetailsOmitted {
+					s.liveMessages[index].Text = appendToolNotice(s.liveMessages[index].Text, "… tool details omitted")
+				}
+			}
 			s.liveMessages[index].IsError = event.IsError
 			if event.Kind == protocol.SessionEventToolCompleted {
 				s.liveMessages[index].Pending = false
@@ -686,6 +708,78 @@ func (s *appState) syncLiveAssistant(index int) {
 	}
 	s.liveMessages[index].Text = strings.Join(text, "\n")
 	s.liveMessages[index].Thinking = strings.Join(thinking, "\n")
+}
+
+const (
+	maxLiveToolPreviewBytes  = 60 << 10
+	maxLiveToolPreviewBlocks = 128
+)
+
+func appendLiveToolContent(message *transcriptMessage, content []protocol.TranscriptContent) {
+	if message.ToolContentTruncated {
+		return
+	}
+	used := 0
+	for _, block := range message.ToolContent {
+		used += liveToolPreviewBlockSize(block)
+	}
+	accepted := make([]protocol.TranscriptContent, 0, len(content))
+	remaining := maxLiveToolPreviewBytes - used
+	for _, block := range content {
+		if len(message.ToolContent)+len(accepted) == maxLiveToolPreviewBlocks {
+			message.ToolContentTruncated = true
+			break
+		}
+		size := liveToolPreviewBlockSize(block)
+		if size <= remaining {
+			accepted = append(accepted, block)
+			remaining -= size
+			continue
+		}
+		if block.Kind == protocol.TranscriptContentText && remaining > 0 {
+			end := min(len(block.Text), remaining)
+			for end > 0 && end < len(block.Text) && !utf8.RuneStart(block.Text[end]) {
+				end--
+			}
+			if end > 0 {
+				block.Text = block.Text[:end]
+				accepted = append(accepted, block)
+			}
+		}
+		message.ToolContentTruncated = true
+		break
+	}
+	message.ToolContent = append(message.ToolContent, accepted...)
+	message.Text += toolResultContentText(accepted)
+	if message.ToolContentTruncated {
+		message.Text = appendToolNotice(message.Text, "… live output truncated")
+	}
+}
+
+func liveToolPreviewBlockSize(block protocol.TranscriptContent) int {
+	return len(block.Kind) + len(block.Text) + len(block.Filename) + len(block.MediaType)
+}
+
+func appendToolNotice(text, notice string) string {
+	if text == "" {
+		return notice
+	}
+	return text + "\n" + notice
+}
+
+func toolResultContentText(content []protocol.TranscriptContent) string {
+	parts := make([]string, 0, len(content))
+	for _, block := range content {
+		switch block.Kind {
+		case protocol.TranscriptContentText:
+			parts = append(parts, block.Text)
+		case protocol.TranscriptContentImage:
+			parts = append(parts, "[image]")
+		case protocol.TranscriptContentFile:
+			parts = append(parts, "[file: "+block.Filename+"]")
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 func latestThinkingLine(thinking string) string {

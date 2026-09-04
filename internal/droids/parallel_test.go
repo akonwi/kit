@@ -41,7 +41,7 @@ func TestParallelToolsRunConcurrently(t *testing.T) {
 	slow := func(name string) AnyTool {
 		return NewTool(Tool[struct{}]{
 			Name: name,
-			Execute: func(ctx context.Context, _ struct{}) (ToolResult, error) {
+			Execute: func(ctx context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				n := atomic.AddInt32(&inFlight, 1)
 				for {
 					m := atomic.LoadInt32(&maxInFlight)
@@ -77,7 +77,7 @@ func TestParallelTranscriptIsSourceOrder(t *testing.T) {
 	mk := func(name string, delay time.Duration) AnyTool {
 		return NewTool(Tool[struct{}]{
 			Name: name,
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				time.Sleep(delay)
 				return ToolText(name), nil
 			},
@@ -111,7 +111,7 @@ func TestSequentialToolMForcesSerialBatch(t *testing.T) {
 		return NewTool(Tool[struct{}]{
 			Name: name,
 			Mode: mode,
-			Execute: func(context.Context, struct{}) (ToolResult, error) {
+			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				n := atomic.AddInt32(&inFlight, 1)
 				for {
 					m := atomic.LoadInt32(&maxInFlight)

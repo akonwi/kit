@@ -13,7 +13,7 @@ import (
 func blockingTool(name string, entered chan struct{}, outcome chan bool) AnyTool {
 	return NewTool(Tool[struct{}]{
 		Name: name,
-		Execute: func(ctx context.Context, _ struct{}) (ToolResult, error) {
+		Execute: func(ctx context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 			close(entered)
 			select {
 			case <-ctx.Done():

@@ -38,7 +38,7 @@ func newBashTool(cwd string) droids.Tool[bashArgs] {
 			"timeout": numberSchema("Timeout in milliseconds (default 120000)"),
 		}, "command"),
 		Mode: droids.ModeSequential,
-		Execute: func(ctx context.Context, args bashArgs) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, args bashArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			if strings.TrimSpace(args.Command) == "" {
 				return errorResult(fmt.Errorf("command is required"), bashDetails{}), nil
 			}

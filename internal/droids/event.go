@@ -92,11 +92,12 @@ type ToolExecutionStart struct {
 
 func (ToolExecutionStart) isEvent() {}
 
-// ToolExecutionUpdate carries a partial result streamed by a running tool.
+// ToolExecutionUpdate carries content newly emitted by a running tool. Each
+// delta is append-only; consumers must not interpret it as result-so-far.
 type ToolExecutionUpdate struct {
-	ToolCallID    string
-	ToolName      string
-	PartialResult ToolResult
+	ToolCallID string
+	ToolName   string
+	Delta      ToolResultDelta
 }
 
 func (ToolExecutionUpdate) isEvent() {}

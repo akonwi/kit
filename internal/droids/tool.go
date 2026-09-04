@@ -14,6 +14,16 @@ import (
 // typed Execute; NewTool erases it into an AnyTool for the droid's tool list.
 // The loop validates/decodes raw model arguments into Args before calling.
 
+// ToolResultDelta is append-only content emitted while a tool is running.
+type ToolResultDelta struct {
+	Content []Content
+	IsError bool
+}
+
+// ToolUpdate publishes one append-only result delta. Tools opt into streaming
+// by calling it synchronously and must not retain it after Execute returns.
+type ToolUpdate func(ToolResultDelta)
+
 // ToolResult is what a tool returns to the model.
 type ToolResult struct {
 	// Content is returned to the model (text and/or images).
@@ -68,9 +78,11 @@ type Tool[Args any] struct {
 	// via reflection (json / jsonschema struct tags). Set it explicitly to
 	// override derivation.
 	Parameters map[string]any
-	// Execute runs the tool with decoded arguments. Return an error to signal
-	// failure; the loop converts it into an error tool result.
-	Execute func(ctx context.Context, args Args) (ToolResult, error)
+	// Execute runs the tool with decoded arguments. Calling update opts the tool
+	// into append-only streaming; tools that do not stream may ignore it. The
+	// returned ToolResult remains the authoritative complete result. Return an
+	// error to signal failure; the loop converts it into an error tool result.
+	Execute func(ctx context.Context, args Args, update ToolUpdate) (ToolResult, error)
 	// Mode overrides execution mode for this tool ("sequential" | "parallel").
 	Mode ExecutionMode
 }
@@ -89,7 +101,7 @@ type AnyTool interface {
 	schema() ToolSchema
 	mode() ExecutionMode
 	// execute decodes raw JSON args and runs the tool.
-	execute(ctx context.Context, raw []byte) (ToolResult, error)
+	execute(ctx context.Context, raw []byte, update ToolUpdate) (ToolResult, error)
 }
 
 // NewTool erases a typed Tool[Args] into an AnyTool.
@@ -143,7 +155,7 @@ func emptyObjectSchema() map[string]any {
 
 func (b boundTool[Args]) mode() ExecutionMode { return b.t.Mode }
 
-func (b boundTool[Args]) execute(ctx context.Context, raw []byte) (ToolResult, error) {
+func (b boundTool[Args]) execute(ctx context.Context, raw []byte, update ToolUpdate) (ToolResult, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = []byte("{}")
 	}
@@ -163,5 +175,11 @@ func (b boundTool[Args]) execute(ctx context.Context, raw []byte) (ToolResult, e
 		}
 		return ToolResult{}, err
 	}
-	return b.t.Execute(ctx, args)
+	if b.t.Execute == nil {
+		return ToolResult{}, fmt.Errorf("tool %q has no execute function", b.t.Name)
+	}
+	if update == nil {
+		update = func(ToolResultDelta) {}
+	}
+	return b.t.Execute(ctx, args, update)
 }
