@@ -133,6 +133,28 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if snapshot.ContextTokens != 64_000 || snapshot.ContextWindow != 128_000 {
 		t.Fatalf("snapshot context = %d/%d", snapshot.ContextTokens, snapshot.ContextWindow)
 	}
+	eventBatch, err := client.GetSessionEvents(context.Background(), created.ID, 0)
+	if err != nil {
+		t.Fatalf("GetSessionEvents() error = %v", err)
+	}
+	wantEventKinds := []protocol.SessionEventKind{
+		protocol.SessionEventRunStarted,
+		protocol.SessionEventUserMessage,
+		protocol.SessionEventAssistantStarted,
+		protocol.SessionEventAssistantCompleted,
+		protocol.SessionEventRunFinished,
+	}
+	if len(eventBatch.Events) != len(wantEventKinds) {
+		t.Fatalf("session event count = %d, want %d: %+v", len(eventBatch.Events), len(wantEventKinds), eventBatch.Events)
+	}
+	for index, want := range wantEventKinds {
+		if eventBatch.Events[index].Kind != want {
+			t.Errorf("session event %d kind = %q, want %q", index, eventBatch.Events[index].Kind, want)
+		}
+	}
+	if eventBatch.Events[3].Kind != protocol.SessionEventAssistantCompleted || eventBatch.Events[4].Status != protocol.RunStatusCompleted {
+		t.Errorf("terminal session events = %+v", eventBatch.Events[3:])
+	}
 
 	block := make(chan struct{})
 	providers.mu.Lock()
@@ -150,7 +172,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("active run = %+v, %v", active, err)
 	}
 	activeSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
-	if err != nil || activeSnapshot.ActiveRunID != activeRunID {
+	if err != nil || activeSnapshot.ActiveRunID != activeRunID || len(activeSnapshot.Messages) != 2 {
 		t.Fatalf("active snapshot = %+v, %v", activeSnapshot, err)
 	}
 	if err := client.AbortSession(context.Background(), created.ID, activeRunID); err != nil {

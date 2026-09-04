@@ -19,6 +19,7 @@ type Session interface {
 	ID() string
 	Snapshot(context.Context) (protocol.SessionSnapshot, error)
 	Run(context.Context, string) (protocol.RunInfo, error)
+	Stream(context.Context, string) (EventStream, error)
 	StartPrompt(context.Context, string) (Run, error)
 	Abort(context.Context, string) error
 }
@@ -29,4 +30,11 @@ type Run interface {
 	ID() string
 	Wait(context.Context) (protocol.PromptOutcome, error)
 	Abort(context.Context) error
+}
+
+// EventStream delivers ordered batches for one run. Err is available after
+// Updates closes; cancellation of the stream does not abort the run.
+type EventStream interface {
+	Updates() <-chan []protocol.SessionEvent
+	Err() error
 }

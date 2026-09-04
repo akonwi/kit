@@ -77,6 +77,29 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 	return output, nil
 }
 
+// GetSessionEvents returns the next ordered page after a session stream sequence.
+func (c *Client) GetSessionEvents(ctx context.Context, sessionID string, after int64) (protocol.SessionEventBatch, error) {
+	values := url.Values{}
+	values.Set("after", strconv.FormatInt(after, 10))
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events?" + values.Encode()
+	var output protocol.SessionEventBatch
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.SessionEventBatch{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionEventBatch{}, fmt.Errorf("validate daemon session events: %w", err)
+	}
+	if !output.ResyncRequired && after > 0 && len(output.Events) > 0 && output.Events[0].Sequence != after+1 {
+		return protocol.SessionEventBatch{}, fmt.Errorf("daemon session event sequence gap after %d", after)
+	}
+	for _, event := range output.Events {
+		if event.SessionID != sessionID {
+			return protocol.SessionEventBatch{}, fmt.Errorf("daemon session event identity mismatch")
+		}
+	}
+	return output, nil
+}
+
 // ReserveRun durably reserves a generation before prompt execution starts.
 func (c *Client) ReserveRun(
 	ctx context.Context,

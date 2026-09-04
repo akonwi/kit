@@ -31,6 +31,17 @@ type localRun struct {
 	id        string
 }
 
+type localEventStream struct {
+	updates chan []protocol.SessionEvent
+	done    chan struct{}
+	err     error
+}
+
+var (
+	errEventResyncRequired  = errors.New("session event replay requires snapshot resynchronization")
+	errTerminalEventMissing = errors.New("session event stream ended without a terminal event")
+)
+
 var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.Run = (*localRun)(nil)
@@ -73,6 +84,22 @@ func (c *localSession) Run(ctx context.Context, runID string) (protocol.RunInfo,
 
 func (c *localSession) Abort(ctx context.Context, runID string) error {
 	return c.transport.AbortSession(ctx, c.id, runID)
+}
+
+func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.EventStream, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(runID) == "" {
+		return nil, fmt.Errorf("run id is empty")
+	}
+	initial, err := fetchSessionEvents(ctx, c.transport, c.id, 0)
+	if err != nil {
+		return nil, err
+	}
+	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
+	go stream.poll(ctx, c.transport, c.id, runID, initial)
+	return stream, nil
 }
 
 func (c *localSession) StartPrompt(ctx context.Context, text string) (sessionclient.Run, error) {
@@ -200,4 +227,133 @@ func waitForPoll(ctx context.Context, tick <-chan time.Time) error {
 
 func (r *localRun) Abort(ctx context.Context) error {
 	return r.transport.AbortSession(ctx, r.sessionID, r.id)
+}
+
+func (s *localEventStream) Updates() <-chan []protocol.SessionEvent { return s.updates }
+
+func (s *localEventStream) Err() error {
+	<-s.done
+	return s.err
+}
+
+type sessionEventTransport interface {
+	GetSessionEvents(context.Context, string, int64) (protocol.SessionEventBatch, error)
+	GetRun(context.Context, string, string) (protocol.RunInfo, error)
+}
+
+func (s *localEventStream) poll(
+	ctx context.Context,
+	transport sessionEventTransport,
+	sessionID, runID string,
+	batch protocol.SessionEventBatch,
+) {
+	defer close(s.updates)
+	defer close(s.done)
+	const (
+		pollInterval  = 50 * time.Millisecond
+		eventPageSize = 32
+	)
+	after := int64(0)
+	streamID := ""
+	failures := 0
+	polls := 0
+	terminalChecks := 0
+	seenRunStart := false
+	for {
+		if batch.ResyncRequired {
+			s.err = errEventResyncRequired
+			return
+		}
+		if batch.StreamID != "" {
+			if streamID != "" && batch.StreamID != streamID {
+				after = 0
+				seenRunStart = false
+			}
+			streamID = batch.StreamID
+		}
+		matching := make([]protocol.SessionEvent, 0, len(batch.Events))
+		finished := false
+		for _, event := range batch.Events {
+			if event.Sequence > after {
+				after = event.Sequence
+			}
+			if event.RunID != runID {
+				continue
+			}
+			if !seenRunStart {
+				if event.Kind != protocol.SessionEventRunStarted {
+					s.err = errEventResyncRequired
+					return
+				}
+				seenRunStart = true
+			}
+			matching = append(matching, event)
+			if event.Kind == protocol.SessionEventRunFinished {
+				finished = true
+			}
+		}
+		if len(matching) > 0 {
+			select {
+			case s.updates <- matching:
+			case <-ctx.Done():
+				s.err = ctx.Err()
+				return
+			}
+		}
+		if finished {
+			return
+		}
+		if len(batch.Events) < eventPageSize {
+			timer := time.NewTimer(pollInterval)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				s.err = ctx.Err()
+				return
+			case <-timer.C:
+			}
+		}
+		next, err := fetchSessionEvents(ctx, transport, sessionID, after)
+		if err != nil {
+			failures++
+			if !retryablePollingError(err) || failures >= 6 {
+				s.err = err
+				return
+			}
+			if err := waitForRetry(ctx, failures); err != nil {
+				s.err = err
+				return
+			}
+			batch = protocol.SessionEventBatch{StreamID: streamID}
+			continue
+		}
+		failures = 0
+		batch = next
+		polls++
+		if polls%4 == 0 {
+			requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+			info, err := transport.GetRun(requestContext, sessionID, runID)
+			cancel()
+			if err == nil && info.Status != protocol.RunStatusQueued && info.Status != protocol.RunStatusRunning {
+				terminalChecks++
+				if terminalChecks >= 3 {
+					s.err = errTerminalEventMissing
+					return
+				}
+			} else if err == nil {
+				terminalChecks = 0
+			}
+		}
+	}
+}
+
+func fetchSessionEvents(
+	ctx context.Context,
+	transport sessionEventTransport,
+	sessionID string,
+	after int64,
+) (protocol.SessionEventBatch, error) {
+	requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	return transport.GetSessionEvents(requestContext, sessionID, after)
 }

@@ -45,6 +45,7 @@ type TranscriptMessage struct {
 	Sequence  int64  `json:"sequence"`
 	Role      string `json:"role"`
 	Text      string `json:"text"`
+	Thinking  string `json:"thinking,omitempty"`
 	ToolName  string `json:"toolName,omitempty"`
 	IsError   bool   `json:"isError,omitempty"`
 	CreatedAt string `json:"createdAt"`

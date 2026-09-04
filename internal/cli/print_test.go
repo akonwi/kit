@@ -119,6 +119,10 @@ func (c *fakeBoundSession) Run(context.Context, string) (protocol.RunInfo, error
 	return protocol.RunInfo{}, nil
 }
 
+func (c *fakeBoundSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
+	panic("unexpected Stream")
+}
+
 func (c *fakeBoundSession) Abort(context.Context, string) error { return nil }
 
 func (c *fakeBoundSession) StartPrompt(

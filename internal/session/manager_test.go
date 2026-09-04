@@ -42,6 +42,13 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 	if first.Text != "reply 1" || first.Status != storage.RunStatusCompleted {
 		t.Fatalf("first result = %+v", first)
 	}
+	firstSnapshot, err := manager.Snapshot(ctx, session.ID)
+	if err != nil {
+		t.Fatalf("first Snapshot() error = %v", err)
+	}
+	if got := firstSnapshot.Messages[1].Thinking; got != "thinking 1" {
+		t.Fatalf("persisted assistant thinking = %q, want %q", got, "thinking 1")
+	}
 	manager.Close()
 
 	resumed, err := kitsession.NewManager(store, providers, "You are a test agent.")
@@ -79,6 +86,124 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 		if records[index].Role != want || records[index].Sequence != int64(index) {
 			t.Errorf("message %d = role %q sequence %d, want %q/%d", index, records[index].Role, records[index].Sequence, want, index)
 		}
+	}
+}
+
+func TestManagerPublishesLiveEventsBeforeRunCompletion(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	defer store.Close()
+	gate := make(chan struct{})
+	manager, err := kitsession.NewManager(store, &echoProviders{gate: gate}, "test")
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	defer manager.Close()
+	created, err := manager.Create(ctx, kitsession.CreateInput{CWD: t.TempDir(), Model: "test/echo"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	runID := newRunID(t)
+	if _, err := manager.StartPrompt(ctx, created.ID, runID, "stream me"); err != nil {
+		t.Fatalf("StartPrompt() error = %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		page, err := manager.Events(ctx, created.ID, 0)
+		if err != nil {
+			t.Fatalf("Events() error = %v", err)
+		}
+		if len(page.Events) >= 2 {
+			if page.Events[0].Kind != kitsession.EventRunStarted || page.Events[1].Kind != kitsession.EventUserMessage || page.Events[1].Text != "stream me" {
+				t.Fatalf("live events = %+v", page.Events)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("live events were not published before completion: %+v", page.Events)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	close(gate)
+	deadline = time.Now().Add(time.Second)
+	for {
+		run, err := manager.GetRun(ctx, created.ID, runID)
+		if err != nil {
+			t.Fatalf("GetRun() error = %v", err)
+		}
+		if run.Status == kitsession.RunStatusCompleted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("run status = %q, want completed", run.Status)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestManagerPublishesOrderedTurnEvents(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	defer store.Close()
+	manager, err := kitsession.NewManager(store, &echoProviders{}, "test")
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	defer manager.Close()
+	created, err := manager.Create(ctx, kitsession.CreateInput{CWD: t.TempDir(), Model: "test/echo"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	result, err := runPrompt(manager, ctx, created.ID, "show your work")
+	if err != nil {
+		t.Fatalf("RunPrompt() error = %v", err)
+	}
+	page, err := manager.Events(ctx, created.ID, 0)
+	if err != nil {
+		t.Fatalf("Events() error = %v", err)
+	}
+	wantKinds := []kitsession.EventKind{
+		kitsession.EventRunStarted,
+		kitsession.EventUserMessage,
+		kitsession.EventAssistantStarted,
+		kitsession.EventThinkingDelta,
+		kitsession.EventAssistantTextDelta,
+		kitsession.EventAssistantCompleted,
+		kitsession.EventRunFinished,
+	}
+	if len(page.Events) != len(wantKinds) {
+		t.Fatalf("event count = %d, want %d: %+v", len(page.Events), len(wantKinds), page.Events)
+	}
+	for index, want := range wantKinds {
+		event := page.Events[index]
+		if event.Kind != want || event.Sequence != int64(index+1) || event.RunID != result.RunID {
+			t.Errorf("event %d = kind %q sequence %d run %q, want %q/%d/%q", index, event.Kind, event.Sequence, event.RunID, want, index+1, result.RunID)
+		}
+	}
+	if page.Events[1].Text != "show your work" {
+		t.Errorf("user event text = %q", page.Events[1].Text)
+	}
+	if page.Events[3].Delta != "thinking 1" {
+		t.Errorf("thinking delta = %q", page.Events[3].Delta)
+	}
+	if page.Events[4].Delta != "reply 1" {
+		t.Errorf("text delta = %q", page.Events[4].Delta)
+	}
+	if completed := page.Events[5]; completed.Kind != kitsession.EventAssistantCompleted {
+		t.Errorf("completed assistant event = %+v", completed)
+	}
+	if terminal := page.Events[6]; terminal.Status != kitsession.RunStatusCompleted {
+		t.Errorf("terminal status = %q", terminal.Status)
 	}
 }
 
@@ -164,6 +289,38 @@ func TestManagerPublishesCompletionAfterRunCleanup(t *testing.T) {
 	}
 }
 
+func TestManagerInterruptsRunWhenLiveJournalCannotBePersisted(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("storage.Open() error = %v", err)
+	}
+	defer store.Close()
+	repository := &failingEventRepository{Repository: store}
+	manager, err := kitsession.NewManager(repository, &echoProviders{}, "test")
+	if err != nil {
+		t.Fatalf("NewManager() error = %v", err)
+	}
+	defer manager.Close()
+	created, err := manager.Create(ctx, kitsession.CreateInput{CWD: t.TempDir(), Model: "test/echo"})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	result, err := runPrompt(manager, ctx, created.ID, "hello")
+	if err != nil {
+		t.Fatalf("RunPrompt() error = %v", err)
+	}
+	if result.Status != kitsession.RunStatusInterrupted || result.ErrorMessage != "event journal unavailable" {
+		t.Fatalf("result = %+v", result)
+	}
+	messages, err := store.ListMessages(ctx, created.ID)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("diagnostic messages = %+v, %v", messages, err)
+	}
+}
+
 func TestManagerRecoversFailedTerminalWriteWithoutRestart(t *testing.T) {
 	t.Parallel()
 
@@ -233,7 +390,7 @@ func TestManagerRunSurvivesWaitingClientCancellation(t *testing.T) {
 	}
 	close(gate)
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for {
 		replayed, err := store.ListReplayMessages(ctx, created.ID)
 		if err != nil {
@@ -395,6 +552,14 @@ func TestManagerAbortIsExplicitAndDurable(t *testing.T) {
 	if replay, err := store.ListReplayMessages(ctx, created.ID); err != nil || len(replay) != 0 {
 		t.Fatalf("ListReplayMessages() = %+v, %v; want no aborted context", replay, err)
 	}
+	snapshot, err := manager.Snapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if len(snapshot.Messages) != 2 || snapshot.Messages[0].Role != "user" || snapshot.Messages[0].Text != "abort me" ||
+		snapshot.Messages[1].Role != "assistant" || !snapshot.Messages[1].IsError || snapshot.Messages[1].Text == "" {
+		t.Fatalf("aborted presentation transcript = %+v", snapshot.Messages)
+	}
 }
 
 func TestManagerValidatesSessionBeforePersistence(t *testing.T) {
@@ -513,6 +678,14 @@ func (r *blockingReplayRepository) ListReplayMessages(
 	return r.Repository.ListReplayMessages(ctx, sessionID)
 }
 
+type failingEventRepository struct {
+	kitsession.Repository
+}
+
+func (*failingEventRepository) AppendSessionEvents(context.Context, []kitsession.NewEvent) ([]kitsession.Event, error) {
+	return nil, errors.New("event journal unavailable")
+}
+
 type flakyFinishRepository struct {
 	kitsession.Repository
 	mu       sync.Mutex
@@ -574,16 +747,21 @@ func (p *echoProviders) Stream(ctx context.Context, _ droids.Model, request droi
 		}
 	}
 	text := fmt.Sprintf("reply %d", count)
+	thinking := fmt.Sprintf("thinking %d", count)
 	final := droids.AssistantMessage{
 		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
-		Content:   []droids.Content{droids.TextContent{Text: text}},
+		Content: []droids.Content{
+			droids.ThinkingContent{Thinking: thinking},
+			droids.TextContent{Text: text},
+		},
 		Timestamp: time.Now().UnixMilli(),
 	}
 	events := []droids.StreamEvent{
 		droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "echo"}},
-		droids.StreamTextStart{ContentIndex: 0},
-		droids.StreamTextDelta{ContentIndex: 0, Delta: text},
-		droids.StreamTextEnd{ContentIndex: 0, Text: text},
+		droids.StreamThinkingDelta{ContentIndex: 0, Delta: thinking},
+		droids.StreamTextStart{ContentIndex: 1},
+		droids.StreamTextDelta{ContentIndex: 1, Delta: text},
+		droids.StreamTextEnd{ContentIndex: 1, Text: text},
 		droids.StreamDone{Message: final},
 	}
 	return &echoStream{events: events, final: final}

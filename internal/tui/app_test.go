@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,6 +13,69 @@ import (
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
+
+func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
+		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "read it"},
+		{Sequence: 3, Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 4, Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 5, Kind: protocol.SessionEventAssistantCompleted},
+		{Sequence: 6, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read"},
+	})
+	if len(state.liveMessages) != 2 {
+		t.Fatalf("live messages = %+v, want user and one tool", state.liveMessages)
+	}
+	tool := state.liveMessages[1]
+	if tool.Role != "tool" || tool.ToolName != "read" || tool.ToolStatus != "Running…" {
+		t.Fatalf("tool after assistant completion = %+v", tool)
+	}
+}
+
+func TestStoppingTurnActivityTakesPrecedenceUntilRunFinishes(t *testing.T) {
+	t.Parallel()
+
+	state := appState{
+		turnActivity: "Stopping…", runStopping: true, liveAssistant: -1,
+		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
+	}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "late output"},
+	})
+	if state.turnActivity != "Stopping…" {
+		t.Fatalf("activity after buffered delta = %q, want Stopping…", state.turnActivity)
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Kind: protocol.SessionEventRunFinished}})
+	if state.turnActivity != "" {
+		t.Fatalf("activity after run finish = %q, want blank", state.turnActivity)
+	}
+}
+
+func TestTerminalSnapshotFailureSettlesLiveTurnForContinuedInput(t *testing.T) {
+	t.Parallel()
+
+	state := appState{
+		runPending: true, activeRunID: "run_test", liveAssistant: 1,
+		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
+		liveMessages: []transcriptMessage{
+			{Role: "user", Text: "hello"},
+			{Role: "assistant", Text: "partial response", Pending: true},
+		},
+	}
+	state.settleRunWithoutSnapshot(protocol.RunInfo{Status: protocol.RunStatusCompleted}, errors.New("snapshot too large"))
+	if state.runPending || state.activeRunID != "" || len(state.liveMessages) != 0 {
+		t.Fatalf("settled run state = pending %v id %q live %+v", state.runPending, state.activeRunID, state.liveMessages)
+	}
+	if len(state.messages) != 2 || state.messages[0].Text != "hello" || state.messages[1].Text != "partial response" || state.messages[1].Pending {
+		t.Fatalf("settled transcript = %+v", state.messages)
+	}
+	if !strings.Contains(state.status, "next turn will retry") {
+		t.Fatalf("settled status = %q", state.status)
+	}
+}
 
 func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 	t.Parallel()
@@ -153,6 +217,10 @@ func (fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
 
 func (fakeSession) Run(context.Context, string) (protocol.RunInfo, error) {
 	return protocol.RunInfo{}, nil
+}
+
+func (fakeSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
+	panic("unexpected Stream")
 }
 
 func (fakeSession) Abort(context.Context, string) error { return nil }

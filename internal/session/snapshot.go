@@ -17,6 +17,7 @@ type TranscriptMessage struct {
 	Sequence  int64
 	Role      string
 	Text      string
+	Thinking  string
 	ToolName  string
 	IsError   bool
 	CreatedAt time.Time
@@ -31,8 +32,8 @@ type Snapshot struct {
 	ContextWindow int
 }
 
-// Snapshot returns persisted completed messages plus current in-memory run and
-// context state for one session.
+// Snapshot returns persisted presentation messages, including diagnostics from
+// incomplete turns, plus current in-memory run and context state for one session.
 func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, error) {
 	if err := m.beginOperation(); err != nil {
 		return Snapshot{}, err
@@ -46,22 +47,23 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		return Snapshot{}, err
 	}
 	var stored []MessageRecord
-	var activeRunID string
+	var activeRunID, activeTurnID string
 	for {
-		before, err := m.durableActiveRunID(ctx, sessionID)
+		beforeRunID, _, err := m.durableActiveRun(ctx, sessionID)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		stored, err = m.store.ListReplayMessages(ctx, sessionID)
+		stored, err = m.store.ListMessages(ctx, sessionID)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		after, err := m.durableActiveRunID(ctx, sessionID)
+		afterRunID, afterTurnID, err := m.durableActiveRun(ctx, sessionID)
 		if err != nil {
 			return Snapshot{}, err
 		}
-		if before == after {
-			activeRunID = after
+		if beforeRunID == afterRunID {
+			activeRunID = afterRunID
+			activeTurnID = afterTurnID
 			break
 		}
 		if err := ctx.Err(); err != nil {
@@ -71,6 +73,9 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 
 	snapshot := Snapshot{Session: record, ActiveRunID: activeRunID, Messages: make([]TranscriptMessage, 0, len(stored))}
 	for _, messageRecord := range stored {
+		if activeTurnID != "" && messageRecord.TurnID == activeTurnID {
+			continue
+		}
 		message, err := decodeDroidMessage(messageRecord.Role, messageRecord.PayloadJSON)
 		if err != nil {
 			return Snapshot{}, fmt.Errorf("decode message %q: %w", messageRecord.ID, err)
@@ -84,8 +89,17 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			projected.ToolName = tool.ToolName
 			projected.IsError = tool.IsError
 		}
-		if assistant, ok := message.(droids.AssistantMessage); ok && assistant.Usage.TotalTokens > 0 {
-			snapshot.ContextTokens = assistant.Usage.TotalTokens
+		if assistant, ok := message.(droids.AssistantMessage); ok {
+			_, projected.Thinking = assistantPresentation(assistant)
+			if assistant.StopReason == droids.StopReasonError || assistant.StopReason == droids.StopReasonAborted {
+				projected.IsError = true
+				if projected.Text == "" {
+					projected.Text = assistant.ErrorMessage
+				}
+			}
+			if assistant.Usage.TotalTokens > 0 {
+				snapshot.ContextTokens = assistant.Usage.TotalTokens
+			}
 		}
 		snapshot.Messages = append(snapshot.Messages, projected)
 	}
@@ -97,15 +111,15 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	return snapshot, nil
 }
 
-func (m *Manager) durableActiveRunID(ctx context.Context, sessionID string) (string, error) {
+func (m *Manager) durableActiveRun(ctx context.Context, sessionID string) (string, string, error) {
 	record, err := m.store.GetActiveParentRun(ctx, sessionID)
 	if errors.Is(err, ErrNotFound) {
-		return "", nil
+		return "", "", nil
 	}
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
-	return record.ID, nil
+	return record.ID, record.TurnID, nil
 }
 
 func transcriptText(message droids.Message) string {

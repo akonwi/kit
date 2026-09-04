@@ -25,6 +25,7 @@ type shellSnapshot struct {
 	Session        protocol.SessionInfo
 	Messages       []transcriptMessage
 	Running        bool
+	TurnActivity   string
 	ContextTokens  int
 	ContextWindow  int
 	Scroll         *ui.ScrollController
@@ -141,6 +142,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady {
 		children = append(children,
+			w.pendingSlot(theme),
 			ui.Divider{Style: ui.Style{Foreground: theme.Border}},
 			w.composer(theme),
 		)
@@ -195,11 +197,17 @@ func (w shellView) body(theme ui.Theme) ui.Widget {
 }
 
 func (w shellView) transcript(theme ui.Theme) ui.Widget {
-	if len(w.Snapshot.Messages) == 0 {
+	messages := make([]transcriptMessage, 0, len(w.Snapshot.Messages))
+	for _, message := range w.Snapshot.Messages {
+		if transcriptMessageVisible(message) {
+			messages = append(messages, message)
+		}
+	}
+	if len(messages) == 0 {
 		return emptyState(theme, "Ask a question or give a task.", "")
 	}
-	children := make([]ui.Widget, 0, len(w.Snapshot.Messages)*2)
-	for index, message := range w.Snapshot.Messages {
+	children := make([]ui.Widget, 0, len(messages)*2)
+	for index, message := range messages {
 		if index > 0 {
 			children = append(children, ui.SizedBox{Height: 1})
 		}
@@ -211,19 +219,57 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 	}}
 }
 
+func transcriptMessageVisible(message transcriptMessage) bool {
+	if message.Role == "tool" {
+		return message.ToolName != "" || strings.TrimSpace(message.Text) != ""
+	}
+	return strings.TrimSpace(message.Text) != ""
+}
+
 func transcriptEntry(theme ui.Theme, message transcriptMessage) ui.Widget {
-	style := ui.Style{Foreground: theme.Foreground}
+	if message.Role == "user" {
+		content := ui.Text{Value: message.Text, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true}
+		return ui.DecoratedBox(
+			ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText}, Left: true}},
+			ui.Padding(ui.Insets{Left: 2}, content),
+		)
+	}
+	if message.Role == "tool" {
+		style := ui.Style{Foreground: theme.AccentText}
+		if message.IsError {
+			style.Foreground = theme.DangerText
+		}
+		label := message.ToolName
+		if message.ToolStatus != "" {
+			label += " · " + message.ToolStatus
+		}
+		children := []ui.Widget{ui.Text{Value: label, Style: style, SoftWrap: true}}
+		if message.Text != "" {
+			children = append(children, ui.Text{Value: message.Text, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true})
+		}
+		return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
+	}
 	if message.Role == "error" {
-		style.Foreground = theme.DangerText
+		return ui.Text{Value: message.Text, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true}
 	}
-	content := ui.Text{Value: message.Text, Style: style, SoftWrap: true}
-	if message.Role != "user" {
-		return content
+	return ui.Text{Value: message.Text, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true}
+}
+
+func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
+	children := []ui.Widget(nil)
+	if w.Snapshot.TurnActivity != "" {
+		style := ui.Style{Foreground: theme.MutedForeground}
+		children = []ui.Widget{
+			spinner{Style: style},
+			ui.SizedBox{Width: 1},
+			ui.Expanded(ui.Text{
+				Value: w.Snapshot.TurnActivity, Style: style,
+				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+			}),
+		}
 	}
-	return ui.DecoratedBox(
-		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText}, Left: true}},
-		ui.Padding(ui.Insets{Left: 2}, content),
-	)
+	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStart, Children: children}
+	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), content)}
 }
 
 func (w shellView) composer(theme ui.Theme) ui.Widget {
@@ -231,14 +277,15 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 	composerTheme.Surface = theme.Background
 	composerTheme.SurfaceHovered = theme.Background
 	composerTheme.Selection = theme.Selection
-	return ui.SizedBox{Height: 1, Child: ui.Provider[ui.Theme]{Value: composerTheme, Child: ui.TextField{
+	field := fullWidthTextField{Field: ui.TextField{
 		Value:       w.Snapshot.Composer,
 		Placeholder: "Ask kit to do something…",
 		OnChanged:   w.Callbacks.ComposerChanged,
 		OnSubmitted: w.Callbacks.Submit,
 		Padding:     ui.Symmetric(1, 0),
 		AutoFocus:   true,
-	}}}
+	}}
+	return ui.SizedBox{Height: 1, Child: ui.Provider[ui.Theme]{Value: composerTheme, Child: field}}
 }
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {

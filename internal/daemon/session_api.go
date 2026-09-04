@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -21,6 +22,7 @@ type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
+	Events(context.Context, string, int64) (protocol.SessionEventBatch, error)
 	ReserveRun(context.Context, string, string) (protocol.RunReservation, error)
 	StartPrompt(context.Context, string, string, string) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
@@ -71,11 +73,35 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	for _, message := range snapshot.Messages {
 		result.Messages = append(result.Messages, protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
-			Role: message.Role, Text: message.Text, ToolName: message.ToolName,
-			IsError: message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+			Role: message.Role, Text: message.Text, Thinking: message.Thinking,
+			ToolName: message.ToolName, IsError: message.IsError,
+			CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
 	return result, nil
+}
+
+func (s runtimeSessionService) Events(ctx context.Context, sessionID string, after int64) (protocol.SessionEventBatch, error) {
+	page, err := s.manager.Events(ctx, sessionID, after)
+	if err != nil {
+		return protocol.SessionEventBatch{}, err
+	}
+	batch := protocol.SessionEventBatch{
+		StreamID: page.StreamID, FirstSequence: page.FirstSequence, LastSequence: page.LastSequence,
+		ResyncRequired: page.ResyncRequired, Events: make([]protocol.SessionEvent, 0, len(page.Events)),
+	}
+	for _, event := range page.Events {
+		batch.Events = append(batch.Events, protocol.SessionEvent{
+			StreamID: event.StreamID, Sequence: event.Sequence,
+			SessionID: event.SessionID, TurnID: event.TurnID, RunID: event.RunID,
+			Kind: protocol.SessionEventKind(event.Kind), ContentIndex: event.ContentIndex,
+			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
+			ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments,
+			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
+			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
+		})
+	}
+	return batch, nil
 }
 
 func (s runtimeSessionService) ReserveRun(
@@ -172,6 +198,23 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, snapshot)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/events", func(writer http.ResponseWriter, request *http.Request) {
+		after := int64(0)
+		if raw := request.URL.Query().Get("after"); raw != "" {
+			parsed, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || parsed < 0 {
+				writeSessionError(writer, fmt.Errorf("%w: event cursor must be a non-negative integer", errInvalidSessionRequest))
+				return
+			}
+			after = parsed
+		}
+		batch, err := service.Events(request.Context(), request.PathValue("sessionID"), after)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, batch)
 	})
 	mux.HandleFunc("POST /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.CreateSessionInput

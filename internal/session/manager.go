@@ -342,11 +342,15 @@ func (m *Manager) executePrompt(
 ) (PromptResult, error) {
 	// Parent execution belongs to the daemon, not an attached request. Closing
 	// the runtime or calling Abort cancels droids explicitly.
+	eventErr := m.appendLiveEvents([]NewEvent{{
+		SessionID: sessionID, TurnID: turnID, RunID: runID,
+		Kind: EventRunStarted, Status: RunStatusRunning,
+	}})
 	run, streamErr := loaded.droid.Stream(ctx, prompt)
 	if streamErr == nil {
-		for range run.Events() {
-			// The protocol projector will consume these in the next slice. Draining
-			// continuously is required so droids' bounded event stream can progress.
+		drainErr := m.drainRunEvents(run, sessionID, turnID, runID, eventErr == nil)
+		if eventErr == nil {
+			eventErr = drainErr
 		}
 	}
 	var assistant droids.AssistantMessage
@@ -362,9 +366,12 @@ func (m *Manager) executePrompt(
 	status := RunStatusCompleted
 	executionErr := runErr
 	switch {
-	case persistenceErr != nil:
+	case persistenceErr != nil || eventErr != nil:
 		status = RunStatusInterrupted
-		executionErr = errors.Join(executionErr, fmt.Errorf("persist droids transcript: %w", persistenceErr))
+		executionErr = errors.Join(executionErr, eventErr)
+		if persistenceErr != nil {
+			executionErr = errors.Join(executionErr, fmt.Errorf("persist droids transcript: %w", persistenceErr))
+		}
 	case errors.Is(runErr, context.Canceled), errors.Is(runErr, context.DeadlineExceeded), assistant.StopReason == droids.StopReasonAborted:
 		status = RunStatusAborted
 	case runErr != nil, assistant.StopReason == droids.StopReasonError:
@@ -411,12 +418,80 @@ func (m *Manager) executePrompt(
 		if recoveredStatus != RunStatusCompleted && result.ErrorMessage == "" {
 			result.ErrorMessage = reason
 		}
-		return result, nil
+	}
+	if eventErr == nil {
+		_ = m.appendLiveEvents([]NewEvent{{
+			SessionID: sessionID, TurnID: turnID, RunID: runID,
+			Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind,
+			ErrorMessage: result.ErrorMessage,
+		}})
 	}
 	// Provider failures, cancellation, and a transcript persistence failure are
 	// durable terminal run outcomes represented by PromptResult. Go errors are
 	// reserved for failures to establish or durably finish that outcome.
 	return result, nil
+}
+
+func (m *Manager) drainRunEvents(run droids.Run, sessionID, turnID, runID string, persist bool) error {
+	const maxBatch = 64
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+	pending := make([]NewEvent, 0, maxBatch)
+	var firstErr error
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		if persist {
+			if err := m.appendLiveEvents(pending); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				persist = false
+			}
+		}
+		pending = pending[:0]
+	}
+	events := run.Events()
+	for {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				flush()
+				return firstErr
+			}
+			for _, projected := range projectDroidEvent(sessionID, turnID, runID, event) {
+				last := len(pending) - 1
+				if last >= 0 && coalescibleDelta(pending[last], projected) {
+					pending[last].Delta += projected.Delta
+				} else {
+					pending = append(pending, projected)
+				}
+			}
+			if len(pending) >= maxBatch {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		}
+	}
+}
+
+func coalescibleDelta(previous, next NewEvent) bool {
+	const maxCoalescedDeltaBytes = 16 << 10
+	isDelta := next.Kind == EventAssistantTextDelta || next.Kind == EventThinkingDelta
+	return isDelta && previous.Kind == next.Kind && previous.ContentIndex == next.ContentIndex &&
+		previous.RunID == next.RunID && len(previous.Delta)+len(next.Delta) <= maxCoalescedDeltaBytes
+}
+
+func (m *Manager) appendLiveEvents(events []NewEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	_, err := m.store.AppendSessionEvents(ctx, events)
+	return err
 }
 
 // Abort interrupts only the matching reserved or active run generation.

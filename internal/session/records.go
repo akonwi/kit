@@ -103,5 +103,8 @@ type Repository interface {
 	FinishParentRun(context.Context, string, string, string, RunStatus, string) error
 	RecoverParentRun(context.Context, string, string, string, string) (RunStatus, error)
 	AppendMessages(context.Context, string, string, []NewMessageRecord) ([]MessageRecord, error)
+	ListMessages(context.Context, string) ([]MessageRecord, error)
 	ListReplayMessages(context.Context, string) ([]MessageRecord, error)
+	AppendSessionEvents(context.Context, []NewEvent) ([]Event, error)
+	ListSessionEvents(context.Context, string, int64, int) (EventPage, error)
 }

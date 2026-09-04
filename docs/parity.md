@@ -103,12 +103,17 @@ recorded manual verification exists.
 ## Agent runtime and transcript
 
 - [~] Construct persisted Kit sessions around `internal/droids.Droid`.
-- [ ] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
-  errors, and terminal run state.
+- [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
+  errors, and terminal run state; droids events are now projected into a bounded
+  durable session journal and the native TUI follows text, thinking, tool
+  planning/start/completion, and terminal state. Push subscriptions, streamed
+  tool updates, usage events, richer error
+  recovery, and full multi-client synchronization remain.
 - [~] Persist explicit turn and stable message identities.
 - [~] Render active and historical turns consistently after reconnect/restart;
-  the initial TUI restores completed transcript snapshots and polls an attached
-  active run, while event-driven synchronization and rich entries remain.
+  the native TUI restores completed and diagnostic transcript snapshots and
+  reconstructs an attached active run from its durable event journal, while
+  atomic synchronization and rich entries remain.
 - [ ] Steering, follow-up queueing, promotion, restoration, and generation
   guards.
 - [~] Abort and cooperative cancellation through providers, tools, plugins, and
@@ -151,13 +156,17 @@ recorded manual verification exists.
   and responsive auth surfaces are implemented. Full semantic theme parity and
   user overrides remain.
 - [~] Transcript with selectable Markdown, streaming output, code, tool drawers,
-  and compact historical entries; the initial selectable plain-text transcript
-  restores persisted messages and final prompt outcomes.
+  and compact historical entries; the native TUI now restores persisted
+  plain-text messages, streams assistant text and tool lifecycle into the
+  transcript, and keeps live thinking/turn state in a fixed slot above the
+  composer. Markdown, code treatment, and
+  interactive tool drawers remain.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
-  attachments, pending queue, and abort state; the initial focused single-line
-  composer submits prompts, preserves text while busy, and exposes abort state.
+  attachments, pending queue, and abort state; the focused single-line composer
+  now spans the full shell width, submits prompts, preserves text while busy,
+  and exposes abort state.
 - [ ] Command palette with filtering, completion, arguments, nested pickers,
   keyboard, and mouse behavior.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
@@ -202,7 +211,10 @@ recorded manual verification exists.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript.
 - [ ] Snapshot plus high-water synchronization without listener races.
 - [ ] Ordered, exactly-once client reduction with duplicate/gap handling.
-- [ ] Bounded event journal, replay, resync, and snapshot fallback.
+- [~] Bounded event journal, replay, resync, and snapshot fallback; session
+  events now receive durable monotonic SQLite sequences with bounded retention,
+  and local run clients poll/replay from a cursor. Atomic snapshot subscription,
+  gap recovery, and push transport remain.
 - [ ] Paginated transcripts and generation-guarded mutable collections.
 - [ ] Chunked recovery for individually oversized messages/interactions.
 - [~] Command correlation and ordering relative to preceding events.

@@ -18,7 +18,8 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	const width, height = 80, 24
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase:         phaseReady,
-		Status:        "Working…",
+		Status:        "esc abort · ctrl+c detach",
+		TurnActivity:  "Working…",
 		Location:      "~/Developer/agent/kit-v2 (kit-v2)",
 		ContextTokens: 112,
 		ContextWindow: 200,
@@ -44,11 +45,181 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	if strings.TrimSpace(rows[1]) != strings.Repeat("─", width) {
 		t.Fatalf("header separator = %q, want full-width structural rule", rows[1])
 	}
-	if !strings.Contains(rows[height-1], "Working…") {
-		t.Fatalf("footer left = %q, want status", rows[height-1])
+	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Working…" {
+		t.Fatalf("turn slot = %q, want running activity", got)
+	}
+	if !strings.Contains(rows[height-1], "esc abort · ctrl+c detach") {
+		t.Fatalf("footer left = %q, want run guidance", rows[height-1])
 	}
 	if !strings.HasSuffix(strings.TrimSpace(rows[height-1]), "~/Developer/agent/kit-v2 (kit-v2)") {
 		t.Fatalf("footer right = %q, want cwd and git", rows[height-1])
+	}
+}
+
+func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
+		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "Inspect the file"},
+		{Sequence: 3, Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 4, Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "Planning the inspection\nChecking retries"},
+	})
+	if state.turnActivity != "Checking retries" {
+		t.Fatalf("thinking activity = %q, want latest line", state.turnActivity)
+	}
+
+	const width, height = 80, 20
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, TurnActivity: state.turnActivity,
+		Messages: append([]transcriptMessage(nil), state.liveMessages...), Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Checking retries" {
+		t.Fatalf("thinking slot = %q, want spinner and latest thinking", got)
+	}
+
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 5, Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "I’ll inspect it now."},
+	})
+	if state.turnActivity != "Working…" {
+		t.Fatalf("response activity = %q, want Working…", state.turnActivity)
+	}
+	app = uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, TurnActivity: state.turnActivity,
+		Messages: append([]transcriptMessage(nil), state.liveMessages...), Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Working…" {
+		t.Fatalf("response slot = %q, want turn spinner", got)
+	}
+	if text := strings.Join(rows, "\n"); !strings.Contains(text, "I’ll inspect it now.") {
+		t.Fatalf("streaming response missing from transcript:\n%s", text)
+	}
+
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 6, Kind: protocol.SessionEventAssistantCompleted},
+		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Text: "file contents"},
+		{Sequence: 9, Kind: protocol.SessionEventRunFinished},
+	})
+	tool := state.liveMessages[2]
+	if tool.ToolName != "read" || tool.ToolStatus != "Completed" || tool.Text != "file contents" || tool.Pending {
+		t.Fatalf("live tool = %+v", tool)
+	}
+	app = uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, TurnActivity: state.turnActivity,
+		Messages: append([]transcriptMessage(nil), state.liveMessages...), Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-5]); got != "" {
+		t.Fatalf("completed turn slot = %q, want reserved blank row", got)
+	}
+	text := strings.Join(rows, "\n")
+	for _, expected := range []string{"I’ll inspect it now.", "read · Completed", "file contents"} {
+		if !strings.Contains(text, expected) {
+			t.Errorf("completed activity missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestComposerSpansFullWidthBelowReservedTurnSlot(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 40, 12
+	composer := strings.Repeat("x", width*2)
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Composer: composer, Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-5]); got != "" {
+		t.Fatalf("idle turn slot = %q, want reserved blank row", got)
+	}
+	composerCells := []rune(rows[height-3])
+	if composerCells[0] != ' ' || composerCells[1] != 'x' || composerCells[width-2] != '…' || composerCells[width-1] != ' ' {
+		t.Fatalf("full-width composer row = %q", rows[height-3])
+	}
+
+	app = uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Composer: composer, TurnActivity: "Working…", Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Working…" {
+		t.Fatalf("running turn slot = %q, want spinner state", got)
+	}
+	composerCells = []rune(rows[height-3])
+	if composerCells[1] != 'x' || composerCells[width-2] != '…' {
+		t.Fatalf("running full-width composer row = %q", rows[height-3])
+	}
+}
+
+func TestComposerKeepsFocusAndFillsWidthAcrossActivityAndResize(t *testing.T) {
+	t.Parallel()
+
+	state := &shellHarnessState{}
+	app := uitest.New(shellHarness{State: state})
+	app.Pump(40, 12)
+	app.Pump(40, 12)
+	app.Key("a")
+	app.Pump(40, 12)
+	if state.composer != "a" {
+		t.Fatalf("composer after first key = %q", state.composer)
+	}
+
+	state.SetState(func() { state.activity = "Working…" })
+	app.Pump(40, 12)
+	app.Key("b")
+	app.Pump(40, 12)
+	if state.composer != "ab" {
+		t.Fatalf("composer after activity change = %q, want retained focus and text", state.composer)
+	}
+
+	state.SetState(func() { state.composer = strings.Repeat("x", 80) })
+	app.Pump(20, 12)
+	app.Pump(20, 12)
+	narrow := []rune(paintedRows(app, 20, 12)[9])
+	if narrow[1] != 'x' || narrow[18] != '…' {
+		t.Fatalf("narrow composer row = %q", string(narrow))
+	}
+	app.Pump(50, 12)
+	app.Pump(50, 12)
+	wide := []rune(paintedRows(app, 50, 12)[9])
+	if wide[1] != 'x' || wide[48] != '…' {
+		t.Fatalf("wide composer row = %q", string(wide))
+	}
+}
+
+type shellHarness struct {
+	State *shellHarnessState
+}
+
+func (w shellHarness) CreateState() ui.State { return w.State }
+
+type shellHarnessState struct {
+	ui.StateBase
+	composer string
+	activity string
+}
+
+func (s *shellHarnessState) Build(ui.BuildContext) ui.Widget {
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Composer: s.composer, TurnActivity: s.activity,
+			Scroll: &ui.ScrollController{},
+		},
+		Callbacks: shellCallbacks{
+			ComposerChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.composer = value })
+			},
+		},
 	}
 }
 
