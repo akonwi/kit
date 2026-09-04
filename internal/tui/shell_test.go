@@ -621,6 +621,66 @@ func TestOpeningAnotherChipReplacesTheSingletonActivitySource(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTabWidthUsesTerminalCellsAndClamps(t *testing.T) {
+	t.Parallel()
+
+	if got := workspaceTabWidth("A", false); got != workspaceTabMinWidth {
+		t.Fatalf("minimum tab width = %d, want %d", got, workspaceTabMinWidth)
+	}
+	if got := workspaceTabWidth(strings.Repeat("x", 40), true); got != workspaceTabMaxWidth {
+		t.Fatalf("maximum tab width = %d, want %d", got, workspaceTabMaxWidth)
+	}
+	if got := workspaceTextWidth("界a"); got != 3 {
+		t.Fatalf("wide-character text width = %d, want 3", got)
+	}
+	if got := truncateWorkspaceTabLabel("界界a", 4); got != "界…" {
+		t.Fatalf("cell-aware truncated label = %q, want %q", got, "界…")
+	}
+}
+
+func TestNarrowWorkspaceTabsMatchCanonicalStrip(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 100, 22
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: false,
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got, want := strings.TrimRight(rows[2], " "), " Transcript  Activity  ×"; got != want {
+		t.Fatalf("narrow tab row = %q, want %q", got, want)
+	}
+	if got := strings.TrimSpace(rows[3]); got != strings.Repeat("─", width) {
+		t.Fatalf("narrow tab separator = %q, want full-width rule", got)
+	}
+	selected := app.Cell(1, 2).Style
+	unselected := app.Cell(13, 2).Style
+	strip := app.Cell(width-1, 2).Style
+	if selected.Foreground == unselected.Foreground || selected.Background != strip.Background || unselected.Background != strip.Background || selected.Attribute != strip.Attribute {
+		t.Fatalf("tab styles = selected %+v unselected %+v strip %+v", selected, unselected, strip)
+	}
+	app.Send(vaxis.Mouse{Col: 13, Row: 2, EventType: vaxis.EventMotion})
+	app.Pump(width, height)
+	hoveredBackground := app.Cell(13, 2).Style.Background
+	app.Send(vaxis.Mouse{Col: 50, Row: 4, EventType: vaxis.EventMotion})
+	app.Pump(width, height)
+	if hoveredBackground == strip.Background || app.Cell(13, 2).Style.Background != strip.Background {
+		t.Fatalf("tab hover backgrounds = hovered %v restored %v base %v", hoveredBackground, app.Cell(13, 2).Style.Background, strip.Background)
+	}
+	app.Click(13, 2)
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if strings.Count(strings.Join(rows, "\n"), glyphTimes) != 1 {
+		t.Fatalf("narrow Activity rendered duplicate close controls:\n%s", strings.Join(rows, "\n"))
+	}
+	app.Click(22, 2)
+	app.Pump(width, height)
+	if state.sourceID != "" || state.selected {
+		t.Fatalf("Activity tab close left source %q selected %v", state.sourceID, state.selected)
+	}
+}
+
 func TestActivityWorkspaceUsesLabeledTabsAtNarrowWidths(t *testing.T) {
 	t.Parallel()
 

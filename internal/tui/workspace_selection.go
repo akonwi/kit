@@ -78,3 +78,62 @@ func (r *renderWorkspaceSelectionGate) SelectionDisabled() bool {
 	}
 	return !r.LayoutState.TranscriptVisible
 }
+
+// workspaceWideOnly retains a control while removing it from narrow layout.
+type workspaceWideOnly struct {
+	LayoutState *workspaceLayoutState
+	Child       ui.Widget
+}
+
+func (w workspaceWideOnly) WidgetChild() ui.Widget { return w.Child }
+
+func (w workspaceWideOnly) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+	return &renderWorkspaceWideOnly{LayoutState: w.LayoutState}
+}
+
+func (w workspaceWideOnly) UpdateRenderObject(_ ui.BuildContext, renderObject ui.RenderObject) {
+	renderObject.(*renderWorkspaceWideOnly).LayoutState = w.LayoutState
+}
+
+type renderWorkspaceWideOnly struct {
+	ui.SingleChildRenderObject
+	LayoutState *workspaceLayoutState
+}
+
+func (r *renderWorkspaceWideOnly) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
+	if r.LayoutState == nil || !r.LayoutState.Wide {
+		if child := r.Child(); child != nil {
+			child.Layout(ctx, ui.Tight(ui.Size{}))
+		}
+		r.SetSize(ui.Size{})
+		return
+	}
+	if child := r.Child(); child != nil {
+		child.Layout(ctx, constraints)
+		r.SetSize(constraints.Constrain(child.Base().Size()))
+		return
+	}
+	r.SetSize(constraints.Constrain(ui.Size{}))
+}
+
+func (r *renderWorkspaceWideOnly) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {
+	if r.LayoutState == nil || !r.LayoutState.Wide {
+		return ui.Size{}
+	}
+	if child := r.Child(); child != nil {
+		return constraints.Constrain(ui.DryLayout(ctx, child, constraints))
+	}
+	return constraints.Constrain(ui.Size{})
+}
+
+func (r *renderWorkspaceWideOnly) Paint(painter *ui.Painter, offset ui.Offset) {
+	if child := r.Child(); child != nil && child.Base().Size().Width > 0 && child.Base().Size().Height > 0 {
+		child.Paint(painter, offset)
+	}
+}
+
+func (*renderWorkspaceWideOnly) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
+
+func (r *renderWorkspaceWideOnly) SelectionDisabled() bool {
+	return r.LayoutState == nil || !r.LayoutState.Wide
+}

@@ -437,23 +437,19 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 }
 
 func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
-	tab := func(label string, active bool, onPressed ui.VoidCallback) ui.Widget {
-		style := ui.Style{Foreground: theme.MutedForeground}
-		if active {
-			style.Foreground = theme.Foreground
-			style.Background = theme.SurfaceHovered
-			style.Attribute = ui.AttrBold
-		}
-		return mouseActivator{OnPressed: onPressed, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
-			Value: label, Style: style,
-		})}
-	}
-	return ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Surface}}, ui.Flex{
-		Axis: ui.Horizontal, Children: []ui.Widget{
-			tab("Transcript", !w.Snapshot.ActivitySelected, w.Callbacks.ShowTranscript),
-			tab("Activity", w.Snapshot.ActivitySelected, w.Callbacks.ShowActivity),
-		},
-	})
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
+			ui.Decoration{Style: ui.Style{Background: theme.Background}},
+			ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+				workspaceTab{Label: "Transcript", Selected: !w.Snapshot.ActivitySelected, OnSelect: w.Callbacks.ShowTranscript},
+				workspaceTab{
+					Label: "Activity", Selected: w.Snapshot.ActivitySelected, Closable: true,
+					OnSelect: w.Callbacks.ShowActivity, OnClose: w.Callbacks.CloseActivity,
+				},
+			}},
+		)},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+	}}
 }
 
 func (w shellView) activityPane(theme ui.Theme) ui.Widget {
@@ -496,8 +492,10 @@ func (w shellView) activityPane(theme ui.Theme) ui.Widget {
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 			ui.Expanded(ui.Text{Value: metadata, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1}),
-			mouseActivator{OnPressed: w.Callbacks.CloseActivity, Child: ui.Text{
-				Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground},
+			workspaceWideOnly{LayoutState: w.Snapshot.WorkspaceLayout, Child: mouseActivator{
+				OnPressed: w.Callbacks.CloseActivity, Child: ui.Text{
+					Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground},
+				},
 			}},
 		}})},
 		ui.Divider{Style: ui.Style{Foreground: theme.Border}},

@@ -206,7 +206,7 @@ func (r *renderConversationWorkspaceHost) layout(ctx ui.LayoutContext, constrain
 		return size, layouts
 	}
 
-	tabHeight := min(1, height)
+	tabHeight := min(2, height)
 	layoutChild(
 		workspaceTabsChild,
 		ui.Tight(ui.Size{Width: width, Height: tabHeight}),
@@ -257,8 +257,8 @@ func (r *renderConversationWorkspaceHost) layoutUnbounded(
 		primary = max(0, available-secondary)
 		separatorWidth = min(1, width)
 	} else {
-		yOffset = 1
-		layoutChild(workspaceTabsChild, ui.Tight(ui.Size{Width: width, Height: 1}), ui.Offset{})
+		yOffset = 2
+		layoutChild(workspaceTabsChild, ui.Tight(ui.Size{Width: width, Height: 2}), ui.Offset{})
 		hide(workspacePaneSeparatorChild)
 		if r.ActivitySelected {
 			mainChild = workspaceActivityChild
