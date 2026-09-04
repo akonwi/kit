@@ -88,11 +88,9 @@ func (event SessionEvent) Validate() error {
 		if event.Kind == SessionEventToolPlanned && event.MessageID == "" {
 			return fmt.Errorf("planned tool call requires an assistant message id")
 		}
-		if event.Kind == SessionEventToolPlanned && (event.Arguments != "" || event.ArgumentsTruncated) {
-			return fmt.Errorf("planned tool call cannot carry complete arguments")
-		}
-		if event.Kind == SessionEventToolStarted && (event.Arguments == "") == !event.ArgumentsTruncated {
-			return fmt.Errorf("started tool call requires either complete or explicitly truncated arguments")
+		if (event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted) &&
+			(event.Arguments == "") == !event.ArgumentsTruncated {
+			return fmt.Errorf("tool event requires either complete or explicitly truncated arguments")
 		}
 	case SessionEventRunFinished:
 		switch event.Status {

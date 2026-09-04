@@ -31,10 +31,13 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 		},
 		{
 			name: "tool call planned",
-			event: droids.MessageDelta{MessageID: "message_1", Stream: droids.StreamToolCallStart{
-				ContentIndex: 2, ID: "call_1", Name: "read",
+			event: droids.MessageDelta{MessageID: "message_1", Stream: droids.StreamToolCallEnd{
+				ContentIndex: 2, ToolCall: droids.ToolCall{ID: "call_1", Name: "read", Arguments: []byte(`{"path":"README.md"}`)},
 			}},
-			want: NewEvent{Kind: EventToolPlanned, MessageID: "message_1", ContentIndex: 2, ToolCallID: "call_1", ToolName: "read"},
+			want: NewEvent{
+				Kind: EventToolPlanned, MessageID: "message_1", ContentIndex: 2,
+				ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`,
+			},
 		},
 	}
 	for _, test := range tests {
@@ -45,10 +48,29 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 			}
 			got := projected[0]
 			if got.Kind != test.want.Kind || got.MessageID != test.want.MessageID || got.ContentIndex != test.want.ContentIndex || got.Delta != test.want.Delta ||
-				got.ToolCallID != test.want.ToolCallID || got.ToolName != test.want.ToolName {
+				got.ToolCallID != test.want.ToolCallID || got.ToolName != test.want.ToolName || got.Arguments != test.want.Arguments {
 				t.Fatalf("projected event = %+v, want activity %+v", got, test.want)
 			}
+			if err := got.Validate(); err != nil {
+				t.Fatalf("projected event validation error = %v", err)
+			}
 		})
+	}
+}
+
+func TestProjectDroidEventDoesNotExposeToolArgumentStreaming(t *testing.T) {
+	t.Parallel()
+
+	for _, stream := range []droids.StreamEvent{
+		droids.StreamToolCallStart{ContentIndex: 1, ID: "call_1", Name: "read"},
+		droids.StreamToolCallDelta{ContentIndex: 1, Delta: `{"path":"REA`},
+	} {
+		projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+			MessageID: "message_1", Stream: stream,
+		})
+		if len(projected) != 0 {
+			t.Fatalf("projected provider argument stream event = %+v, want none", projected)
+		}
 	}
 }
 
@@ -56,10 +78,32 @@ func TestProjectDroidEventSuppressesMalformedPlannedToolIdentity(t *testing.T) {
 	t.Parallel()
 
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
-		MessageID: "message_1", Stream: droids.StreamToolCallStart{ContentIndex: 1, Name: "read"},
+		MessageID: "message_1", Stream: droids.StreamToolCallEnd{
+			ContentIndex: 1, ToolCall: droids.ToolCall{Name: "read", Arguments: []byte(`{}`)},
+		},
 	})
 	if len(projected) != 0 {
 		t.Fatalf("projected malformed tool event = %+v, want none", projected)
+	}
+}
+
+func TestProjectDroidEventBoundsToolArgumentsWhenPlanningCompletes(t *testing.T) {
+	t.Parallel()
+
+	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+		MessageID: "message_1", Stream: droids.StreamToolCallEnd{
+			ContentIndex: 1,
+			ToolCall: droids.ToolCall{
+				ID: "call_1", Name: "write",
+				Arguments: []byte(`{"content":"` + strings.Repeat("x", maxPresentationToolArgumentsBytes) + `"}`),
+			},
+		},
+	})
+	if len(projected) != 1 || projected[0].Kind != EventToolPlanned || projected[0].Arguments != "" || !projected[0].ArgumentsTruncated {
+		t.Fatalf("oversized planned tool call = %+v", projected)
+	}
+	if err := projected[0].Validate(); err != nil {
+		t.Fatalf("truncated planned tool validation error = %v", err)
 	}
 }
 

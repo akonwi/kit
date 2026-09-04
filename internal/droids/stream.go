@@ -83,6 +83,9 @@ type StreamToolCallDelta struct {
 
 func (StreamToolCallDelta) isStreamEvent() {}
 
+// StreamToolCallEnd carries one complete tool call from the validated final
+// assistant message. Droid emits it once even when providers expose different
+// content-block completion events.
 type StreamToolCallEnd struct {
 	ContentIndex int
 	ToolCall     ToolCall

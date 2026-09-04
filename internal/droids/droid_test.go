@@ -9,8 +9,9 @@ import (
 // fauxProvider is a Provider config backed by a scripted stream, for testing
 // the loop without real network calls.
 type fauxProvider struct {
-	model Model
-	reply func(req Request) AssistantMessage
+	model        Model
+	reply        func(req Request) AssistantMessage
+	streamEvents func(AssistantMessage) []StreamEvent
 }
 
 func (f fauxProvider) build() (providerEntry, error) {
@@ -24,12 +25,17 @@ func (f fauxProvider) build() (providerEntry, error) {
 			msg := impl.reply(req)
 			msg.Provider = "faux"
 			msg.Model = model.ID
-			ch := make(chan StreamEvent, 2)
-			ch <- StreamStart{Partial: AssistantMessage{Provider: "faux", Model: model.ID}}
-			if msg.StopReason == StopReasonError || msg.StopReason == StopReasonContextWindow || msg.StopReason == StopReasonAborted {
-				ch <- StreamError{Message: msg}
+			events := []StreamEvent{StreamStart{Partial: AssistantMessage{Provider: "faux", Model: model.ID}}}
+			if impl.streamEvents != nil {
+				events = impl.streamEvents(msg)
+			} else if msg.StopReason == StopReasonError || msg.StopReason == StopReasonContextWindow || msg.StopReason == StopReasonAborted {
+				events = append(events, StreamError{Message: msg})
 			} else {
-				ch <- StreamDone{Message: msg}
+				events = append(events, StreamDone{Message: msg})
+			}
+			ch := make(chan StreamEvent, len(events))
+			for _, event := range events {
+				ch <- event
 			}
 			close(ch)
 			return &staticStream{events: ch, final: msg}
@@ -193,6 +199,79 @@ func TestStreamMessagePreservesStructuredUserContent(t *testing.T) {
 	}
 	if len(received.Content) != 2 || received.Content[1] != file {
 		t.Fatalf("provider received %#v", received.Content)
+	}
+}
+
+func TestDroidEmitsCompletedToolCallFromValidatedAssistantMessage(t *testing.T) {
+	type readArgs struct {
+		Path string `json:"path"`
+	}
+	providerCalls := 0
+	providers, err := NewProviders(fauxProvider{
+		model: Model{ID: "m"},
+		streamEvents: func(message AssistantMessage) []StreamEvent {
+			events := []StreamEvent{StreamStart{Partial: AssistantMessage{Provider: "faux", Model: "m"}}}
+			if message.StopReason == StopReasonToolUse {
+				events = append(events,
+					StreamToolCallStart{ContentIndex: 0, ID: "call_1", Name: "read"},
+					StreamToolCallDelta{ContentIndex: 0, Delta: `{"path":"README.md"}`},
+					StreamToolCallEnd{ContentIndex: 0, ToolCall: message.ToolCalls()[0]},
+				)
+			}
+			return append(events, StreamDone{Message: message})
+		},
+		reply: func(Request) AssistantMessage {
+			providerCalls++
+			if providerCalls > 1 {
+				return AssistantMessage{Content: []Content{TextContent{Text: "done"}}, StopReason: StopReasonStop}
+			}
+			return AssistantMessage{
+				Content: []Content{ToolCall{
+					ID: "call_1", Name: "read", Arguments: []byte(`{"path":"README.md"}`),
+				}},
+				StopReason: StopReasonToolUse,
+			}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := NewTool(Tool[readArgs]{
+		Name: "read",
+		Execute: func(context.Context, readArgs) (ToolResult, error) {
+			return ToolText("contents"), nil
+		},
+	})
+	d, err := New(Options{Providers: providers, Model: "m", Tools: []AnyTool{tool}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+
+	run, err := d.Stream(context.Background(), "inspect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed []StreamToolCallEnd
+	providerFragments := 0
+	for event := range run.Events() {
+		if delta, ok := event.(MessageDelta); ok {
+			switch stream := delta.Stream.(type) {
+			case StreamToolCallStart, StreamToolCallDelta:
+				providerFragments++
+			case StreamToolCallEnd:
+				completed = append(completed, stream)
+			}
+		}
+	}
+	if _, err := run.Result(); err != nil {
+		t.Fatal(err)
+	}
+	if providerFragments != 0 {
+		t.Fatalf("provider tool-call fragments emitted = %d, want 0", providerFragments)
+	}
+	if len(completed) != 1 || completed[0].ContentIndex != 0 || completed[0].ToolCall.ID != "call_1" || string(completed[0].ToolCall.Arguments) != `{"path":"README.md"}` {
+		t.Fatalf("completed tool calls = %+v", completed)
 	}
 }
 

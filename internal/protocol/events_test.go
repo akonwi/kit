@@ -30,6 +30,23 @@ func TestSessionEventBatchRejectsSequenceGaps(t *testing.T) {
 	}
 }
 
+func TestSessionEventToolPlanRequiresCompleteArguments(t *testing.T) {
+	t.Parallel()
+
+	event := SessionEvent{
+		StreamID: "stream_test", Sequence: 1, SessionID: "session_test",
+		TurnID: "turn_test", RunID: "run_test", MessageID: "message_test",
+		Kind: SessionEventToolPlanned, ToolCallID: "call_test", ToolName: "read",
+	}
+	if err := event.Validate(); err == nil {
+		t.Fatal("Validate() accepted a planned tool call without arguments")
+	}
+	event.Arguments = `{"path":"README.md"}`
+	if err := event.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestSessionEventRequiresAssistantMessageIdentity(t *testing.T) {
 	t.Parallel()
 

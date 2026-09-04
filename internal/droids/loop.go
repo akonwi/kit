@@ -284,6 +284,9 @@ func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
 			d.emit(MessageStart{Message: e.Partial})
 		case StreamDone, StreamError:
 			// handled after loop via Result()
+		case StreamToolCallStart, StreamToolCallDelta, StreamToolCallEnd:
+			// Tool-call streaming is provider-internal. Emit canonical completed
+			// calls from the validated final message below.
 		default:
 			if started {
 				d.emit(MessageDelta{MessageID: messageID, Stream: ev})
@@ -306,14 +309,27 @@ func (d *Droid) streamTurn(ctx context.Context) AssistantMessage {
 		final.ErrorKind = ErrorProtocol
 		final.ErrorMessage = err.Error()
 	}
+	if !started {
+		d.emit(MessageStart{Message: final})
+	}
+	if final.StopReason == StopReasonToolUse {
+		for contentIndex, content := range final.Content {
+			if call, ok := content.(ToolCall); ok {
+				d.emit(MessageDelta{
+					MessageID: messageID,
+					Stream: StreamToolCallEnd{
+						ContentIndex: contentIndex,
+						ToolCall:     call,
+					},
+				})
+			}
+		}
+	}
 	// A context-window rejection is a failed request rather than a completed
 	// assistant message. Keep it out of active and durable history so a compacted
 	// retry can proceed from the original transcript.
 	if final.StopReason != StopReasonContextWindow {
 		d.appendMessage(ctx, final)
-	}
-	if !started {
-		d.emit(MessageStart{Message: final})
 	}
 	d.emit(MessageEnd{Message: final})
 	return final

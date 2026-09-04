@@ -35,16 +35,32 @@ func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
 		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "read it"},
 		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
 		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
-		{Sequence: 6, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 6, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
 	})
 	if len(state.liveMessages) != 2 {
 		t.Fatalf("live messages = %+v, want user and one tool", state.liveMessages)
 	}
 	tool := state.liveMessages[1]
-	if tool.Role != "tool" || tool.ToolName != "read" || tool.ToolStatus != "Running…" {
+	if tool.Role != "tool" || tool.ToolName != "read" || tool.ToolArguments != `{"path":"README.md"}` || tool.ToolStatus != "Running…" {
 		t.Fatalf("tool after assistant completion = %+v", tool)
+	}
+}
+
+func TestUnexecutedToolPlanSettlesWhenRunFinishes(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
+		{Sequence: 2, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
+		{Sequence: 5, Kind: protocol.SessionEventRunFinished},
+	})
+	if len(state.liveMessages) != 1 || state.liveMessages[0].Pending || state.liveMessages[0].ToolStatus != "Not run" {
+		t.Fatalf("settled tool plan = %+v", state.liveMessages)
 	}
 }
 

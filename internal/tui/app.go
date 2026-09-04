@@ -595,11 +595,11 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.setTurnActivity("Working…")
 			index := s.ensureLiveTool(event.ToolCallID, event.ToolName)
 			s.liveMessages[index].Pending = true
+			s.liveMessages[index].ToolArguments = event.Arguments
+			s.liveMessages[index].ToolArgumentsTruncated = event.ArgumentsTruncated
 			if event.Kind == protocol.SessionEventToolPlanned {
-				s.liveMessages[index].ToolStatus = "Preparing…"
+				s.liveMessages[index].ToolStatus = "Planned"
 			} else {
-				s.liveMessages[index].ToolArguments = event.Arguments
-				s.liveMessages[index].ToolArgumentsTruncated = event.ArgumentsTruncated
 				s.liveMessages[index].ToolStatus = "Running…"
 			}
 		case protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted:
@@ -616,6 +616,12 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				}
 			}
 		case protocol.SessionEventRunFinished:
+			for _, index := range s.liveTools {
+				if index >= 0 && index < len(s.liveMessages) && s.liveMessages[index].ToolStatus == "Planned" {
+					s.liveMessages[index].Pending = false
+					s.liveMessages[index].ToolStatus = "Not run"
+				}
+			}
 			s.runStopping = false
 			s.setTurnActivity("")
 		}

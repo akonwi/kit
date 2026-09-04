@@ -95,16 +95,13 @@ func (event NewEvent) Validate() error {
 		}
 	case EventToolPlanned, EventToolStarted:
 		if event.ToolCallID == "" || event.ToolName == "" {
-			return fmt.Errorf("tool start requires call id and name")
+			return fmt.Errorf("tool event requires call id and name")
 		}
 		if event.Kind == EventToolPlanned && event.MessageID == "" {
 			return fmt.Errorf("planned tool call requires an assistant message id")
 		}
-		if event.Kind == EventToolPlanned && (event.Arguments != "" || event.ArgumentsTruncated) {
-			return fmt.Errorf("planned tool call cannot carry complete arguments")
-		}
-		if event.Kind == EventToolStarted && (event.Arguments == "") == !event.ArgumentsTruncated {
-			return fmt.Errorf("started tool call requires either complete or explicitly truncated arguments")
+		if (event.Arguments == "") == !event.ArgumentsTruncated {
+			return fmt.Errorf("tool event requires either complete or explicitly truncated arguments")
 		}
 	case EventToolUpdated, EventToolCompleted:
 		if event.ToolCallID == "" || event.ToolName == "" {
@@ -205,14 +202,15 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			base.Kind = EventThinkingDelta
 			base.ContentIndex = delta.ContentIndex
 			return splitLiveDelta(base, delta.Delta)
-		case droids.StreamToolCallStart:
-			if delta.ID == "" || delta.Name == "" {
+		case droids.StreamToolCallEnd:
+			if delta.ToolCall.ID == "" || delta.ToolCall.Name == "" {
 				return nil
 			}
 			base.Kind = EventToolPlanned
 			base.ContentIndex = delta.ContentIndex
-			base.ToolCallID = delta.ID
-			base.ToolName = delta.Name
+			base.ToolCallID = delta.ToolCall.ID
+			base.ToolName = delta.ToolCall.Name
+			base.Arguments, base.ArgumentsTruncated = presentationToolArguments(delta.ToolCall.Arguments)
 			return []NewEvent{base}
 		}
 	case droids.MessageEnd:

@@ -105,9 +105,9 @@ recorded manual verification exists.
 - [~] Construct persisted Kit sessions around `internal/droids.Droid`.
 - [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state; droids events are now projected into a bounded
-  durable session journal and the native TUI follows text, thinking, tool
-  planning/start/completion, and terminal state. Push subscriptions, streamed
-  tool updates, usage events, richer error
+  durable session journal and the native TUI follows text, thinking, complete
+  tool plans with bounded arguments, execution start/completion, and terminal
+  state. Push subscriptions, streamed tool updates, usage events, richer error
   recovery, and full multi-client synchronization remain.
 - [~] Persist explicit turn and stable message identities; assistant message IDs
   now remain stable from live start/deltas through the persisted snapshot.
