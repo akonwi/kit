@@ -4,19 +4,14 @@ export const CURRENT_VERSION = version;
 
 /** Release notes bundled into the binary so the installed release is readable offline. */
 export const CURRENT_RELEASE_NOTES = `
-## Model interaction dock
+## Image previews
 
-- Confirmations, text input, selections, and guided questions now appear in a bottom dock instead of covering the transcript with a modal.
-- The transcript remains visible and scrollable while an interaction is active, and composer drafts and cursor position are restored afterward.
-- Interaction requests are queued safely with consistent cancellation, focus, and keyboard behavior.
+- Agents can now present generated or captured PNG, JPEG, WebP, and GIF images directly in the transcript.
+- Selecting a presented image or image attachment opens it in a dedicated workspace pane with zoom, pan, reset, close, and native-app controls.
+- Image previews validate file type, dimensions, and size before rendering.
 
-## Transcript clarity
+## Provider updates
 
-- Assistant reasoning now remains visible in the main transcript throughout tool use instead of appearing only inside Activity.
-- Tool calls and results remain consolidated in Activity drawers without changing the transcript structure when a turn completes.
-
-## Review and remote foundations
-
-- Clicking an unchanged section in Code Review now expands it directly.
-- Extracted shared protocol, host, and session-client contracts to keep terminal and web clients aligned as remote-session support evolves.
+- Updated the Pi provider runtime and bundled model catalogs to 0.85.0.
+- Includes expanded provider and model support plus improvements to reasoning, tool calls, streaming, retries, and authentication.
 `;
