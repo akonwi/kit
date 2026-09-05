@@ -162,9 +162,9 @@ recorded manual verification exists.
 - [~] Transcript with selectable Markdown, streaming output, code, tool drawers,
   and compact historical entries; the native TUI now preserves assistant prose,
   consolidates tool work into one-line chips, and opens stable Activity sections
-  with lifecycle glyphs, disclosure rows, and bounded nested output while keeping
-  live thinking/turn state above the composer. Markdown, code treatment, and
-  enriched tool rendering remain.
+  with lifecycle glyphs, disclosure rows, bounded nested output, read/write code
+  views, and semantic edit diffs while keeping live thinking/turn state above
+  the composer. Markdown and syntax-highlighted code treatment remain.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,

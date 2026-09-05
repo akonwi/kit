@@ -19,6 +19,7 @@ type outputWellHarnessState struct {
 	outer  ui.ScrollController
 	output string
 	sticky bool
+	rich   bool
 }
 
 func (s *outputWellHarnessState) Build(ui.BuildContext) ui.Widget {
@@ -30,10 +31,15 @@ func (s *outputWellHarnessState) Build(ui.BuildContext) ui.Widget {
 		}
 		output = strings.Join(lines, "\n")
 	}
-	children := []ui.Widget{toolOutputWell{
+	well := toolOutputWell{
 		Key:    activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"},
 		Output: output, OuterScroll: &s.outer, StickyBottom: s.sticky,
-	}}
+	}
+	if s.rich {
+		well.Content = codePresentation{Path: "output.txt", Lines: splitActivityLines(output)}
+		well.Rich = true
+	}
+	children := []ui.Widget{well}
 	for index := range 10 {
 		children = append(children, ui.Text{Value: fmt.Sprintf("outer %02d", index+1)})
 	}
@@ -57,28 +63,35 @@ func TestEstimateToolOutputRowsAccountsForWrapping(t *testing.T) {
 func TestToolOutputWellCapsRowsAndHandsWheelToOuterScroll(t *testing.T) {
 	t.Parallel()
 
-	const width, height = 30, 6
-	state := &outputWellHarnessState{}
-	app := uitest.New(outputWellHarness{State: state})
-	app.Pump(width, height)
-	app.Pump(width, height)
-	rows := paintedRows(app, width, height)
-	if !strings.Contains(rows[0], "output 01") || state.outer.Metrics().ScrollOffset != 0 {
-		t.Fatalf("initial output well = outer %+v\n%s", state.outer.Metrics(), strings.Join(rows, "\n"))
-	}
+	for _, test := range []struct {
+		name string
+		rich bool
+	}{{name: "plain"}, {name: "enriched", rich: true}} {
+		t.Run(test.name, func(t *testing.T) {
+			const width, height = 30, 6
+			state := &outputWellHarnessState{rich: test.rich}
+			app := uitest.New(outputWellHarness{State: state})
+			app.Pump(width, height)
+			app.Pump(width, height)
+			rows := paintedRows(app, width, height)
+			if !strings.Contains(rows[0], "output 01") || state.outer.Metrics().ScrollOffset != 0 {
+				t.Fatalf("initial output well = outer %+v\n%s", state.outer.Metrics(), strings.Join(rows, "\n"))
+			}
 
-	app.Send(vaxis.Mouse{Col: 2, Row: 2, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
-	app.Pump(width, height)
-	rows = paintedRows(app, width, height)
-	if !strings.Contains(rows[0], "output 02") || state.outer.Metrics().ScrollOffset != 0 {
-		t.Fatalf("inner wheel did not stay in output well = outer %+v\n%s", state.outer.Metrics(), strings.Join(rows, "\n"))
-	}
+			app.Send(vaxis.Mouse{Col: 2, Row: 2, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
+			app.Pump(width, height)
+			rows = paintedRows(app, width, height)
+			if !strings.Contains(rows[0], "output 02") || state.outer.Metrics().ScrollOffset != 0 {
+				t.Fatalf("inner wheel did not stay in output well = outer %+v\n%s", state.outer.Metrics(), strings.Join(rows, "\n"))
+			}
 
-	for range 30 {
-		app.Send(vaxis.Mouse{Col: 2, Row: 2, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
-		app.Pump(width, height)
-	}
-	if state.outer.Metrics().ScrollOffset == 0 {
-		t.Fatalf("wheel at output edge did not hand off to outer scroll: %+v", state.outer.Metrics())
+			for range 30 {
+				app.Send(vaxis.Mouse{Col: 2, Row: 2, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
+				app.Pump(width, height)
+			}
+			if state.outer.Metrics().ScrollOffset == 0 {
+				t.Fatalf("wheel at output edge did not hand off to outer scroll: %+v", state.outer.Metrics())
+			}
+		})
 	}
 }

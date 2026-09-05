@@ -946,6 +946,166 @@ func TestExpandedBashActivityShowsSummaryAndFullCommand(t *testing.T) {
 	}
 }
 
+func TestExpandedReadTransitionsFromLiveOutputToCodePresentation(t *testing.T) {
+	t.Parallel()
+
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	state := &activityHarnessState{
+		messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"main.go"}`)}}},
+			{ID: "live-tool:call_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Running…", Text: "partial", Pending: true},
+		},
+		sourceID: "turn-work:turn_1:call_1", expanded: map[activityToolKey]bool{key: true},
+	}
+	theme := ui.DefaultTheme()
+	app := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: activityHarness{State: state}})
+	app.Pump(140, 24)
+	rows := paintedRows(app, 140, 24)
+	partialRow := findPaintedRow(rows, "partial")
+	if partialRow < 0 {
+		t.Fatalf("live read output missing:\n%s", strings.Join(rows, "\n"))
+	}
+	partialColumn := strings.Index(rows[partialRow], "partial")
+	if app.Cell(partialColumn, partialRow).Style.Foreground != theme.MutedForeground {
+		t.Fatalf("live read output did not use plain presentation:\n%s", strings.Join(rows, "\n"))
+	}
+
+	state.SetState(func() {
+		state.messages[1].Pending = false
+		state.messages[1].ToolStatus = "Completed"
+		state.messages[1].Text = "package main"
+	})
+	app.Pump(140, 24)
+	rows = paintedRows(app, 140, 24)
+	codeRow := findPaintedRow(rows, "package main")
+	if codeRow < 0 {
+		t.Fatalf("completed read code missing:\n%s", strings.Join(rows, "\n"))
+	}
+	codeColumn := strings.Index(rows[codeRow], "package main")
+	if app.Cell(codeColumn, codeRow).Style.Foreground != theme.Foreground || !state.expanded[key] {
+		t.Fatalf("completed read did not retain expanded code presentation:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestExpandedWriteActivityShowsWrittenCode(t *testing.T) {
+	t.Parallel()
+
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	messages := []transcriptMessage{
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+			ID: "call_1", Name: "write", Arguments: json.RawMessage(`{"path":"main.go","content":"package main\n\nfunc main() {}"}`),
+		}}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "write", ToolStatus: "Completed", Text: "Wrote 3 lines to main.go"},
+	}
+	state := &activityHarnessState{
+		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		expanded: map[activityToolKey]bool{key: true},
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(140, 24)
+	rows := paintedRows(app, 140, 24)
+	codeRow := findPaintedRow(rows, "package main")
+	if codeRow < 0 || findPaintedRow(rows, "func main() {}") != codeRow+2 {
+		t.Fatalf("write code presentation missing or malformed:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestExpandedEditActivityShowsSemanticUnifiedDiff(t *testing.T) {
+	t.Parallel()
+
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	messages := []transcriptMessage{
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+			ID: "call_1", Name: "edit", Arguments: json.RawMessage(`{"path":"main.go","edits":[{"oldText":"same\nold","newText":"same\nnew"},{"oldText":"gone","newText":"added"}]}`),
+		}}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "edit", ToolStatus: "Completed", Text: "Applied 2 edits to main.go"},
+	}
+	state := &activityHarnessState{
+		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		expanded: map[activityToolKey]bool{key: true},
+	}
+	theme := ui.DefaultTheme()
+	app := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: activityHarness{State: state}})
+	app.Pump(140, 24)
+	rows := paintedRows(app, 140, 24)
+	for _, expected := range []string{"  same", "- old", "+ new", "  " + glyphEllipsis, "- gone", "+ added"} {
+		if findPaintedRow(rows, expected) < 0 {
+			t.Fatalf("unified diff row %q missing:\n%s", expected, strings.Join(rows, "\n"))
+		}
+	}
+	deletedRow := findPaintedRow(rows, "- old")
+	addedRow := findPaintedRow(rows, "+ new")
+	deletedColumn := strings.Index(rows[deletedRow], "- old")
+	addedColumn := strings.Index(rows[addedRow], "+ new")
+	if app.Cell(deletedColumn, deletedRow).Style.Foreground != theme.DangerText ||
+		app.Cell(addedColumn, addedRow).Style.Foreground != theme.SuccessText {
+		t.Fatalf("diff semantic styles = delete %v add %v", app.Cell(deletedColumn, deletedRow).Style.Foreground, app.Cell(addedColumn, addedRow).Style.Foreground)
+	}
+}
+
+func TestExpandedEditActivityShowsEditCountWhenDiffOverflows(t *testing.T) {
+	t.Parallel()
+
+	oldLines := make([]string, 8)
+	newLines := make([]string, 8)
+	for index := range oldLines {
+		oldLines[index] = fmt.Sprintf("old %02d", index+1)
+		newLines[index] = fmt.Sprintf("new %02d", index+1)
+	}
+	arguments, err := json.Marshal(map[string]any{
+		"path": "main.go", "edits": []map[string]string{{
+			"oldText": strings.Join(oldLines, "\n"), "newText": strings.Join(newLines, "\n"),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("marshal edit arguments: %v", err)
+	}
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	state := &activityHarnessState{
+		messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "edit", Arguments: arguments}}},
+			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "edit", ToolStatus: "Completed", Text: "Applied 1 edit to main.go"},
+		},
+		sourceID: "turn-work:turn_1:call_1", expanded: map[activityToolKey]bool{key: true},
+	}
+	app := uitest.New(activityHarness{State: state})
+	for range 3 {
+		app.Pump(140, 32)
+	}
+	rows := paintedRows(app, 140, 32)
+	for _, expected := range []string{"- old 01", "+ new 01", "1 edit"} {
+		if findPaintedRow(rows, expected) < 0 {
+			t.Fatalf("overflowing edit detail %q missing:\n%s", expected, strings.Join(rows, "\n"))
+		}
+	}
+}
+
+func TestOversizedEditActivityShowsFallbackDetail(t *testing.T) {
+	t.Parallel()
+
+	large := strings.Repeat("line\n", maxActivityDiffInputLines+1)
+	arguments, err := json.Marshal(map[string]any{
+		"path": "main.go", "edits": []map[string]string{{"oldText": large, "newText": "replacement"}},
+	})
+	if err != nil {
+		t.Fatalf("marshal edit arguments: %v", err)
+	}
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	state := &activityHarnessState{
+		messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "edit", Arguments: arguments}}},
+			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "edit", ToolStatus: "Completed"},
+		},
+		sourceID: "turn-work:turn_1:call_1", expanded: map[activityToolKey]bool{key: true},
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(140, 24)
+	rows := paintedRows(app, 140, 24)
+	if findPaintedRow(rows, "diff too large to display · 1 edit") < 0 {
+		t.Fatalf("oversized edit fallback missing:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
 func TestExpandedActivityOutputWellShowsFourteenRowsAndLineCount(t *testing.T) {
 	t.Parallel()
 
@@ -960,7 +1120,8 @@ func TestExpandedActivityOutputWellShowsFourteenRowsAndLineCount(t *testing.T) {
 		messages: messages, sourceID: "turn-work:turn_1:call_1",
 		expanded: map[activityToolKey]bool{key: true},
 	}
-	app := uitest.New(activityHarness{State: state})
+	theme := ui.DefaultTheme()
+	app := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: activityHarness{State: state}})
 	app.Pump(140, 40)
 	app.Pump(140, 40)
 	app.Pump(140, 40)
@@ -969,6 +1130,11 @@ func TestExpandedActivityOutputWellShowsFourteenRowsAndLineCount(t *testing.T) {
 		if findPaintedRow(rows, expected) < 0 {
 			t.Fatalf("expanded output row %q missing:\n%s", expected, strings.Join(rows, "\n"))
 		}
+	}
+	codeRow := findPaintedRow(rows, "line 01")
+	codeColumn := strings.Index(rows[codeRow], "line 01")
+	if app.Cell(codeColumn, codeRow).Style.Foreground != theme.Foreground {
+		t.Fatalf("read code foreground = %v, want %v", app.Cell(codeColumn, codeRow).Style.Foreground, theme.Foreground)
 	}
 }
 

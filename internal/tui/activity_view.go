@@ -148,7 +148,8 @@ func (s *activityToolRowWidgetState) Build(ctx ui.BuildContext) ui.Widget {
 	state := resolveActivityToolState(row.State, row.Exists, row.SourceAborted)
 	output := activityToolOutput(row.State, row.Exists)
 	command, commandSummarized := activityBashCommand(row.Call)
-	hasDetails := state != activityToolAborted && (output != "" || commandSummarized)
+	enrichment, enriched := detectActivityEnrichment(row.Call, row.State, row.Exists)
+	hasDetails := state != activityToolAborted && (enriched || output != "" || commandSummarized)
 	background := theme.Background
 	if row.Selected {
 		background = theme.SurfacePressed
@@ -200,17 +201,34 @@ func (s *activityToolRowWidgetState) Build(ctx ui.BuildContext) ui.Widget {
 	children := []ui.Widget{ui.SizedBox{Height: 1, Child: header}}
 	if row.Expanded && hasDetails {
 		details := make([]ui.Widget, 0, 2)
-		if commandSummarized {
-			details = append(details, ui.DecoratedBox(
-				ui.Decoration{Style: ui.Style{Background: theme.Surface}},
-				ui.Padding(ui.Symmetric(1, 0), ui.Text{Value: command, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true}),
-			))
+		usedEnrichment := false
+		if enriched {
+			content, measurement, metadata, ok := activityEnrichedPresentation(enrichment)
+			if ok {
+				details = append(details, toolOutputWell{
+					Key: row.Key, Output: measurement, Content: content, Rich: true,
+					Metadata: metadata, OuterScroll: row.OuterScroll,
+				})
+			} else {
+				details = append(details, toolOutputWell{
+					Key: row.Key, Output: activityEnrichmentUnavailable(enrichment), OuterScroll: row.OuterScroll,
+				})
+			}
+			usedEnrichment = true
 		}
-		if output != "" {
-			details = append(details, toolOutputWell{
-				Key: row.Key, Output: output, OuterScroll: row.OuterScroll,
-				StickyBottom: state == activityToolPending || state == activityToolRunning || state == activityToolFailed || s.followFinalOutput,
-			})
+		if !usedEnrichment {
+			if commandSummarized {
+				details = append(details, ui.DecoratedBox(
+					ui.Decoration{Style: ui.Style{Background: theme.Surface}},
+					ui.Padding(ui.Symmetric(1, 0), ui.Text{Value: command, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true}),
+				))
+			}
+			if output != "" {
+				details = append(details, toolOutputWell{
+					Key: row.Key, Output: output, OuterScroll: row.OuterScroll,
+					StickyBottom: state == activityToolPending || state == activityToolRunning || state == activityToolFailed || s.followFinalOutput,
+				})
+			}
 		}
 		children = append(children, ui.Padding(ui.Insets{Left: 2}, ui.Flex{
 			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: details,

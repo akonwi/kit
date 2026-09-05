@@ -13,6 +13,9 @@ const toolOutputMaxRows = 14
 type toolOutputWell struct {
 	Key          activityToolKey
 	Output       string
+	Content      ui.Widget
+	Rich         bool
+	Metadata     string
 	OuterScroll  *ui.ScrollController
 	StickyBottom bool
 }
@@ -54,7 +57,7 @@ func (s *toolOutputWellState) DidUpdateWidget(old ui.Widget) {
 		s.needsEnd = well.StickyBottom
 		s.needsMeasure = true
 	}
-	if previous.Output != well.Output {
+	if previous.Output != well.Output || previous.Rich != well.Rich || previous.Metadata != well.Metadata {
 		columns := 80
 		if well.OuterScroll != nil && well.OuterScroll.Attached() {
 			columns = max(1, well.OuterScroll.Metrics().ViewportWidth-4)
@@ -68,6 +71,10 @@ func (s *toolOutputWellState) DidUpdateWidget(old ui.Widget) {
 	}
 	if !previous.StickyBottom && well.StickyBottom {
 		s.needsEnd = true
+	}
+	if !previous.Rich && well.Rich {
+		s.needsStart = true
+		s.needsEnd = false
 	}
 }
 
@@ -102,13 +109,12 @@ func (s *toolOutputWellState) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	lineCount := len(strings.Split(well.Output, "\n"))
 	overflowing := lineCount > toolOutputMaxRows || s.contentRows > toolOutputMaxRows
+	content := toolOutputContent{Output: well.Output, Content: well.Content, Rich: well.Rich}
 	children := []ui.Widget{ui.SizedBox{Height: s.viewportRows, Child: nestedScrollHandoff{
 		Inner: &s.scroll, Outer: well.OuterScroll,
 		Child: ui.Scrollbar{Child: ui.CustomScrollView{
 			Controller: &s.scroll, FollowOutput: well.StickyBottom,
-			Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
-				Value: well.Output, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true,
-			})}},
+			Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.Symmetric(1, 0), content)}},
 		}},
 	}}}
 	if overflowing {
@@ -116,7 +122,10 @@ func (s *toolOutputWellState) Build(ctx ui.BuildContext) ui.Widget {
 		if lineCount == 1 {
 			unit = "line"
 		}
-		metadata := fmt.Sprintf("%d %s", lineCount, unit)
+		metadata := well.Metadata
+		if metadata == "" {
+			metadata = fmt.Sprintf("%d %s", lineCount, unit)
+		}
 		if s.contentRows > lineCount {
 			metadata += " " + glyphMiddleDot + " wrapped"
 		}
@@ -129,6 +138,24 @@ func (s *toolOutputWellState) Build(ctx ui.BuildContext) ui.Widget {
 		ui.Decoration{Style: ui.Style{Background: theme.Surface}},
 		ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children},
 	)
+}
+
+type toolOutputContent struct {
+	Output  string
+	Content ui.Widget
+	Rich    bool
+}
+
+func (w toolOutputContent) Build(ctx ui.BuildContext) ui.Widget {
+	theme := ui.MustDepend[ui.Theme](ctx)
+	content := w.Content
+	if !w.Rich || content == nil {
+		content = ui.Text{Value: w.Output, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true}
+	}
+	return ui.Flex{
+		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
+		CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{content},
+	}
 }
 
 type nestedScrollHandoff struct {
