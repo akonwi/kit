@@ -92,6 +92,47 @@ type MessageRecord struct {
 	CreatedAt   time.Time
 }
 
+// BashExecutionStatus is the durable lifecycle state of direct composer shell work.
+type BashExecutionStatus string
+
+const (
+	BashExecutionRunning     BashExecutionStatus = "running"
+	BashExecutionCompleted   BashExecutionStatus = "completed"
+	BashExecutionFailed      BashExecutionStatus = "failed"
+	BashExecutionAborted     BashExecutionStatus = "aborted"
+	BashExecutionInterrupted BashExecutionStatus = "interrupted"
+)
+
+// BashExecution is one persisted direct composer shell execution.
+type BashExecution struct {
+	ID                  string
+	SessionID           string
+	Sequence            int64
+	Command             string
+	CWD                 string
+	Status              BashExecutionStatus
+	Output              string
+	ExitCode            *int
+	ExcludeFromContext  bool
+	Truncated           bool
+	TimedOut            bool
+	ErrorMessage        string
+	ContextBeforeTurnID string
+	StartedAt           time.Time
+	CompletedAt         *time.Time
+}
+
+// BashExecutionResult settles one running direct composer shell execution.
+type BashExecutionResult struct {
+	Status       BashExecutionStatus
+	Output       string
+	ExitCode     *int
+	Truncated    bool
+	TimedOut     bool
+	ErrorMessage string
+	CompletedAt  time.Time
+}
+
 // Repository is the persistence port required by parent-session orchestration.
 type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
@@ -105,6 +146,11 @@ type Repository interface {
 	FinishParentRun(context.Context, string, string, string, RunStatus, string) error
 	RecoverParentRun(context.Context, string, string, string, string) (RunStatus, error)
 	AppendMessages(context.Context, string, string, []NewMessageRecord) ([]MessageRecord, error)
+	CreateBashExecution(context.Context, string, NewMessageRecord) (MessageRecord, error)
+	UpdateBashExecution(context.Context, string, string, []byte) (MessageRecord, error)
+	GetBashExecution(context.Context, string, string) (MessageRecord, error)
+	ClaimBashContext(context.Context, string, string) (int64, error)
+	InspectBashContextClaim(context.Context, string, string) (int64, int64, error)
 	ListMessages(context.Context, string) ([]MessageRecord, error)
 	ListReplayMessages(context.Context, string) ([]MessageRecord, error)
 	AppendSessionEvents(context.Context, []NewEvent) ([]Event, error)

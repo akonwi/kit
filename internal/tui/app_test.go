@@ -446,6 +446,16 @@ func (fakeSession) Stream(context.Context, string) (sessionclient.EventStream, e
 
 func (fakeSession) Abort(context.Context, string) error { return nil }
 
+func (fakeSession) AbortBash(context.Context, string) error { return nil }
+
+func (fakeSession) Bash(context.Context, string) (sessionclient.BashExecution, error) {
+	panic("unexpected Bash")
+}
+
+func (fakeSession) StartBash(context.Context, string, string, bool) (sessionclient.BashExecution, error) {
+	panic("unexpected StartBash")
+}
+
 func (fakeSession) StartPrompt(context.Context, string) (sessionclient.Run, error) {
 	panic("unexpected StartPrompt")
 }

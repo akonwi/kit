@@ -1,6 +1,10 @@
 package tui
 
-import "go.rockorager.dev/vaxis/ui"
+import (
+	"strings"
+
+	"go.rockorager.dev/vaxis/ui"
+)
 
 const composerMaxHeight = 10
 
@@ -8,19 +12,26 @@ type submitComposerIntent struct{}
 
 func (submitComposerIntent) IntentType() ui.IntentType { return "kit.composer.submit" }
 
+type openBashHistoryIntent struct{ Delta int }
+
+func (openBashHistoryIntent) IntentType() ui.IntentType { return "kit.composer.bash-history" }
+
 type messageComposer struct {
-	Value       string
-	Placeholder string
-	OnChanged   ui.TextChangedCallback
-	OnSubmitted ui.TextChangedCallback
-	OpenPalette ui.VoidCallback
+	Value               string
+	Placeholder         string
+	OnChanged           ui.TextChangedCallback
+	OnSubmitted         ui.TextChangedCallback
+	OpenPalette         ui.VoidCallback
+	OpenBashHistory     func(ui.EventContext, int) bool
+	CursorEndGeneration uint64
 }
 
 func (messageComposer) CreateState() ui.State { return &messageComposerState{} }
 
 type messageComposerState struct {
 	ui.StateBase
-	value string
+	value               string
+	cursorEndGeneration uint64
 }
 
 func (s *messageComposerState) InitState() {
@@ -37,14 +48,21 @@ func (s *messageComposerState) DidUpdateWidget(ui.Widget) {
 func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 	config := s.Widget().(messageComposer)
 	theme := ui.MustDepend[ui.Theme](ctx)
+	var cursorOffset *int
+	if config.CursorEndGeneration != s.cursorEndGeneration {
+		offset := len(s.value)
+		cursorOffset = &offset
+		s.cursorEndGeneration = config.CursorEndGeneration
+	}
 	input := ui.TextArea{
-		Value:     s.value,
-		OnChanged: s.changed,
-		Padding:   ui.Symmetric(1, 0),
-		MinHeight: 1,
-		MaxHeight: composerMaxHeight,
-		SoftWrap:  true,
-		AutoFocus: true,
+		Value:        s.value,
+		CursorOffset: cursorOffset,
+		OnChanged:    s.changed,
+		Padding:      ui.Symmetric(1, 0),
+		MinHeight:    1,
+		MaxHeight:    composerMaxHeight,
+		SoftWrap:     true,
+		AutoFocus:    true,
 	}
 	children := []ui.Widget{input}
 	if s.value == "" && config.Placeholder != "" {
@@ -61,6 +79,16 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 	shortcuts := ui.ShortcutMap{
 		"Enter":       submitComposerIntent{},
 		"Shift+Enter": ui.InsertLineBreakIntent{},
+	}
+	if strings.HasPrefix(s.value, "!") && config.OpenBashHistory != nil {
+		shortcuts["Up"] = openBashHistoryIntent{Delta: -1}
+		shortcuts["Down"] = openBashHistoryIntent{Delta: 1}
+		actions[openBashHistoryIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+			if callback := s.Widget().(messageComposer).OpenBashHistory; callback != nil && callback(ctx, intent.(openBashHistoryIntent).Delta) {
+				return ui.EventHandled
+			}
+			return ui.EventIgnored
+		}
 	}
 	if s.value == "" && config.OpenPalette != nil {
 		shortcuts["/"] = openPaletteIntent{}

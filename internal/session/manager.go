@@ -28,6 +28,12 @@ var ErrInvalidInput = errors.New("invalid session input")
 // ErrRunNotAbortable indicates that a run has already begun settlement or ended.
 var ErrRunNotAbortable = errors.New("run is not abortable")
 
+// ErrBashBusy indicates that a session or daemon direct-bash lane is occupied.
+var ErrBashBusy = errors.New("bash execution is busy")
+
+// ErrBashNotAbortable indicates that a direct bash execution has already ended.
+var ErrBashNotAbortable = errors.New("bash execution is not abortable")
+
 // CreateInput contains metadata for a new persistent session.
 type CreateInput struct {
 	CWD           string
@@ -72,6 +78,8 @@ type Manager struct {
 	store        Repository
 	providers    droids.Providers
 	systemPrompt string
+	bashContext  context.Context
+	cancelBash   context.CancelCauseFunc
 
 	mu         sync.Mutex
 	runtimes   map[string]*runtime
@@ -81,6 +89,11 @@ type Manager struct {
 	loads      sync.WaitGroup
 	ops        sync.WaitGroup
 	admissions sync.WaitGroup
+
+	bashMu     sync.Mutex
+	bashActive map[string]*activeBashExecution
+	bashSlots  chan struct{}
+	bashRuns   sync.WaitGroup
 }
 
 type runtimeLoad struct {
@@ -90,13 +103,14 @@ type runtimeLoad struct {
 }
 
 type runtime struct {
-	droid     *droids.Droid
-	storage   *droidStorage
-	runMu     sync.Mutex
-	stateMu   sync.Mutex
-	cancelRun context.CancelFunc
-	activeRun string
-	phase     runPhase
+	droid               *droids.Droid
+	storage             *droidStorage
+	runMu               sync.Mutex
+	stateMu             sync.Mutex
+	cancelRun           context.CancelFunc
+	activeRun           string
+	phase               runPhase
+	bashContextSequence int64
 }
 
 // NewManager creates a session runtime manager.
@@ -107,10 +121,14 @@ func NewManager(store Repository, providers droids.Providers, systemPrompt strin
 	if providers == nil {
 		return nil, fmt.Errorf("droids providers are required")
 	}
+	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	return &Manager{
 		store: store, providers: providers, systemPrompt: systemPrompt,
-		runtimes: make(map[string]*runtime),
-		loading:  make(map[string]*runtimeLoad),
+		bashContext: bashContext, cancelBash: cancelBash,
+		runtimes:   make(map[string]*runtime),
+		loading:    make(map[string]*runtimeLoad),
+		bashActive: make(map[string]*activeBashExecution),
+		bashSlots:  make(chan struct{}, maxConcurrentDirectBash),
 	}, nil
 }
 
@@ -267,12 +285,45 @@ func (m *Manager) runPrompt(
 	if !loaded.runMu.TryLock() {
 		return PromptResult{}, m.rejectReservation(sessionID, runID, ErrBusy)
 	}
+	reservedRun, err := m.store.GetParentRun(ctx, sessionID, runID)
+	if err != nil {
+		loaded.runMu.Unlock()
+		return PromptResult{}, m.rejectReservation(sessionID, runID, err)
+	}
+	latestBashContext := int64(-1)
+	if reservedRun.Status == RunStatusQueued {
+		latestBashContext, err = m.store.ClaimBashContext(ctx, sessionID, reservedRun.TurnID)
+		if err != nil {
+			inspectContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			claimed, unclaimed, inspectErr := m.store.InspectBashContextClaim(inspectContext, sessionID, reservedRun.TurnID)
+			cancel()
+			switch {
+			case inspectErr != nil:
+				loaded.runMu.Unlock()
+				return PromptResult{}, m.rejectReservation(sessionID, runID, errors.Join(err, inspectErr))
+			case claimed >= 0:
+				latestBashContext = claimed
+			case unclaimed < 0:
+				latestBashContext = -1
+			default:
+				loaded.runMu.Unlock()
+				return PromptResult{}, m.rejectReservation(sessionID, runID, err)
+			}
+		}
+	}
+	if latestBashContext > loaded.bashContextSequence {
+		if err := m.reloadRuntime(ctx, sessionID, loaded); err != nil {
+			loaded.runMu.Unlock()
+			return PromptResult{}, m.rejectReservation(sessionID, runID, err)
+		}
+	}
 
 	runContext, cancelRun := context.WithCancel(context.Background())
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
 		cancelRun()
+		m.evict(sessionID, loaded)
 		loaded.runMu.Unlock()
 		return PromptResult{}, m.rejectReservation(sessionID, runID, ErrClosed)
 	}
@@ -284,6 +335,7 @@ func (m *Manager) runPrompt(
 		cancelRun()
 		loaded.clearActive()
 		m.runs.Done()
+		m.evict(sessionID, loaded)
 		loaded.runMu.Unlock()
 		return PromptResult{}, m.rejectReservation(sessionID, runID, err)
 	}
@@ -291,6 +343,7 @@ func (m *Manager) runPrompt(
 		cancelRun()
 		loaded.clearActive()
 		m.runs.Done()
+		m.evict(sessionID, loaded)
 		loaded.runMu.Unlock()
 		if startStatus == RunStatusAborted {
 			return PromptResult{
@@ -305,6 +358,7 @@ func (m *Manager) runPrompt(
 		cancelRun()
 		loaded.clearActive()
 		m.runs.Done()
+		m.evict(sessionID, loaded)
 		loaded.runMu.Unlock()
 		return PromptResult{}, err
 	}
@@ -419,6 +473,8 @@ func (m *Manager) executePrompt(
 		if recoveredStatus != RunStatusCompleted && result.ErrorMessage == "" {
 			result.ErrorMessage = reason
 		}
+	}
+	if result.Status != RunStatusCompleted {
 	}
 	if eventErr == nil {
 		_ = m.appendLiveEvents([]NewEvent{{
@@ -547,8 +603,18 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}
 	m.runtimes = nil
 	m.mu.Unlock()
+	m.cancelBash(errBashShutdown)
 	for _, loaded := range runtimes {
 		loaded.droid.Close()
+	}
+	m.bashMu.Lock()
+	bashExecutions := make([]*activeBashExecution, 0, len(m.bashActive))
+	for _, execution := range m.bashActive {
+		bashExecutions = append(bashExecutions, execution)
+	}
+	m.bashMu.Unlock()
+	for _, execution := range bashExecutions {
+		execution.cancel(errBashShutdown)
 	}
 
 	done := make(chan struct{})
@@ -556,6 +622,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		m.admissions.Wait()
 		m.loads.Wait()
 		m.runs.Wait()
+		m.bashRuns.Wait()
 		m.ops.Wait()
 		close(done)
 	}()
@@ -664,7 +731,39 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 	if err != nil {
 		return nil, err
 	}
-	adapter := newDroidStorage(m.store, sessionID)
+	droid, adapter, err := m.newDroid(record)
+	if err != nil {
+		return nil, err
+	}
+	return &runtime{droid: droid, storage: adapter, bashContextSequence: adapter.bashContextSequence()}, nil
+}
+
+func (m *Manager) reloadRuntime(ctx context.Context, sessionID string, loaded *runtime) error {
+	record, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	droid, adapter, err := m.newDroid(record)
+	if err != nil {
+		return err
+	}
+	m.mu.Lock()
+	if m.closed || m.runtimes[sessionID] != loaded {
+		m.mu.Unlock()
+		droid.Close()
+		return ErrClosed
+	}
+	previous := loaded.droid
+	loaded.droid = droid
+	loaded.storage = adapter
+	loaded.bashContextSequence = adapter.bashContextSequence()
+	m.mu.Unlock()
+	previous.Close()
+	return nil
+}
+
+func (m *Manager) newDroid(record SessionRecord) (*droids.Droid, *droidStorage, error) {
+	adapter := newDroidStorage(m.store, record.ID)
 	droid, err := droids.New(droids.Options{
 		Providers:        m.providers,
 		Model:            record.ModelProvider + "/" + record.ModelID,
@@ -672,14 +771,14 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 		SystemPrompt:     m.systemPrompt,
 		Tools:            codingtools.New(record.CWD),
 		Storage:          adapter,
-		Session:          sessionID,
+		Session:          record.ID,
 		MaxSteps:         16,
 		MaxParallelTools: 4,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("create runtime for session %q: %w", sessionID, err)
+		return nil, nil, fmt.Errorf("create runtime for session %q: %w", record.ID, err)
 	}
-	return &runtime{droid: droid, storage: adapter}, nil
+	return droid, adapter, nil
 }
 
 func (m *Manager) evict(sessionID string, target *runtime) {
@@ -689,6 +788,12 @@ func (m *Manager) evict(sessionID string, target *runtime) {
 	}
 	m.mu.Unlock()
 	target.droid.Close()
+}
+
+func (m *Manager) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
 }
 
 func (m *Manager) beginAdmission() error {

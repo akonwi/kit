@@ -28,6 +28,9 @@ type sessionService interface {
 	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, string, string) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
+	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
+	Bash(context.Context, string, string) (protocol.BashExecution, error)
+	AbortBash(context.Context, string, string) error
 }
 
 type runtimeSessionService struct {
@@ -67,15 +70,22 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	}
 	result := protocol.SessionSnapshot{
 		Session: projectSession(snapshot.Session), ActiveRunID: snapshot.ActiveRunID,
-		ContextTokens: snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
+		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
+		ContextTokens:         snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
 		Messages: make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 	}
 	for _, message := range snapshot.Messages {
+		var bash *protocol.BashExecution
+		if message.Bash != nil {
+			projected := projectBashExecution(*message.Bash)
+			bash = &projected
+		}
 		result.Messages = append(result.Messages, protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
-			Role: message.Role, Content: projectTranscriptContent(message.Content), StopReason: message.StopReason,
-			ErrorMessage: message.ErrorMessage, ToolCallID: message.ToolCallID,
-			ToolName: message.ToolName, Details: append(json.RawMessage(nil), message.Details...),
+			Role: message.Role, Content: projectTranscriptContent(message.Content), Bash: bash,
+			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
+			ToolCallID: message.ToolCallID, ToolName: message.ToolName,
+			Details: append(json.RawMessage(nil), message.Details...),
 			IsError: message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
@@ -199,6 +209,41 @@ func (s runtimeSessionService) Abort(ctx context.Context, sessionID, runID strin
 	return s.manager.Abort(ctx, sessionID, runID)
 }
 
+func (s runtimeSessionService) StartBash(ctx context.Context, sessionID string, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
+	execution, err := s.manager.StartBash(ctx, sessionID, input.ExecutionID, input.Command, input.ExcludeFromContext)
+	if err != nil {
+		return protocol.BashExecution{}, err
+	}
+	return projectBashExecution(execution), nil
+}
+
+func (s runtimeSessionService) Bash(ctx context.Context, sessionID, executionID string) (protocol.BashExecution, error) {
+	execution, err := s.manager.GetBash(ctx, sessionID, executionID)
+	if err != nil {
+		return protocol.BashExecution{}, err
+	}
+	return projectBashExecution(execution), nil
+}
+
+func (s runtimeSessionService) AbortBash(ctx context.Context, sessionID, executionID string) error {
+	return s.manager.AbortBash(ctx, sessionID, executionID)
+}
+
+func projectBashExecution(execution kitsession.BashExecution) protocol.BashExecution {
+	completedAt := ""
+	if execution.CompletedAt != nil {
+		completedAt = execution.CompletedAt.Format(time.RFC3339Nano)
+	}
+	return protocol.BashExecution{
+		ID: execution.ID, SessionID: execution.SessionID, Sequence: execution.Sequence,
+		Command: execution.Command, Status: protocol.BashExecutionStatus(execution.Status),
+		Output: execution.Output, ExitCode: execution.ExitCode,
+		ExcludeFromContext: execution.ExcludeFromContext, Truncated: execution.Truncated,
+		TimedOut: execution.TimedOut, ErrorMessage: execution.ErrorMessage,
+		StartedAt: execution.StartedAt.Format(time.RFC3339Nano), CompletedAt: completedAt,
+	}
+}
+
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 	mux.HandleFunc("GET /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
 		records, err := service.List(request.Context(), request.URL.Query().Get("cwd"))
@@ -299,6 +344,38 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/bash-executions", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.BashExecutionInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		execution, err := service.StartBash(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, execution)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-executions/{executionID}", func(writer http.ResponseWriter, request *http.Request) {
+		execution, err := service.Bash(request.Context(), request.PathValue("sessionID"), request.PathValue("executionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, execution)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort", func(writer http.ResponseWriter, request *http.Request) {
+		if err := service.AbortBash(request.Context(), request.PathValue("sessionID"), request.PathValue("executionID")); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
+	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/runs/{runID}", func(writer http.ResponseWriter, request *http.Request) {
 		run, err := service.Run(
 			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
@@ -353,7 +430,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrRunNotAbortable):
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
 		status = http.StatusConflict
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed):

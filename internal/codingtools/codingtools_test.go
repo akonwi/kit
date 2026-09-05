@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -12,6 +13,48 @@ import (
 
 	"github.com/akonwi/kit/internal/droids"
 )
+
+func TestRunCommandStopsWhenOwnerProcessDies(t *testing.T) {
+	if os.Getenv("KIT_COMMAND_OWNER_HELPER") == "1" {
+		marker := os.Getenv("KIT_COMMAND_OWNER_MARKER")
+		_, _ = RunCommand(
+			context.Background(), "bash",
+			`trap '' TERM; printf started > "$KIT_COMMAND_OWNER_MARKER.started"; sleep 6; printf leaked > "$KIT_COMMAND_OWNER_MARKER"`,
+			filepath.Dir(marker), 10*time.Second, 1024,
+		)
+		return
+	}
+	marker := filepath.Join(t.TempDir(), "finished")
+	command := exec.Command(os.Args[0], "-test.run=^TestRunCommandStopsWhenOwnerProcessDies$")
+	command.Env = append(os.Environ(),
+		"KIT_COMMAND_OWNER_HELPER=1",
+		"KIT_COMMAND_OWNER_MARKER="+marker,
+	)
+	if err := command.Start(); err != nil {
+		t.Fatalf("start owner helper: %v", err)
+	}
+	started := marker + ".started"
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = command.Process.Kill()
+			_ = command.Wait()
+			t.Fatal("owned command did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if err := command.Process.Kill(); err != nil {
+		t.Fatalf("kill owner helper: %v", err)
+	}
+	_ = command.Wait()
+	time.Sleep(6500 * time.Millisecond)
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("owned command survived owner death: %v", err)
+	}
+}
 
 func TestBaseToolDefinitions(t *testing.T) {
 	t.Parallel()

@@ -125,6 +125,16 @@ func (c *fakeBoundSession) Stream(context.Context, string) (sessionclient.EventS
 
 func (c *fakeBoundSession) Abort(context.Context, string) error { return nil }
 
+func (c *fakeBoundSession) AbortBash(context.Context, string) error { return nil }
+
+func (c *fakeBoundSession) Bash(context.Context, string) (sessionclient.BashExecution, error) {
+	panic("unexpected Bash")
+}
+
+func (c *fakeBoundSession) StartBash(context.Context, string, string, bool) (sessionclient.BashExecution, error) {
+	panic("unexpected StartBash")
+}
+
 func (c *fakeBoundSession) StartPrompt(
 	_ context.Context,
 	prompt string,

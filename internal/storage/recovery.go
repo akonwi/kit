@@ -11,6 +11,7 @@ import (
 type RecoveryResult struct {
 	ParentRuns            int64
 	Turns                 int64
+	BashExecutions        int64
 	SubagentRuns          int64
 	SubagentConversations int64
 }
@@ -53,6 +54,33 @@ func (s *Store) InterruptActiveRuns(ctx context.Context, reason string) (Recover
 	}
 	if recovered.Turns, err = rowsAffected(result); err != nil {
 		return RecoveryResult{}, err
+	}
+	result, err = tx.ExecContext(ctx, `
+		UPDATE messages
+		SET payload_json = json_set(
+			payload_json,
+			'$.status', 'interrupted',
+			'$.errorMessage', ?,
+			'$.completedAt', ?
+		)
+		WHERE role = 'bash'
+		  AND json_extract(payload_json, '$.status') = 'running'
+	`, reason, now)
+	if err != nil {
+		return RecoveryResult{}, fmt.Errorf("interrupt bash executions: %w", err)
+	}
+	if recovered.BashExecutions, err = rowsAffected(result); err != nil {
+		return RecoveryResult{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE messages
+		SET payload_json = json_remove(payload_json, '$.contextBeforeTurnId')
+		WHERE role = 'bash'
+		  AND json_extract(payload_json, '$.contextBeforeTurnId') IN (
+			SELECT id FROM turns WHERE status <> 'completed'
+		  )
+	`); err != nil {
+		return RecoveryResult{}, fmt.Errorf("release interrupted bash context: %w", err)
 	}
 	result, err = tx.ExecContext(ctx, `
 		UPDATE subagent_runs

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Validate checks a session projection received across a transport boundary.
@@ -24,6 +25,55 @@ func (session SessionInfo) Validate() error {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, session.UpdatedAt); err != nil {
 		return fmt.Errorf("session updatedAt is invalid: %w", err)
+	}
+	return nil
+}
+
+// Validate checks a direct bash request received across a transport boundary.
+func (input BashExecutionInput) Validate() error {
+	if input.ExecutionID == "" {
+		return fmt.Errorf("bash execution id is empty")
+	}
+	if strings.TrimSpace(input.Command) == "" || len(input.Command) > 64<<10 || !utf8.ValidString(input.Command) || strings.IndexByte(input.Command, 0) >= 0 {
+		return fmt.Errorf("bash command must be non-empty valid UTF-8 without NUL and at most 64 KiB")
+	}
+	return nil
+}
+
+// Validate checks a direct bash execution received across a transport boundary.
+func (execution BashExecution) Validate() error {
+	if execution.ID == "" || execution.SessionID == "" || execution.Sequence < 0 {
+		return fmt.Errorf("bash execution id, session id, and non-negative sequence are required")
+	}
+	if strings.TrimSpace(execution.Command) == "" || len(execution.Command) > 64<<10 || !utf8.ValidString(execution.Command) || strings.IndexByte(execution.Command, 0) >= 0 {
+		return fmt.Errorf("bash execution command is invalid")
+	}
+	if len(execution.Output) > 64<<10 || !utf8.ValidString(execution.Output) {
+		return fmt.Errorf("bash execution output is invalid")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, execution.StartedAt); err != nil {
+		return fmt.Errorf("bash execution startedAt is invalid: %w", err)
+	}
+	if execution.CompletedAt != "" {
+		if _, err := time.Parse(time.RFC3339Nano, execution.CompletedAt); err != nil {
+			return fmt.Errorf("bash execution completedAt is invalid: %w", err)
+		}
+	}
+	switch execution.Status {
+	case BashExecutionRunning:
+		if execution.CompletedAt != "" || execution.Output != "" || execution.ExitCode != nil || execution.Truncated || execution.TimedOut || execution.ErrorMessage != "" {
+			return fmt.Errorf("running bash execution carries terminal data")
+		}
+	case BashExecutionCompleted:
+		if execution.CompletedAt == "" || execution.ErrorMessage != "" {
+			return fmt.Errorf("completed bash execution has invalid terminal metadata")
+		}
+	case BashExecutionFailed, BashExecutionAborted, BashExecutionInterrupted:
+		if execution.CompletedAt == "" || strings.TrimSpace(execution.ErrorMessage) == "" {
+			return fmt.Errorf("bash execution status %q requires completion and an error", execution.Status)
+		}
+	default:
+		return fmt.Errorf("bash execution status %q is invalid", execution.Status)
 	}
 	return nil
 }

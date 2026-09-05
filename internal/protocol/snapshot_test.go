@@ -32,6 +32,25 @@ func validTranscriptSnapshot() SessionSnapshot {
 	}
 }
 
+func TestSessionSnapshotAllowsStandaloneBashInsideParentTimeline(t *testing.T) {
+	t.Parallel()
+	snapshot := validTranscriptSnapshot()
+	snapshot.Messages[1].Sequence = 2
+	exitCode := 0
+	started := time.Unix(3, 500).UTC().Format(time.RFC3339Nano)
+	snapshot.Messages = append(snapshot.Messages[:1], append([]TranscriptMessage{{
+		ID: "bash_1", Sequence: 1, Role: "bash", CreatedAt: started,
+		Bash: &BashExecution{
+			ID: "bash_1", SessionID: snapshot.Session.ID, Sequence: 1,
+			Command: "git status", Status: BashExecutionCompleted,
+			ExitCode: &exitCode, StartedAt: started, CompletedAt: started,
+		},
+	}}, snapshot.Messages[1:]...)...)
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+}
+
 func TestSessionSnapshotValidatesStructuredTranscript(t *testing.T) {
 	t.Parallel()
 

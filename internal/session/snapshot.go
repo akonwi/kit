@@ -43,6 +43,7 @@ type TranscriptMessage struct {
 	Sequence     int64
 	Role         string
 	Content      []TranscriptContent
+	Bash         *BashExecution
 	StopReason   string
 	ErrorMessage string
 	ToolCallID   string
@@ -54,11 +55,12 @@ type TranscriptMessage struct {
 
 // Snapshot is an authoritative point-in-time view of one session.
 type Snapshot struct {
-	Session       SessionRecord
-	Messages      []TranscriptMessage
-	ActiveRunID   string
-	ContextTokens int
-	ContextWindow int
+	Session               SessionRecord
+	Messages              []TranscriptMessage
+	ActiveRunID           string
+	ActiveBashExecutionID string
+	ContextTokens         int
+	ContextWindow         int
 }
 
 // Snapshot returns persisted presentation messages, including diagnostics from
@@ -102,6 +104,21 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 
 	snapshot := Snapshot{Session: record, ActiveRunID: activeRunID, Messages: make([]TranscriptMessage, 0, len(stored))}
 	for _, messageRecord := range stored {
+		if messageRecord.Role == "bash" {
+			execution, err := decodeBashExecution(messageRecord)
+			if err != nil {
+				return Snapshot{}, fmt.Errorf("decode message %q: %w", messageRecord.ID, err)
+			}
+			copy := execution
+			snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
+				ID: messageRecord.ID, Sequence: messageRecord.Sequence, Role: "bash",
+				Bash: &copy, CreatedAt: messageRecord.CreatedAt,
+			})
+			if execution.Status == BashExecutionRunning {
+				snapshot.ActiveBashExecutionID = execution.ID
+			}
+			continue
+		}
 		if activeTurnID != "" && messageRecord.TurnID == activeTurnID {
 			continue
 		}

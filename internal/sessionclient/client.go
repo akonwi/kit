@@ -21,6 +21,9 @@ type Session interface {
 	Run(context.Context, string) (protocol.RunInfo, error)
 	Stream(context.Context, string) (EventStream, error)
 	StartPrompt(context.Context, string) (Run, error)
+	Bash(context.Context, string) (BashExecution, error)
+	StartBash(context.Context, string, string, bool) (BashExecution, error)
+	AbortBash(context.Context, string) error
 	Abort(context.Context, string) error
 }
 
@@ -29,6 +32,15 @@ type Session interface {
 type Run interface {
 	ID() string
 	Wait(context.Context) (protocol.PromptOutcome, error)
+	Abort(context.Context) error
+}
+
+// BashExecution is one generation-bound direct shell execution. Waiting may
+// detach without aborting; Abort explicitly targets only this execution id.
+type BashExecution interface {
+	ID() string
+	State() protocol.BashExecution
+	Wait(context.Context) (protocol.BashExecution, error)
 	Abort(context.Context) error
 }
 

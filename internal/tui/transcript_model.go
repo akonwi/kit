@@ -16,6 +16,7 @@ type transcriptItemKind string
 const (
 	transcriptItemUser      transcriptItemKind = "user"
 	transcriptItemAssistant transcriptItemKind = "assistant"
+	transcriptItemBash      transcriptItemKind = "bash"
 )
 
 type transcriptToolCall struct {
@@ -75,6 +76,8 @@ func buildTurnTranscriptItems(messages []protocol.TranscriptMessage) []turnTrans
 			kind = transcriptItemUser
 		case "assistant":
 			kind = transcriptItemAssistant
+		case "bash":
+			kind = transcriptItemBash
 		default:
 			continue
 		}
@@ -152,7 +155,7 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 		}
 		for index := range turnItems {
 			item := turnItems[index]
-			if item.Kind == transcriptItemUser {
+			if item.Kind == transcriptItemUser || item.Kind == transcriptItemBash {
 				flush()
 				copy := item
 				result = append(result, transcriptDisplayItem{
@@ -341,14 +344,18 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 	currentTurnID := ""
 	for index, message := range messages {
 		turnID := message.TurnID
-		if turnID == "" {
+		if message.Role == "bash" {
+			turnID = "bash:" + message.ID
+		} else if turnID == "" {
 			if message.Role == "user" || currentTurnID == "" {
 				turnID = "local-turn:" + strconv.Itoa(index)
 			} else {
 				turnID = currentTurnID
 			}
 		}
-		currentTurnID = turnID
+		if message.Role != "bash" {
+			currentTurnID = turnID
+		}
 		messageID := message.ID
 		if messageID == "" {
 			messageID = "local-message:" + strconv.Itoa(index)
@@ -369,6 +376,7 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		projected := protocol.TranscriptMessage{
 			ID: messageID, TurnID: turnID, Sequence: int64(index), Role: role, Content: content,
+			Bash:       message.Bash,
 			ToolCallID: message.ToolCallID, ToolName: message.ToolName, Details: message.ToolDetails,
 			IsError: message.IsError,
 		}

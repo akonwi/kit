@@ -29,7 +29,8 @@ var (
 	commandLastCleanup time.Time
 )
 
-type commandExecution struct {
+// CommandExecution is the bounded result of one shell command.
+type CommandExecution struct {
 	Output       string
 	ExitCode     *int
 	Truncated    bool
@@ -110,7 +111,7 @@ func (c *commandCapture) writeSpool(data []byte) {
 	}
 }
 
-func (c *commandCapture) finish() commandExecution {
+func (c *commandCapture) finish() CommandExecution {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.spool != nil {
@@ -118,7 +119,7 @@ func (c *commandCapture) finish() commandExecution {
 		_ = c.spool.Close()
 		c.spool = nil
 	}
-	return commandExecution{
+	return CommandExecution{
 		Output:       normalizeText(c.head.String()),
 		Truncated:    c.truncated,
 		OutputPath:   c.spoolPath,
@@ -126,24 +127,53 @@ func (c *commandCapture) finish() commandExecution {
 	}
 }
 
-func runCommand(ctx context.Context, shell, command, cwd string, timeout time.Duration, outputLimit int) (commandExecution, error) {
+// RunCommand executes command through shell in its own process group.
+const commandLifetimeWrapper = `
+(
+	trap 'exit 0' TERM
+	IFS= read -r _ <&3
+	trap '' TERM
+	kill -TERM -$$ 2>/dev/null
+	sleep 5
+	kill -KILL -$$ 2>/dev/null
+) &
+watcher=$!
+"$1" -c "$2"
+status=$?
+kill "$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+exit "$status"
+`
+
+func RunCommand(ctx context.Context, shell, command, cwd string, timeout time.Duration, outputLimit int) (CommandExecution, error) {
 	maybeCleanOldCommandCaptures()
 	if err := ctx.Err(); err != nil {
-		return commandExecution{}, err
+		return CommandExecution{}, err
 	}
 	capture := &commandCapture{limit: outputLimit}
-	cmd := exec.Command(shell, "-c", command)
+	lifetimeRead, lifetimeWrite, err := os.Pipe()
+	if err != nil {
+		return CommandExecution{}, fmt.Errorf("create command lifetime pipe: %w", err)
+	}
+	cmd := exec.Command("/bin/sh", "-c", commandLifetimeWrapper, "kit-command", shell, command)
 	cmd.Dir = cwd
+	cmd.ExtraFiles = []*os.File{lifetimeRead}
 	cmd.Stdout = capture
 	cmd.Stderr = capture
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.WaitDelay = commandPipeWait
 	if err := cmd.Start(); err != nil {
-		return commandExecution{}, fmt.Errorf("start command: %w", err)
+		_ = lifetimeRead.Close()
+		_ = lifetimeWrite.Close()
+		return CommandExecution{}, fmt.Errorf("start command: %w", err)
 	}
+	_ = lifetimeRead.Close()
 
 	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	go func() {
+		done <- cmd.Wait()
+		_ = lifetimeWrite.Close()
+	}()
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 
@@ -183,6 +213,13 @@ func runCommand(ctx context.Context, shell, command, cwd string, timeout time.Du
 		return execution, fmt.Errorf("wait for command: %w", waitErr)
 	}
 	return execution, nil
+}
+
+// RemoveCommandOutput removes a spooled output file and its private directory.
+func RemoveCommandOutput(path string) {
+	if path != "" {
+		_ = os.RemoveAll(filepath.Dir(path))
+	}
 }
 
 func maybeCleanOldCommandCaptures() {

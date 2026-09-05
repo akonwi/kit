@@ -112,6 +112,7 @@ type transcriptMessage struct {
 	IsError                bool
 	Aborted                bool
 	Pending                bool
+	Bash                   *protocol.BashExecution
 }
 
 type liveContentBlock struct {
@@ -137,6 +138,7 @@ type appState struct {
 	errorText                   string
 	status                      string
 	composer                    string
+	composerCursorEndGeneration uint64
 	palette                     paletteController
 	authReturnReady             bool
 	authFilter                  string
@@ -179,6 +181,12 @@ type appState struct {
 	activeRunID                 string
 	runPending                  bool
 	prompt                      *promptAdmission
+	activeBash                  sessionclient.BashExecution
+	activeBashID                string
+	bashStarting                bool
+	bashAdmission               *bashAdmission
+	bashCollapsed               map[string]bool
+	bashHistory                 bashHistoryController
 
 	instructions auth.OpenAICodexDeviceInstructions
 	remaining    time.Duration
@@ -197,6 +205,7 @@ func (s *appState) InitState() {
 	s.liveTools = make(map[string]int)
 	s.liveContent = make(map[int]liveContentBlock)
 	s.activityExpanded = make(map[activityToolKey]bool)
+	s.bashCollapsed = make(map[string]bool)
 	if options.Authenticated {
 		s.phase = phaseLoading
 		s.status = "Starting Kit…"
@@ -305,38 +314,44 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
 	snapshot := shellSnapshot{
-		Phase:             s.phase,
-		Error:             s.errorText,
-		Status:            s.status,
-		Composer:          s.composer,
-		PaletteOpen:       s.palette.Open,
-		PaletteQuery:      s.palette.Query,
-		PaletteSelection:  s.palette.Selection,
-		AuthReturnReady:   s.authReturnReady,
-		AuthFilter:        s.authFilter,
-		AuthSelection:     s.authSelection,
-		AuthProviderID:    s.authProviderID,
-		AuthAPIKey:        s.authAPIKey,
-		AuthPending:       s.authPending,
-		Session:           s.session,
-		Messages:          presentedMessages,
-		Running:           s.runPending,
-		TurnActivity:      s.turnActivity,
-		ContextTokens:     s.contextTokens,
-		ContextWindow:     s.contextWindow,
-		Scroll:            &s.scroll,
-		ActivityScroll:    &s.activityScroll,
-		ActivityList:      &s.activityList,
-		ActivityFocus:     &s.activityFocus,
-		WorkspaceLayout:   &s.workspaceLayout,
-		ActivitySourceID:  s.activitySourceID,
-		ActivitySelected:  s.activitySelected,
-		HoveredActivityID: s.hoveredActivityID,
-		ActivityExpanded:  s.activityExpanded,
-		ActivityCursor:    s.activityCursor,
-		Instructions:      s.instructions,
-		Remaining:         s.remaining,
-		Location:          options.Location,
+		Phase:                       s.phase,
+		Error:                       s.errorText,
+		Status:                      s.status,
+		Composer:                    s.composer,
+		ComposerCursorEndGeneration: s.composerCursorEndGeneration,
+		PaletteOpen:                 s.palette.Open,
+		PaletteQuery:                s.palette.Query,
+		PaletteSelection:            s.palette.Selection,
+		AuthReturnReady:             s.authReturnReady,
+		AuthFilter:                  s.authFilter,
+		AuthSelection:               s.authSelection,
+		AuthProviderID:              s.authProviderID,
+		AuthAPIKey:                  s.authAPIKey,
+		AuthPending:                 s.authPending,
+		Session:                     s.session,
+		Messages:                    presentedMessages,
+		Running:                     s.hasActiveWork(),
+		AgentRunning:                s.runPending,
+		TurnActivity:                s.turnActivity,
+		ContextTokens:               s.contextTokens,
+		ContextWindow:               s.contextWindow,
+		Scroll:                      &s.scroll,
+		ActivityScroll:              &s.activityScroll,
+		ActivityList:                &s.activityList,
+		ActivityFocus:               &s.activityFocus,
+		WorkspaceLayout:             &s.workspaceLayout,
+		ActivitySourceID:            s.activitySourceID,
+		ActivitySelected:            s.activitySelected,
+		HoveredActivityID:           s.hoveredActivityID,
+		ActivityExpanded:            s.activityExpanded,
+		ActivityCursor:              s.activityCursor,
+		BashRunning:                 s.activeBashID != "",
+		BashStarting:                s.bashStarting,
+		BashCollapsed:               s.bashCollapsed,
+		BashHistory:                 s.bashHistory,
+		Instructions:                s.instructions,
+		Remaining:                   s.remaining,
+		Location:                    options.Location,
 	}
 	callbacks := shellCallbacks{
 		OpenAuth: func(ui.EventContext) {
@@ -462,6 +477,18 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 			})
 		},
+		ToggleBashOutput: func(_ ui.EventContext, executionID string) {
+			s.SetState(func() { s.bashCollapsed[executionID] = !s.bashCollapsed[executionID] })
+		},
+		OpenBashHistory: func(_ ui.EventContext, delta int) bool {
+			return s.openBashHistory(delta)
+		},
+		BashHistoryChanged: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.bashHistory.SetQuery(value) })
+		},
+		SelectBashHistory: func(ctx ui.EventContext, executionID string) {
+			s.selectBashHistory(ctx, executionID)
+		},
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
 				ctx.Copy(s.instructions.UserCode)
@@ -475,7 +502,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
-				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.runPending)
+				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.hasActiveWork())
 				if intercepted {
 					return
 				}
@@ -489,7 +516,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.openPalette()
 		},
 		PaletteQueryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.palette.SetQuery(s.runPending, value) })
+			s.SetState(func() { s.palette.SetQuery(s.hasActiveWork(), value) })
 		},
 		MovePaletteSelection: func(_ ui.EventContext, delta int) {
 			s.movePaletteSelection(delta)
@@ -515,6 +542,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(options.DefaultModel, options.DefaultThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.bashHistory.Open {
+				s.SetState(func() { s.bashHistory.Close() })
+				return
+			}
 			if s.palette.Open {
 				s.SetState(func() { s.palette.Close() })
 				return
@@ -535,15 +566,35 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		return ui.EventIgnored
 	}
 	key, ok := event.(ui.Key)
-	if !ok || !s.palette.Open {
+	if !ok {
+		return ui.EventIgnored
+	}
+	if s.bashHistory.Open {
+		var entry bashHistoryEntry
+		var selectEntry, handled bool
+		s.SetState(func() {
+			entry, selectEntry, handled = s.bashHistory.HandleKey(key)
+			if !handled {
+				handled = s.bashHistory.HandleEditorKey(key)
+			}
+		})
+		if !handled {
+			return ui.EventIgnored
+		}
+		if selectEntry {
+			s.selectBashHistory(ctx, entry.ID)
+		}
+		return ui.EventHandled
+	}
+	if !s.palette.Open {
 		return ui.EventIgnored
 	}
 	var command paletteCommand
 	var run, handled bool
 	s.SetState(func() {
-		command, run, handled = s.palette.HandleKey(s.runPending, key)
+		command, run, handled = s.palette.HandleKey(s.hasActiveWork(), key)
 		if !handled {
-			handled = s.palette.HandleEditorKey(s.runPending, key)
+			handled = s.palette.HandleEditorKey(s.hasActiveWork(), key)
 		}
 	})
 	if !handled {
@@ -580,6 +631,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				return
 			}
 			running := snapshot.ActiveRunID != ""
+			activeBashID := snapshot.ActiveBashExecutionID
 			s.SetState(func() {
 				s.phase = phaseReady
 				s.session = info
@@ -591,6 +643,9 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			})
 			if running {
 				s.watchSession(bound, operation, snapshot.ActiveRunID)
+			}
+			if activeBashID != "" {
+				s.resumeBash(bound, operation, activeBashID)
 			}
 		})
 	}()
@@ -641,7 +696,28 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	if snapshot.Session.ID != "" {
 		s.session = snapshot.Session
 	}
-	s.messages = projectTranscript(snapshot.Messages)
+	currentActiveBash, hasCurrentActiveBash := findBashExecution(s.messages, s.liveMessages, s.activeBashID)
+	projected := projectTranscript(snapshot.Messages)
+	for index := range projected {
+		if projected[index].Bash == nil || projected[index].Bash.Status != protocol.BashExecutionRunning {
+			continue
+		}
+		if current, ok := findBashExecution(s.messages, s.liveMessages, projected[index].ID); ok && current.Status != protocol.BashExecutionRunning {
+			copy := cloneBashExecution(current)
+			projected[index].Bash = &copy
+			projected[index].Pending = false
+		}
+	}
+	if hasCurrentActiveBash {
+		if _, found := findBashExecution(projected, nil, currentActiveBash.ID); !found {
+			copy := cloneBashExecution(currentActiveBash)
+			projected = append(projected, transcriptMessage{
+				ID: copy.ID, Role: "bash", Bash: &copy,
+				Pending: copy.Status == protocol.BashExecutionRunning,
+			})
+		}
+	}
+	s.messages = projected
 	s.resetLiveRun()
 	if s.activitySourceID != "" {
 		presentation := presentTranscript(s.messages)
@@ -681,6 +757,12 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.contextWindow = snapshot.ContextWindow
 	s.activeRunID = snapshot.ActiveRunID
 	s.runPending = snapshot.ActiveRunID != ""
+	if snapshot.ActiveBashExecutionID != "" || s.activeBash == nil {
+		s.activeBashID = snapshot.ActiveBashExecutionID
+	} else if execution, found := findBashExecution(s.messages, nil, s.activeBashID); found && execution.Status != protocol.BashExecutionRunning {
+		s.activeBash = nil
+		s.activeBashID = ""
+	}
 	if s.runPending {
 		s.turnActivity = "Working…"
 	}
@@ -694,6 +776,17 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessage {
 	result := make([]transcriptMessage, 0, len(messages))
 	for _, message := range messages {
+		if message.Role == "bash" {
+			if message.Bash == nil {
+				continue
+			}
+			execution := cloneBashExecution(*message.Bash)
+			result = append(result, transcriptMessage{
+				ID: message.ID, Role: "bash", Bash: &execution,
+				Pending: execution.Status == protocol.BashExecutionRunning,
+			})
+			continue
+		}
 		var textParts, thinkingParts []string
 		calls := make([]transcriptToolCall, 0)
 		for _, block := range message.Content {
@@ -1464,22 +1557,26 @@ func (s *appState) cancelLogin() {
 	}
 }
 
+func (s *appState) hasActiveWork() bool {
+	return s.runPending || s.activeBashID != ""
+}
+
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open {
+	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open {
 		return
 	}
-	s.SetState(func() { s.palette.OpenFor(s.runPending) })
+	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
 }
 
 func (s *appState) movePaletteSelection(delta int) {
 	if !s.palette.Open {
 		return
 	}
-	s.SetState(func() { s.palette.Move(s.runPending, delta) })
+	s.SetState(func() { s.palette.Move(s.hasActiveWork(), delta) })
 }
 
 func (s *appState) runPaletteQuery(ctx ui.EventContext, query string) {
-	command, ok := s.palette.Selected(s.runPending, query)
+	command, ok := s.palette.Selected(s.hasActiveWork(), query)
 	if !ok {
 		return
 	}
@@ -1487,7 +1584,7 @@ func (s *appState) runPaletteQuery(ctx ui.EventContext, query string) {
 }
 
 func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteCommandID) {
-	if !s.palette.Open || !paletteCommandAvailable(commandID, s.runPending) {
+	if !s.palette.Open || !paletteCommandAvailable(commandID, s.hasActiveWork()) {
 		return
 	}
 	s.SetState(func() { s.palette.Close() })
@@ -1512,6 +1609,10 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 }
 
 func (s *appState) submit(_ ui.EventContext, value string) {
+	if command, excludeFromContext, ok := parseDirectBash(value); ok {
+		s.startDirectBash(value, command, excludeFromContext)
+		return
+	}
 	text := strings.TrimSpace(value)
 	if text == "" || s.bound == nil {
 		return
@@ -1577,6 +1678,7 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 	}
 	runtime.Dispatch(func() {
 		nextRunID := ""
+		nextBashID := ""
 		s.SetState(func() {
 			s.activeRun = nil
 			s.activeRunID = ""
@@ -1601,6 +1703,9 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 			if snapshotErr == nil && snapshot.Session.ID != "" {
 				s.applySnapshot(snapshot)
 				nextRunID = snapshot.ActiveRunID
+				if s.activeBash == nil {
+					nextBashID = snapshot.ActiveBashExecutionID
+				}
 				return
 			}
 			s.messages = append(s.messages, transcriptMessage{Role: "assistant", Text: outcome.Text})
@@ -1608,10 +1713,17 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 		if nextRunID != "" && s.bound != nil {
 			s.watchSession(s.bound, s.operation, nextRunID)
 		}
+		if nextBashID != "" && s.bound != nil {
+			s.resumeBash(s.bound, s.operation, nextBashID)
+		}
 	})
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.bashHistory.Open {
+		s.SetState(func() { s.bashHistory.Close() })
+		return
+	}
 	if s.palette.Open {
 		s.SetState(func() { s.palette.Close() })
 		return
@@ -1643,6 +1755,17 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			s.authPending = false
 		})
 	case phaseReady:
+		if s.activeBashID != "" {
+			s.abortBash()
+			return
+		}
+		if s.bashStarting {
+			if s.bashAdmission != nil {
+				s.bashAdmission.abort.Store(true)
+			}
+			s.SetState(func() { s.status = "Stopping bash…" })
+			return
+		}
 		if !s.runPending {
 			return
 		}

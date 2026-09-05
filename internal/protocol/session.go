@@ -32,6 +32,41 @@ type PromptInput struct {
 	Text  string `json:"text"`
 }
 
+// BashExecutionInput requests one idempotent direct composer shell execution.
+type BashExecutionInput struct {
+	ExecutionID        string `json:"executionId"`
+	Command            string `json:"command"`
+	ExcludeFromContext bool   `json:"excludeFromContext,omitempty"`
+}
+
+// BashExecutionStatus is the canonical lifecycle state of direct shell work.
+type BashExecutionStatus string
+
+const (
+	BashExecutionRunning     BashExecutionStatus = "running"
+	BashExecutionCompleted   BashExecutionStatus = "completed"
+	BashExecutionFailed      BashExecutionStatus = "failed"
+	BashExecutionAborted     BashExecutionStatus = "aborted"
+	BashExecutionInterrupted BashExecutionStatus = "interrupted"
+)
+
+// BashExecution is one renderer-neutral direct shell execution projection.
+type BashExecution struct {
+	ID                 string              `json:"id"`
+	SessionID          string              `json:"sessionId"`
+	Sequence           int64               `json:"sequence"`
+	Command            string              `json:"command"`
+	Status             BashExecutionStatus `json:"status"`
+	Output             string              `json:"output,omitempty"`
+	ExitCode           *int                `json:"exitCode,omitempty"`
+	ExcludeFromContext bool                `json:"excludeFromContext,omitempty"`
+	Truncated          bool                `json:"truncated,omitempty"`
+	TimedOut           bool                `json:"timedOut,omitempty"`
+	ErrorMessage       string              `json:"errorMessage,omitempty"`
+	StartedAt          string              `json:"startedAt"`
+	CompletedAt        string              `json:"completedAt,omitempty"`
+}
+
 // SessionInfo is the client-facing projection of persisted session metadata.
 type SessionInfo struct {
 	ID            string `json:"id"`
@@ -73,6 +108,7 @@ type TranscriptMessage struct {
 	Sequence     int64               `json:"sequence"`
 	Role         string              `json:"role"`
 	Content      []TranscriptContent `json:"content"`
+	Bash         *BashExecution      `json:"bash,omitempty"`
 	StopReason   string              `json:"stopReason,omitempty"`
 	ErrorMessage string              `json:"errorMessage,omitempty"`
 	ToolCallID   string              `json:"toolCallId,omitempty"`
@@ -95,11 +131,12 @@ func (message TranscriptMessage) TextContent() string {
 
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
-	Session       SessionInfo         `json:"session"`
-	Messages      []TranscriptMessage `json:"messages"`
-	ActiveRunID   string              `json:"activeRunId,omitempty"`
-	ContextTokens int                 `json:"contextTokens,omitempty"`
-	ContextWindow int                 `json:"contextWindow,omitempty"`
+	Session               SessionInfo         `json:"session"`
+	Messages              []TranscriptMessage `json:"messages"`
+	ActiveRunID           string              `json:"activeRunId,omitempty"`
+	ActiveBashExecutionID string              `json:"activeBashExecutionId,omitempty"`
+	ContextTokens         int                 `json:"contextTokens,omitempty"`
+	ContextWindow         int                 `json:"contextWindow,omitempty"`
 }
 
 // RunStatus is a canonical parent-run terminal state on the wire.

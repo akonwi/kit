@@ -25,15 +25,16 @@ func (snapshot SessionSnapshot) Validate() error {
 	currentTurn := ""
 	toolCallsByTurn := make(map[string]map[string]string)
 	toolResultsByTurn := make(map[string]map[string]struct{})
+	activeBashID := ""
 	for index, message := range snapshot.Messages {
-		if message.ID == "" || message.TurnID == "" {
-			return fmt.Errorf("snapshot message %d requires message and turn ids", index)
+		if message.ID == "" || message.Role != "bash" && message.TurnID == "" {
+			return fmt.Errorf("snapshot message %d requires its message and turn identities", index)
 		}
 		if _, duplicate := messageIDs[message.ID]; duplicate {
 			return fmt.Errorf("snapshot message %d duplicates message id %q", index, message.ID)
 		}
 		messageIDs[message.ID] = struct{}{}
-		if message.TurnID != currentTurn {
+		if message.Role != "bash" && message.TurnID != currentTurn {
 			if _, reused := closedTurns[message.TurnID]; reused {
 				return fmt.Errorf("snapshot message %d reopens noncontiguous turn %q", index, message.TurnID)
 			}
@@ -47,12 +48,23 @@ func (snapshot SessionSnapshot) Validate() error {
 		}
 		previousSequence = message.Sequence
 		switch message.Role {
-		case "user", "assistant", "tool":
+		case "user", "assistant", "tool", "bash":
 		default:
 			return fmt.Errorf("snapshot message %d role %q is invalid", index, message.Role)
 		}
 		if err := message.validate(); err != nil {
 			return fmt.Errorf("snapshot message %d: %w", index, err)
+		}
+		if message.Role == "bash" {
+			if message.Bash.ID != message.ID || message.Bash.SessionID != snapshot.Session.ID || message.Bash.Sequence != message.Sequence {
+				return fmt.Errorf("snapshot message %d bash identity mismatch", index)
+			}
+			if message.Bash.Status == BashExecutionRunning {
+				if activeBashID != "" {
+					return fmt.Errorf("snapshot has multiple running bash executions")
+				}
+				activeBashID = message.Bash.ID
+			}
 		}
 		if message.Role == "assistant" {
 			calls := toolCallsByTurn[message.TurnID]
@@ -92,6 +104,9 @@ func (snapshot SessionSnapshot) Validate() error {
 			return fmt.Errorf("snapshot message %d createdAt is invalid: %w", index, err)
 		}
 	}
+	if snapshot.ActiveBashExecutionID != activeBashID {
+		return fmt.Errorf("snapshot active bash execution does not match messages")
+	}
 	return nil
 }
 
@@ -109,10 +124,13 @@ func (message TranscriptMessage) validate() error {
 	}
 	switch message.Role {
 	case "user":
-		if message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.Details != nil || message.IsError {
-			return fmt.Errorf("user message carries assistant or tool metadata")
+		if message.Bash != nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.Details != nil || message.IsError {
+			return fmt.Errorf("user message carries assistant, bash, or tool metadata")
 		}
 	case "assistant":
+		if message.Bash != nil {
+			return fmt.Errorf("assistant message carries bash metadata")
+		}
 		switch message.StopReason {
 		case "", "stop", "length", "toolUse", "contextWindow", "error", "aborted":
 		default:
@@ -126,11 +144,21 @@ func (message TranscriptMessage) validate() error {
 			return fmt.Errorf("assistant error state does not match stop reason")
 		}
 	case "tool":
+		if message.Bash != nil {
+			return fmt.Errorf("tool result carries bash metadata")
+		}
 		if message.ToolCallID == "" || message.ToolName == "" {
 			return fmt.Errorf("tool result requires call id and name")
 		}
 		if message.StopReason != "" || message.ErrorMessage != "" {
 			return fmt.Errorf("tool result carries assistant metadata")
+		}
+	case "bash":
+		if message.TurnID != "" || len(message.Content) != 0 || message.Bash == nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.Details != nil || message.IsError {
+			return fmt.Errorf("bash message has invalid transcript fields")
+		}
+		if err := message.Bash.Validate(); err != nil {
+			return fmt.Errorf("bash execution: %w", err)
 		}
 	}
 	return nil

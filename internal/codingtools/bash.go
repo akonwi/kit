@@ -21,6 +21,20 @@ type bashArgs struct {
 	Timeout *int64 `json:"timeout,omitempty"`
 }
 
+// DirectBashResult is the shared low-level result used by direct composer
+// execution and the model-facing bash tool.
+type DirectBashResult = CommandExecution
+
+// RunDirectBash executes one direct composer command with Kit's standard shell,
+// timeout, and bounded output policy.
+func RunDirectBash(ctx context.Context, command, cwd string) (DirectBashResult, error) {
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "bash"
+	}
+	return RunCommand(ctx, shell, command, cwd, defaultBashTimeout, maxBashOutputBytes)
+}
+
 type bashDetails struct {
 	ExitCode     *int   `json:"exitCode,omitempty"`
 	Truncated    bool   `json:"truncated"`
@@ -57,7 +71,7 @@ func newBashTool(cwd string) droids.Tool[bashArgs] {
 			if shell == "" {
 				shell = "bash"
 			}
-			execution, err := runCommand(ctx, shell, args.Command, cwd, timeout, maxBashOutputBytes)
+			execution, err := RunCommand(ctx, shell, args.Command, cwd, timeout, maxBashOutputBytes)
 			if err != nil {
 				if ctx.Err() != nil {
 					return droids.ToolResult{}, ctx.Err()

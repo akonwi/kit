@@ -144,7 +144,7 @@ recorded manual verification exists.
 - [x] Full-file writes with parent-directory creation.
 - [x] Directory listing, glob finding, and content search.
 - [x] Shell execution, cancellation, output bounds, exit status, and cwd.
-- [ ] Direct composer `!`/`!!` bash execution and per-session history.
+- [x] Direct composer `!`/`!!` bash execution and per-session history.
 - [ ] Git-aware operations used by review and workspace features.
 - [ ] URL/open-browser and platform operations behind client/platform ports.
 - [ ] `show_image` local-image validation and transcript presentation.

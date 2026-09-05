@@ -13,38 +13,44 @@ import (
 )
 
 type shellSnapshot struct {
-	Phase             phase
-	Error             string
-	Status            string
-	Composer          string
-	PaletteOpen       bool
-	PaletteQuery      string
-	PaletteSelection  paletteCommandID
-	AuthReturnReady   bool
-	AuthFilter        string
-	AuthSelection     int
-	AuthProviderID    string
-	AuthAPIKey        string
-	AuthPending       bool
-	Session           protocol.SessionInfo
-	Messages          []transcriptMessage
-	Running           bool
-	TurnActivity      string
-	ContextTokens     int
-	ContextWindow     int
-	Scroll            *ui.ScrollController
-	ActivityScroll    *ui.ScrollController
-	ActivityList      *activityListController
-	ActivityFocus     *ui.FocusNode
-	WorkspaceLayout   *workspaceLayoutState
-	ActivitySourceID  string
-	ActivitySelected  bool
-	HoveredActivityID string
-	ActivityExpanded  map[activityToolKey]bool
-	ActivityCursor    activityToolKey
-	Instructions      auth.OpenAICodexDeviceInstructions
-	Remaining         time.Duration
-	Location          string
+	Phase                       phase
+	Error                       string
+	Status                      string
+	Composer                    string
+	ComposerCursorEndGeneration uint64
+	PaletteOpen                 bool
+	PaletteQuery                string
+	PaletteSelection            paletteCommandID
+	AuthReturnReady             bool
+	AuthFilter                  string
+	AuthSelection               int
+	AuthProviderID              string
+	AuthAPIKey                  string
+	AuthPending                 bool
+	Session                     protocol.SessionInfo
+	Messages                    []transcriptMessage
+	Running                     bool
+	AgentRunning                bool
+	TurnActivity                string
+	ContextTokens               int
+	ContextWindow               int
+	Scroll                      *ui.ScrollController
+	ActivityScroll              *ui.ScrollController
+	ActivityList                *activityListController
+	ActivityFocus               *ui.FocusNode
+	WorkspaceLayout             *workspaceLayoutState
+	ActivitySourceID            string
+	ActivitySelected            bool
+	HoveredActivityID           string
+	ActivityExpanded            map[activityToolKey]bool
+	ActivityCursor              activityToolKey
+	BashRunning                 bool
+	BashStarting                bool
+	BashCollapsed               map[string]bool
+	BashHistory                 bashHistoryController
+	Instructions                auth.OpenAICodexDeviceInstructions
+	Remaining                   time.Duration
+	Location                    string
 }
 
 type providerSelectedCallback func(ui.EventContext, string)
@@ -68,6 +74,10 @@ type shellCallbacks struct {
 	ToggleActivityTool    func(ui.EventContext, activityToolKey)
 	SelectActivityTool    func(ui.EventContext, activityToolKey)
 	MoveActivityTool      func(ui.EventContext, int)
+	ToggleBashOutput      func(ui.EventContext, string)
+	OpenBashHistory       func(ui.EventContext, int) bool
+	BashHistoryChanged    ui.TextChangedCallback
+	SelectBashHistory     func(ui.EventContext, string)
 	ComposerChanged       ui.TextChangedCallback
 	OpenPalette           ui.VoidCallback
 	PaletteQueryChanged   ui.TextChangedCallback
@@ -127,6 +137,22 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	w.presentation = presentTranscript(w.Snapshot.Messages)
 	content := ui.Widget(ui.SelectionArea{Child: w.baseShell(theme)})
 	overlays := w.authOverlays(theme)
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.BashHistory.Open {
+		controller := w.Snapshot.BashHistory
+		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
+		primaryPercent := 100
+		if w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide {
+			primaryPercent = 60
+		}
+		overlays = append(overlays, ui.OverlayEntry{
+			Modal: true, Barrier: clearModalBarrier{},
+			Child: bashHistorySurface{
+				Controller: &controller, BottomInset: composerHeight + 4, PrimaryPercent: primaryPercent,
+				OnQuery:  w.Callbacks.BashHistoryChanged,
+				OnSelect: w.Callbacks.SelectBashHistory,
+			},
+		})
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
 		overlays = append(overlays, ui.OverlayEntry{
 			Modal: true, Barrier: clearModalBarrier{},
@@ -219,7 +245,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting ||
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.Phase == phaseReady && !w.Snapshot.PaletteOpen && !w.Snapshot.Running && w.Snapshot.ActivitySourceID != "" && w.Callbacks.CloseActivity != nil {
+			if w.Snapshot.Phase == phaseReady && !w.Snapshot.PaletteOpen && !w.Snapshot.BashHistory.Open && !w.Snapshot.Running && w.Snapshot.ActivitySourceID != "" && w.Callbacks.CloseActivity != nil {
 				w.Callbacks.CloseActivity(ctx)
 			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
@@ -285,7 +311,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 				},
 			},
 			Pending:           w.pendingSlot(theme),
-			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme)}},
 			Composer:          w.composer(theme),
 			PaneSeparator:     ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
 			SeparatorStyle:    ui.Style{Foreground: theme.Border},
@@ -364,7 +390,16 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		}
 		switch item.Kind {
 		case transcriptDisplaySingle:
-			children = append(children, transcriptUserEntry(theme, item.Item.Message))
+			if item.Item.Kind == transcriptItemBash && item.Item.Message.Bash != nil {
+				execution := *item.Item.Message.Bash
+				children = append(children, transcriptBashEntry(theme, execution, w.Snapshot.BashCollapsed[execution.ID], func(ctx ui.EventContext) {
+					if w.Callbacks.ToggleBashOutput != nil {
+						w.Callbacks.ToggleBashOutput(ctx, execution.ID)
+					}
+				}))
+			} else {
+				children = append(children, transcriptUserEntry(theme, item.Item.Message))
+			}
 		case transcriptDisplayAssistantProse:
 			children = append(children, transcriptAssistantEntry(theme, item.Item.Message))
 		case transcriptDisplayTurnWork:
@@ -502,17 +537,26 @@ func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
 	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), content)}
 }
 
+func (w shellView) composerSeparatorColor(theme ui.Theme) ui.Color {
+	if strings.HasPrefix(w.Snapshot.Composer, "!") {
+		return theme.SuccessText
+	}
+	return theme.Border
+}
+
 func (w shellView) composer(theme ui.Theme) ui.Widget {
 	composerTheme := theme
 	composerTheme.Surface = theme.Background
 	composerTheme.SurfaceHovered = theme.Background
 	composerTheme.Selection = theme.Selection
 	composer := messageComposer{
-		Value:       w.Snapshot.Composer,
-		Placeholder: "Ask kit to do something…",
-		OnChanged:   w.Callbacks.ComposerChanged,
-		OnSubmitted: w.Callbacks.Submit,
-		OpenPalette: w.Callbacks.OpenPalette,
+		Value:               w.Snapshot.Composer,
+		Placeholder:         "Ask kit to do something…",
+		OnChanged:           w.Callbacks.ComposerChanged,
+		OnSubmitted:         w.Callbacks.Submit,
+		OpenPalette:         w.Callbacks.OpenPalette,
+		OpenBashHistory:     w.Callbacks.OpenBashHistory,
+		CursorEndGeneration: w.Snapshot.ComposerCursorEndGeneration,
 	}
 	content := ui.Widget(ui.Provider[ui.Theme]{Value: composerTheme, Child: composer})
 	if w.Snapshot.ActivitySelected {
@@ -523,6 +567,24 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {
 	left := w.Snapshot.Status
+	leftStyle := ui.Style{Foreground: theme.MutedForeground}
+	bashError := strings.HasPrefix(w.Snapshot.Status, "Bash failed:") || strings.HasPrefix(w.Snapshot.Status, "Bash update failed:") || strings.HasPrefix(w.Snapshot.Status, "Could not resume bash:") || w.Snapshot.Status == "A bash command is already running"
+	if bashError {
+		leftStyle.Foreground = theme.DangerText
+	} else if strings.HasPrefix(w.Snapshot.Composer, "!!") {
+		left = "bash command " + glyphMiddleDot + " result excluded from context"
+		leftStyle.Foreground = theme.SuccessText
+	} else if strings.HasPrefix(w.Snapshot.Composer, "!") {
+		left = "bash command " + glyphMiddleDot + " result will be added to context"
+		leftStyle.Foreground = theme.SuccessText
+	} else if w.Snapshot.BashStarting {
+		left = "starting bash…"
+	} else if w.Snapshot.BashRunning {
+		left = "running bash " + glyphMiddleDot + " esc cancel"
+		if w.Snapshot.AgentRunning {
+			left += " " + glyphMiddleDot + " agent running"
+		}
+	}
 	if !w.Snapshot.AuthReturnReady && (w.Snapshot.Phase == phaseAuthGate || w.Snapshot.Phase == phaseAuthSelect) {
 		left = "enter connect · ctrl+c quit"
 	}
@@ -533,7 +595,7 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 		Axis:               ui.Horizontal,
 		CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
-			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
+			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left, Style: leftStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
 			ui.ExpandedWidget{Flex: 2, Child: ui.Text{Value: w.Snapshot.Location, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1, Align: ui.TextAlignRight}},
 		},
 	})}

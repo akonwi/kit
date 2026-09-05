@@ -1,6 +1,39 @@
 package protocol
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func TestBashExecutionValidate(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	running := BashExecution{
+		ID: "bash_1", SessionID: "session_1", Command: "git status",
+		Status: BashExecutionRunning, StartedAt: now,
+	}
+	if err := running.Validate(); err != nil {
+		t.Fatalf("Validate() running error = %v", err)
+	}
+	completed := running
+	completed.Status = BashExecutionCompleted
+	completed.CompletedAt = now
+	exitCode := 0
+	completed.ExitCode = &exitCode
+	if err := completed.Validate(); err != nil {
+		t.Fatalf("Validate() completed error = %v", err)
+	}
+	invalid := running
+	invalid.Output = "premature"
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("Validate() accepted terminal output on a running execution")
+	}
+	invalid = completed
+	invalid.Status = BashExecutionAborted
+	if err := invalid.Validate(); err == nil {
+		t.Fatal("Validate() accepted aborted execution without an error")
+	}
+}
 
 func TestRunInfoValidate(t *testing.T) {
 	t.Parallel()

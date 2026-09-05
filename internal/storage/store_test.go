@@ -27,8 +27,8 @@ func TestOpenAppliesMigrations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CurrentMigration() error = %v", err)
 	}
-	if version != 2 {
-		t.Fatalf("migration version = %d, want 2", version)
+	if version != 3 {
+		t.Fatalf("migration version = %d, want 3", version)
 	}
 
 	for _, table := range []string{
@@ -84,8 +84,8 @@ func TestOpenIsIdempotent(t *testing.T) {
 	).Scan(&applied); err != nil {
 		t.Fatalf("count migrations: %v", err)
 	}
-	if applied != 2 {
-		t.Fatalf("migration rows = %d, want 2", applied)
+	if applied != 3 {
+		t.Fatalf("migration rows = %d, want 3", applied)
 	}
 }
 

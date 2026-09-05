@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
@@ -31,6 +32,13 @@ type localRun struct {
 	id        string
 }
 
+type localBashExecution struct {
+	transport *daemon.Client
+	sessionID string
+	mu        sync.RWMutex
+	state     protocol.BashExecution
+}
+
 type localEventStream struct {
 	updates chan []protocol.SessionEvent
 	done    chan struct{}
@@ -45,6 +53,7 @@ var (
 var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.Run = (*localRun)(nil)
+var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 
 // NewLocalServer creates an authenticated loopback server client.
 func NewLocalServer(paths apphome.Paths) sessionclient.Server {
@@ -84,6 +93,40 @@ func (c *localSession) Run(ctx context.Context, runID string) (protocol.RunInfo,
 
 func (c *localSession) Abort(ctx context.Context, runID string) error {
 	return c.transport.AbortSession(ctx, c.id, runID)
+}
+
+func (c *localSession) Bash(ctx context.Context, executionID string) (sessionclient.BashExecution, error) {
+	requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	state, err := c.transport.GetBash(requestContext, c.id, executionID)
+	if err != nil {
+		return nil, err
+	}
+	return &localBashExecution{transport: c.transport, sessionID: c.id, state: state}, nil
+}
+
+func (c *localSession) StartBash(ctx context.Context, executionID, command string, excludeFromContext bool) (sessionclient.BashExecution, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	input := protocol.BashExecutionInput{
+		ExecutionID: executionID, Command: command, ExcludeFromContext: excludeFromContext,
+	}
+	state, err := c.transport.StartBash(ctx, c.id, input)
+	if err != nil {
+		inspectContext, cancel := context.WithTimeout(context.Background(), time.Second)
+		resolved, inspectErr := c.transport.GetBash(inspectContext, c.id, executionID)
+		cancel()
+		if inspectErr != nil {
+			return nil, err
+		}
+		state = resolved
+	}
+	return &localBashExecution{transport: c.transport, sessionID: c.id, state: state}, nil
+}
+
+func (c *localSession) AbortBash(ctx context.Context, executionID string) error {
+	return c.transport.AbortBash(ctx, c.id, executionID)
 }
 
 func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.EventStream, error) {
@@ -227,6 +270,53 @@ func waitForPoll(ctx context.Context, tick <-chan time.Time) error {
 
 func (r *localRun) Abort(ctx context.Context) error {
 	return r.transport.AbortSession(ctx, r.sessionID, r.id)
+}
+
+func (b *localBashExecution) ID() string {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.state.ID
+}
+
+func (b *localBashExecution) State() protocol.BashExecution {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.state
+}
+
+func (b *localBashExecution) Wait(ctx context.Context) (protocol.BashExecution, error) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	failures := 0
+	for {
+		requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+		state, err := b.transport.GetBash(requestContext, b.sessionID, b.ID())
+		cancel()
+		if err != nil {
+			failures++
+			if !retryablePollingError(err) || failures >= 6 {
+				return protocol.BashExecution{}, err
+			}
+			if err := waitForRetry(ctx, failures); err != nil {
+				return protocol.BashExecution{}, err
+			}
+			continue
+		}
+		failures = 0
+		b.mu.Lock()
+		b.state = state
+		b.mu.Unlock()
+		if state.Status != protocol.BashExecutionRunning {
+			return state, nil
+		}
+		if err := waitForPoll(ctx, ticker.C); err != nil {
+			return protocol.BashExecution{}, err
+		}
+	}
+}
+
+func (b *localBashExecution) Abort(ctx context.Context) error {
+	return b.transport.AbortBash(ctx, b.sessionID, b.ID())
 }
 
 func (s *localEventStream) Updates() <-chan []protocol.SessionEvent { return s.updates }

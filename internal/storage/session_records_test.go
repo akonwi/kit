@@ -6,6 +6,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSessionRunAndMessageLifecycle(t *testing.T) {
@@ -202,6 +203,128 @@ func TestListSessionsOrdersRFC3339FractionsChronologically(t *testing.T) {
 	}
 	if len(records) != 2 || records[0].ID != "later" {
 		t.Fatalf("session order = %+v", records)
+	}
+}
+
+func TestFailedParentTurnReleasesClaimedBashContext(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	if _, err := store.CreateSession(ctx, NewSession{
+		ID: "session", CWD: "/workspace", Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	}); err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	started := time.Now().UTC().Format(time.RFC3339Nano)
+	bashID := "bash_33333333333333333333333333333333"
+	running := json.RawMessage(`{"version":1,"type":"bash","command":"pwd","cwd":"/workspace","status":"running","startedAt":"` + started + `"}`)
+	if _, err := store.CreateBashExecution(ctx, "session", NewMessageRecord{ID: bashID, Role: "bash", PayloadJSON: running}); err != nil {
+		t.Fatalf("CreateBashExecution() error = %v", err)
+	}
+	completed := json.RawMessage(`{"version":1,"type":"bash","command":"pwd","cwd":"/workspace","status":"completed","exitCode":0,"startedAt":"` + started + `","completedAt":"` + started + `"}`)
+	if _, err := store.UpdateBashExecution(ctx, "session", bashID, completed); err != nil {
+		t.Fatalf("UpdateBashExecution() error = %v", err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-failed", "run-failed"); err != nil {
+		t.Fatalf("ReserveParentRun() error = %v", err)
+	}
+	if sequence, err := store.ClaimBashContext(ctx, "session", "turn-failed"); err != nil || sequence != 0 {
+		t.Fatalf("ClaimBashContext() = %d, %v", sequence, err)
+	}
+	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-failed"); err != nil || status != RunStatusRunning {
+		t.Fatalf("StartReservedParentRun() = %q, %v", status, err)
+	}
+	if err := store.FinishParentRun(ctx, "session", "turn-failed", "run-failed", RunStatusFailed, "failed"); err != nil {
+		t.Fatalf("FinishParentRun() error = %v", err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-next", "run-next"); err != nil {
+		t.Fatalf("next ReserveParentRun() error = %v", err)
+	}
+	if sequence, err := store.ClaimBashContext(ctx, "session", "turn-next"); err != nil || sequence != 0 {
+		t.Fatalf("next ClaimBashContext() = %d, %v; want released bash", sequence, err)
+	}
+}
+
+func TestBashMessagesEnforceOneRunningExecutionPerSession(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	if _, err := store.CreateSession(ctx, NewSession{
+		ID: "session", CWD: "/workspace", Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	}); err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	started := time.Now().UTC().Format(time.RFC3339Nano)
+	running := json.RawMessage(`{"version":1,"type":"bash","command":"sleep 10","cwd":"/workspace","status":"running","startedAt":"` + started + `"}`)
+	firstID := "bash_11111111111111111111111111111111"
+	if _, err := store.CreateBashExecution(ctx, "session", NewMessageRecord{ID: firstID, Role: "bash", PayloadJSON: running}); err != nil {
+		t.Fatalf("first CreateBashExecution() error = %v", err)
+	}
+	secondID := "bash_22222222222222222222222222222222"
+	if _, err := store.CreateBashExecution(ctx, "session", NewMessageRecord{ID: secondID, Role: "bash", PayloadJSON: running}); err == nil {
+		t.Fatal("second CreateBashExecution() accepted concurrent running bash")
+	}
+	completed := json.RawMessage(`{"version":1,"type":"bash","command":"sleep 10","cwd":"/workspace","status":"completed","exitCode":0,"startedAt":"` + started + `","completedAt":"` + started + `"}`)
+	if _, err := store.UpdateBashExecution(ctx, "session", firstID, completed); err != nil {
+		t.Fatalf("UpdateBashExecution() error = %v", err)
+	}
+	if _, err := store.CreateBashExecution(ctx, "session", NewMessageRecord{ID: secondID, Role: "bash", PayloadJSON: running}); err != nil {
+		t.Fatalf("CreateBashExecution() after settlement error = %v", err)
+	}
+}
+
+func TestInterruptActiveRunsSettlesStandaloneBashMessage(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	if _, err := store.CreateSession(ctx, NewSession{
+		ID: "session", CWD: "/workspace", Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	}); err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	started := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := store.CreateBashExecution(ctx, "session", NewMessageRecord{
+		ID: "bash_0123456789abcdef0123456789abcdef", Role: "bash", CreatedAt: time.Now(),
+		PayloadJSON: json.RawMessage(`{"version":1,"type":"bash","command":"sleep 10","cwd":"/workspace","status":"running","startedAt":"` + started + `"}`),
+	}); err != nil {
+		t.Fatalf("CreateBashExecution() error = %v", err)
+	}
+	recovered, err := store.InterruptActiveRuns(ctx, "test restart")
+	if err != nil {
+		t.Fatalf("InterruptActiveRuns() error = %v", err)
+	}
+	if recovered.BashExecutions != 1 {
+		t.Fatalf("recovered bash executions = %d, want 1", recovered.BashExecutions)
+	}
+	record, err := store.GetBashExecution(ctx, "session", "bash_0123456789abcdef0123456789abcdef")
+	if err != nil {
+		t.Fatalf("GetBashExecution() error = %v", err)
+	}
+	var payload struct {
+		Status       string `json:"status"`
+		ErrorMessage string `json:"errorMessage"`
+		CompletedAt  string `json:"completedAt"`
+	}
+	if err := json.Unmarshal(record.PayloadJSON, &payload); err != nil {
+		t.Fatalf("decode recovered payload: %v", err)
+	}
+	if payload.Status != "interrupted" || payload.ErrorMessage != "test restart" || payload.CompletedAt == "" {
+		t.Fatalf("recovered payload = %+v", payload)
 	}
 }
 

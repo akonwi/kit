@@ -233,6 +233,34 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if aborted.Status != protocol.RunStatusAborted {
 		t.Fatalf("aborted outcome = %+v", aborted)
 	}
+	bashID, err := identifier.New("bash_")
+	if err != nil {
+		t.Fatalf("identifier.New() bash error = %v", err)
+	}
+	bash, err := client.StartBash(context.Background(), created.ID, protocol.BashExecutionInput{
+		ExecutionID: bashID, Command: "printf api-bash",
+	})
+	if err != nil || bash.Status != protocol.BashExecutionRunning {
+		t.Fatalf("StartBash() = %+v, %v", bash, err)
+	}
+	bashDeadline := time.Now().Add(5 * time.Second)
+	for bash.Status == protocol.BashExecutionRunning {
+		bash, err = client.GetBash(context.Background(), created.ID, bashID)
+		if err != nil {
+			t.Fatalf("GetBash() error = %v", err)
+		}
+		if time.Now().After(bashDeadline) {
+			t.Fatalf("bash did not complete: %+v", bash)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if bash.Status != protocol.BashExecutionCompleted || bash.Output != "api-bash" {
+		t.Fatalf("completed bash = %+v", bash)
+	}
+	bashSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil || len(bashSnapshot.Messages) == 0 || bashSnapshot.Messages[len(bashSnapshot.Messages)-1].Bash == nil {
+		t.Fatalf("bash snapshot = %+v, %v", bashSnapshot, err)
+	}
 	sessions, err := client.ListSessions(context.Background(), workspace)
 	if err != nil {
 		t.Fatalf("ListSessions() error = %v", err)

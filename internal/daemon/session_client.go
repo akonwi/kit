@@ -176,6 +176,44 @@ func (c *Client) RunPrompt(ctx context.Context, sessionID, runID, text string) (
 	return output, nil
 }
 
+// StartBash starts an idempotent daemon-owned direct shell execution.
+func (c *Client) StartBash(ctx context.Context, sessionID string, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions"
+	var output protocol.BashExecution
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+		return protocol.BashExecution{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.BashExecution{}, fmt.Errorf("validate daemon bash execution: %w", err)
+	}
+	if output.SessionID != sessionID || output.ID != input.ExecutionID {
+		return protocol.BashExecution{}, fmt.Errorf("daemon bash execution identity mismatch")
+	}
+	return output, nil
+}
+
+// GetBash returns one durable direct shell execution.
+func (c *Client) GetBash(ctx context.Context, sessionID, executionID string) (protocol.BashExecution, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions/" + url.PathEscape(executionID)
+	var output protocol.BashExecution
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.BashExecution{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.BashExecution{}, fmt.Errorf("validate daemon bash execution: %w", err)
+	}
+	if output.SessionID != sessionID || output.ID != executionID {
+		return protocol.BashExecution{}, fmt.Errorf("daemon bash execution identity mismatch")
+	}
+	return output, nil
+}
+
+// AbortBash requests cancellation of one direct shell generation.
+func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) error {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions/" + url.PathEscape(executionID) + "/abort"
+	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
+}
+
 // AbortSession requests cancellation of a loaded session's active run.
 func (c *Client) AbortSession(ctx context.Context, sessionID, runID string) error {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID) + "/abort"

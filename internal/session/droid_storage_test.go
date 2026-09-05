@@ -8,6 +8,50 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 )
 
+func TestOrderReplayMessagesPlacesClaimedBashBeforeTargetTurn(t *testing.T) {
+	t.Parallel()
+	now := "2026-01-01T00:00:00Z"
+	payload, err := encodePersistedBashExecution(persistedBashExecution{
+		Version: 1, Type: "bash", Command: "pwd", CWD: "/workspace",
+		Status: BashExecutionCompleted, StartedAt: now, CompletedAt: now,
+		ContextBeforeTurnID: "turn_2",
+	})
+	if err != nil {
+		t.Fatalf("encodePersistedBashExecution() error = %v", err)
+	}
+	records := []MessageRecord{
+		{ID: "user-1", TurnID: "turn_1", Sequence: 0, Role: "user"},
+		{ID: "assistant-1", TurnID: "turn_1", Sequence: 1, Role: "assistant"},
+		{ID: "bash", Sequence: 2, Role: "bash", PayloadJSON: payload},
+		{ID: "user-2", TurnID: "turn_2", Sequence: 3, Role: "user"},
+		{ID: "assistant-2", TurnID: "turn_2", Sequence: 4, Role: "assistant"},
+	}
+	ordered := orderReplayMessages(records)
+	want := []string{"user-1", "assistant-1", "bash", "user-2", "assistant-2"}
+	for index, id := range want {
+		if ordered[index].ID != id {
+			t.Fatalf("ordered[%d] = %q, want %q", index, ordered[index].ID, id)
+		}
+	}
+}
+
+func TestOrderReplayMessagesDoesNotSplitParentTurn(t *testing.T) {
+	t.Parallel()
+	records := []MessageRecord{
+		{ID: "assistant", TurnID: "turn_1", Sequence: 0, Role: "assistant"},
+		{ID: "bash", Sequence: 1, Role: "bash"},
+		{ID: "tool", TurnID: "turn_1", Sequence: 2, Role: "tool"},
+		{ID: "user", TurnID: "turn_2", Sequence: 3, Role: "user"},
+	}
+	ordered := orderReplayMessages(records)
+	want := []string{"assistant", "tool", "bash", "user"}
+	for index, id := range want {
+		if ordered[index].ID != id {
+			t.Fatalf("ordered[%d] = %q, want %q", index, ordered[index].ID, id)
+		}
+	}
+}
+
 func TestDroidStorageStopsWritingAfterFirstAppendFailure(t *testing.T) {
 	t.Parallel()
 

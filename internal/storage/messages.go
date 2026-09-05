@@ -116,13 +116,244 @@ func (s *Store) AppendMessages(
 	return records, nil
 }
 
+// CreateBashExecution appends one standalone running bash transcript message.
+func (s *Store) CreateBashExecution(
+	ctx context.Context,
+	sessionID string,
+	message NewMessageRecord,
+) (MessageRecord, error) {
+	if s == nil || s.db == nil {
+		return MessageRecord{}, fmt.Errorf("store is closed")
+	}
+	if sessionID == "" || !identifier.Valid(message.ID, "bash_") {
+		return MessageRecord{}, fmt.Errorf("session id and valid bash message id are required")
+	}
+	if message.Role != "bash" || !json.Valid(message.PayloadJSON) {
+		return MessageRecord{}, fmt.Errorf("bash message role and valid payload are required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("begin bash message append: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	createdAt := message.CreatedAt.UTC()
+	if createdAt.IsZero() {
+		createdAt = time.Now().UTC()
+	}
+	var sequence int64
+	err = tx.QueryRowContext(ctx, `
+		UPDATE sessions
+		SET next_message_sequence = next_message_sequence + 1,
+		    updated_at = ?
+		WHERE id = ? AND archived_at IS NULL
+		RETURNING next_message_sequence - 1
+	`, createdAt.Format(timestampLayout), sessionID).Scan(&sequence)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MessageRecord{}, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+	}
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("allocate bash message sequence: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO messages(id, session_id, turn_id, sequence, role, payload_json, created_at)
+		VALUES (?, ?, NULL, ?, 'bash', ?, ?)
+	`, message.ID, sessionID, sequence, message.PayloadJSON, createdAt.Format(timestampLayout)); err != nil {
+		return MessageRecord{}, fmt.Errorf("append bash message %q: %w", message.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MessageRecord{}, fmt.Errorf("commit bash message append: %w", err)
+	}
+	return MessageRecord{
+		ID: message.ID, SessionID: sessionID, Sequence: sequence, Role: "bash",
+		PayloadJSON: append([]byte(nil), message.PayloadJSON...), CreatedAt: createdAt,
+	}, nil
+}
+
+// UpdateBashExecution replaces the lifecycle payload of one bash message.
+func (s *Store) UpdateBashExecution(
+	ctx context.Context,
+	sessionID, executionID string,
+	payload []byte,
+) (MessageRecord, error) {
+	if s == nil || s.db == nil {
+		return MessageRecord{}, fmt.Errorf("store is closed")
+	}
+	if sessionID == "" || !identifier.Valid(executionID, "bash_") || !json.Valid(payload) {
+		return MessageRecord{}, fmt.Errorf("session id, valid bash id, and payload are required")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("begin bash message update: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var record MessageRecord
+	var createdAt, currentStatus string
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, session_id, sequence, role, payload_json, created_at,
+		       json_extract(payload_json, '$.status')
+		FROM messages
+		WHERE id = ? AND session_id = ? AND role = 'bash'
+	`, executionID, sessionID).Scan(
+		&record.ID, &record.SessionID, &record.Sequence, &record.Role,
+		&record.PayloadJSON, &createdAt, &currentStatus,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MessageRecord{}, fmt.Errorf("bash execution %q: %w", executionID, ErrNotFound)
+	}
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("read bash message %q for update: %w", executionID, err)
+	}
+	record.CreatedAt, err = parseTimestamp(createdAt)
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("parse bash execution created_at: %w", err)
+	}
+	if currentStatus != "running" {
+		if err := tx.Commit(); err != nil {
+			return MessageRecord{}, fmt.Errorf("finish idempotent bash update: %w", err)
+		}
+		record.PayloadJSON = append([]byte(nil), record.PayloadJSON...)
+		return record, nil
+	}
+	result, err := tx.ExecContext(ctx, `
+		UPDATE messages
+		SET payload_json = ?
+		WHERE id = ? AND session_id = ? AND role = 'bash'
+		  AND json_extract(payload_json, '$.status') = 'running'
+	`, payload, executionID, sessionID)
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("update bash message %q: %w", executionID, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("inspect bash message update: %w", err)
+	}
+	if count != 1 {
+		return MessageRecord{}, fmt.Errorf("bash execution %q changed during settlement", executionID)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE sessions SET updated_at = ? WHERE id = ?`, time.Now().UTC().Format(timestampLayout), sessionID); err != nil {
+		return MessageRecord{}, fmt.Errorf("touch bash session: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return MessageRecord{}, fmt.Errorf("commit bash message update: %w", err)
+	}
+	record.PayloadJSON = append([]byte(nil), payload...)
+	return record, nil
+}
+
+// GetBashExecution returns one standalone bash message.
+func (s *Store) GetBashExecution(ctx context.Context, sessionID, executionID string) (MessageRecord, error) {
+	if s == nil || s.db == nil {
+		return MessageRecord{}, fmt.Errorf("store is closed")
+	}
+	var record MessageRecord
+	var createdAt string
+	err := s.db.QueryRowContext(ctx, `
+		SELECT id, session_id, sequence, role, payload_json, created_at
+		FROM messages
+		WHERE id = ? AND session_id = ? AND role = 'bash'
+	`, executionID, sessionID).Scan(
+		&record.ID, &record.SessionID, &record.Sequence, &record.Role,
+		&record.PayloadJSON, &createdAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return MessageRecord{}, fmt.Errorf("bash execution %q: %w", executionID, ErrNotFound)
+	}
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("get bash execution %q: %w", executionID, err)
+	}
+	record.CreatedAt, err = parseTimestamp(createdAt)
+	if err != nil {
+		return MessageRecord{}, fmt.Errorf("parse bash execution created_at: %w", err)
+	}
+	record.PayloadJSON = append([]byte(nil), record.PayloadJSON...)
+	return record, nil
+}
+
+// ClaimBashContext atomically assigns all settled included bash observations
+// to the parent turn whose first provider request will include them.
+func (s *Store) ClaimBashContext(ctx context.Context, sessionID, turnID string) (int64, error) {
+	if s == nil || s.db == nil {
+		return -1, fmt.Errorf("store is closed")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return -1, fmt.Errorf("begin bash context claim: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var turnExists int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(
+			SELECT 1 FROM turns
+			WHERE id = ? AND session_id = ? AND status = 'pending'
+		)
+	`, turnID, sessionID).Scan(&turnExists); err != nil {
+		return -1, fmt.Errorf("verify bash context turn: %w", err)
+	}
+	if turnExists != 1 {
+		return -1, fmt.Errorf("pending turn %q: %w", turnID, ErrNotFound)
+	}
+	var sequence int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(MAX(sequence), -1)
+		FROM messages
+		WHERE session_id = ? AND role = 'bash'
+		  AND json_extract(payload_json, '$.status') IN ('completed', 'failed', 'aborted')
+		  AND COALESCE(json_extract(payload_json, '$.excludeFromContext'), 0) = 0
+		  AND json_extract(payload_json, '$.contextBeforeTurnId') IS NULL
+	`, sessionID).Scan(&sequence); err != nil {
+		return -1, fmt.Errorf("read claimable bash context: %w", err)
+	}
+	if sequence >= 0 {
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE messages
+			SET payload_json = json_set(payload_json, '$.contextBeforeTurnId', ?)
+			WHERE session_id = ? AND role = 'bash'
+			  AND json_extract(payload_json, '$.status') IN ('completed', 'failed', 'aborted')
+			  AND COALESCE(json_extract(payload_json, '$.excludeFromContext'), 0) = 0
+			  AND json_extract(payload_json, '$.contextBeforeTurnId') IS NULL
+		`, turnID, sessionID); err != nil {
+			return -1, fmt.Errorf("claim bash context: %w", err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return -1, fmt.Errorf("commit bash context claim: %w", err)
+	}
+	return sequence, nil
+}
+
+// InspectBashContextClaim reconciles a possibly ambiguous context-claim commit.
+func (s *Store) InspectBashContextClaim(ctx context.Context, sessionID, turnID string) (int64, int64, error) {
+	if s == nil || s.db == nil {
+		return -1, -1, fmt.Errorf("store is closed")
+	}
+	var claimed, unclaimed int64
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT
+			COALESCE(MAX(CASE
+				WHEN json_extract(payload_json, '$.contextBeforeTurnId') = ? THEN sequence
+			END), -1),
+			COALESCE(MAX(CASE
+				WHEN json_extract(payload_json, '$.contextBeforeTurnId') IS NULL THEN sequence
+			END), -1)
+		FROM messages
+		WHERE session_id = ? AND role = 'bash'
+		  AND json_extract(payload_json, '$.status') IN ('completed', 'failed', 'aborted')
+		  AND COALESCE(json_extract(payload_json, '$.excludeFromContext'), 0) = 0
+	`, turnID, sessionID).Scan(&claimed, &unclaimed); err != nil {
+		return -1, -1, fmt.Errorf("inspect bash context claim: %w", err)
+	}
+	return claimed, unclaimed, nil
+}
+
 // ListMessages returns every message, including diagnostics from incomplete runs.
 func (s *Store) ListMessages(ctx context.Context, sessionID string) ([]MessageRecord, error) {
 	return s.listMessages(ctx, sessionID, false)
 }
 
-// ListReplayMessages returns only messages from completed turns, ensuring a
-// restarted droids runtime never rehydrates a partial or failed transcript.
+// ListReplayMessages returns completed parent turns plus direct bash context
+// explicitly claimed by an eligible parent turn.
 func (s *Store) ListReplayMessages(ctx context.Context, sessionID string) ([]MessageRecord, error) {
 	return s.listMessages(ctx, sessionID, true)
 }
@@ -138,12 +369,24 @@ func (s *Store) listMessages(ctx context.Context, sessionID string, replayOnly b
 		FROM messages`
 	if replayOnly {
 		query += `
-		JOIN turns ON turns.id = messages.turn_id
-		          AND turns.session_id = messages.session_id
-		          AND turns.status = 'completed'`
+		LEFT JOIN turns ON turns.id = messages.turn_id
+		               AND turns.session_id = messages.session_id
+		LEFT JOIN turns AS bash_boundary
+		       ON bash_boundary.id = json_extract(messages.payload_json, '$.contextBeforeTurnId')
+		      AND bash_boundary.session_id = messages.session_id`
 	}
 	query += `
-		WHERE messages.session_id = ?
+		WHERE messages.session_id = ?`
+	if replayOnly {
+		query += `
+		  AND (
+			turns.status = 'completed'
+			OR messages.role = 'bash'
+			   AND json_extract(messages.payload_json, '$.contextBeforeTurnId') IS NOT NULL
+			   AND bash_boundary.status IN ('pending', 'running', 'completed')
+		  )`
+	}
+	query += `
 		ORDER BY messages.sequence`
 	rows, err := s.db.QueryContext(ctx, query, sessionID)
 	if err != nil {
@@ -154,11 +397,12 @@ func (s *Store) listMessages(ctx context.Context, sessionID string, replayOnly b
 	var records []MessageRecord
 	for rows.Next() {
 		var record MessageRecord
+		var turnID sql.NullString
 		var createdAt string
 		if err := rows.Scan(
 			&record.ID,
 			&record.SessionID,
-			&record.TurnID,
+			&turnID,
 			&record.Sequence,
 			&record.Role,
 			&record.PayloadJSON,
@@ -170,6 +414,7 @@ func (s *Store) listMessages(ctx context.Context, sessionID string, replayOnly b
 		if err != nil {
 			return nil, fmt.Errorf("parse message created_at: %w", err)
 		}
+		record.TurnID = turnID.String
 		record.CreatedAt = parsed
 		record.PayloadJSON = append([]byte(nil), record.PayloadJSON...)
 		records = append(records, record)

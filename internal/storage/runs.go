@@ -280,6 +280,9 @@ func (s *Store) AbortReservedParentRun(
 	if err := requireOneRow(result, "pending turn", turnID); err != nil {
 		return "", err
 	}
+	if err := releaseBashContextForIncompleteTurn(ctx, tx, sessionID, turnID); err != nil {
+		return "", err
+	}
 	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ? WHERE id = ?", now, sessionID); err != nil {
 		return "", fmt.Errorf("touch session %q: %w", sessionID, err)
 	}
@@ -392,6 +395,11 @@ func (s *Store) FinishParentRun(
 	if err := requireOneRow(result, "running turn", turnID); err != nil {
 		return err
 	}
+	if status != RunStatusCompleted {
+		if err := releaseBashContextForIncompleteTurn(ctx, tx, sessionID, turnID); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.ExecContext(ctx, "UPDATE sessions SET updated_at = ? WHERE id = ?", now, sessionID); err != nil {
 		return fmt.Errorf("touch session %q: %w", sessionID, err)
 	}
@@ -433,6 +441,11 @@ func (s *Store) RecoverParentRun(
 		return "", fmt.Errorf("inspect parent run %q: %w", runID, err)
 	}
 	if terminalRunStatus(status) {
+		if status != RunStatusCompleted {
+			if err := releaseBashContextForIncompleteTurn(ctx, tx, sessionID, turnID); err != nil {
+				return "", err
+			}
+		}
 		if err := tx.Commit(); err != nil {
 			return "", fmt.Errorf("commit parent run inspection: %w", err)
 		}
@@ -464,10 +477,29 @@ func (s *Store) RecoverParentRun(
 	if err := requireOneRow(result, "running turn", turnID); err != nil {
 		return "", err
 	}
+	if err := releaseBashContextForIncompleteTurn(ctx, tx, sessionID, turnID); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(); err != nil {
 		return "", fmt.Errorf("commit parent run recovery: %w", err)
 	}
 	return RunStatusInterrupted, nil
+}
+
+func releaseBashContextForIncompleteTurn(ctx context.Context, tx *sql.Tx, sessionID, turnID string) error {
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE messages
+		SET payload_json = json_remove(payload_json, '$.contextBeforeTurnId')
+		WHERE session_id = ? AND role = 'bash'
+		  AND json_extract(payload_json, '$.contextBeforeTurnId') = ?
+		  AND EXISTS (
+			SELECT 1 FROM turns
+			WHERE id = ? AND session_id = ? AND status <> 'completed'
+		  )
+	`, sessionID, turnID, turnID, sessionID); err != nil {
+		return fmt.Errorf("release bash context for incomplete turn %q: %w", turnID, err)
+	}
+	return nil
 }
 
 func terminalRunStatus(status RunStatus) bool {
