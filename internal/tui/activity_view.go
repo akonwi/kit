@@ -76,12 +76,25 @@ func (w shellView) activityListItem(theme ui.Theme, item activityListItem, state
 	switch item.Kind {
 	case activityListSpacer:
 		return keyedActivityItem{ID: item.ID, Child: ui.SizedBox{Height: 1}}
+	case activityListThinking:
+		style := ui.Style{Foreground: theme.MutedForeground}
+		return keyedActivityItem{ID: item.ID, Child: ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
+			CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+				ui.Text{Value: "Thinking", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrItalic}},
+				ui.Padding(ui.Insets{Left: 2}, markdownView{
+					ID: item.ID, Source: item.Section.Thinking, BaseStyle: style,
+				}),
+			},
+		}}
 	case activityListProse:
 		style := ui.Style{Foreground: theme.Foreground}
 		if item.Section.Aborted {
 			style.Foreground = theme.MutedForeground
 		}
-		return keyedActivityItem{ID: item.ID, Child: ui.Text{Value: item.Section.Prose, Style: style, SoftWrap: true}}
+		return keyedActivityItem{ID: item.ID, Child: markdownView{
+			ID: item.ID, Source: item.Section.Prose, BaseStyle: style,
+		}}
 	default:
 		state, exists := states[transcriptToolStateKey{TurnID: item.Key.TurnID, ToolCallID: item.Key.ToolCallID}]
 		return activityToolRowWidget{

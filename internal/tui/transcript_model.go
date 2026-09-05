@@ -120,8 +120,22 @@ func assistantProse(message protocol.TranscriptMessage) string {
 	return ""
 }
 
+func assistantThinking(message protocol.TranscriptMessage) string {
+	parts := make([]string, 0, len(message.Content))
+	for _, block := range message.Content {
+		if block.Kind == protocol.TranscriptContentThinking && block.Text != "" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
+}
+
 func assistantHasProse(item turnTranscriptItem) bool {
 	return strings.TrimSpace(assistantProse(item.Message)) != ""
+}
+
+func assistantHasThinking(item turnTranscriptItem) bool {
+	return strings.TrimSpace(assistantThinking(item.Message)) != ""
 }
 
 func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplayItem {
@@ -139,16 +153,8 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 				return
 			}
 			group := append([]turnTranscriptItem(nil), buffer...)
-			anchor := group[0].ID
-			for _, entry := range group {
-				calls := assistantToolCalls(entry.Message)
-				if len(calls) > 0 {
-					anchor = calls[0].ID
-					break
-				}
-			}
 			result = append(result, transcriptDisplayItem{
-				Kind: transcriptDisplayTurnWork, ID: "turn-work:" + turnID + ":" + anchor,
+				Kind: transcriptDisplayTurnWork, ID: "turn-work:" + turnID + ":" + group[0].ID,
 				TurnID: turnID, Items: group,
 			})
 			buffer = buffer[:0]
@@ -164,6 +170,11 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 				})
 				continue
 			}
+			if assistantHasThinking(item) && len(buffer) > 0 && buffer[len(buffer)-1].ID != item.ID {
+				// A thinking-bearing assistant owns a stable Activity source even
+				// before its prose starts streaming.
+				flush()
+			}
 			if assistantHasProse(item) {
 				flush()
 				copy := item
@@ -171,7 +182,7 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 					Kind: transcriptDisplayAssistantProse, ID: "assistant-prose:" + item.ID,
 					TurnID: item.TurnID, Item: &copy,
 				})
-				if len(assistantToolCalls(item.Message)) > 0 {
+				if len(assistantToolCalls(item.Message)) > 0 || assistantHasThinking(item) {
 					buffer = append(buffer, item)
 				}
 				continue
@@ -193,11 +204,12 @@ func displayItemToolCalls(item transcriptDisplayItem) []transcriptToolCall {
 }
 
 type activitySection struct {
-	ID      string
-	TurnID  string
-	Prose   string
-	Calls   []transcriptToolCall
-	Aborted bool
+	ID       string
+	TurnID   string
+	Thinking string
+	Prose    string
+	Calls    []transcriptToolCall
+	Aborted  bool
 }
 
 func buildActivitySections(source transcriptDisplayItem) []activitySection {
@@ -208,13 +220,12 @@ func buildActivitySections(source transcriptDisplayItem) []activitySection {
 		}
 		calls := assistantToolCalls(item.Message)
 		prose := assistantProse(item.Message)
-		anchor := item.ID
-		if len(calls) > 0 {
-			anchor = calls[0].ID
-		}
+		thinking := assistantThinking(item.Message)
 		sections = append(sections, activitySection{
-			ID:     "activity-section:" + item.TurnID + ":" + anchor,
-			TurnID: item.TurnID, Prose: prose, Calls: calls, Aborted: item.Aborted,
+			ID:       "activity-section:" + item.TurnID + ":" + item.ID,
+			TurnID:   item.TurnID,
+			Thinking: thinking,
+			Prose:    prose, Calls: calls, Aborted: item.Aborted,
 		})
 	}
 	return sections
@@ -224,6 +235,7 @@ type activityListItemKind int
 
 const (
 	activityListSpacer activityListItemKind = iota
+	activityListThinking
 	activityListProse
 	activityListTool
 )
@@ -243,11 +255,19 @@ func buildActivityListItems(source transcriptDisplayItem) []activityListItem {
 		if sectionIndex > 0 {
 			items = append(items, activityListItem{ID: section.ID + ":gap", Kind: activityListSpacer})
 		}
-		if strings.TrimSpace(section.Prose) != "" {
-			items = append(items, activityListItem{ID: section.ID + ":prose", Kind: activityListProse, Section: section})
-			if len(section.Calls) > 0 {
-				items = append(items, activityListItem{ID: section.ID + ":prose-gap", Kind: activityListSpacer})
+		hasThinking := strings.TrimSpace(section.Thinking) != ""
+		hasProse := strings.TrimSpace(section.Prose) != ""
+		if hasThinking {
+			items = append(items, activityListItem{ID: section.ID + ":thinking", Kind: activityListThinking, Section: section})
+		}
+		if hasProse {
+			if hasThinking {
+				items = append(items, activityListItem{ID: section.ID + ":thinking-gap", Kind: activityListSpacer})
 			}
+			items = append(items, activityListItem{ID: section.ID + ":prose", Kind: activityListProse, Section: section})
+		}
+		if len(section.Calls) > 0 && (hasThinking || hasProse) {
+			items = append(items, activityListItem{ID: section.ID + ":tool-gap", Kind: activityListSpacer})
 		}
 		for _, call := range section.Calls {
 			key := activityToolKey{TurnID: section.TurnID, ToolCallID: call.ID}

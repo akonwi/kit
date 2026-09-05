@@ -70,7 +70,9 @@ recorded manual verification exists.
 
 ## Daemon and server lifecycle
 
-- [~] Dispatch client and daemon roles from the same executable.
+- [~] Dispatch client and daemon roles from the same executable, staging a
+  private atomic run-directory copy before detach so `go run` cleanup cannot
+  unlink the live daemon image.
 - [~] Coordinate concurrent daemon startup with an inter-process lock.
 - [~] Authenticate every local health, management, HTTP, and WebSocket request.
 - [x] Atomically publish and validate PID, instance, version, protocol, and
@@ -163,8 +165,12 @@ recorded manual verification exists.
   and compact historical entries; the native TUI now preserves assistant prose,
   consolidates tool work into one-line chips, and opens stable Activity sections
   with lifecycle glyphs, disclosure rows, bounded nested output, read/write code
-  views, and semantic edit diffs while keeping live thinking/turn state above
-  the composer. Markdown and syntax-highlighted code treatment remain.
+  views, and semantic edit diffs. Live thinking is Markdown-rendered in the
+  fixed status slot and retained as full Markdown evidence in Activity. A cached
+  Goldmark CommonMark/GFM pipeline now renders headings, inline emphasis/code,
+  literal safe links, lists/tasks, quotes, rules, tables, and language-preserving
+  fenced code in transcript and Activity prose/thinking. Syntax
+  highlighting and drag-safe in-app link activation remain.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,

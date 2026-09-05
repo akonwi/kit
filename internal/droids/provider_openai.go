@@ -182,9 +182,14 @@ func buildOpenAIResponseParams(model Model, req Request) (responses.ResponseNewP
 	if req.Temperature != nil {
 		params.Temperature = param.NewOpt(*req.Temperature)
 	}
-	if eff := reasoningEffort(req.Reasoning); eff != "" && model.Reasoning {
-		params.Reasoning.Effort = eff
-		if eff != shared.ReasoningEffortNone {
+	if model.Reasoning {
+		effort := reasoningEffort(req.Reasoning)
+		if effort != "" {
+			params.Reasoning.Effort = effort
+		}
+		// An unspecified effort leaves token allocation to the provider, but
+		// still needs an explicit summary request to produce visible thinking.
+		if effort != shared.ReasoningEffortNone {
 			params.Reasoning.Summary = shared.ReasoningSummaryAuto
 		}
 	}

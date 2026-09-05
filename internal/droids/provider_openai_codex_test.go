@@ -175,6 +175,29 @@ func TestOpenAICodexRejectsCrossAccountTranscriptReplay(t *testing.T) {
 	}
 }
 
+func TestOpenAICodexRequestsSummaryAtProviderDefaultReasoning(t *testing.T) {
+	model, _ := OpenAICodexModel("gpt-5.6-sol")
+	params, err := buildOpenAICodexResponseParams(model, Request{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(encoded, &body); err != nil {
+		t.Fatal(err)
+	}
+	reasoning, ok := body["reasoning"].(map[string]any)
+	if !ok || reasoning["summary"] != "auto" {
+		t.Fatalf("reasoning = %#v, want provider-default effort with auto summary", body["reasoning"])
+	}
+	if _, explicit := reasoning["effort"]; explicit {
+		t.Fatalf("reasoning effort = %#v, want provider default", reasoning["effort"])
+	}
+}
+
 func TestOpenAICodexSendsExplicitNoneReasoning(t *testing.T) {
 	model, _ := OpenAICodexModel("gpt-5.6-sol")
 	params, err := buildOpenAICodexResponseParams(model, Request{Reasoning: "off"})

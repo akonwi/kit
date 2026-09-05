@@ -8,6 +8,7 @@ require (
 	github.com/invopop/jsonschema v0.14.0
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/openai/openai-go/v3 v3.50.0
+	github.com/yuin/goldmark v1.8.4
 	go.rockorager.dev/vaxis v0.17.1
 	golang.org/x/sync v0.21.0
 	golang.org/x/sys v0.47.0

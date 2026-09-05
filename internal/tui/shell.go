@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/protocol"
@@ -32,6 +34,7 @@ type shellSnapshot struct {
 	Running                     bool
 	AgentRunning                bool
 	TurnActivity                string
+	TurnThinking                string
 	ContextTokens               int
 	ContextWindow               int
 	Scroll                      *ui.ScrollController
@@ -413,7 +416,10 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 }
 
 func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage) ui.Widget {
-	content := ui.Text{Value: message.TextContent(), Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true}
+	content := markdownView{
+		ID: "transcript-user:" + message.ID, Source: message.TextContent(),
+		BaseStyle: ui.Style{Foreground: theme.Foreground},
+	}
 	return ui.DecoratedBox(
 		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText}, Left: true}},
 		ui.Padding(ui.Insets{Left: 2}, content),
@@ -427,7 +433,10 @@ func transcriptAssistantEntry(theme ui.Theme, message protocol.TranscriptMessage
 	} else if message.IsError {
 		style.Foreground = theme.DangerText
 	}
-	return ui.Text{Value: assistantProse(message), Style: style, SoftWrap: true}
+	return markdownView{
+		ID: "transcript-assistant:" + message.ID, Source: assistantProse(message),
+		BaseStyle: style,
+	}
 }
 
 func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem, toolStates map[transcriptToolStateKey]transcriptMessage) ui.Widget {
@@ -522,15 +531,23 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 
 func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
 	children := []ui.Widget(nil)
-	if w.Snapshot.TurnActivity != "" {
-		style := ui.Style{Foreground: theme.MutedForeground}
+	style := ui.Style{Foreground: theme.MutedForeground}
+	var status ui.Widget
+	if strings.TrimSpace(w.Snapshot.TurnThinking) != "" {
+		status = markdownInlineView{
+			Source: latestThinkingLine(w.Snapshot.TurnThinking), BaseStyle: style,
+		}
+	} else if w.Snapshot.TurnActivity != "" {
+		status = ui.Text{
+			Value: w.Snapshot.TurnActivity, Style: style,
+			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		}
+	}
+	if status != nil {
 		children = []ui.Widget{
 			spinner{Style: style},
 			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{
-				Value: w.Snapshot.TurnActivity, Style: style,
-				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}),
+			ui.Expanded(status),
 		}
 	}
 	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStart, Children: children}
@@ -789,14 +806,42 @@ func (w shellView) deviceLoginBody(theme ui.Theme) []ui.Widget {
 }
 
 func safeHTTPSHyperlink(raw string) string {
-	parsed, err := url.ParseRequestURI(raw)
-	if err != nil || parsed.Scheme != "https" || parsed.Host == "" || parsed.User != nil {
+	safe := safeExternalHyperlink(raw)
+	if safe == "" {
+		return ""
+	}
+	parsed, _ := url.ParseRequestURI(safe)
+	if parsed.Scheme != "https" {
+		return ""
+	}
+	return safe
+}
+
+func safeExternalHyperlink(raw string) string {
+	if raw == "" || len(raw) > 4096 || !utf8.ValidString(raw) || raw != strings.TrimSpace(raw) {
 		return ""
 	}
 	for _, character := range raw {
-		if character < 0x20 || character == 0x7f {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) ||
+			unicode.Is(unicode.Zl, character) || unicode.Is(unicode.Zp, character) {
 			return ""
 		}
+	}
+	parsed, err := url.ParseRequestURI(raw)
+	if err != nil || parsed.User != nil {
+		return ""
+	}
+	switch parsed.Scheme {
+	case "http", "https":
+		if parsed.Host == "" {
+			return ""
+		}
+	case "mailto":
+		if parsed.Opaque == "" {
+			return ""
+		}
+	default:
+		return ""
 	}
 	return raw
 }

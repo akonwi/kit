@@ -107,8 +107,10 @@ kit __daemon          internal detached daemon role
 A normal local invocation discovers or starts one persistent daemon for the
 current user. Starting the daemon means executing the same binary in the
 internal `__daemon` role; it does not require a separately installed `kitd`.
-The daemon owns SQLite, running sessions, droids instances, subagents, and
-plugin processes.
+Before detaching, the launcher atomically stages a private copy under the run
+directory so development launchers such as `go run` cannot unlink the daemon's
+executable while it is still serving. The daemon owns SQLite, running sessions,
+droids instances, subagents, and plugin processes.
 
 The local daemon:
 

@@ -237,6 +237,59 @@ func TestAcquireCredentialStoreMutationWithoutDaemon(t *testing.T) {
 	_ = lifetimeContender.Unlock()
 }
 
+func TestStageDaemonExecutablePublishesPrivateStableCopy(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	destination := filepath.Join(root, "run", "kit-daemon")
+	if err := os.Mkdir(filepath.Dir(destination), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("first executable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	staged, err := stageDaemonExecutable(source, destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if staged != destination {
+		t.Fatalf("staged path = %q, want %q", staged, destination)
+	}
+	content, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "first executable" {
+		t.Fatalf("staged content = %q", content)
+	}
+	info, err := os.Stat(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if permissions := info.Mode().Perm(); permissions != 0o700 {
+		t.Fatalf("staged permissions = %o, want 700", permissions)
+	}
+
+	if err := os.WriteFile(source, []byte("replacement executable"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := stageDaemonExecutable(source, destination); err != nil {
+		t.Fatal(err)
+	}
+	content, err = os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "replacement executable" {
+		t.Fatalf("replacement content = %q", content)
+	}
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(destination), ".kit-daemon-*"))
+	if err != nil || len(matches) != 0 {
+		t.Fatalf("temporary executables = %v, error %v", matches, err)
+	}
+}
+
 func TestManagerLaunchHonorsCanceledContext(t *testing.T) {
 	t.Parallel()
 

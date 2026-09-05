@@ -304,6 +304,16 @@ Use `prefixBindings` or `suffixBindings` for ad-hoc actions that are not keyboar
 
 Do not describe these tokens by assumed light/dark colors; user and terminal themes may invert their resolved values.
 
+### Markdown
+
+- Parse native TUI Markdown into renderer-neutral semantic blocks; do not render HTML or prebuilt ANSI strings into vaxis.
+- Keep fenced code as explicit language/source blocks so syntax tokenization can be added independently of Markdown parsing and mapped into reactive theme styles.
+- Cache parsed documents by stable content identity. Rebuild width- and theme-dependent widgets rather than caching painted output.
+- Render headings through weight and semantic emphasis rather than literal heading markers. Use hanging indents for wrapped list items and a quiet left border for block quotes.
+- Preserve literal destinations for Markdown links. Only attach OSC 8 and activation behavior to validated `http`, `https`, and `mailto` targets.
+- Fenced code uses a subtle surface, preserves selectable source order, expands tabs consistently, and wraps rather than silently clipping in transcript-width layouts.
+- Stream the latest thinking line as muted Markdown in the fixed one-row pending slot. Keep full thinking as Markdown evidence in Activity rather than duplicating it in transcript history.
+
 ### Interactive elements
 
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.

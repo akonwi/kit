@@ -17,6 +17,10 @@ func textBlock(text string) protocol.TranscriptContent {
 	return protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: text}
 }
 
+func thinkingBlock(text string) protocol.TranscriptContent {
+	return protocol.TranscriptContent{Kind: protocol.TranscriptContentThinking, Text: text}
+}
+
 func toolCallBlock(id, name, arguments string) protocol.TranscriptContent {
 	return protocol.TranscriptContent{
 		Kind: protocol.TranscriptContentToolCall, ToolCallID: id,
@@ -85,12 +89,72 @@ func TestGroupTranscriptDisplayItemsKeepsProseAndConsolidatesTurnWork(t *testing
 		t.Fatalf("assistant prose = %q", got)
 	}
 	work := display[2]
-	if work.ID != "turn-work:turn_1:call_1" || len(work.Items) != 2 {
+	if work.ID != "turn-work:turn_1:assistant_1" || len(work.Items) != 2 {
 		t.Fatalf("turn work = %+v", work)
 	}
 	calls := displayItemToolCalls(work)
 	if len(calls) != 2 || calls[0].Name != "read" || calls[1].Name != "grep" {
 		t.Fatalf("turn-work calls = %+v", calls)
+	}
+}
+
+func TestThinkingCreatesActivityWorkAlongsideAssistantProse(t *testing.T) {
+	t.Parallel()
+
+	message := transcriptMessageWithContent(
+		"assistant_1", "turn_1", "assistant",
+		thinkingBlock("## Plan\n\n- inspect"), textBlock("Done."),
+	)
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}))
+	if len(display) != 2 || display[0].Kind != transcriptDisplayAssistantProse || display[1].Kind != transcriptDisplayTurnWork {
+		t.Fatalf("thinking display = %+v", display)
+	}
+	sections := buildActivitySections(display[1])
+	if len(sections) != 1 || sections[0].Thinking != "## Plan\n\n- inspect" || sections[0].Prose != "Done." {
+		t.Fatalf("thinking activity = %+v", sections)
+	}
+	items := buildActivityListItems(display[1])
+	if len(items) < 3 || items[0].Kind != activityListThinking || items[2].Kind != activityListProse {
+		t.Fatalf("thinking activity items = %+v", items)
+	}
+}
+
+func TestLaterAssistantThinkingKeepsItsWorkSourceWhenProseBegins(t *testing.T) {
+	t.Parallel()
+
+	first := transcriptMessageWithContent(
+		"assistant_1", "turn_1", "assistant", toolCallBlock("call_1", "read", `{"path":"README.md"}`),
+	)
+	thinking := transcriptMessageWithContent(
+		"assistant_2", "turn_1", "assistant", thinkingBlock("considering"),
+	)
+	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{first, thinking}))
+	thinkingWithProse := transcriptMessageWithContent(
+		"assistant_2", "turn_1", "assistant", thinkingBlock("considering"), textBlock("Done."),
+	)
+	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{first, thinkingWithProse}))
+	if len(before) != 2 || before[1].ID != "turn-work:turn_1:assistant_2" {
+		t.Fatalf("thinking sources before prose = %+v", before)
+	}
+	if len(after) != 3 || after[2].ID != before[1].ID || len(after[2].Items) != 1 || after[2].Items[0].ID != "assistant_2" {
+		t.Fatalf("thinking source moved after prose: before=%+v after=%+v", before, after)
+	}
+}
+
+func TestThinkingWorkIdentityStaysStableWhenToolArrives(t *testing.T) {
+	t.Parallel()
+
+	beforeMessage := transcriptMessageWithContent(
+		"assistant_1", "turn_1", "assistant", thinkingBlock("considering"),
+	)
+	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{beforeMessage}))
+	afterMessage := transcriptMessageWithContent(
+		"assistant_1", "turn_1", "assistant",
+		thinkingBlock("considering"), toolCallBlock("call_1", "read", `{"path":"README.md"}`),
+	)
+	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{afterMessage}))
+	if len(before) != 1 || len(after) != 1 || before[0].ID != after[0].ID || before[0].ID != "turn-work:turn_1:assistant_1" {
+		t.Fatalf("thinking work identity changed: before=%+v after=%+v", before, after)
 	}
 }
 
@@ -129,10 +193,10 @@ func TestBuildActivitySectionsPreservesAssistantBoundariesAndStableIDs(t *testin
 	if len(sections) != 2 {
 		t.Fatalf("activity sections = %+v, want 2", sections)
 	}
-	if sections[0].ID != "activity-section:turn_1:call_1" || sections[0].Prose != "First step" || len(sections[0].Calls) != 1 {
+	if sections[0].ID != "activity-section:turn_1:assistant_1" || sections[0].Prose != "First step" || len(sections[0].Calls) != 1 {
 		t.Fatalf("first activity section = %+v", sections[0])
 	}
-	if sections[1].ID != "activity-section:turn_1:call_2" || sections[1].Calls[0].Name != "grep" {
+	if sections[1].ID != "activity-section:turn_1:assistant_2" || sections[1].Calls[0].Name != "grep" {
 		t.Fatalf("second activity section = %+v", sections[1])
 	}
 }
@@ -204,7 +268,7 @@ func TestLocalActivitySourceIdentitySurvivesSnapshotReconciliation(t *testing.T)
 		{ID: "live-tool:call_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Pending: true},
 	}
 	historical := []transcriptMessage{
-		{ID: "persisted-assistant", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+		{ID: "live-assistant", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
 			ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`),
 		}}},
 		{ID: "persisted-result", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Completed"},
@@ -213,7 +277,7 @@ func TestLocalActivitySourceIdentitySurvivesSnapshotReconciliation(t *testing.T)
 	historicalPresentation := presentTranscript(historical)
 	liveSource := livePresentation.Items[0].ID
 	historicalSource := historicalPresentation.Items[0].ID
-	if liveSource != "turn-work:turn_1:call_1" || historicalSource != liveSource {
+	if liveSource != "turn-work:turn_1:live-assistant" || historicalSource != liveSource {
 		t.Fatalf("activity source changed from %q to %q", liveSource, historicalSource)
 	}
 	liveSections := buildActivitySections(livePresentation.Items[0])

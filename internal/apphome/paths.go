@@ -36,12 +36,13 @@ type Paths struct {
 	Skills      string
 	Themes      string
 
-	Run            string
-	ServerRegistry string
-	ServerToken    string
-	ServerLog      string
-	StartupLock    string
-	ServerLock     string
+	Run              string
+	ServerExecutable string
+	ServerRegistry   string
+	ServerToken      string
+	ServerLog        string
+	StartupLock      string
+	ServerLock       string
 }
 
 // Resolve selects an explicit home, then KIT_HOME, then ~/.kit-v2.
@@ -88,12 +89,13 @@ func FromHome(home string) Paths {
 		Skills:      filepath.Join(home, "skills"),
 		Themes:      filepath.Join(home, "themes"),
 
-		Run:            run,
-		ServerRegistry: filepath.Join(run, "server.json"),
-		ServerToken:    filepath.Join(run, "server.token"),
-		ServerLog:      filepath.Join(logs, "server.log"),
-		StartupLock:    filepath.Join(run, "startup.lock"),
-		ServerLock:     filepath.Join(run, "server.lock"),
+		Run:              run,
+		ServerExecutable: filepath.Join(run, "kit-daemon"),
+		ServerRegistry:   filepath.Join(run, "server.json"),
+		ServerToken:      filepath.Join(run, "server.token"),
+		ServerLog:        filepath.Join(logs, "server.log"),
+		StartupLock:      filepath.Join(run, "startup.lock"),
+		ServerLock:       filepath.Join(run, "server.lock"),
 	}
 }
 

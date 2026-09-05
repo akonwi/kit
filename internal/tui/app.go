@@ -156,6 +156,7 @@ type appState struct {
 	liveContent                 map[int]liveContentBlock
 	liveSequence                int64
 	turnActivity                string
+	turnThinking                string
 	runStopping                 bool
 	contextTokens               int
 	contextWindow               int
@@ -333,6 +334,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Running:                     s.hasActiveWork(),
 		AgentRunning:                s.runPending,
 		TurnActivity:                s.turnActivity,
+		TurnThinking:                s.turnThinking,
 		ContextTokens:               s.contextTokens,
 		ContextWindow:               s.contextWindow,
 		Scroll:                      &s.scroll,
@@ -843,6 +845,7 @@ func (s *appState) resetLiveRun() {
 	s.liveContent = make(map[int]liveContentBlock)
 	s.liveSequence = 0
 	s.turnActivity = ""
+	s.turnThinking = ""
 	s.runStopping = false
 }
 
@@ -853,6 +856,13 @@ func (s *appState) setTurnActivity(activity string) {
 	s.turnActivity = activity
 }
 
+func (s *appState) setTurnThinking(thinking string) {
+	if s.runStopping && thinking != "" {
+		return
+	}
+	s.turnThinking = thinking
+}
+
 func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 	for _, event := range events {
 		if event.Sequence <= s.liveSequence {
@@ -861,6 +871,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 		s.liveSequence = event.Sequence
 		switch event.Kind {
 		case protocol.SessionEventRunStarted:
+			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventUserMessage:
 			if s.turnActivity == "" {
@@ -880,6 +891,11 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			}
 		case protocol.SessionEventAssistantStarted:
 			s.setTurnActivity("Working…")
+			if event.Text == "" {
+				s.setTurnThinking(event.Thinking)
+			} else {
+				s.setTurnThinking("")
+			}
 			s.liveAssistant = len(s.liveMessages)
 			s.liveContent = make(map[int]liveContentBlock)
 			if event.Thinking != "" {
@@ -903,14 +919,18 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.liveContent[event.ContentIndex] = block
 			s.syncLiveAssistant(index)
 			if event.Kind == protocol.SessionEventThinkingDelta {
+				s.setTurnThinking(s.liveMessages[index].Thinking)
 				s.setTurnActivity(latestThinkingLine(s.liveMessages[index].Thinking))
 			} else {
+				s.setTurnThinking("")
 				s.setTurnActivity("Working…")
 			}
 		case protocol.SessionEventAssistantCompleted:
 			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
-			if event.Text != "" || event.Thinking != "" {
+			if event.Text != "" {
 				s.liveMessages[index].Text = event.Text
+			}
+			if event.Thinking != "" {
 				s.liveMessages[index].Thinking = event.Thinking
 			}
 			s.liveMessages[index].Pending = false
@@ -919,8 +939,10 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			}
 			s.liveAssistant = -1
 			s.liveContent = make(map[int]liveContentBlock)
+			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventToolPlanned, protocol.SessionEventToolStarted:
+			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 			s.ensureLiveAssistantToolCall(event)
 			index := s.ensureLiveTool(event.TurnID, event.ToolCallID, event.ToolName)
@@ -933,6 +955,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.liveMessages[index].ToolStatus = "Running…"
 			}
 		case protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted:
+			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 			s.ensureLiveAssistantToolCall(event)
 			index := s.ensureLiveTool(event.TurnID, event.ToolCallID, event.ToolName)
@@ -969,6 +992,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				}
 			}
 			s.runStopping = false
+			s.setTurnThinking("")
 			s.setTurnActivity("")
 		}
 	}
@@ -1779,6 +1803,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		s.SetState(func() {
 			s.runStopping = true
 			s.turnActivity = "Stopping…"
+			s.turnThinking = ""
 			s.status = "esc abort · ctrl+c detach"
 		})
 		go func() {

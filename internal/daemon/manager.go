@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -244,6 +246,10 @@ func (m *Manager) launch(ctx context.Context) error {
 	if err := m.paths.Ensure(); err != nil {
 		return err
 	}
+	daemonExecutable, err := stageDaemonExecutable(executable, m.paths.ServerExecutable)
+	if err != nil {
+		return fmt.Errorf("stage daemon executable: %w", err)
+	}
 	logFile, err := os.OpenFile(m.paths.ServerLog, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("open daemon log: %w", err)
@@ -258,7 +264,7 @@ func (m *Manager) launch(ctx context.Context) error {
 	}
 	defer input.Close()
 
-	command := exec.Command(executable, "__daemon", "--home", m.paths.Home)
+	command := exec.Command(daemonExecutable, "__daemon", "--home", m.paths.Home)
 	command.Dir = m.paths.Home
 	command.Stdin = input
 	command.Stdout = logFile
@@ -274,6 +280,55 @@ func (m *Manager) launch(ctx context.Context) error {
 	// exits first, the detached session is adopted by the platform's process reaper.
 	go func() { _ = command.Wait() }()
 	return nil
+}
+
+func stageDaemonExecutable(source, destination string) (string, error) {
+	if filepath.Clean(source) == filepath.Clean(destination) {
+		return destination, nil
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return "", fmt.Errorf("open source: %w", err)
+	}
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil {
+		return "", fmt.Errorf("inspect source: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("source %q is not a regular file", source)
+	}
+
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".kit-daemon-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary executable: %w", err)
+	}
+	temporaryPath := temporary.Name()
+	closed := false
+	defer func() {
+		if !closed {
+			_ = temporary.Close()
+		}
+		_ = os.Remove(temporaryPath)
+	}()
+	if _, err := io.Copy(temporary, input); err != nil {
+		return "", fmt.Errorf("copy executable: %w", err)
+	}
+	if err := temporary.Chmod(0o700); err != nil {
+		return "", fmt.Errorf("protect executable: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		return "", fmt.Errorf("sync executable: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		closed = true
+		return "", fmt.Errorf("close executable: %w", err)
+	}
+	closed = true
+	if err := os.Rename(temporaryPath, destination); err != nil {
+		return "", fmt.Errorf("publish executable: %w", err)
+	}
+	return destination, nil
 }
 
 func compatible(registry Registry) error {

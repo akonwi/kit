@@ -42,20 +42,22 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 	paths := FromHome(home)
 
 	checks := map[string]string{
-		"database": filepath.Join(home, "kit.db"),
-		"auth":     filepath.Join(home, "auth.json"),
-		"settings": filepath.Join(home, "settings.json"),
-		"registry": filepath.Join(home, "run", "server.json"),
-		"token":    filepath.Join(home, "run", "server.token"),
-		"log":      filepath.Join(home, "logs", "server.log"),
+		"database":   filepath.Join(home, "kit.db"),
+		"auth":       filepath.Join(home, "auth.json"),
+		"settings":   filepath.Join(home, "settings.json"),
+		"executable": filepath.Join(home, "run", "kit-daemon"),
+		"registry":   filepath.Join(home, "run", "server.json"),
+		"token":      filepath.Join(home, "run", "server.token"),
+		"log":        filepath.Join(home, "logs", "server.log"),
 	}
 	actual := map[string]string{
-		"database": paths.Database,
-		"auth":     paths.Auth,
-		"settings": paths.Settings,
-		"registry": paths.ServerRegistry,
-		"token":    paths.ServerToken,
-		"log":      paths.ServerLog,
+		"database":   paths.Database,
+		"auth":       paths.Auth,
+		"settings":   paths.Settings,
+		"executable": paths.ServerExecutable,
+		"registry":   paths.ServerRegistry,
+		"token":      paths.ServerToken,
+		"log":        paths.ServerLog,
 	}
 	for name, want := range checks {
 		if got := actual[name]; got != want {

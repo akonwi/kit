@@ -66,28 +66,32 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
 		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "Inspect the file"},
 		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "Planning the inspection\nChecking retries"},
+		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "Planning the inspection\n**Checking retries**"},
 	})
-	if state.turnActivity != "Checking retries" {
-		t.Fatalf("thinking activity = %q, want latest line", state.turnActivity)
+	if state.turnActivity != "**Checking retries**" || state.turnThinking != "Planning the inspection\n**Checking retries**" {
+		t.Fatalf("thinking state = activity %q content %q", state.turnActivity, state.turnThinking)
 	}
 
 	const width, height = 80, 20
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, TurnActivity: state.turnActivity,
+		Phase: phaseReady, TurnActivity: state.turnActivity, TurnThinking: state.turnThinking,
 		Messages: append([]transcriptMessage(nil), state.liveMessages...), Scroll: &ui.ScrollController{},
 	}})
 	app.Pump(width, height)
 	rows := paintedRows(app, width, height)
 	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Checking retries" {
-		t.Fatalf("thinking slot = %q, want spinner and latest thinking", got)
+		t.Fatalf("thinking slot = %q, want Markdown-rendered latest thinking", got)
+	}
+	_, thinkingColumn := markdownCellPosition([]string{rows[height-5]}, "Checking retries")
+	if thinkingColumn < 0 || app.Cell(thinkingColumn, height-5).Attribute&ui.AttrBold == 0 {
+		t.Fatalf("thinking Markdown is not bold: %q", rows[height-5])
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "I’ll inspect it now."},
 	})
-	if state.turnActivity != "Working…" {
-		t.Fatalf("response activity = %q, want Working…", state.turnActivity)
+	if state.turnActivity != "Working…" || state.turnThinking != "" {
+		t.Fatalf("response state = activity %q thinking %q, want Working…", state.turnActivity, state.turnThinking)
 	}
 	app = uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, TurnActivity: state.turnActivity,
@@ -570,7 +574,7 @@ func TestWideActivityDividerSpansThinkingAndComposerRows(t *testing.T) {
 
 	const width, height = 140, 24
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1", selected: true,
 		turnActivity: "Thinking…",
 	}
 	app := uitest.New(activityHarness{State: state})
@@ -605,7 +609,7 @@ func TestWideActivityClipsPaneChromeInShortViewport(t *testing.T) {
 
 	const width, height = 140, 5
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", location: "~/kit-v2",
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1", location: "~/kit-v2",
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(width, height)
@@ -623,7 +627,7 @@ func TestWideActivityJunctionsTrackGrowingComposer(t *testing.T) {
 
 	const width, height = 140, 24
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1",
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1",
 		composer: "a\nb\nc",
 	}
 	app := uitest.New(activityHarness{State: state})
@@ -656,7 +660,7 @@ func TestActivityWorkspaceOpensBesideTranscriptAtWideWidths(t *testing.T) {
 	app.Click(4, chipRow)
 	app.Pump(width, height)
 	rows = paintedRows(app, width, height)
-	if state.sourceID != "turn-work:turn_1:call_1" || state.selected {
+	if state.sourceID != "turn-work:turn_1:assistant_1" || state.selected {
 		t.Fatalf("wide activity source = %q narrow-selection %v", state.sourceID, state.selected)
 	}
 	if findPaintedRow(rows, "Inspect README") < 0 || !strings.Contains(rows[2], "1 tool call · 1 step") {
@@ -713,7 +717,7 @@ func TestOpeningAnotherChipReplacesTheSingletonActivitySource(t *testing.T) {
 	app.Click(4, writeRow)
 	app.Pump(width, height)
 	rows = paintedRows(app, width, height)
-	if state.sourceID != "turn-work:turn_2:call_2" {
+	if state.sourceID != "turn-work:turn_2:assistant_3" {
 		t.Fatalf("replacement activity source = %q", state.sourceID)
 	}
 	if findPaintedRow(rows, "write notes.txt") < 0 {
@@ -750,7 +754,7 @@ func TestNarrowWorkspaceTabsMatchCanonicalStrip(t *testing.T) {
 
 	const width, height = 100, 22
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: false,
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1", selected: false,
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(width, height)
@@ -793,7 +797,7 @@ func TestActivityWorkspaceUsesLabeledTabsAtNarrowWidths(t *testing.T) {
 
 	const width, height = 100, 22
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1", selected: true,
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(width, height)
@@ -835,7 +839,7 @@ func TestComposerClickAfterWideningSelectsTranscript(t *testing.T) {
 
 	const height = 22
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1", selected: true,
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(100, height)
@@ -898,7 +902,7 @@ func TestActivityChipMouseRoutePreservesFocus(t *testing.T) {
 	chipRow = findPaintedRow(rows, "› 1 tool call read")
 	app.Click(4, chipRow)
 	app.Pump(width, height)
-	if state.sourceID != "turn-work:turn_1:call_1" || !state.selected {
+	if state.sourceID != "turn-work:turn_1:assistant_1" || !state.selected {
 		t.Fatalf("reopened Activity source = %q selected %v", state.sourceID, state.selected)
 	}
 	rows = paintedRows(app, width, height)
@@ -932,7 +936,7 @@ func TestExpandedBashActivityShowsSummaryAndFullCommand(t *testing.T) {
 		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "bash", ToolStatus: "Completed", Text: "done"},
 	}
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1",
 		expanded: map[activityToolKey]bool{key: true},
 	}
 	app := uitest.New(activityHarness{State: state})
@@ -955,7 +959,7 @@ func TestExpandedReadTransitionsFromLiveOutputToCodePresentation(t *testing.T) {
 			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"main.go"}`)}}},
 			{ID: "live-tool:call_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Running…", Text: "partial", Pending: true},
 		},
-		sourceID: "turn-work:turn_1:call_1", expanded: map[activityToolKey]bool{key: true},
+		sourceID: "turn-work:turn_1:assistant_1", expanded: map[activityToolKey]bool{key: true},
 	}
 	theme := ui.DefaultTheme()
 	app := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: activityHarness{State: state}})
@@ -998,7 +1002,7 @@ func TestExpandedWriteActivityShowsWrittenCode(t *testing.T) {
 		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "write", ToolStatus: "Completed", Text: "Wrote 3 lines to main.go"},
 	}
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1",
 		expanded: map[activityToolKey]bool{key: true},
 	}
 	app := uitest.New(activityHarness{State: state})
@@ -1021,7 +1025,7 @@ func TestExpandedEditActivityShowsSemanticUnifiedDiff(t *testing.T) {
 		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "edit", ToolStatus: "Completed", Text: "Applied 2 edits to main.go"},
 	}
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1",
 		expanded: map[activityToolKey]bool{key: true},
 	}
 	theme := ui.DefaultTheme()
@@ -1066,7 +1070,7 @@ func TestExpandedEditActivityShowsEditCountWhenDiffOverflows(t *testing.T) {
 			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "edit", Arguments: arguments}}},
 			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "edit", ToolStatus: "Completed", Text: "Applied 1 edit to main.go"},
 		},
-		sourceID: "turn-work:turn_1:call_1", expanded: map[activityToolKey]bool{key: true},
+		sourceID: "turn-work:turn_1:assistant_1", expanded: map[activityToolKey]bool{key: true},
 	}
 	app := uitest.New(activityHarness{State: state})
 	for range 3 {
@@ -1096,7 +1100,7 @@ func TestOversizedEditActivityShowsFallbackDetail(t *testing.T) {
 			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "edit", Arguments: arguments}}},
 			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "edit", ToolStatus: "Completed"},
 		},
-		sourceID: "turn-work:turn_1:call_1", expanded: map[activityToolKey]bool{key: true},
+		sourceID: "turn-work:turn_1:assistant_1", expanded: map[activityToolKey]bool{key: true},
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(140, 24)
@@ -1117,7 +1121,7 @@ func TestExpandedActivityOutputWellShowsFourteenRowsAndLineCount(t *testing.T) {
 	messages[2].Text = strings.Join(lines, "\n")
 	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1",
 		expanded: map[activityToolKey]bool{key: true},
 	}
 	theme := ui.DefaultTheme()
@@ -1152,7 +1156,7 @@ func TestActivityAbortPreservesCompletedToolsAndMarksMissingCalls(t *testing.T) 
 	})
 	messages[2].Text = strings.Join(lines, "\n")
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1",
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1",
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(140, 40)
@@ -1180,7 +1184,7 @@ func TestRunAbortTakesPrecedenceOverClosingActivity(t *testing.T) {
 		return shellView{
 			Snapshot: shellSnapshot{
 				Phase: phaseReady, Running: running, Messages: activityHarnessMessages(),
-				ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+				ActivitySourceID: "turn-work:turn_1:assistant_1", ActivitySelected: true,
 				Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
 			},
 			Callbacks: shellCallbacks{
@@ -1228,7 +1232,7 @@ func TestActivityRendersStableAssistantSections(t *testing.T) {
 		{ID: "result_2", TurnID: "turn_1", Role: "tool", ToolCallID: "call_2", ToolName: "grep", ToolStatus: "Completed"},
 	}
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Messages: messages, ActivitySourceID: "turn-work:turn_1:call_1",
+		Phase: phaseReady, Messages: messages, ActivitySourceID: "turn-work:turn_1:assistant_1",
 		Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
 	}})
 	app.Pump(140, 24)
@@ -1258,7 +1262,7 @@ func TestActivityExpansionRevealsDetailAfterUpdatedLayout(t *testing.T) {
 	messages = append([]transcriptMessage{{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: calls}}, messages...)
 	messages[len(messages)-1].Text = "target output 01\ntarget output 02\ntarget output 03"
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_01", selected: true, cursor: target,
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1", selected: true, cursor: target,
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(100, 22)
@@ -1295,7 +1299,7 @@ func TestActivityCursorRevealsRowsPastExpandedOutput(t *testing.T) {
 	first := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
 	second := activityToolKey{TurnID: "turn_1", ToolCallID: "call_2"}
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1", selected: true, cursor: first,
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1", selected: true, cursor: first,
 		expanded: map[activityToolKey]bool{first: true},
 	}
 	app := uitest.New(activityHarness{State: state})
@@ -1319,7 +1323,7 @@ func TestWideWorkspaceDoesNotCaptureNarrowActivityRowKeys(t *testing.T) {
 	app := uitest.New(shellView{
 		Snapshot: shellSnapshot{
 			Phase: phaseReady, Messages: activityHarnessMessages(), Composer: "draft",
-			ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true, ActivityCursor: key,
+			ActivitySourceID: "turn-work:turn_1:assistant_1", ActivitySelected: true, ActivityCursor: key,
 			WorkspaceLayout: &layout, Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
 		},
 		Callbacks: shellCallbacks{
@@ -1351,7 +1355,7 @@ func TestNarrowActivityKeyboardMovesAndTogglesRows(t *testing.T) {
 	first := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
 	second := activityToolKey{TurnID: "turn_1", ToolCallID: "call_2"}
 	state := &activityHarnessState{
-		messages: messages, sourceID: "turn-work:turn_1:call_1", selected: true, cursor: first,
+		messages: messages, sourceID: "turn-work:turn_1:assistant_1", selected: true, cursor: first,
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(100, 22)
@@ -1387,7 +1391,7 @@ func TestActivityToolRowsRenderLifecycleGlyphs(t *testing.T) {
 		{ID: "failed", TurnID: "turn_1", Role: "tool", ToolCallID: "call_failed", ToolName: "edit", ToolStatus: "Failed", Text: "edit failed", IsError: true},
 	}
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Messages: messages, ActivitySourceID: "turn-work:turn_1:call_pending",
+		Phase: phaseReady, Messages: messages, ActivitySourceID: "turn-work:turn_1:assistant_1",
 		Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
 	}})
 	app.Pump(140, 24)
@@ -1412,7 +1416,7 @@ func TestActivityUsesSpinnerForPlannedTools(t *testing.T) {
 	messages[2].ToolStatus = "Planned"
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Messages: messages,
-		ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+		ActivitySourceID: "turn-work:turn_1:assistant_1", ActivitySelected: true,
 		Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
 	}})
 	app.Pump(140, 20)
@@ -1429,7 +1433,7 @@ func TestActivityPageKeysUseKeyboardScrollRoute(t *testing.T) {
 	app := uitest.New(shellView{
 		Snapshot: shellSnapshot{
 			Phase: phaseReady, Messages: activityHarnessMessages(),
-			ActivitySourceID: "turn-work:turn_1:call_1", ActivitySelected: true,
+			ActivitySourceID: "turn-work:turn_1:assistant_1", ActivitySelected: true,
 			Scroll: &ui.ScrollController{}, ActivityScroll: &ui.ScrollController{},
 		},
 		Callbacks: shellCallbacks{ScrollActivity: func(_ ui.EventContext, delta int) { pages += delta }},
@@ -1476,7 +1480,7 @@ func TestWorkspaceSwitchesAt125Columns(t *testing.T) {
 	t.Parallel()
 
 	state := &activityHarnessState{
-		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:assistant_1", selected: true,
 	}
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(125, 20)
@@ -1627,6 +1631,26 @@ func TestSafeHTTPSHyperlinkRejectsUnsafeTargets(t *testing.T) {
 	for _, raw := range []string{"http://example.test/device", "https://user@example.test/device", "https://example.test/\nunsafe", "not a URL"} {
 		if got := safeHTTPSHyperlink(raw); got != "" {
 			t.Errorf("safeHTTPSHyperlink(%q) = %q, want empty", raw, got)
+		}
+	}
+}
+
+func TestSafeExternalHyperlinkAllowsOnlyNavigablePublicSchemes(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{
+		"https://example.test/docs", "http://example.test/docs", "mailto:hello@example.test",
+	} {
+		if got := safeExternalHyperlink(raw); got != raw {
+			t.Errorf("safeExternalHyperlink(%q) = %q", raw, got)
+		}
+	}
+	for _, raw := range []string{
+		"file:///tmp/private", "javascript:alert(1)", "https://user@example.test/docs",
+		"https://example.test/\u009bunsafe", "https://example.test/\u202eunsafe",
+		"https://example.test/\x9c\x9b2J", "not a URL",
+	} {
+		if got := safeExternalHyperlink(raw); got != "" {
+			t.Errorf("safeExternalHyperlink(%q) = %q, want empty", raw, got)
 		}
 	}
 }

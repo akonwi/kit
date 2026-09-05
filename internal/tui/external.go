@@ -7,15 +7,16 @@ import (
 )
 
 func openExternalURL(raw string) error {
-	if safeHTTPSHyperlink(raw) == "" {
+	safe := safeExternalHyperlink(raw)
+	if safe == "" {
 		return fmt.Errorf("refusing to open an unsafe URL")
 	}
 	var command *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		command = exec.Command("open", raw)
+		command = exec.Command("open", safe)
 	case "linux":
-		command = exec.Command("xdg-open", raw)
+		command = exec.Command("xdg-open", safe)
 	default:
 		return fmt.Errorf("opening URLs is unsupported on %s", runtime.GOOS)
 	}

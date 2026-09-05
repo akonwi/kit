@@ -101,7 +101,7 @@ func TestPendingActivityFollowUsesLatestCompletedLayout(t *testing.T) {
 	layout := workspaceLayoutState{Wide: true}
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Messages: messages, Scroll: &state.scroll,
-		ActivitySourceID: "turn-work:turn_1:call_0", ActivityScroll: &state.activityScroll,
+		ActivitySourceID: "turn-work:turn_1:assistant_1", ActivityScroll: &state.activityScroll,
 		ActivityList: &state.activityList, WorkspaceLayout: &layout,
 	}})
 	app.Pump(140, 16)
@@ -140,18 +140,18 @@ func TestSnapshotPreservesExpandedActivityForStableToolCall(t *testing.T) {
 
 	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
 	state := appState{
-		activitySourceID: "turn-work:turn_1:call_1",
+		activitySourceID: "turn-work:turn_1:assistant_1",
 		activityExpanded: map[activityToolKey]bool{key: true},
 	}
 	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{
-		{ID: "assistant_persisted", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{{
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{{
 			Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`,
 		}}},
 		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{
 			Kind: protocol.TranscriptContentText, Text: "contents",
 		}}},
 	}})
-	if state.activitySourceID != "turn-work:turn_1:call_1" || !state.activityExpanded[key] {
+	if state.activitySourceID != "turn-work:turn_1:assistant_1" || !state.activityExpanded[key] {
 		t.Fatalf("stable Activity reconciliation = source %q expanded %+v", state.activitySourceID, state.activityExpanded)
 	}
 }
@@ -159,13 +159,51 @@ func TestSnapshotPreservesExpandedActivityForStableToolCall(t *testing.T) {
 func TestSnapshotClosesActivityWhenItsSourceDisappears(t *testing.T) {
 	t.Parallel()
 
-	state := appState{activitySourceID: "turn-work:turn_1:call_1", activitySelected: true}
+	state := appState{activitySourceID: "turn-work:turn_1:assistant_1", activitySelected: true}
 	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{{
 		ID: "user_1", TurnID: "turn_1", Role: "user",
 		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "hello"}},
 	}}})
 	if state.activitySourceID != "" || state.activitySelected {
 		t.Fatalf("vanished Activity source remained open: %q selected %v", state.activitySourceID, state.activitySelected)
+	}
+}
+
+func TestAssistantStartedSurfacesInitialThinkingContent(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted, Thinking: "**Considering options**"},
+	})
+	if state.turnThinking != "**Considering options**" || len(state.liveMessages) != 1 || state.liveMessages[0].Thinking != "**Considering options**" {
+		t.Fatalf("initial thinking state = content %q messages %+v", state.turnThinking, state.liveMessages)
+	}
+}
+
+func TestAssistantCompletionPreservesUnspecifiedAccumulatedChannels(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 2, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "reasoning"},
+		{Sequence: 3, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "partial response"},
+		{Sequence: 4, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantCompleted, Text: "final response"},
+	})
+	if len(state.liveMessages) != 1 || state.liveMessages[0].Text != "final response" || state.liveMessages[0].Thinking != "reasoning" {
+		t.Fatalf("text-only completion = %+v", state.liveMessages)
+	}
+
+	state = appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 2, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "response"},
+		{Sequence: 3, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 1, Delta: "partial reasoning"},
+		{Sequence: 4, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventAssistantCompleted, Thinking: "final reasoning"},
+	})
+	if len(state.liveMessages) != 1 || state.liveMessages[0].Text != "response" || state.liveMessages[0].Thinking != "final reasoning" {
+		t.Fatalf("thinking-only completion = %+v", state.liveMessages)
 	}
 }
 
