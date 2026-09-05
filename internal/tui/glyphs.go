@@ -10,4 +10,6 @@ const (
 	glyphTeeLeft       = "┤"
 	glyphTeeRight      = "├"
 	glyphCrossJunction = "┼"
+	glyphTriangleRight = "▸"
+	glyphTriangleDown  = "▾"
 )

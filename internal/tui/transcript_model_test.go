@@ -114,6 +114,69 @@ func TestGroupTranscriptDisplayItemsKeepsWorkIdentityStableAcrossCompletion(t *t
 	}
 }
 
+func TestBuildActivitySectionsPreservesAssistantBoundariesAndStableIDs(t *testing.T) {
+	t.Parallel()
+
+	source := transcriptDisplayItem{Kind: transcriptDisplayTurnWork, TurnID: "turn_1", Items: []turnTranscriptItem{
+		{Kind: transcriptItemAssistant, ID: "assistant_1", TurnID: "turn_1", Message: transcriptMessageWithContent(
+			"assistant_1", "turn_1", "assistant", textBlock("First step"), toolCallBlock("call_1", "read", `{"path":"README.md"}`),
+		)},
+		{Kind: transcriptItemAssistant, ID: "assistant_2", TurnID: "turn_1", Message: transcriptMessageWithContent(
+			"assistant_2", "turn_1", "assistant", toolCallBlock("call_2", "grep", `{"pattern":"TODO"}`),
+		)},
+	}}
+	sections := buildActivitySections(source)
+	if len(sections) != 2 {
+		t.Fatalf("activity sections = %+v, want 2", sections)
+	}
+	if sections[0].ID != "activity-section:turn_1:call_1" || sections[0].Prose != "First step" || len(sections[0].Calls) != 1 {
+		t.Fatalf("first activity section = %+v", sections[0])
+	}
+	if sections[1].ID != "activity-section:turn_1:call_2" || sections[1].Calls[0].Name != "grep" {
+		t.Fatalf("second activity section = %+v", sections[1])
+	}
+}
+
+func TestMoveActivityToolCursorClampsAtListEdges(t *testing.T) {
+	t.Parallel()
+
+	keys := []activityToolKey{{ToolCallID: "one"}, {ToolCallID: "two"}}
+	if got := moveActivityToolCursor(keys, keys[0], -1); got != keys[0] {
+		t.Fatalf("cursor before first = %+v", got)
+	}
+	if got := moveActivityToolCursor(keys, keys[1], 1); got != keys[1] {
+		t.Fatalf("cursor after last = %+v", got)
+	}
+}
+
+func TestResolveActivityToolState(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		state   transcriptMessage
+		exists  bool
+		aborted bool
+		want    activityToolState
+	}{
+		{name: "pending", want: activityToolPending},
+		{name: "planned", state: transcriptMessage{Pending: true, ToolStatus: "Planned"}, exists: true, want: activityToolPending},
+		{name: "running", state: transcriptMessage{Pending: true, ToolStatus: "Running…"}, exists: true, want: activityToolRunning},
+		{name: "success", state: transcriptMessage{ToolStatus: "Completed"}, exists: true, want: activityToolSucceeded},
+		{name: "failed", state: transcriptMessage{ToolStatus: "Failed", IsError: true}, exists: true, want: activityToolFailed},
+		{name: "completed before abort", state: transcriptMessage{ToolStatus: "Completed"}, exists: true, aborted: true, want: activityToolSucceeded},
+		{name: "missing after abort", aborted: true, want: activityToolAborted},
+		{name: "not run", state: transcriptMessage{ToolStatus: "Not run"}, exists: true, want: activityToolAborted},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := resolveActivityToolState(test.state, test.exists, test.aborted); got != test.want {
+				t.Fatalf("activity state = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
 func TestPresentationScopesRepeatedToolCallIDsByTurn(t *testing.T) {
 	t.Parallel()
 
@@ -146,10 +209,17 @@ func TestLocalActivitySourceIdentitySurvivesSnapshotReconciliation(t *testing.T)
 		}}},
 		{ID: "persisted-result", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Completed"},
 	}
-	liveSource := presentTranscript(live).Items[0].ID
-	historicalSource := presentTranscript(historical).Items[0].ID
+	livePresentation := presentTranscript(live)
+	historicalPresentation := presentTranscript(historical)
+	liveSource := livePresentation.Items[0].ID
+	historicalSource := historicalPresentation.Items[0].ID
 	if liveSource != "turn-work:turn_1:call_1" || historicalSource != liveSource {
 		t.Fatalf("activity source changed from %q to %q", liveSource, historicalSource)
+	}
+	liveSections := buildActivitySections(livePresentation.Items[0])
+	historicalSections := buildActivitySections(historicalPresentation.Items[0])
+	if len(liveSections) != 1 || len(historicalSections) != 1 || liveSections[0].ID != historicalSections[0].ID {
+		t.Fatalf("activity section identity changed: live %+v historical %+v", liveSections, historicalSections)
 	}
 }
 
@@ -202,6 +272,11 @@ func TestToolPresentationHelpersMatchMainRules(t *testing.T) {
 	}
 	if got := formatToolArguments(read, false); got != "/tmp/file" {
 		t.Fatalf("read argument = %q", got)
+	}
+	longPath := "/tmp/" + strings.Repeat("nested/", 20) + "file.go"
+	longRead := transcriptToolCall{ID: "read_2", Name: "read", Arguments: json.RawMessage(`{"path":"` + longPath + `"}`)}
+	if got := activityToolArgument(longRead); got != longPath {
+		t.Fatalf("full Activity argument = %q, want %q", got, longPath)
 	}
 
 	subagent := transcriptToolCall{ID: "agent_1", Name: "subagent", Arguments: json.RawMessage(`{"action":"run","agent":"reviewer","message":"inspect changes"}`)}

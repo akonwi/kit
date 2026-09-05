@@ -34,11 +34,14 @@ type shellSnapshot struct {
 	ContextWindow     int
 	Scroll            *ui.ScrollController
 	ActivityScroll    *ui.ScrollController
+	ActivityList      *activityListController
 	ActivityFocus     *ui.FocusNode
 	WorkspaceLayout   *workspaceLayoutState
 	ActivitySourceID  string
 	ActivitySelected  bool
 	HoveredActivityID string
+	ActivityExpanded  map[activityToolKey]bool
+	ActivityCursor    activityToolKey
 	Instructions      auth.OpenAICodexDeviceInstructions
 	Remaining         time.Duration
 	Location          string
@@ -62,6 +65,9 @@ type shellCallbacks struct {
 	ShowActivity          ui.VoidCallback
 	CloseActivity         ui.VoidCallback
 	ScrollActivity        func(ui.EventContext, int)
+	ToggleActivityTool    func(ui.EventContext, activityToolKey)
+	SelectActivityTool    func(ui.EventContext, activityToolKey)
+	MoveActivityTool      func(ui.EventContext, int)
 	ComposerChanged       ui.TextChangedCallback
 	OpenPalette           ui.VoidCallback
 	PaletteQueryChanged   ui.TextChangedCallback
@@ -104,6 +110,14 @@ type scrollActivityIntent struct{ Pages int }
 
 func (scrollActivityIntent) IntentType() ui.IntentType { return "kit.activity.scroll" }
 
+type moveActivityToolIntent struct{ Delta int }
+
+func (moveActivityToolIntent) IntentType() ui.IntentType { return "kit.activity.move-tool" }
+
+type toggleActivityToolIntent struct{}
+
+func (toggleActivityToolIntent) IntentType() ui.IntentType { return "kit.activity.toggle-tool" }
+
 type movePaletteIntent struct{ Delta int }
 
 func (movePaletteIntent) IntentType() ui.IntentType { return "kit.command-palette.move" }
@@ -131,6 +145,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	root := ui.Widget(ui.Overlay{Child: content, Entries: overlays})
 
+	workspaceWide := w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide
 	actions := map[ui.IntentType]ui.ActionFunc{
 		quitIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if w.Callbacks.Quit != nil {
@@ -139,13 +154,13 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		},
 		ui.NextFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.ActivitySourceID == "" {
+			if w.Snapshot.ActivitySourceID == "" || workspaceWide || w.Snapshot.ActivitySelected {
 				ctx.FocusNext()
 			}
 			return ui.EventHandled
 		},
 		ui.PreviousFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.ActivitySourceID == "" {
+			if w.Snapshot.ActivitySourceID == "" || workspaceWide || w.Snapshot.ActivitySelected {
 				ctx.FocusPrevious()
 			}
 			return ui.EventHandled
@@ -163,7 +178,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 	}
-	activityKeyboardActive := w.Snapshot.ActivitySelected || w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide
+	activityKeyboardActive := w.Snapshot.ActivitySelected || workspaceWide
 	if w.Snapshot.ActivitySourceID != "" && activityKeyboardActive {
 		shortcuts["Page_Up"] = scrollActivityIntent{Pages: -1}
 		shortcuts["Page_Down"] = scrollActivityIntent{Pages: 1}
@@ -172,6 +187,23 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				w.Callbacks.ScrollActivity(ctx, intent.(scrollActivityIntent).Pages)
 			}
 			return ui.EventHandled
+		}
+		if w.Snapshot.ActivitySelected && !workspaceWide && !w.Snapshot.PaletteOpen {
+			shortcuts["Up"] = moveActivityToolIntent{Delta: -1}
+			shortcuts["Down"] = moveActivityToolIntent{Delta: 1}
+			shortcuts["Enter"] = toggleActivityToolIntent{}
+			actions[moveActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+				if w.Callbacks.MoveActivityTool != nil {
+					w.Callbacks.MoveActivityTool(ctx, intent.(moveActivityToolIntent).Delta)
+				}
+				return ui.EventHandled
+			}
+			actions[toggleActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+				if w.Callbacks.ToggleActivityTool != nil && w.Snapshot.ActivityCursor.ToolCallID != "" {
+					w.Callbacks.ToggleActivityTool(ctx, w.Snapshot.ActivityCursor)
+				}
+				return ui.EventHandled
+			}
 		}
 	}
 	if w.Snapshot.PaletteOpen {
@@ -261,6 +293,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			Activity: workspaceSelectionGate{
 				LayoutState: w.Snapshot.WorkspaceLayout, Activity: true,
 				Child: ui.FocusScope{
+					Trap:      activityOpen && !workspaceWide && w.Snapshot.ActivitySelected,
 					AutoFocus: activityOpen && !workspaceWide && w.Snapshot.ActivitySelected,
 					Child:     activityPane,
 				},
@@ -452,136 +485,6 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 	}}
 }
 
-func (w shellView) activityPane(theme ui.Theme) ui.Widget {
-	presentation := w.presentation
-	source, ok := transcriptActivitySource(presentation.Items, w.Snapshot.ActivitySourceID)
-	if !ok {
-		return ui.Center(ui.Text{Value: "No activity to display", Style: ui.Style{Foreground: theme.MutedForeground}})
-	}
-	calls := displayItemToolCalls(source)
-	metadata := fmt.Sprintf("%d tool calls %s %d steps", len(calls), glyphMiddleDot, len(source.Items))
-	if len(calls) == 1 {
-		metadata = fmt.Sprintf("1 tool call %s %d steps", glyphMiddleDot, len(source.Items))
-	}
-	if len(source.Items) == 1 {
-		metadata = strings.TrimSuffix(metadata, "1 steps") + "1 step"
-	}
-	rows := make([]ui.Widget, 0, len(calls)*2)
-	sourceAborted := false
-	for _, item := range source.Items {
-		sourceAborted = sourceAborted || item.Aborted
-	}
-	for index, call := range calls {
-		if index > 0 {
-			rows = append(rows, ui.SizedBox{Height: 1})
-		}
-		state, exists := presentation.ToolStates[transcriptToolStateKey{TurnID: source.TurnID, ToolCallID: call.ID}]
-		rows = append(rows, activityToolEntry(theme, call, state, exists, sourceAborted))
-	}
-	if len(rows) == 0 {
-		rows = append(rows, ui.Text{Value: "No tool calls in this step", Style: ui.Style{Foreground: theme.MutedForeground}})
-	}
-	body := ui.Scrollbar{Child: ui.ScrollView{
-		Controller: w.Snapshot.ActivityScroll,
-		Child:      ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}),
-	}}
-	hint := "page up/down scroll " + glyphMiddleDot + " esc close"
-	if w.Snapshot.Running {
-		hint = "page up/down scroll " + glyphMiddleDot + " esc abort"
-	}
-	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			ui.Expanded(ui.Text{Value: metadata, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1}),
-			workspaceWideOnly{LayoutState: w.Snapshot.WorkspaceLayout, Child: mouseActivator{
-				OnPressed: w.Callbacks.CloseActivity, Child: ui.Text{
-					Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground},
-				},
-			}},
-		}})},
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
-		ui.Expanded(body),
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
-		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
-			Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
-		})},
-	}}
-}
-
-func activityToolEntry(theme ui.Theme, call transcriptToolCall, state transcriptMessage, exists, sourceAborted bool) ui.Widget {
-	glyph := glyphChevronRight
-	style := ui.Style{Foreground: theme.MutedForeground}
-	switch {
-	case !exists && sourceAborted:
-		glyph = glyphCircleSlash
-	case exists && state.IsError:
-		glyph, style.Foreground = glyphCross, theme.DangerText
-	case exists && (state.ToolStatus == "Not run" || state.Aborted):
-		glyph = glyphCircleSlash
-	case exists && !state.Pending:
-		glyph, style.Foreground = glyphCheck, theme.SuccessText
-	}
-	argument := formatToolArguments(call, false)
-	if call.Name == "bash" && argument != "" {
-		argument = presentBashCommand(argument).Text
-	}
-	label := toolDisplayName(call)
-	if argument != "" {
-		label += "  " + argument
-	}
-	children := []ui.Widget{ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-		ui.Text{Value: glyph, Style: style}, ui.SizedBox{Width: 1},
-		ui.Expanded(ui.Text{Value: label, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-	}}}
-	if exists {
-		output := state.Text
-		if state.ToolDetailsOmitted {
-			output = appendToolNotice(output, "… tool details omitted")
-		}
-		if output != "" {
-			preview, lineCount, truncated := activityOutputPreview(output)
-			children = append(children, ui.SizedBox{Height: min(14, lineCount), Child: ui.DecoratedBox(
-				ui.Decoration{Style: ui.Style{Background: theme.Surface}},
-				ui.Padding(ui.Symmetric(1, 0), ui.Text{
-					Value: preview, Style: ui.Style{Foreground: theme.MutedForeground},
-					Overflow: ui.TextOverflowEllipsis, MaxLines: 14,
-				}),
-			)})
-			if truncated {
-				unit := "lines"
-				if lineCount == 1 {
-					unit = "line"
-				}
-				children = append(children, ui.Text{
-					Value: fmt.Sprintf("%d %s %s preview truncated", lineCount, unit, glyphMiddleDot),
-					Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
-				})
-			}
-		}
-	}
-	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
-}
-
-func activityOutputPreview(output string) (string, int, bool) {
-	const (
-		maxLines     = 14
-		maxLineRunes = 240
-	)
-	lines := strings.Split(output, "\n")
-	lineCount := len(lines)
-	truncated := lineCount > maxLines
-	visible := min(maxLines, lineCount)
-	preview := make([]string, visible)
-	for index, line := range lines[:visible] {
-		if len([]rune(line)) > maxLineRunes {
-			preview[index] = truncateRunes(line, maxLineRunes-1) + "…"
-			truncated = true
-		} else {
-			preview[index] = line
-		}
-	}
-	return strings.Join(preview, "\n"), lineCount, truncated
-}
-
 func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
 	children := []ui.Widget(nil)
 	if w.Snapshot.TurnActivity != "" {
@@ -611,7 +514,11 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		OnSubmitted: w.Callbacks.Submit,
 		OpenPalette: w.Callbacks.OpenPalette,
 	}
-	return ui.Provider[ui.Theme]{Value: composerTheme, Child: composer}
+	content := ui.Widget(ui.Provider[ui.Theme]{Value: composerTheme, Child: composer})
+	if w.Snapshot.ActivitySelected {
+		content = mouseActivator{Child: content, OnPrimaryDownCapture: w.Callbacks.ShowTranscript}
+	}
+	return content
 }
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {

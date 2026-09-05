@@ -155,6 +155,49 @@ func TestCoordinatorDoesNotReplaceIncompatibleDaemon(t *testing.T) {
 	}
 }
 
+func TestCoordinatorReplacesOlderIncompatibleDaemonUnderStartupLock(t *testing.T) {
+	t.Parallel()
+
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	var shutdowns atomic.Int32
+	var launches atomic.Int32
+	var old atomic.Bool
+	var ready atomic.Bool
+	old.Store(true)
+	coordinator := Coordinator{
+		Paths: paths,
+		Probe: func(context.Context) (Registry, error) {
+			if old.Load() {
+				return Registry{ProtocolVersion: 5, InstanceID: "old"}, fmt.Errorf("%w: old protocol", ErrIncompatibleDaemon)
+			}
+			if ready.Load() {
+				return Registry{ProtocolVersion: 6, InstanceID: "new"}, nil
+			}
+			return Registry{}, errors.New("not ready")
+		},
+		Shutdown: func(context.Context) error {
+			shutdowns.Add(1)
+			old.Store(false)
+			return nil
+		},
+		CanReplace: func(registry Registry) bool { return registry.ProtocolVersion < 6 },
+		Launch: func(context.Context) error {
+			launches.Add(1)
+			ready.Store(true)
+			return nil
+		},
+		PollInterval: 5 * time.Millisecond,
+		StartTimeout: time.Second,
+	}
+	registry, err := coordinator.Ensure(context.Background())
+	if err != nil {
+		t.Fatalf("Ensure() error = %v", err)
+	}
+	if registry.InstanceID != "new" || shutdowns.Load() != 1 || launches.Load() != 1 {
+		t.Fatalf("replacement = registry %+v shutdowns %d launches %d", registry, shutdowns.Load(), launches.Load())
+	}
+}
+
 func TestCoordinatorHonorsCancellationWhileWaitingForLock(t *testing.T) {
 	t.Parallel()
 

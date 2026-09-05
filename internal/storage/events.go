@@ -221,6 +221,7 @@ func (s *Store) ListSessionEvents(ctx context.Context, sessionID string, after i
 		if err := decoder.Decode(&payload); err != nil {
 			return kitsession.EventPage{}, fmt.Errorf("decode session event %d: %w", sequence, err)
 		}
+		normalizeLegacySessionEvent(kind, &payload)
 		event := kitsession.Event{NewEvent: kitsession.NewEvent{
 			SessionID: sessionID, TurnID: payload.TurnID, RunID: payload.RunID, MessageID: payload.MessageID, Kind: kind,
 			ContentIndex: payload.ContentIndex, Delta: payload.Delta, Text: payload.Text,
@@ -247,4 +248,35 @@ func (s *Store) ListSessionEvents(ctx context.Context, sessionID string, after i
 		return kitsession.EventPage{}, fmt.Errorf("commit session event read: %w", err)
 	}
 	return page, nil
+}
+
+// normalizeLegacySessionEvent upgrades retained live events written before
+// assistant identities and bounded tool arguments became mandatory. Session
+// events are replay hints; the durable transcript remains authoritative.
+func normalizeLegacySessionEvent(kind kitsession.EventKind, payload *sessionEventPayload) {
+	if payload == nil {
+		return
+	}
+	switch kind {
+	case kitsession.EventAssistantStarted,
+		kitsession.EventAssistantTextDelta,
+		kitsession.EventThinkingDelta,
+		kitsession.EventAssistantCompleted,
+		kitsession.EventToolPlanned:
+		if payload.MessageID == "" && payload.RunID != "" {
+			payload.MessageID = "legacy-assistant:" + payload.RunID
+		}
+	}
+	if (kind == kitsession.EventToolPlanned || kind == kitsession.EventToolStarted) &&
+		payload.Arguments == "" && !payload.ArgumentsTruncated {
+		payload.ArgumentsTruncated = true
+	}
+	if (kind == kitsession.EventToolUpdated || kind == kitsession.EventToolCompleted) && payload.Text != "" {
+		if len(payload.Content) == 0 {
+			payload.Content = []kitsession.TranscriptContent{{
+				Kind: kitsession.TranscriptContentText, Text: payload.Text,
+			}}
+		}
+		payload.Text = ""
+	}
 }

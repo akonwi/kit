@@ -45,6 +45,74 @@ func TestSessionEventRetentionReportsAnExpiredCursor(t *testing.T) {
 	}
 }
 
+func TestSessionEventReplayNormalizesLegacyAssistantAndToolFields(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	defer store.Close()
+	created, err := store.CreateSession(ctx, NewSession{
+		ID: "session-legacy-events", CWD: "/workspace", Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	})
+	if err != nil {
+		t.Fatalf("CreateSession() error = %v", err)
+	}
+	started, err := store.AppendSessionEvents(ctx, []kitsession.NewEvent{{
+		SessionID: created.ID, TurnID: "turn-1", RunID: "run-1",
+		Kind: kitsession.EventRunStarted, Status: kitsession.RunStatusRunning,
+	}})
+	if err != nil {
+		t.Fatalf("AppendSessionEvents() error = %v", err)
+	}
+	legacy := []struct {
+		sequence int
+		kind     kitsession.EventKind
+		payload  string
+	}{
+		{2, kitsession.EventAssistantStarted, `{"turnId":"turn-1","runId":"run-1"}`},
+		{3, kitsession.EventToolPlanned, `{"turnId":"turn-1","runId":"run-1","toolCallId":"call-1","toolName":"read"}`},
+		{4, kitsession.EventAssistantCompleted, `{"turnId":"turn-1","runId":"run-1"}`},
+		{5, kitsession.EventToolStarted, `{"turnId":"turn-1","runId":"run-1","toolCallId":"call-1","toolName":"read"}`},
+		{6, kitsession.EventToolCompleted, `{"turnId":"turn-1","runId":"run-1","toolCallId":"call-1","toolName":"read","text":"contents"}`},
+	}
+	for _, event := range legacy {
+		if _, err := store.db.ExecContext(ctx, `
+			INSERT INTO session_events(session_id, stream_id, sequence, kind, payload_json, created_at)
+			VALUES (?, ?, ?, ?, ?, ?)
+		`, created.ID, started[0].StreamID, event.sequence, event.kind, event.payload, "2026-01-01T00:00:00Z"); err != nil {
+			t.Fatalf("insert legacy event %d: %v", event.sequence, err)
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE session_streams SET next_sequence = 7 WHERE session_id = ?`, created.ID); err != nil {
+		t.Fatalf("advance legacy stream: %v", err)
+	}
+
+	page, err := store.ListSessionEvents(ctx, created.ID, 0, 32)
+	if err != nil {
+		t.Fatalf("ListSessionEvents() legacy replay error = %v", err)
+	}
+	if len(page.Events) != 6 {
+		t.Fatalf("legacy replay events = %+v", page.Events)
+	}
+	for _, index := range []int{1, 2, 3} {
+		if page.Events[index].MessageID != "legacy-assistant:run-1" {
+			t.Errorf("legacy event %d message id = %q", index, page.Events[index].MessageID)
+		}
+	}
+	for _, index := range []int{2, 4} {
+		if !page.Events[index].ArgumentsTruncated || page.Events[index].Arguments != "" {
+			t.Errorf("legacy tool event %d arguments = %q truncated %v", index, page.Events[index].Arguments, page.Events[index].ArgumentsTruncated)
+		}
+	}
+	if completed := page.Events[5]; completed.Text != "" || len(completed.Content) != 1 || completed.Content[0].Text != "contents" {
+		t.Fatalf("legacy tool completion = %+v", completed)
+	}
+}
+
 func TestSessionEventsReceiveContiguousDurableSequences(t *testing.T) {
 	t.Parallel()
 

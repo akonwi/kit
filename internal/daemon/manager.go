@@ -43,11 +43,15 @@ func (m *Manager) Ensure(ctx context.Context) (Registry, error) {
 				return Registry{}, err
 			}
 			if err := compatible(registry); err != nil {
-				return Registry{}, err
+				return registry, err
 			}
 			return registry, nil
 		},
-		Launch:       m.launch,
+		Launch:   m.launch,
+		Shutdown: m.client.Stop,
+		CanReplace: func(registry Registry) bool {
+			return registry.ProtocolVersion < version.SessionProtocolVersion
+		},
 		PollInterval: 50 * time.Millisecond,
 		StartTimeout: 10 * time.Second,
 	}

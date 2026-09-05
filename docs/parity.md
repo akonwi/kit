@@ -161,9 +161,10 @@ recorded manual verification exists.
   user overrides remain.
 - [~] Transcript with selectable Markdown, streaming output, code, tool drawers,
   and compact historical entries; the native TUI now preserves assistant prose,
-  consolidates tool work into one-line chips, and opens bounded tool output in
-  Activity while keeping live thinking/turn state above the composer. Markdown,
-  code treatment, disclosure rows, and enriched tool rendering remain.
+  consolidates tool work into one-line chips, and opens stable Activity sections
+  with lifecycle glyphs, disclosure rows, and bounded nested output while keeping
+  live thinking/turn state above the composer. Markdown, code treatment, and
+  enriched tool rendering remain.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
@@ -346,9 +347,10 @@ recorded manual verification exists.
 - [ ] Pending interaction replay/pagination across reconnects.
 - [ ] Pager sectioning, auto-open setting, notes, draft attachment, restore,
   submit, and failure recovery.
-- [~] Turn Activity retained-pane navigation and live/completed scroll behavior;
-  chips open one retained source, historical sources start at the top, and live
-  sources follow the bottom.
+- [x] Turn Activity retained-pane navigation and live/completed scroll behavior;
+  chips open one retained source, historical sources start at the top, live
+  sources follow the bottom, and keyed rows preserve disclosure state through
+  live-to-snapshot reconciliation.
 - [ ] Scratchpad guarded reads/edits, the core `edit_scratchpad` tool, autosave,
   context injection, and fork/handoff copying.
 

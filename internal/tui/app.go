@@ -133,46 +133,52 @@ type appState struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	phase                 phase
-	errorText             string
-	status                string
-	composer              string
-	palette               paletteController
-	authReturnReady       bool
-	authFilter            string
-	authSelection         int
-	authProviderID        string
-	authAPIKey            string
-	authPending           bool
-	session               protocol.SessionInfo
-	bound                 sessionclient.Session
-	messages              []transcriptMessage
-	liveMessages          []transcriptMessage
-	liveAssistant         int
-	liveHasUser           bool
-	liveTools             map[string]int
-	liveContent           map[int]liveContentBlock
-	liveSequence          int64
-	turnActivity          string
-	runStopping           bool
-	contextTokens         int
-	contextWindow         int
-	scroll                ui.ScrollController
-	activityScroll        ui.ScrollController
-	activityFocus         ui.FocusNode
-	workspaceLayout       workspaceLayoutState
-	activitySourceID      string
-	activitySelected      bool
-	hoveredActivityID     string
-	needsScroll           bool
-	scrollPendingLayout   bool
-	activityNeedsScroll   bool
-	activityPendingLayout bool
-	activityScrollToEnd   bool
-	activeRun             sessionclient.Run
-	activeRunID           string
-	runPending            bool
-	prompt                *promptAdmission
+	phase                       phase
+	errorText                   string
+	status                      string
+	composer                    string
+	palette                     paletteController
+	authReturnReady             bool
+	authFilter                  string
+	authSelection               int
+	authProviderID              string
+	authAPIKey                  string
+	authPending                 bool
+	session                     protocol.SessionInfo
+	bound                       sessionclient.Session
+	messages                    []transcriptMessage
+	liveMessages                []transcriptMessage
+	liveAssistant               int
+	liveHasUser                 bool
+	liveTools                   map[string]int
+	liveContent                 map[int]liveContentBlock
+	liveSequence                int64
+	turnActivity                string
+	runStopping                 bool
+	contextTokens               int
+	contextWindow               int
+	scroll                      ui.ScrollController
+	activityScroll              ui.ScrollController
+	activityList                activityListController
+	activityFocus               ui.FocusNode
+	workspaceLayout             workspaceLayoutState
+	activitySourceID            string
+	activitySelected            bool
+	hoveredActivityID           string
+	activityExpanded            map[activityToolKey]bool
+	activityCursor              activityToolKey
+	activityReveal              activityToolKey
+	activityRevealPending       bool
+	activityRevealPendingLayout bool
+	needsScroll                 bool
+	scrollPendingLayout         bool
+	activityNeedsScroll         bool
+	activityPendingLayout       bool
+	activityScrollToEnd         bool
+	activeRun                   sessionclient.Run
+	activeRunID                 string
+	runPending                  bool
+	prompt                      *promptAdmission
 
 	instructions auth.OpenAICodexDeviceInstructions
 	remaining    time.Duration
@@ -190,6 +196,7 @@ func (s *appState) InitState() {
 	s.liveAssistant = -1
 	s.liveTools = make(map[string]int)
 	s.liveContent = make(map[int]liveContentBlock)
+	s.activityExpanded = make(map[activityToolKey]bool)
 	if options.Authenticated {
 		s.phase = phaseLoading
 		s.status = "Starting Kit…"
@@ -219,6 +226,11 @@ func (s *appState) TickFrame(_ time.Time) bool {
 	keepTicking := false
 	if s.needsScroll {
 		if s.scrollPendingLayout {
+			// Live events can arrive before the deferred follow-up frame. Apply the
+			// latest completed layout now so repeated updates cannot starve follow.
+			if s.scroll.Attached() {
+				s.scroll.ScrollToEnd()
+			}
 			s.scrollPendingLayout = false
 			keepTicking = true
 		} else {
@@ -230,6 +242,15 @@ func (s *appState) TickFrame(_ time.Time) bool {
 	}
 	if s.activityNeedsScroll {
 		if s.activityPendingLayout {
+			// Keep following the last completed layout even when another live event
+			// resets the post-layout request before its follow-up frame can run.
+			if s.activityScroll.Attached() {
+				if s.activityScrollToEnd {
+					s.activityScroll.ScrollToEnd()
+				} else {
+					s.activityScroll.ScrollToStart()
+				}
+			}
 			s.activityPendingLayout = false
 			keepTicking = true
 		} else {
@@ -243,7 +264,19 @@ func (s *appState) TickFrame(_ time.Time) bool {
 			s.activityNeedsScroll = false
 		}
 	}
-	return keepTicking || s.needsScroll || s.activityNeedsScroll
+	if s.activityRevealPending {
+		if s.activityRevealPendingLayout {
+			s.activityRevealPendingLayout = false
+			keepTicking = true
+		} else if s.activityList.Attached() {
+			s.activityList.Reveal(s.activityReveal)
+			s.activityReveal = activityToolKey{}
+			s.activityRevealPending = false
+		} else {
+			keepTicking = true
+		}
+	}
+	return keepTicking || s.needsScroll || s.activityNeedsScroll || s.activityRevealPending
 }
 
 func (s *appState) requestTranscriptScroll() {
@@ -293,11 +326,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ContextWindow:     s.contextWindow,
 		Scroll:            &s.scroll,
 		ActivityScroll:    &s.activityScroll,
+		ActivityList:      &s.activityList,
 		ActivityFocus:     &s.activityFocus,
 		WorkspaceLayout:   &s.workspaceLayout,
 		ActivitySourceID:  s.activitySourceID,
 		ActivitySelected:  s.activitySelected,
 		HoveredActivityID: s.hoveredActivityID,
+		ActivityExpanded:  s.activityExpanded,
+		ActivityCursor:    s.activityCursor,
 		Instructions:      s.instructions,
 		Remaining:         s.remaining,
 		Location:          options.Location,
@@ -337,11 +373,25 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		OpenActivity: func(_ ui.EventContext, sourceID string) {
 			s.SetState(func() {
+				presentation := presentTranscript(presentedMessages)
 				changed := s.activitySourceID != sourceID
 				s.activitySourceID = sourceID
 				s.activitySelected = !s.workspaceLayout.Wide
 				if changed {
-					s.requestActivityScroll(transcriptActivityInProgress(presentTranscript(presentedMessages), sourceID))
+					s.activityExpanded = make(map[activityToolKey]bool)
+					s.activityCursor = activityToolKey{}
+					s.activityReveal = activityToolKey{}
+					s.activityRevealPending = false
+					s.activityRevealPendingLayout = false
+				}
+				if s.activitySelected {
+					keys := activityToolKeys(presentation, sourceID)
+					if len(keys) > 0 {
+						s.activityCursor = keys[0]
+					}
+				}
+				if changed {
+					s.requestActivityScroll(transcriptActivityInProgress(presentation, sourceID))
 				}
 			})
 		},
@@ -351,8 +401,15 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ShowActivity: func(ui.EventContext) {
 			if s.activitySourceID != "" {
 				s.SetState(func() {
+					presentation := presentTranscript(presentedMessages)
 					s.activitySelected = !s.workspaceLayout.Wide
-					s.requestActivityScroll(transcriptActivityInProgress(presentTranscript(presentedMessages), s.activitySourceID))
+					if s.activitySelected && s.activityCursor.ToolCallID == "" {
+						keys := activityToolKeys(presentation, s.activitySourceID)
+						if len(keys) > 0 {
+							s.activityCursor = keys[0]
+						}
+					}
+					s.requestActivityScroll(transcriptActivityInProgress(presentation, s.activitySourceID))
 				})
 			}
 		},
@@ -364,12 +421,43 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.activitySourceID = ""
 				s.activitySelected = false
 				s.hoveredActivityID = ""
+				s.activityExpanded = make(map[activityToolKey]bool)
+				s.activityCursor = activityToolKey{}
+				s.activityReveal = activityToolKey{}
+				s.activityRevealPending = false
+				s.activityRevealPendingLayout = false
 			})
 		},
 		ScrollActivity: func(_ ui.EventContext, pages int) {
 			if (s.activitySelected || s.workspaceLayout.Wide) && s.activityScroll.Attached() {
 				s.activityScroll.ScrollByPages(pages)
 			}
+		},
+		ToggleActivityTool: func(_ ui.EventContext, key activityToolKey) {
+			s.SetState(func() {
+				expanding := !s.activityExpanded[key]
+				s.activityExpanded[key] = expanding
+				if expanding {
+					s.activityReveal = key
+					s.activityRevealPending = true
+					s.activityRevealPendingLayout = true
+				}
+			})
+		},
+		SelectActivityTool: func(_ ui.EventContext, key activityToolKey) {
+			s.SetState(func() { s.activityCursor = key })
+		},
+		MoveActivityTool: func(_ ui.EventContext, delta int) {
+			s.SetState(func() {
+				presentation := presentTranscript(presentedMessages)
+				keys := activityToolKeys(presentation, s.activitySourceID)
+				s.activityCursor = moveActivityToolCursor(keys, s.activityCursor, delta)
+				if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
+					if index := activityToolListIndex(source, s.activityCursor); index >= 0 {
+						s.activityList.Reveal(s.activityCursor)
+					}
+				}
+			})
 		},
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
@@ -554,12 +642,35 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.resetLiveRun()
 	if s.activitySourceID != "" {
 		presentation := presentTranscript(s.messages)
-		if _, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
+		if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
+			valid := make(map[activityToolKey]bool)
+			for _, call := range displayItemToolCalls(source) {
+				valid[activityToolKey{TurnID: source.TurnID, ToolCallID: call.ID}] = true
+			}
+			for key := range s.activityExpanded {
+				if !valid[key] {
+					delete(s.activityExpanded, key)
+				}
+			}
+			if !valid[s.activityCursor] {
+				s.activityCursor = activityToolKey{}
+				if s.activitySelected {
+					keys := activityToolKeys(presentation, s.activitySourceID)
+					if len(keys) > 0 {
+						s.activityCursor = keys[0]
+					}
+				}
+			}
 			s.requestActivityScroll(false)
 		} else {
 			s.activitySourceID = ""
 			s.activitySelected = false
 			s.hoveredActivityID = ""
+			s.activityExpanded = make(map[activityToolKey]bool)
+			s.activityCursor = activityToolKey{}
+			s.activityReveal = activityToolKey{}
+			s.activityRevealPending = false
+			s.activityRevealPendingLayout = false
 		}
 	}
 	s.requestTranscriptScroll()

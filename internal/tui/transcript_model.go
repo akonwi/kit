@@ -189,6 +189,142 @@ func displayItemToolCalls(item transcriptDisplayItem) []transcriptToolCall {
 	return calls
 }
 
+type activitySection struct {
+	ID      string
+	TurnID  string
+	Prose   string
+	Calls   []transcriptToolCall
+	Aborted bool
+}
+
+func buildActivitySections(source transcriptDisplayItem) []activitySection {
+	sections := make([]activitySection, 0, len(source.Items))
+	for _, item := range source.Items {
+		if item.Kind != transcriptItemAssistant {
+			continue
+		}
+		calls := assistantToolCalls(item.Message)
+		prose := assistantProse(item.Message)
+		anchor := item.ID
+		if len(calls) > 0 {
+			anchor = calls[0].ID
+		}
+		sections = append(sections, activitySection{
+			ID:     "activity-section:" + item.TurnID + ":" + anchor,
+			TurnID: item.TurnID, Prose: prose, Calls: calls, Aborted: item.Aborted,
+		})
+	}
+	return sections
+}
+
+type activityListItemKind int
+
+const (
+	activityListSpacer activityListItemKind = iota
+	activityListProse
+	activityListTool
+)
+
+type activityListItem struct {
+	ID      string
+	Kind    activityListItemKind
+	Section activitySection
+	Call    transcriptToolCall
+	Key     activityToolKey
+}
+
+func buildActivityListItems(source transcriptDisplayItem) []activityListItem {
+	sections := buildActivitySections(source)
+	items := make([]activityListItem, 0)
+	for sectionIndex, section := range sections {
+		if sectionIndex > 0 {
+			items = append(items, activityListItem{ID: section.ID + ":gap", Kind: activityListSpacer})
+		}
+		if strings.TrimSpace(section.Prose) != "" {
+			items = append(items, activityListItem{ID: section.ID + ":prose", Kind: activityListProse, Section: section})
+			if len(section.Calls) > 0 {
+				items = append(items, activityListItem{ID: section.ID + ":prose-gap", Kind: activityListSpacer})
+			}
+		}
+		for _, call := range section.Calls {
+			key := activityToolKey{TurnID: section.TurnID, ToolCallID: call.ID}
+			items = append(items, activityListItem{
+				ID:   "activity-tool:" + section.TurnID + ":" + call.ID,
+				Kind: activityListTool, Section: section, Call: call, Key: key,
+			})
+		}
+	}
+	return items
+}
+
+func activityToolListIndex(source transcriptDisplayItem, key activityToolKey) int {
+	for index, item := range buildActivityListItems(source) {
+		if item.Kind == activityListTool && item.Key == key {
+			return index
+		}
+	}
+	return -1
+}
+
+type activityToolState int
+
+const (
+	activityToolPending activityToolState = iota
+	activityToolRunning
+	activityToolSucceeded
+	activityToolFailed
+	activityToolAborted
+)
+
+func resolveActivityToolState(state transcriptMessage, exists, sourceAborted bool) activityToolState {
+	if exists && !state.Pending && state.ToolStatus != "Not run" {
+		if state.IsError {
+			return activityToolFailed
+		}
+		return activityToolSucceeded
+	}
+	if sourceAborted || exists && (state.Aborted || state.ToolStatus == "Not run") {
+		return activityToolAborted
+	}
+	if !exists || state.ToolStatus == "Planned" {
+		return activityToolPending
+	}
+	return activityToolRunning
+}
+
+type activityToolKey struct {
+	TurnID     string
+	ToolCallID string
+}
+
+func activityToolKeys(presentation transcriptPresentation, sourceID string) []activityToolKey {
+	source, ok := transcriptActivitySource(presentation.Items, sourceID)
+	if !ok {
+		return nil
+	}
+	calls := displayItemToolCalls(source)
+	keys := make([]activityToolKey, 0, len(calls))
+	for _, call := range calls {
+		keys = append(keys, activityToolKey{TurnID: source.TurnID, ToolCallID: call.ID})
+	}
+	return keys
+}
+
+func moveActivityToolCursor(keys []activityToolKey, current activityToolKey, delta int) activityToolKey {
+	if len(keys) == 0 {
+		return activityToolKey{}
+	}
+	index := 0
+	for candidateIndex, key := range keys {
+		if key == current {
+			index = candidateIndex
+			break
+		}
+	}
+	index = max(0, min(len(keys)-1, index+delta))
+	return keys[index]
+}
+
 type transcriptToolStateKey struct {
 	TurnID     string
 	ToolCallID string

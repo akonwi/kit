@@ -4,16 +4,20 @@ import "go.rockorager.dev/vaxis/ui"
 
 // mouseActivator adds primary-mouse activation without adding a focus-traversal stop.
 type mouseActivator struct {
-	Child       ui.Widget
-	OnPressed   ui.VoidCallback
-	OnHover     ui.VoidCallback
-	OnHoverExit ui.VoidCallback
+	Child                ui.Widget
+	OnPressed            ui.VoidCallback
+	OnHover              ui.VoidCallback
+	OnHoverExit          ui.VoidCallback
+	OnPrimaryDownCapture ui.VoidCallback
 }
 
 func (w mouseActivator) WidgetChild() ui.Widget { return w.Child }
 
 func (w mouseActivator) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderMouseActivator{OnPressed: w.OnPressed, OnHover: w.OnHover, OnHoverExit: w.OnHoverExit}
+	return &renderMouseActivator{
+		OnPressed: w.OnPressed, OnHover: w.OnHover, OnHoverExit: w.OnHoverExit,
+		OnPrimaryDownCapture: w.OnPrimaryDownCapture,
+	}
 }
 
 func (w mouseActivator) UpdateRenderObject(_ ui.BuildContext, renderObject ui.RenderObject) {
@@ -21,14 +25,16 @@ func (w mouseActivator) UpdateRenderObject(_ ui.BuildContext, renderObject ui.Re
 	render.OnPressed = w.OnPressed
 	render.OnHover = w.OnHover
 	render.OnHoverExit = w.OnHoverExit
+	render.OnPrimaryDownCapture = w.OnPrimaryDownCapture
 }
 
 type renderMouseActivator struct {
 	ui.SingleChildRenderObject
-	OnPressed   ui.VoidCallback
-	OnHover     ui.VoidCallback
-	OnHoverExit ui.VoidCallback
-	hovered     bool
+	OnPressed            ui.VoidCallback
+	OnHover              ui.VoidCallback
+	OnHoverExit          ui.VoidCallback
+	OnPrimaryDownCapture ui.VoidCallback
+	hovered              bool
 }
 
 func (r *renderMouseActivator) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
@@ -56,10 +62,16 @@ func (r *renderMouseActivator) Paint(painter *ui.Painter, offset ui.Offset) {
 func (*renderMouseActivator) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
 
 func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	mouse, ok := event.(ui.Mouse)
+	if ctx.Phase() == ui.CapturePhase {
+		if ok && mouse.EventType == ui.EventPress && mouse.Button == ui.MouseLeftButton && r.OnPrimaryDownCapture != nil {
+			r.OnPrimaryDownCapture(ctx)
+		}
+		return ui.EventIgnored
+	}
 	if ctx.Phase() != ui.TargetPhase && ctx.Phase() != ui.BubblePhase {
 		return ui.EventIgnored
 	}
-	mouse, ok := event.(ui.Mouse)
 	if !ok {
 		if r.hovered {
 			r.hovered = false
