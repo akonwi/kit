@@ -395,7 +395,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 			})
 		},
-		ShowTranscript: func(ui.EventContext) {
+		ShowTranscript: func(ctx ui.EventContext) {
+			if s.activityFocus.HasFocus() {
+				ctx.FocusNext()
+			}
 			s.SetState(func() { s.activitySelected = false })
 		},
 		ShowActivity: func(ui.EventContext) {

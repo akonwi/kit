@@ -488,7 +488,10 @@ func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
 					}
 				})
 			},
-			ShowTranscript: func(ui.EventContext) {
+			ShowTranscript: func(ctx ui.EventContext) {
+				if s.activityFocus.HasFocus() {
+					ctx.FocusNext()
+				}
 				s.SetState(func() { s.selected = false })
 			},
 			ShowActivity: func(ui.EventContext) {
@@ -799,24 +802,50 @@ func TestActivityWorkspaceUsesLabeledTabsAtNarrowWidths(t *testing.T) {
 		t.Fatalf("narrow workspace tabs = %q", rows[2])
 	}
 	if findPaintedRow(rows, "1 tool call · 1 step") < 0 || findPaintedRow(rows, "read README.md") < 0 ||
-		findPaintedRow(rows, "↑↓ rows · enter details") < 0 {
-		t.Fatalf("narrow Activity pane or keyboard hints missing:\n%s", strings.Join(rows, "\n"))
+		!strings.Contains(rows[height-3], "↑↓ rows · enter details") {
+		t.Fatalf("narrow Activity pane did not occupy the full body above the global footer:\n%s", strings.Join(rows, "\n"))
 	}
 	app.Click(3, 2)
 	app.Pump(width, height)
-	if state.selected {
-		t.Fatal("Transcript tab did not select the transcript")
+	rows = paintedRows(app, width, height)
+	if state.selected || !strings.Contains(rows[height-3], "Ask kit to do something…") {
+		t.Fatalf("Transcript tab did not restore its composer:\n%s", strings.Join(rows, "\n"))
+	}
+	app.Key("x")
+	app.Pump(width, height)
+	if state.composer != "x" {
+		t.Fatalf("Transcript tab did not restore composer focus: %q", state.composer)
 	}
 	app.Click(14, 2)
 	app.Pump(width, height)
-	if !state.selected {
-		t.Fatal("Activity tab did not restore the retained pane")
+	rows = paintedRows(app, width, height)
+	if !state.selected || !strings.Contains(rows[height-3], "↑↓ rows · enter details") {
+		t.Fatalf("Activity tab did not restore its full-height retained pane:\n%s", strings.Join(rows, "\n"))
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
 	app.Pump(width, height)
 	rows = paintedRows(app, width, height)
 	if state.selected || state.sourceID != "" || findPaintedRow(rows, "Inspect README") < 0 {
 		t.Fatalf("escape did not close Activity and return to transcript:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestComposerClickAfterWideningSelectsTranscript(t *testing.T) {
+	t.Parallel()
+
+	const height = 22
+	state := &activityHarnessState{
+		messages: activityHarnessMessages(), sourceID: "turn-work:turn_1:call_1", selected: true,
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(100, height)
+	app.Pump(140, height)
+	app.Click(5, height-3)
+	app.Pump(140, height)
+	app.Key("q")
+	app.Pump(140, height)
+	if state.selected || state.composer != "q" {
+		t.Fatalf("widened composer click = selected %v composer %q", state.selected, state.composer)
 	}
 }
 
@@ -872,17 +901,22 @@ func TestActivityChipMouseRoutePreservesFocus(t *testing.T) {
 	if state.sourceID != "turn-work:turn_1:call_1" || !state.selected {
 		t.Fatalf("reopened Activity source = %q selected %v", state.sourceID, state.selected)
 	}
+	rows = paintedRows(app, width, height)
+	if !strings.Contains(rows[height-3], "↑↓ rows · enter details") {
+		t.Fatalf("Activity did not own the full narrow workspace body:\n%s", strings.Join(rows, "\n"))
+	}
 	app.Click(5, height-3)
 	app.Pump(width, height)
-	if state.selected {
-		t.Fatal("composer click did not switch away from the Activity tab")
+	if !state.selected || state.composer != "z" {
+		t.Fatalf("hidden composer accepted Activity-tab click: selected %v composer %q", state.selected, state.composer)
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
 	app.Pump(width, height)
+	app.Click(5, height-3)
 	app.Key("q")
 	app.Pump(width, height)
-	if state.composer != "qz" {
-		t.Fatalf("composer click did not switch from Activity and accept input: %q", state.composer)
+	if state.composer != "zq" {
+		t.Fatalf("composer did not accept input after returning to Transcript: %q", state.composer)
 	}
 }
 

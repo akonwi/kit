@@ -213,17 +213,24 @@ func (r *renderConversationWorkspaceHost) layout(ctx ui.LayoutContext, constrain
 		ui.Offset{},
 	)
 	hide(workspacePaneSeparatorChild)
-	mainChild := workspaceTranscriptChild
-	hiddenChild := workspaceActivityChild
 	if r.ActivitySelected {
-		mainChild, hiddenChild = workspaceActivityChild, workspaceTranscriptChild
 		if !dry && r.LayoutState != nil {
 			r.LayoutState.TranscriptVisible = false
 			r.LayoutState.ActivityVisible = true
 		}
+		hide(workspaceTranscriptChild)
+		hide(workspacePendingChild)
+		hide(workspaceComposerSeparatorChild)
+		hide(workspaceComposerChild)
+		layoutChild(
+			workspaceActivityChild,
+			ui.Tight(ui.Size{Width: width, Height: max(0, height-tabHeight)}),
+			ui.Offset{Y: tabHeight},
+		)
+		return size, layouts
 	}
-	hide(hiddenChild)
-	r.layoutConversationColumn(ctx, children, layouts, dry, layoutChild, width, max(0, height-tabHeight), tabHeight, mainChild)
+	hide(workspaceActivityChild)
+	r.layoutConversationColumn(ctx, children, layouts, dry, layoutChild, width, max(0, height-tabHeight), tabHeight, workspaceTranscriptChild)
 	return size, layouts
 }
 
@@ -261,15 +268,30 @@ func (r *renderConversationWorkspaceHost) layoutUnbounded(
 		layoutChild(workspaceTabsChild, ui.Tight(ui.Size{Width: width, Height: 2}), ui.Offset{})
 		hide(workspacePaneSeparatorChild)
 		if r.ActivitySelected {
-			mainChild = workspaceActivityChild
 			if !dry && r.LayoutState != nil {
 				r.LayoutState.TranscriptVisible = false
 				r.LayoutState.ActivityVisible = true
 			}
 			hide(workspaceTranscriptChild)
-		} else {
-			hide(workspaceActivityChild)
+			hide(workspacePendingChild)
+			hide(workspaceComposerSeparatorChild)
+			hide(workspaceComposerChild)
+			activitySize := layoutChild(
+				workspaceActivityChild,
+				ui.Constraints{MinWidth: width, MaxWidth: width, MaxHeight: ui.Unbounded},
+				ui.Offset{Y: yOffset},
+			)
+			height := yOffset + activitySize.Height
+			finalSize := constraints.Constrain(ui.Size{Width: width, Height: height})
+			if finalSize.Height > height {
+				bounded := constraints
+				bounded.MinHeight = finalSize.Height
+				bounded.MaxHeight = finalSize.Height
+				return r.layout(ctx, bounded, dry)
+			}
+			return finalSize, layouts
 		}
+		hide(workspaceActivityChild)
 	}
 
 	composerSize := layoutChild(
@@ -370,15 +392,7 @@ func (r *renderConversationWorkspaceHost) VisitChildren(visit func(ui.RenderObje
 		}
 		return
 	}
-	for _, index := range []int{
-		workspaceTabsChild,
-		workspaceTranscriptChild,
-		workspaceActivityChild,
-		workspacePendingChild,
-		workspaceComposerSeparatorChild,
-		workspaceComposerChild,
-		workspacePaneSeparatorChild,
-	} {
+	for _, index := range []int{workspaceTabsChild, workspaceActivityChild} {
 		visit(children[index])
 	}
 }
@@ -442,10 +456,13 @@ func (r *renderConversationWorkspaceHost) SelectionChildOffset(child ui.RenderOb
 	if r.Open && !r.wide {
 		order = append(order, workspaceTabsChild)
 		if r.ActivitySelected {
-			mainChild = workspaceActivityChild
+			order = append(order, workspaceActivityChild)
+		} else {
+			order = append(order, mainChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild)
 		}
+	} else {
+		order = append(order, mainChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild)
 	}
-	order = append(order, mainChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild)
 	for _, index := range order {
 		if index == target {
 			break
@@ -464,11 +481,16 @@ func (r *renderConversationWorkspaceHost) SelectionSize() ui.Size {
 	if r.Open && !r.wide {
 		height += workspaceSelectionSize(children[workspaceTabsChild]).Height
 		if r.ActivitySelected {
-			mainChild = workspaceActivityChild
+			height += workspaceSelectionSize(children[workspaceActivityChild]).Height
+		} else {
+			for _, index := range []int{mainChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild} {
+				height += workspaceSelectionSize(children[index]).Height
+			}
 		}
-	}
-	for _, index := range []int{mainChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild} {
-		height += workspaceSelectionSize(children[index]).Height
+	} else {
+		for _, index := range []int{mainChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild} {
+			height += workspaceSelectionSize(children[index]).Height
+		}
 	}
 	if r.wide {
 		height = max(height, workspaceSelectionSize(children[workspaceActivityChild]).Height)
