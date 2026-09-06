@@ -134,10 +134,6 @@ func assistantHasProse(item turnTranscriptItem) bool {
 	return strings.TrimSpace(assistantProse(item.Message)) != ""
 }
 
-func assistantHasThinking(item turnTranscriptItem) bool {
-	return strings.TrimSpace(assistantThinking(item.Message)) != ""
-}
-
 func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplayItem {
 	result := make([]transcriptDisplayItem, 0, len(items))
 	for start := 0; start < len(items); {
@@ -170,11 +166,7 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 				})
 				continue
 			}
-			if assistantHasThinking(item) && len(buffer) > 0 && buffer[len(buffer)-1].ID != item.ID {
-				// A thinking-bearing assistant owns a stable Activity source even
-				// before its prose starts streaming.
-				flush()
-			}
+			calls := assistantToolCalls(item.Message)
 			if assistantHasProse(item) {
 				flush()
 				copy := item
@@ -182,12 +174,14 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 					Kind: transcriptDisplayAssistantProse, ID: "assistant-prose:" + item.ID,
 					TurnID: item.TurnID, Item: &copy,
 				})
-				if len(assistantToolCalls(item.Message)) > 0 || assistantHasThinking(item) {
+				if len(calls) > 0 {
 					buffer = append(buffer, item)
 				}
 				continue
 			}
-			buffer = append(buffer, item)
+			if len(calls) > 0 {
+				buffer = append(buffer, item)
+			}
 		}
 		flush()
 		start = end

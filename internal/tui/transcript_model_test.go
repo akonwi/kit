@@ -135,7 +135,7 @@ func TestPresentTranscriptKeepsPendingThinkingAndToolsVisible(t *testing.T) {
 	}
 }
 
-func TestThinkingCreatesActivityWorkAlongsideAssistantProse(t *testing.T) {
+func TestThinkingWithoutToolsDoesNotCreateActivityWork(t *testing.T) {
 	t.Parallel()
 
 	message := transcriptMessageWithContent(
@@ -143,55 +143,37 @@ func TestThinkingCreatesActivityWorkAlongsideAssistantProse(t *testing.T) {
 		thinkingBlock("## Plan\n\n- inspect"), textBlock("Done."),
 	)
 	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}))
-	if len(display) != 2 || display[0].Kind != transcriptDisplayAssistantProse || display[1].Kind != transcriptDisplayTurnWork {
-		t.Fatalf("thinking display = %+v", display)
-	}
-	sections := buildActivitySections(display[1])
-	if len(sections) != 1 || sections[0].Thinking != "## Plan\n\n- inspect" || sections[0].Prose != "Done." {
-		t.Fatalf("thinking activity = %+v", sections)
-	}
-	items := buildActivityListItems(display[1])
-	if len(items) < 3 || items[0].Kind != activityListThinking || items[2].Kind != activityListProse {
-		t.Fatalf("thinking activity items = %+v", items)
+	if len(display) != 1 || display[0].Kind != transcriptDisplayAssistantProse || assistantProse(display[0].Item.Message) != "Done." {
+		t.Fatalf("thinking-only display = %+v, want assistant prose without a work drawer", display)
 	}
 }
 
-func TestLaterAssistantThinkingKeepsItsWorkSourceWhenProseBegins(t *testing.T) {
+func TestPendingThinkingWithoutToolsHasNoTranscriptItem(t *testing.T) {
 	t.Parallel()
 
-	first := transcriptMessageWithContent(
-		"assistant_1", "turn_1", "assistant", toolCallBlock("call_1", "read", `{"path":"README.md"}`),
-	)
-	thinking := transcriptMessageWithContent(
-		"assistant_2", "turn_1", "assistant", thinkingBlock("considering"),
-	)
-	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{first, thinking}))
-	thinkingWithProse := transcriptMessageWithContent(
-		"assistant_2", "turn_1", "assistant", thinkingBlock("considering"), textBlock("Done."),
-	)
-	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{first, thinkingWithProse}))
-	if len(before) != 2 || before[1].ID != "turn-work:turn_1:assistant_2" {
-		t.Fatalf("thinking sources before prose = %+v", before)
-	}
-	if len(after) != 3 || after[2].ID != before[1].ID || len(after[2].Items) != 1 || after[2].Items[0].ID != "assistant_2" {
-		t.Fatalf("thinking source moved after prose: before=%+v after=%+v", before, after)
+	presentation := presentTranscript([]transcriptMessage{{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant",
+		Text: "partial response", Thinking: "considering", Pending: true,
+	}})
+	if len(presentation.Items) != 0 {
+		t.Fatalf("pending thinking transcript = %+v, want no tool drawer", presentation.Items)
 	}
 }
 
-func TestThinkingWorkIdentityStaysStableWhenToolArrives(t *testing.T) {
+func TestToolArrivalCreatesActivityWorkWithThinkingEvidence(t *testing.T) {
 	t.Parallel()
 
-	beforeMessage := transcriptMessageWithContent(
-		"assistant_1", "turn_1", "assistant", thinkingBlock("considering"),
-	)
-	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{beforeMessage}))
-	afterMessage := transcriptMessageWithContent(
+	message := transcriptMessageWithContent(
 		"assistant_1", "turn_1", "assistant",
 		thinkingBlock("considering"), toolCallBlock("call_1", "read", `{"path":"README.md"}`),
 	)
-	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{afterMessage}))
-	if len(before) != 1 || len(after) != 1 || before[0].ID != after[0].ID || before[0].ID != "turn-work:turn_1:assistant_1" {
-		t.Fatalf("thinking work identity changed: before=%+v after=%+v", before, after)
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}))
+	if len(display) != 1 || display[0].Kind != transcriptDisplayTurnWork || display[0].ID != "turn-work:turn_1:assistant_1" {
+		t.Fatalf("tool-backed work = %+v", display)
+	}
+	sections := buildActivitySections(display[0])
+	if len(sections) != 1 || sections[0].Thinking != "considering" || len(sections[0].Calls) != 1 {
+		t.Fatalf("tool-backed thinking evidence = %+v", sections)
 	}
 }
 

@@ -82,6 +82,9 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Checking retries" {
 		t.Fatalf("thinking slot = %q, want Markdown-rendered latest thinking", got)
 	}
+	if text := strings.Join(rows, "\n"); strings.Contains(text, "1 step") || strings.Contains(text, "0 tool calls") {
+		t.Fatalf("thinking-only turn rendered a tool drawer:\n%s", text)
+	}
 	_, thinkingColumn := markdownCellPosition([]string{rows[height-5]}, "Checking retries")
 	if thinkingColumn < 0 || app.Cell(thinkingColumn, height-5).Attribute&ui.AttrBold == 0 {
 		t.Fatalf("thinking Markdown is not bold: %q", rows[height-5])

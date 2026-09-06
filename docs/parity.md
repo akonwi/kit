@@ -175,7 +175,8 @@ recorded manual verification exists.
   tool work into one-line chips and opens stable Activity sections with lifecycle
   glyphs, disclosure rows, bounded nested output, read/write code views, and
   semantic edit diffs. Live thinking is Markdown-rendered in the fixed status
-  slot and retained as full Markdown evidence in Activity. A cached
+  slot and retained as full Markdown evidence in tool-backed Activity without
+  creating a zero-tool drawer. A cached
   Goldmark CommonMark/GFM pipeline now renders headings, inline emphasis/code,
   literal safe links, lists/tasks, quotes, rules, tables, and language-preserving
   fenced code in transcript and Activity prose/thinking. Syntax
