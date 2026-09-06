@@ -87,6 +87,7 @@ CREATE TABLE parent_runs (
     id TEXT PRIMARY KEY,
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     turn_id TEXT,
+    droid_turn_id TEXT,
     status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'aborted', 'interrupted')),
     error TEXT,
     started_at TEXT,
@@ -99,6 +100,14 @@ CREATE TABLE parent_runs (
 CREATE UNIQUE INDEX parent_runs_one_active_idx
     ON parent_runs(session_id)
     WHERE status = 'running';
+
+CREATE UNIQUE INDEX parent_runs_droid_turn_idx
+    ON parent_runs(session_id, droid_turn_id)
+    WHERE droid_turn_id IS NOT NULL;
+
+CREATE UNIQUE INDEX parent_runs_one_unbound_active_idx
+    ON parent_runs(session_id)
+    WHERE droid_turn_id IS NULL AND status IN ('queued', 'running');
 
 CREATE TABLE subagent_conversations (
     id TEXT PRIMARY KEY,

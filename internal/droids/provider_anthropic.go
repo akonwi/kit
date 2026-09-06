@@ -3,6 +3,7 @@ package droids
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,7 +43,7 @@ func (c Anthropic) build() (providerEntry, error) {
 		return providerEntry{}, fmt.Errorf("droids: Anthropic requires at most one of APIKey or APIKeySource")
 	}
 
-	opts := []option.RequestOption{option.WithoutEnvironmentDefaults()}
+	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithMaxRetries(0)}
 	if c.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(c.APIKey))
 	}
@@ -73,6 +74,9 @@ func (c Anthropic) build() (providerEntry, error) {
 		baseURL:   baseURL,
 		models:    models,
 		stream:    impl.stream,
+		validateReplay: func(_ context.Context, _ Model, messages []Message) error {
+			return validateAnthropicContent(messages)
+		},
 	}, nil
 }
 
@@ -193,10 +197,18 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		if reason != StopReasonAborted && isContextWindowError("", err.Error()) {
 			reason = StopReasonContextWindow
 		}
+		kind := classifyAnthropicError(err)
+		if reason == StopReasonContextWindow {
+			kind = ProviderContextWindow
+		}
+		if reason == StopReasonAborted {
+			kind = ""
+		}
 		final := AssistantMessage{
 			Provider:     model.Provider,
 			Model:        model.ID,
 			StopReason:   reason,
+			ErrorKind:    kind,
 			ErrorMessage: err.Error(),
 			Timestamp:    time.Now().UnixMilli(),
 		}
@@ -208,6 +220,28 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	final := assembleAnthropicMessage(model, acc)
 	s.final = final
 	s.emit(anthropicTerminalEvent(final))
+}
+
+func classifyAnthropicError(err error) ProviderErrorKind {
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) {
+		return ProviderTransport
+	}
+	switch apiErr.StatusCode {
+	case 401:
+		return ProviderAuthentication
+	case 403:
+		return ProviderEntitlement
+	case 429:
+		return ProviderRateLimit
+	case 400, 404, 413, 422:
+		return ProviderInvalidRequest
+	default:
+		if apiErr.StatusCode >= 500 {
+			return ProviderInternal
+		}
+		return ProviderProtocol
+	}
 }
 
 func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Client, error) {
@@ -274,7 +308,7 @@ func assembleAnthropicMessage(model Model, acc anthropic.Message) AssistantMessa
 			msg.Content = append(msg.Content, ThinkingContent{Thinking: th.Thinking, Signature: th.Signature})
 		case "tool_use":
 			tu := block.AsToolUse()
-			msg.Content = append(msg.Content, ToolCall{ID: tu.ID, Name: tu.Name, Arguments: []byte(tu.Input)})
+			msg.Content = append(msg.Content, ToolCall{ID: ToolCallID(tu.ID), Name: tu.Name, Arguments: []byte(tu.Input)})
 		}
 	}
 
@@ -302,21 +336,29 @@ func assembleAnthropicMessage(model Model, acc anthropic.Message) AssistantMessa
 
 func validateAnthropicContent(messages []Message) error {
 	for _, message := range messages {
-		var role string
-		var content []Content
+		var err error
 		switch msg := message.(type) {
 		case UserMessage:
-			role, content = "user", msg.Content
+			err = validateAnthropicBlocks("user", msg.Content)
+		case ContextMessage:
+			err = validateAnthropicBlocks("context", msg.Content)
 		case ToolResultMessage:
-			role, content = "tool result", msg.Content
+			err = validateAnthropicBlocks("tool result", msg.Content)
 		case AssistantMessage:
-			role, content = "assistant", msg.Content
+			err = validateAnthropicBlocks("assistant", msg.Content)
 		}
-		for i, block := range content {
-			switch block.(type) {
-			case ImageContent, FileContent:
-				return fmt.Errorf("anthropic: unsupported %s content at index %d (%T): native attachment translation is not implemented", role, i, block)
-			}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateAnthropicBlocks[T any](role string, content []T) error {
+	for i, block := range content {
+		switch any(block).(type) {
+		case FileInput, FileContent:
+			return fmt.Errorf("anthropic: unsupported %s content at index %d (%T): native attachment translation is not implemented", role, i, block)
 		}
 	}
 	return nil
@@ -328,11 +370,13 @@ func toAnthropicMessages(messages []Message) []anthropic.MessageParam {
 		switch msg := m.(type) {
 		case UserMessage:
 			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(textOfContent(msg.Content))))
+		case ContextMessage:
+			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(textOfContent(msg.Content))))
 		case ToolResultMessage:
 			// Tool results are carried in a user turn; consecutive user turns
 			// are combined by the API.
 			out = append(out, anthropic.NewUserMessage(
-				anthropic.NewToolResultBlock(msg.ToolCallID, textOfContent(msg.Content), msg.IsError),
+				anthropic.NewToolResultBlock(providerCallID(msg.ToolCallID, msg.ProviderCallID), textOfContent(msg.Content), msg.IsError),
 			))
 		case AssistantMessage:
 			out = append(out, anthropic.NewAssistantMessage(assistantBlocks(msg)...))
@@ -351,7 +395,7 @@ func assistantBlocks(msg AssistantMessage) []anthropic.ContentBlockParamUnion {
 		if len(tc.Arguments) > 0 {
 			_ = json.Unmarshal(tc.Arguments, &input)
 		}
-		blocks = append(blocks, anthropic.NewToolUseBlock(tc.ID, input, tc.Name))
+		blocks = append(blocks, anthropic.NewToolUseBlock(providerCallID(tc.ID, tc.ProviderCallID), input, tc.Name))
 	}
 	return blocks
 }

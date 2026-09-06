@@ -14,7 +14,7 @@ const (
 )
 
 // OutputLimitMode describes whether a provider accepts a per-request output
-// token ceiling. The zero value means Options.MaxTokens is supported.
+// token ceiling. The zero value means a request-level limit is supported.
 type OutputLimitMode string
 
 const (
@@ -51,7 +51,7 @@ func resolveRequestMaxTokens(model Model, requested int, reasoning string) (int,
 		return 0, err
 	}
 	if requested < 0 {
-		return 0, fmt.Errorf("droids: Options.MaxTokens must not be negative")
+		return 0, fmt.Errorf("droids: MaxTokens must not be negative")
 	}
 	if requested > 0 && model.OutputLimitMode == OutputLimitProviderControlled {
 		return 0, fmt.Errorf("droids: model %q does not support a per-request MaxTokens limit", model.ID)
@@ -70,13 +70,13 @@ func resolveRequestMaxTokens(model Model, requested int, reasoning string) (int,
 	}
 	if requested < minimum {
 		return 0, fmt.Errorf(
-			"droids: Options.MaxTokens (%d) must exceed the %q reasoning budget (%d)",
+			"droids: MaxTokens (%d) must exceed the %q reasoning budget (%d)",
 			requested, reasoning, minimum-1024,
 		)
 	}
 	if model.MaxOutputTokens > 0 && requested > model.MaxOutputTokens {
 		return 0, fmt.Errorf(
-			"droids: Options.MaxTokens (%d) exceeds model %q output limit (%d)",
+			"droids: MaxTokens (%d) exceeds model %q output limit (%d)",
 			requested, model.ID, model.MaxOutputTokens,
 		)
 	}

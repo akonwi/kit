@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -16,7 +17,7 @@ func TestProjectTranscriptMessagePreservesStructuredAssistantContent(t *testing.
 		Role: "assistant", CreatedAt: time.Unix(1, 0).UTC(),
 	}
 	message := droids.AssistantMessage{
-		Content: []droids.Content{
+		Content: []droids.AssistantContent{
 			droids.TextContent{Text: "I will inspect it."},
 			droids.ToolCall{ID: "call_1", Name: "read", Arguments: []byte(`{ "z": 2, "a": 1 }`)},
 			droids.ThinkingContent{Thinking: "visible reasoning"},
@@ -63,8 +64,8 @@ func TestProjectTranscriptMessagePreservesToolResultIdentityAndDetails(t *testin
 		Role: "tool", CreatedAt: time.Unix(2, 0).UTC(),
 	}, droids.ToolResultMessage{
 		ToolCallID: "call_1", ToolName: "read",
-		Content: []droids.Content{droids.TextContent{Text: "file contents"}},
-		Details: map[string]any{"lines": 1, "path": "README.md"}, IsError: true,
+		Content: []droids.ResultContent{droids.TextContent{Text: "file contents"}},
+		Details: json.RawMessage(`{"lines":1,"path":"README.md"}`), IsError: true,
 	})
 	if err != nil {
 		t.Fatalf("projectTranscriptMessage() error = %v", err)
@@ -84,7 +85,7 @@ func TestProjectTranscriptMessageBoundsOversizedToolArguments(t *testing.T) {
 	t.Parallel()
 
 	got, err := projectTranscriptMessage(MessageRecord{Role: "assistant"}, droids.AssistantMessage{
-		Content: []droids.Content{
+		Content: []droids.AssistantContent{
 			droids.ToolCall{
 				ID: "call_1", Name: "write",
 				Arguments: []byte(`{"content":"` + strings.Repeat("x", maxPresentationToolArgumentsBytes) + `"}`),
@@ -105,7 +106,7 @@ func TestProjectTranscriptMessagePreservesPersistedToolDetailNumbers(t *testing.
 	const details = `{"large":9007199254740993}`
 	got, err := projectTranscriptMessage(MessageRecord{
 		Role: "tool", PayloadJSON: []byte(`{"details":` + details + `}`),
-	}, droids.ToolResultMessage{ToolCallID: "call_1", ToolName: "read", Details: map[string]any{"large": float64(9007199254740993)}})
+	}, droids.ToolResultMessage{ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(details)})
 	if err != nil {
 		t.Fatalf("projectTranscriptMessage() error = %v", err)
 	}
@@ -118,7 +119,7 @@ func TestProjectTranscriptMessagePreservesMalformedToolArgumentsForDiagnostics(t
 	t.Parallel()
 
 	got, err := projectTranscriptMessage(MessageRecord{Role: "assistant"}, droids.AssistantMessage{
-		Content: []droids.Content{
+		Content: []droids.AssistantContent{
 			droids.ToolCall{ID: "call_1", Name: "read", Arguments: []byte(`{"path":`)},
 		},
 	})

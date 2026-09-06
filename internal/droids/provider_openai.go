@@ -52,7 +52,7 @@ func (c OpenAI) build() (providerEntry, error) {
 		return providerEntry{}, fmt.Errorf("droids: OpenAI requires at most one of APIKey or APIKeySource")
 	}
 
-	opts := []option.RequestOption{}
+	opts := []option.RequestOption{option.WithMaxRetries(0)}
 	if c.APIKey != "" {
 		opts = append(opts, option.WithAPIKey(c.APIKey))
 	}
@@ -83,6 +83,10 @@ func (c OpenAI) build() (providerEntry, error) {
 		baseURL:   baseURL,
 		models:    models,
 		stream:    impl.stream,
+		validateReplay: func(_ context.Context, model Model, messages []Message) error {
+			_, err := toOpenAIInputForModel(messages, model)
+			return err
+		},
 	}, nil
 }
 
@@ -127,7 +131,7 @@ func (p *openAIProvider) run(ctx context.Context, model Model, req Request, s *p
 	}
 	stream := client.Responses.NewStreaming(ctx, params)
 	defer stream.Close()
-	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI"})
+	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI", classify: classifyOpenAIError})
 }
 
 func (p *openAIProvider) clientForRequest(ctx context.Context) (*openai.Client, error) {
@@ -382,6 +386,28 @@ func emitOpenAITerminal(s *pipeStream, final AssistantMessage, forceError bool) 
 	s.emit(StreamDone{Message: final})
 }
 
+func classifyOpenAIError(status int, code, message string) ErrorKind {
+	value := strings.ToLower(code + " " + message)
+	switch {
+	case isContextWindowError(code, message):
+		return ProviderContextWindow
+	case status == 401, strings.Contains(value, "invalid api key"), strings.Contains(value, "authentication"):
+		return ProviderAuthentication
+	case status == 403:
+		return ProviderEntitlement
+	case status == 429 && (strings.Contains(value, "quota") || strings.Contains(value, "usage")):
+		return ProviderUsageLimit
+	case status == 429, strings.Contains(value, "rate_limit"):
+		return ProviderRateLimit
+	case status >= 500:
+		return ProviderInternal
+	case status >= 400:
+		return ProviderInvalidRequest
+	default:
+		return ProviderTransport
+	}
+}
+
 func openAIStreamError(err error) (status int, code, message string, fallbackKind ErrorKind) {
 	message = err.Error()
 	var apiErr *openai.Error
@@ -468,7 +494,7 @@ func assembleResponse(model Model, response responses.Response) AssistantMessage
 			}
 			hasToolCall = true
 			msg.Content = append(msg.Content, ToolCall{
-				ID:        output.CallID,
+				ID:        ToolCallID(output.CallID),
 				Name:      output.Name,
 				Arguments: []byte(output.Arguments),
 				Signature: output.ID,
@@ -589,9 +615,17 @@ func toOpenAIInputForModel(messages []Message, target Model) (responses.Response
 				return nil, err
 			}
 			if len(content) > 0 {
-				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(msg.ToolCallID, content))
+				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(providerCallID(msg.ToolCallID, msg.ProviderCallID), content))
 			} else {
-				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(msg.ToolCallID, ""))
+				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(providerCallID(msg.ToolCallID, msg.ProviderCallID), ""))
+			}
+		case ContextMessage:
+			content, err := openAIUserContent(msg.Content)
+			if err != nil {
+				return nil, err
+			}
+			if len(content) > 0 {
+				out = append(out, responses.ResponseInputItemParamOfMessage(content, responses.EasyInputMessageRoleUser))
 			}
 		case AssistantMessage:
 			content, err := openAIAssistantInput(msg, target)
@@ -604,31 +638,23 @@ func toOpenAIInputForModel(messages []Message, target Model) (responses.Response
 	return out, nil
 }
 
-func openAIUserContent(content []Content) (responses.ResponseInputMessageContentListParam, error) {
+func openAIUserContent(content []InputContent) (responses.ResponseInputMessageContentListParam, error) {
 	out := make(responses.ResponseInputMessageContentListParam, 0, len(content))
 	for i, block := range content {
 		switch value := block.(type) {
-		case TextContent:
+		case TextInput:
 			out = append(out, responses.ResponseInputContentParamOfInputText(value.Text))
-		case ImageContent:
-			image, err := openAIImageParam(value)
-			if err != nil {
-				return nil, openAIContentError("user", i, "ImageContent", err)
-			}
-			out = append(out, responses.ResponseInputContentUnionParam{OfInputImage: &image})
-		case FileContent:
-			if err := validateFileContent(value); err != nil {
-				return nil, openAIContentError("user", i, "FileContent", err)
-			}
+		case FileInput:
+			fileContent := FileContent{Filename: value.Filename, MediaType: value.MediaType, URL: value.URL}
 			if isImageMediaType(value.MediaType) {
-				image, err := openAIImageParam(ImageContent{MediaType: value.MediaType, URL: value.URL})
+				image, err := openAIImageParam(fileContent)
 				if err != nil {
 					return nil, openAIContentError("user", i, "FileContent", err)
 				}
 				out = append(out, responses.ResponseInputContentUnionParam{OfInputImage: &image})
 				continue
 			}
-			file, err := openAIFileParam(value)
+			file, err := openAIFileParam(fileContent)
 			if err != nil {
 				return nil, openAIContentError("user", i, "FileContent", err)
 			}
@@ -640,24 +666,15 @@ func openAIUserContent(content []Content) (responses.ResponseInputMessageContent
 	return out, nil
 }
 
-func openAIToolOutput(content []Content) (responses.ResponseFunctionCallOutputItemListParam, error) {
+func openAIToolOutput(content []ResultContent) (responses.ResponseFunctionCallOutputItemListParam, error) {
 	out := make(responses.ResponseFunctionCallOutputItemListParam, 0, len(content))
 	for i, block := range content {
 		switch value := block.(type) {
 		case TextContent:
 			out = append(out, responses.ResponseFunctionCallOutputItemParamOfInputText(value.Text))
-		case ImageContent:
-			image, err := openAIToolImageParam(value)
-			if err != nil {
-				return nil, openAIContentError("tool result", i, "ImageContent", err)
-			}
-			out = append(out, responses.ResponseFunctionCallOutputItemUnionParam{OfInputImage: &image})
 		case FileContent:
-			if err := validateFileContent(value); err != nil {
-				return nil, openAIContentError("tool result", i, "FileContent", err)
-			}
 			if isImageMediaType(value.MediaType) {
-				image, err := openAIToolImageParam(ImageContent{MediaType: value.MediaType, URL: value.URL})
+				image, err := openAIToolImageParam(value)
 				if err != nil {
 					return nil, openAIContentError("tool result", i, "FileContent", err)
 				}
@@ -699,10 +716,13 @@ func openAIAssistantInput(msg AssistantMessage, target Model) ([]responses.Respo
 				out = append(out, responses.ResponseInputItemParamOfMessage(value.Text, responses.EasyInputMessageRoleAssistant))
 			}
 		case ToolCall:
-			// Partial calls are retained on incomplete messages for observability,
-			// but replaying one without a matching output corrupts Responses input.
+			// Incomplete diagnostic calls are excluded. The droid's active context
+			// normalizes a truncated call to tool-use only after adding synthetic
+			// results for safe replay.
 			if msg.StopReason == StopReasonToolUse {
-				call := responses.ResponseInputItemParamOfFunctionCall(string(value.Arguments), value.ID, value.Name)
+				call := responses.ResponseInputItemParamOfFunctionCall(
+					string(value.Arguments), providerCallID(value.ID, value.ProviderCallID), value.Name,
+				)
 				if sameProviderAndModel && validOpenAIItemID(value.Signature) {
 					call.OfFunctionCall.ID = param.NewOpt(value.Signature)
 				}
@@ -715,7 +735,14 @@ func openAIAssistantInput(msg AssistantMessage, target Model) ([]responses.Respo
 	return out, nil
 }
 
-func openAIImageParam(image ImageContent) (responses.ResponseInputImageParam, error) {
+func providerCallID(id ToolCallID, providerID string) string {
+	if providerID != "" {
+		return providerID
+	}
+	return string(id)
+}
+
+func openAIImageParam(image FileContent) (responses.ResponseInputImageParam, error) {
 	if err := validateImageContent(image); err != nil {
 		return responses.ResponseInputImageParam{}, err
 	}
@@ -725,7 +752,7 @@ func openAIImageParam(image ImageContent) (responses.ResponseInputImageParam, er
 	}, nil
 }
 
-func openAIToolImageParam(image ImageContent) (responses.ResponseInputImageContentParam, error) {
+func openAIToolImageParam(image FileContent) (responses.ResponseInputImageContentParam, error) {
 	if err := validateImageContent(image); err != nil {
 		return responses.ResponseInputImageContentParam{}, err
 	}
@@ -772,7 +799,7 @@ func openAIToolFileParam(file FileContent) (responses.ResponseInputFileContentPa
 	return input, nil
 }
 
-func validateImageContent(image ImageContent) error {
+func validateImageContent(image FileContent) error {
 	if err := validateImageMediaType(image.MediaType); err != nil {
 		return err
 	}
@@ -856,15 +883,23 @@ func toOpenAITools(tools []ToolSchema) []responses.ToolUnionParam {
 }
 
 // textOfContent concatenates the text blocks of a content slice.
-func textOfContent(content []Content) string {
+func textOfContent[T any](content []T) string {
 	var text strings.Builder
 	for _, block := range content {
-		if value, ok := block.(TextContent); ok {
-			if text.Len() > 0 {
-				text.WriteByte('\n')
-			}
-			text.WriteString(value.Text)
+		var value string
+		switch content := any(block).(type) {
+		case TextContent:
+			value = content.Text
+		case TextInput:
+			value = content.Text
 		}
+		if value == "" {
+			continue
+		}
+		if text.Len() > 0 {
+			text.WriteByte('\n')
+		}
+		text.WriteString(value)
 	}
 	return text.String()
 }

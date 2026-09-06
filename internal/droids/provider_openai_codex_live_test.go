@@ -68,8 +68,8 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 		defer cancel()
 		stream := providers.Stream(ctx, model, Request{
 			SystemPrompt: "Follow the user's output-format instruction exactly.",
-			Messages: []Message{UserMessage{Content: []Content{
-				TextContent{Text: "Reply with exactly: codex-live-ok"},
+			Messages: []Message{UserMessage{Content: []InputContent{
+				TextInput{Text: "Reply with exactly: codex-live-ok"},
 			}}},
 			Reasoning: "low",
 		})
@@ -88,8 +88,8 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 		defer cancel()
 		stream := providers.Stream(ctx, model, Request{
 			SystemPrompt: "Follow the user's output-format instruction exactly.",
-			Messages: []Message{UserMessage{Content: []Content{
-				TextContent{Text: "Reply with exactly: reasoning-off-ok"},
+			Messages: []Message{UserMessage{Content: []InputContent{
+				TextInput{Text: "Reply with exactly: reasoning-off-ok"},
 			}}},
 			Reasoning: "off",
 		})
@@ -106,7 +106,7 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 	t.Run("encrypted reasoning replay", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		firstUser := UserMessage{Content: []Content{TextContent{Text: "Compute the last six digits of 123456789 raised to the 12345th power. Work it out carefully, then reply with only those six digits."}}}
+		firstUser := UserMessage{Content: []InputContent{TextInput{Text: "Compute the last six digits of 123456789 raised to the 12345th power. Work it out carefully, then reply with only those six digits."}}}
 		firstStream := providers.Stream(ctx, model, Request{
 			SystemPrompt: "Solve the problem carefully and follow the output format exactly.",
 			Messages:     []Message{firstUser},
@@ -128,7 +128,7 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 			Messages: []Message{
 				firstUser,
 				first,
-				UserMessage{Content: []Content{TextContent{Text: "Add one to the previous result. Reply with only the integer."}}},
+				UserMessage{Content: []InputContent{TextInput{Text: "Add one to the previous result. Reply with only the integer."}}},
 			},
 			Reasoning: "high",
 		})
@@ -142,23 +142,21 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 	})
 
 	t.Run("tool replay", func(t *testing.T) {
-		store := NewMemoryStorage()
-		reveal := NewTool(Tool[struct{}]{
+		store := NewMemoryStore()
+		reveal := MustTool(Tool[struct{}]{
 			Name:        "reveal_code",
 			Description: "Return the code that must be reported to the user.",
-			Execute: func(_ context.Context, _ struct{}, _ ToolUpdate) (ToolResult, error) {
+			Execute: func(_ context.Context, _ ToolContext, _ struct{}, _ ToolUpdate) (ToolResult, error) {
 				return ToolText("tool-replay-ok"), nil
 			},
 		})
-		droid, err := New(Options{
+		droid, err := Open(context.Background(), "codex-live-tool-replay", Config{
+			Store:        store,
 			Providers:    providers,
 			Model:        "openai-codex/" + modelID,
-			Session:      "codex-live-tool-replay",
-			Storage:      store,
 			SystemPrompt: "You must call reveal_code exactly once, then reply with exactly the code it returns.",
 			Tools:        []AnyTool{reveal},
 			Reasoning:    "low",
-			MaxSteps:     4,
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -166,21 +164,32 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 		defer droid.Close()
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		message, err := droid.Execute(ctx, "Get and report the code now.")
+		handle, err := droid.Prompt(ctx, Input{Content: []InputContent{TextInput{Text: "Get and report the code now."}}}, PromptOptions{})
 		if err != nil {
 			t.Fatal(err)
+		}
+		outcome, err := handle.Wait(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if outcome.FinalMessage == nil {
+			t.Fatalf("outcome has no final message: %+v", outcome)
+		}
+		message, ok := outcome.FinalMessage.Message.(AssistantMessage)
+		if !ok {
+			t.Fatalf("final message = %T", outcome.FinalMessage.Message)
 		}
 		answer := strings.Trim(strings.ToLower(message.Text()), " \t\r\n.\"'")
 		if answer != "tool-replay-ok" {
 			t.Fatalf("unexpected final tool answer: %q", message.Text())
 		}
-		transcript, err := store.Load(context.Background(), "codex-live-tool-replay")
+		history, err := droid.History(context.Background(), HistoryQuery{Limit: 100})
 		if err != nil {
 			t.Fatal(err)
 		}
 		verifiedToolTurn := false
-		for _, entry := range transcript {
-			assistant, ok := entry.(AssistantMessage)
+		for _, entry := range history.Messages {
+			assistant, ok := entry.Message.(AssistantMessage)
 			if !ok || assistant.StopReason != StopReasonToolUse {
 				continue
 			}
@@ -191,7 +200,7 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 			}
 		}
 		if !verifiedToolTurn {
-			t.Fatalf("tool-use turn lacks a replay signature: %#v", transcript)
+			t.Fatalf("tool-use turn lacks a replay signature: %#v", history.Messages)
 		}
 	})
 }

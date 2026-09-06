@@ -52,7 +52,7 @@ func newListTool(cwd string) droids.Tool[listArgs] {
 			"path": stringSchema("Directory to list (default: cwd)"),
 		}),
 		Mode: droids.ModeParallel,
-		Execute: func(ctx context.Context, args listArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, _ droids.ToolContext, args listArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}

@@ -20,21 +20,21 @@ func TestValidateAssistantToolCallsRejectsMalformedProviderOutput(t *testing.T) 
 		},
 		{
 			name: "empty id",
-			message: AssistantMessage{StopReason: StopReasonToolUse, Content: []Content{
+			message: AssistantMessage{StopReason: StopReasonToolUse, Content: []AssistantContent{
 				ToolCall{Name: "read", Arguments: []byte(`{}`)},
 			}},
 			want: "empty id",
 		},
 		{
 			name: "empty name",
-			message: AssistantMessage{StopReason: StopReasonToolUse, Content: []Content{
+			message: AssistantMessage{StopReason: StopReasonToolUse, Content: []AssistantContent{
 				ToolCall{ID: "call_1", Arguments: []byte(`{}`)},
 			}},
 			want: "empty name",
 		},
 		{
 			name: "duplicate id",
-			message: AssistantMessage{StopReason: StopReasonToolUse, Content: []Content{
+			message: AssistantMessage{StopReason: StopReasonToolUse, Content: []AssistantContent{
 				ToolCall{ID: "call_1", Name: "read", Arguments: []byte(`{}`)},
 				ToolCall{ID: "call_1", Name: "write", Arguments: []byte(`{}`)},
 			}},
@@ -54,7 +54,7 @@ func TestValidateAssistantToolCallsRejectsMalformedProviderOutput(t *testing.T) 
 func TestValidateAssistantToolCallsAcceptsValidProviderOutput(t *testing.T) {
 	t.Parallel()
 
-	err := validateAssistantToolCalls(AssistantMessage{StopReason: StopReasonToolUse, Content: []Content{
+	err := validateAssistantToolCalls(AssistantMessage{StopReason: StopReasonToolUse, Content: []AssistantContent{
 		ToolCall{ID: "call_1", Name: "read", Arguments: []byte(`{"path":"README.md"}`)},
 		ToolCall{ID: "call_2", Name: "grep", Arguments: []byte(`{"pattern":"TODO"}`)},
 	}})

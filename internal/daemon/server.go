@@ -138,7 +138,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		}
 		return availableProviderIDs(ctx, paths, credentialSources)
 	}
-	sessionManager, err = kitsession.NewManager(store, providers, systemPrompt)
+	sessionManager, err = kitsession.NewManager(
+		store, providers, systemPrompt,
+		kitsession.WithDroidStoreDirectory(paths.Droids),
+	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
 	}
@@ -314,7 +317,7 @@ func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Pr
 	store := auth.NewStore(paths.Auth)
 	openAIKey, openAIKeySource, openAISource := providerAPIKey(store, auth.OpenAIProviderID, os.Getenv("OPENAI_API_KEY"))
 	anthropicKey, anthropicKeySource, anthropicSource := providerAPIKey(store, auth.AnthropicProviderID, os.Getenv("ANTHROPIC_API_KEY"))
-	configs := []droids.Provider{
+	configs := []droids.ProviderConfig{
 		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL")},
 		droids.Anthropic{APIKey: anthropicKey, APIKeySource: anthropicKeySource, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")},
 	}

@@ -34,7 +34,7 @@ func TestOpenAIResolvesAPIKeyForEveryRequest(t *testing.T) {
 		t.Fatal("test model did not resolve")
 	}
 	for _, want := range []string{"Bearer first-key", "Bearer second-key"} {
-		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hello"}}}}})
 		for range stream.Events() {
 		}
 		if got := <-headers; got != want {
@@ -53,7 +53,7 @@ func TestOpenAIKeyResolutionCancellationIsAnAbort(t *testing.T) {
 	model, _ := providers.Model("gpt-4o-mini")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	stream := providers.Stream(ctx, model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+	stream := providers.Stream(ctx, model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hello"}}}}})
 	for range stream.Events() {
 	}
 	message := stream.Result()
@@ -79,11 +79,11 @@ func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 	)
 	defer server.Close()
 
-	report, err := NewFileURL("report.pdf", "application/pdf", "https://files.example/report.pdf?signature=abc")
+	report, err := NewFileInputURL("report.pdf", "application/pdf", "https://files.example/report.pdf?signature=abc")
 	if err != nil {
 		t.Fatal(err)
 	}
-	namedImage, err := NewFileURL("photo.png", "image/png", "https://files.example/photo.png")
+	namedImage, err := NewFileInputURL("photo.png", "image/png", "https://files.example/photo.png")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,11 +92,11 @@ func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 	temperature := 0.25
 	stream := providers.Stream(context.Background(), model, Request{
 		SystemPrompt: "Be concise.",
-		Messages: []Message{UserMessage{Content: []Content{
-			TextContent{Text: "Say hello"},
-			NewImageData("image/png", []byte("hello")),
+		Messages: []Message{UserMessage{Content: []InputContent{
+			TextInput{Text: "Say hello"},
+			NewFileInputData("", "image/png", []byte("hello")),
 			report,
-			NewFileData("notes.txt", "text/plain", []byte("notes")),
+			NewFileInputData("notes.txt", "text/plain", []byte("notes")),
 			namedImage,
 		}}},
 		Tools: []ToolSchema{{
@@ -191,7 +191,7 @@ func TestOpenAIResponsesRejectsInvalidContentWithoutRequest(t *testing.T) {
 
 	providers, model := testOpenAIProvider(t, server.URL)
 	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
-		UserMessage{Content: []Content{FileContent{
+		UserMessage{Content: []InputContent{FileInput{
 			Filename: "report.pdf", MediaType: "application/pdf", URL: "http://files.example/report.pdf",
 		}}},
 	}})
@@ -231,7 +231,7 @@ func TestOpenAIResponsesStreamsToolCall(t *testing.T) {
 
 	providers, model := testOpenAIProvider(t, server.URL)
 	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
-		UserMessage{Content: []Content{TextContent{Text: "Weather?"}}},
+		UserMessage{Content: []InputContent{TextInput{Text: "Weather?"}}},
 	}})
 
 	var events []StreamEvent
@@ -266,7 +266,7 @@ func TestOpenAIResponsesRejectsFunctionCallWithoutCallID(t *testing.T) {
 
 	providers, model := testOpenAIProvider(t, server.URL)
 	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
-		UserMessage{Content: []Content{TextContent{Text: "Weather?"}}},
+		UserMessage{Content: []InputContent{TextInput{Text: "Weather?"}}},
 	}})
 	var last StreamEvent
 	for event := range stream.Events() {
@@ -292,7 +292,7 @@ func TestOpenAIResponsesStreamsRefusalAsText(t *testing.T) {
 
 	providers, model := testOpenAIProvider(t, server.URL)
 	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
-		UserMessage{Content: []Content{TextContent{Text: "Request"}}},
+		UserMessage{Content: []InputContent{TextInput{Text: "Request"}}},
 	}})
 	var events []StreamEvent
 	for event := range stream.Events() {
@@ -337,9 +337,9 @@ func TestOpenAIResponsesReplaysOutputAndReasoningItems(t *testing.T) {
 	}
 
 	input, err := toOpenAIInput([]Message{
-		UserMessage{Content: []Content{TextContent{Text: "Look it up"}}},
+		UserMessage{Content: []InputContent{TextInput{Text: "Look it up"}}},
 		message,
-		ToolResultMessage{ToolCallID: "call_1", ToolName: "lookup", Content: []Content{
+		ToolResultMessage{ToolCallID: "call_1", ToolName: "lookup", Content: []ResultContent{
 			TextContent{Text: "found"},
 			NewImageData("image/png", []byte("image")),
 			NewFileData("details.txt", "text/plain", []byte("details")),
@@ -405,7 +405,7 @@ func TestOpenAIResponsesIncompleteAndErrorEvents(t *testing.T) {
 		)
 		defer server.Close()
 		providers, model := testOpenAIProvider(t, server.URL)
-		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hi"}}}}})
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hi"}}}}})
 		var last StreamEvent
 		for event := range stream.Events() {
 			last = event
@@ -422,7 +422,7 @@ func TestOpenAIResponsesIncompleteAndErrorEvents(t *testing.T) {
 		}
 		replayInput, err := toOpenAIInput([]Message{
 			message,
-			UserMessage{Content: []Content{TextContent{Text: "Try something else"}}},
+			UserMessage{Content: []InputContent{TextInput{Text: "Try something else"}}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -444,7 +444,7 @@ func TestOpenAIResponsesIncompleteAndErrorEvents(t *testing.T) {
 		)
 		defer server.Close()
 		providers, model := testOpenAIProvider(t, server.URL)
-		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hi"}}}}})
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hi"}}}}})
 		var last StreamEvent
 		for event := range stream.Events() {
 			last = event
@@ -466,7 +466,7 @@ func TestOpenAIResponsesIncompleteAndErrorEvents(t *testing.T) {
 		)
 		defer server.Close()
 		providers, model := testOpenAIProvider(t, server.URL)
-		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hi"}}}}})
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hi"}}}}})
 		var last StreamEvent
 		for event := range stream.Events() {
 			last = event

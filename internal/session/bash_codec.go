@@ -147,7 +147,7 @@ func bashContextMessage(execution BashExecution) droids.UserMessage {
 		text += "\n" + output
 	}
 	return droids.UserMessage{
-		Content:   []droids.Content{droids.TextContent{Text: text}},
+		Content:   []droids.InputContent{droids.TextInput{Text: text}},
 		Timestamp: execution.StartedAt.UnixMilli(),
 	}
 }

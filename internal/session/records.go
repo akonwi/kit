@@ -49,14 +49,15 @@ type TurnRecord struct {
 
 // ParentRunRecord is one execution attempt associated with a Kit turn.
 type ParentRunRecord struct {
-	ID        string
-	SessionID string
-	TurnID    string
-	Status    RunStatus
-	Error     string
-	CreatedAt time.Time
-	StartedAt *time.Time
-	EndedAt   *time.Time
+	ID          string
+	SessionID   string
+	TurnID      string
+	DroidTurnID string
+	Status      RunStatus
+	Error       string
+	CreatedAt   time.Time
+	StartedAt   *time.Time
+	EndedAt     *time.Time
 }
 
 // RunStatus is a durable parent or subagent execution state.
@@ -139,13 +140,15 @@ type Repository interface {
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)
 	GetParentRun(context.Context, string, string) (ParentRunRecord, error)
+	ListParentRuns(context.Context, string) ([]ParentRunRecord, error)
 	GetActiveParentRun(context.Context, string) (ParentRunRecord, error)
 	ReserveParentRun(context.Context, string, string, string) (TurnRecord, ParentRunRecord, error)
-	StartReservedParentRun(context.Context, string, string) (string, RunStatus, error)
+	StartReservedParentRun(context.Context, string, string, string) (string, RunStatus, error)
 	AbortReservedParentRun(context.Context, string, string, string) (RunStatus, error)
 	FinishParentRun(context.Context, string, string, string, RunStatus, string) error
 	RecoverParentRun(context.Context, string, string, string, string) (RunStatus, error)
 	AppendMessages(context.Context, string, string, []NewMessageRecord) ([]MessageRecord, error)
+	ProjectDroidMessages(context.Context, string, string, []NewMessageRecord) ([]MessageRecord, error)
 	CreateBashExecution(context.Context, string, NewMessageRecord) (MessageRecord, error)
 	UpdateBashExecution(context.Context, string, string, []byte) (MessageRecord, error)
 	GetBashExecution(context.Context, string, string) (MessageRecord, error)

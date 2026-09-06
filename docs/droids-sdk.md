@@ -501,20 +501,32 @@ without pretending they are user prompts.
 
 ```go
 type BoundaryMessage struct {
-    Kind    string
-    Source  string
-    Content []InputContent
+    ID         string
+    ReceiptIDs []string
+    Kind       string
+    Source     string
+    Content    []InputContent
 }
 
 func (d *Droid) Inform(
     ctx context.Context,
     message BoundaryMessage,
 ) error
+
+func (d *Droid) BoundaryReceived(
+    ctx context.Context,
+    id string,
+) (bool, error)
 ```
 
-Boundary messages are persisted and ordered by the droid. When an execution is
-active, they are injected at the next safe model boundary. When idle, they wait
-for the next user-initiated turn and do not start work by themselves.
+Boundary messages are persisted and ordered by the droid. A non-empty `ID`
+makes one materialized boundary identifiable. `ReceiptIDs` atomically records
+all application source records represented by a coalesced boundary; when it is
+empty, `ID` is also the sole receipt. `BoundaryReceived` lets an application
+reconcile delivery without inferring it from compactable model context.
+Repeating a fully received set is a successful no-op. When an execution is
+active, boundaries are injected at the next safe model boundary. When idle,
+they wait for the next user-initiated turn and do not start work by themselves.
 
 Applications use this API for events such as child-agent completion. Droids
 does not define application-specific child or mailbox types.

@@ -35,7 +35,7 @@ func newReadTool(cwd string) droids.Tool[readArgs] {
 			"limit":  integerSchema("Maximum number of lines to read"),
 		}, "path"),
 		Mode: droids.ModeParallel,
-		Execute: func(ctx context.Context, args readArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, _ droids.ToolContext, args readArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			path, err := resolvePath(cwd, args.Path)
 			if err != nil {
 				return errorResult(err, readDetails{Path: args.Path}), nil

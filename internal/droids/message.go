@@ -2,11 +2,13 @@ package droids
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
 	"net/url"
 	"strings"
+	"time"
 )
 
 // message.go — the neutral conversation vocabulary shared by every layer.
@@ -20,10 +22,23 @@ const (
 	RoleUser       Role = "user"
 	RoleAssistant  Role = "assistant"
 	RoleToolResult Role = "toolResult"
+	RoleContext    Role = "context"
 )
 
-// Content is a sealed interface over the block types a message can carry.
+// Content is the internal common constraint for provider-neutral content.
 type Content interface{ isContent() }
+
+// AssistantContent is content emitted by a model.
+type AssistantContent interface {
+	Content
+	isAssistantContent()
+}
+
+// ResultContent is content emitted by a tool.
+type ResultContent interface {
+	Content
+	isResultContent()
+}
 
 // TextContent is plain text emitted by a user or assistant.
 type TextContent struct {
@@ -33,7 +48,9 @@ type TextContent struct {
 	Signature string
 }
 
-func (TextContent) isContent() {}
+func (TextContent) isContent()          {}
+func (TextContent) isAssistantContent() {}
+func (TextContent) isResultContent()    {}
 
 // ThinkingContent is reasoning/thinking output from a model.
 type ThinkingContent struct {
@@ -44,32 +61,24 @@ type ThinkingContent struct {
 	Redacted bool
 }
 
-func (ThinkingContent) isContent() {}
+func (ThinkingContent) isContent()          {}
+func (ThinkingContent) isAssistantContent() {}
 
-// ImageContent is an unnamed visual block sourced from a fully qualified HTTPS
-// URL or data URL.
-type ImageContent struct {
-	MediaType string // e.g. "image/png"
-	URL       string
-}
-
-func (ImageContent) isContent() {}
-
-// NewImageURL constructs an image block from a fully qualified HTTPS or data
-// URL. URLs containing user credentials are rejected.
-func NewImageURL(mediaType, rawURL string) (ImageContent, error) {
+// NewImageURL constructs unnamed image file content from a fully qualified
+// HTTPS or data URL.
+func NewImageURL(mediaType, rawURL string) (FileContent, error) {
 	if err := validateImageMediaType(mediaType); err != nil {
-		return ImageContent{}, fmt.Errorf("droids: invalid image media type: %w", err)
+		return FileContent{}, fmt.Errorf("droids: invalid image media type: %w", err)
 	}
 	if err := validateContentSource(rawURL, mediaType); err != nil {
-		return ImageContent{}, fmt.Errorf("droids: invalid image URL: %w", err)
+		return FileContent{}, fmt.Errorf("droids: invalid image URL: %w", err)
 	}
-	return ImageContent{MediaType: mediaType, URL: rawURL}, nil
+	return FileContent{MediaType: mediaType, URL: rawURL}, nil
 }
 
-// NewImageData constructs an image block containing base64-encoded inline data.
-func NewImageData(mediaType string, data []byte) ImageContent {
-	return ImageContent{MediaType: mediaType, URL: dataURL(mediaType, data)}
+// NewImageData constructs unnamed image file content containing inline data.
+func NewImageData(mediaType string, data []byte) FileContent {
+	return FileContent{MediaType: mediaType, URL: dataURL(mediaType, data)}
 }
 
 // FileContent is a named user-provided file sourced from a fully qualified
@@ -81,7 +90,8 @@ type FileContent struct {
 	URL       string
 }
 
-func (FileContent) isContent() {}
+func (FileContent) isContent()       {}
+func (FileContent) isResultContent() {}
 
 // NewFileURL constructs a named file block from a fully qualified HTTPS or data
 // URL. URLs containing user credentials are rejected.
@@ -208,15 +218,17 @@ func validateContentURL(rawURL string) error {
 
 // ToolCall is a model request to invoke a tool.
 type ToolCall struct {
-	ID        string
-	Name      string
-	Arguments []byte // raw JSON arguments
+	ID             ToolCallID
+	ProviderCallID string
+	Name           string
+	Arguments      []byte // raw JSON arguments
 	// Signature is opaque provider metadata (for example, a Responses API
 	// function-call item id) needed to replay the call on subsequent turns.
 	Signature string
 }
 
-func (ToolCall) isContent() {}
+func (ToolCall) isContent()          {}
+func (ToolCall) isAssistantContent() {}
 
 // Message is a sealed interface over the three conversation message kinds.
 // It is the durable unit persisted by Storage.
@@ -227,25 +239,48 @@ type Message interface {
 
 // UserMessage is input from the user.
 type UserMessage struct {
-	Content   []Content
+	Content   []InputContent
 	Timestamp int64 // unix millis
 }
 
 func (UserMessage) isMessage() {}
 func (UserMessage) Role() Role { return RoleUser }
 
-// ErrorKind classifies a provider failure without exposing provider-specific
-// response text to callers that need stable recovery behavior.
-type ErrorKind string
+// ProviderErrorKind classifies a provider failure without exposing
+// provider-specific response text.
+type ProviderErrorKind string
 
 const (
-	ErrorAuthentication ErrorKind = "authentication"
-	ErrorEntitlement    ErrorKind = "entitlement"
-	ErrorUsageLimit     ErrorKind = "usage_limit"
-	ErrorRateLimit      ErrorKind = "rate_limit"
-	ErrorTransport      ErrorKind = "transport"
-	ErrorProtocol       ErrorKind = "protocol"
+	ProviderAuthentication ProviderErrorKind = "authentication"
+	ProviderEntitlement    ProviderErrorKind = "entitlement"
+	ProviderUsageLimit     ProviderErrorKind = "usage_limit"
+	ProviderRateLimit      ProviderErrorKind = "rate_limit"
+	ProviderTransport      ProviderErrorKind = "transport"
+	ProviderContextWindow  ProviderErrorKind = "context_window"
+	ProviderInvalidRequest ProviderErrorKind = "invalid_request"
+	ProviderProtocol       ProviderErrorKind = "protocol"
+	ProviderInternal       ProviderErrorKind = "internal"
 )
+
+// ErrorKind is retained as the provider translator's concise alias.
+type ErrorKind = ProviderErrorKind
+
+const (
+	ErrorAuthentication = ProviderAuthentication
+	ErrorEntitlement    = ProviderEntitlement
+	ErrorUsageLimit     = ProviderUsageLimit
+	ErrorRateLimit      = ProviderRateLimit
+	ErrorTransport      = ProviderTransport
+	ErrorProtocol       = ProviderProtocol
+)
+
+// ProviderError is stable provider failure metadata.
+type ProviderError struct {
+	Kind       ProviderErrorKind
+	Message    string
+	Retryable  bool
+	RetryAfter time.Duration
+}
 
 // AssistantMessage is a full model response for one turn.
 type AssistantMessage struct {
@@ -253,7 +288,7 @@ type AssistantMessage struct {
 	// lifecycle and durable projection share one identity. Providers ignore it;
 	// manually constructed messages may leave it empty.
 	ID            string
-	Content       []Content // TextContent | ThinkingContent | ToolCall
+	Content       []AssistantContent
 	Provider      string
 	Model         string
 	ResponseModel string // concrete model when it differs from the requested one
@@ -265,6 +300,7 @@ type AssistantMessage struct {
 	StopReason    StopReason
 	ErrorKind     ErrorKind
 	ErrorMessage  string
+	Error         *ProviderError
 	Timestamp     int64
 }
 
@@ -299,16 +335,30 @@ func (m AssistantMessage) ToolCalls() []ToolCall {
 
 // ToolResultMessage is the result of executing a single tool call.
 type ToolResultMessage struct {
-	ToolCallID string
-	ToolName   string
-	Content    []Content // TextContent | ImageContent | FileContent
-	Details    any
-	IsError    bool
-	Timestamp  int64
+	ToolCallID     ToolCallID
+	ProviderCallID string
+	ToolName       string
+	Content        []ResultContent
+	Details        json.RawMessage
+	IsError        bool
+	Terminate      bool
+	Timestamp      int64
 }
 
 func (ToolResultMessage) isMessage() {}
 func (ToolResultMessage) Role() Role { return RoleToolResult }
+
+// ContextMessage is a compaction summary or external boundary materialized into
+// provider context without pretending to be primary user input.
+type ContextMessage struct {
+	BoundaryID string
+	Kind       string
+	Source     string
+	Content    []InputContent
+}
+
+func (ContextMessage) isMessage() {}
+func (ContextMessage) Role() Role { return RoleContext }
 
 // StopReason explains why an assistant turn ended.
 type StopReason string

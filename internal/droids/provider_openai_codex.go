@@ -148,6 +148,7 @@ func (c OpenAICodex) build() (providerEntry, error) {
 		models:          models,
 		canonicalModels: true,
 		stream:          impl.stream,
+		validateReplay:  impl.validateReplay,
 		baseURL:         defaultOpenAICodexBaseURL,
 	}, nil
 }
@@ -415,6 +416,20 @@ type openAICodexProvider struct {
 	now         func() time.Time
 }
 
+func (p *openAICodexProvider) validateReplay(ctx context.Context, model Model, messages []Message) error {
+	credentials, err := p.credentials.resolve(ctx)
+	if err != nil {
+		return err
+	}
+	if err := validateOpenAICodexAccess(credentials, p.now()); err != nil {
+		return err
+	}
+	if err := validateOpenAICodexTranscriptScope(messages, model.Provider, openAICodexProviderScope(credentials.AccountID)); err != nil {
+		return err
+	}
+	return validateOpenAICodexContent(model, messages)
+}
+
 func (p *openAICodexProvider) stream(ctx context.Context, model Model, req Request, _ callOptions) Stream {
 	s := newPipeStream()
 	go p.run(ctx, model, req, s)
@@ -603,28 +618,38 @@ func validateOpenAICodexTranscriptScope(messages []Message, provider, scope stri
 
 func validateOpenAICodexContent(model Model, messages []Message) error {
 	for _, message := range messages {
-		var content []Content
+		var err error
 		switch value := message.(type) {
 		case UserMessage:
-			content = value.Content
+			err = validateOpenAICodexBlocks(model, value.Content)
+		case ContextMessage:
+			err = validateOpenAICodexBlocks(model, value.Content)
 		case ToolResultMessage:
-			content = value.Content
-		default:
-			continue
+			err = validateOpenAICodexBlocks(model, value.Content)
 		}
-		for _, block := range content {
-			switch value := block.(type) {
-			case ImageContent:
-				if !containsString(model.Input, "image") {
-					return fmt.Errorf("openai-codex: model %q does not support image input", model.ID)
-				}
-			case FileContent:
-				if !isImageMediaType(value.MediaType) {
-					return fmt.Errorf("openai-codex: files other than images are not supported")
-				}
-				if !containsString(model.Input, "image") {
-					return fmt.Errorf("openai-codex: model %q does not support image input", model.ID)
-				}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateOpenAICodexBlocks[T any](model Model, content []T) error {
+	for _, block := range content {
+		switch value := any(block).(type) {
+		case FileInput:
+			if !isImageMediaType(value.MediaType) {
+				return fmt.Errorf("openai-codex: files other than images are not supported")
+			}
+			if !containsString(model.Input, "image") {
+				return fmt.Errorf("openai-codex: model %q does not support image input", model.ID)
+			}
+		case FileContent:
+			if !isImageMediaType(value.MediaType) {
+				return fmt.Errorf("openai-codex: files other than images are not supported")
+			}
+			if !containsString(model.Input, "image") {
+				return fmt.Errorf("openai-codex: model %q does not support image input", model.ID)
 			}
 		}
 	}

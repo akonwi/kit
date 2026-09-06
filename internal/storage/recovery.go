@@ -34,25 +34,29 @@ func (s *Store) InterruptActiveRuns(ctx context.Context, reason string) (Recover
 	now := formatTimestamp(time.Now())
 	var recovered RecoveryResult
 	result, err := tx.ExecContext(ctx, `
-		UPDATE parent_runs
-		SET status = 'interrupted', error = ?, completed_at = ?
-		WHERE status IN ('queued', 'running')
-	`, reason, now)
-	if err != nil {
-		return RecoveryResult{}, fmt.Errorf("interrupt parent runs: %w", err)
-	}
-	if recovered.ParentRuns, err = rowsAffected(result); err != nil {
-		return RecoveryResult{}, err
-	}
-	result, err = tx.ExecContext(ctx, `
 		UPDATE turns
 		SET status = 'interrupted', completed_at = ?
 		WHERE status IN ('pending', 'running')
+		  AND id IN (
+			SELECT turn_id FROM parent_runs
+			WHERE droid_turn_id IS NULL AND status IN ('queued', 'running')
+		  )
 	`, now)
 	if err != nil {
-		return RecoveryResult{}, fmt.Errorf("interrupt turns: %w", err)
+		return RecoveryResult{}, fmt.Errorf("interrupt legacy turns: %w", err)
 	}
 	if recovered.Turns, err = rowsAffected(result); err != nil {
+		return RecoveryResult{}, err
+	}
+	result, err = tx.ExecContext(ctx, `
+		UPDATE parent_runs
+		SET status = 'interrupted', error = ?, completed_at = ?
+		WHERE droid_turn_id IS NULL AND status IN ('queued', 'running')
+	`, reason, now)
+	if err != nil {
+		return RecoveryResult{}, fmt.Errorf("interrupt legacy parent runs: %w", err)
+	}
+	if recovered.ParentRuns, err = rowsAffected(result); err != nil {
 		return RecoveryResult{}, err
 	}
 	result, err = tx.ExecContext(ctx, `
@@ -71,16 +75,6 @@ func (s *Store) InterruptActiveRuns(ctx context.Context, reason string) (Recover
 	}
 	if recovered.BashExecutions, err = rowsAffected(result); err != nil {
 		return RecoveryResult{}, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		UPDATE messages
-		SET payload_json = json_remove(payload_json, '$.contextBeforeTurnId')
-		WHERE role = 'bash'
-		  AND json_extract(payload_json, '$.contextBeforeTurnId') IN (
-			SELECT id FROM turns WHERE status <> 'completed'
-		  )
-	`); err != nil {
-		return RecoveryResult{}, fmt.Errorf("release interrupted bash context: %w", err)
 	}
 	result, err = tx.ExecContext(ctx, `
 		UPDATE subagent_runs

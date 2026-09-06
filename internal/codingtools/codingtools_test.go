@@ -2,6 +2,7 @@ package codingtools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -85,21 +86,21 @@ func TestReadSelectsLinesAndBoundsOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	offset, limit := 2, 2
-	result, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "sample.txt", Offset: &offset, Limit: &limit}, nil)
+	result, err := newReadTool(cwd).Execute(context.Background(), droids.ToolContext{}, readArgs{Path: "sample.txt", Offset: &offset, Limit: &limit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resultText(t, result); got != "two\nthree" {
 		t.Fatalf("read text = %q, want %q", got, "two\nthree")
 	}
-	if details := result.Details.(readDetails); details.Path != path || details.Lines != 2 || details.Truncated {
+	if details := decodeDetails[readDetails](t, result.Details); details.Path != path || details.Lines != 2 || details.Truncated {
 		t.Fatalf("read details = %+v", details)
 	}
 
 	if err := os.WriteFile(path, []byte(strings.Repeat("é", maxReadOutputBytes)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err = newReadTool(cwd).Execute(context.Background(), readArgs{Path: "sample.txt"}, nil)
+	result, err = newReadTool(cwd).Execute(context.Background(), droids.ToolContext{}, readArgs{Path: "sample.txt"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +108,7 @@ func TestReadSelectsLinesAndBoundsOutput(t *testing.T) {
 	if !strings.HasSuffix(text, "\n[truncated]") || strings.ToValidUTF8(text, "") != text {
 		t.Fatalf("bounded read returned invalid or unmarked text")
 	}
-	if !result.Details.(readDetails).Truncated {
+	if !decodeDetails[readDetails](t, result.Details).Truncated {
 		t.Fatal("read details did not report truncation")
 	}
 }
@@ -118,14 +119,14 @@ func TestReadEmptyFileIsOneEmptyLine(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cwd, "empty"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "empty"}, nil)
+	result, err := newReadTool(cwd).Execute(context.Background(), droids.ToolContext{}, readArgs{Path: "empty"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if text := resultText(t, result); text != "" {
 		t.Fatalf("empty read text = %q", text)
 	}
-	if lines := result.Details.(readDetails).Lines; lines != 1 {
+	if lines := decodeDetails[readDetails](t, result.Details).Lines; lines != 1 {
 		t.Fatalf("empty read lines = %d, want 1", lines)
 	}
 }
@@ -134,7 +135,7 @@ func TestWriteCreatesParents(t *testing.T) {
 	t.Parallel()
 	cwd := t.TempDir()
 	content := "one\ntwo"
-	result, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "nested/file.txt", Content: &content}, nil)
+	result, err := newWriteTool(cwd).Execute(context.Background(), droids.ToolContext{}, writeArgs{Path: "nested/file.txt", Content: &content}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +151,7 @@ func TestWriteCreatesParents(t *testing.T) {
 		t.Fatalf("write result = %q", text)
 	}
 
-	missing, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "missing-content.txt"}, nil)
+	missing, err := newWriteTool(cwd).Execute(context.Background(), droids.ToolContext{}, writeArgs{Path: "missing-content.txt"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,14 +171,14 @@ func TestEditAppliesAtomicExactReplacements(t *testing.T) {
 		t.Fatal(err)
 	}
 	alpha, a, gamma, g := "alpha", "A", "gamma", "G"
-	result, err := newEditTool(cwd).Execute(context.Background(), editArgs{
+	result, err := newEditTool(cwd).Execute(context.Background(), droids.ToolContext{}, editArgs{
 		Path:  "sample.txt",
 		Edits: []editInput{{OldText: &alpha, NewText: &a}, {OldText: &gamma, NewText: &g}},
 	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsError || result.Details.(editDetails).Applied != 2 {
+	if result.IsError || decodeDetails[editDetails](t, result.Details).Applied != 2 {
 		t.Fatalf("edit result = %+v", result)
 	}
 	body, _ := os.ReadFile(path)
@@ -186,7 +187,7 @@ func TestEditAppliesAtomicExactReplacements(t *testing.T) {
 	}
 
 	oldA, changed, missing, x := "A", "changed", "missing", "x"
-	result, err = newEditTool(cwd).Execute(context.Background(), editArgs{
+	result, err = newEditTool(cwd).Execute(context.Background(), droids.ToolContext{}, editArgs{
 		Path:  "sample.txt",
 		Edits: []editInput{{OldText: &oldA, NewText: &changed}, {OldText: &missing, NewText: &x}},
 	}, nil)
@@ -223,7 +224,7 @@ func TestListSortsAndMarksDirectories(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(cwd, "a"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	result, err := newListTool(cwd).Execute(context.Background(), listArgs{}, nil)
+	result, err := newListTool(cwd).Execute(context.Background(), droids.ToolContext{}, listArgs{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,14 +249,14 @@ func TestFindAndGrepRespectGitignore(t *testing.T) {
 	writeTestFile(t, cwd, "ignored/no.go", "Needle hidden\n")
 	writeTestFile(t, cwd, ".hidden/visible.go", "needle hidden file\n")
 
-	findResult, err := newFindTool(cwd).Execute(context.Background(), findArgs{Pattern: "**/*.go"}, nil)
+	findResult, err := newFindTool(cwd).Execute(context.Background(), droids.ToolContext{}, findArgs{Pattern: "**/*.go"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resultText(t, findResult); got != ".hidden/visible.go\nsrc/main.go" {
 		t.Fatalf("find result = %q", got)
 	}
-	braceResult, err := newFindTool(cwd).Execute(context.Background(), findArgs{Pattern: "**/*.{go,tmp}"}, nil)
+	braceResult, err := newFindTool(cwd).Execute(context.Background(), droids.ToolContext{}, findArgs{Pattern: "**/*.{go,tmp}"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +265,7 @@ func TestFindAndGrepRespectGitignore(t *testing.T) {
 	}
 
 	contextLines := 1
-	grepResult, err := newGrepTool(cwd).Execute(context.Background(), grepArgs{
+	grepResult, err := newGrepTool(cwd).Execute(context.Background(), droids.ToolContext{}, grepArgs{
 		Pattern: "needle", Glob: "*.go", IgnoreCase: true, Context: &contextLines,
 	}, nil)
 	if err != nil {
@@ -274,7 +275,7 @@ func TestFindAndGrepRespectGitignore(t *testing.T) {
 	if got := resultText(t, grepResult); got != want {
 		t.Fatalf("grep result:\n%s\nwant:\n%s", got, want)
 	}
-	if details := grepResult.Details.(grepDetails); details.MatchCount != 2 {
+	if details := decodeDetails[grepDetails](t, grepResult.Details); details.MatchCount != 2 {
 		t.Fatalf("grep details = %+v", details)
 	}
 }
@@ -285,11 +286,11 @@ func TestGrepBoundsModelAndLiveOutput(t *testing.T) {
 	line := "match " + strings.Repeat("x", 1_000)
 	writeTestFile(t, cwd, "large.txt", strings.Repeat(line+"\n", 200))
 	limit := 1_000
-	result, err := newGrepTool(cwd).Execute(context.Background(), grepArgs{Pattern: "match", Limit: &limit}, nil)
+	result, err := newGrepTool(cwd).Execute(context.Background(), droids.ToolContext{}, grepArgs{Pattern: "match", Limit: &limit}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Details.(grepDetails).BytesTruncated {
+	if !decodeDetails[grepDetails](t, result.Details).BytesTruncated {
 		t.Fatalf("grep details = %+v, want byte truncation", result.Details)
 	}
 	if got := len(resultText(t, result)); got >= 64<<10 {
@@ -323,20 +324,20 @@ func TestMutationLockAcquisitionIsCancellable(t *testing.T) {
 
 func TestBashCapturesOutputExitAndTimeout(t *testing.T) {
 	cwd := t.TempDir()
-	result, err := newBashTool(cwd).Execute(context.Background(), bashArgs{Command: "printf out; exit 3"}, nil)
+	result, err := newBashTool(cwd).Execute(context.Background(), droids.ToolContext{}, bashArgs{Command: "printf out; exit 3"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := resultText(t, result); got != "out\n[exit code: 3]" {
 		t.Fatalf("bash result = %q", got)
 	}
-	if code := result.Details.(bashDetails).ExitCode; code == nil || *code != 3 {
+	if code := decodeDetails[bashDetails](t, result.Details).ExitCode; code == nil || *code != 3 {
 		t.Fatalf("bash exit details = %+v", result.Details)
 	}
 
 	timeout := int64(20)
 	started := time.Now()
-	result, err = newBashTool(cwd).Execute(context.Background(), bashArgs{Command: "sleep 5", Timeout: &timeout}, nil)
+	result, err = newBashTool(cwd).Execute(context.Background(), droids.ToolContext{}, bashArgs{Command: "sleep 5", Timeout: &timeout}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +347,7 @@ func TestBashCapturesOutputExitAndTimeout(t *testing.T) {
 	if got := resultText(t, result); got != "[timed out]" {
 		t.Fatalf("timed out bash result = %q", got)
 	}
-	if !result.Details.(bashDetails).TimedOut {
+	if !decodeDetails[bashDetails](t, result.Details).TimedOut {
 		t.Fatalf("timeout details = %+v", result.Details)
 	}
 }
@@ -355,7 +356,7 @@ func TestToolsHonorCanceledContext(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := newBashTool(t.TempDir()).Execute(ctx, bashArgs{Command: "printf no"}, nil)
+	_, err := newBashTool(t.TempDir()).Execute(ctx, droids.ToolContext{}, bashArgs{Command: "printf no"}, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("bash error = %v, want context canceled", err)
 	}
@@ -371,6 +372,15 @@ func resultText(t *testing.T, result droids.ToolResult) string {
 		t.Fatalf("result content type = %T", result.Content[0])
 	}
 	return text.Text
+}
+
+func decodeDetails[T any](t *testing.T, raw json.RawMessage) T {
+	t.Helper()
+	var details T
+	if err := json.Unmarshal(raw, &details); err != nil {
+		t.Fatalf("decode details: %v", err)
+	}
+	return details
 }
 
 func writeTestFile(t *testing.T, root, relative, content string) {

@@ -77,6 +77,20 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if err != nil {
 		return Snapshot{}, err
 	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	if loaded.admissionMu.TryLock() {
+		cursor, reconcileErr := m.reconcileDroidHistory(ctx, loaded.droid, sessionID)
+		if reconcileErr == nil {
+			loaded.historyCursor = cursor
+		}
+		loaded.admissionMu.Unlock()
+		if reconcileErr != nil {
+			return Snapshot{}, reconcileErr
+		}
+	}
 	var stored []MessageRecord
 	var activeRunID, activeTurnID string
 	for {
@@ -169,7 +183,7 @@ func projectTranscriptMessage(record MessageRecord, message droids.Message) (Tra
 		projected.ErrorMessage = typed.ErrorMessage
 		projected.IsError = typed.StopReason == droids.StopReasonError || typed.StopReason == droids.StopReasonAborted
 	case droids.ToolResultMessage:
-		projected.ToolCallID = typed.ToolCallID
+		projected.ToolCallID = string(typed.ToolCallID)
 		projected.ToolName = typed.ToolName
 		projected.IsError = typed.IsError
 		if len(record.PayloadJSON) > 0 {
@@ -202,25 +216,28 @@ func persistedToolDetails(payload []byte) (json.RawMessage, error) {
 }
 
 func projectTranscriptContent(message droids.Message) ([]TranscriptContent, error) {
-	var content []droids.Content
 	switch typed := message.(type) {
 	case droids.UserMessage:
-		content = typed.Content
+		return projectDroidContent(typed.Content)
+	case droids.ContextMessage:
+		return projectDroidContent(typed.Content)
 	case droids.AssistantMessage:
-		content = typed.Content
+		return projectDroidContent(typed.Content)
 	case droids.ToolResultMessage:
-		content = typed.Content
+		return projectDroidContent(typed.Content)
 	default:
 		return nil, fmt.Errorf("unsupported message %T", message)
 	}
-
-	return projectDroidContent(content)
 }
 
-func projectDroidContent(content []droids.Content) ([]TranscriptContent, error) {
+func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 	result := make([]TranscriptContent, 0, len(content))
 	for _, block := range content {
-		switch typed := block.(type) {
+		switch typed := any(block).(type) {
+		case droids.TextInput:
+			if typed.Text != "" {
+				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: typed.Text})
+			}
 		case droids.TextContent:
 			if typed.Text != "" {
 				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: typed.Text})
@@ -232,16 +249,24 @@ func projectDroidContent(content []droids.Content) ([]TranscriptContent, error) 
 		case droids.ToolCall:
 			arguments, truncated := presentationToolArguments(typed.Arguments)
 			result = append(result, TranscriptContent{
-				Kind: TranscriptContentToolCall, ToolCallID: typed.ID,
+				Kind: TranscriptContentToolCall, ToolCallID: string(typed.ID),
 				ToolName: typed.Name, Arguments: arguments, ArgumentsTruncated: truncated,
 			})
-		case droids.ImageContent:
+		case droids.FileInput:
+			kind := TranscriptContentFile
+			if strings.HasPrefix(strings.ToLower(typed.MediaType), "image/") {
+				kind = TranscriptContentImage
+			}
 			result = append(result, TranscriptContent{
-				Kind: TranscriptContentImage, MediaType: typed.MediaType,
+				Kind: kind, Filename: typed.Filename, MediaType: typed.MediaType,
 			})
 		case droids.FileContent:
+			kind := TranscriptContentFile
+			if strings.HasPrefix(strings.ToLower(typed.MediaType), "image/") {
+				kind = TranscriptContentImage
+			}
 			result = append(result, TranscriptContent{
-				Kind: TranscriptContentFile, Filename: typed.Filename, MediaType: typed.MediaType,
+				Kind: kind, Filename: typed.Filename, MediaType: typed.MediaType,
 			})
 		default:
 			return nil, fmt.Errorf("unsupported content %T", block)
@@ -289,16 +314,20 @@ func normalizeJSONObject(raw []byte) (json.RawMessage, error) {
 	return canonical, nil
 }
 
-func contentText(content []droids.Content) string {
+func contentText[T any](content []T) string {
 	parts := make([]string, 0, len(content))
 	for _, block := range content {
-		switch typed := block.(type) {
+		switch typed := any(block).(type) {
+		case droids.TextInput:
+			if typed.Text != "" {
+				parts = append(parts, typed.Text)
+			}
 		case droids.TextContent:
 			if typed.Text != "" {
 				parts = append(parts, typed.Text)
 			}
-		case droids.ImageContent:
-			parts = append(parts, "[image]")
+		case droids.FileInput:
+			parts = append(parts, "[file: "+typed.Filename+"]")
 		case droids.FileContent:
 			parts = append(parts, "[file: "+typed.Filename+"]")
 		case droids.ToolCall:

@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -141,9 +142,9 @@ func TestProjectDroidEventPreservesAppendOnlyToolResultDeltas(t *testing.T) {
 
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionUpdate{
 		ToolCallID: "call_1", ToolName: "read",
-		Delta: droids.ToolResultDelta{Content: []droids.Content{
+		Delta: droids.ToolResultDelta{Content: []droids.ResultContent{
 			droids.TextContent{Text: "first"},
-			droids.ImageContent{MediaType: "image/png", URL: "data:image/png;base64,aW1hZ2U="},
+			droids.FileContent{MediaType: "image/png", URL: "data:image/png;base64,aW1hZ2U="},
 		}, IsError: true},
 	})
 	if len(projected) != 1 {
@@ -167,11 +168,11 @@ func TestProjectDroidEventPreservesAuthoritativeToolResultAndDetails(t *testing.
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read",
 		Result: droids.ToolResult{
-			Content: []droids.Content{
+			Content: []droids.ResultContent{
 				droids.TextContent{Text: "complete"},
 				droids.FileContent{Filename: "report.txt", MediaType: "text/plain", URL: "data:text/plain;base64,eA=="},
 			},
-			Details: map[string]any{"lines": 3},
+			Details: json.RawMessage(`{"lines":3}`),
 		},
 	})
 	if len(projected) != 1 {
@@ -189,9 +190,9 @@ func TestProjectDroidEventPreservesAuthoritativeToolResultAndDetails(t *testing.
 func TestProjectDroidEventBoundsNonTextToolContent(t *testing.T) {
 	t.Parallel()
 
-	content := make([]droids.Content, maxLiveEventContentBlocks+1)
+	content := make([]droids.ResultContent, maxLiveEventContentBlocks+1)
 	for index := range content {
-		content[index] = droids.ImageContent{MediaType: "image/png", URL: "data:image/png;base64,aQ=="}
+		content[index] = droids.FileContent{MediaType: "image/png", URL: "data:image/png;base64,aQ=="}
 	}
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read", Result: droids.ToolResult{Content: content},
@@ -206,8 +207,8 @@ func TestProjectDroidEventOmitsInvalidToolContentMetadata(t *testing.T) {
 
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read",
-		Result: droids.ToolResult{Content: []droids.Content{
-			droids.ImageContent{MediaType: "not-a-media-type", URL: "https://example.com/image"},
+		Result: droids.ToolResult{Content: []droids.ResultContent{
+			droids.FileContent{MediaType: "not-a-media-type", URL: "https://example.com/image"},
 		}},
 	})
 	if len(projected) != 1 || len(projected[0].Content) != 0 || !projected[0].ContentTruncated {
@@ -223,7 +224,7 @@ func TestProjectDroidEventMarksOversizedToolDetailsOmitted(t *testing.T) {
 
 	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read",
-		Result: droids.ToolResult{Details: map[string]any{"value": strings.Repeat("x", maxLiveEventDetailsBytes)}},
+		Result: droids.ToolResult{Details: json.RawMessage(`{"value":"` + strings.Repeat("x", maxLiveEventDetailsBytes) + `"}`)},
 	})
 	if len(projected) != 1 || len(projected[0].Details) != 0 || !projected[0].DetailsOmitted {
 		t.Fatalf("oversized details event = %+v", projected)
@@ -252,7 +253,7 @@ func TestProjectDroidEventChunksLargeStreamingDeltaWithoutDataLoss(t *testing.T)
 func TestAssistantPresentationExcludesRedactedThinking(t *testing.T) {
 	t.Parallel()
 
-	text, thinking := assistantPresentation(droids.AssistantMessage{Content: []droids.Content{
+	text, thinking := assistantPresentation(droids.AssistantMessage{Content: []droids.AssistantContent{
 		droids.ThinkingContent{Thinking: "visible"},
 		droids.ThinkingContent{Thinking: "secret", Redacted: true, Signature: "opaque"},
 		droids.TextContent{Text: "response"},

@@ -30,8 +30,9 @@ recorded manual verification exists.
 - [-] `web-tui` is removed.
 - [x] OpenTUI is replaced with `vaxis/ui` as the native TUI framework.
   Remaining behavior and visual parity are tracked under Native TUI shell.
-- [ ] The TypeScript/Pi runtime is replaced by the Kit-private Go
-  `internal/droids` core seeded from the standalone droids repository.
+- [x] The TypeScript/Pi runtime is replaced by the Kit-private Go
+  `internal/droids` SDK, and Kit sessions now host one autonomous droid with a
+  dedicated SQLite Store.
 - [ ] Runtime-owned JSONL session data moves to SQLite through an idempotent,
   backed-up migration.
 - [ ] Subagents become concurrent supervised executions with durable mailboxes.
@@ -104,7 +105,9 @@ recorded manual verification exists.
 
 ## Agent runtime and transcript
 
-- [~] Construct persisted Kit sessions around `internal/droids.Droid`.
+- [x] Construct persisted Kit sessions around `internal/droids.Droid`; droids
+  owns prompt admission, retries, compaction, tool loops, recovery, and abort,
+  while Kit persists protocol/run/transcript projections.
 - [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state; droids events are now projected into a bounded
   durable session journal and the native TUI follows text, thinking, complete

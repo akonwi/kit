@@ -1,0 +1,307 @@
+package droids
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+)
+
+// Input is role-safe caller input.
+type Input struct {
+	Content []InputContent
+}
+
+// InputContent is content accepted from callers.
+type InputContent interface{ isInputContent() }
+
+// TextInput is caller-provided text.
+type TextInput struct{ Text string }
+
+func (TextInput) isInputContent() {}
+
+// FileInput is caller-provided file or image content. Providers select their
+// representation from MediaType.
+type FileInput struct {
+	Filename  string
+	MediaType string
+	URL       string
+}
+
+func (FileInput) isInputContent() {}
+
+// NewFileInputURL validates a caller-provided file or image URL.
+func NewFileInputURL(filename, mediaType, rawURL string) (FileInput, error) {
+	parsed, err := validateMediaType(mediaType)
+	if err != nil {
+		return FileInput{}, err
+	}
+	if filename == "" && !strings.HasPrefix(strings.ToLower(parsed), "image/") {
+		return FileInput{}, fmt.Errorf("filename is required for non-image input")
+	}
+	if err := validateContentSource(rawURL, mediaType); err != nil {
+		return FileInput{}, err
+	}
+	return FileInput{Filename: filename, MediaType: mediaType, URL: rawURL}, nil
+}
+
+// NewFileInputData constructs caller-provided inline file or image data.
+func NewFileInputData(filename, mediaType string, data []byte) FileInput {
+	return FileInput{Filename: filename, MediaType: mediaType, URL: dataURL(mediaType, data)}
+}
+
+// MessageEnvelope gives a canonical message durable identity and ordering
+// metadata.
+type MessageEnvelope struct {
+	ID             MessageID
+	ConversationID ConversationID
+	TurnID         TurnID
+	CreatedAt      time.Time
+	Message        Message
+}
+
+// BoundaryMessage carries non-user agent-domain information into context.
+type BoundaryMessage struct {
+	// ID makes this materialized boundary identifiable when non-empty.
+	ID string
+	// ReceiptIDs atomically acknowledge source records represented by this
+	// boundary. When empty, a non-empty ID is also its sole receipt.
+	ReceiptIDs []string
+	Kind       string
+	Source     string
+	Content    []InputContent
+}
+
+// PromptOptions controls behavior when the droid is occupied.
+type PromptOptions struct {
+	Steer bool
+}
+
+// RetryPolicy configures droid-owned provider retries.
+type RetryPolicy struct {
+	Enabled          bool
+	MaxRetries       int
+	BaseDelay        time.Duration
+	MaxDelay         time.Duration
+	UseProviderDelay bool
+}
+
+// DefaultRetryPolicy returns the SDK retry defaults.
+func DefaultRetryPolicy() RetryPolicy {
+	return RetryPolicy{
+		Enabled: true, MaxRetries: 3, BaseDelay: 2 * time.Second,
+		MaxDelay: 60 * time.Second, UseProviderDelay: true,
+	}
+}
+
+// ExecutionBudget optionally bounds model cycles in one attempt. Zero is
+// unbounded.
+type ExecutionBudget struct {
+	MaxModelCycles uint64
+}
+
+// ExecutionPolicy configures local execution bounds.
+type ExecutionPolicy struct {
+	Budget           ExecutionBudget
+	ToolExecution    ExecutionMode
+	MaxParallelTools int
+}
+
+// CompactionConfig contains the only public automatic-compaction overrides.
+type CompactionConfig struct {
+	Prompt string
+	Model  string
+}
+
+// ToolContext identifies the durable call being processed.
+type ToolContext struct {
+	ConversationID ConversationID
+	TurnID         TurnID
+	AttemptID      AttemptID
+	ToolCallID     ToolCallID
+}
+
+// BeforeToolCallHook runs from a durable pre-execution hook phase.
+type BeforeToolCallHook func(context.Context, ToolContext, ToolCall) (BeforeToolResult, error)
+
+// AfterToolCallHook runs after the raw tool result is durable.
+type AfterToolCallHook func(context.Context, ToolContext, ToolResult) (*ToolResult, error)
+
+// Config configures one autonomous droid.
+type Config struct {
+	Store        Store
+	Providers    Providers
+	Model        string
+	SystemPrompt string
+	Reasoning    string
+	Tools        []AnyTool
+
+	Retry      *RetryPolicy
+	Execution  *ExecutionPolicy
+	Compaction CompactionConfig
+
+	BeforeToolCall BeforeToolCallHook
+	AfterToolCall  AfterToolCallHook
+}
+
+// ExecutionHandle observes one admitted execution without exposing its internal
+// identity.
+type ExecutionHandle interface {
+	TurnID() TurnID
+	Wait(context.Context) (Outcome, error)
+	Snapshot(context.Context) (ExecutionSnapshot, error)
+}
+
+// ExecutionStatus describes current or terminal execution state.
+type ExecutionStatus string
+
+const (
+	ExecutionReady       ExecutionStatus = "ready"
+	ExecutionRunning     ExecutionStatus = "running"
+	ExecutionRetrying    ExecutionStatus = "retrying"
+	ExecutionPausing     ExecutionStatus = "pausing"
+	ExecutionPaused      ExecutionStatus = "paused"
+	ExecutionAborting    ExecutionStatus = "aborting"
+	ExecutionCompleted   ExecutionStatus = "completed"
+	ExecutionFailed      ExecutionStatus = "failed"
+	ExecutionAborted     ExecutionStatus = "aborted"
+	ExecutionInterrupted ExecutionStatus = "interrupted"
+)
+
+// DroidErrorKind classifies stable runtime outcomes.
+type DroidErrorKind string
+
+const (
+	DroidErrorProvider    DroidErrorKind = "provider"
+	DroidErrorTool        DroidErrorKind = "tool"
+	DroidErrorPersistence DroidErrorKind = "persistence"
+	DroidErrorCompaction  DroidErrorKind = "compaction"
+	DroidErrorUnsafe      DroidErrorKind = "unsafe_continuation"
+	DroidErrorInternal    DroidErrorKind = "internal"
+)
+
+// DroidError is safe, bounded terminal diagnostic information.
+type DroidError struct {
+	Kind      DroidErrorKind
+	Message   string
+	Retryable bool
+	Cause     error `json:"-"`
+}
+
+// ExecutionSnapshot is the current execution projection.
+type ExecutionSnapshot struct {
+	TurnID TurnID
+	Status ExecutionStatus
+	Reason string
+	Error  *DroidError
+}
+
+// Outcome is one execution's terminal or paused result.
+type Outcome struct {
+	ConversationID ConversationID
+	TurnID         TurnID
+	Status         ExecutionStatus
+	FinalMessage   *MessageEnvelope
+	Error          *DroidError
+	CheckpointID   CheckpointID
+	Usage          Usage
+}
+
+// QuiescentKind distinguishes ready, paused, and recoverable droids.
+type QuiescentKind string
+
+const (
+	QuiescentSettled     QuiescentKind = "settled"
+	QuiescentPaused      QuiescentKind = "paused"
+	QuiescentRecoverable QuiescentKind = "recoverable"
+)
+
+// QuiescentState describes an atomic non-running droid state.
+type QuiescentState struct {
+	Kind      QuiescentKind
+	TurnID    TurnID
+	Execution *ExecutionSnapshot
+	LastEvent EventSequence
+}
+
+// ConversationSnapshot is the conversation-level snapshot header.
+type ConversationSnapshot struct {
+	ID       ConversationID
+	Revision uint64
+}
+
+// PendingInputSnapshot reports durable pending steering and boundary counts.
+type PendingInputSnapshot struct {
+	Steering int
+	Boundary int
+}
+
+// ContextSnapshot reports the active provider context checkpoint.
+type ContextSnapshot struct {
+	CheckpointID CheckpointID
+	Messages     int
+	Usage        ContextUsage
+}
+
+// SnapshotOptions bounds recent diagnostic history.
+type SnapshotOptions struct {
+	RecentMessageLimit int
+}
+
+// Snapshot is a bounded, atomic droid projection.
+type Snapshot struct {
+	Conversation ConversationSnapshot
+	Recent       MessagePage
+	Active       *ExecutionSnapshot
+	Pending      PendingInputSnapshot
+	Context      ContextSnapshot
+	LastEvent    EventSequence
+}
+
+// HistoryQuery pages canonical messages.
+type HistoryQuery struct {
+	After uint64
+	Limit int
+}
+
+// MessagePage is one page of canonical diagnostic messages.
+type MessagePage struct {
+	Messages []MessageEnvelope
+	Next     uint64
+	HasMore  bool
+}
+
+// SubscribeOptions configures durable replay and transient delivery.
+type SubscribeOptions struct {
+	After            EventSequence
+	IncludeTransient bool
+	Buffer           int
+}
+
+// EventEnvelope anchors one event to durable droid identities.
+type EventEnvelope struct {
+	Sequence       EventSequence
+	Durable        bool
+	OccurredAt     time.Time
+	ConversationID ConversationID
+	TurnID         TurnID
+	AttemptID      AttemptID
+	Event          Event
+}
+
+// LifecycleEvent is the generic, versioned event payload used by the core
+// state machine. Provider stream events retain their existing concrete types.
+type LifecycleEvent struct {
+	Kind string
+	Data json.RawMessage
+}
+
+func (LifecycleEvent) isEvent() {}
+
+// Subscription is a bounded droid event stream.
+type Subscription interface {
+	Events() <-chan EventEnvelope
+	Err() error
+	Close()
+}

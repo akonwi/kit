@@ -1,6 +1,10 @@
 package droids
 
-import "context"
+import (
+	"context"
+	"errors"
+	"sync"
+)
 
 // stream.go — the provider streaming contract. A provider translates a
 // Request into a channel of StreamEvents that assemble into one
@@ -114,6 +118,41 @@ type Stream interface {
 	// It never returns a Go error — failures live in Message.StopReason /
 	// Message.ErrorMessage.
 	Result() AssistantMessage
+}
+
+// AssistantStream is the restart-safe public provider stream contract.
+type AssistantStream interface {
+	Events() <-chan StreamEvent
+	Result() (AssistantMessage, error)
+	Close() error
+}
+
+type assistantStreamAdapter struct {
+	stream     Stream
+	cancel     context.CancelFunc
+	resultOnce sync.Once
+	closeOnce  sync.Once
+	result     AssistantMessage
+	err        error
+	closeErr   error
+}
+
+func (s *assistantStreamAdapter) Events() <-chan StreamEvent { return s.stream.Events() }
+func (s *assistantStreamAdapter) Result() (AssistantMessage, error) {
+	s.resultOnce.Do(func() {
+		s.result = s.stream.Result()
+		if s.result.StopReason == StopReasonError || s.result.StopReason == StopReasonContextWindow {
+			s.err = errors.New(errText(s.result))
+		}
+	})
+	return s.result, s.err
+}
+func (s *assistantStreamAdapter) Close() error {
+	s.closeOnce.Do(func() {
+		s.cancel()
+		_, s.closeErr = s.Result()
+	})
+	return s.closeErr
 }
 
 // streamFn is the shape a provider's stream implementation satisfies. Kept as

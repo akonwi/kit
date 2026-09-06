@@ -116,6 +116,99 @@ func (s *Store) AppendMessages(
 	return records, nil
 }
 
+// ProjectDroidMessages idempotently copies authoritative droid history into a
+// Kit transcript turn. Projection may repair a terminal turn after restart.
+func (s *Store) ProjectDroidMessages(
+	ctx context.Context,
+	sessionID, turnID string,
+	messages []NewMessageRecord,
+) ([]MessageRecord, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("store is closed")
+	}
+	if len(messages) == 0 {
+		return nil, nil
+	}
+	if sessionID == "" || turnID == "" {
+		return nil, fmt.Errorf("session and turn ids are required")
+	}
+	for index, message := range messages {
+		if !identifier.Valid(message.ID, "message_") || !validMessageRole(message.Role) || !json.Valid(message.PayloadJSON) {
+			return nil, fmt.Errorf("projected message %d is invalid", index)
+		}
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin droid message projection: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var turnExists int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT EXISTS(SELECT 1 FROM turns WHERE id = ? AND session_id = ?)
+	`, turnID, sessionID).Scan(&turnExists); err != nil {
+		return nil, fmt.Errorf("verify projected turn: %w", err)
+	}
+	if turnExists != 1 {
+		return nil, fmt.Errorf("projected turn %q: %w", turnID, ErrNotFound)
+	}
+	missing := make([]NewMessageRecord, 0, len(messages))
+	for _, message := range messages {
+		var existingSession, existingTurn string
+		err := tx.QueryRowContext(ctx, `
+			SELECT session_id, COALESCE(turn_id, '') FROM messages WHERE id = ?
+		`, message.ID).Scan(&existingSession, &existingTurn)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			missing = append(missing, message)
+		case err != nil:
+			return nil, fmt.Errorf("inspect projected message %q: %w", message.ID, err)
+		case existingSession != sessionID || existingTurn != turnID:
+			return nil, fmt.Errorf("projected message %q belongs to another turn", message.ID)
+		}
+	}
+	if len(missing) == 0 {
+		if err := tx.Commit(); err != nil {
+			return nil, fmt.Errorf("commit idempotent droid message projection: %w", err)
+		}
+		return nil, nil
+	}
+	var firstSequence int64
+	err = tx.QueryRowContext(ctx, `
+		UPDATE sessions
+		SET next_message_sequence = next_message_sequence + ?, updated_at = ?
+		WHERE id = ? AND archived_at IS NULL
+		RETURNING next_message_sequence - ?
+	`, len(missing), time.Now().UTC().Format(timestampLayout), sessionID, len(missing)).Scan(&firstSequence)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("allocate projected message sequence: %w", err)
+	}
+	records := make([]MessageRecord, 0, len(missing))
+	for index, message := range missing {
+		createdAt := message.CreatedAt.UTC()
+		if createdAt.IsZero() {
+			createdAt = time.Now().UTC()
+		}
+		sequence := firstSequence + int64(index)
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO messages(id, session_id, turn_id, sequence, role, payload_json, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?)
+		`, message.ID, sessionID, turnID, sequence, message.Role, message.PayloadJSON, createdAt.Format(timestampLayout)); err != nil {
+			return nil, fmt.Errorf("project droid message %q: %w", message.ID, err)
+		}
+		records = append(records, MessageRecord{
+			ID: message.ID, SessionID: sessionID, TurnID: turnID, Sequence: sequence,
+			Role: message.Role, PayloadJSON: append([]byte(nil), message.PayloadJSON...), CreatedAt: createdAt,
+		})
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit droid message projection: %w", err)
+	}
+	return records, nil
+}
+
 // CreateBashExecution appends one standalone running bash transcript message.
 func (s *Store) CreateBashExecution(
 	ctx context.Context,

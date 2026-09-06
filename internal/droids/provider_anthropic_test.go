@@ -34,7 +34,7 @@ func TestAnthropicResolvesAPIKeyForEveryRequest(t *testing.T) {
 		t.Fatal("test model did not resolve")
 	}
 	for _, want := range []string{"first-key", "second-key"} {
-		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hello"}}}}})
 		for range stream.Events() {
 		}
 		if got := <-headers; got.apiKey != want || got.authorization != "" {
@@ -53,7 +53,7 @@ func TestAnthropicKeyResolutionCancellationIsAnAbort(t *testing.T) {
 	model, _ := providers.Model("claude-haiku-4-5")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	stream := providers.Stream(ctx, model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}}})
+	stream := providers.Stream(ctx, model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hello"}}}}})
 	for range stream.Events() {
 	}
 	message := stream.Result()
@@ -73,12 +73,12 @@ func TestAnthropicRejectsStaticAndDynamicAPIKeys(t *testing.T) {
 // Verify neutral messages/tools translate to the Anthropic wire shape.
 func TestAnthropicMessageConversion(t *testing.T) {
 	msgs := []Message{
-		UserMessage{Content: []Content{TextContent{Text: "hi"}}},
-		AssistantMessage{Content: []Content{
+		UserMessage{Content: []InputContent{TextInput{Text: "hi"}}},
+		AssistantMessage{Content: []AssistantContent{
 			TextContent{Text: "let me check"},
 			ToolCall{ID: "t1", Name: "get_weather", Arguments: []byte(`{"city":"Paris"}`)},
 		}},
-		ToolResultMessage{ToolCallID: "t1", ToolName: "get_weather", Content: []Content{TextContent{Text: "sunny"}}},
+		ToolResultMessage{ToolCallID: "t1", ToolName: "get_weather", Content: []ResultContent{TextContent{Text: "sunny"}}},
 	}
 
 	params := toAnthropicMessages(msgs)
@@ -124,7 +124,7 @@ func TestAnthropicRejectsAttachmentsWithoutRequest(t *testing.T) {
 		t.Fatal("test model did not resolve")
 	}
 	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
-		UserMessage{Content: []Content{NewFileData("report.pdf", "application/pdf", []byte("pdf"))}},
+		UserMessage{Content: []InputContent{NewFileInputData("report.pdf", "application/pdf", []byte("pdf"))}},
 	}})
 	var events []StreamEvent
 	for event := range stream.Events() {
@@ -166,7 +166,7 @@ func TestAnthropicDoesNotRaiseMaxTokensForReasoning(t *testing.T) {
 		t.Fatal("test model did not resolve")
 	}
 	stream := providers.Stream(context.Background(), model, Request{
-		Messages:  []Message{UserMessage{Content: []Content{TextContent{Text: "hi"}}}},
+		Messages:  []Message{UserMessage{Content: []InputContent{TextInput{Text: "hi"}}}},
 		Reasoning: "high",
 		MaxTokens: 4096,
 	})

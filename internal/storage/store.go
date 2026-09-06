@@ -16,7 +16,8 @@ import (
 
 // Store is the daemon-owned SQLite store.
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	path string
 }
 
 // Open opens a SQLite database, configures it for Kit, and applies migrations.
@@ -77,7 +78,7 @@ func Open(ctx context.Context, path string) (*Store, error) {
 	if err := migrate(ctx, db); err != nil {
 		return closeOnError(err)
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, path: absolutePath}, nil
 }
 
 func sqliteDSN(path string) string {
@@ -91,6 +92,14 @@ func sqliteDSN(path string) string {
 	query.Add("_pragma", "synchronous(NORMAL)")
 	uri.RawQuery = query.Encode()
 	return uri.String()
+}
+
+// DroidStoreDirectory returns the sibling directory for per-session droid databases.
+func (s *Store) DroidStoreDirectory() string {
+	if s == nil || s.path == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(s.path), "droids")
 }
 
 // Close closes the SQLite database.

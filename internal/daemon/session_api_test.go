@@ -290,7 +290,18 @@ type daemonEchoProviders struct {
 	block <-chan struct{}
 }
 
+func (p *daemonEchoProviders) ID() string             { return "test" }
 func (p *daemonEchoProviders) Models() []droids.Model { return []droids.Model{p.model()} }
+func (p *daemonEchoProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
+	return nil
+}
+func (p *daemonEchoProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := p.Model(id)
+	if !ok {
+		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+	}
+	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+}
 
 func (p *daemonEchoProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "echo" || id == "test/echo"
@@ -321,7 +332,7 @@ func (p *daemonEchoProviders) Stream(
 	}
 	final := droids.AssistantMessage{
 		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
-		Content:   []droids.Content{droids.TextContent{Text: text}},
+		Content:   []droids.AssistantContent{droids.TextContent{Text: text}},
 		Usage:     droids.Usage{TotalTokens: 64_000},
 		Timestamp: time.Now().UnixMilli(),
 	}

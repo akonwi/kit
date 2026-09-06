@@ -31,13 +31,13 @@ var (
 func New(cwd string) []droids.AnyTool {
 	cwd = filepath.Clean(cwd)
 	return []droids.AnyTool{
-		droids.NewTool(newBashTool(cwd)),
-		droids.NewTool(newReadTool(cwd)),
-		droids.NewTool(newWriteTool(cwd)),
-		droids.NewTool(newEditTool(cwd)),
-		droids.NewTool(newListTool(cwd)),
-		droids.NewTool(newGrepTool(cwd)),
-		droids.NewTool(newFindTool(cwd)),
+		droids.MustTool(newBashTool(cwd)),
+		droids.MustTool(newReadTool(cwd)),
+		droids.MustTool(newWriteTool(cwd)),
+		droids.MustTool(newEditTool(cwd)),
+		droids.MustTool(newListTool(cwd)),
+		droids.MustTool(newGrepTool(cwd)),
+		droids.MustTool(newFindTool(cwd)),
 	}
 }
 
@@ -80,9 +80,10 @@ func withMutationLock(ctx context.Context, path string, operation func() error) 
 }
 
 func textResult(text string, details any) droids.ToolResult {
+	encoded, _ := droids.EncodeDetails(details)
 	return droids.ToolResult{
-		Content: []droids.Content{droids.TextContent{Text: text}},
-		Details: details,
+		Content: []droids.ResultContent{droids.TextContent{Text: text}},
+		Details: encoded,
 	}
 }
 

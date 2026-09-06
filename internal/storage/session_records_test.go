@@ -102,12 +102,40 @@ func TestReservedParentRunCanAbortBeforeExecution(t *testing.T) {
 	if status != RunStatusAborted {
 		t.Fatalf("abort status = %q", status)
 	}
-	turnID, status, err := store.StartReservedParentRun(ctx, "session", "run")
+	turnID, status, err := store.StartReservedParentRun(ctx, "session", "run", "droid-turn")
 	if err != nil {
 		t.Fatalf("StartReservedParentRun() error = %v", err)
 	}
 	if turnID != "turn" || status != RunStatusAborted {
 		t.Fatalf("start after abort = %q/%q", turnID, status)
+	}
+}
+
+func TestReserveParentRunAllowsOnlyOneUnboundGeneration(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if _, err := store.CreateSession(ctx, NewSession{
+		ID: "session", CWD: "/workspace", Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-one", "run-one"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-two", "run-two"); err == nil {
+		t.Fatal("second unbound reservation succeeded")
+	}
+	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-one", "droid-turn-one"); err != nil || status != RunStatusRunning {
+		t.Fatalf("bind first reservation = %q, %v", status, err)
+	}
+	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-two", "run-two"); err != nil {
+		t.Fatalf("reservation after binding: %v", err)
 	}
 }
 
@@ -129,7 +157,7 @@ func TestGetActiveParentRunPrefersRunningOverQueued(t *testing.T) {
 	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-running", "run-running"); err != nil {
 		t.Fatal(err)
 	}
-	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-running"); err != nil || status != RunStatusRunning {
+	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-running", "droid-turn-running"); err != nil || status != RunStatusRunning {
 		t.Fatalf("start running generation = %q, %v", status, err)
 	}
 	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-queued", "run-queued"); err != nil {
@@ -139,8 +167,8 @@ func TestGetActiveParentRunPrefersRunningOverQueued(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if active.ID != "run-running" {
-		t.Fatalf("active run = %q, want running generation", active.ID)
+	if active.ID != "run-running" || active.DroidTurnID != "droid-turn-running" {
+		t.Fatalf("active run = %+v, want running droid generation", active)
 	}
 }
 
@@ -236,7 +264,7 @@ func TestFailedParentTurnReleasesClaimedBashContext(t *testing.T) {
 	if sequence, err := store.ClaimBashContext(ctx, "session", "turn-failed"); err != nil || sequence != 0 {
 		t.Fatalf("ClaimBashContext() = %d, %v", sequence, err)
 	}
-	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-failed"); err != nil || status != RunStatusRunning {
+	if _, status, err := store.StartReservedParentRun(ctx, "session", "run-failed", "droid-turn-failed"); err != nil || status != RunStatusRunning {
 		t.Fatalf("StartReservedParentRun() = %q, %v", status, err)
 	}
 	if err := store.FinishParentRun(ctx, "session", "turn-failed", "run-failed", RunStatusFailed, "failed"); err != nil {
@@ -351,15 +379,11 @@ func TestInterruptActiveRunsUnblocksSessionAndExcludesPartialReplay(t *testing.T
 	}}); err != nil {
 		t.Fatalf("AppendMessages() error = %v", err)
 	}
-	if _, _, err := store.ReserveParentRun(ctx, "session", "turn-queued", "run-queued"); err != nil {
-		t.Fatalf("ReserveParentRun() error = %v", err)
-	}
-
 	recovered, err := store.InterruptActiveRuns(ctx, "test restart")
 	if err != nil {
 		t.Fatalf("InterruptActiveRuns() error = %v", err)
 	}
-	if recovered.ParentRuns != 2 || recovered.Turns != 2 {
+	if recovered.ParentRuns != 1 || recovered.Turns != 1 {
 		t.Fatalf("recovered = %+v", recovered)
 	}
 	recoveredAgain, err := store.InterruptActiveRuns(ctx, "test restart")
@@ -376,8 +400,8 @@ func TestInterruptActiveRunsUnblocksSessionAndExcludesPartialReplay(t *testing.T
 	if err != nil {
 		t.Fatalf("next StartParentRun() error = %v", err)
 	}
-	if turn.Sequence != 2 {
-		t.Fatalf("next turn sequence = %d, want 2", turn.Sequence)
+	if turn.Sequence != 1 {
+		t.Fatalf("next turn sequence = %d, want 1", turn.Sequence)
 	}
 }
 

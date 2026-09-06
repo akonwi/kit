@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -13,10 +14,10 @@ func TestDroidMessageCodecRoundTrip(t *testing.T) {
 	messages := []droids.Message{
 		droids.UserMessage{
 			Timestamp: 1000,
-			Content: []droids.Content{
-				droids.TextContent{Text: "hello", Signature: "text-signature"},
-				droids.NewImageData("image/png", []byte("image")),
-				droids.NewFileData("notes.txt", "text/plain", []byte("notes")),
+			Content: []droids.InputContent{
+				droids.TextInput{Text: "hello"},
+				droids.NewFileInputData("", "image/png", []byte("image")),
+				droids.NewFileInputData("notes.txt", "text/plain", []byte("notes")),
 			},
 		},
 		droids.AssistantMessage{
@@ -25,7 +26,7 @@ func TestDroidMessageCodecRoundTrip(t *testing.T) {
 			ProviderScope: "account:opaque",
 			StopReason:    droids.StopReasonToolUse,
 			ErrorKind:     droids.ErrorProtocol,
-			Content: []droids.Content{
+			Content: []droids.AssistantContent{
 				droids.ThinkingContent{Thinking: "consider", Signature: "thinking-signature"},
 				droids.TextContent{Text: "calling"},
 				droids.ToolCall{ID: "call-1", Name: "read", Arguments: []byte(`{"path":"README.md"}`), Signature: "fc-1"},
@@ -37,8 +38,8 @@ func TestDroidMessageCodecRoundTrip(t *testing.T) {
 		},
 		droids.ToolResultMessage{
 			Timestamp: 3000, ToolCallID: "call-1", ToolName: "read",
-			Content: []droids.Content{droids.TextContent{Text: "contents"}},
-			Details: map[string]any{"lines": float64(1)}, IsError: false,
+			Content: []droids.ResultContent{droids.TextContent{Text: "contents"}},
+			Details: json.RawMessage(`{"lines":1}`), IsError: false,
 		},
 	}
 
@@ -64,7 +65,7 @@ func TestDroidMessageCodecRejectsRoleMismatch(t *testing.T) {
 	t.Parallel()
 
 	_, body, _, err := encodeDroidMessage(droids.UserMessage{
-		Content: []droids.Content{droids.TextContent{Text: "hello"}}, Timestamp: 1,
+		Content: []droids.InputContent{droids.TextInput{Text: "hello"}}, Timestamp: 1,
 	})
 	if err != nil {
 		t.Fatalf("encodeDroidMessage() error = %v", err)

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akonwi/kit/internal/droids"
 	"golang.org/x/sys/unix"
 )
 
@@ -21,7 +22,7 @@ func TestFileToolsRejectFIFOWithoutBlocking(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Now()
-	read, err := newReadTool(cwd).Execute(context.Background(), readArgs{Path: "pipe"}, nil)
+	read, err := newReadTool(cwd).Execute(context.Background(), droids.ToolContext{}, readArgs{Path: "pipe"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +30,7 @@ func TestFileToolsRejectFIFOWithoutBlocking(t *testing.T) {
 		t.Fatalf("FIFO read = %+v, want tool error", read)
 	}
 	content := "no"
-	written, err := newWriteTool(cwd).Execute(context.Background(), writeArgs{Path: "pipe", Content: &content}, nil)
+	written, err := newWriteTool(cwd).Execute(context.Background(), droids.ToolContext{}, writeArgs{Path: "pipe", Content: &content}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

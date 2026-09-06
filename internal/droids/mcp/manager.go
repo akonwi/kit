@@ -138,12 +138,12 @@ func (m *Manager) Tools() []droids.AnyTool {
 	out := make([]droids.AnyTool, 0, len(m.namespaces))
 	for _, ns := range m.namespaces {
 		ns := ns
-		out = append(out, droids.NewTool(droids.Tool[namespaceRequest]{
+		out = append(out, droids.MustTool(droids.Tool[namespaceRequest]{
 			Name:        ns.toolName,
 			Description: namespaceDescription(ns.config),
 			Parameters:  namespaceSchema(),
 			Mode:        ns.config.ExecutionMode,
-			Execute: func(ctx context.Context, request namespaceRequest, _ droids.ToolUpdate) (droids.ToolResult, error) {
+			Execute: func(ctx context.Context, _ droids.ToolContext, request namespaceRequest, _ droids.ToolUpdate) (droids.ToolResult, error) {
 				return ns.execute(ctx, request)
 			},
 		}))
@@ -581,8 +581,9 @@ type DiscoveryDetails struct {
 }
 
 func discoveryResult(namespace, action, tool, text string, count int) droids.ToolResult {
+	details, _ := droids.EncodeDetails(DiscoveryDetails{Namespace: namespace, Action: action, Tool: tool, Count: count})
 	return droids.ToolResult{
-		Content: []droids.Content{droids.TextContent{Text: text}},
-		Details: DiscoveryDetails{Namespace: namespace, Action: action, Tool: tool, Count: count},
+		Content: []droids.ResultContent{droids.TextContent{Text: text}},
+		Details: details,
 	}
 }

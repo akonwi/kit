@@ -26,24 +26,27 @@ type persistedMessage struct {
 	ErrorKind     string          `json:"errorKind,omitempty"`
 	ErrorMessage  string          `json:"errorMessage,omitempty"`
 
-	ToolCallID string `json:"toolCallId,omitempty"`
-	ToolName   string `json:"toolName,omitempty"`
-	Details    any    `json:"details,omitempty"`
-	IsError    bool   `json:"isError,omitempty"`
+	ToolCallID     string          `json:"toolCallId,omitempty"`
+	ProviderCallID string          `json:"providerCallId,omitempty"`
+	ToolName       string          `json:"toolName,omitempty"`
+	Details        json.RawMessage `json:"details,omitempty"`
+	IsError        bool            `json:"isError,omitempty"`
+	Terminate      bool            `json:"terminate,omitempty"`
 }
 
 type persistedContent struct {
-	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
-	Thinking  string `json:"thinking,omitempty"`
-	Signature string `json:"signature,omitempty"`
-	Redacted  bool   `json:"redacted,omitempty"`
-	Filename  string `json:"filename,omitempty"`
-	MediaType string `json:"mediaType,omitempty"`
-	URL       string `json:"url,omitempty"`
-	ID        string `json:"id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments []byte `json:"arguments,omitempty"`
+	Type           string `json:"type"`
+	Text           string `json:"text,omitempty"`
+	Thinking       string `json:"thinking,omitempty"`
+	Signature      string `json:"signature,omitempty"`
+	Redacted       bool   `json:"redacted,omitempty"`
+	Filename       string `json:"filename,omitempty"`
+	MediaType      string `json:"mediaType,omitempty"`
+	URL            string `json:"url,omitempty"`
+	ID             string `json:"id,omitempty"`
+	ProviderCallID string `json:"providerCallId,omitempty"`
+	Name           string `json:"name,omitempty"`
+	Arguments      []byte `json:"arguments,omitempty"`
 }
 
 type persistedUsage struct {
@@ -104,10 +107,12 @@ func encodeDroidMessage(message droids.Message) (string, []byte, time.Time, erro
 			return "", nil, time.Time{}, err
 		}
 		payload.Content = content
-		payload.ToolCallID = typed.ToolCallID
+		payload.ToolCallID = string(typed.ToolCallID)
+		payload.ProviderCallID = typed.ProviderCallID
 		payload.ToolName = typed.ToolName
 		payload.Details = typed.Details
 		payload.IsError = typed.IsError
+		payload.Terminate = typed.Terminate
 	default:
 		return "", nil, time.Time{}, fmt.Errorf("unsupported droids message %T", message)
 	}
@@ -133,14 +138,15 @@ func decodeDroidMessage(role string, body []byte) (droids.Message, error) {
 	if payload.Type != role {
 		return nil, fmt.Errorf("persisted message type %q does not match role %q", payload.Type, role)
 	}
-	content, err := decodeContent(payload.Content)
-	if err != nil {
-		return nil, err
-	}
 	switch role {
 	case "user":
-		return droids.UserMessage{Content: content, Timestamp: payload.Timestamp}, nil
+		content, err := decodeInputContent(payload.Content)
+		return droids.UserMessage{Content: content, Timestamp: payload.Timestamp}, err
 	case "assistant":
+		content, err := decodeAssistantContent(payload.Content)
+		if err != nil {
+			return nil, err
+		}
 		usage := droids.Usage{}
 		if payload.Usage != nil {
 			usage = decodeUsage(*payload.Usage)
@@ -159,23 +165,35 @@ func decodeDroidMessage(role string, body []byte) (droids.Message, error) {
 			Timestamp:     payload.Timestamp,
 		}, nil
 	case "tool":
+		content, err := decodeResultContent(payload.Content)
+		if err != nil {
+			return nil, err
+		}
 		return droids.ToolResultMessage{
-			ToolCallID: payload.ToolCallID,
-			ToolName:   payload.ToolName,
-			Content:    content,
-			Details:    payload.Details,
-			IsError:    payload.IsError,
-			Timestamp:  payload.Timestamp,
+			ToolCallID:     droids.ToolCallID(payload.ToolCallID),
+			ProviderCallID: payload.ProviderCallID,
+			ToolName:       payload.ToolName,
+			Content:        content,
+			Details:        payload.Details,
+			IsError:        payload.IsError,
+			Terminate:      payload.Terminate,
+			Timestamp:      payload.Timestamp,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unsupported persisted message role %q", role)
 	}
 }
 
-func encodeContent(content []droids.Content) ([]persistedContent, error) {
+func encodeContent[T any](content []T) ([]persistedContent, error) {
 	encoded := make([]persistedContent, 0, len(content))
 	for _, block := range content {
-		switch typed := block.(type) {
+		switch typed := any(block).(type) {
+		case droids.TextInput:
+			encoded = append(encoded, persistedContent{Type: "text", Text: typed.Text})
+		case droids.FileInput:
+			encoded = append(encoded, persistedContent{
+				Type: "file", Filename: typed.Filename, MediaType: typed.MediaType, URL: typed.URL,
+			})
 		case droids.TextContent:
 			encoded = append(encoded, persistedContent{Type: "text", Text: typed.Text, Signature: typed.Signature})
 		case droids.ThinkingContent:
@@ -183,15 +201,13 @@ func encodeContent(content []droids.Content) ([]persistedContent, error) {
 				Type: "thinking", Thinking: typed.Thinking,
 				Signature: typed.Signature, Redacted: typed.Redacted,
 			})
-		case droids.ImageContent:
-			encoded = append(encoded, persistedContent{Type: "image", MediaType: typed.MediaType, URL: typed.URL})
 		case droids.FileContent:
 			encoded = append(encoded, persistedContent{
 				Type: "file", Filename: typed.Filename, MediaType: typed.MediaType, URL: typed.URL,
 			})
 		case droids.ToolCall:
 			encoded = append(encoded, persistedContent{
-				Type: "toolCall", ID: typed.ID, Name: typed.Name,
+				Type: "toolCall", ID: string(typed.ID), ProviderCallID: typed.ProviderCallID, Name: typed.Name,
 				Arguments: append([]byte(nil), typed.Arguments...), Signature: typed.Signature,
 			})
 		default:
@@ -201,8 +217,23 @@ func encodeContent(content []droids.Content) ([]persistedContent, error) {
 	return encoded, nil
 }
 
-func decodeContent(content []persistedContent) ([]droids.Content, error) {
-	decoded := make([]droids.Content, 0, len(content))
+func decodeInputContent(content []persistedContent) ([]droids.InputContent, error) {
+	decoded := make([]droids.InputContent, 0, len(content))
+	for _, block := range content {
+		switch block.Type {
+		case "text":
+			decoded = append(decoded, droids.TextInput{Text: block.Text})
+		case "image", "file":
+			decoded = append(decoded, droids.FileInput{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL})
+		default:
+			return nil, fmt.Errorf("unsupported persisted user content type %q", block.Type)
+		}
+	}
+	return decoded, nil
+}
+
+func decodeAssistantContent(content []persistedContent) ([]droids.AssistantContent, error) {
+	decoded := make([]droids.AssistantContent, 0, len(content))
 	for _, block := range content {
 		switch block.Type {
 		case "text":
@@ -211,19 +242,29 @@ func decodeContent(content []persistedContent) ([]droids.Content, error) {
 			decoded = append(decoded, droids.ThinkingContent{
 				Thinking: block.Thinking, Signature: block.Signature, Redacted: block.Redacted,
 			})
-		case "image":
-			decoded = append(decoded, droids.ImageContent{MediaType: block.MediaType, URL: block.URL})
-		case "file":
-			decoded = append(decoded, droids.FileContent{
-				Filename: block.Filename, MediaType: block.MediaType, URL: block.URL,
-			})
 		case "toolCall":
 			decoded = append(decoded, droids.ToolCall{
-				ID: block.ID, Name: block.Name, Arguments: append([]byte(nil), block.Arguments...),
+				ID: droids.ToolCallID(block.ID), ProviderCallID: block.ProviderCallID,
+				Name: block.Name, Arguments: append([]byte(nil), block.Arguments...),
 				Signature: block.Signature,
 			})
 		default:
-			return nil, fmt.Errorf("unsupported persisted content type %q", block.Type)
+			return nil, fmt.Errorf("unsupported persisted assistant content type %q", block.Type)
+		}
+	}
+	return decoded, nil
+}
+
+func decodeResultContent(content []persistedContent) ([]droids.ResultContent, error) {
+	decoded := make([]droids.ResultContent, 0, len(content))
+	for _, block := range content {
+		switch block.Type {
+		case "text":
+			decoded = append(decoded, droids.TextContent{Text: block.Text, Signature: block.Signature})
+		case "image", "file":
+			decoded = append(decoded, droids.FileContent{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL})
+		default:
+			return nil, fmt.Errorf("unsupported persisted tool content type %q", block.Type)
 		}
 	}
 	return decoded, nil

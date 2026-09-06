@@ -29,6 +29,7 @@ type Paths struct {
 	Agents      string
 	Attachments string
 	Cache       string
+	Droids      string
 	Logs        string
 	Plugins     string
 	Prompts     string
@@ -82,6 +83,7 @@ func FromHome(home string) Paths {
 		Agents:      filepath.Join(home, "agents"),
 		Attachments: filepath.Join(home, "attachments"),
 		Cache:       filepath.Join(home, "cache"),
+		Droids:      filepath.Join(home, "droids"),
 		Logs:        logs,
 		Plugins:     filepath.Join(home, "plugins"),
 		Prompts:     filepath.Join(home, "prompts"),
@@ -110,6 +112,7 @@ func (p Paths) Ensure() error {
 		p.Agents,
 		p.Attachments,
 		p.Cache,
+		p.Droids,
 		p.Logs,
 		p.Plugins,
 		p.Prompts,

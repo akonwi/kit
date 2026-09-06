@@ -246,7 +246,7 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			}
 			base.Kind = EventToolPlanned
 			base.ContentIndex = delta.ContentIndex
-			base.ToolCallID = delta.ToolCall.ID
+			base.ToolCallID = string(delta.ToolCall.ID)
 			base.ToolName = delta.ToolCall.Name
 			base.Arguments, base.ArgumentsTruncated = presentationToolArguments(delta.ToolCall.Arguments)
 			return []NewEvent{base}
@@ -261,19 +261,19 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		return []NewEvent{base}
 	case droids.ToolExecutionStart:
 		base.Kind = EventToolStarted
-		base.ToolCallID = typed.ToolCallID
+		base.ToolCallID = string(typed.ToolCallID)
 		base.ToolName = typed.ToolName
 		base.Arguments, base.ArgumentsTruncated = presentationToolArguments(typed.Arguments)
 		return []NewEvent{base}
 	case droids.ToolExecutionUpdate:
 		base.Kind = EventToolUpdated
-		base.ToolCallID = typed.ToolCallID
+		base.ToolCallID = string(typed.ToolCallID)
 		base.ToolName = typed.ToolName
 		base.IsError = typed.Delta.IsError
 		return projectToolContentDelta(base, typed.Delta.Content)
 	case droids.ToolExecutionEnd:
 		base.Kind = EventToolCompleted
-		base.ToolCallID = typed.ToolCallID
+		base.ToolCallID = string(typed.ToolCallID)
 		base.ToolName = typed.ToolName
 		base.Content, base.ContentTruncated = boundedLiveToolContent(typed.Result.Content)
 		base.Details, base.DetailsOmitted = boundedLiveToolDetails(typed.Result.Details)
@@ -285,7 +285,7 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 	return nil
 }
 
-func projectToolContentDelta(base NewEvent, content []droids.Content) []NewEvent {
+func projectToolContentDelta(base NewEvent, content []droids.ResultContent) []NewEvent {
 	projected, _ := boundedLiveToolContent(content)
 	if len(projected) == 0 {
 		return nil
@@ -299,7 +299,7 @@ const (
 	maxLiveEventContentBlocks = 128
 )
 
-func boundedLiveToolContent(content []droids.Content) ([]TranscriptContent, bool) {
+func boundedLiveToolContent(content []droids.ResultContent) ([]TranscriptContent, bool) {
 	projected, err := projectDroidContent(content)
 	if err != nil {
 		return nil, true
@@ -344,18 +344,14 @@ func liveToolContentSize(block TranscriptContent) int {
 
 const maxLiveEventDetailsBytes = 48 << 10
 
-func boundedLiveToolDetails(details any) (json.RawMessage, bool) {
-	if details == nil {
+func boundedLiveToolDetails(details json.RawMessage) (json.RawMessage, bool) {
+	if len(details) == 0 || bytes.Equal(details, []byte("null")) {
 		return nil, false
 	}
-	encoded, err := json.Marshal(details)
-	if err != nil || len(encoded) > maxLiveEventDetailsBytes {
+	if !json.Valid(details) || len(details) > maxLiveEventDetailsBytes {
 		return nil, true
 	}
-	if bytes.Equal(encoded, []byte("null")) {
-		return nil, false
-	}
-	return encoded, false
+	return append(json.RawMessage(nil), details...), false
 }
 
 func validateLiveToolContent(block TranscriptContent) error {

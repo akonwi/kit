@@ -58,7 +58,7 @@ func newEditTool(cwd string) droids.Tool[editArgs] {
 			},
 		}, "path", "edits"),
 		Mode: droids.ModeSequential,
-		Execute: func(ctx context.Context, args editArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, _ droids.ToolContext, args editArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}
@@ -181,11 +181,9 @@ func matchOffsets(content, search string) []int {
 }
 
 func editFailure(path string, errors []string) droids.ToolResult {
-	return droids.ToolResult{
-		Content: []droids.Content{droids.TextContent{Text: "Error:\n" + strings.Join(errors, "\n")}},
-		Details: editDetails{Path: path, Errors: errors},
-		IsError: true,
-	}
+	result := textResult("Error:\n"+strings.Join(errors, "\n"), editDetails{Path: path, Errors: errors})
+	result.IsError = true
+	return result
 }
 
 func plural(count int) string {

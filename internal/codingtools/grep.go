@@ -66,7 +66,7 @@ func newGrepTool(cwd string) droids.Tool[grepArgs] {
 			"limit":      integerSchema("Max matches to return (default: 100)"),
 		}, "pattern"),
 		Mode: droids.ModeParallel,
-		Execute: func(ctx context.Context, args grepArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, _ droids.ToolContext, args grepArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			result, err := executeGrep(ctx, cwd, args)
 			if err != nil {
 				if ctx.Err() != nil {

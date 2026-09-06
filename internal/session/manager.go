@@ -3,6 +3,8 @@ package session
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
 )
 
@@ -75,11 +78,13 @@ type PromptResult struct {
 
 // Manager owns at most one live droids runtime per loaded session.
 type Manager struct {
-	store        Repository
-	providers    droids.Providers
-	systemPrompt string
-	bashContext  context.Context
-	cancelBash   context.CancelCauseFunc
+	store           Repository
+	providers       droids.Providers
+	systemPrompt    string
+	droidDirectory  string
+	temporaryDroids bool
+	bashContext     context.Context
+	cancelBash      context.CancelCauseFunc
 
 	mu         sync.Mutex
 	runtimes   map[string]*runtime
@@ -103,27 +108,79 @@ type runtimeLoad struct {
 }
 
 type runtime struct {
-	droid               *droids.Droid
-	storage             *droidStorage
-	runMu               sync.Mutex
-	stateMu             sync.Mutex
-	cancelRun           context.CancelFunc
-	activeRun           string
-	phase               runPhase
-	bashContextSequence int64
+	droid         *droids.Droid
+	droidStore    *sqlitestore.Store
+	boundaries    *boundaryTracker
+	eventCursor   droids.EventSequence
+	historyCursor uint64
+	admissionMu   sync.Mutex
+	stateMu       sync.Mutex
+	activeRun     string
+	phase         runPhase
+	recovery      *ParentRunRecord
+}
+
+// ManagerOption configures session runtime ownership.
+type ManagerOption func(*managerOptions) error
+
+type managerOptions struct {
+	droidDirectory string
+}
+
+// WithDroidStoreDirectory selects the private directory containing one SQLite
+// database per droid conversation.
+func WithDroidStoreDirectory(directory string) ManagerOption {
+	return func(options *managerOptions) error {
+		if strings.TrimSpace(directory) == "" {
+			return fmt.Errorf("droid store directory is required")
+		}
+		absolute, err := filepath.Abs(directory)
+		if err != nil {
+			return fmt.Errorf("resolve droid store directory: %w", err)
+		}
+		options.droidDirectory = absolute
+		return nil
+	}
 }
 
 // NewManager creates a session runtime manager.
-func NewManager(store Repository, providers droids.Providers, systemPrompt string) (*Manager, error) {
+func NewManager(store Repository, providers droids.Providers, systemPrompt string, opts ...ManagerOption) (*Manager, error) {
 	if store == nil {
 		return nil, fmt.Errorf("session store is required")
 	}
 	if providers == nil {
 		return nil, fmt.Errorf("droids providers are required")
 	}
+	options := managerOptions{}
+	for _, apply := range opts {
+		if apply == nil {
+			continue
+		}
+		if err := apply(&options); err != nil {
+			return nil, err
+		}
+	}
+	temporaryDroids := false
+	if options.droidDirectory == "" {
+		if locator, ok := store.(interface{ DroidStoreDirectory() string }); ok {
+			options.droidDirectory = locator.DroidStoreDirectory()
+		}
+	}
+	if options.droidDirectory == "" {
+		var err error
+		options.droidDirectory, err = os.MkdirTemp("", "kit-droids-")
+		if err != nil {
+			return nil, fmt.Errorf("create temporary droid store directory: %w", err)
+		}
+		temporaryDroids = true
+	}
+	if err := os.MkdirAll(options.droidDirectory, 0o700); err != nil {
+		return nil, fmt.Errorf("create droid store directory: %w", err)
+	}
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	return &Manager{
 		store: store, providers: providers, systemPrompt: systemPrompt,
+		droidDirectory: options.droidDirectory, temporaryDroids: temporaryDroids,
 		bashContext: bashContext, cancelBash: cancelBash,
 		runtimes:   make(map[string]*runtime),
 		loading:    make(map[string]*runtimeLoad),
@@ -194,6 +251,9 @@ func (m *Manager) GetRun(ctx context.Context, sessionID, runID string) (ParentRu
 	if strings.TrimSpace(sessionID) == "" || strings.TrimSpace(runID) == "" {
 		return ParentRunRecord{}, fmt.Errorf("%w: session and run ids are required", ErrInvalidInput)
 	}
+	if _, err := m.runtime(ctx, sessionID); err != nil {
+		return ParentRunRecord{}, err
+	}
 	return m.store.GetParentRun(ctx, sessionID, runID)
 }
 
@@ -209,6 +269,9 @@ func (m *Manager) ReservePrompt(
 	defer m.ops.Done()
 	if !identifier.Valid(runID, "run_") {
 		return RunReservation{}, fmt.Errorf("%w: run id is invalid", ErrInvalidInput)
+	}
+	if _, err := m.runtime(ctx, sessionID); err != nil {
+		return RunReservation{}, err
 	}
 	turnID, err := identifier.New("turn_")
 	if err != nil {
@@ -282,13 +345,33 @@ func (m *Manager) runPrompt(
 	if err != nil {
 		return PromptResult{}, m.rejectReservation(sessionID, runID, err)
 	}
-	if !loaded.runMu.TryLock() {
+	if !loaded.admissionMu.TryLock() {
+		return PromptResult{}, m.rejectReservation(sessionID, runID, ErrBusy)
+	}
+	droidSnapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
+	if err != nil {
+		loaded.admissionMu.Unlock()
+		return PromptResult{}, m.rejectReservation(sessionID, runID, err)
+	}
+	if droidSnapshot.Active != nil {
+		loaded.admissionMu.Unlock()
 		return PromptResult{}, m.rejectReservation(sessionID, runID, ErrBusy)
 	}
 	reservedRun, err := m.store.GetParentRun(ctx, sessionID, runID)
 	if err != nil {
-		loaded.runMu.Unlock()
+		loaded.admissionMu.Unlock()
 		return PromptResult{}, m.rejectReservation(sessionID, runID, err)
+	}
+	if reservedRun.Status == RunStatusAborted {
+		loaded.admissionMu.Unlock()
+		return PromptResult{
+			SessionID: sessionID, TurnID: reservedRun.TurnID, RunID: runID,
+			Status: RunStatusAborted, ErrorMessage: "aborted before execution",
+		}, nil
+	}
+	if reservedRun.Status != RunStatusQueued {
+		loaded.admissionMu.Unlock()
+		return PromptResult{}, fmt.Errorf("run %q cannot start from status %q", runID, reservedRun.Status)
 	}
 	latestBashContext := int64(-1)
 	if reservedRun.Status == RunStatusQueued {
@@ -299,77 +382,97 @@ func (m *Manager) runPrompt(
 			cancel()
 			switch {
 			case inspectErr != nil:
-				loaded.runMu.Unlock()
+				loaded.admissionMu.Unlock()
 				return PromptResult{}, m.rejectReservation(sessionID, runID, errors.Join(err, inspectErr))
 			case claimed >= 0:
 				latestBashContext = claimed
 			case unclaimed < 0:
 				latestBashContext = -1
 			default:
-				loaded.runMu.Unlock()
+				loaded.admissionMu.Unlock()
 				return PromptResult{}, m.rejectReservation(sessionID, runID, err)
 			}
 		}
 	}
-	if latestBashContext > loaded.bashContextSequence {
-		if err := m.reloadRuntime(ctx, sessionID, loaded); err != nil {
-			loaded.runMu.Unlock()
+	if latestBashContext > loaded.boundaries.bashContextSequence() {
+		if err := m.syncBashContext(ctx, loaded, latestBashContext); err != nil {
+			loaded.admissionMu.Unlock()
 			return PromptResult{}, m.rejectReservation(sessionID, runID, err)
 		}
 	}
 
-	runContext, cancelRun := context.WithCancel(context.Background())
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		cancelRun()
-		m.evict(sessionID, loaded)
-		loaded.runMu.Unlock()
+		loaded.admissionMu.Unlock()
 		return PromptResult{}, m.rejectReservation(sessionID, runID, ErrClosed)
 	}
 	m.runs.Add(1)
-	loaded.setActive(cancelRun, runPhaseStarting, runID)
 	m.mu.Unlock()
-	turnID, startStatus, err := m.store.StartReservedParentRun(ctx, sessionID, runID)
-	if err != nil {
-		cancelRun()
-		loaded.clearActive()
+
+	// Subscribe before droid admission so immediate provider output is buffered
+	// until the Kit projection is ready to consume it.
+	subscription, subscriptionErr := loaded.droid.Subscribe(context.Background(), droids.SubscribeOptions{
+		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,
+	})
+	handle, promptErr := loaded.droid.Prompt(ctx, droids.Input{
+		Content: []droids.InputContent{droids.TextInput{Text: prompt}},
+	}, droids.PromptOptions{})
+	if promptErr != nil {
+		loaded.admissionMu.Unlock()
+		if subscription != nil {
+			subscription.Close()
+		}
 		m.runs.Done()
-		m.evict(sessionID, loaded)
-		loaded.runMu.Unlock()
-		return PromptResult{}, m.rejectReservation(sessionID, runID, err)
+		if errors.Is(promptErr, droids.ErrBusy) {
+			promptErr = ErrBusy
+		}
+		return PromptResult{}, m.rejectReservation(sessionID, runID, promptErr)
 	}
-	if startStatus != RunStatusRunning {
-		cancelRun()
-		loaded.clearActive()
-		m.runs.Done()
+
+	projectionContext, cancelProjection := context.WithTimeout(context.Background(), 5*time.Second)
+	turnID, startStatus, err := m.store.StartReservedParentRun(projectionContext, sessionID, runID, string(handle.TurnID()))
+	cancelProjection()
+	if err != nil {
+		inspectContext, cancelInspect := context.WithTimeout(context.Background(), 5*time.Second)
+		projected, inspectErr := m.store.GetParentRun(inspectContext, sessionID, runID)
+		cancelInspect()
+		if inspectErr == nil && projected.Status == RunStatusRunning && projected.DroidTurnID == string(handle.TurnID()) {
+			turnID, startStatus, err = projected.TurnID, projected.Status, nil
+		} else if inspectErr != nil {
+			err = errors.Join(err, inspectErr)
+		}
+	}
+	if err != nil || startStatus != RunStatusRunning {
+		abortContext, cancelAbort := context.WithTimeout(context.Background(), 5*time.Second)
+		abortErr := loaded.droid.Abort(abortContext)
+		_, waitErr := handle.Wait(abortContext)
+		cancelAbort()
+		if subscription != nil {
+			subscription.Close()
+		}
 		m.evict(sessionID, loaded)
-		loaded.runMu.Unlock()
+		m.runs.Done()
+		loaded.admissionMu.Unlock()
+		if err != nil {
+			return PromptResult{}, errors.Join(err, abortErr, waitErr)
+		}
 		if startStatus == RunStatusAborted {
 			return PromptResult{
 				SessionID: sessionID, TurnID: turnID, RunID: runID,
-				Status: RunStatusAborted, ErrorMessage: "aborted before execution",
+				Status: RunStatusAborted, ErrorMessage: "aborted before projection started",
 			}, nil
 		}
-		return PromptResult{}, fmt.Errorf("run %q cannot start from status %q", runID, startStatus)
+		return PromptResult{}, errors.Join(fmt.Errorf("run %q cannot start from status %q", runID, startStatus), abortErr, waitErr)
 	}
-	if err := loaded.storage.beginTurn(turnID); err != nil {
-		m.finishAfterFailure(sessionID, turnID, runID, RunStatusInterrupted, err)
-		cancelRun()
-		loaded.clearActive()
-		m.runs.Done()
-		m.evict(sessionID, loaded)
-		loaded.runMu.Unlock()
-		return PromptResult{}, err
-	}
+	loaded.setActive(runPhaseStarting, runID)
 
 	completion := make(chan promptCompletion, 1)
 	loaded.setPhase(runPhaseRunning)
 	go func() {
-		result, err := m.executePrompt(runContext, loaded, sessionID, turnID, runID, prompt)
-		cancelRun()
+		result, err := m.executePrompt(loaded, handle, subscription, subscriptionErr, sessionID, turnID, runID, prompt)
 		loaded.clearActive()
-		loaded.runMu.Unlock()
+		loaded.admissionMu.Unlock()
 		m.runs.Done()
 		completion <- promptCompletion{result: result, err: err}
 	}()
@@ -391,105 +494,252 @@ type promptCompletion struct {
 }
 
 func (m *Manager) executePrompt(
-	ctx context.Context,
 	loaded *runtime,
+	handle droids.ExecutionHandle,
+	subscription droids.Subscription,
+	subscriptionErr error,
 	sessionID, turnID, runID, prompt string,
 ) (PromptResult, error) {
-	// Parent execution belongs to the daemon, not an attached request. Closing
-	// the runtime or calling Abort cancels droids explicitly.
-	eventErr := m.appendLiveEvents([]NewEvent{{
-		SessionID: sessionID, TurnID: turnID, RunID: runID,
-		Kind: EventRunStarted, Status: RunStatusRunning,
-	}})
-	run, streamErr := loaded.droid.Stream(ctx, prompt)
-	if streamErr == nil {
-		drainErr := m.drainRunEvents(run, sessionID, turnID, runID, eventErr == nil)
-		if eventErr == nil {
-			eventErr = drainErr
+	initialEvents := []NewEvent{
+		{SessionID: sessionID, TurnID: turnID, RunID: runID, Kind: EventRunStarted, Status: RunStatusRunning},
+		{SessionID: sessionID, TurnID: turnID, RunID: runID, Kind: EventUserMessage, Text: boundedLiveText(prompt)},
+	}
+	eventErr := subscriptionErr
+	if err := m.appendLiveEvents(initialEvents); eventErr == nil {
+		eventErr = err
+	}
+
+	drainDone := make(chan error, 1)
+	if subscription != nil {
+		go func() {
+			drainDone <- m.drainRunEvents(subscription, loaded, sessionID, turnID, runID, eventErr == nil)
+		}()
+	} else {
+		drainDone <- nil
+	}
+
+	outcome, waitErr := handle.Wait(context.Background())
+	terminalState, continuationErr := continueDroidToTerminal(loaded.droid, outcome.Status)
+	waitErr = errors.Join(waitErr, continuationErr)
+	if terminalState.Execution != nil {
+		outcome.Status = terminalState.Execution.Status
+		if outcome.Error == nil {
+			outcome.Error = terminalState.Execution.Error
 		}
 	}
-	var assistant droids.AssistantMessage
-	var runErr error
-	if streamErr != nil {
-		runErr = streamErr
-	} else {
-		assistant, runErr = run.Result()
+	if subscription != nil {
+		subscription.Close()
+	}
+	if drainErr := <-drainDone; eventErr == nil {
+		eventErr = drainErr
 	}
 	loaded.setPhase(runPhaseSettling)
-	persistenceErr := loaded.storage.endTurn()
+	latestAssistant, projectionErr := m.projectDroidHistory(context.Background(), loaded, sessionID, turnID, handle.TurnID())
 
-	status := RunStatusCompleted
-	executionErr := runErr
-	switch {
-	case persistenceErr != nil || eventErr != nil:
-		status = RunStatusInterrupted
-		executionErr = errors.Join(executionErr, eventErr)
-		if persistenceErr != nil {
-			executionErr = errors.Join(executionErr, fmt.Errorf("persist droids transcript: %w", persistenceErr))
-		}
-	case errors.Is(runErr, context.Canceled), errors.Is(runErr, context.DeadlineExceeded), assistant.StopReason == droids.StopReasonAborted:
-		status = RunStatusAborted
-	case runErr != nil, assistant.StopReason == droids.StopReasonError:
-		status = RunStatusFailed
-	}
+	status := projectExecutionStatus(outcome.Status)
 	result := PromptResult{
-		SessionID:    sessionID,
-		TurnID:       turnID,
-		RunID:        runID,
-		Text:         assistant.Text(),
-		StopReason:   string(assistant.StopReason),
-		ErrorKind:    projectDroidErrorKind(assistant.ErrorKind),
-		ErrorMessage: assistant.ErrorMessage,
-		Status:       status,
+		SessionID: sessionID, TurnID: turnID, RunID: runID,
+		Status: status,
 	}
-	if executionErr != nil && result.ErrorMessage == "" {
+	var finalAssistant *droids.AssistantMessage
+	if outcome.FinalMessage != nil {
+		if assistant, ok := outcome.FinalMessage.Message.(droids.AssistantMessage); ok {
+			finalAssistant = &assistant
+		}
+	}
+	if finalAssistant == nil {
+		finalAssistant = latestAssistant
+	}
+	if finalAssistant != nil {
+		result.Text = finalAssistant.Text()
+		result.StopReason = string(finalAssistant.StopReason)
+		result.ErrorKind = projectDroidErrorKind(finalAssistant.ErrorKind)
+		result.ErrorMessage = finalAssistant.ErrorMessage
+	}
+	if outcome.Error != nil && result.ErrorMessage == "" {
+		result.ErrorMessage = outcome.Error.Message
+	}
+	executionErr := waitErr
+	if executionErr != nil && result.Status != RunStatusCompleted && result.ErrorMessage == "" {
 		result.ErrorMessage = executionErr.Error()
 	}
-
-	finishContext, cancelFinish := context.WithTimeout(context.Background(), 5*time.Second)
-	finishErr := m.store.FinishParentRun(
-		finishContext,
-		sessionID,
-		turnID,
-		runID,
-		status,
-		result.ErrorMessage,
-	)
-	cancelFinish()
-	if status != RunStatusCompleted || finishErr != nil {
+	if result.Status != RunStatusCompleted && result.ErrorMessage == "" {
+		result.ErrorMessage = "droid execution " + string(outcome.Status)
+	}
+	if outcome.Status == droids.ExecutionInterrupted && errors.Is(waitErr, droids.ErrClosed) {
+		return result, waitErr
+	}
+	result, finishErr := m.finishDroidProjection(sessionID, turnID, runID, result, executionErr)
+	if finishErr != nil {
 		m.evict(sessionID, loaded)
 	}
-	if finishErr != nil {
-		reason := fmt.Sprintf("parent run settlement failed: %v", finishErr)
-		recoveryContext, cancelRecovery := context.WithTimeout(context.Background(), 5*time.Second)
-		recoveredStatus, recoveryErr := m.store.RecoverParentRun(
-			recoveryContext, sessionID, turnID, runID, reason,
-		)
-		cancelRecovery()
-		if recoveryErr != nil {
-			return result, errors.Join(executionErr, finishErr, recoveryErr)
-		}
-		result.Status = recoveredStatus
-		if recoveredStatus != RunStatusCompleted && result.ErrorMessage == "" {
-			result.ErrorMessage = reason
-		}
-	}
-	if result.Status != RunStatusCompleted {
-	}
-	if eventErr == nil {
+	if eventErr == nil && projectionErr == nil && finishErr == nil {
 		_ = m.appendLiveEvents([]NewEvent{{
 			SessionID: sessionID, TurnID: turnID, RunID: runID,
 			Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind,
 			ErrorMessage: result.ErrorMessage,
 		}})
 	}
-	// Provider failures, cancellation, and a transcript persistence failure are
-	// durable terminal run outcomes represented by PromptResult. Go errors are
-	// reserved for failures to establish or durably finish that outcome.
-	return result, nil
+	return result, errors.Join(projectionErr, finishErr)
 }
 
-func (m *Manager) drainRunEvents(run droids.Run, sessionID, turnID, runID string, persist bool) error {
+func continueDroidToTerminal(droid *droids.Droid, status droids.ExecutionStatus) (droids.QuiescentState, error) {
+	state := droids.QuiescentState{
+		TurnID:    droids.TurnID(""),
+		Execution: &droids.ExecutionSnapshot{Status: status},
+	}
+	var continuationErr error
+	for status == droids.ExecutionPaused || status == droids.ExecutionInterrupted {
+		if err := droid.Resume(context.Background()); err != nil {
+			continuationErr = errors.Join(continuationErr, err)
+			if errors.Is(err, droids.ErrUnsafeContinuation) {
+				if abortErr := droid.Abort(context.Background()); abortErr != nil {
+					return state, errors.Join(continuationErr, abortErr)
+				}
+			} else if errors.Is(err, droids.ErrClosed) {
+				return state, continuationErr
+			} else {
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
+		}
+		var err error
+		state, err = droid.WaitQuiescent(context.Background())
+		if err != nil {
+			return state, errors.Join(continuationErr, err)
+		}
+		if state.Execution == nil {
+			return state, continuationErr
+		}
+		status = state.Execution.Status
+	}
+	return state, continuationErr
+}
+
+func terminalRunStatus(status RunStatus) bool {
+	switch status {
+	case RunStatusCompleted, RunStatusFailed, RunStatusAborted, RunStatusInterrupted:
+		return true
+	default:
+		return false
+	}
+}
+
+func projectExecutionStatus(status droids.ExecutionStatus) RunStatus {
+	switch status {
+	case droids.ExecutionCompleted:
+		return RunStatusCompleted
+	case droids.ExecutionFailed:
+		return RunStatusFailed
+	case droids.ExecutionAborted:
+		return RunStatusAborted
+	default:
+		return RunStatusInterrupted
+	}
+}
+
+func (m *Manager) finishDroidProjection(
+	sessionID, turnID, runID string,
+	result PromptResult,
+	executionErr error,
+) (PromptResult, error) {
+	finish := func() error {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return m.store.FinishParentRun(ctx, sessionID, turnID, runID, result.Status, result.ErrorMessage)
+	}
+	finishErr := finish()
+	if finishErr == nil {
+		return result, nil
+	}
+	inspect := func() (ParentRunRecord, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		return m.store.GetParentRun(ctx, sessionID, runID)
+	}
+	record, inspectErr := inspect()
+	if inspectErr == nil && terminalRunStatus(record.Status) && record.Status == result.Status {
+		result.Status = record.Status
+		result.ErrorMessage = record.Error
+		return result, nil
+	}
+	retryErr := finish()
+	if retryErr == nil {
+		return result, nil
+	}
+	record, finalInspectErr := inspect()
+	if finalInspectErr == nil && terminalRunStatus(record.Status) && record.Status == result.Status {
+		result.Status = record.Status
+		result.ErrorMessage = record.Error
+		return result, nil
+	}
+	return result, errors.Join(executionErr, finishErr, inspectErr, retryErr, finalInspectErr)
+}
+
+func (m *Manager) projectDroidHistory(
+	ctx context.Context,
+	loaded *runtime,
+	sessionID, _ string,
+	targetTurnID droids.TurnID,
+) (*droids.AssistantMessage, error) {
+	runs, err := m.store.ListParentRuns(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	kitTurns := make(map[droids.TurnID]string, len(runs))
+	for _, run := range runs {
+		if run.DroidTurnID != "" {
+			kitTurns[droids.TurnID(run.DroidTurnID)] = run.TurnID
+		}
+	}
+	cursor := loaded.historyCursor
+	var latestAssistant *droids.AssistantMessage
+	for {
+		page, err := loaded.droid.History(ctx, droids.HistoryQuery{After: cursor, Limit: 1000})
+		if err != nil {
+			return nil, err
+		}
+		byTurn := make(map[droids.TurnID][]NewMessageRecord)
+		var turnOrder []droids.TurnID
+		for _, envelope := range page.Messages {
+			kitTurnID := kitTurns[envelope.TurnID]
+			if kitTurnID == "" {
+				return nil, fmt.Errorf("droid turn %q has no Kit projection mapping", envelope.TurnID)
+			}
+			if _, boundary := envelope.Message.(droids.ContextMessage); boundary {
+				continue
+			}
+			if _, found := byTurn[envelope.TurnID]; !found {
+				turnOrder = append(turnOrder, envelope.TurnID)
+			}
+			if envelope.TurnID == targetTurnID {
+				if assistant, ok := envelope.Message.(droids.AssistantMessage); ok {
+					copy := assistant
+					latestAssistant = &copy
+				}
+			}
+			role, payload, createdAt, err := encodeDroidMessage(envelope.Message)
+			if err != nil {
+				return nil, fmt.Errorf("encode droid message %q: %w", envelope.ID, err)
+			}
+			byTurn[envelope.TurnID] = append(byTurn[envelope.TurnID], NewMessageRecord{
+				ID: string(envelope.ID), Role: role, PayloadJSON: payload, CreatedAt: createdAt,
+			})
+		}
+		for _, droidTurnID := range turnOrder {
+			if _, err := m.store.ProjectDroidMessages(ctx, sessionID, kitTurns[droidTurnID], byTurn[droidTurnID]); err != nil {
+				return nil, err
+			}
+		}
+		cursor = page.Next
+		loaded.historyCursor = cursor
+		if !page.HasMore {
+			return latestAssistant, nil
+		}
+	}
+}
+
+func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runtime, sessionID, turnID, runID string, persist bool) error {
 	const maxBatch = 64
 	ticker := time.NewTicker(25 * time.Millisecond)
 	defer ticker.Stop()
@@ -509,15 +759,21 @@ func (m *Manager) drainRunEvents(run droids.Run, sessionID, turnID, runID string
 		}
 		pending = pending[:0]
 	}
-	events := run.Events()
+	events := subscription.Events()
 	for {
 		select {
-		case event, ok := <-events:
+		case envelope, ok := <-events:
 			if !ok {
 				flush()
+				if err := subscription.Err(); firstErr == nil && err != nil && !errors.Is(err, context.Canceled) {
+					firstErr = err
+				}
 				return firstErr
 			}
-			for _, projected := range projectDroidEvent(sessionID, turnID, runID, event) {
+			if envelope.Durable && envelope.Sequence > loaded.eventCursor {
+				loaded.eventCursor = envelope.Sequence
+			}
+			for _, projected := range projectDroidEvent(sessionID, turnID, runID, envelope.Event) {
 				last := len(pending) - 1
 				if last >= 0 && coalescibleDelta(pending[last], projected) {
 					pending[last].Delta += projected.Delta
@@ -604,8 +860,9 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.runtimes = nil
 	m.mu.Unlock()
 	m.cancelBash(errBashShutdown)
+	var shutdownErr error
 	for _, loaded := range runtimes {
-		loaded.droid.Close()
+		shutdownErr = errors.Join(shutdownErr, loaded.droid.Shutdown(ctx))
 	}
 	m.bashMu.Lock()
 	bashExecutions := make([]*activeBashExecution, 0, len(m.bashActive))
@@ -628,9 +885,15 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	}()
 	select {
 	case <-done:
-		return nil
+		for _, loaded := range runtimes {
+			shutdownErr = errors.Join(shutdownErr, loaded.droidStore.Close())
+		}
+		if m.temporaryDroids {
+			shutdownErr = errors.Join(shutdownErr, os.RemoveAll(m.droidDirectory))
+		}
+		return shutdownErr
 	case <-ctx.Done():
-		return fmt.Errorf("wait for session runs to stop: %w", ctx.Err())
+		return errors.Join(shutdownErr, fmt.Errorf("wait for session runs to stop: %w", ctx.Err()))
 	}
 }
 
@@ -648,9 +911,17 @@ const (
 	runPhaseSettling
 )
 
-func (r *runtime) setActive(cancel context.CancelFunc, phase runPhase, runID string) {
+func (r *runtime) close(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	shutdownErr := r.droid.Shutdown(ctx)
+	storeErr := r.droidStore.Close()
+	return errors.Join(shutdownErr, storeErr)
+}
+
+func (r *runtime) setActive(phase runPhase, runID string) {
 	r.stateMu.Lock()
-	r.cancelRun = cancel
 	r.activeRun = runID
 	r.phase = phase
 	r.stateMu.Unlock()
@@ -664,7 +935,6 @@ func (r *runtime) setPhase(phase runPhase) {
 
 func (r *runtime) clearActive() {
 	r.stateMu.Lock()
-	r.cancelRun = nil
 	r.activeRun = ""
 	r.phase = runPhaseIdle
 	r.stateMu.Unlock()
@@ -672,14 +942,13 @@ func (r *runtime) clearActive() {
 
 func (r *runtime) abort(expectedRunID string) bool {
 	r.stateMu.Lock()
-	defer r.stateMu.Unlock()
 	abortable := r.phase == runPhaseStarting || r.phase == runPhaseRunning
-	if r.cancelRun == nil || r.activeRun != expectedRunID || !abortable {
+	matches := r.activeRun == expectedRunID && abortable
+	r.stateMu.Unlock()
+	if !matches {
 		return false
 	}
-	r.cancelRun()
-	r.droid.Abort()
-	return true
+	return r.droid.Abort(context.Background()) == nil
 }
 
 func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, error) {
@@ -708,22 +977,96 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 
 	loaded, err := m.loadRuntime(ctx, sessionID)
 	m.mu.Lock()
+	startRecovery := false
 	delete(m.loading, sessionID)
 	if m.closed {
 		if loaded != nil {
-			loaded.droid.Close()
+			_ = loaded.close(context.Background())
 		}
 		loaded = nil
 		err = ErrClosed
 	} else if err == nil {
 		m.runtimes[sessionID] = loaded
+		if loaded.recovery != nil {
+			loaded.admissionMu.Lock()
+			m.runs.Add(1)
+			loaded.setActive(runPhaseRunning, loaded.recovery.ID)
+			startRecovery = true
+		}
 	}
 	pending.runtime = loaded
 	pending.err = err
 	close(pending.done)
 	m.mu.Unlock()
+	if startRecovery {
+		go m.resumeRuntime(loaded, *loaded.recovery)
+	}
 	m.loads.Done()
 	return loaded, err
+}
+
+func (m *Manager) resumeRuntime(loaded *runtime, run ParentRunRecord) {
+	defer m.runs.Done()
+	defer loaded.admissionMu.Unlock()
+	defer loaded.clearActive()
+	loaded.recovery = nil
+
+	subscription, subscriptionErr := loaded.droid.Subscribe(context.Background(), droids.SubscribeOptions{
+		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,
+	})
+	drainDone := make(chan error, 1)
+	if subscription != nil {
+		go func() {
+			drainDone <- m.drainRunEvents(subscription, loaded, run.SessionID, run.TurnID, run.ID, subscriptionErr == nil)
+		}()
+	} else {
+		drainDone <- nil
+	}
+
+	state, waitErr := continueDroidToTerminal(loaded.droid, droids.ExecutionInterrupted)
+	if subscription != nil {
+		subscription.Close()
+	}
+	drainErr := <-drainDone
+	latestAssistant, projectionErr := m.projectDroidHistory(
+		context.Background(), loaded, run.SessionID, run.TurnID, droids.TurnID(run.DroidTurnID),
+	)
+
+	status := RunStatusInterrupted
+	if state.Execution != nil {
+		status = projectExecutionStatus(state.Execution.Status)
+	}
+	result := PromptResult{SessionID: run.SessionID, TurnID: run.TurnID, RunID: run.ID, Status: status}
+	if latestAssistant != nil {
+		result.Text = latestAssistant.Text()
+		result.StopReason = string(latestAssistant.StopReason)
+		result.ErrorKind = projectDroidErrorKind(latestAssistant.ErrorKind)
+		result.ErrorMessage = latestAssistant.ErrorMessage
+	}
+	failure := errors.Join(waitErr, drainErr, projectionErr)
+	if state.Execution != nil && state.Execution.Status == droids.ExecutionInterrupted && errors.Is(waitErr, droids.ErrClosed) {
+		return
+	}
+	if result.Status != RunStatusCompleted && result.ErrorMessage == "" {
+		if failure != nil {
+			result.ErrorMessage = failure.Error()
+		} else if state.Execution != nil {
+			result.ErrorMessage = "droid execution " + string(state.Execution.Status)
+		} else {
+			result.ErrorMessage = "droid execution interrupted"
+		}
+	}
+	result, finishErr := m.finishDroidProjection(run.SessionID, run.TurnID, run.ID, result, failure)
+	if subscriptionErr == nil && drainErr == nil {
+		_ = m.appendLiveEvents([]NewEvent{{
+			SessionID: run.SessionID, TurnID: run.TurnID, RunID: run.ID,
+			Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind,
+			ErrorMessage: result.ErrorMessage,
+		}})
+	}
+	if finishErr != nil {
+		m.evict(run.SessionID, loaded)
+	}
 }
 
 func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, error) {
@@ -731,63 +1074,224 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 	if err != nil {
 		return nil, err
 	}
-	droid, adapter, err := m.newDroid(record)
-	if err != nil {
-		return nil, err
-	}
-	return &runtime{droid: droid, storage: adapter, bashContextSequence: adapter.bashContextSequence()}, nil
+	return m.newDroid(ctx, record)
 }
 
-func (m *Manager) reloadRuntime(ctx context.Context, sessionID string, loaded *runtime) error {
-	record, err := m.store.GetSession(ctx, sessionID)
+func (m *Manager) syncBashContext(ctx context.Context, loaded *runtime, through int64) error {
+	boundaries, err := loaded.boundaries.bashBoundaries(ctx, loaded.boundaries.bashContextSequence(), through)
 	if err != nil {
 		return err
 	}
-	droid, adapter, err := m.newDroid(record)
-	if err != nil {
-		return err
+	fresh := make([]sequencedBoundary, 0, len(boundaries))
+	for _, boundary := range boundaries {
+		received, err := loaded.droid.BoundaryReceived(ctx, boundary.message.ID)
+		if err != nil {
+			return err
+		}
+		if received {
+			loaded.boundaries.markBashContextSequence(boundary.sequence)
+			continue
+		}
+		fresh = append(fresh, boundary)
 	}
-	m.mu.Lock()
-	if m.closed || m.runtimes[sessionID] != loaded {
-		m.mu.Unlock()
-		droid.Close()
-		return ErrClosed
+	if len(fresh) == 0 {
+		return nil
 	}
-	previous := loaded.droid
-	loaded.droid = droid
-	loaded.storage = adapter
-	loaded.bashContextSequence = adapter.bashContextSequence()
-	m.mu.Unlock()
-	previous.Close()
+	hash := sha256.New()
+	receipts := make([]string, 0, len(fresh))
+	content := make([]droids.InputContent, 0, len(fresh))
+	for _, boundary := range fresh {
+		receipts = append(receipts, boundary.message.ID)
+		_, _ = hash.Write([]byte(boundary.message.ID))
+		_, _ = hash.Write([]byte{0})
+		content = append(content, boundary.message.Content...)
+	}
+	batch := droids.BoundaryMessage{
+		ID: "bash_batch_" + hex.EncodeToString(hash.Sum(nil)), ReceiptIDs: receipts,
+		Kind: "bash", Source: "composer", Content: content,
+	}
+	if err := loaded.droid.Inform(ctx, batch); err != nil {
+		return fmt.Errorf("inform droid of %d bash executions: %w", len(fresh), err)
+	}
+	loaded.boundaries.markBashContextSequence(fresh[len(fresh)-1].sequence)
 	return nil
 }
 
-func (m *Manager) newDroid(record SessionRecord) (*droids.Droid, *droidStorage, error) {
-	adapter := newDroidStorage(m.store, record.ID)
-	droid, err := droids.New(droids.Options{
-		Providers:        m.providers,
-		Model:            record.ModelProvider + "/" + record.ModelID,
-		Reasoning:        record.ThinkingLevel,
-		SystemPrompt:     m.systemPrompt,
-		Tools:            codingtools.New(record.CWD),
-		Storage:          adapter,
-		Session:          record.ID,
-		MaxSteps:         16,
-		MaxParallelTools: 4,
+func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime, error) {
+	if !identifier.Valid(record.ID, "session_") {
+		return nil, fmt.Errorf("session %q has an invalid droid identity", record.ID)
+	}
+	droidPath := filepath.Join(m.droidDirectory, record.ID+".db")
+	droidStore, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: droidPath})
+	if err != nil {
+		return nil, fmt.Errorf("open droid store for session %q: %w", record.ID, err)
+	}
+	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
+		Store: droidStore, Providers: m.providers,
+		Model:     record.ModelProvider + "/" + record.ModelID,
+		Reasoning: record.ThinkingLevel, SystemPrompt: m.systemPrompt,
+		Tools: codingtools.New(record.CWD),
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("create runtime for session %q: %w", record.ID, err)
+		_ = droidStore.Close()
+		return nil, fmt.Errorf("open runtime for session %q: %w", record.ID, err)
 	}
-	return droid, adapter, nil
+	quiescent, err := droid.WaitQuiescent(ctx)
+	if err != nil {
+		_ = droid.Close()
+		_ = droidStore.Close()
+		return nil, fmt.Errorf("inspect droid state for session %q: %w", record.ID, err)
+	}
+	if err := m.bindDroidProjection(ctx, record.ID, quiescent); err != nil {
+		_ = droid.Close()
+		_ = droidStore.Close()
+		return nil, err
+	}
+	historyCursor, err := m.reconcileDroidHistory(ctx, droid, record.ID)
+	if err != nil {
+		_ = droid.Close()
+		_ = droidStore.Close()
+		return nil, fmt.Errorf("inspect runtime history for session %q: %w", record.ID, err)
+	}
+	loaded := &runtime{
+		droid: droid, droidStore: droidStore,
+		boundaries: newBoundaryTracker(m.store, record.ID), historyCursor: historyCursor,
+	}
+	if err := m.syncBashContext(ctx, loaded, int64(^uint64(0)>>1)); err != nil {
+		_ = droid.Close()
+		_ = droidStore.Close()
+		return nil, err
+	}
+	snapshot, err := droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
+	if err != nil {
+		_ = droid.Close()
+		_ = droidStore.Close()
+		return nil, fmt.Errorf("snapshot runtime for session %q: %w", record.ID, err)
+	}
+	loaded.eventCursor = snapshot.LastEvent
+	if quiescent.Execution != nil {
+		runs, err := m.store.ListParentRuns(ctx, record.ID)
+		if err != nil {
+			_ = loaded.close(context.Background())
+			return nil, err
+		}
+		for index := range runs {
+			run := runs[index]
+			if run.DroidTurnID != string(quiescent.TurnID) || run.Status != RunStatusRunning {
+				continue
+			}
+			switch quiescent.Execution.Status {
+			case droids.ExecutionPaused, droids.ExecutionInterrupted:
+				loaded.recovery = &run
+			case droids.ExecutionCompleted, droids.ExecutionFailed, droids.ExecutionAborted:
+				result := PromptResult{
+					SessionID: record.ID, TurnID: run.TurnID, RunID: run.ID,
+					Status: projectExecutionStatus(quiescent.Execution.Status),
+				}
+				if quiescent.Execution.Error != nil {
+					result.ErrorMessage = quiescent.Execution.Error.Message
+				}
+				if result.Status != RunStatusCompleted && result.ErrorMessage == "" {
+					result.ErrorMessage = "droid execution " + string(quiescent.Execution.Status)
+				}
+				if _, err := m.finishDroidProjection(record.ID, run.TurnID, run.ID, result, nil); err != nil {
+					_ = loaded.close(context.Background())
+					return nil, err
+				}
+			}
+			break
+		}
+	}
+	return loaded, nil
+}
+
+func (m *Manager) bindDroidProjection(ctx context.Context, sessionID string, state droids.QuiescentState) error {
+	if state.Execution == nil || state.TurnID == "" {
+		return nil
+	}
+	runs, err := m.store.ListParentRuns(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	for _, run := range runs {
+		if run.DroidTurnID == string(state.TurnID) {
+			return nil
+		}
+	}
+	for index := len(runs) - 1; index >= 0; index-- {
+		run := runs[index]
+		if run.DroidTurnID != "" || (run.Status != RunStatusQueued && run.Status != RunStatusInterrupted) {
+			continue
+		}
+		if _, status, err := m.store.StartReservedParentRun(ctx, sessionID, run.ID, string(state.TurnID)); err != nil {
+			return fmt.Errorf("repair droid turn projection for run %q: %w", run.ID, err)
+		} else if status != RunStatusRunning {
+			return fmt.Errorf("repair droid turn projection for run %q returned %q", run.ID, status)
+		}
+		return nil
+	}
+	return nil
+}
+
+func (m *Manager) reconcileDroidHistory(ctx context.Context, droid *droids.Droid, sessionID string) (uint64, error) {
+	runs, err := m.store.ListParentRuns(ctx, sessionID)
+	if err != nil {
+		return 0, err
+	}
+	kitTurns := make(map[droids.TurnID]string, len(runs))
+	for _, run := range runs {
+		if run.DroidTurnID != "" {
+			kitTurns[droids.TurnID(run.DroidTurnID)] = run.TurnID
+		}
+	}
+	var cursor uint64
+	for {
+		page, err := droid.History(ctx, droids.HistoryQuery{After: cursor, Limit: 1000})
+		if err != nil {
+			return 0, err
+		}
+		byTurn := make(map[droids.TurnID][]NewMessageRecord)
+		var turnOrder []droids.TurnID
+		for _, envelope := range page.Messages {
+			kitTurnID := kitTurns[envelope.TurnID]
+			if kitTurnID == "" {
+				continue
+			}
+			if _, boundary := envelope.Message.(droids.ContextMessage); boundary {
+				continue
+			}
+			if _, found := byTurn[envelope.TurnID]; !found {
+				turnOrder = append(turnOrder, envelope.TurnID)
+			}
+			role, payload, createdAt, err := encodeDroidMessage(envelope.Message)
+			if err != nil {
+				return 0, fmt.Errorf("encode droid message %q: %w", envelope.ID, err)
+			}
+			byTurn[envelope.TurnID] = append(byTurn[envelope.TurnID], NewMessageRecord{
+				ID: string(envelope.ID), Role: role, PayloadJSON: payload, CreatedAt: createdAt,
+			})
+		}
+		for _, droidTurnID := range turnOrder {
+			if _, err := m.store.ProjectDroidMessages(ctx, sessionID, kitTurns[droidTurnID], byTurn[droidTurnID]); err != nil {
+				return 0, err
+			}
+		}
+		cursor = page.Next
+		if !page.HasMore {
+			return cursor, nil
+		}
+	}
 }
 
 func (m *Manager) evict(sessionID string, target *runtime) {
+	// Keep the closed/closing runtime as a tombstone so another caller cannot
+	// open the same per-session SQLite database while workers are quiescing.
+	_ = target.close(context.Background())
 	m.mu.Lock()
 	if current := m.runtimes[sessionID]; current == target {
 		delete(m.runtimes, sessionID)
 	}
 	m.mu.Unlock()
-	target.droid.Close()
 }
 
 func (m *Manager) isClosed() bool {
@@ -874,14 +1378,4 @@ func (m *Manager) rejectReservation(sessionID, runID string, cause error) error 
 		return errors.Join(cause, cleanupErr)
 	}
 	return cause
-}
-
-func (m *Manager) finishAfterFailure(
-	sessionID, turnID, runID string,
-	status RunStatus,
-	cause error,
-) {
-	finishContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	_ = m.store.FinishParentRun(finishContext, sessionID, turnID, runID, status, cause.Error())
 }

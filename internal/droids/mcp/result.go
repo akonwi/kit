@@ -43,7 +43,7 @@ func convertCallResult(namespace, tool string, result *sdkmcp.CallToolResult, ma
 		}
 	}
 
-	content := make([]droids.Content, 0, len(result.Content))
+	content := make([]droids.ResultContent, 0, len(result.Content))
 	for _, block := range result.Content {
 		switch block := block.(type) {
 		case *sdkmcp.TextContent:
@@ -80,14 +80,12 @@ func convertCallResult(namespace, tool string, result *sdkmcp.CallToolResult, ma
 		content = append(content, droids.TextContent{Text: "MCP tool completed with no content."})
 	}
 
-	return droids.ToolResult{
-		Content: content,
-		Details: CallDetails{
-			Namespace:         namespace,
-			Tool:              tool,
-			StructuredContent: result.StructuredContent,
-			IsError:           result.IsError,
-		},
-		IsError: result.IsError,
-	}, nil
+	details, err := droids.EncodeDetails(CallDetails{
+		Namespace: namespace, Tool: tool,
+		StructuredContent: result.StructuredContent, IsError: result.IsError,
+	})
+	if err != nil {
+		return droids.ToolResult{}, fmt.Errorf("encode MCP details from %s.%s: %w", namespace, tool, err)
+	}
+	return droids.ToolResult{Content: content, Details: details, IsError: result.IsError}, nil
 }

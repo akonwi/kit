@@ -58,10 +58,21 @@ func TestOpenAICodexStreamsResponsesDialect(t *testing.T) {
 	if !ok {
 		t.Fatal("Codex model did not resolve")
 	}
+	batchTool := MustTool(Tool[struct{}]{
+		Name: "batch",
+		Parameters: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"items": map[string]any{"type": "array", "minItems": 1},
+			},
+		},
+		Execute: testNoopTool[struct{}],
+	})
 	stream := providers.Stream(context.Background(), model, Request{
-		Messages:     []Message{UserMessage{Content: []Content{TextContent{Text: "hello"}}}},
+		Messages:     []Message{UserMessage{Content: []InputContent{TextInput{Text: "hello"}}}},
 		Reasoning:    "minimal",
 		SystemPrompt: "Be concise.",
+		Tools:        []ToolSchema{batchTool.schema()},
 	})
 	var events []StreamEvent
 	for event := range stream.Events() {
@@ -98,6 +109,12 @@ func TestOpenAICodexStreamsResponsesDialect(t *testing.T) {
 	if body["text"].(map[string]any)["verbosity"] != "low" || body["reasoning"].(map[string]any)["effort"] != "low" {
 		t.Fatalf("Codex request dialect = %#v", body)
 	}
+	tool := body["tools"].([]any)[0].(map[string]any)
+	parameters := tool["parameters"].(map[string]any)
+	properties := parameters["properties"].(map[string]any)
+	if minimum := properties["items"].(map[string]any)["minItems"]; minimum != float64(1) {
+		t.Fatalf("Codex numeric schema keyword = %#v (%T), want JSON number", minimum, minimum)
+	}
 }
 
 func TestOpenAICodexRejectsExplicitMaxTokens(t *testing.T) {
@@ -112,8 +129,8 @@ func TestOpenAICodexRejectsExplicitMaxTokens(t *testing.T) {
 	if got := stream.Result(); got.StopReason != StopReasonError || !strings.Contains(got.ErrorMessage, "does not support") {
 		t.Fatalf("result = %#v", got)
 	}
-	if _, err := New(Options{Providers: providers, Model: "openai-codex/gpt-5.6-sol", MaxTokens: 32}); err == nil {
-		t.Fatal("Droid accepted an unenforceable Codex MaxTokens limit")
+	if _, err := resolveRequestMaxTokens(model, 32, ""); err == nil {
+		t.Fatal("runtime accepted an unenforceable Codex MaxTokens limit")
 	}
 }
 
@@ -158,9 +175,9 @@ func TestOpenAICodexRejectsCrossAccountTranscriptReplay(t *testing.T) {
 		stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
 			AssistantMessage{
 				Provider: "openai-codex", Model: model.ID, ProviderScope: scope,
-				Content: []Content{TextContent{Text: "prior response"}}, StopReason: StopReasonStop,
+				Content: []AssistantContent{TextContent{Text: "prior response"}}, StopReason: StopReasonStop,
 			},
-			UserMessage{Content: []Content{TextContent{Text: "continue"}}},
+			UserMessage{Content: []InputContent{TextInput{Text: "continue"}}},
 		}})
 		for range stream.Events() {
 		}
@@ -252,7 +269,7 @@ func TestOpenAICodexRetainsAndReplaysToolItemID(t *testing.T) {
 	)
 	defer server.Close()
 	providers, model := testOpenAICodexProvider(t, server)
-	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []Content{TextContent{Text: "lookup"}}}}})
+	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "lookup"}}}}})
 	for range stream.Events() {
 	}
 	message := stream.Result()
@@ -277,7 +294,7 @@ func TestOpenAICodexRetainsAndReplaysToolItemID(t *testing.T) {
 func TestOpenAIReplayDropsOpaqueSignaturesAcrossModels(t *testing.T) {
 	message := AssistantMessage{
 		Provider: "openai-codex", Model: "gpt-5.6-sol", StopReason: StopReasonToolUse,
-		Content: []Content{
+		Content: []AssistantContent{
 			ThinkingContent{Thinking: "reasoning", Signature: `{"id":"rs_1","type":"reasoning","encrypted_content":"secret"}`},
 			TextContent{Text: "text", Signature: `{"id":"msg_1","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"text","annotations":[]}]}`},
 			ToolCall{ID: "call_1", Name: "lookup", Arguments: []byte(`{}`), Signature: "fc_item_1"},
@@ -745,11 +762,11 @@ func TestOpenAICodexValidatesCredentialsAndContent(t *testing.T) {
 		t.Fatalf("account mismatch error = %v", err)
 	}
 
-	if err := validateOpenAICodexContent(model, []Message{UserMessage{Content: []Content{NewFileData("doc.pdf", "application/pdf", []byte("pdf"))}}}); err == nil {
+	if err := validateOpenAICodexContent(model, []Message{UserMessage{Content: []InputContent{NewFileInputData("doc.pdf", "application/pdf", []byte("pdf"))}}}); err == nil {
 		t.Fatal("non-image file was accepted")
 	}
 	spark, _ := OpenAICodexModel("gpt-5.3-codex-spark")
-	if err := validateOpenAICodexContent(spark, []Message{UserMessage{Content: []Content{NewImageData("image/png", []byte("image"))}}}); err == nil {
+	if err := validateOpenAICodexContent(spark, []Message{UserMessage{Content: []InputContent{NewFileInputData("", "image/png", []byte("image"))}}}); err == nil {
 		t.Fatal("image was accepted by text-only model")
 	}
 }

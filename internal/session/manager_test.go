@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
@@ -24,6 +26,52 @@ func projectedContentText(message kitsession.TranscriptMessage, kind kitsession.
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func TestManagerProjectsCanonicalToolLifecycleFromDroid(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	providers := &toolProviders{}
+	manager, err := kitsession.NewManager(store, providers, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(workspace, "note.txt"), []byte("tool lifecycle"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	session, err := manager.Create(ctx, kitsession.CreateInput{CWD: workspace, Model: "test/tools"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runPrompt(manager, ctx, session.ID, "read note.txt")
+	if err != nil || result.Status != kitsession.RunStatusCompleted {
+		t.Fatalf("result = %+v, %v", result, err)
+	}
+	page, err := manager.Events(ctx, session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var planned, started, completed string
+	for _, event := range page.Events {
+		switch event.Kind {
+		case kitsession.EventToolPlanned:
+			planned = event.ToolCallID
+		case kitsession.EventToolStarted:
+			started = event.ToolCallID
+		case kitsession.EventToolCompleted:
+			completed = event.ToolCallID
+		}
+	}
+	if planned == "" || planned != started || planned != completed || planned == "provider_call" {
+		t.Fatalf("tool lifecycle ids = planned %q, started %q, completed %q", planned, started, completed)
+	}
 }
 
 func TestManagerRecordsMalformedProviderToolIdentityAsProtocolFailure(t *testing.T) {
@@ -76,13 +124,18 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	home := t.TempDir()
+	droidDirectory := filepath.Join(home, "droids")
+	store, err := storage.Open(ctx, filepath.Join(home, "kit.db"))
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}
 	defer store.Close()
 	providers := &echoProviders{}
-	manager, err := kitsession.NewManager(store, providers, "You are a test agent.")
+	manager, err := kitsession.NewManager(
+		store, providers, "You are a test agent.",
+		kitsession.WithDroidStoreDirectory(droidDirectory),
+	)
 	if err != nil {
 		t.Fatalf("kitsession.NewManager() error = %v", err)
 	}
@@ -107,8 +160,14 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 		t.Fatalf("persisted assistant thinking = %q, want %q", got, "thinking 1")
 	}
 	manager.Close()
+	if info, err := os.Stat(filepath.Join(droidDirectory, session.ID+".db")); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("dedicated droid database = %v, %v", info, err)
+	}
 
-	resumed, err := kitsession.NewManager(store, providers, "You are a test agent.")
+	resumed, err := kitsession.NewManager(
+		store, providers, "You are a test agent.",
+		kitsession.WithDroidStoreDirectory(droidDirectory),
+	)
 	if err != nil {
 		t.Fatalf("resumed kitsession.NewManager() error = %v", err)
 	}
@@ -137,7 +196,7 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 	if len(requests[1].Messages) != 3 {
 		t.Fatalf("resumed request message count = %d, want 3", len(requests[1].Messages))
 	}
-	if text := requests[1].Messages[0].(droids.UserMessage).Content[0].(droids.TextContent).Text; text != "hello" {
+	if text := requests[1].Messages[0].(droids.UserMessage).Content[0].(droids.TextInput).Text; text != "hello" {
 		t.Fatalf("rehydrated first prompt = %q", text)
 	}
 
@@ -152,6 +211,100 @@ func TestManagerPersistsAndResumesDroidsSession(t *testing.T) {
 		if records[index].Role != want || records[index].Sequence != int64(index) {
 			t.Errorf("message %d = role %q sequence %d, want %q/%d", index, records[index].Role, records[index].Sequence, want, index)
 		}
+	}
+}
+
+func TestManagerRepairsAndResumesDroidAcceptedBeforeProjection(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	home := t.TempDir()
+	droidDirectory := filepath.Join(home, "droids")
+	store, err := storage.Open(ctx, filepath.Join(home, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	providers := &echoProviders{gate: make(chan struct{})}
+	sessionID, err := identifier.New("session_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateSession(ctx, kitsession.NewSession{
+		ID: sessionID, CWD: t.TempDir(), Persistent: true,
+		ModelProvider: "test", ModelID: "echo",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	turnID, err := identifier.New("turn_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := newRunID(t)
+	if _, _, err := store.ReserveParentRun(ctx, sessionID, turnID, runID); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(droidDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	droidStore, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: filepath.Join(droidDirectory, sessionID+".db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	droid, err := droids.Open(ctx, droids.ConversationID(sessionID), droids.Config{
+		Store: droidStore, Providers: providers, Model: "test/echo", SystemPrompt: "test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "survive restart"}}}, droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.WaitForRequest(t)
+	shutdownContext, cancelShutdown := context.WithTimeout(ctx, 5*time.Second)
+	if err := droid.Shutdown(shutdownContext); err != nil {
+		cancelShutdown()
+		t.Fatal(err)
+	}
+	cancelShutdown()
+	outcome, err := handle.Wait(ctx)
+	if err != nil || outcome.Status != droids.ExecutionInterrupted {
+		t.Fatalf("interrupted droid outcome = %+v, %v", outcome, err)
+	}
+	if err := droidStore.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.InterruptActiveRuns(ctx, "daemon restart"); err != nil {
+		t.Fatal(err)
+	}
+	providers.SetGate(nil)
+	manager, err := kitsession.NewManager(
+		store, providers, "test", kitsession.WithDroidStoreDirectory(droidDirectory),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		run, err := manager.GetRun(ctx, sessionID, runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if run.Status == kitsession.RunStatusCompleted {
+			if run.DroidTurnID != string(handle.TurnID()) {
+				t.Fatalf("repaired droid turn = %q, want %q", run.DroidTurnID, handle.TurnID())
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("recovered run = %+v", run)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	messages, err := store.ListMessages(ctx, sessionID)
+	if err != nil || len(messages) != 2 {
+		t.Fatalf("repaired transcript = %+v, %v", messages, err)
 	}
 }
 
@@ -371,7 +524,7 @@ func TestManagerPublishesCompletionAfterRunCleanup(t *testing.T) {
 	}
 }
 
-func TestManagerInterruptsRunWhenLiveJournalCannotBePersisted(t *testing.T) {
+func TestManagerKeepsDroidOutcomeWhenLiveJournalCannotBePersisted(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
@@ -394,12 +547,79 @@ func TestManagerInterruptsRunWhenLiveJournalCannotBePersisted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RunPrompt() error = %v", err)
 	}
-	if result.Status != kitsession.RunStatusInterrupted || result.ErrorMessage != "event journal unavailable" {
+	if result.Status != kitsession.RunStatusCompleted || result.Text != "reply 1" {
 		t.Fatalf("result = %+v", result)
 	}
 	messages, err := store.ListMessages(ctx, created.ID)
 	if err != nil || len(messages) != 2 {
 		t.Fatalf("diagnostic messages = %+v, %v", messages, err)
+	}
+}
+
+func TestManagerRepairsLaggingTranscriptWithoutChangingDroidOutcome(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	repository := &flakyProjectionRepository{Repository: store, failNext: true}
+	manager, err := kitsession.NewManager(repository, &echoProviders{}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	created, err := manager.Create(ctx, kitsession.CreateInput{CWD: t.TempDir(), Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runID := newRunID(t)
+	if _, err := manager.ReservePrompt(ctx, created.ID, runID); err != nil {
+		t.Fatal(err)
+	}
+	result, runErr := manager.RunPrompt(ctx, created.ID, runID, "repair projection")
+	if runErr == nil || result.Status != kitsession.RunStatusCompleted {
+		t.Fatalf("droid result = %+v, projection error = %v", result, runErr)
+	}
+	run, err := store.GetParentRun(ctx, created.ID, runID)
+	if err != nil || run.Status != kitsession.RunStatusCompleted {
+		t.Fatalf("authoritative run projection = %+v, %v", run, err)
+	}
+	snapshot, err := manager.Snapshot(ctx, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Messages) != 2 {
+		t.Fatalf("repaired snapshot = %+v", snapshot.Messages)
+	}
+}
+
+func TestManagerReconcilesAmbiguousDroidTurnProjectionStart(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store, err := storage.Open(ctx, filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	repository := &ambiguousStartRepository{Repository: store}
+	manager, err := kitsession.NewManager(repository, &echoProviders{}, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	created, err := manager.Create(ctx, kitsession.CreateInput{CWD: t.TempDir(), Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := runPrompt(manager, ctx, created.ID, "ambiguous projection")
+	if err != nil || result.Status != kitsession.RunStatusCompleted {
+		t.Fatalf("result = %+v, %v", result, err)
+	}
+	run, err := store.GetParentRun(ctx, created.ID, result.RunID)
+	if err != nil || run.DroidTurnID == "" || run.Status != kitsession.RunStatusCompleted {
+		t.Fatalf("run projection = %+v, %v", run, err)
 	}
 }
 
@@ -426,7 +646,7 @@ func TestManagerRecoversFailedTerminalWriteWithoutRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first RunPrompt() error = %v", err)
 	}
-	if first.Status != kitsession.RunStatusInterrupted {
+	if first.Status != kitsession.RunStatusCompleted {
 		t.Fatalf("first outcome = %+v", first)
 	}
 	second, err := runPrompt(manager, ctx, created.ID, "second")
@@ -482,7 +702,9 @@ func TestManagerRunSurvivesWaitingClientCancellation(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("replayed message count = %d, want detached run completion", len(replayed))
+			all, allErr := store.ListMessages(ctx, created.ID)
+			runs, runsErr := store.ListParentRuns(ctx, created.ID)
+			t.Fatalf("replayed message count = %d, want detached run completion; all=%+v (%v), runs=%+v (%v)", len(replayed), all, allErr, runs, runsErr)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -747,19 +969,19 @@ type blockingReplayRepository struct {
 	startedOnce    sync.Once
 }
 
-func (r *blockingReplayRepository) ListReplayMessages(
+func (r *blockingReplayRepository) GetSession(
 	ctx context.Context,
 	sessionID string,
-) ([]kitsession.MessageRecord, error) {
+) (kitsession.SessionRecord, error) {
 	if sessionID == r.blockedSession {
 		r.startedOnce.Do(func() { close(r.started) })
 		select {
 		case <-r.gate:
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return kitsession.SessionRecord{}, ctx.Err()
 		}
 	}
-	return r.Repository.ListReplayMessages(ctx, sessionID)
+	return r.Repository.GetSession(ctx, sessionID)
 }
 
 type failingEventRepository struct {
@@ -768,6 +990,48 @@ type failingEventRepository struct {
 
 func (*failingEventRepository) AppendSessionEvents(context.Context, []kitsession.NewEvent) ([]kitsession.Event, error) {
 	return nil, errors.New("event journal unavailable")
+}
+
+type flakyProjectionRepository struct {
+	kitsession.Repository
+	mu       sync.Mutex
+	failNext bool
+}
+
+func (r *flakyProjectionRepository) ProjectDroidMessages(
+	ctx context.Context,
+	sessionID, turnID string,
+	messages []kitsession.NewMessageRecord,
+) ([]kitsession.MessageRecord, error) {
+	r.mu.Lock()
+	fail := r.failNext
+	r.failNext = false
+	r.mu.Unlock()
+	if fail {
+		return nil, errors.New("simulated transcript projection failure")
+	}
+	return r.Repository.ProjectDroidMessages(ctx, sessionID, turnID, messages)
+}
+
+type ambiguousStartRepository struct {
+	kitsession.Repository
+	once sync.Once
+}
+
+func (r *ambiguousStartRepository) StartReservedParentRun(
+	ctx context.Context,
+	sessionID, runID, droidTurnID string,
+) (string, kitsession.RunStatus, error) {
+	turnID, status, err := r.Repository.StartReservedParentRun(ctx, sessionID, runID, droidTurnID)
+	if err != nil {
+		return turnID, status, err
+	}
+	ambiguous := false
+	r.once.Do(func() { ambiguous = true })
+	if ambiguous {
+		return "", "", errors.New("simulated ambiguous projection commit")
+	}
+	return turnID, status, nil
 }
 
 type flakyFinishRepository struct {
@@ -792,8 +1056,76 @@ func (r *flakyFinishRepository) FinishParentRun(
 	return r.Repository.FinishParentRun(ctx, sessionID, turnID, runID, status, errorMessage)
 }
 
+type toolProviders struct {
+	mu       sync.Mutex
+	requests int
+}
+
+func (providers *toolProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := providers.Model(id)
+	if !ok {
+		return nil, droids.Model{}, errors.New("unknown model")
+	}
+	return droids.AdaptProvider("test", providers.Models(), providers.Stream), model, nil
+}
+func (*toolProviders) Models() []droids.Model {
+	return []droids.Model{{
+		ID: "tools", Name: "Tools", Provider: "test",
+		API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192,
+	}}
+}
+func (providers *toolProviders) Model(id string) (droids.Model, bool) {
+	if id == "tools" || id == "test/tools" {
+		return providers.Models()[0], true
+	}
+	return droids.Model{}, false
+}
+func (*toolProviders) RefreshModels(context.Context) error { return nil }
+func (providers *toolProviders) Stream(_ context.Context, _ droids.Model, _ droids.Request) droids.Stream {
+	providers.mu.Lock()
+	providers.requests++
+	request := providers.requests
+	providers.mu.Unlock()
+	if request == 1 {
+		call := droids.ToolCall{
+			ID: "provider_call", Name: "read", Arguments: []byte(`{"path":"note.txt"}`),
+		}
+		final := droids.AssistantMessage{
+			Provider: "test", Model: "tools", StopReason: droids.StopReasonToolUse,
+			Content: []droids.AssistantContent{call}, Timestamp: time.Now().UnixMilli(),
+		}
+		return &echoStream{events: []droids.StreamEvent{
+			droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "tools"}},
+			droids.StreamToolCallEnd{ContentIndex: 0, ToolCall: call},
+			droids.StreamDone{Message: final},
+		}, final: final}
+	}
+	final := droids.AssistantMessage{
+		Provider: "test", Model: "tools", StopReason: droids.StopReasonStop,
+		Content: []droids.AssistantContent{droids.TextContent{Text: "done"}}, Timestamp: time.Now().UnixMilli(),
+	}
+	return &echoStream{events: []droids.StreamEvent{
+		droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "tools"}},
+		droids.StreamTextDelta{ContentIndex: 0, Delta: "done"},
+		droids.StreamDone{Message: final},
+	}, final: final}
+}
+
+var _ droids.Providers = (*toolProviders)(nil)
+
 type malformedToolProviders struct{}
 
+func (malformedToolProviders) ID() string { return "test" }
+func (malformedToolProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
+	return nil
+}
+func (providers malformedToolProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := providers.Model(id)
+	if !ok {
+		return nil, droids.Model{}, errors.New("unknown model")
+	}
+	return droids.AdaptProvider("test", providers.Models(), providers.Stream), model, nil
+}
 func (malformedToolProviders) Models() []droids.Model {
 	return []droids.Model{{
 		ID: "malformed", Name: "Malformed", Provider: "test",
@@ -815,7 +1147,7 @@ func (malformedToolProviders) RefreshModels(context.Context) error { return nil 
 func (malformedToolProviders) Stream(context.Context, droids.Model, droids.Request) droids.Stream {
 	final := droids.AssistantMessage{
 		Provider: "test", Model: "malformed", StopReason: droids.StopReasonToolUse,
-		Content:   []droids.Content{droids.ToolCall{Name: "read", Arguments: []byte(`{"path":"README.md"}`)}},
+		Content:   []droids.AssistantContent{droids.ToolCall{Name: "read", Arguments: []byte(`{"path":"README.md"}`)}},
 		Timestamp: time.Now().UnixMilli(),
 	}
 	return &echoStream{events: []droids.StreamEvent{
@@ -832,6 +1164,17 @@ type echoProviders struct {
 	received chan struct{}
 }
 
+func (p *echoProviders) ID() string { return "test" }
+func (p *echoProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
+	return nil
+}
+func (p *echoProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := p.Model(id)
+	if !ok {
+		return nil, droids.Model{}, errors.New("unknown model")
+	}
+	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+}
 func (p *echoProviders) Models() []droids.Model {
 	return []droids.Model{p.model()}
 }
@@ -867,7 +1210,7 @@ func (p *echoProviders) Stream(ctx context.Context, _ droids.Model, request droi
 	thinking := fmt.Sprintf("thinking %d", count)
 	final := droids.AssistantMessage{
 		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
-		Content: []droids.Content{
+		Content: []droids.AssistantContent{
 			droids.ThinkingContent{Thinking: thinking},
 			droids.TextContent{Text: text},
 		},

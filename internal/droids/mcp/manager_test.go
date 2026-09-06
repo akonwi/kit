@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -113,8 +114,11 @@ func TestManagerProgressiveDiscoveryAndCall(t *testing.T) {
 	if called.IsError {
 		t.Fatal("successful call marked as error")
 	}
-	details, ok := called.Details.(CallDetails)
-	if !ok || details.Namespace != "Test Server" || details.Tool != "echo" {
+	var details CallDetails
+	if err := json.Unmarshal(called.Details, &details); err != nil {
+		t.Fatal(err)
+	}
+	if details.Namespace != "Test Server" || details.Tool != "echo" {
 		t.Fatalf("unexpected call details: %#v", called.Details)
 	}
 	if got := factoryCalls.Load(); got != 1 {

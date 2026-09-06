@@ -327,12 +327,17 @@ func TestIncludedBashReloadsDroidContextAndExcludedBashDoesNot(t *testing.T) {
 func requestUserTexts(request droids.Request) []string {
 	var result []string
 	for _, message := range request.Messages {
-		user, ok := message.(droids.UserMessage)
-		if !ok {
+		var content []droids.InputContent
+		switch typed := message.(type) {
+		case droids.UserMessage:
+			content = typed.Content
+		case droids.ContextMessage:
+			content = typed.Content
+		default:
 			continue
 		}
-		for _, block := range user.Content {
-			if text, ok := block.(droids.TextContent); ok {
+		for _, block := range content {
+			if text, ok := block.(droids.TextInput); ok {
 				result = append(result, text.Text)
 			}
 		}

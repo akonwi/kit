@@ -19,6 +19,8 @@ import (
 type Providers interface {
 	// Models returns every model across all registered providers.
 	Models() []Model
+	// Resolve returns the concrete provider and model for a selector.
+	Resolve(selector string) (Provider, Model, error)
 	// Model resolves a user-facing id to a concrete model. The id may be bare
 	// ("gpt-5.6") or namespaced ("openai/gpt-5.6") to disambiguate.
 	Model(id string) (Model, bool)
@@ -35,10 +37,61 @@ type Providers interface {
 // registry or interrupting unrelated sessions.
 type APIKeySource func(context.Context) (string, error)
 
-// Provider is a single provider's configuration (e.g. OpenAI). Each one knows
-// how to build itself into an internal entry (models + stream fn + auth), and
-// is composed into a Providers registry by NewProviders.
+// Provider is one resolved provider capability.
 type Provider interface {
+	ID() string
+	Models() []Model
+	Stream(context.Context, Model, Request) (AssistantStream, error)
+	ValidateReplay(context.Context, Model, []Message) error
+}
+
+// ContextMeasurer optionally provides exact provider-specific context usage.
+type ContextMeasurer interface {
+	MeasureContext(context.Context, Model, Request) (ContextUsage, error)
+}
+
+type adaptedProvider struct {
+	id     string
+	models []Model
+	stream func(context.Context, Model, Request) Stream
+}
+
+// AdaptProvider adapts a provider-neutral Stream function to the full Provider
+// lifecycle. It is useful for local providers and tests.
+func AdaptProvider(id string, models []Model, stream func(context.Context, Model, Request) Stream) Provider {
+	cloned := make([]Model, len(models))
+	for index, model := range models {
+		cloned[index] = cloneModel(model)
+	}
+	return &adaptedProvider{id: id, models: cloned, stream: stream}
+}
+
+func (p *adaptedProvider) ID() string { return p.id }
+func (p *adaptedProvider) Models() []Model {
+	models := make([]Model, len(p.models))
+	for index, model := range p.models {
+		models[index] = cloneModel(model)
+	}
+	return models
+}
+func (p *adaptedProvider) Stream(ctx context.Context, model Model, request Request) (AssistantStream, error) {
+	if p.stream == nil {
+		return nil, fmt.Errorf("droids: provider %q has no stream function", p.id)
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream := p.stream(streamCtx, model, request)
+	if stream == nil {
+		cancel()
+		return nil, fmt.Errorf("droids: provider %q returned a nil stream", p.id)
+	}
+	return &assistantStreamAdapter{stream: stream, cancel: cancel}, nil
+}
+func (p *adaptedProvider) ValidateReplay(context.Context, Model, []Message) error {
+	return nil
+}
+
+// ProviderConfig constructs one provider capability for NewProviders.
+type ProviderConfig interface {
 	build() (providerEntry, error)
 }
 
@@ -50,6 +103,7 @@ type providerEntry struct {
 	models          map[string]Model
 	canonicalModels bool
 	stream          streamFn
+	validateReplay  func(context.Context, Model, []Message) error
 	call            callOptions
 }
 
@@ -63,7 +117,7 @@ type registry struct {
 }
 
 // NewProviders composes provider configs into a single routing Providers registry.
-func NewProviders(configs ...Provider) (Providers, error) {
+func NewProviders(configs ...ProviderConfig) (Providers, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("droids: NewProviders requires at least one Provider")
 	}
@@ -102,6 +156,27 @@ func (r *registry) Models() []Model {
 		return out[i].Provider < out[j].Provider
 	})
 	return out
+}
+
+func (r *registry) Resolve(selector string) (Provider, Model, error) {
+	model, ok := r.Model(selector)
+	if !ok {
+		return nil, Model{}, fmt.Errorf("droids: unknown model %q", selector)
+	}
+	r.mu.RLock()
+	entry, ok := r.entries[model.Provider]
+	if ok {
+		models := make(map[string]Model, len(entry.models))
+		for id, candidate := range entry.models {
+			models[id] = cloneModel(candidate)
+		}
+		entry.models = models
+	}
+	r.mu.RUnlock()
+	if !ok {
+		return nil, Model{}, fmt.Errorf("droids: unknown provider %q", model.Provider)
+	}
+	return &resolvedProvider{entry: entry}, model, nil
 }
 
 func (r *registry) Model(id string) (Model, bool) {
@@ -197,6 +272,46 @@ func (r *registry) rebuildIndex() {
 			}
 		}
 	}
+}
+
+type resolvedProvider struct{ entry providerEntry }
+
+func (p *resolvedProvider) ID() string { return p.entry.id }
+func (p *resolvedProvider) Models() []Model {
+	models := make([]Model, 0, len(p.entry.models))
+	for _, model := range p.entry.models {
+		models = append(models, cloneModel(model))
+	}
+	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
+	return models
+}
+func (p *resolvedProvider) Stream(ctx context.Context, model Model, req Request) (AssistantStream, error) {
+	canonical, ok := p.entry.models[model.ID]
+	if !ok || model.Provider != p.entry.id {
+		return nil, fmt.Errorf("droids: provider %q does not own model %q", p.entry.id, model.ID)
+	}
+	if p.entry.canonicalModels {
+		model = canonical
+	}
+	if _, err := resolveRequestMaxTokens(model, req.MaxTokens, req.Reasoning); err != nil {
+		return nil, err
+	}
+	streamCtx, cancel := context.WithCancel(ctx)
+	stream := p.entry.stream(streamCtx, model, req, p.entry.call)
+	if stream == nil {
+		cancel()
+		return nil, fmt.Errorf("droids: provider %q returned a nil stream", p.entry.id)
+	}
+	return &assistantStreamAdapter{stream: stream, cancel: cancel}, nil
+}
+func (p *resolvedProvider) ValidateReplay(ctx context.Context, model Model, messages []Message) error {
+	if model.Provider != p.entry.id {
+		return fmt.Errorf("droids: provider %q does not own model %q", p.entry.id, model.ID)
+	}
+	if p.entry.validateReplay != nil {
+		return p.entry.validateReplay(ctx, model, messages)
+	}
+	return nil
 }
 
 func (r *registry) Stream(ctx context.Context, model Model, req Request) Stream {

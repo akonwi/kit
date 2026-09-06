@@ -193,7 +193,9 @@ func TestRefreshModelsOverlaysCompleteCatalogEntries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	droid, err := New(Options{Providers: providers, Model: "gateway/gpt-4o-mini"})
+	droid, err := Open(context.Background(), "catalog-refresh", Config{
+		Store: NewMemoryStore(), Providers: providers, Model: "gateway/gpt-4o-mini",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

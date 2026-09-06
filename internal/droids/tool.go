@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/invopop/jsonschema"
+	validator "github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 // tool.go — typed tools. Authors write a generic Tool[Args] with a strongly
@@ -16,7 +17,7 @@ import (
 
 // ToolResultDelta is append-only content emitted while a tool is running.
 type ToolResultDelta struct {
-	Content []Content
+	Content []ResultContent
 	IsError bool
 }
 
@@ -26,22 +27,18 @@ type ToolUpdate func(ToolResultDelta)
 
 // ToolResult is what a tool returns to the model.
 type ToolResult struct {
-	// Content is returned to the model (text and/or images).
-	Content []Content
-	// Details is arbitrary structured data for logs/UI, persisted with the
-	// tool result but not sent to the model.
-	Details any
+	// Content is returned to the model (text and/or files).
+	Content []ResultContent
+	// Details is bounded canonical JSON for logs/UI, persisted with the tool
+	// result but not sent to the model.
+	Details json.RawMessage
 	// IsError marks a completed tool result as an application-level failure while
 	// preserving its content and details for the model and observers. Returning a
 	// Go error remains appropriate for execution/transport failures.
 	IsError bool
-}
-
-// BeforeToolContext is passed to a BeforeToolCall hook.
-type BeforeToolContext struct {
-	ToolCall ToolCall
-	// Args is the raw JSON arguments the model produced.
-	Args []byte
+	// Terminate requests normal completion after the containing tool batch is
+	// fully durable.
+	Terminate bool
 }
 
 // BeforeToolResult is returned by a BeforeToolCall hook. Zero value = proceed.
@@ -58,16 +55,14 @@ type BeforeToolResult struct {
 	Result *ToolResult
 }
 
-// AfterToolContext is passed to an AfterToolCall hook.
-type AfterToolContext struct {
-	ToolCall ToolCall
-	Result   ToolResult
-	IsError  bool
-}
-
 // ToolText is a convenience for a text-only tool result.
 func ToolText(text string) ToolResult {
-	return ToolResult{Content: []Content{TextContent{Text: text}}}
+	return ToolResult{Content: []ResultContent{TextContent{Text: text}}}
+}
+
+// EncodeDetails converts structured tool details to canonical JSON.
+func EncodeDetails(value any) (json.RawMessage, error) {
+	return encodeDetails(value)
 }
 
 // Tool is a typed tool definition.
@@ -82,7 +77,7 @@ type Tool[Args any] struct {
 	// into append-only streaming; tools that do not stream may ignore it. The
 	// returned ToolResult remains the authoritative complete result. Return an
 	// error to signal failure; the loop converts it into an error tool result.
-	Execute func(ctx context.Context, args Args, update ToolUpdate) (ToolResult, error)
+	Execute func(ctx context.Context, call ToolContext, args Args, update ToolUpdate) (ToolResult, error)
 	// Mode overrides execution mode for this tool ("sequential" | "parallel").
 	Mode ExecutionMode
 }
@@ -100,14 +95,51 @@ const (
 type AnyTool interface {
 	schema() ToolSchema
 	mode() ExecutionMode
+	validate(raw []byte) error
 	// execute decodes raw JSON args and runs the tool.
-	execute(ctx context.Context, raw []byte, update ToolUpdate) (ToolResult, error)
+	execute(ctx context.Context, call ToolContext, raw []byte, update ToolUpdate) (ToolResult, error)
 }
 
-// NewTool erases a typed Tool[Args] into an AnyTool.
-func NewTool[Args any](t Tool[Args]) AnyTool { return boundTool[Args]{t} }
+// NewTool validates and erases a typed Tool into an AnyTool.
+func NewTool[Args any](t Tool[Args]) (AnyTool, error) {
+	if t.Name == "" {
+		return nil, fmt.Errorf("droids: tool name is required")
+	}
+	if t.Execute == nil {
+		return nil, fmt.Errorf("droids: tool %q has no execute function", t.Name)
+	}
+	if t.Mode != ModeDefault && t.Mode != ModeSequential && t.Mode != ModeParallel {
+		return nil, fmt.Errorf("droids: tool %q has invalid execution mode %q", t.Name, t.Mode)
+	}
+	parameters := t.Parameters
+	if parameters == nil {
+		parameters = deriveSchema[Args]()
+	}
+	canonical, compiled, err := compileToolSchema(t.Name, parameters)
+	if err != nil {
+		return nil, err
+	}
+	t.Parameters = canonical
+	additional, specified := canonical["additionalProperties"].(bool)
+	forbidAdditional := specified && !additional
+	return boundTool[Args]{t: t, validator: compiled, forbidAdditional: forbidAdditional}, nil
+}
 
-type boundTool[Args any] struct{ t Tool[Args] }
+// MustTool is NewTool for declarations where an invalid definition is a
+// programmer error.
+func MustTool[Args any](t Tool[Args]) AnyTool {
+	tool, err := NewTool(t)
+	if err != nil {
+		panic(err)
+	}
+	return tool
+}
+
+type boundTool[Args any] struct {
+	t                Tool[Args]
+	validator        *validator.Schema
+	forbidAdditional bool
+}
 
 func (b boundTool[Args]) schema() ToolSchema {
 	params := b.t.Parameters
@@ -155,7 +187,61 @@ func emptyObjectSchema() map[string]any {
 
 func (b boundTool[Args]) mode() ExecutionMode { return b.t.Mode }
 
-func (b boundTool[Args]) execute(ctx context.Context, raw []byte, update ToolUpdate) (ToolResult, error) {
+func (b boundTool[Args]) validate(raw []byte) error {
+	return validateToolArguments(raw, b.validator)
+}
+
+func compileToolSchema(name string, parameters map[string]any) (map[string]any, *validator.Schema, error) {
+	raw, err := json.Marshal(parameters)
+	if err != nil {
+		return nil, nil, fmt.Errorf("droids: encode tool %q schema: %w", name, err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	var canonical map[string]any
+	if err := decoder.Decode(&canonical); err != nil {
+		return nil, nil, fmt.Errorf("droids: decode tool %q schema: %w", name, err)
+	}
+	if canonical["type"] != "object" {
+		return nil, nil, fmt.Errorf("droids: tool %q parameters must be a JSON object schema", name)
+	}
+	compiler := validator.NewCompiler()
+	const location = "urn:droids:tool-schema"
+	if err := compiler.AddResource(location, canonical); err != nil {
+		return nil, nil, fmt.Errorf("droids: load tool %q schema: %w", name, err)
+	}
+	compiled, err := compiler.Compile(location)
+	if err != nil {
+		return nil, nil, fmt.Errorf("droids: compile tool %q schema: %w", name, err)
+	}
+	return canonical, compiled, nil
+}
+
+func validateToolArguments(raw []byte, schema *validator.Schema) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		raw = []byte("{}")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("tool arguments are invalid JSON: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("tool arguments contain multiple JSON values")
+		}
+		return fmt.Errorf("tool arguments are invalid JSON: %w", err)
+	}
+	if err := schema.Validate(value); err != nil {
+		return fmt.Errorf("tool arguments do not match schema: %w", err)
+	}
+	return nil
+}
+
+func (b boundTool[Args]) execute(ctx context.Context, call ToolContext, raw []byte, update ToolUpdate) (ToolResult, error) {
+	if err := b.validate(raw); err != nil {
+		return ToolResult{}, err
+	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		raw = []byte("{}")
 	}
@@ -165,7 +251,9 @@ func (b boundTool[Args]) execute(ctx context.Context, raw []byte, update ToolUpd
 	}
 	var args Args
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
-	decoder.DisallowUnknownFields()
+	if b.forbidAdditional {
+		decoder.DisallowUnknownFields()
+	}
 	if err := decoder.Decode(&args); err != nil {
 		return ToolResult{}, err
 	}
@@ -175,11 +263,8 @@ func (b boundTool[Args]) execute(ctx context.Context, raw []byte, update ToolUpd
 		}
 		return ToolResult{}, err
 	}
-	if b.t.Execute == nil {
-		return ToolResult{}, fmt.Errorf("tool %q has no execute function", b.t.Name)
-	}
 	if update == nil {
 		update = func(ToolResultDelta) {}
 	}
-	return b.t.Execute(ctx, args, update)
+	return b.t.Execute(ctx, call, args, update)
 }

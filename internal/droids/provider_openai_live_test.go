@@ -61,9 +61,9 @@ func testLiveOpenAIResponses(t *testing.T, config OpenAI, modelID string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 	stream := providers.Stream(ctx, model, Request{Messages: []Message{
-		UserMessage{Content: []Content{
-			TextContent{Text: "Read the attached note and reply with exactly its code word."},
-			NewFileData("note.txt", "text/plain", []byte("cobalt")),
+		UserMessage{Content: []InputContent{
+			TextInput{Text: "Read the attached note and reply with exactly its code word."},
+			NewFileInputData("note.txt", "text/plain", []byte("cobalt")),
 		}},
 	}})
 	for range stream.Events() {

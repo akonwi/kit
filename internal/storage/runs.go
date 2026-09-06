@@ -72,13 +72,13 @@ func (s *Store) GetParentRun(ctx context.Context, sessionID, runID string) (Pare
 	}
 	var record ParentRunRecord
 	var createdAt string
-	var runError, startedAt, completedAt sql.NullString
+	var droidTurnID, runError, startedAt, completedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, session_id, turn_id, status, error, created_at, started_at, completed_at
+		SELECT id, session_id, turn_id, droid_turn_id, status, error, created_at, started_at, completed_at
 		FROM parent_runs
 		WHERE id = ? AND session_id = ?
 	`, runID, sessionID).Scan(
-		&record.ID, &record.SessionID, &record.TurnID, &record.Status,
+		&record.ID, &record.SessionID, &record.TurnID, &droidTurnID, &record.Status,
 		&runError, &createdAt, &startedAt, &completedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -87,6 +87,7 @@ func (s *Store) GetParentRun(ctx context.Context, sessionID, runID string) (Pare
 	if err != nil {
 		return ParentRunRecord{}, fmt.Errorf("get parent run %q: %w", runID, err)
 	}
+	record.DroidTurnID = droidTurnID.String
 	record.Error = runError.String
 	record.CreatedAt, err = parseTimestamp(createdAt)
 	if err != nil {
@@ -109,6 +110,63 @@ func (s *Store) GetParentRun(ctx context.Context, sessionID, runID string) (Pare
 	return record, nil
 }
 
+// ListParentRuns returns parent-run projections in Kit turn order.
+func (s *Store) ListParentRuns(ctx context.Context, sessionID string) ([]ParentRunRecord, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("store is closed")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT parent_runs.id, parent_runs.session_id, parent_runs.turn_id,
+		       parent_runs.droid_turn_id, parent_runs.status, parent_runs.error,
+		       parent_runs.created_at, parent_runs.started_at, parent_runs.completed_at
+		FROM parent_runs
+		JOIN turns ON turns.id = parent_runs.turn_id AND turns.session_id = parent_runs.session_id
+		WHERE parent_runs.session_id = ?
+		ORDER BY turns.sequence, parent_runs.created_at, parent_runs.id
+	`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("list parent runs: %w", err)
+	}
+	defer rows.Close()
+	var records []ParentRunRecord
+	for rows.Next() {
+		var record ParentRunRecord
+		var droidTurnID, runError, startedAt, completedAt sql.NullString
+		var createdAt string
+		if err := rows.Scan(
+			&record.ID, &record.SessionID, &record.TurnID, &droidTurnID,
+			&record.Status, &runError, &createdAt, &startedAt, &completedAt,
+		); err != nil {
+			return nil, fmt.Errorf("decode parent run: %w", err)
+		}
+		record.DroidTurnID = droidTurnID.String
+		record.Error = runError.String
+		record.CreatedAt, err = parseTimestamp(createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse parent run created_at: %w", err)
+		}
+		if startedAt.Valid {
+			value, err := parseTimestamp(startedAt.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse parent run started_at: %w", err)
+			}
+			record.StartedAt = &value
+		}
+		if completedAt.Valid {
+			value, err := parseTimestamp(completedAt.String)
+			if err != nil {
+				return nil, fmt.Errorf("parse parent run completed_at: %w", err)
+			}
+			record.EndedAt = &value
+		}
+		records = append(records, record)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list parent runs: %w", err)
+	}
+	return records, nil
+}
+
 // GetActiveParentRun returns the queued or running generation for a session.
 func (s *Store) GetActiveParentRun(ctx context.Context, sessionID string) (ParentRunRecord, error) {
 	if s == nil || s.db == nil {
@@ -116,16 +174,16 @@ func (s *Store) GetActiveParentRun(ctx context.Context, sessionID string) (Paren
 	}
 	var record ParentRunRecord
 	var createdAt string
-	var runError, startedAt, completedAt sql.NullString
+	var droidTurnID, runError, startedAt, completedAt sql.NullString
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id, session_id, turn_id, status, error, created_at, started_at, completed_at
+		SELECT id, session_id, turn_id, droid_turn_id, status, error, created_at, started_at, completed_at
 		FROM parent_runs
 		WHERE session_id = ? AND status IN ('queued', 'running')
 		ORDER BY CASE status WHEN 'running' THEN 0 ELSE 1 END,
 		         created_at, id
 		LIMIT 1
 	`, sessionID).Scan(
-		&record.ID, &record.SessionID, &record.TurnID, &record.Status,
+		&record.ID, &record.SessionID, &record.TurnID, &droidTurnID, &record.Status,
 		&runError, &createdAt, &startedAt, &completedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -134,6 +192,7 @@ func (s *Store) GetActiveParentRun(ctx context.Context, sessionID string) (Paren
 	if err != nil {
 		return ParentRunRecord{}, fmt.Errorf("get active parent run for session %q: %w", sessionID, err)
 	}
+	record.DroidTurnID = droidTurnID.String
 	record.Error = runError.String
 	record.CreatedAt, err = parseTimestamp(createdAt)
 	if err != nil {
@@ -161,10 +220,13 @@ func (s *Store) GetActiveParentRun(ctx context.Context, sessionID string) (Paren
 // not execute it again.
 func (s *Store) StartReservedParentRun(
 	ctx context.Context,
-	sessionID, runID string,
+	sessionID, runID, droidTurnID string,
 ) (string, RunStatus, error) {
 	if s == nil || s.db == nil {
 		return "", "", fmt.Errorf("store is closed")
+	}
+	if droidTurnID == "" {
+		return "", "", fmt.Errorf("droid turn id is required")
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -176,22 +238,38 @@ func (s *Store) StartReservedParentRun(
 	var turnID string
 	err = tx.QueryRowContext(ctx, `
 		UPDATE parent_runs
-		SET status = 'running', started_at = ?
-		WHERE id = ? AND session_id = ? AND status = 'queued'
+		SET status = 'running', droid_turn_id = ?, error = NULL,
+		    started_at = COALESCE(started_at, ?), completed_at = NULL
+		WHERE id = ? AND session_id = ?
+		  AND droid_turn_id IS NULL
+		  AND status IN ('queued', 'interrupted')
 		RETURNING turn_id
-	`, now, runID, sessionID).Scan(&turnID)
+	`, droidTurnID, now, runID, sessionID).Scan(&turnID)
 	if errors.Is(err, sql.ErrNoRows) {
 		var status RunStatus
+		var existingDroidTurn sql.NullString
 		err = tx.QueryRowContext(ctx, `
-			SELECT turn_id, status
+			SELECT turn_id, status, droid_turn_id
 			FROM parent_runs
 			WHERE id = ? AND session_id = ?
-		`, runID, sessionID).Scan(&turnID, &status)
+		`, runID, sessionID).Scan(&turnID, &status, &existingDroidTurn)
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", "", fmt.Errorf("parent run %q: %w", runID, ErrNotFound)
 		}
 		if err != nil {
 			return "", "", fmt.Errorf("load reserved parent run %q: %w", runID, err)
+		}
+		if !existingDroidTurn.Valid && terminalRunStatus(status) {
+			result, err := tx.ExecContext(ctx, `
+				UPDATE parent_runs SET droid_turn_id = ?
+				WHERE id = ? AND session_id = ? AND droid_turn_id IS NULL
+			`, droidTurnID, runID, sessionID)
+			if err != nil {
+				return "", "", fmt.Errorf("bind terminal parent run %q: %w", runID, err)
+			}
+			if err := requireOneRow(result, "terminal parent run", runID); err != nil {
+				return "", "", err
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			return "", "", fmt.Errorf("commit reserved parent run inspection: %w", err)
@@ -203,8 +281,8 @@ func (s *Store) StartReservedParentRun(
 	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE turns
-		SET status = 'running', started_at = ?
-		WHERE id = ? AND session_id = ? AND status = 'pending'
+		SET status = 'running', started_at = COALESCE(started_at, ?), completed_at = NULL
+		WHERE id = ? AND session_id = ? AND status IN ('pending', 'interrupted')
 	`, now, turnID, sessionID)
 	if err != nil {
 		return "", "", fmt.Errorf("start reserved turn %q: %w", turnID, err)
@@ -376,7 +454,8 @@ func (s *Store) FinishParentRun(
 	result, err := tx.ExecContext(ctx, `
 		UPDATE parent_runs
 		SET status = ?, error = NULLIF(?, ''), completed_at = ?
-		WHERE id = ? AND session_id = ? AND turn_id = ? AND status = 'running'
+		WHERE id = ? AND session_id = ? AND turn_id = ?
+		  AND (status = 'running' OR droid_turn_id IS NOT NULL)
 	`, status, errorMessage, now, runID, sessionID, turnID)
 	if err != nil {
 		return fmt.Errorf("finish parent run %q: %w", runID, err)
@@ -387,7 +466,7 @@ func (s *Store) FinishParentRun(
 	result, err = tx.ExecContext(ctx, `
 		UPDATE turns
 		SET status = ?, completed_at = ?
-		WHERE id = ? AND session_id = ? AND status = 'running'
+		WHERE id = ? AND session_id = ?
 	`, status, now, turnID, sessionID)
 	if err != nil {
 		return fmt.Errorf("finish turn %q: %w", turnID, err)
