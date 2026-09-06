@@ -181,6 +181,26 @@ func TestAssistantStartedSurfacesInitialThinkingContent(t *testing.T) {
 	}
 }
 
+func TestAssistantTextDeltaDoesNotMoveTranscriptUntilCompletion(t *testing.T) {
+	t.Parallel()
+
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 1, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted},
+		{Sequence: 2, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "partial response"},
+	})
+	if state.needsScroll || len(state.liveMessages) != 1 || state.liveMessages[0].Text != "partial response" || !state.liveMessages[0].Pending {
+		t.Fatalf("buffered response = messages %+v needsScroll %v", state.liveMessages, state.needsScroll)
+	}
+
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 3, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantCompleted,
+	}})
+	if !state.needsScroll || state.liveMessages[0].Pending {
+		t.Fatalf("completed response = messages %+v needsScroll %v", state.liveMessages, state.needsScroll)
+	}
+}
+
 func TestAssistantCompletionPreservesUnspecifiedAccumulatedChannels(t *testing.T) {
 	t.Parallel()
 

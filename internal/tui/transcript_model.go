@@ -382,7 +382,10 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		role := message.Role
 		content := make([]protocol.TranscriptContent, 0, 2+len(message.ToolCalls))
-		if message.Text != "" {
+		// Assistant text crosses the live transport boundary so the client can
+		// assemble the completed message, but pending prose is not transcript
+		// content. Thinking and tool activity remain visible while the model runs.
+		if message.Text != "" && (message.Role != "assistant" || !message.Pending) {
 			content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: message.Text})
 		}
 		if message.Thinking != "" {
@@ -393,6 +396,9 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 				Kind: protocol.TranscriptContentToolCall, ToolCallID: call.ID, ToolName: call.Name,
 				Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated,
 			})
+		}
+		if message.Role == "assistant" && message.Pending && len(content) == 0 {
+			continue
 		}
 		projected := protocol.TranscriptMessage{
 			ID: messageID, TurnID: turnID, Sequence: int64(index), Role: role, Content: content,

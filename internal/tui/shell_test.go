@@ -58,7 +58,7 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	}
 }
 
-func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T) {
+func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
@@ -102,8 +102,8 @@ func TestTurnActivityUsesFixedSlotWhileResponseStreamsInTranscript(t *testing.T)
 	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Working…" {
 		t.Fatalf("response slot = %q, want turn spinner", got)
 	}
-	if text := strings.Join(rows, "\n"); !strings.Contains(text, "I’ll inspect it now.") {
-		t.Fatalf("streaming response missing from transcript:\n%s", text)
+	if text := strings.Join(rows, "\n"); strings.Contains(text, "I’ll inspect it now.") {
+		t.Fatalf("pending response rendered before completion:\n%s", text)
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{

@@ -113,10 +113,11 @@ recorded manual verification exists.
   persisting parallel run or transcript records.
 - [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state; droids events are projected into a bounded
-  runtime-local session stream and the native TUI follows text, thinking, complete
-  tool plans with bounded arguments, append-only structured tool updates,
-  authoritative results/details, execution state, and terminal state. Push
-  subscriptions, usage events, richer error recovery, and full multi-client
+  runtime-local session stream. The native TUI buffers text deltas and reveals
+  assistant prose atomically on message completion while following thinking,
+  complete tool plans with bounded arguments, append-only structured tool
+  updates, authoritative results/details, execution state, and terminal state.
+  Push subscriptions, usage events, richer error recovery, and full multi-client
   synchronization remain.
 - [~] Preserve droid-owned turn and stable message identities directly;
   assistant message IDs remain stable from live start/deltas through snapshots.
@@ -168,12 +169,13 @@ recorded manual verification exists.
   viewport-native vaxis shell, terminal-derived base theme, empty/error states,
   and responsive auth surfaces are implemented. Full semantic theme parity and
   user overrides remain.
-- [~] Transcript with selectable Markdown, streaming output, code, tool drawers,
-  and compact historical entries; the native TUI now preserves assistant prose,
-  consolidates tool work into one-line chips, and opens stable Activity sections
-  with lifecycle glyphs, disclosure rows, bounded nested output, read/write code
-  views, and semantic edit diffs. Live thinking is Markdown-rendered in the
-  fixed status slot and retained as full Markdown evidence in Activity. A cached
+- [~] Transcript with selectable Markdown, atomically revealed assistant prose,
+  code, tool drawers, and compact historical entries; text deltas remain in the
+  runtime stream but pending prose is not rendered. The native TUI consolidates
+  tool work into one-line chips and opens stable Activity sections with lifecycle
+  glyphs, disclosure rows, bounded nested output, read/write code views, and
+  semantic edit diffs. Live thinking is Markdown-rendered in the fixed status
+  slot and retained as full Markdown evidence in Activity. A cached
   Goldmark CommonMark/GFM pipeline now renders headings, inline emphasis/code,
   literal safe links, lists/tasks, quotes, rules, tables, and language-preserving
   fenced code in transcript and Activity prose/thinking. Syntax

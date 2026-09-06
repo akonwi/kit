@@ -864,6 +864,7 @@ func (s *appState) setTurnThinking(thinking string) {
 }
 
 func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
+	transcriptChanged := false
 	for _, event := range events {
 		if event.Sequence <= s.liveSequence {
 			continue
@@ -874,6 +875,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventUserMessage:
+			transcriptChanged = true
 			if s.turnActivity == "" {
 				s.setTurnActivity("Working…")
 			}
@@ -890,6 +892,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				}
 			}
 		case protocol.SessionEventAssistantStarted:
+			transcriptChanged = transcriptChanged || event.Thinking != ""
 			s.setTurnActivity("Working…")
 			if event.Text == "" {
 				s.setTurnThinking(event.Thinking)
@@ -919,6 +922,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.liveContent[event.ContentIndex] = block
 			s.syncLiveAssistant(index)
 			if event.Kind == protocol.SessionEventThinkingDelta {
+				transcriptChanged = true
 				s.setTurnThinking(s.liveMessages[index].Thinking)
 				s.setTurnActivity(latestThinkingLine(s.liveMessages[index].Thinking))
 			} else {
@@ -926,6 +930,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.setTurnActivity("Working…")
 			}
 		case protocol.SessionEventAssistantCompleted:
+			transcriptChanged = true
 			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
 			if event.Text != "" {
 				s.liveMessages[index].Text = event.Text
@@ -942,6 +947,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventToolPlanned, protocol.SessionEventToolStarted:
+			transcriptChanged = true
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 			s.ensureLiveAssistantToolCall(event)
@@ -977,6 +983,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			}
 			s.liveMessages[index].IsError = event.IsError
 			if event.Kind == protocol.SessionEventToolCompleted {
+				transcriptChanged = true
 				s.liveMessages[index].Pending = false
 				if event.IsError {
 					s.liveMessages[index].ToolStatus = "Failed"
@@ -985,6 +992,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				}
 			}
 		case protocol.SessionEventRunFinished:
+			transcriptChanged = true
 			for _, index := range s.liveTools {
 				if index >= 0 && index < len(s.liveMessages) && s.liveMessages[index].ToolStatus == "Planned" {
 					s.liveMessages[index].Pending = false
@@ -997,7 +1005,9 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 		}
 	}
 	if len(events) > 0 {
-		s.requestTranscriptScroll()
+		if transcriptChanged {
+			s.requestTranscriptScroll()
+		}
 		if s.activitySourceID != "" {
 			messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
 			messages = append(messages, s.messages...)

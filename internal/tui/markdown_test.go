@@ -15,7 +15,7 @@ func TestShellRendersTranscriptAndActivityMarkdown(t *testing.T) {
 
 	messages := []transcriptMessage{
 		{ID: "user_1", TurnID: "turn_1", Role: "user", Text: "**inspect** this"},
-		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Text: "## Plan\n\n- read\n- report", Thinking: "### Reasoning\n\n- inspect first", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read"}}, Pending: true},
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Text: "## Plan\n\n- read\n- report", Thinking: "### Reasoning\n\n- inspect first", ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read"}}},
 	}
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Messages: messages, Scroll: &ui.ScrollController{},

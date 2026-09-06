@@ -98,6 +98,43 @@ func TestGroupTranscriptDisplayItemsKeepsProseAndConsolidatesTurnWork(t *testing
 	}
 }
 
+func TestPresentTranscriptBuffersPendingAssistantTextUntilCompletion(t *testing.T) {
+	t.Parallel()
+
+	messages := []transcriptMessage{
+		{ID: "user_1", TurnID: "turn_1", Role: "user", Text: "inspect"},
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Text: "partial response", Pending: true},
+	}
+	pending := presentTranscript(messages)
+	if len(pending.Items) != 1 || pending.Items[0].Kind != transcriptDisplaySingle || pending.Items[0].Item.Message.TextContent() != "inspect" {
+		t.Fatalf("pending transcript = %+v, want only the submitted user message", pending.Items)
+	}
+
+	messages[1].Text = "final response"
+	messages[1].Pending = false
+	completed := presentTranscript(messages)
+	if len(completed.Items) != 2 || completed.Items[1].Kind != transcriptDisplayAssistantProse || assistantProse(completed.Items[1].Item.Message) != "final response" {
+		t.Fatalf("completed transcript = %+v, want atomic final assistant prose", completed.Items)
+	}
+}
+
+func TestPresentTranscriptKeepsPendingThinkingAndToolsVisible(t *testing.T) {
+	t.Parallel()
+
+	presentation := presentTranscript([]transcriptMessage{{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Text: "partial response",
+		Thinking: "Inspecting", Pending: true,
+		ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)}},
+	}})
+	if len(presentation.Items) != 1 || presentation.Items[0].Kind != transcriptDisplayTurnWork {
+		t.Fatalf("pending activity = %+v, want one work item", presentation.Items)
+	}
+	sections := buildActivitySections(presentation.Items[0])
+	if len(sections) != 1 || sections[0].Thinking != "Inspecting" || sections[0].Prose != "" || len(sections[0].Calls) != 1 {
+		t.Fatalf("pending activity sections = %+v", sections)
+	}
+}
+
 func TestThinkingCreatesActivityWorkAlongsideAssistantProse(t *testing.T) {
 	t.Parallel()
 

@@ -313,6 +313,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - Preserve literal destinations for Markdown links. Only attach OSC 8 and activation behavior to validated `http`, `https`, and `mailto` targets.
 - Fenced code uses a subtle surface, preserves selectable source order, expands tabs consistently, and wraps rather than silently clipping in transcript-width layouts.
 - Stream the latest thinking line as muted Markdown in the fixed one-row pending slot. Keep full thinking as Markdown evidence in Activity rather than duplicating it in transcript history.
+- Buffer assistant text deltas by message identity and reveal the completed Markdown atomically. Do not render pending assistant prose in Transcript or Activity; thinking and tool activity remain live.
 
 ### Interactive elements
 

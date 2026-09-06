@@ -48,6 +48,10 @@ uses Solid and Mica at build time and is embedded in the Go executable.
   for expediency.
 - Record architectural decisions under `docs/adrs/` and deferred work in the
   parity ledger or `backlog/`.
+- Write ADRs as descriptions of the proposed or accepted target state and its
+  rationale. Do not narrate previous implementations or historical state in an
+  ADR; put necessary historical comparisons in migration documents, the parity
+  ledger, or commit history instead.
 
 ## Go conventions
 
