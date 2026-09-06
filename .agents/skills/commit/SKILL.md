@@ -29,13 +29,10 @@ If the changes complete or substantially address an item from `backlog/backlog.m
 
 ### 4. Run Validation Checks
 
-Run the required checks for this repo:
-
-- `bun run typecheck` — zero TypeScript errors required
-- `bun run check` — auto-fix formatting and safe lint fixes
-- Address remaining Biome warnings (fix or suppress with `// biome-ignore <rule>: <reason>`)
-- Re-run `bun run typecheck` after Biome changes to confirm nothing broke
-- For print mode/headless changes: `bun run smoke:print-mode` from repo root
+- Read the repository guidance and run every validation required for the changed areas
+- Prefer targeted checks while iterating, then run the full required checks before committing
+- Verify formatting, static analysis, builds, and tests according to the project's documented commands
+- Run `git diff --check` before staging the final commit
 
 ### 5. Fix Issues
 
@@ -56,5 +53,5 @@ Commit the changes with the prepared message.
 
 ## References
 
-- Pre-commit checklist: `AGENTS.md` Pre-commit checklist section
+- Validation requirements: `AGENTS.md` Validation section
 - Commit conventions: `AGENTS.md` Commit conventions section
