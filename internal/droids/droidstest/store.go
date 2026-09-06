@@ -19,6 +19,13 @@ type StoreFactory func(t *testing.T) droids.Store
 // RunStoreContract verifies the behavior required of every Store adapter.
 func RunStoreContract(t *testing.T, factory StoreFactory) {
 	t.Helper()
+	t.Run("state before open", func(t *testing.T) {
+		store := factory(t)
+		if _, err := store.State(context.Background()); !errors.Is(err, droids.ErrStoreUninitialized) {
+			t.Fatalf("State error = %v, want ErrStoreUninitialized", err)
+		}
+	})
+
 	t.Run("open and state", func(t *testing.T) {
 		store := factory(t)
 		opened := openStore(t, store)
@@ -39,6 +46,35 @@ func RunStoreContract(t *testing.T, factory StoreFactory) {
 		}
 		if again.Created || again.Conversation.Revision != 1 {
 			t.Fatalf("second Open = %+v", again)
+		}
+	})
+
+	t.Run("initial history preserves slice order", func(t *testing.T) {
+		store := factory(t)
+		_, err := store.Open(context.Background(), droids.OpenConversation{
+			ID: "conversation_ordered",
+			InitialRecords: []droids.EncodedRecord{
+				record("audit", "third", droids.RecordHistory, `{"order":3}`),
+				record("state", "current", droids.RecordRuntime, `{"status":"ready"}`),
+				record("audit", "first", droids.RecordHistory, `{"order":1}`),
+				record("audit", "second", droids.RecordHistory, `{"order":2}`),
+			},
+		})
+		if err != nil {
+			t.Fatalf("Open: %v", err)
+		}
+		page, err := store.Records(context.Background(), droids.RecordQuery{Limit: 10})
+		if err != nil {
+			t.Fatalf("Records: %v", err)
+		}
+		want := []string{"third", "first", "second"}
+		if len(page.Records) != len(want) {
+			t.Fatalf("record count = %d, want %d", len(page.Records), len(want))
+		}
+		for index, id := range want {
+			if page.Records[index].ID != id || page.Records[index].Sequence != uint64(index+1) {
+				t.Fatalf("record %d = %+v, want id %q", index, page.Records[index], id)
+			}
 		}
 	})
 

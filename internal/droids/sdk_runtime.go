@@ -29,6 +29,7 @@ type sdkRuntime struct {
 	revision         uint64
 	lastEvent        EventSequence
 	state            durableRuntime
+	forkedFrom       *ForkPoint
 	boundaryReceipts map[string]struct{}
 	changed          chan struct{}
 	runCancel        context.CancelFunc
@@ -222,6 +223,18 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 	if err != nil {
 		return nil, err
 	}
+	lineage, err := decodeLineage(opened.Conversation.RuntimeState)
+	if err != nil {
+		return nil, err
+	}
+	var forkedFrom *ForkPoint
+	if lineage != nil {
+		point := lineage.Point
+		if point.ConversationID == id {
+			return nil, fmt.Errorf("droids: fork lineage refers to its own conversation")
+		}
+		forkedFrom = &point
+	}
 	if err := validateOpenedRuntime(state); err != nil {
 		return nil, err
 	}
@@ -232,7 +245,7 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 	rt := &sdkRuntime{
 		droid: d, config: config, store: config.Store, provider: provider, conversation: id,
 		revision: opened.Conversation.Revision, lastEvent: opened.Conversation.LastEvent,
-		state: state, boundaryReceipts: boundaryReceipts,
+		state: state, forkedFrom: forkedFrom, boundaryReceipts: boundaryReceipts,
 		changed: make(chan struct{}), shutdownDone: make(chan struct{}),
 		subs: make(map[*sdkSubscription]struct{}),
 	}
@@ -1016,8 +1029,13 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 	rt := d.sdk
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	conversation := ConversationSnapshot{ID: rt.conversation, Revision: rt.revision}
+	if rt.forkedFrom != nil {
+		point := *rt.forkedFrom
+		conversation.ForkedFrom = &point
+	}
 	result := Snapshot{
-		Conversation: ConversationSnapshot{ID: rt.conversation, Revision: rt.revision},
+		Conversation: conversation,
 		Pending: PendingInputSnapshot{
 			Steering: len(rt.state.PendingSteering), Boundary: len(rt.state.PendingBoundaries),
 		},
@@ -1383,9 +1401,6 @@ func (rt *sdkRuntime) finalizeAbortedModelLocked(status ExecutionStatus) ([]Enco
 	envelope := MessageEnvelope{
 		ID: messageID, ConversationID: rt.conversation, TurnID: rt.state.TurnID,
 		CreatedAt: time.Now().UTC(), Message: assistant,
-	}
-	if err := appendRuntimeEnvelope(&rt.state, envelope); err != nil {
-		return nil, nil, err
 	}
 	wire, err := messageEnvelopeToWire(envelope)
 	if err != nil {

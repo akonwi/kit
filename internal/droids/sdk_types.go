@@ -145,6 +145,24 @@ type Config struct {
 	AfterToolCall  AfterToolCallHook
 }
 
+// ForkOptions configures the independent Store used by a forked conversation.
+type ForkOptions struct {
+	Store Store
+}
+
+// ForkPoint identifies the exact settled source revision inherited by a fork.
+type ForkPoint struct {
+	ConversationID ConversationID `json:"conversation_id"`
+	Revision       uint64         `json:"revision"`
+	LastEvent      EventSequence  `json:"last_event"`
+}
+
+// ForkResult contains a newly attached child droid and its durable lineage.
+type ForkResult struct {
+	Droid *Droid
+	Point ForkPoint
+}
+
 // ExecutionHandle observes one admitted execution without exposing its internal
 // identity.
 type ExecutionHandle interface {
@@ -227,8 +245,9 @@ type QuiescentState struct {
 
 // ConversationSnapshot is the conversation-level snapshot header.
 type ConversationSnapshot struct {
-	ID       ConversationID
-	Revision uint64
+	ID         ConversationID
+	Revision   uint64
+	ForkedFrom *ForkPoint
 }
 
 // PendingInputSnapshot reports durable pending steering and boundary counts.

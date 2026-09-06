@@ -611,6 +611,9 @@ func TestSDKRawToolResultFailureBlocksContinuation(t *testing.T) {
 	}}, droids.PromptOptions{}); !errors.Is(err, droids.ErrBusy) {
 		t.Fatalf("Prompt error = %v, want ErrBusy", err)
 	}
+	if _, err := droid.Fork(t.Context(), "conversation_raw_failure_fork", droids.ForkOptions{}); !errors.Is(err, droids.ErrBusy) {
+		t.Fatalf("Fork interrupted droid error = %v, want ErrBusy", err)
+	}
 	if err := droid.Abort(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -725,6 +728,25 @@ func TestSDKAutomaticCompactionPreservesHistory(t *testing.T) {
 	}
 	if snapshot.Context.CheckpointID == "" || snapshot.Context.Messages >= len(history.Messages) {
 		t.Fatalf("compacted context = %+v, history=%d", snapshot.Context, len(history.Messages))
+	}
+	forked, err := droid.Fork(t.Context(), "conversation_compaction_fork", droids.ForkOptions{})
+	if err != nil {
+		t.Fatalf("fork compacted droid: %v", err)
+	}
+	t.Cleanup(func() { _ = forked.Droid.Close() })
+	forkSnapshot, err := forked.Droid.Snapshot(t.Context(), droids.SnapshotOptions{RecentMessageLimit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forkSnapshot.Context.CheckpointID != snapshot.Context.CheckpointID || forkSnapshot.Context.Messages != snapshot.Context.Messages {
+		t.Fatalf("fork compacted context = %+v, want %+v", forkSnapshot.Context, snapshot.Context)
+	}
+	forkHistory, err := forked.Droid.History(t.Context(), droids.HistoryQuery{Limit: 20})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(forkHistory.Messages) != len(history.Messages) {
+		t.Fatalf("fork compacted history = %d, want %d", len(forkHistory.Messages), len(history.Messages))
 	}
 }
 

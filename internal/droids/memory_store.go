@@ -151,7 +151,7 @@ func (s *MemoryStore) State(ctx context.Context) (StoredConversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.opened {
-		return StoredConversation{}, fmt.Errorf("droids: store is not open")
+		return StoredConversation{}, ErrStoreUninitialized
 	}
 	return s.stateLocked(), nil
 }

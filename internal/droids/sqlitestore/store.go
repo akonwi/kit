@@ -247,6 +247,9 @@ func (s *Store) State(ctx context.Context) (state droids.StoredConversation, err
 		state, loadErr = loadState(ctx, conn)
 		return loadErr
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return droids.StoredConversation{}, droids.ErrStoreUninitialized
+	}
 	return state, err
 }
 

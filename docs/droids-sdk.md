@@ -25,7 +25,7 @@ The initial SDK includes:
 - provider-neutral messages and content;
 - provider and model interfaces;
 - typed tools;
-- autonomous prompt admission, steering, retry, compaction, and abort behavior;
+- autonomous prompt admission, steering, retry, compaction, abort, and settled-conversation fork behavior;
 - durable state and event contracts;
 - an in-memory Store;
 - a CGO-free SQLite Store;
@@ -140,6 +140,53 @@ The embedding application must not open multiple live droids with the same
 `ConversationID`. Droids does not provide distributed ownership or process
 coordination for this.
 
+### Forking a settled conversation
+
+```go
+type ForkOptions struct {
+    Store Store
+}
+
+type ForkPoint struct {
+    ConversationID ConversationID
+    Revision       uint64
+    LastEvent      EventSequence
+}
+
+type ForkResult struct {
+    Droid *Droid
+    Point ForkPoint
+}
+
+func (d *Droid) Fork(
+    ctx context.Context,
+    id ConversationID,
+    options ForkOptions,
+) (ForkResult, error)
+```
+
+`Fork` creates an independent ready conversation from a settled source. It
+copies immutable record history, active provider context, checkpoint identity,
+boundary receipts, and pending idle boundaries into a new destination Store.
+Running, paused, interrupted, retrying, pausing, and aborting sources return
+`ErrBusy`; forking never duplicates active execution or ambiguous tool state.
+Fork does not invoke provider replay validation. The ordinary request path
+validates inherited context before the child's next provider request and reports
+any incompatibility through that prompt's normal outcome.
+
+Only the `ConversationID` changes. Ancestral turn, attempt, message, tool-call,
+and checkpoint IDs remain stable and are scoped by conversation. Embedded
+conversation fields are rewritten through droids-owned versioned codecs, while
+provider IDs and signatures remain unchanged. New work in each branch receives
+fresh IDs.
+
+The child has a fresh Store revision and outbox containing
+`conversation.created` and `conversation.forked`; source outbox events are not
+copied. Its bounded snapshot exposes the immediate source `ForkPoint`. An
+already initialized destination is detected without attaching another live
+droid. See [ADR 0005](./adrs/0005-droids-semantic-forking.md) for the complete
+identity, lineage, atomicity, and recovery contract.
+
 ### Configuration
 
 ```go
@@ -212,8 +259,10 @@ type EventSequence  uint64
 ```
 
 Identifiers are unique within their semantic scope and remain stable across
-process restart and Store reload. Callers treat their textual encoding as
-opaque.
+process restart and Store reload. A fork gives the child a new conversation ID
+while preserving ancestral nested IDs; callers therefore qualify turn, attempt,
+message, tool-call, and checkpoint IDs by conversation. Callers treat textual
+encodings as opaque.
 
 ## Message and content API
 
@@ -1007,7 +1056,7 @@ updates have `Durable == false` and are anchored to durable identities.
 The initial event families are:
 
 ```text
-conversation.created
+conversation.created / forked
 turn.admitted / started / settled
 execution.started / paused / resumed / aborted / interrupted / settled
 attempt.started / retry_scheduled / settled
@@ -1082,9 +1131,9 @@ func (d *Droid) History(
 ```
 
 A snapshot and `LastEvent` describe one atomic Store revision. Consumers apply
-only durable events after that sequence. `RecentMessageLimit` is clamped to a
-bounded SDK maximum, and older diagnostic history is retrieved through cursor
-pagination.
+only durable events after that sequence. A forked conversation snapshot also
+contains its immediate `ForkPoint`. `RecentMessageLimit` is clamped to a bounded
+SDK maximum, and older diagnostic history is retrieved through cursor pagination.
 
 Diagnostic messages and active model context are separate fields. Snapshot
 consumers never infer provider context by filtering display messages.
@@ -1130,9 +1179,12 @@ scoped to that Store's conversation; their requests do not select another
 conversation.
 
 `Store.Open` atomically finds or creates the conversation. On creation it stores
-the supplied initial records and `conversation.created` outbox event. On an
-existing database it returns the stored conversation and leaves domain records
-unchanged.
+the supplied initial records and initial outbox events. Historical initial
+records receive Store sequences in supplied slice order. On an existing
+database it returns the stored conversation and leaves domain records unchanged.
+`State` returns `ErrStoreUninitialized` when called before the Store is bound by
+`Open`, allowing semantic fork initialization to distinguish an empty Store from
+a failed inspection.
 
 ### Revision-based commits
 
@@ -1476,7 +1528,8 @@ func RunStoreContract(t *testing.T, factory StoreFactory)
 
 The suite covers:
 
-- atomic find-or-create open;
+- state-before-open classification and atomic find-or-create open;
+- deterministic initial history ordering;
 - optimistic revision conflicts;
 - compound steering and boundary-message transitions;
 - durable, unique tool-call admission;
@@ -1505,10 +1558,17 @@ var (
     ErrBusy                  = errors.New("droid busy")
     ErrNoActiveExecution     = errors.New("no active execution")
     ErrUnsafeContinuation    = errors.New("unsafe continuation")
-    ErrConflict              = errors.New("store revision conflict")
-    ErrSubscriberLagged      = errors.New("subscriber lagged")
+    ErrConflict               = errors.New("store revision conflict")
+    ErrStoreUninitialized     = errors.New("store is not initialized")
+    ErrForkAlreadyInitialized = errors.New("fork destination is already initialized")
+    ErrForkDestinationExists  = errors.New("fork destination already contains another conversation")
+    ErrSubscriberLagged       = errors.New("subscriber lagged")
 )
 ```
+
+An existing matching fork returns `ForkAlreadyInitializedError`, which unwraps
+to `ErrForkAlreadyInitialized` and carries the durable `ForkPoint`. It does not
+attach another live droid to the destination Store.
 
 Terminal agent outcomes use `DroidError`:
 

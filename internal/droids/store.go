@@ -95,7 +95,8 @@ type StoredConversation struct {
 	LastEvent    EventSequence
 }
 
-// OpenConversation initializes a new Store when it is empty.
+// OpenConversation initializes a new Store when it is empty. InitialRecords
+// are applied in slice order; Stores allocate history sequences in that order.
 type OpenConversation struct {
 	ID             ConversationID
 	InitialRecords []EncodedRecord
@@ -152,7 +153,8 @@ type EventPage struct {
 }
 
 // Store persists exactly one droid conversation. Implementations must apply a
-// Commit's mutations, revision update, and events atomically.
+// Commit's mutations, revision update, and events atomically. State returns
+// ErrStoreUninitialized before Open has bound the Store to a conversation.
 type Store interface {
 	Open(context.Context, OpenConversation) (OpenConversationResult, error)
 	Commit(context.Context, CommitRequest) (CommitResult, error)

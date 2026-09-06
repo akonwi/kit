@@ -12,9 +12,12 @@ const (
 	runtimeRecordID     = "current"
 	messageRecordKind   = "message"
 	turnRecordKind      = "turn"
+	attemptRecordKind   = "attempt"
 	toolRecordKind      = "tool"
 	checkpointKind      = "checkpoint"
 	boundaryReceiptKind = "boundary_receipt"
+	lineageRecordKind   = "lineage"
+	lineageRecordID     = "parent"
 	recordVersion       = 1
 	eventVersion        = 1
 )
@@ -149,6 +152,47 @@ func runtimeEncodedRecord(state durableRuntime) (EncodedRecord, error) {
 	}, nil
 }
 
+type durableForkLineage struct {
+	Point       ForkPoint `json:"point"`
+	OperationID string    `json:"operation_id"`
+}
+
+func lineageEncodedRecord(lineage durableForkLineage) (EncodedRecord, error) {
+	point := lineage.Point
+	if point.ConversationID == "" || point.Revision == 0 || point.LastEvent == 0 || lineage.OperationID == "" {
+		return EncodedRecord{}, fmt.Errorf("droids: fork lineage is incomplete")
+	}
+	payload, err := json.Marshal(lineage)
+	if err != nil {
+		return EncodedRecord{}, err
+	}
+	return EncodedRecord{
+		Kind: lineageRecordKind, ID: lineageRecordID, Scope: RecordRuntime,
+		Version: recordVersion, Payload: payload,
+	}, nil
+}
+
+func decodeLineage(records []EncodedRecord) (*durableForkLineage, error) {
+	for _, record := range records {
+		if record.Kind != lineageRecordKind || record.ID != lineageRecordID {
+			continue
+		}
+		if record.Scope != RecordRuntime || record.Version != recordVersion {
+			return nil, fmt.Errorf("droids: unsupported fork lineage record")
+		}
+		var lineage durableForkLineage
+		if err := json.Unmarshal(record.Payload, &lineage); err != nil {
+			return nil, fmt.Errorf("droids: decode fork lineage: %w", err)
+		}
+		point := lineage.Point
+		if point.ConversationID == "" || point.Revision == 0 || point.LastEvent == 0 || lineage.OperationID == "" {
+			return nil, fmt.Errorf("droids: persisted fork lineage is incomplete")
+		}
+		return &lineage, nil
+	}
+	return nil, nil
+}
+
 func runtimeMutation(state durableRuntime) (EncodedMutation, error) {
 	payload, err := encodeRuntime(state)
 	if err != nil {
@@ -184,7 +228,7 @@ func attemptHistoryMutation(state durableRuntime, status ExecutionStatus) (Encod
 		return EncodedMutation{}, err
 	}
 	return EncodedMutation{
-		Operation: MutationAssertAbsent, RecordKind: "attempt",
+		Operation: MutationAssertAbsent, RecordKind: attemptRecordKind,
 		RecordID: string(state.AttemptID), Scope: RecordHistory,
 		Version: recordVersion, Payload: payload,
 	}, nil
