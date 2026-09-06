@@ -32,7 +32,9 @@ recorded manual verification exists.
   Remaining behavior and visual parity are tracked under Native TUI shell.
 - [x] The TypeScript/Pi runtime is replaced by the Kit-private Go
   `internal/droids` SDK, and Kit sessions now host one autonomous droid with a
-  dedicated SQLite Store.
+  dedicated SQLite Store. ADR 0006 makes that Store authoritative for turns,
+  executions, messages, files, boundaries, outcomes, and droid events; Kit's
+  SQLite database retains the session registry rather than durable projections.
 - [ ] Runtime-owned JSONL session data moves to SQLite through an idempotent,
   backed-up migration.
 - [ ] Subagents become concurrent supervised executions with durable mailboxes.
@@ -106,21 +108,22 @@ recorded manual verification exists.
 ## Agent runtime and transcript
 
 - [x] Construct persisted Kit sessions around `internal/droids.Droid`; droids
-  owns prompt admission, retries, compaction, tool loops, recovery, and abort,
-  while Kit persists protocol/run/transcript projections.
+  owns prompt admission, turns, outcomes, history, retries, compaction, tool
+  loops, recovery, and abort, while Kit projects protocol views directly without
+  persisting parallel run or transcript records.
 - [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
-  errors, and terminal run state; droids events are now projected into a bounded
-  durable session journal and the native TUI follows text, thinking, complete
+  errors, and terminal run state; droids events are projected into a bounded
+  runtime-local session stream and the native TUI follows text, thinking, complete
   tool plans with bounded arguments, append-only structured tool updates,
   authoritative results/details, execution state, and terminal state. Push
   subscriptions, usage events, richer error recovery, and full multi-client
   synchronization remain.
-- [~] Persist explicit turn and stable message identities; assistant message IDs
-  now remain stable from live start/deltas through the persisted snapshot.
+- [~] Preserve droid-owned turn and stable message identities directly;
+  assistant message IDs remain stable from live start/deltas through snapshots.
 - [~] Render active and historical turns consistently after reconnect/restart;
   transcript snapshots now preserve ordered content blocks, tool call/result
   identity, bounded arguments, details, errors, and stop reasons, and the native
-  TUI reconstructs an attached active run from its durable event journal. Rich
+  TUI reconstructs an attached active run from its runtime event stream. Rich
   turn entries and atomic multi-client synchronization remain.
 - [ ] Steering, follow-up queueing, promotion, restoration, and generation
   guards.
@@ -149,7 +152,8 @@ recorded manual verification exists.
 - [x] Full-file writes with parent-directory creation.
 - [x] Directory listing, glob finding, and content search.
 - [x] Shell execution, cancellation, output bounds, exit status, and cwd.
-- [x] Direct composer `!`/`!!` bash execution and per-session history.
+- [~] Direct composer `!`/`!!` bash execution; included terminal results enter
+  droid boundary history, while in-flight and excluded executions are transient.
 - [ ] Git-aware operations used by review and workspace features.
 - [ ] URL/open-browser and platform operations behind client/platform ports.
 - [ ] `show_image` local-image validation and transcript presentation.
@@ -229,15 +233,18 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v5 adds validated structured transcript content, explicit bounded
-  tool-argument truncation, and stable live assistant message IDs. TypeScript
+  protocol v8 exposes droid-owned turn identity, direct canonical history,
+  context/pending boundaries, runtime stream synchronization metadata, bounded
+  tool arguments, and stable live assistant message IDs. TypeScript
   contracts remain.
-- [ ] Snapshot plus high-water synchronization without listener races.
+- [~] Snapshot plus high-water synchronization; snapshots now bind active runs
+  to runtime stream identity, cursor, and replay availability. Broader
+  multi-client conformance remains.
 - [ ] Ordered, exactly-once client reduction with duplicate/gap handling.
-- [~] Bounded event journal, replay, resync, and snapshot fallback; session
-  events now receive durable monotonic SQLite sequences with bounded retention,
-  and local run clients poll/replay from a cursor. Atomic snapshot subscription,
-  gap recovery, and push transport remain.
+- [~] Bounded event replay, resync, and snapshot fallback; session events now
+  receive runtime-local sequences without SQLite writes, and local clients bind
+  polling to snapshot stream metadata. Push transport and richer gap recovery
+  remain.
 - [ ] Paginated transcripts and generation-guarded mutable collections.
 - [ ] Chunked recovery for individually oversized messages/interactions.
 - [~] Command correlation and ordering relative to preceding events.

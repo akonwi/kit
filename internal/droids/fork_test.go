@@ -50,6 +50,43 @@ func TestForkDefersProviderReplayValidationUntilChildPrompt(t *testing.T) {
 	}
 }
 
+func TestHistoryRejectsPersistedMessageIdentityMismatch(t *testing.T) {
+	store := NewMemoryStore()
+	runtimeRecord, err := runtimeEncodedRecord(newDurableRuntime())
+	if err != nil {
+		t.Fatal(err)
+	}
+	envelope := MessageEnvelope{
+		ID: "message_payload", ConversationID: "conversation_history", TurnID: "turn_history",
+		CreatedAt: time.Now().UTC(), Message: UserMessage{Content: []InputContent{TextInput{Text: "hello"}}},
+	}
+	payload, err := encodeMessageEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, _ := lifecycleEvent("conversation.created", "", "", nil)
+	if _, err := store.Open(t.Context(), OpenConversation{
+		ID: "conversation_history",
+		InitialRecords: []EncodedRecord{
+			runtimeRecord,
+			{Kind: messageRecordKind, ID: "message_record", Scope: RecordHistory, Version: recordVersion, Payload: payload},
+		},
+		InitialEvents: []EncodedDurableEvent{created},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	droid, err := Open(t.Context(), "conversation_history", Config{
+		Store: store, Providers: newForkTestProviders(), Model: "test/fork-test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	if _, err := droid.History(t.Context(), HistoryQuery{Limit: 10}); err == nil {
+		t.Fatal("History accepted mismatched record and payload message IDs")
+	}
+}
+
 func TestForkCapturesHistoryAcrossStorePages(t *testing.T) {
 	const count = forkRecordPageSize + 1
 	sourceStore := NewMemoryStore()

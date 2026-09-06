@@ -238,6 +238,7 @@ func (rt *sdkRuntime) prepareModelBoundary(ctx context.Context, turnID TurnID) e
 		message := ContextMessage{
 			BoundaryID: pending.Message.ID,
 			Kind:       pending.Message.Kind, Source: pending.Message.Source, Content: content,
+			Details: append(json.RawMessage(nil), pending.Message.Details...),
 		}
 		messageID, err := newMessageID()
 		if err != nil {

@@ -6,22 +6,23 @@ import (
 	"time"
 )
 
-// ErrNotFound identifies a missing persisted session record.
+// ErrNotFound identifies missing persisted session or transient harness state.
 var ErrNotFound = errors.New("session record not found")
 
-// SessionRecord is Kit's persisted session metadata projection.
+// SessionRecord is Kit's persisted session registry entry.
 type SessionRecord struct {
-	ID              string
-	CWD             string
-	Name            string
-	Persistent      bool
-	ParentSessionID string
-	ModelProvider   string
-	ModelID         string
-	ThinkingLevel   string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	ArchivedAt      *time.Time
+	ID                 string
+	CWD                string
+	Name               string
+	Persistent         bool
+	ParentSessionID    string
+	ModelProvider      string
+	ModelID            string
+	ThinkingLevel      string
+	DroidInitializedAt *time.Time
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	ArchivedAt         *time.Time
 }
 
 // NewSession contains metadata required to create a persisted session.
@@ -36,35 +37,10 @@ type NewSession struct {
 	ThinkingLevel   string
 }
 
-// TurnRecord identifies one user-initiated parent run in a session.
-type TurnRecord struct {
-	ID        string
-	SessionID string
-	Sequence  int64
-	Status    RunStatus
-	CreatedAt time.Time
-	StartedAt *time.Time
-	EndedAt   *time.Time
-}
-
-// ParentRunRecord is one execution attempt associated with a Kit turn.
-type ParentRunRecord struct {
-	ID          string
-	SessionID   string
-	TurnID      string
-	DroidTurnID string
-	Status      RunStatus
-	Error       string
-	CreatedAt   time.Time
-	StartedAt   *time.Time
-	EndedAt     *time.Time
-}
-
-// RunStatus is a durable parent or subagent execution state.
+// RunStatus is the renderer-neutral state of an in-memory droid turn handle.
 type RunStatus string
 
 const (
-	RunStatusPending     RunStatus = "pending"
 	RunStatusQueued      RunStatus = "queued"
 	RunStatusRunning     RunStatus = "running"
 	RunStatusCompleted   RunStatus = "completed"
@@ -73,89 +49,20 @@ const (
 	RunStatusInterrupted RunStatus = "interrupted"
 )
 
-// NewMessageRecord is an encoded runtime message awaiting persistence. ID may
-// be supplied when a live message identity was allocated before persistence.
-type NewMessageRecord struct {
-	ID          string
-	Role        string
-	PayloadJSON []byte
-	CreatedAt   time.Time
+// RunProjection is a transient projection of one droid turn.
+type RunProjection struct {
+	ID        string
+	SessionID string
+	TurnID    string
+	Status    RunStatus
+	Error     string
 }
 
-// MessageRecord is one ordered persisted message.
-type MessageRecord struct {
-	ID          string
-	SessionID   string
-	TurnID      string
-	Sequence    int64
-	Role        string
-	PayloadJSON []byte
-	CreatedAt   time.Time
-}
-
-// BashExecutionStatus is the durable lifecycle state of direct composer shell work.
-type BashExecutionStatus string
-
-const (
-	BashExecutionRunning     BashExecutionStatus = "running"
-	BashExecutionCompleted   BashExecutionStatus = "completed"
-	BashExecutionFailed      BashExecutionStatus = "failed"
-	BashExecutionAborted     BashExecutionStatus = "aborted"
-	BashExecutionInterrupted BashExecutionStatus = "interrupted"
-)
-
-// BashExecution is one persisted direct composer shell execution.
-type BashExecution struct {
-	ID                  string
-	SessionID           string
-	Sequence            int64
-	Command             string
-	CWD                 string
-	Status              BashExecutionStatus
-	Output              string
-	ExitCode            *int
-	ExcludeFromContext  bool
-	Truncated           bool
-	TimedOut            bool
-	ErrorMessage        string
-	ContextBeforeTurnID string
-	StartedAt           time.Time
-	CompletedAt         *time.Time
-}
-
-// BashExecutionResult settles one running direct composer shell execution.
-type BashExecutionResult struct {
-	Status       BashExecutionStatus
-	Output       string
-	ExitCode     *int
-	Truncated    bool
-	TimedOut     bool
-	ErrorMessage string
-	CompletedAt  time.Time
-}
-
-// Repository is the persistence port required by parent-session orchestration.
+// Repository is the persistence port for Kit's session registry. Conversation
+// turns, executions, messages, and events belong to each session's droid Store.
 type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)
-	GetParentRun(context.Context, string, string) (ParentRunRecord, error)
-	ListParentRuns(context.Context, string) ([]ParentRunRecord, error)
-	GetActiveParentRun(context.Context, string) (ParentRunRecord, error)
-	ReserveParentRun(context.Context, string, string, string) (TurnRecord, ParentRunRecord, error)
-	StartReservedParentRun(context.Context, string, string, string) (string, RunStatus, error)
-	AbortReservedParentRun(context.Context, string, string, string) (RunStatus, error)
-	FinishParentRun(context.Context, string, string, string, RunStatus, string) error
-	RecoverParentRun(context.Context, string, string, string, string) (RunStatus, error)
-	AppendMessages(context.Context, string, string, []NewMessageRecord) ([]MessageRecord, error)
-	ProjectDroidMessages(context.Context, string, string, []NewMessageRecord) ([]MessageRecord, error)
-	CreateBashExecution(context.Context, string, NewMessageRecord) (MessageRecord, error)
-	UpdateBashExecution(context.Context, string, string, []byte) (MessageRecord, error)
-	GetBashExecution(context.Context, string, string) (MessageRecord, error)
-	ClaimBashContext(context.Context, string, string) (int64, error)
-	InspectBashContextClaim(context.Context, string, string) (int64, int64, error)
-	ListMessages(context.Context, string) ([]MessageRecord, error)
-	ListReplayMessages(context.Context, string) ([]MessageRecord, error)
-	AppendSessionEvents(context.Context, []NewEvent) ([]Event, error)
-	ListSessionEvents(context.Context, string, int64, int) (EventPage, error)
+	MarkDroidInitialized(context.Context, string, time.Time) error
 }

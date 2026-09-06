@@ -78,9 +78,12 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 }
 
 // GetSessionEvents returns the next ordered page after a session stream sequence.
-func (c *Client) GetSessionEvents(ctx context.Context, sessionID string, after int64) (protocol.SessionEventBatch, error) {
+func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
 	values := url.Values{}
 	values.Set("after", strconv.FormatInt(after, 10))
+	if streamID != "" {
+		values.Set("stream", streamID)
+	}
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events?" + values.Encode()
 	var output protocol.SessionEventBatch
 	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
@@ -100,50 +103,23 @@ func (c *Client) GetSessionEvents(ctx context.Context, sessionID string, after i
 	return output, nil
 }
 
-// ReserveRun durably reserves a generation before prompt execution starts.
-func (c *Client) ReserveRun(
-	ctx context.Context,
-	sessionID, runID string,
-) (protocol.RunReservation, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs"
-	var output protocol.RunReservation
-	if err := c.sessionJSON(
-		ctx,
-		http.MethodPost,
-		path,
-		protocol.ReserveRunInput{RunID: runID},
-		http.StatusCreated,
-		&output,
-	); err != nil {
-		return protocol.RunReservation{}, err
-	}
-	if err := output.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate daemon run reservation: %w", err)
-	}
-	if output.SessionID != sessionID || output.RunID != runID {
-		return protocol.RunReservation{}, fmt.Errorf("daemon run reservation identity mismatch")
-	}
-	return output, nil
-}
-
-// StartPrompt atomically admits a daemon-owned parent run and returns after it
-// is running or has already reached a durable terminal state.
-func (c *Client) StartPrompt(ctx context.Context, sessionID, runID, text string) (protocol.RunReservation, error) {
+// StartPrompt admits a droid-owned turn and returns its canonical identity.
+func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.RunReservation, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
 	var output protocol.RunReservation
-	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{RunID: runID, Text: text}, http.StatusAccepted, &output); err != nil {
+	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{Text: text}, http.StatusAccepted, &output); err != nil {
 		return protocol.RunReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
 		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != runID {
+	if output.SessionID != sessionID || output.RunID != output.TurnID {
 		return protocol.RunReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
 	}
 	return output, nil
 }
 
-// GetRun returns one durable parent-run generation.
+// GetRun returns a loaded droid turn's transient protocol projection.
 func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID)
 	var output protocol.RunInfo
@@ -159,18 +135,17 @@ func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.
 	return output, nil
 }
 
-// RunPrompt executes an already reserved parent run. PromptOutcome carries
-// durable model failures and aborts; returned Go errors represent protocol failures.
-func (c *Client) RunPrompt(ctx context.Context, sessionID, runID, text string) (protocol.PromptOutcome, error) {
+// RunPrompt admits and waits for one droid turn.
+func (c *Client) RunPrompt(ctx context.Context, sessionID, text string) (protocol.PromptOutcome, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt"
 	var output protocol.PromptOutcome
-	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{RunID: runID, Text: text}, http.StatusOK, &output); err != nil {
+	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{Text: text}, http.StatusOK, &output); err != nil {
 		return protocol.PromptOutcome{}, err
 	}
 	if err := output.Validate(); err != nil {
 		return protocol.PromptOutcome{}, fmt.Errorf("validate daemon prompt response: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != runID {
+	if output.SessionID != sessionID || output.RunID != output.TurnID {
 		return protocol.PromptOutcome{}, fmt.Errorf("daemon prompt response identity mismatch")
 	}
 	return output, nil

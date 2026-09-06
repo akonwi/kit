@@ -355,6 +355,7 @@ type ContextMessage struct {
 	Kind       string
 	Source     string
 	Content    []InputContent
+	Details    json.RawMessage
 }
 
 func (ContextMessage) isMessage() {}

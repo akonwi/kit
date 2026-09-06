@@ -153,3 +153,42 @@ func TestSessionSnapshotRejectsInvalidStructuredTranscript(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionSnapshotAcceptsContextAndPendingBoundaries(t *testing.T) {
+	snapshot := validTranscriptSnapshot()
+	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
+		ID: "message_context", TurnID: "turn_context", Sequence: 3,
+		Role: "context", BoundaryID: "bash_test", BoundaryKind: "bash", BoundarySource: "composer",
+		Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "bash output"}},
+		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), CreatedAt: "2026-01-01T00:00:03Z",
+	})
+	snapshot.PendingBoundaries = []PendingBoundary{{
+		ID: "bash_pending", Kind: "bash", Source: "composer",
+		Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "pending output"}},
+		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), AcceptedAt: "2026-01-01T00:00:04Z",
+	}}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionSnapshotAllowsHarnessActiveBashWithoutStoredMessage(t *testing.T) {
+	snapshot := validTranscriptSnapshot()
+	snapshot.ActiveBashExecutionID = "bash_0123456789abcdef0123456789abcdef"
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSessionSnapshotAcceptsCompactionContextWithoutBoundaryID(t *testing.T) {
+	snapshot := validTranscriptSnapshot()
+	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
+		ID: "message_summary", TurnID: "turn_summary", Sequence: 3,
+		Role: "context", BoundaryKind: "summary",
+		Content:   []TranscriptContent{{Kind: TranscriptContentText, Text: "Earlier context summary"}},
+		CreatedAt: "2026-01-01T00:00:03Z",
+	})
+	if err := snapshot.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

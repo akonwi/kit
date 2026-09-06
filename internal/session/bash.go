@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/codingtools"
+	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
 )
 
@@ -22,18 +23,40 @@ var (
 	errBashShutdown  = errors.New("daemon stopped during bash execution")
 )
 
-type activeBashExecution struct {
-	id     string
-	cancel context.CancelCauseFunc
+type BashExecutionStatus string
+
+const (
+	BashExecutionRunning     BashExecutionStatus = "running"
+	BashExecutionCompleted   BashExecutionStatus = "completed"
+	BashExecutionFailed      BashExecutionStatus = "failed"
+	BashExecutionAborted     BashExecutionStatus = "aborted"
+	BashExecutionInterrupted BashExecutionStatus = "interrupted"
+)
+
+type BashExecution struct {
+	ID                 string
+	SessionID          string
+	Sequence           int64
+	Command            string
+	CWD                string
+	Status             BashExecutionStatus
+	Output             string
+	ExitCode           *int
+	ExcludeFromContext bool
+	Truncated          bool
+	TimedOut           bool
+	ErrorMessage       string
+	StartedAt          time.Time
+	CompletedAt        *time.Time
 }
 
-// StartBash durably admits and starts one direct composer shell execution.
-// Repeating an execution id with the same immutable input is idempotent.
-func (m *Manager) StartBash(
-	ctx context.Context,
-	sessionID, executionID, command string,
-	excludeFromContext bool,
-) (BashExecution, error) {
+type activeBashExecution struct {
+	id      string
+	cancel  context.CancelCauseFunc
+	runtime *runtime
+}
+
+func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command string, exclude bool) (BashExecution, error) {
 	if err := m.beginAdmission(); err != nil {
 		return BashExecution{}, err
 	}
@@ -46,58 +69,32 @@ func (m *Manager) StartBash(
 		return BashExecution{}, fmt.Errorf("%w: session id and valid bash execution id are required", ErrInvalidInput)
 	}
 	if command == "" || len(command) > maxDirectBashCommandBytes || !utf8.ValidString(command) || strings.IndexByte(command, 0) >= 0 {
-		return BashExecution{}, fmt.Errorf("%w: bash command must be non-empty valid UTF-8 without NUL and at most 64 KiB", ErrInvalidInput)
+		return BashExecution{}, fmt.Errorf("%w: bash command is invalid", ErrInvalidInput)
+	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return BashExecution{}, err
 	}
 
 	m.bashMu.Lock()
 	defer m.bashMu.Unlock()
-
-	existingRecord, err := m.store.GetBashExecution(ctx, sessionID, executionID)
-	if err == nil {
-		existing, decodeErr := decodeBashExecution(existingRecord)
-		if decodeErr != nil {
-			return BashExecution{}, decodeErr
-		}
-		if existing.Command != command || existing.ExcludeFromContext != excludeFromContext {
-			return BashExecution{}, fmt.Errorf("%w: bash execution id was reused for different input", ErrInvalidInput)
-		}
-		if existing.Status == BashExecutionRunning {
-			if active := m.bashActive[sessionID]; active == nil || active.id != executionID {
-				settlement := BashExecutionResult{
-					Status: BashExecutionInterrupted, ErrorMessage: "bash execution has no live supervisor",
-					CompletedAt: time.Now().UTC(),
-				}
-				payload, encodeErr := encodeCompletedBashExecution(existing, settlement)
-				if encodeErr != nil {
-					return BashExecution{}, encodeErr
-				}
-				resolveContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				settled, settleErr := m.store.UpdateBashExecution(resolveContext, sessionID, executionID, payload)
-				cancel()
-				if settleErr != nil {
-					return BashExecution{}, settleErr
-				}
-				return decodeBashExecution(settled)
+	if history := m.bashHistory[sessionID]; history != nil {
+		if existing, ok := history[executionID]; ok {
+			if existing.Command != command || existing.ExcludeFromContext != exclude {
+				return BashExecution{}, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
 			}
+			return existing, nil
 		}
-		return existing, nil
 	}
-	if !errors.Is(err, ErrNotFound) {
+	received, err := loaded.droid.BoundaryReceived(ctx, executionID)
+	if err != nil {
 		return BashExecution{}, err
 	}
-	if active := m.bashActive[sessionID]; active != nil {
-		activeRecord, activeErr := m.store.GetBashExecution(ctx, sessionID, active.id)
-		if activeErr != nil {
-			return BashExecution{}, activeErr
-		}
-		activeExecution, decodeErr := decodeBashExecution(activeRecord)
-		if decodeErr != nil {
-			return BashExecution{}, decodeErr
-		}
-		if activeExecution.Status == BashExecutionRunning {
-			return BashExecution{}, fmt.Errorf("%w: session already has an active bash execution", ErrBashBusy)
-		}
-		delete(m.bashActive, sessionID)
+	if received {
+		return BashExecution{}, fmt.Errorf("%w: bash execution %q is already durable in droid history", ErrBashNotAbortable, executionID)
+	}
+	if m.bashActive[sessionID] != nil {
+		return BashExecution{}, fmt.Errorf("%w: session already has an active bash execution", ErrBashBusy)
 	}
 	select {
 	case m.bashSlots <- struct{}{}:
@@ -106,45 +103,25 @@ func (m *Manager) StartBash(
 	default:
 		return BashExecution{}, fmt.Errorf("%w: daemon bash capacity is exhausted", ErrBashBusy)
 	}
-	releaseSlot := true
-	defer func() {
-		if releaseSlot {
-			<-m.bashSlots
-		}
-	}()
 	if m.isClosed() {
+		<-m.bashSlots
 		return BashExecution{}, ErrClosed
 	}
-	record, err := m.store.GetSession(ctx, sessionID)
-	if err != nil {
-		return BashExecution{}, err
+	sequence := m.bashNextSequence[sessionID]
+	m.bashNextSequence[sessionID] = sequence + 1
+	execution := BashExecution{
+		ID: executionID, SessionID: sessionID, Sequence: sequence, Command: command, CWD: loaded.cwd,
+		Status: BashExecutionRunning, ExcludeFromContext: exclude, StartedAt: time.Now().UTC(),
 	}
-	startedAt := time.Now().UTC()
-	payload, err := encodeRunningBashExecution(command, record.CWD, excludeFromContext, startedAt)
-	if err != nil {
-		return BashExecution{}, err
+	if m.bashHistory[sessionID] == nil {
+		m.bashHistory[sessionID] = make(map[string]BashExecution)
 	}
-	message, err := m.store.CreateBashExecution(ctx, sessionID, NewMessageRecord{
-		ID: executionID, Role: "bash", PayloadJSON: payload, CreatedAt: startedAt,
-	})
-	if err != nil {
-		resolveContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		resolved, resolveErr := m.store.GetBashExecution(resolveContext, sessionID, executionID)
-		cancel()
-		if resolveErr != nil {
-			return BashExecution{}, err
-		}
-		message = resolved
-	}
-	execution, err := decodeBashExecution(message)
-	if err != nil {
-		return BashExecution{}, err
-	}
+	pruneBashHistory(m.bashHistory[sessionID], 64)
+	m.bashHistory[sessionID][executionID] = execution
 	runContext, cancel := context.WithCancelCause(m.bashContext)
-	active := &activeBashExecution{id: executionID, cancel: cancel}
+	active := &activeBashExecution{id: executionID, cancel: cancel, runtime: loaded}
 	m.bashActive[sessionID] = active
 	m.bashRuns.Add(1)
-	releaseSlot = false
 	go m.executeBash(runContext, execution, active)
 	return execution, nil
 }
@@ -155,92 +132,100 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 	codingtools.RemoveCommandOutput(result.OutputPath)
 	<-m.bashSlots
 	completedAt := time.Now().UTC()
-	settlement := BashExecutionResult{
-		Status: BashExecutionCompleted, Output: strings.TrimRight(result.Output, "\r\n"),
-		ExitCode: cloneInt(result.ExitCode), Truncated: result.Truncated,
-		TimedOut: result.TimedOut, CompletedAt: completedAt,
-	}
+	settled := execution
+	settled.Status = BashExecutionCompleted
+	settled.Output = strings.TrimRight(result.Output, "\r\n")
+	settled.ExitCode = cloneInt(result.ExitCode)
+	settled.Truncated = result.Truncated
+	settled.TimedOut = result.TimedOut
+	settled.CompletedAt = &completedAt
 	switch {
 	case errors.Is(context.Cause(ctx), errBashShutdown):
-		settlement.Status = BashExecutionInterrupted
-		settlement.ErrorMessage = errBashShutdown.Error()
+		settled.Status, settled.ErrorMessage = BashExecutionInterrupted, errBashShutdown.Error()
 	case ctx.Err() != nil:
-		settlement.Status = BashExecutionAborted
-		settlement.ErrorMessage = errBashUserAbort.Error()
+		settled.Status, settled.ErrorMessage = BashExecutionAborted, errBashUserAbort.Error()
 	case runErr != nil:
-		settlement.Status = BashExecutionFailed
-		settlement.ErrorMessage = runErr.Error()
+		settled.Status, settled.ErrorMessage = BashExecutionFailed, runErr.Error()
 	}
-	payload, settlementErr := encodeCompletedBashExecution(execution, settlement)
-	if settlementErr == nil {
-		attempt := 0
-		for {
-			finishContext, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_, settlementErr = m.store.UpdateBashExecution(finishContext, execution.SessionID, execution.ID, payload)
-			cancel()
-			if settlementErr == nil || m.isClosed() {
-				break
+
+	informErr := error(nil)
+	if !settled.ExcludeFromContext && settled.Status != BashExecutionInterrupted {
+		details, err := encodeBashDetails(settled)
+		if err != nil {
+			informErr = err
+		} else {
+			message := bashContextMessage(settled)
+			boundary := droids.BoundaryMessage{
+				ID: settled.ID, Kind: "bash", Source: "composer",
+				Content: message.Content, Details: details,
 			}
-			delay := time.Duration(1<<min(attempt, 5)) * 50 * time.Millisecond
-			time.Sleep(delay)
-			attempt++
+			for attempt := 0; ; attempt++ {
+				informErr = active.runtime.droid.Inform(context.Background(), boundary)
+				if informErr == nil || m.isClosed() {
+					break
+				}
+				time.Sleep(time.Duration(1<<min(attempt, 5)) * 50 * time.Millisecond)
+			}
 		}
 	}
-	if settlementErr == nil {
-		m.bashMu.Lock()
-		if m.bashActive[execution.SessionID] == active {
-			delete(m.bashActive, execution.SessionID)
-		}
-		m.bashMu.Unlock()
+	if informErr != nil {
+		settled.Status = BashExecutionInterrupted
+		settled.ErrorMessage = "persist bash boundary: " + informErr.Error()
 	}
+	m.bashMu.Lock()
+	m.bashHistory[execution.SessionID][execution.ID] = settled
+	if m.bashActive[execution.SessionID] == active {
+		delete(m.bashActive, execution.SessionID)
+	}
+	m.bashMu.Unlock()
 }
 
-// GetBash returns one exact durable direct bash execution.
 func (m *Manager) GetBash(ctx context.Context, sessionID, executionID string) (BashExecution, error) {
 	if err := m.beginOperation(); err != nil {
 		return BashExecution{}, err
 	}
 	defer m.ops.Done()
-	if strings.TrimSpace(sessionID) == "" || !identifier.Valid(executionID, "bash_") {
-		return BashExecution{}, fmt.Errorf("%w: session id and valid bash execution id are required", ErrInvalidInput)
+	m.bashMu.Lock()
+	defer m.bashMu.Unlock()
+	if execution, ok := m.bashHistory[sessionID][executionID]; ok {
+		return execution, nil
 	}
-	record, err := m.store.GetBashExecution(ctx, sessionID, executionID)
-	if err != nil {
-		return BashExecution{}, err
-	}
-	return decodeBashExecution(record)
+	return BashExecution{}, fmt.Errorf("bash execution %q: %w", executionID, ErrNotFound)
 }
 
-// AbortBash cancels only the matching active direct bash generation.
 func (m *Manager) AbortBash(ctx context.Context, sessionID, executionID string) error {
 	if err := m.beginOperation(); err != nil {
 		return err
 	}
 	defer m.ops.Done()
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if strings.TrimSpace(sessionID) == "" || !identifier.Valid(executionID, "bash_") {
-		return fmt.Errorf("%w: session id and valid bash execution id are required", ErrInvalidInput)
-	}
 	m.bashMu.Lock()
+	defer m.bashMu.Unlock()
 	active := m.bashActive[sessionID]
 	if active == nil || active.id != executionID {
-		m.bashMu.Unlock()
-		record, err := m.store.GetBashExecution(ctx, sessionID, executionID)
-		if err != nil {
-			return err
-		}
-		execution, err := decodeBashExecution(record)
-		if err != nil {
-			return err
-		}
-		if execution.Status != BashExecutionRunning {
-			return fmt.Errorf("%w: bash execution %q has status %q", ErrBashNotAbortable, executionID, execution.Status)
-		}
-		return fmt.Errorf("%w: bash execution %q is not owned by this daemon", ErrBashNotAbortable, executionID)
+		return fmt.Errorf("%w: bash execution %q is not active", ErrBashNotAbortable, executionID)
 	}
 	active.cancel(errBashUserAbort)
-	m.bashMu.Unlock()
 	return nil
+}
+
+func pruneBashHistory(history map[string]BashExecution, limit int) {
+	for len(history) >= limit {
+		oldestID := ""
+		oldestSequence := int64(^uint64(0) >> 1)
+		for id, execution := range history {
+			if execution.Status != BashExecutionRunning && execution.Sequence < oldestSequence {
+				oldestID, oldestSequence = id, execution.Sequence
+			}
+		}
+		if oldestID == "" {
+			return
+		}
+		delete(history, oldestID)
+	}
+}
+
+func (m *Manager) isClosed() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.closed
 }

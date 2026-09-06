@@ -27,8 +27,8 @@ type Session interface {
 	Abort(context.Context, string) error
 }
 
-// Run is one generation-bound parent execution. Waiting may be detached or
-// canceled without aborting; Abort explicitly targets only this run id.
+// Run is one droid turn handle. Waiting may be detached or canceled without
+// aborting; Abort explicitly targets only this droid turn identity.
 type Run interface {
 	ID() string
 	Wait(context.Context) (protocol.PromptOutcome, error)

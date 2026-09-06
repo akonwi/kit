@@ -81,6 +81,9 @@ func messageEnvelopeToWire(envelope MessageEnvelope) (wireMessageEnvelope, error
 }
 
 func messageEnvelopeFromWire(wire wireMessageEnvelope) (MessageEnvelope, error) {
+	if wire.ID == "" || wire.ConversationID == "" || wire.TurnID == "" || wire.CreatedAt.IsZero() {
+		return MessageEnvelope{}, fmt.Errorf("droids: message envelope identity and timestamp are required")
+	}
 	message, err := messageFromWire(wire.Message)
 	if err != nil {
 		return MessageEnvelope{}, err
@@ -124,7 +127,16 @@ func messageToWire(message Message) (wireMessage, error) {
 		}, err
 	case ContextMessage:
 		content, err := contentToWire(value.Content)
-		return wireMessage{Role: RoleContext, Content: content, ToolName: value.Kind, Provider: value.Source, BoundaryID: value.BoundaryID}, err
+		if err == nil && len(value.Details) > 0 && !json.Valid(value.Details) {
+			err = fmt.Errorf("droids: context details are not valid JSON")
+		}
+		if err == nil && len(value.Details) > maxToolDetailsBytes {
+			err = fmt.Errorf("droids: context details exceed %d bytes", maxToolDetailsBytes)
+		}
+		return wireMessage{
+			Role: RoleContext, Content: content, ToolName: value.Kind, Provider: value.Source,
+			BoundaryID: value.BoundaryID, Details: append(json.RawMessage(nil), value.Details...),
+		}, err
 	default:
 		return wireMessage{}, fmt.Errorf("droids: unsupported message type %T", message)
 	}
@@ -159,7 +171,10 @@ func messageFromWire(wire wireMessage) (Message, error) {
 		}, nil
 	case RoleContext:
 		content, err := inputContentFromWire(wire.Content)
-		return ContextMessage{BoundaryID: wire.BoundaryID, Kind: wire.ToolName, Source: wire.Provider, Content: content}, err
+		return ContextMessage{
+			BoundaryID: wire.BoundaryID, Kind: wire.ToolName, Source: wire.Provider,
+			Content: content, Details: append(json.RawMessage(nil), wire.Details...),
+		}, err
 	default:
 		return nil, fmt.Errorf("droids: unsupported message role %q", wire.Role)
 	}

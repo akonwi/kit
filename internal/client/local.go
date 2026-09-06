@@ -11,7 +11,6 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/daemon"
-	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
@@ -23,6 +22,8 @@ type localServer struct {
 type localSession struct {
 	transport *daemon.Client
 	id        string
+	mu        sync.Mutex
+	snapshot  protocol.SessionSnapshot
 }
 
 type localRun struct {
@@ -84,7 +85,14 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 func (c *localSession) ID() string { return c.id }
 
 func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error) {
-	return c.transport.GetSessionSnapshot(ctx, c.id)
+	snapshot, err := c.transport.GetSessionSnapshot(ctx, c.id)
+	if err != nil {
+		return protocol.SessionSnapshot{}, err
+	}
+	c.mu.Lock()
+	c.snapshot = snapshot
+	c.mu.Unlock()
+	return snapshot, nil
 }
 
 func (c *localSession) Run(ctx context.Context, runID string) (protocol.RunInfo, error) {
@@ -136,7 +144,19 @@ func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.
 	if strings.TrimSpace(runID) == "" {
 		return nil, fmt.Errorf("run id is empty")
 	}
-	initial, err := fetchSessionEvents(ctx, c.transport, c.id, 0)
+	c.mu.Lock()
+	snapshot := c.snapshot
+	c.mu.Unlock()
+	streamID := ""
+	after := int64(0)
+	if snapshot.ActiveRunID == runID {
+		if !snapshot.EventReplayAvailable {
+			return nil, errEventResyncRequired
+		}
+		streamID = snapshot.EventStreamID
+		after = snapshot.EventReplayFrom
+	}
+	initial, err := fetchSessionEvents(ctx, c.transport, c.id, streamID, after)
 	if err != nil {
 		return nil, err
 	}
@@ -152,27 +172,15 @@ func (c *localSession) StartPrompt(ctx context.Context, text string) (sessioncli
 	if strings.TrimSpace(text) == "" {
 		return nil, fmt.Errorf("prompt is empty")
 	}
-	runID, err := identifier.New("run_")
+	reservation, err := c.transport.StartPrompt(ctx, c.id, text)
 	if err != nil {
 		return nil, err
-	}
-	reservation, err := c.transport.StartPrompt(ctx, c.id, runID, text)
-	if err != nil {
-		inspectContext, cancel := context.WithTimeout(context.Background(), time.Second)
-		info, inspectErr := c.transport.GetRun(inspectContext, c.id, runID)
-		cancel()
-		if inspectErr != nil {
-			return nil, err
-		}
-		reservation = protocol.RunReservation{
-			SessionID: info.SessionID, TurnID: info.TurnID, RunID: info.RunID,
-		}
 	}
 	return &localRun{
 		transport: c.transport,
 		sessionID: c.id,
 		turnID:    reservation.TurnID,
-		id:        runID,
+		id:        reservation.RunID,
 	}, nil
 }
 
@@ -327,7 +335,7 @@ func (s *localEventStream) Err() error {
 }
 
 type sessionEventTransport interface {
-	GetSessionEvents(context.Context, string, int64) (protocol.SessionEventBatch, error)
+	GetSessionEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	GetRun(context.Context, string, string) (protocol.RunInfo, error)
 }
 
@@ -411,7 +419,7 @@ func (s *localEventStream) poll(
 			case <-timer.C:
 			}
 		}
-		next, err := fetchSessionEvents(ctx, transport, sessionID, after)
+		next, err := fetchSessionEvents(ctx, transport, sessionID, streamID, after)
 		if err != nil {
 			failures++
 			if !retryablePollingError(err) || failures >= 6 {
@@ -475,10 +483,10 @@ func reduceAssistantMessageID(current string, event protocol.SessionEvent) (stri
 func fetchSessionEvents(
 	ctx context.Context,
 	transport sessionEventTransport,
-	sessionID string,
+	sessionID, streamID string,
 	after int64,
 ) (protocol.SessionEventBatch, error) {
 	requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	return transport.GetSessionEvents(requestContext, sessionID, after)
+	return transport.GetSessionEvents(requestContext, sessionID, streamID, after)
 }

@@ -38,7 +38,7 @@ func TestBashExecutionValidate(t *testing.T) {
 func TestRunInfoValidate(t *testing.T) {
 	t.Parallel()
 
-	valid := RunInfo{SessionID: "session", TurnID: "turn", RunID: "run", Status: RunStatusRunning}
+	valid := RunInfo{SessionID: "session", TurnID: "turn", RunID: "turn", Status: RunStatusRunning}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
@@ -57,7 +57,7 @@ func TestPromptOutcomeValidate(t *testing.T) {
 	t.Parallel()
 
 	valid := PromptOutcome{
-		SessionID: "session", TurnID: "turn", RunID: "run",
+		SessionID: "session", TurnID: "turn", RunID: "turn",
 		Status: RunStatusCompleted,
 	}
 	if err := valid.Validate(); err != nil {

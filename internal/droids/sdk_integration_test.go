@@ -2,6 +2,7 @@ package droids_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -121,6 +122,48 @@ func exerciseDroid(t *testing.T, store droids.Store, externalRuns *atomic.Int32)
 	}
 }
 
+func TestSDKTurnReturnsCanonicalOutcomeAcrossReopen(t *testing.T) {
+	store := droids.NewMemoryStore()
+	providers := newReadProviders()
+	var toolRuns atomic.Int32
+	droid, err := droids.Open(t.Context(), "conversation_turn_query", droids.Config{
+		Store: store, Providers: providers, Model: "test/read",
+		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle, err := droid.Prompt(t.Context(), droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "query me"}}}, droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if outcome, err := handle.Wait(ctx); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("outcome = %+v, %v", outcome, err)
+	}
+	turnID := handle.TurnID()
+	turn, err := droid.Turn(t.Context(), turnID)
+	if err != nil || turn.ID != turnID || turn.Status != droids.ExecutionCompleted {
+		t.Fatalf("Turn = %+v, %v", turn, err)
+	}
+	if err := droid.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := droids.Open(t.Context(), "conversation_turn_query", droids.Config{
+		Store: store, Providers: providers, Model: "test/read",
+		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	turn, err = reopened.Turn(t.Context(), turnID)
+	if err != nil || turn.Status != droids.ExecutionCompleted {
+		t.Fatalf("reopened Turn = %+v, %v", turn, err)
+	}
+}
+
 func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 	store := droids.NewMemoryStore()
 	providers := newReadProviders()
@@ -138,6 +181,7 @@ func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 		ID: "bash_batch_0123456789abcdef0123456789abcdef", ReceiptIDs: receipts,
 		Kind: "bash", Source: "test",
 		Content: []droids.InputContent{droids.TextInput{Text: "durable boundary batch"}},
+		Details: json.RawMessage(`{"status":"completed","exitCode":0}`),
 	}
 	if err := droid.Inform(t.Context(), boundary); err != nil {
 		t.Fatal(err)
@@ -159,8 +203,13 @@ func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.Pending.Boundary != 1 {
-		t.Fatalf("pending boundaries = %d, want one idempotent delivery", snapshot.Pending.Boundary)
+	if snapshot.Pending.Boundary != 1 || len(snapshot.Pending.Boundaries) != 1 {
+		t.Fatalf("pending boundaries = %+v, want one idempotent delivery", snapshot.Pending)
+	}
+	pending := snapshot.Pending.Boundaries[0]
+	if pending.Message.ID != boundary.ID || pending.Message.Kind != boundary.Kind ||
+		pending.Message.Source != boundary.Source || string(pending.Message.Details) != string(boundary.Details) {
+		t.Fatalf("pending boundary = %+v, want %+v", pending, boundary)
 	}
 }
 

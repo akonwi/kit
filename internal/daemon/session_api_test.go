@@ -111,13 +111,14 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
-	reservation, err := client.StartPrompt(context.Background(), created.ID, runID, "hello")
+	reservation, err := client.StartPrompt(context.Background(), created.ID, "hello")
 	if err != nil {
 		t.Fatalf("StartPrompt() error = %v", err)
 	}
-	if reservation.RunID != runID {
+	if reservation.RunID == runID || reservation.RunID != reservation.TurnID {
 		t.Fatalf("reservation = %+v", reservation)
 	}
+	runID = reservation.RunID
 	var run protocol.RunInfo
 	runDeadline := time.Now().Add(5 * time.Second)
 	for {
@@ -146,10 +147,10 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		protocolContentText(snapshot.Messages[1], protocol.TranscriptContentText) != "reply 1" {
 		t.Fatalf("snapshot messages = %+v", snapshot.Messages)
 	}
-	if snapshot.ContextTokens != 64_000 || snapshot.ContextWindow != 128_000 {
+	if snapshot.ContextTokens <= 0 || snapshot.ContextWindow != 128_000 {
 		t.Fatalf("snapshot context = %d/%d", snapshot.ContextTokens, snapshot.ContextWindow)
 	}
-	eventBatch, err := client.GetSessionEvents(context.Background(), created.ID, 0)
+	eventBatch, err := client.GetSessionEvents(context.Background(), created.ID, "", 0)
 	if err != nil {
 		t.Fatalf("GetSessionEvents() error = %v", err)
 	}
@@ -183,9 +184,11 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
-	if _, err := client.StartPrompt(context.Background(), created.ID, activeRunID, "block"); err != nil {
+	activeReservation, err := client.StartPrompt(context.Background(), created.ID, "block")
+	if err != nil {
 		t.Fatalf("StartPrompt() blocking run error = %v", err)
 	}
+	activeRunID = activeReservation.RunID
 	active, err := client.GetRun(context.Background(), created.ID, activeRunID)
 	if err != nil || active.Status != protocol.RunStatusRunning {
 		t.Fatalf("active run = %+v, %v", active, err)
@@ -216,23 +219,6 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	abortedRunID, err := identifier.New("run_")
-	if err != nil {
-		t.Fatalf("identifier.New() error = %v", err)
-	}
-	if _, err := client.ReserveRun(context.Background(), created.ID, abortedRunID); err != nil {
-		t.Fatalf("ReserveRun() for abort error = %v", err)
-	}
-	if err := client.AbortSession(context.Background(), created.ID, abortedRunID); err != nil {
-		t.Fatalf("AbortSession() error = %v", err)
-	}
-	aborted, err := client.RunPrompt(context.Background(), created.ID, abortedRunID, "do not run")
-	if err != nil {
-		t.Fatalf("aborted RunPrompt() error = %v", err)
-	}
-	if aborted.Status != protocol.RunStatusAborted {
-		t.Fatalf("aborted outcome = %+v", aborted)
-	}
 	bashID, err := identifier.New("bash_")
 	if err != nil {
 		t.Fatalf("identifier.New() bash error = %v", err)
@@ -258,7 +244,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("completed bash = %+v", bash)
 	}
 	bashSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
-	if err != nil || len(bashSnapshot.Messages) == 0 || bashSnapshot.Messages[len(bashSnapshot.Messages)-1].Bash == nil {
+	if err != nil || len(bashSnapshot.PendingBoundaries) != 1 || bashSnapshot.PendingBoundaries[0].ID != bashID {
 		t.Fatalf("bash snapshot = %+v, %v", bashSnapshot, err)
 	}
 	sessions, err := client.ListSessions(context.Background(), workspace)

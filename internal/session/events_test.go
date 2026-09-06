@@ -43,7 +43,7 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			projected := projectDroidEvent("session_1", "turn_1", "run_1", test.event)
+			projected := projectDroidEvent("session_1", "turn_1", "turn_1", test.event)
 			if len(projected) != 1 {
 				t.Fatalf("projected event count = %d, want 1", len(projected))
 			}
@@ -66,7 +66,7 @@ func TestProjectDroidEventDoesNotExposeToolArgumentStreaming(t *testing.T) {
 		droids.StreamToolCallStart{ContentIndex: 1, ID: "call_1", Name: "read"},
 		droids.StreamToolCallDelta{ContentIndex: 1, Delta: `{"path":"REA`},
 	} {
-		projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+		projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.MessageDelta{
 			MessageID: "message_1", Stream: stream,
 		})
 		if len(projected) != 0 {
@@ -78,7 +78,7 @@ func TestProjectDroidEventDoesNotExposeToolArgumentStreaming(t *testing.T) {
 func TestProjectDroidEventSuppressesMalformedPlannedToolIdentity(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.MessageDelta{
 		MessageID: "message_1", Stream: droids.StreamToolCallEnd{
 			ContentIndex: 1, ToolCall: droids.ToolCall{Name: "read", Arguments: []byte(`{}`)},
 		},
@@ -91,7 +91,7 @@ func TestProjectDroidEventSuppressesMalformedPlannedToolIdentity(t *testing.T) {
 func TestProjectDroidEventBoundsToolArgumentsWhenPlanningCompletes(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.MessageDelta{
 		MessageID: "message_1", Stream: droids.StreamToolCallEnd{
 			ContentIndex: 1,
 			ToolCall: droids.ToolCall{
@@ -111,7 +111,7 @@ func TestProjectDroidEventBoundsToolArgumentsWhenPlanningCompletes(t *testing.T)
 func TestProjectDroidEventIncludesBoundedToolArgumentsOnStart(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionStart{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionStart{
 		ToolCallID: "call_1", ToolName: "read", Arguments: []byte(`{ "path": "README.md" }`),
 	})
 	if len(projected) != 1 {
@@ -125,7 +125,7 @@ func TestProjectDroidEventIncludesBoundedToolArgumentsOnStart(t *testing.T) {
 		t.Fatalf("tool start validation error = %v", err)
 	}
 
-	projected = projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionStart{
+	projected = projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionStart{
 		ToolCallID: "call_2", ToolName: "write",
 		Arguments: []byte(`{"content":"` + strings.Repeat("x", maxPresentationToolArgumentsBytes) + `"}`),
 	})
@@ -140,7 +140,7 @@ func TestProjectDroidEventIncludesBoundedToolArgumentsOnStart(t *testing.T) {
 func TestProjectDroidEventPreservesAppendOnlyToolResultDeltas(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionUpdate{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionUpdate{
 		ToolCallID: "call_1", ToolName: "read",
 		Delta: droids.ToolResultDelta{Content: []droids.ResultContent{
 			droids.TextContent{Text: "first"},
@@ -165,7 +165,7 @@ func TestProjectDroidEventPreservesAppendOnlyToolResultDeltas(t *testing.T) {
 func TestProjectDroidEventPreservesAuthoritativeToolResultAndDetails(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read",
 		Result: droids.ToolResult{
 			Content: []droids.ResultContent{
@@ -194,7 +194,7 @@ func TestProjectDroidEventBoundsNonTextToolContent(t *testing.T) {
 	for index := range content {
 		content[index] = droids.FileContent{MediaType: "image/png", URL: "data:image/png;base64,aQ=="}
 	}
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read", Result: droids.ToolResult{Content: content},
 	})
 	if len(projected) != 1 || len(projected[0].Content) != maxLiveEventContentBlocks || !projected[0].ContentTruncated {
@@ -205,7 +205,7 @@ func TestProjectDroidEventBoundsNonTextToolContent(t *testing.T) {
 func TestProjectDroidEventOmitsInvalidToolContentMetadata(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read",
 		Result: droids.ToolResult{Content: []droids.ResultContent{
 			droids.FileContent{MediaType: "not-a-media-type", URL: "https://example.com/image"},
@@ -222,7 +222,7 @@ func TestProjectDroidEventOmitsInvalidToolContentMetadata(t *testing.T) {
 func TestProjectDroidEventMarksOversizedToolDetailsOmitted(t *testing.T) {
 	t.Parallel()
 
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.ToolExecutionEnd{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.ToolExecutionEnd{
 		ToolCallID: "call_1", ToolName: "read",
 		Result: droids.ToolResult{Details: json.RawMessage(`{"value":"` + strings.Repeat("x", maxLiveEventDetailsBytes) + `"}`)},
 	})
@@ -235,7 +235,7 @@ func TestProjectDroidEventChunksLargeStreamingDeltaWithoutDataLoss(t *testing.T)
 	t.Parallel()
 
 	delta := strings.Repeat("résumé ", maxLiveEventTextBytes/4)
-	projected := projectDroidEvent("session_1", "turn_1", "run_1", droids.MessageDelta{
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.MessageDelta{
 		MessageID: "message_1", Stream: droids.StreamTextDelta{ContentIndex: 1, Delta: delta},
 	})
 	var rebuilt strings.Builder
@@ -260,5 +260,43 @@ func TestAssistantPresentationExcludesRedactedThinking(t *testing.T) {
 	}})
 	if thinking != "visible" || text != "response" {
 		t.Fatalf("assistant presentation = thinking %q text %q", thinking, text)
+	}
+}
+
+func TestRuntimeEventLogInvalidatesReplayAfterRetentionOrStreamReplacement(t *testing.T) {
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := NewEvent{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventRunStarted, Status: RunStatusRunning}
+	if err := log.append([]NewEvent{start}); err != nil {
+		t.Fatal(err)
+	}
+	first := log.page("", 0)
+	if first.ResyncRequired || len(first.Events) != 1 {
+		t.Fatalf("initial page = %+v", first)
+	}
+	oldStream := first.StreamID
+	if err := log.reset(); err != nil {
+		t.Fatal(err)
+	}
+	if page := log.page(oldStream, 0); !page.ResyncRequired {
+		t.Fatalf("replaced stream page = %+v", page)
+	}
+	if err := log.append([]NewEvent{start}); err != nil {
+		t.Fatal(err)
+	}
+	updates := make([]NewEvent, 4096)
+	for index := range updates {
+		updates[index] = NewEvent{
+			SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1",
+			Kind: EventAssistantTextDelta, MessageID: "message_1", ContentIndex: 0, Delta: "x",
+		}
+	}
+	if err := log.append(updates); err != nil {
+		t.Fatal(err)
+	}
+	if page := log.page("", 0); !page.ResyncRequired {
+		t.Fatalf("retained stream page = %+v, want resync", page)
 	}
 }

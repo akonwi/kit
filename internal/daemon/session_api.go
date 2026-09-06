@@ -22,11 +22,10 @@ type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
-	Events(context.Context, string, int64) (protocol.SessionEventBatch, error)
-	ReserveRun(context.Context, string, string) (protocol.RunReservation, error)
-	StartPrompt(context.Context, string, string, string) (protocol.RunReservation, error)
+	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
+	StartPrompt(context.Context, string, string) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
-	RunPrompt(context.Context, string, string, string) (protocol.PromptOutcome, error)
+	RunPrompt(context.Context, string, string) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
 	Bash(context.Context, string, string) (protocol.BashExecution, error)
@@ -71,22 +70,30 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	result := protocol.SessionSnapshot{
 		Session: projectSession(snapshot.Session), ActiveRunID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
-		ContextTokens:         snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
-		Messages: make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
+		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
+		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
+		ContextTokens: snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
+		Messages:          make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
+		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
 	}
 	for _, message := range snapshot.Messages {
-		var bash *protocol.BashExecution
-		if message.Bash != nil {
-			projected := projectBashExecution(*message.Bash)
-			bash = &projected
-		}
 		result.Messages = append(result.Messages, protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
-			Role: message.Role, Content: projectTranscriptContent(message.Content), Bash: bash,
+			Role: message.Role, Content: projectTranscriptContent(message.Content),
 			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
 			ToolCallID: message.ToolCallID, ToolName: message.ToolName,
-			Details: append(json.RawMessage(nil), message.Details...),
-			IsError: message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+			BoundaryID: message.BoundaryID, BoundaryKind: message.BoundaryKind,
+			BoundarySource: message.BoundarySource,
+			Details:        append(json.RawMessage(nil), message.Details...),
+			IsError:        message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+		})
+	}
+	for _, boundary := range snapshot.Boundaries {
+		result.PendingBoundaries = append(result.PendingBoundaries, protocol.PendingBoundary{
+			ID: boundary.ID, Kind: boundary.Kind, Source: boundary.Source,
+			Content:    projectTranscriptContent(boundary.Content),
+			Details:    append(json.RawMessage(nil), boundary.Details...),
+			AcceptedAt: boundary.AcceptedAt.Format(time.RFC3339Nano),
 		})
 	}
 	return result, nil
@@ -105,8 +112,8 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 	return result
 }
 
-func (s runtimeSessionService) Events(ctx context.Context, sessionID string, after int64) (protocol.SessionEventBatch, error) {
-	page, err := s.manager.Events(ctx, sessionID, after)
+func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
+	page, err := s.manager.Events(ctx, sessionID, streamID, after)
 	if err != nil {
 		return protocol.SessionEventBatch{}, err
 	}
@@ -131,26 +138,11 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID string, aft
 	return batch, nil
 }
 
-func (s runtimeSessionService) ReserveRun(
-	ctx context.Context,
-	sessionID, runID string,
-) (protocol.RunReservation, error) {
-	reservation, err := s.manager.ReservePrompt(ctx, sessionID, runID)
-	if err != nil {
-		return protocol.RunReservation{}, err
-	}
-	return protocol.RunReservation{
-		SessionID: reservation.SessionID,
-		TurnID:    reservation.TurnID,
-		RunID:     reservation.RunID,
-	}, nil
-}
-
 func (s runtimeSessionService) StartPrompt(
 	ctx context.Context,
-	sessionID, runID, text string,
+	sessionID, text string,
 ) (protocol.RunReservation, error) {
-	reservation, err := s.manager.StartPrompt(ctx, sessionID, runID, text)
+	reservation, err := s.manager.StartPrompt(ctx, sessionID, text)
 	if err != nil {
 		return protocol.RunReservation{}, err
 	}
@@ -172,9 +164,9 @@ func (s runtimeSessionService) Run(ctx context.Context, sessionID, runID string)
 
 func (s runtimeSessionService) RunPrompt(
 	ctx context.Context,
-	sessionID, runID, text string,
+	sessionID, text string,
 ) (protocol.PromptOutcome, error) {
-	result, err := s.manager.RunPrompt(ctx, sessionID, runID, text)
+	result, err := s.manager.RunPrompt(ctx, sessionID, text)
 	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
@@ -271,7 +263,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			}
 			after = parsed
 		}
-		batch, err := service.Events(request.Context(), request.PathValue("sessionID"), after)
+		batch, err := service.Events(request.Context(), request.PathValue("sessionID"), request.URL.Query().Get("stream"), after)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
@@ -291,21 +283,6 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusCreated, record)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/runs", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ReserveRunInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		reservation, err := service.ReserveRun(
-			request.Context(), request.PathValue("sessionID"), input.RunID,
-		)
-		if err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		writeJSON(writer, http.StatusCreated, reservation)
-	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompts", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -313,7 +290,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		result, err := service.StartPrompt(
-			request.Context(), request.PathValue("sessionID"), input.RunID, input.Text,
+			request.Context(), request.PathValue("sessionID"), input.Text,
 		)
 		if err != nil {
 			writeSessionError(writer, err)
@@ -332,7 +309,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		result, err := service.RunPrompt(
-			request.Context(), request.PathValue("sessionID"), input.RunID, input.Text,
+			request.Context(), request.PathValue("sessionID"), input.Text,
 		)
 		if err != nil {
 			writeSessionError(writer, err)

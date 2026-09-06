@@ -14,25 +14,21 @@ type CreateSessionInput struct {
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 }
 
-// ReserveRunInput requests a durable generation-bound run handle.
-type ReserveRunInput struct {
-	RunID string `json:"runId"`
-}
-
-// RunReservation acknowledges a durable queued parent run.
+// RunReservation acknowledges a droid-owned turn admission.
 type RunReservation struct {
 	SessionID string `json:"sessionId"`
 	TurnID    string `json:"turnId"`
 	RunID     string `json:"runId"`
 }
 
-// PromptInput requests execution of one reserved parent run.
+// PromptInput requests admission of one droid-owned turn.
 type PromptInput struct {
-	RunID string `json:"runId"`
-	Text  string `json:"text"`
+	Text string `json:"text"`
 }
 
-// BashExecutionInput requests one idempotent direct composer shell execution.
+// BashExecutionInput requests one runtime-idempotent direct composer shell
+// execution. Included terminal executions remain protected by their durable
+// droid boundary receipt.
 type BashExecutionInput struct {
 	ExecutionID        string `json:"executionId"`
 	Command            string `json:"command"`
@@ -103,19 +99,22 @@ type TranscriptContent struct {
 
 // TranscriptMessage is one ordered persisted message projected for clients.
 type TranscriptMessage struct {
-	ID           string              `json:"id"`
-	TurnID       string              `json:"turnId"`
-	Sequence     int64               `json:"sequence"`
-	Role         string              `json:"role"`
-	Content      []TranscriptContent `json:"content"`
-	Bash         *BashExecution      `json:"bash,omitempty"`
-	StopReason   string              `json:"stopReason,omitempty"`
-	ErrorMessage string              `json:"errorMessage,omitempty"`
-	ToolCallID   string              `json:"toolCallId,omitempty"`
-	ToolName     string              `json:"toolName,omitempty"`
-	Details      json.RawMessage     `json:"details,omitempty"`
-	IsError      bool                `json:"isError,omitempty"`
-	CreatedAt    string              `json:"createdAt"`
+	ID             string              `json:"id"`
+	TurnID         string              `json:"turnId"`
+	Sequence       int64               `json:"sequence"`
+	Role           string              `json:"role"`
+	Content        []TranscriptContent `json:"content"`
+	Bash           *BashExecution      `json:"bash,omitempty"`
+	StopReason     string              `json:"stopReason,omitempty"`
+	ErrorMessage   string              `json:"errorMessage,omitempty"`
+	ToolCallID     string              `json:"toolCallId,omitempty"`
+	ToolName       string              `json:"toolName,omitempty"`
+	BoundaryID     string              `json:"boundaryId,omitempty"`
+	BoundaryKind   string              `json:"boundaryKind,omitempty"`
+	BoundarySource string              `json:"boundarySource,omitempty"`
+	Details        json.RawMessage     `json:"details,omitempty"`
+	IsError        bool                `json:"isError,omitempty"`
+	CreatedAt      string              `json:"createdAt"`
 }
 
 // TextContent joins the message's text blocks in their original order.
@@ -129,12 +128,27 @@ func (message TranscriptMessage) TextContent() string {
 	return strings.Join(parts, "\n")
 }
 
+// PendingBoundary is durable external context awaiting materialization.
+type PendingBoundary struct {
+	ID         string              `json:"id"`
+	Kind       string              `json:"kind"`
+	Source     string              `json:"source,omitempty"`
+	Content    []TranscriptContent `json:"content"`
+	Details    json.RawMessage     `json:"details,omitempty"`
+	AcceptedAt string              `json:"acceptedAt"`
+}
+
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
 	Session               SessionInfo         `json:"session"`
 	Messages              []TranscriptMessage `json:"messages"`
+	PendingBoundaries     []PendingBoundary   `json:"pendingBoundaries,omitempty"`
 	ActiveRunID           string              `json:"activeRunId,omitempty"`
 	ActiveBashExecutionID string              `json:"activeBashExecutionId,omitempty"`
+	EventStreamID         string              `json:"eventStreamId,omitempty"`
+	EventCursor           int64               `json:"eventCursor,omitempty"`
+	EventReplayFrom       int64               `json:"eventReplayFrom,omitempty"`
+	EventReplayAvailable  bool                `json:"eventReplayAvailable,omitempty"`
 	ContextTokens         int                 `json:"contextTokens,omitempty"`
 	ContextWindow         int                 `json:"contextWindow,omitempty"`
 }
@@ -163,7 +177,7 @@ const (
 	ProviderErrorProtocol       ProviderErrorKind = "protocol"
 )
 
-// RunInfo is the durable status of one parent-run generation.
+// RunInfo is the canonical status of one droid turn.
 type RunInfo struct {
 	SessionID    string    `json:"sessionId"`
 	TurnID       string    `json:"turnId"`
@@ -172,7 +186,7 @@ type RunInfo struct {
 	ErrorMessage string    `json:"errorMessage,omitempty"`
 }
 
-// PromptOutcome is the terminal projection of one parent run.
+// PromptOutcome is the terminal projection of one droid turn.
 type PromptOutcome struct {
 	SessionID    string            `json:"sessionId"`
 	TurnID       string            `json:"turnId"`

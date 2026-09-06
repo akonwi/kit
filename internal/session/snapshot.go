@@ -13,7 +13,6 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 )
 
-// TranscriptContentKind identifies one ordered renderer-neutral content block.
 type TranscriptContentKind string
 
 const (
@@ -24,7 +23,6 @@ const (
 	TranscriptContentFile     TranscriptContentKind = "file"
 )
 
-// TranscriptContent is one renderer-neutral projection of persisted content.
 type TranscriptContent struct {
 	Kind               TranscriptContentKind `json:"kind"`
 	Text               string                `json:"text,omitempty"`
@@ -36,35 +34,49 @@ type TranscriptContent struct {
 	MediaType          string                `json:"mediaType,omitempty"`
 }
 
-// TranscriptMessage is a renderer-neutral projection of one persisted message.
 type TranscriptMessage struct {
-	ID           string
-	TurnID       string
-	Sequence     int64
-	Role         string
-	Content      []TranscriptContent
-	Bash         *BashExecution
-	StopReason   string
-	ErrorMessage string
-	ToolCallID   string
-	ToolName     string
-	Details      json.RawMessage
-	IsError      bool
-	CreatedAt    time.Time
+	ID             string
+	TurnID         string
+	Sequence       int64
+	Role           string
+	Content        []TranscriptContent
+	StopReason     string
+	ErrorMessage   string
+	ToolCallID     string
+	ToolName       string
+	BoundaryID     string
+	BoundaryKind   string
+	BoundarySource string
+	Details        json.RawMessage
+	IsError        bool
+	CreatedAt      time.Time
 }
 
-// Snapshot is an authoritative point-in-time view of one session.
+type PendingBoundary struct {
+	ID         string
+	Kind       string
+	Source     string
+	Content    []TranscriptContent
+	Details    json.RawMessage
+	AcceptedAt time.Time
+}
+
 type Snapshot struct {
 	Session               SessionRecord
 	Messages              []TranscriptMessage
+	Boundaries            []PendingBoundary
 	ActiveRunID           string
 	ActiveBashExecutionID string
+	EventStreamID         string
+	EventCursor           int64
+	EventReplayFrom       int64
+	EventReplayAvailable  bool
 	ContextTokens         int
 	ContextWindow         int
 }
 
-// Snapshot returns persisted presentation messages, including diagnostics from
-// incomplete turns, plus current in-memory run and context state for one session.
+// Snapshot projects canonical droid history directly. While a turn is active,
+// its history is omitted because the runtime event stream owns its live view.
 func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, error) {
 	if err := m.beginOperation(); err != nil {
 		return Snapshot{}, err
@@ -81,138 +93,103 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if err != nil {
 		return Snapshot{}, err
 	}
-	if loaded.admissionMu.TryLock() {
-		cursor, reconcileErr := m.reconcileDroidHistory(ctx, loaded.droid, sessionID)
-		if reconcileErr == nil {
-			loaded.historyCursor = cursor
-		}
-		loaded.admissionMu.Unlock()
-		if reconcileErr != nil {
-			return Snapshot{}, reconcileErr
-		}
+	loaded.controlMu.Lock()
+	defer loaded.controlMu.Unlock()
+	loaded.events.mu.Lock()
+	defer loaded.events.mu.Unlock()
+	loaded.stateMu.Lock()
+	activeRunID := loaded.activeRun
+	completeActiveStream := activeRunID != "" && loaded.runs[activeRunID] != nil &&
+		loaded.runs[activeRunID].completeStream && loaded.events.replayAvailable &&
+		len(loaded.events.events) > 0 && loaded.events.events[0].Kind == EventRunStarted &&
+		loaded.events.events[0].RunID == activeRunID
+	loaded.stateMu.Unlock()
+	droidSnapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
+	if err != nil {
+		return Snapshot{}, err
 	}
-	var stored []MessageRecord
-	var activeRunID, activeTurnID string
+	result := Snapshot{
+		Session: record, ActiveRunID: activeRunID,
+		EventStreamID: loaded.events.streamID, EventCursor: loaded.events.next - 1,
+		EventReplayAvailable: completeActiveStream,
+		ContextTokens:        droidSnapshot.Context.Usage.EstimatedInput,
+		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
+	}
+	m.bashMu.Lock()
+	if active := m.bashActive[sessionID]; active != nil {
+		result.ActiveBashExecutionID = active.id
+	}
+	m.bashMu.Unlock()
+	for _, pending := range droidSnapshot.Pending.Boundaries {
+		content, err := projectDroidContent(pending.Message.Content)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		result.Boundaries = append(result.Boundaries, PendingBoundary{
+			ID: pending.Message.ID, Kind: pending.Message.Kind, Source: pending.Message.Source,
+			Content: content, Details: append(json.RawMessage(nil), pending.Message.Details...),
+			AcceptedAt: pending.AcceptedAt,
+		})
+	}
+	var cursor uint64
+	var sequence int64
 	for {
-		beforeRunID, _, err := m.durableActiveRun(ctx, sessionID)
+		page, err := loaded.droid.History(ctx, droids.HistoryQuery{After: cursor, Limit: 1000})
 		if err != nil {
 			return Snapshot{}, err
 		}
-		stored, err = m.store.ListMessages(ctx, sessionID)
-		if err != nil {
-			return Snapshot{}, err
+		for _, envelope := range page.Messages {
+			if completeActiveStream && string(envelope.TurnID) == activeRunID {
+				continue
+			}
+			message, err := projectTranscriptMessage(envelope, sequence)
+			if err != nil {
+				return Snapshot{}, fmt.Errorf("project message %q: %w", envelope.ID, err)
+			}
+			result.Messages = append(result.Messages, message)
+			sequence++
 		}
-		afterRunID, afterTurnID, err := m.durableActiveRun(ctx, sessionID)
-		if err != nil {
-			return Snapshot{}, err
-		}
-		if beforeRunID == afterRunID {
-			activeRunID = afterRunID
-			activeTurnID = afterTurnID
+		cursor = page.Next
+		if !page.HasMore {
 			break
 		}
-		if err := ctx.Err(); err != nil {
-			return Snapshot{}, err
-		}
 	}
-
-	snapshot := Snapshot{Session: record, ActiveRunID: activeRunID, Messages: make([]TranscriptMessage, 0, len(stored))}
-	for _, messageRecord := range stored {
-		if messageRecord.Role == "bash" {
-			execution, err := decodeBashExecution(messageRecord)
-			if err != nil {
-				return Snapshot{}, fmt.Errorf("decode message %q: %w", messageRecord.ID, err)
-			}
-			copy := execution
-			snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
-				ID: messageRecord.ID, Sequence: messageRecord.Sequence, Role: "bash",
-				Bash: &copy, CreatedAt: messageRecord.CreatedAt,
-			})
-			if execution.Status == BashExecutionRunning {
-				snapshot.ActiveBashExecutionID = execution.ID
-			}
-			continue
-		}
-		if activeTurnID != "" && messageRecord.TurnID == activeTurnID {
-			continue
-		}
-		message, err := decodeDroidMessage(messageRecord.Role, messageRecord.PayloadJSON)
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("decode message %q: %w", messageRecord.ID, err)
-		}
-		projected, err := projectTranscriptMessage(messageRecord, message)
-		if err != nil {
-			return Snapshot{}, fmt.Errorf("project message %q: %w", messageRecord.ID, err)
-		}
-		if assistant, ok := message.(droids.AssistantMessage); ok && assistant.Usage.TotalTokens > 0 {
-			snapshot.ContextTokens = assistant.Usage.TotalTokens
-		}
-		snapshot.Messages = append(snapshot.Messages, projected)
-	}
-	model, ok := m.providers.Model(record.ModelProvider + "/" + record.ModelID)
-	if ok {
-		snapshot.ContextWindow = model.ContextWindow
-	}
-
-	return snapshot, nil
+	return result, nil
 }
 
-func (m *Manager) durableActiveRun(ctx context.Context, sessionID string) (string, string, error) {
-	record, err := m.store.GetActiveParentRun(ctx, sessionID)
-	if errors.Is(err, ErrNotFound) {
-		return "", "", nil
-	}
-	if err != nil {
-		return "", "", err
-	}
-	return record.ID, record.TurnID, nil
-}
-
-func projectTranscriptMessage(record MessageRecord, message droids.Message) (TranscriptMessage, error) {
-	content, err := projectTranscriptContent(message)
+func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (TranscriptMessage, error) {
+	content, err := projectTranscriptContent(envelope.Message)
 	if err != nil {
 		return TranscriptMessage{}, err
 	}
 	projected := TranscriptMessage{
-		ID: record.ID, TurnID: record.TurnID, Sequence: record.Sequence,
-		Role: record.Role, Content: content, CreatedAt: record.CreatedAt,
+		ID: string(envelope.ID), TurnID: string(envelope.TurnID), Sequence: sequence,
+		Content: content, CreatedAt: envelope.CreatedAt,
 	}
-	switch typed := message.(type) {
+	switch typed := envelope.Message.(type) {
+	case droids.UserMessage:
+		projected.Role = "user"
 	case droids.AssistantMessage:
+		projected.Role = "assistant"
 		projected.StopReason = string(typed.StopReason)
 		projected.ErrorMessage = typed.ErrorMessage
 		projected.IsError = typed.StopReason == droids.StopReasonError || typed.StopReason == droids.StopReasonAborted
 	case droids.ToolResultMessage:
+		projected.Role = "tool"
 		projected.ToolCallID = string(typed.ToolCallID)
 		projected.ToolName = typed.ToolName
+		projected.Details = append(json.RawMessage(nil), typed.Details...)
 		projected.IsError = typed.IsError
-		if len(record.PayloadJSON) > 0 {
-			projected.Details, err = persistedToolDetails(record.PayloadJSON)
-			if err != nil {
-				return TranscriptMessage{}, err
-			}
-		} else if typed.Details != nil {
-			projected.Details, err = json.Marshal(typed.Details)
-			if err != nil {
-				return TranscriptMessage{}, fmt.Errorf("project tool details: %w", err)
-			}
-		}
+	case droids.ContextMessage:
+		projected.Role = "context"
+		projected.BoundaryID = typed.BoundaryID
+		projected.BoundaryKind = typed.Kind
+		projected.BoundarySource = typed.Source
+		projected.Details = append(json.RawMessage(nil), typed.Details...)
+	default:
+		return TranscriptMessage{}, fmt.Errorf("unsupported message %T", envelope.Message)
 	}
 	return projected, nil
-}
-
-func persistedToolDetails(payload []byte) (json.RawMessage, error) {
-	var envelope struct {
-		Details json.RawMessage `json:"details"`
-	}
-	if err := json.Unmarshal(payload, &envelope); err != nil {
-		return nil, fmt.Errorf("project persisted tool details: %w", err)
-	}
-	details := bytes.TrimSpace(envelope.Details)
-	if len(details) == 0 || bytes.Equal(details, []byte("null")) {
-		return nil, nil
-	}
-	return append(json.RawMessage(nil), details...), nil
 }
 
 func projectTranscriptContent(message droids.Message) ([]TranscriptContent, error) {
@@ -228,51 +205,6 @@ func projectTranscriptContent(message droids.Message) ([]TranscriptContent, erro
 	default:
 		return nil, fmt.Errorf("unsupported message %T", message)
 	}
-}
-
-func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
-	result := make([]TranscriptContent, 0, len(content))
-	for _, block := range content {
-		switch typed := any(block).(type) {
-		case droids.TextInput:
-			if typed.Text != "" {
-				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: typed.Text})
-			}
-		case droids.TextContent:
-			if typed.Text != "" {
-				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: typed.Text})
-			}
-		case droids.ThinkingContent:
-			if !typed.Redacted && typed.Thinking != "" {
-				result = append(result, TranscriptContent{Kind: TranscriptContentThinking, Text: typed.Thinking})
-			}
-		case droids.ToolCall:
-			arguments, truncated := presentationToolArguments(typed.Arguments)
-			result = append(result, TranscriptContent{
-				Kind: TranscriptContentToolCall, ToolCallID: string(typed.ID),
-				ToolName: typed.Name, Arguments: arguments, ArgumentsTruncated: truncated,
-			})
-		case droids.FileInput:
-			kind := TranscriptContentFile
-			if strings.HasPrefix(strings.ToLower(typed.MediaType), "image/") {
-				kind = TranscriptContentImage
-			}
-			result = append(result, TranscriptContent{
-				Kind: kind, Filename: typed.Filename, MediaType: typed.MediaType,
-			})
-		case droids.FileContent:
-			kind := TranscriptContentFile
-			if strings.HasPrefix(strings.ToLower(typed.MediaType), "image/") {
-				kind = TranscriptContentImage
-			}
-			result = append(result, TranscriptContent{
-				Kind: kind, Filename: typed.Filename, MediaType: typed.MediaType,
-			})
-		default:
-			return nil, fmt.Errorf("unsupported content %T", block)
-		}
-	}
-	return result, nil
 }
 
 const maxPresentationToolArgumentsBytes = 64 << 10
@@ -307,32 +239,65 @@ func normalizeJSONObject(raw []byte) (json.RawMessage, error) {
 		}
 		return nil, fmt.Errorf("decode JSON object: %w", err)
 	}
-	canonical, err := json.Marshal(value)
-	if err != nil {
-		return nil, fmt.Errorf("encode JSON object: %w", err)
-	}
-	return canonical, nil
+	return json.Marshal(value)
 }
 
 func contentText[T any](content []T) string {
 	parts := make([]string, 0, len(content))
-	for _, block := range content {
-		switch typed := any(block).(type) {
+	for _, raw := range content {
+		switch block := any(raw).(type) {
 		case droids.TextInput:
-			if typed.Text != "" {
-				parts = append(parts, typed.Text)
-			}
+			parts = append(parts, block.Text)
 		case droids.TextContent:
-			if typed.Text != "" {
-				parts = append(parts, typed.Text)
-			}
+			parts = append(parts, block.Text)
 		case droids.FileInput:
-			parts = append(parts, "[file: "+typed.Filename+"]")
+			parts = append(parts, "[file: "+block.Filename+"]")
 		case droids.FileContent:
-			parts = append(parts, "[file: "+typed.Filename+"]")
+			parts = append(parts, "[file: "+block.Filename+"]")
 		case droids.ToolCall:
-			parts = append(parts, "[tool: "+typed.Name+"]")
+			parts = append(parts, "[tool: "+block.Name+"]")
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
+	result := make([]TranscriptContent, 0, len(content))
+	for _, raw := range content {
+		switch block := any(raw).(type) {
+		case droids.TextInput:
+			if block.Text != "" {
+				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: block.Text})
+			}
+		case droids.TextContent:
+			if block.Text != "" {
+				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: block.Text})
+			}
+		case droids.ThinkingContent:
+			if block.Thinking != "" && !block.Redacted {
+				result = append(result, TranscriptContent{Kind: TranscriptContentThinking, Text: block.Thinking})
+			}
+		case droids.ToolCall:
+			arguments, truncated := presentationToolArguments(block.Arguments)
+			result = append(result, TranscriptContent{
+				Kind: TranscriptContentToolCall, ToolCallID: string(block.ID), ToolName: block.Name,
+				Arguments: arguments, ArgumentsTruncated: truncated,
+			})
+		case droids.FileInput:
+			kind := TranscriptContentFile
+			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
+				kind = TranscriptContentImage
+			}
+			result = append(result, TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType})
+		case droids.FileContent:
+			kind := TranscriptContentFile
+			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
+				kind = TranscriptContentImage
+			}
+			result = append(result, TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType})
+		default:
+			return nil, fmt.Errorf("unsupported content %T", raw)
+		}
+	}
+	return result, nil
 }

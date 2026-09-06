@@ -78,12 +78,6 @@ func Run(ctx context.Context, options RunOptions) error {
 			cancel()
 		}
 		if store != nil {
-			recoveryContext, recoveryCancel := context.WithTimeout(context.Background(), 2*time.Second)
-			_, recoveryErr := store.InterruptActiveRuns(recoveryContext, "daemon stopped before execution finalized")
-			recoveryCancel()
-			if recoveryErr != nil {
-				logger.Error("interrupt unfinished session runs", "error", recoveryErr)
-			}
 			if err := store.Close(); err != nil {
 				logger.Error("close database", "error", err)
 			}
@@ -107,17 +101,6 @@ func Run(ctx context.Context, options RunOptions) error {
 	store, err = storage.Open(ctx, paths.Database)
 	if err != nil {
 		return err
-	}
-	recovered, err := store.InterruptActiveRuns(ctx, "daemon restarted during active execution")
-	if err != nil {
-		return fmt.Errorf("recover interrupted runs: %w", err)
-	}
-	if recovered.ParentRuns+recovered.SubagentRuns > 0 {
-		logger.Warn(
-			"recovered interrupted executions",
-			"parent_runs", recovered.ParentRuns,
-			"subagent_runs", recovered.SubagentRuns,
-		)
 	}
 	providers := options.Providers
 	customProviders := providers != nil

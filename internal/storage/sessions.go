@@ -66,7 +66,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (SessionRecord, error
 	}
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, cwd, name, persistent, parent_session_id,
-		       model_provider, model_id, thinking_level,
+		       model_provider, model_id, thinking_level, droid_initialized_at,
 		       created_at, updated_at, archived_at
 		FROM sessions
 		WHERE id = ?
@@ -88,7 +88,7 @@ func (s *Store) ListSessions(ctx context.Context, cwd string) ([]SessionRecord, 
 	}
 	query := `
 		SELECT id, cwd, name, persistent, parent_session_id,
-		       model_provider, model_id, thinking_level,
+		       model_provider, model_id, thinking_level, droid_initialized_at,
 		       created_at, updated_at, archived_at
 		FROM sessions
 		WHERE archived_at IS NULL`
@@ -131,12 +131,12 @@ type rowScanner interface {
 
 func scanSession(scanner rowScanner) (SessionRecord, error) {
 	var (
-		record                 SessionRecord
-		name, parent, thinking sql.NullString
-		modelProvider, modelID sql.NullString
-		createdAt, updatedAt   string
-		archivedAt             sql.NullString
-		persistent             int
+		record                                SessionRecord
+		name, parent, thinking, initializedAt sql.NullString
+		modelProvider, modelID                sql.NullString
+		createdAt, updatedAt                  string
+		archivedAt                            sql.NullString
+		persistent                            int
 	)
 	if err := scanner.Scan(
 		&record.ID,
@@ -147,6 +147,7 @@ func scanSession(scanner rowScanner) (SessionRecord, error) {
 		&modelProvider,
 		&modelID,
 		&thinking,
+		&initializedAt,
 		&createdAt,
 		&updatedAt,
 		&archivedAt,
@@ -175,5 +176,35 @@ func scanSession(scanner rowScanner) (SessionRecord, error) {
 	record.ModelProvider = modelProvider.String
 	record.ModelID = modelID.String
 	record.ThinkingLevel = thinking.String
+	if initializedAt.Valid {
+		value, err := parseTimestamp(initializedAt.String)
+		if err != nil {
+			return SessionRecord{}, fmt.Errorf("parse droid_initialized_at: %w", err)
+		}
+		record.DroidInitializedAt = &value
+	}
 	return record, nil
+}
+
+// MarkDroidInitialized records the one-time successful droid Store handshake.
+func (s *Store) MarkDroidInitialized(ctx context.Context, sessionID string, initializedAt time.Time) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store is closed")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions
+		SET droid_initialized_at = COALESCE(droid_initialized_at, ?), updated_at = ?
+		WHERE id = ? AND archived_at IS NULL
+	`, formatTimestamp(initializedAt), formatTimestamp(time.Now()), sessionID)
+	if err != nil {
+		return fmt.Errorf("mark session droid initialized: %w", err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+	}
+	return nil
 }

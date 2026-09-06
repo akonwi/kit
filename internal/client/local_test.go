@@ -113,7 +113,7 @@ type scriptedEventTransport struct {
 	runCalls  int
 }
 
-func (t *scriptedEventTransport) GetSessionEvents(_ context.Context, _ string, after int64) (protocol.SessionEventBatch, error) {
+func (t *scriptedEventTransport) GetSessionEvents(_ context.Context, _ string, _ string, after int64) (protocol.SessionEventBatch, error) {
 	t.cursors = append(t.cursors, after)
 	if len(t.pages) == 0 {
 		return protocol.SessionEventBatch{StreamID: "stream_test"}, nil

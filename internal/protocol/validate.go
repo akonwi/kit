@@ -83,6 +83,9 @@ func (reservation RunReservation) Validate() error {
 	if reservation.SessionID == "" || reservation.TurnID == "" || reservation.RunID == "" {
 		return fmt.Errorf("run reservation session, turn, and run ids are required")
 	}
+	if reservation.RunID != reservation.TurnID {
+		return fmt.Errorf("run reservation identity must equal its droid turn identity")
+	}
 	return nil
 }
 
@@ -90,6 +93,9 @@ func (reservation RunReservation) Validate() error {
 func (run RunInfo) Validate() error {
 	if run.SessionID == "" || run.TurnID == "" || run.RunID == "" {
 		return fmt.Errorf("run info session, turn, and run ids are required")
+	}
+	if run.RunID != run.TurnID {
+		return fmt.Errorf("run info identity must equal its droid turn identity")
 	}
 	switch run.Status {
 	case RunStatusQueued, RunStatusRunning, RunStatusCompleted,
@@ -107,6 +113,9 @@ func (run RunInfo) Validate() error {
 func (outcome PromptOutcome) Validate() error {
 	if outcome.SessionID == "" || outcome.TurnID == "" || outcome.RunID == "" {
 		return fmt.Errorf("prompt outcome session, turn, and run ids are required")
+	}
+	if outcome.RunID != outcome.TurnID {
+		return fmt.Errorf("prompt outcome identity must equal its droid turn identity")
 	}
 	switch outcome.Status {
 	case RunStatusCompleted, RunStatusFailed, RunStatusAborted, RunStatusInterrupted:

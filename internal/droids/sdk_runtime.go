@@ -405,7 +405,11 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		boundary := MessageEnvelope{
 			ID: boundaryID, ConversationID: rt.conversation, TurnID: turnID,
 			CreatedAt: time.Now().UTC(),
-			Message:   ContextMessage{BoundaryID: pending.Message.ID, Kind: pending.Message.Kind, Source: pending.Message.Source, Content: content},
+			Message: ContextMessage{
+				BoundaryID: pending.Message.ID, Kind: pending.Message.Kind,
+				Source: pending.Message.Source, Content: content,
+				Details: append(json.RawMessage(nil), pending.Message.Details...),
+			},
 		}
 		if err := appendRuntimeEnvelope(&rt.state, boundary); err != nil {
 			rt.state = before
@@ -1034,11 +1038,26 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 		point := *rt.forkedFrom
 		conversation.ForkedFrom = &point
 	}
+	pending := PendingInputSnapshot{
+		Steering: len(rt.state.PendingSteering), Boundary: len(rt.state.PendingBoundaries),
+		Boundaries: make([]PendingBoundarySnapshot, 0, len(rt.state.PendingBoundaries)),
+	}
+	for _, boundary := range rt.state.PendingBoundaries {
+		content, err := inputFromWire(boundary.Message.Content)
+		if err != nil {
+			return Snapshot{}, fmt.Errorf("droids: decode pending boundary %q: %w", boundary.Message.ID, err)
+		}
+		pending.Boundaries = append(pending.Boundaries, PendingBoundarySnapshot{
+			Message: BoundaryMessage{
+				ID: boundary.Message.ID, Kind: boundary.Message.Kind, Source: boundary.Message.Source,
+				Content: content, Details: append(json.RawMessage(nil), boundary.Message.Details...),
+			},
+			AcceptedAt: boundary.Accepted,
+		})
+	}
 	result := Snapshot{
 		Conversation: conversation,
-		Pending: PendingInputSnapshot{
-			Steering: len(rt.state.PendingSteering), Boundary: len(rt.state.PendingBoundaries),
-		},
+		Pending:      pending,
 		Context: ContextSnapshot{
 			CheckpointID: rt.state.CheckpointID, Messages: len(rt.state.Context),
 		},
@@ -1066,11 +1085,52 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 	if err != nil {
 		return Snapshot{}, err
 	}
-	result.Recent, err = messagePageFromRecords(page, true)
+	result.Recent, err = messagePageFromRecords(page, true, rt.conversation)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	return result, nil
+}
+
+// Turn returns the canonical terminal state of one settled turn.
+func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
+	if d == nil || d.sdk == nil {
+		return TurnSnapshot{}, fmt.Errorf("droids: Turn requires a droid opened with droids.Open")
+	}
+	if id == "" {
+		return TurnSnapshot{}, fmt.Errorf("droids: turn id is required")
+	}
+	var after uint64
+	for {
+		page, err := d.sdk.store.Records(ctx, RecordQuery{After: after, Limit: 1000, Kind: turnRecordKind})
+		if err != nil {
+			return TurnSnapshot{}, err
+		}
+		for _, record := range page.Records {
+			if record.ID != string(id) {
+				continue
+			}
+			if record.Version != recordVersion {
+				return TurnSnapshot{}, fmt.Errorf("droids: unsupported turn record version %d", record.Version)
+			}
+			var payload struct {
+				TurnID TurnID             `json:"turn_id"`
+				Status ExecutionStatus    `json:"status"`
+				Error  *durableDroidError `json:"error"`
+			}
+			if err := json.Unmarshal(record.Payload, &payload); err != nil {
+				return TurnSnapshot{}, fmt.Errorf("droids: decode turn %q: %w", id, err)
+			}
+			if payload.TurnID != id || !isTerminalStatus(payload.Status) {
+				return TurnSnapshot{}, fmt.Errorf("droids: persisted turn %q is invalid", id)
+			}
+			return TurnSnapshot{ID: id, Status: payload.Status, Error: expandDurableError(payload.Error)}, nil
+		}
+		after = page.Next
+		if !page.HasMore {
+			return TurnSnapshot{}, fmt.Errorf("droids: turn %q: %w", id, ErrTurnNotFound)
+		}
+	}
 }
 
 // History pages canonical diagnostic messages.
@@ -1082,18 +1142,25 @@ func (d *Droid) History(ctx context.Context, query HistoryQuery) (MessagePage, e
 	if err != nil {
 		return MessagePage{}, err
 	}
-	return messagePageFromRecords(page, false)
+	return messagePageFromRecords(page, false, d.sdk.conversation)
 }
 
-func messagePageFromRecords(page RecordPage, reverse bool) (MessagePage, error) {
+func messagePageFromRecords(page RecordPage, reverse bool, conversation ConversationID) (MessagePage, error) {
 	result := MessagePage{Next: page.Next, HasMore: page.HasMore}
 	for index := range page.Records {
 		if reverse {
 			index = len(page.Records) - 1 - index
 		}
-		message, err := decodeMessageEnvelope(page.Records[index].Payload)
+		record := page.Records[index]
+		if record.Kind != messageRecordKind || record.Version != recordVersion {
+			return MessagePage{}, fmt.Errorf("droids: invalid message history record %s/%s", record.Kind, record.ID)
+		}
+		message, err := decodeMessageEnvelope(record.Payload)
 		if err != nil {
 			return MessagePage{}, err
+		}
+		if string(message.ID) != record.ID || message.ConversationID != conversation {
+			return MessagePage{}, fmt.Errorf("droids: message history record %q identity mismatch", record.ID)
 		}
 		result.Messages = append(result.Messages, message)
 	}

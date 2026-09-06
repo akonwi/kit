@@ -27,7 +27,7 @@ const (
 	SessionEventRunFinished        SessionEventKind = "run.finished"
 )
 
-// SessionEvent is one durable ordered update in a session stream.
+// SessionEvent is one ordered update in a loaded runtime stream.
 type SessionEvent struct {
 	StreamID           string              `json:"streamId"`
 	Sequence           int64               `json:"sequence"`
@@ -70,6 +70,9 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.SessionID == "" || event.TurnID == "" || event.RunID == "" {
 		return fmt.Errorf("event session, turn, and run ids are required")
+	}
+	if event.RunID != event.TurnID {
+		return fmt.Errorf("event run identity must equal its droid turn identity")
 	}
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
@@ -183,7 +186,7 @@ func (event SessionEvent) Validate() error {
 	return nil
 }
 
-// Validate checks event ordering and stream identity for a transport page.
+// Validate checks event ordering and runtime-stream identity for a transport page.
 func (batch SessionEventBatch) Validate() error {
 	if batch.FirstSequence < 0 || batch.LastSequence < 0 ||
 		(batch.FirstSequence == 0) != (batch.LastSequence == 0) ||

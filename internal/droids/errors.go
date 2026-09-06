@@ -11,6 +11,7 @@ var (
 	ErrClosed                 = errors.New("droid closed")
 	ErrBusy                   = errors.New("droid busy")
 	ErrNoActiveExecution      = errors.New("no active execution")
+	ErrTurnNotFound           = errors.New("turn not found")
 	ErrUnsafeContinuation     = errors.New("unsafe continuation")
 	ErrConflict               = errors.New("store revision conflict")
 	ErrStoreUninitialized     = errors.New("store is not initialized")

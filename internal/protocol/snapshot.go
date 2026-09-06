@@ -13,11 +13,14 @@ func (snapshot SessionSnapshot) Validate() error {
 	if err := snapshot.Session.Validate(); err != nil {
 		return fmt.Errorf("snapshot session: %w", err)
 	}
-	if snapshot.ContextTokens < 0 || snapshot.ContextWindow < 0 {
+	if snapshot.ContextTokens < 0 || snapshot.ContextWindow < 0 || snapshot.EventCursor < 0 || snapshot.EventReplayFrom < 0 {
 		return fmt.Errorf("snapshot context usage cannot be negative")
 	}
 	if snapshot.ContextWindow == 0 && snapshot.ContextTokens != 0 {
 		return fmt.Errorf("snapshot context tokens require a context window")
+	}
+	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
+		return fmt.Errorf("snapshot replay metadata is incomplete")
 	}
 	previousSequence := int64(-1)
 	messageIDs := make(map[string]struct{})
@@ -26,6 +29,22 @@ func (snapshot SessionSnapshot) Validate() error {
 	toolCallsByTurn := make(map[string]map[string]string)
 	toolResultsByTurn := make(map[string]map[string]struct{})
 	activeBashID := ""
+	for index, boundary := range snapshot.PendingBoundaries {
+		if boundary.ID == "" || boundary.Kind == "" || len(boundary.Content) == 0 {
+			return fmt.Errorf("pending boundary %d requires identity, kind, and content", index)
+		}
+		if err := validateBoundaryDetails(boundary.Kind, boundary.Details); err != nil {
+			return fmt.Errorf("pending boundary %d: %w", index, err)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, boundary.AcceptedAt); err != nil {
+			return fmt.Errorf("pending boundary %d acceptedAt is invalid: %w", index, err)
+		}
+		for contentIndex, block := range boundary.Content {
+			if err := block.validate(); err != nil || !contentAllowedForRole("context", block.Kind) {
+				return fmt.Errorf("pending boundary %d content %d is invalid", index, contentIndex)
+			}
+		}
+	}
 	for index, message := range snapshot.Messages {
 		if message.ID == "" || message.Role != "bash" && message.TurnID == "" {
 			return fmt.Errorf("snapshot message %d requires its message and turn identities", index)
@@ -48,7 +67,7 @@ func (snapshot SessionSnapshot) Validate() error {
 		}
 		previousSequence = message.Sequence
 		switch message.Role {
-		case "user", "assistant", "tool", "bash":
+		case "user", "assistant", "tool", "context", "bash":
 		default:
 			return fmt.Errorf("snapshot message %d role %q is invalid", index, message.Role)
 		}
@@ -104,8 +123,8 @@ func (snapshot SessionSnapshot) Validate() error {
 			return fmt.Errorf("snapshot message %d createdAt is invalid: %w", index, err)
 		}
 	}
-	if snapshot.ActiveBashExecutionID != activeBashID {
-		return fmt.Errorf("snapshot active bash execution does not match messages")
+	if activeBashID != "" && snapshot.ActiveBashExecutionID != activeBashID {
+		return fmt.Errorf("snapshot active bash execution does not match included bash message")
 	}
 	return nil
 }
@@ -124,7 +143,7 @@ func (message TranscriptMessage) validate() error {
 	}
 	switch message.Role {
 	case "user":
-		if message.Bash != nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.Details != nil || message.IsError {
+		if message.Bash != nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" || message.Details != nil || message.IsError {
 			return fmt.Errorf("user message carries assistant, bash, or tool metadata")
 		}
 	case "assistant":
@@ -136,12 +155,22 @@ func (message TranscriptMessage) validate() error {
 		default:
 			return fmt.Errorf("assistant stop reason %q is invalid", message.StopReason)
 		}
-		if message.ToolCallID != "" || message.ToolName != "" || message.Details != nil {
+		if message.ToolCallID != "" || message.ToolName != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" || message.Details != nil {
 			return fmt.Errorf("assistant message carries tool-result metadata")
 		}
 		shouldBeError := message.StopReason == "error" || message.StopReason == "aborted"
 		if message.IsError != shouldBeError {
 			return fmt.Errorf("assistant error state does not match stop reason")
+		}
+	case "context":
+		if message.Bash != nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.IsError {
+			return fmt.Errorf("context message carries unrelated metadata")
+		}
+		if message.BoundaryKind == "" || message.BoundaryKind != "summary" && message.BoundaryID == "" {
+			return fmt.Errorf("context message requires kind and external boundaries require identity")
+		}
+		if err := validateBoundaryDetails(message.BoundaryKind, message.Details); err != nil {
+			return err
 		}
 	case "tool":
 		if message.Bash != nil {
@@ -150,11 +179,11 @@ func (message TranscriptMessage) validate() error {
 		if message.ToolCallID == "" || message.ToolName == "" {
 			return fmt.Errorf("tool result requires call id and name")
 		}
-		if message.StopReason != "" || message.ErrorMessage != "" {
+		if message.StopReason != "" || message.ErrorMessage != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" {
 			return fmt.Errorf("tool result carries assistant metadata")
 		}
 	case "bash":
-		if message.TurnID != "" || len(message.Content) != 0 || message.Bash == nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.Details != nil || message.IsError {
+		if message.TurnID != "" || len(message.Content) != 0 || message.Bash == nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" || message.Details != nil || message.IsError {
 			return fmt.Errorf("bash message has invalid transcript fields")
 		}
 		if err := message.Bash.Validate(); err != nil {
@@ -198,7 +227,7 @@ func (block TranscriptContent) validate() error {
 
 func contentAllowedForRole(role string, kind TranscriptContentKind) bool {
 	switch role {
-	case "user":
+	case "user", "context":
 		return kind == TranscriptContentText || kind == TranscriptContentImage || kind == TranscriptContentFile
 	case "assistant":
 		return kind == TranscriptContentText || kind == TranscriptContentThinking || kind == TranscriptContentToolCall
@@ -216,4 +245,50 @@ func validMediaType(raw string, imageOnly bool) bool {
 		return false
 	}
 	return !imageOnly || strings.EqualFold(parts[0], "image")
+}
+
+func validateBoundaryDetails(kind string, details json.RawMessage) error {
+	if len(details) == 0 {
+		return nil // Grandfathered boundary records predate structured details.
+	}
+	if len(details) > 64<<10 || !json.Valid(details) {
+		return fmt.Errorf("boundary details are invalid or exceed 64 KiB")
+	}
+	if kind != "bash" {
+		return nil
+	}
+	var payload struct {
+		Version      int    `json:"version"`
+		Command      string `json:"command"`
+		Status       string `json:"status"`
+		ExitCode     *int   `json:"exitCode"`
+		ErrorMessage string `json:"errorMessage"`
+		StartedAt    string `json:"startedAt"`
+		CompletedAt  string `json:"completedAt"`
+	}
+	if err := json.Unmarshal(details, &payload); err != nil {
+		return fmt.Errorf("decode bash boundary details: %w", err)
+	}
+	if payload.Version != 1 || strings.TrimSpace(payload.Command) == "" {
+		return fmt.Errorf("bash boundary details require version 1 and command")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.StartedAt); err != nil {
+		return fmt.Errorf("bash boundary startedAt is invalid")
+	}
+	if _, err := time.Parse(time.RFC3339Nano, payload.CompletedAt); err != nil {
+		return fmt.Errorf("bash boundary completedAt is invalid")
+	}
+	switch payload.Status {
+	case "completed":
+		if payload.ErrorMessage != "" {
+			return fmt.Errorf("completed bash boundary carries an error")
+		}
+	case "failed", "aborted":
+		if strings.TrimSpace(payload.ErrorMessage) == "" {
+			return fmt.Errorf("bash boundary status %q requires an error", payload.Status)
+		}
+	default:
+		return fmt.Errorf("bash boundary status %q is invalid", payload.Status)
+	}
+	return nil
 }

@@ -335,9 +335,11 @@ type ToolResultMessage struct {
 }
 
 type ContextMessage struct {
-    Kind    ContextMessageKind // summary | boundary
-    Source  string
-    Content []InputContent
+    BoundaryID string // empty for built-in summaries
+    Kind       string // summary or an external boundary kind
+    Source     string
+    Content    []InputContent
+    Details    json.RawMessage
 }
 ```
 
@@ -555,6 +557,7 @@ type BoundaryMessage struct {
     Kind       string
     Source     string
     Content    []InputContent
+    Details    json.RawMessage
 }
 
 func (d *Droid) Inform(
@@ -573,9 +576,11 @@ makes one materialized boundary identifiable. `ReceiptIDs` atomically records
 all application source records represented by a coalesced boundary; when it is
 empty, `ID` is also the sole receipt. `BoundaryReceived` lets an application
 reconcile delivery without inferring it from compactable model context.
-Repeating a fully received set is a successful no-op. When an execution is
-active, boundaries are injected at the next safe model boundary. When idle,
-they wait for the next user-initiated turn and do not start work by themselves.
+Repeating a fully received set is a successful no-op. `Details` carries bounded,
+canonical JSON metadata that remains available on the pending boundary and its
+materialized `ContextMessage`. When an execution is active, boundaries are
+injected at the next safe model boundary. When idle, they wait for the next
+user-initiated turn and do not start work by themselves.
 
 Applications use this API for events such as child-agent completion. Droids
 does not define application-specific child or mailbox types.
@@ -1110,6 +1115,23 @@ type SnapshotOptions struct {
     RecentMessageLimit int
 }
 
+type TurnSnapshot struct {
+    ID     TurnID
+    Status ExecutionStatus
+    Error  *DroidError
+}
+
+type PendingBoundarySnapshot struct {
+    Message    BoundaryMessage
+    AcceptedAt time.Time
+}
+
+type PendingInputSnapshot struct {
+    Steering   int
+    Boundary   int
+    Boundaries []PendingBoundarySnapshot
+}
+
 type Snapshot struct {
     Conversation ConversationSnapshot
     Recent       MessagePage
@@ -1124,6 +1146,11 @@ func (d *Droid) Snapshot(
     options SnapshotOptions,
 ) (Snapshot, error)
 
+func (d *Droid) Turn(
+    ctx context.Context,
+    id TurnID,
+) (TurnSnapshot, error)
+
 func (d *Droid) History(
     ctx context.Context,
     query HistoryQuery,
@@ -1134,6 +1161,10 @@ A snapshot and `LastEvent` describe one atomic Store revision. Consumers apply
 only durable events after that sequence. A forked conversation snapshot also
 contains its immediate `ForkPoint`. `RecentMessageLimit` is clamped to a bounded
 SDK maximum, and older diagnostic history is retrieved through cursor pagination.
+
+`Turn` reads the canonical terminal status and durable error for an exact
+settled turn, allowing hosts to reconstruct transient client handles without
+persisting a parallel run status.
 
 Diagnostic messages and active model context are separate fields. Snapshot
 consumers never infer provider context by filtering display messages.
@@ -1557,6 +1588,7 @@ var (
     ErrClosed                = errors.New("droid closed")
     ErrBusy                  = errors.New("droid busy")
     ErrNoActiveExecution     = errors.New("no active execution")
+    ErrTurnNotFound          = errors.New("turn not found")
     ErrUnsafeContinuation    = errors.New("unsafe continuation")
     ErrConflict               = errors.New("store revision conflict")
     ErrStoreUninitialized     = errors.New("store is not initialized")

@@ -65,6 +65,7 @@ type BoundaryMessageWire struct {
 	Kind    string             `json:"kind"`
 	Source  string             `json:"source"`
 	Content []wireInputContent `json:"content"`
+	Details json.RawMessage    `json:"details,omitempty"`
 }
 
 type wireInputContent struct {
@@ -442,5 +443,14 @@ func boundaryToWire(message BoundaryMessage) (BoundaryMessageWire, error) {
 			return BoundaryMessageWire{}, fmt.Errorf("droids: boundary receipt id is invalid")
 		}
 	}
-	return BoundaryMessageWire{ID: message.ID, Kind: message.Kind, Source: message.Source, Content: content}, nil
+	if len(message.Details) > 0 && !json.Valid(message.Details) {
+		return BoundaryMessageWire{}, fmt.Errorf("droids: boundary details are not valid JSON")
+	}
+	if len(message.Details) > maxToolDetailsBytes {
+		return BoundaryMessageWire{}, fmt.Errorf("droids: boundary details exceed %d bytes", maxToolDetailsBytes)
+	}
+	return BoundaryMessageWire{
+		ID: message.ID, Kind: message.Kind, Source: message.Source, Content: content,
+		Details: append(json.RawMessage(nil), message.Details...),
+	}, nil
 }

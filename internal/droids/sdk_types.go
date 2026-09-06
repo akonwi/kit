@@ -71,6 +71,7 @@ type BoundaryMessage struct {
 	Kind       string
 	Source     string
 	Content    []InputContent
+	Details    json.RawMessage
 }
 
 // PromptOptions controls behavior when the droid is occupied.
@@ -250,10 +251,18 @@ type ConversationSnapshot struct {
 	ForkedFrom *ForkPoint
 }
 
-// PendingInputSnapshot reports durable pending steering and boundary counts.
+// PendingBoundarySnapshot is one durable external boundary awaiting a safe
+// model-context boundary.
+type PendingBoundarySnapshot struct {
+	Message    BoundaryMessage
+	AcceptedAt time.Time
+}
+
+// PendingInputSnapshot reports durable pending steering and boundary state.
 type PendingInputSnapshot struct {
-	Steering int
-	Boundary int
+	Steering   int
+	Boundary   int
+	Boundaries []PendingBoundarySnapshot
 }
 
 // ContextSnapshot reports the active provider context checkpoint.
@@ -276,6 +285,13 @@ type Snapshot struct {
 	Pending      PendingInputSnapshot
 	Context      ContextSnapshot
 	LastEvent    EventSequence
+}
+
+// TurnSnapshot is the durable terminal state of one settled turn.
+type TurnSnapshot struct {
+	ID     TurnID
+	Status ExecutionStatus
+	Error  *DroidError
 }
 
 // HistoryQuery pages canonical messages.

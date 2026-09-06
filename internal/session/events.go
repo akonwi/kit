@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"mime"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/identifier"
 )
 
 // EventKind identifies one renderer-neutral live session update.
@@ -34,7 +36,7 @@ const (
 	EventRunFinished        EventKind = "run.finished"
 )
 
-// NewEvent is a live session update awaiting a durable stream sequence.
+// NewEvent is a live session update awaiting a runtime-local stream sequence.
 type NewEvent struct {
 	SessionID          string
 	TurnID             string
@@ -59,7 +61,7 @@ type NewEvent struct {
 	ErrorMessage       string
 }
 
-// Event is one durable, ordered live session update.
+// Event is one ordered live update retained by a loaded runtime.
 type Event struct {
 	NewEvent
 	StreamID string
@@ -79,6 +81,9 @@ type EventPage struct {
 func (event NewEvent) Validate() error {
 	if event.SessionID == "" || event.TurnID == "" || event.RunID == "" {
 		return fmt.Errorf("session, turn, and run ids are required")
+	}
+	if event.RunID != event.TurnID {
+		return fmt.Errorf("run identity must equal droid turn identity")
 	}
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
@@ -189,8 +194,90 @@ func (event NewEvent) Validate() error {
 	return nil
 }
 
-// Events returns a bounded page of session updates after sequence.
-func (m *Manager) Events(ctx context.Context, sessionID string, after int64) (EventPage, error) {
+type eventLog struct {
+	mu              sync.Mutex
+	streamID        string
+	next            int64
+	events          []Event
+	replayAvailable bool
+}
+
+func newEventLog() (*eventLog, error) {
+	id, err := identifier.New("stream_")
+	if err != nil {
+		return nil, err
+	}
+	return &eventLog{streamID: id, next: 1, replayAvailable: true}, nil
+}
+
+func (log *eventLog) reset() error {
+	id, err := identifier.New("stream_")
+	if err != nil {
+		return err
+	}
+	log.mu.Lock()
+	log.streamID = id
+	log.next = 1
+	log.events = nil
+	log.replayAvailable = true
+	log.mu.Unlock()
+	return nil
+}
+
+func (log *eventLog) append(events []NewEvent) error {
+	for _, event := range events {
+		if err := event.Validate(); err != nil {
+			return err
+		}
+	}
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	for _, event := range events {
+		log.events = append(log.events, Event{NewEvent: event, StreamID: log.streamID, Sequence: log.next})
+		log.next++
+	}
+	const retained = 4096
+	if len(log.events) > retained {
+		log.events = append([]Event(nil), log.events[len(log.events)-retained:]...)
+		log.replayAvailable = false
+	}
+	return nil
+}
+
+func (log *eventLog) invalidate() {
+	log.mu.Lock()
+	log.replayAvailable = false
+	log.mu.Unlock()
+}
+
+func (log *eventLog) page(expectedStream string, after int64) EventPage {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	page := EventPage{StreamID: log.streamID, LastSequence: log.next - 1}
+	if !log.replayAvailable || expectedStream != "" && expectedStream != log.streamID {
+		page.ResyncRequired = true
+		return page
+	}
+	if len(log.events) > 0 {
+		page.FirstSequence = log.events[0].Sequence
+	}
+	if after > page.LastSequence || page.FirstSequence > after+1 {
+		page.ResyncRequired = true
+		return page
+	}
+	for _, event := range log.events {
+		if event.Sequence > after {
+			page.Events = append(page.Events, event)
+			if len(page.Events) == 32 {
+				break
+			}
+		}
+	}
+	return page
+}
+
+// Events returns a bounded page from the loaded runtime's transient stream.
+func (m *Manager) Events(ctx context.Context, sessionID, streamID string, after int64) (EventPage, error) {
 	if err := m.beginOperation(); err != nil {
 		return EventPage{}, err
 	}
@@ -198,7 +285,11 @@ func (m *Manager) Events(ctx context.Context, sessionID string, after int64) (Ev
 	if strings.TrimSpace(sessionID) == "" || after < 0 {
 		return EventPage{}, fmt.Errorf("%w: session id and non-negative sequence are required", ErrInvalidInput)
 	}
-	return m.store.ListSessionEvents(ctx, sessionID, after, 32)
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return EventPage{}, err
+	}
+	return loaded.events.page(streamID, after), nil
 }
 
 func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []NewEvent {
