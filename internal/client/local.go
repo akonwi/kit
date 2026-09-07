@@ -68,6 +68,10 @@ func (c *localServer) CreateSession(
 	return c.transport.CreateSession(ctx, input)
 }
 
+func (c *localServer) RenameSession(ctx context.Context, sessionID, name string) (protocol.SessionInfo, error) {
+	return c.transport.RenameSession(ctx, sessionID, name)
+}
+
 func (c *localServer) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	return c.transport.ListSessions(ctx, cwd)
 }

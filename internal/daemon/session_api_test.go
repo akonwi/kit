@@ -116,6 +116,10 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil || retried.ID != created.ID {
 		t.Fatalf("retry CreateSession() = %+v, %v; want %q", retried, err, created.ID)
 	}
+	renamed, err := client.RenameSession(context.Background(), created.ID, " Renamed API session ")
+	if err != nil || renamed.ID != created.ID || renamed.Name != "Renamed API session" {
+		t.Fatalf("RenameSession() = %+v, %v", renamed, err)
+	}
 	runID, err := identifier.New("run_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)

@@ -629,6 +629,7 @@ type fakeServer struct {
 	createCalls   int
 	attachErr     error
 	attach        func(string) (sessionclient.Session, error)
+	rename        func(string, string) (protocol.SessionInfo, error)
 	list          func(string) ([]protocol.SessionInfo, error)
 }
 
@@ -636,6 +637,13 @@ func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessi
 	s.created = input
 	s.createCalls++
 	return s.createdResult, nil
+}
+
+func (s *fakeServer) RenameSession(_ context.Context, sessionID, name string) (protocol.SessionInfo, error) {
+	if s.rename == nil {
+		panic("unexpected RenameSession")
+	}
+	return s.rename(sessionID, name)
 }
 
 func (s *fakeServer) ListSessions(_ context.Context, cwd string) ([]protocol.SessionInfo, error) {

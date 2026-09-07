@@ -51,9 +51,20 @@ func TestManagerCreateIsIdempotentForClientSelectedSessionID(t *testing.T) {
 		t.Fatalf("idempotent creates first=%q second=%q listed=%+v", first.ID, second.ID, listed)
 	}
 	conflict := input
-	conflict.Name = "Different request"
+	conflict.CWD = t.TempDir()
 	if _, err := manager.Create(t.Context(), conflict); err == nil {
-		t.Fatal("Create accepted a reused session id with different metadata")
+		t.Fatal("Create accepted a reused session id with different immutable metadata")
+	}
+	renamed, err := manager.Rename(t.Context(), first.ID, " Renamed session ")
+	if err != nil || renamed.Name != "Renamed session" {
+		t.Fatalf("Rename() = %+v, %v", renamed, err)
+	}
+	replayed, err := manager.Create(t.Context(), input)
+	if err != nil || replayed.ID != first.ID || replayed.Name != "Renamed session" {
+		t.Fatalf("Create() replay after rename = %+v, %v", replayed, err)
+	}
+	if _, err := manager.Rename(t.Context(), first.ID, "   "); !errors.Is(err, session.ErrInvalidInput) {
+		t.Fatalf("empty Rename() error = %v", err)
 	}
 }
 

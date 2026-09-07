@@ -20,6 +20,7 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 
 type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
+	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
@@ -44,6 +45,18 @@ func (s runtimeSessionService) Create(
 		ID: input.ID, CWD: input.CWD, Name: input.Name, Model: input.Model,
 		ThinkingLevel: input.ThinkingLevel,
 	})
+	if err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	return projectSession(record), nil
+}
+
+func (s runtimeSessionService) Rename(
+	ctx context.Context,
+	sessionID string,
+	input protocol.RenameSessionInput,
+) (protocol.SessionInfo, error) {
+	record, err := s.manager.Rename(ctx, sessionID, input.Name)
 	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
@@ -244,6 +257,23 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, map[string]any{"sessions": records})
+	})
+	mux.HandleFunc("PATCH /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.RenameSessionInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		record, err := service.Rename(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, record)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
 		snapshot, err := service.Snapshot(request.Context(), request.PathValue("sessionID"))

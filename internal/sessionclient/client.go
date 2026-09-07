@@ -10,6 +10,7 @@ import (
 // Server discovers, creates, and binds authoritative sessions.
 type Server interface {
 	CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
+	RenameSession(context.Context, string, string) (protocol.SessionInfo, error)
 	ListSessions(context.Context, string) ([]protocol.SessionInfo, error)
 	Attach(context.Context, string) (Session, error)
 }

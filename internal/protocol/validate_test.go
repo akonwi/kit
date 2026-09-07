@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -16,6 +17,19 @@ func TestCreateSessionInputValidateOptionalCanonicalID(t *testing.T) {
 	}
 	if err := (CreateSessionInput{ID: "session_not-canonical"}).Validate(); err == nil {
 		t.Fatal("Validate() accepted a non-canonical session id")
+	}
+}
+
+func TestRenameSessionInputValidate(t *testing.T) {
+	t.Parallel()
+
+	if err := (RenameSessionInput{Name: " Renamed session "}).Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	for _, name := range []string{"", "   ", "bad\x00name", strings.Repeat("a", 257)} {
+		if err := (RenameSessionInput{Name: name}).Validate(); err == nil {
+			t.Fatalf("Validate() accepted name %q", name)
+		}
 	}
 }
 

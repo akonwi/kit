@@ -109,6 +109,43 @@ func TestSessionExplorerControllerGuardsSwitchLifecycleByGeneration(t *testing.T
 	}
 }
 
+func TestSessionExplorerControllerRenamesSelectedSessionAndCancelsEmptyInput(t *testing.T) {
+	t.Parallel()
+
+	controller := sessionExplorerController{}
+	loadGeneration := controller.Begin("session_current")
+	controller.Resolve(loadGeneration, []sessionExplorerItem{{
+		ID: "session_current", Name: "Before", CWD: "/repo", UpdatedAt: "2026-06-05T12:00:00Z",
+	}}, nil)
+	if !controller.BeginRename() || !controller.RenameOpen || controller.RenameText != "Before" {
+		t.Fatalf("begin rename = %+v", controller)
+	}
+	controller.SetRenameText("  After  ")
+	generation, sessionID, name, started := controller.BeginRenameSave()
+	if !started || sessionID != "session_current" || name != "After" || !controller.RenamePending {
+		t.Fatalf("begin save generation=%d id=%q name=%q controller=%+v", generation, sessionID, name, controller)
+	}
+	if controller.ResolveRename(generation-1, protocol.SessionInfo{}, errors.New("stale")) {
+		t.Fatal("stale rename result was accepted")
+	}
+	if !controller.ResolveRename(generation, protocol.SessionInfo{}, errors.New("offline")) || controller.RenameError != "offline" {
+		t.Fatalf("rename error = %+v", controller)
+	}
+	controller.SetRenameText("After")
+	generation, _, _, started = controller.BeginRenameSave()
+	renamed := protocol.SessionInfo{
+		ID: "session_current", Name: "After", CWD: "/repo", UpdatedAt: "2026-06-05T13:00:00Z",
+	}
+	if !started || !controller.ResolveRename(generation, renamed, nil) || controller.RenameOpen || controller.Sessions[0].Name != "After" {
+		t.Fatalf("rename success = %+v", controller)
+	}
+	controller.BeginRename()
+	controller.SetRenameText("   ")
+	if _, _, _, started := controller.BeginRenameSave(); started || controller.RenameOpen {
+		t.Fatalf("empty rename was not cancelled: %+v", controller)
+	}
+}
+
 func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t *testing.T) {
 	t.Parallel()
 
@@ -132,6 +169,10 @@ func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t 
 	if !controller.HandleKey(ui.Key{Text: "x", Keycode: 'x'}) {
 		t.Fatal("modal text input was not consumed")
 	}
+	if !controller.HandleKey(ui.Key{Text: "r", Keycode: 'r'}) || !controller.RenameOpen {
+		t.Fatal("rename key did not open the rename dialog")
+	}
+	controller.CancelRename()
 	if controller.HandleKey(ui.Key{Keycode: vaxis.KeyEsc}) {
 		t.Fatal("Escape should remain available to the root dismiss intent")
 	}
@@ -219,7 +260,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	for _, expected := range []string{
 		"Session Explorer", "2 sessions", "✓ Current session", "Other workspace",
 		"/workspace/Developer/agent/kit-v2", "01234567", "fedcba98",
-		"↑↓ move · page up/down · enter switch · esc close",
+		"↑↓ move · page up/down", "enter switch · r rename · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("session explorer missing %q:\n%s", expected, text)
@@ -230,7 +271,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	if right-left+1 != 119 || top != 4 || bottom-top+1 != pickerModalMinHeight {
 		t.Fatalf("dialog geometry left=%d right=%d top=%d bottom=%d", left, right, top, bottom)
 	}
-	assertPickerFooter(t, rows, "↑↓ move · page up/down · enter switch · esc close")
+	assertPickerFooter(t, rows, "enter switch · r rename · esc close")
 	currentColumn, currentRow := findTextCell(t, rows, "✓ Current session")
 	currentColumn += len([]rune("✓ "))
 	otherColumn, otherRow := findTextCell(t, rows, "Other workspace")
@@ -339,6 +380,12 @@ func TestSessionExplorerPresentationCommunicatesSwitchProgressAndRetry(t *testin
 		})
 	}
 
+	narrowApplication := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: base,
+	}})
+	narrowApplication.Pump(44, 24)
+	assertPickerFooter(t, paintedRows(narrowApplication, 44, 24), "enter switch · r rename · esc close")
+
 	narrow := base
 	narrow.SwitchError = strings.Repeat("connection unavailable ", 8)
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
@@ -346,6 +393,52 @@ func TestSessionExplorerPresentationCommunicatesSwitchProgressAndRetry(t *testin
 	}})
 	application.Pump(44, 24)
 	assertPickerFooter(t, paintedRows(application, 44, 24), "enter retry · esc close")
+}
+
+func TestSessionRenamePresentationShowsInputFailureAndPendingStates(t *testing.T) {
+	t.Parallel()
+
+	longName := "A deliberately long session name that proves full width"
+	base := sessionExplorerSnapshot{
+		Open: true, RenameOpen: true, RenameSessionID: "session_target", RenameText: longName,
+		Sessions:         []sessionExplorerItem{{ID: "session_target", Name: "Before", CWD: "/repo"}},
+		Selection:        "session_target",
+		CurrentSessionID: "session_target",
+	}
+	for _, test := range []struct {
+		name     string
+		snapshot sessionExplorerSnapshot
+		want     []string
+	}{
+		{name: "editing", snapshot: base, want: []string{"Session Explorer", "Rename session", longName, "enter save · esc cancel"}},
+		{name: "failed", snapshot: func() sessionExplorerSnapshot {
+			snapshot := base
+			snapshot.RenameError = "offline"
+			return snapshot
+		}(), want: []string{"Rename failed: offline", "enter save · esc cancel"}},
+		{name: "pending", snapshot: func() sessionExplorerSnapshot {
+			snapshot := base
+			snapshot.RenamePending = true
+			return snapshot
+		}(), want: []string{"Session Explorer", "Rename session", "⠋ Saving…"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := uitest.New(shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
+			}})
+			application.Pump(100, 24)
+			application.Pump(100, 24)
+			text := strings.Join(paintedRows(application, 100, 24), "\n")
+			for _, want := range test.want {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s rename state missing %q:\n%s", test.name, want, text)
+				}
+			}
+			if count := strings.Count(text, "┌"); count != 3 {
+				t.Fatalf("%s rename state rendered %d bordered surfaces, want explorer, dialog, and input:\n%s", test.name, count, text)
+			}
+		})
+	}
 }
 
 func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing.T) {
@@ -371,7 +464,7 @@ func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing
 	application.Pump(80, 7)
 	rows := paintedRows(application, 80, 7)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Session Explorer", "✓ Session 11", "↑↓ move · page up/down · enter switch · esc close"} {
+	for _, expected := range []string{"Session Explorer", "✓ Session 11", "↑↓ move · page up/down", "enter switch · r rename · esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short explorer missing %q (reveal=%t layout=%t attached=%t metrics=%+v):\n%s", expected, state.controller.needsReveal, state.controller.revealPendingLayout, state.controller.scroll.Attached(), state.controller.scroll.Metrics(), text)
 		}
@@ -494,14 +587,55 @@ func TestSessionExplorerRowsSupportFullRowMouseSelection(t *testing.T) {
 
 	selected := ""
 	row := sessionExplorerRow{
-		Session:   sessionExplorerItem{ID: "session_target", Name: "Target session"},
-		OnPressed: func(ui.EventContext) { selected = "session_target" },
+		Session:     sessionExplorerItem{ID: "session_target", Name: "Target session"},
+		Interactive: true,
+		OnPressed:   func(ui.EventContext) { selected = "session_target" },
 	}
 	application := uitest.New(row)
 	application.Pump(60, 1)
 	application.Click(50, 0)
 	if selected != "session_target" {
 		t.Fatalf("mouse selection = %q", selected)
+	}
+}
+
+func TestSessionRenameFieldPlacesInitialCursorAtEndWithoutPinningIt(t *testing.T) {
+	t.Parallel()
+
+	state := &sessionRenameFieldHarnessState{value: "Before", generation: 1}
+	application := uitest.New(sessionRenameFieldHarness{State: state})
+	application.Pump(80, 12)
+	application.Pump(80, 12)
+	application.Send(ui.Key{Keycode: vaxis.KeyLeft})
+	application.Key("?")
+	application.Pump(80, 12)
+	if state.value != "Befor?e" {
+		t.Fatalf("first cursor movement edit = %q, want one-shot initial end placement", state.value)
+	}
+}
+
+type sessionRenameFieldHarness struct {
+	State *sessionRenameFieldHarnessState
+}
+
+func (w sessionRenameFieldHarness) CreateState() ui.State { return w.State }
+
+type sessionRenameFieldHarnessState struct {
+	ui.StateBase
+	value      string
+	generation uint64
+}
+
+func (s *sessionRenameFieldHarnessState) Build(ui.BuildContext) ui.Widget {
+	return sessionRenameSurface{
+		Snapshot: sessionExplorerSnapshot{
+			RenameOpen: true, RenameSessionID: "session_target", RenameText: s.value,
+			RenameCursorEnd: s.generation,
+			Sessions:        []sessionExplorerItem{{ID: "session_target", Name: "Before"}},
+		},
+		Callbacks: sessionRenameCallbacks{Changed: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.value = value })
+		}},
 	}
 }
 

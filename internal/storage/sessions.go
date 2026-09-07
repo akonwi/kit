@@ -59,6 +59,29 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 	return s.GetSession(ctx, input.ID)
 }
 
+// RenameSession replaces a non-archived session's display name.
+func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionRecord, error) {
+	if s == nil || s.db == nil {
+		return SessionRecord{}, fmt.Errorf("store is closed")
+	}
+	row := s.db.QueryRowContext(ctx, `
+		UPDATE sessions
+		SET name = ?, updated_at = ?
+		WHERE id = ? AND archived_at IS NULL
+		RETURNING id, cwd, name, persistent, parent_session_id,
+		          model_provider, model_id, thinking_level, droid_initialized_at,
+		          created_at, updated_at, archived_at
+	`, name, formatTimestamp(time.Now()), id)
+	record, err := scanSession(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionRecord{}, fmt.Errorf("session %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("rename session %q: %w", id, err)
+	}
+	return record, nil
+}
+
 // GetSession loads one session by exact id.
 func (s *Store) GetSession(ctx context.Context, id string) (SessionRecord, error) {
 	if s == nil || s.db == nil {

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -43,6 +44,33 @@ func TestInitialSchemaContainsOnlySessionRegistry(t *testing.T) {
 		if err != sql.ErrNoRows {
 			t.Fatalf("table %q exists: name=%q err=%v", obsolete, name, err)
 		}
+	}
+}
+
+func TestSessionRegistryRenamesNonArchivedSession(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	created, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_rename", CWD: t.TempDir(), Name: "Before", Persistent: true,
+		ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	renamed, err := store.RenameSession(t.Context(), created.ID, "After")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if renamed.Name != "After" || renamed.ID != created.ID || renamed.UpdatedAt.Before(created.UpdatedAt) {
+		t.Fatalf("renamed session = %+v, created = %+v", renamed, created)
+	}
+	if _, err := store.RenameSession(t.Context(), "session_missing", "After"); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("missing rename error = %v", err)
 	}
 }
 

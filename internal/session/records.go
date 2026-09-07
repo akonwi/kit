@@ -62,6 +62,7 @@ type RunProjection struct {
 // turns, executions, messages, and events belong to each session's droid Store.
 type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
+	RenameSession(context.Context, string, string) (SessionRecord, error)
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)
 	MarkDroidInitialized(context.Context, string, time.Time) error

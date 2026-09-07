@@ -80,12 +80,12 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 	query := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
 		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
 		ui.SizedBox{Width: 1},
-		ui.Expanded(ui.Provider[ui.Theme]{Value: fieldTheme, Child: ui.TextField{
+		textInput(fieldTheme, textInputConfig{
 			Value: w.Snapshot.Query, Placeholder: "Search commands…",
 			CursorOffset: &queryCursor,
 			OnChanged:    w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery,
 			AutoFocus: true,
-		}}),
+		}),
 	}}
 	body := ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
 		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch,

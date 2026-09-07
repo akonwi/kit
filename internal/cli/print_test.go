@@ -96,6 +96,10 @@ func (c *fakeSessionClient) CreateSession(
 	return c.created, nil
 }
 
+func (c *fakeSessionClient) RenameSession(context.Context, string, string) (protocol.SessionInfo, error) {
+	panic("unexpected RenameSession")
+}
+
 func (c *fakeSessionClient) ListSessions(context.Context, string) ([]protocol.SessionInfo, error) {
 	return c.sessions, nil
 }

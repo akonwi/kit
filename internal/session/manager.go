@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
@@ -236,10 +237,25 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 }
 
 func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
-	return record.ID == input.ID && record.CWD == input.CWD && record.Name == input.Name &&
+	// Name is intentionally omitted: it is mutable after creation, while a delayed
+	// replay of the original create request must still resolve to this session.
+	return record.ID == input.ID && record.CWD == input.CWD &&
 		record.Persistent == input.Persistent && record.ParentSessionID == input.ParentSessionID &&
 		record.ModelProvider == input.ModelProvider && record.ModelID == input.ModelID &&
 		record.ThinkingLevel == input.ThinkingLevel && record.ArchivedAt == nil
+}
+
+// Rename replaces one persisted session's display name.
+func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRecord, error) {
+	if err := m.beginOperation(); err != nil {
+		return SessionRecord{}, err
+	}
+	defer m.ops.Done()
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
+		return SessionRecord{}, fmt.Errorf("%w: session name must be non-empty valid UTF-8 without NUL and at most 256 bytes", ErrInvalidInput)
+	}
+	return m.store.RenameSession(ctx, sessionID, name)
 }
 
 func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error) {

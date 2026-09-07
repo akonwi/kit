@@ -323,6 +323,8 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
 - **Picker selection:** use `pickerFocusedBg` with `pickerFocusedText`.
 - **Input:** transparent background with `borderDefault` when idle, `borderFocused` when focused, and `borderAccent` while editing when those states are distinct.
+- A single-line input that owns a row fills all available horizontal space by default. Compact intrinsic-width inputs must be an explicit exception. In the native TUI, use Kit's `textInput` primitive for normal inputs; it is full-width by default. Use a bare `ui.TextField` only when an intentionally compact intrinsic-width control is required.
+- Presentation tests for new row-owning inputs must render a value longer than the toolkit's intrinsic minimum width and assert that the complete value remains visible at a representative viewport width. This catches accidentally shrink-wrapped fields.
 - **Toggle:** use the established four-cell track and two-cell knob; active track uses `toggleOn`.
 - **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. Communicate focus with the control background instead of decorative brackets around its label. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.
 - **Navigable URL:** keep the literal target visible, underline it, and attach OSC 8 hyperlink metadata when the target is safe. When the TUI has mouse reporting enabled, also handle activation explicitly because terminal-native clicks may be delivered to the app. Do not replace useful URLs with opaque `click here` copy.

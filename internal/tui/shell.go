@@ -89,6 +89,8 @@ type shellCallbacks struct {
 	RunPaletteQuery       ui.TextChangedCallback
 	RunPaletteCommand     func(ui.EventContext, paletteCommandID)
 	SelectSession         func(ui.EventContext, string)
+	RenameSessionChanged  ui.TextChangedCallback
+	SubmitSessionRename   ui.TextChangedCallback
 	Submit                ui.TextChangedCallback
 	Retry                 ui.VoidCallback
 	Quit                  ui.VoidCallback
@@ -163,6 +165,14 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			Snapshot:  w.Snapshot.SessionExplorer,
 			Callbacks: sessionExplorerCallbacks{Select: w.Callbacks.SelectSession},
 		}))
+		if w.Snapshot.SessionExplorer.RenameOpen {
+			overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
+				Snapshot: w.Snapshot.SessionExplorer,
+				Callbacks: sessionRenameCallbacks{
+					Changed: w.Callbacks.RenameSessionChanged, Submitted: w.Callbacks.SubmitSessionRename,
+				},
+			}))
+		}
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
 		overlays = append(overlays, ui.OverlayEntry{
@@ -689,12 +699,12 @@ func (w shellView) providerSelectionBody(theme ui.Theme) ui.Widget {
 		ui.Text{Value: "Filter providers", Style: ui.Style{Foreground: theme.MutedForeground}},
 		ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
 			ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-			ui.Expanded(ui.Provider[ui.Theme]{Value: fieldTheme, Child: ui.TextField{
+			textInput(fieldTheme, textInputConfig{
 				Value:       w.Snapshot.AuthFilter,
 				OnChanged:   w.Callbacks.AuthFilterChanged,
 				OnSubmitted: func(ctx ui.EventContext, _ string) { w.selectHighlightedProvider(ctx) },
 				AutoFocus:   true,
-			}}),
+			}),
 		}},
 		ui.SizedBox{Height: 1},
 	)
@@ -762,9 +772,11 @@ func (w shellView) apiKeyBody(theme ui.Theme) ui.Widget {
 	}
 	children = append(children,
 		ui.Text{Value: "API key", Style: ui.Style{Foreground: theme.MutedForeground}},
-		ui.Provider[ui.Theme]{Value: fieldTheme, Child: ui.TextField{
-			Value: w.Snapshot.AuthAPIKey, OnChanged: w.Callbacks.AuthAPIKeyChanged,
-			OnSubmitted: w.Callbacks.SubmitAPIKey, ObscureText: true, AutoFocus: true,
+		ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, Children: []ui.Widget{
+			textInput(fieldTheme, textInputConfig{
+				Value: w.Snapshot.AuthAPIKey, OnChanged: w.Callbacks.AuthAPIKeyChanged,
+				OnSubmitted: w.Callbacks.SubmitAPIKey, ObscureText: true, AutoFocus: true,
+			}),
 		}},
 	)
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}

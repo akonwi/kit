@@ -549,6 +549,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SelectSession: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
 		},
+		RenameSessionChanged: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.sessionExplorer.SetRenameText(value) })
+		},
+		SubmitSessionRename: func(_ ui.EventContext, value string) {
+			s.renameSelectedSession(value)
+		},
 		Submit: func(ctx ui.EventContext, value string) {
 			if s.phase != phaseReady {
 				return
@@ -569,6 +575,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		Quit: func(ctx ui.EventContext) {
 			if s.sessionExplorer.Open {
+				if s.sessionExplorer.RenamePending {
+					return
+				}
 				s.cancelSessionSwitch()
 				s.SetState(func() { s.sessionExplorer.Close() })
 				return
@@ -601,6 +610,22 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		return ui.EventIgnored
 	}
 	if s.sessionExplorer.Open {
+		if s.sessionExplorer.RenameOpen {
+			if key.EventType == ui.EventRelease {
+				return ui.EventHandled
+			}
+			if key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+				s.renameSelectedSession(s.sessionExplorer.RenameText)
+				return ui.EventHandled
+			}
+			if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+				return ui.EventIgnored
+			}
+			if s.sessionExplorer.RenamePending {
+				return ui.EventHandled
+			}
+			return ui.EventIgnored
+		}
 		if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
 			s.switchSelectedSession()
 			return ui.EventHandled
@@ -1729,6 +1754,44 @@ func listSessionExplorerSessions(ctx context.Context, server sessionclient.Serve
 	return server.ListSessions(ctx, "")
 }
 
+func (s *appState) renameSelectedSession(value string) {
+	var generation uint64
+	var sessionID, name string
+	var started bool
+	s.SetState(func() {
+		s.sessionExplorer.SetRenameText(value)
+		generation, sessionID, name, started = s.sessionExplorer.BeginRenameSave()
+	})
+	if !started {
+		return
+	}
+	server := s.Widget().(app).Options.Server
+	runtime := s.Context().Runtime()
+	go func() {
+		renameContext, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+		renamed, err := server.RenameSession(renameContext, sessionID, name)
+		cancel()
+		if err == nil && renamed.ID != sessionID {
+			err = errors.New("renamed session identity mismatch")
+		}
+		if err == nil && renamed.Name != name {
+			err = errors.New("renamed session name mismatch")
+		}
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			accepted := false
+			s.SetState(func() {
+				accepted = s.sessionExplorer.ResolveRename(generation, renamed, err)
+				if accepted && err == nil && s.session.ID == sessionID {
+					s.session = renamed
+				}
+			})
+		})
+	}()
+}
+
 func (s *appState) switchSelectedSession() {
 	if !s.sessionExplorer.Open || s.hasActiveWork() {
 		return
@@ -2005,6 +2068,12 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 
 func (s *appState) dismiss(_ ui.EventContext) {
 	if s.sessionExplorer.Open {
+		if s.sessionExplorer.RenameOpen {
+			if !s.sessionExplorer.RenamePending {
+				s.SetState(func() { s.sessionExplorer.CancelRename() })
+			}
+			return
+		}
 		s.cancelSessionSwitch()
 		if s.sessionExplorer.Switching {
 			s.SetState(func() { s.sessionExplorer.CancelSwitch() })

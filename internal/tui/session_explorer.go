@@ -45,6 +45,12 @@ type sessionExplorerController struct {
 	Error               string
 	Switching           bool
 	SwitchError         string
+	RenameOpen          bool
+	RenameSessionID     string
+	RenameText          string
+	RenameCursorEnd     uint64
+	RenamePending       bool
+	RenameError         string
 	Sessions            []sessionExplorerItem
 	Selection           string
 	CurrentSessionID    string
@@ -63,6 +69,12 @@ type sessionExplorerSnapshot struct {
 	Error            string
 	Switching        bool
 	SwitchError      string
+	RenameOpen       bool
+	RenameSessionID  string
+	RenameText       string
+	RenameCursorEnd  uint64
+	RenamePending    bool
+	RenameError      string
 	Sessions         []sessionExplorerItem
 	Selection        string
 	CurrentSessionID string
@@ -117,6 +129,9 @@ func (c *sessionExplorerController) Snapshot() sessionExplorerSnapshot {
 	return sessionExplorerSnapshot{
 		Open: c.Open, Loading: c.Loading, Error: c.Error,
 		Switching: c.Switching, SwitchError: c.SwitchError,
+		RenameOpen: c.RenameOpen, RenameSessionID: c.RenameSessionID,
+		RenameText: c.RenameText, RenameCursorEnd: c.RenameCursorEnd,
+		RenamePending: c.RenamePending, RenameError: c.RenameError,
 		Sessions: append([]sessionExplorerItem(nil), c.Sessions...), Selection: c.Selection,
 		CurrentSessionID: c.CurrentSessionID, Scroll: &c.scroll, List: &c.list, Layout: &c.layout,
 	}
@@ -128,7 +143,7 @@ func (c *sessionExplorerController) Close() {
 }
 
 func (c *sessionExplorerController) Select(sessionID string) {
-	if c.Switching {
+	if c.Switching || c.RenameOpen {
 		return
 	}
 	if sessionIndex(c.Sessions, sessionID) >= 0 && c.Selection != sessionID {
@@ -138,15 +153,88 @@ func (c *sessionExplorerController) Select(sessionID string) {
 	}
 }
 
+func (c *sessionExplorerController) BeginRename() bool {
+	if _, ok := c.ActivatableSelection(); !ok {
+		return false
+	}
+	index := sessionIndex(c.Sessions, c.Selection)
+	c.generation++
+	c.RenameOpen = true
+	c.RenameSessionID = c.Selection
+	c.RenameText = c.Sessions[index].Name
+	c.RenameCursorEnd++
+	c.RenamePending = false
+	c.RenameError = ""
+	return true
+}
+
+func (c *sessionExplorerController) SetRenameText(value string) {
+	if c.RenameOpen && !c.RenamePending {
+		c.RenameText = value
+		c.RenameError = ""
+	}
+}
+
+func (c *sessionExplorerController) BeginRenameSave() (uint64, string, string, bool) {
+	if !c.RenameOpen || c.RenamePending || sessionIndex(c.Sessions, c.RenameSessionID) < 0 {
+		return 0, "", "", false
+	}
+	name := strings.TrimSpace(c.RenameText)
+	if name == "" {
+		c.CancelRename()
+		return 0, "", "", false
+	}
+	c.generation++
+	c.RenamePending = true
+	c.RenameError = ""
+	return c.generation, c.RenameSessionID, name, true
+}
+
+func (c *sessionExplorerController) ResolveRename(generation uint64, session protocol.SessionInfo, err error) bool {
+	if !c.RenameOpen || !c.RenamePending || generation != c.generation {
+		return false
+	}
+	c.RenamePending = false
+	if err != nil {
+		c.RenameError = err.Error()
+		c.RenameCursorEnd++
+		return true
+	}
+	index := sessionIndex(c.Sessions, c.RenameSessionID)
+	if index < 0 || session.ID != c.RenameSessionID {
+		c.RenameError = "renamed session identity mismatch"
+		return true
+	}
+	c.Sessions[index] = sessionExplorerItem{
+		ID: session.ID, CWD: session.CWD, Name: session.Name, UpdatedAt: session.UpdatedAt,
+	}
+	c.RenameOpen = false
+	c.RenameSessionID = ""
+	c.RenameText = ""
+	c.RenameError = ""
+	return true
+}
+
+func (c *sessionExplorerController) CancelRename() {
+	if !c.RenameOpen || c.RenamePending {
+		return
+	}
+	c.generation++
+	c.RenameOpen = false
+	c.RenameSessionID = ""
+	c.RenameText = ""
+	c.RenameError = ""
+}
+
 func (c *sessionExplorerController) ActivatableSelection() (string, bool) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || sessionIndex(c.Sessions, c.Selection) < 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || sessionIndex(c.Sessions, c.Selection) < 0 {
 		return "", false
 	}
 	return c.Selection, true
 }
 
 func (c *sessionExplorerController) BeginSwitch() (uint64, string, bool) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || sessionIndex(c.Sessions, c.Selection) < 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || sessionIndex(c.Sessions, c.Selection) < 0 {
 		return 0, "", false
 	}
 	c.generation++
@@ -178,7 +266,7 @@ func (c *sessionExplorerController) ResolveSwitch(generation uint64, err error) 
 }
 
 func (c *sessionExplorerController) Move(delta int) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || len(c.Sessions) == 0 || delta == 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || len(c.Sessions) == 0 || delta == 0 {
 		return
 	}
 	index := sessionIndex(c.Sessions, c.Selection)
@@ -269,6 +357,8 @@ func (c *sessionExplorerController) HandleKey(key ui.Key) bool {
 		c.Move(-sessionExplorerMaxVisible)
 	case key.MatchString("Page_Down"):
 		c.Move(sessionExplorerMaxVisible)
+	case key.MatchString("r"):
+		c.BeginRename()
 	}
 	return true
 }
@@ -342,10 +432,17 @@ func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
 	mutedStyle := ui.Style{Foreground: theme.MutedForeground}
-	var footer ui.Widget = ui.Text{
-		Value: "↑↓ move · page up/down · enter switch · esc close", Style: mutedStyle,
-		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-	}
+	var footer ui.Widget = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+		ui.Expanded(ui.Text{
+			Value: "↑↓ move · page up/down", Style: mutedStyle,
+			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		}),
+		ui.SizedBox{Width: 2},
+		ui.Text{
+			Value: "enter switch · r rename · esc close", Style: mutedStyle,
+			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		},
+	}}
 	switch {
 	case w.Snapshot.Switching:
 		footer = ui.Text{Value: "esc cancel", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
@@ -406,6 +503,7 @@ func (w sessionExplorerSurface) body(theme ui.Theme, scroll *ui.ScrollController
 				return sessionExplorerRow{
 					Session: session, Current: session.ID == w.Snapshot.CurrentSessionID,
 					Selected:     session.ID == w.Snapshot.Selection,
+					Interactive:  !w.Snapshot.RenameOpen && !w.Snapshot.Switching,
 					SessionCount: len(w.Snapshot.Sessions), Layout: layout,
 					OnPressed: func(event ui.EventContext) {
 						if w.Callbacks.Select != nil {
@@ -566,6 +664,7 @@ type sessionExplorerRow struct {
 	Session      sessionExplorerItem
 	Current      bool
 	Selected     bool
+	Interactive  bool
 	SessionCount int
 	Layout       *pickerDialogLayoutState
 	OnPressed    ui.VoidCallback
@@ -595,7 +694,7 @@ func (s *sessionExplorerRowState) Build(ctx ui.BuildContext) ui.Widget {
 		background = theme.Foreground
 		primary = theme.Background
 		secondary = theme.Background
-	} else if s.hovered {
+	} else if row.Interactive && s.hovered {
 		background = theme.SurfaceHovered
 	}
 	marker := "  "
@@ -615,6 +714,12 @@ func (s *sessionExplorerRowState) Build(ctx ui.BuildContext) ui.Widget {
 		ui.Text{Value: sessionDisplayCWD(row.Session.CWD, sessionCWDExpandedWidth), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		ui.Text{Value: shortID, Style: secondaryStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 	}}
+	rowWidget := ui.Widget(ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Background: background}}, content,
+	)})
+	if !row.Interactive {
+		return rowWidget
+	}
 	return mouseActivator{
 		OnPressed: row.OnPressed,
 		OnHover: func(ui.EventContext) {
@@ -627,9 +732,7 @@ func (s *sessionExplorerRowState) Build(ctx ui.BuildContext) ui.Widget {
 				s.SetState(func() { s.hovered = false })
 			}
 		},
-		Child: ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
-			ui.Decoration{Style: ui.Style{Background: background}}, content,
-		)},
+		Child: rowWidget,
 	}
 }
 

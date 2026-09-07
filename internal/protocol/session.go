@@ -15,6 +15,11 @@ type CreateSessionInput struct {
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
 }
 
+// RenameSessionInput requests a new non-empty display name for a session.
+type RenameSessionInput struct {
+	Name string `json:"name"`
+}
+
 // RunReservation acknowledges a droid-owned turn admission.
 type RunReservation struct {
 	SessionID string `json:"sessionId"`

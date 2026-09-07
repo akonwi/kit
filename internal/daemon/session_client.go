@@ -45,6 +45,29 @@ func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSession
 	return output, nil
 }
 
+// RenameSession replaces one persisted session's display name.
+func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (protocol.SessionInfo, error) {
+	input := protocol.RenameSessionInput{Name: name}
+	if err := input.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate session rename: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID)
+	var output protocol.SessionInfo
+	if err := c.sessionJSON(ctx, http.MethodPatch, path, input, http.StatusOK, &output); err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate renamed daemon session: %w", err)
+	}
+	if output.ID != sessionID {
+		return protocol.SessionInfo{}, fmt.Errorf("daemon session rename identity mismatch")
+	}
+	if output.Name != strings.TrimSpace(name) {
+		return protocol.SessionInfo{}, fmt.Errorf("daemon session rename value mismatch")
+	}
+	return output, nil
+}
+
 // ListSessions lists daemon sessions, optionally filtered to one cwd.
 func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	path := "/v1/sessions"

@@ -195,10 +195,10 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 			ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 				ui.Text{Value: ">", Style: ui.Style{Foreground: theme.SuccessText}},
 				ui.SizedBox{Width: 1},
-				ui.Expanded(ui.Provider[ui.Theme]{Value: fieldTheme, Child: ui.TextField{
+				textInput(fieldTheme, textInputConfig{
 					Value: w.Controller.Query, Placeholder: "Search bash history…", CursorOffset: &cursor,
 					OnChanged: w.OnQuery, AutoFocus: true,
-				}}),
+				}),
 			}},
 			ui.SizedBox{Height: 1},
 			ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows},

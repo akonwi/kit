@@ -18,6 +18,15 @@ func (input CreateSessionInput) Validate() error {
 	return nil
 }
 
+// Validate checks a session rename crossing a transport boundary.
+func (input RenameSessionInput) Validate() error {
+	name := strings.TrimSpace(input.Name)
+	if name == "" || len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
+		return fmt.Errorf("session name must be non-empty valid UTF-8 without NUL and at most 256 bytes")
+	}
+	return nil
+}
+
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {
 	if session.ID == "" {
