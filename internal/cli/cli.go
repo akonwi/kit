@@ -153,6 +153,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		Server:             kitclient.NewLocalServer(paths),
 		CWD:                cwd,
 		Location:           interactiveLocation(ctx, cwd),
+		ResolveLocation:    interactiveLocation,
 		DefaultModel:       defaultModel,
 		DefaultThinking:    "medium",
 		AvailableProviders: providers,

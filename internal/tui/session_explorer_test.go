@@ -67,6 +67,48 @@ func TestSessionExplorerControllerIgnoresClosedAndStaleLoads(t *testing.T) {
 	}
 }
 
+func TestSessionExplorerControllerGuardsSwitchLifecycleByGeneration(t *testing.T) {
+	t.Parallel()
+
+	controller := sessionExplorerController{}
+	loadGeneration := controller.Begin("session_current")
+	if _, activatable := controller.ActivatableSelection(); activatable {
+		t.Fatal("loading explorer exposed an activatable seeded selection")
+	}
+	controller.Resolve(loadGeneration, []sessionExplorerItem{
+		{ID: "session_target", UpdatedAt: "2026-06-05T12:00:00Z"},
+		{ID: "session_current", UpdatedAt: "2026-06-05T11:00:00Z"},
+	}, nil)
+	controller.Select("session_target")
+	switchGeneration, target, started := controller.BeginSwitch()
+	if !started || target != "session_target" || !controller.Switching || controller.SwitchError != "" {
+		t.Fatalf("begin switch generation=%d target=%q controller=%+v", switchGeneration, target, controller)
+	}
+	controller.Move(1)
+	controller.Select("session_current")
+	if controller.Selection != "session_target" {
+		t.Fatalf("selection changed while switching: %q", controller.Selection)
+	}
+	if controller.ResolveSwitch(switchGeneration-1, errors.New("stale")) {
+		t.Fatal("stale switch result was accepted")
+	}
+	if !controller.ResolveSwitch(switchGeneration, errors.New("offline")) || controller.Switching || controller.SwitchError != "offline" {
+		t.Fatalf("failed switch result = %+v", controller)
+	}
+	retryGeneration, retryTarget, started := controller.BeginSwitch()
+	if !started || retryGeneration == switchGeneration || retryTarget != target {
+		t.Fatalf("retry generation=%d target=%q started=%t", retryGeneration, retryTarget, started)
+	}
+	controller.CancelSwitch()
+	if !controller.Open || controller.Switching || controller.SwitchError != "" {
+		t.Fatalf("cancelled switch did not return to list: %+v", controller)
+	}
+	finalGeneration, _, started := controller.BeginSwitch()
+	if !started || !controller.ResolveSwitch(finalGeneration, nil) || controller.Open {
+		t.Fatalf("successful switch did not close explorer: %+v", controller)
+	}
+}
+
 func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t *testing.T) {
 	t.Parallel()
 
@@ -177,7 +219,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	for _, expected := range []string{
 		"Session Explorer", "2 sessions", "✓ Current session", "Other workspace",
 		"/workspace/Developer/agent/kit-v2", "01234567", "fedcba98",
-		"↑↓ move · page up/down · esc close",
+		"↑↓ move · page up/down · enter switch · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("session explorer missing %q:\n%s", expected, text)
@@ -188,7 +230,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	if right-left+1 != 119 || top != 4 || bottom-top+1 != pickerModalMinHeight {
 		t.Fatalf("dialog geometry left=%d right=%d top=%d bottom=%d", left, right, top, bottom)
 	}
-	assertPickerFooter(t, rows, "↑↓ move · page up/down · esc close")
+	assertPickerFooter(t, rows, "↑↓ move · page up/down · enter switch · esc close")
 	currentColumn, currentRow := findTextCell(t, rows, "✓ Current session")
 	currentColumn += len([]rune("✓ "))
 	otherColumn, otherRow := findTextCell(t, rows, "Other workspace")
@@ -253,11 +295,57 @@ func TestSessionExplorerPresentationHasExplicitLoadingErrorAndEmptyStates(t *tes
 			}})
 			application.Pump(80, 16)
 			text := strings.Join(paintedRows(application, 80, 16), "\n")
-			if !strings.Contains(text, test.want) || !strings.Contains(text, "esc close") {
+			if !strings.Contains(text, test.want) {
 				t.Fatalf("%s state =\n%s", test.name, text)
+			}
+			assertPickerFooter(t, paintedRows(application, 80, 16), "esc close")
+		})
+	}
+}
+
+func TestSessionExplorerPresentationCommunicatesSwitchProgressAndRetry(t *testing.T) {
+	t.Parallel()
+
+	base := sessionExplorerSnapshot{
+		Open: true, Sessions: []sessionExplorerItem{{ID: "session_target", Name: "Target"}}, Selection: "session_target",
+	}
+	for _, test := range []struct {
+		name     string
+		snapshot sessionExplorerSnapshot
+		want     []string
+	}{
+		{name: "switching", snapshot: func() sessionExplorerSnapshot {
+			snapshot := base
+			snapshot.Switching = true
+			return snapshot
+		}(), want: []string{"⠋ Switching…", "esc cancel"}},
+		{name: "retry", snapshot: func() sessionExplorerSnapshot {
+			snapshot := base
+			snapshot.SwitchError = "offline"
+			return snapshot
+		}(), want: []string{"Switch failed", "Switch failed: offline", "enter retry · esc close"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := uitest.New(shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
+			}})
+			application.Pump(100, 24)
+			text := strings.Join(paintedRows(application, 100, 24), "\n")
+			for _, want := range test.want {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s state missing %q:\n%s", test.name, want, text)
+				}
 			}
 		})
 	}
+
+	narrow := base
+	narrow.SwitchError = strings.Repeat("connection unavailable ", 8)
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: narrow,
+	}})
+	application.Pump(44, 24)
+	assertPickerFooter(t, paintedRows(application, 44, 24), "enter retry · esc close")
 }
 
 func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing.T) {
@@ -283,7 +371,7 @@ func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing
 	application.Pump(80, 7)
 	rows := paintedRows(application, 80, 7)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Session Explorer", "✓ Session 11", "↑↓ move · page up/down · esc close"} {
+	for _, expected := range []string{"Session Explorer", "✓ Session 11", "↑↓ move · page up/down · enter switch · esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short explorer missing %q (reveal=%t layout=%t attached=%t metrics=%+v):\n%s", expected, state.controller.needsReveal, state.controller.revealPendingLayout, state.controller.scroll.Attached(), state.controller.scroll.Metrics(), text)
 		}

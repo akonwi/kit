@@ -43,6 +43,8 @@ type sessionExplorerController struct {
 	Open                bool
 	Loading             bool
 	Error               string
+	Switching           bool
+	SwitchError         string
 	Sessions            []sessionExplorerItem
 	Selection           string
 	CurrentSessionID    string
@@ -59,6 +61,8 @@ type sessionExplorerSnapshot struct {
 	Open             bool
 	Loading          bool
 	Error            string
+	Switching        bool
+	SwitchError      string
 	Sessions         []sessionExplorerItem
 	Selection        string
 	CurrentSessionID string
@@ -112,6 +116,7 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 func (c *sessionExplorerController) Snapshot() sessionExplorerSnapshot {
 	return sessionExplorerSnapshot{
 		Open: c.Open, Loading: c.Loading, Error: c.Error,
+		Switching: c.Switching, SwitchError: c.SwitchError,
 		Sessions: append([]sessionExplorerItem(nil), c.Sessions...), Selection: c.Selection,
 		CurrentSessionID: c.CurrentSessionID, Scroll: &c.scroll, List: &c.list, Layout: &c.layout,
 	}
@@ -123,14 +128,57 @@ func (c *sessionExplorerController) Close() {
 }
 
 func (c *sessionExplorerController) Select(sessionID string) {
+	if c.Switching {
+		return
+	}
 	if sessionIndex(c.Sessions, sessionID) >= 0 && c.Selection != sessionID {
 		c.Selection = sessionID
+		c.SwitchError = ""
 		c.requestReveal()
 	}
 }
 
+func (c *sessionExplorerController) ActivatableSelection() (string, bool) {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || sessionIndex(c.Sessions, c.Selection) < 0 {
+		return "", false
+	}
+	return c.Selection, true
+}
+
+func (c *sessionExplorerController) BeginSwitch() (uint64, string, bool) {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || sessionIndex(c.Sessions, c.Selection) < 0 {
+		return 0, "", false
+	}
+	c.generation++
+	c.Switching = true
+	c.SwitchError = ""
+	return c.generation, c.Selection, true
+}
+
+func (c *sessionExplorerController) CancelSwitch() {
+	if !c.Switching {
+		return
+	}
+	c.generation++
+	c.Switching = false
+	c.SwitchError = ""
+}
+
+func (c *sessionExplorerController) ResolveSwitch(generation uint64, err error) bool {
+	if !c.Open || !c.Switching || generation != c.generation {
+		return false
+	}
+	c.Switching = false
+	if err != nil {
+		c.SwitchError = err.Error()
+		return true
+	}
+	c.Close()
+	return true
+}
+
 func (c *sessionExplorerController) Move(delta int) {
-	if !c.Open || c.Loading || c.Error != "" || len(c.Sessions) == 0 || delta == 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || len(c.Sessions) == 0 || delta == 0 {
 		return
 	}
 	index := sessionIndex(c.Sessions, c.Selection)
@@ -140,6 +188,7 @@ func (c *sessionExplorerController) Move(delta int) {
 	index = max(0, min(len(c.Sessions)-1, index+delta))
 	if next := c.Sessions[index].ID; next != c.Selection {
 		c.Selection = next
+		c.SwitchError = ""
 		c.requestReveal()
 	}
 }
@@ -263,27 +312,54 @@ type sessionExplorerSurface struct {
 func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	meta := ""
+	metaStyle := ui.Style{Foreground: theme.MutedForeground}
 	switch {
 	case w.Snapshot.Loading:
 		meta = "Loading…"
 	case w.Snapshot.Error != "":
 		meta = "Unavailable"
+	case w.Snapshot.Switching:
+		meta = "Switching…"
+	case w.Snapshot.SwitchError != "":
+		meta = "Switch failed"
+		metaStyle = ui.Style{Foreground: theme.DangerText}
 	case len(w.Snapshot.Sessions) > 1:
 		meta = sessionCountLabel(len(w.Snapshot.Sessions))
 	}
 	headerChildren := []ui.Widget{
 		ui.Expanded(ui.Text{Value: "Session Explorer", Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 	}
-	if meta != "" {
+	if w.Snapshot.Switching {
+		headerChildren = append(headerChildren,
+			spinner{Style: metaStyle}, ui.SizedBox{Width: 1},
+			ui.Text{Value: meta, Style: metaStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+		)
+	} else if meta != "" {
 		headerChildren = append(headerChildren, ui.Text{
-			Value: meta, Style: ui.Style{Foreground: theme.MutedForeground},
+			Value: meta, Style: metaStyle,
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		})
 	}
 	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
-	footer := ui.Text{
-		Value: "↑↓ move · page up/down · esc close", Style: ui.Style{Foreground: theme.MutedForeground},
+	mutedStyle := ui.Style{Foreground: theme.MutedForeground}
+	var footer ui.Widget = ui.Text{
+		Value: "↑↓ move · page up/down · enter switch · esc close", Style: mutedStyle,
 		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+	}
+	switch {
+	case w.Snapshot.Switching:
+		footer = ui.Text{Value: "esc cancel", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	case w.Snapshot.SwitchError != "":
+		footer = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+			ui.Expanded(ui.Text{
+				Value: "Switch failed: " + w.Snapshot.SwitchError, Style: ui.Style{Foreground: theme.DangerText},
+				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+			}),
+			ui.SizedBox{Width: 2},
+			ui.Text{Value: "enter retry · esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+		}}
+	case w.Snapshot.Loading || w.Snapshot.Error != "" || len(w.Snapshot.Sessions) == 0:
+		footer = ui.Text{Value: "esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	}
 	scroll := w.Snapshot.Scroll
 	if scroll == nil {

@@ -16,6 +16,7 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
+	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -40,6 +41,7 @@ type Options struct {
 	Server             sessionclient.Server
 	CWD                string
 	Location           string
+	ResolveLocation    func(context.Context, string) string
 	DefaultModel       string
 	DefaultThinking    string
 	AvailableProviders map[string]bool
@@ -150,6 +152,10 @@ type appState struct {
 	authPending                 bool
 	session                     protocol.SessionInfo
 	bound                       sessionclient.Session
+	location                    string
+	sessionDrafts               map[string]string
+	sessionSwitchCancel         context.CancelFunc
+	sessionSwitchGeneration     uint64
 	messages                    []transcriptMessage
 	liveMessages                []transcriptMessage
 	liveAssistant               int
@@ -213,6 +219,8 @@ func (s *appState) InitState() {
 	s.liveContent = make(map[int]liveContentBlock)
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.bashCollapsed = make(map[string]bool)
+	s.location = options.Location
+	s.sessionDrafts = make(map[string]string)
 	s.newSessionPending = options.NewSessionID != ""
 	if options.Authenticated {
 		s.phase = phaseLoading
@@ -314,13 +322,15 @@ func (s *appState) Dispose() {
 	if s.loginCancel != nil {
 		s.loginCancel()
 	}
+	if s.sessionSwitchCancel != nil {
+		s.sessionSwitchCancel()
+	}
 	if s.cancel != nil {
 		s.cancel()
 	}
 }
 
 func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
-	options := s.Widget().(app).Options
 	presentedMessages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
@@ -364,7 +374,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashHistory:                 s.bashHistory,
 		Instructions:                s.instructions,
 		Remaining:                   s.remaining,
-		Location:                    options.Location,
+		Location:                    s.location,
 	}
 	callbacks := shellCallbacks{
 		OpenAuth: func(ui.EventContext) {
@@ -559,6 +569,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		Quit: func(ctx ui.EventContext) {
 			if s.sessionExplorer.Open {
+				s.cancelSessionSwitch()
 				s.SetState(func() { s.sessionExplorer.Close() })
 				return
 			}
@@ -590,6 +601,10 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		return ui.EventIgnored
 	}
 	if s.sessionExplorer.Open {
+		if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+			s.switchSelectedSession()
+			return ui.EventHandled
+		}
 		var handled bool
 		s.SetState(func() { handled = s.sessionExplorer.HandleKey(key) })
 		if handled {
@@ -1714,6 +1729,159 @@ func listSessionExplorerSessions(ctx context.Context, server sessionclient.Serve
 	return server.ListSessions(ctx, "")
 }
 
+func (s *appState) switchSelectedSession() {
+	if !s.sessionExplorer.Open || s.hasActiveWork() {
+		return
+	}
+	target, activatable := s.sessionExplorer.ActivatableSelection()
+	if !activatable {
+		return
+	}
+	if target == s.session.ID {
+		s.cancelSessionSwitch()
+		s.SetState(func() { s.sessionExplorer.Close() })
+		return
+	}
+	var generation uint64
+	var targetSessionID string
+	var started bool
+	s.SetState(func() {
+		generation, targetSessionID, started = s.sessionExplorer.BeginSwitch()
+	})
+	if !started {
+		return
+	}
+
+	s.cancelSessionSwitch()
+	switchContext, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+	s.sessionSwitchCancel = cancel
+	s.sessionSwitchGeneration = generation
+	options := s.Widget().(app).Options
+	runtime := s.Context().Runtime()
+	go func() {
+		bound, snapshot, location, err := attachSessionForSwitch(
+			switchContext, options.Server, targetSessionID, options.ResolveLocation,
+		)
+		cancel()
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if generation != s.sessionSwitchGeneration {
+				return
+			}
+			s.sessionSwitchCancel = nil
+			s.sessionSwitchGeneration = 0
+			if err != nil {
+				s.SetState(func() { s.sessionExplorer.ResolveSwitch(generation, err) })
+				return
+			}
+			var operation uint64
+			nextRunID := snapshot.ActiveRunID
+			nextBashID := snapshot.ActiveBashExecutionID
+			s.SetState(func() {
+				if !s.sessionExplorer.ResolveSwitch(generation, nil) {
+					return
+				}
+				s.installSession(bound, snapshot, location)
+				operation = s.operation
+			})
+			if operation == 0 {
+				return
+			}
+			if nextRunID != "" {
+				s.watchSession(bound, operation, nextRunID)
+			}
+			if nextBashID != "" {
+				s.resumeBash(bound, operation, nextBashID)
+			}
+		})
+	}()
+}
+
+func attachSessionForSwitch(
+	ctx context.Context,
+	server sessionclient.Server,
+	sessionID string,
+	resolveLocation func(context.Context, string) string,
+) (sessionclient.Session, protocol.SessionSnapshot, string, error) {
+	bound, err := server.Attach(ctx, sessionID)
+	if err != nil {
+		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("attach session: %w", err)
+	}
+	if bound.ID() != sessionID {
+		return nil, protocol.SessionSnapshot{}, "", errors.New("attached session identity mismatch")
+	}
+	snapshot, err := bound.Snapshot(ctx)
+	if err != nil {
+		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("snapshot session: %w", err)
+	}
+	if snapshot.Session.ID != sessionID {
+		return nil, protocol.SessionSnapshot{}, "", errors.New("session snapshot identity mismatch")
+	}
+	location := snapshot.Session.CWD
+	if resolveLocation != nil {
+		location = resolveLocation(ctx, snapshot.Session.CWD)
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, protocol.SessionSnapshot{}, "", err
+	}
+	return bound, snapshot, location, nil
+}
+
+func (s *appState) installSession(bound sessionclient.Session, snapshot protocol.SessionSnapshot, location string) {
+	if s.session.ID != "" {
+		s.sessionDrafts[s.session.ID] = s.composer
+	}
+	s.operation++
+	s.session = snapshot.Session
+	s.bound = bound
+	s.location = location
+	s.composer = s.sessionDrafts[snapshot.Session.ID]
+	s.composerCursorEndGeneration++
+	s.messages = nil
+	s.resetLiveRun()
+	s.contextTokens = 0
+	s.contextWindow = 0
+	s.scroll = ui.ScrollController{}
+	s.activityScroll = ui.ScrollController{}
+	s.activityList = activityListController{}
+	s.activitySourceID = ""
+	s.activitySelected = false
+	s.hoveredActivityID = ""
+	s.activityExpanded = make(map[activityToolKey]bool)
+	s.activityCursor = activityToolKey{}
+	s.activityReveal = activityToolKey{}
+	s.activityRevealPending = false
+	s.activityRevealPendingLayout = false
+	s.activityNeedsScroll = false
+	s.activityPendingLayout = false
+	s.activityScrollToEnd = false
+	s.activeRun = nil
+	s.activeRunID = ""
+	s.runPending = false
+	s.prompt = nil
+	s.activeBash = nil
+	s.activeBashID = ""
+	s.bashStarting = false
+	s.bashAdmission = nil
+	s.bashCollapsed = make(map[string]bool)
+	s.bashHistory = bashHistoryController{}
+	s.status = ""
+	s.applySnapshot(snapshot)
+	if snapshot.ActiveRunID != "" {
+		s.status = "esc abort · ctrl+c detach"
+	}
+}
+
+func (s *appState) cancelSessionSwitch() {
+	if s.sessionSwitchCancel != nil {
+		s.sessionSwitchCancel()
+	}
+	s.sessionSwitchCancel = nil
+	s.sessionSwitchGeneration = 0
+}
+
 func (s *appState) enterAuthSelect(returnReady bool) {
 	s.SetState(func() {
 		s.phase = phaseAuthSelect
@@ -1837,7 +2005,12 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 
 func (s *appState) dismiss(_ ui.EventContext) {
 	if s.sessionExplorer.Open {
-		s.SetState(func() { s.sessionExplorer.Close() })
+		s.cancelSessionSwitch()
+		if s.sessionExplorer.Switching {
+			s.SetState(func() { s.sessionExplorer.CancelSwitch() })
+		} else {
+			s.SetState(func() { s.sessionExplorer.Close() })
+		}
 		return
 	}
 	if s.bashHistory.Open {

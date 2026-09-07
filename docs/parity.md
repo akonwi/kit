@@ -93,7 +93,8 @@ recorded manual verification exists.
 - [~] List, create, open, rename, delete, and resume sessions; the native TUI
   lists all saved sessions in an on-demand responsive explorer, and `kit new`
   starts it with a newly persisted current-directory session without consulting
-  resumable sessions. Switching, rename, and delete actions remain.
+  resumable sessions. The explorer now switches the local TUI binding to an
+  exact selected session; rename and delete actions remain.
 - [~] Resume the most recent session for the current cwd by default, with
   `kit new` as the explicit create-instead escape hatch.
 - [ ] Support exact long/short session identifiers and explicit ephemeral
@@ -108,9 +109,10 @@ recorded manual verification exists.
 - [ ] Implement handoff and lineage without globally switching other clients.
 - [~] Implement session explorer/picker workflows and responsive presentation;
   the initial native dialog loads the global directory, centers selection on the
-  attached session, supports bounded keyboard/mouse navigation, and prioritizes
-  title, activity time, cwd, then short id as width permits. Switching and
-  mutation workflows remain.
+  attached session, supports bounded keyboard/mouse navigation, prioritizes
+  title, activity time, cwd, then short id as width permits, and atomically
+  replaces the local binding from an authoritative target snapshot. Rename and
+  delete workflows remain.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
 
 ## Agent runtime and transcript
@@ -201,8 +203,8 @@ recorded manual verification exists.
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
   state, and an undimmed modal boundary. It exposes login, conditional abort,
   session exploration, and quit; session exploration opens the native
-  saved-session listing. Completion, arguments, nested pickers, and dynamic
-  command sources remain.
+  saved-session listing and switches the attached TUI session. Completion,
+  arguments, nested pickers, and dynamic command sources remain.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
 - [~] Toasts, confirmation/input/select dialogs, fatal/error screens, and

@@ -438,6 +438,71 @@ func TestListSessionExplorerSessionsUsesGlobalDirectory(t *testing.T) {
 	}
 }
 
+func TestAttachSessionForSwitchUsesExactBindingSnapshotAndLocation(t *testing.T) {
+	t.Parallel()
+
+	target := protocol.SessionSnapshot{Session: protocol.SessionInfo{
+		ID: "session_target", CWD: "/other/repo", Model: codexDefaultModel,
+	}}
+	server := &fakeServer{attach: func(sessionID string) (sessionclient.Session, error) {
+		return fakeSession{id: sessionID, snapshot: target}, nil
+	}}
+	resolvedCWD := ""
+	bound, snapshot, location, err := attachSessionForSwitch(
+		context.Background(), server, target.Session.ID,
+		func(_ context.Context, cwd string) string {
+			resolvedCWD = cwd
+			return "~/other/repo (feature)"
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bound.ID() != target.Session.ID || snapshot.Session.ID != target.Session.ID || resolvedCWD != target.Session.CWD || location != "~/other/repo (feature)" {
+		t.Fatalf("attachment bound=%q snapshot=%q cwd=%q location=%q", bound.ID(), snapshot.Session.ID, resolvedCWD, location)
+	}
+}
+
+func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *testing.T) {
+	t.Parallel()
+
+	state := appState{
+		session:          protocol.SessionInfo{ID: "session_source"},
+		composer:         "source draft",
+		sessionDrafts:    map[string]string{"session_target": "target draft"},
+		operation:        4,
+		messages:         []transcriptMessage{{ID: "old", Role: "user", Text: "old"}},
+		activitySourceID: "old-activity", activitySelected: true,
+		activityExpanded: map[activityToolKey]bool{{TurnID: "old", ToolCallID: "tool"}: true},
+		bashCollapsed:    map[string]bool{"old-bash": true},
+	}
+	target := protocol.SessionSnapshot{
+		Session:     protocol.SessionInfo{ID: "session_target", CWD: "/other/repo", Model: codexDefaultModel},
+		ActiveRunID: "run_target",
+		Messages: []protocol.TranscriptMessage{{
+			ID: "target-message", TurnID: "target-turn", Role: "user",
+			Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "target history"}},
+		}},
+	}
+	bound := fakeSession{id: target.Session.ID, snapshot: target}
+	state.installSession(bound, target, "~/other/repo")
+	if state.session.ID != target.Session.ID || state.bound.ID() != target.Session.ID || state.operation != 5 {
+		t.Fatalf("installed binding session=%q bound=%q operation=%d", state.session.ID, state.bound.ID(), state.operation)
+	}
+	if state.sessionDrafts["session_source"] != "source draft" || state.composer != "target draft" || state.composerCursorEndGeneration != 1 {
+		t.Fatalf("drafts=%+v composer=%q cursorGeneration=%d", state.sessionDrafts, state.composer, state.composerCursorEndGeneration)
+	}
+	if len(state.messages) != 1 || state.messages[0].ID != "target-message" || state.location != "~/other/repo" {
+		t.Fatalf("target presentation messages=%+v location=%q", state.messages, state.location)
+	}
+	if !state.runPending || state.activeRunID != "run_target" || state.status != "esc abort · ctrl+c detach" {
+		t.Fatalf("active target run pending=%t id=%q status=%q", state.runPending, state.activeRunID, state.status)
+	}
+	if state.activitySourceID != "" || state.activitySelected || len(state.activityExpanded) != 0 || len(state.bashCollapsed) != 0 {
+		t.Fatalf("source-local presentation leaked activity=%q selected=%t expanded=%+v bash=%+v", state.activitySourceID, state.activitySelected, state.activityExpanded, state.bashCollapsed)
+	}
+}
+
 func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 	t.Parallel()
 
@@ -563,6 +628,7 @@ type fakeServer struct {
 	createdResult protocol.SessionInfo
 	createCalls   int
 	attachErr     error
+	attach        func(string) (sessionclient.Session, error)
 	list          func(string) ([]protocol.SessionInfo, error)
 }
 
@@ -583,15 +649,21 @@ func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.
 	if s.attachErr != nil {
 		return nil, s.attachErr
 	}
+	if s.attach != nil {
+		return s.attach(sessionID)
+	}
 	return fakeSession{id: sessionID}, nil
 }
 
-type fakeSession struct{ id string }
+type fakeSession struct {
+	id       string
+	snapshot protocol.SessionSnapshot
+}
 
 func (s fakeSession) ID() string { return s.id }
 
-func (fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
-	return protocol.SessionSnapshot{}, nil
+func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
+	return s.snapshot, nil
 }
 
 func (fakeSession) Run(context.Context, string) (protocol.RunInfo, error) {
