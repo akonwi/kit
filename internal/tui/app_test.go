@@ -446,7 +446,7 @@ func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 		{ID: "codex", CWD: "/repo", Model: "openai-codex/gpt-5.6-sol"},
 	}}
 	info, bound, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "medium",
+		context.Background(), server, "/repo", codexDefaultModel, "medium", false, "", protocol.SessionInfo{},
 		func(model string) bool { return modelProvider(model) == "openai-codex" },
 	)
 	if err != nil {
@@ -460,6 +460,70 @@ func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 	}
 }
 
+func TestBootstrapSessionCreatesExplicitNewSessionWithoutListing(t *testing.T) {
+	t.Parallel()
+
+	listed := false
+	server := &fakeServer{
+		list: func(string) ([]protocol.SessionInfo, error) {
+			listed = true
+			return []protocol.SessionInfo{{ID: "existing", Model: codexDefaultModel}}, nil
+		},
+		createdResult: protocol.SessionInfo{
+			ID: "session_0123456789abcdef0123456789abcdef", CWD: "/repo",
+			Model: codexDefaultModel, ThinkingLevel: "medium",
+		},
+	}
+	info, bound, _, err := bootstrapSession(
+		context.Background(), server, "/repo", codexDefaultModel, "medium", true,
+		"session_0123456789abcdef0123456789abcdef", protocol.SessionInfo{}, func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed {
+		t.Fatal("explicit new-session bootstrap listed resumable sessions")
+	}
+	if info.ID != "session_0123456789abcdef0123456789abcdef" || bound.ID() != info.ID {
+		t.Fatalf("selected session = %q / %q, want client-selected id", info.ID, bound.ID())
+	}
+	if server.created.ID != "session_0123456789abcdef0123456789abcdef" || server.created.CWD != "/repo" || server.created.Model != codexDefaultModel || server.created.ThinkingLevel != "medium" {
+		t.Fatalf("create input = %+v", server.created)
+	}
+}
+
+func TestBootstrapSessionRetriesExplicitCreatedTargetWithoutDuplicating(t *testing.T) {
+	t.Parallel()
+
+	listed := false
+	server := &fakeServer{
+		list: func(string) ([]protocol.SessionInfo, error) {
+			listed = true
+			return nil, nil
+		},
+		createdResult: protocol.SessionInfo{ID: "session_0123456789abcdef0123456789abcdef", CWD: "/repo", Model: codexDefaultModel},
+		attachErr:     errors.New("temporarily unavailable"),
+	}
+	created, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", codexDefaultModel, "medium", true,
+		"session_0123456789abcdef0123456789abcdef", protocol.SessionInfo{}, func(string) bool { return true },
+	)
+	if err == nil || created.ID != "session_0123456789abcdef0123456789abcdef" || server.createCalls != 1 {
+		t.Fatalf("first bootstrap info=%+v creates=%d err=%v", created, server.createCalls, err)
+	}
+	server.attachErr = nil
+	info, bound, _, err := bootstrapSession(
+		context.Background(), server, "/repo", codexDefaultModel, "medium", false, "", created,
+		func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed || server.createCalls != 1 || info.ID != created.ID || bound.ID() != created.ID {
+		t.Fatalf("retry listed=%t creates=%d session=%q/%q", listed, server.createCalls, info.ID, bound.ID())
+	}
+}
+
 func TestBootstrapSessionCreatesWhenNoUsableSessionExists(t *testing.T) {
 	t.Parallel()
 
@@ -467,7 +531,7 @@ func TestBootstrapSessionCreatesWhenNoUsableSessionExists(t *testing.T) {
 		ID: "created", CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "high",
 	}}
 	info, bound, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "high",
+		context.Background(), server, "/repo", codexDefaultModel, "high", false, "", protocol.SessionInfo{},
 		func(string) bool { return false },
 	)
 	if err != nil {
@@ -497,11 +561,14 @@ type fakeServer struct {
 	sessions      []protocol.SessionInfo
 	created       protocol.CreateSessionInput
 	createdResult protocol.SessionInfo
+	createCalls   int
+	attachErr     error
 	list          func(string) ([]protocol.SessionInfo, error)
 }
 
 func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 	s.created = input
+	s.createCalls++
 	return s.createdResult, nil
 }
 
@@ -513,6 +580,9 @@ func (s *fakeServer) ListSessions(_ context.Context, cwd string) ([]protocol.Ses
 }
 
 func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {
+	if s.attachErr != nil {
+		return nil, s.attachErr
+	}
 	return fakeSession{id: sessionID}, nil
 }
 

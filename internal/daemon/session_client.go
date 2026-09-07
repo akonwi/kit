@@ -29,12 +29,18 @@ func (e *APIError) Error() string {
 
 // CreateSession creates a persisted session through the local daemon.
 func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate session request: %w", err)
+	}
 	var output protocol.SessionInfo
 	if err := c.sessionJSON(ctx, http.MethodPost, "/v1/sessions", input, http.StatusCreated, &output); err != nil {
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate daemon session response: %w", err)
+	}
+	if input.ID != "" && output.ID != input.ID {
+		return protocol.SessionInfo{}, fmt.Errorf("daemon session creation identity mismatch")
 	}
 	return output, nil
 }

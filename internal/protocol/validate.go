@@ -6,7 +6,17 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/akonwi/kit/internal/identifier"
 )
+
+// Validate checks a session-creation request crossing a transport boundary.
+func (input CreateSessionInput) Validate() error {
+	if input.ID != "" && !identifier.Valid(input.ID, "session_") {
+		return fmt.Errorf("session id %q is not canonical", input.ID)
+	}
+	return nil
+}
 
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {

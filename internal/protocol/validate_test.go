@@ -5,6 +5,20 @@ import (
 	"time"
 )
 
+func TestCreateSessionInputValidateOptionalCanonicalID(t *testing.T) {
+	t.Parallel()
+
+	if err := (CreateSessionInput{}).Validate(); err != nil {
+		t.Fatalf("Validate() generated-id request error = %v", err)
+	}
+	if err := (CreateSessionInput{ID: "session_0123456789abcdef0123456789abcdef"}).Validate(); err != nil {
+		t.Fatalf("Validate() canonical id error = %v", err)
+	}
+	if err := (CreateSessionInput{ID: "session_not-canonical"}).Validate(); err == nil {
+		t.Fatal("Validate() accepted a non-canonical session id")
+	}
+}
+
 func TestBashExecutionValidate(t *testing.T) {
 	t.Parallel()
 	now := time.Now().UTC().Format(time.RFC3339Nano)

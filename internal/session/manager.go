@@ -29,6 +29,7 @@ var (
 
 // CreateInput contains metadata for a new persistent session.
 type CreateInput struct {
+	ID            string
 	CWD           string
 	Name          string
 	Model         string
@@ -203,14 +204,42 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	if err := validateThinkingLevel(model, input.ThinkingLevel); err != nil {
 		return SessionRecord{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
-	id, err := identifier.New("session_")
-	if err != nil {
-		return SessionRecord{}, err
+	id := input.ID
+	clientSelectedID := id != ""
+	if clientSelectedID {
+		if !identifier.Valid(id, "session_") {
+			return SessionRecord{}, fmt.Errorf("%w: invalid session id", ErrInvalidInput)
+		}
+	} else {
+		var err error
+		id, err = identifier.New("session_")
+		if err != nil {
+			return SessionRecord{}, err
+		}
 	}
-	return m.store.CreateSession(ctx, NewSession{
+	requested := NewSession{
 		ID: id, CWD: cwd, Name: strings.TrimSpace(input.Name), Persistent: true,
 		ModelProvider: model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
-	})
+	}
+	record, err := m.store.CreateSession(ctx, requested)
+	if err == nil || !clientSelectedID {
+		return record, err
+	}
+	existing, loadErr := m.store.GetSession(ctx, id)
+	if loadErr == nil {
+		if sessionMatchesCreate(existing, requested) {
+			return existing, nil
+		}
+		return SessionRecord{}, fmt.Errorf("%w: session id is already assigned to a different request", ErrInvalidInput)
+	}
+	return SessionRecord{}, err
+}
+
+func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
+	return record.ID == input.ID && record.CWD == input.CWD && record.Name == input.Name &&
+		record.Persistent == input.Persistent && record.ParentSessionID == input.ParentSessionID &&
+		record.ModelProvider == input.ModelProvider && record.ModelID == input.ModelID &&
+		record.ThinkingLevel == input.ThinkingLevel && record.ArchivedAt == nil
 }
 
 func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error) {

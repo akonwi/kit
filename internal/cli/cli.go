@@ -18,6 +18,7 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	kitclient "github.com/akonwi/kit/internal/client"
 	"github.com/akonwi/kit/internal/daemon"
+	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/tui"
@@ -39,6 +40,8 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			return runLogin(ctx, args[1:], stdout, stderr)
 		case "logout":
 			return runLogout(ctx, args[1:], stdout, stderr)
+		case "new":
+			return runNew(ctx, args[1:], stdout, stderr)
 		case "auth":
 			return runAuthCommand(ctx, args[1:], stdout, stderr)
 		case "-p", "--print":
@@ -53,10 +56,32 @@ func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	return runInteractive(ctx, stdout, stderr)
+	return runInteractive(ctx, interactiveOptions{}, stdout, stderr)
 }
 
-func runInteractive(ctx context.Context, _ io.Writer, stderr io.Writer) int {
+type interactiveOptions struct {
+	NewSessionID string
+}
+
+func runNew(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		writeNewHelp(stdout)
+		return 0
+	}
+	if len(args) != 0 {
+		fmt.Fprintln(stderr, "kit: new accepts no arguments")
+		writeNewHelp(stderr)
+		return 2
+	}
+	sessionID, err := identifier.New("session_")
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: prepare new session: %v\n", err)
+		return 1
+	}
+	return runInteractive(ctx, interactiveOptions{NewSessionID: sessionID}, stdout, stderr)
+}
+
+func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer, stderr io.Writer) int {
 	paths, err := apphome.Resolve("")
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
@@ -132,6 +157,7 @@ func runInteractive(ctx context.Context, _ io.Writer, stderr io.Writer) int {
 		DefaultThinking:    "medium",
 		AvailableProviders: providers,
 		Authenticated:      len(providers) > 0,
+		NewSessionID:       options.NewSessionID,
 		Login:              login,
 		APIKeyLogin:        apiKeyLogin,
 	}); err != nil {
@@ -433,11 +459,19 @@ func daemonUsage(output io.Writer) int {
 	return 2
 }
 
+func writeNewHelp(output io.Writer) {
+	fmt.Fprintln(output, `Start Kit with a new persisted session for the current directory.
+
+Usage:
+  kit new`)
+}
+
 func writeHelp(output io.Writer) {
 	fmt.Fprintln(output, `Kit v2 bootstrap
 
 Usage:
-  kit                         start/attach to the local daemon
+  kit                         resume the latest session for the current directory
+  kit new                     start a new persisted session
   kit daemon start            start or discover the local daemon
   kit daemon status           inspect the local daemon
   kit daemon stop             stop the local daemon

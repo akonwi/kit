@@ -15,6 +15,48 @@ import (
 	"github.com/akonwi/kit/internal/storage"
 )
 
+func TestManagerCreateIsIdempotentForClientSelectedSessionID(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(
+		store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+
+	input := session.CreateInput{
+		ID: "session_0123456789abcdef0123456789abcdef", CWD: root, Name: "Retry safe", Model: "test/echo",
+	}
+	first, err := manager.Create(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := manager.Create(t.Context(), input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := manager.List(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.ID != input.ID || second.ID != first.ID || len(listed) != 1 {
+		t.Fatalf("idempotent creates first=%q second=%q listed=%+v", first.ID, second.ID, listed)
+	}
+	conflict := input
+	conflict.Name = "Different request"
+	if _, err := manager.Create(t.Context(), conflict); err == nil {
+		t.Fatal("Create accepted a reused session id with different metadata")
+	}
+}
+
 func TestManagerProjectsCanonicalDroidHistoryAcrossRestart(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))

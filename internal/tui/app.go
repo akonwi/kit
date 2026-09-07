@@ -44,6 +44,7 @@ type Options struct {
 	DefaultThinking    string
 	AvailableProviders map[string]bool
 	Authenticated      bool
+	NewSessionID       string
 	Login              DeviceLogin
 	APIKeyLogin        APIKeyLogin
 
@@ -190,10 +191,14 @@ type appState struct {
 	bashCollapsed               map[string]bool
 	bashHistory                 bashHistoryController
 
-	instructions auth.OpenAICodexDeviceInstructions
-	remaining    time.Duration
-	loginCancel  context.CancelFunc
-	operation    uint64
+	instructions      auth.OpenAICodexDeviceInstructions
+	remaining         time.Duration
+	loginCancel       context.CancelFunc
+	operation         uint64
+	bootstrapModel    string
+	bootstrapThinking string
+	newSessionPending bool
+	bootstrapTarget   protocol.SessionInfo
 
 	availableMu sync.RWMutex
 	available   map[string]bool
@@ -208,6 +213,7 @@ func (s *appState) InitState() {
 	s.liveContent = make(map[int]liveContentBlock)
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.bashCollapsed = make(map[string]bool)
+	s.newSessionPending = options.NewSessionID != ""
 	if options.Authenticated {
 		s.phase = phaseLoading
 		s.status = "Starting Kit…"
@@ -549,7 +555,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.errorText = ""
 				s.status = "Starting Kit…"
 			})
-			s.startBootstrap(options.DefaultModel, options.DefaultThinking)
+			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
 			if s.sessionExplorer.Open {
@@ -628,13 +634,22 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 }
 
 func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
+	s.bootstrapModel = defaultModel
+	s.bootstrapThinking = defaultThinking
 	options := s.Widget().(app).Options
+	newSession := s.newSessionPending
+	newSessionID := ""
+	if newSession {
+		newSessionID = options.NewSessionID
+	}
+	target := s.bootstrapTarget
 	runtime := s.Context().Runtime()
 	s.operation++
 	operation := s.operation
 	go func() {
 		info, bound, snapshot, err := bootstrapSession(
-			s.ctx, options.Server, options.CWD, defaultModel, defaultThinking, s.providerAvailable,
+			s.ctx, options.Server, options.CWD, defaultModel, defaultThinking,
+			newSession, newSessionID, target, s.providerAvailable,
 		)
 		if s.ctx.Err() != nil {
 			return
@@ -645,6 +660,10 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			}
 			if err != nil {
 				s.SetState(func() {
+					if newSession && info.ID != "" {
+						s.newSessionPending = false
+						s.bootstrapTarget = info
+					}
 					s.phase = phaseFailed
 					s.errorText = err.Error()
 					s.status = ""
@@ -655,6 +674,8 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			activeBashID := snapshot.ActiveBashExecutionID
 			s.SetState(func() {
 				s.phase = phaseReady
+				s.newSessionPending = false
+				s.bootstrapTarget = protocol.SessionInfo{}
 				s.session = info
 				s.bound = bound
 				s.applySnapshot(snapshot)
@@ -676,24 +697,34 @@ func bootstrapSession(
 	ctx context.Context,
 	server sessionclient.Server,
 	cwd, defaultModel, defaultThinking string,
+	newSession bool,
+	newSessionID string,
+	target protocol.SessionInfo,
 	providerAvailable func(string) bool,
 ) (protocol.SessionInfo, sessionclient.Session, protocol.SessionSnapshot, error) {
-	sessions, err := server.ListSessions(ctx, cwd)
-	if err != nil {
-		return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("list sessions: %w", err)
+	if newSession && newSessionID == "" {
+		return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("new session id is required")
 	}
-	var selected protocol.SessionInfo
-	for _, candidate := range sessions {
-		if providerAvailable(candidate.Model) {
-			selected = candidate
-			break
+	selected := target
+	if selected.ID == "" && !newSession {
+		sessions, err := server.ListSessions(ctx, cwd)
+		if err != nil {
+			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("list sessions: %w", err)
+		}
+		for _, candidate := range sessions {
+			if providerAvailable(candidate.Model) {
+				selected = candidate
+				break
+			}
 		}
 	}
+	var err error
 	if selected.ID == "" {
 		if defaultModel == "" {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("no authenticated model is available")
 		}
 		selected, err = server.CreateSession(ctx, protocol.CreateSessionInput{
+			ID:            newSessionID,
 			CWD:           cwd,
 			Model:         defaultModel,
 			ThinkingLevel: defaultThinking,
@@ -701,14 +732,17 @@ func bootstrapSession(
 		if err != nil {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("create session: %w", err)
 		}
+		if newSessionID != "" && selected.ID != newSessionID {
+			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("create session returned a different session id")
+		}
 	}
 	bound, err := server.Attach(ctx, selected.ID)
 	if err != nil {
-		return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("attach session: %w", err)
+		return selected, nil, protocol.SessionSnapshot{}, fmt.Errorf("attach session: %w", err)
 	}
 	snapshot, err := bound.Snapshot(ctx)
 	if err != nil {
-		return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("snapshot session: %w", err)
+		return selected, nil, protocol.SessionSnapshot{}, fmt.Errorf("snapshot session: %w", err)
 	}
 	return selected, bound, snapshot, nil
 }

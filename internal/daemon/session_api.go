@@ -41,7 +41,7 @@ func (s runtimeSessionService) Create(
 	input protocol.CreateSessionInput,
 ) (protocol.SessionInfo, error) {
 	record, err := s.manager.Create(ctx, kitsession.CreateInput{
-		CWD: input.CWD, Name: input.Name, Model: input.Model,
+		ID: input.ID, CWD: input.CWD, Name: input.Name, Model: input.Model,
 		ThinkingLevel: input.ThinkingLevel,
 	})
 	if err != nil {
@@ -274,6 +274,10 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		var input protocol.CreateSessionInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
 		record, err := service.Create(request.Context(), input)

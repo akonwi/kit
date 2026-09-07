@@ -8,6 +8,7 @@ import (
 
 // CreateSessionInput requests a new persisted session.
 type CreateSessionInput struct {
+	ID            string `json:"id,omitempty"`
 	CWD           string `json:"cwd"`
 	Name          string `json:"name,omitempty"`
 	Model         string `json:"model"`

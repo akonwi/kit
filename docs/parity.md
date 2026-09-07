@@ -91,9 +91,11 @@ recorded manual verification exists.
 ## Session directory and concurrency
 
 - [~] List, create, open, rename, delete, and resume sessions; the native TUI
-  now lists all saved sessions in an on-demand responsive explorer, while
-  switching, rename, and delete actions remain.
-- [~] Resume the most recent session for the current cwd by default.
+  lists all saved sessions in an on-demand responsive explorer, and `kit new`
+  starts it with a newly persisted current-directory session without consulting
+  resumable sessions. Switching, rename, and delete actions remain.
+- [~] Resume the most recent session for the current cwd by default, with
+  `kit new` as the explicit create-instead escape hatch.
 - [ ] Support exact long/short session identifiers and explicit ephemeral
   sessions.
 - [~] Persist cwd, name, parent lineage, model, thinking level, timestamps, and
@@ -244,10 +246,10 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v8 exposes droid-owned turn identity, direct canonical history,
-  context/pending boundaries, runtime stream synchronization metadata, bounded
-  tool arguments, and stable live assistant message IDs. TypeScript
-  contracts remain.
+  protocol v9 exposes retry-safe client-selected session IDs, droid-owned turn
+  identity, direct canonical history, context/pending boundaries, runtime stream
+  synchronization metadata, bounded tool arguments, and stable live assistant
+  message IDs. TypeScript contracts remain.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
   to runtime stream identity, cursor, and replay availability. Broader
   multi-client conformance remains.

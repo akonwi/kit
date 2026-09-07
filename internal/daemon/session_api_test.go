@@ -101,11 +101,20 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 
 	workspace := t.TempDir()
-	created, err := client.CreateSession(context.Background(), protocol.CreateSessionInput{
-		CWD: workspace, Model: "test/echo", Name: "API test",
-	})
+	sessionID, err := identifier.New("session_")
+	if err != nil {
+		t.Fatalf("identifier.New() error = %v", err)
+	}
+	createInput := protocol.CreateSessionInput{
+		ID: sessionID, CWD: workspace, Model: "test/echo", Name: "API test",
+	}
+	created, err := client.CreateSession(context.Background(), createInput)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
+	}
+	retried, err := client.CreateSession(context.Background(), createInput)
+	if err != nil || retried.ID != created.ID {
+		t.Fatalf("retry CreateSession() = %+v, %v; want %q", retried, err, created.ID)
 	}
 	runID, err := identifier.New("run_")
 	if err != nil {

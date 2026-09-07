@@ -36,8 +36,25 @@ func TestRunHelp(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit code = %d, stderr = %q", code, stderr.String())
 	}
-	if !strings.Contains(stdout.String(), "kit daemon start") {
-		t.Fatalf("stdout = %q, want daemon help", stdout.String())
+	if !strings.Contains(stdout.String(), "kit new") || !strings.Contains(stdout.String(), "kit daemon start") {
+		t.Fatalf("stdout = %q, want new-session and daemon help", stdout.String())
+	}
+}
+
+func TestRunNewHelpAndArgumentValidation(t *testing.T) {
+	t.Parallel()
+
+	var stdout, stderr bytes.Buffer
+	code := Run(context.Background(), []string{"new", "--help"}, &stdout, &stderr)
+	if code != 0 || !strings.Contains(stdout.String(), "kit new") || stderr.Len() != 0 {
+		t.Fatalf("new help exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = Run(context.Background(), []string{"new", "unexpected"}, &stdout, &stderr)
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "new accepts no arguments") {
+		t.Fatalf("new argument exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 }
 
