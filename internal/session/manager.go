@@ -16,6 +16,8 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/skills"
+	"github.com/akonwi/kit/internal/systemprompt"
 )
 
 const maxPromptTextBytes = 128 << 10
@@ -121,6 +123,11 @@ type sessionCreation struct {
 type temporaryDisposal struct {
 	done chan struct{}
 	err  error
+}
+
+type runtimeBundle struct {
+	systemPrompt string
+	tools        []droids.AnyTool
 }
 
 type runtime struct {
@@ -1037,6 +1044,10 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	if !identifier.Valid(record.ID, "session_") {
 		return nil, fmt.Errorf("session %q has an invalid droid identity", record.ID)
 	}
+	bundle, err := m.buildRuntimeBundle(ctx, record)
+	if err != nil {
+		return nil, fmt.Errorf("build runtime bundle for session %q: %w", record.ID, err)
+	}
 	var store droids.Store
 	closeStore := func() error { return nil }
 	if record.Persistent {
@@ -1061,8 +1072,8 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
 		Store: store, Providers: m.providers,
 		Model:     record.ModelProvider + "/" + record.ModelID,
-		Reasoning: record.ThinkingLevel, SystemPrompt: m.systemPrompt,
-		Tools: codingtools.New(record.CWD),
+		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.systemPrompt,
+		Tools: bundle.tools,
 	})
 	if err != nil {
 		_ = closeStore()
@@ -1107,6 +1118,31 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		loaded.events.invalidate()
 	}
 	return loaded, nil
+}
+
+func (m *Manager) buildRuntimeBundle(ctx context.Context, record SessionRecord) (runtimeBundle, error) {
+	registry, err := skills.NewRegistry()
+	if err != nil {
+		return runtimeBundle{}, err
+	}
+	composer, err := systemprompt.New(m.systemPrompt)
+	if err != nil {
+		return runtimeBundle{}, err
+	}
+	catalog, err := registry.CatalogSection()
+	if err != nil {
+		return runtimeBundle{}, err
+	}
+	if _, err := composer.Set(catalog); err != nil {
+		return runtimeBundle{}, err
+	}
+	result, err := composer.Build(ctx, systemprompt.Request{SessionID: record.ID, CWD: record.CWD})
+	if err != nil {
+		return runtimeBundle{}, err
+	}
+	tools := codingtools.New(record.CWD)
+	tools = append(tools, registry.ActivateTool())
+	return runtimeBundle{systemPrompt: result.Prompt, tools: tools}, nil
 }
 
 func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {

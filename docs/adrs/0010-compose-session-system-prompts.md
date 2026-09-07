@@ -70,8 +70,7 @@ The effective prompt is assembled from named sections in this order:
 
 1. the core prompt;
 2. guidance registered by available built-in features;
-3. the available-skill catalog and its activation guidance, when the skill tool
-   is available;
+3. the available-skill catalog and its activation guidance;
 4. stable prompt slots owned by active session plugins, when plugin support is
    available; and
 5. session context files.
@@ -89,8 +88,8 @@ included in the model prompt.
 
 Kit-specific customization and documentation instructions live in an embedded,
 built-in skill named `kit-customization`, not in the core prompt. Its metadata
-causes it to be advertised when the skill tool is available. Activating it
-returns the full instructions needed to:
+is advertised in the available-skill catalog. Activating it returns the full
+instructions needed to:
 
 - inspect Kit's relevant documentation and source before changing Kit;
 - follow documentation cross-references;
@@ -105,9 +104,12 @@ version. The embedded definition has a reserved stable identity and cannot be
 shadowed by a user or project skill. It does not depend on a file under the
 user's Kit home.
 
-The initial implementation includes the minimal skill registry and
-`activate_skill` behavior needed to advertise and activate this built-in skill.
-User and project skill discovery may extend that registry separately.
+The `activate_skill` tool is part of every normal Kit session's stable tool
+surface. Its registry and model-visible catalog may vary by session as built-in,
+user, project, and plugin skills become applicable. The initial implementation
+includes the minimal registry behavior needed to advertise and activate the
+built-in customization skill; other skill sources may extend that registry
+separately.
 
 ### `AGENTS.md` context discovery
 
@@ -234,6 +236,7 @@ The implementation must demonstrate:
   guidance retains priority;
 - context contents are present in the system prompt but absent from droid
   conversation history;
+- `activate_skill` is available in every normal Kit session;
 - `kit-customization` is embedded, advertised, activatable, and protected from
   name shadowing;
 - attaching a client does not reload an existing runtime;

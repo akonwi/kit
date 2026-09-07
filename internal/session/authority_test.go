@@ -6,12 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
 )
 
@@ -658,11 +661,68 @@ func (r *blockingGetRepository) GetSession(ctx context.Context, sessionID string
 	return r.Repository.GetSession(ctx, sessionID)
 }
 
+func TestManagerIncludesCurrentSkillCatalogAndActivationTool(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(
+		store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_abcdef0123456789abcdef0123456789", CWD: root, Model: "test/echo", Temporary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), record.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	providers.mu.Lock()
+	if len(providers.requests) != 1 {
+		providers.mu.Unlock()
+		t.Fatalf("provider requests = %d, want 1", len(providers.requests))
+	}
+	request := providers.requests[0]
+	providers.mu.Unlock()
+	for _, expected := range []string{
+		"system\n\nThe following skills provide specialized instructions",
+		"<name>kit-customization</name>",
+		"<source>built-in</source>",
+	} {
+		if !strings.Contains(request.SystemPrompt, expected) {
+			t.Fatalf("system prompt does not contain %q:\n%s", expected, request.SystemPrompt)
+		}
+	}
+	if strings.Contains(request.SystemPrompt, "<location>") {
+		t.Fatalf("embedded skill was given a fake location:\n%s", request.SystemPrompt)
+	}
+	toolNames := make([]string, 0, len(request.Tools))
+	for _, tool := range request.Tools {
+		toolNames = append(toolNames, tool.Name)
+	}
+	wantTools := []string{"bash", "read", "write", "edit", "ls", "grep", "find", skills.ActivateToolName}
+	if !reflect.DeepEqual(toolNames, wantTools) {
+		t.Fatalf("provider tools = %#v, want %#v", toolNames, wantTools)
+	}
+}
+
 type authorityProviders struct {
-	mu      sync.Mutex
-	calls   int
-	block   chan struct{}
-	started chan struct{}
+	mu       sync.Mutex
+	calls    int
+	block    chan struct{}
+	started  chan struct{}
+	requests []droids.Request
 }
 
 func (p *authorityProviders) ID() string             { return "test" }
@@ -681,9 +741,10 @@ func (p *authorityProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "echo" || id == "test/echo"
 }
 func (p *authorityProviders) RefreshModels(context.Context) error { return nil }
-func (p *authorityProviders) Stream(ctx context.Context, _ droids.Model, _ droids.Request) droids.Stream {
+func (p *authorityProviders) Stream(ctx context.Context, _ droids.Model, request droids.Request) droids.Stream {
 	p.mu.Lock()
 	p.calls++
+	p.requests = append(p.requests, request)
 	call := p.calls
 	block := p.block
 	p.mu.Unlock()
