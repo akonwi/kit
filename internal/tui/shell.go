@@ -55,6 +55,7 @@ type shellSnapshot struct {
 	Instructions                auth.OpenAICodexDeviceInstructions
 	Remaining                   time.Duration
 	Location                    string
+	Toasts                      []toastRecord
 }
 
 type providerSelectedCallback func(ui.EventContext, string)
@@ -85,6 +86,7 @@ type shellCallbacks struct {
 	ComposerChanged       ui.TextChangedCallback
 	ComposerPasted        ui.TextChangedCallback
 	CopySelection         func(string)
+	DismissToast          func(uint64)
 	OpenPalette           ui.VoidCallback
 	PaletteQueryChanged   ui.TextChangedCallback
 	MovePaletteSelection  selectionMovedCallback
@@ -194,6 +196,11 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				},
 			},
 		})
+	}
+	if len(w.Snapshot.Toasts) > 0 {
+		overlays = append(overlays, ui.OverlayEntry{Child: toastStack{
+			Toasts: w.Snapshot.Toasts, OnDismiss: w.Callbacks.DismissToast, Animate: true,
+		}})
 	}
 	root := ui.Widget(ui.Overlay{Child: content, Entries: overlays})
 

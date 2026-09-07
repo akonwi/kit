@@ -138,6 +138,8 @@ type appState struct {
 	phase                       phase
 	errorText                   string
 	status                      string
+	toasts                      toastController
+	toastCancels                map[uint64]context.CancelFunc
 	composer                    string
 	composerCursorEndGeneration uint64
 	palette                     paletteController
@@ -217,6 +219,7 @@ func (s *appState) InitState() {
 	s.liveContent = make(map[int]liveContentBlock)
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.bashCollapsed = make(map[string]bool)
+	s.toastCancels = make(map[uint64]context.CancelFunc)
 	s.location = options.Location
 	s.sessionDrafts = make(map[string]string)
 	s.newSessionPending = options.NewSessionID != ""
@@ -305,6 +308,56 @@ func (s *appState) TickFrame(_ time.Time) bool {
 	return keepTicking || s.needsScroll || s.activityNeedsScroll || s.activityRevealPending
 }
 
+func (s *appState) showToast(input toastInput) {
+	if strings.TrimSpace(input.Title) == "" {
+		return
+	}
+	var result toastShowResult
+	var toastContext context.Context
+	s.SetState(func() {
+		result = s.toasts.Show(input)
+		for _, evicted := range result.Evicted {
+			if cancel := s.toastCancels[evicted]; cancel != nil {
+				cancel()
+				delete(s.toastCancels, evicted)
+			}
+		}
+		if result.Retained && !input.Persistent {
+			var cancel context.CancelFunc
+			toastContext, cancel = context.WithCancel(s.ctx)
+			s.toastCancels[result.ID] = cancel
+		}
+	})
+	if input.Persistent || !result.Retained {
+		return
+	}
+	runtime := s.Context().Runtime()
+	go func() {
+		timer := time.NewTimer(toastLifetime)
+		defer timer.Stop()
+		select {
+		case <-toastContext.Done():
+			return
+		case <-timer.C:
+		}
+		runtime.Dispatch(func() {
+			if s.ctx.Err() == nil {
+				s.dismissToast(result.ID)
+			}
+		})
+	}()
+}
+
+func (s *appState) dismissToast(id uint64) {
+	s.SetState(func() {
+		if cancel := s.toastCancels[id]; cancel != nil {
+			cancel()
+			delete(s.toastCancels, id)
+		}
+		s.toasts.Dismiss(id)
+	})
+}
+
 func (s *appState) requestTranscriptScroll() {
 	s.needsScroll = true
 	s.scrollPendingLayout = true
@@ -373,6 +426,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Instructions:                s.instructions,
 		Remaining:                   s.remaining,
 		Location:                    s.location,
+		Toasts:                      s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
 		OpenAuth: func(ui.EventContext) {
@@ -396,11 +450,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SubmitAPIKey: s.submitAPIKey,
 		OpenURL: func(ctx ui.EventContext, raw string) {
 			if err := openExternalURL(raw); err != nil {
-				s.SetState(func() { s.status = "Could not open browser: " + err.Error() })
+				s.showToast(toastInput{Title: "Could not open browser", Subtitle: err.Error(), Variant: toastError})
 				ctx.Notify("Could not open browser", err.Error())
 				return
 			}
-			s.SetState(func() { s.status = "Opened browser" })
+			s.showToast(toastInput{Title: "Opened browser", Variant: toastInfo})
 		},
 		HoverActivity: func(_ ui.EventContext, sourceID string) {
 			if s.hoveredActivityID != sourceID {
@@ -513,12 +567,13 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
 				ctx.Copy(s.instructions.UserCode)
-				s.SetState(func() { s.status = "Device code copied" })
+				s.showToast(toastInput{Title: "Device code copied", Variant: toastInfo})
 			}
 		},
 		CopySelection: func(string) {
-			s.SetState(func() { s.status = "Copied selection" })
+			s.showToast(toastInput{Title: "Copied to clipboard", Variant: toastInfo})
 		},
+		DismissToast: s.dismissToast,
 		ComposerPasted: func(_ ui.EventContext, value string) {
 			if s.phase != phaseReady {
 				return

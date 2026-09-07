@@ -210,9 +210,13 @@ recorded manual verification exists.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
 - [~] Toasts, confirmation/input/select dialogs, fatal/error screens, and
-  interactive tool surfaces; the initial shell includes startup failure,
-  three-provider selection, obscured API-key entry, and cancellable Codex
-  device-flow surfaces.
+  interactive tool surfaces; the native toast stack presents stacked,
+  auto-expiring info/warning/error feedback above all overlays with semantic
+  borders and 300 ms eased slide-in motion; only persistent toasts expose
+  manual dismissal. Copy and
+  browser/device-code feedback use it.
+  The initial shell also includes startup failure, three-provider selection,
+  obscured API-key entry, and cancellable Codex device-flow surfaces.
 - [~] Wide split workspace, draggable remembered ratio, narrow tabs, retained
   pane state, and focus cycling; Activity now uses a singleton responsive host
   with split layout at 125+ columns and labeled narrow tabs. Draggable remembered
