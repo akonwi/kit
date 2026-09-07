@@ -20,14 +20,12 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
+	"github.com/akonwi/kit/internal/systemprompt"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
 )
 
 var ErrAlreadyRunning = errors.New("local daemon is already running")
-
-const defaultSystemPrompt = `You are Kit, a coding agent running in the terminal.
-You have access to tools to read and modify files, run commands, and search code. Use them when needed.`
 
 // RunOptions configures the internal local daemon process.
 type RunOptions struct {
@@ -113,7 +111,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	systemPrompt := options.SystemPrompt
 	if systemPrompt == "" {
-		systemPrompt = defaultSystemPrompt
+		systemPrompt = systemprompt.DefaultCore
 	}
 	providerAvailability := func(ctx context.Context) []string {
 		if customProviders {
