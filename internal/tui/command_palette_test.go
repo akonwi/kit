@@ -375,15 +375,28 @@ func TestGlobalPaletteCapturesPreFrameQueryAfterTranscriptFocus(t *testing.T) {
 	}
 }
 
-func TestNativeRootRoutesPastedTabToOpenPalette(t *testing.T) {
+func TestPastedComposerSlashDoesNotOpenPalette(t *testing.T) {
+	t.Parallel()
+
+	state := &paletteHarnessState{}
+	application := uitest.New(paletteHarness{State: state})
+	application.Pump(80, 24)
+	application.Send(vaxis.Key{Text: "/", Keycode: '/', EventType: vaxis.EventPaste})
+	application.Send(vaxis.Key{Text: "help", Keycode: 'h', EventType: vaxis.EventPaste})
+	if state.palette.Open || state.composer != "/help" {
+		t.Fatalf("pasted slash palette=%+v composer=%q", state.palette, state.composer)
+	}
+}
+
+func TestNativeRootLeavesShortcutFilteringToShell(t *testing.T) {
 	t.Parallel()
 
 	shortcuts := nativeRootShortcuts()
 	if _, exists := shortcuts["Tab"]; exists {
 		t.Fatal("native root retained the outer Tab shortcut")
 	}
-	if _, exists := shortcuts["Escape"]; !exists {
-		t.Fatal("native root lost the global Escape shortcut")
+	if len(shortcuts) != 0 {
+		t.Fatalf("native root shortcuts = %#v, want shell-owned paste filtering", shortcuts)
 	}
 	state := &paletteHarnessState{}
 	application := ui.NewApp(paletteHarness{State: state}, ui.WithShortcuts(shortcuts))
@@ -392,6 +405,19 @@ func TestNativeRootRoutesPastedTabToOpenPalette(t *testing.T) {
 	application.Send(vaxis.Key{Keycode: vaxis.KeyTab, EventType: vaxis.EventPaste})
 	if state.palette.Query != " " {
 		t.Fatalf("pasted Tab query = %q", state.palette.Query)
+	}
+}
+
+func TestPastedEscapeCannotDismissPalette(t *testing.T) {
+	t.Parallel()
+
+	state := &paletteHarnessState{}
+	state.palette.OpenFor(false)
+	application := ui.NewApp(paletteHarness{State: state}, ui.WithShortcuts(nativeRootShortcuts()))
+	application.Pump(ui.Size{Width: 80, Height: 24})
+	application.Send(vaxis.Key{Keycode: vaxis.KeyEsc, EventType: vaxis.EventPaste})
+	if !state.palette.Open {
+		t.Fatal("pasted Escape dismissed the palette")
 	}
 }
 
@@ -566,6 +592,9 @@ func (s *paletteHarnessState) Build(ui.BuildContext) ui.Widget {
 			Session: protocol.SessionInfo{Name: "Palette test", Model: "openai/gpt-5.3-codex"},
 		},
 		Callbacks: shellCallbacks{
+			ComposerPasted: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.composer = value })
+			},
 			ComposerChanged: func(_ ui.EventContext, value string) {
 				s.SetState(func() {
 					composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.running)

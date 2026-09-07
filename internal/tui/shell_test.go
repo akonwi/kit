@@ -336,6 +336,71 @@ func TestComposerResyncsWhenParentInterceptsSlash(t *testing.T) {
 	}
 }
 
+func TestComposerAcceptsBracketedPasteWithoutTriggeringShortcuts(t *testing.T) {
+	t.Parallel()
+
+	state := &shellHarnessState{}
+	app := uitest.New(shellHarness{State: state})
+	app.Pump(40, 12)
+	for _, key := range []vaxis.Key{
+		{Text: "/", Keycode: '/', EventType: vaxis.EventPaste},
+		{Text: "hello", Keycode: 'h', EventType: vaxis.EventPaste},
+		{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPaste},
+		{Text: "world", Keycode: 'w', EventType: vaxis.EventPaste},
+	} {
+		app.Send(key)
+	}
+	if state.composer != "/hello\nworld" {
+		t.Fatalf("pasted composer text = %q", state.composer)
+	}
+	if len(state.submitted) != 0 {
+		t.Fatalf("paste submitted composer: %#v", state.submitted)
+	}
+}
+
+func TestTranscriptAndComposerTextAreMouseSelectable(t *testing.T) {
+	t.Parallel()
+
+	state := &shellHarnessState{composer: "select composer"}
+	copied := ""
+	application := uitest.New(shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Composer: state.composer, Scroll: &ui.ScrollController{},
+			Messages: []transcriptMessage{{Role: "assistant", Text: "select transcript"}},
+		},
+		Callbacks: shellCallbacks{CopySelection: func(text string) { copied = text }},
+	})
+	application.Pump(60, 16)
+	assertMouseSelectionPaints := func(text string) {
+		t.Helper()
+		rows := paintedRows(application, 60, 16)
+		row, col := -1, -1
+		for index, value := range rows {
+			if offset := strings.Index(value, text); offset >= 0 {
+				row, col = index, offset
+				break
+			}
+		}
+		if row < 0 {
+			t.Fatalf("selectable text %q not painted:\n%s", text, strings.Join(rows, "\n"))
+		}
+		application.Send(vaxis.Mouse{Col: col, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+		application.Send(vaxis.Mouse{Col: col + 6, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
+		application.Send(vaxis.Mouse{Col: col + 6, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+		application.Pump(60, 16)
+		if got, want := application.Cell(col+1, row).Background, ui.DefaultTheme().Selection; got != want {
+			t.Fatalf("%q selection background = %#v, want %#v", text, got, want)
+		}
+		copied = ""
+		application.Send(vaxis.Key{Text: "c", Keycode: 'c', Modifiers: vaxis.ModSuper})
+		if copied == "" {
+			t.Fatalf("Super+C did not copy selected %q text", text)
+		}
+	}
+	assertMouseSelectionPaints("select transcript")
+	assertMouseSelectionPaints("select composer")
+}
+
 func TestComposerPlaceholderPassesClicksToTextArea(t *testing.T) {
 	t.Parallel()
 
@@ -1971,7 +2036,7 @@ func TestAuthDialogsFitNarrowViewport(t *testing.T) {
 	}
 }
 
-func TestCtrlCRequestsQuit(t *testing.T) {
+func TestCtrlCRequestsQuitAndSuperCCopies(t *testing.T) {
 	t.Parallel()
 
 	app := uitest.New(shellView{
@@ -1979,6 +2044,10 @@ func TestCtrlCRequestsQuit(t *testing.T) {
 		Callbacks: shellCallbacks{Quit: func(ctx ui.EventContext) { ctx.Quit() }},
 	})
 	app.Pump(46, 20)
+	app.Send(vaxis.Key{Text: "c", Keycode: 'c', Modifiers: vaxis.ModSuper})
+	if app.ShouldQuit() {
+		t.Fatal("Super+C requested quit instead of copy")
+	}
 	app.Send(vaxis.Key{Text: "c", Keycode: 'c', Modifiers: vaxis.ModCtrl})
 	if !app.ShouldQuit() {
 		t.Fatal("Ctrl+C did not request quit")

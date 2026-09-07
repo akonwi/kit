@@ -180,7 +180,8 @@ recorded manual verification exists.
   and responsive auth surfaces are implemented. Full semantic theme parity and
   user overrides remain.
 - [~] Transcript with selectable Markdown, atomically revealed assistant prose,
-  code, tool drawers, and compact historical entries; text deltas remain in the
+  code, tool drawers, and compact historical entries; mouse selection and
+  `Super+C` copying are wired through the native shell. Text deltas remain in the
   runtime stream but pending prose is not rendered. The native TUI consolidates
   tool work into one-line chips and opens stable Activity sections with lifecycle
   glyphs, disclosure rows, bounded nested output, read/write code views, and
@@ -195,8 +196,9 @@ recorded manual verification exists.
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
   attachments, pending queue, and abort state; the focused full-width composer
-  starts at one row, grows to ten rows with multiline input, submits prompts,
-  preserves text while busy, and exposes abort state.
+  starts at one row, grows to ten rows with multiline input, accepts bracketed
+  paste without triggering commands or submission, submits prompts, preserves
+  text while busy, and exposes abort state.
 - [~] Command palette with filtering, completion, arguments, nested pickers,
   keyboard, and mouse behavior; the initial single-ranked palette opens from
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
@@ -221,8 +223,9 @@ recorded manual verification exists.
 - [~] Header/footer status, model/thinking/context indicators, VCS/PR location,
   plugin chrome, and update action; the initial shell preserves session/model
   header and status/cwd/Git footer ownership.
-- [ ] Clipboard, terminal title, notifications, image capabilities, and clean
-  terminal restoration.
+- [~] Clipboard, terminal title, notifications, image capabilities, and clean
+  terminal restoration; selectable transcript and composer text copy through
+  the terminal clipboard while the remaining capability work remains.
 
 ## Semantic web client
 

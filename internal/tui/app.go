@@ -80,9 +80,7 @@ func Run(options Options) error {
 	return err
 }
 
-func nativeRootShortcuts() ui.ShortcutMap {
-	return ui.ShortcutMap{"Escape": ui.DismissIntent{}}
-}
+func nativeRootShortcuts() ui.ShortcutMap { return ui.ShortcutMap{} }
 
 type phase int
 
@@ -517,6 +515,22 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				ctx.Copy(s.instructions.UserCode)
 				s.SetState(func() { s.status = "Device code copied" })
 			}
+		},
+		CopySelection: func(string) {
+			s.SetState(func() { s.status = "Copied selection" })
+		},
+		ComposerPasted: func(_ ui.EventContext, value string) {
+			if s.phase != phaseReady {
+				return
+			}
+			metrics := s.scroll.Metrics()
+			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
+			s.SetState(func() {
+				s.composer = value
+				if followTranscript {
+					s.requestTranscriptScroll()
+				}
+			})
 		},
 		ComposerChanged: func(_ ui.EventContext, value string) {
 			if s.phase != phaseReady {

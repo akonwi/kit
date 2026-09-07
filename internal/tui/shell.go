@@ -83,6 +83,8 @@ type shellCallbacks struct {
 	BashHistoryChanged    ui.TextChangedCallback
 	SelectBashHistory     func(ui.EventContext, string)
 	ComposerChanged       ui.TextChangedCallback
+	ComposerPasted        ui.TextChangedCallback
+	CopySelection         func(string)
 	OpenPalette           ui.VoidCallback
 	PaletteQueryChanged   ui.TextChangedCallback
 	MovePaletteSelection  selectionMovedCallback
@@ -217,7 +219,10 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		},
 	}
 	shortcuts := ui.ShortcutMap{
-		"Ctrl+c": quitIntent{}, "Tab": ui.NextFocusIntent{}, "Shift+Tab": ui.PreviousFocusIntent{},
+		"Escape":  ui.DismissIntent{},
+		"Ctrl+c":  quitIntent{},
+		"Super+c": ui.CopySelectionTextIntent{OnCopied: w.Callbacks.CopySelection},
+		"Tab":     ui.NextFocusIntent{}, "Shift+Tab": ui.PreviousFocusIntent{},
 	}
 	if w.Snapshot.Phase == phaseReady {
 		shortcuts["Ctrl+p"] = openPaletteIntent{}
@@ -307,7 +312,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	return ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}},
-		ui.Actions{Bindings: actions, Child: ui.Shortcuts{Bindings: shortcuts, Child: root}},
+		ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: shortcuts, Child: root}},
 	)
 }
 
@@ -591,6 +596,7 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		Value:               w.Snapshot.Composer,
 		Placeholder:         "Ask kit to do something…",
 		OnChanged:           w.Callbacks.ComposerChanged,
+		OnPasted:            w.Callbacks.ComposerPasted,
 		OnSubmitted:         w.Callbacks.Submit,
 		OpenPalette:         w.Callbacks.OpenPalette,
 		OpenBashHistory:     w.Callbacks.OpenBashHistory,

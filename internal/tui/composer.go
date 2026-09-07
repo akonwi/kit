@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 
+	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -20,6 +21,7 @@ type messageComposer struct {
 	Value               string
 	Placeholder         string
 	OnChanged           ui.TextChangedCallback
+	OnPasted            ui.TextChangedCallback
 	OnSubmitted         ui.TextChangedCallback
 	OpenPalette         ui.VoidCallback
 	OpenBashHistory     func(ui.EventContext, int) bool
@@ -32,6 +34,7 @@ type messageComposerState struct {
 	ui.StateBase
 	value               string
 	cursorEndGeneration uint64
+	pasteChange         bool
 }
 
 func (s *messageComposerState) InitState() {
@@ -101,16 +104,30 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	return ui.Actions{
 		Bindings: actions,
-		Child: ui.Shortcuts{
+		Child: keyShortcuts{
 			Bindings: shortcuts,
 			Child:    ui.Stack{Alignment: ui.TopLeft, Children: children},
 		},
 	}
 }
 
+func (s *messageComposerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	key, ok := event.(ui.Key)
+	if ctx.Phase() == ui.CapturePhase && ok && key.EventType == vaxis.EventPaste && (key.Text != "" || key.Keycode == vaxis.KeyEnter) {
+		s.pasteChange = true
+	}
+	return ui.EventIgnored
+}
+
 func (s *messageComposerState) changed(ctx ui.EventContext, value string) {
 	config := s.Widget().(messageComposer)
+	pasted := s.pasteChange
+	s.pasteChange = false
 	s.SetState(func() { s.value = value })
+	if pasted && config.OnPasted != nil {
+		config.OnPasted(ctx, value)
+		return
+	}
 	if config.OnChanged != nil {
 		config.OnChanged(ctx, value)
 	}
