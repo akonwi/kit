@@ -100,6 +100,10 @@ func (c *fakeSessionClient) RenameSession(context.Context, string, string) (prot
 	panic("unexpected RenameSession")
 }
 
+func (c *fakeSessionClient) DeleteSession(context.Context, string) error {
+	panic("unexpected DeleteSession")
+}
+
 func (c *fakeSessionClient) ListSessions(context.Context, string) ([]protocol.SessionInfo, error) {
 	return c.sessions, nil
 }

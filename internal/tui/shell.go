@@ -173,6 +173,9 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				},
 			}))
 		}
+		if w.Snapshot.SessionExplorer.DeleteOpen {
+			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
+		}
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
 		overlays = append(overlays, ui.OverlayEntry{

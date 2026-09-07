@@ -146,6 +146,42 @@ func TestSessionExplorerControllerRenamesSelectedSessionAndCancelsEmptyInput(t *
 	}
 }
 
+func TestSessionExplorerControllerConfirmsAndRemovesDeletedSession(t *testing.T) {
+	t.Parallel()
+
+	controller := sessionExplorerController{}
+	generation := controller.Begin("session_current")
+	controller.Resolve(generation, []sessionExplorerItem{
+		{ID: "session_current", Name: "Current"},
+		{ID: "session_target", Name: "Target"},
+		{ID: "session_after", Name: "After"},
+	}, nil)
+	if controller.BeginDelete() || controller.DeleteOpen || controller.DeleteError == "" {
+		t.Fatalf("attached delete guard = %+v", controller)
+	}
+	controller.Select("session_target")
+	if controller.DeleteError != "" || !controller.BeginDelete() || !controller.DeleteOpen {
+		t.Fatalf("begin delete = %+v", controller)
+	}
+	generation, sessionID, started := controller.BeginDeleteConfirm()
+	if !started || sessionID != "session_target" || !controller.DeletePending {
+		t.Fatalf("begin delete confirm generation=%d id=%q controller=%+v", generation, sessionID, controller)
+	}
+	if controller.ResolveDelete(generation-1, errors.New("stale")) {
+		t.Fatal("stale delete result was accepted")
+	}
+	if !controller.ResolveDelete(generation, errors.New("offline")) || controller.DeleteError != "offline" {
+		t.Fatalf("delete error = %+v", controller)
+	}
+	generation, _, started = controller.BeginDeleteConfirm()
+	if !started || !controller.ResolveDelete(generation, nil) || controller.DeleteOpen {
+		t.Fatalf("delete success = %+v", controller)
+	}
+	if len(controller.Sessions) != 2 || controller.Selection != "session_current" || sessionIndex(controller.Sessions, "session_target") >= 0 {
+		t.Fatalf("sessions after delete = %+v selection=%q", controller.Sessions, controller.Selection)
+	}
+}
+
 func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t *testing.T) {
 	t.Parallel()
 
@@ -173,6 +209,10 @@ func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t 
 		t.Fatal("rename key did not open the rename dialog")
 	}
 	controller.CancelRename()
+	if !controller.HandleKey(ui.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl}) || !controller.DeleteOpen {
+		t.Fatal("delete key did not open the confirmation dialog")
+	}
+	controller.CancelDelete()
 	if controller.HandleKey(ui.Key{Keycode: vaxis.KeyEsc}) {
 		t.Fatal("Escape should remain available to the root dismiss intent")
 	}
@@ -255,12 +295,13 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 		Callbacks: shellCallbacks{SelectSession: func(_ ui.EventContext, sessionID string) { selected = sessionID }},
 	})
 	application.Pump(140, 24)
+	application.Pump(140, 24)
 	rows := paintedRows(application, 140, 24)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
 		"Session Explorer", "2 sessions", "✓ Current session", "Other workspace",
 		"/workspace/Developer/agent/kit-v2", "01234567", "fedcba98",
-		"↑↓ move · page up/down", "enter switch · r rename · esc close",
+		"↑↓ move · page up/down", "enter switch · r rename · ctrl+d delete · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("session explorer missing %q:\n%s", expected, text)
@@ -271,7 +312,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	if right-left+1 != 119 || top != 4 || bottom-top+1 != pickerModalMinHeight {
 		t.Fatalf("dialog geometry left=%d right=%d top=%d bottom=%d", left, right, top, bottom)
 	}
-	assertPickerFooter(t, rows, "enter switch · r rename · esc close")
+	assertPickerFooter(t, rows, "enter switch · r rename · ctrl+d delete · esc close")
 	currentColumn, currentRow := findTextCell(t, rows, "✓ Current session")
 	currentColumn += len([]rune("✓ "))
 	otherColumn, otherRow := findTextCell(t, rows, "Other workspace")
@@ -344,6 +385,23 @@ func TestSessionExplorerPresentationHasExplicitLoadingErrorAndEmptyStates(t *tes
 	}
 }
 
+func TestSessionExplorerHintsPreserveKeyActionsAtResponsiveWidths(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		width int
+		want  string
+	}{
+		{width: 38, want: "enter switch · ctrl+d delete · esc close"},
+		{width: 51, want: "enter switch · r rename · ctrl+d delete · esc close"},
+		{width: 76, want: "↑↓ move · page up/down · enter switch · r rename · ctrl+d delete · esc close"},
+	} {
+		if got := sessionExplorerHintText(test.width); got != test.want {
+			t.Fatalf("sessionExplorerHintText(%d) = %q, want %q", test.width, got, test.want)
+		}
+	}
+}
+
 func TestSessionExplorerPresentationCommunicatesSwitchProgressAndRetry(t *testing.T) {
 	t.Parallel()
 
@@ -384,7 +442,8 @@ func TestSessionExplorerPresentationCommunicatesSwitchProgressAndRetry(t *testin
 		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: base,
 	}})
 	narrowApplication.Pump(44, 24)
-	assertPickerFooter(t, paintedRows(narrowApplication, 44, 24), "enter switch · r rename · esc close")
+	narrowApplication.Pump(44, 24)
+	assertPickerFooter(t, paintedRows(narrowApplication, 44, 24), "enter switch · ctrl+d delete · esc close")
 
 	narrow := base
 	narrow.SwitchError = strings.Repeat("connection unavailable ", 8)
@@ -441,6 +500,58 @@ func TestSessionRenamePresentationShowsInputFailureAndPendingStates(t *testing.T
 	}
 }
 
+func TestSessionDeletePresentationShowsConfirmationFailureAndPendingStates(t *testing.T) {
+	t.Parallel()
+
+	base := sessionExplorerSnapshot{
+		Open: true, DeleteOpen: true, DeleteSessionID: "session_target",
+		Sessions:  []sessionExplorerItem{{ID: "session_current", Name: "Current"}, {ID: "session_target", Name: "Target"}},
+		Selection: "session_target", CurrentSessionID: "session_current",
+	}
+	for _, test := range []struct {
+		name     string
+		snapshot sessionExplorerSnapshot
+		want     []string
+	}{
+		{name: "confirm", snapshot: base, want: []string{"Delete session?", "Target", "This action cannot be undone.", "enter confirm · esc cancel"}},
+		{name: "failed", snapshot: func() sessionExplorerSnapshot {
+			snapshot := base
+			snapshot.DeleteError = "session is busy"
+			return snapshot
+		}(), want: []string{"Delete failed: session is busy", "enter retry · esc cancel"}},
+		{name: "pending", snapshot: func() sessionExplorerSnapshot {
+			snapshot := base
+			snapshot.DeletePending = true
+			return snapshot
+		}(), want: []string{"Delete session?", "⠋ Deleting…"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := uitest.New(shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
+			}})
+			application.Pump(100, 24)
+			text := strings.Join(paintedRows(application, 100, 24), "\n")
+			for _, want := range test.want {
+				if !strings.Contains(text, want) {
+					t.Fatalf("%s delete state missing %q:\n%s", test.name, want, text)
+				}
+			}
+		})
+	}
+
+	guarded := base
+	guarded.DeleteOpen = false
+	guarded.DeleteError = "Cannot delete the attached session"
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: guarded,
+	}})
+	application.Pump(80, 24)
+	text := strings.Join(paintedRows(application, 80, 24), "\n")
+	if !strings.Contains(text, "Cannot delete the attached session") || !strings.Contains(text, "esc close") {
+		t.Fatalf("delete guard presentation:\n%s", text)
+	}
+}
+
 func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing.T) {
 	t.Parallel()
 
@@ -464,7 +575,7 @@ func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing
 	application.Pump(80, 7)
 	rows := paintedRows(application, 80, 7)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Session Explorer", "✓ Session 11", "↑↓ move · page up/down", "enter switch · r rename · esc close"} {
+	for _, expected := range []string{"Session Explorer", "✓ Session 11", "enter switch · r rename · ctrl+d delete · esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short explorer missing %q (reveal=%t layout=%t attached=%t metrics=%+v):\n%s", expected, state.controller.needsReveal, state.controller.revealPendingLayout, state.controller.scroll.Attached(), state.controller.scroll.Metrics(), text)
 		}
@@ -493,7 +604,7 @@ func TestSessionExplorerRevealsSelectionAfterViewportShrinks(t *testing.T) {
 	pumpSessionExplorerFrames(application, state, 80, 19, 5)
 	pumpSessionExplorerFrames(application, state, 80, 8, 6)
 	text := strings.Join(paintedRows(application, 80, 8), "\n")
-	if !strings.Contains(text, "✓ Session 11") || !strings.Contains(text, "esc close") {
+	if !strings.Contains(text, "✓ Session 11") || !strings.Contains(text, "ctrl+d delete") {
 		t.Fatalf("resized explorer lost selection or chrome:\n%s", text)
 	}
 }
@@ -526,7 +637,7 @@ func TestSessionExplorerRestoresSelectionAfterZeroBodyResize(t *testing.T) {
 	pumpSessionExplorerFrames(application, state, 80, 6, 1)
 	pumpSessionExplorerFrames(application, state, 80, 19, 6)
 	text := strings.Join(paintedRows(application, 80, 19), "\n")
-	if !strings.Contains(text, "✓ Session 25") || !strings.Contains(text, "esc close") {
+	if !strings.Contains(text, "✓ Session 25") || !strings.Contains(text, "ctrl+d delete") {
 		t.Fatalf("zero-body resize lost selection or chrome:\n%s", text)
 	}
 }
@@ -547,7 +658,7 @@ func TestSessionExplorerSuspendsRevealWhenViewportHasNoAvailableRows(t *testing.
 	}
 	rows := paintedRows(application, 80, 6)
 	if !strings.Contains(rows[0], "┌") || !strings.Contains(rows[1], "Session Explorer") ||
-		!strings.Contains(rows[len(rows)-2], "esc close") || !strings.Contains(rows[len(rows)-1], "└") {
+		!strings.Contains(rows[len(rows)-2], "ctrl+d delete") || !strings.Contains(rows[len(rows)-1], "└") {
 		t.Fatalf("six-row explorer boundary =\n%s", strings.Join(rows, "\n"))
 	}
 }

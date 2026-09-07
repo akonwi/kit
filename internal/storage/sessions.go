@@ -82,7 +82,41 @@ func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionReco
 	return record, nil
 }
 
-// GetSession loads one session by exact id.
+// ArchiveSession hides a session from future loads while retaining its durable data.
+func (s *Store) ArchiveSession(ctx context.Context, id string, archivedAt time.Time) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store is closed")
+	}
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions
+		SET archived_at = ?, updated_at = ?
+		WHERE id = ? AND archived_at IS NULL
+	`, formatTimestamp(archivedAt), formatTimestamp(archivedAt), id)
+	if err != nil {
+		return fmt.Errorf("archive session %q: %w", id, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 1 {
+		return nil
+	}
+	var existingArchivedAt sql.NullString
+	err = s.db.QueryRowContext(ctx, `SELECT archived_at FROM sessions WHERE id = ?`, id).Scan(&existingArchivedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("session %q: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("check archived session %q: %w", id, err)
+	}
+	if existingArchivedAt.Valid {
+		return nil
+	}
+	return fmt.Errorf("session %q: %w", id, ErrNotFound)
+}
+
+// GetSession loads one session by exact id, including archived tombstones.
 func (s *Store) GetSession(ctx context.Context, id string) (SessionRecord, error) {
 	if s == nil || s.db == nil {
 		return SessionRecord{}, fmt.Errorf("store is closed")

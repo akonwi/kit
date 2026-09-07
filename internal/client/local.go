@@ -72,6 +72,10 @@ func (c *localServer) RenameSession(ctx context.Context, sessionID, name string)
 	return c.transport.RenameSession(ctx, sessionID, name)
 }
 
+func (c *localServer) DeleteSession(ctx context.Context, sessionID string) error {
+	return c.transport.DeleteSession(ctx, sessionID)
+}
+
 func (c *localServer) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	return c.transport.ListSessions(ctx, cwd)
 }

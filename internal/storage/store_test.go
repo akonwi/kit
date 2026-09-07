@@ -74,6 +74,37 @@ func TestSessionRegistryRenamesNonArchivedSession(t *testing.T) {
 	}
 }
 
+func TestSessionRegistryArchivesSession(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	created, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_delete", CWD: t.TempDir(), Persistent: true,
+		ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ArchiveSession(t.Context(), created.ID, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	archived, err := store.GetSession(t.Context(), created.ID)
+	if err != nil || archived.ArchivedAt == nil {
+		t.Fatalf("archived GetSession() = %+v, %v", archived, err)
+	}
+	listed, err := store.ListSessions(t.Context(), "")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("ListSessions() = %+v, %v", listed, err)
+	}
+	if err := store.ArchiveSession(t.Context(), created.ID, time.Now().UTC()); err != nil {
+		t.Fatalf("repeated ArchiveSession() error = %v", err)
+	}
+}
+
 func TestSessionRegistryTracksDroidInitialization(t *testing.T) {
 	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
 	if err != nil {

@@ -120,6 +120,28 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil || renamed.ID != created.ID || renamed.Name != "Renamed API session" {
 		t.Fatalf("RenameSession() = %+v, %v", renamed, err)
 	}
+	deleteID, err := identifier.New("session_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	deleteCandidate, err := client.CreateSession(context.Background(), protocol.CreateSessionInput{
+		ID: deleteID, CWD: workspace, Model: "test/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.DeleteSession(context.Background(), deleteCandidate.ID); err != nil {
+		t.Fatalf("DeleteSession() error = %v", err)
+	}
+	listedAfterDelete, err := client.ListSessions(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listed := range listedAfterDelete {
+		if listed.ID == deleteCandidate.ID {
+			t.Fatalf("deleted session remained listed: %+v", listedAfterDelete)
+		}
+	}
 	runID, err := identifier.New("run_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)

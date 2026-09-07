@@ -68,6 +68,47 @@ func TestManagerCreateIsIdempotentForClientSelectedSessionID(t *testing.T) {
 	}
 }
 
+func TestManagerDeletesIdleSessionAndRetainsArchivedDroidStore(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	droidDirectory := filepath.Join(root, "droids")
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(droidDirectory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Snapshot(t.Context(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	droidPath := filepath.Join(droidDirectory, created.ID+".db")
+	if err := manager.Delete(t.Context(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(droidPath); err != nil {
+		t.Fatalf("archived droid store was not retained: %v", err)
+	}
+	if _, err := manager.Snapshot(t.Context(), created.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("deleted Snapshot() error = %v", err)
+	}
+	listed, err := manager.List(t.Context(), "")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("List() = %+v, %v", listed, err)
+	}
+	if _, err := manager.Create(t.Context(), session.CreateInput{ID: created.ID, CWD: root, Model: "test/echo"}); !errors.Is(err, session.ErrInvalidInput) {
+		t.Fatalf("Create() with deleted id error = %v", err)
+	}
+}
+
 func TestManagerProjectsCanonicalDroidHistoryAcrossRestart(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
@@ -296,6 +337,41 @@ func TestWaitCancellationDetachesWithoutAbortingDroid(t *testing.T) {
 		t.Fatal("wait cancellation aborted the droid")
 	}
 	if err := manager.Abort(t.Context(), created.ID, snapshot.ActiveRunID); err != nil {
+		t.Fatal(err)
+	}
+	close(providers.block)
+}
+
+func TestManagerRejectsDeleteWhileSessionRunIsActive(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reservation, err := manager.StartPrompt(t.Context(), created.ID, "keep running")
+	if err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-providers.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider did not start")
+	}
+	if err := manager.Delete(t.Context(), created.ID); !errors.Is(err, session.ErrDeleteBusy) {
+		t.Fatalf("Delete() active error = %v", err)
+	}
+	if err := manager.Abort(t.Context(), created.ID, reservation.RunID); err != nil {
 		t.Fatal(err)
 	}
 	close(providers.block)

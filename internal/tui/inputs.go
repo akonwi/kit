@@ -59,7 +59,7 @@ func (s *textInputState) Build(ui.BuildContext) ui.Widget {
 	if s.measured {
 		field.MinWidth = max(1, s.width)
 	}
-	return textInputWidthProbe{
+	return widthProbe{
 		WidthChanged: func(width int) {
 			width = max(0, width)
 			changed := !s.measured || width != s.width
@@ -79,27 +79,27 @@ func (s *textInputState) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
-type textInputWidthProbe struct {
+type widthProbe struct {
 	WidthChanged func(int)
 	Child        ui.Widget
 }
 
-func (w textInputWidthProbe) WidgetChild() ui.Widget { return w.Child }
+func (w widthProbe) WidgetChild() ui.Widget { return w.Child }
 
-func (w textInputWidthProbe) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderTextInputWidthProbe{WidthChanged: w.WidthChanged}
+func (w widthProbe) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+	return &renderWidthProbe{WidthChanged: w.WidthChanged}
 }
 
-func (w textInputWidthProbe) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
-	object.(*renderTextInputWidthProbe).WidthChanged = w.WidthChanged
+func (w widthProbe) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
+	object.(*renderWidthProbe).WidthChanged = w.WidthChanged
 }
 
-type renderTextInputWidthProbe struct {
+type renderWidthProbe struct {
 	ui.SingleChildRenderObject
 	WidthChanged func(int)
 }
 
-func (r *renderTextInputWidthProbe) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
+func (r *renderWidthProbe) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
 	width := constraints.MinWidth
 	if constraints.HasBoundedWidth() {
 		width = constraints.MaxWidth
@@ -115,17 +115,17 @@ func (r *renderTextInputWidthProbe) Layout(ctx ui.LayoutContext, constraints ui.
 	r.SetSize(constraints.Constrain(ui.Size{}))
 }
 
-func (r *renderTextInputWidthProbe) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {
+func (r *renderWidthProbe) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {
 	if child := r.Child(); child != nil {
 		return constraints.Constrain(ui.DryLayout(ctx, child, constraints))
 	}
 	return constraints.Constrain(ui.Size{})
 }
 
-func (r *renderTextInputWidthProbe) Paint(painter *ui.Painter, offset ui.Offset) {
+func (r *renderWidthProbe) Paint(painter *ui.Painter, offset ui.Offset) {
 	if child := r.Child(); child != nil {
 		child.Paint(painter, offset)
 	}
 }
 
-func (*renderTextInputWidthProbe) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
+func (*renderWidthProbe) HitTest(*ui.HitTestResult, ui.Point) bool { return false }

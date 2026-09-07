@@ -94,7 +94,7 @@ recorded manual verification exists.
   lists all saved sessions in an on-demand responsive explorer, and `kit new`
   starts it with a newly persisted current-directory session without consulting
   resumable sessions. The explorer switches the local TUI binding to an exact
-  selected session and renames any selected session; delete remains.
+  selected session and renames or deletes non-attached sessions.
 - [~] Resume the most recent session for the current cwd by default, with
   `kit new` as the explicit create-instead escape hatch.
 - [ ] Support exact long/short session identifiers and explicit ephemeral
@@ -111,8 +111,8 @@ recorded manual verification exists.
   the initial native dialog loads the global directory, centers selection on the
   attached session, supports bounded keyboard/mouse navigation, prioritizes
   title, activity time, cwd, then short id as width permits, atomically replaces
-  the local binding from an authoritative target snapshot, and provides a
-  validated retryable rename dialog. Delete remains.
+  the local binding from an authoritative target snapshot, and provides
+  validated retryable rename and confirmed-delete dialogs.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
 
 ## Agent runtime and transcript
@@ -248,9 +248,10 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v10 exposes retry-safe client-selected session IDs, validated session
-  rename, droid-owned turn identity, direct canonical history, context/pending
-  boundaries, runtime stream synchronization metadata, bounded tool arguments,
+  protocol v11 exposes retry-safe client-selected session IDs, validated session
+  rename and archival deletion, droid-owned turn identity, direct canonical
+  history, context/pending boundaries, runtime stream synchronization metadata,
+  bounded tool arguments,
   and stable live assistant message IDs. TypeScript contracts remain.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
   to runtime stream identity, cursor, and replay availability. Broader

@@ -63,6 +63,7 @@ type RunProjection struct {
 type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
 	RenameSession(context.Context, string, string) (SessionRecord, error)
+	ArchiveSession(context.Context, string, time.Time) error
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)
 	MarkDroidInitialized(context.Context, string, time.Time) error

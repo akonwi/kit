@@ -11,6 +11,7 @@ import (
 type Server interface {
 	CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	RenameSession(context.Context, string, string) (protocol.SessionInfo, error)
+	DeleteSession(context.Context, string) error
 	ListSessions(context.Context, string) ([]protocol.SessionInfo, error)
 	Attach(context.Context, string) (Session, error)
 }

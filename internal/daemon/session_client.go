@@ -68,6 +68,12 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (pro
 	return output, nil
 }
 
+// DeleteSession archives one persisted session.
+func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
+	path := "/v1/sessions/" + url.PathEscape(sessionID)
+	return c.sessionJSON(ctx, http.MethodDelete, path, nil, http.StatusNoContent, nil)
+}
+
 // ListSessions lists daemon sessions, optionally filtered to one cwd.
 func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	path := "/v1/sessions"

@@ -630,6 +630,7 @@ type fakeServer struct {
 	attachErr     error
 	attach        func(string) (sessionclient.Session, error)
 	rename        func(string, string) (protocol.SessionInfo, error)
+	deleteSession func(string) error
 	list          func(string) ([]protocol.SessionInfo, error)
 }
 
@@ -644,6 +645,13 @@ func (s *fakeServer) RenameSession(_ context.Context, sessionID, name string) (p
 		panic("unexpected RenameSession")
 	}
 	return s.rename(sessionID, name)
+}
+
+func (s *fakeServer) DeleteSession(_ context.Context, sessionID string) error {
+	if s.deleteSession == nil {
+		panic("unexpected DeleteSession")
+	}
+	return s.deleteSession(sessionID)
 }
 
 func (s *fakeServer) ListSessions(_ context.Context, cwd string) ([]protocol.SessionInfo, error) {

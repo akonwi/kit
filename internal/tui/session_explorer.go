@@ -51,6 +51,10 @@ type sessionExplorerController struct {
 	RenameCursorEnd     uint64
 	RenamePending       bool
 	RenameError         string
+	DeleteOpen          bool
+	DeleteSessionID     string
+	DeletePending       bool
+	DeleteError         string
 	Sessions            []sessionExplorerItem
 	Selection           string
 	CurrentSessionID    string
@@ -75,6 +79,10 @@ type sessionExplorerSnapshot struct {
 	RenameCursorEnd  uint64
 	RenamePending    bool
 	RenameError      string
+	DeleteOpen       bool
+	DeleteSessionID  string
+	DeletePending    bool
+	DeleteError      string
 	Sessions         []sessionExplorerItem
 	Selection        string
 	CurrentSessionID string
@@ -132,6 +140,8 @@ func (c *sessionExplorerController) Snapshot() sessionExplorerSnapshot {
 		RenameOpen: c.RenameOpen, RenameSessionID: c.RenameSessionID,
 		RenameText: c.RenameText, RenameCursorEnd: c.RenameCursorEnd,
 		RenamePending: c.RenamePending, RenameError: c.RenameError,
+		DeleteOpen: c.DeleteOpen, DeleteSessionID: c.DeleteSessionID,
+		DeletePending: c.DeletePending, DeleteError: c.DeleteError,
 		Sessions: append([]sessionExplorerItem(nil), c.Sessions...), Selection: c.Selection,
 		CurrentSessionID: c.CurrentSessionID, Scroll: &c.scroll, List: &c.list, Layout: &c.layout,
 	}
@@ -143,12 +153,13 @@ func (c *sessionExplorerController) Close() {
 }
 
 func (c *sessionExplorerController) Select(sessionID string) {
-	if c.Switching || c.RenameOpen {
+	if c.Switching || c.RenameOpen || c.DeleteOpen {
 		return
 	}
 	if sessionIndex(c.Sessions, sessionID) >= 0 && c.Selection != sessionID {
 		c.Selection = sessionID
 		c.SwitchError = ""
+		c.DeleteError = ""
 		c.requestReveal()
 	}
 }
@@ -165,6 +176,7 @@ func (c *sessionExplorerController) BeginRename() bool {
 	c.RenameCursorEnd++
 	c.RenamePending = false
 	c.RenameError = ""
+	c.DeleteError = ""
 	return true
 }
 
@@ -226,20 +238,85 @@ func (c *sessionExplorerController) CancelRename() {
 	c.RenameError = ""
 }
 
+func (c *sessionExplorerController) BeginDelete() bool {
+	if _, ok := c.ActivatableSelection(); !ok {
+		return false
+	}
+	if c.Selection == c.CurrentSessionID {
+		c.DeleteError = "Cannot delete the attached session"
+		return false
+	}
+	c.generation++
+	c.DeleteOpen = true
+	c.DeleteSessionID = c.Selection
+	c.DeletePending = false
+	c.DeleteError = ""
+	return true
+}
+
+func (c *sessionExplorerController) BeginDeleteConfirm() (uint64, string, bool) {
+	if !c.DeleteOpen || c.DeletePending || sessionIndex(c.Sessions, c.DeleteSessionID) < 0 {
+		return 0, "", false
+	}
+	c.generation++
+	c.DeletePending = true
+	c.DeleteError = ""
+	return c.generation, c.DeleteSessionID, true
+}
+
+func (c *sessionExplorerController) ResolveDelete(generation uint64, err error) bool {
+	if !c.DeleteOpen || !c.DeletePending || generation != c.generation {
+		return false
+	}
+	c.DeletePending = false
+	if err != nil {
+		c.DeleteError = err.Error()
+		return true
+	}
+	index := sessionIndex(c.Sessions, c.DeleteSessionID)
+	if index < 0 {
+		c.DeleteError = "deleted session is no longer listed"
+		return true
+	}
+	c.Sessions = append(c.Sessions[:index], c.Sessions[index+1:]...)
+	if len(c.Sessions) == 0 {
+		c.Selection = ""
+	} else {
+		index = min(index, len(c.Sessions)-1)
+		c.Selection = c.Sessions[index].ID
+		c.requestReveal()
+	}
+	c.DeleteOpen = false
+	c.DeleteSessionID = ""
+	c.DeleteError = ""
+	return true
+}
+
+func (c *sessionExplorerController) CancelDelete() {
+	if !c.DeleteOpen || c.DeletePending {
+		return
+	}
+	c.generation++
+	c.DeleteOpen = false
+	c.DeleteSessionID = ""
+	c.DeleteError = ""
+}
+
 func (c *sessionExplorerController) ActivatableSelection() (string, bool) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || sessionIndex(c.Sessions, c.Selection) < 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen || sessionIndex(c.Sessions, c.Selection) < 0 {
 		return "", false
 	}
 	return c.Selection, true
 }
 
 func (c *sessionExplorerController) BeginSwitch() (uint64, string, bool) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || sessionIndex(c.Sessions, c.Selection) < 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen || sessionIndex(c.Sessions, c.Selection) < 0 {
 		return 0, "", false
 	}
 	c.generation++
 	c.Switching = true
 	c.SwitchError = ""
+	c.DeleteError = ""
 	return c.generation, c.Selection, true
 }
 
@@ -266,7 +343,7 @@ func (c *sessionExplorerController) ResolveSwitch(generation uint64, err error) 
 }
 
 func (c *sessionExplorerController) Move(delta int) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || len(c.Sessions) == 0 || delta == 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen || len(c.Sessions) == 0 || delta == 0 {
 		return
 	}
 	index := sessionIndex(c.Sessions, c.Selection)
@@ -277,6 +354,7 @@ func (c *sessionExplorerController) Move(delta int) {
 	if next := c.Sessions[index].ID; next != c.Selection {
 		c.Selection = next
 		c.SwitchError = ""
+		c.DeleteError = ""
 		c.requestReveal()
 	}
 }
@@ -359,6 +437,8 @@ func (c *sessionExplorerController) HandleKey(key ui.Key) bool {
 		c.Move(sessionExplorerMaxVisible)
 	case key.MatchString("r"):
 		c.BeginRename()
+	case key.MatchString("Ctrl+d"):
+		c.BeginDelete()
 	}
 	return true
 }
@@ -388,6 +468,40 @@ func sessionIndex(sessions []sessionExplorerItem, sessionID string) int {
 		}
 	}
 	return -1
+}
+
+type sessionExplorerHints struct{ Style ui.Style }
+
+func (sessionExplorerHints) CreateState() ui.State { return &sessionExplorerHintsState{} }
+
+type sessionExplorerHintsState struct {
+	ui.StateBase
+	width int
+}
+
+func (s *sessionExplorerHintsState) Build(ui.BuildContext) ui.Widget {
+	widget := s.Widget().(sessionExplorerHints)
+	value := sessionExplorerHintText(s.width)
+	return widthProbe{
+		WidthChanged: func(width int) {
+			if width != s.width {
+				s.width = width
+				s.MarkNeedsBuild()
+			}
+		},
+		Child: ui.Text{Value: value, Style: widget.Style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+	}
+}
+
+func sessionExplorerHintText(width int) string {
+	switch {
+	case width >= 76:
+		return "↑↓ move · page up/down · enter switch · r rename · ctrl+d delete · esc close"
+	case width >= 51:
+		return "enter switch · r rename · ctrl+d delete · esc close"
+	default:
+		return "enter switch · ctrl+d delete · esc close"
+	}
 }
 
 type sessionExplorerCallbacks struct {
@@ -432,20 +546,19 @@ func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
 	mutedStyle := ui.Style{Foreground: theme.MutedForeground}
-	var footer ui.Widget = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-		ui.Expanded(ui.Text{
-			Value: "↑↓ move · page up/down", Style: mutedStyle,
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}),
-		ui.SizedBox{Width: 2},
-		ui.Text{
-			Value: "enter switch · r rename · esc close", Style: mutedStyle,
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		},
-	}}
+	var footer ui.Widget = sessionExplorerHints{Style: mutedStyle}
 	switch {
 	case w.Snapshot.Switching:
 		footer = ui.Text{Value: "esc cancel", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	case w.Snapshot.DeleteError != "" && !w.Snapshot.DeleteOpen:
+		footer = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+			ui.Expanded(ui.Text{
+				Value: w.Snapshot.DeleteError, Style: ui.Style{Foreground: theme.WarningText},
+				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+			}),
+			ui.SizedBox{Width: 2},
+			ui.Text{Value: "esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+		}}
 	case w.Snapshot.SwitchError != "":
 		footer = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 			ui.Expanded(ui.Text{
@@ -503,7 +616,7 @@ func (w sessionExplorerSurface) body(theme ui.Theme, scroll *ui.ScrollController
 				return sessionExplorerRow{
 					Session: session, Current: session.ID == w.Snapshot.CurrentSessionID,
 					Selected:     session.ID == w.Snapshot.Selection,
-					Interactive:  !w.Snapshot.RenameOpen && !w.Snapshot.Switching,
+					Interactive:  !w.Snapshot.RenameOpen && !w.Snapshot.DeleteOpen && !w.Snapshot.Switching,
 					SessionCount: len(w.Snapshot.Sessions), Layout: layout,
 					OnPressed: func(event ui.EventContext) {
 						if w.Callbacks.Select != nil {

@@ -21,6 +21,7 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
+	Delete(context.Context, string) error
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
@@ -61,6 +62,10 @@ func (s runtimeSessionService) Rename(
 		return protocol.SessionInfo{}, err
 	}
 	return projectSession(record), nil
+}
+
+func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) error {
+	return s.manager.Delete(ctx, sessionID)
 }
 
 func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
@@ -275,6 +280,13 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, record)
 	})
+	mux.HandleFunc("DELETE /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
+		if err := service.Delete(request.Context(), request.PathValue("sessionID")); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
 		snapshot, err := service.Snapshot(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
@@ -441,7 +453,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
 		status = http.StatusConflict
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed):

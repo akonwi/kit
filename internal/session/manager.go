@@ -20,6 +20,7 @@ import (
 
 var (
 	ErrBusy              = errors.New("session already has an active parent run")
+	ErrDeleteBusy        = errors.New("session cannot be deleted while work is active")
 	ErrClosed            = errors.New("session manager is closed")
 	ErrInvalidInput      = errors.New("invalid session input")
 	ErrRunNotAbortable   = errors.New("run is not abortable")
@@ -80,6 +81,7 @@ type Manager struct {
 	mu         sync.Mutex
 	runtimes   map[string]*runtime
 	loading    map[string]*runtimeLoad
+	deleting   map[string]bool
 	closed     bool
 	runs       sync.WaitGroup
 	loads      sync.WaitGroup
@@ -178,7 +180,7 @@ func NewManager(store Repository, providers droids.Providers, systemPrompt strin
 		store: store, providers: providers, systemPrompt: systemPrompt,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
-		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad),
+		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool),
 		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
@@ -258,6 +260,73 @@ func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRe
 	return m.store.RenameSession(ctx, sessionID, name)
 }
 
+// Delete archives a session and releases an idle loaded runtime.
+func (m *Manager) Delete(ctx context.Context, sessionID string) error {
+	if err := m.beginOperation(); err != nil {
+		return err
+	}
+	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !identifier.Valid(sessionID, "session_") {
+		return fmt.Errorf("%w: invalid session id", ErrInvalidInput)
+	}
+	m.mu.Lock()
+	if m.deleting[sessionID] || m.loading[sessionID] != nil {
+		m.mu.Unlock()
+		return ErrDeleteBusy
+	}
+	m.deleting[sessionID] = true
+	loaded := m.runtimes[sessionID]
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		delete(m.deleting, sessionID)
+		m.mu.Unlock()
+	}()
+
+	if loaded != nil {
+		if !loaded.admissionMu.TryLock() {
+			return ErrDeleteBusy
+		}
+		defer loaded.admissionMu.Unlock()
+		loaded.controlMu.Lock()
+		defer loaded.controlMu.Unlock()
+		loaded.stateMu.Lock()
+		active := loaded.activeRun != ""
+		loaded.stateMu.Unlock()
+		if active {
+			return ErrDeleteBusy
+		}
+	}
+	m.bashMu.Lock()
+	if m.bashActive[sessionID] != nil {
+		m.bashMu.Unlock()
+		return ErrDeleteBusy
+	}
+	if err := m.store.ArchiveSession(ctx, sessionID, time.Now().UTC()); err != nil {
+		m.bashMu.Unlock()
+		return err
+	}
+	delete(m.bashHistory, sessionID)
+	delete(m.bashNextSequence, sessionID)
+	m.bashMu.Unlock()
+
+	if loaded != nil {
+		m.mu.Lock()
+		if m.runtimes[sessionID] == loaded {
+			delete(m.runtimes, sessionID)
+		}
+		m.mu.Unlock()
+		// Archival is the authoritative delete commit. Runtime cleanup is best
+		// effort so an interrupted client cannot turn a committed delete into a
+		// misleading retryable failure or allow a second runtime to load.
+		_ = loaded.close(ctx)
+	}
+	return nil
+}
+
 func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error) {
 	if err := m.beginOperation(); err != nil {
 		return nil, err
@@ -295,6 +364,10 @@ func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (Ru
 	release := func() {
 		loaded.controlMu.Unlock()
 		loaded.admissionMu.Unlock()
+	}
+	if m.sessionDeleting(sessionID) {
+		release()
+		return RunReservation{}, ErrDeleteBusy
 	}
 	snapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
@@ -628,6 +701,10 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 		m.mu.Unlock()
 		return nil, ErrClosed
 	}
+	if m.deleting[sessionID] {
+		m.mu.Unlock()
+		return nil, ErrDeleteBusy
+	}
 	if loaded := m.runtimes[sessionID]; loaded != nil {
 		m.mu.Unlock()
 		return loaded, nil
@@ -677,6 +754,9 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 	record, err := m.store.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
+	}
+	if record.ArchivedAt != nil {
+		return nil, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
 	}
 	return m.newDroid(ctx, record)
 }

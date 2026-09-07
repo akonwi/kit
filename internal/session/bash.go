@@ -78,6 +78,9 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 
 	m.bashMu.Lock()
 	defer m.bashMu.Unlock()
+	if m.sessionDeleting(sessionID) {
+		return BashExecution{}, ErrDeleteBusy
+	}
 	if history := m.bashHistory[sessionID]; history != nil {
 		if existing, ok := history[executionID]; ok {
 			if existing.Command != command || existing.ExcludeFromContext != exclude {
@@ -222,6 +225,12 @@ func pruneBashHistory(history map[string]BashExecution, limit int) {
 		}
 		delete(history, oldestID)
 	}
+}
+
+func (m *Manager) sessionDeleting(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.deleting[sessionID]
 }
 
 func (m *Manager) isClosed() bool {
