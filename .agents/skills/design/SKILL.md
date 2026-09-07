@@ -113,13 +113,16 @@ Examples: `InlinePicker`, compact overflow pickers, toast notifications.
 Examples: settings, login, guided questions, session exploration, command palette, workspace file finder.
 
 - Centered above the current screen without dimming or recoloring the background
-- The command palette is the placement exception: anchor its input near the top
-  quarter so content-hugging result changes move only its bottom edge
+  unless it is a picker-style dialog
+- Picker-style dialogs such as the command palette and session explorer share a
+  top-quarter anchor and a 20-row minimum height, clamped to the viewport
 - Uses a trapped focus scope so the undimmed background does not remain keyboard-active
 - Uses `Dialog.Root` when its structure fits
 - Content box has a `borderDefault` outer border and uses the surrounding `bg` background; do not tint the whole dialog when an undimmed shell remains visible behind it
 - Width and height are bounded for the terminal rather than tied to one assumed viewport
 - Header, tabs, and footer use `flexShrink={0}` so the body owns compression and scrolling
+- Picker-style dialog footers stay fixed at the bottom behind a full-width top
+  divider; use the shared picker dialog structure rather than feature-local chrome
 - Header metadata must add useful task context. Omit obvious counts such as `1 option`; they are noise when the list itself communicates its size.
 - Avoid nested borders unless an inner border conveys a distinct interactive state
 

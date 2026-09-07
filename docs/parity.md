@@ -90,7 +90,9 @@ recorded manual verification exists.
 
 ## Session directory and concurrency
 
-- [~] List, create, open, rename, delete, and resume sessions.
+- [~] List, create, open, rename, delete, and resume sessions; the native TUI
+  now lists all saved sessions in an on-demand responsive explorer, while
+  switching, rename, and delete actions remain.
 - [~] Resume the most recent session for the current cwd by default.
 - [ ] Support exact long/short session identifiers and explicit ephemeral
   sessions.
@@ -102,7 +104,11 @@ recorded manual verification exists.
 - [ ] Remove all process-global cwd, active-session, and model-cache state.
 - [ ] Support cwd retargeting with explicit server-side workspace context.
 - [ ] Implement handoff and lineage without globally switching other clients.
-- [ ] Implement session explorer/picker workflows and responsive presentation.
+- [~] Implement session explorer/picker workflows and responsive presentation;
+  the initial native dialog loads the global directory, centers selection on the
+  attached session, supports bounded keyboard/mouse navigation, and prioritizes
+  title, activity time, cwd, then short id as width permits. Switching and
+  mutation workflows remain.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
 
 ## Agent runtime and transcript
@@ -191,8 +197,10 @@ recorded manual verification exists.
   keyboard, and mouse behavior; the initial single-ranked palette opens from
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
-  state, and an undimmed modal boundary. Completion, arguments, nested pickers,
-  and dynamic command sources remain.
+  state, and an undimmed modal boundary. It exposes login, conditional abort,
+  session exploration, and quit; session exploration opens the native
+  saved-session listing. Completion, arguments, nested pickers, and dynamic
+  command sources remain.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
 - [~] Toasts, confirmation/input/select dialogs, fatal/error screens, and
@@ -342,7 +350,8 @@ recorded manual verification exists.
 ## Commands, settings, and themes
 
 - [~] Core command catalog and transport-neutral command subset; the native
-  palette currently exposes login, conditional abort, and quit.
+  palette currently exposes login, conditional abort, session exploration, and
+  quit.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [ ] `/cd`, `/settings`, `/pager`, `/code-review`, `/handoff`, `/login`,
   `/logout`, `/model`, `/name`, `/new`, `/reload`, `/debug`, `/sessions`,

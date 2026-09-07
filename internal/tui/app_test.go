@@ -412,6 +412,32 @@ func TestAPIKeyProviderSelectionSubmitsObscuredCredential(t *testing.T) {
 	}
 }
 
+func TestBashAdmissionCountsAsActiveWork(t *testing.T) {
+	t.Parallel()
+
+	state := appState{bashStarting: true}
+	if !state.hasActiveWork() {
+		t.Fatal("bash admission window was reported idle")
+	}
+}
+
+func TestListSessionExplorerSessionsUsesGlobalDirectory(t *testing.T) {
+	t.Parallel()
+
+	requestedCWD := "not called"
+	server := &fakeServer{list: func(cwd string) ([]protocol.SessionInfo, error) {
+		requestedCWD = cwd
+		return []protocol.SessionInfo{{ID: "session_other", CWD: "/another-repo"}}, nil
+	}}
+	sessions, err := listSessionExplorerSessions(context.Background(), server)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requestedCWD != "" || len(sessions) != 1 || sessions[0].ID != "session_other" {
+		t.Fatalf("global session listing cwd=%q sessions=%+v", requestedCWD, sessions)
+	}
+}
+
 func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 	t.Parallel()
 
@@ -471,6 +497,7 @@ type fakeServer struct {
 	sessions      []protocol.SessionInfo
 	created       protocol.CreateSessionInput
 	createdResult protocol.SessionInfo
+	list          func(string) ([]protocol.SessionInfo, error)
 }
 
 func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
@@ -478,7 +505,10 @@ func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessi
 	return s.createdResult, nil
 }
 
-func (s *fakeServer) ListSessions(context.Context, string) ([]protocol.SessionInfo, error) {
+func (s *fakeServer) ListSessions(_ context.Context, cwd string) ([]protocol.SessionInfo, error) {
+	if s.list != nil {
+		return s.list(cwd)
+	}
 	return append([]protocol.SessionInfo(nil), s.sessions...), nil
 }
 

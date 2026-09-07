@@ -56,12 +56,19 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandLogin {
 		t.Fatalf("provider matches = %#v, want login", commands)
 	}
+	commands = filteredPaletteCommands(false, "threads")
+	if len(commands) != 1 || commands[0].ID != paletteCommandSessions {
+		t.Fatalf("threads matches = %#v, want sessions", commands)
+	}
 	commands = filteredPaletteCommands(true, "stop because it is stuck")
 	if len(commands) != 1 || commands[0].ID != paletteCommandAbort {
 		t.Fatalf("stop matches = %#v, want abort", commands)
 	}
 	if paletteCommandAvailable(paletteCommandLogin, true) {
 		t.Fatal("login remained available during an active run")
+	}
+	if paletteCommandAvailable(paletteCommandSessions, true) {
+		t.Fatal("sessions remained available during active work")
 	}
 
 	var pasted paletteController
@@ -105,7 +112,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
 		"Search commands…", "login", "Connect another provider", "quit", "Exit Kit",
-		"↑↓ move · enter run · esc close",
+		"sessions", "Browse sessions", "↑↓ move · enter run · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("palette missing %q:\n%s", expected, text)
@@ -115,6 +122,11 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 		t.Fatalf("palette recolored the background: got %+v, want %+v", application.Cell(1, 3).Style, backgroundStyle)
 	}
 	left, right, top := paletteBorder(rows)
+	bottom := dialogBottom(rows)
+	if got := bottom - top + 1; got != pickerModalMinHeight {
+		t.Fatalf("palette height = %d, want minimum %d", got, pickerModalMinHeight)
+	}
+	assertPickerFooter(t, rows, "↑↓ move · enter run · esc close")
 	if got := right - left + 1; got != 64 {
 		t.Fatalf("palette width = %d, want 64", got)
 	}
@@ -141,8 +153,9 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 		t.Fatalf("filtered palette =\n%s", text)
 	}
 	_, _, filteredTop := paletteBorder(rows)
-	if filteredTop != top {
-		t.Fatalf("palette top moved from row %d to %d while filtering", top, filteredTop)
+	filteredBottom := dialogBottom(rows)
+	if filteredTop != top || filteredBottom != bottom {
+		t.Fatalf("palette bounds moved from rows %d–%d to %d–%d while filtering", top, bottom, filteredTop, filteredBottom)
 	}
 	application.Enter()
 	application.Pump(width, height)
@@ -474,6 +487,24 @@ func paletteBorder(rows []string) (int, int, int) {
 		}
 	}
 	return -1, -1, -1
+}
+
+func assertPickerFooter(t *testing.T, rows []string, hint string) {
+	t.Helper()
+	bottom := dialogBottom(rows)
+	if bottom < 2 || !strings.Contains(rows[bottom-2], "├") || !strings.Contains(rows[bottom-2], "┤") ||
+		!strings.Contains(rows[bottom-1], hint) {
+		t.Fatalf("picker footer is not fixed below its divider:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func dialogBottom(rows []string) int {
+	for rowIndex := len(rows) - 1; rowIndex >= 0; rowIndex-- {
+		if strings.Contains(rows[rowIndex], "└") && strings.Contains(rows[rowIndex], "┘") {
+			return rowIndex
+		}
+	}
+	return -1
 }
 
 func findTextCell(t *testing.T, rows []string, value string) (int, int) {

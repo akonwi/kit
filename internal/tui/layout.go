@@ -2,6 +2,123 @@ package tui
 
 import "go.rockorager.dev/vaxis/ui"
 
+// pickerModalMinHeight keeps picker-style dialogs visually stable when their
+// current result sets contain only a few rows.
+const pickerModalMinHeight = 20
+
+// pickerDialogContent owns the shared border and fixed footer structure for
+// picker-style dialogs. Callers own the body above the divider.
+func pickerDialogContent(theme ui.Theme, body, footer ui.Widget) ui.Widget {
+	return ui.DecoratedBox(
+		ui.Decoration{
+			Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
+			Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
+		},
+		ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+			ui.Expanded(body),
+			dialogDivider{Style: ui.Style{Foreground: theme.Border}},
+			ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
+		}},
+	)
+}
+
+type pickerDialogLayoutState struct{ AvailableRows int }
+
+// pickerDialogPositioner gives picker-style dialogs their shared width bounds,
+// minimum height, and top-quarter placement. State is optional and reports the
+// rows left after a caller's fixed body chrome.
+type pickerDialogPositioner struct {
+	Percent      int
+	MinWidth     int
+	MaxWidth     int
+	Height       int
+	ReservedRows int
+	State        *pickerDialogLayoutState
+	Child        ui.Widget
+}
+
+func (w pickerDialogPositioner) WidgetChild() ui.Widget { return w.Child }
+
+func (w pickerDialogPositioner) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+	return &renderPickerDialogPositioner{
+		Percent: w.Percent, MinWidth: w.MinWidth, MaxWidth: w.MaxWidth,
+		Height: w.Height, ReservedRows: w.ReservedRows, State: w.State,
+	}
+}
+
+func (w pickerDialogPositioner) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
+	render := object.(*renderPickerDialogPositioner)
+	if render.Percent == w.Percent && render.MinWidth == w.MinWidth && render.MaxWidth == w.MaxWidth &&
+		render.Height == w.Height && render.ReservedRows == w.ReservedRows && render.State == w.State {
+		return
+	}
+	render.Percent = w.Percent
+	render.MinWidth = w.MinWidth
+	render.MaxWidth = w.MaxWidth
+	render.Height = w.Height
+	render.ReservedRows = w.ReservedRows
+	render.State = w.State
+	render.MarkNeedsLayout()
+}
+
+type renderPickerDialogPositioner struct {
+	ui.SingleChildRenderObject
+	Percent      int
+	MinWidth     int
+	MaxWidth     int
+	Height       int
+	ReservedRows int
+	State        *pickerDialogLayoutState
+	offset       ui.Offset
+}
+
+func (r *renderPickerDialogPositioner) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
+	size := pickerDialogViewportSize(constraints)
+	width := size.Width * r.Percent / 100
+	width = max(r.MinWidth, min(r.MaxWidth, width))
+	width = min(size.Width, width)
+	height := min(size.Height, r.Height)
+	if r.State != nil {
+		r.State.AvailableRows = max(0, height-r.ReservedRows)
+	}
+	if child := r.Child(); child != nil {
+		child.Layout(ctx, ui.Tight(ui.Size{Width: width, Height: height}))
+		r.offset = ui.Offset{X: max(0, (size.Width-width)/2), Y: pickerTopOffset(size.Height, height)}
+	}
+	r.SetSize(size)
+}
+
+func (r *renderPickerDialogPositioner) DryLayout(_ ui.LayoutContext, constraints ui.Constraints) ui.Size {
+	return pickerDialogViewportSize(constraints)
+}
+
+func pickerDialogViewportSize(constraints ui.Constraints) ui.Size {
+	size := ui.Size{Width: constraints.MinWidth, Height: constraints.MinHeight}
+	if constraints.HasBoundedWidth() {
+		size.Width = constraints.MaxWidth
+	}
+	if constraints.HasBoundedHeight() {
+		size.Height = constraints.MaxHeight
+	}
+	return constraints.Constrain(size)
+}
+
+func pickerTopOffset(height, childHeight int) int {
+	return min(max(0, height/4), max(0, height-childHeight))
+}
+
+func (r *renderPickerDialogPositioner) Paint(painter *ui.Painter, offset ui.Offset) {
+	if child := r.Child(); child != nil {
+		child.Paint(painter, offset.Add(r.offset))
+	}
+}
+
+func (r *renderPickerDialogPositioner) ChildOffset(ui.RenderObject) ui.Offset {
+	return r.offset
+}
+
+func (*renderPickerDialogPositioner) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
+
 // proportionalWidth gives a child a viewport-relative width bounded by named
 // minimum and maximum dimensions.
 type proportionalWidth struct {

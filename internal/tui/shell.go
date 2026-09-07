@@ -23,6 +23,7 @@ type shellSnapshot struct {
 	PaletteOpen                 bool
 	PaletteQuery                string
 	PaletteSelection            paletteCommandID
+	SessionExplorer             sessionExplorerSnapshot
 	AuthReturnReady             bool
 	AuthFilter                  string
 	AuthSelection               int
@@ -87,6 +88,7 @@ type shellCallbacks struct {
 	MovePaletteSelection  selectionMovedCallback
 	RunPaletteQuery       ui.TextChangedCallback
 	RunPaletteCommand     func(ui.EventContext, paletteCommandID)
+	SelectSession         func(ui.EventContext, string)
 	Submit                ui.TextChangedCallback
 	Retry                 ui.VoidCallback
 	Quit                  ui.VoidCallback
@@ -155,6 +157,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				OnSelect: w.Callbacks.SelectBashHistory,
 			},
 		})
+	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionExplorer.Open {
+		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
+			Snapshot:  w.Snapshot.SessionExplorer,
+			Callbacks: sessionExplorerCallbacks{Select: w.Callbacks.SelectSession},
+		}))
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
 		overlays = append(overlays, ui.OverlayEntry{
@@ -248,7 +256,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting ||
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.Phase == phaseReady && !w.Snapshot.PaletteOpen && !w.Snapshot.BashHistory.Open && !w.Snapshot.Running && w.Snapshot.ActivitySourceID != "" && w.Callbacks.CloseActivity != nil {
+			if w.Snapshot.Phase == phaseReady && !w.Snapshot.PaletteOpen && !w.Snapshot.SessionExplorer.Open && !w.Snapshot.BashHistory.Open && !w.Snapshot.Running && w.Snapshot.ActivitySourceID != "" && w.Callbacks.CloseActivity != nil {
 				w.Callbacks.CloseActivity(ctx)
 			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)

@@ -140,6 +140,7 @@ type appState struct {
 	composer                    string
 	composerCursorEndGeneration uint64
 	palette                     paletteController
+	sessionExplorer             sessionExplorerController
 	authReturnReady             bool
 	authFilter                  string
 	authSelection               int
@@ -274,6 +275,9 @@ func (s *appState) TickFrame(_ time.Time) bool {
 			s.activityNeedsScroll = false
 		}
 	}
+	if s.sessionExplorer.TickFrame() {
+		keepTicking = true
+	}
 	if s.activityRevealPending {
 		if s.activityRevealPendingLayout {
 			s.activityRevealPendingLayout = false
@@ -323,6 +327,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaletteOpen:                 s.palette.Open,
 		PaletteQuery:                s.palette.Query,
 		PaletteSelection:            s.palette.Selection,
+		SessionExplorer:             s.sessionExplorer.Snapshot(),
 		AuthReturnReady:             s.authReturnReady,
 		AuthFilter:                  s.authFilter,
 		AuthSelection:               s.authSelection,
@@ -525,6 +530,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
+		SelectSession: func(_ ui.EventContext, sessionID string) {
+			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
+		},
 		Submit: func(ctx ui.EventContext, value string) {
 			if s.phase != phaseReady {
 				return
@@ -544,6 +552,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(options.DefaultModel, options.DefaultThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.sessionExplorer.Open {
+				s.SetState(func() { s.sessionExplorer.Close() })
+				return
+			}
 			if s.bashHistory.Open {
 				s.SetState(func() { s.bashHistory.Close() })
 				return
@@ -570,6 +582,13 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 	key, ok := event.(ui.Key)
 	if !ok {
 		return ui.EventIgnored
+	}
+	if s.sessionExplorer.Open {
+		var handled bool
+		s.SetState(func() { handled = s.sessionExplorer.HandleKey(key) })
+		if handled {
+			return ui.EventHandled
+		}
 	}
 	if s.bashHistory.Open {
 		var entry bashHistoryEntry
@@ -1592,11 +1611,11 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.activeBashID != ""
+	return s.runPending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open {
+	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.sessionExplorer.Open {
 		return
 	}
 	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
@@ -1629,7 +1648,36 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.dismiss(ctx)
 	case paletteCommandQuit:
 		ctx.Quit()
+	case paletteCommandSessions:
+		s.openSessionExplorer()
 	}
+}
+
+func (s *appState) openSessionExplorer() {
+	if s.phase != phaseReady || s.sessionExplorer.Open || s.hasActiveWork() {
+		return
+	}
+	server := s.Widget().(app).Options.Server
+	currentSessionID := s.session.ID
+	runtime := s.Context().Runtime()
+	var generation uint64
+	s.SetState(func() { generation = s.sessionExplorer.Begin(currentSessionID) })
+	go func() {
+		listContext, cancel := context.WithTimeout(s.ctx, 5*time.Second)
+		defer cancel()
+		sessions, err := listSessionExplorerSessions(listContext, server)
+		items := projectSessionExplorerItems(sessions)
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			s.SetState(func() { s.sessionExplorer.Resolve(generation, items, err) })
+		})
+	}()
+}
+
+func listSessionExplorerSessions(ctx context.Context, server sessionclient.Server) ([]protocol.SessionInfo, error) {
+	return server.ListSessions(ctx, "")
 }
 
 func (s *appState) enterAuthSelect(returnReady bool) {
@@ -1754,6 +1802,10 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.sessionExplorer.Open {
+		s.SetState(func() { s.sessionExplorer.Close() })
+		return
+	}
 	if s.bashHistory.Open {
 		s.SetState(func() { s.bashHistory.Close() })
 		return

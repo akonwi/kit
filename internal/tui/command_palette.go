@@ -10,9 +10,10 @@ import (
 const (
 	paletteMaxVisible = 10
 
-	paletteCommandAbort paletteCommandID = "abort"
-	paletteCommandLogin paletteCommandID = "login"
-	paletteCommandQuit  paletteCommandID = "quit"
+	paletteCommandAbort    paletteCommandID = "abort"
+	paletteCommandLogin    paletteCommandID = "login"
+	paletteCommandQuit     paletteCommandID = "quit"
+	paletteCommandSessions paletteCommandID = "sessions"
 )
 
 type paletteCommandID string
@@ -76,38 +77,36 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 	fieldTheme.Surface = theme.Background
 	fieldTheme.SurfaceHovered = theme.Background
 	queryCursor := len(w.Snapshot.Query)
-	content := ui.Padding(ui.Insets{Top: 1, Right: 2, Bottom: 1, Left: 2}, ui.Flex{
-		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
+	query := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
+		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
+		ui.SizedBox{Width: 1},
+		ui.Expanded(ui.Provider[ui.Theme]{Value: fieldTheme, Child: ui.TextField{
+			Value: w.Snapshot.Query, Placeholder: "Search commands…",
+			CursorOffset: &queryCursor,
+			OnChanged:    w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery,
+			AutoFocus: true,
+		}}),
+	}}
+	body := ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
+		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
-			ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-				ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-				ui.SizedBox{Width: 1},
-				ui.Expanded(ui.Provider[ui.Theme]{Value: fieldTheme, Child: ui.TextField{
-					Value: w.Snapshot.Query, Placeholder: "Search commands…",
-					CursorOffset: &queryCursor,
-					OnChanged:    w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery,
-					AutoFocus: true,
-				}}),
-			}},
+			query,
 			ui.SizedBox{Height: 1},
-			ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: results},
-			ui.SizedBox{Height: 1},
-			ui.Text{
-				Value:    "↑↓ move · enter run · esc close",
-				Style:    ui.Style{Foreground: theme.MutedForeground},
-				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			},
+			ui.Expanded(ui.ScrollView{Child: ui.Flex{
+				Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: results,
+			}}),
 		},
 	})
-	return palettePositioner{Child: proportionalWidth{Percent: 80, Min: 48, Max: 96, Child: ui.FocusScope{
-		Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
-			ui.Decoration{
-				Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
-				Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
-			},
-			content,
-		),
-	}}}
+	footer := ui.Text{
+		Value:    "↑↓ move · enter run · esc close",
+		Style:    ui.Style{Foreground: theme.MutedForeground},
+		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+	}
+	content := pickerDialogContent(theme, body, footer)
+	return pickerDialogPositioner{
+		Percent: 80, MinWidth: 48, MaxWidth: 96, Height: pickerModalMinHeight,
+		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: content},
+	}
 }
 
 type paletteOptionRow struct {
@@ -309,6 +308,7 @@ func availablePaletteCommands(running bool) []paletteCommand {
 	return []paletteCommand{
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
+		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 	}
 }
 
