@@ -22,63 +22,16 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/tui"
-	"github.com/akonwi/kit/internal/version"
 )
 
-// Run dispatches a Kit process role and returns its exit code.
-func Run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) > 0 {
-		switch args[0] {
-		case "--version", "-v", "version":
-			fmt.Fprintf(stdout, "kit %s (%s)\n", version.Version, version.Commit)
-			return 0
-		case "__daemon":
-			return runInternalDaemon(ctx, args[1:], stderr)
-		case "daemon":
-			return runDaemonCommand(ctx, args[1:], stdout, stderr)
-		case "login":
-			return runLogin(ctx, args[1:], stdout, stderr)
-		case "logout":
-			return runLogout(ctx, args[1:], stdout, stderr)
-		case "new":
-			return runNew(ctx, args[1:], stdout, stderr)
-		case "auth":
-			return runAuthCommand(ctx, args[1:], stdout, stderr)
-		case "-p", "--print":
-			return runPrint(ctx, args[1:], stdout, stderr)
-		case "help", "--help", "-h":
-			writeHelp(stdout)
-			return 0
-		default:
-			fmt.Fprintf(stderr, "kit: unsupported v2 bootstrap command %q\n", args[0])
-			writeHelp(stderr)
-			return 2
-		}
-	}
-
-	return runInteractive(ctx, interactiveOptions{}, stdout, stderr)
-}
-
 type interactiveOptions struct {
+	SessionID    string
 	NewSessionID string
-}
-
-func runNew(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		writeNewHelp(stdout)
-		return 0
-	}
-	if len(args) != 0 {
-		fmt.Fprintln(stderr, "kit: new accepts no arguments")
-		writeNewHelp(stderr)
-		return 2
-	}
-	sessionID, err := identifier.New("session_")
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: prepare new session: %v\n", err)
-		return 1
-	}
-	return runInteractive(ctx, interactiveOptions{NewSessionID: sessionID}, stdout, stderr)
+	Temporary    bool
+	CWD          string
+	Name         string
+	Model        string
+	Thinking     string
 }
 
 func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer, stderr io.Writer) int {
@@ -87,15 +40,20 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	cwd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: determine current directory: %v\n", err)
-		return 1
+	cwd := ""
+	if options.SessionID == "" {
+		cwd, err = resolveCWD(options.CWD)
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 1
+		}
 	}
-	cwd, err = filepath.Abs(cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: resolve current directory: %v\n", err)
-		return 1
+	if options.Temporary && options.NewSessionID == "" {
+		options.NewSessionID, err = identifier.New("session_")
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: prepare temporary session: %v\n", err)
+			return 1
+		}
 	}
 	manager := daemon.NewManager(paths)
 	startContext, cancel := context.WithTimeout(ctx, 12*time.Second)
@@ -104,6 +62,18 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
 		return 1
+	}
+	server := kitclient.NewLocalServer(paths)
+	if options.SessionID != "" {
+		resolveContext, resolveCancel := context.WithTimeout(ctx, 3*time.Second)
+		selected, resolveErr := sessionclient.ResolveSession(resolveContext, server, options.SessionID)
+		resolveCancel()
+		if resolveErr != nil {
+			fmt.Fprintf(stderr, "kit: resolve session: %v\n", resolveErr)
+			return 1
+		}
+		options.SessionID = selected.ID
+		cwd = selected.CWD
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
@@ -130,6 +100,18 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		}
 	}
 	providers, defaultModel := interactiveProviders(health.Providers)
+	authenticated := len(providers) > 0
+	if options.Model != "" {
+		defaultModel = options.Model
+		provider, _, _ := strings.Cut(options.Model, "/")
+		if !providers[provider] {
+			authenticated = false
+		}
+	}
+	defaultThinking := options.Thinking
+	if defaultThinking == "" {
+		defaultThinking = "medium"
+	}
 	credentialStore := auth.NewStore(paths.Auth)
 	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
 		Store: credentialStore,
@@ -148,27 +130,79 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		fmt.Fprintf(stderr, "kit: configure API-key login: %v\n", err)
 		return 1
 	}
-	if err := tui.Run(tui.Options{
-		Context:            ctx,
-		Server:             kitclient.NewLocalServer(paths),
-		CWD:                cwd,
-		Location:           interactiveLocation(ctx, cwd),
-		ResolveLocation:    interactiveLocation,
-		DefaultModel:       defaultModel,
-		DefaultThinking:    "medium",
-		AvailableProviders: providers,
-		Authenticated:      len(providers) > 0,
-		NewSessionID:       options.NewSessionID,
-		Login:              login,
-		APIKeyLogin:        apiKeyLogin,
-	}); err != nil {
-		fmt.Fprintf(stderr, "kit: terminal UI: %v\n", err)
+	runErr := tui.Run(tui.Options{
+		Context:              ctx,
+		Server:               server,
+		CWD:                  cwd,
+		Location:             interactiveLocation(ctx, cwd),
+		ResolveLocation:      interactiveLocation,
+		DefaultModel:         defaultModel,
+		DefaultThinking:      defaultThinking,
+		ResumeModelFilter:    options.Model,
+		ResumeThinkingFilter: options.Thinking,
+		AvailableProviders:   providers,
+		Authenticated:        authenticated,
+		SessionID:            options.SessionID,
+		NewSessionID:         options.NewSessionID,
+		NewSessionName:       options.Name,
+		TemporarySession:     options.Temporary,
+		Login:                login,
+		APIKeyLogin:          apiKeyLogin,
+	})
+	if options.Temporary {
+		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		cleanupErr := cleanupTemporarySession(cleanupContext, server, options.NewSessionID)
+		cleanupCancel()
+		if cleanupErr != nil {
+			fmt.Fprintf(stderr, "kit: dispose temporary session: %v\n", cleanupErr)
+			if runErr == nil {
+				return 1
+			}
+		}
+	}
+	if runErr != nil {
+		fmt.Fprintf(stderr, "kit: terminal UI: %v\n", runErr)
 		return 1
 	}
 	if ctx.Err() != nil {
 		return 130
 	}
 	return 0
+}
+
+func resolveCWD(requested string) (string, error) {
+	cwd := requested
+	if cwd == "" {
+		var err error
+		cwd, err = os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("determine current directory: %w", err)
+		}
+	}
+	absolute, err := filepath.Abs(cwd)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory: %w", err)
+	}
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return "", fmt.Errorf("inspect working directory: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("working directory is not a directory: %s", absolute)
+	}
+	return filepath.Clean(absolute), nil
+}
+
+func cleanupTemporarySession(ctx context.Context, server sessionclient.Server, sessionID string) error {
+	if sessionID == "" {
+		return nil
+	}
+	err := server.DisposeTemporarySession(ctx, sessionID)
+	var apiError *daemon.APIError
+	if errors.As(err, &apiError) && apiError.StatusCode == 404 {
+		return nil
+	}
+	return err
 }
 
 func supportsInteractiveAPIKeyLogin(registry daemon.Registry) bool {
@@ -213,42 +247,7 @@ func interactiveLocation(ctx context.Context, cwd string) string {
 	return location
 }
 
-func runPrint(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	flags := flag.NewFlagSet("--print", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	model := flags.String("model", "", "provider/model to use for a new session")
-	sessionID := flags.String("session", "", "existing session id")
-	cwd := flags.String("cwd", "", "session working directory")
-	name := flags.String("name", "", "name for a new session")
-	thinking := flags.String("thinking", "", "reasoning level for a new session")
-	newSession := flags.Bool("new-session", false, "always create a new session")
-	if err := flags.Parse(args); err != nil {
-		return 2
-	}
-	if flags.NArg() == 0 {
-		fmt.Fprintln(stderr, "kit: --print requires a prompt")
-		return 2
-	}
-	if *sessionID != "" && (*newSession || *model != "" || *thinking != "") {
-		fmt.Fprintln(stderr, "kit: --session cannot be combined with --new-session, --model, or --thinking")
-		return 2
-	}
-	prompt := strings.Join(flags.Args(), " ")
-	if *cwd == "" {
-		current, err := os.Getwd()
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: determine current directory: %v\n", err)
-			return 1
-		}
-		*cwd = current
-	}
-	absoluteCWD, err := filepath.Abs(*cwd)
-	if err != nil {
-		fmt.Fprintf(stderr, "kit: resolve working directory: %v\n", err)
-		return 1
-	}
-	*cwd = absoluteCWD
-
+func runSessions(ctx context.Context, options interactiveOptions, stdout, stderr io.Writer) int {
 	paths, err := apphome.Resolve("")
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
@@ -261,20 +260,75 @@ func runPrint(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
 		return 1
 	}
-	return executePrint(ctx, kitclient.NewLocalServer(paths), printOptions{
-		CWD: *cwd, Name: *name, Model: *model, ThinkingLevel: *thinking,
-		SessionID: *sessionID, NewSession: *newSession, Prompt: prompt,
-	}, stdout, stderr)
+	selected, err := tui.RunSessionPicker(tui.SessionPickerOptions{
+		Context: ctx,
+		Server:  kitclient.NewLocalServer(paths),
+	})
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return 130
+		}
+		fmt.Fprintf(stderr, "kit: session picker: %v\n", err)
+		return 1
+	}
+	if selected == "" {
+		return 0
+	}
+	options.SessionID = selected
+	return runInteractive(ctx, options, stdout, stderr)
+}
+
+func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr io.Writer) int {
+	if options.SessionID == "" {
+		cwd, err := resolveCWD(options.CWD)
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: %v\n", err)
+			return 1
+		}
+		options.CWD = cwd
+	}
+	paths, err := apphome.Resolve("")
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: %v\n", err)
+		return 1
+	}
+	startContext, cancel := context.WithTimeout(ctx, 12*time.Second)
+	_, err = daemon.NewManager(paths).Ensure(startContext)
+	cancel()
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
+		return 1
+	}
+	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
+	_, health, probeErr := daemon.NewClient(paths).Probe(probeContext)
+	probeCancel()
+	if probeErr != nil {
+		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", probeErr)
+		return 1
+	}
+	options.AvailableProviders, options.DefaultModel = interactiveProviders(health.Providers)
+	return executePrint(ctx, kitclient.NewLocalServer(paths), options, stdout, stderr)
 }
 
 type printOptions struct {
-	CWD           string
-	Name          string
-	Model         string
-	ThinkingLevel string
-	SessionID     string
-	NewSession    bool
-	Prompt        string
+	CWD                string
+	Name               string
+	Model              string
+	ThinkingLevel      string
+	SessionID          string
+	NewSession         bool
+	Temporary          bool
+	DefaultModel       string
+	AvailableProviders map[string]bool
+	Prompt             string
+}
+
+func printModelAvailable(providers map[string]bool, selector string) bool {
+	if providers == nil {
+		return true
+	}
+	provider, _, ok := strings.Cut(selector, "/")
+	return ok && providers[provider]
 }
 
 func executePrint(
@@ -282,27 +336,71 @@ func executePrint(
 	client sessionclient.Server,
 	options printOptions,
 	stdout, stderr io.Writer,
-) int {
+) (code int) {
 	sessionID := options.SessionID
+	if sessionID != "" {
+		selected, err := sessionclient.ResolveSession(ctx, client, sessionID)
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: resolve session: %v\n", err)
+			return 1
+		}
+		sessionID = selected.ID
+	}
 	if sessionID == "" {
-		if !options.NewSession {
+		if !options.NewSession && !options.Temporary {
 			sessions, err := client.ListSessions(ctx, options.CWD)
 			if err != nil {
 				fmt.Fprintf(stderr, "kit: list sessions: %v\n", err)
 				return 1
 			}
-			if len(sessions) > 0 && (options.Model == "" || sessions[0].Model == options.Model) {
-				sessionID = sessions[0].ID
+			for _, candidate := range sessions {
+				if printModelAvailable(options.AvailableProviders, candidate.Model) &&
+					(options.Model == "" || candidate.Model == options.Model) &&
+					(options.ThinkingLevel == "" || candidate.ThinkingLevel == options.ThinkingLevel) {
+					sessionID = candidate.ID
+					break
+				}
 			}
 		}
 		if sessionID == "" {
-			if options.Model == "" {
-				fmt.Fprintln(stderr, "kit: --model is required when no matching session exists")
+			model := options.Model
+			if model == "" {
+				model = options.DefaultModel
+			}
+			if model == "" {
+				fmt.Fprintln(stderr, "kit: --model is required when no authenticated default model is available")
 				return 2
 			}
+			if !printModelAvailable(options.AvailableProviders, model) {
+				fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
+				return 1
+			}
+			thinking := options.ThinkingLevel
+			if thinking == "" {
+				thinking = "medium"
+			}
+			requestedID := ""
+			if options.Temporary {
+				var err error
+				requestedID, err = identifier.New("session_")
+				if err != nil {
+					fmt.Fprintf(stderr, "kit: prepare temporary session: %v\n", err)
+					return 1
+				}
+				defer func(temporarySessionID string) {
+					cleanupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+					if err := cleanupTemporarySession(cleanupContext, client, temporarySessionID); err != nil {
+						fmt.Fprintf(stderr, "kit: dispose temporary session: %v\n", err)
+						if code == 0 {
+							code = 1
+						}
+					}
+					cancel()
+				}(requestedID)
+			}
 			created, err := client.CreateSession(ctx, protocol.CreateSessionInput{
-				CWD: options.CWD, Name: options.Name, Model: options.Model,
-				ThinkingLevel: options.ThinkingLevel,
+				ID: requestedID, CWD: options.CWD, Name: options.Name, Model: model,
+				ThinkingLevel: thinking, Temporary: options.Temporary,
 			})
 			if err != nil {
 				fmt.Fprintf(stderr, "kit: create session: %v\n", err)
@@ -458,35 +556,4 @@ func runDaemonCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 func daemonUsage(output io.Writer) int {
 	fmt.Fprintln(output, "usage: kit daemon <start|status|stop|restart>")
 	return 2
-}
-
-func writeNewHelp(output io.Writer) {
-	fmt.Fprintln(output, `Start Kit with a new persisted session for the current directory.
-
-Usage:
-  kit new`)
-}
-
-func writeHelp(output io.Writer) {
-	fmt.Fprintln(output, `Kit v2 bootstrap
-
-Usage:
-  kit                         resume the latest session for the current directory
-  kit new                     start a new persisted session
-  kit daemon start            start or discover the local daemon
-  kit daemon status           inspect the local daemon
-  kit daemon stop             stop the local daemon
-  kit -p [options] PROMPT     run a persisted prompt without the TUI
-  kit daemon restart          restart the local daemon
-  kit login openai-codex      log in through the Codex device flow
-  kit logout openai-codex     remove saved Codex credentials
-  kit auth status             list saved credential metadata
-  kit version                 print version information
-
-Print options:
-  --model PROVIDER/MODEL      model for a new session
-  --session ID                continue an exact session
-  --new-session               create instead of resuming by cwd
-
-Development data defaults to ~/.kit-v2. Set KIT_HOME to override it.`)
 }

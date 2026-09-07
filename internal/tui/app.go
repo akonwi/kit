@@ -37,18 +37,23 @@ type APIKeyLogin interface {
 
 // Options configures one native TUI client attached to one session.
 type Options struct {
-	Context            context.Context
-	Server             sessionclient.Server
-	CWD                string
-	Location           string
-	ResolveLocation    func(context.Context, string) string
-	DefaultModel       string
-	DefaultThinking    string
-	AvailableProviders map[string]bool
-	Authenticated      bool
-	NewSessionID       string
-	Login              DeviceLogin
-	APIKeyLogin        APIKeyLogin
+	Context              context.Context
+	Server               sessionclient.Server
+	CWD                  string
+	Location             string
+	ResolveLocation      func(context.Context, string) string
+	DefaultModel         string
+	DefaultThinking      string
+	ResumeModelFilter    string
+	ResumeThinkingFilter string
+	AvailableProviders   map[string]bool
+	Authenticated        bool
+	SessionID            string
+	NewSessionID         string
+	NewSessionName       string
+	TemporarySession     bool
+	Login                DeviceLogin
+	APIKeyLogin          APIKeyLogin
 
 	appDone <-chan struct{}
 }
@@ -69,6 +74,15 @@ func Run(options Options) error {
 	}
 	if options.Authenticated && options.DefaultModel == "" {
 		return errors.New("tui: default model is required when authenticated")
+	}
+	if options.SessionID != "" && options.NewSessionID != "" {
+		return errors.New("tui: exact and new session selections are mutually exclusive")
+	}
+	if options.TemporarySession && options.NewSessionID == "" {
+		return errors.New("tui: temporary session id is required")
+	}
+	if options.TemporarySession && options.SessionID != "" {
+		return errors.New("tui: temporary and exact session selections are mutually exclusive")
 	}
 	runContext, cancel := context.WithCancel(options.Context)
 	done := make(chan struct{})
@@ -771,10 +785,16 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 	go func() {
 		info, bound, snapshot, err := bootstrapSession(
 			s.ctx, options.Server, options.CWD, defaultModel, defaultThinking,
-			newSession, newSessionID, target, s.providerAvailable,
+			options.ResumeModelFilter, options.ResumeThinkingFilter,
+			options.SessionID, newSession, newSessionID, options.NewSessionName,
+			options.TemporarySession, target, s.providerAvailable,
 		)
 		if s.ctx.Err() != nil {
 			return
+		}
+		location := options.Location
+		if err == nil && info.CWD != "" && options.ResolveLocation != nil {
+			location = options.ResolveLocation(s.ctx, info.CWD)
 		}
 		runtime.Dispatch(func() {
 			if operation != s.operation {
@@ -800,6 +820,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				s.bootstrapTarget = protocol.SessionInfo{}
 				s.session = info
 				s.bound = bound
+				s.location = location
 				s.applySnapshot(snapshot)
 				if running {
 					s.status = "esc abort · ctrl+c detach"
@@ -819,8 +840,12 @@ func bootstrapSession(
 	ctx context.Context,
 	server sessionclient.Server,
 	cwd, defaultModel, defaultThinking string,
+	resumeModelFilter, resumeThinkingFilter string,
+	sessionSelector string,
 	newSession bool,
 	newSessionID string,
+	newSessionName string,
+	temporary bool,
 	target protocol.SessionInfo,
 	providerAvailable func(string) bool,
 ) (protocol.SessionInfo, sessionclient.Session, protocol.SessionSnapshot, error) {
@@ -828,13 +853,22 @@ func bootstrapSession(
 		return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("new session id is required")
 	}
 	selected := target
+	if selected.ID == "" && sessionSelector != "" {
+		var err error
+		selected, err = sessionclient.ResolveSession(ctx, server, sessionSelector)
+		if err != nil {
+			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("resolve session: %w", err)
+		}
+	}
 	if selected.ID == "" && !newSession {
 		sessions, err := server.ListSessions(ctx, cwd)
 		if err != nil {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("list sessions: %w", err)
 		}
 		for _, candidate := range sessions {
-			if providerAvailable(candidate.Model) {
+			if providerAvailable(candidate.Model) &&
+				(resumeModelFilter == "" || candidate.Model == resumeModelFilter) &&
+				(resumeThinkingFilter == "" || candidate.ThinkingLevel == resumeThinkingFilter) {
 				selected = candidate
 				break
 			}
@@ -845,11 +879,16 @@ func bootstrapSession(
 		if defaultModel == "" {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("no authenticated model is available")
 		}
+		if !providerAvailable(defaultModel) {
+			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("model provider for %q is not authenticated", defaultModel)
+		}
 		selected, err = server.CreateSession(ctx, protocol.CreateSessionInput{
 			ID:            newSessionID,
 			CWD:           cwd,
+			Name:          newSessionName,
 			Model:         defaultModel,
 			ThinkingLevel: defaultThinking,
+			Temporary:     temporary,
 		})
 		if err != nil {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("create session: %w", err)
@@ -1650,7 +1689,7 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 				s.authAPIKey = ""
 				s.status = "Connected to " + provider.Name
 			})
-			s.startBootstrap(provider.DefaultModel, options.DefaultThinking)
+			s.startBootstrap(preferredStartupModel(options.DefaultModel, provider.DefaultModel), options.DefaultThinking)
 		})
 	}()
 }
@@ -1731,9 +1770,16 @@ func (s *appState) startLogin(_ ui.EventContext) {
 				s.status = "Connected to OpenAI Codex"
 				s.instructions = auth.OpenAICodexDeviceInstructions{}
 			})
-			s.startBootstrap(codexDefaultModel, options.DefaultThinking)
+			s.startBootstrap(preferredStartupModel(options.DefaultModel, codexDefaultModel), options.DefaultThinking)
 		})
 	}()
+}
+
+func preferredStartupModel(requested, fallback string) string {
+	if requested != "" {
+		return requested
+	}
+	return fallback
 }
 
 func (s *appState) tickDeviceExpiry(ctx context.Context, runtime ui.Runtime, operation uint64, expiresAt time.Time) {

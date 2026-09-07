@@ -19,8 +19,9 @@ const (
 )
 
 var (
-	errBashUserAbort = errors.New("bash execution aborted by user")
-	errBashShutdown  = errors.New("daemon stopped during bash execution")
+	errBashUserAbort         = errors.New("bash execution aborted by user")
+	errBashShutdown          = errors.New("daemon stopped during bash execution")
+	errBashTemporaryDisposed = errors.New("temporary session disposed during bash execution")
 )
 
 type BashExecutionStatus string
@@ -54,6 +55,7 @@ type activeBashExecution struct {
 	id      string
 	cancel  context.CancelCauseFunc
 	runtime *runtime
+	done    chan struct{}
 }
 
 func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command string, exclude bool) (BashExecution, error) {
@@ -122,7 +124,7 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	pruneBashHistory(m.bashHistory[sessionID], 64)
 	m.bashHistory[sessionID][executionID] = execution
 	runContext, cancel := context.WithCancelCause(m.bashContext)
-	active := &activeBashExecution{id: executionID, cancel: cancel, runtime: loaded}
+	active := &activeBashExecution{id: executionID, cancel: cancel, runtime: loaded, done: make(chan struct{})}
 	m.bashActive[sessionID] = active
 	m.bashRuns.Add(1)
 	go m.executeBash(runContext, execution, active)
@@ -131,6 +133,7 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 
 func (m *Manager) executeBash(ctx context.Context, execution BashExecution, active *activeBashExecution) {
 	defer m.bashRuns.Done()
+	defer close(active.done)
 	result, runErr := codingtools.RunDirectBash(ctx, execution.Command, execution.CWD)
 	codingtools.RemoveCommandOutput(result.OutputPath)
 	<-m.bashSlots
@@ -145,6 +148,8 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 	switch {
 	case errors.Is(context.Cause(ctx), errBashShutdown):
 		settled.Status, settled.ErrorMessage = BashExecutionInterrupted, errBashShutdown.Error()
+	case errors.Is(context.Cause(ctx), errBashTemporaryDisposed):
+		settled.Status, settled.ErrorMessage = BashExecutionInterrupted, errBashTemporaryDisposed.Error()
 	case ctx.Err() != nil:
 		settled.Status, settled.ErrorMessage = BashExecutionAborted, errBashUserAbort.Error()
 	case runErr != nil:

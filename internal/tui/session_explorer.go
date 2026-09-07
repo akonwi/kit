@@ -470,7 +470,10 @@ func sessionIndex(sessions []sessionExplorerItem, sessionID string) int {
 	return -1
 }
 
-type sessionExplorerHints struct{ Style ui.Style }
+type sessionExplorerHints struct {
+	Style  ui.Style
+	Action string
+}
 
 func (sessionExplorerHints) CreateState() ui.State { return &sessionExplorerHintsState{} }
 
@@ -481,7 +484,7 @@ type sessionExplorerHintsState struct {
 
 func (s *sessionExplorerHintsState) Build(ui.BuildContext) ui.Widget {
 	widget := s.Widget().(sessionExplorerHints)
-	value := sessionExplorerHintText(s.width)
+	value := sessionExplorerActionHintText(s.width, widget.Action)
 	return widthProbe{
 		WidthChanged: func(width int) {
 			if width != s.width {
@@ -494,13 +497,20 @@ func (s *sessionExplorerHintsState) Build(ui.BuildContext) ui.Widget {
 }
 
 func sessionExplorerHintText(width int) string {
+	return sessionExplorerActionHintText(width, "switch")
+}
+
+func sessionExplorerActionHintText(width int, action string) string {
+	if action == "" {
+		action = "switch"
+	}
 	switch {
 	case width >= 76:
-		return "↑↓ move · page up/down · enter switch · r rename · ctrl+d delete · esc close"
+		return "↑↓ move · page up/down · enter " + action + " · r rename · ctrl+d delete · esc close"
 	case width >= 51:
-		return "enter switch · r rename · ctrl+d delete · esc close"
+		return "enter " + action + " · r rename · ctrl+d delete · esc close"
 	default:
-		return "enter switch · ctrl+d delete · esc close"
+		return "enter " + action + " · ctrl+d delete · esc close"
 	}
 }
 
@@ -511,9 +521,22 @@ type sessionExplorerCallbacks struct {
 type sessionExplorerSurface struct {
 	Snapshot  sessionExplorerSnapshot
 	Callbacks sessionExplorerCallbacks
+	Action    string
 }
 
 func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
+	layout := w.Snapshot.Layout
+	if layout == nil {
+		layout = &pickerDialogLayoutState{}
+		w.Snapshot.Layout = layout
+	}
+	return pickerDialogPositioner{
+		Percent: 85, MinWidth: 44, MaxWidth: 120, Height: pickerModalMinHeight,
+		ReservedRows: sessionExplorerChromeRows, State: layout, Child: w.content(ctx),
+	}
+}
+
+func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	meta := ""
 	metaStyle := ui.Style{Foreground: theme.MutedForeground}
@@ -546,7 +569,7 @@ func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
 	mutedStyle := ui.Style{Foreground: theme.MutedForeground}
-	var footer ui.Widget = sessionExplorerHints{Style: mutedStyle}
+	var footer ui.Widget = sessionExplorerHints{Style: mutedStyle, Action: w.Action}
 	switch {
 	case w.Snapshot.Switching:
 		footer = ui.Text{Value: "esc cancel", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
@@ -590,11 +613,7 @@ func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
 			ui.Insets{Right: 2, Left: 2}, w.body(theme, scroll, list, layout),
 		)}),
 	}}
-	content := pickerDialogContent(theme, body, footer)
-	return pickerDialogPositioner{
-		Percent: 85, MinWidth: 44, MaxWidth: 120, Height: pickerModalMinHeight,
-		ReservedRows: sessionExplorerChromeRows, State: layout, Child: content,
-	}
+	return pickerDialogContent(theme, body, footer)
 }
 
 func (w sessionExplorerSurface) body(theme ui.Theme, scroll *ui.ScrollController, list *ui.SliverListController, layout *pickerDialogLayoutState) ui.Widget {

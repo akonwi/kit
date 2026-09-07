@@ -18,6 +18,24 @@ func TestCreateSessionInputValidateOptionalCanonicalID(t *testing.T) {
 	if err := (CreateSessionInput{ID: "session_not-canonical"}).Validate(); err == nil {
 		t.Fatal("Validate() accepted a non-canonical session id")
 	}
+	if err := (CreateSessionInput{Temporary: true}).Validate(); err == nil {
+		t.Fatal("Validate() accepted a temporary session without a client-selected id")
+	}
+	if err := (CreateSessionInput{ID: "session_0123456789abcdef0123456789abcdef", Temporary: true}).Validate(); err != nil {
+		t.Fatalf("Validate() temporary session error = %v", err)
+	}
+}
+
+func TestPromptInputValidate(t *testing.T) {
+	t.Parallel()
+	if err := (PromptInput{Text: "hello"}).Validate(); err != nil {
+		t.Fatalf("Validate() prompt error = %v", err)
+	}
+	for _, text := range []string{"", "   ", "bad\x00prompt", strings.Repeat("<", (128<<10)+1)} {
+		if err := (PromptInput{Text: text}).Validate(); err == nil {
+			t.Fatalf("Validate() accepted prompt of %d bytes", len(text))
+		}
+	}
 }
 
 func TestRenameSessionInputValidate(t *testing.T) {

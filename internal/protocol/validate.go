@@ -15,6 +15,9 @@ func (input CreateSessionInput) Validate() error {
 	if input.ID != "" && !identifier.Valid(input.ID, "session_") {
 		return fmt.Errorf("session id %q is not canonical", input.ID)
 	}
+	if input.Temporary && input.ID == "" {
+		return fmt.Errorf("temporary session id is required")
+	}
 	return nil
 }
 
@@ -44,6 +47,14 @@ func (session SessionInfo) Validate() error {
 	}
 	if _, err := time.Parse(time.RFC3339Nano, session.UpdatedAt); err != nil {
 		return fmt.Errorf("session updatedAt is invalid: %w", err)
+	}
+	return nil
+}
+
+// Validate checks a prompt request crossing a transport boundary.
+func (input PromptInput) Validate() error {
+	if strings.TrimSpace(input.Text) == "" || len(input.Text) > 128<<10 || !utf8.ValidString(input.Text) || strings.IndexByte(input.Text, 0) >= 0 {
+		return fmt.Errorf("prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB")
 	}
 	return nil
 }

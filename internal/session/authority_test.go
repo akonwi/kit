@@ -68,6 +68,110 @@ func TestManagerCreateIsIdempotentForClientSelectedSessionID(t *testing.T) {
 	}
 }
 
+func TestManagerCoordinatesTemporaryCreationAndDisposal(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	repository := &blockingGetRepository{
+		Repository: store, started: make(chan struct{}), release: make(chan struct{}),
+	}
+	manager, err := session.NewManager(repository, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	input := session.CreateInput{
+		ID: "session_0123456789abcdef0123456789abcdef", CWD: root, Model: "test/echo", Temporary: true,
+	}
+	created := make(chan error, 1)
+	go func() {
+		_, err := manager.Create(context.Background(), input)
+		created <- err
+	}()
+	select {
+	case <-repository.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("temporary create did not reach repository check")
+	}
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		close(repository.release)
+	}()
+	if err := manager.DisposeTemporary(context.Background(), input.ID); err != nil {
+		t.Fatalf("DisposeTemporary() error = %v", err)
+	}
+	if err := <-created; !errors.Is(err, session.ErrDeleteBusy) {
+		t.Fatalf("racing Create() error = %v, want disposal rejection", err)
+	}
+	if _, err := manager.Create(t.Context(), input); !errors.Is(err, session.ErrInvalidInput) {
+		t.Fatalf("delayed Create() error = %v, want disposed-id rejection", err)
+	}
+	if _, err := manager.Snapshot(t.Context(), input.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("racing temporary Snapshot() error = %v", err)
+	}
+}
+
+func TestManagerTemporarySessionUsesMemoryAndDisappearsOnDelete(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	droidDirectory := filepath.Join(root, "droids")
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(droidDirectory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_0123456789abcdef0123456789abcdef", CWD: root, Model: "test/echo", Temporary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Persistent {
+		t.Fatalf("temporary session = %+v, want non-persistent", created)
+	}
+	listed, err := manager.List(t.Context(), "")
+	if err != nil || len(listed) != 0 {
+		t.Fatalf("List() = %+v, %v, want no temporary sessions", listed, err)
+	}
+	if _, err := store.GetSession(t.Context(), created.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("persisted temporary record error = %v, want not found", err)
+	}
+	result, err := manager.RunPrompt(t.Context(), created.ID, "temporary prompt")
+	if err != nil || result.Status != session.RunStatusCompleted {
+		t.Fatalf("RunPrompt() = %+v, %v", result, err)
+	}
+	entries, err := os.ReadDir(droidDirectory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("temporary droid files = %v, want none", entries)
+	}
+	if err := manager.Delete(t.Context(), created.ID); !errors.Is(err, session.ErrTemporary) {
+		t.Fatalf("Delete(temporary) error = %v", err)
+	}
+	if err := manager.DisposeTemporary(t.Context(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Snapshot(t.Context(), created.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("disposed Snapshot() error = %v, want not found", err)
+	}
+	if err := manager.DisposeTemporary(t.Context(), created.ID); err != nil {
+		t.Fatalf("second DisposeTemporary() error = %v", err)
+	}
+}
+
 func TestManagerDeletesIdleSessionAndRetainsArchivedDroidStore(t *testing.T) {
 	t.Parallel()
 
@@ -342,6 +446,73 @@ func TestWaitCancellationDetachesWithoutAbortingDroid(t *testing.T) {
 	close(providers.block)
 }
 
+func TestManagerDisposeTemporaryCancelsActiveRun(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_0123456789abcdef0123456789abcdef", CWD: root, Model: "test/echo", Temporary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPrompt(t.Context(), created.ID, "keep running"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-providers.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("provider did not start")
+	}
+	if err := manager.DisposeTemporary(t.Context(), created.ID); err != nil {
+		t.Fatal(err)
+	}
+	close(providers.block)
+	if _, err := manager.Snapshot(t.Context(), created.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("disposed active temporary Snapshot() error = %v", err)
+	}
+}
+
+func TestManagerDisposeTemporaryCancelsActiveBash(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_0123456789abcdef0123456789abcdef", CWD: root, Model: "test/echo", Temporary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartBash(t.Context(), created.ID, "bash_0123456789abcdef0123456789abcdef", "sleep 30", false); err != nil {
+		t.Fatal(err)
+	}
+	disposeContext, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := manager.DisposeTemporary(disposeContext, created.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.Snapshot(t.Context(), created.ID); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("disposed bash temporary Snapshot() error = %v", err)
+	}
+}
+
 func TestManagerRejectsDeleteWhileSessionRunIsActive(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
@@ -468,6 +639,23 @@ func TestAbortChecksDroidTurnGeneration(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+type blockingGetRepository struct {
+	session.Repository
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingGetRepository) GetSession(ctx context.Context, sessionID string) (session.SessionRecord, error) {
+	r.once.Do(func() { close(r.started) })
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return session.SessionRecord{}, ctx.Err()
+	}
+	return r.Repository.GetSession(ctx, sessionID)
 }
 
 type authorityProviders struct {

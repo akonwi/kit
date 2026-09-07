@@ -91,7 +91,7 @@ func TestAuthStatusAndLogoutCommands(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	if code := Run(context.Background(), []string{"logout", "openai-codex"}, &stdout, &stderr); code != 0 {
+	if code := Run(context.Background(), []string{"auth", "logout", "openai-codex"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("logout exit = %d, stderr = %q", code, stderr.String())
 	}
 	record, err := auth.NewStore(paths.Auth).LoadOpenAICodexCredentials(context.Background())
@@ -136,7 +136,7 @@ func TestLoginAndLogoutRejectEnvironmentBackedDaemon(t *testing.T) {
 		}
 	}
 
-	for _, args := range [][]string{{"login", "openai-codex"}, {"logout", "openai-codex"}} {
+	for _, args := range [][]string{{"auth", "login", "openai-codex"}, {"auth", "logout", "openai-codex"}} {
 		var stdout, stderr bytes.Buffer
 		if code := Run(context.Background(), args, &stdout, &stderr); code != 1 {
 			t.Errorf("Run(%q) exit = %d, stderr = %q", args, code, stderr.String())
@@ -164,7 +164,7 @@ func TestLoginAndLogoutRejectEnvironmentBackedDaemon(t *testing.T) {
 func TestAuthCommandUsage(t *testing.T) {
 	t.Parallel()
 	for _, args := range [][]string{
-		{"login"}, {"login", "anthropic"}, {"logout"}, {"auth"}, {"auth", "unknown"},
+		{"auth", "login"}, {"auth", "login", "anthropic"}, {"auth", "logout"}, {"auth", "unknown"},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := Run(context.Background(), args, &stdout, &stderr); code != 2 {

@@ -503,6 +503,16 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	}
 }
 
+func TestPreferredStartupModelPreservesExplicitCLISelectionAfterLogin(t *testing.T) {
+	t.Parallel()
+	if got := preferredStartupModel("anthropic/custom", "anthropic/default"); got != "anthropic/custom" {
+		t.Fatalf("explicit startup model = %q", got)
+	}
+	if got := preferredStartupModel("", "anthropic/default"); got != "anthropic/default" {
+		t.Fatalf("fallback startup model = %q", got)
+	}
+}
+
 func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 	t.Parallel()
 
@@ -511,7 +521,7 @@ func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 		{ID: "codex", CWD: "/repo", Model: "openai-codex/gpt-5.6-sol"},
 	}}
 	info, bound, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "medium", false, "", protocol.SessionInfo{},
+		context.Background(), server, "/repo", codexDefaultModel, "medium", "", "", "", false, "", "", false, protocol.SessionInfo{},
 		func(model string) bool { return modelProvider(model) == "openai-codex" },
 	)
 	if err != nil {
@@ -522,6 +532,42 @@ func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 	}
 	if server.created.Model != "" {
 		t.Fatalf("created session = %+v, want none", server.created)
+	}
+}
+
+func TestBootstrapSessionAppliesExplicitModelAndThinkingFilters(t *testing.T) {
+	t.Parallel()
+
+	server := &fakeServer{sessions: []protocol.SessionInfo{
+		{ID: "newer", CWD: "/repo", Model: "test/other", ThinkingLevel: "high"},
+		{ID: "matching", CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "low"},
+	}}
+	info, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", codexDefaultModel, "low", codexDefaultModel, "low", "", false, "", "", false,
+		protocol.SessionInfo{}, func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ID != "matching" || server.createCalls != 0 {
+		t.Fatalf("filtered session = %+v creates = %d", info, server.createCalls)
+	}
+}
+
+func TestBootstrapSessionOpensExactShortSessionSelector(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "session_0123456789abcdef0123456789abcdef"
+	server := &fakeServer{sessions: []protocol.SessionInfo{{ID: sessionID, CWD: "/other", Model: codexDefaultModel}}}
+	info, bound, _, err := bootstrapSession(
+		context.Background(), server, "/repo", codexDefaultModel, "medium", "", "", "01234567", false, "", "", false,
+		protocol.SessionInfo{}, func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ID != sessionID || bound.ID() != sessionID || server.createCalls != 0 {
+		t.Fatalf("selected session = %q / %q creates = %d", info.ID, bound.ID(), server.createCalls)
 	}
 }
 
@@ -540,8 +586,8 @@ func TestBootstrapSessionCreatesExplicitNewSessionWithoutListing(t *testing.T) {
 		},
 	}
 	info, bound, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "medium", true,
-		"session_0123456789abcdef0123456789abcdef", protocol.SessionInfo{}, func(string) bool { return true },
+		context.Background(), server, "/repo", codexDefaultModel, "medium", "", "", "", true,
+		"session_0123456789abcdef0123456789abcdef", "", false, protocol.SessionInfo{}, func(string) bool { return true },
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -553,6 +599,23 @@ func TestBootstrapSessionCreatesExplicitNewSessionWithoutListing(t *testing.T) {
 		t.Fatalf("selected session = %q / %q, want client-selected id", info.ID, bound.ID())
 	}
 	if server.created.ID != "session_0123456789abcdef0123456789abcdef" || server.created.CWD != "/repo" || server.created.Model != codexDefaultModel || server.created.ThinkingLevel != "medium" {
+		t.Fatalf("create input = %+v", server.created)
+	}
+}
+
+func TestBootstrapSessionPassesNewSessionMetadataAndTemporaryPolicy(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "session_0123456789abcdef0123456789abcdef"
+	server := &fakeServer{createdResult: protocol.SessionInfo{ID: sessionID, CWD: "/repo", Model: codexDefaultModel}}
+	_, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", codexDefaultModel, "high", "", "", "", true, sessionID,
+		"Temporary work", true, protocol.SessionInfo{}, func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.created.ID != sessionID || server.created.Name != "Temporary work" || !server.created.Temporary || server.created.ThinkingLevel != "high" {
 		t.Fatalf("create input = %+v", server.created)
 	}
 }
@@ -570,15 +633,15 @@ func TestBootstrapSessionRetriesExplicitCreatedTargetWithoutDuplicating(t *testi
 		attachErr:     errors.New("temporarily unavailable"),
 	}
 	created, _, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "medium", true,
-		"session_0123456789abcdef0123456789abcdef", protocol.SessionInfo{}, func(string) bool { return true },
+		context.Background(), server, "/repo", codexDefaultModel, "medium", "", "", "", true,
+		"session_0123456789abcdef0123456789abcdef", "", false, protocol.SessionInfo{}, func(string) bool { return true },
 	)
 	if err == nil || created.ID != "session_0123456789abcdef0123456789abcdef" || server.createCalls != 1 {
 		t.Fatalf("first bootstrap info=%+v creates=%d err=%v", created, server.createCalls, err)
 	}
 	server.attachErr = nil
 	info, bound, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "medium", false, "", created,
+		context.Background(), server, "/repo", codexDefaultModel, "medium", "", "", "", false, "", "", false, created,
 		func(string) bool { return true },
 	)
 	if err != nil {
@@ -589,6 +652,18 @@ func TestBootstrapSessionRetriesExplicitCreatedTargetWithoutDuplicating(t *testi
 	}
 }
 
+func TestBootstrapSessionRejectsCreationForUnavailableProvider(t *testing.T) {
+	t.Parallel()
+	server := &fakeServer{}
+	_, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", "missing/model", "medium", "missing/model", "", "", true,
+		"session_0123456789abcdef0123456789abcdef", "", false, protocol.SessionInfo{}, func(string) bool { return false },
+	)
+	if err == nil || server.createCalls != 0 {
+		t.Fatalf("bootstrap error = %v creates = %d", err, server.createCalls)
+	}
+}
+
 func TestBootstrapSessionCreatesWhenNoUsableSessionExists(t *testing.T) {
 	t.Parallel()
 
@@ -596,8 +671,8 @@ func TestBootstrapSessionCreatesWhenNoUsableSessionExists(t *testing.T) {
 		ID: "created", CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "high",
 	}}
 	info, bound, _, err := bootstrapSession(
-		context.Background(), server, "/repo", codexDefaultModel, "high", false, "", protocol.SessionInfo{},
-		func(string) bool { return false },
+		context.Background(), server, "/repo", codexDefaultModel, "high", "", "", "", false, "", "", false, protocol.SessionInfo{},
+		func(string) bool { return true },
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -652,6 +727,10 @@ func (s *fakeServer) DeleteSession(_ context.Context, sessionID string) error {
 		panic("unexpected DeleteSession")
 	}
 	return s.deleteSession(sessionID)
+}
+
+func (s *fakeServer) DisposeTemporarySession(context.Context, string) error {
+	panic("unexpected DisposeTemporarySession")
 }
 
 func (s *fakeServer) ListSessions(_ context.Context, cwd string) ([]protocol.SessionInfo, error) {

@@ -14,10 +14,10 @@ stdin and stdout:
 
 ```bash
 kit --rpc
-kit --rpc --no-session
+kit --rpc --temp
 kit --rpc --session <id-or-path>
 kit --rpc --model <provider>/<model-id>
-kit --web --no-session
+kit --web --temp
 ```
 
 RPC mode follows newline-delimited command and response envelope conventions
@@ -54,7 +54,7 @@ for `kit attach`.
 
 RPC and web modes resume the most recent Kit session for the current directory
 by default, creating and persisting one when none exists. `--session` opens an
-existing session. `--no-session` keeps the main conversation, scratchpad, and
+existing session. `--temp` keeps the main conversation, scratchpad, and
 sub-agent conversations in memory.
 
 An existing session restores its saved model when that model is available.

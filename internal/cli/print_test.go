@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -33,6 +34,38 @@ func TestExecutePrintResumesLatestCWDSession(t *testing.T) {
 	}
 }
 
+func TestExecutePrintSkipsSessionsWithoutAvailableProvider(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSessionClient{
+		sessions: []protocol.SessionInfo{
+			{ID: "session-unavailable", Model: "missing/model"},
+			{ID: "session-available", Model: "test/echo"},
+		},
+		outcome: protocol.PromptOutcome{SessionID: "session-available", Status: protocol.RunStatusCompleted},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		CWD: "/workspace", AvailableProviders: map[string]bool{"test": true}, Prompt: "go",
+	}, &stdout, &stderr)
+	if code != 0 || client.runSessionID != "session-available" {
+		t.Fatalf("exit = %d session = %q stderr = %q", code, client.runSessionID, stderr.String())
+	}
+}
+
+func TestExecutePrintRejectsUnavailableProviderBeforeCreation(t *testing.T) {
+	t.Parallel()
+	client := &fakeSessionClient{}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		CWD: "/workspace", Model: "missing/model", NewSession: true,
+		AvailableProviders: map[string]bool{"test": true}, Prompt: "go",
+	}, &stdout, &stderr)
+	if code != 1 || client.createInput.ID != "" || !bytes.Contains(stderr.Bytes(), []byte("not authenticated")) {
+		t.Fatalf("exit = %d create = %+v stderr = %q", code, client.createInput, stderr.String())
+	}
+}
+
 func TestExecutePrintCreatesSessionForModel(t *testing.T) {
 	t.Parallel()
 
@@ -54,6 +87,69 @@ func TestExecutePrintCreatesSessionForModel(t *testing.T) {
 	}
 	if client.runSessionID != "session-new" {
 		t.Fatalf("run session = %q", client.runSessionID)
+	}
+}
+
+func TestExecutePrintResolvesShortSessionID(t *testing.T) {
+	t.Parallel()
+
+	const sessionID = "session_0123456789abcdef0123456789abcdef"
+	client := &fakeSessionClient{
+		sessions: []protocol.SessionInfo{{ID: sessionID, Model: "test/echo"}},
+		outcome:  protocol.PromptOutcome{SessionID: sessionID, Status: protocol.RunStatusCompleted, Text: "continued"},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		SessionID: "01234567", CWD: "/workspace", Prompt: "continue",
+	}, &stdout, &stderr)
+	if code != 0 || client.runSessionID != sessionID {
+		t.Fatalf("exit = %d session = %q stderr = %q", code, client.runSessionID, stderr.String())
+	}
+}
+
+func TestExecutePrintDisposesTemporarySession(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSessionClient{
+		created: protocol.SessionInfo{ID: "session_temporary", Model: "test/echo"},
+		outcome: protocol.PromptOutcome{SessionID: "session_temporary", Status: protocol.RunStatusCompleted, Text: "temporary"},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		CWD: "/workspace", Model: "test/echo", Temporary: true, Prompt: "go",
+	}, &stdout, &stderr)
+	if code != 0 || stderr.Len() != 0 {
+		t.Fatalf("exit = %d stderr = %q", code, stderr.String())
+	}
+	if !client.createInput.Temporary || client.createInput.ID == "" || client.deleted != client.createInput.ID {
+		t.Fatalf("temporary create = %+v deleted = %q", client.createInput, client.deleted)
+	}
+}
+
+func TestExecutePrintKeepsFailuresOffStdout(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSessionClient{
+		sessions: []protocol.SessionInfo{{ID: "session-1", Model: "test/echo"}},
+		outcome:  protocol.PromptOutcome{SessionID: "session-1", Status: protocol.RunStatusFailed, ErrorMessage: "provider failed"},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{CWD: "/workspace", Prompt: "go"}, &stdout, &stderr)
+	if code != 1 || stdout.Len() != 0 || !bytes.Contains(stderr.Bytes(), []byte("provider failed")) {
+		t.Fatalf("exit = %d stdout = %q stderr = %q", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestExecutePrintDisposesAmbiguousTemporaryCreate(t *testing.T) {
+	t.Parallel()
+
+	client := &fakeSessionClient{createErr: errors.New("response lost")}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		CWD: "/workspace", Model: "test/echo", Temporary: true, Prompt: "go",
+	}, &stdout, &stderr)
+	if code != 1 || client.createInput.ID == "" || client.deleted != client.createInput.ID {
+		t.Fatalf("exit = %d create = %+v disposed = %q stderr = %q", code, client.createInput, client.deleted, stderr.String())
 	}
 }
 
@@ -82,10 +178,12 @@ type fakeSessionClient struct {
 	created      protocol.SessionInfo
 	outcome      protocol.PromptOutcome
 	createInput  protocol.CreateSessionInput
+	createErr    error
 	runSessionID string
 	runPrompt    string
 	onRun        func()
 	aborted      bool
+	deleted      string
 }
 
 func (c *fakeSessionClient) CreateSession(
@@ -93,7 +191,7 @@ func (c *fakeSessionClient) CreateSession(
 	input protocol.CreateSessionInput,
 ) (protocol.SessionInfo, error) {
 	c.createInput = input
-	return c.created, nil
+	return c.created, c.createErr
 }
 
 func (c *fakeSessionClient) RenameSession(context.Context, string, string) (protocol.SessionInfo, error) {
@@ -102,6 +200,11 @@ func (c *fakeSessionClient) RenameSession(context.Context, string, string) (prot
 
 func (c *fakeSessionClient) DeleteSession(context.Context, string) error {
 	panic("unexpected DeleteSession")
+}
+
+func (c *fakeSessionClient) DisposeTemporarySession(_ context.Context, sessionID string) error {
+	c.deleted = sessionID
+	return nil
 }
 
 func (c *fakeSessionClient) ListSessions(context.Context, string) ([]protocol.SessionInfo, error) {

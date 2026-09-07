@@ -18,6 +18,8 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 )
 
+const maxPromptTextBytes = 128 << 10
+
 var (
 	ErrBusy              = errors.New("session already has an active parent run")
 	ErrDeleteBusy        = errors.New("session cannot be deleted while work is active")
@@ -27,15 +29,18 @@ var (
 	ErrBashBusy          = errors.New("bash execution is busy")
 	ErrBashNotAbortable  = errors.New("bash execution is not abortable")
 	ErrDroidStoreMissing = errors.New("initialized session droid store is missing")
+	ErrNotTemporary      = errors.New("session is not temporary")
+	ErrTemporary         = errors.New("temporary session requires disposal")
 )
 
-// CreateInput contains metadata for a new persistent session.
+// CreateInput contains metadata for a new persisted or temporary session.
 type CreateInput struct {
 	ID            string
 	CWD           string
 	Name          string
 	Model         string
 	ThinkingLevel string
+	Temporary     bool
 }
 
 // RunReservation identifies a durably admitted droid turn.
@@ -78,15 +83,21 @@ type Manager struct {
 	bashContext     context.Context
 	cancelBash      context.CancelCauseFunc
 
-	mu         sync.Mutex
-	runtimes   map[string]*runtime
-	loading    map[string]*runtimeLoad
-	deleting   map[string]bool
-	closed     bool
-	runs       sync.WaitGroup
-	loads      sync.WaitGroup
-	ops        sync.WaitGroup
-	admissions sync.WaitGroup
+	mu                sync.Mutex
+	runtimes          map[string]*runtime
+	loading           map[string]*runtimeLoad
+	deleting          map[string]bool
+	creating          map[string]*sessionCreation
+	temporary         map[string]SessionRecord
+	disposals         map[string]*temporaryDisposal
+	disposedTemporary map[string]struct{}
+	disposedOrder     []string
+	closed            bool
+	runs              sync.WaitGroup
+	loads             sync.WaitGroup
+	ops               sync.WaitGroup
+	admissions        sync.WaitGroup
+	cleanups          sync.WaitGroup
 
 	bashMu           sync.Mutex
 	bashActive       map[string]*activeBashExecution
@@ -102,9 +113,19 @@ type runtimeLoad struct {
 	err     error
 }
 
+type sessionCreation struct {
+	temporary bool
+	done      chan struct{}
+}
+
+type temporaryDisposal struct {
+	done chan struct{}
+	err  error
+}
+
 type runtime struct {
 	droid       *droids.Droid
-	droidStore  *sqlitestore.Store
+	closeStore  func() error
 	cwd         string
 	events      *eventLog
 	eventCursor droids.EventSequence
@@ -180,7 +201,7 @@ func NewManager(store Repository, providers droids.Providers, systemPrompt strin
 		store: store, providers: providers, systemPrompt: systemPrompt,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
-		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool),
+		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
 		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
@@ -196,6 +217,10 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 		return SessionRecord{}, fmt.Errorf("%w: session cwd must be absolute", ErrInvalidInput)
 	}
 	cwd := filepath.Clean(input.CWD)
+	name := strings.TrimSpace(input.Name)
+	if len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
+		return SessionRecord{}, fmt.Errorf("%w: session name must be valid UTF-8 without NUL and at most 256 bytes", ErrInvalidInput)
+	}
 	info, err := os.Stat(cwd)
 	if err != nil || !info.IsDir() {
 		return SessionRecord{}, fmt.Errorf("%w: session cwd must be an existing directory", ErrInvalidInput)
@@ -220,9 +245,72 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 			return SessionRecord{}, err
 		}
 	}
+	creation := &sessionCreation{temporary: input.Temporary, done: make(chan struct{})}
+	m.mu.Lock()
+	if m.creating[id] != nil {
+		m.mu.Unlock()
+		return SessionRecord{}, fmt.Errorf("%w: session id is already being created", ErrInvalidInput)
+	}
+	if _, disposed := m.disposedTemporary[id]; disposed {
+		m.mu.Unlock()
+		return SessionRecord{}, fmt.Errorf("%w: temporary session id was already disposed", ErrInvalidInput)
+	}
+	if m.deleting[id] {
+		m.mu.Unlock()
+		return SessionRecord{}, ErrDeleteBusy
+	}
+	if _, temporaryExists := m.temporary[id]; temporaryExists && !input.Temporary {
+		m.mu.Unlock()
+		return SessionRecord{}, fmt.Errorf("%w: session id is assigned to a temporary session", ErrInvalidInput)
+	}
+	m.creating[id] = creation
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		if m.creating[id] == creation {
+			delete(m.creating, id)
+		}
+		close(creation.done)
+		m.mu.Unlock()
+	}()
 	requested := NewSession{
-		ID: id, CWD: cwd, Name: strings.TrimSpace(input.Name), Persistent: true,
+		ID: id, CWD: cwd, Name: name, Persistent: !input.Temporary,
 		ModelProvider: model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
+	}
+	if input.Temporary {
+		if persisted, loadErr := m.store.GetSession(ctx, id); loadErr == nil && persisted.ID != "" {
+			return SessionRecord{}, fmt.Errorf("%w: session id is already assigned to a persisted session", ErrInvalidInput)
+		} else if loadErr != nil && !errors.Is(loadErr, ErrNotFound) {
+			return SessionRecord{}, loadErr
+		}
+		now := time.Now().UTC()
+		record := SessionRecord{
+			ID: id, CWD: cwd, Name: requested.Name, Persistent: false,
+			ModelProvider: model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
+			CreatedAt: now, UpdatedAt: now,
+		}
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		if m.closed {
+			return SessionRecord{}, ErrClosed
+		}
+		if m.deleting[id] {
+			return SessionRecord{}, ErrDeleteBusy
+		}
+		if _, disposed := m.disposedTemporary[id]; disposed {
+			return SessionRecord{}, fmt.Errorf("%w: temporary session id was already disposed", ErrInvalidInput)
+		}
+		if existing, ok := m.temporary[id]; ok {
+			if sessionMatchesCreate(existing, requested) {
+				return existing, nil
+			}
+			return SessionRecord{}, fmt.Errorf("%w: session id is already assigned to a different request", ErrInvalidInput)
+		}
+		if m.deleting[id] || m.loading[id] != nil || m.runtimes[id] != nil {
+			return SessionRecord{}, fmt.Errorf("%w: session id is already active", ErrInvalidInput)
+		}
+		m.temporary[id] = record
+		return record, nil
 	}
 	record, err := m.store.CreateSession(ctx, requested)
 	if err == nil || !clientSelectedID {
@@ -257,10 +345,16 @@ func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRe
 	if name == "" || len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
 		return SessionRecord{}, fmt.Errorf("%w: session name must be non-empty valid UTF-8 without NUL and at most 256 bytes", ErrInvalidInput)
 	}
+	m.mu.Lock()
+	_, temporary := m.temporary[sessionID]
+	m.mu.Unlock()
+	if temporary {
+		return SessionRecord{}, fmt.Errorf("%w: temporary sessions cannot be renamed", ErrInvalidInput)
+	}
 	return m.store.RenameSession(ctx, sessionID, name)
 }
 
-// Delete archives a session and releases an idle loaded runtime.
+// Delete archives a persisted session and releases an idle loaded runtime.
 func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 	if err := m.beginOperation(); err != nil {
 		return err
@@ -273,9 +367,14 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("%w: invalid session id", ErrInvalidInput)
 	}
 	m.mu.Lock()
-	if m.deleting[sessionID] || m.loading[sessionID] != nil {
+	if m.deleting[sessionID] || m.creating[sessionID] != nil || m.loading[sessionID] != nil {
 		m.mu.Unlock()
 		return ErrDeleteBusy
+	}
+	_, temporary := m.temporary[sessionID]
+	if temporary {
+		m.mu.Unlock()
+		return fmt.Errorf("%w: %s", ErrTemporary, sessionID)
 	}
 	m.deleting[sessionID] = true
 	loaded := m.runtimes[sessionID]
@@ -313,18 +412,174 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 	delete(m.bashNextSequence, sessionID)
 	m.bashMu.Unlock()
 
+	m.mu.Lock()
+	if loaded != nil && m.runtimes[sessionID] == loaded {
+		delete(m.runtimes, sessionID)
+	}
+	m.mu.Unlock()
 	if loaded != nil {
-		m.mu.Lock()
-		if m.runtimes[sessionID] == loaded {
-			delete(m.runtimes, sessionID)
-		}
-		m.mu.Unlock()
 		// Archival is the authoritative delete commit. Runtime cleanup is best
 		// effort so an interrupted client cannot turn a committed delete into a
 		// misleading retryable failure or allow a second runtime to load.
 		_ = loaded.close(ctx)
 	}
 	return nil
+}
+
+// DisposeTemporary revokes a temporary session, cancels its active work, and
+// removes all process-local state. Cleanup continues if the caller stops
+// waiting, while concurrent callers observe the same disposal result.
+func (m *Manager) DisposeTemporary(ctx context.Context, sessionID string) error {
+	if err := m.beginOperation(); err != nil {
+		return err
+	}
+	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !identifier.Valid(sessionID, "session_") {
+		return fmt.Errorf("%w: invalid session id", ErrInvalidInput)
+	}
+
+	m.mu.Lock()
+	if pending := m.disposals[sessionID]; pending != nil {
+		m.mu.Unlock()
+		return waitTemporaryDisposal(ctx, pending)
+	}
+	if _, disposed := m.disposedTemporary[sessionID]; disposed {
+		m.mu.Unlock()
+		return nil
+	}
+	_, temporary := m.temporary[sessionID]
+	creation := m.creating[sessionID]
+	if !temporary && creation == nil {
+		m.mu.Unlock()
+		_, err := m.store.GetSession(ctx, sessionID)
+		if err == nil {
+			return fmt.Errorf("%w: %s", ErrNotTemporary, sessionID)
+		}
+		return err
+	}
+	if creation != nil && !creation.temporary {
+		m.mu.Unlock()
+		return fmt.Errorf("%w: %s", ErrNotTemporary, sessionID)
+	}
+	if m.closed {
+		m.mu.Unlock()
+		return ErrClosed
+	}
+	pending := &temporaryDisposal{done: make(chan struct{})}
+	m.disposals[sessionID] = pending
+	m.deleting[sessionID] = true
+	m.rememberDisposedTemporary(sessionID)
+	m.cleanups.Add(1)
+	m.mu.Unlock()
+
+	var creationDone <-chan struct{}
+	if creation != nil {
+		creationDone = creation.done
+	}
+	go m.finishTemporaryDisposal(sessionID, creationDone, pending)
+	return waitTemporaryDisposal(ctx, pending)
+}
+
+func waitTemporaryDisposal(ctx context.Context, pending *temporaryDisposal) error {
+	select {
+	case <-pending.done:
+		return pending.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+const maxDisposedTemporaryTombstones = 1024
+
+func (m *Manager) rememberDisposedTemporary(sessionID string) {
+	if _, exists := m.disposedTemporary[sessionID]; exists {
+		return
+	}
+	m.disposedTemporary[sessionID] = struct{}{}
+	m.disposedOrder = append(m.disposedOrder, sessionID)
+	if len(m.disposedOrder) > maxDisposedTemporaryTombstones {
+		oldest := m.disposedOrder[0]
+		m.disposedOrder = m.disposedOrder[1:]
+		delete(m.disposedTemporary, oldest)
+	}
+}
+
+func (m *Manager) finishTemporaryDisposal(
+	sessionID string,
+	creationDone <-chan struct{},
+	pending *temporaryDisposal,
+) {
+	defer m.cleanups.Done()
+	if creationDone != nil {
+		<-creationDone
+	}
+	m.mu.Lock()
+	loaded := m.runtimes[sessionID]
+	loading := m.loading[sessionID]
+	m.mu.Unlock()
+	if loading != nil {
+		<-loading.done
+		if loaded == nil {
+			loaded = loading.runtime
+		}
+	}
+
+	var cleanupErr error
+	var runDone <-chan struct{}
+	if loaded != nil {
+		loaded.controlMu.Lock()
+		loaded.stateMu.Lock()
+		if run := loaded.runs[loaded.activeRun]; run != nil {
+			runDone = run.done
+		}
+		loaded.stateMu.Unlock()
+		if runDone != nil {
+			if err := loaded.droid.Abort(context.Background()); err != nil && !errors.Is(err, droids.ErrNoActiveExecution) {
+				cleanupErr = errors.Join(cleanupErr, err)
+			}
+		}
+		loaded.controlMu.Unlock()
+	}
+
+	var bashDone <-chan struct{}
+	m.bashMu.Lock()
+	if active := m.bashActive[sessionID]; active != nil {
+		active.cancel(errBashTemporaryDisposed)
+		bashDone = active.done
+	}
+	m.bashMu.Unlock()
+	if runDone != nil {
+		<-runDone
+	}
+	if bashDone != nil {
+		<-bashDone
+	}
+
+	if loaded != nil {
+		loaded.controlMu.Lock()
+		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background()))
+	}
+	m.bashMu.Lock()
+	delete(m.bashHistory, sessionID)
+	delete(m.bashNextSequence, sessionID)
+	delete(m.bashActive, sessionID)
+	m.bashMu.Unlock()
+	m.mu.Lock()
+	if m.runtimes[sessionID] == loaded {
+		delete(m.runtimes, sessionID)
+	}
+	delete(m.temporary, sessionID)
+	delete(m.deleting, sessionID)
+	delete(m.disposals, sessionID)
+	pending.err = cleanupErr
+	close(pending.done)
+	m.mu.Unlock()
+	if loaded != nil {
+		loaded.controlMu.Unlock()
+	}
 }
 
 func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error) {
@@ -350,8 +605,8 @@ func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (Ru
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.TrimSpace(prompt) == "" {
-		return RunReservation{}, fmt.Errorf("%w: prompt is empty", ErrInvalidInput)
+	if strings.TrimSpace(prompt) == "" || len(prompt) > maxPromptTextBytes || !utf8.ValidString(prompt) || strings.IndexByte(prompt, 0) >= 0 {
+		return RunReservation{}, fmt.Errorf("%w: prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB", ErrInvalidInput)
 	}
 	loaded, err := m.runtime(ctx, sessionID)
 	if err != nil {
@@ -660,8 +915,10 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 	m.mu.Lock()
 	m.closed = true
 	runtimes := make([]*runtime, 0, len(m.runtimes))
-	for _, loaded := range m.runtimes {
-		runtimes = append(runtimes, loaded)
+	for sessionID, loaded := range m.runtimes {
+		if m.disposals[sessionID] == nil {
+			runtimes = append(runtimes, loaded)
+		}
 	}
 	m.runtimes = nil
 	m.mu.Unlock()
@@ -677,12 +934,13 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		m.runs.Wait()
 		m.bashRuns.Wait()
 		m.ops.Wait()
+		m.cleanups.Wait()
 		close(done)
 	}()
 	select {
 	case <-done:
 		for _, loaded := range runtimes {
-			shutdownErr = errors.Join(shutdownErr, loaded.droidStore.Close())
+			shutdownErr = errors.Join(shutdownErr, loaded.closeStore())
 		}
 		if m.temporaryDroids {
 			shutdownErr = errors.Join(shutdownErr, os.RemoveAll(m.droidDirectory))
@@ -727,11 +985,15 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	m.mu.Lock()
 	delete(m.loading, sessionID)
 	startRecovery := false
-	if m.closed {
+	if m.closed || m.deleting[sessionID] {
 		if loaded != nil {
 			_ = loaded.close(context.Background())
 		}
-		loaded, err = nil, ErrClosed
+		if m.closed {
+			loaded, err = nil, ErrClosed
+		} else {
+			loaded, err = nil, ErrDeleteBusy
+		}
 	} else if err == nil {
 		m.runtimes[sessionID] = loaded
 		startRecovery = loaded.recovery != nil
@@ -751,7 +1013,7 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 }
 
 func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, error) {
-	record, err := m.store.GetSession(ctx, sessionID)
+	record, err := m.sessionRecord(ctx, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -761,22 +1023,40 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 	return m.newDroid(ctx, record)
 }
 
+func (m *Manager) sessionRecord(ctx context.Context, sessionID string) (SessionRecord, error) {
+	m.mu.Lock()
+	record, temporary := m.temporary[sessionID]
+	m.mu.Unlock()
+	if temporary {
+		return record, nil
+	}
+	return m.store.GetSession(ctx, sessionID)
+}
+
 func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime, error) {
 	if !identifier.Valid(record.ID, "session_") {
 		return nil, fmt.Errorf("session %q has an invalid droid identity", record.ID)
 	}
-	path := filepath.Join(m.droidDirectory, record.ID+".db")
-	if record.DroidInitializedAt != nil {
-		if _, err := os.Stat(path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return nil, fmt.Errorf("%w: %s", ErrDroidStoreMissing, record.ID)
+	var store droids.Store
+	closeStore := func() error { return nil }
+	if record.Persistent {
+		path := filepath.Join(m.droidDirectory, record.ID+".db")
+		if record.DroidInitializedAt != nil {
+			if _, err := os.Stat(path); err != nil {
+				if errors.Is(err, os.ErrNotExist) {
+					return nil, fmt.Errorf("%w: %s", ErrDroidStoreMissing, record.ID)
+				}
+				return nil, err
 			}
-			return nil, err
 		}
-	}
-	store, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: path})
-	if err != nil {
-		return nil, fmt.Errorf("open droid store for session %q: %w", record.ID, err)
+		sqliteStore, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: path})
+		if err != nil {
+			return nil, fmt.Errorf("open droid store for session %q: %w", record.ID, err)
+		}
+		store = sqliteStore
+		closeStore = sqliteStore.Close
+	} else {
+		store = droids.NewMemoryStore()
 	}
 	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
 		Store: store, Providers: m.providers,
@@ -785,30 +1065,30 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		Tools: codingtools.New(record.CWD),
 	})
 	if err != nil {
-		_ = store.Close()
+		_ = closeStore()
 		return nil, fmt.Errorf("open runtime for session %q: %w", record.ID, err)
 	}
-	if record.DroidInitializedAt == nil {
+	if record.Persistent && record.DroidInitializedAt == nil {
 		if err := m.store.MarkDroidInitialized(ctx, record.ID, time.Now().UTC()); err != nil {
 			_ = droid.Close()
-			_ = store.Close()
+			_ = closeStore()
 			return nil, err
 		}
 	}
 	events, err := newEventLog()
 	if err != nil {
 		_ = droid.Close()
-		_ = store.Close()
+		_ = closeStore()
 		return nil, err
 	}
 	snapshot, err := droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
 		_ = droid.Close()
-		_ = store.Close()
+		_ = closeStore()
 		return nil, err
 	}
 	loaded := &runtime{
-		droid: droid, droidStore: store, cwd: record.CWD, events: events, eventCursor: snapshot.LastEvent,
+		droid: droid, closeStore: closeStore, cwd: record.CWD, events: events, eventCursor: snapshot.LastEvent,
 		runs: make(map[string]*liveRun),
 	}
 	quiescent, err := droid.WaitQuiescent(ctx)
@@ -889,7 +1169,7 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 }
 
 func (r *runtime) close(ctx context.Context) error {
-	return errors.Join(r.droid.Shutdown(ctx), r.droidStore.Close())
+	return errors.Join(r.droid.Shutdown(ctx), r.closeStore())
 }
 
 func pruneRuns(runs map[string]*liveRun, limit int) {

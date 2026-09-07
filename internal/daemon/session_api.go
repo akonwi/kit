@@ -22,6 +22,7 @@ type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
 	Delete(context.Context, string) error
+	DisposeTemporary(context.Context, string) error
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
@@ -44,7 +45,7 @@ func (s runtimeSessionService) Create(
 ) (protocol.SessionInfo, error) {
 	record, err := s.manager.Create(ctx, kitsession.CreateInput{
 		ID: input.ID, CWD: input.CWD, Name: input.Name, Model: input.Model,
-		ThinkingLevel: input.ThinkingLevel,
+		ThinkingLevel: input.ThinkingLevel, Temporary: input.Temporary,
 	})
 	if err != nil {
 		return protocol.SessionInfo{}, err
@@ -66,6 +67,10 @@ func (s runtimeSessionService) Rename(
 
 func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) error {
 	return s.manager.Delete(ctx, sessionID)
+}
+
+func (s runtimeSessionService) DisposeTemporary(ctx context.Context, sessionID string) error {
+	return s.manager.DisposeTemporary(ctx, sessionID)
 }
 
 func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
@@ -287,6 +292,13 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/dispose", func(writer http.ResponseWriter, request *http.Request) {
+		if err := service.DisposeTemporary(request.Context(), request.PathValue("sessionID")); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
 		snapshot, err := service.Snapshot(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
@@ -335,6 +347,10 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
 		result, err := service.StartPrompt(
 			request.Context(), request.PathValue("sessionID"), input.Text,
 		)
@@ -352,6 +368,10 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
 		result, err := service.RunPrompt(
@@ -459,7 +479,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrClosed):
 		status = http.StatusServiceUnavailable
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, errInvalidSessionRequest):
+	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, kitsession.ErrNotTemporary), errors.Is(err, kitsession.ErrTemporary), errors.Is(err, errInvalidSessionRequest):
 		status = http.StatusBadRequest
 		message = err.Error()
 	}

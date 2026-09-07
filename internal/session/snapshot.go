@@ -85,7 +85,7 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if strings.TrimSpace(sessionID) == "" {
 		return Snapshot{}, fmt.Errorf("%w: session id is required", ErrInvalidInput)
 	}
-	record, err := m.store.GetSession(ctx, sessionID)
+	record, err := m.sessionRecord(ctx, sessionID)
 	if err != nil {
 		return Snapshot{}, err
 	}

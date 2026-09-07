@@ -27,7 +27,7 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("daemon returned HTTP %d: %s", e.StatusCode, e.Message)
 }
 
-// CreateSession creates a persisted session through the local daemon.
+// CreateSession creates a persisted or temporary session through the local daemon.
 func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 	if err := input.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate session request: %w", err)
@@ -72,6 +72,12 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (pro
 func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
 	path := "/v1/sessions/" + url.PathEscape(sessionID)
 	return c.sessionJSON(ctx, http.MethodDelete, path, nil, http.StatusNoContent, nil)
+}
+
+// DisposeTemporarySession revokes and removes one process-local session.
+func (c *Client) DisposeTemporarySession(ctx context.Context, sessionID string) error {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/dispose"
+	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusNoContent, nil)
 }
 
 // ListSessions lists daemon sessions, optionally filtered to one cwd.

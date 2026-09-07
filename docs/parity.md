@@ -49,7 +49,8 @@ recorded manual verification exists.
 - [ ] Embedded production web assets; users need no Bun/Node runtime.
 - [ ] Version metadata, update checks, release notes, and release packaging.
 - [ ] Install and upgrade paths for existing npm-installed users.
-- [ ] Shell completion and help output for the final CLI surface.
+- [~] Cobra-backed command tree and exact public help output; shell completion is
+  deliberately disabled for the initial native CLI milestone.
 - [ ] Cold-start and warm-attach performance acceptance checks.
 - [ ] Crash-safe logs and actionable diagnostics.
 
@@ -73,9 +74,10 @@ recorded manual verification exists.
 
 ## Daemon and server lifecycle
 
-- [~] Dispatch client and daemon roles from the same executable, staging a
-  private atomic run-directory copy before detach so `go run` cleanup cannot
-  unlink the live daemon image.
+- [~] Dispatch client and daemon roles from the same executable through a
+  Cobra command tree, staging a private atomic run-directory copy before detach
+  so `go run` cleanup cannot unlink the live daemon image. The internal daemon
+  role remains hidden from public help.
 - [~] Coordinate concurrent daemon startup with an inter-process lock.
 - [~] Authenticate every local health, management, HTTP, and WebSocket request.
 - [x] Atomically publish and validate PID, instance, version, protocol, and
@@ -97,8 +99,10 @@ recorded manual verification exists.
   selected session and renames or deletes non-attached sessions.
 - [~] Resume the most recent session for the current cwd by default, with
   `kit new` as the explicit create-instead escape hatch.
-- [ ] Support exact long/short session identifiers and explicit ephemeral
-  sessions.
+- [~] Support exact long/unique-short session identifiers and explicit
+  `--temp` sessions backed by in-memory droid stores and disposed after the
+  foreground TUI or print command exits; ADR 0009 deliberately defers logical
+  owner leases for abnormal owner loss.
 - [~] Persist cwd, name, parent lineage, model, thinking level, timestamps, and
   usage metadata.
 - [~] Run different top-level sessions concurrently.
@@ -112,7 +116,9 @@ recorded manual verification exists.
   attached session, supports bounded keyboard/mouse navigation, prioritizes
   title, activity time, cwd, then short id as width permits, atomically replaces
   the local binding from an authoritative target snapshot, and provides
-  validated retryable rename and confirmed-delete dialogs.
+  validated retryable rename and confirmed-delete dialogs. `kit sessions`
+  reuses the explorer as a bounded primary-screen mini-TUI, permits management
+  before attachment, and opens an exact selection in the normal TUI.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
 
 ## Agent runtime and transcript
@@ -255,8 +261,9 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v11 exposes retry-safe client-selected session IDs, validated session
-  rename and archival deletion, droid-owned turn identity, direct canonical
+  protocol v12 exposes retry-safe client-selected persisted or temporary
+  session IDs, validated session rename and archival/disposal deletion,
+  droid-owned turn identity, direct canonical
   history, context/pending boundaries, runtime stream synchronization metadata,
   bounded tool arguments,
   and stable live assistant message IDs. TypeScript contracts remain.
@@ -276,8 +283,9 @@ recorded manual verification exists.
   transports; the local client now consumes validated session snapshots and an
   atomic prompt-admission endpoint.
 - [ ] Stdio RPC bridge with protocol-clean stdout and diagnostics on stderr.
-- [~] Print client with piped stdin, exit codes, session options, and exact final
-  assistant text.
+- [~] Explicit `kit print` client with piped stdin, exact/implicit/new/temporary
+  session choices, model/thinking/cwd creation selection, foreground abort,
+  protocol-clean stdout, stable exit codes, and exact final assistant text.
 - [ ] `kit attach` native remote TUI.
 
 ## Remote serving and security
@@ -426,15 +434,17 @@ recorded manual verification exists.
 
 ## Headless and automation verification
 
-- [ ] `kit -p` persistent and `--no-session` behavior.
-- [ ] `--session`, `--model`, option delimiter, and piped stdin behavior.
+- [~] Explicit `kit print` persisted and `--temp` behavior.
+- [~] `--session`, `--model`, `--thinking`, `--cwd`, option delimiter, and
+  piped stdin behavior.
 - [ ] Headless-safe built-ins/plugins and unavailable interaction semantics.
-- [ ] Final stdout, diagnostics stderr, nonzero error/abort exits, and signals.
+- [~] Final stdout, diagnostics stderr, nonzero error/abort exits, and signals.
 - [ ] Long-lived stdio RPC framing, malformed input recovery, async acceptance,
   and settlement events.
 - [~] Headless Codex device-login, non-secret auth status, and logout commands.
-- [ ] Authenticated manual smoke test covering prompts, tools, plugins, signals,
-  subagents, and ephemeral storage.
+- [~] Authenticated manual smoke testing covers native temporary print
+  execution and artifact-free disposal; tools, plugins, signals, and subagents
+  remain.
 
 ## Quality gate
 

@@ -6,13 +6,14 @@ import (
 	"strings"
 )
 
-// CreateSessionInput requests a new persisted session.
+// CreateSessionInput requests a new persisted or temporary session.
 type CreateSessionInput struct {
 	ID            string `json:"id,omitempty"`
 	CWD           string `json:"cwd"`
 	Name          string `json:"name,omitempty"`
 	Model         string `json:"model"`
 	ThinkingLevel string `json:"thinkingLevel,omitempty"`
+	Temporary     bool   `json:"temporary,omitempty"`
 }
 
 // RenameSessionInput requests a new non-empty display name for a session.

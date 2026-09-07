@@ -21,43 +21,45 @@ and replacement parity is tracked in [`docs/parity.md`](docs/parity.md).
 During rewrite development, Kit stores data under `~/.kit-v2`. Set `KIT_HOME`
 to use another isolated location.
 
-## Bootstrap commands
+## CLI
 
 ```sh
 # Start the native TUI, resuming this directory's latest usable session:
 go run ./cmd/kit
 
-go run ./cmd/kit daemon start
+# Choose an exact session, force a new saved session, or work temporarily:
+go run ./cmd/kit --session <long-or-short-id>
+go run ./cmd/kit new --name "Focused work"
+go run ./cmd/kit --temp
+go run ./cmd/kit sessions
+
+# Run one headless turn. Piped stdin is prepended to the prompt:
+go run ./cmd/kit print "Continue the latest session for this directory"
+go run ./cmd/kit print --model openai/gpt-4o-mini "Say hello"
+cat changes.diff | go run ./cmd/kit print --temp "Review this diff"
+
+# Inspect the complete command tree and operate the local daemon:
+go run ./cmd/kit --help
 go run ./cmd/kit daemon status
-go run ./cmd/kit daemon stop
-go run ./cmd/kit version
+go run ./cmd/kit daemon restart
 
 # Persist OpenAI Codex OAuth credentials with a headless device flow:
-go run ./cmd/kit login openai-codex
+go run ./cmd/kit auth login openai-codex
 go run ./cmd/kit auth status
-# Remove them later with: go run ./cmd/kit logout openai-codex
-
-# The daemon captures API-key provider credentials when it starts:
-OPENAI_API_KEY=... go run ./cmd/kit daemon restart
-go run ./cmd/kit -p --model openai/gpt-4o-mini "Say hello"
-go run ./cmd/kit -p "Continue the latest session for this directory"
-
-# OpenAI Codex accepts OAuth credentials and refreshes them in memory:
-OPENAI_CODEX_ACCESS_TOKEN=... OPENAI_CODEX_REFRESH_TOKEN=... \
-  go run ./cmd/kit daemon restart
-go run ./cmd/kit -p --model openai-codex/gpt-5.6-sol "Say hello"
+go run ./cmd/kit auth logout openai-codex
 ```
 
 A normal `go run ./cmd/kit` invocation starts the viewport-native vaxis TUI. It
-starts or discovers the daemon, offers the Codex device flow when credentials
-are missing, resumes the latest usable session for the current directory,
-restores its persisted transcript snapshot, and supports prompt submission,
-final responses, context percentage, and explicit abort status. Streaming
-transcript events, the multiline composer, command palette, and workspace panes
-remain subsequent slices.
+starts or discovers the daemon, offers provider login when credentials are
+missing, resumes the latest usable session for the selected working directory,
+and restores its persisted transcript snapshot. `kit sessions` opens a bounded
+primary-screen session manager before transitioning to the normal TUI for an
+opened session. `--temp` uses an in-memory session that is disposed when its
+foreground command exits.
 
-Print mode also creates and resumes SQLite-backed droids sessions through the
-local session-client boundary. Codex can derive account and expiry metadata from
+Print mode creates and resumes droids sessions through the local session-client
+boundary, writes only final assistant prose to stdout, and keeps diagnostics on
+stderr. Codex can derive account and expiry metadata from
 its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
 `OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
 available when explicit metadata is needed. Without explicit Codex environment

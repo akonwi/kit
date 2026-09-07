@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -288,6 +289,60 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 	if len(sessions) != 1 || sessions[0].ID != created.ID {
 		t.Fatalf("sessions = %+v", sessions)
+	}
+
+	temporaryID, err := identifier.New("session_")
+	if err != nil {
+		t.Fatal(err)
+	}
+	temporary, err := client.CreateSession(context.Background(), protocol.CreateSessionInput{
+		ID: temporaryID, CWD: workspace, Model: "test/echo", Temporary: true,
+	})
+	if err != nil || temporary.ID != temporaryID {
+		t.Fatalf("CreateSession(temporary) = %+v, %v", temporary, err)
+	}
+	sessions, err = client.ListSessions(context.Background(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, listed := range sessions {
+		if listed.ID == temporaryID {
+			t.Fatalf("temporary session appeared in saved directory: %+v", sessions)
+		}
+	}
+	temporaryOutcome, err := client.RunPrompt(context.Background(), temporaryID, "temporary")
+	if err != nil || temporaryOutcome.Status != protocol.RunStatusCompleted {
+		t.Fatalf("RunPrompt(temporary) = %+v, %v", temporaryOutcome, err)
+	}
+	if matches, err := filepath.Glob(filepath.Join(paths.Droids, temporaryID+".db*")); err != nil || len(matches) != 0 {
+		t.Fatalf("temporary droid files = %v, %v", matches, err)
+	}
+	if err := client.DeleteSession(context.Background(), temporaryID); err == nil {
+		t.Fatal("DeleteSession archived a temporary session")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusBadRequest {
+			t.Fatalf("DeleteSession(temporary) error = %v", err)
+		}
+	}
+	if err := client.DisposeTemporarySession(context.Background(), temporaryID); err != nil {
+		t.Fatalf("DisposeTemporarySession() = %v", err)
+	}
+	if err := client.DisposeTemporarySession(context.Background(), created.ID); err == nil {
+		t.Fatal("DisposeTemporarySession disposed a persisted session")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusBadRequest {
+			t.Fatalf("DisposeTemporarySession(persisted) error = %v", err)
+		}
+	}
+	if _, err := client.GetSessionSnapshot(context.Background(), temporaryID); err == nil {
+		t.Fatal("disposed temporary session remained addressable")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusNotFound {
+			t.Fatalf("disposed temporary snapshot error = %v", err)
+		}
 	}
 
 	stopContext, stopCancel := context.WithTimeout(context.Background(), 5*time.Second)
