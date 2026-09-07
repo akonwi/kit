@@ -43,14 +43,19 @@ recorded manual verification exists.
 
 ## Foundation and distribution
 
-- [~] One Go module and one `kit` executable composition root.
+- [x] One Go module and one `kit` executable composition root.
 - [ ] CGO-free macOS and Linux release builds; Windows is unsupported.
 - [~] Embedded, versioned database migrations.
 - [ ] Embedded production web assets; users need no Bun/Node runtime.
 - [ ] Version metadata, update checks, release notes, and release packaging.
 - [ ] Install and upgrade paths for existing npm-installed users.
-- [~] Cobra-backed command tree and exact public help output; shell completion is
-  deliberately disabled for the initial native CLI milestone.
+- [x] Initial Cobra-backed native command tree for root TUI startup, `new`,
+  `sessions` (`threads` alias), `print`, `auth`, `daemon`, `version`, and help,
+  with exact root/print help contracts, command-specific help coverage,
+  command-local validation, verified command-layer exit behavior, and the
+  internal daemon role hidden.
+- [ ] Shell completion, stdio RPC, semantic web serving, `kit attach`, and
+  noninteractive `kit sessions list`, `rename`, and `delete` commands.
 - [ ] Cold-start and warm-attach performance acceptance checks.
 - [ ] Crash-safe logs and actionable diagnostics.
 
@@ -74,7 +79,7 @@ recorded manual verification exists.
 
 ## Daemon and server lifecycle
 
-- [~] Dispatch client and daemon roles from the same executable through a
+- [x] Dispatch client and daemon roles from the same executable through a
   Cobra command tree, staging a private atomic run-directory copy before detach
   so `go run` cleanup cannot unlink the live daemon image. The internal daemon
   role remains hidden from public help.
@@ -92,17 +97,18 @@ recorded manual verification exists.
 
 ## Session directory and concurrency
 
-- [~] List, create, open, rename, delete, and resume sessions; the native TUI
+- [x] List, create, open, rename, delete, and resume sessions; the native TUI
   lists all saved sessions in an on-demand responsive explorer, and `kit new`
-  starts it with a newly persisted current-directory session without consulting
-  resumable sessions. The explorer switches the local TUI binding to an exact
-  selected session and renames or deletes non-attached sessions.
-- [~] Resume the most recent session for the current cwd by default, with
+  starts it with a newly persisted session for the selected working directory
+  without consulting resumable sessions. The explorer switches the local TUI
+  binding to an exact selected session and renames or deletes non-attached
+  sessions.
+- [x] Resume the most recent session for the current cwd by default, with
   `kit new` as the explicit create-instead escape hatch.
-- [~] Support exact long/unique-short session identifiers and explicit
-  `--temp` sessions backed by in-memory droid stores and disposed after the
-  foreground TUI or print command exits; ADR 0009 deliberately defers logical
-  owner leases for abnormal owner loss.
+- [x] Support exact long/unique-short session identifiers and explicit
+  `--temp` sessions backed by in-memory droid stores and disposed after orderly
+  foreground TUI or print exit; ADR 0009 deliberately defers logical owner
+  leases for abnormal owner loss.
 - [~] Persist cwd, name, parent lineage, model, thinking level, timestamps, and
   usage metadata.
 - [~] Run different top-level sessions concurrently.
@@ -111,14 +117,15 @@ recorded manual verification exists.
 - [ ] Remove all process-global cwd, active-session, and model-cache state.
 - [ ] Support cwd retargeting with explicit server-side workspace context.
 - [ ] Implement handoff and lineage without globally switching other clients.
-- [~] Implement session explorer/picker workflows and responsive presentation;
-  the initial native dialog loads the global directory, centers selection on the
+- [x] Implement session explorer/picker workflows and responsive presentation;
+  the native dialog loads the global directory, centers selection on the
   attached session, supports bounded keyboard/mouse navigation, prioritizes
   title, activity time, cwd, then short id as width permits, atomically replaces
   the local binding from an authoritative target snapshot, and provides
   validated retryable rename and confirmed-delete dialogs. `kit sessions`
-  reuses the explorer as a bounded primary-screen mini-TUI, permits management
-  before attachment, and opens an exact selection in the normal TUI.
+  reuses the explorer as a bounded primary-screen mini-TUI, preserves shell
+  scrollback while cleaning up its live region, permits management before
+  attachment, and opens an exact selection in the normal TUI.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
 
 ## Agent runtime and transcript
@@ -283,9 +290,10 @@ recorded manual verification exists.
   transports; the local client now consumes validated session snapshots and an
   atomic prompt-admission endpoint.
 - [ ] Stdio RPC bridge with protocol-clean stdout and diagnostics on stderr.
-- [~] Explicit `kit print` client with piped stdin, exact/implicit/new/temporary
-  session choices, model/thinking/cwd creation selection, foreground abort,
-  protocol-clean stdout, stable exit codes, and exact final assistant text.
+- [x] Explicit `kit print` client with piped stdin, exact/implicit/new/temporary
+  session choices, name/model/thinking/cwd creation selection, foreground
+  cancellation and abort, protocol-clean stdout, stable command exit codes, and
+  exact final assistant text.
 - [ ] `kit attach` native remote TUI.
 
 ## Remote serving and security
@@ -434,37 +442,53 @@ recorded manual verification exists.
 
 ## Headless and automation verification
 
-- [~] Explicit `kit print` persisted and `--temp` behavior.
-- [~] `--session`, `--model`, `--thinking`, `--cwd`, option delimiter, and
-  piped stdin behavior.
+- [x] Explicit `kit print` persisted, `--new`, and process-local `--temp`
+  behavior, including artifact-free orderly disposal.
+- [x] `--session`, `--new`, `--temp`, `--name`, `--model`, `--thinking`,
+  `--cwd`, option delimiter, and piped stdin behavior.
 - [ ] Headless-safe built-ins/plugins and unavailable interaction semantics.
-- [~] Final stdout, diagnostics stderr, nonzero error/abort exits, and signals.
+- [x] Final stdout, diagnostics stderr, nonzero error/abort exits, and
+  foreground cancellation.
+- [ ] End-to-end SIGINT/SIGTERM exit-code verification.
 - [ ] Long-lived stdio RPC framing, malformed input recovery, async acceptance,
   and settlement events.
-- [~] Headless Codex device-login, non-secret auth status, and logout commands.
+- [x] Headless `kit auth login openai-codex`, non-secret `kit auth status`, and
+  `kit auth logout openai-codex` commands.
 - [~] Authenticated manual smoke testing covers native temporary print
   execution and artifact-free disposal; tools, plugins, signals, and subagents
   remain.
 
 ## Quality gate
 
-- [ ] `gofmt`, `go vet`, `go test`, and `go build` pass for all Go packages.
+- [x] `gofmt`, `go vet`, `go test`, and `go build` pass for all Go packages.
 - [ ] Browser format, lint, typecheck, unit, integration, and accessibility tests
   pass.
-- [ ] Race detector passes for daemon/session/subagent/plugin concurrency tests.
+- [~] Current CLI, daemon, session, session-client, and TUI test suites pass
+  under the race detector; subagent/plugin concurrency suites remain future
+  work.
 - [ ] Protocol fuzz/property tests cover malformed and adversarial records.
 - [ ] SQLite migration tests cover empty, current, repeated, partial-failure, and
   imported-data paths.
 - [ ] macOS and Linux release artifacts pass launch and daemon lifecycle smoke
   tests.
 - [ ] No current user data is mutated before explicit migration.
-- [ ] Documentation and help match shipped behavior.
+- [~] README, ADRs 0008/0009, and native CLI help match the initial command
+  surface; feature documentation for deferred RPC, web, plugin, and interaction
+  behavior remains to be reconciled.
 
 ## Rolling target-branch delta
 
 Add every relevant behavior merged after `5c6e112` here. Do not silently expand
 or ignore the parity target.
 
+Last audited against production `main` at `c9abdf2` (Kit v0.35.1). Version-only
+commits are omitted.
+
 | Change | Decision | Tracking |
 | --- | --- | --- |
-| _None recorded yet_ | — | — |
+| Keep assistant reasoning visible alongside tool activity (`642638d`) | Ported | Native TUI shell transcript/thinking |
+| Present confirm, input, select, and guided questions in the composer dock (`9f7bbed`) | Port | Native TUI interaction surfaces; User interaction and reading workflows |
+| Add validated `show_image` and explicit transcript image previews (`a2c7434`) | Port | Built-in coding tools; Native TUI shell image capabilities |
+| Open transcript images in retained workspace panes (`e6c181f`) | Port | Native TUI workspace panes |
+| Submit structured code-review feedback without a generic prompt preamble (`0fc9f94`) | Port | Code review and workspace files |
+| Upgrade the TypeScript Pi runtime to 0.85 (`1971d71`) | Superseded | Accepted native droids runtime difference; ADRs 0001 and 0006 |
