@@ -18,9 +18,7 @@ let cache: TemplateCache | null = null;
 
 /** Built-in defaults that ship with Kit. */
 export const BUILT_IN_TEMPLATES: Record<string, string> = {
-	"review-feedback": ["Here is my feedback to code.", "", "{{content}}"].join(
-		"\n",
-	),
+	"review-feedback": "{{content}}",
 	"pager-feedback": [
 		"Here is my feedback on your previous response, grouped by section.",
 		"",
