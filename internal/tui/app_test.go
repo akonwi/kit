@@ -340,6 +340,33 @@ func TestStoppingTurnActivityTakesPrecedenceUntilRunFinishes(t *testing.T) {
 	}
 }
 
+func TestTerminalRunStatusStopsBeforeTranscriptSettlement(t *testing.T) {
+	t.Parallel()
+
+	state := appState{
+		runPending: true, terminalRunActive: true, terminalRunID: "run_1",
+		liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 1, RunID: "run_1", Kind: protocol.SessionEventRunFinished,
+	}})
+	if state.terminalRunActive || !state.runPending {
+		t.Fatalf("terminal settlement = active %t admission pending %t", state.terminalRunActive, state.runPending)
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 2, RunID: "run_1", Kind: protocol.SessionEventRunStarted,
+	}})
+	if state.terminalRunActive {
+		t.Fatal("delayed start event reactivated a settled run")
+	}
+
+	state.markTerminalRunStarted("run_2")
+	state.markTerminalRunSettled("run_1")
+	if !state.terminalRunActive || state.terminalRunID != "run_2" {
+		t.Fatalf("stale settlement changed active run: active %t id %q", state.terminalRunActive, state.terminalRunID)
+	}
+}
+
 func TestTerminalSnapshotFailureSettlesLiveTurnForContinuedInput(t *testing.T) {
 	t.Parallel()
 

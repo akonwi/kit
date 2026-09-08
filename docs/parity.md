@@ -252,9 +252,10 @@ recorded manual verification exists.
   header and status/cwd/Git footer ownership.
 - [~] Clipboard, terminal title, notifications, image capabilities, and clean
   terminal restoration; selectable transcript and composer text copy through
-  the terminal clipboard, while terminal chrome now shows idle, `●` running,
-  and `?` agent-feedback states, maps them to removed/indeterminate/paused Ghostty
-  progress, emits completion attention, and restores idle state on exit. Image
+  the terminal clipboard, while terminal chrome now shows idle, animated
+  Braille running, and `?` agent-feedback states, maps those states to
+  removed/indeterminate/paused Ghostty progress, emits completion attention,
+  and restores idle state on exit. Image
   capabilities and remaining platform integration work remain.
 
 ## Semantic web client

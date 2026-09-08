@@ -19,9 +19,9 @@ func TestFormatTerminalTitleShowsSessionContextAndStatus(t *testing.T) {
 		want        string
 	}{
 		{name: "idle", sessionName: "Fix pager", cwd: "/work/kit", state: terminalStatusIdle, want: "kit - Fix pager - kit"},
-		{name: "running", sessionName: "Fix pager", cwd: "/work/kit", state: terminalStatusRunning, want: "● kit - Fix pager - kit"},
+		{name: "running", sessionName: "Fix pager", cwd: "/work/kit", state: terminalStatusRunning, want: "⠋ kit - Fix pager - kit"},
 		{name: "feedback", sessionName: "Fix pager", cwd: "/work/kit", state: terminalStatusFeedback, want: "? kit - Fix pager - kit"},
-		{name: "unnamed", cwd: "/work/kit", state: terminalStatusRunning, want: "● kit - kit"},
+		{name: "unnamed", cwd: "/work/kit", state: terminalStatusRunning, want: "⠋ kit - kit"},
 		{name: "unknown cwd", sessionName: "Setup", state: terminalStatusFeedback, want: "? kit - Setup"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -54,6 +54,93 @@ func TestResolveTerminalStatusPrioritizesFeedback(t *testing.T) {
 	if got := resolveTerminalStatus(false, false); got != terminalStatusIdle {
 		t.Fatalf("idle status = %d, want idle", got)
 	}
+	if got := resolveTerminalStatus(false, true); got != terminalStatusIdle {
+		t.Fatalf("feedback without an active turn = %d, want idle", got)
+	}
+}
+
+func TestTerminalStatusReporterAnimatesRunningTitleAtBoundedCadence(t *testing.T) {
+	t.Parallel()
+
+	var titles []string
+	reporter := &terminalStatusReporter{titleFrameDuration: terminalTitleFrameDuration}
+	setTitle := func(title string) { titles = append(titles, title) }
+	started := time.Unix(10, 0)
+	reporter.Update(started, "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(399*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(400*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(800*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(time.Second), "Animate", "/work/kit", "run_1", terminalStatusFeedback, setTitle)
+	reporter.Update(started.Add(2*time.Second), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+
+	want := []string{
+		"⠋ kit - Animate - kit",
+		"⠹ kit - Animate - kit",
+		"⠼ kit - Animate - kit",
+		"? kit - Animate - kit",
+		"⠋ kit - Animate - kit",
+	}
+	if len(titles) != len(want) {
+		t.Fatalf("titles = %#v, want %#v", titles, want)
+	}
+	for index := range want {
+		if titles[index] != want[index] {
+			t.Fatalf("title %d = %q, want %q", index, titles[index], want[index])
+		}
+	}
+}
+
+func TestTerminalStatusReporterRestartsAnimationForReplacementRun(t *testing.T) {
+	t.Parallel()
+
+	var titles []string
+	reporter := &terminalStatusReporter{titleFrameDuration: terminalTitleFrameDuration}
+	setTitle := func(title string) { titles = append(titles, title) }
+	started := time.Unix(10, 0)
+	reporter.Update(started, "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(400*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(401*time.Millisecond), "Animate", "/work/kit", "run_2", terminalStatusRunning, setTitle)
+
+	want := []string{
+		"⠋ kit - Animate - kit",
+		"⠹ kit - Animate - kit",
+		"⠋ kit - Animate - kit",
+	}
+	if len(titles) != len(want) {
+		t.Fatalf("titles = %#v, want %#v", titles, want)
+	}
+	for index := range want {
+		if titles[index] != want[index] {
+			t.Fatalf("title %d = %q, want %q", index, titles[index], want[index])
+		}
+	}
+}
+
+func TestTerminalStatusReporterKeepsAnimationPhaseWhenAdmissionGetsID(t *testing.T) {
+	t.Parallel()
+
+	var titles []string
+	reporter := &terminalStatusReporter{titleFrameDuration: terminalTitleFrameDuration}
+	setTitle := func(title string) { titles = append(titles, title) }
+	started := time.Unix(10, 0)
+	reporter.Update(started, "Animate", "/work/kit", "", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(400*time.Millisecond), "Animate", "/work/kit", "", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(401*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(800*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+
+	want := []string{
+		"⠋ kit - Animate - kit",
+		"⠹ kit - Animate - kit",
+		"⠼ kit - Animate - kit",
+	}
+	if len(titles) != len(want) {
+		t.Fatalf("titles = %#v, want %#v", titles, want)
+	}
+	for index := range want {
+		if titles[index] != want[index] {
+			t.Fatalf("title %d = %q, want %q", index, titles[index], want[index])
+		}
+	}
 }
 
 func TestTerminalStatusReporterEmitsTransitionsAndRestoresIdle(t *testing.T) {
@@ -68,13 +155,13 @@ func TestTerminalStatusReporterEmitsTransitionsAndRestoresIdle(t *testing.T) {
 		progressSupported: true,
 	}
 	setTitle := func(title string) { titles = append(titles, title) }
-	reporter.Update(time.Time{}, "Fix pager", "/work/kit", terminalStatusRunning, setTitle)
-	reporter.Update(time.Time{}, "Fix pager", "/work/kit", terminalStatusRunning, setTitle)
-	reporter.Update(time.Time{}, "Fix pager", "/work/kit", terminalStatusFeedback, setTitle)
+	reporter.Update(time.Time{}, "Fix pager", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(time.Time{}, "Fix pager", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(time.Time{}, "Fix pager", "/work/kit", "run_1", terminalStatusFeedback, setTitle)
 	reporter.Bell()
 	reporter.Close()
 
-	wantTitles := []string{"● kit - Fix pager - kit", "? kit - Fix pager - kit"}
+	wantTitles := []string{"⠋ kit - Fix pager - kit", "? kit - Fix pager - kit"}
 	if len(titles) != len(wantTitles) || titles[0] != wantTitles[0] || titles[1] != wantTitles[1] {
 		t.Fatalf("titles = %#v, want %#v", titles, wantTitles)
 	}
@@ -102,8 +189,8 @@ func TestTerminalStatusReporterSkipsUnsupportedProgress(t *testing.T) {
 		writes = append(writes, sequence)
 		return true
 	}}
-	reporter.Update(time.Time{}, "", "/work/kit", terminalStatusRunning, func(title string) { titles = append(titles, title) })
-	if len(titles) != 1 || titles[0] != "● kit - kit" || len(writes) != 0 {
+	reporter.Update(time.Time{}, "", "/work/kit", "run_1", terminalStatusRunning, func(title string) { titles = append(titles, title) })
+	if len(titles) != 1 || titles[0] != "⠋ kit - kit" || len(writes) != 0 {
 		t.Fatalf("titles = %#v writes = %#v", titles, writes)
 	}
 }
@@ -120,12 +207,12 @@ func TestTerminalStatusReporterRetriesFailedProgressWrite(t *testing.T) {
 		},
 	}
 	now := time.Unix(1, 0)
-	reporter.Update(now, "", "/work/kit", terminalStatusRunning, func(string) {})
-	reporter.Update(now.Add(100*time.Millisecond), "", "/work/kit", terminalStatusRunning, func(string) {})
+	reporter.Update(now, "", "/work/kit", "run_1", terminalStatusRunning, func(string) {})
+	reporter.Update(now.Add(100*time.Millisecond), "", "/work/kit", "run_1", terminalStatusRunning, func(string) {})
 	if attempts != 1 {
 		t.Fatalf("attempts before retry deadline = %d, want 1", attempts)
 	}
-	reporter.Update(now.Add(250*time.Millisecond), "", "/work/kit", terminalStatusRunning, func(string) {})
+	reporter.Update(now.Add(250*time.Millisecond), "", "/work/kit", "run_1", terminalStatusRunning, func(string) {})
 	if attempts != 2 {
 		t.Fatalf("attempts after retry deadline = %d, want 2", attempts)
 	}
@@ -144,7 +231,7 @@ func TestTerminalStatusReporterBoundsPersistentProgressFailures(t *testing.T) {
 	}
 	now := time.Unix(1, 0)
 	for _, elapsed := range []time.Duration{0, 250 * time.Millisecond, 750 * time.Millisecond, 2 * time.Second} {
-		reporter.Update(now.Add(elapsed), "", "/work/kit", terminalStatusRunning, func(string) {})
+		reporter.Update(now.Add(elapsed), "", "/work/kit", "run_1", terminalStatusRunning, func(string) {})
 	}
 	if attempts != 3 {
 		t.Fatalf("persistent failure attempts = %d, want 3", attempts)
@@ -157,7 +244,7 @@ func TestAppTerminalStatusUsesAttachedSessionAndFeedbackPrecedence(t *testing.T)
 	var titles []string
 	reporter := &terminalStatusReporter{}
 	state := appState{
-		phase: phaseReady, runPending: true,
+		phase: phaseReady, runPending: true, terminalRunActive: true,
 		session:        protocol.SessionInfo{Name: "Status work", CWD: "/work/kit"},
 		terminalStatus: reporter,
 	}
@@ -167,7 +254,7 @@ func TestAppTerminalStatusUsesAttachedSessionAndFeedbackPrecedence(t *testing.T)
 	state.syncTerminalStatus(time.Time{}, setTitle)
 	state.agentFeedbackPending = true
 	state.syncTerminalStatus(time.Time{}, setTitle)
-	if len(titles) != 2 || titles[0] != "● kit - Status work - kit" || titles[1] != "? kit - Status work - kit" {
+	if len(titles) != 2 || titles[0] != "⠋ kit - Status work - kit" || titles[1] != "? kit - Status work - kit" {
 		t.Fatalf("titles = %#v", titles)
 	}
 }
@@ -202,10 +289,16 @@ func TestSupportsTerminalProgressUsesGhosttyOutsideMultiplexers(t *testing.T) {
 
 	environment := map[string]string{"TERM_PROGRAM": "ghostty"}
 	getenv := func(name string) string { return environment[name] }
+	if got := terminalTitleAnimationDuration(getenv); got != terminalTitleFrameDuration {
+		t.Fatalf("direct title cadence = %s, want %s", got, terminalTitleFrameDuration)
+	}
 	if !supportsTerminalProgress(getenv) {
 		t.Fatal("Ghostty was not detected")
 	}
 	environment["TMUX"] = "/tmp/tmux"
+	if got := terminalTitleAnimationDuration(getenv); got != terminalMultiplexerFrameDuration {
+		t.Fatalf("tmux title cadence = %s, want %s", got, terminalMultiplexerFrameDuration)
+	}
 	if supportsTerminalProgress(getenv) {
 		t.Fatal("tmux should disable raw progress sequences")
 	}

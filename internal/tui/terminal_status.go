@@ -29,38 +29,49 @@ const (
 )
 
 const (
-	terminalStatusRunningMarker  = "●"
-	terminalStatusFeedbackMarker = "?"
-	terminalStringTerminator     = "\x1b\\"
+	terminalStatusFeedbackMarker     = "?"
+	terminalStringTerminator         = "\x1b\\"
+	terminalTitleFrameDuration       = 400 * time.Millisecond
+	terminalMultiplexerFrameDuration = time.Second
 )
+
+var terminalStatusRunningFrames = [...]string{
+	spinnerFrames[0], spinnerFrames[2], spinnerFrames[4], spinnerFrames[6], spinnerFrames[8],
+}
 
 type terminalStatusReporter struct {
 	mu sync.Mutex
 
-	write              func(string) bool
-	progressSupported  bool
-	titleRendered      bool
-	progressRendered   bool
-	title              string
-	progress           terminalProgressState
-	progressTarget     terminalProgressState
-	progressTargetSet  bool
-	progressFailures   int
-	progressRetryAfter time.Time
-	sessionName        string
-	cwd                string
+	write                   func(string) bool
+	progressSupported       bool
+	titleFrameDuration      time.Duration
+	titleRendered           bool
+	progressRendered        bool
+	title                   string
+	progress                terminalProgressState
+	progressTarget          terminalProgressState
+	progressTargetSet       bool
+	progressFailures        int
+	progressRetryAfter      time.Time
+	status                  terminalStatusState
+	statusSet               bool
+	runID                   string
+	runningAnimationStarted time.Time
+	sessionName             string
+	cwd                     string
 }
 
 func newTerminalStatusReporter() *terminalStatusReporter {
 	return &terminalStatusReporter{
-		write:             writeTerminalSequence,
-		progressSupported: supportsTerminalProgress(os.Getenv),
+		write:              writeTerminalSequence,
+		progressSupported:  supportsTerminalProgress(os.Getenv),
+		titleFrameDuration: terminalTitleAnimationDuration(os.Getenv),
 	}
 }
 
 // Update projects one title/progress state. Raw progress failures retry with
 // bounded backoff only when another application frame is naturally requested.
-func (r *terminalStatusReporter) Update(now time.Time, sessionName, cwd string, state terminalStatusState, setTitle func(string)) {
+func (r *terminalStatusReporter) Update(now time.Time, sessionName, cwd, runID string, state terminalStatusState, setTitle func(string)) {
 	if r == nil {
 		return
 	}
@@ -69,7 +80,18 @@ func (r *terminalStatusReporter) Update(now time.Time, sessionName, cwd string, 
 
 	r.sessionName = sessionName
 	r.cwd = cwd
-	title := formatTerminalTitle(sessionName, cwd, state)
+	replacementRun := r.runID != "" && runID != "" && runID != r.runID
+	if !r.statusSet || state != r.status || replacementRun {
+		r.status = state
+		r.statusSet = true
+		if state == terminalStatusRunning {
+			r.runningAnimationStarted = now
+		}
+	}
+	r.runID = runID
+	title := formatTerminalTitleWithMarker(sessionName, cwd, terminalStatusMarker(
+		state, now, r.runningAnimationStarted, r.titleFrameDuration,
+	))
 	if setTitle != nil && (!r.titleRendered || title != r.title) {
 		setTitle(title)
 		r.titleRendered = true
@@ -128,6 +150,12 @@ func (r *terminalStatusReporter) Close() {
 }
 
 func formatTerminalTitle(sessionName, cwd string, state terminalStatusState) string {
+	return formatTerminalTitleWithMarker(sessionName, cwd, terminalStatusMarker(
+		state, time.Time{}, time.Time{}, terminalTitleFrameDuration,
+	))
+}
+
+func formatTerminalTitleWithMarker(sessionName, cwd, marker string) string {
 	name := sanitizeTerminalTitlePart(sessionName)
 	base := sanitizeTerminalTitlePart(filepath.Base(filepath.Clean(cwd)))
 	if cwd == "" || base == "." {
@@ -141,13 +169,27 @@ func formatTerminalTitle(sessionName, cwd string, state terminalStatusState) str
 		parts = append(parts, base)
 	}
 	title := strings.Join(parts, " - ")
+	if marker != "" {
+		return marker + " " + title
+	}
+	return title
+}
+
+func terminalStatusMarker(state terminalStatusState, now, runningStarted time.Time, frameDuration time.Duration) string {
 	switch state {
 	case terminalStatusRunning:
-		return terminalStatusRunningMarker + " " + title
+		if frameDuration <= 0 {
+			frameDuration = terminalTitleFrameDuration
+		}
+		elapsed := now.Sub(runningStarted)
+		if elapsed < 0 {
+			elapsed = 0
+		}
+		return terminalStatusRunningFrames[int(elapsed/frameDuration)%len(terminalStatusRunningFrames)]
 	case terminalStatusFeedback:
-		return terminalStatusFeedbackMarker + " " + title
+		return terminalStatusFeedbackMarker
 	default:
-		return title
+		return ""
 	}
 }
 
@@ -161,13 +203,13 @@ func sanitizeTerminalTitlePart(value string) string {
 }
 
 func resolveTerminalStatus(running, feedback bool) terminalStatusState {
+	if !running {
+		return terminalStatusIdle
+	}
 	if feedback {
 		return terminalStatusFeedback
 	}
-	if running {
-		return terminalStatusRunning
-	}
-	return terminalStatusIdle
+	return terminalStatusRunning
 }
 
 func terminalProgressForStatus(state terminalStatusState) terminalProgressState {
@@ -194,6 +236,13 @@ func terminalProgressSequence(state terminalProgressState) string {
 		value = "4"
 	}
 	return "\x1b]9;4;" + value + terminalStringTerminator
+}
+
+func terminalTitleAnimationDuration(getenv func(string) string) time.Duration {
+	if getenv != nil && (getenv("TMUX") != "" || getenv("STY") != "") {
+		return terminalMultiplexerFrameDuration
+	}
+	return terminalTitleFrameDuration
 }
 
 func supportsTerminalProgress(getenv func(string) string) bool {

@@ -6,12 +6,15 @@ client while using compact monochrome markers instead of emoji:
 
 ```text
 idle       kit - <session name> - <cwd basename>
-running    ● kit - <session name> - <cwd basename>
+running    ⠋ kit - <session name> - <cwd basename>
 feedback   ? kit - <session name> - <cwd basename>
 ```
 
 An unnamed session omits the session-name segment. Status markers remain at the
-start so narrow terminal tabs preserve the most important state.
+start so narrow terminal tabs preserve the most important state. While running,
+the leading marker cycles through `⠋ ⠹ ⠼ ⠦ ⠇` every 400 ms. Entering or
+resuming running starts from the first frame; feedback stays static so motion
+always means active work.
 
 ## State and precedence
 
@@ -41,7 +44,8 @@ On Ghostty, Kit also emits OSC 9;4 surface progress:
 - idle removes progress.
 
 Raw OSC 9;4 output is disabled inside tmux and screen until explicit passthrough
-wrapping is supported. Terminal titles remain available there.
+wrapping is supported. Terminal titles remain available there, with animation
+slowed to one frame per second to reduce multiplexer status-line redraws.
 
 ## Attention and cleanup
 

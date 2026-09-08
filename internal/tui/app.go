@@ -206,6 +206,9 @@ type appState struct {
 	activeRun                   sessionclient.Run
 	activeRunID                 string
 	runPending                  bool
+	terminalRunActive           bool
+	terminalRunID               string
+	terminalSettledRunID        string
 	agentFeedbackPending        bool
 	reloadPending               bool
 	cwdPending                  bool
@@ -343,7 +346,7 @@ func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
 	if cwd == "" {
 		cwd = s.terminalCWD
 	}
-	s.terminalStatus.Update(now, name, cwd, resolveTerminalStatus(s.runPending, s.agentFeedbackPending), setTitle)
+	s.terminalStatus.Update(now, name, cwd, s.terminalRunID, resolveTerminalStatus(s.terminalRunActive, s.agentFeedbackPending), setTitle)
 }
 
 func (s *appState) showToast(input toastInput) {
@@ -999,6 +1002,9 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.contextWindow = snapshot.ContextWindow
 	s.activeRunID = snapshot.ActiveRunID
 	s.runPending = snapshot.ActiveRunID != ""
+	if snapshot.ActiveRunID != "" && snapshot.ActiveRunID != s.terminalSettledRunID {
+		s.markTerminalRunStarted(snapshot.ActiveRunID)
+	}
 	if snapshot.ActiveBashExecutionID != "" || s.activeBash == nil {
 		s.activeBashID = snapshot.ActiveBashExecutionID
 	} else if execution, found := findBashExecution(s.messages, nil, s.activeBashID); found && execution.Status != protocol.BashExecutionRunning {
@@ -1087,6 +1093,31 @@ func (s *appState) resetLiveRun() {
 	s.turnActivity = ""
 	s.turnThinking = ""
 	s.runStopping = false
+	s.terminalRunActive = false
+	s.terminalRunID = ""
+	s.agentFeedbackPending = false
+}
+
+func (s *appState) markTerminalRunStarted(runID string) {
+	if runID != "" && runID == s.terminalSettledRunID {
+		return
+	}
+	s.terminalRunActive = true
+	s.terminalRunID = runID
+}
+
+func (s *appState) markTerminalRunSettled(runID string) {
+	if runID != "" && s.terminalRunID != "" && runID != s.terminalRunID {
+		return
+	}
+	if runID == "" {
+		runID = s.terminalRunID
+	}
+	s.terminalRunActive = false
+	s.terminalRunID = ""
+	if runID != "" {
+		s.terminalSettledRunID = runID
+	}
 	s.agentFeedbackPending = false
 }
 
@@ -1119,6 +1150,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 		s.liveSequence = event.Sequence
 		switch event.Kind {
 		case protocol.SessionEventRunStarted:
+			s.markTerminalRunStarted(event.RunID)
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventUserMessage:
@@ -1251,6 +1283,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			}
 		case protocol.SessionEventRunFinished:
 			transcriptChanged = true
+			s.markTerminalRunSettled(event.RunID)
 			for _, index := range s.liveTools {
 				if index >= 0 && index < len(s.liveMessages) && s.liveMessages[index].ToolStatus == "Planned" {
 					s.liveMessages[index].Pending = false
@@ -1468,6 +1501,7 @@ func latestThinkingLine(thinking string) string {
 }
 
 func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr error) {
+	s.markTerminalRunSettled(info.RunID)
 	for index := range s.liveMessages {
 		s.liveMessages[index].Pending = false
 		if s.liveMessages[index].Role == "tool" && s.liveMessages[index].ToolStatus != "" {
@@ -1570,6 +1604,12 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					continue
 				}
+				settledRunID := runID
+				runtime.Dispatch(func() {
+					if operation == s.operation {
+						s.SetState(func() { s.markTerminalRunSettled(settledRunID) })
+					}
+				})
 				snapshot, err := bound.Snapshot(s.ctx)
 				if err != nil {
 					snapshotFailures++
@@ -2278,6 +2318,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 		s.sessionDrafts[s.session.ID] = s.composer
 	}
 	s.operation++
+	s.terminalSettledRunID = ""
 	s.session = snapshot.Session
 	s.bound = bound
 	s.location = location
@@ -2386,6 +2427,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 		s.liveHasUser = true
 		s.requestTranscriptScroll()
 		s.runPending = true
+		s.markTerminalRunStarted("")
 		s.prompt = admission
 	})
 	go func() {
@@ -2414,6 +2456,9 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 			s.SetState(func() {
 				s.activeRun = run
 				s.activeRunID = run.ID()
+				if s.terminalRunActive && s.terminalRunID == "" {
+					s.terminalRunID = run.ID()
+				}
 			})
 			if admission.abort.Load() {
 				go abort()
@@ -2433,6 +2478,7 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 		nextRunID := ""
 		nextBashID := ""
 		s.SetState(func() {
+			s.markTerminalRunSettled(s.activeRunID)
 			s.activeRun = nil
 			s.activeRunID = ""
 			s.runPending = false
