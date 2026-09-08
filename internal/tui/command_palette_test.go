@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -60,6 +61,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandSessions {
 		t.Fatalf("threads matches = %#v, want sessions", commands)
 	}
+	commands = filteredPaletteCommands(false, "context")
+	if len(commands) != 1 || commands[0].ID != paletteCommandReload {
+		t.Fatalf("context matches = %#v, want reload", commands)
+	}
 	commands = filteredPaletteCommands(true, "stop because it is stuck")
 	if len(commands) != 1 || commands[0].ID != paletteCommandAbort {
 		t.Fatalf("stop matches = %#v, want abort", commands)
@@ -69,6 +74,9 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 	if paletteCommandAvailable(paletteCommandSessions, true) {
 		t.Fatal("sessions remained available during active work")
+	}
+	if paletteCommandAvailable(paletteCommandReload, true) || !paletteCommandAvailable(paletteCommandReload, false) {
+		t.Fatal("reload command availability does not follow idle state")
 	}
 
 	var pasted paletteController
@@ -97,6 +105,29 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 }
 
+func TestReloadToastReportsSuccessWarningsAndFailure(t *testing.T) {
+	t.Parallel()
+	if toast := reloadToast(protocol.ReloadSessionResult{}, nil, nil); toast.Title != "Session context reloaded" || toast.Variant != toastInfo || toast.Subtitle != "" {
+		t.Fatalf("success toast = %#v", toast)
+	}
+	warnings := protocol.ReloadSessionResult{Diagnostics: []protocol.PromptDiagnostic{
+		{Severity: "warning", Message: "Could not read root guidance"}, {Severity: "warning", Message: "Local guidance was oversized"},
+	}}
+	if toast := reloadToast(warnings, nil, nil); toast.Title != "Session context reloaded" || toast.Variant != toastWarning || toast.Subtitle != "Could not read root guidance (+1 more)" {
+		t.Fatalf("warning toast = %#v", toast)
+	}
+	if toast := reloadToast(protocol.ReloadSessionResult{}, errors.New("busy"), nil); toast.Title != "Session reload failed" || toast.Variant != toastError || toast.Subtitle != "busy" {
+		t.Fatalf("failure toast = %#v", toast)
+	}
+	info := protocol.ReloadSessionResult{Diagnostics: []protocol.PromptDiagnostic{{Severity: "info", Message: "Duplicate guidance omitted"}}}
+	if toast := reloadToast(info, nil, nil); toast.Variant != toastInfo || toast.Subtitle != "Duplicate guidance omitted" {
+		t.Fatalf("informational toast = %#v", toast)
+	}
+	if toast := reloadToast(protocol.ReloadSessionResult{}, nil, errors.New("offline")); toast.Title != "Session context reloaded" || toast.Variant != toastWarning || toast.Subtitle != "Transcript refresh failed: offline" {
+		t.Fatalf("snapshot failure toast = %#v", toast)
+	}
+}
+
 func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	t.Parallel()
 
@@ -112,7 +143,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
 		"Search commands…", "login", "Connect another provider", "quit", "Exit Kit",
-		"sessions", "Browse sessions", "↑↓ move · enter run · esc close",
+		"reload", "Reload session context", "sessions", "Browse sessions", "↑↓ move · enter run · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("palette missing %q:\n%s", expected, text)
@@ -185,6 +216,9 @@ func TestCommandPaletteShowsConditionalAbortAndQuietEmptyState(t *testing.T) {
 	text = strings.Join(paintedRows(application, width, height), "\n")
 	if !strings.Contains(text, "abort") || !strings.Contains(text, "Stop the active run") {
 		t.Fatalf("running palette omitted abort command:\n%s", text)
+	}
+	if strings.Contains(text, "Reload session context") {
+		t.Fatalf("running palette exposed reload command:\n%s", text)
 	}
 }
 

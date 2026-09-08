@@ -228,6 +228,24 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Errorf("terminal session events = %+v", eventBatch.Events[3:])
 	}
 
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("daemon-reloaded-guidance"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := client.ReloadSession(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("ReloadSession() error = %v", err)
+	}
+	if reloaded.SessionID != created.ID || reloaded.EventStreamID == snapshot.EventStreamID || len(reloaded.Sources) < 3 {
+		t.Fatalf("reload result = %+v", reloaded)
+	}
+	afterReload, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterReload.EventStreamID != reloaded.EventStreamID || len(afterReload.Messages) != len(snapshot.Messages) || afterReload.Messages[0].ID != snapshot.Messages[0].ID {
+		t.Fatalf("snapshot after reload = %+v", afterReload)
+	}
+
 	block := make(chan struct{})
 	providers.mu.Lock()
 	providers.block = block
@@ -244,6 +262,14 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	active, err := client.GetRun(context.Background(), created.ID, activeRunID)
 	if err != nil || active.Status != protocol.RunStatusRunning {
 		t.Fatalf("active run = %+v, %v", active, err)
+	}
+	if _, err := client.ReloadSession(context.Background(), created.ID); err == nil {
+		t.Fatal("ReloadSession() accepted an active session")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
+			t.Fatalf("active ReloadSession() error = %v", err)
+		}
 	}
 	activeSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || activeSnapshot.ActiveRunID != activeRunID || len(activeSnapshot.Messages) != 2 {

@@ -34,7 +34,7 @@ func parseDirectBash(value string) (command string, excludeFromContext, ok bool)
 }
 
 func (s *appState) startDirectBash(value, command string, excludeFromContext bool) {
-	if s.bound == nil {
+	if s.bound == nil || s.reloadPending {
 		return
 	}
 	if s.bashStarting || s.activeBashID != "" {

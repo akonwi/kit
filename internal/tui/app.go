@@ -203,6 +203,7 @@ type appState struct {
 	activeRun                   sessionclient.Run
 	activeRunID                 string
 	runPending                  bool
+	reloadPending               bool
 	prompt                      *promptAdmission
 	activeBash                  sessionclient.BashExecution
 	activeBashID                string
@@ -1813,11 +1814,11 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.bashStarting || s.activeBashID != ""
+	return s.runPending || s.reloadPending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.sessionExplorer.Open {
+	if s.phase != phaseReady || s.reloadPending || s.palette.Open || s.bashHistory.Open || s.sessionExplorer.Open {
 		return
 	}
 	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
@@ -1850,9 +1851,94 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.dismiss(ctx)
 	case paletteCommandQuit:
 		ctx.Quit()
+	case paletteCommandReload:
+		s.reloadSession()
 	case paletteCommandSessions:
 		s.openSessionExplorer()
 	}
+}
+
+func (s *appState) reloadSession() {
+	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending {
+		return
+	}
+	bound := s.bound
+	operation := s.operation
+	runtime := s.Context().Runtime()
+	s.SetState(func() {
+		s.reloadPending = true
+		s.status = "Reloading session context…"
+	})
+	go func() {
+		reloadContext, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+		defer cancel()
+		result, reloadErr := bound.Reload(reloadContext)
+		if s.ctx.Err() != nil {
+			return
+		}
+		snapshotContext, cancelSnapshot := context.WithTimeout(s.ctx, 5*time.Second)
+		snapshot, snapshotErr := bound.Snapshot(snapshotContext)
+		cancelSnapshot()
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if operation != s.operation {
+				return
+			}
+			activeRunID := ""
+			activeBashID := ""
+			if snapshotErr == nil {
+				activeRunID = snapshot.ActiveRunID
+				activeBashID = snapshot.ActiveBashExecutionID
+			}
+			s.SetState(func() {
+				s.reloadPending = false
+				s.status = ""
+				if snapshotErr == nil {
+					s.applySnapshot(snapshot)
+				}
+			})
+			s.showToast(reloadToast(result, reloadErr, snapshotErr))
+			if activeRunID != "" {
+				s.watchSession(bound, operation, activeRunID)
+			}
+			if activeBashID != "" {
+				s.resumeBash(bound, operation, activeBashID)
+			}
+		})
+	}()
+}
+
+func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr error) toastInput {
+	if reloadErr != nil {
+		toast := toastInput{Title: "Session reload failed", Subtitle: reloadErr.Error(), Variant: toastError}
+		if snapshotErr != nil {
+			toast.Subtitle += " · transcript refresh failed: " + snapshotErr.Error()
+		}
+		return toast
+	}
+	toast := toastInput{Title: "Session context reloaded", Variant: toastInfo}
+	details := append([]string(nil), result.Warnings...)
+	warning := len(result.Warnings) > 0
+	for _, diagnostic := range result.Diagnostics {
+		details = append(details, diagnostic.Message)
+		warning = warning || diagnostic.Severity == "warning"
+	}
+	if snapshotErr != nil {
+		details = append([]string{"Transcript refresh failed: " + snapshotErr.Error()}, details...)
+		warning = true
+	}
+	if warning {
+		toast.Variant = toastWarning
+	}
+	if len(details) > 0 {
+		toast.Subtitle = details[0]
+		if len(details) > 1 {
+			toast.Subtitle += fmt.Sprintf(" (+%d more)", len(details)-1)
+		}
+	}
+	return toast
 }
 
 func (s *appState) openSessionExplorer() {
@@ -2109,6 +2195,10 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 }
 
 func (s *appState) submit(_ ui.EventContext, value string) {
+	if s.reloadPending {
+		s.SetState(func() { s.status = "Session context is reloading…" })
+		return
+	}
 	if command, excludeFromContext, ok := parseDirectBash(value); ok {
 		s.startDirectBash(value, command, excludeFromContext)
 		return

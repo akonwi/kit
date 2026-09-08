@@ -26,6 +26,68 @@ func TestCreateSessionInputValidateOptionalCanonicalID(t *testing.T) {
 	}
 }
 
+func TestReloadSessionResultValidate(t *testing.T) {
+	t.Parallel()
+	valid := validReloadResult()
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	tests := []ReloadSessionResult{
+		{},
+		func() ReloadSessionResult {
+			value := validReloadResult()
+			value.SessionID = "session_bad"
+			return value
+		}(),
+		func() ReloadSessionResult {
+			value := validReloadResult()
+			value.EventStreamID = "stream_bad"
+			return value
+		}(),
+		func() ReloadSessionResult { value := validReloadResult(); value.Sources = nil; return value }(),
+		func() ReloadSessionResult {
+			value := validReloadResult()
+			value.Sources[0].Kind = "invalid"
+			return value
+		}(),
+		func() ReloadSessionResult {
+			value := validReloadResult()
+			value.Sources[1].Path = "relative"
+			return value
+		}(),
+		func() ReloadSessionResult {
+			value := validReloadResult()
+			value.Sources = append(value.Sources, value.Sources[0])
+			return value
+		}(),
+		func() ReloadSessionResult {
+			value := validReloadResult()
+			value.Diagnostics[0].Severity = "error"
+			return value
+		}(),
+	}
+	for index, result := range tests {
+		if err := result.Validate(); err == nil {
+			t.Fatalf("invalid reload result %d passed validation: %#v", index, result)
+		}
+	}
+}
+
+func validReloadResult() ReloadSessionResult {
+	return ReloadSessionResult{
+		SessionID:     "session_0123456789abcdef0123456789abcdef",
+		EventStreamID: "stream_0123456789abcdef0123456789abcdef",
+		Sources: []PromptSource{
+			{SectionID: "kit.core", ID: "kit.core", Kind: PromptSectionCore},
+			{SectionID: "kit.context", ID: "context-file:id", Kind: PromptSectionContext, Path: "/repo/AGENTS.md"},
+		},
+		Diagnostics: []PromptDiagnostic{{
+			Severity: "warning", Code: "context.unreadable", Message: "Could not read context",
+			Source: PromptSource{SectionID: "kit.context", ID: "context-file:missing", Kind: PromptSectionContext, Path: "/repo/nested/AGENTS.md"},
+		}},
+	}
+}
+
 func TestPromptInputValidate(t *testing.T) {
 	t.Parallel()
 	if err := (PromptInput{Text: "hello"}).Validate(); err != nil {

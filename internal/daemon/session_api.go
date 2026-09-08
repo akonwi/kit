@@ -12,6 +12,7 @@ import (
 
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/systemprompt"
 )
 
 const maxSessionRequestBytes = 1 << 20
@@ -26,6 +27,7 @@ type sessionService interface {
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
+	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
 	StartPrompt(context.Context, string, string) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, string) (protocol.PromptOutcome, error)
@@ -159,6 +161,52 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID s
 		})
 	}
 	return batch, nil
+}
+
+func (s runtimeSessionService) Reload(ctx context.Context, sessionID string) (protocol.ReloadSessionResult, error) {
+	result, err := s.manager.ReloadSession(ctx, sessionID)
+	if err != nil {
+		return protocol.ReloadSessionResult{}, err
+	}
+	projected := protocol.ReloadSessionResult{
+		SessionID: sessionID, EventStreamID: result.EventStreamID,
+		Sources:     make([]protocol.PromptSource, 0, len(result.Sources)),
+		Diagnostics: make([]protocol.PromptDiagnostic, 0, len(result.Diagnostics)),
+		Warnings:    append([]string(nil), result.Warnings...),
+	}
+	for _, source := range result.Sources {
+		projected.Sources = append(projected.Sources, projectPromptSource(source))
+	}
+	for _, diagnostic := range result.Diagnostics {
+		projected.Diagnostics = append(projected.Diagnostics, protocol.PromptDiagnostic{
+			Severity: string(diagnostic.Severity), Code: diagnostic.Code, Message: diagnostic.Message,
+			Source: projectPromptSource(diagnostic.Source),
+		})
+	}
+	return projected, nil
+}
+
+func projectPromptSource(source systemprompt.Source) protocol.PromptSource {
+	return protocol.PromptSource{
+		SectionID: source.SectionID, ID: source.ID, Kind: promptSectionKind(source.Kind), Path: source.Path,
+	}
+}
+
+func promptSectionKind(kind systemprompt.SectionKind) protocol.PromptSectionKind {
+	switch kind {
+	case systemprompt.SectionCore:
+		return protocol.PromptSectionCore
+	case systemprompt.SectionFeature:
+		return protocol.PromptSectionFeature
+	case systemprompt.SectionSkillCatalog:
+		return protocol.PromptSectionSkillCatalog
+	case systemprompt.SectionPlugin:
+		return protocol.PromptSectionPlugin
+	case systemprompt.SectionContext:
+		return protocol.PromptSectionContext
+	default:
+		return ""
+	}
 }
 
 func (s runtimeSessionService) StartPrompt(
@@ -341,6 +389,18 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusCreated, record)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/reload", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.Reload(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session reload result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompts", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -473,7 +533,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
 		status = http.StatusConflict
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed):

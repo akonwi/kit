@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/systemprompt"
@@ -12,11 +14,19 @@ import (
 
 const runtimeTransitionTimeout = 10 * time.Second
 
+// ReloadResult describes the newly applied runtime bundle.
+type ReloadResult struct {
+	Sources       []systemprompt.Source
+	Diagnostics   []systemprompt.Diagnostic
+	Warnings      []string
+	EventStreamID string
+}
+
 // ReloadSession rebuilds and atomically applies a session's prompt and tools.
 // The authoritative droid Store and conversation history are preserved.
-func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (PromptMetadata, error) {
+func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadResult, error) {
 	if err := m.beginOperation(); err != nil {
-		return PromptMetadata{}, err
+		return ReloadResult{}, err
 	}
 	defer m.ops.Done()
 	if ctx == nil {
@@ -24,54 +34,54 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (PromptMe
 	}
 	loaded, err := m.runtime(ctx, sessionID)
 	if err != nil {
-		return PromptMetadata{}, err
+		return ReloadResult{}, err
 	}
 	if !loaded.admissionMu.TryLock() {
-		return PromptMetadata{}, ErrReloadBusy
+		return ReloadResult{}, ErrReloadBusy
 	}
 	defer loaded.admissionMu.Unlock()
 	if !loaded.controlMu.TryLock() {
-		return PromptMetadata{}, ErrReloadBusy
+		return ReloadResult{}, ErrReloadBusy
 	}
 	defer loaded.controlMu.Unlock()
 	if m.sessionDeleting(sessionID) {
-		return PromptMetadata{}, ErrDeleteBusy
+		return ReloadResult{}, ErrDeleteBusy
 	}
 	loaded.stateMu.Lock()
 	active := loaded.activeRun != ""
 	loaded.stateMu.Unlock()
 	if active {
-		return PromptMetadata{}, ErrReloadBusy
+		return ReloadResult{}, ErrReloadBusy
 	}
 	m.bashMu.Lock()
 	bashActive := m.bashActive[sessionID] != nil
 	m.bashMu.Unlock()
 	if bashActive {
-		return PromptMetadata{}, ErrReloadBusy
+		return ReloadResult{}, ErrReloadBusy
 	}
 	if _, err := loaded.droid.WaitQuiescent(ctx); err != nil {
 		if errors.Is(err, droids.ErrClosed) {
-			return PromptMetadata{}, err
+			return ReloadResult{}, err
 		}
-		return PromptMetadata{}, fmt.Errorf("wait for session %q to become quiescent: %w", sessionID, err)
+		return ReloadResult{}, fmt.Errorf("wait for session %q to become quiescent: %w", sessionID, err)
 	}
 	record, err := m.sessionRecord(ctx, sessionID)
 	if err != nil {
-		return PromptMetadata{}, err
+		return ReloadResult{}, err
 	}
 	replacement, err := m.bundleBuilder.Build(ctx, record)
 	if err != nil {
-		return PromptMetadata{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, err)
+		return ReloadResult{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, err)
 	}
 	nextEvents, err := newEventLog()
 	if err != nil {
-		return PromptMetadata{}, fmt.Errorf("prepare replacement event stream for session %q: %w", sessionID, err)
+		return ReloadResult{}, fmt.Errorf("prepare replacement event stream for session %q: %w", sessionID, err)
 	}
 	if m.isClosed() {
-		return PromptMetadata{}, ErrClosed
+		return ReloadResult{}, ErrClosed
 	}
 	if m.sessionDeleting(sessionID) {
-		return PromptMetadata{}, ErrDeleteBusy
+		return ReloadResult{}, ErrDeleteBusy
 	}
 
 	transitionContext, cancelTransition := context.WithTimeout(context.WithoutCancel(ctx), runtimeTransitionTimeout)
@@ -81,11 +91,11 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (PromptMe
 	// a failed open leaves the previous valid bundle untouched.
 	replacementDroid, snapshot, err := m.openDroid(transitionContext, record, loaded.store, replacement)
 	if err != nil {
-		return PromptMetadata{}, fmt.Errorf("open replacement droid: %w", err)
+		return ReloadResult{}, fmt.Errorf("open replacement droid: %w", err)
 	}
 	if m.isClosed() {
 		_ = replacementDroid.Close()
-		return PromptMetadata{}, ErrClosed
+		return ReloadResult{}, ErrClosed
 	}
 	closeErr := loaded.droid.Shutdown(transitionContext)
 	loaded.droid = replacementDroid
@@ -94,11 +104,28 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (PromptMe
 	loaded.promptSources = append([]systemprompt.Source(nil), replacement.Prompt.Sources...)
 	loaded.promptDiagnostics = append([]systemprompt.Diagnostic(nil), replacement.Prompt.Diagnostics...)
 	loaded.events.replace(nextEvents)
-	metadata := promptMetadata(loaded)
-	if closeErr != nil {
-		return metadata, fmt.Errorf("replacement applied after current droid shutdown failed: %w", closeErr)
+	result := ReloadResult{
+		Sources:       append([]systemprompt.Source(nil), loaded.promptSources...),
+		Diagnostics:   append([]systemprompt.Diagnostic(nil), loaded.promptDiagnostics...),
+		EventStreamID: nextEvents.streamID,
 	}
-	return metadata, nil
+	if closeErr != nil {
+		result.Warnings = []string{boundedReloadWarning("Previous runtime shutdown reported: " + closeErr.Error())}
+	}
+	return result, nil
+}
+
+func boundedReloadWarning(message string) string {
+	const maximum = 4096
+	message = strings.ReplaceAll(strings.ToValidUTF8(message, "�"), "\x00", "�")
+	if len(message) <= maximum {
+		return message
+	}
+	message = message[:maximum]
+	for !utf8.ValidString(message) {
+		message = message[:len(message)-1]
+	}
+	return message
 }
 
 func promptMetadata(loaded *runtime) PromptMetadata {

@@ -753,12 +753,20 @@ func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.
 type fakeSession struct {
 	id       string
 	snapshot protocol.SessionSnapshot
+	reload   func(context.Context) (protocol.ReloadSessionResult, error)
 }
 
 func (s fakeSession) ID() string { return s.id }
 
 func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
 	return s.snapshot, nil
+}
+
+func (s fakeSession) Reload(ctx context.Context) (protocol.ReloadSessionResult, error) {
+	if s.reload != nil {
+		return s.reload(ctx)
+	}
+	return protocol.ReloadSessionResult{}, nil
 }
 
 func (fakeSession) Run(context.Context, string) (protocol.RunInfo, error) {

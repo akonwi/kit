@@ -13,6 +13,7 @@ const (
 	paletteCommandAbort    paletteCommandID = "abort"
 	paletteCommandLogin    paletteCommandID = "login"
 	paletteCommandQuit     paletteCommandID = "quit"
+	paletteCommandReload   paletteCommandID = "reload"
 	paletteCommandSessions paletteCommandID = "sessions"
 )
 
@@ -308,6 +309,7 @@ func availablePaletteCommands(running bool) []paletteCommand {
 	return []paletteCommand{
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
+		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 	}
 }

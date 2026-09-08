@@ -30,6 +30,65 @@ func (input RenameSessionInput) Validate() error {
 	return nil
 }
 
+// Validate checks reload metadata crossing a transport boundary.
+func (result ReloadSessionResult) Validate() error {
+	if !identifier.Valid(result.SessionID, "session_") || !identifier.Valid(result.EventStreamID, "stream_") {
+		return fmt.Errorf("reload result has invalid session or event stream identity")
+	}
+	if len(result.Sources) == 0 || len(result.Sources) > 512 || len(result.Diagnostics) > 128 || len(result.Warnings) > 8 {
+		return fmt.Errorf("reload result source, diagnostic, or warning count is invalid")
+	}
+	seen := make(map[string]struct{}, len(result.Sources))
+	for index, source := range result.Sources {
+		if err := source.validate(); err != nil {
+			return fmt.Errorf("reload source %d: %w", index, err)
+		}
+		key := source.SectionID + "\x00" + source.ID
+		if _, duplicate := seen[key]; duplicate {
+			return fmt.Errorf("reload source %d duplicates an identity", index)
+		}
+		seen[key] = struct{}{}
+	}
+	for index, warning := range result.Warnings {
+		if !validProtocolText(warning, 4096) || strings.TrimSpace(warning) == "" {
+			return fmt.Errorf("reload warning %d is invalid", index)
+		}
+	}
+	for index, diagnostic := range result.Diagnostics {
+		if diagnostic.Severity != "info" && diagnostic.Severity != "warning" {
+			return fmt.Errorf("reload diagnostic %d has invalid severity %q", index, diagnostic.Severity)
+		}
+		if !validProtocolText(diagnostic.Code, 128) || strings.TrimSpace(diagnostic.Code) != diagnostic.Code ||
+			!validProtocolText(diagnostic.Message, 4096) || strings.TrimSpace(diagnostic.Message) == "" {
+			return fmt.Errorf("reload diagnostic %d has invalid code or message", index)
+		}
+		if err := diagnostic.Source.validate(); err != nil {
+			return fmt.Errorf("reload diagnostic %d source: %w", index, err)
+		}
+	}
+	return nil
+}
+
+func (source PromptSource) validate() error {
+	if !validProtocolText(source.SectionID, 128) || strings.TrimSpace(source.SectionID) != source.SectionID ||
+		!validProtocolText(source.ID, 256) || strings.TrimSpace(source.ID) != source.ID {
+		return fmt.Errorf("source section and identity are required")
+	}
+	switch source.Kind {
+	case PromptSectionCore, PromptSectionFeature, PromptSectionSkillCatalog, PromptSectionPlugin, PromptSectionContext:
+	default:
+		return fmt.Errorf("source kind %q is invalid", source.Kind)
+	}
+	if source.Path != "" && (!filepath.IsAbs(source.Path) || !validProtocolText(source.Path, 4096)) {
+		return fmt.Errorf("source path is not a valid bounded absolute path")
+	}
+	return nil
+}
+
+func validProtocolText(value string, maximum int) bool {
+	return value != "" && len(value) <= maximum && utf8.ValidString(value) && strings.IndexByte(value, 0) < 0
+}
+
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {
 	if session.ID == "" {

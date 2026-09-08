@@ -21,6 +21,43 @@ type RenameSessionInput struct {
 	Name string `json:"name"`
 }
 
+// PromptSectionKind identifies one ordered source category in an assembled prompt.
+type PromptSectionKind string
+
+const (
+	PromptSectionCore         PromptSectionKind = "core"
+	PromptSectionFeature      PromptSectionKind = "feature"
+	PromptSectionSkillCatalog PromptSectionKind = "skillCatalog"
+	PromptSectionPlugin       PromptSectionKind = "plugin"
+	PromptSectionContext      PromptSectionKind = "context"
+)
+
+// PromptSource identifies one source applied to a session prompt.
+type PromptSource struct {
+	SectionID string            `json:"sectionId"`
+	ID        string            `json:"id"`
+	Kind      PromptSectionKind `json:"kind"`
+	Path      string            `json:"path,omitempty"`
+}
+
+// PromptDiagnostic reports non-fatal guidance omitted or altered during reload.
+type PromptDiagnostic struct {
+	Severity string       `json:"severity"`
+	Code     string       `json:"code"`
+	Message  string       `json:"message"`
+	Source   PromptSource `json:"source"`
+}
+
+// ReloadSessionResult describes a newly applied prompt/tool bundle without
+// exposing its server-local prompt text or implementation types.
+type ReloadSessionResult struct {
+	SessionID     string             `json:"sessionId"`
+	EventStreamID string             `json:"eventStreamId"`
+	Sources       []PromptSource     `json:"sources"`
+	Diagnostics   []PromptDiagnostic `json:"diagnostics,omitempty"`
+	Warnings      []string           `json:"warnings,omitempty"`
+}
+
 // RunReservation acknowledges a droid-owned turn admission.
 type RunReservation struct {
 	SessionID string `json:"sessionId"`

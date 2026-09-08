@@ -226,6 +226,10 @@ func (c *fakeBoundSession) Snapshot(context.Context) (protocol.SessionSnapshot, 
 	return protocol.SessionSnapshot{}, nil
 }
 
+func (c *fakeBoundSession) Reload(context.Context) (protocol.ReloadSessionResult, error) {
+	panic("unexpected Reload")
+}
+
 func (c *fakeBoundSession) Run(context.Context, string) (protocol.RunInfo, error) {
 	return protocol.RunInfo{}, nil
 }

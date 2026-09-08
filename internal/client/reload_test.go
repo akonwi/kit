@@ -1,0 +1,166 @@
+package client
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/daemon"
+	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/protocol"
+)
+
+func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	serverContext, stopServer := context.WithCancel(context.Background())
+	serverDone := make(chan error, 1)
+	go func() {
+		serverDone <- daemon.Run(serverContext, daemon.RunOptions{
+			Paths: paths, Providers: reloadProviders{},
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+	}()
+	t.Cleanup(func() {
+		stopServer()
+		select {
+		case err := <-serverDone:
+			if err != nil {
+				t.Errorf("daemon shutdown: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("daemon did not stop")
+		}
+	})
+	transport := daemon.NewClient(paths)
+	probeContext, cancelProbe := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancelProbe()
+	for {
+		if _, _, err := transport.Probe(probeContext); err == nil {
+			break
+		}
+		select {
+		case <-probeContext.Done():
+			t.Fatal("daemon did not become ready")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	workspace := t.TempDir()
+	contextPath := filepath.Join(workspace, "AGENTS.md")
+	if err := os.WriteFile(contextPath, []byte("initial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	server := NewLocalServer(paths)
+	created, err := server.CreateSession(t.Context(), protocol.CreateSessionInput{
+		ID: "session_cccccccccccccccccccccccccccccccc", CWD: workspace, Model: "test/echo", Temporary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bound, err := server.Attach(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := bound.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(contextPath, []byte("via-http"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	httpResult, err := transport.ReloadSession(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if httpResult.EventStreamID == before.EventStreamID || !reloadHasContextSource(httpResult, contextPath) {
+		t.Fatalf("HTTP reload result = %+v", httpResult)
+	}
+
+	if err := os.WriteFile(contextPath, []byte("via-bound-client"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundResult, err := bound.Reload(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if boundResult.EventStreamID == httpResult.EventStreamID || !reloadHasContextSource(boundResult, contextPath) {
+		t.Fatalf("bound reload result = %+v", boundResult)
+	}
+	after, err := bound.Snapshot(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.EventStreamID != boundResult.EventStreamID || len(after.Messages) != len(before.Messages) {
+		t.Fatalf("snapshot after bound reload = %+v", after)
+	}
+
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := bound.Reload(canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled bound reload error = %v", err)
+	}
+}
+
+func reloadHasContextSource(result protocol.ReloadSessionResult, path string) bool {
+	canonical, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	for _, source := range result.Sources {
+		if source.Kind == protocol.PromptSectionContext && source.Path == canonical {
+			return true
+		}
+	}
+	return false
+}
+
+type reloadProviders struct{}
+
+func (reloadProviders) ID() string { return "test" }
+func (reloadProviders) Models() []droids.Model {
+	return []droids.Model{{
+		ID: "echo", Provider: "test", API: droids.ModelAPIOpenAIResponses,
+		ContextWindow: 128_000, MaxOutputTokens: 8_192,
+	}}
+}
+func (p reloadProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := p.Model(id)
+	if !ok {
+		return nil, droids.Model{}, errors.New("unknown model")
+	}
+	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+}
+func (p reloadProviders) Model(id string) (droids.Model, bool) {
+	return p.Models()[0], id == "echo" || id == "test/echo"
+}
+func (reloadProviders) RefreshModels(context.Context) error { return nil }
+func (reloadProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
+	return nil
+}
+func (reloadProviders) Stream(context.Context, droids.Model, droids.Request) droids.Stream {
+	return reloadStream{}
+}
+
+type reloadStream struct{}
+
+func (reloadStream) Events() <-chan droids.StreamEvent {
+	events := make(chan droids.StreamEvent, 2)
+	message := droids.AssistantMessage{
+		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
+		Content: []droids.AssistantContent{droids.TextContent{Text: "ok"}},
+	}
+	events <- droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "echo"}}
+	events <- droids.StreamDone{Message: message}
+	close(events)
+	return events
+}
+func (reloadStream) Result() droids.AssistantMessage {
+	return droids.AssistantMessage{Provider: "test", Model: "echo", StopReason: droids.StopReasonStop}
+}

@@ -60,7 +60,7 @@ func TestReloadSessionRefreshesContextPreservesTemporaryHistoryAndResetsStream(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := contextSourcePaths(metadata); len(got) != 1 || got[0] != canonicalPath(t, contextPath) {
+	if got := contextSourcePaths(session.PromptMetadata{Sources: metadata.Sources, Diagnostics: metadata.Diagnostics}); len(got) != 1 || got[0] != canonicalPath(t, contextPath) {
 		t.Fatalf("reloaded context sources = %#v", got)
 	}
 	after, err := manager.Snapshot(t.Context(), record.ID)
@@ -91,7 +91,7 @@ func TestReloadSessionRefreshesContextPreservesTemporaryHistoryAndResetsStream(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if paths := contextSourcePaths(metadata); len(paths) != 0 {
+	if paths := contextSourcePaths(session.PromptMetadata{Sources: metadata.Sources, Diagnostics: metadata.Diagnostics}); len(paths) != 0 {
 		t.Fatalf("removed context remains sourced: %#v", paths)
 	}
 	if _, err := manager.RunPrompt(t.Context(), record.ID, "third"); err != nil {
@@ -266,6 +266,49 @@ func TestReloadSessionSerializesWithCanceledManagerShutdown(t *testing.T) {
 	}
 	if err := manager.Shutdown(context.Background()); err != nil {
 		t.Fatalf("detached shutdown cleanup error = %v", err)
+	}
+}
+
+func TestReloadSessionCancellationBeforeTransitionLeavesRuntimeUntouched(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	builder := &blockingReloadBundleBuilder{
+		delegate: staticRuntimeBundleBuilder("system"), started: make(chan struct{}), release: make(chan struct{}),
+	}
+	manager, err := session.NewManager(store, &authorityProviders{}, builder, session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloadContext, cancelReload := context.WithCancel(context.Background())
+	reloadDone := make(chan error, 1)
+	go func() {
+		_, err := manager.ReloadSession(reloadContext, record.ID)
+		reloadDone <- err
+	}()
+	<-builder.started
+	cancelReload()
+	if err := <-reloadDone; !errors.Is(err, context.Canceled) {
+		t.Fatalf("ReloadSession() error = %v, want context canceled", err)
+	}
+	after, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.EventStreamID != before.EventStreamID || !reflectStringsEqual(transcriptIDs(after), transcriptIDs(before)) {
+		t.Fatalf("canceled reload changed runtime: before=%+v after=%+v", before, after)
 	}
 }
 

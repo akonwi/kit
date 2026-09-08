@@ -20,10 +20,12 @@ type localServer struct {
 }
 
 type localSession struct {
-	transport *daemon.Client
-	id        string
-	mu        sync.Mutex
-	snapshot  protocol.SessionSnapshot
+	transport       *daemon.Client
+	id              string
+	mu              sync.Mutex
+	snapshot        protocol.SessionSnapshot
+	cacheGeneration uint64
+	reloadGate      chan struct{}
 }
 
 type localRun struct {
@@ -91,20 +93,66 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("session id is empty")
 	}
-	return &localSession{transport: c.transport, id: sessionID}, nil
+	reloadGate := make(chan struct{}, 1)
+	reloadGate <- struct{}{}
+	return &localSession{transport: c.transport, id: sessionID, reloadGate: reloadGate}, nil
 }
 
 func (c *localSession) ID() string { return c.id }
 
 func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error) {
+	c.mu.Lock()
+	generation := c.cacheGeneration
+	c.mu.Unlock()
 	snapshot, err := c.transport.GetSessionSnapshot(ctx, c.id)
 	if err != nil {
 		return protocol.SessionSnapshot{}, err
 	}
 	c.mu.Lock()
-	c.snapshot = snapshot
+	if c.cacheGeneration == generation {
+		c.snapshot = snapshot
+	}
 	c.mu.Unlock()
 	return snapshot, nil
+}
+
+func (c *localSession) Reload(ctx context.Context) (protocol.ReloadSessionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.ReloadSessionResult{}, err
+	}
+	select {
+	case <-c.reloadGate:
+		defer func() { c.reloadGate <- struct{}{} }()
+	case <-ctx.Done():
+		return protocol.ReloadSessionResult{}, ctx.Err()
+	}
+	result, err := c.transport.ReloadSession(ctx, c.id)
+	if err != nil {
+		var apiError *daemon.APIError
+		if !errors.As(err, &apiError) {
+			// A transport failure may detach after the server committed reload.
+			// Reconcile the cache through an independent bounded snapshot attempt.
+			inspectContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			snapshot, inspectErr := c.transport.GetSessionSnapshot(inspectContext, c.id)
+			cancel()
+			if inspectErr == nil {
+				c.mu.Lock()
+				c.cacheGeneration++
+				c.snapshot = snapshot
+				c.mu.Unlock()
+			}
+		}
+		return protocol.ReloadSessionResult{}, err
+	}
+	c.mu.Lock()
+	c.cacheGeneration++
+	c.snapshot.EventStreamID = result.EventStreamID
+	c.snapshot.ActiveRunID = ""
+	c.snapshot.EventCursor = 0
+	c.snapshot.EventReplayFrom = 0
+	c.snapshot.EventReplayAvailable = false
+	c.mu.Unlock()
+	return result, nil
 }
 
 func (c *localSession) Run(ctx context.Context, runID string) (protocol.RunInfo, error) {

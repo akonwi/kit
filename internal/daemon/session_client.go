@@ -144,6 +144,22 @@ func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID strin
 	return output, nil
 }
 
+// ReloadSession refreshes one idle session's authoritative prompt and tools.
+func (c *Client) ReloadSession(ctx context.Context, sessionID string) (protocol.ReloadSessionResult, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/reload"
+	var output protocol.ReloadSessionResult
+	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.ReloadSessionResult{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.ReloadSessionResult{}, fmt.Errorf("validate daemon session reload: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.ReloadSessionResult{}, fmt.Errorf("daemon session reload identity mismatch")
+	}
+	return output, nil
+}
+
 // StartPrompt admits a droid-owned turn and returns its canonical identity.
 func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.RunReservation, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
