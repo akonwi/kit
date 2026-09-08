@@ -4,7 +4,36 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+func TestWorkspaceReadsDoNotWaitForMutationIO(t *testing.T) {
+	scope := newWorkspaceScope("/before")
+	scope.mutationMu.Lock()
+	defer scope.mutationMu.Unlock()
+
+	read := make(chan string, 1)
+	go func() { read <- scope.CWD() }()
+	select {
+	case cwd := <-read:
+		if cwd != "/before" {
+			t.Fatalf("CWD() = %q, want /before", cwd)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("CWD() blocked behind a mutation")
+	}
+}
+
+func TestWorkspacePublishesCWDAndGenerationTogether(t *testing.T) {
+	scope := newWorkspaceScope("/before")
+	scope.mutationMu.Lock()
+	scope.publish("/after")
+	scope.mutationMu.Unlock()
+	cwd, generation := scope.snapshot()
+	if cwd != "/after" || generation != 1 {
+		t.Fatalf("snapshot() = (%q, %d), want (/after, 1)", cwd, generation)
+	}
+}
 
 func TestResolveCWDTargetSupportsRelativeAbsoluteAndHomePaths(t *testing.T) {
 	base := filepath.Join(string(filepath.Separator), "workspace", "project")

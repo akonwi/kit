@@ -152,8 +152,8 @@ func (m *Manager) PromptMetadata(ctx context.Context, sessionID string) (PromptM
 	if err != nil {
 		return PromptMetadata{}, err
 	}
-	loaded.controlMu.Lock()
-	defer loaded.controlMu.Unlock()
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
 	return promptMetadata(loaded), nil
 }
 

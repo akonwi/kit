@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 )
 
 // DefaultCore is the stable system prompt used by every Kit session unless an
@@ -20,8 +19,8 @@ Be concise and direct. Prefer surgical edits over full rewrites when practical.`
 type SectionKind uint8
 
 const (
-	// SectionCore identifies the core prompt. Callers cannot replace it through
-	// section registration.
+	// SectionCore identifies the core prompt. Request-scoped sections cannot
+	// replace it.
 	SectionCore SectionKind = iota
 	// SectionFeature contains guidance owned by an available built-in feature.
 	SectionFeature
@@ -87,26 +86,16 @@ type Result struct {
 	Diagnostics []Diagnostic
 }
 
-// Composer assembles a core prompt with named immutable section snapshots.
-// Registration and removal are concurrency-safe. Each Build observes one
-// atomic registry snapshot even when sections change concurrently.
+// Composer assembles an immutable core prompt with request-scoped sections.
+// A Composer is safe for concurrent use because construction completes all of
+// its state; BuildWith never mutates it.
 type Composer struct {
 	core string
-
-	mu       sync.RWMutex
-	sections map[sectionKey]registeredSection
 }
 
 type sectionKey struct {
 	kind SectionKind
 	id   string
-}
-
-type registrationToken struct{ marker byte }
-
-type registeredSection struct {
-	section Section
-	token   *registrationToken
 }
 
 var _ Builder = (*Composer)(nil)
@@ -117,7 +106,7 @@ func New(core string) (*Composer, error) {
 	if core == "" {
 		return nil, errors.New("system prompt core is required")
 	}
-	return &Composer{core: core, sections: make(map[sectionKey]registeredSection)}, nil
+	return &Composer{core: core}, nil
 }
 
 // NewDefault constructs a Composer using DefaultCore.
@@ -132,36 +121,6 @@ func NewDefault() *Composer {
 // StaticSection constructs a named section with fixed text.
 func StaticSection(id string, kind SectionKind, text string) Section {
 	return Section{ID: id, Kind: kind, Text: text}
-}
-
-// Set atomically installs or replaces a named section and returns an idempotent
-// removal function. Removing an older registration cannot remove a replacement
-// installed under the same identity.
-func (c *Composer) Set(section Section) (remove func(), err error) {
-	if err := c.validate(); err != nil {
-		return nil, err
-	}
-	normalized, err := normalizeSection(section)
-	if err != nil {
-		return nil, err
-	}
-
-	key := sectionKey{kind: normalized.Kind, id: normalized.ID}
-	token := &registrationToken{}
-	c.mu.Lock()
-	c.sections[key] = registeredSection{section: normalized, token: token}
-	c.mu.Unlock()
-
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			if current, ok := c.sections[key]; ok && current.token == token {
-				delete(c.sections, key)
-			}
-		})
-	}, nil
 }
 
 // Build resolves one immutable section snapshot.
@@ -184,14 +143,8 @@ func (c *Composer) BuildWith(ctx context.Context, _ Request, requestSections ...
 		return Result{}, err
 	}
 
-	c.mu.RLock()
 	core := c.core
-	sectionsByKey := make(map[sectionKey]Section, len(c.sections)+len(requestSections))
-	for key, registered := range c.sections {
-		sectionsByKey[key] = cloneSection(registered.section)
-	}
-	c.mu.RUnlock()
-
+	sectionsByKey := make(map[sectionKey]Section, len(requestSections))
 	for _, section := range requestSections {
 		normalized, err := normalizeSection(section)
 		if err != nil {
@@ -242,7 +195,7 @@ func (c *Composer) validate() error {
 	if c == nil {
 		return errors.New("system prompt composer is nil")
 	}
-	if c.core == "" || c.sections == nil {
+	if c.core == "" {
 		return errors.New("system prompt composer is not initialized")
 	}
 	return nil

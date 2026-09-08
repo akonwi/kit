@@ -24,9 +24,6 @@ func TestNewRequiresCore(t *testing.T) {
 
 func TestComposerRejectsUninitializedValue(t *testing.T) {
 	var composer Composer
-	if _, err := composer.Set(StaticSection("policy", SectionFeature, "text")); err == nil {
-		t.Fatal("Set() accepted an uninitialized composer")
-	}
 	if _, err := composer.Build(context.Background(), Request{}); err == nil {
 		t.Fatal("Build() accepted an uninitialized composer")
 	}
@@ -62,13 +59,7 @@ func TestComposerOrdersNamedSectionsAndSeparatesNonEmptyText(t *testing.T) {
 		StaticSection("a-feature", SectionFeature, " feature a "),
 		StaticSection("empty", SectionFeature, " \n "),
 	}
-	for _, section := range sections {
-		if _, err := composer.Set(section); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	result, err := composer.Build(context.Background(), Request{})
+	result, err := composer.BuildWith(context.Background(), Request{}, sections...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,11 +109,7 @@ func TestComposerCarriesStampedSourcesAndDiagnostics(t *testing.T) {
 			},
 		}},
 	}
-	if _, err := composer.Set(section); err != nil {
-		t.Fatal(err)
-	}
-
-	result, err := composer.Build(context.Background(), Request{})
+	result, err := composer.BuildWith(context.Background(), Request{}, section)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,10 +149,7 @@ func TestComposerKeepsDiagnosticsFromEmptySection(t *testing.T) {
 			Message:  "no project guidance",
 		}},
 	}
-	if _, err := composer.Set(section); err != nil {
-		t.Fatal(err)
-	}
-	result, err := composer.Build(context.Background(), Request{})
+	result, err := composer.BuildWith(context.Background(), Request{}, section)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,49 +174,12 @@ func TestComposerKeepsDiagnosticsFromEmptySection(t *testing.T) {
 	}
 }
 
-func TestComposerReplacementHasGenerationBoundRemoval(t *testing.T) {
-	composer := NewDefault()
-	removeOld, err := composer.Set(StaticSection("policy", SectionFeature, "old"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	removeCurrent, err := composer.Set(StaticSection("policy", SectionFeature, "current"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	removeOld()
-	removeOld()
-	result, err := composer.Build(context.Background(), Request{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Prompt != DefaultCore+"\n\ncurrent" {
-		t.Fatalf("Prompt after stale removal = %q", result.Prompt)
-	}
-
-	removeCurrent()
-	removeCurrent()
-	result, err = composer.Build(context.Background(), Request{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Prompt != DefaultCore {
-		t.Fatalf("Prompt after current removal = %q", result.Prompt)
-	}
-}
-
 func TestComposerKeepsSameIDInDifferentKinds(t *testing.T) {
 	composer := NewDefault()
-	for _, section := range []Section{
+	result, err := composer.BuildWith(context.Background(), Request{},
 		StaticSection("policy", SectionPlugin, "plugin"),
 		StaticSection("policy", SectionFeature, "feature"),
-	} {
-		if _, err := composer.Set(section); err != nil {
-			t.Fatal(err)
-		}
-	}
-	result, err := composer.Build(context.Background(), Request{})
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,34 +189,21 @@ func TestComposerKeepsSameIDInDifferentKinds(t *testing.T) {
 	}
 }
 
-func TestComposerBuildWithOverlaysRequestSectionWithoutMutation(t *testing.T) {
+func TestComposerDoesNotRetainRequestSections(t *testing.T) {
 	composer := NewDefault()
-	if _, err := composer.Set(StaticSection("context", SectionContext, "registered")); err != nil {
+	if _, err := composer.BuildWith(context.Background(), Request{}, StaticSection("context", SectionContext, "request")); err != nil {
 		t.Fatal(err)
 	}
-
-	result, err := composer.BuildWith(
-		context.Background(),
-		Request{SessionID: "session_1", CWD: "/repo"},
-		StaticSection("context", SectionContext, "request context"),
-	)
+	result, err := composer.Build(context.Background(), Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Prompt != DefaultCore+"\n\nrequest context" {
-		t.Fatalf("overlaid Prompt = %q", result.Prompt)
-	}
-
-	result, err = composer.Build(context.Background(), Request{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.Prompt != DefaultCore+"\n\nregistered" {
-		t.Fatalf("registered Prompt = %q", result.Prompt)
+	if result.Prompt != DefaultCore {
+		t.Fatalf("Prompt = %q, want immutable core", result.Prompt)
 	}
 }
 
-func TestComposerCopiesRegisteredSectionData(t *testing.T) {
+func TestComposerCopiesRequestSectionData(t *testing.T) {
 	composer := NewDefault()
 	section := Section{
 		ID:      "context",
@@ -277,13 +211,9 @@ func TestComposerCopiesRegisteredSectionData(t *testing.T) {
 		Text:    "first",
 		Sources: []Source{{ID: "source", Path: "/first"}},
 	}
-	if _, err := composer.Set(section); err != nil {
-		t.Fatal(err)
-	}
+	result, err := composer.BuildWith(context.Background(), Request{}, section)
 	section.Text = "second"
 	section.Sources[0].Path = "/second"
-
-	result, err := composer.Build(context.Background(), Request{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,8 +238,8 @@ func TestComposerRejectsInvalidSectionsAndMetadata(t *testing.T) {
 		{ID: "message", Kind: SectionContext, Diagnostics: []Diagnostic{{Severity: DiagnosticWarning, Code: "bad"}}},
 	}
 	for _, section := range tests {
-		if _, err := composer.Set(section); err == nil {
-			t.Fatalf("Set(%#v) succeeded", section)
+		if _, err := composer.BuildWith(context.Background(), Request{}, section); err == nil {
+			t.Fatalf("BuildWith(%#v) succeeded", section)
 		}
 	}
 }

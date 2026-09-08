@@ -15,7 +15,6 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/systemprompt"
 )
 
 const maxPromptTextBytes = 128 << 10
@@ -75,6 +74,9 @@ type PromptResult struct {
 	Status       RunStatus
 }
 
+// When locks must nest, acquire them in this order: runtime admissionMu,
+// runtime mu, workspace mutationMu, event-log mu, bashMu, then Manager.mu.
+// Registry lookups should otherwise release Manager.mu before touching a runtime.
 type Manager struct {
 	store           Repository
 	providers       droids.Providers
@@ -135,16 +137,14 @@ type runtime struct {
 	events      *eventLog
 	eventCursor droids.EventSequence
 
-	// admissionMu remains held for a complete parent turn. controlMu protects
-	// the prompt-admission/active-binding and generation-checked abort boundary.
-	admissionMu       sync.Mutex
-	controlMu         sync.Mutex
-	stateMu           sync.Mutex
-	activeRun         string
-	runs              map[string]*liveRun
-	recovery          *droids.ExecutionSnapshot
-	promptSources     []systemprompt.Source
-	promptDiagnostics []systemprompt.Diagnostic
+	// Lock order is admissionMu, then mu, then workspace.mutationMu. admissionMu
+	// remains held for a complete parent turn. mu protects the current droid and
+	// immutable bundle snapshot together with run bookkeeping.
+	admissionMu sync.Mutex
+	mu          sync.Mutex
+	activeRun   string
+	runs        map[string]*liveRun
+	recovery    *droids.ExecutionSnapshot
 }
 
 type liveRun struct {
@@ -401,13 +401,11 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 			return ErrDeleteBusy
 		}
 		defer loaded.admissionMu.Unlock()
-		loaded.controlMu.Lock()
-		defer loaded.controlMu.Unlock()
-		loaded.workspace.mu.Lock()
-		defer loaded.workspace.mu.Unlock()
-		loaded.stateMu.Lock()
+		loaded.mu.Lock()
+		defer loaded.mu.Unlock()
+		loaded.workspace.mutationMu.Lock()
+		defer loaded.workspace.mutationMu.Unlock()
 		active := loaded.activeRun != ""
-		loaded.stateMu.Unlock()
 		if active {
 			return ErrDeleteBusy
 		}
@@ -543,18 +541,16 @@ func (m *Manager) finishTemporaryDisposal(
 	var cleanupErr error
 	var runDone <-chan struct{}
 	if loaded != nil {
-		loaded.controlMu.Lock()
-		loaded.stateMu.Lock()
+		loaded.mu.Lock()
 		if run := loaded.runs[loaded.activeRun]; run != nil {
 			runDone = run.done
 		}
-		loaded.stateMu.Unlock()
 		if runDone != nil {
 			if err := loaded.droid.Abort(context.Background()); err != nil && !errors.Is(err, droids.ErrNoActiveExecution) {
 				cleanupErr = errors.Join(cleanupErr, err)
 			}
 		}
-		loaded.controlMu.Unlock()
+		loaded.mu.Unlock()
 	}
 
 	var bashDone <-chan struct{}
@@ -572,8 +568,8 @@ func (m *Manager) finishTemporaryDisposal(
 	}
 
 	if loaded != nil {
-		loaded.controlMu.Lock()
-		loaded.workspace.mu.Lock()
+		loaded.mu.Lock()
+		loaded.workspace.mutationMu.Lock()
 		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background()))
 	}
 	m.bashMu.Lock()
@@ -592,8 +588,8 @@ func (m *Manager) finishTemporaryDisposal(
 	close(pending.done)
 	m.mu.Unlock()
 	if loaded != nil {
-		loaded.workspace.mu.Unlock()
-		loaded.controlMu.Unlock()
+		loaded.workspace.mutationMu.Unlock()
+		loaded.mu.Unlock()
 	}
 }
 
@@ -642,9 +638,9 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	if !loaded.admissionMu.TryLock() {
 		return RunReservation{}, ErrBusy
 	}
-	loaded.controlMu.Lock()
+	loaded.mu.Lock()
 	release := func() {
-		loaded.controlMu.Unlock()
+		loaded.mu.Unlock()
 		loaded.admissionMu.Unlock()
 	}
 	if m.sessionDeleting(sessionID) {
@@ -704,11 +700,9 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	run := &liveRun{record: RunProjection{
 		ID: turnID, SessionID: sessionID, TurnID: turnID, Status: RunStatusRunning,
 	}, done: make(chan struct{}), completeStream: true}
-	loaded.stateMu.Lock()
 	pruneRuns(loaded.runs, 128)
 	loaded.activeRun = turnID
 	loaded.runs[turnID] = run
-	loaded.stateMu.Unlock()
 	if err := loaded.events.append([]NewEvent{
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(prompt)},
@@ -718,7 +712,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		release()
 		return RunReservation{}, err
 	}
-	loaded.controlMu.Unlock()
+	loaded.mu.Unlock()
 
 	m.mu.Lock()
 	if m.closed {
@@ -751,17 +745,15 @@ func (m *Manager) GetRun(ctx context.Context, sessionID, runID string) (RunProje
 	if err != nil {
 		return RunProjection{}, err
 	}
-	loaded.stateMu.Lock()
+	loaded.mu.Lock()
 	run := loaded.runs[runID]
 	if run != nil {
 		record := run.record
-		loaded.stateMu.Unlock()
+		loaded.mu.Unlock()
 		return record, nil
 	}
-	loaded.stateMu.Unlock()
-	loaded.controlMu.Lock()
 	turn, err := loaded.droid.Turn(ctx, droids.TurnID(runID))
-	loaded.controlMu.Unlock()
+	loaded.mu.Unlock()
 	if errors.Is(err, droids.ErrTurnNotFound) {
 		return RunProjection{}, fmt.Errorf("run %q: %w", runID, ErrNotFound)
 	}
@@ -786,17 +778,17 @@ func (m *Manager) waitRun(ctx context.Context, sessionID, runID string) (PromptR
 	if err != nil {
 		return PromptResult{}, err
 	}
-	loaded.stateMu.Lock()
+	loaded.mu.Lock()
 	run := loaded.runs[runID]
-	loaded.stateMu.Unlock()
+	loaded.mu.Unlock()
 	if run == nil {
 		return PromptResult{}, fmt.Errorf("run %q: %w", runID, ErrNotFound)
 	}
 	select {
 	case <-run.done:
-		loaded.stateMu.Lock()
+		loaded.mu.Lock()
 		result := run.result
-		loaded.stateMu.Unlock()
+		loaded.mu.Unlock()
 		return result, nil
 	case <-ctx.Done():
 		return PromptResult{}, ctx.Err()
@@ -824,7 +816,7 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	}
 	result := promptResultFromOutcome(sessionID, turnID, outcome, errors.Join(waitErr, drainErr))
 
-	loaded.controlMu.Lock()
+	loaded.mu.Lock()
 	if err := loaded.events.append([]NewEvent{{
 		SessionID: sessionID, TurnID: turnID, RunID: turnID,
 		Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind,
@@ -832,7 +824,6 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	}}); err != nil {
 		loaded.events.invalidate()
 	}
-	loaded.stateMu.Lock()
 	run.record.Status = result.Status
 	run.record.Error = result.ErrorMessage
 	run.result = result
@@ -840,8 +831,7 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 		loaded.activeRun = ""
 	}
 	close(run.done)
-	loaded.stateMu.Unlock()
-	loaded.controlMu.Unlock()
+	loaded.mu.Unlock()
 	loaded.admissionMu.Unlock()
 }
 
@@ -914,11 +904,11 @@ func projectExecutionStatus(status droids.ExecutionStatus) RunStatus {
 func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runtime, sessionID, turnID, runID string) error {
 	for envelope := range subscription.Events() {
 		if envelope.Durable {
-			loaded.stateMu.Lock()
+			loaded.mu.Lock()
 			if envelope.Sequence > loaded.eventCursor {
 				loaded.eventCursor = envelope.Sequence
 			}
-			loaded.stateMu.Unlock()
+			loaded.mu.Unlock()
 		}
 		if err := loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event)); err != nil {
 			return err
@@ -939,11 +929,9 @@ func (m *Manager) Abort(ctx context.Context, sessionID, runID string) error {
 	if err != nil {
 		return err
 	}
-	loaded.controlMu.Lock()
-	defer loaded.controlMu.Unlock()
-	loaded.stateMu.Lock()
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
 	matches := loaded.activeRun == runID
-	loaded.stateMu.Unlock()
 	if !matches {
 		return fmt.Errorf("%w: run %q is not current", ErrRunNotAbortable, runID)
 	}
@@ -986,9 +974,9 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 func (m *Manager) finishShutdown(runtimes []*runtime) {
 	var shutdownErr error
 	for _, loaded := range runtimes {
-		loaded.controlMu.Lock()
+		loaded.mu.Lock()
 		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background()))
-		loaded.controlMu.Unlock()
+		loaded.mu.Unlock()
 	}
 	m.admissions.Wait()
 	m.loads.Wait()
@@ -1139,9 +1127,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	loaded := &runtime{
 		droid: droid, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent,
-		runs:              make(map[string]*liveRun),
-		promptSources:     append([]systemprompt.Source(nil), bundle.Prompt.Sources...),
-		promptDiagnostics: append([]systemprompt.Diagnostic(nil), bundle.Prompt.Diagnostics...),
+		runs: make(map[string]*liveRun),
 	}
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {
@@ -1181,10 +1167,10 @@ func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store dro
 
 func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 	defer m.runs.Done()
-	loaded.stateMu.Lock()
+	loaded.mu.Lock()
 	turnID := loaded.activeRun
 	run := loaded.runs[turnID]
-	loaded.stateMu.Unlock()
+	loaded.mu.Unlock()
 	if run == nil {
 		loaded.admissionMu.Unlock()
 		return
@@ -1201,14 +1187,12 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 			SessionID: sessionID, TurnID: turnID, RunID: turnID, Status: status,
 			ErrorMessage: "resume event subscription: " + errors.Join(err, abortErr, waitErr).Error(),
 		}
-		loaded.controlMu.Lock()
+		loaded.mu.Lock()
 		loaded.events.invalidate()
-		loaded.stateMu.Lock()
 		run.record.Status, run.record.Error, run.result = result.Status, result.ErrorMessage, result
 		loaded.activeRun = ""
 		close(run.done)
-		loaded.stateMu.Unlock()
-		loaded.controlMu.Unlock()
+		loaded.mu.Unlock()
 		loaded.admissionMu.Unlock()
 		return
 	}
@@ -1225,16 +1209,14 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 		outcome.Status, outcome.Error = state.Execution.Status, state.Execution.Error
 	}
 	result := promptResultFromOutcome(sessionID, turnID, outcome, errors.Join(waitErr, drainErr))
-	loaded.controlMu.Lock()
+	loaded.mu.Lock()
 	if err := loaded.events.append([]NewEvent{{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunFinished, Status: result.Status, ErrorKind: result.ErrorKind, ErrorMessage: result.ErrorMessage}}); err != nil {
 		loaded.events.invalidate()
 	}
-	loaded.stateMu.Lock()
 	run.record.Status, run.record.Error, run.result = result.Status, result.ErrorMessage, result
 	loaded.activeRun = ""
 	close(run.done)
-	loaded.stateMu.Unlock()
-	loaded.controlMu.Unlock()
+	loaded.mu.Unlock()
 	loaded.admissionMu.Unlock()
 }
 

@@ -79,8 +79,11 @@ The effective prompt is assembled from named sections in this order:
 
 Empty sections are omitted. Sections are separated by two newlines. Feature and
 plugin contributions have stable identities and deterministic order; prompt
-ordering must not depend on goroutine completion or map iteration. Removing or
-reloading a contributor removes its section atomically.
+ordering must not depend on goroutine completion or map iteration. The composer
+is immutable after construction: a bundle build supplies one complete set of
+request-scoped sections rather than mutating a shared section registry. Removing
+or reloading a contributor therefore replaces the runtime's complete immutable
+bundle snapshot atomically.
 
 A feature registers model guidance only while the capability described by that
 guidance is available to the droid. This is a composition invariant, not text

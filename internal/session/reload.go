@@ -40,16 +40,14 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 		return ReloadResult{}, ErrReloadBusy
 	}
 	defer loaded.admissionMu.Unlock()
-	if !loaded.controlMu.TryLock() {
+	if !loaded.mu.TryLock() {
 		return ReloadResult{}, ErrReloadBusy
 	}
-	defer loaded.controlMu.Unlock()
+	defer loaded.mu.Unlock()
 	if m.sessionDeleting(sessionID) {
 		return ReloadResult{}, ErrDeleteBusy
 	}
-	loaded.stateMu.Lock()
 	active := loaded.activeRun != ""
-	loaded.stateMu.Unlock()
 	if active {
 		return ReloadResult{}, ErrReloadBusy
 	}
@@ -102,9 +100,8 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 		_ = replacementDroid.Close()
 		return ReloadResult{}, ErrClosed
 	}
-	loaded.workspace.mu.Lock()
-	defer loaded.workspace.mu.Unlock()
-	if loaded.workspace.generation != workspaceGeneration || loaded.workspace.cwd != workspaceCWD {
+	currentCWD, currentGeneration := loaded.workspace.snapshot()
+	if currentGeneration != workspaceGeneration || currentCWD != workspaceCWD {
 		_ = replacementDroid.Close()
 		return ReloadResult{}, fmt.Errorf("%w: session cwd changed during reload", ErrReloadBusy)
 	}
@@ -112,12 +109,10 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	loaded.droid = replacementDroid
 	loaded.bundle = cloneRuntimeBundle(replacement)
 	loaded.eventCursor = snapshot.LastEvent
-	loaded.promptSources = append([]systemprompt.Source(nil), replacement.Prompt.Sources...)
-	loaded.promptDiagnostics = append([]systemprompt.Diagnostic(nil), replacement.Prompt.Diagnostics...)
 	loaded.events.replace(nextEvents)
 	result := ReloadResult{
-		Sources:       append([]systemprompt.Source(nil), loaded.promptSources...),
-		Diagnostics:   append([]systemprompt.Diagnostic(nil), loaded.promptDiagnostics...),
+		Sources:       append([]systemprompt.Source(nil), loaded.bundle.Prompt.Sources...),
+		Diagnostics:   append([]systemprompt.Diagnostic(nil), loaded.bundle.Prompt.Diagnostics...),
 		EventStreamID: nextEvents.streamID,
 	}
 	if closeErr != nil {
@@ -141,7 +136,7 @@ func boundedReloadWarning(message string) string {
 
 func promptMetadata(loaded *runtime) PromptMetadata {
 	return PromptMetadata{
-		Sources:     append([]systemprompt.Source(nil), loaded.promptSources...),
-		Diagnostics: append([]systemprompt.Diagnostic(nil), loaded.promptDiagnostics...),
+		Sources:     append([]systemprompt.Source(nil), loaded.bundle.Prompt.Sources...),
+		Diagnostics: append([]systemprompt.Diagnostic(nil), loaded.bundle.Prompt.Diagnostics...),
 	}
 }

@@ -90,6 +90,9 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		return Snapshot{}, err
 	}
 	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if strings.TrimSpace(sessionID) == "" {
 		return Snapshot{}, fmt.Errorf("%w: session id is required", ErrInvalidInput)
 	}
@@ -97,23 +100,19 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if err != nil {
 		return Snapshot{}, err
 	}
-	loaded.controlMu.Lock()
-	defer loaded.controlMu.Unlock()
-	loaded.workspace.mu.RLock()
-	defer loaded.workspace.mu.RUnlock()
-	record, err := m.sessionRecord(ctx, sessionID)
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
+	record, err := m.sessionRecordAtWorkspace(ctx, sessionID, loaded.workspace)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	loaded.events.mu.Lock()
 	defer loaded.events.mu.Unlock()
-	loaded.stateMu.Lock()
 	activeRunID := loaded.activeRun
 	completeActiveStream := activeRunID != "" && loaded.runs[activeRunID] != nil &&
 		loaded.runs[activeRunID].completeStream && loaded.events.replayAvailable &&
 		len(loaded.events.events) > 0 && loaded.events.events[0].Kind == EventRunStarted &&
 		loaded.events.events[0].RunID == activeRunID
-	loaded.stateMu.Unlock()
 	droidSnapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
 		return Snapshot{}, err
@@ -173,6 +172,34 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		}
 	}
 	return result, nil
+}
+
+// sessionRecordAtWorkspace reads a record at a stable workspace publication.
+// Persistence is prepared before the lock-free workspace state is published,
+// so a concurrent model tool can briefly expose a newer record. Retry that
+// narrow window rather than blocking readers on mutation I/O.
+func (m *Manager) sessionRecordAtWorkspace(ctx context.Context, sessionID string, workspace *workspaceScope) (SessionRecord, error) {
+	cwd, generation := workspace.snapshot()
+	record, err := m.sessionRecord(ctx, sessionID)
+	if err != nil {
+		return SessionRecord{}, err
+	}
+	afterCWD, afterGeneration := workspace.snapshot()
+	if cwd == afterCWD && generation == afterGeneration && record.CWD == afterCWD {
+		return record, nil
+	}
+
+	workspace.mutationMu.Lock()
+	defer workspace.mutationMu.Unlock()
+	record, err = m.sessionRecord(ctx, sessionID)
+	if err != nil {
+		return SessionRecord{}, err
+	}
+	cwd, _ = workspace.snapshot()
+	if record.CWD != cwd {
+		return SessionRecord{}, fmt.Errorf("%w: persisted cwd %q does not match runtime cwd %q", ErrBusy, record.CWD, cwd)
+	}
+	return record, nil
 }
 
 func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (TranscriptMessage, error) {

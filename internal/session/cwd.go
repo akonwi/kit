@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -19,26 +20,36 @@ import (
 const ChangeCWDToolName = "change_cwd"
 
 type workspaceScope struct {
-	mu         sync.RWMutex
-	cwd        string
-	generation uint64
+	mutationMu sync.Mutex
+	state      atomic.Pointer[workspaceState]
 	mutations  map[string]CWDMutation
 }
 
+type workspaceState struct {
+	cwd        string
+	generation uint64
+}
+
 func newWorkspaceScope(cwd string) *workspaceScope {
-	return &workspaceScope{cwd: filepath.Clean(cwd), mutations: make(map[string]CWDMutation)}
+	scope := &workspaceScope{mutations: make(map[string]CWDMutation)}
+	scope.state.Store(&workspaceState{cwd: filepath.Clean(cwd)})
+	return scope
 }
 
 func (scope *workspaceScope) CWD() string {
-	scope.mu.RLock()
-	defer scope.mu.RUnlock()
-	return scope.cwd
+	return scope.state.Load().cwd
 }
 
 func (scope *workspaceScope) snapshot() (string, uint64) {
-	scope.mu.RLock()
-	defer scope.mu.RUnlock()
-	return scope.cwd, scope.generation
+	state := scope.state.Load()
+	return state.cwd, state.generation
+}
+
+func (scope *workspaceScope) publish(cwd string) {
+	current := scope.state.Load()
+	if current.cwd != cwd {
+		scope.state.Store(&workspaceState{cwd: cwd, generation: current.generation + 1})
+	}
 }
 
 // ChangeCWDResult describes one session filesystem-scope mutation.
@@ -82,9 +93,11 @@ func (m *Manager) changeCWDWithID(ctx context.Context, sessionID, mutationID, ta
 		return ChangeCWDResult{}, err
 	}
 	if informDroid {
-		loaded.controlMu.Lock()
-		defer loaded.controlMu.Unlock()
+		loaded.mu.Lock()
+		defer loaded.mu.Unlock()
 	}
+	loaded.workspace.mutationMu.Lock()
+	defer loaded.workspace.mutationMu.Unlock()
 	result, err := m.changeRuntimeCWD(ctx, sessionID, loaded, mutationID, targetPath)
 	if err != nil || !informDroid || !result.Changed {
 		return result, err
@@ -98,10 +111,7 @@ func (m *Manager) changeCWDWithID(ctx context.Context, sessionID, mutationID, ta
 }
 
 func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded *runtime, mutationID, targetPath string) (ChangeCWDResult, error) {
-	loaded.workspace.mu.Lock()
-	defer loaded.workspace.mu.Unlock()
-
-	previous := loaded.workspace.cwd
+	previous := loaded.workspace.CWD()
 	targetPath = strings.TrimSpace(targetPath)
 	if !validCWDMutationID(mutationID) {
 		return ChangeCWDResult{PreviousCWD: previous}, fmt.Errorf("%w: cwd mutation id is invalid", ErrInvalidInput)
@@ -181,10 +191,7 @@ func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded
 		}
 		mutation = applied
 	}
-	if loaded.workspace.cwd != record.CWD {
-		loaded.workspace.cwd = record.CWD
-		loaded.workspace.generation++
-	}
+	loaded.workspace.publish(record.CWD)
 	return ChangeCWDResult{Session: record, PreviousCWD: mutation.PreviousCWD, CWD: mutation.CWD, Changed: mutation.Changed}, nil
 }
 
@@ -239,9 +246,7 @@ type cwdBoundaryDetails struct {
 }
 
 func informDroidOfCWDChange(ctx context.Context, loaded *runtime, mutationID string, result ChangeCWDResult) error {
-	loaded.workspace.mu.RLock()
-	defer loaded.workspace.mu.RUnlock()
-	if loaded.workspace.cwd != result.CWD {
+	if loaded.workspace.CWD() != result.CWD {
 		return nil
 	}
 	details, err := droids.EncodeDetails(cwdBoundaryDetails{Version: 1, PreviousCWD: result.PreviousCWD, CWD: result.CWD})

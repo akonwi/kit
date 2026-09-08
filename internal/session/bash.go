@@ -78,8 +78,8 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 		return BashExecution{}, err
 	}
 
-	loaded.controlMu.Lock()
-	defer loaded.controlMu.Unlock()
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
 	if m.sessionDeleting(sessionID) {
 		return BashExecution{}, ErrDeleteBusy
 	}
@@ -171,9 +171,9 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 				Content: message.Content, Details: details,
 			}
 			for attempt := 0; ; attempt++ {
-				active.runtime.controlMu.Lock()
+				active.runtime.mu.Lock()
 				informErr = active.runtime.droid.Inform(context.Background(), boundary)
-				active.runtime.controlMu.Unlock()
+				active.runtime.mu.Unlock()
 				if informErr == nil || m.isClosed() {
 					break
 				}
