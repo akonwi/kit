@@ -99,9 +99,55 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	for index := range many {
 		many[index] = paletteCommand{ID: paletteCommandID(string(rune('a' + index))), Name: string(rune('a' + index))}
 	}
+	if width := paletteNameWidth([]paletteCommand{{Name: "界界"}}); width != 4 {
+		t.Fatalf("wide command name width = %d, want 4", width)
+	}
+
 	window, offset := paletteCommandWindow(many, 12, 6)
 	if len(window) != 6 || offset != 9 || window[3].Name != many[12].Name {
 		t.Fatalf("window length=%d offset=%d commands=%#v", len(window), offset, window)
+	}
+}
+
+func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
+	t.Parallel()
+	contributions := promptPaletteCommands([]protocol.PromptCommand{{
+		Name: "review", Description: "Review recent changes", Source: "project", Location: "/repo/.agents/prompts/review.md",
+	}})
+	var palette paletteController
+	palette.SetContributions(contributions, false)
+	palette.OpenFor(false)
+	palette.SetQuery(false, `review "auth module" carefully`)
+	command, ok := palette.Selected(false, palette.Query)
+	if !ok || command.Name != "review" {
+		t.Fatalf("selected prompt command = %#v, %v", command, ok)
+	}
+	name, ok := promptPaletteCommandName(command.ID)
+	_, args := splitPaletteQuery(palette.Query)
+	if !ok || name != "review" || args != `"auth module" carefully` {
+		t.Fatalf("prompt execution = name:%q args:%q found:%v", name, args, ok)
+	}
+	if paletteCommandAvailable(command.ID, true, contributions) {
+		t.Fatal("prompt command remained available during active work")
+	}
+	if commands := availablePaletteCommands(false, []paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 4 {
+		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
+	}
+	state := &paletteHarnessState{}
+	state.palette.SetContributions(contributions, false)
+	state.palette.OpenFor(false)
+	application := uitest.New(paletteHarness{State: state})
+	application.Pump(80, 24)
+	text := strings.Join(paintedRows(application, 80, 24), "\n")
+	if !strings.Contains(text, "review") || !strings.Contains(text, "Review recent changes") {
+		t.Fatalf("prompt command palette =\n%s", text)
+	}
+	rows := paintedRows(application, 80, 24)
+	_, reviewRow := findTextCell(t, rows, "review")
+	application.Click(40, reviewRow)
+	application.Pump(80, 24)
+	if state.executed != paletteCommandID("prompt:review") || state.palette.Open {
+		t.Fatalf("prompt command mouse execution = %q, open=%v", state.executed, state.palette.Open)
 	}
 }
 
@@ -622,7 +668,7 @@ func (s *paletteHarnessState) Build(ui.BuildContext) ui.Widget {
 		Snapshot: shellSnapshot{
 			Phase: phaseReady, Composer: s.composer, PaletteOpen: s.palette.Open,
 			PaletteQuery: s.palette.Query, PaletteSelection: s.palette.Selection,
-			Running: s.running, Scroll: &s.scroll,
+			PaletteCommands: s.palette.Contributions, Running: s.running, Scroll: &s.scroll,
 			Session: protocol.SessionInfo{Name: "Palette test", Model: "openai/gpt-5.3-codex"},
 		},
 		Callbacks: shellCallbacks{
@@ -653,7 +699,7 @@ func (s *paletteHarnessState) Build(ui.BuildContext) ui.Widget {
 				}
 			},
 			RunPaletteCommand: func(_ ui.EventContext, command paletteCommandID) {
-				if paletteCommandAvailable(command, s.running) {
+				if paletteCommandAvailable(command, s.running, s.palette.Contributions) {
 					s.execute(command)
 				}
 			},

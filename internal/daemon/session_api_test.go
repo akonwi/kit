@@ -122,6 +122,18 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	projectPromptDirectory := filepath.Join(workspace, ".agents", "prompts")
+	if err := os.MkdirAll(projectPromptDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectPromptPath := filepath.Join(projectPromptDirectory, "summarize.md")
+	if err := os.WriteFile(projectPromptPath, []byte("---\ndescription: Summarize a topic\n---\nSummarize $1 with $@."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	projectPromptLocation, err := filepath.EvalSymlinks(projectPromptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sessionID, err := identifier.New("session_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
@@ -205,6 +217,11 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 	if snapshot.ContextTokens <= 0 || snapshot.ContextWindow != 128_000 {
 		t.Fatalf("snapshot context = %d/%d", snapshot.ContextTokens, snapshot.ContextWindow)
+	}
+	if len(snapshot.PromptCommands) != 1 || snapshot.PromptCommands[0] != (protocol.PromptCommand{
+		Name: "summarize", Description: "Summarize a topic", Source: "project", Location: projectPromptLocation,
+	}) {
+		t.Fatalf("snapshot prompt commands = %#v", snapshot.PromptCommands)
 	}
 	providers.mu.Lock()
 	providerRequest := providers.requests[0]
@@ -333,6 +350,35 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("active run did not abort: %+v", active)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+
+	commandReservation, err := client.StartPromptCommand(context.Background(), created.ID, protocol.PromptCommandInput{
+		Name: "summarize", Args: `"auth module" carefully`,
+	})
+	if err != nil {
+		t.Fatalf("StartPromptCommand() error = %v", err)
+	}
+	commandDeadline := time.Now().Add(5 * time.Second)
+	for {
+		commandRun, runErr := client.GetRun(context.Background(), created.ID, commandReservation.RunID)
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+		if commandRun.Status == protocol.RunStatusCompleted {
+			break
+		}
+		if time.Now().After(commandDeadline) {
+			t.Fatalf("prompt command did not complete: %+v", commandRun)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	commandSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commandUser := commandSnapshot.Messages[len(commandSnapshot.Messages)-2]
+	if commandUser.Role != "user" || commandUser.TextContent() != "Summarize auth module with auth module carefully." {
+		t.Fatalf("expanded prompt command message = %+v", commandUser)
 	}
 
 	bashID, err := identifier.New("bash_")

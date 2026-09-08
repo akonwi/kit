@@ -258,6 +258,10 @@ func (c *fakeBoundSession) StartPrompt(
 	return &fakeRun{server: c.server}, nil
 }
 
+func (c *fakeBoundSession) StartPromptCommand(context.Context, string, string) (sessionclient.Run, error) {
+	panic("unexpected StartPromptCommand")
+}
+
 type fakeRun struct {
 	server *fakeSessionClient
 }

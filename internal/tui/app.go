@@ -409,6 +409,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaletteOpen:                 s.palette.Open,
 		PaletteQuery:                s.palette.Query,
 		PaletteSelection:            s.palette.Selection,
+		PaletteCommands:             s.palette.Contributions,
 		SessionExplorer:             s.sessionExplorer.Snapshot(),
 		AuthReturnReady:             s.authReturnReady,
 		AuthFilter:                  s.authFilter,
@@ -910,6 +911,7 @@ func bootstrapSession(
 }
 
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
+	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
 	if snapshot.Session.ID != "" {
 		s.session = snapshot.Session
 	}
@@ -1095,13 +1097,16 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 				s.setTurnActivity("Working…")
 			}
 			if !s.liveHasUser {
-				s.liveMessages = append(s.liveMessages, transcriptMessage{ID: "live-user:" + event.TurnID, TurnID: event.TurnID, Role: "user", Text: event.Text})
+				s.liveMessages = append(s.liveMessages, transcriptMessage{
+					ID: "live-user:" + event.TurnID, TurnID: event.TurnID, Role: "user", Text: event.Text,
+				})
 				s.liveHasUser = true
 			} else {
 				for index := range s.liveMessages {
 					if s.liveMessages[index].Role == "user" && s.liveMessages[index].TurnID == "" {
 						s.liveMessages[index].ID = "live-user:" + event.TurnID
 						s.liveMessages[index].TurnID = event.TurnID
+						s.liveMessages[index].Text = event.Text
 						break
 					}
 				}
@@ -1840,10 +1845,15 @@ func (s *appState) runPaletteQuery(ctx ui.EventContext, query string) {
 }
 
 func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteCommandID) {
-	if !s.palette.Open || !paletteCommandAvailable(commandID, s.hasActiveWork()) {
+	if !s.palette.Open || !paletteCommandAvailable(commandID, s.hasActiveWork(), s.palette.Contributions) {
 		return
 	}
+	_, args := splitPaletteQuery(s.palette.Query)
 	s.SetState(func() { s.palette.Close() })
+	if name, ok := promptPaletteCommandName(commandID); ok {
+		s.submitPromptCommand(name, args)
+		return
+	}
 	switch commandID {
 	case paletteCommandLogin:
 		s.enterAuthSelect(true)
@@ -2207,6 +2217,27 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	if text == "" || s.bound == nil {
 		return
 	}
+	bound := s.bound
+	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Run, error) {
+		return bound.StartPrompt(ctx, text)
+	})
+}
+
+func (s *appState) submitPromptCommand(name, args string) {
+	if s.bound == nil {
+		return
+	}
+	display := "/" + name
+	if trimmed := strings.TrimSpace(args); trimmed != "" {
+		display += " " + trimmed
+	}
+	bound := s.bound
+	s.startPromptSubmission(display, func(ctx context.Context) (sessionclient.Run, error) {
+		return bound.StartPromptCommand(ctx, name, args)
+	})
+}
+
+func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Run, error)) {
 	if s.runPending {
 		s.SetState(func() { s.status = "Run in progress · esc abort · ctrl+c detach" })
 		return
@@ -2219,14 +2250,14 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		s.status = "esc abort · ctrl+c detach"
 		s.resetLiveRun()
 		s.turnActivity = "Working…"
-		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: text})
+		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: display})
 		s.liveHasUser = true
 		s.requestTranscriptScroll()
 		s.runPending = true
 		s.prompt = admission
 	})
 	go func() {
-		run, err := bound.StartPrompt(s.ctx, text)
+		run, err := start(s.ctx)
 		if err != nil {
 			if s.ctx.Err() == nil {
 				s.finishRun(runtime, protocol.PromptOutcome{}, err)

@@ -8,6 +8,7 @@ import (
 
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/promptcommands"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/systemprompt"
 )
@@ -15,8 +16,9 @@ import (
 // RuntimeBundle is one atomic prompt and tool configuration for a session
 // runtime. Prompt provenance remains server-owned and is not conversation data.
 type RuntimeBundle struct {
-	Prompt systemprompt.Result
-	Tools  []droids.AnyTool
+	Prompt         systemprompt.Result
+	Tools          []droids.AnyTool
+	PromptCommands *promptcommands.Registry
 }
 
 // RuntimeBundleBuilder resolves the prompt and cwd-bound tools applicable to a
@@ -35,17 +37,19 @@ func cloneRuntimeBundle(bundle RuntimeBundle) RuntimeBundle {
 
 // RuntimeBundleOptions configures Kit's standard session bundle builder.
 type RuntimeBundleOptions struct {
-	Core        string
-	Context     *systemprompt.ContextBuilderOptions
-	Registry    *skills.Registry
-	SkillLoader skills.Loader
+	Core                string
+	Context             *systemprompt.ContextBuilderOptions
+	Registry            *skills.Registry
+	SkillLoader         skills.Loader
+	PromptCommandLoader promptcommands.Loader
 }
 
 type defaultRuntimeBundleBuilder struct {
-	composer    *systemprompt.Composer
-	context     *systemprompt.ContextBuilder
-	registry    *skills.Registry
-	skillLoader skills.Loader
+	composer            *systemprompt.Composer
+	context             *systemprompt.ContextBuilder
+	registry            *skills.Registry
+	skillLoader         skills.Loader
+	promptCommandLoader promptcommands.Loader
 }
 
 // NewRuntimeBundleBuilder constructs Kit's standard atomic prompt/tool builder.
@@ -59,7 +63,10 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 	if err != nil {
 		return nil, err
 	}
-	builder := &defaultRuntimeBundleBuilder{composer: composer, registry: options.Registry, skillLoader: options.SkillLoader}
+	builder := &defaultRuntimeBundleBuilder{
+		composer: composer, registry: options.Registry, skillLoader: options.SkillLoader,
+		promptCommandLoader: options.PromptCommandLoader,
+	}
 	if options.Context != nil {
 		builder.context, err = systemprompt.NewContextBuilder(composer, *options.Context)
 		if err != nil {
@@ -98,6 +105,16 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 	if strings.TrimSpace(result.Prompt) == "" {
 		return RuntimeBundle{}, errors.New("session prompt builder returned an empty prompt")
 	}
+	commands, err := promptcommands.NewRegistry()
+	if err != nil {
+		return RuntimeBundle{}, err
+	}
+	if b.promptCommandLoader != nil {
+		commands, err = b.promptCommandLoader.Load(ctx, record.CWD)
+		if err != nil {
+			return RuntimeBundle{}, err
+		}
+	}
 	tools := codingtools.New(record.CWD)
 	tools = append(tools, registry.ActivateTool())
 	return RuntimeBundle{
@@ -106,7 +123,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			Sources:     append([]systemprompt.Source(nil), result.Sources...),
 			Diagnostics: append([]systemprompt.Diagnostic(nil), result.Diagnostics...),
 		},
-		Tools: tools,
+		Tools: tools, PromptCommands: commands,
 	}, nil
 }
 

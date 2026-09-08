@@ -1,14 +1,17 @@
 package tui
 
 import (
+	"sort"
 	"strings"
 
+	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
 const (
-	paletteMaxVisible = 10
+	paletteMaxVisible   = 10
+	paletteMaxNameWidth = 32
 
 	paletteCommandAbort    paletteCommandID = "abort"
 	paletteCommandLogin    paletteCommandID = "login"
@@ -27,9 +30,10 @@ type paletteCommand struct {
 }
 
 type paletteSnapshot struct {
-	Query     string
-	Selection paletteCommandID
-	Running   bool
+	Query         string
+	Selection     paletteCommandID
+	Running       bool
+	Contributions []paletteCommand
 }
 
 type paletteCallbacks struct {
@@ -45,12 +49,12 @@ type commandPaletteSurface struct {
 
 func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
-	commands := filteredPaletteCommands(w.Snapshot.Running, w.Snapshot.Query)
+	commands := filteredPaletteCommands(w.Snapshot.Running, w.Snapshot.Query, w.Snapshot.Contributions)
 	selection, hasSelection := paletteSelectionIndex(w.Snapshot.Selection, commands)
 	if !hasSelection {
 		selection = 0
 	}
-	nameWidth := paletteNameWidth(availablePaletteCommands(w.Snapshot.Running))
+	nameWidth := paletteNameWidth(availablePaletteCommands(w.Snapshot.Running, w.Snapshot.Contributions))
 
 	results := []ui.Widget(nil)
 	if len(commands) == 0 {
@@ -145,9 +149,10 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 }
 
 type paletteController struct {
-	Open      bool
-	Query     string
-	Selection paletteCommandID
+	Open          bool
+	Query         string
+	Selection     paletteCommandID
+	Contributions []paletteCommand
 }
 
 func (p *paletteController) OpenFor(running bool) {
@@ -156,20 +161,28 @@ func (p *paletteController) OpenFor(running bool) {
 	}
 	p.Open = true
 	p.Query = ""
-	p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, ""))
+	p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, "", p.Contributions))
 }
 
 func (p *paletteController) Close() {
-	*p = paletteController{}
+	contributions := p.Contributions
+	*p = paletteController{Contributions: contributions}
+}
+
+func (p *paletteController) SetContributions(commands []paletteCommand, running bool) {
+	p.Contributions = append([]paletteCommand(nil), commands...)
+	if p.Open && !paletteCommandAvailable(p.Selection, running, p.Contributions) {
+		p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, p.Query, p.Contributions))
+	}
 }
 
 func (p *paletteController) SetQuery(running bool, query string) {
 	p.Query = query
-	p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, query))
+	p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, query, p.Contributions))
 }
 
 func (p *paletteController) Move(running bool, delta int) {
-	commands := filteredPaletteCommands(running, p.Query)
+	commands := filteredPaletteCommands(running, p.Query, p.Contributions)
 	if !p.Open || len(commands) == 0 {
 		return
 	}
@@ -186,7 +199,7 @@ func (p *paletteController) Move(running bool, delta int) {
 }
 
 func (p *paletteController) Selected(running bool, query string) (paletteCommand, bool) {
-	commands := filteredPaletteCommands(running, query)
+	commands := filteredPaletteCommands(running, query, p.Contributions)
 	if !p.Open || len(commands) == 0 {
 		return paletteCommand{}, false
 	}
@@ -299,23 +312,34 @@ func firstPaletteCommandID(commands []paletteCommand) paletteCommandID {
 	return commands[0].ID
 }
 
-func availablePaletteCommands(running bool) []paletteCommand {
+func availablePaletteCommands(running bool, contributions ...[]paletteCommand) []paletteCommand {
 	if running {
 		return []paletteCommand{
 			{ID: paletteCommandAbort, Name: "abort", Description: "Stop the active run", Aliases: []string{"cancel", "stop"}},
 			{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		}
 	}
-	return []paletteCommand{
+	commands := []paletteCommand{
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 	}
+	seen := map[string]bool{"login": true, "quit": true, "reload": true, "sessions": true}
+	if len(contributions) > 0 {
+		for _, command := range contributions[0] {
+			if !seen[command.Name] {
+				seen[command.Name] = true
+				commands = append(commands, command)
+			}
+		}
+	}
+	sort.Slice(commands, func(i, j int) bool { return commands[i].Name < commands[j].Name })
+	return commands
 }
 
-func paletteCommandAvailable(commandID paletteCommandID, running bool) bool {
-	for _, command := range availablePaletteCommands(running) {
+func paletteCommandAvailable(commandID paletteCommandID, running bool, contributions ...[]paletteCommand) bool {
+	for _, command := range availablePaletteCommands(running, contributions...) {
 		if command.ID == commandID {
 			return true
 		}
@@ -323,13 +347,29 @@ func paletteCommandAvailable(commandID paletteCommandID, running bool) bool {
 	return false
 }
 
-func filteredPaletteCommands(running bool, query string) []paletteCommand {
-	commands := availablePaletteCommands(running)
+func filteredPaletteCommands(running bool, query string, contributions ...[]paletteCommand) []paletteCommand {
+	commands := availablePaletteCommands(running, contributions...)
 	return ui.DefaultFuzzySelectFilter(paletteFilterQuery(query), commands, func(command paletteCommand) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{
 			Title: command.Name, Description: command.Description, Aliases: command.Aliases,
 		}
 	})
+}
+
+func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {
+	result := make([]paletteCommand, 0, len(commands))
+	for _, command := range commands {
+		result = append(result, paletteCommand{
+			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name,
+			Description: command.Description, Aliases: []string{command.Source, command.Location},
+		})
+	}
+	return result
+}
+
+func promptPaletteCommandName(id paletteCommandID) (string, bool) {
+	name, ok := strings.CutPrefix(string(id), "prompt:")
+	return name, ok && name != ""
 }
 
 func paletteFilterQuery(value string) string {
@@ -358,9 +398,13 @@ func paletteSelectionIndex(selection paletteCommandID, commands []paletteCommand
 func paletteNameWidth(commands []paletteCommand) int {
 	width := 0
 	for _, command := range commands {
-		width = max(width, len([]rune(command.Name)))
+		commandWidth := 0
+		for _, character := range vaxis.Characters(command.Name) {
+			commandWidth += character.Width
+		}
+		width = max(width, commandWidth)
 	}
-	return width
+	return min(width, paletteMaxNameWidth)
 }
 
 func paletteCommandWindow(commands []paletteCommand, selection, maximum int) ([]paletteCommand, int) {

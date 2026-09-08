@@ -70,6 +70,20 @@ type PromptInput struct {
 	Text string `json:"text"`
 }
 
+// PromptCommandInput requests execution of one discovered prompt template.
+type PromptCommandInput struct {
+	Name string `json:"name"`
+	Args string `json:"args,omitempty"`
+}
+
+// PromptCommand is renderer-safe metadata for one discovered prompt template.
+type PromptCommand struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Source      string `json:"source"`
+	Location    string `json:"location"`
+}
+
 // BashExecutionInput requests one runtime-idempotent direct composer shell
 // execution. Included terminal executions remain protected by their durable
 // droid boundary receipt.
@@ -195,6 +209,7 @@ type SessionSnapshot struct {
 	EventReplayAvailable  bool                `json:"eventReplayAvailable,omitempty"`
 	ContextTokens         int                 `json:"contextTokens,omitempty"`
 	ContextWindow         int                 `json:"contextWindow,omitempty"`
+	PromptCommands        []PromptCommand     `json:"promptCommands,omitempty"`
 }
 
 // RunStatus is a canonical parent-run terminal state on the wire.

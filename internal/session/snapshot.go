@@ -61,6 +61,13 @@ type PendingBoundary struct {
 	AcceptedAt time.Time
 }
 
+type PromptCommand struct {
+	Name        string
+	Description string
+	Source      string
+	Location    string
+}
+
 type Snapshot struct {
 	Session               SessionRecord
 	Messages              []TranscriptMessage
@@ -73,6 +80,7 @@ type Snapshot struct {
 	EventReplayAvailable  bool
 	ContextTokens         int
 	ContextWindow         int
+	PromptCommands        []PromptCommand
 }
 
 // Snapshot projects canonical droid history directly. While a turn is active,
@@ -114,6 +122,14 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		EventReplayAvailable: completeActiveStream,
 		ContextTokens:        droidSnapshot.Context.Usage.EstimatedInput,
 		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
+	}
+	if loaded.bundle.PromptCommands != nil {
+		for _, command := range loaded.bundle.PromptCommands.Commands() {
+			result.PromptCommands = append(result.PromptCommands, PromptCommand{
+				Name: command.Name, Description: command.Description,
+				Source: string(command.Source), Location: command.Location,
+			})
+		}
 	}
 	m.bashMu.Lock()
 	if active := m.bashActive[sessionID]; active != nil {

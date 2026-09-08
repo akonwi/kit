@@ -9,6 +9,7 @@ Use these instructions when the user asks about Kit itself, its behavior, its do
 - Put global context guidance in `AGENTS.md` under the resolved Kit home.
 - Put project context guidance in `AGENTS.md` files from the Git worktree root through the session working directory.
 - Put user-global skills under the resolved Kit home's `skills/` directory and project skills under `.agents/skills/` in the session working directory.
-- Apply context or skill edits to an already loaded idle session with the native command palette's `reload` command.
+- Put user-global prompt commands under the resolved Kit home's `prompts/` directory and project prompt commands under `.agents/prompts/` in the session working directory.
+- Apply context, skill, or prompt-command edits to an already loaded idle session with the native command palette's `reload` command.
 - Treat the running version's documentation and source as authoritative; do not assume a customization path or setting exists because another version supports it.
 - If a requested customization surface is not supported by this Kit version, explain that limitation rather than inventing it.

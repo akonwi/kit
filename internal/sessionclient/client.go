@@ -25,6 +25,7 @@ type Session interface {
 	Run(context.Context, string) (protocol.RunInfo, error)
 	Stream(context.Context, string) (EventStream, error)
 	StartPrompt(context.Context, string) (Run, error)
+	StartPromptCommand(context.Context, string, string) (Run, error)
 	Bash(context.Context, string) (BashExecution, error)
 	StartBash(context.Context, string, string, bool) (BashExecution, error)
 	AbortBash(context.Context, string) error

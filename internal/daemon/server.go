@@ -18,6 +18,7 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/promptcommands"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
@@ -124,8 +125,12 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create skill loader: %w", err)
 	}
+	promptCommandLoader, err := promptcommands.NewFilesystemLoader(paths)
+	if err != nil {
+		return fmt.Errorf("create prompt command loader: %w", err)
+	}
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
-		Core: systemPrompt, SkillLoader: skillLoader,
+		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
 	})
 	if err != nil {

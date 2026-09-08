@@ -792,3 +792,7 @@ func (fakeSession) StartBash(context.Context, string, string, bool) (sessionclie
 func (fakeSession) StartPrompt(context.Context, string) (sessionclient.Run, error) {
 	panic("unexpected StartPrompt")
 }
+
+func (fakeSession) StartPromptCommand(context.Context, string, string) (sessionclient.Run, error) {
+	panic("unexpected StartPromptCommand")
+}

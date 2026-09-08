@@ -609,6 +609,18 @@ func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error)
 
 // StartPrompt admits one droid turn and returns its canonical identity.
 func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (RunReservation, error) {
+	return m.startPrompt(ctx, sessionID, prompt, "", "")
+}
+
+// StartPromptCommand expands and admits one command from the runtime's immutable snapshot.
+func (m *Manager) StartPromptCommand(ctx context.Context, sessionID, name, args string) (RunReservation, error) {
+	if strings.TrimSpace(name) != name || name == "" || len(name) > 128 || len(args) > maxPromptTextBytes || !utf8.ValidString(args) || strings.IndexByte(args, 0) >= 0 {
+		return RunReservation{}, fmt.Errorf("%w: prompt command name or arguments are invalid", ErrInvalidInput)
+	}
+	return m.startPrompt(ctx, sessionID, "", name, args)
+}
+
+func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandName, commandArgs string) (RunReservation, error) {
 	if err := m.beginAdmission(); err != nil {
 		return RunReservation{}, err
 	}
@@ -616,7 +628,7 @@ func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (Ru
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if strings.TrimSpace(prompt) == "" || len(prompt) > maxPromptTextBytes || !utf8.ValidString(prompt) || strings.IndexByte(prompt, 0) >= 0 {
+	if commandName == "" && (strings.TrimSpace(prompt) == "" || len(prompt) > maxPromptTextBytes || !utf8.ValidString(prompt) || strings.IndexByte(prompt, 0) >= 0) {
 		return RunReservation{}, fmt.Errorf("%w: prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB", ErrInvalidInput)
 	}
 	loaded, err := m.runtime(ctx, sessionID)
@@ -634,6 +646,22 @@ func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (Ru
 	if m.sessionDeleting(sessionID) {
 		release()
 		return RunReservation{}, ErrDeleteBusy
+	}
+	if commandName != "" {
+		if loaded.bundle.PromptCommands == nil {
+			release()
+			return RunReservation{}, fmt.Errorf("prompt command %q: %w", commandName, ErrNotFound)
+		}
+		command, ok := loaded.bundle.PromptCommands.Lookup(commandName)
+		if !ok {
+			release()
+			return RunReservation{}, fmt.Errorf("prompt command %q: %w", commandName, ErrNotFound)
+		}
+		prompt, err = command.Expand(commandArgs)
+		if err != nil {
+			release()
+			return RunReservation{}, fmt.Errorf("%w: expand prompt command %q: %v", ErrInvalidInput, commandName, err)
+		}
 	}
 	snapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
@@ -698,7 +726,7 @@ func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (Ru
 	}
 	m.runs.Add(1)
 	m.mu.Unlock()
-	go m.executePrompt(loaded, run, handle, subscription, sessionID, prompt)
+	go m.executePrompt(loaded, run, handle, subscription, sessionID)
 	return RunReservation{SessionID: sessionID, TurnID: turnID, RunID: turnID}, nil
 }
 
@@ -771,7 +799,7 @@ func (m *Manager) waitRun(ctx context.Context, sessionID, runID string) (PromptR
 	}
 }
 
-func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.ExecutionHandle, subscription droids.Subscription, sessionID, prompt string) {
+func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.ExecutionHandle, subscription droids.Subscription, sessionID string) {
 	defer m.runs.Done()
 	turnID := run.record.TurnID
 	drainDone := make(chan error, 1)

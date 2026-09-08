@@ -38,4 +38,4 @@ Reload atomically refreshes the system prompt and cwd-bound tools while preservi
 
 Every normal session advertises the embedded `kit-customization` skill and includes the `activate_skill` tool. The skill directs the model to inspect the running Kit version's documentation and source, prefer supported user-editable surfaces, and avoid inventing settings or paths from another version. It has no user-owned filesystem location and cannot be shadowed by a user or project skill.
 
-Kit also discovers user-global and project-local skills. See [Skills](./skills.md) for locations, precedence, file format, limits, and reload behavior.
+Kit also discovers user-global and project-local skills and prompt commands. See [Skills](./skills.md) and [Prompt commands](./prompt-commands.md) for locations, precedence, file formats, limits, and reload behavior.

@@ -29,6 +29,7 @@ type sessionService interface {
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
 	StartPrompt(context.Context, string, string) (protocol.RunReservation, error)
+	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, string) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
@@ -100,6 +101,13 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		ContextTokens: snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
 		Messages:          make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
+		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
+	}
+	for _, command := range snapshot.PromptCommands {
+		result.PromptCommands = append(result.PromptCommands, protocol.PromptCommand{
+			Name: command.Name, Description: command.Description,
+			Source: command.Source, Location: command.Location,
+		})
 	}
 	for _, message := range snapshot.Messages {
 		result.Messages = append(result.Messages, protocol.TranscriptMessage{
@@ -214,6 +222,16 @@ func (s runtimeSessionService) StartPrompt(
 	sessionID, text string,
 ) (protocol.RunReservation, error) {
 	reservation, err := s.manager.StartPrompt(ctx, sessionID, text)
+	if err != nil {
+		return protocol.RunReservation{}, err
+	}
+	return protocol.RunReservation{
+		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
+	}, nil
+}
+
+func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
+	reservation, err := s.manager.StartPromptCommand(ctx, sessionID, input.Name, input.Args)
 	if err != nil {
 		return protocol.RunReservation{}, err
 	}
@@ -420,6 +438,27 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		if result.RunID == "" {
 			writeSessionError(writer, errors.New("session prompt returned no reservation"))
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.PromptCommandInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.StartPromptCommand(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if result.RunID == "" {
+			writeSessionError(writer, errors.New("session prompt command returned no reservation"))
 			return
 		}
 		writeJSON(writer, http.StatusAccepted, result)

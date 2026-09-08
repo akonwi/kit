@@ -119,6 +119,13 @@ duplicate, reserved, and over-limit definitions as structured diagnostics. The
 catalog and activation tool are always derived from the same immutable discovery
 snapshot.
 
+The runtime bundle also carries an immutable registry of user-global and
+project-local prompt commands. Prompt templates are not system-prompt sections:
+the server exposes renderer-safe command metadata to clients and expands a
+selected template as an ordinary user prompt against the same runtime snapshot.
+Quiescent reload replaces prompt commands atomically with prompt, skills, and
+tools.
+
 ### `AGENTS.md` context discovery
 
 `AGENTS.md` is Kit's only filesystem context convention. Kit does not discover
@@ -291,3 +298,4 @@ The implementation must demonstrate:
 - [`../parity.md`](../parity.md)
 - [`../features/context-guidance.md`](../features/context-guidance.md)
 - [`../features/skills.md`](../features/skills.md)
+- [`../features/prompt-commands.md`](../features/prompt-commands.md)

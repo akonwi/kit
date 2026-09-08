@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/identifier"
@@ -89,6 +90,18 @@ func validProtocolText(value string, maximum int) bool {
 	return value != "" && len(value) <= maximum && utf8.ValidString(value) && strings.IndexByte(value, 0) < 0
 }
 
+func validRendererText(value string, maximum int) bool {
+	if !validProtocolText(value, maximum) {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return false
+		}
+	}
+	return true
+}
+
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {
 	if session.ID == "" {
@@ -116,6 +129,29 @@ func (input PromptInput) Validate() error {
 		return fmt.Errorf("prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB")
 	}
 	return nil
+}
+
+// Validate checks a prompt-command execution request crossing a transport boundary.
+func (input PromptCommandInput) Validate() error {
+	if !validPromptCommandName(input.Name) {
+		return fmt.Errorf("prompt command name is invalid")
+	}
+	if len(input.Args) > 128<<10 || !utf8.ValidString(input.Args) || strings.IndexByte(input.Args, 0) >= 0 {
+		return fmt.Errorf("prompt command arguments are invalid or oversized")
+	}
+	return nil
+}
+
+func validPromptCommandName(name string) bool {
+	if !validProtocolText(name, 128) {
+		return false
+	}
+	for _, character := range name {
+		if unicode.IsSpace(character) || unicode.IsControl(character) || unicode.Is(unicode.Cf, character) || character == '/' || character == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 // Validate checks a direct bash request received across a transport boundary.

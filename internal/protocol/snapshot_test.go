@@ -65,6 +65,21 @@ func TestSessionSnapshotValidatesStructuredTranscript(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotValidatesPromptCommands(t *testing.T) {
+	t.Parallel()
+	snapshot := validTranscriptSnapshot()
+	snapshot.PromptCommands = []PromptCommand{{
+		Name: "review", Description: "Review changes", Source: "project", Location: "/repo/.agents/prompts/review.md",
+	}}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("valid prompt commands: %v", err)
+	}
+	snapshot.PromptCommands = append(snapshot.PromptCommands, snapshot.PromptCommands[0])
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("snapshot accepted duplicate prompt commands")
+	}
+}
+
 func TestSessionSnapshotRejectsInvalidStructuredTranscript(t *testing.T) {
 	t.Parallel()
 

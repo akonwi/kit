@@ -176,6 +176,25 @@ func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (proto
 	return output, nil
 }
 
+// StartPromptCommand expands and admits one discovered prompt command.
+func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.RunReservation{}, fmt.Errorf("validate prompt command request: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt-commands"
+	var output protocol.RunReservation
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+		return protocol.RunReservation{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt command reservation: %w", err)
+	}
+	if output.SessionID != sessionID || output.RunID != output.TurnID {
+		return protocol.RunReservation{}, fmt.Errorf("daemon prompt command reservation identity mismatch")
+	}
+	return output, nil
+}
+
 // GetRun returns a loaded droid turn's transient protocol projection.
 func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID)

@@ -236,12 +236,25 @@ func (c *localSession) StartPrompt(ctx context.Context, text string) (sessioncli
 	if err != nil {
 		return nil, err
 	}
+	return c.runFromReservation(reservation), nil
+}
+
+func (c *localSession) StartPromptCommand(ctx context.Context, name, args string) (sessionclient.Run, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	reservation, err := c.transport.StartPromptCommand(ctx, c.id, protocol.PromptCommandInput{Name: name, Args: args})
+	if err != nil {
+		return nil, err
+	}
+	return c.runFromReservation(reservation), nil
+}
+
+func (c *localSession) runFromReservation(reservation protocol.RunReservation) sessionclient.Run {
 	return &localRun{
-		transport: c.transport,
-		sessionID: c.id,
-		turnID:    reservation.TurnID,
-		id:        reservation.RunID,
-	}, nil
+		transport: c.transport, sessionID: c.id,
+		turnID: reservation.TurnID, id: reservation.RunID,
+	}
 }
 
 func (r *localRun) ID() string { return r.id }

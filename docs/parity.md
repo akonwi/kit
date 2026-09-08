@@ -270,7 +270,7 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v13 exposes retry-safe client-selected persisted or temporary
+  protocol v14 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename and archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, droid-owned turn
   identity, direct canonical history, context/pending boundaries, runtime stream
@@ -364,8 +364,9 @@ recorded manual verification exists.
   bounded diagnostics, model-visible prompt summaries, source-relative location
   guidance, the reserved embedded `kit-customization` skill, and the stable
   `activate_skill` tool.
-- [ ] Kit user/project prompt commands, frontmatter, quoted argument expansion,
-  and compact transcript identity.
+- [~] Kit user/project prompt-command discovery, frontmatter descriptions,
+  quoted argument expansion, server-owned execution, reload, and native palette
+  contribution are complete; compact synthetic transcript identity remains.
 - [ ] Claude command compatibility and `cc:` namespacing.
 - [ ] User/project subagent definition discovery.
 - [ ] Reload behavior after cwd/config changes.

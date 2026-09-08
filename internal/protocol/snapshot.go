@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"mime"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -21,6 +22,20 @@ func (snapshot SessionSnapshot) Validate() error {
 	}
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
+	}
+	if len(snapshot.PromptCommands) > 128 {
+		return fmt.Errorf("snapshot has too many prompt commands")
+	}
+	seenCommands := make(map[string]struct{}, len(snapshot.PromptCommands))
+	for index, command := range snapshot.PromptCommands {
+		if !validPromptCommandName(command.Name) || !validRendererText(command.Description, 1024) ||
+			(command.Source != "user" && command.Source != "project") || !filepath.IsAbs(command.Location) || !validRendererText(command.Location, 4096) {
+			return fmt.Errorf("snapshot prompt command %d is invalid", index)
+		}
+		if _, duplicate := seenCommands[command.Name]; duplicate {
+			return fmt.Errorf("snapshot prompt command %d duplicates %q", index, command.Name)
+		}
+		seenCommands[command.Name] = struct{}{}
 	}
 	previousSequence := int64(-1)
 	messageIDs := make(map[string]struct{})

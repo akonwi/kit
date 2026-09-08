@@ -23,6 +23,7 @@ type shellSnapshot struct {
 	PaletteOpen                 bool
 	PaletteQuery                string
 	PaletteSelection            paletteCommandID
+	PaletteCommands             []paletteCommand
 	SessionExplorer             sessionExplorerSnapshot
 	AuthReturnReady             bool
 	AuthFilter                  string
@@ -187,7 +188,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			Child: commandPaletteSurface{
 				Snapshot: paletteSnapshot{
 					Query: w.Snapshot.PaletteQuery, Selection: w.Snapshot.PaletteSelection,
-					Running: w.Snapshot.Running,
+					Running: w.Snapshot.Running, Contributions: w.Snapshot.PaletteCommands,
 				},
 				Callbacks: paletteCallbacks{
 					QueryChanged: w.Callbacks.PaletteQueryChanged,
