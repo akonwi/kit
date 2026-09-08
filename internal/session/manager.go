@@ -22,6 +22,7 @@ const maxPromptTextBytes = 128 << 10
 
 var (
 	ErrBusy              = errors.New("session already has an active parent run")
+	ErrReloadBusy        = errors.New("session cannot be reloaded while work is active")
 	ErrDeleteBusy        = errors.New("session cannot be deleted while work is active")
 	ErrClosed            = errors.New("session manager is closed")
 	ErrInvalidInput      = errors.New("invalid session input")
@@ -93,6 +94,8 @@ type Manager struct {
 	disposedTemporary map[string]struct{}
 	disposedOrder     []string
 	closed            bool
+	shutdownDone      chan struct{}
+	shutdownErr       error
 	runs              sync.WaitGroup
 	loads             sync.WaitGroup
 	ops               sync.WaitGroup
@@ -125,7 +128,9 @@ type temporaryDisposal struct {
 
 type runtime struct {
 	droid       *droids.Droid
+	store       droids.Store
 	closeStore  func() error
+	bundle      RuntimeBundle
 	cwd         string
 	events      *eventLog
 	eventCursor droids.EventSequence
@@ -207,7 +212,8 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
-		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
+		shutdownDone: make(chan struct{}),
+		bashActive:   make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
 	}, nil
@@ -721,7 +727,9 @@ func (m *Manager) GetRun(ctx context.Context, sessionID, runID string) (RunProje
 		return record, nil
 	}
 	loaded.stateMu.Unlock()
+	loaded.controlMu.Lock()
 	turn, err := loaded.droid.Turn(ctx, droids.TurnID(runID))
+	loaded.controlMu.Unlock()
 	if errors.Is(err, droids.ErrTurnNotFound) {
 		return RunProjection{}, fmt.Errorf("run %q: %w", runID, ErrNotFound)
 	}
@@ -918,42 +926,51 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	m.mu.Lock()
-	m.closed = true
-	runtimes := make([]*runtime, 0, len(m.runtimes))
-	for sessionID, loaded := range m.runtimes {
-		if m.disposals[sessionID] == nil {
-			runtimes = append(runtimes, loaded)
+	if !m.closed {
+		m.closed = true
+		runtimes := make([]*runtime, 0, len(m.runtimes))
+		for sessionID, loaded := range m.runtimes {
+			if m.disposals[sessionID] == nil {
+				runtimes = append(runtimes, loaded)
+			}
 		}
+		m.runtimes = nil
+		m.cancelBash(errBashShutdown)
+		go m.finishShutdown(runtimes)
 	}
-	m.runtimes = nil
+	done := m.shutdownDone
 	m.mu.Unlock()
-	m.cancelBash(errBashShutdown)
-	var shutdownErr error
-	for _, loaded := range runtimes {
-		shutdownErr = errors.Join(shutdownErr, loaded.droid.Shutdown(ctx))
-	}
-	done := make(chan struct{})
-	go func() {
-		m.admissions.Wait()
-		m.loads.Wait()
-		m.runs.Wait()
-		m.bashRuns.Wait()
-		m.ops.Wait()
-		m.cleanups.Wait()
-		close(done)
-	}()
 	select {
 	case <-done:
-		for _, loaded := range runtimes {
-			shutdownErr = errors.Join(shutdownErr, loaded.closeStore())
-		}
-		if m.temporaryDroids {
-			shutdownErr = errors.Join(shutdownErr, os.RemoveAll(m.droidDirectory))
-		}
-		return shutdownErr
+		m.mu.Lock()
+		err := m.shutdownErr
+		m.mu.Unlock()
+		return err
 	case <-ctx.Done():
-		return errors.Join(shutdownErr, ctx.Err())
+		return ctx.Err()
 	}
+}
+
+func (m *Manager) finishShutdown(runtimes []*runtime) {
+	var shutdownErr error
+	for _, loaded := range runtimes {
+		loaded.controlMu.Lock()
+		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background()))
+		loaded.controlMu.Unlock()
+	}
+	m.admissions.Wait()
+	m.loads.Wait()
+	m.runs.Wait()
+	m.bashRuns.Wait()
+	m.ops.Wait()
+	m.cleanups.Wait()
+	if m.temporaryDroids {
+		shutdownErr = errors.Join(shutdownErr, os.RemoveAll(m.droidDirectory))
+	}
+	m.mu.Lock()
+	m.shutdownErr = shutdownErr
+	close(m.shutdownDone)
+	m.mu.Unlock()
 }
 
 func (m *Manager) Close() { _ = m.Shutdown(context.Background()) }
@@ -1067,12 +1084,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	} else {
 		store = droids.NewMemoryStore()
 	}
-	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
-		Store: store, Providers: m.providers,
-		Model:     record.ModelProvider + "/" + record.ModelID,
-		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
-		Tools: bundle.Tools,
-	})
+	droid, snapshot, err := m.openDroid(ctx, record, store, bundle)
 	if err != nil {
 		_ = closeStore()
 		return nil, fmt.Errorf("open runtime for session %q: %w", record.ID, err)
@@ -1090,14 +1102,9 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = closeStore()
 		return nil, err
 	}
-	snapshot, err := droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
-	if err != nil {
-		_ = droid.Close()
-		_ = closeStore()
-		return nil, err
-	}
 	loaded := &runtime{
-		droid: droid, closeStore: closeStore, cwd: record.CWD, events: events, eventCursor: snapshot.LastEvent,
+		droid: droid, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
+		cwd: record.CWD, events: events, eventCursor: snapshot.LastEvent,
 		runs:              make(map[string]*liveRun),
 		promptSources:     append([]systemprompt.Source(nil), bundle.Prompt.Sources...),
 		promptDiagnostics: append([]systemprompt.Diagnostic(nil), bundle.Prompt.Diagnostics...),
@@ -1118,6 +1125,24 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		loaded.events.invalidate()
 	}
 	return loaded, nil
+}
+
+func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle) (*droids.Droid, droids.Snapshot, error) {
+	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
+		Store: store, Providers: m.providers,
+		Model:     record.ModelProvider + "/" + record.ModelID,
+		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
+		Tools: bundle.Tools,
+	})
+	if err != nil {
+		return nil, droids.Snapshot{}, err
+	}
+	snapshot, err := droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
+	if err != nil {
+		_ = droid.Close()
+		return nil, droids.Snapshot{}, err
+	}
+	return droid, snapshot, nil
 }
 
 func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {

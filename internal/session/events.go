@@ -224,6 +224,21 @@ func (log *eventLog) reset() error {
 	return nil
 }
 
+func (log *eventLog) replace(replacement *eventLog) {
+	replacement.mu.Lock()
+	streamID := replacement.streamID
+	next := replacement.next
+	replayAvailable := replacement.replayAvailable
+	replacement.mu.Unlock()
+
+	log.mu.Lock()
+	log.streamID = streamID
+	log.next = next
+	log.events = nil
+	log.replayAvailable = replayAvailable
+	log.mu.Unlock()
+}
+
 func (log *eventLog) append(events []NewEvent) error {
 	for _, event := range events {
 		if err := event.Validate(); err != nil {

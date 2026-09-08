@@ -26,6 +26,13 @@ type RuntimeBundleBuilder interface {
 	Build(context.Context, SessionRecord) (RuntimeBundle, error)
 }
 
+func cloneRuntimeBundle(bundle RuntimeBundle) RuntimeBundle {
+	bundle.Prompt.Sources = append([]systemprompt.Source(nil), bundle.Prompt.Sources...)
+	bundle.Prompt.Diagnostics = append([]systemprompt.Diagnostic(nil), bundle.Prompt.Diagnostics...)
+	bundle.Tools = append([]droids.AnyTool(nil), bundle.Tools...)
+	return bundle
+}
+
 // RuntimeBundleOptions configures Kit's standard session bundle builder.
 type RuntimeBundleOptions struct {
 	Core     string
@@ -107,10 +114,7 @@ func (m *Manager) PromptMetadata(ctx context.Context, sessionID string) (PromptM
 	}
 	loaded.controlMu.Lock()
 	defer loaded.controlMu.Unlock()
-	return PromptMetadata{
-		Sources:     append([]systemprompt.Source(nil), loaded.promptSources...),
-		Diagnostics: append([]systemprompt.Diagnostic(nil), loaded.promptDiagnostics...),
-	}, nil
+	return promptMetadata(loaded), nil
 }
 
 func nilRuntimeBundleBuilder(builder RuntimeBundleBuilder) bool {
