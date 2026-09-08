@@ -279,3 +279,4 @@ The implementation must demonstrate:
 - [0004: Model a droid as an autonomous agent runtime](./0004-droids-agent-runtime-boundary.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
 - [`../parity.md`](../parity.md)
+- [`../features/context-guidance.md`](../features/context-guidance.md)

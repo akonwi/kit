@@ -40,6 +40,8 @@ recorded manual verification exists.
 - [ ] Subagents become concurrent supervised executions with durable mailboxes.
 - [ ] Custom plugins are supported through the subprocess RPC protocol only;
   in-process TypeScript plugin loading is not restored.
+- [x] Automatic context discovery uses `AGENTS.md` only; `CLAUDE.md` and
+  immediate-child scanning are intentionally not restored. See ADR 0010.
 
 ## Foundation and distribution
 
@@ -216,8 +218,8 @@ recorded manual verification exists.
   keyboard, and mouse behavior; the initial single-ranked palette opens from
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
-  state, and an undimmed modal boundary. It exposes login, conditional abort,
-  session exploration, and quit; session exploration opens the native
+  state, and an undimmed modal boundary. It exposes login, idle session-context
+  reload, conditional abort, session exploration, and quit; session exploration opens the native
   saved-session listing and switches the attached TUI session. Completion,
   arguments, nested pickers, and dynamic command sources remain.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
@@ -268,10 +270,11 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v12 exposes retry-safe client-selected persisted or temporary
+  protocol v13 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename and archival/disposal deletion,
-  droid-owned turn identity, direct canonical
-  history, context/pending boundaries, runtime stream synchronization metadata,
+  session-scoped context reload metadata and diagnostics, droid-owned turn
+  identity, direct canonical history, context/pending boundaries, runtime stream
+  synchronization metadata,
   bounded tool arguments,
   and stable live assistant message IDs. TypeScript contracts remain.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
@@ -287,8 +290,8 @@ recorded manual verification exists.
 - [~] Command correlation and ordering relative to preceding events.
 - [ ] Bounded client queues and disconnect-on-backpressure behavior.
 - [~] Server/session client conformance tests shared across local and remote
-  transports; the local client now consumes validated session snapshots and an
-  atomic prompt-admission endpoint.
+  transports; the local client now consumes validated session snapshots,
+  supports cancellation-safe session reload, and uses atomic prompt admission.
 - [ ] Stdio RPC bridge with protocol-clean stdout and diagnostics on stderr.
 - [x] Explicit `kit print` client with piped stdin, exact/implicit/new/temporary
   session choices, name/model/thinking/cwd creation selection, foreground
@@ -352,11 +355,15 @@ recorded manual verification exists.
 
 ## Guidance and reusable prompts
 
-- [ ] Global/project walk-up `AGENTS.md` and `CLAUDE.md` context loading with
-  documented precedence.
-- [ ] Immediate-child context discovery and debug visibility.
-- [ ] Skill discovery, prompt summaries, `activate_skill`, and source-relative
-  file behavior.
+- [x] Server-owned global and Git-root-to-cwd `AGENTS.md` loading with bounded
+  diagnostics, local-guidance priority, and documented precedence. ADR 0010
+  intentionally excludes `CLAUDE.md`, siblings, and immediate-child scanning.
+- [x] Explicit idle session reload applies current context and cwd-bound tools
+  atomically, preserves droid history, and forces event-stream resynchronization.
+- [~] Skill discovery, prompt summaries, `activate_skill`, and source-relative
+  file behavior; the embedded reserved `kit-customization` skill, deterministic
+  catalog, and stable activation tool are complete, while user/project discovery
+  and source-relative file behavior remain.
 - [ ] Kit user/project prompt commands, frontmatter, quoted argument expansion,
   and compact transcript identity.
 - [ ] Claude command compatibility and `cc:` namespacing.
@@ -378,8 +385,8 @@ recorded manual verification exists.
 ## Commands, settings, and themes
 
 - [~] Core command catalog and transport-neutral command subset; the native
-  palette currently exposes login, conditional abort, session exploration, and
-  quit.
+  palette currently exposes login, idle session-context reload, conditional
+  abort, session exploration, and quit.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [ ] `/cd`, `/settings`, `/pager`, `/code-review`, `/handoff`, `/login`,
   `/logout`, `/model`, `/name`, `/new`, `/reload`, `/debug`, `/sessions`,
@@ -472,9 +479,9 @@ recorded manual verification exists.
 - [ ] macOS and Linux release artifacts pass launch and daemon lifecycle smoke
   tests.
 - [ ] No current user data is mutated before explicit migration.
-- [~] README, ADRs 0008/0009, and native CLI help match the initial command
-  surface; feature documentation for deferred RPC, web, plugin, and interaction
-  behavior remains to be reconciled.
+- [~] README, ADRs 0008/0009/0010, native CLI help, and session context guidance
+  match the implemented surface; feature documentation for deferred RPC, web,
+  plugin, and interaction behavior remains to be reconciled.
 
 ## Rolling target-branch delta
 
