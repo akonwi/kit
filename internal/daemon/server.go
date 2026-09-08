@@ -19,6 +19,7 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/systemprompt"
 	"github.com/akonwi/kit/internal/version"
@@ -119,8 +120,19 @@ func Run(ctx context.Context, options RunOptions) error {
 		}
 		return availableProviderIDs(ctx, paths, credentialSources)
 	}
+	skillRegistry, err := skills.NewRegistry()
+	if err != nil {
+		return fmt.Errorf("create skill registry: %w", err)
+	}
+	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
+		Core: systemPrompt, Registry: skillRegistry,
+		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
+	})
+	if err != nil {
+		return fmt.Errorf("create runtime bundle builder: %w", err)
+	}
 	sessionManager, err = kitsession.NewManager(
-		store, providers, systemPrompt,
+		store, providers, bundleBuilder,
 		kitsession.WithDroidStoreDirectory(paths.Droids),
 	)
 	if err != nil {

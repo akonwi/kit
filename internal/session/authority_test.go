@@ -28,7 +28,7 @@ func TestManagerCreateIsIdempotentForClientSelectedSessionID(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	manager, err := session.NewManager(
-		store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+		store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +83,7 @@ func TestManagerCoordinatesTemporaryCreationAndDisposal(t *testing.T) {
 	repository := &blockingGetRepository{
 		Repository: store, started: make(chan struct{}), release: make(chan struct{}),
 	}
-	manager, err := session.NewManager(repository, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(repository, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +129,7 @@ func TestManagerTemporarySessionUsesMemoryAndDisappearsOnDelete(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(droidDirectory))
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestManagerDeletesIdleSessionAndRetainsArchivedDroidStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(droidDirectory))
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +224,7 @@ func TestManagerProjectsCanonicalDroidHistoryAcrossRestart(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{}
-	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestManagerProjectsCanonicalDroidHistoryAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	reopened, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	reopened, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -272,7 +272,7 @@ func TestInitializedSessionFailsClosedWhenDroidStoreIsMissing(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	droidDirectory := filepath.Join(root, "droids")
-	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(droidDirectory))
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestInitializedSessionFailsClosedWhenDroidStoreIsMissing(t *testing.T) {
 	if err := os.Remove(filepath.Join(droidDirectory, created.ID+".db")); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(droidDirectory))
+	reopened, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,7 +306,7 @@ func TestCompletedBashBecomesPendingThenConsumedDroidBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestExcludedBashRemainsTransient(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +394,7 @@ func TestExcludedBashRemainsTransient(t *testing.T) {
 	if err := manager.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	reopened, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +412,7 @@ func TestWaitCancellationDetachesWithoutAbortingDroid(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
-	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +457,7 @@ func TestManagerDisposeTemporaryCancelsActiveRun(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
-	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -492,7 +492,7 @@ func TestManagerDisposeTemporaryCancelsActiveBash(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	manager, err := session.NewManager(store, &authorityProviders{}, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestManagerRejectsDeleteWhileSessionRunIsActive(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
-	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,7 +559,7 @@ func TestDelayedAbortCannotCancelSuccessorTurn(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{}
-	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -601,7 +601,7 @@ func TestAbortChecksDroidTurnGeneration(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{block: make(chan struct{})}
-	manager, err := session.NewManager(store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -672,7 +672,7 @@ func TestManagerIncludesCurrentSkillCatalogAndActivationTool(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{}
 	manager, err := session.NewManager(
-		store, providers, "system", session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+		store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -715,6 +715,18 @@ func TestManagerIncludesCurrentSkillCatalogAndActivationTool(t *testing.T) {
 	if !reflect.DeepEqual(toolNames, wantTools) {
 		t.Fatalf("provider tools = %#v, want %#v", toolNames, wantTools)
 	}
+}
+
+func staticRuntimeBundleBuilder(core string) session.RuntimeBundleBuilder {
+	registry, err := skills.NewRegistry()
+	if err != nil {
+		panic(err)
+	}
+	builder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{Core: core, Registry: registry})
+	if err != nil {
+		panic(err)
+	}
+	return builder
 }
 
 type authorityProviders struct {

@@ -12,11 +12,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/systemprompt"
 )
 
@@ -79,7 +77,7 @@ type PromptResult struct {
 type Manager struct {
 	store           Repository
 	providers       droids.Providers
-	systemPrompt    string
+	bundleBuilder   RuntimeBundleBuilder
 	droidDirectory  string
 	temporaryDroids bool
 	bashContext     context.Context
@@ -125,11 +123,6 @@ type temporaryDisposal struct {
 	err  error
 }
 
-type runtimeBundle struct {
-	systemPrompt string
-	tools        []droids.AnyTool
-}
-
 type runtime struct {
 	droid       *droids.Droid
 	closeStore  func() error
@@ -139,12 +132,14 @@ type runtime struct {
 
 	// admissionMu remains held for a complete parent turn. controlMu protects
 	// the prompt-admission/active-binding and generation-checked abort boundary.
-	admissionMu sync.Mutex
-	controlMu   sync.Mutex
-	stateMu     sync.Mutex
-	activeRun   string
-	runs        map[string]*liveRun
-	recovery    *droids.ExecutionSnapshot
+	admissionMu       sync.Mutex
+	controlMu         sync.Mutex
+	stateMu           sync.Mutex
+	activeRun         string
+	runs              map[string]*liveRun
+	recovery          *droids.ExecutionSnapshot
+	promptSources     []systemprompt.Source
+	promptDiagnostics []systemprompt.Diagnostic
 }
 
 type liveRun struct {
@@ -171,12 +166,15 @@ func WithDroidStoreDirectory(directory string) ManagerOption {
 	}
 }
 
-func NewManager(store Repository, providers droids.Providers, systemPrompt string, opts ...ManagerOption) (*Manager, error) {
+func NewManager(store Repository, providers droids.Providers, bundleBuilder RuntimeBundleBuilder, opts ...ManagerOption) (*Manager, error) {
 	if store == nil {
 		return nil, fmt.Errorf("session store is required")
 	}
 	if providers == nil {
 		return nil, fmt.Errorf("droids providers are required")
+	}
+	if nilRuntimeBundleBuilder(bundleBuilder) {
+		return nil, fmt.Errorf("runtime bundle builder is required")
 	}
 	options := managerOptions{}
 	for _, apply := range opts {
@@ -205,7 +203,7 @@ func NewManager(store Repository, providers droids.Providers, systemPrompt strin
 	}
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	return &Manager{
-		store: store, providers: providers, systemPrompt: systemPrompt,
+		store: store, providers: providers, bundleBuilder: bundleBuilder,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
@@ -1044,7 +1042,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	if !identifier.Valid(record.ID, "session_") {
 		return nil, fmt.Errorf("session %q has an invalid droid identity", record.ID)
 	}
-	bundle, err := m.buildRuntimeBundle(ctx, record)
+	bundle, err := m.bundleBuilder.Build(ctx, record)
 	if err != nil {
 		return nil, fmt.Errorf("build runtime bundle for session %q: %w", record.ID, err)
 	}
@@ -1072,8 +1070,8 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
 		Store: store, Providers: m.providers,
 		Model:     record.ModelProvider + "/" + record.ModelID,
-		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.systemPrompt,
-		Tools: bundle.tools,
+		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
+		Tools: bundle.Tools,
 	})
 	if err != nil {
 		_ = closeStore()
@@ -1100,7 +1098,9 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	}
 	loaded := &runtime{
 		droid: droid, closeStore: closeStore, cwd: record.CWD, events: events, eventCursor: snapshot.LastEvent,
-		runs: make(map[string]*liveRun),
+		runs:              make(map[string]*liveRun),
+		promptSources:     append([]systemprompt.Source(nil), bundle.Prompt.Sources...),
+		promptDiagnostics: append([]systemprompt.Diagnostic(nil), bundle.Prompt.Diagnostics...),
 	}
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {
@@ -1118,31 +1118,6 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		loaded.events.invalidate()
 	}
 	return loaded, nil
-}
-
-func (m *Manager) buildRuntimeBundle(ctx context.Context, record SessionRecord) (runtimeBundle, error) {
-	registry, err := skills.NewRegistry()
-	if err != nil {
-		return runtimeBundle{}, err
-	}
-	composer, err := systemprompt.New(m.systemPrompt)
-	if err != nil {
-		return runtimeBundle{}, err
-	}
-	catalog, err := registry.CatalogSection()
-	if err != nil {
-		return runtimeBundle{}, err
-	}
-	if _, err := composer.Set(catalog); err != nil {
-		return runtimeBundle{}, err
-	}
-	result, err := composer.Build(ctx, systemprompt.Request{SessionID: record.ID, CWD: record.CWD})
-	if err != nil {
-		return runtimeBundle{}, err
-	}
-	tools := codingtools.New(record.CWD)
-	tools = append(tools, registry.ActivateTool())
-	return runtimeBundle{systemPrompt: result.Prompt, tools: tools}, nil
 }
 
 func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {

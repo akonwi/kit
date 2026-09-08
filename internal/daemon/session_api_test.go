@@ -7,7 +7,9 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -102,6 +104,12 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 
 	workspace := t.TempDir()
+	if err := os.WriteFile(filepath.Join(paths.Home, "AGENTS.md"), []byte("daemon-global-guidance"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("daemon-project-guidance"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	sessionID, err := identifier.New("session_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
@@ -185,6 +193,14 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 	if snapshot.ContextTokens <= 0 || snapshot.ContextWindow != 128_000 {
 		t.Fatalf("snapshot context = %d/%d", snapshot.ContextTokens, snapshot.ContextWindow)
+	}
+	providers.mu.Lock()
+	providerRequest := providers.requests[0]
+	providers.mu.Unlock()
+	for _, expected := range []string{"kit-customization", "daemon-global-guidance", "daemon-project-guidance"} {
+		if !strings.Contains(providerRequest.SystemPrompt, expected) {
+			t.Fatalf("daemon provider prompt does not contain %q:\n%s", expected, providerRequest.SystemPrompt)
+		}
 	}
 	eventBatch, err := client.GetSessionEvents(context.Background(), created.ID, "", 0)
 	if err != nil {
@@ -361,9 +377,10 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 }
 
 type daemonEchoProviders struct {
-	mu    sync.Mutex
-	calls int
-	block <-chan struct{}
+	mu       sync.Mutex
+	calls    int
+	block    <-chan struct{}
+	requests []droids.Request
 }
 
 func (p *daemonEchoProviders) ID() string             { return "test" }
@@ -388,10 +405,11 @@ func (p *daemonEchoProviders) RefreshModels(context.Context) error { return nil 
 func (p *daemonEchoProviders) Stream(
 	ctx context.Context,
 	_ droids.Model,
-	_ droids.Request,
+	request droids.Request,
 ) droids.Stream {
 	p.mu.Lock()
 	p.calls++
+	p.requests = append(p.requests, request)
 	text := fmt.Sprintf("reply %d", p.calls)
 	block := p.block
 	p.mu.Unlock()
