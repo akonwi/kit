@@ -55,7 +55,8 @@ type Options struct {
 	Login                DeviceLogin
 	APIKeyLogin          APIKeyLogin
 
-	appDone <-chan struct{}
+	appDone        <-chan struct{}
+	terminalStatus *terminalStatusReporter
 }
 
 // Run starts the native terminal client and blocks until it exits.
@@ -88,6 +89,8 @@ func Run(options Options) error {
 	done := make(chan struct{})
 	options.Context = runContext
 	options.appDone = done
+	options.terminalStatus = newTerminalStatusReporter()
+	defer options.terminalStatus.Close()
 	err := ui.Run(app{Options: options}, ui.WithShortcuts(nativeRootShortcuts()))
 	close(done)
 	cancel()
@@ -203,6 +206,7 @@ type appState struct {
 	activeRun                   sessionclient.Run
 	activeRunID                 string
 	runPending                  bool
+	agentFeedbackPending        bool
 	reloadPending               bool
 	cwdPending                  bool
 	prompt                      *promptAdmission
@@ -222,14 +226,18 @@ type appState struct {
 	newSessionPending bool
 	bootstrapTarget   protocol.SessionInfo
 
-	availableMu sync.RWMutex
-	available   map[string]bool
+	availableMu    sync.RWMutex
+	available      map[string]bool
+	terminalCWD    string
+	terminalStatus *terminalStatusReporter
 }
 
 func (s *appState) InitState() {
 	options := s.Widget().(app).Options
 	s.ctx, s.cancel = context.WithCancel(options.Context)
 	s.available = cloneProviders(options.AvailableProviders)
+	s.terminalCWD = options.CWD
+	s.terminalStatus = options.terminalStatus
 	s.liveAssistant = -1
 	s.liveTools = make(map[string]int)
 	s.liveContent = make(map[int]liveContentBlock)
@@ -264,7 +272,10 @@ func (s *appState) InitState() {
 	}()
 }
 
-func (s *appState) TickFrame(_ time.Time) bool {
+func (s *appState) TickFrame(now time.Time) bool {
+	if s.terminalStatus != nil {
+		s.syncTerminalStatus(now, s.Context().EventContext().SetTitle)
+	}
 	keepTicking := false
 	if s.needsScroll {
 		if s.scrollPendingLayout {
@@ -322,6 +333,17 @@ func (s *appState) TickFrame(_ time.Time) bool {
 		}
 	}
 	return keepTicking || s.needsScroll || s.activityNeedsScroll || s.activityRevealPending
+}
+
+func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
+	if s.terminalStatus == nil {
+		return
+	}
+	name, cwd := s.session.Name, s.session.CWD
+	if cwd == "" {
+		cwd = s.terminalCWD
+	}
+	s.terminalStatus.Update(now, name, cwd, resolveTerminalStatus(s.runPending, s.agentFeedbackPending), setTitle)
 }
 
 func (s *appState) showToast(input toastInput) {
@@ -1065,6 +1087,7 @@ func (s *appState) resetLiveRun() {
 	s.turnActivity = ""
 	s.turnThinking = ""
 	s.runStopping = false
+	s.agentFeedbackPending = false
 }
 
 func (s *appState) setTurnActivity(activity string) {
@@ -1557,6 +1580,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						runtime.Dispatch(func() {
 							if operation == s.operation {
 								s.SetState(func() { s.settleRunWithoutSnapshot(info, err) })
+								s.notifyTurnSettled(info.Status)
 							}
 						})
 						return
@@ -1602,6 +1626,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							s.status = "esc abort · ctrl+c detach"
 						}
 					})
+					s.notifyTurnSettled(info.Status)
 				})
 				if nextRunID == "" {
 					return
@@ -1614,6 +1639,17 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 			}
 		}
 	}()
+}
+
+func (s *appState) notifyTurnSettled(status protocol.RunStatus) {
+	if s.terminalStatus != nil {
+		s.terminalStatus.Bell()
+	}
+	message := "Agent turn complete"
+	if status == protocol.RunStatusFailed || status == protocol.RunStatusInterrupted {
+		message = "Agent turn failed"
+	}
+	s.Context().EventContext().Notify("Kit", message)
 }
 
 func (s *appState) selectProvider(ctx ui.EventContext, providerID string) {

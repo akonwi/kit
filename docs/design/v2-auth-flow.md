@@ -355,7 +355,9 @@ Credential values are never echoed. Product/provider names are used verbatim.
 - URLs remain visible even when an open-browser action exists, preserve SSH and
   headless use, carry OSC 8 hyperlink metadata when safe, and explicitly handle
   activation while TUI mouse reporting is enabled.
-- Terminal title reflects `connect a provider` and `waiting for approval`.
+- Terminal title remains idle during authentication; the visible gate/dialog
+  copy names the exact action. The `?` marker is reserved for feedback requested
+  by an active agent turn.
 - Wide and narrow snapshot tests reject clipped glyphs, unlabeled truncation,
   incomplete separators, and overflow outside the measured content region.
 
