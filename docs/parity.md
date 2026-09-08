@@ -117,7 +117,9 @@ recorded manual verification exists.
 - [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
 - [ ] Remove all process-global cwd, active-session, and model-cache state.
-- [ ] Support cwd retargeting with explicit server-side workspace context.
+- [x] Support persisted cwd retargeting through an explicit synchronized
+  server-side workspace scope, without process-global cwd mutation or
+  cross-session interference.
 - [ ] Implement handoff and lineage without globally switching other clients.
 - [x] Implement session explorer/picker workflows and responsive presentation;
   the native dialog loads the global directory, centers selection on the
@@ -177,7 +179,9 @@ recorded manual verification exists.
 - [x] Exact/surgical edit behavior and useful conflict errors.
 - [x] Full-file writes with parent-directory creation.
 - [x] Directory listing, glob finding, and content search.
-- [x] Shell execution, cancellation, output bounds, exit status, and cwd.
+- [x] Shell execution, cancellation, output bounds, exit status, and dynamic
+  session cwd, including the synchronous sequential `change_cwd` tool; relative
+  coding tools and direct bash snapshot the current workspace scope at admission.
 - [~] Direct composer `!`/`!!` bash execution; included terminal results enter
   droid boundary history, while in-flight and excluded executions are transient.
 - [ ] Git-aware operations used by review and workspace features.
@@ -218,9 +222,9 @@ recorded manual verification exists.
   keyboard, and mouse behavior; the initial single-ranked palette opens from
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
-  state, and an undimmed modal boundary. It exposes login, idle session-context
-  reload, conditional abort, session exploration, quit, and dynamically
-  discovered idle-only prompt commands with quoted arguments; session
+  state, and an undimmed modal boundary. It exposes cwd navigation, login, idle
+  session-context reload, conditional abort, session exploration, quit, and
+  dynamically discovered idle-only prompt commands with quoted arguments; session
   exploration opens the native saved-session listing and switches the attached
   TUI session. Completion, nested pickers, and non-prompt dynamic command
   sources remain.
@@ -230,8 +234,9 @@ recorded manual verification exists.
   interactive tool surfaces; the native toast stack presents stacked,
   auto-expiring info/warning/error feedback above all overlays with semantic
   borders and 300 ms eased slide-in motion; only persistent toasts expose
-  manual dismissal. Copy and
-  browser/device-code feedback use it.
+  manual dismissal. Cwd navigation shows a normal warning suggesting `/reload`
+  when agent context should be refreshed. Copy and browser/device-code feedback
+  use it.
   The initial shell also includes startup failure, three-provider selection,
   obscured API-key entry, and cancellable Codex device-flow surfaces.
 - [~] Wide split workspace, draggable remembered ratio, narrow tabs, retained
@@ -272,8 +277,9 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v14 exposes retry-safe client-selected persisted or temporary
-  session IDs, validated session rename and archival/disposal deletion,
+  protocol v15 exposes retry-safe client-selected persisted or temporary
+  session IDs, validated session rename, persisted cwd mutation, and
+  archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, renderer-safe prompt
   command catalogs and server-owned prompt-command execution, droid-owned turn
   identity, direct canonical history, context/pending boundaries, runtime stream
@@ -362,8 +368,8 @@ recorded manual verification exists.
   diagnostics, local-guidance priority, and documented precedence. ADR 0010
   intentionally excludes `CLAUDE.md`, siblings, and immediate-child scanning.
 - [x] Explicit idle session reload applies current context, skills, prompt
-  commands, and cwd-bound tools atomically, preserves droid history, and forces
-  event-stream resynchronization.
+  commands, and immutable tool contributions atomically, preserves droid history,
+  retains the dynamic workspace scope, and forces event-stream resynchronization.
 - [x] User-global and project `SKILL.md` discovery, deterministic precedence,
   bounded diagnostics, model-visible prompt summaries, source-relative location
   guidance, the reserved embedded `kit-customization` skill, and the stable
@@ -373,7 +379,9 @@ recorded manual verification exists.
   contribution are complete; compact synthetic transcript identity remains.
 - [ ] Claude command compatibility and `cc:` namespacing.
 - [ ] User/project subagent definition discovery.
-- [ ] Reload behavior after cwd/config changes.
+- [x] Cwd navigation immediately retargets relative filesystem operations while
+  explicit idle reload refreshes context, skills, and prompt commands from the
+  new cwd.
 
 ## Composer references and attachments
 
@@ -394,8 +402,11 @@ recorded manual verification exists.
   abort, session exploration, quit, and server-discovered global/project prompt
   commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
-- [ ] `/cd`, `/settings`, `/pager`, `/code-review`, `/handoff`, `/login`,
-  `/logout`, `/model`, `/name`, `/new`, `/reload`, `/debug`, `/sessions`,
+- [x] `/cd <path>` changes the authoritative session workspace scope, records a
+  durable user-origin cwd boundary for the droid, and offers the same relative,
+  absolute, and home-path behavior as `change_cwd`.
+- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/login`, `/logout`,
+  `/model`, `/name`, `/new`, `/reload`, `/debug`, `/sessions`,
   `/tree`, `/thinking`, `/quit`, `/compact`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline
   save errors.
@@ -486,7 +497,8 @@ recorded manual verification exists.
   tests.
 - [ ] No current user data is mutated before explicit migration.
 - [~] README, ADRs 0008/0009/0010, native CLI help, session context guidance,
-  skills, and prompt-command documentation match the implemented surface;
+  session cwd, skills, and prompt-command documentation match the implemented
+  surface;
   feature documentation for deferred RPC, web, plugin, and interaction behavior
   remains to be reconciled.
 

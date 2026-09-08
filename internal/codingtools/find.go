@@ -30,6 +30,11 @@ type findDetails struct {
 }
 
 func newFindTool(cwd string) droids.Tool[findArgs] {
+	cwd = filepath.Clean(cwd)
+	return newFindToolWithCWD(func() string { return cwd })
+}
+
+func newFindToolWithCWD(currentCWD CWDProvider) droids.Tool[findArgs] {
 	return droids.Tool[findArgs]{
 		Name:        FindToolName,
 		Description: "Find files by glob pattern. Returns paths relative to the search directory. Respects .gitignore. Truncated to 1000 results.",
@@ -40,7 +45,7 @@ func newFindTool(cwd string) droids.Tool[findArgs] {
 		}, "pattern"),
 		Mode: droids.ModeParallel,
 		Execute: func(ctx context.Context, _ droids.ToolContext, args findArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-			result, err := executeFind(ctx, cwd, args)
+			result, err := executeFind(ctx, currentCWD(), args)
 			if err != nil {
 				if ctx.Err() != nil {
 					return droids.ToolResult{}, ctx.Err()

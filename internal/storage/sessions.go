@@ -59,6 +59,107 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 	return s.GetSession(ctx, input.ID)
 }
 
+// GetSessionCWDMutation loads one durable cwd-mutation receipt.
+func (s *Store) GetSessionCWDMutation(ctx context.Context, sessionID, mutationID string) (CWDMutation, error) {
+	if s == nil || s.db == nil {
+		return CWDMutation{}, fmt.Errorf("store is closed")
+	}
+	mutation, err := scanCWDMutation(s.db.QueryRowContext(ctx, `
+		SELECT mutation_id, session_id, target_path, previous_cwd, cwd, changed
+		FROM session_cwd_mutations WHERE session_id = ? AND mutation_id = ?
+	`, sessionID, mutationID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return CWDMutation{}, fmt.Errorf("cwd mutation %q for session %q: %w", mutationID, sessionID, ErrNotFound)
+	}
+	if err != nil {
+		return CWDMutation{}, fmt.Errorf("load cwd mutation %q: %w", mutationID, err)
+	}
+	return mutation, nil
+}
+
+// ApplySessionCWDMutation atomically records an idempotency receipt and updates
+// the session cwd. Reusing an id returns the original receipt without applying
+// the relative target a second time.
+func (s *Store) ApplySessionCWDMutation(ctx context.Context, mutation CWDMutation) (SessionRecord, CWDMutation, error) {
+	if s == nil || s.db == nil {
+		return SessionRecord{}, CWDMutation{}, fmt.Errorf("store is closed")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SessionRecord{}, CWDMutation{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	existing, err := scanCWDMutation(tx.QueryRowContext(ctx, `
+		SELECT mutation_id, session_id, target_path, previous_cwd, cwd, changed
+		FROM session_cwd_mutations WHERE session_id = ? AND mutation_id = ?
+	`, mutation.SessionID, mutation.ID))
+	if err == nil {
+		if existing.TargetPath != mutation.TargetPath {
+			return SessionRecord{}, CWDMutation{}, fmt.Errorf("cwd mutation id %q was reused", mutation.ID)
+		}
+		record, loadErr := scanSession(tx.QueryRowContext(ctx, `
+			SELECT id, cwd, name, persistent, parent_session_id,
+			       model_provider, model_id, thinking_level, droid_initialized_at,
+			       created_at, updated_at, archived_at
+			FROM sessions WHERE id = ? AND archived_at IS NULL
+		`, mutation.SessionID))
+		if errors.Is(loadErr, sql.ErrNoRows) {
+			loadErr = fmt.Errorf("session %q: %w", mutation.SessionID, ErrNotFound)
+		}
+		return record, existing, loadErr
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return SessionRecord{}, CWDMutation{}, fmt.Errorf("check cwd mutation %q: %w", mutation.ID, err)
+	}
+
+	var record SessionRecord
+	if mutation.Changed {
+		record, err = scanSession(tx.QueryRowContext(ctx, `
+			UPDATE sessions SET cwd = ?, updated_at = ?
+			WHERE id = ? AND archived_at IS NULL
+			RETURNING id, cwd, name, persistent, parent_session_id,
+			          model_provider, model_id, thinking_level, droid_initialized_at,
+			          created_at, updated_at, archived_at
+		`, mutation.CWD, formatTimestamp(time.Now()), mutation.SessionID))
+	} else {
+		record, err = scanSession(tx.QueryRowContext(ctx, `
+			SELECT id, cwd, name, persistent, parent_session_id,
+			       model_provider, model_id, thinking_level, droid_initialized_at,
+			       created_at, updated_at, archived_at
+			FROM sessions WHERE id = ? AND archived_at IS NULL
+		`, mutation.SessionID))
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionRecord{}, CWDMutation{}, fmt.Errorf("session %q: %w", mutation.SessionID, ErrNotFound)
+	}
+	if err != nil {
+		return SessionRecord{}, CWDMutation{}, fmt.Errorf("change session %q cwd: %w", mutation.SessionID, err)
+	}
+	changed := 0
+	if mutation.Changed {
+		changed = 1
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO session_cwd_mutations(
+			session_id, mutation_id, target_path, previous_cwd, cwd, changed, created_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`, mutation.SessionID, mutation.ID, mutation.TargetPath, mutation.PreviousCWD, mutation.CWD, changed, formatTimestamp(time.Now())); err != nil {
+		return SessionRecord{}, CWDMutation{}, fmt.Errorf("record cwd mutation %q: %w", mutation.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionRecord{}, CWDMutation{}, fmt.Errorf("commit cwd mutation %q: %w", mutation.ID, err)
+	}
+	return record, mutation, nil
+}
+
+func scanCWDMutation(scanner rowScanner) (CWDMutation, error) {
+	var mutation CWDMutation
+	var changed int
+	err := scanner.Scan(&mutation.ID, &mutation.SessionID, &mutation.TargetPath, &mutation.PreviousCWD, &mutation.CWD, &changed)
+	mutation.Changed = changed == 1
+	return mutation, err
+}
+
 // RenameSession replaces a non-archived session's display name.
 func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionRecord, error) {
 	if s == nil || s.db == nil {

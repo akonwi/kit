@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/systemprompt"
@@ -269,6 +270,60 @@ func TestReloadSessionSerializesWithCanceledManagerShutdown(t *testing.T) {
 	}
 }
 
+func TestUserCWDChangeSerializesAfterReload(t *testing.T) {
+	base := t.TempDir()
+	next := filepath.Join(base, "next")
+	if err := os.Mkdir(next, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	builder := &blockingReloadBundleBuilder{
+		delegate: staticRuntimeBundleBuilder("system"), started: make(chan struct{}), release: make(chan struct{}),
+	}
+	manager, err := session.NewManager(store, &authorityProviders{}, builder, session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloadDone := make(chan error, 1)
+	go func() {
+		_, err := manager.ReloadSession(context.Background(), record.ID)
+		reloadDone <- err
+	}()
+	<-builder.started
+	cwdDone := make(chan error, 1)
+	go func() {
+		_, err := manager.ChangeCWD(context.Background(), record.ID, "next")
+		cwdDone <- err
+	}()
+	close(builder.release)
+	if err := <-reloadDone; err != nil {
+		t.Fatalf("ReloadSession() error = %v", err)
+	}
+	if err := <-cwdDone; err != nil {
+		t.Fatal(err)
+	}
+	after, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Session.CWD != next || after.EventStreamID == before.EventStreamID {
+		t.Fatalf("snapshot after serialized reload and cwd change = %+v, before = %+v", after, before)
+	}
+}
+
 func TestReloadSessionCancellationBeforeTransitionLeavesRuntimeUntouched(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
@@ -432,7 +487,10 @@ type blockingReloadBundleBuilder struct {
 	release  chan struct{}
 }
 
-func (b *blockingReloadBundleBuilder) Build(ctx context.Context, record session.SessionRecord) (session.RuntimeBundle, error) {
+func (b *blockingReloadBundleBuilder) Build(ctx context.Context, record session.SessionRecord, currentCWD codingtools.CWDProvider) (session.RuntimeBundle, error) {
+	if currentCWD != nil && currentCWD() == "" {
+		return session.RuntimeBundle{}, errors.New("empty workspace cwd")
+	}
 	b.mu.Lock()
 	b.builds++
 	build := b.builds
@@ -445,7 +503,7 @@ func (b *blockingReloadBundleBuilder) Build(ctx context.Context, record session.
 			return session.RuntimeBundle{}, ctx.Err()
 		}
 	}
-	return b.delegate.Build(ctx, record)
+	return b.delegate.Build(ctx, record, currentCWD)
 }
 
 type scriptedRuntimeBundleBuilder struct {
@@ -456,7 +514,7 @@ type scriptedRuntimeBundleBuilder struct {
 	delegate     session.RuntimeBundleBuilder
 }
 
-func (b *scriptedRuntimeBundleBuilder) Build(ctx context.Context, record session.SessionRecord) (session.RuntimeBundle, error) {
+func (b *scriptedRuntimeBundleBuilder) Build(ctx context.Context, record session.SessionRecord, currentCWD codingtools.CWDProvider) (session.RuntimeBundle, error) {
 	b.mu.Lock()
 	b.builds++
 	build := b.builds
@@ -464,7 +522,7 @@ func (b *scriptedRuntimeBundleBuilder) Build(ctx context.Context, record session
 	if build == b.failAt {
 		return session.RuntimeBundle{}, errors.New("simulated bundle failure")
 	}
-	bundle, err := b.delegate.Build(ctx, record)
+	bundle, err := b.delegate.Build(ctx, record, currentCWD)
 	if err == nil && build == b.invalidateAt {
 		bundle.Tools = append(bundle.Tools, bundle.Tools[0])
 	}

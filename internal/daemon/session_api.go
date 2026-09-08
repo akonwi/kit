@@ -21,6 +21,7 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 
 type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
+	ChangeCWD(context.Context, string, protocol.ChangeCWDInput) (protocol.SessionInfo, error)
 	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
 	Delete(context.Context, string) error
 	DisposeTemporary(context.Context, string) error
@@ -54,6 +55,18 @@ func (s runtimeSessionService) Create(
 		return protocol.SessionInfo{}, err
 	}
 	return projectSession(record), nil
+}
+
+func (s runtimeSessionService) ChangeCWD(
+	ctx context.Context,
+	sessionID string,
+	input protocol.ChangeCWDInput,
+) (protocol.SessionInfo, error) {
+	result, err := s.manager.ChangeCWDWithID(ctx, sessionID, input.MutationID, input.Path)
+	if err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	return projectSession(result.Session), nil
 }
 
 func (s runtimeSessionService) Rename(
@@ -406,6 +419,27 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusCreated, record)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/cwd", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ChangeCWDInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.ChangeCWD(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session cwd result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/reload", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.Reload(request.Context(), request.PathValue("sessionID"))

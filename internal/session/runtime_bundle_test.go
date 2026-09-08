@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
@@ -25,7 +26,7 @@ func TestRuntimeBundleBuilderOwnsMatchingSkillCatalogAndTool(t *testing.T) {
 	}
 	bundle, err := builder.Build(t.Context(), session.SessionRecord{
 		ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir(),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +77,6 @@ func TestManagerRejectsNilRuntimeBundleBuilder(t *testing.T) {
 
 type typedNilRuntimeBundleBuilder struct{}
 
-func (*typedNilRuntimeBundleBuilder) Build(context.Context, session.SessionRecord) (session.RuntimeBundle, error) {
+func (*typedNilRuntimeBundleBuilder) Build(context.Context, session.SessionRecord, codingtools.CWDProvider) (session.RuntimeBundle, error) {
 	panic("unexpected call")
 }

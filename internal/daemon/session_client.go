@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/version"
 )
@@ -140,6 +141,36 @@ func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID strin
 		if event.SessionID != sessionID {
 			return protocol.SessionEventBatch{}, fmt.Errorf("daemon session event identity mismatch")
 		}
+	}
+	return output, nil
+}
+
+// ChangeSessionCWD changes one session's relative filesystem scope.
+func (c *Client) ChangeSessionCWD(ctx context.Context, sessionID, target string) (protocol.SessionInfo, error) {
+	mutationID, err := identifier.New("cwd_")
+	if err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	return c.ChangeSessionCWDWithID(ctx, sessionID, mutationID, target)
+}
+
+// ChangeSessionCWDWithID changes one session's relative filesystem scope using
+// a client-selected idempotency identity.
+func (c *Client) ChangeSessionCWDWithID(ctx context.Context, sessionID, mutationID, target string) (protocol.SessionInfo, error) {
+	input := protocol.ChangeCWDInput{MutationID: mutationID, Path: target}
+	if err := input.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate session cwd request: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/cwd"
+	var output protocol.SessionInfo
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate daemon session cwd result: %w", err)
+	}
+	if output.ID != sessionID {
+		return protocol.SessionInfo{}, fmt.Errorf("daemon session cwd identity mismatch")
 	}
 	return output, nil
 }

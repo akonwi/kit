@@ -101,10 +101,37 @@ func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
 		t.Fatalf("snapshot after bound reload = %+v", after)
 	}
 
+	nested := filepath.Join(workspace, "nested")
+	if err := os.Mkdir(nested, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := bound.ChangeCWD(t.Context(), " "); err == nil {
+		t.Fatal("bound cwd change accepted an empty target")
+	}
+	if _, err := bound.ChangeCWD(t.Context(), "missing"); err == nil {
+		t.Fatal("bound cwd change accepted a missing target")
+	}
+	mutationID := "cwd_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	changedByHTTP, err := transport.ChangeSessionCWDWithID(t.Context(), created.ID, mutationID, "nested")
+	if err != nil || changedByHTTP.CWD != nested {
+		t.Fatalf("HTTP cwd change = %+v, error = %v", changedByHTTP, err)
+	}
+	replayedHTTP, err := transport.ChangeSessionCWDWithID(t.Context(), created.ID, mutationID, "nested")
+	if err != nil || replayedHTTP.CWD != nested {
+		t.Fatalf("replayed HTTP cwd change = %+v, error = %v", replayedHTTP, err)
+	}
+	changedByBound, err := bound.ChangeCWD(t.Context(), "..")
+	if err != nil || changedByBound.CWD != workspace {
+		t.Fatalf("bound cwd change = %+v, error = %v", changedByBound, err)
+	}
+
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := bound.Reload(canceled); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled bound reload error = %v", err)
+	}
+	if _, err := bound.ChangeCWD(canceled, "nested"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled bound cwd change error = %v", err)
 	}
 }
 

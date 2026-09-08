@@ -37,6 +37,6 @@ The catalog contains each visible skill's absolute `SKILL.md` location. When act
 
 ## Lifecycle and diagnostics
 
-Discovery occurs when a session runtime is first loaded and on explicit idle reload. Add, remove, or edit skills, then run **reload** from the native command palette to update both the advertised catalog and `activate_skill` atomically.
+Discovery occurs when a session runtime is first loaded and on explicit idle reload. Add, remove, or edit skills, then run **reload** from the native command palette to update both the advertised catalog and `activate_skill` atomically. Changing the session cwd retargets relative filesystem tools but does not implicitly replace the skill registry; reload after moving when project skills from the destination should apply.
 
 Unreadable, malformed, invalid, duplicate, reserved, oversized, escaped, and over-limit definitions are omitted with bounded structured diagnostics. One skill file is limited to 256 KiB, a registry to 128 skills including the embedded skill, and the model-visible catalog to 256 KiB.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -44,6 +45,11 @@ type bashDetails struct {
 }
 
 func newBashTool(cwd string) droids.Tool[bashArgs] {
+	cwd = filepath.Clean(cwd)
+	return newBashToolWithCWD(func() string { return cwd })
+}
+
+func newBashToolWithCWD(currentCWD CWDProvider) droids.Tool[bashArgs] {
 	return droids.Tool[bashArgs]{
 		Name:        BashToolName,
 		Description: "Run a shell command in the project directory. Use for file operations, building, testing, git, etc. Avoid interactive commands.",
@@ -53,6 +59,7 @@ func newBashTool(cwd string) droids.Tool[bashArgs] {
 		}, "command"),
 		Mode: droids.ModeSequential,
 		Execute: func(ctx context.Context, _ droids.ToolContext, args bashArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
+			cwd := currentCWD()
 			if strings.TrimSpace(args.Command) == "" {
 				return errorResult(fmt.Errorf("command is required"), bashDetails{}), nil
 			}

@@ -711,7 +711,7 @@ func TestManagerIncludesCurrentSkillCatalogAndActivationTool(t *testing.T) {
 	for _, tool := range request.Tools {
 		toolNames = append(toolNames, tool.Name)
 	}
-	wantTools := []string{"bash", "read", "write", "edit", "ls", "grep", "find", skills.ActivateToolName}
+	wantTools := []string{"bash", "read", "write", "edit", "ls", "grep", "find", skills.ActivateToolName, session.ChangeCWDToolName}
 	if !reflect.DeepEqual(toolNames, wantTools) {
 		t.Fatalf("provider tools = %#v, want %#v", toolNames, wantTools)
 	}

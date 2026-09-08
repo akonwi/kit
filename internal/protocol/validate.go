@@ -22,6 +22,18 @@ func (input CreateSessionInput) Validate() error {
 	return nil
 }
 
+// Validate checks a session cwd change crossing a transport boundary.
+func (input ChangeCWDInput) Validate() error {
+	if !identifier.Valid(input.MutationID, "cwd_") {
+		return fmt.Errorf("cwd mutation id is not canonical")
+	}
+	path := strings.TrimSpace(input.Path)
+	if !validPathText(path) {
+		return fmt.Errorf("working directory path must be non-empty renderer-safe UTF-8 and at most 4096 bytes")
+	}
+	return nil
+}
+
 // Validate checks a session rename crossing a transport boundary.
 func (input RenameSessionInput) Validate() error {
 	name := strings.TrimSpace(input.Name)
@@ -86,6 +98,18 @@ func (source PromptSource) validate() error {
 	return nil
 }
 
+func validPathText(value string) bool {
+	if value == "" || len(value) > 4096 || !utf8.ValidString(value) || strings.IndexByte(value, 0) >= 0 {
+		return false
+	}
+	for _, character := range value {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return false
+		}
+	}
+	return true
+}
+
 func validProtocolText(value string, maximum int) bool {
 	return value != "" && len(value) <= maximum && utf8.ValidString(value) && strings.IndexByte(value, 0) < 0
 }
@@ -107,8 +131,8 @@ func (session SessionInfo) Validate() error {
 	if session.ID == "" {
 		return fmt.Errorf("session id is empty")
 	}
-	if !filepath.IsAbs(session.CWD) {
-		return fmt.Errorf("session cwd %q is not absolute", session.CWD)
+	if !filepath.IsAbs(session.CWD) || !validPathText(session.CWD) {
+		return fmt.Errorf("session cwd %q is not a safe bounded absolute path", session.CWD)
 	}
 	provider, model, ok := strings.Cut(session.Model, "/")
 	if !ok || provider == "" || model == "" {

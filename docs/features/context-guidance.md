@@ -32,7 +32,9 @@ To apply edits to a loaded session:
 2. open the command palette with `Ctrl+P` or `/` from an empty composer;
 3. run **reload**.
 
-Reload atomically refreshes the system prompt and cwd-bound tools while preserving conversation history and pending boundaries. Connected clients resynchronize from a new authoritative event stream. If reload cannot build or open the replacement configuration, the prior runtime remains active.
+Reload atomically refreshes the system prompt and immutable tool contributions while preserving conversation history and pending boundaries. Connected clients resynchronize from a new authoritative event stream. If reload cannot build or open the replacement configuration, the prior runtime remains active.
+
+Changing the session cwd with `change_cwd` or `/cd <path>` immediately retargets relative filesystem tools but does not implicitly reload this guidance. The native TUI shows a warning suggesting **reload** when configuration should be refreshed from the destination. See [Session working directory](./session-cwd.md).
 
 ## Built-in customization guidance
 

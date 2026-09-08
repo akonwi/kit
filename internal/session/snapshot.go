@@ -93,16 +93,18 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if strings.TrimSpace(sessionID) == "" {
 		return Snapshot{}, fmt.Errorf("%w: session id is required", ErrInvalidInput)
 	}
-	record, err := m.sessionRecord(ctx, sessionID)
-	if err != nil {
-		return Snapshot{}, err
-	}
 	loaded, err := m.runtime(ctx, sessionID)
 	if err != nil {
 		return Snapshot{}, err
 	}
 	loaded.controlMu.Lock()
 	defer loaded.controlMu.Unlock()
+	loaded.workspace.mu.RLock()
+	defer loaded.workspace.mu.RUnlock()
+	record, err := m.sessionRecord(ctx, sessionID)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	loaded.events.mu.Lock()
 	defer loaded.events.mu.Unlock()
 	loaded.stateMu.Lock()

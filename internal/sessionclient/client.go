@@ -21,6 +21,7 @@ type Server interface {
 type Session interface {
 	ID() string
 	Snapshot(context.Context) (protocol.SessionSnapshot, error)
+	ChangeCWD(context.Context, string) (protocol.SessionInfo, error)
 	Reload(context.Context) (protocol.ReloadSessionResult, error)
 	Run(context.Context, string) (protocol.RunInfo, error)
 	Stream(context.Context, string) (EventStream, error)

@@ -11,7 +11,7 @@ import (
 	"github.com/akonwi/kit/internal/session"
 )
 
-func TestInitialSchemaContainsOnlySessionRegistry(t *testing.T) {
+func TestInitialSchemaContainsOnlySessionRegistryMetadata(t *testing.T) {
 	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -34,8 +34,8 @@ func TestInitialSchemaContainsOnlySessionRegistry(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	want := []string{"schema_migrations", "sessions"}
-	if len(tables) != len(want) || tables[0] != want[0] || tables[1] != want[1] {
+	want := []string{"schema_migrations", "session_cwd_mutations", "sessions"}
+	if len(tables) != len(want) || tables[0] != want[0] || tables[1] != want[1] || tables[2] != want[2] {
 		t.Fatalf("tables = %v, want %v", tables, want)
 	}
 	for _, obsolete := range []string{"turns", "parent_runs", "messages", "session_streams", "session_events"} {
@@ -44,6 +44,42 @@ func TestInitialSchemaContainsOnlySessionRegistry(t *testing.T) {
 		if err != sql.ErrNoRows {
 			t.Fatalf("table %q exists: name=%q err=%v", obsolete, name, err)
 		}
+	}
+}
+
+func TestSessionRegistryChangesCWD(t *testing.T) {
+	t.Parallel()
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	created, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_cwd", CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := t.TempDir()
+	mutation := session.CWDMutation{
+		ID: "cwd_1", SessionID: created.ID, TargetPath: "../target",
+		PreviousCWD: created.CWD, CWD: target, Changed: true,
+	}
+	changed, applied, err := store.ApplySessionCWDMutation(t.Context(), mutation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.CWD != target || changed.UpdatedAt.Before(created.UpdatedAt) || applied != mutation {
+		t.Fatalf("changed session = %+v, mutation = %+v", changed, applied)
+	}
+	replayed, receipt, err := store.ApplySessionCWDMutation(t.Context(), mutation)
+	if err != nil || replayed.CWD != target || receipt != mutation {
+		t.Fatalf("replayed cwd mutation = session:%+v receipt:%+v error:%v", replayed, receipt, err)
+	}
+	missing := mutation
+	missing.ID, missing.SessionID = "cwd_missing", "session_missing"
+	if _, _, err := store.ApplySessionCWDMutation(t.Context(), missing); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("missing cwd change error = %v", err)
 	}
 }
 

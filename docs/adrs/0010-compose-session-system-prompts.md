@@ -20,6 +20,8 @@ droids runtime.
 Context guidance is configuration, not conversation history. It should be
 recomputed deliberately when a session runtime is created or reloaded, while an
 already executing model cycle must continue with the prompt it started with.
+Changing a session's working directory is filesystem navigation, not an implicit
+context reload.
 
 ## Decision
 
@@ -124,7 +126,9 @@ project-local prompt commands. Prompt templates are not system-prompt sections:
 the server exposes renderer-safe command metadata to clients and expands a
 selected template as an ordinary user prompt against the same runtime snapshot.
 Quiescent reload replaces prompt commands atomically with prompt, skills, and
-tools.
+tools. Coding tools resolve relative paths through a synchronized session-owned
+workspace scope, so their filesystem root may move without replacing the
+immutable prompt, skill, or prompt-command snapshots.
 
 ### `AGENTS.md` context discovery
 
@@ -199,19 +203,33 @@ client does not mutate or reload an already loaded runtime.
 Kit provides a session-scoped explicit reload operation. Reload:
 
 1. requires the session's parent droid to be quiescent;
-2. rediscovers context from that session's cwd;
+2. rediscovers context from that session's current cwd;
 3. refreshes available Kit-owned feature and skill contributions;
-4. replaces the complete effective prompt and cwd-bound tool configuration as
+4. replaces the complete effective prompt and immutable tool contributions as
    one runtime transition; and
 5. leaves droid conversation history and provider replay metadata unchanged.
 
 A busy session rejects reload with a typed error rather than changing guidance
-between model cycles. A cwd change uses the same quiescent transition and does
-not publish the new cwd unless prompt and tool rebuilding succeeds.
+between model cycles.
 
-There is no filesystem watcher in the initial implementation. File edits become
-effective after explicit reload, a successful cwd change, runtime eviction and
-reopen, or daemon restart.
+The synchronous sequential `change_cwd` tool and `/cd <path>` command instead
+mutate only the session-owned filesystem scope. Relative targets resolve from the
+current scope, `~` resolves from the user's home, and the target must be an
+existing directory. Kit atomically persists the new cwd and an idempotency
+receipt before publishing it to the loaded runtime, so retries cannot apply a
+relative move twice. Each relative coding-tool or direct-bash execution snapshots
+that scope when the execution is admitted; already running commands keep their
+original cwd. A user-initiated change also records an idempotent droid boundary
+so the next model request observes the move; a model-initiated tool change does
+not duplicate its own result as another boundary. The mutation does not change
+process-global cwd, rebuild the droid, replace
+the event stream, or rediscover context, skills, and prompt commands. The native
+TUI warns after a successful move and suggests explicit reload when the user
+wants those configuration snapshots refreshed.
+
+There is no filesystem watcher in the initial implementation. File edits and
+cwd-relative configuration changes become effective after explicit reload,
+runtime eviction and reopen, or daemon restart.
 
 Because `droids.Config.SystemPrompt` is runtime configuration rather than
 durable conversation data, Kit may implement a quiescent refresh by closing and
@@ -257,8 +275,11 @@ The implementation must demonstrate:
 - user-global and project `SKILL.md` definitions are discovered deterministically,
   bounded safely, surfaced in diagnostics, and refreshed atomically on reload;
 - attaching a client does not reload an existing runtime;
-- explicit reload and cwd changes reject active sessions and update prompt plus
-  tools atomically while quiescent;
+- explicit reload rejects active sessions and atomically updates prompt plus
+  immutable tool contributions while quiescent;
+- cwd changes are synchronous sequential tool calls, persist before publication,
+  retarget subsequent relative tools without process-global cwd mutation, and
+  remain isolated across concurrent sessions;
 - reopening after runtime eviction or daemon restart uses current context-file
   contents without changing droid history; and
 - compaction requests and normal requests preserve their distinct system-prompt
@@ -276,6 +297,8 @@ The implementation must demonstrate:
   increasing every request's core prompt.
 - Explicit reload avoids mid-turn prompt mutation and works with detached or
   future multi-client sessions.
+- Session-owned workspace scopes allow an active agent to navigate the
+  filesystem without coupling concurrent sessions through process-global cwd.
 - Diagnostics make omitted guidance visible instead of silently changing agent
   behavior.
 
@@ -299,3 +322,4 @@ The implementation must demonstrate:
 - [`../features/context-guidance.md`](../features/context-guidance.md)
 - [`../features/skills.md`](../features/skills.md)
 - [`../features/prompt-commands.md`](../features/prompt-commands.md)
+- [`../features/session-cwd.md`](../features/session-cwd.md)

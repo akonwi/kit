@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -21,11 +22,12 @@ type RuntimeBundle struct {
 	PromptCommands *promptcommands.Registry
 }
 
-// RuntimeBundleBuilder resolves the prompt and cwd-bound tools applicable to a
-// session runtime. Build may be called concurrently for different sessions. One
-// call must return a mutually consistent immutable snapshot.
+// RuntimeBundleBuilder resolves the prompt and tools applicable to a session
+// runtime. Build may be called concurrently for different sessions. One call
+// must return a mutually consistent immutable snapshot. The cwd provider is
+// session-scoped and may change independently after the bundle is built.
 type RuntimeBundleBuilder interface {
-	Build(context.Context, SessionRecord) (RuntimeBundle, error)
+	Build(context.Context, SessionRecord, codingtools.CWDProvider) (RuntimeBundle, error)
 }
 
 func cloneRuntimeBundle(bundle RuntimeBundle) RuntimeBundle {
@@ -76,7 +78,11 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 	return builder, nil
 }
 
-func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionRecord) (RuntimeBundle, error) {
+func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionRecord, currentCWD codingtools.CWDProvider) (RuntimeBundle, error) {
+	if currentCWD == nil {
+		cwd := filepath.Clean(record.CWD)
+		currentCWD = func() string { return cwd }
+	}
 	registry := b.registry
 	var discoveryDiagnostics []systemprompt.Diagnostic
 	if b.skillLoader != nil {
@@ -115,7 +121,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			return RuntimeBundle{}, err
 		}
 	}
-	tools := codingtools.New(record.CWD)
+	tools := codingtools.NewDynamic(currentCWD)
 	tools = append(tools, registry.ActivateTool())
 	return RuntimeBundle{
 		Prompt: systemprompt.Result{

@@ -58,10 +58,22 @@ type RunProjection struct {
 	Error     string
 }
 
+// CWDMutation is an idempotent durable session workspace change.
+type CWDMutation struct {
+	ID          string
+	SessionID   string
+	TargetPath  string
+	PreviousCWD string
+	CWD         string
+	Changed     bool
+}
+
 // Repository is the persistence port for Kit's session registry. Conversation
 // turns, executions, messages, and events belong to each session's droid Store.
 type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
+	GetSessionCWDMutation(context.Context, string, string) (CWDMutation, error)
+	ApplySessionCWDMutation(context.Context, CWDMutation) (SessionRecord, CWDMutation, error)
 	RenameSession(context.Context, string, string) (SessionRecord, error)
 	ArchiveSession(context.Context, string, time.Time) error
 	GetSession(context.Context, string) (SessionRecord, error)

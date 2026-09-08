@@ -21,6 +21,13 @@ type RenameSessionInput struct {
 	Name string `json:"name"`
 }
 
+// ChangeCWDInput requests a new filesystem scope for a session. Relative paths
+// resolve from the session's current cwd.
+type ChangeCWDInput struct {
+	MutationID string `json:"mutationId"`
+	Path       string `json:"path"`
+}
+
 // PromptSectionKind identifies one ordered source category in an assembled prompt.
 type PromptSectionKind string
 

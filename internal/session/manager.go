@@ -131,7 +131,7 @@ type runtime struct {
 	store       droids.Store
 	closeStore  func() error
 	bundle      RuntimeBundle
-	cwd         string
+	workspace   *workspaceScope
 	events      *eventLog
 	eventCursor droids.EventSequence
 
@@ -224,8 +224,8 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 		return SessionRecord{}, err
 	}
 	defer m.ops.Done()
-	if input.CWD == "" || !filepath.IsAbs(input.CWD) {
-		return SessionRecord{}, fmt.Errorf("%w: session cwd must be absolute", ErrInvalidInput)
+	if !filepath.IsAbs(input.CWD) || !validWorkspacePath(input.CWD) {
+		return SessionRecord{}, fmt.Errorf("%w: session cwd must be a safe bounded absolute path", ErrInvalidInput)
 	}
 	cwd := filepath.Clean(input.CWD)
 	name := strings.TrimSpace(input.Name)
@@ -403,6 +403,8 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		defer loaded.admissionMu.Unlock()
 		loaded.controlMu.Lock()
 		defer loaded.controlMu.Unlock()
+		loaded.workspace.mu.Lock()
+		defer loaded.workspace.mu.Unlock()
 		loaded.stateMu.Lock()
 		active := loaded.activeRun != ""
 		loaded.stateMu.Unlock()
@@ -571,6 +573,7 @@ func (m *Manager) finishTemporaryDisposal(
 
 	if loaded != nil {
 		loaded.controlMu.Lock()
+		loaded.workspace.mu.Lock()
 		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background()))
 	}
 	m.bashMu.Lock()
@@ -589,6 +592,7 @@ func (m *Manager) finishTemporaryDisposal(
 	close(pending.done)
 	m.mu.Unlock()
 	if loaded != nil {
+		loaded.workspace.mu.Unlock()
 		loaded.controlMu.Unlock()
 	}
 }
@@ -1087,10 +1091,12 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	if !identifier.Valid(record.ID, "session_") {
 		return nil, fmt.Errorf("session %q has an invalid droid identity", record.ID)
 	}
-	bundle, err := m.bundleBuilder.Build(ctx, record)
+	workspace := newWorkspaceScope(record.CWD)
+	bundle, err := m.bundleBuilder.Build(ctx, record, workspace.CWD)
 	if err != nil {
 		return nil, fmt.Errorf("build runtime bundle for session %q: %w", record.ID, err)
 	}
+	bundle.Tools = append(bundle.Tools, m.changeCWDTool(record.ID, workspace))
 	var store droids.Store
 	closeStore := func() error { return nil }
 	if record.Persistent {
@@ -1132,7 +1138,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	}
 	loaded := &runtime{
 		droid: droid, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
-		cwd: record.CWD, events: events, eventCursor: snapshot.LastEvent,
+		workspace: workspace, events: events, eventCursor: snapshot.LastEvent,
 		runs:              make(map[string]*liveRun),
 		promptSources:     append([]systemprompt.Source(nil), bundle.Prompt.Sources...),
 		promptDiagnostics: append([]systemprompt.Diagnostic(nil), bundle.Prompt.Diagnostics...),

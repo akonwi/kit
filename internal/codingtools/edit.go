@@ -3,6 +3,7 @@ package codingtools
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -42,6 +43,11 @@ type editRange struct {
 }
 
 func newEditTool(cwd string) droids.Tool[editArgs] {
+	cwd = filepath.Clean(cwd)
+	return newEditToolWithCWD(func() string { return cwd })
+}
+
+func newEditToolWithCWD(currentCWD CWDProvider) droids.Tool[editArgs] {
 	return droids.Tool[editArgs]{
 		Name:        EditToolName,
 		Description: "Edit a file using exact text replacements. Each edit's oldText must match exactly and be unique. Multiple edits are applied to the original file simultaneously — do not include overlapping edits.",
@@ -62,7 +68,7 @@ func newEditTool(cwd string) droids.Tool[editArgs] {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}
-			path, err := resolvePath(cwd, args.Path)
+			path, err := resolvePath(currentCWD(), args.Path)
 			if err != nil {
 				return errorResult(err, editDetails{Path: args.Path}), nil
 			}

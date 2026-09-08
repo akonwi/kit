@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/akonwi/kit/internal/droids"
@@ -26,6 +27,11 @@ type readDetails struct {
 }
 
 func newReadTool(cwd string) droids.Tool[readArgs] {
+	cwd = filepath.Clean(cwd)
+	return newReadToolWithCWD(func() string { return cwd })
+}
+
+func newReadToolWithCWD(currentCWD CWDProvider) droids.Tool[readArgs] {
 	return droids.Tool[readArgs]{
 		Name:        ReadToolName,
 		Description: "Read the contents of a file. Supports an optional line offset and limit.",
@@ -36,7 +42,7 @@ func newReadTool(cwd string) droids.Tool[readArgs] {
 		}, "path"),
 		Mode: droids.ModeParallel,
 		Execute: func(ctx context.Context, _ droids.ToolContext, args readArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-			path, err := resolvePath(cwd, args.Path)
+			path, err := resolvePath(currentCWD(), args.Path)
 			if err != nil {
 				return errorResult(err, readDetails{Path: args.Path}), nil
 			}

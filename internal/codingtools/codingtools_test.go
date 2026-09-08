@@ -78,6 +78,27 @@ func TestBaseToolDefinitions(t *testing.T) {
 	}
 }
 
+func TestDynamicCodingToolsReadCurrentCWDAtExecutionAdmission(t *testing.T) {
+	first, second := t.TempDir(), t.TempDir()
+	if err := os.WriteFile(filepath.Join(first, "scope.txt"), []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, "scope.txt"), []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cwd := first
+	tool := newReadToolWithCWD(func() string { return cwd })
+	result, err := tool.Execute(t.Context(), droids.ToolContext{}, readArgs{Path: "scope.txt"}, nil)
+	if err != nil || resultText(t, result) != "first" {
+		t.Fatalf("first read = %q, error = %v", resultText(t, result), err)
+	}
+	cwd = second
+	result, err = tool.Execute(t.Context(), droids.ToolContext{}, readArgs{Path: "scope.txt"}, nil)
+	if err != nil || resultText(t, result) != "second" {
+		t.Fatalf("second read = %q, error = %v", resultText(t, result), err)
+	}
+}
+
 func TestReadSelectsLinesAndBoundsOutput(t *testing.T) {
 	t.Parallel()
 	cwd := t.TempDir()

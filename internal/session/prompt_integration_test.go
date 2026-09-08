@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
@@ -525,11 +526,11 @@ type countingRuntimeBundleBuilder struct {
 	delegate session.RuntimeBundleBuilder
 }
 
-func (b *countingRuntimeBundleBuilder) Build(ctx context.Context, record session.SessionRecord) (session.RuntimeBundle, error) {
+func (b *countingRuntimeBundleBuilder) Build(ctx context.Context, record session.SessionRecord, currentCWD codingtools.CWDProvider) (session.RuntimeBundle, error) {
 	b.mu.Lock()
 	b.builds++
 	b.mu.Unlock()
-	return b.delegate.Build(ctx, record)
+	return b.delegate.Build(ctx, record, currentCWD)
 }
 
 func (b *countingRuntimeBundleBuilder) count() int {

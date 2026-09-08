@@ -45,6 +45,11 @@ func (names *reverseNames) Pop() any {
 }
 
 func newListTool(cwd string) droids.Tool[listArgs] {
+	cwd = filepath.Clean(cwd)
+	return newListToolWithCWD(func() string { return cwd })
+}
+
+func newListToolWithCWD(currentCWD CWDProvider) droids.Tool[listArgs] {
 	return droids.Tool[listArgs]{
 		Name:        ListToolName,
 		Description: "List files and directories at a path.",
@@ -56,7 +61,7 @@ func newListTool(cwd string) droids.Tool[listArgs] {
 			if err := ctx.Err(); err != nil {
 				return droids.ToolResult{}, err
 			}
-			path := optionalPath(cwd, args.Path)
+			path := optionalPath(currentCWD(), args.Path)
 			file, err := openDirectory(path)
 			if err != nil {
 				return errorResult(err, listDetails{Path: path}), nil

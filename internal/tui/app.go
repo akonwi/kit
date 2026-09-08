@@ -204,6 +204,7 @@ type appState struct {
 	activeRunID                 string
 	runPending                  bool
 	reloadPending               bool
+	cwdPending                  bool
 	prompt                      *promptAdmission
 	activeBash                  sessionclient.BashExecution
 	activeBashID                string
@@ -1080,8 +1081,14 @@ func (s *appState) setTurnThinking(thinking string) {
 	s.turnThinking = thinking
 }
 
-func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
+type cwdToolDetails struct {
+	CWD     string `json:"cwd"`
+	Changed bool   `json:"changed"`
+}
+
+func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 	transcriptChanged := false
+	changedCWD := ""
 	for _, event := range events {
 		if event.Sequence <= s.liveSequence {
 			continue
@@ -1205,6 +1212,14 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			if event.Kind == protocol.SessionEventToolCompleted {
 				transcriptChanged = true
 				s.liveMessages[index].Pending = false
+				if event.ToolName == "change_cwd" && !event.IsError && !event.DetailsOmitted {
+					var details cwdToolDetails
+					if json.Unmarshal(event.Details, &details) == nil && details.Changed && details.CWD != "" {
+						s.session.CWD = details.CWD
+						s.location = details.CWD
+						changedCWD = details.CWD
+					}
+				}
 				if event.IsError {
 					s.liveMessages[index].ToolStatus = "Failed"
 				} else {
@@ -1243,6 +1258,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) {
 			}
 		}
 	}
+	return changedCWD
 }
 
 func (s *appState) ensureLiveAssistantToolCall(event protocol.SessionEvent) {
@@ -1505,7 +1521,12 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				batch := append([]protocol.SessionEvent(nil), events...)
 				runtime.Dispatch(func() {
 					if operation == s.operation {
-						s.SetState(func() { s.applyRunEvents(batch) })
+						changedCWD := ""
+						s.SetState(func() { changedCWD = s.applyRunEvents(batch) })
+						if changedCWD != "" {
+							s.showToast(cwdChangeToast(changedCWD))
+							s.refreshLocation(changedCWD)
+						}
 					}
 				})
 			case <-ticker.C:
@@ -1819,7 +1840,7 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.reloadPending || s.bashStarting || s.activeBashID != ""
+	return s.runPending || s.reloadPending || s.cwdPending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
@@ -1855,6 +1876,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		return
 	}
 	switch commandID {
+	case paletteCommandCD:
+		s.changeCWD(args)
 	case paletteCommandLogin:
 		s.enterAuthSelect(true)
 	case paletteCommandAbort:
@@ -1866,6 +1889,79 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 	case paletteCommandSessions:
 		s.openSessionExplorer()
 	}
+}
+
+func (s *appState) changeCWD(target string) {
+	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() {
+		return
+	}
+	target = strings.TrimSpace(target)
+	if target == "" {
+		s.showToast(toastInput{Title: "Usage: /cd <path>", Variant: toastWarning})
+		return
+	}
+	bound := s.bound
+	previousCWD := s.session.CWD
+	operation := s.operation
+	runtime := s.Context().Runtime()
+	s.SetState(func() {
+		s.cwdPending = true
+		s.status = "Changing working directory…"
+	})
+	go func() {
+		changeContext, cancel := context.WithTimeout(s.ctx, 10*time.Second)
+		defer cancel()
+		info, err := bound.ChangeCWD(changeContext, target)
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if operation != s.operation {
+				return
+			}
+			s.SetState(func() {
+				s.cwdPending = false
+				s.status = ""
+				if err == nil {
+					s.session = info
+					s.location = info.CWD
+				}
+			})
+			if err != nil {
+				s.showToast(toastInput{Title: "Failed to change directory", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			if info.CWD == previousCWD {
+				s.showToast(toastInput{Title: "Already in directory", Subtitle: info.CWD, Variant: toastInfo})
+			} else {
+				s.showToast(cwdChangeToast(info.CWD))
+			}
+			s.refreshLocation(info.CWD)
+		})
+	}()
+}
+
+func cwdChangeToast(cwd string) toastInput {
+	return toastInput{
+		Title: "Working directory changed", Subtitle: "Now " + cwd + " · run /reload to refresh agent context", Variant: toastWarning,
+	}
+}
+
+func (s *appState) refreshLocation(cwd string) {
+	resolve := s.Widget().(app).Options.ResolveLocation
+	if resolve == nil {
+		return
+	}
+	operation := s.operation
+	runtime := s.Context().Runtime()
+	go func() {
+		location := resolve(s.ctx, cwd)
+		runtime.Dispatch(func() {
+			if operation == s.operation && s.session.CWD == cwd {
+				s.SetState(func() { s.location = location })
+			}
+		})
+	}()
 }
 
 func (s *appState) reloadSession() {

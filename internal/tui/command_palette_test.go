@@ -53,7 +53,11 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	t.Parallel()
 
-	commands := filteredPaletteCommands(false, "provider")
+	commands := filteredPaletteCommands(false, "directory")
+	if len(commands) != 1 || commands[0].ID != paletteCommandCD {
+		t.Fatalf("directory matches = %#v, want cd", commands)
+	}
+	commands = filteredPaletteCommands(false, "provider")
 	if len(commands) != 1 || commands[0].ID != paletteCommandLogin {
 		t.Fatalf("provider matches = %#v, want login", commands)
 	}
@@ -130,7 +134,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := availablePaletteCommands(false, []paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 4 {
+	if commands := availablePaletteCommands(false, []paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 5 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -160,6 +164,14 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	application.Pump(80, 24)
 	if state.palette.Open || len(state.palette.Contributions) != 1 || state.composer != "x" {
 		t.Fatalf("Escape with prompt contributions left palette=%+v composer=%q", state.palette, state.composer)
+	}
+}
+
+func TestCWDChangeToastSuggestsExplicitContextReload(t *testing.T) {
+	t.Parallel()
+	toast := cwdChangeToast("/repo/packages/api")
+	if toast.Title != "Working directory changed" || toast.Subtitle != "Now /repo/packages/api · run /reload to refresh agent context" || toast.Variant != toastWarning || toast.Persistent {
+		t.Fatalf("cwd toast = %#v", toast)
 	}
 }
 
@@ -200,7 +212,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	rows := paintedRows(application, width, height)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
-		"Search commands…", "login", "Connect another provider", "quit", "Exit Kit",
+		"Search commands…", "cd", "Change working directory", "login", "Connect another provider", "quit", "Exit Kit",
 		"reload", "Reload session context", "sessions", "Browse sessions", "↑↓ move · enter run · esc close",
 	} {
 		if !strings.Contains(text, expected) {
@@ -220,16 +232,16 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 		t.Fatalf("palette width = %d, want 64", got)
 	}
 	promptColumn, _ := findTextCell(t, rows, ">")
-	loginColumn, loginRow := findTextCell(t, rows, "login")
+	cdColumn, cdRow := findTextCell(t, rows, "cd")
 	quitColumn, quitRow := findTextCell(t, rows, "quit")
-	if loginColumn != promptColumn {
-		t.Fatalf("command column = %d, want filter prompt column %d", loginColumn, promptColumn)
+	if cdColumn != promptColumn {
+		t.Fatalf("command column = %d, want filter prompt column %d", cdColumn, promptColumn)
 	}
-	if application.Cell(loginColumn, loginRow).Style.Background == application.Cell(quitColumn, quitRow).Style.Background {
-		t.Fatal("selected login row is not visually distinct")
+	if application.Cell(cdColumn, cdRow).Style.Background == application.Cell(quitColumn, quitRow).Style.Background {
+		t.Fatal("selected cd row is not visually distinct")
 	}
-	if application.Cell(loginColumn, loginRow).Style.Foreground == application.Cell(quitColumn, quitRow).Style.Foreground {
-		t.Fatal("selected login text is not inverted")
+	if application.Cell(cdColumn, cdRow).Style.Foreground == application.Cell(quitColumn, quitRow).Style.Foreground {
+		t.Fatal("selected cd text is not inverted")
 	}
 
 	for _, character := range "provider" {
@@ -307,7 +319,7 @@ func TestCommandPaletteFitsShortViewport(t *testing.T) {
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Search commands…", "login", "quit", "enter run", "esc close"} {
+	for _, expected := range []string{"Search commands…", "cd", "login", "enter run", "esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short palette missing %q:\n%s", expected, text)
 		}
@@ -407,8 +419,8 @@ func TestCommandPaletteHandlesNavigationAndDismissalBeforeOverlayFrame(t *testin
 	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	application.Enter()
 	application.Pump(width, height)
-	if state.executed != paletteCommandQuit {
-		t.Fatalf("pre-frame navigation executed %q, want quit", state.executed)
+	if state.executed != paletteCommandLogin {
+		t.Fatalf("pre-frame navigation executed %q, want login", state.executed)
 	}
 
 	state = &paletteHarnessState{}

@@ -26,6 +26,20 @@ func TestCreateSessionInputValidateOptionalCanonicalID(t *testing.T) {
 	}
 }
 
+func TestChangeCWDInputValidate(t *testing.T) {
+	mutationID := "cwd_0123456789abcdef0123456789abcdef"
+	for _, input := range []ChangeCWDInput{{MutationID: mutationID, Path: "../other"}, {MutationID: mutationID, Path: "~"}, {MutationID: mutationID, Path: "/tmp/project"}} {
+		if err := input.Validate(); err != nil {
+			t.Fatalf("Validate(%q) error = %v", input.Path, err)
+		}
+	}
+	for _, input := range []ChangeCWDInput{{}, {MutationID: "cwd_bad", Path: "/tmp"}, {MutationID: mutationID, Path: "  "}, {MutationID: mutationID, Path: "bad\x00path"}, {MutationID: mutationID, Path: "bad\npath"}, {MutationID: mutationID, Path: "bad\u202epath"}} {
+		if err := input.Validate(); err == nil {
+			t.Fatalf("Validate(%q) succeeded", input.Path)
+		}
+	}
+}
+
 func TestReloadSessionResultValidate(t *testing.T) {
 	t.Parallel()
 	valid := validReloadResult()

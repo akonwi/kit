@@ -80,11 +80,12 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 
 	loaded.controlMu.Lock()
 	defer loaded.controlMu.Unlock()
-	m.bashMu.Lock()
-	defer m.bashMu.Unlock()
 	if m.sessionDeleting(sessionID) {
 		return BashExecution{}, ErrDeleteBusy
 	}
+	cwd := loaded.workspace.CWD()
+	m.bashMu.Lock()
+	defer m.bashMu.Unlock()
 	if history := m.bashHistory[sessionID]; history != nil {
 		if existing, ok := history[executionID]; ok {
 			if existing.Command != command || existing.ExcludeFromContext != exclude {
@@ -117,7 +118,7 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	sequence := m.bashNextSequence[sessionID]
 	m.bashNextSequence[sessionID] = sequence + 1
 	execution := BashExecution{
-		ID: executionID, SessionID: sessionID, Sequence: sequence, Command: command, CWD: loaded.cwd,
+		ID: executionID, SessionID: sessionID, Sequence: sequence, Command: command, CWD: cwd,
 		Status: BashExecutionRunning, ExcludeFromContext: exclude, StartedAt: time.Now().UTC(),
 	}
 	if m.bashHistory[sessionID] == nil {

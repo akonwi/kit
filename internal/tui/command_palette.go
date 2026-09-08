@@ -14,6 +14,7 @@ const (
 	paletteMaxNameWidth = 32
 
 	paletteCommandAbort    paletteCommandID = "abort"
+	paletteCommandCD       paletteCommandID = "cd"
 	paletteCommandLogin    paletteCommandID = "login"
 	paletteCommandQuit     paletteCommandID = "quit"
 	paletteCommandReload   paletteCommandID = "reload"
@@ -323,12 +324,13 @@ func availablePaletteCommands(running bool, contributions ...[]paletteCommand) [
 		}
 	}
 	commands := []paletteCommand{
+		{ID: paletteCommandCD, Name: "cd", Description: "Change working directory", Aliases: []string{"cwd", "directory", "folder"}},
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 	}
-	seen := map[string]bool{"login": true, "quit": true, "reload": true, "sessions": true}
+	seen := map[string]bool{"cd": true, "login": true, "quit": true, "reload": true, "sessions": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {

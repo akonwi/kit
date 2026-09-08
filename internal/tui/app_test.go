@@ -27,6 +27,24 @@ func liveToolMessage(t *testing.T, state *appState, callID string) transcriptMes
 	return transcriptMessage{}
 }
 
+func TestCompletedChangeCWDToolUpdatesSessionScopeAndRequestsToast(t *testing.T) {
+	details, err := json.Marshal(cwdToolDetails{CWD: "/repo/nested", Changed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &appState{
+		session: protocol.SessionInfo{CWD: "/repo"}, liveAssistant: -1,
+		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
+	}
+	changed := state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 1, Kind: protocol.SessionEventToolCompleted,
+		TurnID: "turn_1", ToolCallID: "call_1", ToolName: "change_cwd", Details: details,
+	}})
+	if changed != "/repo/nested" || state.session.CWD != "/repo/nested" || state.location != "/repo/nested" {
+		t.Fatalf("cwd completion changed=%q session=%q location=%q", changed, state.session.CWD, state.location)
+	}
+}
+
 func TestTranscriptScrollWaitsForUpdatedLayout(t *testing.T) {
 	t.Parallel()
 
@@ -762,6 +780,9 @@ func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error)
 	return s.snapshot, nil
 }
 
+func (s fakeSession) ChangeCWD(_ context.Context, target string) (protocol.SessionInfo, error) {
+	return protocol.SessionInfo{ID: s.id, CWD: target, Model: "test/echo", CreatedAt: time.Now().Format(time.RFC3339Nano), UpdatedAt: time.Now().Format(time.RFC3339Nano)}, nil
+}
 func (s fakeSession) Reload(ctx context.Context) (protocol.ReloadSessionResult, error) {
 	if s.reload != nil {
 		return s.reload(ctx)

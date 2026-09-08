@@ -53,6 +53,11 @@ type grepLine struct {
 }
 
 func newGrepTool(cwd string) droids.Tool[grepArgs] {
+	cwd = filepath.Clean(cwd)
+	return newGrepToolWithCWD(func() string { return cwd })
+}
+
+func newGrepToolWithCWD(currentCWD CWDProvider) droids.Tool[grepArgs] {
 	return droids.Tool[grepArgs]{
 		Name:        GrepToolName,
 		Description: "Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. Output truncated to 100 matches. Long lines truncated to 2000 chars.",
@@ -67,7 +72,7 @@ func newGrepTool(cwd string) droids.Tool[grepArgs] {
 		}, "pattern"),
 		Mode: droids.ModeParallel,
 		Execute: func(ctx context.Context, _ droids.ToolContext, args grepArgs, _ droids.ToolUpdate) (droids.ToolResult, error) {
-			result, err := executeGrep(ctx, cwd, args)
+			result, err := executeGrep(ctx, currentCWD(), args)
 			if err != nil {
 				if ctx.Err() != nil {
 					return droids.ToolResult{}, ctx.Err()

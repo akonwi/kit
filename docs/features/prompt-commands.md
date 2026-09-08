@@ -11,7 +11,7 @@ The server discovers non-recursive `*.md` files from:
 
 During v2 development, the default global directory is `~/.kit-v2/prompts/`. `KIT_HOME` changes that location. Global definitions win project name collisions. Built-in palette commands keep their names if a prompt file collides with one.
 
-Discovery belongs to the session runtime on the server. Remote clients receive only bounded command metadata and do not read server-side files themselves. Add, change, or remove files and run **reload** while the session is idle to replace the command snapshot atomically.
+Discovery belongs to the session runtime on the server. Remote clients receive only bounded command metadata and do not read server-side files themselves. Add, change, or remove files and run **reload** while the session is idle to replace the command snapshot atomically. Changing the session cwd retargets relative filesystem tools but does not implicitly replace project prompt commands; reload after moving when commands from the destination should apply.
 
 ## Template format
 

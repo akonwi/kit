@@ -65,14 +65,19 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 		}
 		return ReloadResult{}, fmt.Errorf("wait for session %q to become quiescent: %w", sessionID, err)
 	}
+	workspaceCWD, workspaceGeneration := loaded.workspace.snapshot()
 	record, err := m.sessionRecord(ctx, sessionID)
 	if err != nil {
 		return ReloadResult{}, err
 	}
-	replacement, err := m.bundleBuilder.Build(ctx, record)
+	if record.CWD != workspaceCWD {
+		return ReloadResult{}, fmt.Errorf("%w: session cwd changed while reload was starting", ErrReloadBusy)
+	}
+	replacement, err := m.bundleBuilder.Build(ctx, record, loaded.workspace.CWD)
 	if err != nil {
 		return ReloadResult{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, err)
 	}
+	replacement.Tools = append(replacement.Tools, m.changeCWDTool(sessionID, loaded.workspace))
 	nextEvents, err := newEventLog()
 	if err != nil {
 		return ReloadResult{}, fmt.Errorf("prepare replacement event stream for session %q: %w", sessionID, err)
@@ -96,6 +101,12 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	if m.isClosed() {
 		_ = replacementDroid.Close()
 		return ReloadResult{}, ErrClosed
+	}
+	loaded.workspace.mu.Lock()
+	defer loaded.workspace.mu.Unlock()
+	if loaded.workspace.generation != workspaceGeneration || loaded.workspace.cwd != workspaceCWD {
+		_ = replacementDroid.Close()
+		return ReloadResult{}, fmt.Errorf("%w: session cwd changed during reload", ErrReloadBusy)
 	}
 	closeErr := loaded.droid.Shutdown(transitionContext)
 	loaded.droid = replacementDroid

@@ -11,6 +11,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/daemon"
+	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
@@ -20,12 +21,15 @@ type localServer struct {
 }
 
 type localSession struct {
-	transport       *daemon.Client
-	id              string
-	mu              sync.Mutex
-	snapshot        protocol.SessionSnapshot
-	cacheGeneration uint64
-	reloadGate      chan struct{}
+	transport          *daemon.Client
+	id                 string
+	mu                 sync.Mutex
+	snapshot           protocol.SessionSnapshot
+	cacheGeneration    uint64
+	reloadGate         chan struct{}
+	cwdGate            chan struct{}
+	pendingCWDTarget   string
+	pendingCWDMutation string
 }
 
 type localRun struct {
@@ -95,7 +99,9 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 	}
 	reloadGate := make(chan struct{}, 1)
 	reloadGate <- struct{}{}
-	return &localSession{transport: c.transport, id: sessionID, reloadGate: reloadGate}, nil
+	cwdGate := make(chan struct{}, 1)
+	cwdGate <- struct{}{}
+	return &localSession{transport: c.transport, id: sessionID, reloadGate: reloadGate, cwdGate: cwdGate}, nil
 }
 
 func (c *localSession) ID() string { return c.id }
@@ -114,6 +120,84 @@ func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, 
 	}
 	c.mu.Unlock()
 	return snapshot, nil
+}
+
+func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.SessionInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	select {
+	case <-c.cwdGate:
+		defer func() { c.cwdGate <- struct{}{} }()
+	case <-ctx.Done():
+		return protocol.SessionInfo{}, ctx.Err()
+	}
+	target = strings.TrimSpace(target)
+	c.mu.Lock()
+	mutationID := c.pendingCWDMutation
+	if mutationID != "" && c.pendingCWDTarget != target {
+		pending := c.pendingCWDTarget
+		c.mu.Unlock()
+		return protocol.SessionInfo{}, fmt.Errorf("previous cwd change to %q has an unresolved outcome; retry it before changing targets", pending)
+	}
+	c.mu.Unlock()
+	newMutation := mutationID == ""
+	if newMutation {
+		var err error
+		mutationID, err = identifier.New("cwd_")
+		if err != nil {
+			return protocol.SessionInfo{}, err
+		}
+	}
+	if err := (protocol.ChangeCWDInput{MutationID: mutationID, Path: target}).Validate(); err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	if newMutation {
+		c.mu.Lock()
+		c.pendingCWDTarget, c.pendingCWDMutation = target, mutationID
+		c.mu.Unlock()
+	}
+	result, err := c.transport.ChangeSessionCWDWithID(ctx, c.id, mutationID, target)
+	if err != nil {
+		var apiError *daemon.APIError
+		if errors.As(err, &apiError) && apiError.StatusCode < 500 {
+			c.clearPendingCWD(mutationID)
+			return protocol.SessionInfo{}, err
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return protocol.SessionInfo{}, err
+		}
+		retryContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+		var retryErr error
+		result, retryErr = c.transport.ChangeSessionCWDWithID(retryContext, c.id, mutationID, target)
+		cancel()
+		if retryErr != nil {
+			var retryAPIError *daemon.APIError
+			if errors.As(retryErr, &retryAPIError) {
+				if retryAPIError.StatusCode < 500 {
+					c.clearPendingCWD(mutationID)
+				}
+				return protocol.SessionInfo{}, retryErr
+			}
+			return protocol.SessionInfo{}, err
+		}
+	}
+	c.mu.Lock()
+	c.cacheGeneration++
+	c.snapshot.Session = result
+	if c.pendingCWDMutation == mutationID {
+		c.pendingCWDTarget, c.pendingCWDMutation = "", ""
+	}
+	c.mu.Unlock()
+	return result, nil
+}
+
+func (c *localSession) clearPendingCWD(mutationID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.pendingCWDMutation == mutationID {
+		c.pendingCWDTarget, c.pendingCWDMutation = "", ""
+	}
 }
 
 func (c *localSession) Reload(ctx context.Context) (protocol.ReloadSessionResult, error) {

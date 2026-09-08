@@ -27,17 +27,29 @@ var (
 	mutationLocksOnce sync.Once
 )
 
-// New returns the ordered base coding tool set rooted at cwd.
+// CWDProvider returns the current absolute filesystem scope for one session.
+type CWDProvider func() string
+
+// New returns the ordered base coding tool set rooted at a fixed cwd.
 func New(cwd string) []droids.AnyTool {
 	cwd = filepath.Clean(cwd)
+	return NewDynamic(func() string { return cwd })
+}
+
+// NewDynamic returns the ordered base coding tool set rooted at the cwd read at
+// the start of each tool execution.
+func NewDynamic(cwd CWDProvider) []droids.AnyTool {
+	if cwd == nil {
+		panic("codingtools: cwd provider is required")
+	}
 	return []droids.AnyTool{
-		droids.MustTool(newBashTool(cwd)),
-		droids.MustTool(newReadTool(cwd)),
-		droids.MustTool(newWriteTool(cwd)),
-		droids.MustTool(newEditTool(cwd)),
-		droids.MustTool(newListTool(cwd)),
-		droids.MustTool(newGrepTool(cwd)),
-		droids.MustTool(newFindTool(cwd)),
+		droids.MustTool(newBashToolWithCWD(cwd)),
+		droids.MustTool(newReadToolWithCWD(cwd)),
+		droids.MustTool(newWriteToolWithCWD(cwd)),
+		droids.MustTool(newEditToolWithCWD(cwd)),
+		droids.MustTool(newListToolWithCWD(cwd)),
+		droids.MustTool(newGrepToolWithCWD(cwd)),
+		droids.MustTool(newFindToolWithCWD(cwd)),
 	}
 }
 

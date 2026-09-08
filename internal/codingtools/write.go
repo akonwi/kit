@@ -23,6 +23,11 @@ type writeDetails struct {
 }
 
 func newWriteTool(cwd string) droids.Tool[writeArgs] {
+	cwd = filepath.Clean(cwd)
+	return newWriteToolWithCWD(func() string { return cwd })
+}
+
+func newWriteToolWithCWD(currentCWD CWDProvider) droids.Tool[writeArgs] {
 	return droids.Tool[writeArgs]{
 		Name:        WriteToolName,
 		Description: "Write content to a file. Creates the file and any missing parent directories.",
@@ -42,7 +47,7 @@ func newWriteTool(cwd string) droids.Tool[writeArgs] {
 			if len(content) > maxWriteBytes {
 				return errorResult(fmt.Errorf("content exceeds %d MiB limit", maxWriteBytes>>20), writeDetails{Path: args.Path}), nil
 			}
-			path, err := resolvePath(cwd, args.Path)
+			path, err := resolvePath(currentCWD(), args.Path)
 			if err != nil {
 				return errorResult(err, writeDetails{Path: args.Path}), nil
 			}
