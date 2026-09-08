@@ -116,7 +116,8 @@ recorded manual verification exists.
 - [~] Run different top-level sessions concurrently.
 - [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
-- [ ] Remove all process-global cwd, active-session, and model-cache state.
+- [x] Keep cwd, active-session, and model-selection state explicitly owned by
+  managers, session runtimes, or clients rather than process-global variables.
 - [x] Support persisted cwd retargeting through an explicit synchronized
   server-side workspace scope, without process-global cwd mutation or
   cross-session interference.
@@ -398,16 +399,18 @@ recorded manual verification exists.
 ## Commands, settings, and themes
 
 - [~] Core command catalog and transport-neutral command subset; the native
-  palette currently exposes login, idle session-context reload, conditional
-  abort, session exploration, quit, and server-discovered global/project prompt
-  commands with arguments.
+  palette currently exposes cwd navigation, login, idle session-context reload,
+  conditional abort, session exploration, quit, and server-discovered
+  global/project prompt commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [x] `/cd <path>` changes the authoritative session workspace scope, records a
   durable user-origin cwd boundary for the droid, and offers the same relative,
   absolute, and home-path behavior as `change_cwd`.
-- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/login`, `/logout`,
-  `/model`, `/name`, `/new`, `/reload`, `/debug`, `/sessions`,
-  `/tree`, `/thinking`, `/quit`, `/compact`, and release/MCP commands.
+- [x] `/login`, `/reload`, `/sessions`, `/quit`, and active-run `/abort` are
+  available through the native command palette with tested availability rules.
+- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/model`,
+  `/name`, `/new`, `/debug`, `/tree`, `/thinking`, `/compact`, and release/MCP
+  commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline
   save errors.
 - [ ] Theme discovery/selection and current custom-theme compatibility.
