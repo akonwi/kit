@@ -120,12 +120,12 @@ func Run(ctx context.Context, options RunOptions) error {
 		}
 		return availableProviderIDs(ctx, paths, credentialSources)
 	}
-	skillRegistry, err := skills.NewRegistry()
+	skillLoader, err := skills.NewFilesystemLoader(paths)
 	if err != nil {
-		return fmt.Errorf("create skill registry: %w", err)
+		return fmt.Errorf("create skill loader: %w", err)
 	}
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
-		Core: systemPrompt, Registry: skillRegistry,
+		Core: systemPrompt, SkillLoader: skillLoader,
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
 	})
 	if err != nil {

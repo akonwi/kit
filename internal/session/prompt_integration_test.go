@@ -119,6 +119,78 @@ func TestManagerBuildsIndependentContextForConcurrentSessions(t *testing.T) {
 	}
 }
 
+func TestReloadRefreshesProjectSkillCatalogForOneSession(t *testing.T) {
+	base := t.TempDir()
+	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
+	cwd := filepath.Join(base, "project")
+	for _, directory := range []string{paths.Skills, cwd} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	skillDirectory := filepath.Join(cwd, ".agents", "skills", "workspace-review")
+	if err := os.MkdirAll(skillDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	skillPath := filepath.Join(skillDirectory, "SKILL.md")
+	writeContext(t, skillPath, "---\nname: workspace-review\ndescription: Review this workspace\n---\nInitial instructions.\n")
+	loader, err := skills.NewFilesystemLoader(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleBuilder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
+		Core: systemprompt.DefaultCore, SkillLoader: loader,
+		Context: &systemprompt.ContextBuilderOptions{Paths: paths, Resolver: systemprompt.WorktreeRootResolverFunc(func(context.Context, string) (string, error) {
+			return "", systemprompt.ErrNoGitWorktree
+		})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(store, providers, bundleBuilder, session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: cwd, Model: "test/echo", Temporary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), record.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	writeContext(t, skillPath, "---\nname: workspace-review\ndescription: Updated workspace review\n---\nUpdated instructions.\n")
+	if _, err := manager.ReloadSession(t.Context(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), record.ID, "second"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(skillDirectory); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.ReloadSession(t.Context(), record.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), record.ID, "third"); err != nil {
+		t.Fatal(err)
+	}
+	providers.mu.Lock()
+	prompts := requestPrompts(providers.requests)
+	providers.mu.Unlock()
+	if len(prompts) != 3 || !strings.Contains(prompts[0], "Review this workspace") || strings.Contains(prompts[0], "Updated workspace review") ||
+		!strings.Contains(prompts[1], "Updated workspace review") || strings.Contains(prompts[1], "Review this workspace") ||
+		strings.Contains(prompts[2], "workspace-review") {
+		t.Fatalf("project skill catalogs across reload = %#v", prompts)
+	}
+}
+
 func TestLoadedRuntimeDoesNotRebuildContextOnClientAttachment(t *testing.T) {
 	base := t.TempDir()
 	home, cwd := filepath.Join(base, "kit-home"), filepath.Join(base, "project")

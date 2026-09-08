@@ -11,14 +11,15 @@ const catalogSectionID = "kit.skills.catalog"
 
 // CatalogSection returns the model-visible catalog for this immutable registry.
 func (r *Registry) CatalogSection() (systemprompt.Section, error) {
-	skills := r.Skills()
+	skills := r.modelInvocableSkills()
 	if len(skills) == 0 {
 		return systemprompt.Section{}, fmt.Errorf("skill registry requires the embedded customization skill")
 	}
 
 	var catalog strings.Builder
 	catalog.WriteString("The following skills provide specialized instructions for specific tasks.\n")
-	catalog.WriteString("Call the activate_skill tool with the skill name to activate it when the task matches its description.\n\n")
+	catalog.WriteString("Call the activate_skill tool with the skill name to activate it when the task matches its description.\n")
+	catalog.WriteString("When a skill's instructions reference a relative path, resolve it against the skill directory and use that absolute path in tool commands.\n\n")
 	catalog.WriteString("<available_skills>\n")
 	sources := make([]systemprompt.Source, 0, len(skills))
 	for _, skill := range skills {

@@ -55,7 +55,7 @@ func (r *Registry) newActivateTool() droids.Tool[activateArgs] {
 			}
 			skill, ok := r.Lookup(args.Name)
 			if !ok {
-				available := r.Skills()
+				available := r.modelInvocableSkills()
 				names := make([]string, 0, len(available))
 				for _, candidate := range available {
 					names = append(names, candidate.Name)

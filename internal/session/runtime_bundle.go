@@ -35,46 +35,63 @@ func cloneRuntimeBundle(bundle RuntimeBundle) RuntimeBundle {
 
 // RuntimeBundleOptions configures Kit's standard session bundle builder.
 type RuntimeBundleOptions struct {
-	Core     string
-	Context  *systemprompt.ContextBuilderOptions
-	Registry *skills.Registry
+	Core        string
+	Context     *systemprompt.ContextBuilderOptions
+	Registry    *skills.Registry
+	SkillLoader skills.Loader
 }
 
 type defaultRuntimeBundleBuilder struct {
-	promptBuilder systemprompt.Builder
-	registry      *skills.Registry
+	composer    *systemprompt.Composer
+	context     *systemprompt.ContextBuilder
+	registry    *skills.Registry
+	skillLoader skills.Loader
 }
 
 // NewRuntimeBundleBuilder constructs Kit's standard atomic prompt/tool builder.
-// It installs the registry's catalog itself so the advertised skills and the
-// activation tool cannot be configured independently.
+// Each Build obtains one registry snapshot, then derives both its catalog and
+// activation tool from that same snapshot.
 func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder, error) {
-	if options.Registry == nil {
-		return nil, errors.New("session skill registry is required")
+	if (options.Registry == nil) == (options.SkillLoader == nil) {
+		return nil, errors.New("session requires exactly one fixed skill registry or skill loader")
 	}
 	composer, err := systemprompt.New(options.Core)
 	if err != nil {
 		return nil, err
 	}
-	catalog, err := options.Registry.CatalogSection()
-	if err != nil {
-		return nil, err
-	}
-	if _, err := composer.Set(catalog); err != nil {
-		return nil, err
-	}
-	var promptBuilder systemprompt.Builder = composer
+	builder := &defaultRuntimeBundleBuilder{composer: composer, registry: options.Registry, skillLoader: options.SkillLoader}
 	if options.Context != nil {
-		promptBuilder, err = systemprompt.NewContextBuilder(composer, *options.Context)
+		builder.context, err = systemprompt.NewContextBuilder(composer, *options.Context)
 		if err != nil {
 			return nil, err
 		}
 	}
-	return &defaultRuntimeBundleBuilder{promptBuilder: promptBuilder, registry: options.Registry}, nil
+	return builder, nil
 }
 
 func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionRecord) (RuntimeBundle, error) {
-	result, err := b.promptBuilder.Build(ctx, systemprompt.Request{SessionID: record.ID, CWD: record.CWD})
+	registry := b.registry
+	var discoveryDiagnostics []systemprompt.Diagnostic
+	if b.skillLoader != nil {
+		loaded, err := b.skillLoader.Load(ctx, record.CWD)
+		if err != nil {
+			return RuntimeBundle{}, err
+		}
+		registry = loaded.Registry
+		discoveryDiagnostics = loaded.Diagnostics
+	}
+	catalog, err := registry.CatalogSection()
+	if err != nil {
+		return RuntimeBundle{}, err
+	}
+	catalog.Diagnostics = append(catalog.Diagnostics, discoveryDiagnostics...)
+	request := systemprompt.Request{SessionID: record.ID, CWD: record.CWD}
+	var result systemprompt.Result
+	if b.context == nil {
+		result, err = b.composer.BuildWith(ctx, request, catalog)
+	} else {
+		result, err = b.context.BuildWith(ctx, request, catalog)
+	}
 	if err != nil {
 		return RuntimeBundle{}, err
 	}
@@ -82,7 +99,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		return RuntimeBundle{}, errors.New("session prompt builder returned an empty prompt")
 	}
 	tools := codingtools.New(record.CWD)
-	tools = append(tools, b.registry.ActivateTool())
+	tools = append(tools, registry.ActivateTool())
 	return RuntimeBundle{
 		Prompt: systemprompt.Result{
 			Prompt:      result.Prompt,

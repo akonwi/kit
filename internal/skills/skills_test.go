@@ -125,6 +125,7 @@ func TestCatalogSectionFormatsDeterministicEscapedMetadata(t *testing.T) {
 	}
 	const want = `The following skills provide specialized instructions for specific tasks.
 Call the activate_skill tool with the skill name to activate it when the task matches its description.
+When a skill's instructions reference a relative path, resolve it against the skill directory and use that absolute path in tool commands.
 
 <available_skills>
   <skill>

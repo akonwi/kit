@@ -162,6 +162,11 @@ func NewContextBuilder(composer *Composer, options ContextBuilderOptions) (*Cont
 
 // Build discovers and appends context applicable to request.CWD.
 func (b *ContextBuilder) Build(ctx context.Context, request Request) (Result, error) {
+	return b.BuildWith(ctx, request)
+}
+
+// BuildWith discovers context and composes it with request-scoped sections.
+func (b *ContextBuilder) BuildWith(ctx context.Context, request Request, requestSections ...Section) (Result, error) {
 	if b == nil || b.composer == nil || b.resolver == nil {
 		return Result{}, errors.New("system prompt context builder is not initialized")
 	}
@@ -172,7 +177,8 @@ func (b *ContextBuilder) Build(ctx context.Context, request Request) (Result, er
 	if err != nil {
 		return Result{}, err
 	}
-	return b.composer.BuildWith(ctx, request, section)
+	requestSections = append(requestSections, section)
+	return b.composer.BuildWith(ctx, request, requestSections...)
 }
 
 type contextCandidate struct {

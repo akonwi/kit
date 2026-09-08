@@ -48,11 +48,12 @@ const (
 
 // Skill is one model-activatable instruction bundle.
 type Skill struct {
-	Name        string
-	Description string
-	Content     string
-	Source      Source
-	Location    string
+	Name                   string
+	Description            string
+	Content                string
+	Source                 Source
+	Location               string
+	DisableModelInvocation bool
 }
 
 // Registry is the immutable set of skills applicable to one session. Skill
@@ -109,6 +110,17 @@ func (r *Registry) Skills() []Skill {
 		return nil
 	}
 	return append([]Skill(nil), r.skills...)
+}
+
+func (r *Registry) modelInvocableSkills() []Skill {
+	skills := r.Skills()
+	visible := skills[:0]
+	for _, skill := range skills {
+		if !skill.DisableModelInvocation {
+			visible = append(visible, skill)
+		}
+	}
+	return visible
 }
 
 func normalizeSkill(skill Skill) (Skill, error) {

@@ -110,6 +110,18 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("daemon-project-guidance"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	projectSkillDirectory := filepath.Join(workspace, ".agents", "skills", "project-check")
+	if err := os.MkdirAll(projectSkillDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	projectSkillPath := filepath.Join(projectSkillDirectory, "SKILL.md")
+	if err := os.WriteFile(projectSkillPath, []byte("---\nname: project-check\ndescription: Initial project skill\n---\nProject instructions.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	projectSkillLocation, err := filepath.EvalSymlinks(projectSkillPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sessionID, err := identifier.New("session_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
@@ -197,7 +209,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	providers.mu.Lock()
 	providerRequest := providers.requests[0]
 	providers.mu.Unlock()
-	for _, expected := range []string{"kit-customization", "daemon-global-guidance", "daemon-project-guidance"} {
+	for _, expected := range []string{"kit-customization", "project-check", "Initial project skill", projectSkillLocation, "daemon-global-guidance", "daemon-project-guidance"} {
 		if !strings.Contains(providerRequest.SystemPrompt, expected) {
 			t.Fatalf("daemon provider prompt does not contain %q:\n%s", expected, providerRequest.SystemPrompt)
 		}
@@ -231,12 +243,29 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(workspace, "AGENTS.md"), []byte("daemon-reloaded-guidance"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(projectSkillPath, []byte("---\nname: project-check\ndescription: Reloaded project skill\n---\nUpdated instructions.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	invalidSkillDirectory := filepath.Join(workspace, ".agents", "skills", "invalid-skill")
+	if err := os.MkdirAll(invalidSkillDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(invalidSkillDirectory, "SKILL.md"), []byte("---\nname: invalid-skill\n---\nMissing description.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	reloaded, err := client.ReloadSession(context.Background(), created.ID)
 	if err != nil {
 		t.Fatalf("ReloadSession() error = %v", err)
 	}
-	if reloaded.SessionID != created.ID || reloaded.EventStreamID == snapshot.EventStreamID || len(reloaded.Sources) < 3 {
+	if reloaded.SessionID != created.ID || reloaded.EventStreamID == snapshot.EventStreamID || len(reloaded.Sources) < 4 {
 		t.Fatalf("reload result = %+v", reloaded)
+	}
+	foundSkillDiagnostic := false
+	for _, diagnostic := range reloaded.Diagnostics {
+		foundSkillDiagnostic = foundSkillDiagnostic || diagnostic.Code == "skills.invalid_definition" && diagnostic.Source.Kind == protocol.PromptSectionSkillCatalog
+	}
+	if !foundSkillDiagnostic {
+		t.Fatalf("reload omitted skill diagnostics: %+v", reloaded.Diagnostics)
 	}
 	afterReload, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil {
@@ -247,8 +276,10 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 
 	block := make(chan struct{})
+	requestStarted := make(chan struct{})
 	providers.mu.Lock()
 	providers.block = block
+	providers.requestStarted = requestStarted
 	providers.mu.Unlock()
 	activeRunID, err := identifier.New("run_")
 	if err != nil {
@@ -259,6 +290,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("StartPrompt() blocking run error = %v", err)
 	}
 	activeRunID = activeReservation.RunID
+	<-requestStarted
 	active, err := client.GetRun(context.Background(), created.ID, activeRunID)
 	if err != nil || active.Status != protocol.RunStatusRunning {
 		t.Fatalf("active run = %+v, %v", active, err)
@@ -270,6 +302,12 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
 			t.Fatalf("active ReloadSession() error = %v", err)
 		}
+	}
+	providers.mu.Lock()
+	reloadedProviderPrompt := providers.requests[len(providers.requests)-1].SystemPrompt
+	providers.mu.Unlock()
+	if !strings.Contains(reloadedProviderPrompt, "Reloaded project skill") || strings.Contains(reloadedProviderPrompt, "Initial project skill") {
+		t.Fatalf("reloaded provider skill catalog:\n%s", reloadedProviderPrompt)
 	}
 	activeSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
 	if err != nil || activeSnapshot.ActiveRunID != activeRunID || len(activeSnapshot.Messages) != 2 {
@@ -403,10 +441,11 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 }
 
 type daemonEchoProviders struct {
-	mu       sync.Mutex
-	calls    int
-	block    <-chan struct{}
-	requests []droids.Request
+	mu             sync.Mutex
+	calls          int
+	block          <-chan struct{}
+	requests       []droids.Request
+	requestStarted chan struct{}
 }
 
 func (p *daemonEchoProviders) ID() string             { return "test" }
@@ -438,7 +477,15 @@ func (p *daemonEchoProviders) Stream(
 	p.requests = append(p.requests, request)
 	text := fmt.Sprintf("reply %d", p.calls)
 	block := p.block
+	requestStarted := p.requestStarted
 	p.mu.Unlock()
+	if requestStarted != nil {
+		select {
+		case <-requestStarted:
+		default:
+			close(requestStarted)
+		}
+	}
 	if block != nil {
 		select {
 		case <-block:

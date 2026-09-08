@@ -105,11 +105,19 @@ shadowed by a user or project skill. It does not depend on a file under the
 user's Kit home.
 
 The `activate_skill` tool is part of every normal Kit session's stable tool
-surface. Its registry and model-visible catalog may vary by session as built-in,
-user, project, and plugin skills become applicable. The initial implementation
-includes the minimal registry behavior needed to advertise and activate the
-built-in customization skill; other skill sources may extend that registry
-separately.
+surface. Its registry and model-visible catalog vary by session. Kit discovers
+user-global skills from the resolved Kit home's `skills/` directory and project
+skills from `<session-cwd>/.agents/skills/`; the embedded reserved skill wins any
+name collision, followed by user and then project definitions. Plugin skills may
+extend the registry separately.
+
+A filesystem skill is a recursively discovered directory containing `SKILL.md`.
+Its YAML frontmatter supplies a matching stable name, required description, and
+optional `disable-model-invocation` flag. Discovery is deterministic and bounded,
+does not follow escaping skill roots, and reports malformed, unreadable,
+duplicate, reserved, and over-limit definitions as structured diagnostics. The
+catalog and activation tool are always derived from the same immutable discovery
+snapshot.
 
 ### `AGENTS.md` context discovery
 
@@ -239,6 +247,8 @@ The implementation must demonstrate:
 - `activate_skill` is available in every normal Kit session;
 - `kit-customization` is embedded, advertised, activatable, and protected from
   name shadowing;
+- user-global and project `SKILL.md` definitions are discovered deterministically,
+  bounded safely, surfaced in diagnostics, and refreshed atomically on reload;
 - attaching a client does not reload an existing runtime;
 - explicit reload and cwd changes reject active sessions and update prompt plus
   tools atomically while quiescent;
@@ -280,3 +290,4 @@ The implementation must demonstrate:
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
 - [`../parity.md`](../parity.md)
 - [`../features/context-guidance.md`](../features/context-guidance.md)
+- [`../features/skills.md`](../features/skills.md)

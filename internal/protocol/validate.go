@@ -35,7 +35,7 @@ func (result ReloadSessionResult) Validate() error {
 	if !identifier.Valid(result.SessionID, "session_") || !identifier.Valid(result.EventStreamID, "stream_") {
 		return fmt.Errorf("reload result has invalid session or event stream identity")
 	}
-	if len(result.Sources) == 0 || len(result.Sources) > 512 || len(result.Diagnostics) > 128 || len(result.Warnings) > 8 {
+	if len(result.Sources) == 0 || len(result.Sources) > 512 || len(result.Diagnostics) > 256 || len(result.Warnings) > 8 {
 		return fmt.Errorf("reload result source, diagnostic, or warning count is invalid")
 	}
 	seen := make(map[string]struct{}, len(result.Sources))

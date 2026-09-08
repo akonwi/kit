@@ -360,10 +360,10 @@ recorded manual verification exists.
   intentionally excludes `CLAUDE.md`, siblings, and immediate-child scanning.
 - [x] Explicit idle session reload applies current context and cwd-bound tools
   atomically, preserves droid history, and forces event-stream resynchronization.
-- [~] Skill discovery, prompt summaries, `activate_skill`, and source-relative
-  file behavior; the embedded reserved `kit-customization` skill, deterministic
-  catalog, and stable activation tool are complete, while user/project discovery
-  and source-relative file behavior remain.
+- [x] User-global and project `SKILL.md` discovery, deterministic precedence,
+  bounded diagnostics, model-visible prompt summaries, source-relative location
+  guidance, the reserved embedded `kit-customization` skill, and the stable
+  `activate_skill` tool.
 - [ ] Kit user/project prompt commands, frontmatter, quoted argument expansion,
   and compact transcript identity.
 - [ ] Claude command compatibility and `cc:` namespacing.
