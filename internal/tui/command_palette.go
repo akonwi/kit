@@ -218,6 +218,9 @@ func (p *paletteController) HandleKey(running bool, key ui.Key) (paletteCommand,
 		return paletteCommand{}, false, false
 	}
 	switch {
+	case key.MatchString("Escape"):
+		p.Close()
+		return paletteCommand{}, false, true
 	case key.MatchString("Up"):
 		p.Move(running, -1)
 		return paletteCommand{}, false, true

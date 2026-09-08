@@ -149,6 +149,18 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if state.executed != paletteCommandID("prompt:review") || state.palette.Open {
 		t.Fatalf("prompt command mouse execution = %q, open=%v", state.executed, state.palette.Open)
 	}
+	state.SetState(func() {
+		state.palette.OpenFor(false)
+		state.palette.SetQuery(false, "review")
+	})
+	application.Pump(80, 24)
+	application.Send(vaxis.Key{Keycode: vaxis.KeyEsc, Text: "\x1b"})
+	application.Pump(80, 24)
+	application.Key("x")
+	application.Pump(80, 24)
+	if state.palette.Open || len(state.palette.Contributions) != 1 || state.composer != "x" {
+		t.Fatalf("Escape with prompt contributions left palette=%+v composer=%q", state.palette, state.composer)
+	}
 }
 
 func TestReloadToastReportsSuccessWarningsAndFailure(t *testing.T) {
