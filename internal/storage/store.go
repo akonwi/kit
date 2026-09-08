@@ -90,6 +90,9 @@ func sqliteDSN(path string) string {
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", "busy_timeout(5000)")
 	query.Add("_pragma", "synchronous(NORMAL)")
+	// Registry mutations that read before writing must acquire SQLite's writer
+	// reservation up front rather than failing to upgrade a stale WAL snapshot.
+	query.Set("_txlock", "immediate")
 	uri.RawQuery = query.Encode()
 	return uri.String()
 }

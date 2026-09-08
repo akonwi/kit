@@ -75,6 +75,7 @@ type Repository interface {
 	GetSessionCWDMutation(context.Context, string, string) (CWDMutation, error)
 	ApplySessionCWDMutation(context.Context, CWDMutation) (SessionRecord, CWDMutation, error)
 	RenameSession(context.Context, string, string) (SessionRecord, error)
+	TouchSession(context.Context, string, time.Time) error
 	ArchiveSession(context.Context, string, time.Time) error
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)

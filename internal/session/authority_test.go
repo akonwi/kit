@@ -154,6 +154,13 @@ func TestManagerTemporarySessionUsesMemoryAndDisappearsOnDelete(t *testing.T) {
 	if err != nil || result.Status != session.RunStatusCompleted {
 		t.Fatalf("RunPrompt() = %+v, %v", result, err)
 	}
+	snapshot, err := manager.Snapshot(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snapshot.Session.UpdatedAt.After(created.UpdatedAt) {
+		t.Fatalf("temporary session activity time = %v, want after %v", snapshot.Session.UpdatedAt, created.UpdatedAt)
+	}
 	entries, err := os.ReadDir(droidDirectory)
 	if err != nil {
 		t.Fatal(err)
@@ -172,6 +179,124 @@ func TestManagerTemporarySessionUsesMemoryAndDisappearsOnDelete(t *testing.T) {
 	}
 	if err := manager.DisposeTemporary(t.Context(), created.ID); err != nil {
 		t.Fatalf("second DisposeTemporary() error = %v", err)
+	}
+}
+
+func TestAcceptedPromptAdvancesPersistentSessionActivity(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(
+		store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	older, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_11111111111111111111111111111111", CWD: root, Model: "test/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	newer, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_22222222222222222222222222222222", CWD: root, Model: "test/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), older.ID, "make this session recent"); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := manager.List(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 || listed[0].ID != older.ID || !listed[0].UpdatedAt.After(newer.UpdatedAt) {
+		t.Fatalf("sessions after prompt = %+v, want prompted session first", listed)
+	}
+	activityAt := listed[0].UpdatedAt
+	if _, err := manager.StartPrompt(t.Context(), older.ID, "   "); !errors.Is(err, session.ErrInvalidInput) {
+		t.Fatalf("invalid StartPrompt() error = %v", err)
+	}
+	afterInvalid, err := store.GetSession(t.Context(), older.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !afterInvalid.UpdatedAt.Equal(activityAt) {
+		t.Fatalf("invalid prompt changed activity time from %v to %v", activityAt, afterInvalid.UpdatedAt)
+	}
+	if err := manager.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := session.NewManager(
+		store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reopened.Close)
+	afterRestart, err := reopened.List(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(afterRestart) != 2 || afterRestart[0].ID != older.ID || !afterRestart[0].UpdatedAt.Equal(activityAt) {
+		t.Fatalf("sessions after restart = %+v, want prompted session first", afterRestart)
+	}
+}
+
+var errSessionActivityWrite = errors.New("simulated session activity persistence failure")
+
+type failingTouchRepository struct {
+	session.Repository
+}
+
+func (*failingTouchRepository) TouchSession(context.Context, string, time.Time) error {
+	return errSessionActivityWrite
+}
+
+func TestPromptActivityFailurePreventsDroidAdmission(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(
+		&failingTouchRepository{Repository: store}, providers, staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPrompt(t.Context(), created.ID, "do not admit this"); !errors.Is(err, errSessionActivityWrite) {
+		t.Fatalf("StartPrompt() error = %v", err)
+	}
+	providers.mu.Lock()
+	calls := providers.calls
+	providers.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+	snapshot, err := manager.Snapshot(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ActiveRunID != "" || len(snapshot.Messages) != 0 {
+		t.Fatalf("snapshot after failed activity write = %+v", snapshot)
 	}
 }
 
@@ -318,6 +443,13 @@ func TestCompletedBashBecomesPendingThenConsumedDroidBoundary(t *testing.T) {
 	bash, err := manager.StartBash(t.Context(), created.ID, "bash_0123456789abcdef0123456789abcdef", "printf boundary", false)
 	if err != nil {
 		t.Fatal(err)
+	}
+	activeRecord, err := store.GetSession(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !activeRecord.UpdatedAt.After(created.UpdatedAt) {
+		t.Fatalf("bash activity time = %v, want after %v", activeRecord.UpdatedAt, created.UpdatedAt)
 	}
 	deadline := time.Now().Add(5 * time.Second)
 	for bash.Status == session.BashExecutionRunning {

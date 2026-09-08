@@ -241,6 +241,46 @@ func TestChangeCWDRejectsInvalidTargetsWithoutMoving(t *testing.T) {
 	}
 }
 
+func TestTemporaryNoOpCWDIntentAdvancesActivityOnce(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	manager, err := session.NewManager(
+		store, &authorityProviders{}, staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	record, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_77777777777777777777777777777777", CWD: root, Model: "test/echo", Temporary: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Millisecond)
+	mutationID := "cwd_no_change"
+	first, err := manager.ChangeCWDWithID(t.Context(), record.ID, mutationID, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Changed || !first.Session.UpdatedAt.After(record.UpdatedAt) {
+		t.Fatalf("no-op cwd result = %+v, want one newer activity timestamp", first)
+	}
+	time.Sleep(time.Millisecond)
+	replayed, err := manager.ChangeCWDWithID(t.Context(), record.ID, mutationID, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayed.Session.UpdatedAt.Equal(first.Session.UpdatedAt) {
+		t.Fatalf("replayed no-op cwd changed activity from %v to %v", first.Session.UpdatedAt, replayed.Session.UpdatedAt)
+	}
+}
+
 func TestConcurrentSessionsKeepIndependentWorkspaceScopes(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
@@ -347,6 +387,64 @@ func TestChangeCWDFailureLeavesSessionAndToolsAtPreviousScope(t *testing.T) {
 	}
 	if settled.CWD != root || strings.TrimSpace(settled.Output) != root {
 		t.Fatalf("bash after failed cwd change = %+v", settled)
+	}
+}
+
+var errAmbiguousCWDCommit = errors.New("simulated ambiguous cwd commit")
+
+type ambiguousCWDRepository struct {
+	session.Repository
+	failAfterCommit bool
+}
+
+func (repository *ambiguousCWDRepository) ApplySessionCWDMutation(ctx context.Context, mutation session.CWDMutation) (session.SessionRecord, session.CWDMutation, error) {
+	record, applied, err := repository.Repository.ApplySessionCWDMutation(ctx, mutation)
+	if err == nil && repository.failAfterCommit {
+		repository.failAfterCommit = false
+		return session.SessionRecord{}, session.CWDMutation{}, errAmbiguousCWDCommit
+	}
+	return record, applied, err
+}
+
+func TestChangeCWDReconcilesAmbiguousCommitBeforePublishing(t *testing.T) {
+	root := t.TempDir()
+	destination := filepath.Join(root, "nested")
+	if err := os.Mkdir(destination, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	repository := &ambiguousCWDRepository{Repository: store, failAfterCommit: true}
+	manager, err := session.NewManager(
+		repository, &authorityProviders{}, staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer manager.Close()
+	record, err := manager.Create(t.Context(), session.CreateInput{
+		ID: "session_44444444444444444444444444444444", CWD: root, Model: "test/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := manager.ChangeCWDWithID(t.Context(), record.ID, "cwd_ambiguous", "nested")
+	if err != nil {
+		t.Fatalf("ChangeCWDWithID() failed after committed mutation: %v", err)
+	}
+	if result.CWD != destination || result.Session.CWD != destination {
+		t.Fatalf("change result = %+v, want %q", result, destination)
+	}
+	snapshot, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Session.CWD != destination {
+		t.Fatalf("snapshot cwd = %q, want %q", snapshot.Session.CWD, destination)
 	}
 }
 

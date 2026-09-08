@@ -130,16 +130,12 @@ func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded
 		return ChangeCWDResult{Session: temporary, PreviousCWD: cached.PreviousCWD, CWD: cached.CWD, Changed: cached.Changed}, nil
 	}
 	if !isTemporary {
-		persisted, lookupErr := m.store.GetSessionCWDMutation(ctx, sessionID, mutationID)
-		if lookupErr == nil {
-			if persisted.TargetPath != targetPath {
-				return ChangeCWDResult{PreviousCWD: previous}, fmt.Errorf("%w: cwd mutation id was reused", ErrInvalidInput)
-			}
-			record, err := m.store.GetSession(ctx, sessionID)
-			return ChangeCWDResult{Session: record, PreviousCWD: persisted.PreviousCWD, CWD: persisted.CWD, Changed: persisted.Changed}, err
+		result, found, err := m.persistedCWDMutationResult(ctx, loaded, sessionID, mutationID, targetPath)
+		if err != nil {
+			return ChangeCWDResult{PreviousCWD: previous}, err
 		}
-		if !errors.Is(lookupErr, ErrNotFound) {
-			return ChangeCWDResult{PreviousCWD: previous}, lookupErr
+		if found {
+			return result, nil
 		}
 	}
 	target, err := resolveCWDTarget(previous, targetPath)
@@ -177,7 +173,10 @@ func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded
 		temporary = current
 		if mutation.Changed {
 			temporary.CWD = target
-			temporary.UpdatedAt = time.Now().UTC()
+		}
+		activityAt := time.Now().UTC()
+		if activityAt.After(temporary.UpdatedAt) {
+			temporary.UpdatedAt = activityAt
 		}
 		m.temporary[sessionID] = temporary
 		m.mu.Unlock()
@@ -187,12 +186,47 @@ func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded
 		var applied CWDMutation
 		record, applied, err = m.store.ApplySessionCWDMutation(ctx, mutation)
 		if err != nil {
-			return ChangeCWDResult{PreviousCWD: previous}, err
+			reconcileContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+			defer cancel()
+			result, found, reconcileErr := m.persistedCWDMutationResult(reconcileContext, loaded, sessionID, mutationID, targetPath)
+			if reconcileErr != nil {
+				return ChangeCWDResult{PreviousCWD: previous}, errors.Join(err, reconcileErr)
+			}
+			if !found {
+				return ChangeCWDResult{PreviousCWD: previous}, err
+			}
+			return result, nil
 		}
 		mutation = applied
 	}
 	loaded.workspace.publish(record.CWD)
 	return ChangeCWDResult{Session: record, PreviousCWD: mutation.PreviousCWD, CWD: mutation.CWD, Changed: mutation.Changed}, nil
+}
+
+func (m *Manager) persistedCWDMutationResult(
+	ctx context.Context,
+	loaded *runtime,
+	sessionID, mutationID, targetPath string,
+) (ChangeCWDResult, bool, error) {
+	persisted, err := m.store.GetSessionCWDMutation(ctx, sessionID, mutationID)
+	if errors.Is(err, ErrNotFound) {
+		return ChangeCWDResult{}, false, nil
+	}
+	if err != nil {
+		return ChangeCWDResult{}, false, err
+	}
+	if persisted.TargetPath != targetPath {
+		return ChangeCWDResult{}, false, fmt.Errorf("%w: cwd mutation id was reused", ErrInvalidInput)
+	}
+	record, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return ChangeCWDResult{}, false, err
+	}
+	loaded.workspace.publish(record.CWD)
+	return ChangeCWDResult{
+		Session: record, PreviousCWD: persisted.PreviousCWD,
+		CWD: persisted.CWD, Changed: persisted.Changed,
+	}, true, nil
 }
 
 func validCWDMutationID(id string) bool {

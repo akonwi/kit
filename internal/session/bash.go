@@ -115,11 +115,16 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 		<-m.bashSlots
 		return BashExecution{}, ErrClosed
 	}
+	startedAt := time.Now().UTC()
+	if err := m.touchSessionActivity(ctx, sessionID, startedAt); err != nil {
+		<-m.bashSlots
+		return BashExecution{}, err
+	}
 	sequence := m.bashNextSequence[sessionID]
 	m.bashNextSequence[sessionID] = sequence + 1
 	execution := BashExecution{
 		ID: executionID, SessionID: sessionID, Sequence: sequence, Command: command, CWD: cwd,
-		Status: BashExecutionRunning, ExcludeFromContext: exclude, StartedAt: time.Now().UTC(),
+		Status: BashExecutionRunning, ExcludeFromContext: exclude, StartedAt: startedAt,
 	}
 	if m.bashHistory[sessionID] == nil {
 		m.bashHistory[sessionID] = make(map[string]BashExecution)

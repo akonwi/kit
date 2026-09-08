@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -76,6 +78,26 @@ func TestSessionRegistryChangesCWD(t *testing.T) {
 	if err != nil || replayed.CWD != target || receipt != mutation {
 		t.Fatalf("replayed cwd mutation = session:%+v receipt:%+v error:%v", replayed, receipt, err)
 	}
+	time.Sleep(time.Millisecond)
+	noChange := session.CWDMutation{
+		ID: "cwd_no_change", SessionID: created.ID, TargetPath: ".",
+		PreviousCWD: target, CWD: target, Changed: false,
+	}
+	unchanged, _, err := store.ApplySessionCWDMutation(t.Context(), noChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !unchanged.UpdatedAt.After(replayed.UpdatedAt) {
+		t.Fatalf("accepted no-op cwd activity time = %v, want after %v", unchanged.UpdatedAt, replayed.UpdatedAt)
+	}
+	time.Sleep(time.Millisecond)
+	replayedNoChange, _, err := store.ApplySessionCWDMutation(t.Context(), noChange)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !replayedNoChange.UpdatedAt.Equal(unchanged.UpdatedAt) {
+		t.Fatalf("replayed no-op cwd changed activity time from %v to %v", unchanged.UpdatedAt, replayedNoChange.UpdatedAt)
+	}
 	missing := mutation
 	missing.ID, missing.SessionID = "cwd_missing", "session_missing"
 	if _, _, err := store.ApplySessionCWDMutation(t.Context(), missing); !errors.Is(err, session.ErrNotFound) {
@@ -110,6 +132,129 @@ func TestSessionRegistryRenamesNonArchivedSession(t *testing.T) {
 	}
 }
 
+func TestSessionRegistryTouchesActivityMonotonicallyAndSorts(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cwd := t.TempDir()
+	first, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_first", CWD: cwd, Persistent: true,
+		ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_second", CWD: cwd, Persistent: true,
+		ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	activityAt := second.UpdatedAt.Add(time.Hour)
+	if err := store.TouchSession(t.Context(), first.ID, activityAt); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TouchSession(t.Context(), first.ID, activityAt.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	touched, err := store.GetSession(t.Context(), first.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !touched.UpdatedAt.Equal(activityAt) {
+		t.Fatalf("updated at = %v, want %v", touched.UpdatedAt, activityAt)
+	}
+	renamed, err := store.RenameSession(t.Context(), first.ID, "Still recent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !renamed.UpdatedAt.Equal(activityAt) {
+		t.Fatalf("rename regressed activity time to %v, want %v", renamed.UpdatedAt, activityAt)
+	}
+	moved, _, err := store.ApplySessionCWDMutation(t.Context(), session.CWDMutation{
+		ID: "cwd_monotonic", SessionID: first.ID, TargetPath: "../elsewhere",
+		PreviousCWD: cwd, CWD: t.TempDir(), Changed: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !moved.UpdatedAt.Equal(activityAt) {
+		t.Fatalf("cwd change regressed activity time to %v, want %v", moved.UpdatedAt, activityAt)
+	}
+	listed, err := store.ListSessions(t.Context(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 || listed[0].ID != first.ID {
+		t.Fatalf("sessions = %+v, want touched session first", listed)
+	}
+	if err := store.TouchSession(t.Context(), "session_missing", activityAt); !errors.Is(err, session.ErrNotFound) {
+		t.Fatalf("missing TouchSession() error = %v", err)
+	}
+}
+
+func TestSessionRegistrySerializesConcurrentActivityAndCWDWrites(t *testing.T) {
+	t.Parallel()
+
+	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	cwd := t.TempDir()
+	record, err := store.CreateSession(t.Context(), session.NewSession{
+		ID: "session_concurrent", CWD: cwd, Persistent: true,
+		ModelProvider: "test", ModelID: "model",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	const writes = 16
+	start := make(chan struct{})
+	errorsFound := make(chan error, writes*2)
+	var wait sync.WaitGroup
+	for index := 0; index < writes; index++ {
+		index := index
+		wait.Add(2)
+		go func() {
+			defer wait.Done()
+			<-start
+			errorsFound <- store.TouchSession(t.Context(), record.ID, record.UpdatedAt.Add(time.Duration(index+1)*time.Minute))
+		}()
+		go func() {
+			defer wait.Done()
+			<-start
+			_, _, err := store.ApplySessionCWDMutation(t.Context(), session.CWDMutation{
+				ID: fmt.Sprintf("cwd_concurrent_%d", index), SessionID: record.ID,
+				TargetPath: fmt.Sprintf("target-%d", index), PreviousCWD: cwd,
+				CWD: cwd, Changed: true,
+			})
+			errorsFound <- err
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errorsFound)
+	for err := range errorsFound {
+		if err != nil {
+			t.Fatalf("concurrent registry write failed: %v", err)
+		}
+	}
+	loaded, err := store.GetSession(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantActivity := record.UpdatedAt.Add(writes * time.Minute)
+	if !loaded.UpdatedAt.Equal(wantActivity) {
+		t.Fatalf("activity time = %v, want %v", loaded.UpdatedAt, wantActivity)
+	}
+}
+
 func TestSessionRegistryArchivesSession(t *testing.T) {
 	t.Parallel()
 
@@ -125,12 +270,19 @@ func TestSessionRegistryArchivesSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.ArchiveSession(t.Context(), created.ID, time.Now().UTC()); err != nil {
+	futureActivity := created.UpdatedAt.Add(time.Hour)
+	if err := store.TouchSession(t.Context(), created.ID, futureActivity); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ArchiveSession(t.Context(), created.ID, created.UpdatedAt.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	archived, err := store.GetSession(t.Context(), created.ID)
 	if err != nil || archived.ArchivedAt == nil {
 		t.Fatalf("archived GetSession() = %+v, %v", archived, err)
+	}
+	if !archived.UpdatedAt.Equal(futureActivity) {
+		t.Fatalf("archive regressed activity time to %v, want %v", archived.UpdatedAt, futureActivity)
 	}
 	listed, err := store.ListSessions(t.Context(), "")
 	if err != nil || len(listed) != 0 {
@@ -167,5 +319,8 @@ func TestSessionRegistryTracksDroidInitialization(t *testing.T) {
 	}
 	if loaded.DroidInitializedAt == nil {
 		t.Fatal("droid initialization marker was not persisted")
+	}
+	if !loaded.UpdatedAt.Equal(record.UpdatedAt) {
+		t.Fatalf("droid initialization changed activity time from %v to %v", record.UpdatedAt, loaded.UpdatedAt)
 	}
 }

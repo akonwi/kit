@@ -112,32 +112,25 @@ func (s *Store) ApplySessionCWDMutation(ctx context.Context, mutation CWDMutatio
 		return SessionRecord{}, CWDMutation{}, fmt.Errorf("check cwd mutation %q: %w", mutation.ID, err)
 	}
 
-	var record SessionRecord
+	changed := 0
 	if mutation.Changed {
-		record, err = scanSession(tx.QueryRowContext(ctx, `
-			UPDATE sessions SET cwd = ?, updated_at = ?
-			WHERE id = ? AND archived_at IS NULL
-			RETURNING id, cwd, name, persistent, parent_session_id,
-			          model_provider, model_id, thinking_level, droid_initialized_at,
-			          created_at, updated_at, archived_at
-		`, mutation.CWD, formatTimestamp(time.Now()), mutation.SessionID))
-	} else {
-		record, err = scanSession(tx.QueryRowContext(ctx, `
-			SELECT id, cwd, name, persistent, parent_session_id,
-			       model_provider, model_id, thinking_level, droid_initialized_at,
-			       created_at, updated_at, archived_at
-			FROM sessions WHERE id = ? AND archived_at IS NULL
-		`, mutation.SessionID))
+		changed = 1
 	}
+	activityAt := formatTimestamp(time.Now())
+	record, err := scanSession(tx.QueryRowContext(ctx, `
+		UPDATE sessions
+		SET cwd = CASE WHEN ? = 1 THEN ? ELSE cwd END,
+		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
+		WHERE id = ? AND archived_at IS NULL
+		RETURNING id, cwd, name, persistent, parent_session_id,
+		          model_provider, model_id, thinking_level, droid_initialized_at,
+		          created_at, updated_at, archived_at
+	`, changed, mutation.CWD, activityAt, activityAt, mutation.SessionID))
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionRecord{}, CWDMutation{}, fmt.Errorf("session %q: %w", mutation.SessionID, ErrNotFound)
 	}
 	if err != nil {
 		return SessionRecord{}, CWDMutation{}, fmt.Errorf("change session %q cwd: %w", mutation.SessionID, err)
-	}
-	changed := 0
-	if mutation.Changed {
-		changed = 1
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO session_cwd_mutations(
@@ -165,14 +158,16 @@ func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionReco
 	if s == nil || s.db == nil {
 		return SessionRecord{}, fmt.Errorf("store is closed")
 	}
+	activityAt := formatTimestamp(time.Now())
 	row := s.db.QueryRowContext(ctx, `
 		UPDATE sessions
-		SET name = ?, updated_at = ?
+		SET name = ?,
+		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
 		WHERE id = ? AND archived_at IS NULL
 		RETURNING id, cwd, name, persistent, parent_session_id,
 		          model_provider, model_id, thinking_level, droid_initialized_at,
 		          created_at, updated_at, archived_at
-	`, name, formatTimestamp(time.Now()), id)
+	`, name, activityAt, activityAt, id)
 	record, err := scanSession(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return SessionRecord{}, fmt.Errorf("session %q: %w", id, ErrNotFound)
@@ -183,16 +178,46 @@ func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionReco
 	return record, nil
 }
 
+// TouchSession advances a non-archived session's activity time without allowing
+// a delayed operation to move it backward.
+func (s *Store) TouchSession(ctx context.Context, id string, activityAt time.Time) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store is closed")
+	}
+	if activityAt.IsZero() {
+		return fmt.Errorf("session activity time is required")
+	}
+	formatted := formatTimestamp(activityAt)
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE sessions
+		SET updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
+		WHERE id = ? AND archived_at IS NULL
+	`, formatted, formatted, id)
+	if err != nil {
+		return fmt.Errorf("touch session %q: %w", id, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("touch session %q: %w", id, err)
+	}
+	if count == 1 {
+		return nil
+	}
+	return fmt.Errorf("session %q: %w", id, ErrNotFound)
+}
+
 // ArchiveSession hides a session from future loads while retaining its durable data.
 func (s *Store) ArchiveSession(ctx context.Context, id string, archivedAt time.Time) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("store is closed")
 	}
+	formatted := formatTimestamp(archivedAt)
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE sessions
-		SET archived_at = ?, updated_at = ?
+		SET archived_at = ?,
+		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
 		WHERE id = ? AND archived_at IS NULL
-	`, formatTimestamp(archivedAt), formatTimestamp(archivedAt), id)
+	`, formatted, formatted, formatted, id)
 	if err != nil {
 		return fmt.Errorf("archive session %q: %w", id, err)
 	}
@@ -351,9 +376,9 @@ func (s *Store) MarkDroidInitialized(ctx context.Context, sessionID string, init
 	}
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE sessions
-		SET droid_initialized_at = COALESCE(droid_initialized_at, ?), updated_at = ?
+		SET droid_initialized_at = COALESCE(droid_initialized_at, ?)
 		WHERE id = ? AND archived_at IS NULL
-	`, formatTimestamp(initializedAt), formatTimestamp(time.Now()), sessionID)
+	`, formatTimestamp(initializedAt), sessionID)
 	if err != nil {
 		return fmt.Errorf("mark session droid initialized: %w", err)
 	}

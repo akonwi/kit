@@ -35,8 +35,10 @@ recorded manual verification exists.
   dedicated SQLite Store. ADR 0006 makes that Store authoritative for turns,
   executions, messages, files, boundaries, outcomes, and droid events; Kit's
   SQLite database retains the session registry rather than durable projections.
-- [ ] Runtime-owned JSONL session data moves to SQLite through an idempotent,
-  backed-up migration.
+- [x] Store new v2 runtime-owned conversation data in dedicated droid SQLite
+  stores.
+- [ ] Back up and idempotently migrate existing production `~/.kit` JSONL
+  session data into the v2 SQLite stores.
 - [ ] Subagents become concurrent supervised executions with durable mailboxes.
 - [ ] Custom plugins are supported through the subprocess RPC protocol only;
   in-process TypeScript plugin loading is not restored.
@@ -111,8 +113,12 @@ recorded manual verification exists.
   `--temp` sessions backed by in-memory droid stores and disposed after orderly
   foreground TUI or print exit; ADR 0009 deliberately defers logical owner
   leases for abnormal owner loss.
-- [~] Persist cwd, name, parent lineage, model, thinking level, timestamps, and
-  usage metadata.
+- [x] Persist session cwd, name, creation time, and monotonic activity time;
+  accepted prompts, direct bash commands, cwd changes, and renames advance the
+  activity timestamp used for directory ordering and default resume.
+- [~] Persist model, thinking-level, and usage metadata; initial model/thinking
+  selections and droid-owned per-turn usage are durable, while changes to those
+  selections and aggregate session-usage projection remain.
 - [~] Run different top-level sessions concurrently.
 - [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.

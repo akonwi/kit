@@ -607,6 +607,25 @@ func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error)
 	return m.store.ListSessions(ctx, cwd)
 }
 
+func (m *Manager) touchSessionActivity(ctx context.Context, sessionID string, activityAt time.Time) error {
+	activityAt = activityAt.UTC()
+	m.mu.Lock()
+	if m.deleting[sessionID] {
+		m.mu.Unlock()
+		return ErrDeleteBusy
+	}
+	if record, temporary := m.temporary[sessionID]; temporary {
+		if activityAt.After(record.UpdatedAt) {
+			record.UpdatedAt = activityAt
+			m.temporary[sessionID] = record
+		}
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+	return m.store.TouchSession(ctx, sessionID, activityAt)
+}
+
 // StartPrompt admits one droid turn and returns its canonical identity.
 func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (RunReservation, error) {
 	return m.startPrompt(ctx, sessionID, prompt, "", "")
@@ -676,6 +695,11 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,
 	})
 	if err != nil {
+		release()
+		return RunReservation{}, err
+	}
+	if err := m.touchSessionActivity(ctx, sessionID, time.Now().UTC()); err != nil {
+		subscription.Close()
 		release()
 		return RunReservation{}, err
 	}
