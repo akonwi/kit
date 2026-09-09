@@ -85,8 +85,8 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandThinking {
 		t.Fatalf("effort matches = %#v, want thinking", commands)
 	}
-	if paletteCommandAvailable(paletteCommandLogin, true) {
-		t.Fatal("login remained available during an active run")
+	if !paletteCommandAvailable(paletteCommandLogin, true) {
+		t.Fatal("login was unavailable during an active run")
 	}
 	if paletteCommandAvailable(paletteCommandSessions, true) {
 		t.Fatal("sessions remained available during active work")
