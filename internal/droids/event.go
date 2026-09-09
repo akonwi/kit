@@ -1,8 +1,8 @@
 package droids
 
-// Event is the sealed transient/durable event payload surface. Durable
-// lifecycle transitions use LifecycleEvent; the concrete values below carry
-// provider and tool updates that are useful to live clients.
+// Event is the sealed transient/durable event payload surface. Most durable
+// lifecycle transitions use LifecycleEvent; typed values below carry provider,
+// usage, and tool updates useful to live clients.
 type Event interface{ isEvent() }
 
 // MessageStart announces an assistant message identity before deltas.
@@ -23,6 +23,14 @@ func (MessageDelta) isEvent() {}
 type MessageEnd struct{ Message Message }
 
 func (MessageEnd) isEvent() {}
+
+// UsageUpdated carries the authoritative cumulative conversation total after a
+// canonical provider response is durably accounted.
+type UsageUpdated struct {
+	Usage SessionUsage
+}
+
+func (UsageUpdated) isEvent() {}
 
 // ToolExecutionStart is emitted before a tool runs.
 type ToolExecutionStart struct {

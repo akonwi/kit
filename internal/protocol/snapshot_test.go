@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 	"time"
 )
@@ -77,6 +78,22 @@ func TestSessionSnapshotValidatesPromptCommands(t *testing.T) {
 	snapshot.PromptCommands = append(snapshot.PromptCommands, snapshot.PromptCommands[0])
 	if err := snapshot.Validate(); err == nil {
 		t.Fatal("snapshot accepted duplicate prompt commands")
+	}
+}
+
+func TestSessionSnapshotRejectsInvalidUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, mutate := range []func(*SessionUsage){
+		func(usage *SessionUsage) { usage.Input = -1 },
+		func(usage *SessionUsage) { usage.Cost.Total = math.Inf(1) },
+		func(usage *SessionUsage) { usage.Cost.Input = math.NaN() },
+	} {
+		snapshot := validTranscriptSnapshot()
+		mutate(&snapshot.Usage)
+		if err := snapshot.Validate(); err == nil {
+			t.Fatal("Validate() accepted invalid cumulative usage")
+		}
 	}
 }
 

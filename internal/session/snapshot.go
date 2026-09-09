@@ -68,6 +68,24 @@ type PromptCommand struct {
 	Location    string
 }
 
+type SessionUsage struct {
+	Input       int
+	Output      int
+	CacheRead   int
+	CacheWrite  int
+	Reasoning   int
+	TotalTokens int
+	Cost        SessionUsageCost
+}
+
+type SessionUsageCost struct {
+	Input      float64
+	Output     float64
+	CacheRead  float64
+	CacheWrite float64
+	Total      float64
+}
+
 type Snapshot struct {
 	Session               SessionRecord
 	Messages              []TranscriptMessage
@@ -80,6 +98,7 @@ type Snapshot struct {
 	EventReplayAvailable  bool
 	ContextTokens         int
 	ContextWindow         int
+	Usage                 SessionUsage
 	PromptCommands        []PromptCommand
 }
 
@@ -123,6 +142,7 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		EventReplayAvailable: completeActiveStream,
 		ContextTokens:        droidSnapshot.Context.Usage.EstimatedInput,
 		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
+		Usage:                projectSessionUsage(droidSnapshot.Usage),
 	}
 	if loaded.bundle.PromptCommands != nil {
 		for _, command := range loaded.bundle.PromptCommands.Commands() {
@@ -200,6 +220,19 @@ func (m *Manager) sessionRecordAtWorkspace(ctx context.Context, sessionID string
 		return SessionRecord{}, fmt.Errorf("%w: persisted cwd %q does not match runtime cwd %q", ErrBusy, record.CWD, cwd)
 	}
 	return record, nil
+}
+
+func projectSessionUsage(usage droids.SessionUsage) SessionUsage {
+	return SessionUsage{
+		Input: usage.Input, Output: usage.Output,
+		CacheRead: usage.CacheRead, CacheWrite: usage.CacheWrite,
+		Reasoning: usage.Reasoning, TotalTokens: usage.TotalTokens,
+		Cost: SessionUsageCost{
+			Input: usage.Cost.Input, Output: usage.Cost.Output,
+			CacheRead: usage.Cost.CacheRead, CacheWrite: usage.Cost.CacheWrite,
+			Total: usage.Cost.Total,
+		},
+	}
 }
 
 func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (TranscriptMessage, error) {

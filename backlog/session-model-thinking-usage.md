@@ -12,7 +12,7 @@ Related parity entries:
 - [`docs/parity.md`](../docs/parity.md): context usage and model limits
 - [`docs/parity.md`](../docs/parity.md): model selection
 - [`docs/parity.md`](../docs/parity.md): thinking-level discovery and persistence
-- [`docs/parity.md`](../docs/parity.md): `/model`, `/thinking`, and `/session`
+- [`docs/parity.md`](../docs/parity.md): `/model`, `/thinking`, and `/debug`
 
 ## Current behavior
 
@@ -140,7 +140,7 @@ type SessionUsage struct {
 - Later work in the source conversation does not change the child total.
 - Historical costs remain those computed using the model active at execution
   time; model switching does not reprice old work.
-- Expose cumulative usage through the session protocol and a `/session` details
+- Expose cumulative usage through the session protocol and a `/debug` details
   surface.
 - Keep the normal TUI header focused on current context percentage; do not add
   cumulative tokens or cost to persistent header chrome.
@@ -209,19 +209,19 @@ manager, protocol, and `/compact` command are wired.
 
 ### 3. Droids: cumulative usage authority
 
-- [ ] Add a durable cumulative `SessionUsage` aggregate owned by droids.
-- [ ] Update it atomically whenever provider usage becomes canonical.
-- [ ] Include all model cycles in a turn and usage reported for failed, aborted,
+- [x] Add a durable cumulative `SessionUsage` aggregate owned by droids.
+- [x] Update it atomically whenever provider usage becomes canonical.
+- [x] Include all model cycles in a turn and usage reported for failed, aborted,
   or retried calls without double counting replayed records.
-- [ ] Expose cumulative usage from an authoritative droid snapshot API.
-- [ ] Expose per-turn usage from `TurnSnapshot` if protocol/run details need it;
+- [x] Expose cumulative usage from an authoritative droid snapshot API.
+- [x] Expose per-turn usage from `TurnSnapshot` if protocol/run details need it;
   do not make Kit scan private droid records.
-- [ ] Initialize a fork's cumulative usage from the source's total at the exact
+- [x] Initialize a fork's cumulative usage from the source's total at the exact
   fork point.
-- [ ] Define record-version compatibility or an explicit development-database
+- [x] Define record-version compatibility or an explicit development-database
   reset rule; never silently interpret missing aggregate state as a verified
   zero when historical usage records exist.
-- [ ] Keep cumulative usage intact across compaction and runtime replacement.
+- [x] Keep cumulative usage intact across compaction and runtime replacement.
 
 ### 4. Kit repository: atomic configuration persistence
 
@@ -264,7 +264,7 @@ manager, protocol, and `/compact` command are wired.
 
 ### 6. Protocol and clients
 
-- [ ] Bump the canonical protocol version.
+- [x] Bump the canonical protocol version.
 - [ ] Add wire-safe model capability records: exact ID, display name, provider,
   context limits, supported thinking levels, and relevant input capabilities.
 - [ ] Add a session configuration command with mutation ID, expected revision,
@@ -272,8 +272,8 @@ manager, protocol, and `/compact` command are wired.
 - [ ] Add an explicit session-compaction command carrying a stable operation ID.
 - [ ] Return the applied configuration rather than requiring clients to infer
   clamp results.
-- [ ] Add cumulative `SessionUsage` to authoritative session snapshots.
-- [ ] Add usage updates at durable model-call boundaries so an open session
+- [x] Add cumulative `SessionUsage` to authoritative session snapshots.
+- [x] Add usage updates at durable model-call boundaries so an open session
   details view can update without polling full history.
 - [ ] Validate enum values, bounded IDs, non-negative token counts, finite
   non-negative costs, revision monotonicity, and model/thinking compatibility on
@@ -306,9 +306,9 @@ manager, protocol, and `/compact` command are wired.
   user's selector state for retry.
 - [ ] Apply the returned event-stream identity and authoritative configuration
   atomically; never patch local header text optimistically.
-- [ ] Add `/session` details showing current model, thinking level, context
+- [x] Add `/debug` details showing current model, thinking level, context
   pressure, cumulative token categories, and cumulative cost.
-- [ ] Keep cumulative usage out of persistent header chrome.
+- [x] Keep cumulative usage out of persistent header chrome.
 - [ ] Add exact presentation and interaction tests following the project UI test
   conventions.
 
@@ -335,20 +335,20 @@ manager, protocol, and `/compact` command are wired.
 
 #### Usage
 
-- [ ] Aggregate input, output, cache-read, cache-write, reasoning, total tokens,
+- [x] Aggregate input, output, cache-read, cache-write, reasoning, total tokens,
   and cost across ordinary turns.
-- [ ] Aggregate every model cycle in tool loops.
-- [ ] Handle provider errors, retries, aborts, and missing provider usage without
+- [x] Aggregate every model cycle in tool loops.
+- [x] Handle provider errors, retries, aborts, and missing provider usage without
   double counting.
-- [ ] Preserve totals after daemon restart and session runtime replacement.
-- [ ] Preserve totals across compaction.
-- [ ] Initialize a fork/handoff with the source cumulative total at its fork
+- [x] Preserve totals after daemon restart and session runtime replacement.
+- [x] Preserve totals across compaction.
+- [x] Initialize a fork/handoff with the source cumulative total at its fork
   point and add later child usage to that one total.
-- [ ] Prove later parent work does not change the child total.
+- [x] Prove later parent work does not change the child total.
 - [ ] Preserve historical cost across model changes.
-- [ ] Project the same authoritative total through snapshot, live update, and
-  `/session` details.
-- [ ] Keep context percentage behavior independent from cumulative totals.
+- [x] Project the same authoritative total through snapshot, live update, and
+  `/debug` details.
+- [x] Keep context percentage behavior independent from cumulative totals.
 
 ### 9. Validation
 

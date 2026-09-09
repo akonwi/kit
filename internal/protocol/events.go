@@ -24,6 +24,7 @@ const (
 	SessionEventToolStarted        SessionEventKind = "tool.started"
 	SessionEventToolUpdated        SessionEventKind = "tool.updated"
 	SessionEventToolCompleted      SessionEventKind = "tool.completed"
+	SessionEventUsageUpdated       SessionEventKind = "usage.updated"
 	SessionEventRunFinished        SessionEventKind = "run.finished"
 )
 
@@ -52,6 +53,7 @@ type SessionEvent struct {
 	Status             RunStatus           `json:"status,omitempty"`
 	ErrorKind          ProviderErrorKind   `json:"errorKind,omitempty"`
 	ErrorMessage       string              `json:"errorMessage,omitempty"`
+	Usage              *SessionUsage       `json:"usage,omitempty"`
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -60,6 +62,7 @@ type SessionEventBatch struct {
 	FirstSequence  int64          `json:"firstSequence,omitempty"`
 	LastSequence   int64          `json:"lastSequence,omitempty"`
 	ResyncRequired bool           `json:"resyncRequired,omitempty"`
+	UsageBaseline  *SessionUsage  `json:"usageBaseline,omitempty"`
 	Events         []SessionEvent `json:"events"`
 }
 
@@ -122,6 +125,13 @@ func (event SessionEvent) Validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
+	case SessionEventUsageUpdated:
+		if event.Usage == nil {
+			return fmt.Errorf("usage update requires an absolute session total")
+		}
+		if err := event.Usage.Validate(); err != nil {
+			return fmt.Errorf("usage update: %w", err)
+		}
 	case SessionEventRunFinished:
 		switch event.Status {
 		case RunStatusCompleted:
@@ -150,6 +160,9 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind != SessionEventRunFinished && (event.ErrorKind != "" || event.ErrorMessage != "") {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
+	}
+	if event.Kind != SessionEventUsageUpdated && event.Usage != nil {
+		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)
 	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
@@ -196,8 +209,13 @@ func (batch SessionEventBatch) Validate() error {
 	if batch.FirstSequence > 0 && batch.StreamID == "" {
 		return fmt.Errorf("event retention range requires a stream id")
 	}
-	if batch.ResyncRequired && len(batch.Events) != 0 {
-		return fmt.Errorf("resync-required event batch must not contain updates")
+	if batch.UsageBaseline != nil {
+		if err := batch.UsageBaseline.Validate(); err != nil {
+			return fmt.Errorf("event usage baseline: %w", err)
+		}
+	}
+	if batch.ResyncRequired && (len(batch.Events) != 0 || batch.UsageBaseline != nil) {
+		return fmt.Errorf("resync-required event batch must not contain updates or a usage baseline")
 	}
 	if len(batch.Events) > 0 && batch.FirstSequence == 0 {
 		return fmt.Errorf("non-empty event batch requires a retention range")
@@ -205,6 +223,7 @@ func (batch SessionEventBatch) Validate() error {
 	previous := int64(0)
 	activeAssistantRunID := ""
 	activeAssistantMessageID := ""
+	previousUsage := batch.UsageBaseline
 	for index, event := range batch.Events {
 		if err := event.Validate(); err != nil {
 			return fmt.Errorf("event %d: %w", index, err)
@@ -238,7 +257,23 @@ func (batch SessionEventBatch) Validate() error {
 		if event.Kind == SessionEventRunFinished {
 			activeAssistantMessageID = ""
 		}
+		if event.Usage != nil {
+			if previousUsage != nil && protocolUsageDecreased(*previousUsage, *event.Usage) {
+				return fmt.Errorf("event %d session usage decreased", index)
+			}
+			copy := *event.Usage
+			previousUsage = &copy
+		}
 		previous = event.Sequence
 	}
 	return nil
+}
+
+func protocolUsageDecreased(before, after SessionUsage) bool {
+	return after.Input < before.Input || after.Output < before.Output ||
+		after.CacheRead < before.CacheRead || after.CacheWrite < before.CacheWrite ||
+		after.Reasoning < before.Reasoning || after.TotalTokens < before.TotalTokens ||
+		after.Cost.Input < before.Cost.Input || after.Cost.Output < before.Cost.Output ||
+		after.Cost.CacheRead < before.Cost.CacheRead || after.Cost.CacheWrite < before.Cost.CacheWrite ||
+		after.Cost.Total < before.Cost.Total
 }

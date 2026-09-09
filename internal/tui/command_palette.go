@@ -18,6 +18,7 @@ const (
 	paletteCommandLogin    paletteCommandID = "login"
 	paletteCommandQuit     paletteCommandID = "quit"
 	paletteCommandReload   paletteCommandID = "reload"
+	paletteCommandDebug    paletteCommandID = "debug"
 	paletteCommandSessions paletteCommandID = "sessions"
 )
 
@@ -321,6 +322,7 @@ func availablePaletteCommands(running bool, contributions ...[]paletteCommand) [
 		return []paletteCommand{
 			{ID: paletteCommandAbort, Name: "abort", Description: "Stop the active run", Aliases: []string{"cancel", "stop"}},
 			{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
+			{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
 		}
 	}
 	commands := []paletteCommand{
@@ -328,9 +330,10 @@ func availablePaletteCommands(running bool, contributions ...[]paletteCommand) [
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
+		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 	}
-	seen := map[string]bool{"cd": true, "login": true, "quit": true, "reload": true, "sessions": true}
+	seen := map[string]bool{"cd": true, "debug": true, "login": true, "quit": true, "reload": true, "sessions": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {

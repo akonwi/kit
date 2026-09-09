@@ -21,6 +21,35 @@ func TestSessionEventBatchValidatesExpectedTurnSequence(t *testing.T) {
 	}
 }
 
+func TestSessionEventBatchValidatesAbsoluteUsageUpdates(t *testing.T) {
+	t.Parallel()
+
+	first := SessionUsage{Input: 10, TotalTokens: 10, Cost: SessionUsageCost{Total: 0.1}}
+	second := SessionUsage{Input: 20, Output: 5, TotalTokens: 25, Cost: SessionUsageCost{Total: 0.2}}
+	batch := SessionEventBatch{StreamID: "stream_test", FirstSequence: 1, LastSequence: 2, Events: []SessionEvent{
+		{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: SessionEventUsageUpdated, Usage: &first},
+		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: SessionEventUsageUpdated, Usage: &second},
+	}}
+	if err := batch.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	regressed := SessionUsage{Input: 9, TotalTokens: 9, Cost: SessionUsageCost{Total: 0.09}}
+	batch.Events[1].Usage = &regressed
+	if err := batch.Validate(); err == nil {
+		t.Fatal("Validate() accepted decreasing session usage")
+	}
+	batch = SessionEventBatch{
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 2, UsageBaseline: &first,
+		Events: []SessionEvent{{
+			StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test",
+			Kind: SessionEventUsageUpdated, Usage: &regressed,
+		}},
+	}
+	if err := batch.Validate(); err == nil {
+		t.Fatal("Validate() accepted a decrease from the preceding page baseline")
+	}
+}
+
 func TestSessionEventBatchRejectsSequenceGaps(t *testing.T) {
 	t.Parallel()
 

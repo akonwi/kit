@@ -203,6 +203,26 @@ type PendingBoundary struct {
 	AcceptedAt string              `json:"acceptedAt"`
 }
 
+// SessionUsage is the authoritative cumulative provider usage for one session.
+type SessionUsage struct {
+	Input       int              `json:"input"`
+	Output      int              `json:"output"`
+	CacheRead   int              `json:"cacheRead"`
+	CacheWrite  int              `json:"cacheWrite"`
+	Reasoning   int              `json:"reasoning"`
+	TotalTokens int              `json:"totalTokens"`
+	Cost        SessionUsageCost `json:"cost"`
+}
+
+// SessionUsageCost is cumulative provider cost in US dollars.
+type SessionUsageCost struct {
+	Input      float64 `json:"input"`
+	Output     float64 `json:"output"`
+	CacheRead  float64 `json:"cacheRead"`
+	CacheWrite float64 `json:"cacheWrite"`
+	Total      float64 `json:"total"`
+}
+
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
 	Session               SessionInfo         `json:"session"`
@@ -216,6 +236,7 @@ type SessionSnapshot struct {
 	EventReplayAvailable  bool                `json:"eventReplayAvailable,omitempty"`
 	ContextTokens         int                 `json:"contextTokens,omitempty"`
 	ContextWindow         int                 `json:"contextWindow,omitempty"`
+	Usage                 SessionUsage        `json:"usage"`
 	PromptCommands        []PromptCommand     `json:"promptCommands,omitempty"`
 }
 

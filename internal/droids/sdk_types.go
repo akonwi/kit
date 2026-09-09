@@ -318,6 +318,7 @@ type Snapshot struct {
 	Active       *ExecutionSnapshot
 	Pending      PendingInputSnapshot
 	Context      ContextSnapshot
+	Usage        SessionUsage
 	LastEvent    EventSequence
 }
 
@@ -326,6 +327,7 @@ type TurnSnapshot struct {
 	ID     TurnID
 	Status ExecutionStatus
 	Error  *DroidError
+	Usage  Usage
 }
 
 // HistoryQuery pages canonical messages.

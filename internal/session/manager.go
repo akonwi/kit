@@ -934,6 +934,9 @@ func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runti
 			}
 			loaded.mu.Unlock()
 		}
+		if envelope.TurnID != droids.TurnID(turnID) {
+			continue
+		}
 		if err := loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event)); err != nil {
 			return err
 		}

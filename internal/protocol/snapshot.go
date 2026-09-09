@@ -3,11 +3,35 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"mime"
 	"path/filepath"
 	"strings"
 	"time"
 )
+
+// Validate checks cumulative usage received across a transport boundary.
+func (usage SessionUsage) Validate() error {
+	for name, value := range map[string]int{
+		"input": usage.Input, "output": usage.Output,
+		"cache read": usage.CacheRead, "cache write": usage.CacheWrite,
+		"reasoning": usage.Reasoning, "total": usage.TotalTokens,
+	} {
+		if value < 0 {
+			return fmt.Errorf("%s tokens cannot be negative", name)
+		}
+	}
+	for name, value := range map[string]float64{
+		"input": usage.Cost.Input, "output": usage.Cost.Output,
+		"cache read": usage.Cost.CacheRead, "cache write": usage.Cost.CacheWrite,
+		"total": usage.Cost.Total,
+	} {
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return fmt.Errorf("%s cost is invalid", name)
+		}
+	}
+	return nil
+}
 
 // Validate checks a session snapshot received across a transport boundary.
 func (snapshot SessionSnapshot) Validate() error {
@@ -19,6 +43,9 @@ func (snapshot SessionSnapshot) Validate() error {
 	}
 	if snapshot.ContextWindow == 0 && snapshot.ContextTokens != 0 {
 		return fmt.Errorf("snapshot context tokens require a context window")
+	}
+	if err := snapshot.Usage.Validate(); err != nil {
+		return fmt.Errorf("snapshot usage: %w", err)
 	}
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")

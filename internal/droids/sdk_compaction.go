@@ -90,6 +90,9 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		return rt.recordCompactionFailure(turnID, err)
 	}
 	summaryResponse, resultErr := stream.Result()
+	if err := rt.accountCompactionResponse(ctx, model, &summaryResponse, turnID); err != nil {
+		return rt.recordCompactionFailure(turnID, err)
+	}
 	if resultErr != nil {
 		return rt.recordCompactionFailure(turnID, resultErr)
 	}
@@ -99,7 +102,6 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	if summaryResponse.Text() == "" {
 		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction model returned an empty summary"))
 	}
-
 	messageID, err := newMessageID()
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)

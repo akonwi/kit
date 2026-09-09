@@ -18,6 +18,7 @@ const (
 	boundaryReceiptKind   = "boundary_receipt"
 	compactionIntentKind  = "compaction_intent"
 	compactionReceiptKind = "compaction_receipt"
+	usageContributionKind = "usage_contribution"
 	lineageRecordKind     = "lineage"
 	lineageRecordID       = "parent"
 	recordVersion         = 1
@@ -35,26 +36,28 @@ const (
 )
 
 type durableRuntime struct {
-	Status            ExecutionStatus            `json:"status"`
-	CyclePhase        cyclePhase                 `json:"cycle_phase,omitempty"`
-	TurnID            TurnID                     `json:"turn_id,omitempty"`
-	AttemptID         AttemptID                  `json:"attempt_id,omitempty"`
-	AttemptOpen       bool                       `json:"attempt_open,omitempty"`
-	Context           []wireMessageEnvelope      `json:"context,omitempty"`
-	PendingSteering   []wireMessageEnvelope      `json:"pending_steering,omitempty"`
-	PendingBoundaries []durableBoundary          `json:"pending_boundaries,omitempty"`
-	CheckpointID      CheckpointID               `json:"checkpoint_id,omitempty"`
-	Reason            string                     `json:"reason,omitempty"`
-	Error             *durableDroidError         `json:"error,omitempty"`
-	ModelCycles       uint64                     `json:"model_cycles,omitempty"`
-	RetryCount        int                        `json:"retry_count,omitempty"`
-	RetryAt           time.Time                  `json:"retry_at,omitempty"`
-	AbortRequested    bool                       `json:"abort_requested,omitempty"`
-	TerminatePending  bool                       `json:"terminate_pending,omitempty"`
-	Tools             map[ToolCallID]durableTool `json:"tools,omitempty"`
-	Final             *wireMessageEnvelope       `json:"final,omitempty"`
-	Usage             Usage                      `json:"usage,omitempty"`
-	LastTransitionID  string                     `json:"last_transition_id,omitempty"`
+	Status                  ExecutionStatus            `json:"status"`
+	CyclePhase              cyclePhase                 `json:"cycle_phase,omitempty"`
+	TurnID                  TurnID                     `json:"turn_id,omitempty"`
+	AttemptID               AttemptID                  `json:"attempt_id,omitempty"`
+	AttemptOpen             bool                       `json:"attempt_open,omitempty"`
+	Context                 []wireMessageEnvelope      `json:"context,omitempty"`
+	PendingSteering         []wireMessageEnvelope      `json:"pending_steering,omitempty"`
+	PendingBoundaries       []durableBoundary          `json:"pending_boundaries,omitempty"`
+	CheckpointID            CheckpointID               `json:"checkpoint_id,omitempty"`
+	Reason                  string                     `json:"reason,omitempty"`
+	Error                   *durableDroidError         `json:"error,omitempty"`
+	ModelCycles             uint64                     `json:"model_cycles,omitempty"`
+	RetryCount              int                        `json:"retry_count,omitempty"`
+	RetryAt                 time.Time                  `json:"retry_at,omitempty"`
+	AbortRequested          bool                       `json:"abort_requested,omitempty"`
+	TerminatePending        bool                       `json:"terminate_pending,omitempty"`
+	Tools                   map[ToolCallID]durableTool `json:"tools,omitempty"`
+	Final                   *wireMessageEnvelope       `json:"final,omitempty"`
+	Usage                   Usage                      `json:"usage,omitempty"`
+	SessionUsage            SessionUsage               `json:"session_usage,omitempty"`
+	SessionUsageInitialized bool                       `json:"session_usage_initialized,omitempty"`
+	LastTransitionID        string                     `json:"last_transition_id,omitempty"`
 }
 
 type durableBoundary struct {
@@ -114,7 +117,10 @@ type durableLifecycleEvent struct {
 }
 
 func newDurableRuntime() durableRuntime {
-	return durableRuntime{Status: ExecutionReady, CyclePhase: cycleReady, Tools: make(map[ToolCallID]durableTool)}
+	return durableRuntime{
+		Status: ExecutionReady, CyclePhase: cycleReady,
+		Tools: make(map[ToolCallID]durableTool), SessionUsageInitialized: true,
+	}
 }
 
 func encodeRuntime(state durableRuntime) ([]byte, error) {
@@ -272,14 +278,36 @@ func decodeLifecycleEvent(event StoredEvent, conversationID ConversationID) (Eve
 	if err := json.Unmarshal(event.Payload, &payload); err != nil {
 		return EventEnvelope{}, fmt.Errorf("droids: decode event %d: %w", event.Sequence, err)
 	}
+	var decoded Event = LifecycleEvent{Kind: event.Kind, Data: append(json.RawMessage(nil), payload.Data...)}
+	if event.Kind == "usage.updated" {
+		var data struct {
+			SessionUsage SessionUsage `json:"session_usage"`
+		}
+		if err := json.Unmarshal(payload.Data, &data); err != nil {
+			return EventEnvelope{}, fmt.Errorf("droids: decode usage event %d: %w", event.Sequence, err)
+		}
+		if err := validateUsage(data.SessionUsage); err != nil {
+			return EventEnvelope{}, fmt.Errorf("droids: invalid usage event %d: %w", event.Sequence, err)
+		}
+		decoded = UsageUpdated{Usage: data.SessionUsage}
+	}
 	return EventEnvelope{
 		Sequence: event.Sequence, Durable: true, OccurredAt: event.OccurredAt,
 		ConversationID: conversationID, TurnID: payload.TurnID, AttemptID: payload.AttemptID,
-		Event: LifecycleEvent{Kind: event.Kind, Data: append(json.RawMessage(nil), payload.Data...)},
+		Event: decoded,
 	}, nil
 }
 
 func validateOpenedRuntime(state durableRuntime) error {
+	if err := validateUsage(state.Usage); err != nil {
+		return fmt.Errorf("droids: invalid persisted turn usage: %w", err)
+	}
+	if !state.SessionUsageInitialized {
+		return fmt.Errorf("droids: persisted session usage is not initialized")
+	}
+	if err := validateUsage(state.SessionUsage); err != nil {
+		return fmt.Errorf("droids: invalid persisted session usage: %w", err)
+	}
 	switch state.Status {
 	case ExecutionReady, ExecutionRunning, ExecutionRetrying, ExecutionPausing,
 		ExecutionPaused, ExecutionAborting, ExecutionCompleted, ExecutionFailed,

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -218,6 +219,11 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if snapshot.ContextTokens <= 0 || snapshot.ContextWindow != 128_000 {
 		t.Fatalf("snapshot context = %d/%d", snapshot.ContextTokens, snapshot.ContextWindow)
 	}
+	if snapshot.Usage.Input != 40_000 || snapshot.Usage.Output != 24_000 || snapshot.Usage.CacheRead != 10_000 ||
+		snapshot.Usage.CacheWrite != 2_000 || snapshot.Usage.Reasoning != 5_000 || snapshot.Usage.TotalTokens != 64_000 ||
+		math.Abs(snapshot.Usage.Cost.Total-0.095) > 1e-9 {
+		t.Fatalf("snapshot cumulative usage = %+v", snapshot.Usage)
+	}
 	if len(snapshot.PromptCommands) != 1 || snapshot.PromptCommands[0] != (protocol.PromptCommand{
 		Name: "summarize", Description: "Summarize a topic", Source: "project", Location: projectPromptLocation,
 	}) {
@@ -240,6 +246,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		protocol.SessionEventUserMessage,
 		protocol.SessionEventAssistantStarted,
 		protocol.SessionEventAssistantCompleted,
+		protocol.SessionEventUsageUpdated,
 		protocol.SessionEventRunFinished,
 	}
 	if len(eventBatch.Events) != len(wantEventKinds) {
@@ -253,7 +260,8 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if eventBatch.Events[2].MessageID != snapshot.Messages[1].ID || eventBatch.Events[3].MessageID != snapshot.Messages[1].ID {
 		t.Errorf("live assistant ids = %q/%q, snapshot id = %q", eventBatch.Events[2].MessageID, eventBatch.Events[3].MessageID, snapshot.Messages[1].ID)
 	}
-	if eventBatch.Events[3].Kind != protocol.SessionEventAssistantCompleted || eventBatch.Events[4].Status != protocol.RunStatusCompleted {
+	if eventBatch.Events[3].Kind != protocol.SessionEventAssistantCompleted || eventBatch.Events[4].Usage == nil ||
+		*eventBatch.Events[4].Usage != snapshot.Usage || eventBatch.Events[5].Status != protocol.RunStatusCompleted {
 		t.Errorf("terminal session events = %+v", eventBatch.Events[3:])
 	}
 
@@ -288,7 +296,8 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if afterReload.EventStreamID != reloaded.EventStreamID || len(afterReload.Messages) != len(snapshot.Messages) || afterReload.Messages[0].ID != snapshot.Messages[0].ID {
+	if afterReload.EventStreamID != reloaded.EventStreamID || len(afterReload.Messages) != len(snapshot.Messages) ||
+		afterReload.Messages[0].ID != snapshot.Messages[0].ID || afterReload.Usage != snapshot.Usage {
 		t.Fatalf("snapshot after reload = %+v", afterReload)
 	}
 
@@ -545,8 +554,11 @@ func (p *daemonEchoProviders) Stream(
 	}
 	final := droids.AssistantMessage{
 		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
-		Content:   []droids.AssistantContent{droids.TextContent{Text: text}},
-		Usage:     droids.Usage{TotalTokens: 64_000},
+		Content: []droids.AssistantContent{droids.TextContent{Text: text}},
+		Usage: droids.Usage{
+			Input: 40_000, Output: 24_000, CacheRead: 10_000, CacheWrite: 2_000,
+			Reasoning: 5_000, TotalTokens: 64_000,
+		},
 		Timestamp: time.Now().UnixMilli(),
 	}
 	return &daemonEchoStream{final: final}
@@ -556,6 +568,7 @@ func (p *daemonEchoProviders) model() droids.Model {
 	return droids.Model{
 		ID: "echo", Provider: "test", API: droids.ModelAPIOpenAIResponses,
 		ContextWindow: 128_000, MaxOutputTokens: 8_192,
+		Cost: droids.Cost{Input: 1, Output: 2, CacheRead: 0.5, CacheWrite: 1},
 	}
 }
 

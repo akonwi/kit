@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"mime"
 	"strings"
 	"sync"
@@ -33,6 +34,7 @@ const (
 	EventToolStarted        EventKind = "tool.started"
 	EventToolUpdated        EventKind = "tool.updated"
 	EventToolCompleted      EventKind = "tool.completed"
+	EventUsageUpdated       EventKind = "usage.updated"
 	EventRunFinished        EventKind = "run.finished"
 )
 
@@ -59,6 +61,7 @@ type NewEvent struct {
 	Status             RunStatus
 	ErrorKind          ProviderErrorKind
 	ErrorMessage       string
+	Usage              *SessionUsage
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -74,7 +77,30 @@ type EventPage struct {
 	FirstSequence  int64
 	LastSequence   int64
 	ResyncRequired bool
+	UsageBaseline  *SessionUsage
 	Events         []Event
+}
+
+func validateSessionUsage(usage SessionUsage) error {
+	for name, value := range map[string]int{
+		"input": usage.Input, "output": usage.Output,
+		"cache read": usage.CacheRead, "cache write": usage.CacheWrite,
+		"reasoning": usage.Reasoning, "total": usage.TotalTokens,
+	} {
+		if value < 0 {
+			return fmt.Errorf("session usage %s cannot be negative", name)
+		}
+	}
+	for name, value := range map[string]float64{
+		"input cost": usage.Cost.Input, "output cost": usage.Cost.Output,
+		"cache read cost": usage.Cost.CacheRead, "cache write cost": usage.Cost.CacheWrite,
+		"total cost": usage.Cost.Total,
+	} {
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			return fmt.Errorf("session usage %s is invalid", name)
+		}
+	}
+	return nil
 }
 
 // Validate checks that an event is safe to persist and project to clients.
@@ -133,6 +159,13 @@ func (event NewEvent) Validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
+	case EventUsageUpdated:
+		if event.Usage == nil {
+			return fmt.Errorf("usage update requires an absolute session total")
+		}
+		if err := validateSessionUsage(*event.Usage); err != nil {
+			return err
+		}
 	case EventRunFinished:
 		switch event.Status {
 		case RunStatusCompleted:
@@ -161,6 +194,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventRunFinished && (event.ErrorKind != "" || event.ErrorMessage != "") {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
+	}
+	if event.Kind != EventUsageUpdated && event.Usage != nil {
+		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)
 	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
@@ -247,6 +283,24 @@ func (log *eventLog) append(events []NewEvent) error {
 	}
 	log.mu.Lock()
 	defer log.mu.Unlock()
+	var previousUsage *SessionUsage
+	for index := len(log.events) - 1; index >= 0; index-- {
+		if log.events[index].Usage != nil {
+			copy := *log.events[index].Usage
+			previousUsage = &copy
+			break
+		}
+	}
+	for _, event := range events {
+		if event.Usage == nil {
+			continue
+		}
+		if previousUsage != nil && sessionUsageDecreased(*previousUsage, *event.Usage) {
+			return fmt.Errorf("session usage decreased within event stream")
+		}
+		copy := *event.Usage
+		previousUsage = &copy
+	}
 	for _, event := range events {
 		log.events = append(log.events, Event{NewEvent: event, StreamID: log.streamID, Sequence: log.next})
 		log.next++
@@ -265,6 +319,15 @@ func (log *eventLog) invalidate() {
 	log.mu.Unlock()
 }
 
+func sessionUsageDecreased(before, after SessionUsage) bool {
+	return after.Input < before.Input || after.Output < before.Output ||
+		after.CacheRead < before.CacheRead || after.CacheWrite < before.CacheWrite ||
+		after.Reasoning < before.Reasoning || after.TotalTokens < before.TotalTokens ||
+		after.Cost.Input < before.Cost.Input || after.Cost.Output < before.Cost.Output ||
+		after.Cost.CacheRead < before.Cost.CacheRead || after.Cost.CacheWrite < before.Cost.CacheWrite ||
+		after.Cost.Total < before.Cost.Total
+}
+
 func (log *eventLog) page(expectedStream string, after int64) EventPage {
 	log.mu.Lock()
 	defer log.mu.Unlock()
@@ -281,6 +344,10 @@ func (log *eventLog) page(expectedStream string, after int64) EventPage {
 		return page
 	}
 	for _, event := range log.events {
+		if event.Sequence <= after && event.Usage != nil {
+			copy := *event.Usage
+			page.UsageBaseline = &copy
+		}
 		if event.Sequence > after {
 			page.Events = append(page.Events, event)
 			if len(page.Events) == 32 {
@@ -384,6 +451,11 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		base.Content, base.ContentTruncated = boundedLiveToolContent(typed.Result.Content)
 		base.Details, base.DetailsOmitted = boundedLiveToolDetails(typed.Result.Details)
 		base.IsError = typed.IsError
+		return []NewEvent{base}
+	case droids.UsageUpdated:
+		usage := projectSessionUsage(typed.Usage)
+		base.Kind = EventUsageUpdated
+		base.Usage = &usage
 		return []NewEvent{base}
 	default:
 		return nil

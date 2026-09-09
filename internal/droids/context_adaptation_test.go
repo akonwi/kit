@@ -567,6 +567,9 @@ func sdkShouldCompactForTest(usage droids.ContextUsage) bool {
 
 type adaptationProviders struct {
 	compactions          atomic.Int32
+	normalUsage          droids.Usage
+	summaryUsage         droids.Usage
+	summaryStopReason    droids.StopReason
 	rejectActiveForSmall bool
 	smallUnavailable     bool
 	divergentMeasure     bool
@@ -656,10 +659,21 @@ func (p *adaptationProviders) stream(ctx context.Context, model droids.Model, re
 				})
 			}
 		}
-		return sdkStaticStream(droids.AssistantMessage{
-			Provider: "test", Model: model.ID, StopReason: droids.StopReasonStop,
+		stopReason := p.summaryStopReason
+		if stopReason == "" {
+			stopReason = droids.StopReasonStop
+		}
+		message := droids.AssistantMessage{
+			Provider: "test", Model: model.ID, StopReason: stopReason,
 			Content: []droids.AssistantContent{droids.TextContent{Text: "compact summary"}},
-		})
+			Usage:   p.summaryUsage,
+		}
+		if stopReason == droids.StopReasonError {
+			message.ErrorKind = droids.ProviderTransport
+			message.ErrorMessage = "summary failed"
+			message.Error = &droids.ProviderError{Kind: droids.ProviderTransport, Message: "summary failed", Retryable: true}
+		}
+		return sdkStaticStream(message)
 	}
 	p.mu.Lock()
 	started, release := p.normalStarted, p.blockNormal
@@ -676,6 +690,7 @@ func (p *adaptationProviders) stream(ctx context.Context, model droids.Model, re
 	return sdkStaticStream(droids.AssistantMessage{
 		Provider: "test", Model: model.ID, StopReason: droids.StopReasonStop,
 		Content: []droids.AssistantContent{droids.TextContent{Text: "ok"}},
+		Usage:   p.normalUsage,
 	})
 }
 

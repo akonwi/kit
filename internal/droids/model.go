@@ -112,7 +112,7 @@ type Cost struct {
 	CacheWrite float64
 }
 
-// Usage is the token accounting for one assistant turn.
+// Usage is token and cost accounting for one canonical provider response.
 type Usage struct {
 	Input       int
 	Output      int

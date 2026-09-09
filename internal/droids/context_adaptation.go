@@ -490,6 +490,9 @@ func (rt *sdkRuntime) compactCandidate(
 		return nil, wireMessageEnvelope{}, ContextUsage{}, err
 	}
 	summaryResponse, resultErr := stream.Result()
+	if err := rt.accountCompactionResponse(ctx, model, &summaryResponse, ""); err != nil {
+		return nil, wireMessageEnvelope{}, ContextUsage{}, err
+	}
 	if resultErr != nil {
 		return nil, wireMessageEnvelope{}, ContextUsage{}, resultErr
 	}

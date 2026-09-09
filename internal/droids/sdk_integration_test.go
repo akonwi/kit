@@ -778,6 +778,10 @@ func TestSDKAutomaticCompactionPreservesHistory(t *testing.T) {
 	if snapshot.Context.CheckpointID == "" || snapshot.Context.Messages >= len(history.Messages) {
 		t.Fatalf("compacted context = %+v, history=%d", snapshot.Context, len(history.Messages))
 	}
+	wantUsage := int(providers.calls.Load() + providers.compactions.Load())
+	if snapshot.Usage.TotalTokens != wantUsage {
+		t.Fatalf("cumulative usage = %+v, want total tokens %d", snapshot.Usage, wantUsage)
+	}
 	forked, err := droid.Fork(t.Context(), "conversation_compaction_fork", droids.ForkOptions{})
 	if err != nil {
 		t.Fatalf("fork compacted droid: %v", err)
@@ -1170,11 +1174,13 @@ func (p *compactionProviders) Stream(_ context.Context, _ droids.Model, request 
 		return sdkStaticStream(droids.AssistantMessage{
 			Provider: "test", Model: "compact", StopReason: droids.StopReasonStop,
 			Content: []droids.AssistantContent{droids.TextContent{Text: "Earlier prompts contained repeated test data."}},
+			Usage:   droids.Usage{Input: 1, Output: 1, TotalTokens: 2},
 		})
 	}
 	return sdkStaticStream(droids.AssistantMessage{
 		Provider: "test", Model: "compact", StopReason: droids.StopReasonStop,
 		Content: []droids.AssistantContent{droids.TextContent{Text: "ok"}},
+		Usage:   droids.Usage{TotalTokens: 1},
 	})
 }
 func (p *compactionProviders) model() droids.Model {

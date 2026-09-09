@@ -112,7 +112,7 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 
 		switch message.StopReason {
 		case StopReasonContextWindow:
-			if err := rt.persistAssistant(ctx, envelope, false); err != nil {
+			if err := rt.persistObservedAssistant(ctx, envelope, false); err != nil {
 				rt.finishRunFailure(turnID, DroidErrorPersistence, err)
 				return
 			}
@@ -126,7 +126,7 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 			}
 			continue
 		case StopReasonError:
-			if err := rt.persistAssistant(ctx, envelope, false); err != nil {
+			if err := rt.persistObservedAssistant(ctx, envelope, false); err != nil {
 				rt.finishRunFailure(turnID, DroidErrorPersistence, err)
 				return
 			}
@@ -159,11 +159,15 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 			rt.finishRunFailure(turnID, DroidErrorProvider, errors.New(errText(message)))
 			return
 		case StopReasonAborted:
+			if err := rt.persistObservedAssistant(ctx, envelope, false); err != nil {
+				rt.finishRunFailure(turnID, DroidErrorPersistence, err)
+				return
+			}
 			rt.finishCanceledRun(turnID, errors.New(errText(message)))
 			return
 		}
 
-		if err := rt.persistAssistant(ctx, envelope, true); err != nil {
+		if err := rt.persistObservedAssistant(ctx, envelope, true); err != nil {
 			rt.finishRunFailure(turnID, DroidErrorPersistence, err)
 			return
 		}
@@ -508,9 +512,16 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	if final.Timestamp == 0 {
 		final.Timestamp = time.Now().UnixMilli()
 	}
-	calculateCost(rt.droid.model, &final.Usage)
+	usageErr := validateUsageTokens(final.Usage)
+	if usageErr == nil {
+		calculateCost(rt.droid.model, &final.Usage)
+		usageErr = validateUsage(final.Usage)
+	}
 	normalizeProviderError(&final)
-	if validationErr := validateProviderTerminal(rt.droid.model, final); validationErr != nil {
+	if usageErr != nil {
+		final.Usage = Usage{}
+		setProtocolFailure(&final, rt.droid.model, usageErr)
+	} else if validationErr := validateProviderTerminal(rt.droid.model, final); validationErr != nil {
 		setProtocolFailure(&final, rt.droid.model, validationErr)
 	} else if validationErr := validateAssistantToolCalls(final); validationErr != nil {
 		setProtocolFailure(&final, rt.droid.model, validationErr)
@@ -578,14 +589,8 @@ func validateProviderTerminal(expected Model, message AssistantMessage) error {
 	default:
 		return fmt.Errorf("unknown stop reason %q", message.StopReason)
 	}
-	for name, value := range map[string]int{
-		"input": message.Usage.Input, "output": message.Usage.Output,
-		"cache_read": message.Usage.CacheRead, "cache_write": message.Usage.CacheWrite,
-		"reasoning": message.Usage.Reasoning, "total": message.Usage.TotalTokens,
-	} {
-		if value < 0 {
-			return fmt.Errorf("usage %s is negative", name)
-		}
+	if err := validateUsage(message.Usage); err != nil {
+		return err
 	}
 	isFailure := message.StopReason == StopReasonError || message.StopReason == StopReasonContextWindow
 	if isFailure && message.Error == nil {
@@ -694,6 +699,12 @@ func canonicalizeToolCalls(message *AssistantMessage) error {
 	return nil
 }
 
+func (rt *sdkRuntime) persistObservedAssistant(ctx context.Context, envelope MessageEnvelope, active bool) error {
+	persistenceContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return rt.persistAssistant(persistenceContext, envelope, active)
+}
+
 func (rt *sdkRuntime) persistAssistant(ctx context.Context, envelope MessageEnvelope, active bool) error {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -720,17 +731,13 @@ func (rt *sdkRuntime) persistAssistant(ctx context.Context, envelope MessageEnve
 	} else {
 		rt.state.CyclePhase = cycleReady
 	}
-	rt.state.Usage.Input += message.Usage.Input
-	rt.state.Usage.Output += message.Usage.Output
-	rt.state.Usage.CacheRead += message.Usage.CacheRead
-	rt.state.Usage.CacheWrite += message.Usage.CacheWrite
-	rt.state.Usage.Reasoning += message.Usage.Reasoning
-	rt.state.Usage.TotalTokens += message.Usage.TotalTokens
-	rt.state.Usage.Cost.Input += message.Usage.Cost.Input
-	rt.state.Usage.Cost.Output += message.Usage.Cost.Output
-	rt.state.Usage.Cost.CacheRead += message.Usage.Cost.CacheRead
-	rt.state.Usage.Cost.CacheWrite += message.Usage.Cost.CacheWrite
-	rt.state.Usage.Cost.Total += message.Usage.Cost.Total
+	usageMutation, usageEvent, usageChanged, err := applyUsageContribution(
+		&rt.state, "assistant:"+string(envelope.ID), "assistant", message.Usage, true,
+	)
+	if err != nil {
+		rt.state = before
+		return err
+	}
 	mutation, err := messageHistoryMutation(envelope)
 	if err != nil {
 		rt.state = before
@@ -738,7 +745,13 @@ func (rt *sdkRuntime) persistAssistant(ctx context.Context, envelope MessageEnve
 	}
 	messageEvent, _ := lifecycleEvent("message.completed", rt.state.TurnID, rt.state.AttemptID, map[string]any{"message_id": envelope.ID, "role": RoleAssistant})
 	cycleEvent, _ := lifecycleEvent("model_cycle.settled", rt.state.TurnID, rt.state.AttemptID, map[string]any{"stop_reason": message.StopReason})
-	if err := rt.commitLocked(ctx, []EncodedMutation{mutation}, []EncodedDurableEvent{messageEvent, cycleEvent}); err != nil {
+	mutations := []EncodedMutation{mutation}
+	events := []EncodedDurableEvent{messageEvent, cycleEvent}
+	if usageChanged {
+		mutations = append(mutations, usageMutation)
+		events = append(events, usageEvent)
+	}
+	if err := rt.commitLocked(ctx, mutations, events); err != nil {
 		rt.state = before
 		return err
 	}

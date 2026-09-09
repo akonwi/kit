@@ -24,6 +24,7 @@ type shellSnapshot struct {
 	PaletteQuery                string
 	PaletteSelection            paletteCommandID
 	PaletteCommands             []paletteCommand
+	SessionDetailsOpen          bool
 	SessionExplorer             sessionExplorerSnapshot
 	AuthReturnReady             bool
 	AuthFilter                  string
@@ -39,6 +40,7 @@ type shellSnapshot struct {
 	TurnThinking                string
 	ContextTokens               int
 	ContextWindow               int
+	SessionUsage                protocol.SessionUsage
 	Scroll                      *ui.ScrollController
 	ActivityScroll              *ui.ScrollController
 	ActivityList                *activityListController
@@ -164,6 +166,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				OnSelect: w.Callbacks.SelectBashHistory,
 			},
 		})
+	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionDetailsOpen {
+		overlays = append(overlays, modalDialogEntry(sessionDetailsSurface{
+			Session: w.Snapshot.Session, ContextTokens: w.Snapshot.ContextTokens,
+			ContextWindow: w.Snapshot.ContextWindow, Usage: w.Snapshot.SessionUsage,
+		}))
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionExplorer.Open {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{

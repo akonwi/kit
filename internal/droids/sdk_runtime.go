@@ -224,6 +224,15 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 	if err != nil {
 		return nil, err
 	}
+	usageRebuilt := false
+	if !state.SessionUsageInitialized {
+		state.SessionUsage, err = rebuildSessionUsage(ctx, config.Store, id)
+		if err != nil {
+			return nil, err
+		}
+		state.SessionUsageInitialized = true
+		usageRebuilt = true
+	}
 	lineage, err := decodeLineage(opened.Conversation.RuntimeState)
 	if err != nil {
 		return nil, err
@@ -253,6 +262,13 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 	d.sdk = rt
 
 	rt.mu.Lock()
+	if usageRebuilt {
+		event, _ := lifecycleEvent("usage.rebuilt", "", "", map[string]any{"session_usage": rt.state.SessionUsage})
+		if err := rt.commitLocked(ctx, nil, []EncodedDurableEvent{event}); err != nil {
+			rt.mu.Unlock()
+			return nil, err
+		}
+	}
 	if statusNeedsInterruption(rt.state.Status) {
 		previous := rt.state.Status
 		rt.state.AbortRequested = previous == ExecutionAborting || rt.state.AbortRequested
@@ -383,6 +399,8 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	rt.state.Context = before.Context
 	rt.state.PendingBoundaries = before.PendingBoundaries
 	rt.state.CheckpointID = before.CheckpointID
+	rt.state.SessionUsage = before.SessionUsage
+	rt.state.SessionUsageInitialized = before.SessionUsageInitialized
 	rt.state.Status = ExecutionRunning
 	rt.state.TurnID = turnID
 	rt.state.AttemptID = attemptID
@@ -1069,6 +1087,7 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 	result := Snapshot{
 		Conversation: conversation,
 		Pending:      pending,
+		Usage:        rt.state.SessionUsage,
 		Context: ContextSnapshot{
 			CheckpointID: rt.state.CheckpointID, Messages: len(rt.state.Context),
 		},
@@ -1128,6 +1147,7 @@ func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
 				TurnID TurnID             `json:"turn_id"`
 				Status ExecutionStatus    `json:"status"`
 				Error  *durableDroidError `json:"error"`
+				Usage  Usage              `json:"usage"`
 			}
 			if err := json.Unmarshal(record.Payload, &payload); err != nil {
 				return TurnSnapshot{}, fmt.Errorf("droids: decode turn %q: %w", id, err)
@@ -1135,7 +1155,10 @@ func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
 			if payload.TurnID != id || !isTerminalStatus(payload.Status) {
 				return TurnSnapshot{}, fmt.Errorf("droids: persisted turn %q is invalid", id)
 			}
-			return TurnSnapshot{ID: id, Status: payload.Status, Error: expandDurableError(payload.Error)}, nil
+			if err := validateUsage(payload.Usage); err != nil {
+				return TurnSnapshot{}, fmt.Errorf("droids: persisted turn %q usage is invalid: %w", id, err)
+			}
+			return TurnSnapshot{ID: id, Status: payload.Status, Error: expandDurableError(payload.Error), Usage: payload.Usage}, nil
 		}
 		after = page.Next
 		if !page.HasMore {

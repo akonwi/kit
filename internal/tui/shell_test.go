@@ -14,6 +14,58 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestSessionDetailsShowsAuthoritativeCumulativeUsage(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 24
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, SessionDetailsOpen: true,
+		Session: protocol.SessionInfo{
+			ID: "session_1", Name: "Usage audit", Model: "openai-codex/gpt-5.6-sol", ThinkingLevel: "high",
+		},
+		ContextTokens: 41_000, ContextWindow: 128_000,
+		SessionUsage: protocol.SessionUsage{
+			Input: 120_000, Output: 8_000, CacheRead: 52_000, CacheWrite: 3_000,
+			Reasoning: 2_500, TotalTokens: 128_000,
+			Cost: protocol.SessionUsageCost{Total: 1.2345},
+		},
+	}})
+	application.Pump(width, height)
+	rows := paintedRows(application, width, height)
+	text := strings.Join(rows, "\n")
+	for _, expected := range []string{
+		"Session details", "Usage audit", "Configuration",
+		"Model         openai-codex/gpt-5.6-sol", "Thinking      high",
+		"Context       41,000 / 128,000 tokens (32%)", "Cumulative usage",
+		"Input         120,000", "Output        8,000", "Cache read    52,000",
+		"Cache write   3,000", "Reasoning     2,500", "Total         128,000",
+		"Cost          $1.23", "esc close",
+	} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("session details missing %q:\n%s", expected, text)
+		}
+	}
+	if strings.Contains(rows[0], "120,000") || strings.Contains(rows[0], "$1.23") {
+		t.Fatalf("cumulative usage leaked into persistent header: %q", rows[0])
+	}
+}
+
+func TestSessionUsageLiveUpdateIsAbsoluteAndMonotonic(t *testing.T) {
+	t.Parallel()
+
+	state := appState{sessionUsage: protocol.SessionUsage{Input: 10, TotalTokens: 10}}
+	updated := protocol.SessionUsage{Input: 20, Output: 5, TotalTokens: 25, Cost: protocol.SessionUsageCost{Total: 0.25}}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventUsageUpdated, Usage: &updated}})
+	if state.sessionUsage != updated {
+		t.Fatalf("session usage = %+v, want %+v", state.sessionUsage, updated)
+	}
+	regressed := protocol.SessionUsage{Input: 19, Output: 5, TotalTokens: 24, Cost: protocol.SessionUsageCost{Total: 0.24}}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Kind: protocol.SessionEventUsageUpdated, Usage: &regressed}})
+	if state.sessionUsage != updated {
+		t.Fatalf("regressive usage update applied: %+v", state.sessionUsage)
+	}
+}
+
 func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	t.Parallel()
 

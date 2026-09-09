@@ -484,6 +484,40 @@ Validation returns either a continuation plan with a durable high-water mark or
 a typed unsafe reason. The droid never guesses across an ambiguous side-effect
 boundary.
 
+### Cumulative provider usage is droid-owned state
+
+A droid owns one durable cumulative usage total for its conversation. Every
+observed canonical provider terminal response contributes exactly once,
+including retries, provider failures, context-overflow responses, and provider
+aborts that report usage. Automatic and explicit compaction summary requests
+also contribute because they consume provider tokens and cost. A locally
+cancelled request contributes only when a terminal provider result and its usage
+were observed; droids does not invent usage for an unknown outcome.
+
+Each non-zero contribution has a stable immutable identity and is committed
+atomically with the bounded cumulative aggregate and an absolute usage event.
+Assistant contributions share the canonical assistant message transition;
+compaction contributions are acknowledged before the generated summary is used.
+Once a canonical terminal response is observed, its diagnostic and accounting
+transition uses a bounded cancellation-independent persistence context so a
+racing abort cannot erase known usage. Negative or overflowing token counts and
+negative or non-finite costs cannot
+enter the aggregate. Historical cost is retained from the model used for the
+request rather than repriced from current catalog data.
+
+Snapshots expose the cumulative total at their Store revision, and settled-turn
+snapshots expose that turn's total. Absolute live updates let hosts recover from
+duplicate delivery without adding deltas locally. A semantic fork initializes
+its cumulative total from the source at the exact fork point; later work in each
+branch advances independently. Compaction and configuration replacement retain
+the aggregate unchanged except for provider usage incurred by those operations.
+
+A runtime record explicitly distinguishes an initialized zero total from legacy
+state with no aggregate. Opening legacy state rebuilds from droids-owned
+canonical assistant history and commits the result before returning. This
+one-time compatibility path cannot recover historical compaction requests whose
+older runtime never recorded usage.
+
 ### Process interruption requires explicit recovery
 
 On open, droids reconstructs unfinished work and durably classifies any running,
@@ -601,6 +635,8 @@ An implementation of this decision must demonstrate:
   context is used;
 - quiescent target-model context assessment and idempotent adaptation that
   remains safe for the currently configured model;
+- durable cumulative provider usage across retries, compaction, restart, and
+  semantic forks without double counting ambiguous commits;
 - provider and credential-scope replay rejection;
 - unconditional caller `Resume` after open without automatic side-effect
   replay;

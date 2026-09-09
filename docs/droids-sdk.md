@@ -167,7 +167,9 @@ func (d *Droid) Fork(
 
 `Fork` creates an independent ready conversation from a settled source. It
 copies immutable record history, active provider context, checkpoint identity,
-boundary receipts, and pending idle boundaries into a new destination Store.
+boundary receipts, pending idle boundaries, and the cumulative usage total at
+the exact fork point into a new destination Store. Later parent and child usage
+advance independently from that inherited total.
 Running, paused, interrupted, retrying, pausing, and aborting sources return
 `ErrBusy`; forking never duplicates active execution or ambiguous tool state.
 Fork does not invoke provider replay validation. The ordinary request path
@@ -342,6 +344,40 @@ type ContextMessage struct {
     Details    json.RawMessage
 }
 ```
+
+### Provider usage
+
+```go
+type Usage struct {
+    Input       int
+    Output      int
+    CacheRead   int
+    CacheWrite  int
+    Reasoning   int
+    TotalTokens int
+    Cost        UsageCost
+}
+
+type SessionUsage = Usage
+```
+
+`Usage` on an assistant message or settled turn describes that canonical unit.
+`SessionUsage` is the authoritative cumulative total for the conversation. It
+includes every observed canonical provider terminal response, including retry,
+provider-error, context-overflow, and provider-aborted responses that report
+usage, plus automatic and explicit compaction summary requests. A local
+cancellation that ends before a provider terminal response is observed has no
+verified usage to add.
+
+Each non-zero contribution has a stable immutable record and is added to the
+bounded cumulative aggregate in the same Store Commit. Once a canonical
+terminal response is observed, droids uses a bounded cancellation-independent
+persistence context so a racing abort cannot erase known usage. Integer overflow,
+negative token categories, and negative or non-finite costs are rejected before
+aggregation. Malformed provider usage is replaced with verified zero usage and
+the response becomes a protocol failure; untrusted values never enter totals.
+Historical costs remain the amounts computed with the model used for each
+request and are not repriced from the current catalog.
 
 `ContextMessage` represents built-in compaction summaries and admitted boundary
 messages explicitly. Provider adapters map it to a provider-supported user or
@@ -762,7 +798,8 @@ measure active context
 
 Droids never splits an assistant tool-call message from its complete result
 batch. Diagnostic history remains unchanged. Only active provider context is
-replaced.
+replaced. Observed summary-model usage is added to cumulative session usage;
+automatic compaction inside a turn also contributes to that turn's usage.
 
 Compaction emits started, completed, and failed events. A failed or insufficient
 compaction preserves the prior checkpoint and returns a typed compaction or
@@ -1155,6 +1192,7 @@ boundary.accepted / consumed
 tool.admitted / hook_pending / hook_completed / started / raw_result / updated / completed
 compaction.started / completed / failed
 context.updated
+usage.updated
 ```
 
 Exact Go payload types are a sealed `Event` union. Stable wire values are
@@ -1162,8 +1200,10 @@ snake-case strings as shown above.
 
 `conversation.created`, `message.completed`, steering and boundary admission,
 attempt transitions, tool-call admission, hook phases and decisions, raw and
-final tool results, compaction checkpoints, and settlement are durable. Text,
-thinking, and tool progress deltas are transient.
+final tool results, compaction checkpoints, cumulative usage updates, and
+settlement are durable. `UsageUpdated` carries the complete post-commit
+`SessionUsage` total rather than a delta, so replay and duplicate delivery are
+idempotent. Text, thinking, and tool progress deltas are transient.
 
 ### Subscription
 
@@ -1202,6 +1242,7 @@ type TurnSnapshot struct {
     ID     TurnID
     Status ExecutionStatus
     Error  *DroidError
+    Usage  Usage
 }
 
 type PendingBoundarySnapshot struct {
@@ -1221,6 +1262,7 @@ type Snapshot struct {
     Active       *ExecutionSnapshot
     Pending      PendingInputSnapshot
     Context      ContextSnapshot
+    Usage        SessionUsage
     LastEvent    EventSequence
 }
 
@@ -1245,9 +1287,10 @@ only durable events after that sequence. A forked conversation snapshot also
 contains its immediate `ForkPoint`. `RecentMessageLimit` is clamped to a bounded
 SDK maximum, and older diagnostic history is retrieved through cursor pagination.
 
-`Turn` reads the canonical terminal status and durable error for an exact
-settled turn, allowing hosts to reconstruct transient client handles without
-persisting a parallel run status.
+`Turn` reads the canonical terminal status, durable error, and per-turn usage
+for an exact settled turn, allowing hosts to reconstruct transient client
+handles without persisting a parallel run status. `Snapshot.Usage` is the
+cumulative conversation total at the same Store revision as `LastEvent`.
 
 Diagnostic messages and active model context are separate fields. Snapshot
 consumers never infer provider context by filtering display messages.
@@ -1395,6 +1438,13 @@ for recovery and ambiguous-commit reconciliation.
 is separate so opening or reconciling a long-running droid does not load its
 entire history into memory.
 
+Runtime records carry an explicit cumulative-usage initialization marker. The
+first open of a pre-aggregate conversation rebuilds its total from droids-owned
+canonical assistant history, validates every contribution, and commits the
+aggregate and marker before returning. This one-time compatibility path is
+O(history); ordinary opens remain bounded. Historical versions cannot recover
+compaction usage that was never recorded by those versions.
+
 Droids encodes domain records and events before calling the Store. Adapters
 interpret only the versioned envelope, mutation operation, stable record keys,
 and revision; payload bytes remain opaque. This lets an adapter round-trip
@@ -1430,6 +1480,9 @@ compaction
 
 explicit context adaptation
   idempotency receipt + optional replacement checkpoint + completion events
+
+provider usage contribution
+  immutable contribution + cumulative runtime aggregate + absolute usage event
 ```
 
 ### Ambiguous commits

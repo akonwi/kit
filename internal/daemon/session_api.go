@@ -112,6 +112,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
 		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
 		ContextTokens: snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
+		Usage:             projectSessionUsage(snapshot.Usage),
 		Messages:          make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
 		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
@@ -145,6 +146,27 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	return result, nil
 }
 
+func projectSessionUsage(usage kitsession.SessionUsage) protocol.SessionUsage {
+	return protocol.SessionUsage{
+		Input: usage.Input, Output: usage.Output,
+		CacheRead: usage.CacheRead, CacheWrite: usage.CacheWrite,
+		Reasoning: usage.Reasoning, TotalTokens: usage.TotalTokens,
+		Cost: protocol.SessionUsageCost{
+			Input: usage.Cost.Input, Output: usage.Cost.Output,
+			CacheRead: usage.Cost.CacheRead, CacheWrite: usage.Cost.CacheWrite,
+			Total: usage.Cost.Total,
+		},
+	}
+}
+
+func projectSessionUsagePointer(usage *kitsession.SessionUsage) *protocol.SessionUsage {
+	if usage == nil {
+		return nil
+	}
+	projected := projectSessionUsage(*usage)
+	return &projected
+}
+
 func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol.TranscriptContent {
 	result := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
@@ -165,7 +187,8 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID s
 	}
 	batch := protocol.SessionEventBatch{
 		StreamID: page.StreamID, FirstSequence: page.FirstSequence, LastSequence: page.LastSequence,
-		ResyncRequired: page.ResyncRequired, Events: make([]protocol.SessionEvent, 0, len(page.Events)),
+		ResyncRequired: page.ResyncRequired, UsageBaseline: projectSessionUsagePointer(page.UsageBaseline),
+		Events: make([]protocol.SessionEvent, 0, len(page.Events)),
 	}
 	for _, event := range page.Events {
 		batch.Events = append(batch.Events, protocol.SessionEvent{
@@ -179,6 +202,7 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID s
 			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
 			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
 			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
+			Usage: projectSessionUsagePointer(event.Usage),
 		})
 	}
 	return batch, nil

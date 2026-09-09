@@ -121,10 +121,12 @@ recorded manual verification exists.
 - [ ] Change model and thinking level on an existing session, including
   quiescent runtime replacement, target-model context adaptation, and reported
   clamping of stale saved thinking levels.
-- [~] Persist droid-owned provider usage; per-message and per-turn usage are
-  durable, while a cumulative session total and protocol/client projection
-  remain. Implementation is tracked in
-  [`backlog/session-model-thinking-usage.md`](../backlog/session-model-thinking-usage.md).
+- [x] Persist droid-owned provider usage per message, turn, and cumulative
+  conversation; include observed retry/error/abort and compaction usage exactly
+  once, preserve totals across restart and forks, project absolute snapshot/live
+  totals through protocol v16, and present them in native `/debug` details.
+  See `internal/droids/usage.go`, `internal/session/snapshot.go`,
+  `internal/protocol/session.go`, and `internal/tui/session_details.go`.
 - [~] Run different top-level sessions concurrently.
 - [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
@@ -156,9 +158,9 @@ recorded manual verification exists.
   runtime-local session stream. The native TUI buffers text deltas and reveals
   assistant prose atomically on message completion while following thinking,
   complete tool plans with bounded arguments, append-only structured tool
-  updates, authoritative results/details, execution state, and terminal state.
-  Push subscriptions, usage events, richer error recovery, and full multi-client
-  synchronization remain.
+  updates, authoritative results/details, absolute cumulative usage, execution
+  state, and terminal state. Push subscriptions, richer error recovery, and full
+  multi-client synchronization remain.
 - [~] Preserve droid-owned turn and stable message identities directly;
   assistant message IDs remain stable from live start/deltas through snapshots.
 - [~] Render active and historical turns consistently after reconnect/restart;
@@ -237,11 +239,11 @@ recorded manual verification exists.
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
   state, and an undimmed modal boundary. It exposes cwd navigation, login, idle
-  session-context reload, conditional abort, session exploration, quit, and
-  dynamically discovered idle-only prompt commands with quoted arguments; session
-  exploration opens the native saved-session listing and switches the attached
-  TUI session. Completion, nested pickers, and non-prompt dynamic command
-  sources remain.
+  session-context reload, always-available `/debug` session details with live
+  cumulative usage, conditional abort, session exploration, quit, and
+  dynamically discovered idle-only prompt commands with quoted arguments; session exploration opens the
+  native saved-session listing and switches the attached TUI session. Completion,
+  nested pickers, and non-prompt dynamic command sources remain.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
 - [~] Toasts, confirmation/input/select dialogs, fatal/error screens, and
@@ -295,14 +297,15 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v15 exposes retry-safe client-selected persisted or temporary
+  protocol v16 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename, persisted cwd mutation, and
   archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, renderer-safe prompt
   command catalogs and server-owned prompt-command execution, droid-owned turn
   identity, direct canonical history, context/pending boundaries, runtime stream
-  synchronization metadata, bounded tool arguments, and stable live assistant
-  message IDs. TypeScript contracts remain.
+  synchronization metadata, bounded tool arguments, stable live assistant
+  message IDs, and validated cumulative usage snapshots/updates. TypeScript
+  contracts remain.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
   to runtime stream identity, cursor, and replay availability. Broader
   multi-client conformance remains.

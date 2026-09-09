@@ -59,6 +59,44 @@ func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 	}
 }
 
+func TestProjectDroidEventCarriesAbsoluteCumulativeUsage(t *testing.T) {
+	t.Parallel()
+
+	usage := droids.SessionUsage{Input: 10, Output: 4, CacheRead: 3, Reasoning: 2, TotalTokens: 14, Cost: droids.UsageCost{Total: 0.25}}
+	projected := projectDroidEvent("session_1", "turn_1", "turn_1", droids.UsageUpdated{Usage: usage})
+	if len(projected) != 1 || projected[0].Kind != EventUsageUpdated || projected[0].Usage == nil {
+		t.Fatalf("projected usage event = %+v", projected)
+	}
+	if projected[0].Usage.Input != 10 || projected[0].Usage.TotalTokens != 14 || projected[0].Usage.Cost.Total != 0.25 {
+		t.Fatalf("projected usage = %+v", projected[0].Usage)
+	}
+}
+
+func TestEventLogRejectsDecreasingUsageWithinStream(t *testing.T) {
+	t.Parallel()
+
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := SessionUsage{Input: 10, TotalTokens: 10}
+	if err := log.append([]NewEvent{{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventUsageUpdated, Usage: &first}}); err != nil {
+		t.Fatal(err)
+	}
+	increased := SessionUsage{Input: 20, TotalTokens: 20}
+	regressed := SessionUsage{Input: 9, TotalTokens: 9}
+	if err := log.append([]NewEvent{
+		{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventUsageUpdated, Usage: &increased},
+		{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventUsageUpdated, Usage: &regressed},
+	}); err == nil {
+		t.Fatal("event log accepted decreasing usage")
+	}
+	page := log.page(log.streamID, 0)
+	if len(page.Events) != 1 || page.Events[0].Usage == nil || page.Events[0].Usage.Input != 10 {
+		t.Fatalf("failed batch partially mutated event log: %+v", page.Events)
+	}
+}
+
 func TestProjectDroidEventDoesNotExposeToolArgumentStreaming(t *testing.T) {
 	t.Parallel()
 

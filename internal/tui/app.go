@@ -160,6 +160,7 @@ type appState struct {
 	composer                    string
 	composerCursorEndGeneration uint64
 	palette                     paletteController
+	sessionDetailsOpen          bool
 	sessionExplorer             sessionExplorerController
 	authReturnReady             bool
 	authFilter                  string
@@ -185,6 +186,7 @@ type appState struct {
 	runStopping                 bool
 	contextTokens               int
 	contextWindow               int
+	sessionUsage                protocol.SessionUsage
 	scroll                      ui.ScrollController
 	activityScroll              ui.ScrollController
 	activityList                activityListController
@@ -436,6 +438,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaletteQuery:                s.palette.Query,
 		PaletteSelection:            s.palette.Selection,
 		PaletteCommands:             s.palette.Contributions,
+		SessionDetailsOpen:          s.sessionDetailsOpen,
 		SessionExplorer:             s.sessionExplorer.Snapshot(),
 		AuthReturnReady:             s.authReturnReady,
 		AuthFilter:                  s.authFilter,
@@ -451,6 +454,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		TurnThinking:                s.turnThinking,
 		ContextTokens:               s.contextTokens,
 		ContextWindow:               s.contextWindow,
+		SessionUsage:                s.sessionUsage,
 		Scroll:                      &s.scroll,
 		ActivityScroll:              &s.activityScroll,
 		ActivityList:                &s.activityList,
@@ -685,6 +689,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.sessionDetailsOpen {
+				s.SetState(func() { s.sessionDetailsOpen = false })
+				return
+			}
 			if s.sessionExplorer.Open {
 				if s.sessionExplorer.RenamePending || s.sessionExplorer.DeletePending {
 					return
@@ -1000,6 +1008,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.requestTranscriptScroll()
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
+	s.sessionUsage = snapshot.Usage
 	s.activeRunID = snapshot.ActiveRunID
 	s.runPending = snapshot.ActiveRunID != ""
 	if snapshot.ActiveRunID != "" && snapshot.ActiveRunID != s.terminalSettledRunID {
@@ -1281,6 +1290,10 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 					s.liveMessages[index].ToolStatus = "Completed"
 				}
 			}
+		case protocol.SessionEventUsageUpdated:
+			if event.Usage != nil && !sessionUsageDecreased(s.sessionUsage, *event.Usage) {
+				s.sessionUsage = *event.Usage
+			}
 		case protocol.SessionEventRunFinished:
 			transcriptChanged = true
 			s.markTerminalRunSettled(event.RunID)
@@ -1315,6 +1328,15 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 		}
 	}
 	return changedCWD
+}
+
+func sessionUsageDecreased(before, after protocol.SessionUsage) bool {
+	return after.Input < before.Input || after.Output < before.Output ||
+		after.CacheRead < before.CacheRead || after.CacheWrite < before.CacheWrite ||
+		after.Reasoning < before.Reasoning || after.TotalTokens < before.TotalTokens ||
+		after.Cost.Input < before.Cost.Input || after.Cost.Output < before.Cost.Output ||
+		after.Cost.CacheRead < before.Cost.CacheRead || after.Cost.CacheWrite < before.Cost.CacheWrite ||
+		after.Cost.Total < before.Cost.Total
 }
 
 func (s *appState) ensureLiveAssistantToolCall(event protocol.SessionEvent) {
@@ -1962,6 +1984,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		ctx.Quit()
 	case paletteCommandReload:
 		s.reloadSession()
+	case paletteCommandDebug:
+		s.SetState(func() { s.sessionDetailsOpen = true })
 	case paletteCommandSessions:
 		s.openSessionExplorer()
 	}
@@ -2519,6 +2543,10 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.sessionDetailsOpen {
+		s.SetState(func() { s.sessionDetailsOpen = false })
+		return
+	}
 	if s.sessionExplorer.Open {
 		if s.sessionExplorer.DeleteOpen {
 			if !s.sessionExplorer.DeletePending {

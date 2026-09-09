@@ -208,6 +208,8 @@ func forkRuntimeState(source durableRuntime, sourceID, destinationID Conversatio
 	}
 	child.PendingBoundaries = append([]durableBoundary(nil), source.PendingBoundaries...)
 	child.CheckpointID = source.CheckpointID
+	child.SessionUsage = source.SessionUsage
+	child.SessionUsageInitialized = source.SessionUsageInitialized
 	if point.ConversationID != sourceID {
 		return durableRuntime{}, fmt.Errorf("droids: fork point does not identify its source")
 	}
@@ -248,7 +250,7 @@ func forkHistoryRecord(record EncodedRecord, sourceID, destinationID Conversatio
 			return EncodedRecord{}, fmt.Errorf("droids: rewrite fork checkpoint %q: %w", record.ID, err)
 		}
 		forked.Payload = payload
-	case attemptRecordKind, toolRecordKind, boundaryReceiptKind, compactionIntentKind, compactionReceiptKind:
+	case attemptRecordKind, toolRecordKind, boundaryReceiptKind, compactionIntentKind, compactionReceiptKind, usageContributionKind:
 		if !json.Valid(record.Payload) {
 			return EncodedRecord{}, fmt.Errorf("droids: %s record %q is not valid JSON", record.Kind, record.ID)
 		}
