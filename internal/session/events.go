@@ -9,6 +9,7 @@ import (
 	"mime"
 	"strings"
 	"sync"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/droids"
@@ -24,18 +25,21 @@ const (
 )
 
 const (
-	EventRunStarted         EventKind = "run.started"
-	EventUserMessage        EventKind = "message.user"
-	EventAssistantStarted   EventKind = "assistant.started"
-	EventAssistantTextDelta EventKind = "assistant.text.delta"
-	EventThinkingDelta      EventKind = "assistant.thinking.delta"
-	EventAssistantCompleted EventKind = "assistant.completed"
-	EventToolPlanned        EventKind = "tool.planned"
-	EventToolStarted        EventKind = "tool.started"
-	EventToolUpdated        EventKind = "tool.updated"
-	EventToolCompleted      EventKind = "tool.completed"
-	EventUsageUpdated       EventKind = "usage.updated"
-	EventRunFinished        EventKind = "run.finished"
+	EventRunStarted          EventKind = "run.started"
+	EventUserMessage         EventKind = "message.user"
+	EventAssistantStarted    EventKind = "assistant.started"
+	EventAssistantTextDelta  EventKind = "assistant.text.delta"
+	EventThinkingDelta       EventKind = "assistant.thinking.delta"
+	EventAssistantCompleted  EventKind = "assistant.completed"
+	EventToolPlanned         EventKind = "tool.planned"
+	EventToolStarted         EventKind = "tool.started"
+	EventToolUpdated         EventKind = "tool.updated"
+	EventToolCompleted       EventKind = "tool.completed"
+	EventCompactionStarted   EventKind = "compaction.started"
+	EventCompactionCompleted EventKind = "compaction.completed"
+	EventCompactionFailed    EventKind = "compaction.failed"
+	EventUsageUpdated        EventKind = "usage.updated"
+	EventRunFinished         EventKind = "run.finished"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -159,6 +163,11 @@ func (event NewEvent) Validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
+	case EventCompactionStarted, EventCompactionCompleted:
+	case EventCompactionFailed:
+		if event.ErrorKind != "" || event.ErrorMessage == "" || rendererSafeLiveError(event.ErrorMessage) != event.ErrorMessage {
+			return fmt.Errorf("failed compaction requires a renderer-safe error message")
+		}
 	case EventUsageUpdated:
 		if event.Usage == nil {
 			return fmt.Errorf("usage update requires an absolute session total")
@@ -192,7 +201,7 @@ func (event NewEvent) Validate() error {
 	if event.Kind != EventRunStarted && event.Kind != EventRunFinished && event.Status != "" {
 		return fmt.Errorf("event kind %q cannot carry run status", event.Kind)
 	}
-	if event.Kind != EventRunFinished && (event.ErrorKind != "" || event.ErrorMessage != "") {
+	if event.Kind != EventRunFinished && event.Kind != EventCompactionFailed && (event.ErrorKind != "" || event.ErrorMessage != "") {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
 	}
 	if event.Kind != EventUsageUpdated && event.Usage != nil {
@@ -452,6 +461,25 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		base.Details, base.DetailsOmitted = boundedLiveToolDetails(typed.Result.Details)
 		base.IsError = typed.IsError
 		return []NewEvent{base}
+	case droids.LifecycleEvent:
+		switch typed.Kind {
+		case "compaction.started":
+			base.Kind = EventCompactionStarted
+		case "compaction.completed":
+			base.Kind = EventCompactionCompleted
+		case "compaction.failed":
+			var data struct {
+				Error string `json:"error"`
+			}
+			if json.Unmarshal(typed.Data, &data) != nil || strings.TrimSpace(data.Error) == "" {
+				data.Error = "Context compaction failed"
+			}
+			base.Kind = EventCompactionFailed
+			base.ErrorMessage = rendererSafeLiveError(data.Error)
+		default:
+			return nil
+		}
+		return []NewEvent{base}
 	case droids.UsageUpdated:
 		usage := projectSessionUsage(typed.Usage)
 		base.Kind = EventUsageUpdated
@@ -585,6 +613,28 @@ func liveTextChunkEnd(text string) int {
 		_, end = utf8.DecodeRuneInString(text)
 	}
 	return end
+}
+
+func rendererSafeLiveError(text string) string {
+	text = strings.ToValidUTF8(text, "�")
+	text = strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return ' '
+		}
+		return character
+	}, text)
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		return "Context compaction failed"
+	}
+	if len(text) <= maxLiveEventTextBytes {
+		return text
+	}
+	end := maxLiveEventTextBytes - len("…")
+	for end > 0 && !utf8.RuneStart(text[end]) {
+		end--
+	}
+	return text[:end] + "…"
 }
 
 func boundedLiveText(text string) string {

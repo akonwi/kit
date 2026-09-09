@@ -27,6 +27,24 @@ func liveToolMessage(t *testing.T, state *appState, callID string) transcriptMes
 	return transcriptMessage{}
 }
 
+func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
+	var toasts []toastInput
+	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventCompactionStarted}})
+	if state.turnActivity != "Compacting session…" {
+		t.Fatalf("started compaction activity = %q", state.turnActivity)
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Kind: protocol.SessionEventCompactionCompleted}})
+	if state.turnActivity != "Working…" || len(toasts) != 1 || toasts[0].Title != "Session compacted" ||
+		toasts[0].Subtitle != "Session context was compacted." || toasts[0].Variant != toastInfo {
+		t.Fatalf("completed compaction activity=%q toasts=%+v", state.turnActivity, toasts)
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, Kind: protocol.SessionEventCompactionFailed, ErrorMessage: "Context compaction failed"}})
+	if len(toasts) != 2 || toasts[1].Title != "Auto-compaction failed" || toasts[1].Subtitle != "Context compaction failed" || toasts[1].Variant != toastError {
+		t.Fatalf("failed compaction toasts = %+v", toasts)
+	}
+}
+
 func TestCompletedChangeCWDToolUpdatesSessionScopeAndRequestsToast(t *testing.T) {
 	details, err := json.Marshal(cwdToolDetails{CWD: "/repo/nested", Changed: true})
 	if err != nil {

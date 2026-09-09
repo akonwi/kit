@@ -206,6 +206,22 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	}
 }
 
+func TestAutomaticCompactionUsesVisibleTurnSlot(t *testing.T) {
+	t.Parallel()
+
+	state := appState{}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventCompactionStarted}})
+	const width, height = 80, 20
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, TurnActivity: state.turnActivity, Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Compacting session…" {
+		t.Fatalf("automatic compaction slot = %q, want visible pending feedback", got)
+	}
+}
+
 func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	t.Parallel()
 

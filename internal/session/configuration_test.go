@@ -573,6 +573,67 @@ func TestCompactSessionCreatesCheckpointPreservesHistoryAndReopens(t *testing.T)
 	}
 }
 
+func TestAutomaticCompactionLifecycleReachesSessionEventStream(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &configurationProviders{}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/small", ThinkingLevel: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compactions := providers.compactionCount()
+	compactedRunID := ""
+	for index := 0; index < 50 && compactedRunID == ""; index++ {
+		result, runErr := manager.RunPrompt(t.Context(), record.ID, fmt.Sprintf("automatic-%d %s", index, strings.Repeat("a", 600)))
+		if runErr != nil {
+			t.Fatal(runErr)
+		}
+		if providers.compactionCount() > compactions {
+			compactedRunID = result.RunID
+		}
+	}
+	if compactedRunID == "" {
+		t.Fatal("automatic compaction did not run")
+	}
+	compactedSnapshot, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundStarted, foundCompleted := false, false
+	var compactedRunEvents []session.EventKind
+	after := int64(0)
+	for {
+		page, err := manager.Events(t.Context(), record.ID, compactedSnapshot.EventStreamID, after)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range page.Events {
+			if event.RunID != compactedRunID {
+				continue
+			}
+			compactedRunEvents = append(compactedRunEvents, event.Kind)
+			foundStarted = foundStarted || event.Kind == session.EventCompactionStarted
+			foundCompleted = foundCompleted || event.Kind == session.EventCompactionCompleted
+		}
+		if len(page.Events) == 0 || page.Events[len(page.Events)-1].Sequence >= page.LastSequence {
+			break
+		}
+		after = page.Events[len(page.Events)-1].Sequence
+	}
+	if !foundStarted || !foundCompleted {
+		t.Fatalf("automatic compaction lifecycle started=%v completed=%v events=%v", foundStarted, foundCompleted, compactedRunEvents)
+	}
+}
+
 func TestCompactSessionForcesBelowThresholdContext(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))

@@ -14,18 +14,21 @@ const (
 type SessionEventKind string
 
 const (
-	SessionEventRunStarted         SessionEventKind = "run.started"
-	SessionEventUserMessage        SessionEventKind = "message.user"
-	SessionEventAssistantStarted   SessionEventKind = "assistant.started"
-	SessionEventAssistantTextDelta SessionEventKind = "assistant.text.delta"
-	SessionEventThinkingDelta      SessionEventKind = "assistant.thinking.delta"
-	SessionEventAssistantCompleted SessionEventKind = "assistant.completed"
-	SessionEventToolPlanned        SessionEventKind = "tool.planned"
-	SessionEventToolStarted        SessionEventKind = "tool.started"
-	SessionEventToolUpdated        SessionEventKind = "tool.updated"
-	SessionEventToolCompleted      SessionEventKind = "tool.completed"
-	SessionEventUsageUpdated       SessionEventKind = "usage.updated"
-	SessionEventRunFinished        SessionEventKind = "run.finished"
+	SessionEventRunStarted          SessionEventKind = "run.started"
+	SessionEventUserMessage         SessionEventKind = "message.user"
+	SessionEventAssistantStarted    SessionEventKind = "assistant.started"
+	SessionEventAssistantTextDelta  SessionEventKind = "assistant.text.delta"
+	SessionEventThinkingDelta       SessionEventKind = "assistant.thinking.delta"
+	SessionEventAssistantCompleted  SessionEventKind = "assistant.completed"
+	SessionEventToolPlanned         SessionEventKind = "tool.planned"
+	SessionEventToolStarted         SessionEventKind = "tool.started"
+	SessionEventToolUpdated         SessionEventKind = "tool.updated"
+	SessionEventToolCompleted       SessionEventKind = "tool.completed"
+	SessionEventCompactionStarted   SessionEventKind = "compaction.started"
+	SessionEventCompactionCompleted SessionEventKind = "compaction.completed"
+	SessionEventCompactionFailed    SessionEventKind = "compaction.failed"
+	SessionEventUsageUpdated        SessionEventKind = "usage.updated"
+	SessionEventRunFinished         SessionEventKind = "run.finished"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -125,6 +128,11 @@ func (event SessionEvent) Validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
+	case SessionEventCompactionStarted, SessionEventCompactionCompleted:
+	case SessionEventCompactionFailed:
+		if event.ErrorKind != "" || !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes) {
+			return fmt.Errorf("failed compaction requires an error message")
+		}
 	case SessionEventUsageUpdated:
 		if event.Usage == nil {
 			return fmt.Errorf("usage update requires an absolute session total")
@@ -158,7 +166,7 @@ func (event SessionEvent) Validate() error {
 	if event.Kind != SessionEventRunStarted && event.Kind != SessionEventRunFinished && event.Status != "" {
 		return fmt.Errorf("event kind %q cannot carry run status", event.Kind)
 	}
-	if event.Kind != SessionEventRunFinished && (event.ErrorKind != "" || event.ErrorMessage != "") {
+	if event.Kind != SessionEventRunFinished && event.Kind != SessionEventCompactionFailed && (event.ErrorKind != "" || event.ErrorMessage != "") {
 		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
 	}
 	if event.Kind != SessionEventUsageUpdated && event.Usage != nil {

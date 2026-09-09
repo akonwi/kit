@@ -1,9 +1,20 @@
 package droids
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
+
+func TestCompactionCancellationDoesNotRecordFailureLifecycle(t *testing.T) {
+	runtime := &sdkRuntime{}
+	if err := runtime.recordCompactionFailure("turn_cancelled", context.Canceled); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancellation error = %v", err)
+	}
+	if err := runtime.recordCompactionFailure("turn_timed_out", context.DeadlineExceeded); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("deadline error = %v", err)
+	}
+}
 
 func TestLegacyCompactionIdentityPreservesOriginalNonForcedSemantics(t *testing.T) {
 	target := ContextTarget{Model: "test/model", Reasoning: "off"}

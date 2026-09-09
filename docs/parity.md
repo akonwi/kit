@@ -122,14 +122,14 @@ recorded manual verification exists.
 - [x] Change model and thinking level on an existing session; the Kit registry
   atomically persists expected-revision-guarded configuration updates, the
   manager resolves exact targets and safely adapts context before runtime
-  replacement, protocol v17 projects capabilities and applied configuration,
+  replacement, protocol v18 projects capabilities and applied configuration,
   and native `/model` and `/thinking` selectors share clickable header controls.
   See `internal/session/configuration.go`, `internal/protocol/session.go`, and
   `internal/tui/configuration_picker.go`.
 - [x] Persist droid-owned provider usage per message, turn, and cumulative
   conversation; include observed retry/error/abort and compaction usage exactly
   once, preserve totals across restart and forks, project absolute snapshot/live
-  totals through protocol v17, and present them in native `/debug` details.
+  totals through protocol v18, and present them in native `/debug` details.
   See `internal/droids/usage.go`, `internal/session/snapshot.go`,
   `internal/protocol/session.go`, and `internal/tui/session_details.go`.
 - [~] Run different top-level sessions concurrently.
@@ -178,7 +178,9 @@ recorded manual verification exists.
 - [~] Abort and cooperative cancellation through providers, tools, plugins, and
   subagents.
 - [ ] Retryable provider errors with user-visible countdown/status and limits.
-- [ ] Proactive and overflow-driven compaction with durable checkpoints.
+- [~] Proactive and overflow-driven compaction with durable checkpoints; droids
+  performs threshold-driven automatic compaction and protocol v18 projects its
+  pending, completed, and failed lifecycle so the native TUI provides notice.
 - [~] Current context pressure and model limit reporting, distinct from
   cumulative provider usage; session snapshots project the estimated active
   context and model window, and the TUI renders a bare header percentage when
@@ -306,7 +308,7 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v17 exposes retry-safe client-selected persisted or temporary
+  protocol v18 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename, persisted cwd mutation, and
   archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, renderer-safe prompt

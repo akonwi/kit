@@ -21,6 +21,27 @@ func TestSessionEventBatchValidatesExpectedTurnSequence(t *testing.T) {
 	}
 }
 
+func TestSessionEventValidatesAutomaticCompactionLifecycle(t *testing.T) {
+	base := SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test"}
+	for _, kind := range []SessionEventKind{SessionEventCompactionStarted, SessionEventCompactionCompleted} {
+		event := base
+		event.Kind = kind
+		if err := event.Validate(); err != nil {
+			t.Fatalf("%s Validate() error = %v", kind, err)
+		}
+	}
+	failed := base
+	failed.Kind = SessionEventCompactionFailed
+	failed.ErrorMessage = "Context compaction failed"
+	if err := failed.Validate(); err != nil {
+		t.Fatalf("failed compaction Validate() error = %v", err)
+	}
+	failed.ErrorMessage = ""
+	if err := failed.Validate(); err == nil {
+		t.Fatal("failed compaction accepted an empty error")
+	}
+}
+
 func TestSessionEventBatchValidatesAbsoluteUsageUpdates(t *testing.T) {
 	t.Parallel()
 

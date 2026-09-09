@@ -1338,6 +1338,15 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 					s.liveMessages[index].ToolStatus = "Completed"
 				}
 			}
+		case protocol.SessionEventCompactionStarted:
+			s.setTurnThinking("")
+			s.setTurnActivity("Compacting session…")
+		case protocol.SessionEventCompactionCompleted:
+			s.setTurnActivity("Working…")
+			s.showToast(toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo})
+		case protocol.SessionEventCompactionFailed:
+			s.setTurnActivity("Working…")
+			s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: event.ErrorMessage, Variant: toastError})
 		case protocol.SessionEventUsageUpdated:
 			if event.Usage != nil && !sessionUsageDecreased(s.sessionUsage, *event.Usage) {
 				s.sessionUsage = *event.Usage

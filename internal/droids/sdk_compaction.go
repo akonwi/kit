@@ -3,6 +3,7 @@ package droids
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -20,7 +21,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	attemptID := rt.state.AttemptID
 	rt.mu.Unlock()
 	if err != nil {
-		return err
+		return rt.recordCompactionFailure(turnID, err)
 	}
 	messages := make([]Message, 0, len(envelopes))
 	for _, envelope := range envelopes {
@@ -28,7 +29,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	}
 	usage, err := rt.measureContext(ctx, rt.provider, rt.droid.model, messages)
 	if err != nil {
-		return err
+		return rt.recordCompactionFailure(turnID, err)
 	}
 	if !force && !sdkShouldCompact(usage) {
 		return nil
@@ -36,7 +37,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	prefixEnd := compactionPrefixEnd(messages)
 	if prefixEnd == 0 {
 		if force {
-			return fmt.Errorf("droids: context cannot be compacted without splitting the active tail")
+			return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: context cannot be compacted without splitting the active tail"))
 		}
 		return nil
 	}
@@ -268,12 +269,18 @@ func compactionPrefixEnd(messages []Message) int {
 }
 
 func (rt *sdkRuntime) recordCompactionFailure(turnID TurnID, failure error) error {
+	if errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded) {
+		return failure
+	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	return rt.recordCompactionFailureLocked(turnID, failure)
 }
 
 func (rt *sdkRuntime) recordCompactionFailureLocked(turnID TurnID, failure error) error {
+	if errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded) {
+		return failure
+	}
 	event, _ := lifecycleEvent("compaction.failed", turnID, rt.state.AttemptID, map[string]any{"error": safeRuntimeError(DroidErrorCompaction, failure)})
 	if err := rt.commitLocked(context.Background(), nil, []EncodedDurableEvent{event}); err != nil {
 		return errorsJoin(failure, err)
