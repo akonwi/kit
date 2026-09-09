@@ -248,7 +248,7 @@ recorded manual verification exists.
   state, and an undimmed modal boundary. It exposes cwd navigation, login, idle
   session-context reload, searchable `/model` and supported-level `/thinking`
   selectors, explicit `/compact`, always-available `/debug` session details with
-  live cumulative usage, conditional abort, session exploration, quit, and
+  live cumulative usage, session exploration, quit, and
   dynamically discovered idle-only prompt commands with quoted arguments; session exploration opens the
   native saved-session listing and switches the attached TUI session. Completion,
   nested pickers, and non-prompt dynamic command sources remain.
@@ -430,16 +430,17 @@ recorded manual verification exists.
 
 - [~] Core command catalog and transport-neutral command subset; the native
   palette currently exposes cwd navigation, login, reload, model/thinking
-  configuration, explicit compaction, session diagnostics, conditional abort,
-  session exploration, quit, and server-discovered global/project prompt
+  configuration, explicit compaction, session diagnostics, session exploration,
+  quit, and server-discovered global/project prompt
   commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [x] `/cd <path>` changes the authoritative session workspace scope, records a
   durable user-origin cwd boundary for the droid, and offers the same relative,
   absolute, and home-path behavior as `change_cwd`.
 - [x] `/login`, `/reload`, `/sessions`, `/debug`, `/model`, `/thinking`,
-  `/compact`, `/quit`, and active-run `/abort` are available through the native
-  command palette with tested availability rules.
+  `/compact`, and `/quit` are available through the native
+  command palette with a stable searchable catalog, visibly disabled rows, and
+  warning-toast feedback for unavailable keyboard activation.
 - [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/name`,
   `/new`, `/tree`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline

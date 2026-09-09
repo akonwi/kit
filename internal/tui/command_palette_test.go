@@ -35,18 +35,18 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 	palette.Close()
 	palette.OpenFor(true)
 	palette.Move(true, 1)
-	if palette.Selection != paletteCommandQuit {
-		t.Fatalf("running selection = %q, want quit", palette.Selection)
+	if palette.Selection != paletteCommandLogin {
+		t.Fatalf("running selection = %q, want disabled login row", palette.Selection)
 	}
 	command, ok = palette.Selected(false, "")
-	if !ok || command.ID != paletteCommandQuit {
-		t.Fatalf("stable quit selection = %#v, %v", command, ok)
+	if !ok || command.ID != paletteCommandLogin {
+		t.Fatalf("stable login selection = %#v, %v", command, ok)
 	}
 
 	palette.Close()
 	palette.OpenFor(true)
-	if _, ok := palette.Selected(false, ""); ok {
-		t.Fatal("disappearing abort selection retargeted another command")
+	if command, ok := palette.Selected(false, ""); !ok || command.ID != paletteCommandDebug {
+		t.Fatalf("initial enabled selection = %#v, %v", command, ok)
 	}
 }
 
@@ -85,10 +85,6 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandThinking {
 		t.Fatalf("effort matches = %#v, want thinking", commands)
 	}
-	commands = filteredPaletteCommands(true, "stop because it is stuck")
-	if len(commands) != 1 || commands[0].ID != paletteCommandAbort {
-		t.Fatalf("stop matches = %#v, want abort", commands)
-	}
 	if paletteCommandAvailable(paletteCommandLogin, true) {
 		t.Fatal("login remained available during an active run")
 	}
@@ -105,6 +101,13 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 		if paletteCommandAvailable(command, true) || !paletteCommandAvailable(command, false) {
 			t.Fatalf("configuration command %q availability does not follow idle state", command)
 		}
+	}
+	toast, disabled := paletteCommandDisabledToast(paletteCommandModel, true)
+	if !disabled || toast.Title != "Command unavailable" || toast.Subtitle != "Available when the session is idle." || toast.Variant != toastWarning {
+		t.Fatalf("disabled model toast = %+v, %v", toast, disabled)
+	}
+	if _, disabled := paletteCommandDisabledToast(paletteCommandDebug, true); disabled {
+		t.Fatal("debug produced disabled-command feedback while available")
 	}
 
 	var pasted paletteController
@@ -158,7 +161,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := availablePaletteCommands(false, []paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 9 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 9 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -289,7 +292,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	}
 }
 
-func TestCommandPaletteShowsConditionalAbortAndQuietEmptyState(t *testing.T) {
+func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.T) {
 	t.Parallel()
 
 	const width, height = 60, 16
@@ -303,33 +306,47 @@ func TestCommandPaletteShowsConditionalAbortAndQuietEmptyState(t *testing.T) {
 		t.Fatalf("empty palette state =\n%s", text)
 	}
 
+	activated := paletteCommandID("")
 	application = uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, PaletteOpen: true, Running: true, Scroll: &ui.ScrollController{},
-	}})
+	}, Callbacks: shellCallbacks{RunPaletteCommand: func(_ ui.EventContext, command paletteCommandID) { activated = command }}})
 	application.Pump(width, height)
 	text = strings.Join(paintedRows(application, width, height), "\n")
-	if !strings.Contains(text, "abort") || !strings.Contains(text, "Stop the active run") {
-		t.Fatalf("running palette omitted abort command:\n%s", text)
+	if !strings.Contains(text, "debug") || !strings.Contains(text, "Show session diagnostics") {
+		t.Fatalf("running palette omitted enabled debug command:\n%s", text)
 	}
-	if strings.Contains(text, "Reload session context") {
-		t.Fatalf("running palette exposed reload command:\n%s", text)
+	if !strings.Contains(text, "reload") || !strings.Contains(text, glyphCircleSlash+" idle only") {
+		t.Fatalf("running palette did not retain visibly disabled idle commands:\n%s", text)
+	}
+	modelColumn, modelRow := findTextCell(t, paintedRows(application, width, height), "model")
+	application.Click(modelColumn, modelRow)
+	application.Pump(width, height)
+	if activated != "" {
+		t.Fatalf("disabled pointer activation ran %q", activated)
 	}
 }
 
-func TestCommandPaletteDoesNotPaintReplacementForMissingSelection(t *testing.T) {
+func TestCommandPalettePaintsDisabledSelectionWithoutRetargeting(t *testing.T) {
 	t.Parallel()
 
 	const width, height = 60, 14
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, PaletteOpen: true, PaletteSelection: paletteCommandAbort,
+		Phase: phaseReady, PaletteOpen: true, PaletteSelection: paletteCommandModel, Running: true,
 		Scroll: &ui.ScrollController{},
 	}})
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
-	loginColumn, loginRow := findTextCell(t, rows, "login")
-	quitColumn, quitRow := findTextCell(t, rows, "quit")
-	if application.Cell(loginColumn, loginRow).Style.Background != application.Cell(quitColumn, quitRow).Style.Background {
-		t.Fatal("missing abort selection visibly retargeted another command")
+	modelColumn, modelRow := findTextCell(t, rows, "model")
+	debugColumn, debugRow := findTextCell(t, rows, "debug")
+	modelStyle := application.Cell(modelColumn, modelRow).Style
+	if modelStyle.Background == application.Cell(debugColumn, debugRow).Style.Background {
+		t.Fatal("disabled model selection had no subdued selection background")
+	}
+	if want := ui.DefaultTheme().DisabledForeground; modelStyle.Foreground != want {
+		t.Fatalf("disabled model foreground = %v, want %v", modelStyle.Foreground, want)
+	}
+	if !strings.Contains(strings.Join(rows, "\n"), glyphCircleSlash+" idle only") {
+		t.Fatalf("disabled model reason missing:\n%s", strings.Join(rows, "\n"))
 	}
 }
 
@@ -354,6 +371,77 @@ func TestCommandPaletteFitsShortViewport(t *testing.T) {
 	}
 }
 
+func TestDisabledCommandReasonSurvivesNarrowLongContribution(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 40, 8
+	name := "extraordinarily-long-project-review-command"
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, PaletteOpen: true, PaletteQuery: name, Running: true,
+		PaletteCommands: []paletteCommand{{ID: paletteCommandID("prompt:" + name), Name: name, Description: "Review the current project thoroughly"}},
+		Scroll:          &ui.ScrollController{},
+	}})
+	application.Pump(width, height)
+	rows := paintedRows(application, width, height)
+	text := strings.Join(rows, "\n")
+	if !strings.Contains(text, "extraordinarily…") || !strings.Contains(text, glyphCircleSlash+" idle only") {
+		t.Fatalf("narrow disabled contribution lost identity or reason:\n%s", text)
+	}
+}
+
+func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing.T) {
+	t.Parallel()
+
+	var presented toastInput
+	state := &appState{
+		runPending:        true,
+		palette:           paletteController{Open: true, Selection: paletteCommandModel},
+		showToastOverride: func(toast toastInput) { presented = toast },
+	}
+	state.runPaletteCommand(ui.EventContext{}, paletteCommandModel)
+	if !state.palette.Open || presented.Title != "Command unavailable" || presented.Subtitle != "Available when the session is idle." || presented.Variant != toastWarning {
+		t.Fatalf("disabled app activation = open:%v toast:%+v", state.palette.Open, presented)
+	}
+}
+
+func TestDisabledCommandToastOverlaysPaletteWithoutReplacingFooter(t *testing.T) {
+	t.Parallel()
+
+	toast, _ := paletteCommandDisabledToast(paletteCommandModel, true)
+	application := uitest.New(ui.Overlay{
+		Child: commandPaletteSurface{Snapshot: paletteSnapshot{
+			Query: "model", Selection: paletteCommandModel, Running: true,
+		}},
+		Entries: []ui.OverlayEntry{{Child: toastStack{Toasts: []toastRecord{{ID: 1, toastInput: toast}}}}},
+	})
+	application.Pump(80, 24)
+	text := application.Text()
+	for _, expected := range []string{"Command unavailable", "Available when the session is idle.", "↑↓ move · enter run · esc close"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("toast-over-palette presentation missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestDisabledCommandKeyboardActivationKeepsPaletteOpenForToastFeedback(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 24
+	state := &paletteHarnessState{running: true}
+	application := uitest.New(paletteHarness{State: state})
+	application.Pump(width, height)
+	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
+	application.Pump(width, height)
+	for _, character := range "model" {
+		application.Key(string(character))
+	}
+	application.Enter()
+	application.Pump(width, height)
+	if state.executed != "" || !state.palette.Open || state.disabledToasts != 1 {
+		t.Fatalf("disabled activation = executed:%q open:%v toast requests:%d", state.executed, state.palette.Open, state.disabledToasts)
+	}
+}
+
 func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.T) {
 	t.Parallel()
 
@@ -365,12 +453,12 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 
 	application.Send(vaxis.Key{Keycode: vaxis.KeyUp})
-	if state.palette.Selection != paletteCommandDebug {
-		t.Fatalf("wrapped Up selection = %q, want debug", state.palette.Selection)
+	if state.palette.Selection != paletteCommandCompact {
+		t.Fatalf("previous selection = %q, want disabled compact", state.palette.Selection)
 	}
 	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
-	if state.palette.Selection != paletteCommandAbort {
-		t.Fatalf("wrapped Down selection = %q, want abort", state.palette.Selection)
+	if state.palette.Selection != paletteCommandDebug {
+		t.Fatalf("wrapped Down selection = %q, want debug", state.palette.Selection)
 	}
 
 	application.Key("q")
@@ -384,7 +472,9 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	for range 3 {
+		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	}
 	application.Enter()
 	application.Pump(width, height)
 	if state.executed != paletteCommandQuit {
@@ -678,12 +768,13 @@ func (w paletteHarness) CreateState() ui.State { return w.State }
 
 type paletteHarnessState struct {
 	ui.StateBase
-	palette   paletteController
-	running   bool
-	composer  string
-	executed  paletteCommandID
-	submitted []string
-	scroll    ui.ScrollController
+	palette        paletteController
+	running        bool
+	composer       string
+	executed       paletteCommandID
+	disabledToasts int
+	submitted      []string
+	scroll         ui.ScrollController
 }
 
 func (s *paletteHarnessState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
@@ -703,7 +794,11 @@ func (s *paletteHarnessState) HandleEvent(ctx ui.EventContext, event ui.Event) u
 		}
 	})
 	if run {
-		s.execute(command.ID)
+		if paletteCommandAvailable(command.ID, s.running, s.palette.Contributions) {
+			s.execute(command.ID)
+		} else {
+			s.disabledToasts++
+		}
 	}
 	if handled {
 		return ui.EventHandled
@@ -742,7 +837,7 @@ func (s *paletteHarnessState) Build(ui.BuildContext) ui.Widget {
 			},
 			RunPaletteQuery: func(_ ui.EventContext, query string) {
 				command, ok := s.palette.Selected(s.running, query)
-				if ok {
+				if ok && paletteCommandAvailable(command.ID, s.running, s.palette.Contributions) {
 					s.execute(command.ID)
 				}
 			},

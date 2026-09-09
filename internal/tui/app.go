@@ -158,6 +158,7 @@ type appState struct {
 	status                      string
 	toasts                      toastController
 	toastCancels                map[uint64]context.CancelFunc
+	showToastOverride           func(toastInput)
 	composer                    string
 	composerCursorEndGeneration uint64
 	palette                     paletteController
@@ -356,6 +357,10 @@ func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
 }
 
 func (s *appState) showToast(input toastInput) {
+	if s.showToastOverride != nil {
+		s.showToastOverride(input)
+		return
+	}
 	if strings.TrimSpace(input.Title) == "" {
 		return
 	}
@@ -2007,7 +2012,11 @@ func (s *appState) runPaletteQuery(ctx ui.EventContext, query string) {
 }
 
 func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteCommandID) {
-	if !s.palette.Open || !paletteCommandAvailable(commandID, s.hasActiveWork(), s.palette.Contributions) {
+	if !s.palette.Open || !paletteCommandExists(commandID, s.palette.Contributions) {
+		return
+	}
+	if toast, disabled := paletteCommandDisabledToast(commandID, s.hasActiveWork()); disabled {
+		s.showToast(toast)
 		return
 	}
 	_, args := splitPaletteQuery(s.palette.Query)
@@ -2025,8 +2034,6 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.enterAuthSelect(true)
 	case paletteCommandModel:
 		s.openConfigurationPicker(configurationPickerModel)
-	case paletteCommandAbort:
-		s.dismiss(ctx)
 	case paletteCommandQuit:
 		ctx.Quit()
 	case paletteCommandReload:

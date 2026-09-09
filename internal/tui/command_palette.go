@@ -13,7 +13,6 @@ const (
 	paletteMaxVisible   = 10
 	paletteMaxNameWidth = 32
 
-	paletteCommandAbort    paletteCommandID = "abort"
 	paletteCommandCD       paletteCommandID = "cd"
 	paletteCommandCompact  paletteCommandID = "compact"
 	paletteCommandLogin    paletteCommandID = "login"
@@ -59,7 +58,14 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 	if !hasSelection {
 		selection = 0
 	}
-	nameWidth := paletteNameWidth(availablePaletteCommands(w.Snapshot.Running, w.Snapshot.Contributions))
+	catalog := paletteCommands(w.Snapshot.Contributions)
+	nameWidth := paletteNameWidth(catalog)
+	for _, command := range catalog {
+		if paletteCommandDisabledReason(command.ID, w.Snapshot.Running) != "" {
+			nameWidth = min(nameWidth, 16)
+			break
+		}
+	}
 
 	results := []ui.Widget(nil)
 	if len(commands) == 0 {
@@ -71,8 +77,9 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 		results = make([]ui.Widget, 0, len(visible))
 		for _, command := range visible {
 			command := command
+			disabledReason := paletteCommandDisabledReason(command.ID, w.Snapshot.Running)
 			results = append(results, paletteOptionRow{
-				Command: command, NameWidth: nameWidth,
+				Command: command, NameWidth: nameWidth, DisabledReason: disabledReason,
 				Selected: hasSelection && command.ID == commands[selection].ID,
 				OnPressed: func(event ui.EventContext) {
 					if w.Callbacks.RunCommand != nil {
@@ -120,10 +127,11 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 }
 
 type paletteOptionRow struct {
-	Command   paletteCommand
-	NameWidth int
-	Selected  bool
-	OnPressed ui.VoidCallback
+	Command        paletteCommand
+	NameWidth      int
+	Selected       bool
+	DisabledReason string
+	OnPressed      ui.VoidCallback
 }
 
 func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
@@ -136,6 +144,19 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Selected {
 		primary = theme.Background
 	}
+	if w.DisabledReason != "" {
+		primary = theme.DisabledForeground
+		rowTheme.Primary = theme.SurfaceHovered
+		rowTheme.PrimaryHovered = theme.SurfaceHovered
+	}
+	secondary := theme.MutedForeground
+	if w.DisabledReason != "" {
+		secondary = theme.DisabledForeground
+	}
+	description := w.Command.Description
+	if w.DisabledReason != "" {
+		description = glyphCircleSlash + " " + w.DisabledReason + " · " + description
+	}
 	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Width: w.NameWidth, Child: ui.Text{
 			Value: w.Command.Name, Style: ui.Style{Foreground: primary},
@@ -143,12 +164,12 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 		}},
 		ui.SizedBox{Width: 1},
 		ui.Expanded(ui.Text{
-			Value: w.Command.Description, Style: ui.Style{Foreground: theme.MutedForeground},
+			Value: description, Style: ui.Style{Foreground: secondary},
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		}),
 	}}
 	return ui.Provider[ui.Theme]{Value: rowTheme, Child: ui.ListTile{
-		Title: content, Selected: w.Selected, OnPressed: w.OnPressed,
+		Title: content, Selected: w.Selected, Disabled: w.DisabledReason != "", OnPressed: w.OnPressed,
 		Padding: ui.Insets{Right: 1}, MinHeight: 1,
 	}}
 }
@@ -166,7 +187,7 @@ func (p *paletteController) OpenFor(running bool) {
 	}
 	p.Open = true
 	p.Query = ""
-	p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, "", p.Contributions))
+	p.Selection = firstEnabledPaletteCommandID(filteredPaletteCommands(running, "", p.Contributions), running)
 }
 
 func (p *paletteController) Close() {
@@ -176,8 +197,8 @@ func (p *paletteController) Close() {
 
 func (p *paletteController) SetContributions(commands []paletteCommand, running bool) {
 	p.Contributions = append([]paletteCommand(nil), commands...)
-	if p.Open && !paletteCommandAvailable(p.Selection, running, p.Contributions) {
-		p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, p.Query, p.Contributions))
+	if p.Open && !paletteCommandExists(p.Selection, p.Contributions) {
+		p.Selection = firstEnabledPaletteCommandID(filteredPaletteCommands(running, p.Query, p.Contributions), running)
 	}
 }
 
@@ -320,14 +341,16 @@ func firstPaletteCommandID(commands []paletteCommand) paletteCommandID {
 	return commands[0].ID
 }
 
-func availablePaletteCommands(running bool, contributions ...[]paletteCommand) []paletteCommand {
-	if running {
-		return []paletteCommand{
-			{ID: paletteCommandAbort, Name: "abort", Description: "Stop the active run", Aliases: []string{"cancel", "stop"}},
-			{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
-			{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
+func firstEnabledPaletteCommandID(commands []paletteCommand, running bool) paletteCommandID {
+	for _, command := range commands {
+		if paletteCommandDisabledReason(command.ID, running) == "" {
+			return command.ID
 		}
 	}
+	return firstPaletteCommandID(commands)
+}
+
+func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 	commands := []paletteCommand{
 		{ID: paletteCommandCD, Name: "cd", Description: "Change working directory", Aliases: []string{"cwd", "directory", "folder"}},
 		{ID: paletteCommandCompact, Name: "compact", Description: "Compact session context", Aliases: []string{"summarize", "shrink"}},
@@ -352,8 +375,8 @@ func availablePaletteCommands(running bool, contributions ...[]paletteCommand) [
 	return commands
 }
 
-func paletteCommandAvailable(commandID paletteCommandID, running bool, contributions ...[]paletteCommand) bool {
-	for _, command := range availablePaletteCommands(running, contributions...) {
+func paletteCommandExists(commandID paletteCommandID, contributions ...[]paletteCommand) bool {
+	for _, command := range paletteCommands(contributions...) {
 		if command.ID == commandID {
 			return true
 		}
@@ -361,8 +384,35 @@ func paletteCommandAvailable(commandID paletteCommandID, running bool, contribut
 	return false
 }
 
-func filteredPaletteCommands(running bool, query string, contributions ...[]paletteCommand) []paletteCommand {
-	commands := availablePaletteCommands(running, contributions...)
+func paletteCommandAvailable(commandID paletteCommandID, running bool, contributions ...[]paletteCommand) bool {
+	return paletteCommandExists(commandID, contributions...) && paletteCommandDisabledReason(commandID, running) == ""
+}
+
+func paletteCommandDisabledReason(commandID paletteCommandID, running bool) string {
+	if !running {
+		return ""
+	}
+	if _, prompt := promptPaletteCommandName(commandID); prompt {
+		return "idle only"
+	}
+	switch commandID {
+	case paletteCommandCD, paletteCommandCompact, paletteCommandLogin, paletteCommandModel, paletteCommandReload, paletteCommandSessions, paletteCommandThinking:
+		return "idle only"
+	default:
+		return ""
+	}
+}
+
+func paletteCommandDisabledToast(commandID paletteCommandID, running bool) (toastInput, bool) {
+	reason := paletteCommandDisabledReason(commandID, running)
+	if reason == "" {
+		return toastInput{}, false
+	}
+	return toastInput{Title: "Command unavailable", Subtitle: "Available when the session is idle.", Variant: toastWarning}, true
+}
+
+func filteredPaletteCommands(_ bool, query string, contributions ...[]paletteCommand) []paletteCommand {
+	commands := paletteCommands(contributions...)
 	return ui.DefaultFuzzySelectFilter(paletteFilterQuery(query), commands, func(command paletteCommand) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{
 			Title: command.Name, Description: command.Description, Aliases: command.Aliases,

@@ -322,6 +322,12 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
 - **Picker selection:** use `pickerFocusedBg` with `pickerFocusedText`.
+- **Disabled command:** keep stable command catalogs visible and searchable. Render
+  unavailable rows with disabled/muted text plus a concise reason such as
+  `⊘ idle only`; disable pointer activation. Keyboard activation of a selected
+  unavailable command keeps the palette open and reports the reason with a
+  warning toast. Ephemeral action feedback belongs in a toast, not by replacing
+  a picker’s fixed navigation footer.
 - **Input:** transparent background with `borderDefault` when idle, `borderFocused` when focused, and `borderAccent` while editing when those states are distinct.
 - A single-line input that owns a row fills all available horizontal space by default. Compact intrinsic-width inputs must be an explicit exception. In the native TUI, use Kit's `textInput` primitive for normal inputs; it is full-width by default. Use a bare `ui.TextField` only when an intentionally compact intrinsic-width control is required.
 - Presentation tests for new row-owning inputs must render a value longer than the toolkit's intrinsic minimum width and assert that the complete value remains visible at a representative viewport width. This catches accidentally shrink-wrapped fields.
