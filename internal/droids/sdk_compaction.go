@@ -184,15 +184,34 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 }
 
 func (rt *sdkRuntime) measureContext(ctx context.Context, provider Provider, model Model, messages []Message) (ContextUsage, error) {
+	return rt.measureContextFor(ctx, provider, model, rt.config.Reasoning, rt.droid.maxTokens, messages)
+}
+
+func (rt *sdkRuntime) measureContextFor(
+	ctx context.Context,
+	provider Provider,
+	model Model,
+	reasoning string,
+	reservedOutput int,
+	messages []Message,
+) (ContextUsage, error) {
 	request := Request{
 		SystemPrompt: rt.config.SystemPrompt, Messages: messages,
-		Tools: rt.droid.providerToolSchemas(), Reasoning: rt.config.Reasoning,
-		MaxTokens: rt.droid.maxTokens,
+		Tools: rt.droid.providerToolSchemas(), Reasoning: reasoning,
+		MaxTokens: reservedOutput,
 	}
 	if measurer, ok := provider.(ContextMeasurer); ok {
-		return measurer.MeasureContext(ctx, model, request)
+		usage, err := measurer.MeasureContext(ctx, model, request)
+		if err != nil {
+			return ContextUsage{}, err
+		}
+		usage.Model = cloneModel(model)
+		return usage, nil
 	}
-	return rt.droid.contextUsage(messages), nil
+	return estimateContextUsage(
+		rt.config.SystemPrompt, rt.droid.providerToolSchemas(), model,
+		reasoning, reservedOutput, messages,
+	), nil
 }
 
 func sameContext(current, expected []wireMessageEnvelope) bool {

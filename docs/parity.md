@@ -116,9 +116,15 @@ recorded manual verification exists.
 - [x] Persist session cwd, name, creation time, and monotonic activity time;
   accepted prompts, direct bash commands, cwd changes, and renames advance the
   activity timestamp used for directory ordering and default resume.
-- [~] Persist model, thinking-level, and usage metadata; initial model/thinking
-  selections and droid-owned per-turn usage are durable, while changes to those
-  selections and aggregate session-usage projection remain.
+- [x] Persist the exact model and valid thinking-level selection at session
+  creation and restore those selections while they remain supported.
+- [ ] Change model and thinking level on an existing session, including
+  quiescent runtime replacement, target-model context adaptation, and reported
+  clamping of stale saved thinking levels.
+- [~] Persist droid-owned provider usage; per-message and per-turn usage are
+  durable, while a cumulative session total and protocol/client projection
+  remain. Implementation is tracked in
+  [`backlog/session-model-thinking-usage.md`](../backlog/session-model-thinking-usage.md).
 - [~] Run different top-level sessions concurrently.
 - [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
@@ -166,9 +172,10 @@ recorded manual verification exists.
   subagents.
 - [ ] Retryable provider errors with user-visible countdown/status and limits.
 - [ ] Proactive and overflow-driven compaction with durable checkpoints.
-- [~] Context usage and model limit reporting; session snapshots project the
-  latest persisted usage and model window, and the TUI renders a bare header
-  percentage when meaningful.
+- [~] Current context pressure and model limit reporting, distinct from
+  cumulative provider usage; session snapshots project the estimated active
+  context and model window, and the TUI renders a bare header percentage when
+  meaningful.
 - [~] Model selection, exact provider/model IDs, persisted session model, and
   default-model precedence.
 - [~] Thinking-level discovery, selection, and persistence.

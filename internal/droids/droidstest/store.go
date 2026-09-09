@@ -78,6 +78,21 @@ func RunStoreContract(t *testing.T, factory StoreFactory) {
 		}
 	})
 
+	t.Run("exact record lookup", func(t *testing.T) {
+		store := factory(t)
+		openStore(t, store)
+		record, err := store.Record(context.Background(), "audit", "initial")
+		if err != nil {
+			t.Fatalf("Record: %v", err)
+		}
+		if record.Kind != "audit" || record.ID != "initial" || record.Scope != droids.RecordHistory || record.Sequence != 1 {
+			t.Fatalf("Record = %+v", record)
+		}
+		if _, err := store.Record(context.Background(), "audit", "missing"); !errors.Is(err, droids.ErrRecordNotFound) {
+			t.Fatalf("missing Record error = %v, want ErrRecordNotFound", err)
+		}
+	})
+
 	t.Run("atomic commit and history", func(t *testing.T) {
 		store := factory(t)
 		opened := openStore(t, store)

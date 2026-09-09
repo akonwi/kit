@@ -272,6 +272,40 @@ type ContextSnapshot struct {
 	Usage        ContextUsage
 }
 
+// ContextTarget identifies a model configuration against which active context
+// should be measured or compacted.
+type ContextTarget struct {
+	Model     string
+	Reasoning string
+}
+
+// ContextAssessment reports whether settled active context is replayable and
+// fits one target model configuration.
+type ContextAssessment struct {
+	Target             ContextTarget
+	Usage              ContextUsage
+	ReplayCompatible   bool
+	RequiresCompaction bool
+}
+
+// CompactContextOptions configures one idempotent, quiescent context
+// adaptation. OperationID must remain stable across ambiguous retries.
+type CompactContextOptions struct {
+	OperationID string
+	Target      ContextTarget
+}
+
+// CompactContextResult describes the durable outcome of one context-adaptation
+// operation.
+type CompactContextResult struct {
+	OperationID  string
+	Target       ContextTarget
+	Compacted    bool
+	CheckpointID CheckpointID
+	Before       ContextUsage
+	After        ContextUsage
+}
+
 // SnapshotOptions bounds recent diagnostic history.
 type SnapshotOptions struct {
 	RecentMessageLimit int

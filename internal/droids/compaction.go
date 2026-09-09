@@ -21,30 +21,34 @@ type ContextUsage struct {
 }
 
 func (d *Droid) contextUsage(messages []Message) ContextUsage {
+	return estimateContextUsage(
+		d.sdk.config.SystemPrompt, d.providerToolSchemas(), d.model,
+		d.sdk.config.Reasoning, d.maxTokens, messages,
+	)
+}
+
+func estimateContextUsage(systemPrompt string, tools []ToolSchema, model Model, reasoning string, reservedOutput int, messages []Message) ContextUsage {
 	request := Request{
-		SystemPrompt: d.sdk.config.SystemPrompt,
-		Messages:     messages,
-		Tools:        d.providerToolSchemas(),
-		Reasoning:    d.sdk.config.Reasoning,
-		MaxTokens:    d.maxTokens,
+		SystemPrompt: systemPrompt, Messages: messages, Tools: tools,
+		Reasoning: reasoning, MaxTokens: reservedOutput,
 	}
 	input := estimateRequestTokens(request)
 	remaining := 0
 	hasRemaining := false
-	if d.model.ContextWindow > 0 {
-		remaining = d.model.ContextWindow - input - d.compactionReserve
+	if model.ContextWindow > 0 {
+		remaining = model.ContextWindow - input - reservedOutput
 		hasRemaining = true
 	}
-	if d.model.MaxInputTokens > 0 {
-		inputRemaining := d.model.MaxInputTokens - input
+	if model.MaxInputTokens > 0 {
+		inputRemaining := model.MaxInputTokens - input
 		if !hasRemaining || inputRemaining < remaining {
 			remaining = inputRemaining
 		}
 	}
 	return ContextUsage{
-		Model: cloneModel(d.model), EstimatedInput: input,
-		ReservedOutput: d.compactionReserve, ContextWindow: d.model.ContextWindow,
-		MaxInputTokens: d.model.MaxInputTokens, Remaining: remaining,
+		Model: cloneModel(model), EstimatedInput: input,
+		ReservedOutput: reservedOutput, ContextWindow: model.ContextWindow,
+		MaxInputTokens: model.MaxInputTokens, Remaining: remaining,
 	}
 }
 

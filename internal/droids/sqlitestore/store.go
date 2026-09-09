@@ -253,6 +253,25 @@ func (s *Store) State(ctx context.Context) (state droids.StoredConversation, err
 	return state, err
 }
 
+// Record returns one record by its stable kind and identity.
+func (s *Store) Record(ctx context.Context, kind, id string) (record droids.EncodedRecord, err error) {
+	if kind == "" || id == "" {
+		return droids.EncodedRecord{}, fmt.Errorf("droids sqlite: record kind and id are required")
+	}
+	err = s.read(ctx, func(conn *sql.Conn) error {
+		var loadErr error
+		record, loadErr = scanRecord(conn.QueryRowContext(ctx, `
+			SELECT record_kind, record_id, scope, sequence, version, payload
+			FROM records WHERE record_kind = ? AND record_id = ?
+		`, kind, id))
+		return loadErr
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return droids.EncodedRecord{}, droids.ErrRecordNotFound
+	}
+	return record, err
+}
+
 // Records pages immutable history records.
 func (s *Store) Records(ctx context.Context, query droids.RecordQuery) (droids.RecordPage, error) {
 	limit, err := pageSize(query.Limit)

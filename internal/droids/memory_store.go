@@ -156,6 +156,26 @@ func (s *MemoryStore) State(ctx context.Context) (StoredConversation, error) {
 	return s.stateLocked(), nil
 }
 
+// Record returns one record by its stable kind and identity.
+func (s *MemoryStore) Record(ctx context.Context, kind, id string) (EncodedRecord, error) {
+	if err := contextError(ctx); err != nil {
+		return EncodedRecord{}, err
+	}
+	if kind == "" || id == "" {
+		return EncodedRecord{}, fmt.Errorf("droids: record kind and id are required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.opened {
+		return EncodedRecord{}, ErrStoreUninitialized
+	}
+	record, ok := s.records[recordKey{kind: kind, id: id}]
+	if !ok {
+		return EncodedRecord{}, ErrRecordNotFound
+	}
+	return cloneEncodedRecord(record), nil
+}
+
 // Records pages immutable history in ascending sequence order.
 func (s *MemoryStore) Records(ctx context.Context, query RecordQuery) (RecordPage, error) {
 	if err := contextError(ctx); err != nil {

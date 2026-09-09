@@ -40,6 +40,7 @@ type sdkRuntime struct {
 	shutdownDone     chan struct{}
 	resumeCancel     context.CancelFunc
 	resumeFlight     *resumeFlight
+	contextFlight    *contextMaintenanceFlight
 	abortPending     bool
 	persistenceErr   error
 
@@ -318,6 +319,9 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	defer rt.mu.Unlock()
 	if rt.closed {
 		return nil, ErrClosed
+	}
+	if rt.contextFlight != nil {
+		return nil, ErrBusy
 	}
 	if isOccupied(rt.state.Status) {
 		if !options.Steer || rt.state.Status == ExecutionInterrupted || rt.state.Status == ExecutionAborting {
@@ -917,8 +921,12 @@ func (d *Droid) Shutdown(ctx context.Context) error {
 		rt.closed = true
 		cancel := rt.runCancel
 		resumeCancel := rt.resumeCancel
+		var contextCancel context.CancelFunc
+		if rt.contextFlight != nil {
+			contextCancel = rt.contextFlight.cancel
+		}
 		rt.signalChangedLocked()
-		go rt.finishShutdown(d, cancel, resumeCancel)
+		go rt.finishShutdown(d, cancel, resumeCancel, contextCancel)
 	}
 	done := rt.shutdownDone
 	rt.mu.Unlock()
@@ -933,16 +941,19 @@ func (d *Droid) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (rt *sdkRuntime) finishShutdown(d *Droid, cancel, resumeCancel context.CancelFunc) {
+func (rt *sdkRuntime) finishShutdown(d *Droid, cancel, resumeCancel, contextCancel context.CancelFunc) {
 	if cancel != nil {
 		cancel()
 	}
 	if resumeCancel != nil {
 		resumeCancel()
 	}
+	if contextCancel != nil {
+		contextCancel()
+	}
 	for {
 		rt.mu.Lock()
-		running := rt.runCancel != nil || rt.resumeFlight != nil
+		running := rt.runCancel != nil || rt.resumeFlight != nil || rt.contextFlight != nil
 		changed := rt.changed
 		rt.mu.Unlock()
 		if !running {
@@ -977,7 +988,7 @@ func (d *Droid) WaitQuiescent(ctx context.Context) (QuiescentState, error) {
 			rt.mu.Unlock()
 			return QuiescentState{}, ErrClosed
 		}
-		if !statusRunsWork(rt.state.Status) {
+		if !statusRunsWork(rt.state.Status) && rt.contextFlight == nil {
 			state := quiescentState(rt)
 			rt.mu.Unlock()
 			return state, nil

@@ -427,6 +427,31 @@ conversation model. Choosing another compaction model changes only the model
 used to produce the summary; droids still owns triggering, prefix selection,
 validation, checkpointing, retry, and failure behavior.
 
+A host may also ask a settled droid to assess or adapt its active context for an
+exact target model and reasoning configuration before replacing that droid's
+configuration. This is a droids-owned maintenance operation, not a host-driven
+compaction state machine: droids selects the prefix, generates the summary,
+validates the replacement, installs the checkpoint, and emits the transitions.
+The operation does not itself change the live droid's configured model. A
+replacement context must therefore remain runnable by the current model and be
+replayable and below the compaction threshold for the target model.
+
+Explicit adaptation is quiescent and idempotent. It rejects active, paused, or
+recoverable execution, excludes prompt admission and semantic forks while it is
+running, observes shutdown cancellation, and preserves concurrently accepted
+boundary messages. The caller supplies a stable bounded operation ID. An
+immutable intent durably binds that ID to its exact target when work starts,
+including when adaptation later fails. A receipt for either a completed
+compaction or a no-op result is committed atomically with its checkpoint and
+events; an
+identical successful retry returns the original result even if the conversation
+is now busy or the target model has left the current catalog. Intents and
+receipts use globally unique ancestral operation identities and are inherited
+by semantic forks without embedding branch-local revisions or event sequences.
+Conversation-level adaptation events carry the operation ID rather
+than claiming to be a new user turn. A summary context message retains the turn
+identity of the newest canonical message represented by its compacted prefix.
+
 If summary generation fails or no valid replacement can satisfy the target,
 droids preserves the prior context and settles with a typed compaction or
 context-overflow outcome. Overflow recovery remains distinct from transient
@@ -574,6 +599,8 @@ An implementation of this decision must demonstrate:
 - durable pause, restart, steering, resume, and abort;
 - automatic compaction and checkpoint acknowledgement before replacement
   context is used;
+- quiescent target-model context assessment and idempotent adaptation that
+  remains safe for the currently configured model;
 - provider and credential-scope replay rejection;
 - unconditional caller `Resume` after open without automatic side-effect
   replay;

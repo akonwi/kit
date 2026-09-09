@@ -132,6 +132,9 @@ func (d *Droid) captureFork(ctx context.Context) (
 	if rt.closed {
 		return ForkPoint{}, durableRuntime{}, nil, Config{}, ErrClosed
 	}
+	if rt.contextFlight != nil {
+		return ForkPoint{}, durableRuntime{}, nil, Config{}, ErrBusy
+	}
 	if !forkableStatus(rt.state.Status) {
 		return ForkPoint{}, durableRuntime{}, nil, Config{}, ErrBusy
 	}
@@ -245,7 +248,7 @@ func forkHistoryRecord(record EncodedRecord, sourceID, destinationID Conversatio
 			return EncodedRecord{}, fmt.Errorf("droids: rewrite fork checkpoint %q: %w", record.ID, err)
 		}
 		forked.Payload = payload
-	case attemptRecordKind, toolRecordKind, boundaryReceiptKind:
+	case attemptRecordKind, toolRecordKind, boundaryReceiptKind, compactionIntentKind, compactionReceiptKind:
 		if !json.Valid(record.Payload) {
 			return EncodedRecord{}, fmt.Errorf("droids: %s record %q is not valid JSON", record.Kind, record.ID)
 		}

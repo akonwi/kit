@@ -159,6 +159,7 @@ type Store interface {
 	Open(context.Context, OpenConversation) (OpenConversationResult, error)
 	Commit(context.Context, CommitRequest) (CommitResult, error)
 	State(context.Context) (StoredConversation, error)
+	Record(context.Context, string, string) (EncodedRecord, error)
 	Records(context.Context, RecordQuery) (RecordPage, error)
 	Events(context.Context, EventQuery) (EventPage, error)
 }

@@ -8,18 +8,20 @@ import (
 )
 
 const (
-	runtimeRecordKind   = "runtime"
-	runtimeRecordID     = "current"
-	messageRecordKind   = "message"
-	turnRecordKind      = "turn"
-	attemptRecordKind   = "attempt"
-	toolRecordKind      = "tool"
-	checkpointKind      = "checkpoint"
-	boundaryReceiptKind = "boundary_receipt"
-	lineageRecordKind   = "lineage"
-	lineageRecordID     = "parent"
-	recordVersion       = 1
-	eventVersion        = 1
+	runtimeRecordKind     = "runtime"
+	runtimeRecordID       = "current"
+	messageRecordKind     = "message"
+	turnRecordKind        = "turn"
+	attemptRecordKind     = "attempt"
+	toolRecordKind        = "tool"
+	checkpointKind        = "checkpoint"
+	boundaryReceiptKind   = "boundary_receipt"
+	compactionIntentKind  = "compaction_intent"
+	compactionReceiptKind = "compaction_receipt"
+	lineageRecordKind     = "lineage"
+	lineageRecordID       = "parent"
+	recordVersion         = 1
+	eventVersion          = 1
 )
 
 type cyclePhase string

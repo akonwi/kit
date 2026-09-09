@@ -768,6 +768,89 @@ Compaction emits started, completed, and failed events. A failed or insufficient
 compaction preserves the prior checkpoint and returns a typed compaction or
 context-overflow outcome.
 
+### Quiescent target-model adaptation
+
+A host preparing to change model configuration may ask droids to assess or adapt
+settled active context without taking ownership of compaction mechanics:
+
+```go
+type ContextTarget struct {
+    Model     string // exact provider/model ID
+    Reasoning string
+}
+
+type ContextAssessment struct {
+    Target             ContextTarget
+    Usage              ContextUsage
+    ReplayCompatible   bool
+    RequiresCompaction bool
+}
+
+type CompactContextOptions struct {
+    OperationID string
+    Target      ContextTarget
+}
+
+type CompactContextResult struct {
+    OperationID  string
+    Target       ContextTarget
+    Compacted    bool
+    CheckpointID CheckpointID
+    Before       ContextUsage
+    After        ContextUsage
+}
+
+func (d *Droid) AssessContext(
+    ctx context.Context,
+    target ContextTarget,
+) (ContextAssessment, error)
+
+func (d *Droid) CompactContext(
+    ctx context.Context,
+    options CompactContextOptions,
+) (CompactContextResult, error)
+```
+
+Targets use exact namespaced IDs. `none` reasoning is canonicalized to `off`;
+other unsupported levels fail validation against the target model.
+
+Both operations require a settled conversation. They reject active, paused, or
+recoverable work with `ErrBusy`. While assessment or adaptation is running,
+prompt admission and semantic forks also return `ErrBusy`; `WaitQuiescent`
+waits for maintenance to finish. Shutdown cancels provider work and waits for
+maintenance settlement. Boundary admission may proceed concurrently and is
+merged into the latest runtime state rather than overwritten by a captured
+context snapshot.
+
+`AssessContext` reports target replay compatibility separately from context
+pressure. Target replay incompatibility requests adaptation rather than making
+assessment itself fail. Cancellation remains an operation error.
+
+`CompactContext` summarizes progressively larger complete prefixes until the
+replacement both fits and is replayable. It may summarize the entire active
+context when provider-specific metadata prevents retaining a suffix. The
+replacement must reduce context, remain runnable by the currently configured
+model, and be replayable and below the built-in threshold for the target. The
+operation does not change the droid's configured model. Exhausting valid
+candidates returns `ErrContextNotAdaptable` and preserves the prior checkpoint.
+
+`OperationID` is a bounded, renderer-safe idempotency identity. Starting work
+stores an immutable operation intent that binds the ID to its exact target even
+when adaptation later fails. A successful compaction or no-op result also stores
+an immutable receipt in the same Commit as its checkpoint and completion events.
+Concurrent identical calls join one flight; later successful retries return the
+original persisted result before checking busy state or resolving the current
+model catalog. Reusing an ID with another target returns `ErrConflict`, including
+after a failed attempt. Intents and receipts are inherited by forks as globally
+unique ancestral operation identities and contain no branch-local revision or
+event cursor.
+
+Explicit maintenance emits conversation-level `compaction.started`,
+`compaction.completed`, `compaction.failed`, and `context.updated` events with
+the operation ID. It does not create a synthetic user turn. Summary envelopes
+retain canonical provenance from the newest message represented by the
+compacted prefix.
+
 ## Tool SDK
 
 ### Defining a tool
@@ -1193,6 +1276,12 @@ type Store interface {
 
     State(ctx context.Context) (StoredConversation, error)
 
+    Record(
+        ctx context.Context,
+        kind string,
+        id string,
+    ) (EncodedRecord, error)
+
     Records(
         ctx context.Context,
         query RecordQuery,
@@ -1205,9 +1294,10 @@ type Store interface {
 }
 ```
 
-After `Store.Open`, `Commit`, `State`, `Records`, and `Events` are implicitly
-scoped to that Store's conversation; their requests do not select another
-conversation.
+After `Store.Open`, `Commit`, `State`, `Record`, `Records`, and `Events` are
+implicitly scoped to that Store's conversation; their requests do not select
+another conversation. `Record` performs an exact stable kind/ID lookup and
+returns `ErrRecordNotFound` when absent.
 
 `Store.Open` atomically finds or creates the conversation. On creation it stores
 the supplied initial records and initial outbox events. Historical initial
@@ -1337,6 +1427,9 @@ tool execution
 
 compaction
   replacement active-context checkpoint + compaction events
+
+explicit context adaptation
+  idempotency receipt + optional replacement checkpoint + completion events
 ```
 
 ### Ambiguous commits
@@ -1589,7 +1682,9 @@ var (
     ErrBusy                  = errors.New("droid busy")
     ErrNoActiveExecution     = errors.New("no active execution")
     ErrTurnNotFound          = errors.New("turn not found")
+    ErrRecordNotFound        = errors.New("record not found")
     ErrUnsafeContinuation    = errors.New("unsafe continuation")
+    ErrContextNotAdaptable   = errors.New("context cannot be adapted to target model")
     ErrConflict               = errors.New("store revision conflict")
     ErrStoreUninitialized     = errors.New("store is not initialized")
     ErrForkAlreadyInitialized = errors.New("fork destination is already initialized")
