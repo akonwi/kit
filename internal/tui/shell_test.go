@@ -104,6 +104,17 @@ func TestConfigurationPickersShowCapabilitiesAndSupportedThinking(t *testing.T) 
 		t.Fatalf("thinking picker restored the removed redundant descriptions:\n%s", thinkingText)
 	}
 	thinkingRows := paintedRows(thinkingApp, 80, 24)
+	dialogWidth := 0
+	for _, row := range thinkingRows {
+		trimmed := strings.TrimSpace(row)
+		if strings.HasPrefix(trimmed, "┌") {
+			dialogWidth = len([]rune(trimmed))
+			break
+		}
+	}
+	if dialogWidth != 48 {
+		t.Fatalf("thinking picker width = %d, want compact 48-cell dialog", dialogWidth)
+	}
 	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "✓ high")
 	selectedStyle := thinkingApp.Cell(selectedColumn, selectedRow).Style
 	if selectedStyle.Foreground != thinkingTheme.Background || selectedStyle.Background != thinkingTheme.Foreground {

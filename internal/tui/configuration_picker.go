@@ -303,8 +303,12 @@ func (surface configurationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 		Value: footerText, Style: ui.Style{Foreground: theme.MutedForeground},
 		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 	})
+	percent, minWidth, maxWidth := 80, 56, 104
+	if surface.Snapshot.Mode == configurationPickerThinking {
+		percent, minWidth, maxWidth = 60, 40, 56
+	}
 	return pickerDialogPositioner{
-		Percent: 80, MinWidth: 56, MaxWidth: 104, Height: pickerModalMinHeight,
+		Percent: percent, MinWidth: minWidth, MaxWidth: maxWidth, Height: pickerModalMinHeight,
 		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: content},
 	}
 }
