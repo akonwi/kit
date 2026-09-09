@@ -442,7 +442,9 @@ recorded manual verification exists.
 - [x] `/login`, `/reload`, `/sessions`, `/debug`, `/model`, `/thinking`,
   `/compact`, and `/quit` are available through the native
   command palette with a stable searchable catalog, visibly disabled rows, and
-  warning-toast feedback for unavailable keyboard activation.
+  warning-toast feedback for unavailable keyboard activation. `/sessions`
+  remains available during active turns so attaching elsewhere does not stop the
+  daemon-owned run.
 - [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/name`,
   `/new`, `/tree`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline

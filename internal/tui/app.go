@@ -150,8 +150,10 @@ func (a app) CreateState() ui.State { return &appState{} }
 type appState struct {
 	ui.StateBase
 
-	ctx    context.Context
-	cancel context.CancelFunc
+	ctx              context.Context
+	cancel           context.CancelFunc
+	attachmentCtx    context.Context
+	attachmentCancel context.CancelFunc
 
 	phase                       phase
 	errorText                   string
@@ -230,6 +232,7 @@ type appState struct {
 	instructions      auth.OpenAICodexDeviceInstructions
 	remaining         time.Duration
 	loginCancel       context.CancelFunc
+	loginGeneration   uint64
 	operation         uint64
 	bootstrapModel    string
 	bootstrapThinking string
@@ -245,6 +248,7 @@ type appState struct {
 func (s *appState) InitState() {
 	options := s.Widget().(app).Options
 	s.ctx, s.cancel = context.WithCancel(options.Context)
+	s.resetAttachmentContext()
 	s.available = cloneProviders(options.AvailableProviders)
 	s.terminalCWD = options.CWD
 	s.terminalStatus = options.terminalStatus
@@ -421,12 +425,26 @@ func (s *appState) requestActivityScroll(toEnd bool) {
 	s.activityScrollToEnd = toEnd
 }
 
+func (s *appState) resetAttachmentContext() {
+	if s.attachmentCancel != nil {
+		s.attachmentCancel()
+	}
+	parent := s.ctx
+	if parent == nil {
+		parent = context.Background()
+	}
+	s.attachmentCtx, s.attachmentCancel = context.WithCancel(parent)
+}
+
 func (s *appState) Dispose() {
 	if s.loginCancel != nil {
 		s.loginCancel()
 	}
 	if s.sessionSwitchCancel != nil {
 		s.sessionSwitchCancel()
+	}
+	if s.attachmentCancel != nil {
+		s.attachmentCancel()
 	}
 	if s.cancel != nil {
 		s.cancel()
@@ -1606,6 +1624,10 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 
 func (s *appState) watchSession(bound sessionclient.Session, operation uint64, runID string) {
 	runtime := s.Context().Runtime()
+	attachmentCtx := s.attachmentCtx
+	if attachmentCtx == nil {
+		attachmentCtx = s.ctx
+	}
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
@@ -1616,7 +1638,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 			if streamCancel != nil {
 				streamCancel()
 			}
-			streamContext, cancel := context.WithCancel(s.ctx)
+			streamContext, cancel := context.WithCancel(attachmentCtx)
 			connected, err := bound.Stream(streamContext, runID)
 			if err != nil {
 				cancel()
@@ -1636,7 +1658,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 		snapshotFailures := 0
 		for {
 			select {
-			case <-s.ctx.Done():
+			case <-attachmentCtx.Done():
 				return
 			case events, ok := <-updates:
 				if !ok {
@@ -1645,7 +1667,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						streamCancel()
 						streamCancel = nil
 					}
-					if stream != nil && stream.Err() != nil && s.ctx.Err() == nil {
+					if stream != nil && stream.Err() != nil && attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
 							if operation == s.operation {
 								s.SetState(func() { s.status = "Reconnecting activity… · esc abort · ctrl+c detach" })
@@ -1666,9 +1688,9 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 				})
 			case <-ticker.C:
-				info, err := bound.Run(s.ctx, runID)
+				info, err := bound.Run(attachmentCtx, runID)
 				if err != nil {
-					if s.ctx.Err() == nil {
+					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
 							if operation == s.operation {
 								s.SetState(func() { s.status = "Reconnecting… · esc abort · ctrl+c detach" })
@@ -1689,10 +1711,10 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						s.SetState(func() { s.markTerminalRunSettled(settledRunID) })
 					}
 				})
-				snapshot, err := bound.Snapshot(s.ctx)
+				snapshot, err := bound.Snapshot(attachmentCtx)
 				if err != nil {
 					snapshotFailures++
-					if s.ctx.Err() != nil {
+					if attachmentCtx.Err() != nil {
 						return
 					}
 					if snapshotFailures >= 6 {
@@ -1712,7 +1734,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					delay := 100 * time.Millisecond * time.Duration(1<<min(snapshotFailures-1, 4))
 					timer := time.NewTimer(delay)
 					select {
-					case <-s.ctx.Done():
+					case <-attachmentCtx.Done():
 						timer.Stop()
 						return
 					case <-timer.C:
@@ -1820,8 +1842,7 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 	s.cancelLogin()
 	loginContext, cancel := context.WithCancel(s.ctx)
 	s.loginCancel = cancel
-	s.operation++
-	operation := s.operation
+	generation := s.loginGeneration
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.authPending = true
@@ -1837,7 +1858,7 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 			return
 		}
 		runtime.Dispatch(func() {
-			if operation != s.operation {
+			if generation != s.loginGeneration {
 				return
 			}
 			s.loginCancel = nil
@@ -1885,8 +1906,7 @@ func (s *appState) startLogin(_ ui.EventContext) {
 	s.cancelLogin()
 	loginContext, cancel := context.WithCancel(s.ctx)
 	s.loginCancel = cancel
-	s.operation++
-	operation := s.operation
+	generation := s.loginGeneration
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.phase = phaseAuthWaiting
@@ -1902,7 +1922,7 @@ func (s *appState) startLogin(_ ui.EventContext) {
 	go func() {
 		err := options.Login.Login(loginContext, func(instructions auth.OpenAICodexDeviceInstructions) error {
 			runtime.Dispatch(func() {
-				if operation != s.operation {
+				if generation != s.loginGeneration {
 					return
 				}
 				s.SetState(func() {
@@ -1911,7 +1931,7 @@ func (s *appState) startLogin(_ ui.EventContext) {
 					s.status = "Waiting for approval…"
 				})
 			})
-			go s.tickDeviceExpiry(loginContext, runtime, operation, instructions.ExpiresAt)
+			go s.tickDeviceExpiry(loginContext, runtime, generation, instructions.ExpiresAt)
 			return nil
 		})
 		wasCanceled := loginContext.Err() != nil
@@ -1920,7 +1940,7 @@ func (s *appState) startLogin(_ ui.EventContext) {
 			return
 		}
 		runtime.Dispatch(func() {
-			if operation != s.operation {
+			if generation != s.loginGeneration {
 				return
 			}
 			s.loginCancel = nil
@@ -1964,7 +1984,7 @@ func preferredStartupModel(requested, fallback string) string {
 	return fallback
 }
 
-func (s *appState) tickDeviceExpiry(ctx context.Context, runtime ui.Runtime, operation uint64, expiresAt time.Time) {
+func (s *appState) tickDeviceExpiry(ctx context.Context, runtime ui.Runtime, generation uint64, expiresAt time.Time) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
@@ -1977,7 +1997,7 @@ func (s *appState) tickDeviceExpiry(ctx context.Context, runtime ui.Runtime, ope
 				remaining = 0
 			}
 			runtime.Dispatch(func() {
-				if operation != s.operation {
+				if generation != s.loginGeneration {
 					return
 				}
 				s.SetState(func() { s.remaining = remaining })
@@ -1987,7 +2007,7 @@ func (s *appState) tickDeviceExpiry(ctx context.Context, runtime ui.Runtime, ope
 }
 
 func (s *appState) cancelLogin() {
-	s.operation++
+	s.loginGeneration++
 	if s.loginCancel != nil {
 		s.loginCancel()
 		s.loginCancel = nil
@@ -1999,7 +2019,7 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.reloadPending || s.palette.Open || s.bashHistory.Open || s.sessionExplorer.Open {
+	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.sessionExplorer.Open {
 		return
 	}
 	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
@@ -2399,7 +2419,7 @@ func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr err
 }
 
 func (s *appState) openSessionExplorer() {
-	if s.phase != phaseReady || s.sessionExplorer.Open || s.hasActiveWork() {
+	if s.phase != phaseReady || s.sessionExplorer.Open {
 		return
 	}
 	server := s.Widget().(app).Options.Server
@@ -2489,7 +2509,7 @@ func (s *appState) deleteSelectedSession() {
 }
 
 func (s *appState) switchSelectedSession() {
-	if !s.sessionExplorer.Open || s.hasActiveWork() {
+	if !s.sessionExplorer.Open {
 		return
 	}
 	target, activatable := s.sessionExplorer.ActivatableSelection()
@@ -2595,6 +2615,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	if s.session.ID != "" {
 		s.sessionDrafts[s.session.ID] = s.composer
 	}
+	s.resetAttachmentContext()
 	s.operation++
 	s.terminalSettledRunID = ""
 	s.session = snapshot.Session
@@ -2604,6 +2625,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composerCursorEndGeneration++
 	s.messages = nil
 	s.configurationPicker = configurationPickerController{}
+	s.cwdPending = false
+	s.reloadPending = false
 	s.compactPending = false
 	s.compactOperationID = ""
 	s.resetLiveRun()
@@ -2702,6 +2725,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 	}
 	admission := &promptAdmission{}
 	bound := s.bound
+	operation := s.operation
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.composer = ""
@@ -2719,7 +2743,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 		run, err := start(s.ctx)
 		if err != nil {
 			if s.ctx.Err() == nil {
-				s.finishRun(runtime, protocol.PromptOutcome{}, err)
+				s.finishRun(runtime, operation, protocol.PromptOutcome{}, err)
 			}
 			return
 		}
@@ -2738,28 +2762,41 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 			return
 		}
 		runtime.Dispatch(func() {
-			s.SetState(func() {
-				s.activeRun = run
-				s.activeRunID = run.ID()
-				if s.terminalRunActive && s.terminalRunID == "" {
-					s.terminalRunID = run.ID()
-				}
-			})
+			accepted := false
+			s.SetState(func() { accepted = s.acceptPromptAdmission(operation, run) })
+			if !accepted {
+				return
+			}
 			if admission.abort.Load() {
 				go abort()
 			}
-			s.watchSession(bound, s.operation, run.ID())
+			s.watchSession(bound, operation, run.ID())
 		})
 	}()
 }
 
-func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome, runErr error) {
+func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run) bool {
+	if operation != s.operation {
+		return false
+	}
+	s.activeRun = run
+	s.activeRunID = run.ID()
+	if s.terminalRunActive && s.terminalRunID == "" {
+		s.terminalRunID = run.ID()
+	}
+	return true
+}
+
+func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome protocol.PromptOutcome, runErr error) {
 	var snapshot protocol.SessionSnapshot
 	var snapshotErr error
 	if runErr == nil && outcome.Status == protocol.RunStatusCompleted && s.bound != nil {
 		snapshot, snapshotErr = s.bound.Snapshot(s.ctx)
 	}
 	runtime.Dispatch(func() {
+		if operation != s.operation {
+			return
+		}
 		nextRunID := ""
 		nextBashID := ""
 		s.SetState(func() {

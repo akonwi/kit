@@ -36,7 +36,7 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 	palette.OpenFor(true)
 	palette.Move(true, 1)
 	if palette.Selection != paletteCommandLogin {
-		t.Fatalf("running selection = %q, want disabled login row", palette.Selection)
+		t.Fatalf("running selection = %q, want login row", palette.Selection)
 	}
 	command, ok = palette.Selected(false, "")
 	if !ok || command.ID != paletteCommandLogin {
@@ -88,8 +88,8 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if !paletteCommandAvailable(paletteCommandLogin, true) {
 		t.Fatal("login was unavailable during an active run")
 	}
-	if paletteCommandAvailable(paletteCommandSessions, true) {
-		t.Fatal("sessions remained available during active work")
+	if !paletteCommandAvailable(paletteCommandSessions, true) {
+		t.Fatal("sessions was unavailable during active work")
 	}
 	if !paletteCommandAvailable(paletteCommandDebug, true) {
 		t.Fatal("debug command was unavailable during active work")
@@ -318,6 +318,11 @@ func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.
 	text = strings.Join(paintedRows(application, width, height), "\n")
 	if !strings.Contains(text, "debug") || !strings.Contains(text, "Show session diagnostics") {
 		t.Fatalf("running palette omitted enabled debug command:\n%s", text)
+	}
+	runningRows := paintedRows(application, width, height)
+	sessionsColumn, sessionsRow := findTextCell(t, runningRows, "sessions")
+	if !strings.Contains(runningRows[sessionsRow], "Browse sessions") || application.Cell(sessionsColumn, sessionsRow).Style.Foreground != ui.DefaultTheme().Foreground {
+		t.Fatalf("enabled sessions row = %q style=%+v", runningRows[sessionsRow], application.Cell(sessionsColumn, sessionsRow).Style)
 	}
 	if !strings.Contains(text, "reload") || !strings.Contains(text, glyphCircleSlash+" idle only") {
 		t.Fatalf("running palette did not retain visibly disabled idle commands:\n%s", text)

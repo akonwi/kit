@@ -526,6 +526,24 @@ func TestAttachSessionForSwitchUsesExactBindingSnapshotAndLocation(t *testing.T)
 	}
 }
 
+func TestCancelLoginDoesNotInvalidateAttachedSessionOperation(t *testing.T) {
+	state := appState{operation: 7}
+	state.cancelLogin()
+	if state.operation != 7 || state.loginGeneration != 1 {
+		t.Fatalf("cancel login operation=%d generation=%d", state.operation, state.loginGeneration)
+	}
+}
+
+func TestStalePromptAdmissionCannotAttachToSwitchedSession(t *testing.T) {
+	state := appState{operation: 2, session: protocol.SessionInfo{ID: "session_target"}}
+	if state.acceptPromptAdmission(1, nil) {
+		t.Fatal("stale source-session prompt admission was accepted")
+	}
+	if state.activeRun != nil || state.activeRunID != "" || state.session.ID != "session_target" {
+		t.Fatalf("stale prompt admission changed target state: active=%v id=%q session=%q", state.activeRun != nil, state.activeRunID, state.session.ID)
+	}
+}
+
 func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *testing.T) {
 	t.Parallel()
 
@@ -538,7 +556,12 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 		activitySourceID: "old-activity", activitySelected: true,
 		activityExpanded: map[activityToolKey]bool{{TurnID: "old", ToolCallID: "tool"}: true},
 		bashCollapsed:    map[string]bool{"old-bash": true},
+		cwdPending:       true,
+		reloadPending:    true,
 	}
+	state.resetAttachmentContext()
+	t.Cleanup(func() { state.attachmentCancel() })
+	sourceAttachment := state.attachmentCtx
 	target := protocol.SessionSnapshot{
 		Session:     protocol.SessionInfo{ID: "session_target", CWD: "/other/repo", Model: codexDefaultModel},
 		ActiveRunID: "run_target",
@@ -549,6 +572,16 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	}
 	bound := fakeSession{id: target.Session.ID, snapshot: target}
 	state.installSession(bound, target, "~/other/repo")
+	select {
+	case <-sourceAttachment.Done():
+	default:
+		t.Fatal("source attachment watchers were not canceled")
+	}
+	select {
+	case <-state.attachmentCtx.Done():
+		t.Fatal("target attachment context was already canceled")
+	default:
+	}
 	if state.session.ID != target.Session.ID || state.bound.ID() != target.Session.ID || state.operation != 5 {
 		t.Fatalf("installed binding session=%q bound=%q operation=%d", state.session.ID, state.bound.ID(), state.operation)
 	}
@@ -560,6 +593,9 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	}
 	if !state.runPending || state.activeRunID != "run_target" || state.status != "esc abort · ctrl+c detach" {
 		t.Fatalf("active target run pending=%t id=%q status=%q", state.runPending, state.activeRunID, state.status)
+	}
+	if state.cwdPending || state.reloadPending {
+		t.Fatalf("source mutation state leaked into target: cwd=%v reload=%v", state.cwdPending, state.reloadPending)
 	}
 	if state.activitySourceID != "" || state.activitySelected || len(state.activityExpanded) != 0 || len(state.bashCollapsed) != 0 {
 		t.Fatalf("source-local presentation leaked activity=%q selected=%t expanded=%+v bash=%+v", state.activitySourceID, state.activitySelected, state.activityExpanded, state.bashCollapsed)

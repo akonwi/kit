@@ -72,6 +72,17 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		}
 		runtime.Dispatch(func() {
 			if operation != s.operation {
+				if admission.abort.Load() {
+					if err == nil {
+						go func() {
+							abortContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+							defer cancel()
+							_ = execution.Abort(abortContext)
+						}()
+					} else {
+						s.abortBashAdmission(bound, executionID)
+					}
+				}
 				return
 			}
 			if err != nil {
@@ -158,9 +169,13 @@ func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, exe
 
 func (s *appState) watchBash(execution sessionclient.BashExecution, operation uint64) {
 	runtime := s.Context().Runtime()
+	attachmentCtx := s.attachmentCtx
+	if attachmentCtx == nil {
+		attachmentCtx = s.ctx
+	}
 	go func() {
-		outcome, err := execution.Wait(s.ctx)
-		if s.ctx.Err() != nil {
+		outcome, err := execution.Wait(attachmentCtx)
+		if attachmentCtx.Err() != nil {
 			return
 		}
 		runtime.Dispatch(func() {
@@ -188,6 +203,10 @@ func (s *appState) watchBash(execution sessionclient.BashExecution, operation ui
 
 func (s *appState) scheduleBashResume(operation uint64, executionID string) {
 	bound := s.bound
+	attachmentCtx := s.attachmentCtx
+	if attachmentCtx == nil {
+		attachmentCtx = s.ctx
+	}
 	if bound == nil {
 		return
 	}
@@ -196,7 +215,7 @@ func (s *appState) scheduleBashResume(operation uint64, executionID string) {
 		timer := time.NewTimer(time.Second)
 		defer timer.Stop()
 		select {
-		case <-s.ctx.Done():
+		case <-attachmentCtx.Done():
 			return
 		case <-timer.C:
 		}
