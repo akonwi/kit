@@ -2162,8 +2162,12 @@ func configurationInputForSelection(session protocol.SessionInfo, mode configura
 }
 
 func (s *appState) compactSession() {
-	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending || s.compactPending {
-		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for active work before compacting context.", Variant: toastWarning})
+	if s.compactPending {
+		s.showToast(toastInput{Title: "Compaction failed", Subtitle: "Compaction already in progress.", Variant: toastError})
+		return
+	}
+	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending {
+		s.showToast(toastInput{Title: "Compaction failed", Subtitle: "Cannot compact while the agent is running.", Variant: toastError})
 		return
 	}
 	operationID := s.compactOperationID
@@ -2171,7 +2175,7 @@ func (s *appState) compactSession() {
 		var err error
 		operationID, err = identifier.New("compact_")
 		if err != nil {
-			s.showToast(toastInput{Title: "Could not start compaction", Subtitle: err.Error(), Variant: toastError})
+			s.showToast(toastInput{Title: "Compaction failed", Subtitle: err.Error(), Variant: toastError})
 			return
 		}
 	}
@@ -2181,7 +2185,7 @@ func (s *appState) compactSession() {
 	s.SetState(func() {
 		s.compactPending = true
 		s.compactOperationID = operationID
-		s.status = "Compacting session context…"
+		s.status = "Compacting session…"
 	})
 	go func() {
 		compactContext, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
@@ -2221,12 +2225,12 @@ func compactionToast(result protocol.CompactSessionResult, compactErr, snapshotE
 		return toastInput{Title: "Compaction failed", Subtitle: compactErr.Error(), Variant: toastError}
 	}
 	if snapshotErr != nil {
-		return toastInput{Title: "Context updated", Subtitle: snapshotErr.Error(), Variant: toastWarning}
+		return toastInput{Title: "Session compacted", Subtitle: "Session context was compacted. " + snapshotErr.Error(), Variant: toastWarning}
 	}
 	if result.Compacted {
-		return toastInput{Title: "Context compacted", Variant: toastInfo}
+		return toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo}
 	}
-	return toastInput{Title: "No context to compact", Variant: toastInfo}
+	return toastInput{Title: "Compaction failed", Subtitle: "Not enough turns to compact.", Variant: toastError}
 }
 
 func (s *appState) changeCWD(target string) {

@@ -109,6 +109,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if _, disabled := paletteCommandDisabledToast(paletteCommandDebug, true); disabled {
 		t.Fatal("debug produced disabled-command feedback while available")
 	}
+	compactToast, disabled := paletteCommandDisabledToast(paletteCommandCompact, true)
+	if !disabled || compactToast.Title != "Compaction failed" || compactToast.Subtitle != "Cannot compact while the agent is running." || compactToast.Variant != toastError {
+		t.Fatalf("disabled compact toast = %+v, disabled=%v", compactToast, disabled)
+	}
 
 	var pasted paletteController
 	pasted.OpenFor(false)

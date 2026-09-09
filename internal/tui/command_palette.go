@@ -408,6 +408,9 @@ func paletteCommandDisabledToast(commandID paletteCommandID, running bool) (toas
 	if reason == "" {
 		return toastInput{}, false
 	}
+	if commandID == paletteCommandCompact {
+		return toastInput{Title: "Compaction failed", Subtitle: "Cannot compact while the agent is running.", Variant: toastError}, true
+	}
 	return toastInput{Title: "Command unavailable", Subtitle: "Available when the session is idle.", Variant: toastWarning}, true
 }
 
