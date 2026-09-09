@@ -534,6 +534,21 @@ func TestCancelLoginDoesNotInvalidateAttachedSessionOperation(t *testing.T) {
 	}
 }
 
+func TestSessionMetadataSnapshotPreservesActivePresentation(t *testing.T) {
+	state := appState{
+		session:      protocol.SessionInfo{ID: "session_test", ThinkingLevel: "low"},
+		messages:     []transcriptMessage{{ID: "settled", Role: "user", Text: "settled"}},
+		liveMessages: []transcriptMessage{{ID: "live", Role: "assistant", Text: "streaming"}},
+		runPending:   true,
+	}
+	state.applySessionMetadataSnapshot(protocol.SessionSnapshot{
+		Session: protocol.SessionInfo{ID: "session_test", ThinkingLevel: "high"}, ContextTokens: 12, ContextWindow: 100,
+	})
+	if state.session.ThinkingLevel != "high" || len(state.messages) != 1 || len(state.liveMessages) != 1 || state.liveMessages[0].ID != "live" {
+		t.Fatalf("metadata refresh thinking=%q messages=%d live=%+v", state.session.ThinkingLevel, len(state.messages), state.liveMessages)
+	}
+}
+
 func TestStalePromptAdmissionCannotAttachToSwitchedSession(t *testing.T) {
 	state := appState{operation: 2, session: protocol.SessionInfo{ID: "session_target"}}
 	if state.acceptPromptAdmission(1, nil) {

@@ -94,10 +94,12 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if !paletteCommandAvailable(paletteCommandDebug, true) {
 		t.Fatal("debug command was unavailable during active work")
 	}
-	if paletteCommandAvailable(paletteCommandReload, true) || !paletteCommandAvailable(paletteCommandReload, false) {
-		t.Fatal("reload command availability does not follow idle state")
+	for _, command := range []paletteCommandID{paletteCommandReload, paletteCommandThinking} {
+		if !paletteCommandAvailable(command, true) {
+			t.Fatalf("live command %q was unavailable during active work", command)
+		}
 	}
-	for _, command := range []paletteCommandID{paletteCommandCompact, paletteCommandModel, paletteCommandThinking} {
+	for _, command := range []paletteCommandID{paletteCommandCompact, paletteCommandModel} {
 		if paletteCommandAvailable(command, true) || !paletteCommandAvailable(command, false) {
 			t.Fatalf("configuration command %q availability does not follow idle state", command)
 		}
@@ -320,11 +322,15 @@ func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.
 		t.Fatalf("running palette omitted enabled debug command:\n%s", text)
 	}
 	runningRows := paintedRows(application, width, height)
-	sessionsColumn, sessionsRow := findTextCell(t, runningRows, "sessions")
-	if !strings.Contains(runningRows[sessionsRow], "Browse sessions") || application.Cell(sessionsColumn, sessionsRow).Style.Foreground != ui.DefaultTheme().Foreground {
-		t.Fatalf("enabled sessions row = %q style=%+v", runningRows[sessionsRow], application.Cell(sessionsColumn, sessionsRow).Style)
+	for name, description := range map[string]string{
+		"sessions": "Browse sessions", "reload": "Reload session context", "thinking": "Change reasoning effort",
+	} {
+		column, row := findTextCell(t, runningRows, name)
+		if !strings.Contains(runningRows[row], description) || application.Cell(column, row).Style.Foreground != ui.DefaultTheme().Foreground {
+			t.Fatalf("enabled %s row = %q style=%+v", name, runningRows[row], application.Cell(column, row).Style)
+		}
 	}
-	if !strings.Contains(text, "reload") || !strings.Contains(text, glyphCircleSlash+" idle only") {
+	if !strings.Contains(text, "model") || !strings.Contains(text, glyphCircleSlash+" idle only") {
 		t.Fatalf("running palette did not retain visibly disabled idle commands:\n%s", text)
 	}
 	modelColumn, modelRow := findTextCell(t, paintedRows(application, width, height), "model")

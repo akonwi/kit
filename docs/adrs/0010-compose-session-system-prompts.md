@@ -128,8 +128,8 @@ The runtime bundle also carries an immutable registry of user-global and
 project-local prompt commands. Prompt templates are not system-prompt sections:
 the server exposes renderer-safe command metadata to clients and expands a
 selected template as an ordinary user prompt against the same runtime snapshot.
-Quiescent reload replaces prompt commands atomically with prompt, skills, and
-tools. Coding tools resolve relative paths through a synchronized session-owned
+Reload replaces prompt commands atomically with prompt, skills, and tools.
+Coding tools resolve relative paths through a synchronized session-owned
 workspace scope, so their filesystem root may move without replacing the
 immutable prompt, skill, or prompt-command snapshots.
 
@@ -205,15 +205,15 @@ client does not mutate or reload an already loaded runtime.
 
 Kit provides a session-scoped explicit reload operation. Reload:
 
-1. requires the session's parent droid to be quiescent;
-2. rediscovers context from that session's current cwd;
-3. refreshes available Kit-owned feature and skill contributions;
-4. replaces the complete effective prompt and immutable tool contributions as
-   one runtime transition; and
-5. leaves droid conversation history and provider replay metadata unchanged.
+1. rediscovers context from that session's current cwd;
+2. refreshes available Kit-owned feature, skill, tool, and prompt-command contributions;
+3. atomically reconfigures the live droid's provider-facing request snapshot; and
+4. leaves droid conversation history, provider replay metadata, and the session event stream unchanged.
 
-A busy session rejects reload with a typed error rather than changing guidance
-between model cycles.
+A provider request already in flight keeps the complete request configuration it
+captured. The next provider request samples the replacement, whether it belongs
+to the current turn or a later turn. Reload therefore remains available while
+parent or direct-bash work is active.
 
 The synchronous sequential `change_cwd` tool and `/cd <path>` command instead
 mutate only the session-owned filesystem scope. Relative targets resolve from the
@@ -235,9 +235,9 @@ cwd-relative configuration changes become effective after explicit reload,
 runtime eviction and reopen, or daemon restart.
 
 Because `droids.Config.SystemPrompt` is runtime configuration rather than
-durable conversation data, Kit may implement a quiescent refresh by closing and
-reopening the droid against its existing Store. Any future droids reconfiguration
-API must preserve the same quiescent and atomic semantics.
+durable conversation data, droids exposes atomic live reconfiguration for the
+provider-facing system prompt, reasoning level, and tool set. Reload validates a
+complete replacement before publishing it; it does not close or reopen the droid.
 
 ### Persistence and compaction
 
@@ -278,8 +278,9 @@ The implementation must demonstrate:
 - user-global and project `SKILL.md` definitions are discovered deterministically,
   bounded safely, surfaced in diagnostics, and refreshed atomically on reload;
 - attaching a client does not reload an existing runtime;
-- explicit reload rejects active sessions and atomically updates prompt plus
-  immutable tool contributions while quiescent;
+- explicit reload remains available during active work, preserves in-flight
+  provider requests, and atomically updates the prompt and tool contributions
+  sampled by the next provider request;
 - cwd changes are synchronous sequential tool calls, persist before publication,
   retarget subsequent relative tools without process-global cwd mutation, and
   remain isolated across concurrent sessions;
@@ -298,8 +299,8 @@ The implementation must demonstrate:
   through capabilities and skills.
 - Kit-specific customization guidance can evolve as one embedded skill without
   increasing every request's core prompt.
-- Explicit reload avoids mid-turn prompt mutation and works with detached or
-  future multi-client sessions.
+- Explicit reload updates the live droid without interrupting in-flight provider
+  requests and works with detached or future multi-client sessions.
 - Session-owned workspace scopes allow an active agent to navigate the
   filesystem without coupling concurrent sessions through process-global cwd.
 - Diagnostics make omitted guidance visible instead of silently changing agent
@@ -313,8 +314,8 @@ The implementation must demonstrate:
 - Removing `CLAUDE.md` compatibility is an intentional parity difference.
 - A built-in customization skill requires a minimal skill registry and
   activation tool before general user/project skill parity is complete.
-- Reopening a droid for prompt changes may replace transient subscriptions and
-  require clients to resynchronize from an authoritative snapshot.
+- A turn may use a newer prompt or tool snapshot on a later provider cycle than
+  it used on its first cycle.
 
 ## Related
 

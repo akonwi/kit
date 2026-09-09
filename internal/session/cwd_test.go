@@ -192,8 +192,8 @@ func TestChangeCWDPersistsBeforePublicationAndReloadUsesDestination(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reloaded.EventStreamID == before.EventStreamID {
-		t.Fatal("reload did not replace the event stream")
+	if reloaded.EventStreamID != before.EventStreamID {
+		t.Fatal("live reload replaced the event stream")
 	}
 	canonicalContextPath, err := filepath.EvalSymlinks(contextPath)
 	if err != nil {

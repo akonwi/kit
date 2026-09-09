@@ -2,7 +2,6 @@ package session
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -36,32 +35,12 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	if err != nil {
 		return ReloadResult{}, err
 	}
-	if !loaded.admissionMu.TryLock() {
+	if !loaded.transitionMu.TryLock() {
 		return ReloadResult{}, ErrReloadBusy
 	}
-	defer loaded.admissionMu.Unlock()
-	if !loaded.mu.TryLock() {
-		return ReloadResult{}, ErrReloadBusy
-	}
-	defer loaded.mu.Unlock()
+	defer loaded.transitionMu.Unlock()
 	if m.sessionDeleting(sessionID) {
 		return ReloadResult{}, ErrDeleteBusy
-	}
-	active := loaded.activeRun != ""
-	if active {
-		return ReloadResult{}, ErrReloadBusy
-	}
-	m.bashMu.Lock()
-	bashActive := m.bashActive[sessionID] != nil
-	m.bashMu.Unlock()
-	if bashActive {
-		return ReloadResult{}, ErrReloadBusy
-	}
-	if _, err := loaded.droid.WaitQuiescent(ctx); err != nil {
-		if errors.Is(err, droids.ErrClosed) {
-			return ReloadResult{}, err
-		}
-		return ReloadResult{}, fmt.Errorf("wait for session %q to become quiescent: %w", sessionID, err)
 	}
 	workspaceCWD, workspaceGeneration := loaded.workspace.snapshot()
 	record, err := m.sessionRecord(ctx, sessionID)
@@ -71,54 +50,41 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	if record.CWD != workspaceCWD {
 		return ReloadResult{}, fmt.Errorf("%w: session cwd changed while reload was starting", ErrReloadBusy)
 	}
-	replacement, err := m.bundleBuilder.Build(ctx, record, loaded.workspace.CWD)
-	if err != nil {
-		return ReloadResult{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, err)
+	replacement, errnth := m.bundleBuilder.Build(ctx, record, loaded.workspace.CWD)
+	if errnth != nil {
+		return ReloadResult{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, errnth)
 	}
 	replacement.Tools = append(replacement.Tools, m.changeCWDTool(sessionID, loaded.workspace))
-	nextEvents, err := newEventLog()
-	if err != nil {
-		return ReloadResult{}, fmt.Errorf("prepare replacement event stream for session %q: %w", sessionID, err)
-	}
 	if m.isClosed() {
-		return ReloadResult{}, ErrClosed
-	}
-	if m.sessionDeleting(sessionID) {
-		return ReloadResult{}, ErrDeleteBusy
-	}
-
-	transitionContext, cancelTransition := context.WithTimeout(context.WithoutCancel(ctx), runtimeTransitionTimeout)
-	defer cancelTransition()
-	// Open the replacement against the quiescent Store before closing the current
-	// droid. Neither runtime can mutate while admission and control are held, so
-	// a failed open leaves the previous valid bundle untouched.
-	replacementDroid, snapshot, err := m.openDroid(transitionContext, record, loaded.store, replacement)
-	if err != nil {
-		return ReloadResult{}, fmt.Errorf("open replacement droid: %w", err)
-	}
-	if m.isClosed() {
-		_ = replacementDroid.Close()
 		return ReloadResult{}, ErrClosed
 	}
 	currentCWD, currentGeneration := loaded.workspace.snapshot()
 	if currentGeneration != workspaceGeneration || currentCWD != workspaceCWD {
-		_ = replacementDroid.Close()
 		return ReloadResult{}, fmt.Errorf("%w: session cwd changed during reload", ErrReloadBusy)
 	}
-	closeErr := loaded.droid.Shutdown(transitionContext)
-	loaded.droid = replacementDroid
+
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
+	loaded.workspace.mutationMu.Lock()
+	defer loaded.workspace.mutationMu.Unlock()
+	if m.sessionDeleting(sessionID) {
+		return ReloadResult{}, ErrDeleteBusy
+	}
+	currentCWD, currentGeneration = loaded.workspace.snapshot()
+	if currentGeneration != workspaceGeneration || currentCWD != workspaceCWD {
+		return ReloadResult{}, fmt.Errorf("%w: session cwd changed during reload", ErrReloadBusy)
+	}
+	if err := loaded.droid.Reconfigure(droids.RequestConfiguration{
+		SystemPrompt: replacement.Prompt.Prompt, Reasoning: record.ThinkingLevel, Tools: replacement.Tools,
+	}); err != nil {
+		return ReloadResult{}, fmt.Errorf("apply replacement runtime bundle for session %q: %w", sessionID, err)
+	}
 	loaded.bundle = cloneRuntimeBundle(replacement)
-	loaded.eventCursor = snapshot.LastEvent
-	loaded.events.replace(nextEvents)
-	result := ReloadResult{
+	return ReloadResult{
 		Sources:       append([]systemprompt.Source(nil), loaded.bundle.Prompt.Sources...),
 		Diagnostics:   append([]systemprompt.Diagnostic(nil), loaded.bundle.Prompt.Diagnostics...),
-		EventStreamID: nextEvents.streamID,
-	}
-	if closeErr != nil {
-		result.Warnings = []string{boundedReloadWarning("Previous runtime shutdown reported: " + closeErr.Error())}
-	}
-	return result, nil
+		EventStreamID: loaded.events.streamID,
+	}, nil
 }
 
 func boundedReloadWarning(message string) string {

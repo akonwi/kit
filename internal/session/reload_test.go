@@ -16,7 +16,7 @@ import (
 	"github.com/akonwi/kit/internal/systemprompt"
 )
 
-func TestReloadSessionRefreshesContextPreservesTemporaryHistoryAndResetsStream(t *testing.T) {
+func TestReloadSessionRefreshesContextAndPreservesRuntimeStream(t *testing.T) {
 	base := t.TempDir()
 	home, cwd := filepath.Join(base, "kit-home"), filepath.Join(base, "project")
 	for _, directory := range []string{home, cwd} {
@@ -71,15 +71,8 @@ func TestReloadSessionRefreshesContextPreservesTemporaryHistoryAndResetsStream(t
 	if !reflectStringsEqual(transcriptIDs(after), beforeIDs) {
 		t.Fatalf("temporary history changed across reload: before=%#v after=%#v", beforeIDs, transcriptIDs(after))
 	}
-	if after.EventStreamID == before.EventStreamID {
-		t.Fatalf("event stream did not change across reload: %q", after.EventStreamID)
-	}
-	oldPage, err := manager.Events(t.Context(), record.ID, before.EventStreamID, before.EventCursor)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !oldPage.ResyncRequired || oldPage.StreamID != after.EventStreamID {
-		t.Fatalf("old stream page = %+v", oldPage)
+	if after.EventStreamID != before.EventStreamID {
+		t.Fatalf("event stream changed across live reload: before=%q after=%q", before.EventStreamID, after.EventStreamID)
 	}
 	if _, err := manager.RunPrompt(t.Context(), record.ID, "second"); err != nil {
 		t.Fatal(err)
@@ -162,7 +155,7 @@ func TestReloadSessionPreservesPersistentPendingBoundaries(t *testing.T) {
 	}
 }
 
-func TestReloadSessionRejectsActiveParentRunBeforeBuilding(t *testing.T) {
+func TestReloadSessionAppliesDuringActiveParentRun(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
 	if err != nil {
@@ -186,11 +179,11 @@ func TestReloadSessionRejectsActiveParentRunBeforeBuilding(t *testing.T) {
 		done <- err
 	}()
 	<-providers.started
-	if _, err := manager.ReloadSession(t.Context(), record.ID); !errors.Is(err, session.ErrReloadBusy) {
-		t.Fatalf("ReloadSession() error = %v, want ErrReloadBusy", err)
+	if _, err := manager.ReloadSession(t.Context(), record.ID); err != nil {
+		t.Fatalf("ReloadSession() during active run: %v", err)
 	}
-	if builds := builder.count(); builds != 1 {
-		t.Fatalf("bundle builds after busy reload = %d, want 1", builds)
+	if builds := builder.count(); builds != 2 {
+		t.Fatalf("bundle builds after live reload = %d, want 2", builds)
 	}
 	close(providers.block)
 	if err := <-done; err != nil {
@@ -198,7 +191,7 @@ func TestReloadSessionRejectsActiveParentRunBeforeBuilding(t *testing.T) {
 	}
 }
 
-func TestReloadSessionRejectsActiveDirectBash(t *testing.T) {
+func TestReloadSessionAppliesDuringActiveDirectBash(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
 	if err != nil {
@@ -221,8 +214,8 @@ func TestReloadSessionRejectsActiveDirectBash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := manager.ReloadSession(t.Context(), record.ID); !errors.Is(err, session.ErrReloadBusy) {
-		t.Fatalf("ReloadSession() error = %v, want ErrReloadBusy", err)
+	if _, err := manager.ReloadSession(t.Context(), record.ID); err != nil {
+		t.Fatalf("ReloadSession() during active bash: %v", err)
 	}
 	if err := manager.AbortBash(t.Context(), record.ID, bash.ID); err != nil {
 		t.Fatal(err)
@@ -319,7 +312,7 @@ func TestUserCWDChangeSerializesAfterReload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if after.Session.CWD != next || after.EventStreamID == before.EventStreamID {
+	if after.Session.CWD != next || after.EventStreamID != before.EventStreamID {
 		t.Fatalf("snapshot after serialized reload and cwd change = %+v, before = %+v", after, before)
 	}
 }

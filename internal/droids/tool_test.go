@@ -81,9 +81,12 @@ func TestToolSchemaCanonicalizesNumericKeywordsForProviderEncoding(t *testing.T)
 func TestToolSchemasPreserveRegistrationOrder(t *testing.T) {
 	first := MustTool(Tool[struct{}]{Name: "first", Execute: testNoopTool[struct{}]})
 	second := MustTool(Tool[struct{}]{Name: "second", Execute: testNoopTool[struct{}]})
-	droid := Droid{orderedToolSchemas: []ToolSchema{first.schema(), second.schema()}}
+	configuration, err := buildRuntimeRequestConfiguration(Model{ID: "test", MaxOutputTokens: 8192}, RequestConfiguration{Tools: []AnyTool{first, second}})
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	schemas := droid.providerToolSchemas()
+	schemas := configuration.toolSchemas
 	if len(schemas) != 2 || schemas[0].Name != "first" || schemas[1].Name != "second" {
 		t.Fatalf("tool schemas = %+v, want first then second", schemas)
 	}

@@ -31,4 +31,4 @@ Changing cwd is filesystem navigation. It does not rebuild the droid, replace th
 - project skills under `.agents/skills/`; or
 - project prompt commands under `.agents/prompts/`.
 
-Run **reload** from the command palette after moving when those agent-configuration snapshots should be refreshed from the new cwd. Reload remains idle-only because it changes the system prompt and immutable runtime contributions; `change_cwd` is safe as an in-run sequential tool because it changes only the synchronized filesystem scope.
+Run **reload** from the command palette after moving when those agent-configuration snapshots should be refreshed from the new cwd. Reload may run during an active turn: a provider request already in flight keeps its captured configuration, and the next provider request uses the refreshed prompt and tools. `change_cwd` remains safe as an in-run sequential tool because it changes only the synchronized filesystem scope.

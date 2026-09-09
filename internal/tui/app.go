@@ -1010,6 +1010,16 @@ func bootstrapSession(
 	return selected, bound, snapshot, nil
 }
 
+func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapshot) {
+	if snapshot.Session.ID != "" {
+		s.session = snapshot.Session
+	}
+	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
+	s.contextTokens = snapshot.ContextTokens
+	s.contextWindow = snapshot.ContextWindow
+	s.sessionUsage = snapshot.Usage
+}
+
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
 	if snapshot.Session.ID != "" {
@@ -2077,10 +2087,11 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 }
 
 func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
-	if s.phase != phaseReady || s.bound == nil {
+	if s.phase != phaseReady || s.bound == nil || s.configurationPicker.Mode != configurationPickerClosed {
 		return
 	}
-	if s.hasActiveWork() || s.reloadPending || s.compactPending {
+	busyTransition := s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending
+	if busyTransition || (mode == configurationPickerModel && s.hasActiveWork()) {
 		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for active work before changing configuration.", Variant: toastWarning})
 		return
 	}
@@ -2102,10 +2113,14 @@ func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
 }
 
 func (s *appState) applyConfigurationSelection() {
-	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending || s.compactPending {
+	if s.phase != phaseReady || s.bound == nil {
 		return
 	}
 	mode := s.configurationPicker.Mode
+	busyTransition := s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending
+	if busyTransition || (mode == configurationPickerModel && s.hasActiveWork()) {
+		return
+	}
 	selection := s.configurationPicker.Selection
 	if mode == configurationPickerModel {
 		index := modelCapabilityIndex(s.configurationPicker.Models, selection)
@@ -2149,7 +2164,11 @@ func (s *appState) applyConfigurationSelection() {
 			}
 			if snapshotErr == nil {
 				s.SetState(func() {
-					s.applySnapshot(snapshot)
+					if mode == configurationPickerThinking {
+						s.applySessionMetadataSnapshot(snapshot)
+					} else {
+						s.applySnapshot(snapshot)
+					}
 					s.configurationPicker.CurrentModel = snapshot.Session.Model
 					s.configurationPicker.CurrentThinking = snapshot.Session.ThinkingLevel
 				})
@@ -2161,6 +2180,9 @@ func (s *appState) applyConfigurationSelection() {
 			}
 			s.SetState(func() {
 				s.status = ""
+				if s.runPending {
+					s.status = "esc abort · ctrl+c detach"
+				}
 				s.configurationPicker.ResolveApply(generation, finalErr)
 			})
 			if configureErr != nil {
@@ -2336,7 +2358,7 @@ func (s *appState) refreshLocation(cwd string) {
 }
 
 func (s *appState) reloadSession() {
-	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending {
+	if s.phase != phaseReady || s.bound == nil || s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending {
 		return
 	}
 	bound := s.bound
@@ -2363,26 +2385,17 @@ func (s *appState) reloadSession() {
 			if operation != s.operation {
 				return
 			}
-			activeRunID := ""
-			activeBashID := ""
-			if snapshotErr == nil {
-				activeRunID = snapshot.ActiveRunID
-				activeBashID = snapshot.ActiveBashExecutionID
-			}
 			s.SetState(func() {
 				s.reloadPending = false
 				s.status = ""
 				if snapshotErr == nil {
-					s.applySnapshot(snapshot)
+					s.applySessionMetadataSnapshot(snapshot)
+				}
+				if s.runPending {
+					s.status = "esc abort · ctrl+c detach"
 				}
 			})
 			s.showToast(reloadToast(result, reloadErr, snapshotErr))
-			if activeRunID != "" {
-				s.watchSession(bound, operation, activeRunID)
-			}
-			if activeBashID != "" {
-				s.resumeBash(bound, operation, activeBashID)
-			}
 		})
 	}()
 }

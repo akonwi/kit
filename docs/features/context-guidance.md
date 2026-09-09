@@ -26,13 +26,9 @@ Unreadable, non-regular, invalid UTF-8, oversized, and over-budget candidates pr
 
 Kit reads context when an authoritative session runtime is first loaded, including after daemon restart. Attaching another client to an already loaded runtime does not reread files, and Kit does not watch context files.
 
-To apply edits to a loaded session:
+To apply edits to a loaded session, open the command palette with `Ctrl+P` or `/` from an empty composer and run **reload**. Reload remains available while a turn or direct bash command is active.
 
-1. wait until its prompt and direct bash work are idle;
-2. open the command palette with `Ctrl+P` or `/` from an empty composer;
-3. run **reload**.
-
-Reload atomically refreshes the system prompt and immutable tool contributions while preserving conversation history and pending boundaries. Connected clients resynchronize from a new authoritative event stream. If reload cannot build or open the replacement configuration, the prior runtime remains active.
+Reload atomically refreshes the system prompt, tool contributions, skills, and prompt commands while preserving conversation history, pending boundaries, and the current event stream. A provider request already in flight keeps the configuration it captured; the next provider request uses the refreshed configuration, whether it belongs to the current turn or the next one. If reload cannot build or validate the replacement configuration, the prior runtime remains active.
 
 Changing the session cwd with `change_cwd` or `/cd <path>` immediately retargets relative filesystem tools but does not implicitly reload this guidance. The native TUI shows a warning suggesting **reload** when configuration should be refreshed from the destination. See [Session working directory](./session-cwd.md).
 

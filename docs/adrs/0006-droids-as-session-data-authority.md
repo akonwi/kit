@@ -81,16 +81,24 @@ The unused subagent and mailbox schema is removed in this cutover. Child agents
 will be represented by their own droids plus a deliberately designed harness
 registry when subagent supervision is implemented.
 
-### Configuration transitions replace one quiescent runtime
+### Configuration changes preserve one authoritative runtime
 
 Kit exposes one manager operation for changing model and thinking together. It
-holds the session admission and runtime-control locks, rejects active parent
-work, direct bash, reload, and deletion, resolves an exact provider/model ID,
-and validates an explicit thinking level. An omitted thinking level restores the
-saved level when supported or clamps without increasing effort; missing values
-choose `medium` when supported and otherwise the lowest supported level.
-Resolved defaults and stale-level adjustments are persisted before a runtime is
-opened.
+resolves an exact provider/model ID and validates an explicit thinking level. An
+omitted thinking level restores the saved level when supported or clamps without
+increasing effort; missing values choose `medium` when supported and otherwise
+the lowest supported level.
+
+A thinking-only change is accepted while parent or direct-bash work is active.
+Kit atomically persists the new level and updates the live droid's
+provider-facing request configuration. A provider request already in flight
+keeps its captured reasoning level; the next provider request samples the new
+level, whether it belongs to the current turn or a later turn. The session
+registry therefore exposes the accepted level directly without pending state.
+
+A model change holds the session admission and runtime-control locks and rejects
+active parent work, direct bash, reload, and deletion. Resolved defaults and
+stale-level adjustments are persisted as part of the model transition.
 
 Before switching models, the manager asks droids to assess current provider
 context against the target configuration and invokes droids-owned idempotent
@@ -280,9 +288,11 @@ The implementation must demonstrate:
   monotonic activity time change atomically behind an expected-revision guard;
 - ambiguous configuration responses recover through authoritative snapshot
   resynchronization rather than a durable command receipt;
-- model/thinking transitions admit no concurrent parent or direct-bash work,
-  delegate target-context adaptation to droids, and publish only a validated
-  runtime whose configuration matches the committed registry revision;
+- thinking-only changes are accepted during active work and sampled by the next
+  provider request, while model transitions admit no concurrent parent or
+  direct-bash work, delegate target-context adaptation to droids, and publish
+  only a validated runtime whose configuration matches the committed registry
+  revision;
 - live text and tool events require no writes to `kit.db`;
 - every client-acknowledged terminal included bash result is durably admitted
   through `Inform` exactly once;

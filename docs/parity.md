@@ -400,9 +400,10 @@ recorded manual verification exists.
 - [x] Server-owned global and Git-root-to-cwd `AGENTS.md` loading with bounded
   diagnostics, local-guidance priority, and documented precedence. ADR 0010
   intentionally excludes `CLAUDE.md`, siblings, and immediate-child scanning.
-- [x] Explicit idle session reload applies current context, skills, prompt
-  commands, and immutable tool contributions atomically, preserves droid history,
-  retains the dynamic workspace scope, and forces event-stream resynchronization.
+- [x] Explicit live session reload applies current context, skills, prompt
+  commands, and tool contributions atomically for the next provider request,
+  preserves droid history and event-stream identity, and retains the dynamic
+  workspace scope.
 - [x] User-global and project `SKILL.md` discovery, deterministic precedence,
   bounded diagnostics, model-visible prompt summaries, source-relative location
   guidance, the reserved embedded `kit-customization` skill, and the stable
@@ -413,7 +414,7 @@ recorded manual verification exists.
 - [ ] Claude command compatibility and `cc:` namespacing.
 - [ ] User/project subagent definition discovery.
 - [x] Cwd navigation immediately retargets relative filesystem operations while
-  explicit idle reload refreshes context, skills, and prompt commands from the
+  explicit reload refreshes context, skills, and prompt commands from the
   new cwd.
 
 ## Composer references and attachments
@@ -442,9 +443,9 @@ recorded manual verification exists.
 - [x] `/login`, `/reload`, `/sessions`, `/debug`, `/model`, `/thinking`,
   `/compact`, and `/quit` are available through the native
   command palette with a stable searchable catalog, visibly disabled rows, and
-  warning-toast feedback for unavailable keyboard activation. `/sessions`
-  remains available during active turns so attaching elsewhere does not stop the
-  daemon-owned run.
+  warning-toast feedback for unavailable keyboard activation. `/sessions`,
+  `/reload`, and `/thinking` remain available during active turns; reload and
+  thinking changes are sampled by the droid on its next provider request.
 - [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/name`,
   `/new`, `/tree`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline

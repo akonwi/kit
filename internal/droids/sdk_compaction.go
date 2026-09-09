@@ -187,7 +187,8 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 }
 
 func (rt *sdkRuntime) measureContext(ctx context.Context, provider Provider, model Model, messages []Message) (ContextUsage, error) {
-	return rt.measureContextFor(ctx, provider, model, rt.config.Reasoning, rt.droid.maxTokens, messages)
+	configuration := rt.currentRequestConfiguration()
+	return rt.measureContextWithConfiguration(ctx, provider, model, configuration.reasoning, configuration.maxTokens, messages, configuration)
 }
 
 func (rt *sdkRuntime) measureContextFor(
@@ -198,9 +199,24 @@ func (rt *sdkRuntime) measureContextFor(
 	reservedOutput int,
 	messages []Message,
 ) (ContextUsage, error) {
+	return rt.measureContextWithConfiguration(
+		ctx, provider, model, reasoning, reservedOutput, messages, rt.currentRequestConfiguration(),
+	)
+}
+
+func (rt *sdkRuntime) measureContextWithConfiguration(
+	ctx context.Context,
+	provider Provider,
+	model Model,
+	reasoning string,
+	reservedOutput int,
+	messages []Message,
+	configuration *runtimeRequestConfiguration,
+) (ContextUsage, error) {
+	tools := append([]ToolSchema(nil), configuration.toolSchemas...)
 	request := Request{
-		SystemPrompt: rt.config.SystemPrompt, Messages: messages,
-		Tools: rt.droid.providerToolSchemas(), Reasoning: reasoning,
+		SystemPrompt: configuration.systemPrompt, Messages: messages,
+		Tools: tools, Reasoning: reasoning,
 		MaxTokens: reservedOutput,
 	}
 	if measurer, ok := provider.(ContextMeasurer); ok {
@@ -212,8 +228,7 @@ func (rt *sdkRuntime) measureContextFor(
 		return usage, nil
 	}
 	return estimateContextUsage(
-		rt.config.SystemPrompt, rt.droid.providerToolSchemas(), model,
-		reasoning, reservedOutput, messages,
+		configuration.systemPrompt, tools, model, reasoning, reservedOutput, messages,
 	), nil
 }
 

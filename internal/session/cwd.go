@@ -93,6 +93,8 @@ func (m *Manager) changeCWDWithID(ctx context.Context, sessionID, mutationID, ta
 		return ChangeCWDResult{}, err
 	}
 	if informDroid {
+		loaded.transitionMu.Lock()
+		defer loaded.transitionMu.Unlock()
 		loaded.mu.Lock()
 		defer loaded.mu.Unlock()
 	}

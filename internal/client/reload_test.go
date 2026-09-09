@@ -79,7 +79,7 @@ func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if httpResult.EventStreamID == before.EventStreamID || !reloadHasContextSource(httpResult, contextPath) {
+	if httpResult.EventStreamID != before.EventStreamID || !reloadHasContextSource(httpResult, contextPath) {
 		t.Fatalf("HTTP reload result = %+v", httpResult)
 	}
 
@@ -90,7 +90,7 @@ func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if boundResult.EventStreamID == httpResult.EventStreamID || !reloadHasContextSource(boundResult, contextPath) {
+	if boundResult.EventStreamID != httpResult.EventStreamID || !reloadHasContextSource(boundResult, contextPath) {
 		t.Fatalf("bound reload result = %+v", boundResult)
 	}
 	after, err := bound.Snapshot(t.Context())

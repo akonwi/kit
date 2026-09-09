@@ -90,8 +90,9 @@ type CompactSessionResult struct {
 	EventStreamID string
 }
 
-// ConfigureSession atomically transitions one quiescent session to an exact
-// model and valid thinking level, compacting droid context first when required.
+// ConfigureSession applies an exact model and valid thinking level. A
+// thinking-only change reconfigures the live droid; model changes require a
+// quiescent session and compact droid context first when required.
 func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input ConfigureSessionInput) (ConfigureSessionResult, error) {
 	if err := m.beginOperation(); err != nil {
 		return ConfigureSessionResult{}, err
@@ -107,6 +108,21 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	if err != nil {
 		return ConfigureSessionResult{}, err
 	}
+	targetModel, err := m.resolveExactModel(input.Model)
+	if err != nil {
+		return ConfigureSessionResult{}, err
+	}
+	initialRecord, err := m.sessionRecord(ctx, sessionID)
+	if err != nil {
+		return ConfigureSessionResult{}, err
+	}
+	if initialRecord.ModelProvider == targetModel.Provider && initialRecord.ModelID == targetModel.ID {
+		return m.configureLiveThinking(ctx, sessionID, loaded, targetModel, input)
+	}
+	if !loaded.transitionMu.TryLock() {
+		return ConfigureSessionResult{}, ErrConfigureBusy
+	}
+	defer loaded.transitionMu.Unlock()
 	if !loaded.admissionMu.TryLock() {
 		return ConfigureSessionResult{}, ErrConfigureBusy
 	}
@@ -129,7 +145,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	if record.ConfigurationRevision != input.ExpectedRevision {
 		return ConfigureSessionResult{}, &ConfigurationConflictError{Expected: input.ExpectedRevision, Actual: record.ConfigurationRevision}
 	}
-	targetModel, err := m.resolveExactModel(input.Model)
+	targetModel, err = m.resolveExactModel(input.Model)
 	if err != nil {
 		return ConfigureSessionResult{}, err
 	}
@@ -229,6 +245,52 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	return result, nil
 }
 
+func (m *Manager) configureLiveThinking(ctx context.Context, sessionID string, loaded *runtime, targetModel droids.Model, input ConfigureSessionInput) (ConfigureSessionResult, error) {
+	if !loaded.transitionMu.TryLock() {
+		return ConfigureSessionResult{}, ErrConfigureBusy
+	}
+	defer loaded.transitionMu.Unlock()
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
+	if m.sessionDeleting(sessionID) {
+		return ConfigureSessionResult{}, ErrDeleteBusy
+	}
+	record, err := m.sessionRecordAtWorkspace(ctx, sessionID, loaded.workspace)
+	if err != nil {
+		return ConfigureSessionResult{}, err
+	}
+	if record.ConfigurationRevision != input.ExpectedRevision {
+		return ConfigureSessionResult{}, &ConfigurationConflictError{Expected: input.ExpectedRevision, Actual: record.ConfigurationRevision}
+	}
+	if record.ModelProvider != targetModel.Provider || record.ModelID != targetModel.ID {
+		return ConfigureSessionResult{}, &ConfigurationConflictError{Expected: input.ExpectedRevision, Actual: record.ConfigurationRevision}
+	}
+	effectiveThinking, warnings, err := resolveConfigurationThinking(targetModel, record.ThinkingLevel, input.ThinkingLevel)
+	if err != nil {
+		return ConfigureSessionResult{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+	}
+	applied, err := m.persistSessionConfigurationReconciled(ctx, record, ConfigurationUpdate{
+		SessionID: record.ID, ExpectedRevision: input.ExpectedRevision,
+		ModelProvider: record.ModelProvider, ModelID: record.ModelID, ThinkingLevel: effectiveThinking,
+	})
+	if err != nil {
+		if errors.Is(err, errConfigurationOutcomeUnknown) {
+			m.quarantineRuntime(record.ID, loaded, nil)
+		}
+		return ConfigureSessionResult{}, err
+	}
+	if err := loaded.droid.Reconfigure(droids.RequestConfiguration{
+		SystemPrompt: loaded.bundle.Prompt.Prompt, Reasoning: effectiveThinking, Tools: loaded.bundle.Tools,
+	}); err != nil {
+		m.quarantineRuntime(record.ID, loaded, nil)
+		return ConfigureSessionResult{}, fmt.Errorf("apply session %q thinking: %w", record.ID, err)
+	}
+	loaded.configurationWarnings = append([]string(nil), warnings...)
+	return ConfigureSessionResult{
+		Session: applied, EventStreamID: loaded.events.streamID, Warnings: append([]string(nil), warnings...),
+	}, nil
+}
+
 // CompactSession forces one idempotent explicit compaction against the current
 // persisted model and thinking configuration, independent of automatic pressure
 // thresholds.
@@ -247,6 +309,10 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	if err != nil {
 		return CompactSessionResult{}, err
 	}
+	if !loaded.transitionMu.TryLock() {
+		return CompactSessionResult{}, ErrConfigureBusy
+	}
+	defer loaded.transitionMu.Unlock()
 	if !loaded.admissionMu.TryLock() {
 		return CompactSessionResult{}, ErrConfigureBusy
 	}

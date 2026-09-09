@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -18,11 +19,12 @@ const (
 )
 
 type sdkRuntime struct {
-	droid        *Droid
-	config       Config
-	store        Store
-	provider     Provider
-	conversation ConversationID
+	droid         *Droid
+	config        Config
+	store         Store
+	provider      Provider
+	conversation  ConversationID
+	requestConfig atomic.Pointer[runtimeRequestConfiguration]
 
 	mu               sync.Mutex
 	abortMu          sync.Mutex
@@ -179,28 +181,13 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 	config.Execution = &execution
 	config.Retry = &retry
 
-	maxTokens, err := resolveRequestMaxTokens(model, 0, config.Reasoning)
+	requestConfig, err := buildRuntimeRequestConfiguration(model, RequestConfiguration{
+		SystemPrompt: config.SystemPrompt, Reasoning: config.Reasoning, Tools: config.Tools,
+	})
 	if err != nil {
 		return nil, err
 	}
-	d := &Droid{
-		providers: config.Providers, model: model, maxTokens: maxTokens,
-		compactionReserve: maxTokens, toolsByName: make(map[string]AnyTool),
-	}
-	for _, tool := range config.Tools {
-		if tool == nil {
-			return nil, fmt.Errorf("droids: nil tool")
-		}
-		schema := tool.schema()
-		if schema.Name == "" {
-			return nil, fmt.Errorf("droids: tool name is required")
-		}
-		if _, duplicate := d.toolsByName[schema.Name]; duplicate {
-			return nil, fmt.Errorf("droids: duplicate tool name %q", schema.Name)
-		}
-		d.toolsByName[schema.Name] = tool
-		d.orderedToolSchemas = append(d.orderedToolSchemas, schema)
-	}
+	d := &Droid{providers: config.Providers, model: model}
 	initial := newDurableRuntime()
 	record, err := runtimeEncodedRecord(initial)
 	if err != nil {
@@ -260,6 +247,7 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 		subs: make(map[*sdkSubscription]struct{}),
 	}
 	d.sdk = rt
+	rt.requestConfig.Store(requestConfig)
 
 	rt.mu.Lock()
 	if usageRebuilt {

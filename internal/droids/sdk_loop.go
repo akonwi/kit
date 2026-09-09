@@ -445,6 +445,7 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	rt.mu.Lock()
 	messages, err := runtimeMessageEnvelopes(rt.state)
 	attemptID := rt.state.AttemptID
+	configuration := rt.currentRequestConfiguration()
 	rt.mu.Unlock()
 	if err != nil {
 		return MessageEnvelope{}, err
@@ -453,13 +454,13 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	for _, envelope := range messages {
 		plain = append(plain, envelope.Message)
 	}
-	requestMaxTokens := rt.droid.maxTokens
+	requestMaxTokens := configuration.maxTokens
 	if rt.droid.model.OutputLimitMode == OutputLimitProviderControlled {
 		requestMaxTokens = 0
 	}
 	request := Request{
-		SystemPrompt: rt.config.SystemPrompt, Messages: plain,
-		Tools: rt.droid.providerToolSchemas(), Reasoning: rt.config.Reasoning,
+		SystemPrompt: configuration.systemPrompt, Messages: plain,
+		Tools: append([]ToolSchema(nil), configuration.toolSchemas...), Reasoning: configuration.reasoning,
 		MaxTokens: requestMaxTokens,
 	}
 	if err := rt.provider.ValidateReplay(ctx, rt.droid.model, plain); err != nil {
@@ -967,7 +968,7 @@ func (rt *sdkRuntime) admitToolBatch(ctx context.Context, turnID TurnID, calls [
 			RequiresBeforeHook: rt.config.BeforeToolCall != nil,
 			RequiresAfterHook:  rt.config.AfterToolCall != nil,
 		}
-		definition, exists := rt.droid.toolsByName[call.Name]
+		definition, exists := rt.currentRequestConfiguration().toolsByName[call.Name]
 		if !exists {
 			tool.ValidationError = fmt.Sprintf("Tool %q not found", call.Name)
 		} else if validationErr := definition.validate(call.Arguments); validationErr != nil {
@@ -1029,7 +1030,7 @@ func unresolvedToolCalls(state durableRuntime) ([]ToolCall, error) {
 func (rt *sdkRuntime) executeToolBatch(ctx context.Context, turnID TurnID, calls []ToolCall) ([]ToolResultMessage, bool, error) {
 	sequential := rt.config.Execution.ToolExecution == ModeSequential
 	for _, call := range calls {
-		if tool, ok := rt.droid.toolsByName[call.Name]; ok && tool.mode() == ModeSequential {
+		if tool, ok := rt.currentRequestConfiguration().toolsByName[call.Name]; ok && tool.mode() == ModeSequential {
 			sequential = true
 		}
 	}
@@ -1466,7 +1467,7 @@ func (rt *sdkRuntime) updateToolPhase(
 }
 
 func (rt *sdkRuntime) invokeTool(ctx context.Context, toolContext ToolContext, call ToolCall) ToolResult {
-	tool, ok := rt.droid.toolsByName[call.Name]
+	tool, ok := rt.currentRequestConfiguration().toolsByName[call.Name]
 	if !ok {
 		return toolErrorText(fmt.Sprintf("Tool %q not found", call.Name))
 	}

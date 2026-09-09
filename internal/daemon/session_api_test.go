@@ -300,7 +300,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReloadSession() error = %v", err)
 	}
-	if reloaded.SessionID != created.ID || reloaded.EventStreamID == snapshot.EventStreamID || len(reloaded.Sources) < 4 {
+	if reloaded.SessionID != created.ID || reloaded.EventStreamID != snapshot.EventStreamID || len(reloaded.Sources) < 4 {
 		t.Fatalf("reload result = %+v", reloaded)
 	}
 	foundSkillDiagnostic := false
@@ -339,13 +339,8 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil || active.Status != protocol.RunStatusRunning {
 		t.Fatalf("active run = %+v, %v", active, err)
 	}
-	if _, err := client.ReloadSession(context.Background(), created.ID); err == nil {
-		t.Fatal("ReloadSession() accepted an active session")
-	} else {
-		var apiError *APIError
-		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
-			t.Fatalf("active ReloadSession() error = %v", err)
-		}
+	if _, err := client.ReloadSession(context.Background(), created.ID); err != nil {
+		t.Fatalf("ReloadSession() during active session: %v", err)
 	}
 	if _, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
 		ExpectedRevision: 1, Model: "test/echo-alt",

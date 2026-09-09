@@ -226,6 +226,28 @@ Pointer policies distinguish omission from an intentional zero value such as
 `RetryPolicy{Enabled: false}`. Configuration is copied during construction.
 Callers must use explicit droid methods to make supported runtime changes.
 
+The provider-facing prompt, reasoning level, and tools may be replaced while a
+droid is active:
+
+```go
+type RequestConfiguration struct {
+    SystemPrompt string
+    Reasoning    string
+    Tools        []AnyTool
+}
+
+func (d *Droid) Reconfigure(config RequestConfiguration) error
+```
+
+`Reconfigure` validates one complete immutable replacement before publishing it.
+A provider request already in flight keeps the prompt, reasoning level, and tool
+schemas it captured. The next provider request samples the replacement. Tool
+calls returned by the earlier request are admitted and executed against the
+configuration current when that phase begins; removing or changing a tool may
+therefore produce the ordinary missing-tool result or invoke its replacement.
+Model, provider, retry, execution, compaction, and hook configuration remain
+fixed for the lifetime of the droid.
+
 ### Lifecycle
 
 ```go

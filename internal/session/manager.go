@@ -75,8 +75,9 @@ type PromptResult struct {
 	Status       RunStatus
 }
 
-// When locks must nest, acquire them in this order: runtime admissionMu,
-// runtime mu, workspace mutationMu, event-log mu, bashMu, then Manager.mu.
+// When locks must nest, acquire them in this order: runtime transitionMu,
+// admissionMu, runtime mu, workspace mutationMu, event-log mu, bashMu, then
+// Manager.mu.
 // Registry lookups should otherwise release Manager.mu before touching a runtime.
 type Manager struct {
 	store           Repository
@@ -138,9 +139,10 @@ type runtime struct {
 	events      *eventLog
 	eventCursor droids.EventSequence
 
-	// Lock order is admissionMu, then mu, then workspace.mutationMu. admissionMu
-	// remains held for a complete parent turn. mu protects the current droid and
+	// Lock order is transitionMu, admissionMu, then mu, then workspace.mutationMu.
+	// admissionMu remains held for a complete parent turn. mu protects the current droid and
 	// immutable bundle snapshot together with run bookkeeping.
+	transitionMu          sync.Mutex
 	admissionMu           sync.Mutex
 	mu                    sync.Mutex
 	activeRun             string

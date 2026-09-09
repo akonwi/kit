@@ -21,9 +21,10 @@ type ContextUsage struct {
 }
 
 func (d *Droid) contextUsage(messages []Message) ContextUsage {
+	configuration := d.sdk.currentRequestConfiguration()
 	return estimateContextUsage(
-		d.sdk.config.SystemPrompt, d.providerToolSchemas(), d.model,
-		d.sdk.config.Reasoning, d.maxTokens, messages,
+		configuration.systemPrompt, append([]ToolSchema(nil), configuration.toolSchemas...), d.model,
+		configuration.reasoning, configuration.maxTokens, messages,
 	)
 }
 

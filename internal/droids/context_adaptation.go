@@ -340,8 +340,9 @@ func (rt *sdkRuntime) compactCapturedContext(
 		}
 		return CompactContextResult{}, errors.Join(ErrUnsafeContinuation, err)
 	}
-	currentBefore, err := rt.measureContextFor(
-		ctx, rt.provider, rt.droid.model, rt.config.Reasoning, rt.droid.maxTokens, messages,
+	currentConfiguration := rt.currentRequestConfiguration()
+	currentBefore, err := rt.measureContextWithConfiguration(
+		ctx, rt.provider, rt.droid.model, currentConfiguration.reasoning, currentConfiguration.maxTokens, messages, currentConfiguration,
 	)
 	if err != nil {
 		return CompactContextResult{}, err
@@ -385,7 +386,7 @@ func (rt *sdkRuntime) compactCapturedContext(
 			return CompactContextResult{}, err
 		}
 		replacement, summaryWire, after, candidateErr := rt.compactCandidate(
-			ctx, target, contextWire, messages, prefixEnd, assessment.Usage, currentBefore,
+			ctx, target, contextWire, messages, prefixEnd, assessment.Usage, currentBefore, currentConfiguration,
 		)
 		if candidateErr != nil {
 			var unsuitable *unsuitableCompactionCandidate
@@ -427,6 +428,7 @@ func (rt *sdkRuntime) compactCandidate(
 	prefixEnd int,
 	before ContextUsage,
 	currentBefore ContextUsage,
+	currentConfiguration *runtimeRequestConfiguration,
 ) ([]wireMessageEnvelope, wireMessageEnvelope, ContextUsage, error) {
 	if prefixEnd <= 0 || prefixEnd > len(messages) {
 		return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: invalid compaction prefix")
@@ -561,8 +563,8 @@ func (rt *sdkRuntime) compactCandidate(
 		}
 		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context is not replayable by current model: %w", err))
 	}
-	currentAfter, err := rt.measureContextFor(
-		ctx, rt.provider, rt.droid.model, rt.config.Reasoning, rt.droid.maxTokens, replacementMessages,
+	currentAfter, err := rt.measureContextWithConfiguration(
+		ctx, rt.provider, rt.droid.model, currentConfiguration.reasoning, currentConfiguration.maxTokens, replacementMessages, currentConfiguration,
 	)
 	if err != nil {
 		return nil, wireMessageEnvelope{}, ContextUsage{}, err

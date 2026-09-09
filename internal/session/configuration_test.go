@@ -114,7 +114,7 @@ func TestConfigureSessionAdaptsContextClampsThinkingAndReplacesRuntime(t *testin
 		t.Fatal(err)
 	}
 	if thinkingChanged.Session.ThinkingLevel != "high" || thinkingChanged.Session.ConfigurationRevision != 3 ||
-		thinkingChanged.EventStreamID == configured.EventStreamID {
+		thinkingChanged.EventStreamID != configured.EventStreamID {
 		t.Fatalf("thinking configuration = %+v", thinkingChanged)
 	}
 	if _, err := manager.RunPrompt(t.Context(), record.ID, "after configuration"); err != nil {
@@ -218,9 +218,29 @@ func TestConfigureSessionRejectsAliasesAndActiveWork(t *testing.T) {
 	if _, err := manager.CompactSession(t.Context(), record.ID, "compact_active_test"); !errors.Is(err, session.ErrConfigureBusy) {
 		t.Fatalf("active CompactSession() error = %v", err)
 	}
+	high := "high"
+	thinking, err := manager.ConfigureSession(t.Context(), record.ID, session.ConfigureSessionInput{
+		ExpectedRevision: 1, Model: "test/large", ThinkingLevel: &high,
+	})
+	if err != nil {
+		t.Fatalf("thinking change during active run: %v", err)
+	}
+	if thinking.Session.ThinkingLevel != high || thinking.Session.ConfigurationRevision != 2 {
+		t.Fatalf("live thinking configuration = %+v", thinking.Session)
+	}
 	providers.releaseBlock()
 	if err := <-runDone; err != nil {
 		t.Fatal(err)
+	}
+	if call := providers.lastCall(); call.reasoning != "medium" {
+		t.Fatalf("in-flight request reasoning = %q, want medium", call.reasoning)
+	}
+	providers.setBlock(nil, nil)
+	if _, err := manager.RunPrompt(t.Context(), record.ID, "after live thinking change"); err != nil {
+		t.Fatal(err)
+	}
+	if call := providers.lastCall(); call.reasoning != high {
+		t.Fatalf("next request reasoning = %q, want %q", call.reasoning, high)
 	}
 
 	bash, err := manager.StartBash(t.Context(), record.ID, "bash_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "sleep 30", false)
@@ -371,7 +391,7 @@ func TestConfigureSessionPreparationFailuresKeepOldConfiguration(t *testing.T) {
 			}
 			high := "high"
 			if _, err := manager.ConfigureSession(t.Context(), record.ID, session.ConfigureSessionInput{
-				ExpectedRevision: 1, Model: "test/large", ThinkingLevel: &high,
+				ExpectedRevision: 1, Model: "test/small", ThinkingLevel: &high,
 			}); err == nil {
 				t.Fatal("ConfigureSession() accepted invalid replacement preparation")
 			}
