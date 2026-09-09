@@ -100,6 +100,7 @@ type Snapshot struct {
 	ContextWindow         int
 	Usage                 SessionUsage
 	PromptCommands        []PromptCommand
+	Warnings              []string
 }
 
 // Snapshot projects canonical droid history directly. While a turn is active,
@@ -143,6 +144,7 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		ContextTokens:        droidSnapshot.Context.Usage.EstimatedInput,
 		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
 		Usage:                projectSessionUsage(droidSnapshot.Usage),
+		Warnings:             append([]string(nil), loaded.configurationWarnings...),
 	}
 	if loaded.bundle.PromptCommands != nil {
 		for _, command := range loaded.bundle.PromptCommands.Commands() {

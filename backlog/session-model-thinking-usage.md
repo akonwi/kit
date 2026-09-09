@@ -238,26 +238,26 @@ manager, protocol, and `/compact` command are wired.
 
 ### 5. Session manager: configuration transition
 
-- [ ] Introduce a single `ConfigureSession` operation for model and thinking;
+- [x] Introduce a single `ConfigureSession` operation for model and thinking;
   avoid independent setters that can expose invalid intermediate combinations.
-- [ ] Follow the established lock order and reject changes while the session is
+- [x] Follow the established lock order and reject changes while the session is
   active, reloading, deleting, or running direct bash.
-- [ ] Resolve the target model through the provider registry and validate exact
+- [x] Resolve the target model through the provider registry and validate exact
   provider/model ownership.
-- [ ] Resolve thinking using the accepted restore/default rules.
-- [ ] Automatically invoke droids model-adaptation compaction when required.
-- [ ] Expose an idempotent manager operation for explicit settled-session
+- [x] Resolve thinking using the accepted restore/default rules.
+- [x] Automatically invoke droids model-adaptation compaction when required.
+- [x] Expose an idempotent manager operation for explicit settled-session
   compaction so `/compact` uses the same droids-owned path.
-- [ ] Open and validate a replacement droid against the same authoritative Store
+- [x] Open and validate a replacement droid against the same authoritative Store
   before committing Kit registry state.
-- [ ] Persist configuration before publishing the runtime replacement.
-- [ ] Replace the runtime event stream so clients cannot continue from a cursor
+- [x] Persist configuration before publishing the runtime replacement.
+- [x] Replace the runtime event stream so clients cannot continue from a cursor
   created under the previous configuration.
-- [ ] Return the effective model, effective thinking level, configuration
+- [x] Return the effective model, effective thinking level, configuration
   revision, new stream identity, and any clamp/shutdown warnings.
-- [ ] On startup, resolve and persist missing or stale thinking levels before
+- [x] On startup, resolve and persist missing or stale thinking levels before
   opening the runtime; surface an adjustment warning to the attaching client.
-- [ ] Ensure restart after every meaningful transition boundary converges on the
+- [x] Ensure restart after every meaningful transition boundary converges on the
   committed registry configuration.
 
 ### 6. Protocol and clients
@@ -315,21 +315,21 @@ manager, protocol, and `/compact` command are wired.
 #### Model and thinking
 
 - [ ] Create, close, and reopen a session with an explicit model/thinking pair.
-- [ ] Change model while idle and verify the next provider request uses it.
-- [ ] Change thinking while idle and verify the next provider request uses it.
-- [ ] Reject changes during active parent work, direct bash, reload, and delete.
-- [ ] Restore an unsupported saved level, clamp it, report it, persist it, and
+- [x] Change model while idle and verify the next provider request uses it.
+- [x] Change thinking while idle and verify the next provider request uses it.
+- [x] Reject changes during active parent work, direct bash, reload, and delete.
+- [x] Restore an unsupported saved level, clamp it, report it, persist it, and
   reopen without repeating the warning.
-- [ ] With no saved level, choose medium when available and otherwise the lowest
+- [x] With no saved level, choose medium when available and otherwise the lowest
   supported level/off.
 - [ ] Run `/compact`, verify checkpoint/history preservation, reopen, and
   continue the session.
-- [ ] Switch to a smaller-context model, compact first, and continue the session.
-- [ ] Preserve message/turn identity and canonical history across replacement.
-- [ ] Lose a configuration response after commit, resynchronize the
+- [x] Switch to a smaller-context model, compact first, and continue the session.
+- [x] Preserve message/turn identity and canonical history across replacement.
+- [x] Lose a configuration response after commit, resynchronize the
   authoritative choice, and do not replay stale intent or repeat compaction.
-- [ ] Reject a stale expected revision from a second client.
-- [ ] Restart at each transition boundary and recover the committed choice.
+- [x] Reject a stale expected revision from a second client.
+- [x] Restart at each transition boundary and recover the committed choice.
 
 #### Usage
 

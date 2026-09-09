@@ -22,6 +22,7 @@ const maxPromptTextBytes = 128 << 10
 var (
 	ErrBusy              = errors.New("session already has an active parent run")
 	ErrReloadBusy        = errors.New("session cannot be reloaded while work is active")
+	ErrConfigureBusy     = errors.New("session cannot be configured while work is active")
 	ErrDeleteBusy        = errors.New("session cannot be deleted while work is active")
 	ErrClosed            = errors.New("session manager is closed")
 	ErrInvalidInput      = errors.New("invalid session input")
@@ -140,11 +141,12 @@ type runtime struct {
 	// Lock order is admissionMu, then mu, then workspace.mutationMu. admissionMu
 	// remains held for a complete parent turn. mu protects the current droid and
 	// immutable bundle snapshot together with run bookkeeping.
-	admissionMu sync.Mutex
-	mu          sync.Mutex
-	activeRun   string
-	runs        map[string]*liveRun
-	recovery    *droids.ExecutionSnapshot
+	admissionMu           sync.Mutex
+	mu                    sync.Mutex
+	activeRun             string
+	runs                  map[string]*liveRun
+	recovery              *droids.ExecutionSnapshot
+	configurationWarnings []string
 }
 
 type liveRun struct {
@@ -240,9 +242,15 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	if !ok {
 		return SessionRecord{}, fmt.Errorf("%w: unknown model %q", ErrInvalidInput, input.Model)
 	}
-	if err := validateThinkingLevel(model, input.ThinkingLevel); err != nil {
+	var requestedThinking *string
+	if input.ThinkingLevel != "" {
+		requestedThinking = &input.ThinkingLevel
+	}
+	effectiveThinking, _, err := resolveConfigurationThinking(model, "", requestedThinking)
+	if err != nil {
 		return SessionRecord{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
+	input.ThinkingLevel = effectiveThinking
 	id := input.ID
 	clientSelectedID := id != ""
 	if clientSelectedID {
@@ -1089,7 +1097,16 @@ func (m *Manager) loadRuntime(ctx context.Context, sessionID string) (*runtime, 
 	if record.ArchivedAt != nil {
 		return nil, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
 	}
-	return m.newDroid(ctx, record)
+	record, warnings, err := m.normalizeSessionThinking(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	loaded, err := m.newDroid(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	loaded.configurationWarnings = append([]string(nil), warnings...)
+	return loaded, nil
 }
 
 func (m *Manager) sessionRecord(ctx context.Context, sessionID string) (SessionRecord, error) {

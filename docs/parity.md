@@ -117,12 +117,14 @@ recorded manual verification exists.
   accepted prompts, direct bash commands, cwd changes, and renames advance the
   activity timestamp used for directory ordering and default resume.
 - [x] Persist the exact model and valid thinking-level selection at session
-  creation and restore those selections while they remain supported.
+  creation; restore supported values exactly, resolve missing defaults, and
+  safely clamp, persist, and report stale saved levels before opening a runtime.
 - [~] Change model and thinking level on an existing session; the Kit registry
-  now atomically persists exact model/thinking values behind monotonic,
-  expected-revision-guarded configuration updates. Manager-level
-  quiescent runtime replacement, target-model context adaptation, protocol/TUI
-  commands, and reported clamping of stale saved thinking levels remain.
+  atomically persists expected-revision-guarded configuration updates, and the
+  manager resolves exact targets, compacts incompatible context through droids,
+  validates and publishes a replacement runtime, resets its event stream, and
+  converges on registry state across failures and restart. Protocol and TUI
+  commands remain.
 - [x] Persist droid-owned provider usage per message, turn, and cumulative
   conversation; include observed retry/error/abort and compaction usage exactly
   once, preserve totals across restart and forks, project absolute snapshot/live
