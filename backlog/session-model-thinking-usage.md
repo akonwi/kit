@@ -263,58 +263,58 @@ manager, protocol, and `/compact` command are wired.
 ### 6. Protocol and clients
 
 - [x] Bump the canonical protocol version.
-- [ ] Add wire-safe model capability records: exact ID, display name, provider,
+- [x] Add wire-safe model capability records: exact ID, display name, provider,
   context limits, supported thinking levels, and relevant input capabilities.
-- [ ] Add a session configuration command with expected revision, target model,
+- [x] Add a session configuration command with expected revision, target model,
   and optional target thinking level.
-- [ ] Add an explicit session-compaction command carrying a stable operation ID.
-- [ ] Return the applied configuration rather than requiring clients to infer
+- [x] Add an explicit session-compaction command carrying a stable operation ID.
+- [x] Return the applied configuration rather than requiring clients to infer
   clamp results.
 - [x] Add cumulative `SessionUsage` to authoritative session snapshots.
 - [x] Add usage updates at durable model-call boundaries so an open session
   details view can update without polling full history.
-- [ ] Validate enum values, bounded IDs, non-negative token counts, finite
+- [x] Validate enum values, bounded IDs, non-negative token counts, finite
   non-negative costs, revision monotonicity, and model/thinking compatibility on
   both sides of the transport boundary.
-- [ ] Add local-client and daemon conformance tests for success, busy state,
+- [x] Add local-client and daemon conformance tests for success, busy state,
   stale revision, idempotent retry, resynchronization, and cancellation.
 
 ### 7. Native TUI
 
-- [ ] Add `/compact` to run explicit settled-session compaction and report
+- [x] Add `/compact` to run explicit settled-session compaction and report
   whether context changed or already fit.
-- [ ] Add `/model` to the command palette and open a searchable model selector.
-- [ ] Show exact provider/model identity, current selection, authentication
+- [x] Add `/model` to the command palette and open a searchable model selector.
+- [x] Show exact provider/model identity, current selection, authentication
   availability, and context window without overcrowding rows.
-- [ ] Add `/thinking` and offer only levels supported by the active model.
-- [ ] Make the model and thinking segments in the top-right header compact
+- [x] Add `/thinking` and offer only levels supported by the active model.
+- [x] Make the model and thinking segments in the top-right header compact
   clickable controls with immediate hover feedback; primary-clicking a segment
   invokes the same registered `/model` or `/thinking` command path as keyboard
   activation rather than introducing separate selector state or behavior.
-- [ ] Give header hit regions only their visible segment width, prevent click
+- [x] Give header hit regions only their visible segment width, prevent click
   propagation into surrounding chrome, and preserve ordinary terminal text
   selection outside those controls.
-- [ ] Test model-click, thinking-click, hover, non-primary clicks, and adjacent
+- [x] Test model-click, thinking-click, hover, non-primary clicks, and adjacent
   non-control header cells, including width-aware states where either segment is
   hidden.
-- [ ] Update model and thinking together when model selection requires a clamp.
-- [ ] Show a concise toast/status when Kit adjusts a restored or carried-over
+- [x] Update model and thinking together when model selection requires a clamp.
+- [x] Show a concise toast/status when Kit adjusts a restored or carried-over
   thinking level.
-- [ ] Disable or reject configuration while the session is busy and preserve the
+- [x] Disable or reject configuration while the session is busy and preserve the
   user's selector state for retry.
-- [ ] Apply the returned event-stream identity and authoritative configuration
+- [x] Apply the returned event-stream identity and authoritative configuration
   atomically; never patch local header text optimistically.
 - [x] Add `/debug` details showing current model, thinking level, context
   pressure, cumulative token categories, and cumulative cost.
 - [x] Keep cumulative usage out of persistent header chrome.
-- [ ] Add exact presentation and interaction tests following the project UI test
+- [x] Add exact presentation and interaction tests following the project UI test
   conventions.
 
 ### 8. End-to-end acceptance tests
 
 #### Model and thinking
 
-- [ ] Create, close, and reopen a session with an explicit model/thinking pair.
+- [x] Create, close, and reopen a session with an explicit model/thinking pair.
 - [x] Change model while idle and verify the next provider request uses it.
 - [x] Change thinking while idle and verify the next provider request uses it.
 - [x] Reject changes during active parent work, direct bash, reload, and delete.
@@ -322,7 +322,7 @@ manager, protocol, and `/compact` command are wired.
   reopen without repeating the warning.
 - [x] With no saved level, choose medium when available and otherwise the lowest
   supported level/off.
-- [ ] Run `/compact`, verify checkpoint/history preservation, reopen, and
+- [x] Run `/compact`, verify checkpoint/history preservation, reopen, and
   continue the session.
 - [x] Switch to a smaller-context model, compact first, and continue the session.
 - [x] Preserve message/turn identity and canonical history across replacement.

@@ -38,6 +38,9 @@ func (snapshot SessionSnapshot) Validate() error {
 	if err := snapshot.Session.Validate(); err != nil {
 		return fmt.Errorf("snapshot session: %w", err)
 	}
+	if snapshot.Session.ThinkingLevel == "" {
+		return fmt.Errorf("snapshot session thinking level is missing")
+	}
 	if snapshot.ContextTokens < 0 || snapshot.ContextWindow < 0 || snapshot.EventCursor < 0 || snapshot.EventReplayFrom < 0 {
 		return fmt.Errorf("snapshot context usage cannot be negative")
 	}
@@ -50,8 +53,13 @@ func (snapshot SessionSnapshot) Validate() error {
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
 	}
-	if len(snapshot.PromptCommands) > 128 {
-		return fmt.Errorf("snapshot has too many prompt commands")
+	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 {
+		return fmt.Errorf("snapshot has too many prompt commands or warnings")
+	}
+	for index, warning := range snapshot.Warnings {
+		if !validRendererText(warning, 4096) || strings.TrimSpace(warning) == "" {
+			return fmt.Errorf("snapshot warning %d is invalid", index)
+		}
 	}
 	seenCommands := make(map[string]struct{}, len(snapshot.PromptCommands))
 	for index, command := range snapshot.PromptCommands {

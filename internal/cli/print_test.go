@@ -211,6 +211,10 @@ func (c *fakeSessionClient) ListSessions(context.Context, string) ([]protocol.Se
 	return c.sessions, nil
 }
 
+func (c *fakeSessionClient) Models(context.Context) (protocol.ModelCatalog, error) {
+	return protocol.ModelCatalog{}, errors.New("unexpected Models")
+}
+
 func (c *fakeSessionClient) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {
 	c.runSessionID = sessionID
 	return &fakeBoundSession{server: c}, nil
@@ -232,6 +236,14 @@ func (c *fakeBoundSession) ChangeCWD(context.Context, string) (protocol.SessionI
 
 func (c *fakeBoundSession) Reload(context.Context) (protocol.ReloadSessionResult, error) {
 	panic("unexpected Reload")
+}
+
+func (c *fakeBoundSession) Configure(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	panic("unexpected Configure")
+}
+
+func (c *fakeBoundSession) Compact(context.Context, protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
+	panic("unexpected Compact")
 }
 
 func (c *fakeBoundSession) Run(context.Context, string) (protocol.RunInfo, error) {

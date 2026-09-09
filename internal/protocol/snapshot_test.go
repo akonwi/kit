@@ -10,7 +10,7 @@ import (
 func validTranscriptSnapshot() SessionSnapshot {
 	return SessionSnapshot{
 		Session: SessionInfo{
-			ID: "session_1", CWD: "/workspace", Model: "test/model",
+			ID: "session_1", CWD: "/workspace", Model: "test/model", ThinkingLevel: "off", ConfigurationRevision: 1,
 			CreatedAt: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
 			UpdatedAt: time.Unix(2, 0).UTC().Format(time.RFC3339Nano),
 		},

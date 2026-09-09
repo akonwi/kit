@@ -17,6 +17,44 @@ type plainButtonState struct {
 	hovered bool
 }
 
+// headerControl is an intrinsic-width clickable header segment. Its hit region
+// is exactly its visible label and only a primary press activates it.
+type headerControl struct {
+	Label     string
+	OnPressed ui.VoidCallback
+}
+
+func (headerControl) CreateState() ui.State { return &headerControlState{} }
+
+type headerControlState struct {
+	ui.StateBase
+	hovered bool
+}
+
+func (state *headerControlState) Build(ctx ui.BuildContext) ui.Widget {
+	config := state.Widget().(headerControl)
+	theme := ui.MustDepend[ui.Theme](ctx)
+	style := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
+	if state.hovered {
+		style.Foreground = theme.Foreground
+		style.Background = theme.SurfaceHovered
+	}
+	return mouseActivator{
+		OnPressed: config.OnPressed,
+		OnHover: func(ui.EventContext) {
+			if !state.hovered {
+				state.SetState(func() { state.hovered = true })
+			}
+		},
+		OnHoverExit: func(ui.EventContext) {
+			if state.hovered {
+				state.SetState(func() { state.hovered = false })
+			}
+		},
+		Child: ui.Text{Value: config.Label, Style: style, MaxLines: 1},
+	}
+}
+
 func (s *plainButtonState) Build(ctx ui.BuildContext) ui.Widget {
 	config := s.Widget().(plainButton)
 	theme := ui.MustDepend[ui.Theme](ctx)

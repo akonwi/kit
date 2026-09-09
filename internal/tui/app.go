@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
@@ -160,6 +161,9 @@ type appState struct {
 	composer                    string
 	composerCursorEndGeneration uint64
 	palette                     paletteController
+	configurationPicker         configurationPickerController
+	compactPending              bool
+	compactOperationID          string
 	sessionDetailsOpen          bool
 	sessionExplorer             sessionExplorerController
 	authReturnReady             bool
@@ -438,6 +442,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaletteQuery:                s.palette.Query,
 		PaletteSelection:            s.palette.Selection,
 		PaletteCommands:             s.palette.Contributions,
+		ConfigurationPicker:         s.configurationPicker.Snapshot(),
 		SessionDetailsOpen:          s.sessionDetailsOpen,
 		SessionExplorer:             s.sessionExplorer.Snapshot(),
 		AuthReturnReady:             s.authReturnReady,
@@ -661,6 +666,21 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
+		OpenModel: func(ui.EventContext) {
+			s.openConfigurationPicker(configurationPickerModel)
+		},
+		OpenThinking: func(ui.EventContext) {
+			s.openConfigurationPicker(configurationPickerThinking)
+		},
+		ConfigurationQuery: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.configurationPicker.SetQuery(value) })
+		},
+		SelectConfiguration: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.configurationPicker.Select(value) })
+		},
+		ApplyConfiguration: func(ui.EventContext) {
+			s.applyConfigurationSelection()
+		},
 		SelectSession: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
 		},
@@ -689,6 +709,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.configurationPicker.Mode != configurationPickerClosed {
+				s.SetState(func() { s.configurationPicker.Close() })
+				return
+			}
 			if s.sessionDetailsOpen {
 				s.SetState(func() { s.sessionDetailsOpen = false })
 				return
@@ -727,6 +751,22 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 	key, ok := event.(ui.Key)
 	if !ok {
 		return ui.EventIgnored
+	}
+	if s.configurationPicker.Mode != configurationPickerClosed {
+		var apply, handled bool
+		s.SetState(func() {
+			apply, handled = s.configurationPicker.HandleKey(key)
+			if !handled {
+				handled = s.configurationPicker.HandleEditorKey(key)
+			}
+		})
+		if !handled {
+			return ui.EventIgnored
+		}
+		if apply {
+			s.applyConfigurationSelection()
+		}
+		return ui.EventHandled
 	}
 	if s.sessionExplorer.Open {
 		if s.sessionExplorer.DeleteOpen {
@@ -862,6 +902,9 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 					s.status = "esc abort · ctrl+c detach"
 				}
 			})
+			for _, warning := range snapshot.Warnings {
+				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
+			}
 			if running {
 				s.watchSession(bound, operation, snapshot.ActiveRunID)
 			}
@@ -1938,7 +1981,7 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.reloadPending || s.cwdPending || s.bashStarting || s.activeBashID != ""
+	return s.runPending || s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
@@ -1976,8 +2019,12 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 	switch commandID {
 	case paletteCommandCD:
 		s.changeCWD(args)
+	case paletteCommandCompact:
+		s.compactSession()
 	case paletteCommandLogin:
 		s.enterAuthSelect(true)
+	case paletteCommandModel:
+		s.openConfigurationPicker(configurationPickerModel)
 	case paletteCommandAbort:
 		s.dismiss(ctx)
 	case paletteCommandQuit:
@@ -1988,7 +2035,191 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.SetState(func() { s.sessionDetailsOpen = true })
 	case paletteCommandSessions:
 		s.openSessionExplorer()
+	case paletteCommandThinking:
+		s.openConfigurationPicker(configurationPickerThinking)
 	}
+}
+
+func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
+	if s.phase != phaseReady || s.bound == nil {
+		return
+	}
+	if s.hasActiveWork() || s.reloadPending || s.compactPending {
+		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for active work before changing configuration.", Variant: toastWarning})
+		return
+	}
+	server := s.Widget().(app).Options.Server
+	generation := uint64(0)
+	s.SetState(func() {
+		generation = s.configurationPicker.Begin(mode, s.session.Model, s.session.ThinkingLevel)
+	})
+	runtime := s.Context().Runtime()
+	go func() {
+		catalog, err := server.Models(s.ctx)
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			s.SetState(func() { s.configurationPicker.Resolve(generation, catalog, err) })
+		})
+	}()
+}
+
+func (s *appState) applyConfigurationSelection() {
+	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending || s.compactPending {
+		return
+	}
+	mode := s.configurationPicker.Mode
+	selection := s.configurationPicker.Selection
+	if mode == configurationPickerModel {
+		index := modelCapabilityIndex(s.configurationPicker.Models, selection)
+		if index < 0 || !s.configurationPicker.Models[index].Available {
+			s.SetState(func() { s.configurationPicker.Error = "The selected provider is not authenticated." })
+			return
+		}
+	}
+	var generation uint64
+	var ok bool
+	s.SetState(func() { generation, selection, ok = s.configurationPicker.BeginApply() })
+	if !ok {
+		return
+	}
+	input := configurationInputForSelection(s.session, mode, selection)
+	bound := s.bound
+	operation := s.operation
+	runtime := s.Context().Runtime()
+	s.SetState(func() { s.status = "Applying session configuration…" })
+	go func() {
+		configureContext, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		result, configureErr := bound.Configure(configureContext, input)
+		cancel()
+		var snapshot protocol.SessionSnapshot
+		var snapshotErr error
+		if configureErr == nil {
+			snapshotContext, cancelSnapshot := context.WithTimeout(s.ctx, 10*time.Second)
+			snapshot, snapshotErr = bound.Snapshot(snapshotContext)
+			cancelSnapshot()
+		} else {
+			inspectContext, cancelInspect := context.WithTimeout(context.WithoutCancel(s.ctx), 5*time.Second)
+			snapshot, snapshotErr = bound.Snapshot(inspectContext)
+			cancelInspect()
+		}
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if operation != s.operation || generation != s.configurationPicker.generation {
+				return
+			}
+			if snapshotErr == nil {
+				s.SetState(func() {
+					s.applySnapshot(snapshot)
+					s.configurationPicker.CurrentModel = snapshot.Session.Model
+					s.configurationPicker.CurrentThinking = snapshot.Session.ThinkingLevel
+				})
+			}
+			finalErr := configureErr
+			if finalErr == nil && snapshotErr != nil {
+				s.SetState(func() { s.session = result.Session })
+				finalErr = fmt.Errorf("configuration applied but snapshot refresh failed: %w", snapshotErr)
+			}
+			s.SetState(func() {
+				s.status = ""
+				s.configurationPicker.ResolveApply(generation, finalErr)
+			})
+			if configureErr != nil {
+				s.showToast(toastInput{Title: "Configuration failed", Subtitle: configureErr.Error(), Variant: toastError})
+				return
+			}
+			for _, warning := range result.Warnings {
+				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
+			}
+			if snapshotErr != nil {
+				s.showToast(toastInput{Title: "Configuration applied", Subtitle: snapshotErr.Error(), Variant: toastWarning})
+				return
+			}
+			s.showToast(toastInput{Title: "Configuration applied", Subtitle: result.Session.Model + " · " + result.Session.ThinkingLevel, Variant: toastInfo})
+		})
+	}()
+}
+
+func configurationInputForSelection(session protocol.SessionInfo, mode configurationPickerMode, selection string) protocol.ConfigureSessionInput {
+	input := protocol.ConfigureSessionInput{ExpectedRevision: session.ConfigurationRevision, Model: session.Model}
+	if mode == configurationPickerModel {
+		input.Model = selection
+	} else {
+		level := protocol.ThinkingLevel(selection)
+		input.ThinkingLevel = &level
+	}
+	return input
+}
+
+func (s *appState) compactSession() {
+	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending || s.compactPending {
+		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for active work before compacting context.", Variant: toastWarning})
+		return
+	}
+	operationID := s.compactOperationID
+	if operationID == "" {
+		var err error
+		operationID, err = identifier.New("compact_")
+		if err != nil {
+			s.showToast(toastInput{Title: "Could not start compaction", Subtitle: err.Error(), Variant: toastError})
+			return
+		}
+	}
+	bound := s.bound
+	operation := s.operation
+	runtime := s.Context().Runtime()
+	s.SetState(func() {
+		s.compactPending = true
+		s.compactOperationID = operationID
+		s.status = "Compacting session context…"
+	})
+	go func() {
+		compactContext, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		result, compactErr := bound.Compact(compactContext, protocol.CompactSessionInput{OperationID: operationID})
+		cancel()
+		var snapshot protocol.SessionSnapshot
+		var snapshotErr error
+		if compactErr == nil {
+			snapshotContext, cancelSnapshot := context.WithTimeout(s.ctx, 10*time.Second)
+			snapshot, snapshotErr = bound.Snapshot(snapshotContext)
+			cancelSnapshot()
+		}
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if operation != s.operation || operationID != s.compactOperationID {
+				return
+			}
+			s.SetState(func() {
+				s.compactPending = false
+				s.status = ""
+				if compactErr == nil {
+					s.compactOperationID = ""
+				}
+				if snapshotErr == nil && compactErr == nil {
+					s.applySnapshot(snapshot)
+				}
+			})
+			s.showToast(compactionToast(result, compactErr, snapshotErr))
+		})
+	}()
+}
+
+func compactionToast(result protocol.CompactSessionResult, compactErr, snapshotErr error) toastInput {
+	if compactErr != nil {
+		return toastInput{Title: "Compaction failed", Subtitle: compactErr.Error(), Variant: toastError}
+	}
+	if snapshotErr != nil {
+		return toastInput{Title: "Context updated", Subtitle: snapshotErr.Error(), Variant: toastWarning}
+	}
+	if result.Compacted {
+		return toastInput{Title: "Context compacted", Variant: toastInfo}
+	}
+	return toastInput{Title: "Context already fits", Variant: toastInfo}
 }
 
 func (s *appState) changeCWD(target string) {
@@ -2297,6 +2528,9 @@ func (s *appState) switchSelectedSession() {
 			if operation == 0 {
 				return
 			}
+			for _, warning := range snapshot.Warnings {
+				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
+			}
 			if nextRunID != "" {
 				s.watchSession(bound, operation, nextRunID)
 			}
@@ -2349,6 +2583,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composer = s.sessionDrafts[snapshot.Session.ID]
 	s.composerCursorEndGeneration++
 	s.messages = nil
+	s.configurationPicker = configurationPickerController{}
+	s.compactPending = false
+	s.compactOperationID = ""
 	s.resetLiveRun()
 	s.contextTokens = 0
 	s.contextWindow = 0
@@ -2404,6 +2641,10 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 func (s *appState) submit(_ ui.EventContext, value string) {
 	if s.reloadPending {
 		s.SetState(func() { s.status = "Session context is reloading…" })
+		return
+	}
+	if s.compactPending || s.configurationPicker.Pending {
+		s.SetState(func() { s.status = "Session configuration is changing…" })
 		return
 	}
 	if command, excludeFromContext, ok := parseDirectBash(value); ok {
@@ -2543,6 +2784,10 @@ func (s *appState) finishRun(runtime ui.Runtime, outcome protocol.PromptOutcome,
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.configurationPicker.Mode != configurationPickerClosed {
+		s.SetState(func() { s.configurationPicker.Close() })
+		return
+	}
 	if s.sessionDetailsOpen {
 		s.SetState(func() { s.sessionDetailsOpen = false })
 		return

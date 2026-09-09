@@ -65,13 +65,25 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandSessions {
 		t.Fatalf("threads matches = %#v, want sessions", commands)
 	}
-	commands = filteredPaletteCommands(false, "context")
+	commands = filteredPaletteCommands(false, "refresh")
 	if len(commands) != 1 || commands[0].ID != paletteCommandReload {
-		t.Fatalf("context matches = %#v, want reload", commands)
+		t.Fatalf("refresh matches = %#v, want reload", commands)
 	}
 	commands = filteredPaletteCommands(true, "debug")
 	if len(commands) != 1 || commands[0].ID != paletteCommandDebug {
 		t.Fatalf("debug matches = %#v, want debug", commands)
+	}
+	commands = filteredPaletteCommands(false, "shrink")
+	if len(commands) != 1 || commands[0].ID != paletteCommandCompact {
+		t.Fatalf("shrink matches = %#v, want compact", commands)
+	}
+	commands = filteredPaletteCommands(false, "engine")
+	if len(commands) != 1 || commands[0].ID != paletteCommandModel {
+		t.Fatalf("engine matches = %#v, want model", commands)
+	}
+	commands = filteredPaletteCommands(false, "effort")
+	if len(commands) != 1 || commands[0].ID != paletteCommandThinking {
+		t.Fatalf("effort matches = %#v, want thinking", commands)
 	}
 	commands = filteredPaletteCommands(true, "stop because it is stuck")
 	if len(commands) != 1 || commands[0].ID != paletteCommandAbort {
@@ -88,6 +100,11 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 	if paletteCommandAvailable(paletteCommandReload, true) || !paletteCommandAvailable(paletteCommandReload, false) {
 		t.Fatal("reload command availability does not follow idle state")
+	}
+	for _, command := range []paletteCommandID{paletteCommandCompact, paletteCommandModel, paletteCommandThinking} {
+		if paletteCommandAvailable(command, true) || !paletteCommandAvailable(command, false) {
+			t.Fatalf("configuration command %q availability does not follow idle state", command)
+		}
 	}
 
 	var pasted paletteController
@@ -141,7 +158,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := availablePaletteCommands(false, []paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 6 {
+	if commands := availablePaletteCommands(false, []paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 9 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -326,7 +343,7 @@ func TestCommandPaletteFitsShortViewport(t *testing.T) {
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Search commands…", "cd", "debug", "enter run", "esc close"} {
+	for _, expected := range []string{"Search commands…", "cd", "compact", "enter run", "esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short palette missing %q:\n%s", expected, text)
 		}
@@ -426,8 +443,8 @@ func TestCommandPaletteHandlesNavigationAndDismissalBeforeOverlayFrame(t *testin
 	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	application.Enter()
 	application.Pump(width, height)
-	if state.executed != paletteCommandDebug {
-		t.Fatalf("pre-frame navigation executed %q, want debug", state.executed)
+	if state.executed != paletteCommandCompact {
+		t.Fatalf("pre-frame navigation executed %q, want compact", state.executed)
 	}
 
 	state = &paletteHarnessState{}

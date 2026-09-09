@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -26,9 +27,12 @@ type sessionService interface {
 	Delete(context.Context, string) error
 	DisposeTemporary(context.Context, string) error
 	List(context.Context, string) ([]protocol.SessionInfo, error)
+	Models(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
+	Configure(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
+	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
 	StartPrompt(context.Context, string, string) (protocol.RunReservation, error)
 	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
@@ -40,7 +44,8 @@ type sessionService interface {
 }
 
 type runtimeSessionService struct {
-	manager *kitsession.Manager
+	manager            *kitsession.Manager
+	availableProviders func(context.Context) []string
 }
 
 func (s runtimeSessionService) Create(
@@ -101,6 +106,40 @@ func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol
 	return result, nil
 }
 
+func (s runtimeSessionService) Models(ctx context.Context) (protocol.ModelCatalog, error) {
+	models, err := s.manager.ModelCapabilities(ctx)
+	if err != nil {
+		return protocol.ModelCatalog{}, err
+	}
+	available := map[string]bool{}
+	if s.availableProviders == nil {
+		for _, model := range models {
+			available[model.Provider] = true
+		}
+	} else {
+		for _, provider := range s.availableProviders(ctx) {
+			available[provider] = true
+		}
+	}
+	result := protocol.ModelCatalog{Models: make([]protocol.ModelCapability, 0, len(models))}
+	for _, model := range models {
+		thinking := make([]protocol.ThinkingLevel, 0, len(model.ThinkingLevels))
+		for _, level := range model.ThinkingLevels {
+			thinking = append(thinking, protocol.ThinkingLevel(level))
+		}
+		inputs := make([]protocol.ModelInputKind, 0, len(model.Inputs))
+		for _, input := range model.Inputs {
+			inputs = append(inputs, protocol.ModelInputKind(input))
+		}
+		result.Models = append(result.Models, protocol.ModelCapability{
+			ID: model.ID, Name: model.Name, Provider: model.Provider, API: model.API,
+			ContextWindow: model.ContextWindow, MaxInputTokens: model.MaxInputTokens, MaxOutputTokens: model.MaxOutputTokens,
+			ThinkingLevels: thinking, Inputs: inputs, Available: available[model.Provider],
+		})
+	}
+	return result, nil
+}
+
 func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
 	snapshot, err := s.manager.Snapshot(ctx, sessionID)
 	if err != nil {
@@ -116,6 +155,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		Messages:          make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
 		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
+		Warnings:          append([]string(nil), snapshot.Warnings...),
 	}
 	for _, command := range snapshot.PromptCommands {
 		result.PromptCommands = append(result.PromptCommands, protocol.PromptCommand{
@@ -206,6 +246,46 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID s
 		})
 	}
 	return batch, nil
+}
+
+func (s runtimeSessionService) Configure(ctx context.Context, sessionID string, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	if s.availableProviders != nil {
+		provider, _, _ := strings.Cut(input.Model, "/")
+		available := false
+		for _, candidate := range s.availableProviders(ctx) {
+			available = available || candidate == provider
+		}
+		if !available {
+			return protocol.ConfigureSessionResult{}, fmt.Errorf("%w: model provider %q is not authenticated", kitsession.ErrInvalidInput, provider)
+		}
+	}
+	var thinking *string
+	if input.ThinkingLevel != nil {
+		value := string(*input.ThinkingLevel)
+		thinking = &value
+	}
+	result, err := s.manager.ConfigureSession(ctx, sessionID, kitsession.ConfigureSessionInput{
+		ExpectedRevision: input.ExpectedRevision, Model: input.Model, ThinkingLevel: thinking,
+	})
+	if err != nil {
+		return protocol.ConfigureSessionResult{}, err
+	}
+	return protocol.ConfigureSessionResult{
+		Session: projectSession(result.Session), EventStreamID: result.EventStreamID,
+		Compacted: result.Compacted, CheckpointID: result.CheckpointID,
+		Warnings: append([]string(nil), result.Warnings...),
+	}, nil
+}
+
+func (s runtimeSessionService) Compact(ctx context.Context, sessionID string, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
+	result, err := s.manager.CompactSession(ctx, sessionID, input.OperationID)
+	if err != nil {
+		return protocol.CompactSessionResult{}, err
+	}
+	return protocol.CompactSessionResult{
+		OperationID: result.OperationID, Compacted: result.Compacted,
+		CheckpointID: result.CheckpointID, EventStreamID: result.EventStreamID,
+	}, nil
 }
 
 func (s runtimeSessionService) Reload(ctx context.Context, sessionID string) (protocol.ReloadSessionResult, error) {
@@ -363,6 +443,18 @@ func projectBashExecution(execution kitsession.BashExecution) protocol.BashExecu
 }
 
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
+	mux.HandleFunc("GET /v1/models", func(writer http.ResponseWriter, request *http.Request) {
+		catalog, err := service.Models(request.Context())
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := catalog.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid model catalog: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, catalog)
+	})
 	mux.HandleFunc("GET /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
 		records, err := service.List(request.Context(), request.URL.Query().Get("cwd"))
 		if err != nil {
@@ -461,6 +553,48 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid session cwd result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/configure", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ConfigureSessionInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.Configure(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.ValidateApplied(input); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session configuration result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/compact", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.CompactSessionInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.Compact(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.ValidateApplied(input); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session compaction result: %w", err))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
@@ -601,9 +735,9 @@ func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
 	return protocol.SessionInfo{
 		ID: record.ID, CWD: record.CWD, Name: record.Name,
 		Model:         record.ModelProvider + "/" + record.ModelID,
-		ThinkingLevel: record.ThinkingLevel,
-		CreatedAt:     record.CreatedAt.Format(time.RFC3339Nano),
-		UpdatedAt:     record.UpdatedAt.Format(time.RFC3339Nano),
+		ThinkingLevel: record.ThinkingLevel, ConfigurationRevision: record.ConfigurationRevision,
+		CreatedAt: record.CreatedAt.Format(time.RFC3339Nano),
+		UpdatedAt: record.UpdatedAt.Format(time.RFC3339Nano),
 	}
 }
 
@@ -630,7 +764,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
 		status = http.StatusConflict
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed):

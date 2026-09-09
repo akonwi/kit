@@ -59,6 +59,9 @@ func (s *resolveServer) DisposeTemporarySession(context.Context, string) error {
 func (s *resolveServer) ListSessions(context.Context, string) ([]protocol.SessionInfo, error) {
 	return s.sessions, nil
 }
+func (s *resolveServer) Models(context.Context) (protocol.ModelCatalog, error) {
+	return protocol.ModelCatalog{}, errors.New("unexpected Models")
+}
 func (s *resolveServer) Attach(context.Context, string) (Session, error) {
 	return nil, errors.New("unexpected Attach")
 }

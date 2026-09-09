@@ -28,6 +28,75 @@ type ChangeCWDInput struct {
 	Path       string `json:"path"`
 }
 
+// ThinkingLevel is one canonical provider-neutral reasoning effort.
+type ThinkingLevel string
+
+const (
+	ThinkingOff     ThinkingLevel = "off"
+	ThinkingMinimal ThinkingLevel = "minimal"
+	ThinkingLow     ThinkingLevel = "low"
+	ThinkingMedium  ThinkingLevel = "medium"
+	ThinkingHigh    ThinkingLevel = "high"
+	ThinkingXHigh   ThinkingLevel = "xhigh"
+	ThinkingMax     ThinkingLevel = "max"
+)
+
+// ModelInputKind identifies one supported model input modality.
+type ModelInputKind string
+
+const (
+	ModelInputText  ModelInputKind = "text"
+	ModelInputImage ModelInputKind = "image"
+)
+
+// ModelCapability is one selectable exact provider/model configuration.
+type ModelCapability struct {
+	ID              string           `json:"id"`
+	Name            string           `json:"name"`
+	Provider        string           `json:"provider"`
+	API             string           `json:"api"`
+	ContextWindow   int              `json:"contextWindow"`
+	MaxInputTokens  int              `json:"maxInputTokens,omitempty"`
+	MaxOutputTokens int              `json:"maxOutputTokens,omitempty"`
+	ThinkingLevels  []ThinkingLevel  `json:"thinkingLevels"`
+	Inputs          []ModelInputKind `json:"inputs"`
+	Available       bool             `json:"available"`
+}
+
+// ModelCatalog is the server-authoritative selectable model catalog.
+type ModelCatalog struct {
+	Models []ModelCapability `json:"models"`
+}
+
+// ConfigureSessionInput requests an atomic model/thinking transition.
+type ConfigureSessionInput struct {
+	ExpectedRevision uint64         `json:"expectedRevision"`
+	Model            string         `json:"model"`
+	ThinkingLevel    *ThinkingLevel `json:"thinkingLevel,omitempty"`
+}
+
+// ConfigureSessionResult reports the exact configuration and runtime stream applied.
+type ConfigureSessionResult struct {
+	Session       SessionInfo `json:"session"`
+	EventStreamID string      `json:"eventStreamId"`
+	Compacted     bool        `json:"compacted,omitempty"`
+	CheckpointID  string      `json:"checkpointId,omitempty"`
+	Warnings      []string    `json:"warnings,omitempty"`
+}
+
+// CompactSessionInput requests one idempotent explicit context compaction.
+type CompactSessionInput struct {
+	OperationID string `json:"operationId"`
+}
+
+// CompactSessionResult reports whether explicit compaction changed context.
+type CompactSessionResult struct {
+	OperationID   string `json:"operationId"`
+	Compacted     bool   `json:"compacted"`
+	CheckpointID  string `json:"checkpointId,omitempty"`
+	EventStreamID string `json:"eventStreamId"`
+}
+
 // PromptSectionKind identifies one ordered source category in an assembled prompt.
 type PromptSectionKind string
 
@@ -130,13 +199,14 @@ type BashExecution struct {
 
 // SessionInfo is the client-facing projection of persisted session metadata.
 type SessionInfo struct {
-	ID            string `json:"id"`
-	CWD           string `json:"cwd"`
-	Name          string `json:"name,omitempty"`
-	Model         string `json:"model"`
-	ThinkingLevel string `json:"thinkingLevel,omitempty"`
-	CreatedAt     string `json:"createdAt"`
-	UpdatedAt     string `json:"updatedAt"`
+	ID                    string `json:"id"`
+	CWD                   string `json:"cwd"`
+	Name                  string `json:"name,omitempty"`
+	Model                 string `json:"model"`
+	ThinkingLevel         string `json:"thinkingLevel"`
+	ConfigurationRevision uint64 `json:"configurationRevision"`
+	CreatedAt             string `json:"createdAt"`
+	UpdatedAt             string `json:"updatedAt"`
 }
 
 // TranscriptContentKind identifies one renderer-neutral message content block.
@@ -238,6 +308,7 @@ type SessionSnapshot struct {
 	ContextWindow         int                 `json:"contextWindow,omitempty"`
 	Usage                 SessionUsage        `json:"usage"`
 	PromptCommands        []PromptCommand     `json:"promptCommands,omitempty"`
+	Warnings              []string            `json:"warnings,omitempty"`
 }
 
 // RunStatus is a canonical parent-run terminal state on the wire.

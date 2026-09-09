@@ -14,6 +14,7 @@ type Server interface {
 	DeleteSession(context.Context, string) error
 	DisposeTemporarySession(context.Context, string) error
 	ListSessions(context.Context, string) ([]protocol.SessionInfo, error)
+	Models(context.Context) (protocol.ModelCatalog, error)
 	Attach(context.Context, string) (Session, error)
 }
 
@@ -23,6 +24,8 @@ type Session interface {
 	Snapshot(context.Context) (protocol.SessionSnapshot, error)
 	ChangeCWD(context.Context, string) (protocol.SessionInfo, error)
 	Reload(context.Context) (protocol.ReloadSessionResult, error)
+	Configure(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
+	Compact(context.Context, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
 	Run(context.Context, string) (protocol.RunInfo, error)
 	Stream(context.Context, string) (EventStream, error)
 	StartPrompt(context.Context, string) (Run, error)

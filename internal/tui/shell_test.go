@@ -14,6 +14,102 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestHeaderModelAndThinkingControlsOwnExactHitRegions(t *testing.T) {
+	t.Parallel()
+
+	modelPresses, thinkingPresses := 0, 0
+	view := shellView{
+		Snapshot: shellSnapshot{
+			Phase:         phaseReady,
+			Session:       protocol.SessionInfo{Model: "test/gpt-test", ThinkingLevel: "high"},
+			ContextTokens: 64_000, ContextWindow: 128_000,
+		},
+		Callbacks: shellCallbacks{
+			OpenModel:    func(ui.EventContext) { modelPresses++ },
+			OpenThinking: func(ui.EventContext) { thinkingPresses++ },
+		},
+	}
+	application := uitest.New(view)
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	modelColumn, row := findTextCell(t, rows, "GPT Test")
+	thinkingColumn, _ := findTextCell(t, rows, "thinking: high")
+	separatorColumn := modelColumn + len("GPT Test") + 1
+
+	baseBackground := application.Cell(modelColumn, row).Style.Background
+	application.Send(vaxis.Mouse{Col: modelColumn, Row: row, EventType: vaxis.EventMotion})
+	application.Pump(80, 24)
+	hoveredBackground := application.Cell(modelColumn, row).Style.Background
+	application.Send(vaxis.Mouse{Col: 1, Row: 3, EventType: vaxis.EventMotion})
+	application.Pump(80, 24)
+	if application.Cell(modelColumn, row).Style.Background != baseBackground {
+		t.Fatal("model control hover did not clear")
+	}
+
+	application.Click(modelColumn, row)
+	application.Click(thinkingColumn, row)
+	application.Click(separatorColumn, row)
+	application.Send(vaxis.Mouse{Col: modelColumn, Row: row, Button: vaxis.MouseRightButton, EventType: vaxis.EventPress})
+	application.Pump(80, 24)
+	if modelPresses != 1 || thinkingPresses != 1 || hoveredBackground == baseBackground {
+		t.Fatalf("header controls = model:%d thinking:%d base:%v hovered:%v", modelPresses, thinkingPresses, baseBackground, hoveredBackground)
+	}
+
+	narrow := uitest.New(view)
+	narrow.Pump(24, 12)
+	narrowText := strings.Join(paintedRows(narrow, 24, 12), "\n")
+	if !strings.Contains(narrowText, "GPT Test") || strings.Contains(narrowText, "thinking: high") {
+		t.Fatalf("narrow header did not hide the complete lower-priority control:\n%s", narrowText)
+	}
+	veryNarrow := uitest.New(view)
+	veryNarrow.Pump(9, 8)
+	if text := strings.Join(paintedRows(veryNarrow, 9, 8), "\n"); strings.Contains(text, "GPT Test") || strings.Contains(text, "thinking") {
+		t.Fatalf("very narrow header exposed partial controls:\n%s", text)
+	}
+}
+
+func TestConfigurationPickersShowCapabilitiesAndSupportedThinking(t *testing.T) {
+	t.Parallel()
+
+	catalog := []protocol.ModelCapability{
+		{ID: "openai/gpt-large", Name: "GPT Large", Provider: "openai", ContextWindow: 128_000, Available: true, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingHigh}},
+		{ID: "anthropic/claude", Name: "Claude", Provider: "anthropic", ContextWindow: 200_000, Available: false, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingLow}},
+	}
+	modelApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
+		Mode: configurationPickerModel, Models: catalog, CurrentModel: "openai/gpt-large", Selection: "openai/gpt-large",
+	}})
+	modelApp.Pump(100, 24)
+	modelText := modelApp.Text()
+	for _, expected := range []string{"Select model", "Search models…", "✓ GPT Large", "openai/gpt-large", "128k context", "Claude", "sign in required"} {
+		if !strings.Contains(modelText, expected) {
+			t.Fatalf("model picker missing %q:\n%s", expected, modelText)
+		}
+	}
+	thinkingApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
+		Mode: configurationPickerThinking, Models: catalog, CurrentModel: "openai/gpt-large",
+		CurrentThinking: "high", Selection: "high",
+	}})
+	thinkingApp.Pump(80, 24)
+	thinkingText := thinkingApp.Text()
+	for _, expected := range []string{"Thinking level", "off", "✓ high", "Reasoning effort"} {
+		if !strings.Contains(thinkingText, expected) {
+			t.Fatalf("thinking picker missing %q:\n%s", expected, thinkingText)
+		}
+	}
+	if strings.Contains(thinkingText, "low") {
+		t.Fatalf("thinking picker offered a level unsupported by the active model:\n%s", thinkingText)
+	}
+	longQuery := "anthropic-model-query-with-full-width"
+	queryApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
+		Mode: configurationPickerModel, Models: catalog, Query: longQuery,
+	}})
+	queryApp.Pump(100, 24)
+	queryApp.Pump(100, 24)
+	if !strings.Contains(queryApp.Text(), longQuery) {
+		t.Fatalf("model query input was shrink-wrapped:\n%s", queryApp.Text())
+	}
+}
+
 func TestSessionDetailsShowsAuthoritativeCumulativeUsage(t *testing.T) {
 	t.Parallel()
 

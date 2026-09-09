@@ -20,14 +20,20 @@ type localServer struct {
 	transport *daemon.Client
 }
 
+type sessionMutationTransport interface {
+	ConfigureSession(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
+	CompactSession(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
+	GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error)
+}
+
 type localSession struct {
 	transport          *daemon.Client
+	mutations          sessionMutationTransport
 	id                 string
 	mu                 sync.Mutex
 	snapshot           protocol.SessionSnapshot
 	cacheGeneration    uint64
-	reloadGate         chan struct{}
-	cwdGate            chan struct{}
+	mutationGate       chan struct{}
 	pendingCWDTarget   string
 	pendingCWDMutation string
 }
@@ -90,6 +96,10 @@ func (c *localServer) ListSessions(ctx context.Context, cwd string) ([]protocol.
 	return c.transport.ListSessions(ctx, cwd)
 }
 
+func (c *localServer) Models(ctx context.Context) (protocol.ModelCatalog, error) {
+	return c.transport.ListModels(ctx)
+}
+
 func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclient.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -97,11 +107,9 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("session id is empty")
 	}
-	reloadGate := make(chan struct{}, 1)
-	reloadGate <- struct{}{}
-	cwdGate := make(chan struct{}, 1)
-	cwdGate <- struct{}{}
-	return &localSession{transport: c.transport, id: sessionID, reloadGate: reloadGate, cwdGate: cwdGate}, nil
+	mutationGate := make(chan struct{}, 1)
+	mutationGate <- struct{}{}
+	return &localSession{transport: c.transport, mutations: c.transport, id: sessionID, mutationGate: mutationGate}, nil
 }
 
 func (c *localSession) ID() string { return c.id }
@@ -127,8 +135,8 @@ func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.S
 		return protocol.SessionInfo{}, err
 	}
 	select {
-	case <-c.cwdGate:
-		defer func() { c.cwdGate <- struct{}{} }()
+	case <-c.mutationGate:
+		defer func() { c.mutationGate <- struct{}{} }()
 	case <-ctx.Done():
 		return protocol.SessionInfo{}, ctx.Err()
 	}
@@ -205,8 +213,8 @@ func (c *localSession) Reload(ctx context.Context) (protocol.ReloadSessionResult
 		return protocol.ReloadSessionResult{}, err
 	}
 	select {
-	case <-c.reloadGate:
-		defer func() { c.reloadGate <- struct{}{} }()
+	case <-c.mutationGate:
+		defer func() { c.mutationGate <- struct{}{} }()
 	case <-ctx.Done():
 		return protocol.ReloadSessionResult{}, ctx.Err()
 	}
@@ -227,6 +235,78 @@ func (c *localSession) Reload(ctx context.Context) (protocol.ReloadSessionResult
 			}
 		}
 		return protocol.ReloadSessionResult{}, err
+	}
+	c.mu.Lock()
+	c.cacheGeneration++
+	c.snapshot.EventStreamID = result.EventStreamID
+	c.snapshot.ActiveRunID = ""
+	c.snapshot.EventCursor = 0
+	c.snapshot.EventReplayFrom = 0
+	c.snapshot.EventReplayAvailable = false
+	c.mu.Unlock()
+	return result, nil
+}
+
+func (c *localSession) Configure(ctx context.Context, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.ConfigureSessionResult{}, err
+	}
+	select {
+	case <-c.mutationGate:
+		defer func() { c.mutationGate <- struct{}{} }()
+	case <-ctx.Done():
+		return protocol.ConfigureSessionResult{}, ctx.Err()
+	}
+	transport := c.mutations
+	if transport == nil {
+		transport = c.transport
+	}
+	result, err := transport.ConfigureSession(ctx, c.id, input)
+	if err != nil {
+		var apiError *daemon.APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode == 409 || apiError.StatusCode >= 500 {
+			inspectContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+			snapshot, inspectErr := transport.GetSessionSnapshot(inspectContext, c.id)
+			cancel()
+			if inspectErr == nil {
+				c.mu.Lock()
+				c.cacheGeneration++
+				c.snapshot = snapshot
+				c.mu.Unlock()
+			}
+		}
+		return protocol.ConfigureSessionResult{}, err
+	}
+	c.mu.Lock()
+	c.cacheGeneration++
+	c.snapshot.Session = result.Session
+	c.snapshot.EventStreamID = result.EventStreamID
+	c.snapshot.ActiveRunID = ""
+	c.snapshot.EventCursor = 0
+	c.snapshot.EventReplayFrom = 0
+	c.snapshot.EventReplayAvailable = false
+	c.snapshot.Warnings = append([]string(nil), result.Warnings...)
+	c.mu.Unlock()
+	return result, nil
+}
+
+func (c *localSession) Compact(ctx context.Context, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
+	if err := ctx.Err(); err != nil {
+		return protocol.CompactSessionResult{}, err
+	}
+	select {
+	case <-c.mutationGate:
+		defer func() { c.mutationGate <- struct{}{} }()
+	case <-ctx.Done():
+		return protocol.CompactSessionResult{}, ctx.Err()
+	}
+	transport := c.mutations
+	if transport == nil {
+		transport = c.transport
+	}
+	result, err := transport.CompactSession(ctx, c.id, input)
+	if err != nil {
+		return protocol.CompactSessionResult{}, err
 	}
 	c.mu.Lock()
 	c.cacheGeneration++

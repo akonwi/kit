@@ -752,6 +752,7 @@ type fakeServer struct {
 	rename        func(string, string) (protocol.SessionInfo, error)
 	deleteSession func(string) error
 	list          func(string) ([]protocol.SessionInfo, error)
+	models        func() (protocol.ModelCatalog, error)
 }
 
 func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
@@ -785,6 +786,13 @@ func (s *fakeServer) ListSessions(_ context.Context, cwd string) ([]protocol.Ses
 	return append([]protocol.SessionInfo(nil), s.sessions...), nil
 }
 
+func (s *fakeServer) Models(context.Context) (protocol.ModelCatalog, error) {
+	if s.models != nil {
+		return s.models()
+	}
+	return protocol.ModelCatalog{}, nil
+}
+
 func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {
 	if s.attachErr != nil {
 		return nil, s.attachErr
@@ -796,14 +804,20 @@ func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.
 }
 
 type fakeSession struct {
-	id       string
-	snapshot protocol.SessionSnapshot
-	reload   func(context.Context) (protocol.ReloadSessionResult, error)
+	id         string
+	snapshot   protocol.SessionSnapshot
+	snapshotFn func() protocol.SessionSnapshot
+	reload     func(context.Context) (protocol.ReloadSessionResult, error)
+	configure  func(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
+	compact    func(context.Context, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
 }
 
 func (s fakeSession) ID() string { return s.id }
 
 func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
+	if s.snapshotFn != nil {
+		return s.snapshotFn(), nil
+	}
 	return s.snapshot, nil
 }
 
@@ -815,6 +829,20 @@ func (s fakeSession) Reload(ctx context.Context) (protocol.ReloadSessionResult, 
 		return s.reload(ctx)
 	}
 	return protocol.ReloadSessionResult{}, nil
+}
+
+func (s fakeSession) Configure(ctx context.Context, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	if s.configure == nil {
+		panic("unexpected Configure")
+	}
+	return s.configure(ctx, input)
+}
+
+func (s fakeSession) Compact(ctx context.Context, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
+	if s.compact == nil {
+		panic("unexpected Compact")
+	}
+	return s.compact(ctx, input)
 }
 
 func (fakeSession) Run(context.Context, string) (protocol.RunInfo, error) {

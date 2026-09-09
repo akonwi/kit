@@ -9,20 +9,83 @@ import (
 func TestCreateSessionInputValidateOptionalCanonicalID(t *testing.T) {
 	t.Parallel()
 
-	if err := (CreateSessionInput{}).Validate(); err != nil {
+	if err := (CreateSessionInput{Model: "test/model"}).Validate(); err != nil {
 		t.Fatalf("Validate() generated-id request error = %v", err)
 	}
-	if err := (CreateSessionInput{ID: "session_0123456789abcdef0123456789abcdef"}).Validate(); err != nil {
+	if err := (CreateSessionInput{ID: "session_0123456789abcdef0123456789abcdef", Model: "test/model"}).Validate(); err != nil {
 		t.Fatalf("Validate() canonical id error = %v", err)
 	}
-	if err := (CreateSessionInput{ID: "session_not-canonical"}).Validate(); err == nil {
+	if err := (CreateSessionInput{ID: "session_not-canonical", Model: "test/model"}).Validate(); err == nil {
 		t.Fatal("Validate() accepted a non-canonical session id")
 	}
-	if err := (CreateSessionInput{Temporary: true}).Validate(); err == nil {
+	if err := (CreateSessionInput{Temporary: true, Model: "test/model"}).Validate(); err == nil {
 		t.Fatal("Validate() accepted a temporary session without a client-selected id")
 	}
-	if err := (CreateSessionInput{ID: "session_0123456789abcdef0123456789abcdef", Temporary: true}).Validate(); err != nil {
+	if err := (CreateSessionInput{ID: "session_0123456789abcdef0123456789abcdef", Temporary: true, Model: "test/model"}).Validate(); err != nil {
 		t.Fatalf("Validate() temporary session error = %v", err)
+	}
+}
+
+func TestModelAndConfigurationValidation(t *testing.T) {
+	catalog := ModelCatalog{Models: []ModelCapability{{
+		ID: "test/model", Name: "Model", Provider: "test", API: "openai-responses",
+		ContextWindow: 128_000, MaxOutputTokens: 8_192,
+		ThinkingLevels: []ThinkingLevel{ThinkingOff, ThinkingMedium, ThinkingHigh},
+		Inputs:         []ModelInputKind{ModelInputText, ModelInputImage}, Available: true,
+	}}}
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("model catalog Validate() error = %v", err)
+	}
+	if err := (ModelCatalog{}).Validate(); err != nil {
+		t.Fatalf("empty model catalog Validate() error = %v", err)
+	}
+	invalidCatalog := catalog
+	invalidCatalog.Models = append([]ModelCapability(nil), catalog.Models...)
+	invalidCatalog.Models[0].Inputs = []ModelInputKind{"audio"}
+	if err := invalidCatalog.Validate(); err == nil {
+		t.Fatal("model catalog accepted an invalid input capability")
+	}
+	invalidCatalog.Models[0] = catalog.Models[0]
+	invalidCatalog.Models[0].ID = "test/bad\nmodel"
+	if err := invalidCatalog.Validate(); err == nil {
+		t.Fatal("model catalog accepted renderer-unsafe model identity")
+	}
+	level := ThinkingHigh
+	input := ConfigureSessionInput{ExpectedRevision: 2, Model: "test/model", ThinkingLevel: &level}
+	if err := input.Validate(); err != nil {
+		t.Fatalf("configuration input Validate() error = %v", err)
+	}
+	badLevel := ThinkingLevel("extreme")
+	input.ThinkingLevel = &badLevel
+	if err := input.Validate(); err == nil {
+		t.Fatal("configuration input accepted an invalid thinking level")
+	}
+	if err := (ConfigureSessionInput{ExpectedRevision: 2, Model: "model"}).Validate(); err == nil {
+		t.Fatal("configuration input accepted a model alias")
+	}
+	if err := (CompactSessionInput{OperationID: "compact_test"}).Validate(); err != nil {
+		t.Fatalf("compaction input Validate() error = %v", err)
+	}
+	if err := (CompactSessionInput{OperationID: "bad\noperation"}).Validate(); err == nil {
+		t.Fatal("compaction input accepted control text")
+	}
+	if err := (CompactSessionResult{OperationID: "compact_test", Compacted: true, EventStreamID: "stream_0123456789abcdef0123456789abcdef"}).Validate(); err == nil {
+		t.Fatal("compacted result accepted a missing checkpoint")
+	}
+	compactionResult := CompactSessionResult{OperationID: "compact_other", EventStreamID: "stream_0123456789abcdef0123456789abcdef"}
+	if err := compactionResult.ValidateApplied(CompactSessionInput{OperationID: "compact_test"}); err == nil {
+		t.Fatal("compaction result accepted mismatched operation identity")
+	}
+	configured := ConfigureSessionResult{
+		Session: SessionInfo{
+			ID: "session_0123456789abcdef0123456789abcdef", CWD: "/tmp", Model: "test/other", ThinkingLevel: "high", ConfigurationRevision: 3,
+			CreatedAt: "2026-01-02T03:04:05Z", UpdatedAt: "2026-01-02T03:04:05Z",
+		},
+		EventStreamID: "stream_0123456789abcdef0123456789abcdef",
+	}
+	level = ThinkingMedium
+	if err := configured.ValidateApplied(ConfigureSessionInput{ExpectedRevision: 2, Model: "test/model", ThinkingLevel: &level}); err == nil {
+		t.Fatal("configuration result accepted mismatched applied values")
 	}
 }
 

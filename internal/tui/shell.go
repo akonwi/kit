@@ -24,6 +24,7 @@ type shellSnapshot struct {
 	PaletteQuery                string
 	PaletteSelection            paletteCommandID
 	PaletteCommands             []paletteCommand
+	ConfigurationPicker         configurationPickerSnapshot
 	SessionDetailsOpen          bool
 	SessionExplorer             sessionExplorerSnapshot
 	AuthReturnReady             bool
@@ -95,6 +96,11 @@ type shellCallbacks struct {
 	MovePaletteSelection  selectionMovedCallback
 	RunPaletteQuery       ui.TextChangedCallback
 	RunPaletteCommand     func(ui.EventContext, paletteCommandID)
+	OpenModel             ui.VoidCallback
+	OpenThinking          ui.VoidCallback
+	ConfigurationQuery    ui.TextChangedCallback
+	SelectConfiguration   func(ui.EventContext, string)
+	ApplyConfiguration    ui.VoidCallback
 	SelectSession         func(ui.EventContext, string)
 	RenameSessionChanged  ui.TextChangedCallback
 	SubmitSessionRename   ui.TextChangedCallback
@@ -166,6 +172,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				OnSelect: w.Callbacks.SelectBashHistory,
 			},
 		})
+	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.ConfigurationPicker.Mode != configurationPickerClosed {
+		overlays = append(overlays, modalDialogEntry(configurationPickerSurface{
+			Snapshot: w.Snapshot.ConfigurationPicker, QueryChanged: w.Callbacks.ConfigurationQuery,
+			Select: w.Callbacks.SelectConfiguration, Apply: w.Callbacks.ApplyConfiguration,
+		}))
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionDetailsOpen {
 		overlays = append(overlays, modalDialogEntry(sessionDetailsSurface{
@@ -382,19 +394,44 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 
 func (w shellView) header(theme ui.Theme) ui.Widget {
 	left := "kit"
-	right := []ui.TextSpan(nil)
+	right := ui.Widget(ui.SizedBox{})
 	if w.conversationVisible() {
 		left = sessionDisplayName(w.Snapshot.Session)
-		right = modelInformation(w.Snapshot, theme)
+		right = w.modelInformationControls(theme)
 	}
 	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{
 		Axis:               ui.Horizontal,
 		CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
 			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
-			ui.ExpandedWidget{Flex: 2, Child: ui.RichText{Spans: right, Overflow: ui.TextOverflowEllipsis, MaxLines: 1, Align: ui.TextAlignRight}},
+			ui.ExpandedWidget{Flex: 2, Child: right},
 		},
 	})}
+}
+
+func (w shellView) modelInformationControls(theme ui.Theme) ui.Widget {
+	children := []ui.Widget{
+		headerControl{Label: modelDisplayName(w.Snapshot.Session.Model), OnPressed: w.Callbacks.OpenModel},
+	}
+	if thinking := strings.TrimSpace(w.Snapshot.Session.ThinkingLevel); thinking != "" {
+		children = append(children,
+			ui.Text{Value: " · ", Style: ui.Style{Foreground: theme.MutedForeground}},
+			headerControl{Label: "thinking: " + thinking, OnPressed: w.Callbacks.OpenThinking},
+		)
+	}
+	if percentage, ok := contextPercentage(w.Snapshot.ContextTokens, w.Snapshot.ContextWindow); ok {
+		color := theme.PrimaryText
+		if percentage > 90 {
+			color = theme.DangerText
+		} else if percentage >= 80 {
+			color = theme.WarningText
+		}
+		children = append(children,
+			ui.Text{Value: " · ", Style: ui.Style{Foreground: theme.MutedForeground}},
+			ui.Text{Value: fmt.Sprintf("%d%%", percentage), Style: ui.Style{Foreground: color}},
+		)
+	}
+	return ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: append([]ui.Widget{ui.Expanded(ui.SizedBox{})}, children...)}
 }
 
 func (w shellView) body(theme ui.Theme) ui.Widget {
@@ -951,27 +988,6 @@ func sessionDisplayName(session protocol.SessionInfo) string {
 		return session.Name
 	}
 	return "Unnamed session"
-}
-
-func modelInformation(snapshot shellSnapshot, theme ui.Theme) []ui.TextSpan {
-	label := modelDisplayName(snapshot.Session.Model)
-	if thinking := strings.TrimSpace(snapshot.Session.ThinkingLevel); thinking != "" {
-		label += " · thinking: " + thinking
-	}
-	spans := []ui.TextSpan{{Text: label, Style: ui.Style{Foreground: theme.MutedForeground}}}
-	if percentage, ok := contextPercentage(snapshot.ContextTokens, snapshot.ContextWindow); ok {
-		color := theme.PrimaryText
-		if percentage > 90 {
-			color = theme.DangerText
-		} else if percentage >= 80 {
-			color = theme.WarningText
-		}
-		spans = append(spans,
-			ui.TextSpan{Text: " · ", Style: ui.Style{Foreground: theme.MutedForeground}},
-			ui.TextSpan{Text: fmt.Sprintf("%d%%", percentage), Style: ui.Style{Foreground: color}},
-		)
-	}
-	return spans
 }
 
 func contextPercentage(tokens, window int) (int, bool) {

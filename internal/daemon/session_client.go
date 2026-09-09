@@ -103,6 +103,18 @@ func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.Sessi
 	return output.Sessions, nil
 }
 
+// ListModels returns the selectable model catalog and authentication availability.
+func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) {
+	var output protocol.ModelCatalog
+	if err := c.sessionJSON(ctx, http.MethodGet, "/v1/models", nil, http.StatusOK, &output); err != nil {
+		return protocol.ModelCatalog{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.ModelCatalog{}, fmt.Errorf("validate daemon model catalog: %w", err)
+	}
+	return output, nil
+}
+
 // GetSessionSnapshot returns an authoritative transcript and active-run snapshot.
 func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID)
@@ -187,6 +199,41 @@ func (c *Client) ReloadSession(ctx context.Context, sessionID string) (protocol.
 	}
 	if output.SessionID != sessionID {
 		return protocol.ReloadSessionResult{}, fmt.Errorf("daemon session reload identity mismatch")
+	}
+	return output, nil
+}
+
+// ConfigureSession applies one revision-guarded exact model/thinking transition.
+func (c *Client) ConfigureSession(ctx context.Context, sessionID string, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.ConfigureSessionResult{}, fmt.Errorf("validate session configuration request: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/configure"
+	var output protocol.ConfigureSessionResult
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.ConfigureSessionResult{}, err
+	}
+	if err := output.ValidateApplied(input); err != nil {
+		return protocol.ConfigureSessionResult{}, fmt.Errorf("validate daemon session configuration: %w", err)
+	}
+	if output.Session.ID != sessionID {
+		return protocol.ConfigureSessionResult{}, fmt.Errorf("daemon session configuration identity mismatch")
+	}
+	return output, nil
+}
+
+// CompactSession applies one idempotent explicit context compaction.
+func (c *Client) CompactSession(ctx context.Context, sessionID string, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.CompactSessionResult{}, fmt.Errorf("validate session compaction request: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/compact"
+	var output protocol.CompactSessionResult
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.CompactSessionResult{}, err
+	}
+	if err := output.ValidateApplied(input); err != nil {
+		return protocol.CompactSessionResult{}, fmt.Errorf("validate daemon session compaction: %w", err)
 	}
 	return output, nil
 }

@@ -518,6 +518,61 @@ func (repository *controlledConfigurationRepository) GetSession(ctx context.Cont
 	return repository.Repository.GetSession(ctx, id)
 }
 
+func TestCompactSessionCreatesCheckpointPreservesHistoryAndReopens(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &configurationProviders{}
+	providers.setSmallContextWindow(128_000)
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/small", ThinkingLevel: "low"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < 20; index++ {
+		if _, err := manager.RunPrompt(t.Context(), record.ID, fmt.Sprintf("threshold-%d %s", index, strings.Repeat("z", 800))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers.setSmallContextWindow(8_000)
+	beforeIDs := transcriptIDs(before)
+	result, err := manager.CompactSession(t.Context(), record.ID, "compact_checkpoint_configuration_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || result.CheckpointID == "" || result.EventStreamID == before.EventStreamID {
+		t.Fatalf("CompactSession() = %+v", result)
+	}
+	after, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range beforeIDs {
+		if !containsString(transcriptIDs(after), id) {
+			t.Fatalf("explicit compaction lost diagnostic message %q", id)
+		}
+	}
+	manager.Close()
+	reopened, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(reopened.Close)
+	if _, err := reopened.RunPrompt(t.Context(), record.ID, "continue after reopened compact"); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCompactSessionIsIdempotentAndPreservesStreamForNoOp(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
@@ -640,11 +695,12 @@ type configurationProviderCall struct {
 }
 
 type configurationProviders struct {
-	mu          sync.Mutex
-	calls       []configurationProviderCall
-	compactions int
-	block       chan struct{}
-	started     chan struct{}
+	mu           sync.Mutex
+	calls        []configurationProviderCall
+	compactions  int
+	block        chan struct{}
+	started      chan struct{}
+	smallContext int
 }
 
 func (p *configurationProviders) Models() []droids.Model {
@@ -704,13 +760,25 @@ func (*configurationProviders) largeModel() droids.Model {
 		Reasoning: true, ReasoningLevels: []string{"none", "low", "medium", "high", "xhigh"},
 	}
 }
-func (*configurationProviders) smallModel() droids.Model {
+func (p *configurationProviders) smallModel() droids.Model {
+	p.mu.Lock()
+	contextWindow := p.smallContext
+	p.mu.Unlock()
+	if contextWindow == 0 {
+		contextWindow = 8_000
+	}
 	return droids.Model{
 		ID: "small", Provider: "test", API: droids.ModelAPIOpenAIResponses,
-		ContextWindow: 8_000, MaxOutputTokens: 1_024,
+		ContextWindow: contextWindow, MaxOutputTokens: 1_024,
 		Reasoning: true, ReasoningLevels: []string{"none", "low", "high"},
 	}
 }
+func (p *configurationProviders) setSmallContextWindow(contextWindow int) {
+	p.mu.Lock()
+	p.smallContext = contextWindow
+	p.mu.Unlock()
+}
+
 func (p *configurationProviders) callCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()

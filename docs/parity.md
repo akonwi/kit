@@ -119,16 +119,17 @@ recorded manual verification exists.
 - [x] Persist the exact model and valid thinking-level selection at session
   creation; restore supported values exactly, resolve missing defaults, and
   safely clamp, persist, and report stale saved levels before opening a runtime.
-- [~] Change model and thinking level on an existing session; the Kit registry
-  atomically persists expected-revision-guarded configuration updates, and the
-  manager resolves exact targets, compacts incompatible context through droids,
-  validates and publishes a replacement runtime, resets its event stream, and
-  converges on registry state across failures and restart. Protocol and TUI
-  commands remain.
+- [x] Change model and thinking level on an existing session; the Kit registry
+  atomically persists expected-revision-guarded configuration updates, the
+  manager resolves exact targets and safely adapts context before runtime
+  replacement, protocol v17 projects capabilities and applied configuration,
+  and native `/model` and `/thinking` selectors share clickable header controls.
+  See `internal/session/configuration.go`, `internal/protocol/session.go`, and
+  `internal/tui/configuration_picker.go`.
 - [x] Persist droid-owned provider usage per message, turn, and cumulative
   conversation; include observed retry/error/abort and compaction usage exactly
   once, preserve totals across restart and forks, project absolute snapshot/live
-  totals through protocol v16, and present them in native `/debug` details.
+  totals through protocol v17, and present them in native `/debug` details.
   See `internal/droids/usage.go`, `internal/session/snapshot.go`,
   `internal/protocol/session.go`, and `internal/tui/session_details.go`.
 - [~] Run different top-level sessions concurrently.
@@ -182,13 +183,15 @@ recorded manual verification exists.
   cumulative provider usage; session snapshots project the estimated active
   context and model window, and the TUI renders a bare header percentage when
   meaningful.
-- [~] Model selection, exact provider/model IDs, persisted session model, and
+- [x] Model discovery and selection with exact provider/model IDs, persisted
+  session configuration, expected revisions, context-safe replacement, and
   default-model precedence.
-- [~] Thinking-level discovery, selection, and persistence.
+- [x] Thinking-level discovery, canonical supported-level selection, safe
+  restore-time clamping, and persistence.
 - [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport with
   Kit-owned persistent credentials and refresh rotation, headless Codex device
-  login/logout, and native TUI selection/login for all three providers; model
-  selection and broader credential management remain.
+  login/logout, and native TUI selection/login for all three providers; broader
+  credential management remains.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.
 - [ ] Message and composer history.
@@ -243,8 +246,9 @@ recorded manual verification exists.
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
   state, and an undimmed modal boundary. It exposes cwd navigation, login, idle
-  session-context reload, always-available `/debug` session details with live
-  cumulative usage, conditional abort, session exploration, quit, and
+  session-context reload, searchable `/model` and supported-level `/thinking`
+  selectors, explicit `/compact`, always-available `/debug` session details with
+  live cumulative usage, conditional abort, session exploration, quit, and
   dynamically discovered idle-only prompt commands with quoted arguments; session exploration opens the
   native saved-session listing and switches the attached TUI session. Completion,
   nested pickers, and non-prompt dynamic command sources remain.
@@ -267,8 +271,9 @@ recorded manual verification exists.
   other registered workspace panes; the first native Activity pane opens from
   transcript chips with retained source replacement and responsive layout.
 - [~] Header/footer status, model/thinking/context indicators, VCS/PR location,
-  plugin chrome, and update action; the initial shell preserves session/model
-  header and status/cwd/Git footer ownership.
+  plugin chrome, and update action; the shell preserves session/model header and
+  status/cwd/Git footer ownership, with compact hoverable model/thinking controls
+  sharing the command selector paths and width-aware complete-segment hiding.
 - [~] Clipboard, terminal title, notifications, image capabilities, and clean
   terminal restoration; selectable transcript and composer text copy through
   the terminal clipboard, while terminal chrome now shows idle, animated
@@ -301,15 +306,16 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v16 exposes retry-safe client-selected persisted or temporary
+  protocol v17 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename, persisted cwd mutation, and
   archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, renderer-safe prompt
   command catalogs and server-owned prompt-command execution, droid-owned turn
   identity, direct canonical history, context/pending boundaries, runtime stream
   synchronization metadata, bounded tool arguments, stable live assistant
-  message IDs, and validated cumulative usage snapshots/updates. TypeScript
-  contracts remain.
+  message IDs, validated cumulative usage snapshots/updates, model capabilities,
+  revision-guarded session configuration, and idempotent explicit compaction.
+  TypeScript contracts remain.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
   to runtime stream identity, cursor, and replay availability. Broader
   multi-client conformance remains.
@@ -423,18 +429,19 @@ recorded manual verification exists.
 ## Commands, settings, and themes
 
 - [~] Core command catalog and transport-neutral command subset; the native
-  palette currently exposes cwd navigation, login, idle session-context reload,
-  conditional abort, session exploration, quit, and server-discovered
-  global/project prompt commands with arguments.
+  palette currently exposes cwd navigation, login, reload, model/thinking
+  configuration, explicit compaction, session diagnostics, conditional abort,
+  session exploration, quit, and server-discovered global/project prompt
+  commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [x] `/cd <path>` changes the authoritative session workspace scope, records a
   durable user-origin cwd boundary for the droid, and offers the same relative,
   absolute, and home-path behavior as `change_cwd`.
-- [x] `/login`, `/reload`, `/sessions`, `/quit`, and active-run `/abort` are
-  available through the native command palette with tested availability rules.
-- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/model`,
-  `/name`, `/new`, `/debug`, `/tree`, `/thinking`, `/compact`, and release/MCP
-  commands.
+- [x] `/login`, `/reload`, `/sessions`, `/debug`, `/model`, `/thinking`,
+  `/compact`, `/quit`, and active-run `/abort` are available through the native
+  command palette with tested availability rules.
+- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/name`,
+  `/new`, `/tree`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline
   save errors.
 - [ ] Theme discovery/selection and current custom-theme compatibility.

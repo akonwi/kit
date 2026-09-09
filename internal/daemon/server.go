@@ -188,7 +188,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		registry:     registry,
 		token:        token,
 		store:        store,
-		sessions:     runtimeSessionService{manager: sessionManager},
+		sessions:     runtimeSessionService{manager: sessionManager, availableProviders: providerAvailability},
 		providers:    providerAvailability,
 		requestStop: func() {
 			select {

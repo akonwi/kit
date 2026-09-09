@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,6 +19,176 @@ func (input CreateSessionInput) Validate() error {
 	}
 	if input.Temporary && input.ID == "" {
 		return fmt.Errorf("temporary session id is required")
+	}
+	provider, model, ok := strings.Cut(input.Model, "/")
+	if !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
+		return fmt.Errorf("session model must use an exact provider/model id")
+	}
+	if input.ThinkingLevel != "" {
+		if err := ThinkingLevel(input.ThinkingLevel).Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Validate checks a session cwd change crossing a transport boundary.
+func (level ThinkingLevel) Validate() error {
+	switch level {
+	case ThinkingOff, ThinkingMinimal, ThinkingLow, ThinkingMedium, ThinkingHigh, ThinkingXHigh, ThinkingMax:
+		return nil
+	default:
+		return fmt.Errorf("thinking level %q is invalid", level)
+	}
+}
+
+// Validate checks a selectable model capability crossing a transport boundary.
+func (model ModelCapability) Validate() error {
+	provider, modelID, ok := strings.Cut(model.ID, "/")
+	if !ok || provider != model.Provider || !validRendererText(provider, 128) || !validRendererText(modelID, 256) ||
+		!validRendererText(model.Name, 256) || !validRendererText(model.Provider, 128) {
+		return fmt.Errorf("model identity, name, or provider is invalid")
+	}
+	switch model.API {
+	case "openai-responses", "openai-codex-responses", "anthropic-messages":
+	default:
+		return fmt.Errorf("model API %q is invalid", model.API)
+	}
+	if model.ContextWindow <= 0 || model.MaxInputTokens < 0 || model.MaxOutputTokens < 0 ||
+		model.MaxInputTokens > model.ContextWindow || model.MaxOutputTokens > model.ContextWindow {
+		return fmt.Errorf("model token limits are invalid")
+	}
+	if len(model.ThinkingLevels) == 0 || len(model.ThinkingLevels) > 7 || len(model.Inputs) == 0 || len(model.Inputs) > 2 {
+		return fmt.Errorf("model thinking or input capabilities are invalid")
+	}
+	seenThinking := map[ThinkingLevel]bool{}
+	for _, level := range model.ThinkingLevels {
+		if err := level.Validate(); err != nil || seenThinking[level] {
+			return fmt.Errorf("model thinking levels are invalid")
+		}
+		seenThinking[level] = true
+	}
+	seenInputs := map[ModelInputKind]bool{}
+	for _, input := range model.Inputs {
+		if input != ModelInputText && input != ModelInputImage || seenInputs[input] {
+			return fmt.Errorf("model input capabilities are invalid")
+		}
+		seenInputs[input] = true
+	}
+	if !seenInputs[ModelInputText] {
+		return fmt.Errorf("model must support text input")
+	}
+	return nil
+}
+
+// Validate checks a model catalog crossing a transport boundary.
+func (catalog ModelCatalog) Validate() error {
+	if len(catalog.Models) > 2048 {
+		return fmt.Errorf("model catalog size is invalid")
+	}
+	seen := map[string]bool{}
+	for index, model := range catalog.Models {
+		if err := model.Validate(); err != nil {
+			return fmt.Errorf("model %d: %w", index, err)
+		}
+		if seen[model.ID] {
+			return fmt.Errorf("model %d duplicates %q", index, model.ID)
+		}
+		seen[model.ID] = true
+	}
+	return nil
+}
+
+// Validate checks a session configuration request crossing a transport boundary.
+func (input ConfigureSessionInput) Validate() error {
+	provider, model, ok := strings.Cut(input.Model, "/")
+	if input.ExpectedRevision == 0 || input.ExpectedRevision > math.MaxInt64 || !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
+		return fmt.Errorf("expected revision and exact provider/model are required")
+	}
+	if input.ThinkingLevel != nil {
+		return input.ThinkingLevel.Validate()
+	}
+	return nil
+}
+
+// Validate checks an applied session configuration result.
+func (result ConfigureSessionResult) Validate() error {
+	if err := result.Session.Validate(); err != nil {
+		return err
+	}
+	if result.Session.ThinkingLevel == "" {
+		return fmt.Errorf("configuration result thinking level is missing")
+	}
+	if !identifier.Valid(result.EventStreamID, "stream_") || len(result.Warnings) > 8 {
+		return fmt.Errorf("configuration result stream or warning count is invalid")
+	}
+	if result.Compacted && result.CheckpointID == "" {
+		return fmt.Errorf("compacted configuration result requires a checkpoint")
+	}
+	if result.CheckpointID != "" && !identifier.Valid(result.CheckpointID, "checkpoint_") {
+		return fmt.Errorf("configuration checkpoint id is invalid")
+	}
+	for _, warning := range result.Warnings {
+		if !validRendererText(warning, 4096) || strings.TrimSpace(warning) == "" {
+			return fmt.Errorf("configuration warning is invalid")
+		}
+	}
+	return nil
+}
+
+// ValidateApplied checks a configuration response against its initiating request.
+func (result ConfigureSessionResult) ValidateApplied(input ConfigureSessionInput) error {
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if result.Session.Model != input.Model || result.Session.ConfigurationRevision < input.ExpectedRevision ||
+		result.Session.ConfigurationRevision > input.ExpectedRevision+1 {
+		return fmt.Errorf("configuration result does not match the requested model or revision")
+	}
+	if input.ThinkingLevel != nil && result.Session.ThinkingLevel != string(*input.ThinkingLevel) {
+		return fmt.Errorf("configuration result does not match the requested thinking level")
+	}
+	return nil
+}
+
+// Validate checks an explicit compaction request.
+func (input CompactSessionInput) Validate() error {
+	if !validRendererText(input.OperationID, 256) {
+		return fmt.Errorf("compaction operation id is invalid")
+	}
+	return nil
+}
+
+// Validate checks an explicit compaction result.
+func (result CompactSessionResult) Validate() error {
+	if err := (CompactSessionInput{OperationID: result.OperationID}).Validate(); err != nil {
+		return err
+	}
+	if !identifier.Valid(result.EventStreamID, "stream_") {
+		return fmt.Errorf("compaction event stream id is invalid")
+	}
+	if result.Compacted && result.CheckpointID == "" {
+		return fmt.Errorf("compacted result requires a checkpoint")
+	}
+	if result.CheckpointID != "" && !identifier.Valid(result.CheckpointID, "checkpoint_") {
+		return fmt.Errorf("compaction checkpoint id is invalid")
+	}
+	return nil
+}
+
+// ValidateApplied checks a compaction response against its initiating request.
+func (result CompactSessionResult) ValidateApplied(input CompactSessionInput) error {
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	if err := result.Validate(); err != nil {
+		return err
+	}
+	if result.OperationID != input.OperationID {
+		return fmt.Errorf("compaction result operation id does not match the request")
 	}
 	return nil
 }
@@ -135,8 +306,16 @@ func (session SessionInfo) Validate() error {
 		return fmt.Errorf("session cwd %q is not a safe bounded absolute path", session.CWD)
 	}
 	provider, model, ok := strings.Cut(session.Model, "/")
-	if !ok || provider == "" || model == "" {
+	if !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
 		return fmt.Errorf("session model %q is not namespaced", session.Model)
+	}
+	if session.ConfigurationRevision == 0 || session.ConfigurationRevision > math.MaxInt64 {
+		return fmt.Errorf("session configuration revision is invalid")
+	}
+	if session.ThinkingLevel != "" {
+		if err := ThinkingLevel(session.ThinkingLevel).Validate(); err != nil {
+			return err
+		}
 	}
 	if _, err := time.Parse(time.RFC3339Nano, session.CreatedAt); err != nil {
 		return fmt.Errorf("session createdAt is invalid: %w", err)

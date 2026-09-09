@@ -37,6 +37,15 @@ func protocolContentText(message protocol.TranscriptMessage, kind protocol.Trans
 	return result
 }
 
+func TestRuntimeSessionServiceRejectsUnavailableModelProvider(t *testing.T) {
+	service := runtimeSessionService{availableProviders: func(context.Context) []string { return []string{"available"} }}
+	if _, err := service.Configure(t.Context(), "session_test", protocol.ConfigureSessionInput{
+		ExpectedRevision: 1, Model: "missing/model",
+	}); !errors.Is(err, kitsession.ErrInvalidInput) {
+		t.Fatalf("Configure() unavailable provider error = %v", err)
+	}
+}
+
 func TestProjectProviderErrorKind(t *testing.T) {
 	t.Parallel()
 	if got := projectProviderErrorKind(kitsession.ProviderErrorAuthentication); got != protocol.ProviderErrorAuthentication {
@@ -104,6 +113,15 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		}
 	}
 
+	catalog, err := client.ListModels(context.Background())
+	if err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if len(catalog.Models) != 2 || catalog.Models[0].ID != "test/echo" || !catalog.Models[0].Available ||
+		catalog.Models[0].ContextWindow != 128_000 || len(catalog.Models[0].ThinkingLevels) != 1 || catalog.Models[0].ThinkingLevels[0] != protocol.ThinkingOff {
+		t.Fatalf("model catalog = %+v", catalog)
+	}
+
 	workspace := t.TempDir()
 	if err := os.WriteFile(filepath.Join(paths.Home, "AGENTS.md"), []byte("daemon-global-guidance"), 0o600); err != nil {
 		t.Fatal(err)
@@ -140,7 +158,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
 	createInput := protocol.CreateSessionInput{
-		ID: sessionID, CWD: workspace, Model: "test/echo", Name: "API test",
+		ID: sessionID, CWD: workspace, Model: "test/echo", ThinkingLevel: "off", Name: "API test",
 	}
 	created, err := client.CreateSession(context.Background(), createInput)
 	if err != nil {
@@ -329,6 +347,16 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("active ReloadSession() error = %v", err)
 		}
 	}
+	if _, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
+		ExpectedRevision: 1, Model: "test/echo-alt",
+	}); err == nil {
+		t.Fatal("ConfigureSession() accepted an active session")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
+			t.Fatalf("active ConfigureSession() error = %v", err)
+		}
+	}
 	providers.mu.Lock()
 	reloadedProviderPrompt := providers.requests[len(providers.requests)-1].SystemPrompt
 	providers.mu.Unlock()
@@ -426,6 +454,47 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("sessions = %+v", sessions)
 	}
 
+	canceledConfigureContext, cancelConfigure := context.WithCancel(context.Background())
+	cancelConfigure()
+	if _, err := client.ConfigureSession(canceledConfigureContext, created.ID, protocol.ConfigureSessionInput{
+		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo-alt",
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled ConfigureSession() error = %v", err)
+	}
+	afterCanceledConfigure, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil || afterCanceledConfigure.Session.ConfigurationRevision != bashSnapshot.Session.ConfigurationRevision || afterCanceledConfigure.Session.Model != bashSnapshot.Session.Model {
+		t.Fatalf("session after canceled configuration = %+v, %v", afterCanceledConfigure.Session, err)
+	}
+	configured, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
+		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo-alt",
+	})
+	if err != nil {
+		t.Fatalf("ConfigureSession() error = %v", err)
+	}
+	if configured.Session.Model != "test/echo-alt" || configured.Session.ThinkingLevel != "off" ||
+		configured.Session.ConfigurationRevision != bashSnapshot.Session.ConfigurationRevision+1 || configured.EventStreamID == bashSnapshot.EventStreamID {
+		t.Fatalf("configuration result = %+v", configured)
+	}
+	if _, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
+		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo",
+	}); err == nil {
+		t.Fatal("ConfigureSession() accepted a stale revision")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict {
+			t.Fatalf("stale ConfigureSession() error = %v", err)
+		}
+	}
+	compactInput := protocol.CompactSessionInput{OperationID: "compact_daemon_api_test"}
+	compacted, err := client.CompactSession(context.Background(), created.ID, compactInput)
+	if err != nil {
+		t.Fatalf("CompactSession() error = %v", err)
+	}
+	replayedCompact, err := client.CompactSession(context.Background(), created.ID, compactInput)
+	if err != nil || replayedCompact != compacted {
+		t.Fatalf("replayed CompactSession() = %+v, %v; first=%+v", replayedCompact, err, compacted)
+	}
+
 	temporaryID, err := identifier.New("session_")
 	if err != nil {
 		t.Fatal(err)
@@ -493,6 +562,51 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	case <-stopContext.Done():
 		t.Fatal("daemon did not stop")
 	}
+
+	restartContext, cancelRestart := context.WithCancel(context.Background())
+	defer cancelRestart()
+	restartResult := make(chan error, 1)
+	go func() {
+		restartResult <- Run(restartContext, RunOptions{
+			Paths: paths, Providers: providers,
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+	}()
+	restartProbeContext, cancelRestartProbe := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelRestartProbe()
+	for {
+		if _, _, err := client.Probe(restartProbeContext); err == nil {
+			break
+		}
+		select {
+		case <-restartProbeContext.Done():
+			t.Fatal("restarted daemon did not become ready")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	reopened, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reopened.Session.Model != "test/echo-alt" || reopened.Session.ThinkingLevel != "off" || reopened.Session.ConfigurationRevision != configured.Session.ConfigurationRevision {
+		t.Fatalf("reopened protocol configuration = %+v", reopened.Session)
+	}
+	if _, err := client.RunPrompt(context.Background(), created.ID, "after daemon restart"); err != nil {
+		t.Fatal(err)
+	}
+	restartStopContext, cancelRestartStop := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelRestartStop()
+	if err := NewManager(paths).Stop(restartStopContext); err != nil {
+		t.Fatalf("stop restarted daemon: %v", err)
+	}
+	select {
+	case err := <-restartResult:
+		if err != nil {
+			t.Fatalf("restarted Run() error = %v", err)
+		}
+	case <-restartStopContext.Done():
+		t.Fatal("restarted daemon did not stop")
+	}
 }
 
 type daemonEchoProviders struct {
@@ -503,8 +617,12 @@ type daemonEchoProviders struct {
 	requestStarted chan struct{}
 }
 
-func (p *daemonEchoProviders) ID() string             { return "test" }
-func (p *daemonEchoProviders) Models() []droids.Model { return []droids.Model{p.model()} }
+func (p *daemonEchoProviders) ID() string { return "test" }
+func (p *daemonEchoProviders) Models() []droids.Model {
+	alternate := p.model()
+	alternate.ID, alternate.Name = "echo-alt", "Echo Alternate"
+	return []droids.Model{p.model(), alternate}
+}
 func (p *daemonEchoProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
@@ -517,14 +635,19 @@ func (p *daemonEchoProviders) Resolve(id string) (droids.Provider, droids.Model,
 }
 
 func (p *daemonEchoProviders) Model(id string) (droids.Model, bool) {
-	return p.model(), id == "echo" || id == "test/echo"
+	for _, model := range p.Models() {
+		if id == model.ID || id == model.Provider+"/"+model.ID {
+			return model, true
+		}
+	}
+	return droids.Model{}, false
 }
 
 func (p *daemonEchoProviders) RefreshModels(context.Context) error { return nil }
 
 func (p *daemonEchoProviders) Stream(
 	ctx context.Context,
-	_ droids.Model,
+	model droids.Model,
 	request droids.Request,
 ) droids.Stream {
 	p.mu.Lock()
@@ -546,14 +669,14 @@ func (p *daemonEchoProviders) Stream(
 		case <-block:
 		case <-ctx.Done():
 			final := droids.AssistantMessage{
-				Provider: "test", Model: "echo", StopReason: droids.StopReasonAborted,
+				Provider: "test", Model: model.ID, StopReason: droids.StopReasonAborted,
 				Timestamp: time.Now().UnixMilli(),
 			}
 			return &daemonEchoStream{final: final}
 		}
 	}
 	final := droids.AssistantMessage{
-		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
+		Provider: "test", Model: model.ID, StopReason: droids.StopReasonStop,
 		Content: []droids.AssistantContent{droids.TextContent{Text: text}},
 		Usage: droids.Usage{
 			Input: 40_000, Output: 24_000, CacheRead: 10_000, CacheWrite: 2_000,
@@ -566,7 +689,7 @@ func (p *daemonEchoProviders) Stream(
 
 func (p *daemonEchoProviders) model() droids.Model {
 	return droids.Model{
-		ID: "echo", Provider: "test", API: droids.ModelAPIOpenAIResponses,
+		ID: "echo", Name: "Echo", Provider: "test", API: droids.ModelAPIOpenAIResponses,
 		ContextWindow: 128_000, MaxOutputTokens: 8_192,
 		Cost: droids.Cost{Input: 1, Output: 2, CacheRead: 0.5, CacheWrite: 1},
 	}

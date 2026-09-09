@@ -6,8 +6,99 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/protocol"
 )
+
+func TestLocalSessionConfigurationUpdatesCacheAndResynchronizesAmbiguousErrors(t *testing.T) {
+	t.Parallel()
+
+	initial := protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_test", Model: "test/old", ThinkingLevel: "off", ConfigurationRevision: 1}, EventStreamID: "stream_old"}
+	configured := initial
+	configured.Session.Model = "test/new"
+	configured.Session.ConfigurationRevision = 2
+	configured.EventStreamID = "stream_new"
+	transport := &scriptedMutationTransport{
+		configureResult: protocol.ConfigureSessionResult{Session: configured.Session, EventStreamID: configured.EventStreamID},
+		snapshot:        configured,
+	}
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	session := &localSession{id: "session_test", mutations: transport, mutationGate: gate, snapshot: initial}
+	result, err := session.Configure(t.Context(), protocol.ConfigureSessionInput{ExpectedRevision: 1, Model: "test/new"})
+	if err != nil || result.Session != configured.Session {
+		t.Fatalf("Configure() = %+v, %v", result, err)
+	}
+	if session.snapshot.Session != configured.Session || session.snapshot.EventStreamID != "stream_new" || session.cacheGeneration != 1 {
+		t.Fatalf("configured cache = %+v generation=%d", session.snapshot, session.cacheGeneration)
+	}
+
+	transport.configureErr = errors.New("response lost")
+	configured.Session.Model = "test/newer"
+	configured.Session.ConfigurationRevision = 3
+	configured.EventStreamID = "stream_newer"
+	transport.snapshot = configured
+	if _, err := session.Configure(t.Context(), protocol.ConfigureSessionInput{ExpectedRevision: 2, Model: "test/newer"}); err == nil {
+		t.Fatal("Configure() hid an ambiguous transport error")
+	}
+	if session.snapshot.Session.Model != "test/newer" || session.snapshot.Session.ConfigurationRevision != 3 || session.snapshot.EventStreamID != "stream_newer" {
+		t.Fatalf("ambiguous configuration did not resynchronize cache: %+v", session.snapshot)
+	}
+	transport.configureErr = &daemon.APIError{StatusCode: 409, Message: "configuration revision conflict"}
+	configured.Session.Model = "test/other-client"
+	configured.Session.ConfigurationRevision = 4
+	configured.EventStreamID = "stream_other"
+	transport.snapshot = configured
+	if _, err := session.Configure(t.Context(), protocol.ConfigureSessionInput{ExpectedRevision: 2, Model: "test/conflict"}); err == nil {
+		t.Fatal("Configure() hid a stale-revision conflict")
+	}
+	if session.snapshot.Session.Model != "test/other-client" || session.snapshot.Session.ConfigurationRevision != 4 {
+		t.Fatalf("configuration conflict did not refresh cache: %+v", session.snapshot)
+	}
+}
+
+func TestLocalSessionCompactPreservesOperationIdentityAndSerializesCancellation(t *testing.T) {
+	t.Parallel()
+
+	transport := &scriptedMutationTransport{compactResult: protocol.CompactSessionResult{OperationID: "compact_test", EventStreamID: "stream_new"}}
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	session := &localSession{id: "session_test", mutations: transport, mutationGate: gate}
+	result, err := session.Compact(t.Context(), protocol.CompactSessionInput{OperationID: "compact_test"})
+	if err != nil || result.OperationID != "compact_test" || session.snapshot.EventStreamID != "stream_new" {
+		t.Fatalf("Compact() = %+v, %v cache=%+v", result, err, session.snapshot)
+	}
+	<-gate
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := session.Compact(ctx, protocol.CompactSessionInput{OperationID: "compact_test"}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled Compact() error = %v", err)
+	}
+	gate <- struct{}{}
+	if transport.compactCalls != 1 {
+		t.Fatalf("compact transport calls = %d, want 1", transport.compactCalls)
+	}
+}
+
+type scriptedMutationTransport struct {
+	configureResult protocol.ConfigureSessionResult
+	configureErr    error
+	compactResult   protocol.CompactSessionResult
+	compactErr      error
+	snapshot        protocol.SessionSnapshot
+	compactCalls    int
+}
+
+func (transport *scriptedMutationTransport) ConfigureSession(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	return transport.configureResult, transport.configureErr
+}
+func (transport *scriptedMutationTransport) CompactSession(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
+	transport.compactCalls++
+	return transport.compactResult, transport.compactErr
+}
+func (transport *scriptedMutationTransport) GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error) {
+	return transport.snapshot, nil
+}
 
 func TestLocalEventStreamReportsMissingTerminalEvent(t *testing.T) {
 	t.Parallel()

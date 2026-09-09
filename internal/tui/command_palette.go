@@ -15,11 +15,14 @@ const (
 
 	paletteCommandAbort    paletteCommandID = "abort"
 	paletteCommandCD       paletteCommandID = "cd"
+	paletteCommandCompact  paletteCommandID = "compact"
 	paletteCommandLogin    paletteCommandID = "login"
+	paletteCommandModel    paletteCommandID = "model"
 	paletteCommandQuit     paletteCommandID = "quit"
 	paletteCommandReload   paletteCommandID = "reload"
 	paletteCommandDebug    paletteCommandID = "debug"
 	paletteCommandSessions paletteCommandID = "sessions"
+	paletteCommandThinking paletteCommandID = "thinking"
 )
 
 type paletteCommandID string
@@ -327,13 +330,16 @@ func availablePaletteCommands(running bool, contributions ...[]paletteCommand) [
 	}
 	commands := []paletteCommand{
 		{ID: paletteCommandCD, Name: "cd", Description: "Change working directory", Aliases: []string{"cwd", "directory", "folder"}},
+		{ID: paletteCommandCompact, Name: "compact", Description: "Compact session context", Aliases: []string{"summarize", "shrink"}},
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
+		{ID: paletteCommandModel, Name: "model", Description: "Change session model", Aliases: []string{"engine"}},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
+		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
-	seen := map[string]bool{"cd": true, "debug": true, "login": true, "quit": true, "reload": true, "sessions": true}
+	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "login": true, "model": true, "quit": true, "reload": true, "sessions": true, "thinking": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {

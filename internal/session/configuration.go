@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -15,6 +16,52 @@ import (
 )
 
 var errConfigurationOutcomeUnknown = errors.New("session configuration write outcome is unknown")
+
+// ModelCapability is renderer-neutral selectable model metadata owned by the
+// session manager's provider registry.
+type ModelCapability struct {
+	ID              string
+	Name            string
+	Provider        string
+	API             string
+	ContextWindow   int
+	MaxInputTokens  int
+	MaxOutputTokens int
+	ThinkingLevels  []string
+	Inputs          []string
+}
+
+// ModelCapabilities returns a stable snapshot of the configured provider catalog.
+func (m *Manager) ModelCapabilities(ctx context.Context) ([]ModelCapability, error) {
+	if err := m.beginOperation(); err != nil {
+		return nil, err
+	}
+	defer m.ops.Done()
+	if ctx != nil {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+	}
+	models := m.providers.Models()
+	result := make([]ModelCapability, 0, len(models))
+	for _, model := range models {
+		name := strings.TrimSpace(model.Name)
+		if name == "" {
+			name = model.ID
+		}
+		inputs := append([]string(nil), model.Input...)
+		if len(inputs) == 0 {
+			inputs = []string{"text"}
+		}
+		result = append(result, ModelCapability{
+			ID: model.Provider + "/" + model.ID, Name: name, Provider: model.Provider, API: string(model.API),
+			ContextWindow: model.ContextWindow, MaxInputTokens: model.MaxInputTokens, MaxOutputTokens: model.MaxOutputTokens,
+			ThinkingLevels: append([]string(nil), supportedThinkingLevels(model)...), Inputs: inputs,
+		})
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
+	return result, nil
+}
 
 // ConfigureSessionInput requests one exact model/thinking transition from the
 // configuration revision observed by the caller. Nil ThinkingLevel preserves or
