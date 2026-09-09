@@ -3,26 +3,43 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 )
 
 // ErrNotFound identifies missing persisted session or transient harness state.
 var ErrNotFound = errors.New("session record not found")
 
+// ErrConfigurationConflict identifies a stale expected configuration revision.
+var ErrConfigurationConflict = errors.New("session configuration revision conflict")
+
+// ConfigurationConflictError reports the expected and authoritative revisions.
+type ConfigurationConflictError struct {
+	Expected uint64
+	Actual   uint64
+}
+
+func (err *ConfigurationConflictError) Error() string {
+	return fmt.Sprintf("%v: expected %d, actual %d", ErrConfigurationConflict, err.Expected, err.Actual)
+}
+
+func (*ConfigurationConflictError) Unwrap() error { return ErrConfigurationConflict }
+
 // SessionRecord is Kit's persisted session registry entry.
 type SessionRecord struct {
-	ID                 string
-	CWD                string
-	Name               string
-	Persistent         bool
-	ParentSessionID    string
-	ModelProvider      string
-	ModelID            string
-	ThinkingLevel      string
-	DroidInitializedAt *time.Time
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	ArchivedAt         *time.Time
+	ID                    string
+	CWD                   string
+	Name                  string
+	Persistent            bool
+	ParentSessionID       string
+	ModelProvider         string
+	ModelID               string
+	ThinkingLevel         string
+	ConfigurationRevision uint64
+	DroidInitializedAt    *time.Time
+	CreatedAt             time.Time
+	UpdatedAt             time.Time
+	ArchivedAt            *time.Time
 }
 
 // NewSession contains metadata required to create a persisted session.
@@ -58,6 +75,16 @@ type RunProjection struct {
 	Error     string
 }
 
+// ConfigurationUpdate is one atomic exact model and thinking change guarded by
+// the configuration revision observed by the client.
+type ConfigurationUpdate struct {
+	SessionID        string
+	ExpectedRevision uint64
+	ModelProvider    string
+	ModelID          string
+	ThinkingLevel    string
+}
+
 // CWDMutation is an idempotent durable session workspace change.
 type CWDMutation struct {
 	ID          string
@@ -74,6 +101,7 @@ type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
 	GetSessionCWDMutation(context.Context, string, string) (CWDMutation, error)
 	ApplySessionCWDMutation(context.Context, CWDMutation) (SessionRecord, CWDMutation, error)
+	UpdateSessionConfiguration(context.Context, ConfigurationUpdate) (SessionRecord, error)
 	RenameSession(context.Context, string, string) (SessionRecord, error)
 	TouchSession(context.Context, string, time.Time) error
 	ArchiveSession(context.Context, string, time.Time) error

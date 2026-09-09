@@ -298,7 +298,7 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 		record := SessionRecord{
 			ID: id, CWD: cwd, Name: requested.Name, Persistent: false,
 			ModelProvider: model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
-			CreatedAt: now, UpdatedAt: now,
+			ConfigurationRevision: 1, CreatedAt: now, UpdatedAt: now,
 		}
 		m.mu.Lock()
 		defer m.mu.Unlock()

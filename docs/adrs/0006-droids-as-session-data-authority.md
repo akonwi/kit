@@ -57,11 +57,20 @@ sessions
   model_provider
   model_id
   thinking_level
+  configuration_revision
   droid_initialized_at
   created_at
   updated_at
   archived_at
 ```
+
+`configuration_revision` guards one atomic update of model provider, model ID,
+thinking level, and monotonic activity time. A stale expected revision fails
+without changing the registry. Kit does not persist command-replay receipts for
+this operation: after an ambiguous transport response, clients resynchronize
+from the authoritative session snapshot rather than replaying old intent.
+Droids separately retains stable operation IDs for compaction, where duplicated
+work would consume provider resources and rewrite context.
 
 Kit may later persist domain-specific harness records that cannot be represented
 by droids, such as plugin process configuration or workspace presentation
@@ -237,6 +246,10 @@ The implementation must demonstrate:
 - an abort cannot target a successor turn;
 - client wait cancellation detaches without aborting droid work;
 - a new runtime stream identity forces snapshot resynchronization;
+- model provider, model ID, thinking level, configuration revision, and
+  monotonic activity time change atomically behind an expected-revision guard;
+- ambiguous configuration responses recover through authoritative snapshot
+  resynchronization rather than a durable command receipt;
 - live text and tool events require no writes to `kit.db`;
 - every client-acknowledged terminal included bash result is durably admitted
   through `Inform` exactly once;

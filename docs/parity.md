@@ -118,9 +118,11 @@ recorded manual verification exists.
   activity timestamp used for directory ordering and default resume.
 - [x] Persist the exact model and valid thinking-level selection at session
   creation and restore those selections while they remain supported.
-- [ ] Change model and thinking level on an existing session, including
-  quiescent runtime replacement, target-model context adaptation, and reported
-  clamping of stale saved thinking levels.
+- [~] Change model and thinking level on an existing session; the Kit registry
+  now atomically persists exact model/thinking values behind monotonic,
+  expected-revision-guarded configuration updates. Manager-level
+  quiescent runtime replacement, target-model context adaptation, protocol/TUI
+  commands, and reported clamping of stale saved thinking levels remain.
 - [x] Persist droid-owned provider usage per message, turn, and cumulative
   conversation; include observed retry/error/abort and compaction usage exactly
   once, preserve totals across restart and forks, project absolute snapshot/live

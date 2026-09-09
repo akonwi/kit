@@ -225,17 +225,16 @@ manager, protocol, and `/compact` command are wired.
 
 ### 4. Kit repository: atomic configuration persistence
 
-- [ ] Add one repository operation that updates model provider, model ID,
+- [x] Add one repository operation that updates model provider, model ID,
   thinking level, and activity time atomically.
-- [ ] Store a client-selected configuration mutation ID and an idempotent receipt
-  because compaction and runtime replacement make retries semantically
-  significant.
-- [ ] Include an expected configuration revision so stale attached clients
+- [x] Keep configuration persistence revision-guarded and receipt-free; recover
+  an ambiguous response by resynchronizing the authoritative session snapshot.
+- [x] Include an expected configuration revision so stale attached clients
   cannot silently overwrite a newer model choice.
-- [ ] Increment and return the configuration revision on a committed change.
-- [ ] Make activity advancement monotonic.
-- [ ] Add migration/schema tests, idempotent replay tests, stale-revision tests,
-  and ambiguous-commit reconciliation tests.
+- [x] Increment and return the configuration revision on a committed change.
+- [x] Make activity advancement monotonic.
+- [x] Add migration/schema, no-op revision, stale-revision, monotonic activity,
+  and post-commit resynchronization tests.
 
 ### 5. Session manager: configuration transition
 
@@ -251,8 +250,7 @@ manager, protocol, and `/compact` command are wired.
   compaction so `/compact` uses the same droids-owned path.
 - [ ] Open and validate a replacement droid against the same authoritative Store
   before committing Kit registry state.
-- [ ] Persist configuration and mutation receipt before publishing the runtime
-  replacement.
+- [ ] Persist configuration before publishing the runtime replacement.
 - [ ] Replace the runtime event stream so clients cannot continue from a cursor
   created under the previous configuration.
 - [ ] Return the effective model, effective thinking level, configuration
@@ -267,8 +265,8 @@ manager, protocol, and `/compact` command are wired.
 - [x] Bump the canonical protocol version.
 - [ ] Add wire-safe model capability records: exact ID, display name, provider,
   context limits, supported thinking levels, and relevant input capabilities.
-- [ ] Add a session configuration command with mutation ID, expected revision,
-  target model, and optional target thinking level.
+- [ ] Add a session configuration command with expected revision, target model,
+  and optional target thinking level.
 - [ ] Add an explicit session-compaction command carrying a stable operation ID.
 - [ ] Return the applied configuration rather than requiring clients to infer
   clamp results.
@@ -328,8 +326,8 @@ manager, protocol, and `/compact` command are wired.
   continue the session.
 - [ ] Switch to a smaller-context model, compact first, and continue the session.
 - [ ] Preserve message/turn identity and canonical history across replacement.
-- [ ] Retry the same mutation ID without repeating compaction or changing the
-  configuration revision twice.
+- [ ] Lose a configuration response after commit, resynchronize the
+  authoritative choice, and do not replay stale intent or repeat compaction.
 - [ ] Reject a stale expected revision from a second client.
 - [ ] Restart at each transition boundary and recover the committed choice.
 

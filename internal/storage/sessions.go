@@ -5,8 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 const timestampLayout = "2006-01-02T15:04:05.000000000Z"
@@ -99,7 +102,7 @@ func (s *Store) ApplySessionCWDMutation(ctx context.Context, mutation CWDMutatio
 		}
 		record, loadErr := scanSession(tx.QueryRowContext(ctx, `
 			SELECT id, cwd, name, persistent, parent_session_id,
-			       model_provider, model_id, thinking_level, droid_initialized_at,
+			       model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 			       created_at, updated_at, archived_at
 			FROM sessions WHERE id = ? AND archived_at IS NULL
 		`, mutation.SessionID))
@@ -123,7 +126,7 @@ func (s *Store) ApplySessionCWDMutation(ctx context.Context, mutation CWDMutatio
 		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
 		WHERE id = ? AND archived_at IS NULL
 		RETURNING id, cwd, name, persistent, parent_session_id,
-		          model_provider, model_id, thinking_level, droid_initialized_at,
+		          model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		          created_at, updated_at, archived_at
 	`, changed, mutation.CWD, activityAt, activityAt, mutation.SessionID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -153,6 +156,95 @@ func scanCWDMutation(scanner rowScanner) (CWDMutation, error) {
 	return mutation, err
 }
 
+// UpdateSessionConfiguration atomically changes the exact model and thinking
+// configuration behind an expected-revision guard and advances activity
+// without allowing a delayed clock value to move it backward.
+func (s *Store) UpdateSessionConfiguration(ctx context.Context, update ConfigurationUpdate) (SessionRecord, error) {
+	if s == nil || s.db == nil {
+		return SessionRecord{}, fmt.Errorf("store is closed")
+	}
+	if err := validateConfigurationUpdate(update); err != nil {
+		return SessionRecord{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SessionRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var provider, modelID, thinking sql.NullString
+	var revision uint64
+	var updatedAtText string
+	err = tx.QueryRowContext(ctx, `
+		SELECT model_provider, model_id, thinking_level, configuration_revision, updated_at
+		FROM sessions WHERE id = ? AND archived_at IS NULL
+	`, update.SessionID).Scan(&provider, &modelID, &thinking, &revision, &updatedAtText)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionRecord{}, fmt.Errorf("session %q: %w", update.SessionID, ErrNotFound)
+	}
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("load session %q configuration: %w", update.SessionID, err)
+	}
+	if revision != update.ExpectedRevision {
+		return SessionRecord{}, &ConfigurationConflictError{Expected: update.ExpectedRevision, Actual: revision}
+	}
+
+	changed := provider.String != update.ModelProvider || modelID.String != update.ModelID || thinking.String != update.ThinkingLevel
+	resultRevision := revision
+	if changed {
+		if revision >= math.MaxInt64 {
+			return SessionRecord{}, fmt.Errorf("session configuration revision overflow")
+		}
+		resultRevision++
+	}
+	updatedAt, err := parseTimestamp(updatedAtText)
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("parse session updated_at: %w", err)
+	}
+	activityAt := time.Now().UTC()
+	if updatedAt.After(activityAt) {
+		activityAt = updatedAt
+	}
+	record, err := scanSession(tx.QueryRowContext(ctx, `
+		UPDATE sessions
+		SET model_provider = ?, model_id = ?, thinking_level = NULLIF(?, ''),
+		    configuration_revision = ?, updated_at = ?
+		WHERE id = ? AND archived_at IS NULL AND configuration_revision = ?
+		RETURNING id, cwd, name, persistent, parent_session_id,
+		          model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
+		          created_at, updated_at, archived_at
+	`, update.ModelProvider, update.ModelID, update.ThinkingLevel,
+		resultRevision, formatTimestamp(activityAt), update.SessionID, update.ExpectedRevision))
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionRecord{}, &ConfigurationConflictError{Expected: update.ExpectedRevision, Actual: revision}
+	}
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("configure session %q: %w", update.SessionID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionRecord{}, fmt.Errorf("commit session %q configuration: %w", update.SessionID, err)
+	}
+	return record, nil
+}
+
+func validateConfigurationUpdate(update ConfigurationUpdate) error {
+	if update.SessionID == "" || update.ModelProvider == "" || update.ModelID == "" {
+		return fmt.Errorf("session id, model provider, and model id are required")
+	}
+	if update.ExpectedRevision == 0 || update.ExpectedRevision > math.MaxInt64 {
+		return fmt.Errorf("expected configuration revision is invalid")
+	}
+	for name, value := range map[string]string{
+		"session id": update.SessionID, "model provider": update.ModelProvider,
+		"model id": update.ModelID, "thinking level": update.ThinkingLevel,
+	} {
+		if len(value) > 256 || !utf8.ValidString(value) || strings.ContainsRune(value, 0) {
+			return fmt.Errorf("%s must be valid UTF-8 without NUL and at most 256 bytes", name)
+		}
+	}
+	return nil
+}
+
 // RenameSession replaces a non-archived session's display name.
 func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionRecord, error) {
 	if s == nil || s.db == nil {
@@ -165,7 +257,7 @@ func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionReco
 		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
 		WHERE id = ? AND archived_at IS NULL
 		RETURNING id, cwd, name, persistent, parent_session_id,
-		          model_provider, model_id, thinking_level, droid_initialized_at,
+		          model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		          created_at, updated_at, archived_at
 	`, name, activityAt, activityAt, id)
 	record, err := scanSession(row)
@@ -249,7 +341,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (SessionRecord, error
 	}
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id, cwd, name, persistent, parent_session_id,
-		       model_provider, model_id, thinking_level, droid_initialized_at,
+		       model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		       created_at, updated_at, archived_at
 		FROM sessions
 		WHERE id = ?
@@ -271,7 +363,7 @@ func (s *Store) ListSessions(ctx context.Context, cwd string) ([]SessionRecord, 
 	}
 	query := `
 		SELECT id, cwd, name, persistent, parent_session_id,
-		       model_provider, model_id, thinking_level, droid_initialized_at,
+		       model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		       created_at, updated_at, archived_at
 		FROM sessions
 		WHERE archived_at IS NULL`
@@ -330,6 +422,7 @@ func scanSession(scanner rowScanner) (SessionRecord, error) {
 		&modelProvider,
 		&modelID,
 		&thinking,
+		&record.ConfigurationRevision,
 		&initializedAt,
 		&createdAt,
 		&updatedAt,
