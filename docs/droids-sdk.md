@@ -826,11 +826,13 @@ type ContextAssessment struct {
 type CompactContextOptions struct {
     OperationID string
     Target      ContextTarget
+    Force       bool
 }
 
 type CompactContextResult struct {
     OperationID  string
     Target       ContextTarget
+    Forced       bool
     Compacted    bool
     CheckpointID CheckpointID
     Before       ContextUsage
@@ -863,22 +865,26 @@ context snapshot.
 pressure. Target replay incompatibility requests adaptation rather than making
 assessment itself fail. Cancellation remains an operation error.
 
-`CompactContext` summarizes progressively larger complete prefixes until the
-replacement both fits and is replayable. It may summarize the entire active
-context when provider-specific metadata prevents retaining a suffix. The
+`CompactContext` normally summarizes progressively larger complete prefixes
+only when adaptation or the automatic threshold requires it. With `Force`, it
+attempts compaction for any non-empty settled context regardless of current
+pressure; this is the mode hosts use for explicit user-initiated compaction. An
+empty context remains a durable no-op. The replacement both fits and is
+replayable. It may summarize the entire active context when provider-specific
+metadata prevents retaining a suffix. The
 replacement must reduce context, remain runnable by the currently configured
 model, and be replayable and below the built-in threshold for the target. The
 operation does not change the droid's configured model. Exhausting valid
 candidates returns `ErrContextNotAdaptable` and preserves the prior checkpoint.
 
 `OperationID` is a bounded, renderer-safe idempotency identity. Starting work
-stores an immutable operation intent that binds the ID to its exact target even
-when adaptation later fails. A successful compaction or no-op result also stores
+stores an immutable operation intent that binds the ID to its exact target and
+force mode even when adaptation later fails. A successful compaction or no-op result also stores
 an immutable receipt in the same Commit as its checkpoint and completion events.
 Concurrent identical calls join one flight; later successful retries return the
 original persisted result before checking busy state or resolving the current
-model catalog. Reusing an ID with another target returns `ErrConflict`, including
-after a failed attempt. Intents and receipts are inherited by forks as globally
+model catalog. Reusing an ID with another target or force mode returns
+`ErrConflict`, including after a failed attempt. Intents and receipts are inherited by forks as globally
 unique ancestral operation identities and contain no branch-local revision or
 event cursor.
 

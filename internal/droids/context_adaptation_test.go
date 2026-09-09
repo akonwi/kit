@@ -133,6 +133,39 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	}
 }
 
+func TestSDKForcedCompactionIgnoresAutomaticThreshold(t *testing.T) {
+	providers := newAdaptationProviders()
+	droid, err := droids.Open(t.Context(), "conversation_force_compact", droids.Config{
+		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/active",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	seedAdaptationHistory(t, droid, 4)
+	target := droids.ContextTarget{Model: "test/active", Reasoning: "off"}
+	assessment, err := droid.AssessContext(t.Context(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if assessment.RequiresCompaction {
+		t.Fatalf("test context unexpectedly required automatic compaction: %+v", assessment)
+	}
+	options := droids.CompactContextOptions{OperationID: "context_force_1", Target: target, Force: true}
+	result, err := droid.CompactContext(t.Context(), options)
+	if err != nil || !result.Compacted || !result.Forced || result.CheckpointID == "" {
+		t.Fatalf("forced CompactContext() = %+v, %v", result, err)
+	}
+	replayed, err := droid.CompactContext(t.Context(), options)
+	if err != nil || !reflect.DeepEqual(replayed, result) || providers.compactions.Load() != 1 {
+		t.Fatalf("forced receipt replay = %+v, %v; summaries=%d", replayed, err, providers.compactions.Load())
+	}
+	options.Force = false
+	if _, err := droid.CompactContext(t.Context(), options); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("operation force reuse error = %v, want conflict", err)
+	}
+}
+
 func TestSDKCompactionReceiptPersistsInSQLite(t *testing.T) {
 	providers := newAdaptationProviders()
 	path := filepath.Join(t.TempDir(), "droid.db")

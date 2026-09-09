@@ -54,7 +54,7 @@ func TestConfigurationSelectionBuildsAtomicModelAndThinkingRequests(t *testing.T
 	if thinking.ExpectedRevision != 7 || thinking.Model != "test/large" || thinking.ThinkingLevel == nil || *thinking.ThinkingLevel != protocol.ThinkingHigh {
 		t.Fatalf("thinking selection request = %+v", thinking)
 	}
-	if toast := compactionToast(protocol.CompactSessionResult{}, nil, nil); toast.Title != "Context already fits" || toast.Variant != toastInfo {
+	if toast := compactionToast(protocol.CompactSessionResult{}, nil, nil); toast.Title != "No context to compact" || toast.Variant != toastInfo {
 		t.Fatalf("no-op compaction toast = %+v", toast)
 	}
 	if toast := compactionToast(protocol.CompactSessionResult{Compacted: true}, nil, nil); toast.Title != "Context compacted" {

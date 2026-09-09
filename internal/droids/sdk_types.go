@@ -289,10 +289,14 @@ type ContextAssessment struct {
 }
 
 // CompactContextOptions configures one idempotent, quiescent context
-// adaptation. OperationID must remain stable across ambiguous retries.
+// adaptation. OperationID, Target, and Force must remain stable across
+// ambiguous retries.
 type CompactContextOptions struct {
 	OperationID string
 	Target      ContextTarget
+	// Force requests compaction even when context is replayable and below the
+	// automatic compaction threshold. Empty context remains a no-op.
+	Force bool
 }
 
 // CompactContextResult describes the durable outcome of one context-adaptation
@@ -300,6 +304,7 @@ type CompactContextOptions struct {
 type CompactContextResult struct {
 	OperationID  string
 	Target       ContextTarget
+	Forced       bool
 	Compacted    bool
 	CheckpointID CheckpointID
 	Before       ContextUsage

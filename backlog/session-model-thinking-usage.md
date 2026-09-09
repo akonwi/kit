@@ -281,8 +281,8 @@ manager, protocol, and `/compact` command are wired.
 
 ### 7. Native TUI
 
-- [x] Add `/compact` to run explicit settled-session compaction and report
-  whether context changed or already fit.
+- [x] Add `/compact` to force explicit settled-session compaction regardless of
+  automatic pressure thresholds and report whether context changed or was empty.
 - [x] Add `/model` to the command palette and open a searchable model selector.
 - [x] Show exact provider/model identity, current selection, authentication
   availability, and context window without overcrowding rows.

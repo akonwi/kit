@@ -490,6 +490,9 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CompactSession() error = %v", err)
 	}
+	if !compacted.Compacted || compacted.CheckpointID == "" {
+		t.Fatalf("user compaction was not forced: %+v", compacted)
+	}
 	replayedCompact, err := client.CompactSession(context.Background(), created.ID, compactInput)
 	if err != nil || replayedCompact != compacted {
 		t.Fatalf("replayed CompactSession() = %+v, %v; first=%+v", replayedCompact, err, compacted)

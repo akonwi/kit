@@ -39,6 +39,7 @@ type contextMaintenanceFlight struct {
 	kind        string
 	operationID string
 	target      ContextTarget
+	force       bool
 	cancel      context.CancelFunc
 	done        chan struct{}
 	result      CompactContextResult
@@ -59,12 +60,14 @@ type durableCompactionIntent struct {
 	OperationID string `json:"operation_id"`
 	TargetModel string `json:"target_model"`
 	Reasoning   string `json:"reasoning,omitempty"`
+	Force       *bool  `json:"force,omitempty"`
 }
 
 type durableCompactionReceipt struct {
 	OperationID  string              `json:"operation_id"`
 	TargetModel  string              `json:"target_model"`
 	Reasoning    string              `json:"reasoning,omitempty"`
+	Force        *bool               `json:"force,omitempty"`
 	Compacted    bool                `json:"compacted"`
 	CheckpointID CheckpointID        `json:"checkpoint_id,omitempty"`
 	Before       durableContextUsage `json:"before"`
@@ -169,14 +172,16 @@ func (d *Droid) CompactContext(ctx context.Context, options CompactContextOption
 		if closed {
 			return CompactContextResult{}, ErrClosed
 		}
-		return receipt.result(target)
+		return receipt.result(target, options.Force)
 	}
 	intent, intentFound, err := findCompactionIntent(ctx, rt.store, options.OperationID)
 	if err != nil {
 		return CompactContextResult{}, err
 	}
+	force := options.Force
 	if intentFound {
-		if err := intent.validateTarget(target); err != nil {
+		force, err = intent.effectiveForce(target, options.Force)
+		if err != nil {
 			return CompactContextResult{}, err
 		}
 	}
@@ -195,7 +200,7 @@ func (d *Droid) CompactContext(ctx context.Context, options CompactContextOption
 			rt.mu.Unlock()
 			return CompactContextResult{}, ErrBusy
 		}
-		if flight.target != target {
+		if flight.target != target || flight.force != force {
 			rt.mu.Unlock()
 			return CompactContextResult{}, fmt.Errorf("droids: context operation id %q was reused with a different target: %w", options.OperationID, ErrConflict)
 		}
@@ -217,7 +222,7 @@ func (d *Droid) CompactContext(ctx context.Context, options CompactContextOption
 	operationContext, cancel := context.WithCancel(ctx)
 	flight := &contextMaintenanceFlight{
 		kind: "compaction", operationID: options.OperationID,
-		target: target, cancel: cancel, done: make(chan struct{}),
+		target: target, force: force, cancel: cancel, done: make(chan struct{}),
 	}
 	rt.contextFlight = flight
 	rt.signalChangedLocked()
@@ -228,15 +233,15 @@ func (d *Droid) CompactContext(ctx context.Context, options CompactContextOption
 	receipt, found, operationErr := findCompactionReceipt(operationContext, rt.store, options.OperationID)
 	var result CompactContextResult
 	if operationErr == nil && found {
-		result, operationErr = receipt.result(target)
+		result, operationErr = receipt.result(target, options.Force)
 	} else if operationErr == nil {
 		intent, intentFound, operationErr = findCompactionIntent(operationContext, rt.store, options.OperationID)
 		if operationErr == nil && intentFound {
-			operationErr = intent.validateTarget(target)
+			force, operationErr = intent.effectiveForce(target, options.Force)
 		}
 		if operationErr == nil {
 			result, operationErr = rt.compactCapturedContext(
-				operationContext, options.OperationID, resolved, contextWire, checkpointID, intentFound,
+				operationContext, options.OperationID, resolved, contextWire, checkpointID, intentFound, force,
 			)
 		}
 	}
@@ -302,16 +307,17 @@ func (rt *sdkRuntime) compactCapturedContext(
 	contextWire []wireMessageEnvelope,
 	sourceCheckpoint CheckpointID,
 	intentExists bool,
+	force bool,
 ) (CompactContextResult, error) {
 	assessment, err := rt.assessCapturedContext(ctx, target, contextWire)
 	if err != nil {
 		return CompactContextResult{}, err
 	}
 	result := CompactContextResult{
-		OperationID: operationID, Target: target.public,
+		OperationID: operationID, Target: target.public, Forced: force,
 		CheckpointID: sourceCheckpoint, Before: assessment.Usage, After: assessment.Usage,
 	}
-	if !assessment.RequiresCompaction {
+	if !assessment.RequiresCompaction && !force {
 		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, nil, nil, "", intentExists); err != nil {
 			return CompactContextResult{}, err
 		}
@@ -323,7 +329,10 @@ func (rt *sdkRuntime) compactCapturedContext(
 		return CompactContextResult{}, err
 	}
 	if len(messages) == 0 {
-		return CompactContextResult{}, fmt.Errorf("droids: empty context cannot be adapted to target model")
+		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, nil, nil, "", intentExists); err != nil {
+			return CompactContextResult{}, err
+		}
+		return result, nil
 	}
 	if err := validateContextReplay(ctx, rt.provider, rt.droid.model, messages); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -357,7 +366,7 @@ func (rt *sdkRuntime) compactCapturedContext(
 	}
 	var startMutations []EncodedMutation
 	if !intentExists {
-		intentMutation, err := compactionIntentMutation(operationID, target.public)
+		intentMutation, err := compactionIntentMutation(operationID, target.public, force)
 		if err != nil {
 			rt.mu.Unlock()
 			return CompactContextResult{}, err
@@ -604,7 +613,7 @@ func (rt *sdkRuntime) commitCompactionResult(
 	}
 	var mutations []EncodedMutation
 	if !intentExists {
-		intentMutation, err := compactionIntentMutation(result.OperationID, result.Target)
+		intentMutation, err := compactionIntentMutation(result.OperationID, result.Target, result.Forced)
 		if err != nil {
 			return err
 		}
@@ -675,9 +684,11 @@ func (rt *sdkRuntime) recordExplicitCompactionFailure(operationID string, failur
 	return failure
 }
 
-func compactionIntentMutation(operationID string, target ContextTarget) (EncodedMutation, error) {
+func boolPointer(value bool) *bool { return &value }
+
+func compactionIntentMutation(operationID string, target ContextTarget, force bool) (EncodedMutation, error) {
 	payload, err := json.Marshal(durableCompactionIntent{
-		OperationID: operationID, TargetModel: target.Model, Reasoning: target.Reasoning,
+		OperationID: operationID, TargetModel: target.Model, Reasoning: target.Reasoning, Force: boolPointer(force),
 	})
 	if err != nil {
 		return EncodedMutation{}, err
@@ -689,14 +700,18 @@ func compactionIntentMutation(operationID string, target ContextTarget) (Encoded
 	}, nil
 }
 
-func (intent durableCompactionIntent) validateTarget(target ContextTarget) error {
+func (intent durableCompactionIntent) effectiveForce(target ContextTarget, requested bool) (bool, error) {
 	if intent.OperationID == "" || intent.TargetModel == "" {
-		return fmt.Errorf("droids: persisted compaction intent is incomplete")
+		return false, fmt.Errorf("droids: persisted compaction intent is incomplete")
 	}
-	if intent.TargetModel != target.Model || canonicalContextReasoning(intent.Reasoning) != target.Reasoning {
-		return fmt.Errorf("droids: context operation id %q was reused with a different target: %w", intent.OperationID, ErrConflict)
+	if intent.TargetModel != target.Model || canonicalContextReasoning(intent.Reasoning) != target.Reasoning ||
+		intent.Force != nil && *intent.Force != requested {
+		return false, fmt.Errorf("droids: context operation id %q was reused with a different target: %w", intent.OperationID, ErrConflict)
 	}
-	return nil
+	if intent.Force == nil {
+		return false, nil
+	}
+	return *intent.Force, nil
 }
 
 func findCompactionIntent(ctx context.Context, store Store, operationID string) (durableCompactionIntent, bool, error) {
@@ -732,17 +747,18 @@ func newDurableCompactionReceipt(result CompactContextResult) (durableCompaction
 	}
 	return durableCompactionReceipt{
 		OperationID: result.OperationID, TargetModel: result.Target.Model,
-		Reasoning: result.Target.Reasoning, Compacted: result.Compacted,
+		Reasoning: result.Target.Reasoning, Force: boolPointer(result.Forced), Compacted: result.Compacted,
 		CheckpointID: result.CheckpointID,
 		Before:       durableUsage(result.Before), After: durableUsage(result.After),
 	}, nil
 }
 
-func (receipt durableCompactionReceipt) result(target ContextTarget) (CompactContextResult, error) {
+func (receipt durableCompactionReceipt) result(target ContextTarget, force bool) (CompactContextResult, error) {
 	if receipt.OperationID == "" || receipt.TargetModel == "" {
 		return CompactContextResult{}, fmt.Errorf("droids: persisted compaction receipt is incomplete")
 	}
-	if receipt.TargetModel != target.Model || canonicalContextReasoning(receipt.Reasoning) != target.Reasoning {
+	if receipt.TargetModel != target.Model || canonicalContextReasoning(receipt.Reasoning) != target.Reasoning ||
+		receipt.Force != nil && *receipt.Force != force {
 		return CompactContextResult{}, fmt.Errorf("droids: context operation id %q was reused with a different target: %w", receipt.OperationID, ErrConflict)
 	}
 	before, err := receipt.Before.usage()
@@ -761,7 +777,7 @@ func (receipt durableCompactionReceipt) result(target ContextTarget) (CompactCon
 		return CompactContextResult{}, fmt.Errorf("droids: persisted compaction receipt has no checkpoint")
 	}
 	return CompactContextResult{
-		OperationID: receipt.OperationID, Target: target,
+		OperationID: receipt.OperationID, Target: target, Forced: receipt.Force != nil && *receipt.Force,
 		Compacted: receipt.Compacted, CheckpointID: receipt.CheckpointID,
 		Before: before, After: after,
 	}, nil

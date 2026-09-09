@@ -229,8 +229,9 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	return result, nil
 }
 
-// CompactSession runs one idempotent explicit compaction against the current
-// persisted model and thinking configuration.
+// CompactSession forces one idempotent explicit compaction against the current
+// persisted model and thinking configuration, independent of automatic pressure
+// thresholds.
 func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID string) (CompactSessionResult, error) {
 	if err := m.beginOperation(); err != nil {
 		return CompactSessionResult{}, err
@@ -264,6 +265,7 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	result, err := loaded.droid.CompactContext(ctx, droids.CompactContextOptions{
 		OperationID: operationID,
 		Target:      droids.ContextTarget{Model: record.ModelProvider + "/" + record.ModelID, Reasoning: record.ThinkingLevel},
+		Force:       true,
 	})
 	if err != nil {
 		return CompactSessionResult{}, err

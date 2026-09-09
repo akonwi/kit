@@ -573,7 +573,7 @@ func TestCompactSessionCreatesCheckpointPreservesHistoryAndReopens(t *testing.T)
 	}
 }
 
-func TestCompactSessionIsIdempotentAndPreservesStreamForNoOp(t *testing.T) {
+func TestCompactSessionForcesBelowThresholdContext(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
 	if err != nil {
@@ -594,6 +594,39 @@ func TestCompactSessionIsIdempotentAndPreservesStreamForNoOp(t *testing.T) {
 		if _, err := manager.RunPrompt(t.Context(), record.ID, fmt.Sprintf("compact-%d %s", index, strings.Repeat("y", 500))); err != nil {
 			t.Fatal(err)
 		}
+	}
+	before, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ContextTokens*100 >= before.ContextWindow*80 {
+		t.Fatalf("test context unexpectedly reached automatic threshold: %d/%d", before.ContextTokens, before.ContextWindow)
+	}
+	result, err := manager.CompactSession(t.Context(), record.ID, "compact_forced_configuration_test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Compacted || result.CheckpointID == "" || result.EventStreamID == before.EventStreamID {
+		t.Fatalf("forced CompactSession() = %+v", result)
+	}
+}
+
+func TestCompactSessionEmptyContextNoOpIsIdempotentAndPreservesStream(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &configurationProviders{}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/large"})
+	if err != nil {
+		t.Fatal(err)
 	}
 	before, err := manager.Snapshot(t.Context(), record.ID)
 	if err != nil {

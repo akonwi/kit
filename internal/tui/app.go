@@ -2219,7 +2219,7 @@ func compactionToast(result protocol.CompactSessionResult, compactErr, snapshotE
 	if result.Compacted {
 		return toastInput{Title: "Context compacted", Variant: toastInfo}
 	}
-	return toastInput{Title: "Context already fits", Variant: toastInfo}
+	return toastInput{Title: "No context to compact", Variant: toastInfo}
 }
 
 func (s *appState) changeCWD(target string) {
