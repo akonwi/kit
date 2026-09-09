@@ -374,7 +374,7 @@ func (surface configurationPickerSurface) thinkingBody(theme ui.Theme) ui.Widget
 	for _, level := range levels {
 		level := string(level)
 		rows = append(rows, configurationOptionRow{
-			Label: level, Details: "Reasoning effort",
+			Label:    level,
 			Current:  level == surface.Snapshot.CurrentThinking,
 			Selected: level == surface.Snapshot.Selection,
 			OnPressed: func(event ui.EventContext) {
@@ -414,14 +414,23 @@ func (row configurationOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 		marker = glyphCheck + " "
 	}
 	foreground := theme.Foreground
+	detailsForeground := theme.MutedForeground
 	if row.Disabled {
 		foreground = theme.DisabledForeground
 	}
-	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.SizedBox{Width: 24, Child: ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
-		ui.SizedBox{Width: 1},
-		ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-	}}
+	if row.Selected {
+		foreground = theme.Background
+		detailsForeground = theme.Background
+	}
+	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	var content ui.Widget = label
+	if row.Details != "" {
+		content = ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+			ui.SizedBox{Width: 24, Child: label},
+			ui.SizedBox{Width: 1},
+			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+		}}
+	}
 	rowTheme := theme
 	rowTheme.Foreground = theme.Background
 	rowTheme.Primary = theme.Foreground

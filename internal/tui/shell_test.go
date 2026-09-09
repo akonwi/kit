@@ -85,19 +85,29 @@ func TestConfigurationPickersShowCapabilitiesAndSupportedThinking(t *testing.T) 
 			t.Fatalf("model picker missing %q:\n%s", expected, modelText)
 		}
 	}
-	thinkingApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
+	thinkingTheme := ui.DefaultThemeSet().Light
+	thinkingApp := uitest.New(markdownThemedTestSurface(thinkingTheme, configurationPickerSurface{Snapshot: configurationPickerSnapshot{
 		Mode: configurationPickerThinking, Models: catalog, CurrentModel: "openai/gpt-large",
 		CurrentThinking: "high", Selection: "high",
-	}})
+	}}))
 	thinkingApp.Pump(80, 24)
 	thinkingText := thinkingApp.Text()
-	for _, expected := range []string{"Thinking level", "off", "✓ high", "Reasoning effort"} {
+	for _, expected := range []string{"Thinking level", "off", "✓ high"} {
 		if !strings.Contains(thinkingText, expected) {
 			t.Fatalf("thinking picker missing %q:\n%s", expected, thinkingText)
 		}
 	}
 	if strings.Contains(thinkingText, "low") {
 		t.Fatalf("thinking picker offered a level unsupported by the active model:\n%s", thinkingText)
+	}
+	if strings.Contains(thinkingText, "Reasoning effort") {
+		t.Fatalf("thinking picker restored the removed redundant descriptions:\n%s", thinkingText)
+	}
+	thinkingRows := paintedRows(thinkingApp, 80, 24)
+	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "✓ high")
+	selectedStyle := thinkingApp.Cell(selectedColumn, selectedRow).Style
+	if selectedStyle.Foreground != thinkingTheme.Background || selectedStyle.Background != thinkingTheme.Foreground {
+		t.Fatalf("selected thinking label style = %+v, want foreground %v on background %v", selectedStyle, thinkingTheme.Background, thinkingTheme.Foreground)
 	}
 	longQuery := "anthropic-model-query-with-full-width"
 	queryApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
