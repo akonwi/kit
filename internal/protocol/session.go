@@ -209,6 +209,37 @@ type SessionInfo struct {
 	UpdatedAt             string `json:"updatedAt"`
 }
 
+// VCSHeadKind identifies the checked-out repository head shape.
+type VCSHeadKind string
+
+const (
+	VCSHeadBranch   VCSHeadKind = "branch"
+	VCSHeadDetached VCSHeadKind = "detached"
+	VCSHeadUnborn   VCSHeadKind = "unborn"
+)
+
+// VCSHead is renderer-neutral checked-out head metadata.
+type VCSHead struct {
+	Kind VCSHeadKind `json:"kind"`
+	Name string      `json:"name,omitempty"`
+	OID  string      `json:"oid,omitempty"`
+}
+
+// VCSStatus is volatile repository status for a session workspace.
+type VCSStatus struct {
+	Root  string  `json:"root"`
+	Head  VCSHead `json:"head"`
+	Dirty bool    `json:"dirty"`
+}
+
+// SessionVCSStatus binds volatile VCS status to the session and cwd that were
+// inspected. Status is nil outside a usable Git worktree.
+type SessionVCSStatus struct {
+	SessionID string     `json:"sessionId"`
+	CWD       string     `json:"cwd"`
+	Status    *VCSStatus `json:"status,omitempty"`
+}
+
 // TranscriptContentKind identifies one renderer-neutral message content block.
 type TranscriptContentKind string
 

@@ -230,6 +230,10 @@ func (c *fakeBoundSession) Snapshot(context.Context) (protocol.SessionSnapshot, 
 	return protocol.SessionSnapshot{}, nil
 }
 
+func (c *fakeBoundSession) VCSStatus(context.Context) (protocol.SessionVCSStatus, error) {
+	return protocol.SessionVCSStatus{}, nil
+}
+
 func (c *fakeBoundSession) ChangeCWD(context.Context, string) (protocol.SessionInfo, error) {
 	return protocol.SessionInfo{}, errors.New("unexpected cwd change")
 }

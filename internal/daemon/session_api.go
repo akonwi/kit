@@ -14,6 +14,7 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/systemprompt"
+	kitvcs "github.com/akonwi/kit/internal/vcs"
 )
 
 const maxSessionRequestBytes = 1 << 20
@@ -29,6 +30,7 @@ type sessionService interface {
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Models(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
+	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
 	Configure(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
@@ -46,6 +48,7 @@ type sessionService interface {
 type runtimeSessionService struct {
 	manager            *kitsession.Manager
 	availableProviders func(context.Context) []string
+	probeVCS           func(context.Context, string) (*kitvcs.Status, error)
 }
 
 func (s runtimeSessionService) Create(
@@ -136,6 +139,35 @@ func (s runtimeSessionService) Models(ctx context.Context) (protocol.ModelCatalo
 			ContextWindow: model.ContextWindow, MaxInputTokens: model.MaxInputTokens, MaxOutputTokens: model.MaxOutputTokens,
 			ThinkingLevels: thinking, Inputs: inputs, Available: available[model.Provider],
 		})
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) VCS(ctx context.Context, sessionID string) (protocol.SessionVCSStatus, error) {
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.SessionVCSStatus{}, err
+	}
+	result := protocol.SessionVCSStatus{SessionID: sessionID, CWD: record.CWD}
+	probe := s.probeVCS
+	if probe == nil {
+		probe = kitvcs.Probe
+	}
+	status, err := probe(ctx, record.CWD)
+	if err != nil {
+		if ctx.Err() != nil {
+			return protocol.SessionVCSStatus{}, ctx.Err()
+		}
+		return result, nil
+	}
+	if status != nil {
+		result.Status = &protocol.VCSStatus{
+			Root: status.Root, Dirty: status.Dirty,
+			Head: protocol.VCSHead{Kind: protocol.VCSHeadKind(status.Head.Kind), Name: status.Head.Name, OID: status.Head.OID},
+		}
+		if err := result.Validate(); err != nil {
+			result.Status = nil
+		}
 	}
 	return result, nil
 }
@@ -501,6 +533,18 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, snapshot)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/vcs", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.VCS(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session VCS status: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/events", func(writer http.ResponseWriter, request *http.Request) {
 		after := int64(0)

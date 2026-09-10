@@ -114,6 +114,10 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 
 func (c *localSession) ID() string { return c.id }
 
+func (c *localSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, error) {
+	return c.transport.GetSessionVCSStatus(ctx, c.id)
+}
+
 func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error) {
 	c.mu.Lock()
 	generation := c.cacheGeneration

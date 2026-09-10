@@ -179,6 +179,10 @@ type appState struct {
 	session                     protocol.SessionInfo
 	bound                       sessionclient.Session
 	location                    string
+	locationBase                string
+	vcsStatus                   *protocol.VCSStatus
+	vcsContext                  context.Context
+	vcsCancel                   context.CancelFunc
 	sessionDrafts               map[string]string
 	sessionSwitchCancel         context.CancelFunc
 	sessionSwitchGeneration     uint64
@@ -260,6 +264,7 @@ func (s *appState) InitState() {
 	s.bashCollapsed = make(map[string]bool)
 	s.toastCancels = make(map[uint64]context.CancelFunc)
 	s.location = options.Location
+	s.locationBase = options.Location
 	s.sessionDrafts = make(map[string]string)
 	s.newSessionPending = options.NewSessionID != ""
 	if options.Authenticated {
@@ -439,6 +444,7 @@ func (s *appState) resetAttachmentContext() {
 }
 
 func (s *appState) Dispose() {
+	s.stopVCSMonitoring()
 	if s.loginCancel != nil {
 		s.loginCancel()
 	}
@@ -931,8 +937,8 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			return
 		}
 		location := options.Location
-		if err == nil && info.CWD != "" && options.ResolveLocation != nil {
-			location = options.ResolveLocation(s.ctx, info.CWD)
+		if err == nil {
+			location = resolveSessionLocation(s.ctx, snapshot.Session.CWD, options.Location, options.ResolveLocation)
 		}
 		runtime.Dispatch(func() {
 			if operation != s.operation {
@@ -959,6 +965,8 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				s.session = info
 				s.bound = bound
 				s.location = location
+				s.locationBase = location
+				s.vcsStatus = nil
 				s.applySnapshot(snapshot)
 				if running {
 					s.status = "esc abort · ctrl+c detach"
@@ -967,6 +975,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			for _, warning := range snapshot.Warnings {
 				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
 			}
+			s.startVCSMonitoring()
 			if running {
 				s.watchSession(bound, operation, snapshot.ActiveRunID)
 			}
@@ -975,6 +984,16 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			}
 		})
 	}()
+}
+
+func resolveSessionLocation(ctx context.Context, cwd, fallback string, resolve func(context.Context, string) string) string {
+	if cwd == "" {
+		return fallback
+	}
+	if resolve != nil {
+		return resolve(ctx, cwd)
+	}
+	return cwd
 }
 
 func bootstrapSession(
@@ -1395,7 +1414,9 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 					var details cwdToolDetails
 					if json.Unmarshal(event.Details, &details) == nil && details.Changed && details.CWD != "" {
 						s.session.CWD = details.CWD
+						s.locationBase = details.CWD
 						s.location = details.CWD
+						s.vcsStatus = nil
 						changedCWD = details.CWD
 					}
 				}
@@ -1733,6 +1754,9 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						if changedCWD != "" {
 							s.showToast(cwdChangeToast(changedCWD))
 							s.refreshLocation(changedCWD)
+							s.startVCSMonitoring()
+						} else if vcsRefreshNeeded(batch) {
+							s.refreshVCSStatus()
 						}
 					}
 				})
@@ -2363,7 +2387,9 @@ func (s *appState) changeCWD(target string) {
 				s.status = ""
 				if err == nil {
 					s.session = info
+					s.locationBase = info.CWD
 					s.location = info.CWD
+					s.vcsStatus = nil
 				}
 			})
 			if err != nil {
@@ -2376,6 +2402,7 @@ func (s *appState) changeCWD(target string) {
 				s.showToast(cwdChangeToast(info.CWD))
 			}
 			s.refreshLocation(info.CWD)
+			s.startVCSMonitoring()
 		})
 	}()
 }
@@ -2397,7 +2424,10 @@ func (s *appState) refreshLocation(cwd string) {
 		location := resolve(s.ctx, cwd)
 		runtime.Dispatch(func() {
 			if operation == s.operation && s.session.CWD == cwd {
-				s.SetState(func() { s.location = location })
+				s.SetState(func() {
+					s.locationBase = location
+					s.location = formatVCSLocation(location, s.vcsStatus)
+				})
 			}
 		})
 	}()
@@ -2674,6 +2704,7 @@ func (s *appState) switchSelectedSession() {
 			for _, warning := range snapshot.Warnings {
 				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
 			}
+			s.startVCSMonitoring()
 			if nextRunID != "" {
 				s.watchSession(bound, operation, nextRunID)
 			}
@@ -2724,6 +2755,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.session = snapshot.Session
 	s.bound = bound
 	s.location = location
+	s.locationBase = location
+	s.vcsStatus = nil
 	s.composer = s.sessionDrafts[snapshot.Session.ID]
 	s.composerCursorEndGeneration++
 	s.messages = nil

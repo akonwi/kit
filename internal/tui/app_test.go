@@ -635,6 +635,19 @@ func TestPreferredStartupModelPreservesExplicitCLISelectionAfterLogin(t *testing
 	}
 }
 
+func TestResolveSessionLocationUsesAttachedSessionCWD(t *testing.T) {
+	t.Parallel()
+	if got := resolveSessionLocation(context.Background(), "/session-b", "/invocation-a", nil); got != "/session-b" {
+		t.Fatalf("location = %q, want attached session cwd", got)
+	}
+	got := resolveSessionLocation(context.Background(), "/session-b", "/invocation-a", func(_ context.Context, cwd string) string {
+		return "resolved:" + cwd
+	})
+	if got != "resolved:/session-b" {
+		t.Fatalf("resolved location = %q", got)
+	}
+}
+
 func TestBootstrapSessionResumesNewestUsableSession(t *testing.T) {
 	t.Parallel()
 
@@ -884,6 +897,7 @@ type fakeSession struct {
 	id         string
 	snapshot   protocol.SessionSnapshot
 	snapshotFn func() protocol.SessionSnapshot
+	vcsStatus  func(context.Context) (protocol.SessionVCSStatus, error)
 	reload     func(context.Context) (protocol.ReloadSessionResult, error)
 	configure  func(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
 	compact    func(context.Context, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
@@ -896,6 +910,13 @@ func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error)
 		return s.snapshotFn(), nil
 	}
 	return s.snapshot, nil
+}
+
+func (s fakeSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, error) {
+	if s.vcsStatus != nil {
+		return s.vcsStatus(ctx)
+	}
+	return protocol.SessionVCSStatus{SessionID: s.id, CWD: s.snapshot.Session.CWD}, nil
 }
 
 func (s fakeSession) ChangeCWD(_ context.Context, target string) (protocol.SessionInfo, error) {

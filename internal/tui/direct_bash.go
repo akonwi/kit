@@ -197,6 +197,7 @@ func (s *appState) watchBash(execution sessionclient.BashExecution, operation ui
 					s.status = ""
 				}
 			})
+			s.refreshVCSStatus()
 		})
 	}()
 }

@@ -92,6 +92,36 @@ func TestModelAndConfigurationValidation(t *testing.T) {
 	}
 }
 
+func TestSessionVCSStatusValidate(t *testing.T) {
+	t.Parallel()
+	const sessionID = "session_0123456789abcdef0123456789abcdef"
+	const oid = "0123456789abcdef0123456789abcdef01234567"
+	valid := SessionVCSStatus{
+		SessionID: sessionID, CWD: "/repo",
+		Status: &VCSStatus{Root: "/repo", Head: VCSHead{Kind: VCSHeadBranch, Name: "main"}, Dirty: true},
+	}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	withoutRepository := SessionVCSStatus{SessionID: sessionID, CWD: "/tmp"}
+	if err := withoutRepository.Validate(); err != nil {
+		t.Fatalf("Validate(nil status) error = %v", err)
+	}
+	invalid := []SessionVCSStatus{
+		{},
+		{SessionID: sessionID, CWD: "relative"},
+		{SessionID: sessionID, CWD: "/repo", Status: &VCSStatus{Root: "relative", Head: VCSHead{Kind: VCSHeadBranch, Name: "main"}}},
+		{SessionID: sessionID, CWD: "/repo", Status: &VCSStatus{Root: "/repo", Head: VCSHead{Kind: VCSHeadBranch, Name: "bad\nbranch"}}},
+		{SessionID: sessionID, CWD: "/repo", Status: &VCSStatus{Root: "/repo", Head: VCSHead{Kind: VCSHeadDetached, OID: "short"}}},
+		{SessionID: sessionID, CWD: "/repo", Status: &VCSStatus{Root: "/repo", Head: VCSHead{Kind: VCSHeadDetached, Name: "main", OID: oid}}},
+	}
+	for index, result := range invalid {
+		if err := result.Validate(); err == nil {
+			t.Fatalf("invalid VCS status %d passed validation: %+v", index, result)
+		}
+	}
+}
+
 func TestChangeCWDInputValidate(t *testing.T) {
 	mutationID := "cwd_0123456789abcdef0123456789abcdef"
 	for _, input := range []ChangeCWDInput{{MutationID: mutationID, Path: "../other"}, {MutationID: mutationID, Path: "~"}, {MutationID: mutationID, Path: "/tmp/project"}} {

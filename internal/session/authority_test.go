@@ -149,6 +149,10 @@ func TestManagerTemporarySessionUsesMemoryAndDisappearsOnDelete(t *testing.T) {
 	if err != nil || renamed.Name != "Temporary work" || renamed.UpdatedAt.Before(created.UpdatedAt) {
 		t.Fatalf("Rename(temporary) = %+v, %v", renamed, err)
 	}
+	loaded, err := manager.Get(t.Context(), created.ID)
+	if err != nil || loaded.ID != created.ID || loaded.CWD != root {
+		t.Fatalf("Get(temporary) = %+v, %v", loaded, err)
+	}
 	listed, err := manager.List(t.Context(), "")
 	if err != nil || len(listed) != 0 {
 		t.Fatalf("List() = %+v, %v, want no temporary sessions", listed, err)

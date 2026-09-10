@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -135,6 +136,10 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 
 	workspace := t.TempDir()
+	gitInit := exec.Command("git", "-C", workspace, "init", "-b", "main")
+	if output, err := gitInit.CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, output)
+	}
 	if err := os.WriteFile(filepath.Join(paths.Home, "AGENTS.md"), []byte("daemon-global-guidance"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -175,6 +180,14 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	created, err := client.CreateSession(context.Background(), createInput)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
+	}
+	vcsStatus, err := client.GetSessionVCSStatus(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("GetSessionVCSStatus() error = %v", err)
+	}
+	if vcsStatus.SessionID != created.ID || vcsStatus.CWD != workspace || vcsStatus.Status == nil ||
+		vcsStatus.Status.Head.Kind != protocol.VCSHeadUnborn || vcsStatus.Status.Head.Name != "main" || !vcsStatus.Status.Dirty {
+		t.Fatalf("GetSessionVCSStatus() = %+v", vcsStatus)
 	}
 	retried, err := client.CreateSession(context.Background(), createInput)
 	if err != nil || retried.ID != created.ID {

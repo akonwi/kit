@@ -195,7 +195,7 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 		Phase:         phaseReady,
 		Status:        "esc abort · ctrl+c detach",
 		TurnActivity:  "Working…",
-		Location:      "~/Developer/agent/kit-v2 (kit-v2)",
+		Location:      "~/Developer/agent/kit-v2 (kit-v2*)",
 		ContextTokens: 112,
 		ContextWindow: 200,
 		Session: protocol.SessionInfo{
@@ -226,7 +226,7 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	if !strings.Contains(rows[height-1], "esc abort · ctrl+c detach") {
 		t.Fatalf("footer left = %q, want run guidance", rows[height-1])
 	}
-	if !strings.HasSuffix(strings.TrimSpace(rows[height-1]), "~/Developer/agent/kit-v2 (kit-v2)") {
+	if !strings.HasSuffix(strings.TrimSpace(rows[height-1]), "~/Developer/agent/kit-v2 (kit-v2*)") {
 		t.Fatalf("footer right = %q, want cwd and git", rows[height-1])
 	}
 }

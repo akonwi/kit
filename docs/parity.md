@@ -122,14 +122,14 @@ recorded manual verification exists.
 - [x] Change model and thinking level on an existing session; the Kit registry
   atomically persists expected-revision-guarded configuration updates, the
   manager resolves exact targets and safely adapts context before runtime
-  replacement, protocol v18 projects capabilities and applied configuration,
+  replacement, protocol v19 projects capabilities and applied configuration,
   and native `/model` and `/thinking` selectors share clickable header controls.
   See `internal/session/configuration.go`, `internal/protocol/session.go`, and
   `internal/tui/configuration_picker.go`.
 - [x] Persist droid-owned provider usage per message, turn, and cumulative
   conversation; include observed retry/error/abort and compaction usage exactly
   once, preserve totals across restart and forks, project absolute snapshot/live
-  totals through protocol v18, and present them in native `/debug` details.
+  totals through protocol v19, and present them in native `/debug` details.
   See `internal/droids/usage.go`, `internal/session/snapshot.go`,
   `internal/protocol/session.go`, and `internal/tui/session_details.go`.
 - [~] Run different top-level sessions concurrently.
@@ -179,7 +179,7 @@ recorded manual verification exists.
   subagents.
 - [ ] Retryable provider errors with user-visible countdown/status and limits.
 - [~] Proactive and overflow-driven compaction with durable checkpoints; droids
-  performs threshold-driven automatic compaction and protocol v18 projects its
+  performs threshold-driven automatic compaction and protocol v19 projects its
   pending, completed, and failed lifecycle so the native TUI provides notice.
 - [~] Current context pressure and model limit reporting, distinct from
   cumulative provider usage; session snapshots project the estimated active
@@ -209,7 +209,6 @@ recorded manual verification exists.
   coding tools and direct bash snapshot the current workspace scope at admission.
 - [~] Direct composer `!`/`!!` bash execution; included terminal results enter
   droid boundary history, while in-flight and excluded executions are transient.
-- [ ] Git-aware operations used by review and workspace features.
 - [ ] URL/open-browser and platform operations behind client/platform ports.
 - [ ] `show_image` local-image validation and transcript presentation.
 - [ ] Attachment/image inputs with validation and provider capability handling.
@@ -308,7 +307,7 @@ recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v18 exposes retry-safe client-selected persisted or temporary
+  protocol v19 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename, persisted cwd mutation, and
   archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, renderer-safe prompt
@@ -316,8 +315,8 @@ recorded manual verification exists.
   identity, direct canonical history, context/pending boundaries, runtime stream
   synchronization metadata, bounded tool arguments, stable live assistant
   message IDs, validated cumulative usage snapshots/updates, model capabilities,
-  revision-guarded session configuration, and idempotent explicit compaction.
-  TypeScript contracts remain.
+  revision-guarded session configuration, idempotent explicit compaction, and
+  session/cwd-correlated volatile VCS status. TypeScript contracts remain.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
   to runtime stream identity, cursor, and replay availability. Broader
   multi-client conformance remains.
@@ -501,8 +500,14 @@ recorded manual verification exists.
 - [ ] OAuth browser flow, timeout, credential persistence, one retry after
   rejected saved auth, and logout.
 - [ ] TUI/web status and debug surfaces.
-- [ ] Git branch/dirty status and current GitHub PR metadata through `gh`.
-- [ ] Asynchronous, cached, silent-degradation integration behavior.
+- [~] Native TUI footer local VCS status; server-owned structured
+  repository/head/dirty probes render branch, detached/unborn head, and `*`
+  dirty state with bounded Git subprocesses and silent fallback. The TUI
+  refreshes after attachment, session/cwd changes, tool and bash completion,
+  agent settlement, and a five-second fallback poll. Production's debounced
+  filesystem watcher for lower-latency external changes remains.
+- [ ] Current GitHub PR metadata through `gh`, with asynchronous cached refresh,
+  a click-through PR URL, and silent degradation when unavailable.
 - [ ] Update checks and paginated release history without delaying startup.
 
 ## Headless and automation verification

@@ -131,6 +131,22 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 	return output, nil
 }
 
+// GetSessionVCSStatus returns volatile repository status for a session workspace.
+func (c *Client) GetSessionVCSStatus(ctx context.Context, sessionID string) (protocol.SessionVCSStatus, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/vcs"
+	var output protocol.SessionVCSStatus
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.SessionVCSStatus{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionVCSStatus{}, fmt.Errorf("validate daemon session VCS status: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.SessionVCSStatus{}, fmt.Errorf("daemon session VCS identity mismatch")
+	}
+	return output, nil
+}
+
 // GetSessionEvents returns the next ordered page after a session stream sequence.
 func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
 	values := url.Values{}

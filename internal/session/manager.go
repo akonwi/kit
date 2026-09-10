@@ -627,6 +627,31 @@ func (m *Manager) finishTemporaryDisposal(
 	}
 }
 
+// Get returns current metadata for one persisted or temporary session.
+func (m *Manager) Get(ctx context.Context, sessionID string) (SessionRecord, error) {
+	if err := m.beginOperation(); err != nil {
+		return SessionRecord{}, err
+	}
+	defer m.ops.Done()
+	if !identifier.Valid(sessionID, "session_") {
+		return SessionRecord{}, fmt.Errorf("%w: invalid session id", ErrInvalidInput)
+	}
+	m.mu.Lock()
+	deleting := m.deleting[sessionID]
+	m.mu.Unlock()
+	if deleting {
+		return SessionRecord{}, ErrDeleteBusy
+	}
+	record, err := m.sessionRecord(ctx, sessionID)
+	if err != nil {
+		return SessionRecord{}, err
+	}
+	if record.ArchivedAt != nil {
+		return SessionRecord{}, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+	}
+	return record, nil
+}
+
 func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error) {
 	if err := m.beginOperation(); err != nil {
 		return nil, err

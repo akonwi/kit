@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -355,15 +354,11 @@ func TestInteractiveProvidersPreferCodexCredentials(t *testing.T) {
 	}
 }
 
-func TestInteractiveLocationIncludesGitBranch(t *testing.T) {
+func TestInteractiveLocationLeavesGitPresentationToSessionStatus(t *testing.T) {
 	directory := t.TempDir()
-	command := exec.Command("git", "-C", directory, "init", "-b", "ui-slice")
-	if output, err := command.CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, output)
-	}
 	location := interactiveLocation(context.Background(), directory)
-	if !strings.Contains(location, "(ui-slice)") {
-		t.Fatalf("location = %q, want branch", location)
+	if location != directory {
+		t.Fatalf("location = %q, want %q", location, directory)
 	}
 }
 

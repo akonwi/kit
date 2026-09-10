@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/hex"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -305,6 +306,44 @@ func validRendererText(value string, maximum int) bool {
 // project into renderer-owned text surfaces.
 func ValidSessionName(name string) bool {
 	return name == "" || validRendererText(name, 256)
+}
+
+// Validate checks volatile VCS status received across a transport boundary.
+func (result SessionVCSStatus) Validate() error {
+	if !identifier.Valid(result.SessionID, "session_") {
+		return fmt.Errorf("VCS status session id is invalid")
+	}
+	if !filepath.IsAbs(result.CWD) || !validPathText(result.CWD) {
+		return fmt.Errorf("VCS status cwd is not a safe bounded absolute path")
+	}
+	if result.Status == nil {
+		return nil
+	}
+	status := result.Status
+	if !filepath.IsAbs(status.Root) || !validPathText(status.Root) {
+		return fmt.Errorf("VCS repository root is not a safe bounded absolute path")
+	}
+	switch status.Head.Kind {
+	case VCSHeadBranch, VCSHeadUnborn:
+		if !validRendererText(status.Head.Name, 4096) || status.Head.OID != "" {
+			return fmt.Errorf("VCS branch head is invalid")
+		}
+	case VCSHeadDetached:
+		if status.Head.Name != "" || !validVCSOID(status.Head.OID) {
+			return fmt.Errorf("VCS detached head is invalid")
+		}
+	default:
+		return fmt.Errorf("VCS head kind %q is invalid", status.Head.Kind)
+	}
+	return nil
+}
+
+func validVCSOID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
 }
 
 // Validate checks a session projection received across a transport boundary.

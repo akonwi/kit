@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -227,21 +226,13 @@ func interactiveProviders(providerIDs []string) (map[string]bool, string) {
 	}
 }
 
-func interactiveLocation(ctx context.Context, cwd string) string {
+func interactiveLocation(_ context.Context, cwd string) string {
 	location := cwd
 	if home, err := os.UserHomeDir(); err == nil {
 		if relative, err := filepath.Rel(home, cwd); err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			location = filepath.Join("~", relative)
 		} else if relative == "." {
 			location = "~"
-		}
-	}
-	gitContext, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-	defer cancel()
-	output, err := exec.CommandContext(gitContext, "git", "-C", cwd, "branch", "--show-current").Output()
-	if err == nil {
-		if branch := strings.TrimSpace(string(output)); branch != "" {
-			location += " (" + branch + ")"
 		}
 	}
 	return location
