@@ -65,12 +65,6 @@ func (s *toolOutputWellState) DidUpdateWidget(old ui.Widget) {
 		s.contentRows = estimateToolOutputRows(well.Output, columns)
 		s.viewportRows = min(toolOutputMaxRows, s.contentRows)
 		s.needsMeasure = true
-		if previous.StickyBottom || well.StickyBottom {
-			s.needsEnd = true
-		}
-	}
-	if !previous.StickyBottom && well.StickyBottom {
-		s.needsEnd = true
 	}
 	if !previous.Rich && well.Rich {
 		s.needsStart = true

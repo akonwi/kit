@@ -260,7 +260,7 @@ func (s *appState) upsertBashExecution(execution protocol.BashExecution) {
 		return false
 	}
 	if update(s.messages) || update(s.liveMessages) {
-		s.requestTranscriptScroll()
+		s.followTranscriptIfPinned()
 		return
 	}
 	message := transcriptMessage{
@@ -272,7 +272,7 @@ func (s *appState) upsertBashExecution(execution protocol.BashExecution) {
 	} else {
 		s.messages = append(s.messages, message)
 	}
-	s.requestTranscriptScroll()
+	s.followTranscriptIfPinned()
 }
 
 func findBashExecution(primary, live []transcriptMessage, executionID string) (protocol.BashExecution, bool) {

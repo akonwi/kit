@@ -482,24 +482,28 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 	children := make([]ui.Widget, 0, len(presentation.Items)*2)
 	for index, item := range presentation.Items {
 		if index > 0 {
-			children = append(children, ui.SizedBox{Height: 1})
+			children = append(children, keyedTranscriptItem{ID: "transcript-gap:" + item.ID, Child: ui.SizedBox{Height: 1}})
 		}
+		var child ui.Widget
 		switch item.Kind {
 		case transcriptDisplaySingle:
 			if item.Item.Kind == transcriptItemBash && item.Item.Message.Bash != nil {
 				execution := *item.Item.Message.Bash
-				children = append(children, transcriptBashEntry(theme, execution, w.Snapshot.BashCollapsed[execution.ID], func(ctx ui.EventContext) {
+				child = transcriptBashEntry(theme, execution, w.Snapshot.BashCollapsed[execution.ID], func(ctx ui.EventContext) {
 					if w.Callbacks.ToggleBashOutput != nil {
 						w.Callbacks.ToggleBashOutput(ctx, execution.ID)
 					}
-				}))
+				})
 			} else {
-				children = append(children, transcriptUserEntry(theme, item.Item.Message))
+				child = transcriptUserEntry(theme, item.Item.Message)
 			}
 		case transcriptDisplayAssistantProse:
-			children = append(children, transcriptAssistantEntry(theme, item.Item.Message))
+			child = transcriptAssistantEntry(theme, item.Item.Message)
 		case transcriptDisplayTurnWork:
-			children = append(children, w.transcriptWorkChip(theme, item, presentation.ToolStates))
+			child = w.transcriptWorkChip(theme, item, presentation.ToolStates)
+		}
+		if child != nil {
+			children = append(children, keyedTranscriptItem{ID: item.ID, Child: child})
 		}
 	}
 	return ui.Scrollbar{Child: ui.ScrollView{
@@ -507,6 +511,15 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		Child:      ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}),
 	}}
 }
+
+type keyedTranscriptItem struct {
+	ID    string
+	Child ui.Widget
+}
+
+func (w keyedTranscriptItem) WidgetKey() ui.KeyValue { return ui.KeyValue(w.ID) }
+
+func (w keyedTranscriptItem) Build(ui.BuildContext) ui.Widget { return w.Child }
 
 func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage) ui.Widget {
 	content := markdownView{

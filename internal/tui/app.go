@@ -421,15 +421,59 @@ func (s *appState) dismissToast(id uint64) {
 	})
 }
 
+func equivalentActivitySource(items []transcriptDisplayItem, previous transcriptDisplayItem) (transcriptDisplayItem, bool) {
+	if previous.TurnID == "" {
+		return transcriptDisplayItem{}, false
+	}
+	previousCalls := make(map[string]bool)
+	for _, call := range displayItemToolCalls(previous) {
+		previousCalls[call.ID] = true
+	}
+	for _, item := range items {
+		if item.Kind != transcriptDisplayTurnWork || item.TurnID != previous.TurnID {
+			continue
+		}
+		if len(previousCalls) == 0 {
+			return item, true
+		}
+		for _, call := range displayItemToolCalls(item) {
+			if previousCalls[call.ID] {
+				return item, true
+			}
+		}
+	}
+	return transcriptDisplayItem{}, false
+}
+
 func (s *appState) requestTranscriptScroll() {
 	s.needsScroll = true
 	s.scrollPendingLayout = true
+}
+
+func (s *appState) followTranscriptIfPinned() {
+	if scrollControllerPinnedToEnd(&s.scroll) {
+		s.requestTranscriptScroll()
+	}
 }
 
 func (s *appState) requestActivityScroll(toEnd bool) {
 	s.activityNeedsScroll = true
 	s.activityPendingLayout = true
 	s.activityScrollToEnd = toEnd
+}
+
+func (s *appState) followActivityIfPinned() {
+	if scrollControllerPinnedToEnd(&s.activityScroll) {
+		s.requestActivityScroll(true)
+	}
+}
+
+func scrollControllerPinnedToEnd(controller *ui.ScrollController) bool {
+	if controller == nil || !controller.Attached() {
+		return true
+	}
+	metrics := controller.Metrics()
+	return metrics.ScrollOffset >= metrics.MaxScrollOffset
 }
 
 func (s *appState) resetAttachmentContext() {
@@ -585,7 +629,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 							s.activityCursor = keys[0]
 						}
 					}
-					s.requestActivityScroll(transcriptActivityInProgress(presentation, s.activitySourceID))
 				})
 			}
 		},
@@ -1079,6 +1122,13 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 }
 
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
+	var previousActivitySource transcriptDisplayItem
+	if s.activitySourceID != "" {
+		messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
+		messages = append(messages, s.messages...)
+		messages = append(messages, s.liveMessages...)
+		previousActivitySource, _ = transcriptActivitySource(presentTranscript(messages).Items, s.activitySourceID)
+	}
 	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
 	if snapshot.Session.ID != "" {
 		s.session = snapshot.Session
@@ -1108,7 +1158,14 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.resetLiveRun()
 	if s.activitySourceID != "" {
 		presentation := presentTranscript(s.messages)
-		if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
+		source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID)
+		if !ok {
+			source, ok = equivalentActivitySource(presentation.Items, previousActivitySource)
+			if ok {
+				s.activitySourceID = source.ID
+			}
+		}
+		if ok {
 			valid := make(map[activityToolKey]bool)
 			for _, call := range displayItemToolCalls(source) {
 				valid[activityToolKey{TurnID: source.TurnID, ToolCallID: call.ID}] = true
@@ -1127,7 +1184,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 					}
 				}
 			}
-			s.requestActivityScroll(false)
+			s.followActivityIfPinned()
 		} else {
 			s.activitySourceID = ""
 			s.activitySelected = false
@@ -1139,7 +1196,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			s.activityRevealPendingLayout = false
 		}
 	}
-	s.requestTranscriptScroll()
+	s.followTranscriptIfPinned()
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
@@ -1455,7 +1512,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 	}
 	if len(events) > 0 {
 		if transcriptChanged {
-			s.requestTranscriptScroll()
+			s.followTranscriptIfPinned()
 		}
 		if s.activitySourceID != "" {
 			messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
@@ -1465,7 +1522,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
 				for _, event := range events {
 					if event.TurnID == source.TurnID {
-						s.requestActivityScroll(true)
+						s.followActivityIfPinned()
 						break
 					}
 				}
@@ -1689,7 +1746,7 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 	s.runPending = false
 	s.prompt = nil
 	s.status = "Transcript refresh failed; the next turn will retry · " + snapshotErr.Error()
-	s.requestTranscriptScroll()
+	s.followTranscriptIfPinned()
 }
 
 func (s *appState) watchSession(bound sessionclient.Session, operation uint64, runID string) {
@@ -2943,7 +3000,7 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 			s.runPending = false
 			s.prompt = nil
 			s.status = ""
-			s.requestTranscriptScroll()
+			s.followTranscriptIfPinned()
 			if runErr != nil {
 				s.messages = append(s.messages, s.liveMessages...)
 				s.resetLiveRun()

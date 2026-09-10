@@ -158,6 +158,57 @@ func TestPendingActivityFollowUsesLatestCompletedLayout(t *testing.T) {
 	}
 }
 
+func TestTranscriptAndActivityFollowPreserveUserScroll(t *testing.T) {
+	t.Parallel()
+
+	calls := make([]transcriptToolCall, 24)
+	for index := range calls {
+		calls[index] = transcriptToolCall{
+			ID: "call_" + strconv.Itoa(index), Name: "read",
+			Arguments: json.RawMessage(`{"path":"README.md"}`),
+		}
+	}
+	messages := make([]transcriptMessage, 24)
+	for index := range messages {
+		messages[index] = transcriptMessage{
+			ID: "prose_" + strconv.Itoa(index), TurnID: "turn_0", Role: "assistant", Text: "transcript row",
+		}
+	}
+	messages = append(messages, transcriptMessage{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: calls,
+	})
+	state := appState{}
+	layout := workspaceLayoutState{Wide: true}
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Messages: messages, Scroll: &state.scroll,
+		ActivitySourceID: "turn-work:turn_1:assistant_1", ActivityScroll: &state.activityScroll,
+		ActivityList: &state.activityList, WorkspaceLayout: &layout,
+	}})
+	app.Pump(140, 16)
+	state.scroll.ScrollToStart()
+	state.activityScroll.ScrollToStart()
+	if state.scroll.Metrics().MaxScrollOffset == 0 || state.activityScroll.Metrics().MaxScrollOffset == 0 {
+		t.Fatal("test content did not overflow both transcript surfaces")
+	}
+
+	state.followTranscriptIfPinned()
+	state.followActivityIfPinned()
+	if state.needsScroll || state.activityNeedsScroll {
+		t.Fatalf("follow requested while user was away from end: transcript=%t activity=%t", state.needsScroll, state.activityNeedsScroll)
+	}
+	if state.scroll.Metrics().ScrollOffset != 0 || state.activityScroll.Metrics().ScrollOffset != 0 {
+		t.Fatalf("user scroll changed: transcript=%+v activity=%+v", state.scroll.Metrics(), state.activityScroll.Metrics())
+	}
+
+	state.scroll.ScrollToEnd()
+	state.activityScroll.ScrollToEnd()
+	state.followTranscriptIfPinned()
+	state.followActivityIfPinned()
+	if !state.needsScroll || !state.activityNeedsScroll || !state.activityScrollToEnd {
+		t.Fatalf("pinned surfaces did not keep following: transcript=%t activity=%t toEnd=%t", state.needsScroll, state.activityNeedsScroll, state.activityScrollToEnd)
+	}
+}
+
 func TestActivityScrollWaitsForUpdatedLayout(t *testing.T) {
 	t.Parallel()
 
@@ -189,6 +240,31 @@ func TestSnapshotPreservesExpandedActivityForStableToolCall(t *testing.T) {
 	}})
 	if state.activitySourceID != "turn-work:turn_1:assistant_1" || !state.activityExpanded[key] {
 		t.Fatalf("stable Activity reconciliation = source %q expanded %+v", state.activitySourceID, state.activityExpanded)
+	}
+}
+
+func TestSnapshotReconcilesExpandedActivityAcrossLiveSourceIdentity(t *testing.T) {
+	t.Parallel()
+
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	state := appState{
+		messages: []transcriptMessage{{
+			ID: "live-assistant:call_1", TurnID: "turn_1", Role: "assistant",
+			ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)}},
+		}},
+		activitySourceID: "turn-work:turn_1:live-assistant:call_1",
+		activityExpanded: map[activityToolKey]bool{key: true},
+	}
+	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{{
+			Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`,
+		}}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{
+			Kind: protocol.TranscriptContentText, Text: "contents",
+		}}},
+	}})
+	if state.activitySourceID != "turn-work:turn_1:assistant_1" || !state.activityExpanded[key] {
+		t.Fatalf("live Activity reconciliation = source %q expanded %+v", state.activitySourceID, state.activityExpanded)
 	}
 }
 
