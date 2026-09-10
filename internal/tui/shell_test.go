@@ -35,8 +35,8 @@ func TestHeaderControlsOwnExactHitRegions(t *testing.T) {
 	rows := paintedRows(application, 80, 24)
 	nameColumn, row := findTextCell(t, rows, "Focused work")
 	modelColumn, _ := findTextCell(t, rows, "GPT Test")
-	thinkingColumn, _ := findTextCell(t, rows, "thinking: high")
-	separatorColumn := modelColumn + len("GPT Test") + 1
+	thinkingColumn, _ := findTextCell(t, rows, "(high)")
+	separatorColumn := modelColumn + len("GPT Test")
 
 	baseBackground := application.Cell(modelColumn, row).Style.Background
 	application.Send(vaxis.Mouse{Col: modelColumn, Row: row, EventType: vaxis.EventMotion})
@@ -62,8 +62,8 @@ func TestHeaderControlsOwnExactHitRegions(t *testing.T) {
 	narrow := uitest.New(view)
 	narrow.Pump(24, 12)
 	narrowText := strings.Join(paintedRows(narrow, 24, 12), "\n")
-	if !strings.Contains(narrowText, "GPT Test") || strings.Contains(narrowText, "thinking: high") {
-		t.Fatalf("narrow header did not hide the complete lower-priority control:\n%s", narrowText)
+	if !strings.Contains(narrowText, "GPT Test (high)") {
+		t.Fatalf("narrow header did not show the compact model information:\n%s", narrowText)
 	}
 	veryNarrow := uitest.New(view)
 	veryNarrow.Pump(9, 8)
@@ -211,7 +211,7 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	if !strings.Contains(rows[0], "Auth refresh race") {
 		t.Fatalf("header left = %q, want session name", rows[0])
 	}
-	if !strings.Contains(rows[0], "GPT 5.6 Sol · thinking: medium · 56%") {
+	if !strings.Contains(rows[0], "GPT 5.6 Sol (medium) · 56%") {
 		t.Fatalf("header right = %q, want model and context information", rows[0])
 	}
 	if strings.Contains(strings.Join(rows, "\n"), "┌") || strings.Contains(strings.Join(rows, "\n"), "┐") {

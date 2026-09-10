@@ -429,8 +429,8 @@ func (w shellView) modelInformationControls(theme ui.Theme) ui.Widget {
 	}
 	if thinking := strings.TrimSpace(w.Snapshot.Session.ThinkingLevel); thinking != "" {
 		children = append(children,
-			ui.Text{Value: " · ", Style: ui.Style{Foreground: theme.MutedForeground}},
-			headerControl{Label: "thinking: " + thinking, OnPressed: w.Callbacks.OpenThinking},
+			ui.SizedBox{Width: 1},
+			headerControl{Label: "(" + thinking + ")", OnPressed: w.Callbacks.OpenThinking},
 		)
 	}
 	if percentage, ok := contextPercentage(w.Snapshot.ContextTokens, w.Snapshot.ContextWindow); ok {
