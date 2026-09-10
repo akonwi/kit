@@ -19,13 +19,17 @@ func TestCompactionAndConfigurationPendingCountAsActiveWork(t *testing.T) {
 
 func TestConfigurationPickerFiltersMovesAndPreservesFailedSelection(t *testing.T) {
 	catalog := protocol.ModelCatalog{Models: []protocol.ModelCapability{
-		{ID: "anthropic/claude", Name: "Claude", Provider: "anthropic"},
-		{ID: "openai/gpt", Name: "GPT", Provider: "openai"},
+		{ID: "anthropic/claude", Name: "Claude", Provider: "anthropic", Available: true},
+		{ID: "openai/gpt", Name: "GPT", Provider: "openai", Available: true},
+		{ID: "other/unavailable", Name: "Unavailable", Provider: "other", Available: false},
 	}}
 	var controller configurationPickerController
 	generation := controller.Begin(configurationPickerModel, "openai/gpt", "high")
 	if !controller.Resolve(generation, catalog, nil) || controller.Selection != "openai/gpt" {
 		t.Fatalf("resolved model picker = %+v", controller)
+	}
+	if models := controller.filteredModels(); len(models) != 2 || models[0].ID != "anthropic/claude" || models[1].ID != "openai/gpt" {
+		t.Fatalf("authenticated model options = %+v", models)
 	}
 	controller.SetQuery("claude")
 	if controller.Selection != "anthropic/claude" || len(controller.filteredModels()) != 1 {
@@ -68,8 +72,8 @@ func TestConfigurationSelectionBuildsAtomicModelAndThinkingRequests(t *testing.T
 
 func TestThinkingPickerOffersOnlyActiveModelLevels(t *testing.T) {
 	catalog := protocol.ModelCatalog{Models: []protocol.ModelCapability{
-		{ID: "test/current", ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingHigh}},
-		{ID: "test/other", ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingLow, protocol.ThinkingMedium}},
+		{ID: "test/current", Available: true, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingHigh}},
+		{ID: "test/other", Available: true, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingLow, protocol.ThinkingMedium}},
 	}}
 	var controller configurationPickerController
 	generation := controller.Begin(configurationPickerThinking, "test/current", "high")

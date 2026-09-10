@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/protocol"
@@ -72,11 +73,12 @@ func TestHeaderControlsOwnExactHitRegions(t *testing.T) {
 	}
 }
 
-func TestConfigurationPickersShowCapabilitiesAndSupportedThinking(t *testing.T) {
+func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t *testing.T) {
 	t.Parallel()
 
 	catalog := []protocol.ModelCapability{
 		{ID: "openai/gpt-large", Name: "GPT Large", Provider: "openai", ContextWindow: 128_000, Available: true, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingHigh}},
+		{ID: "openai/o", Name: "O", Provider: "openai", ContextWindow: 1_000_000, Available: true, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff}},
 		{ID: "anthropic/claude", Name: "Claude", Provider: "anthropic", ContextWindow: 200_000, Available: false, ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingLow}},
 	}
 	modelApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
@@ -84,10 +86,25 @@ func TestConfigurationPickersShowCapabilitiesAndSupportedThinking(t *testing.T) 
 	}})
 	modelApp.Pump(100, 24)
 	modelText := modelApp.Text()
-	for _, expected := range []string{"Select model", "Search models…", "✓ GPT Large", "openai/gpt-large", "128k context", "Claude", "sign in required"} {
+	for _, expected := range []string{"Select model", "Search models…", "✓ GPT Large", "openai/gpt-large", "128k context"} {
 		if !strings.Contains(modelText, expected) {
 			t.Fatalf("model picker missing %q:\n%s", expected, modelText)
 		}
+	}
+	if strings.Contains(modelText, "Claude") || strings.Contains(modelText, "sign in required") {
+		t.Fatalf("model picker showed an unauthenticated provider:\n%s", modelText)
+	}
+	contextColumns := make([]int, 0, 2)
+	for _, line := range paintedRows(modelApp, 100, 24) {
+		if column := strings.Index(line, "128k context"); column >= 0 {
+			contextColumns = append(contextColumns, utf8.RuneCountInString(line[:column]))
+		}
+		if column := strings.Index(line, "1.0M context"); column >= 0 {
+			contextColumns = append(contextColumns, utf8.RuneCountInString(line[:column]))
+		}
+	}
+	if len(contextColumns) != 2 || contextColumns[0] != contextColumns[1] {
+		t.Fatalf("model context columns = %v, want one aligned column:\n%s", contextColumns, modelText)
 	}
 	thinkingTheme := ui.DefaultThemeSet().Light
 	thinkingApp := uitest.New(markdownThemedTestSurface(thinkingTheme, configurationPickerSurface{Snapshot: configurationPickerSnapshot{

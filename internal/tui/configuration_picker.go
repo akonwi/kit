@@ -66,9 +66,10 @@ func (controller *configurationPickerController) Resolve(generation uint64, cata
 	}
 	controller.Models = append([]protocol.ModelCapability(nil), catalog.Models...)
 	if controller.Mode == configurationPickerModel {
+		models := controller.filteredModels()
 		controller.Selection = controller.CurrentModel
-		if modelCapabilityIndex(controller.Models, controller.Selection) < 0 && len(controller.Models) > 0 {
-			controller.Selection = controller.Models[0].ID
+		if modelCapabilityIndex(models, controller.Selection) < 0 && len(models) > 0 {
+			controller.Selection = models[0].ID
 		}
 	} else {
 		levels := controller.thinkingLevels()
@@ -220,14 +221,12 @@ func (controller *configurationPickerController) HandleEditorKey(key ui.Key) boo
 }
 
 func (controller *configurationPickerController) filteredModels() []protocol.ModelCapability {
-	return ui.DefaultFuzzySelectFilter(controller.Query, controller.Models, func(model protocol.ModelCapability) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: model.Name, Description: model.ID, Aliases: []string{model.Provider}}
-	})
+	return filterModels(controller.Query, controller.Models)
 }
 
 func (controller *configurationPickerController) thinkingLevels() []string {
 	index := modelCapabilityIndex(controller.Models, controller.CurrentModel)
-	if index < 0 {
+	if index < 0 || !controller.Models[index].Available {
 		return nil
 	}
 	levels := make([]string, 0, len(controller.Models[index].ThinkingLevels))
@@ -323,19 +322,15 @@ func (surface configurationPickerSurface) modelBody(theme ui.Theme) ui.Widget {
 	for _, model := range models {
 		model := model
 		status := formatContextWindow(model.ContextWindow) + " context"
-		if !model.Available {
-			status += " · sign in required"
-		}
 		rows = append(rows, configurationOptionRow{
-			Label: model.Name, Details: model.ID + " · " + status,
+			Label: model.Name, Details: model.ID, Meta: status,
 			Current:  model.ID == surface.Snapshot.CurrentModel,
 			Selected: model.ID == surface.Snapshot.Selection,
-			Disabled: !model.Available,
 			OnPressed: func(event ui.EventContext) {
 				if surface.Select != nil {
 					surface.Select(event, model.ID)
 				}
-				if model.Available && surface.Apply != nil {
+				if surface.Apply != nil {
 					surface.Apply(event)
 				}
 			},
@@ -363,7 +358,17 @@ func (surface configurationPickerSurface) modelBody(theme ui.Theme) ui.Widget {
 }
 
 func (surface configurationPickerSurface) filteredModels() []protocol.ModelCapability {
-	return ui.DefaultFuzzySelectFilter(surface.Snapshot.Query, surface.Snapshot.Models, func(model protocol.ModelCapability) ui.FuzzySelectItem {
+	return filterModels(surface.Snapshot.Query, surface.Snapshot.Models)
+}
+
+func filterModels(query string, models []protocol.ModelCapability) []protocol.ModelCapability {
+	authenticated := make([]protocol.ModelCapability, 0, len(models))
+	for _, model := range models {
+		if model.Available {
+			authenticated = append(authenticated, model)
+		}
+	}
+	return ui.DefaultFuzzySelectFilter(query, authenticated, func(model protocol.ModelCapability) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{Title: model.Name, Description: model.ID, Aliases: []string{model.Provider}}
 	})
 }
@@ -405,9 +410,9 @@ func (surface configurationPickerSurface) thinkingBody(theme ui.Theme) ui.Widget
 type configurationOptionRow struct {
 	Label     string
 	Details   string
+	Meta      string
 	Current   bool
 	Selected  bool
-	Disabled  bool
 	OnPressed ui.VoidCallback
 }
 
@@ -419,9 +424,6 @@ func (row configurationOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	foreground := theme.Foreground
 	detailsForeground := theme.MutedForeground
-	if row.Disabled {
-		foreground = theme.DisabledForeground
-	}
 	if row.Selected {
 		foreground = theme.Background
 		detailsForeground = theme.Background
@@ -429,11 +431,18 @@ func (row configurationOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	var content ui.Widget = label
 	if row.Details != "" {
-		content = ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		children := []ui.Widget{
 			ui.SizedBox{Width: 24, Child: label},
 			ui.SizedBox{Width: 1},
 			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-		}}
+		}
+		if row.Meta != "" {
+			children = append(children,
+				ui.SizedBox{Width: 1},
+				ui.SizedBox{Width: 12, Child: ui.Text{Value: row.Meta, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
+			)
+		}
+		content = ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 	}
 	rowTheme := theme
 	rowTheme.Foreground = theme.Background

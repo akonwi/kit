@@ -284,8 +284,8 @@ manager, protocol, and `/compact` command are wired.
 - [x] Add `/compact` to force explicit settled-session compaction regardless of
   automatic pressure thresholds and report whether context changed or was empty.
 - [x] Add `/model` to the command palette and open a searchable model selector.
-- [x] Show exact provider/model identity, current selection, authentication
-  availability, and context window without overcrowding rows.
+- [x] Show exact provider/model identity, current selection, and context window
+  for authenticated providers without overcrowding rows.
 - [x] Add `/thinking` and offer only levels supported by the active model.
 - [x] Make the model and thinking segments in the top-right header compact
   clickable controls with immediate hover feedback; primary-clicking a segment
