@@ -94,6 +94,8 @@ type toastStack struct {
 	Animate   bool
 }
 
+func (toastStack) WidgetKey() ui.KeyValue { return "toast-stack" }
+
 func (toastStack) CreateState() ui.State { return &toastStackState{} }
 
 type toastStackState struct {

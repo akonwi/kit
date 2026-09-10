@@ -103,6 +103,44 @@ func TestToastSlidesInFromTheRight(t *testing.T) {
 	}
 }
 
+func TestToastStackKeepsSettledAnimationWhenOverlaySiblingsChange(t *testing.T) {
+	size := ui.Size{Width: 100, Height: 20}
+	backend := &toastAnimationBackend{events: make(chan ui.Event), size: size}
+	toast := toastStack{Toasts: []toastRecord{{
+		ID: 1, toastInput: toastInput{Title: "Stable toast", Variant: toastInfo},
+	}}, Animate: true}
+	root := func(withSibling bool) ui.Widget {
+		entries := make([]ui.OverlayEntry, 0, 2)
+		if withSibling {
+			entries = append(entries, ui.OverlayEntry{Child: ui.Text{Value: "Another overlay"}})
+		}
+		entries = append(entries, ui.OverlayEntry{Child: toast})
+		return ui.Overlay{Child: ui.SizedBox{Width: size.Width, Height: size.Height}, Entries: entries}
+	}
+	application := ui.NewApp(root(false))
+	runner := ui.NewRunner(application, backend, ui.NewFrameScheduler(time.Second/60))
+	now := time.Now()
+	runner.Start(now)
+	if err := runner.HandleFrame(now); err != nil {
+		t.Fatal(err)
+	}
+	if err := runner.HandleFrame(now.Add(350 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	settled := strings.Index(toastPainterRows(backend.painter)[3], "Stable toast")
+	if settled < 0 {
+		t.Fatal("toast did not settle before overlay update")
+	}
+
+	application.UpdateRoot(root(true))
+	if err := runner.HandleFrame(now.Add(400 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Index(toastPainterRows(backend.painter)[3], "Stable toast"); got != settled {
+		t.Fatalf("toast horizontal position after sibling insertion = %d, want settled position %d", got, settled)
+	}
+}
+
 func TestToastCardBlocksClicksFromReachingUnderlyingContent(t *testing.T) {
 	t.Parallel()
 
