@@ -186,6 +186,9 @@ type appState struct {
 	sessionDrafts               map[string]string
 	sessionSwitchCancel         context.CancelFunc
 	sessionSwitchGeneration     uint64
+	sessionCreateCancel         context.CancelFunc
+	sessionCreateGeneration     uint64
+	sessionCreatePending        bool
 	messages                    []transcriptMessage
 	liveMessages                []transcriptMessage
 	liveAssistant               int
@@ -494,6 +497,9 @@ func (s *appState) Dispose() {
 	}
 	if s.sessionSwitchCancel != nil {
 		s.sessionSwitchCancel()
+	}
+	if s.sessionCreateCancel != nil {
+		s.sessionCreateCancel()
 	}
 	if s.attachmentCancel != nil {
 		s.attachmentCancel()
@@ -2145,7 +2151,7 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.bashStarting || s.activeBashID != ""
+	return s.runPending || s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
@@ -2199,6 +2205,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		if args != "" {
 			s.renameCurrentSession(args)
 		}
+	case paletteCommandNew:
+		s.createNewSession()
 	case paletteCommandQuit:
 		ctx.Quit()
 	case paletteCommandReload:
@@ -2696,6 +2704,74 @@ func (s *appState) deleteSelectedSession() {
 			s.SetState(func() { s.sessionExplorer.ResolveDelete(generation, err) })
 		})
 	}()
+}
+
+func (s *appState) createNewSession() {
+	if s.phase != phaseReady || s.bound == nil {
+		return
+	}
+	if s.sessionCreatePending {
+		s.showToast(toastInput{Title: "New session unavailable", Subtitle: "Session creation is already in progress.", Variant: toastWarning})
+		return
+	}
+
+	options := s.Widget().(app).Options
+	input := protocol.CreateSessionInput{
+		CWD:           s.session.CWD,
+		Model:         options.DefaultModel,
+		ThinkingLevel: options.DefaultThinking,
+	}
+	createContext, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+	generation := s.sessionCreateGeneration + 1
+	sourceOperation := s.operation
+	sourceSessionID := s.session.ID
+	s.SetState(func() {
+		s.sessionCreateGeneration = generation
+		s.sessionCreatePending = true
+		s.sessionCreateCancel = cancel
+	})
+	runtime := s.Context().Runtime()
+	go func() {
+		bound, snapshot, location, err := createSessionForSwitch(
+			createContext, options.Server, input, options.ResolveLocation,
+		)
+		cancel()
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if generation != s.sessionCreateGeneration {
+				return
+			}
+			s.sessionCreateCancel = nil
+			s.sessionCreatePending = false
+			if s.operation != sourceOperation || s.session.ID != sourceSessionID {
+				return
+			}
+			if err != nil {
+				s.showToast(toastInput{Title: "New session failed", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			s.SetState(func() { s.installSession(bound, snapshot, location) })
+			s.startVCSMonitoring()
+		})
+	}()
+}
+
+func createSessionForSwitch(
+	ctx context.Context,
+	server sessionclient.Server,
+	input protocol.CreateSessionInput,
+	resolveLocation func(context.Context, string) string,
+) (sessionclient.Session, protocol.SessionSnapshot, string, error) {
+	created, err := server.CreateSession(ctx, input)
+	if err != nil {
+		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("create session: %w", err)
+	}
+	if created.ID == "" {
+		return nil, protocol.SessionSnapshot{}, "", errors.New("create session returned an empty session id")
+	}
+	return attachSessionForSwitch(ctx, server, created.ID, resolveLocation)
 }
 
 func (s *appState) switchSelectedSession() {

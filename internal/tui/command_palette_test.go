@@ -85,6 +85,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandName {
 		t.Fatalf("rename matches = %#v, want name", commands)
 	}
+	commands = filteredPaletteCommands(false, "new")
+	if len(commands) == 0 || commands[0].ID != paletteCommandNew {
+		t.Fatalf("new matches = %#v, want new first", commands)
+	}
 	commands = filteredPaletteCommands(false, "effort")
 	if len(commands) != 1 || commands[0].ID != paletteCommandThinking {
 		t.Fatalf("effort matches = %#v, want thinking", commands)
@@ -94,6 +98,9 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 	if !paletteCommandAvailable(paletteCommandSessions, true) {
 		t.Fatal("sessions was unavailable during active work")
+	}
+	if !paletteCommandAvailable(paletteCommandNew, true) {
+		t.Fatal("new was unavailable during active work")
 	}
 	if !paletteCommandAvailable(paletteCommandDebug, true) {
 		t.Fatal("debug command was unavailable during active work")
@@ -174,7 +181,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 10 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 11 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -248,7 +255,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	rows := paintedRows(application, width, height)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
-		"Search commands…", "cd", "Change working directory", "login", "Connect another provider", "quit", "Exit Kit",
+		"Search commands…", "cd", "Change working directory", "login", "Connect another provider", "new", "Start a new session", "quit", "Exit Kit",
 		"reload", "Reload session context", "sessions", "Browse sessions", "↑↓ move · enter run · esc close",
 	} {
 		if !strings.Contains(text, expected) {
@@ -304,7 +311,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.T) {
 	t.Parallel()
 
-	const width, height = 60, 16
+	const width, height = 60, 18
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, PaletteOpen: true, PaletteQuery: "no-such-command",
 		Running: true, Scroll: &ui.ScrollController{},
@@ -326,7 +333,7 @@ func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.
 	}
 	runningRows := paintedRows(application, width, height)
 	for name, description := range map[string]string{
-		"sessions": "Browse sessions", "reload": "Reload session context", "thinking": "Change reasoning effort",
+		"new": "Start a new session", "sessions": "Browse sessions", "reload": "Reload session context",
 	} {
 		column, row := findTextCell(t, runningRows, name)
 		if !strings.Contains(runningRows[row], description) || application.Cell(column, row).Style.Foreground != ui.DefaultTheme().Foreground {
@@ -422,6 +429,22 @@ func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing
 	}
 }
 
+func TestCreateNewSessionReportsDuplicatePendingWork(t *testing.T) {
+	t.Parallel()
+
+	var presented toastInput
+	state := &appState{
+		phase:                phaseReady,
+		bound:                fakeSession{id: "session_current"},
+		sessionCreatePending: true,
+		showToastOverride:    func(toast toastInput) { presented = toast },
+	}
+	state.createNewSession()
+	if presented.Title != "New session unavailable" || presented.Subtitle != "Session creation is already in progress." || presented.Variant != toastWarning {
+		t.Fatalf("pending new-session toast = %+v", presented)
+	}
+}
+
 func TestDisabledCommandToastOverlaysPaletteWithoutReplacingFooter(t *testing.T) {
 	t.Parallel()
 
@@ -490,7 +513,7 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	for range 4 {
+	for range 5 {
 		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	}
 	application.Enter()

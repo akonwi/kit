@@ -577,6 +577,66 @@ func TestListSessionExplorerSessionsUsesGlobalDirectory(t *testing.T) {
 	}
 }
 
+func TestCreateSessionForSwitchUsesConfiguredDefaultsAndExactBinding(t *testing.T) {
+	t.Parallel()
+
+	target := protocol.SessionSnapshot{Session: protocol.SessionInfo{
+		ID: "session_new", CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "high",
+	}}
+	server := &fakeServer{
+		createdResult: target.Session,
+		attach: func(sessionID string) (sessionclient.Session, error) {
+			return fakeSession{id: sessionID, snapshot: target}, nil
+		},
+	}
+	bound, snapshot, location, err := createSessionForSwitch(
+		context.Background(), server, protocol.CreateSessionInput{
+			CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "high",
+		}, func(_ context.Context, cwd string) string { return "resolved:" + cwd },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.createCalls != 1 || server.created.CWD != "/repo" || server.created.Model != codexDefaultModel || server.created.ThinkingLevel != "high" || server.created.Temporary {
+		t.Fatalf("create calls=%d input=%+v", server.createCalls, server.created)
+	}
+	if bound.ID() != target.Session.ID || snapshot.Session.ID != target.Session.ID || location != "resolved:/repo" {
+		t.Fatalf("created attachment bound=%q snapshot=%q location=%q", bound.ID(), snapshot.Session.ID, location)
+	}
+}
+
+func TestCreateSessionForSwitchFailureDoesNotProduceReplacement(t *testing.T) {
+	t.Parallel()
+
+	server := &fakeServer{createErr: errors.New("storage unavailable")}
+	bound, snapshot, location, err := createSessionForSwitch(
+		context.Background(), server,
+		protocol.CreateSessionInput{CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "medium"}, nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "create session: storage unavailable") {
+		t.Fatalf("error = %v", err)
+	}
+	if bound != nil || snapshot.Session.ID != "" || location != "" {
+		t.Fatalf("failed replacement bound=%v snapshot=%+v location=%q", bound, snapshot, location)
+	}
+}
+
+func TestCreateSessionForSwitchPreservesCreatedSessionWhenAttachFails(t *testing.T) {
+	t.Parallel()
+
+	server := &fakeServer{
+		createdResult: protocol.SessionInfo{ID: "session_new", CWD: "/repo", Model: codexDefaultModel},
+		attachErr:     errors.New("temporarily unavailable"),
+	}
+	bound, _, _, err := createSessionForSwitch(
+		context.Background(), server,
+		protocol.CreateSessionInput{CWD: "/repo", Model: codexDefaultModel, ThinkingLevel: "medium"}, nil,
+	)
+	if err == nil || !strings.Contains(err.Error(), "attach session: temporarily unavailable") || bound != nil || server.createCalls != 1 {
+		t.Fatalf("bound=%v creates=%d err=%v", bound, server.createCalls, err)
+	}
+}
+
 func TestAttachSessionForSwitchUsesExactBindingSnapshotAndLocation(t *testing.T) {
 	t.Parallel()
 
@@ -913,6 +973,7 @@ type fakeServer struct {
 	created       protocol.CreateSessionInput
 	createdResult protocol.SessionInfo
 	createCalls   int
+	createErr     error
 	attachErr     error
 	attach        func(string) (sessionclient.Session, error)
 	rename        func(string, string) (protocol.SessionInfo, error)
@@ -924,7 +985,7 @@ type fakeServer struct {
 func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 	s.created = input
 	s.createCalls++
-	return s.createdResult, nil
+	return s.createdResult, s.createErr
 }
 
 func (s *fakeServer) RenameSession(_ context.Context, sessionID, name string) (protocol.SessionInfo, error) {
