@@ -14,25 +14,27 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
-func TestHeaderModelAndThinkingControlsOwnExactHitRegions(t *testing.T) {
+func TestHeaderControlsOwnExactHitRegions(t *testing.T) {
 	t.Parallel()
 
-	modelPresses, thinkingPresses := 0, 0
+	namePresses, modelPresses, thinkingPresses := 0, 0, 0
 	view := shellView{
 		Snapshot: shellSnapshot{
 			Phase:         phaseReady,
-			Session:       protocol.SessionInfo{Model: "test/gpt-test", ThinkingLevel: "high"},
+			Session:       protocol.SessionInfo{Name: "Focused work", Model: "test/gpt-test", ThinkingLevel: "high"},
 			ContextTokens: 64_000, ContextWindow: 128_000,
 		},
 		Callbacks: shellCallbacks{
-			OpenModel:    func(ui.EventContext) { modelPresses++ },
-			OpenThinking: func(ui.EventContext) { thinkingPresses++ },
+			OpenSessionRename: func(ui.EventContext) { namePresses++ },
+			OpenModel:         func(ui.EventContext) { modelPresses++ },
+			OpenThinking:      func(ui.EventContext) { thinkingPresses++ },
 		},
 	}
 	application := uitest.New(view)
 	application.Pump(80, 24)
 	rows := paintedRows(application, 80, 24)
-	modelColumn, row := findTextCell(t, rows, "GPT Test")
+	nameColumn, row := findTextCell(t, rows, "Focused work")
+	modelColumn, _ := findTextCell(t, rows, "GPT Test")
 	thinkingColumn, _ := findTextCell(t, rows, "thinking: high")
 	separatorColumn := modelColumn + len("GPT Test") + 1
 
@@ -46,13 +48,15 @@ func TestHeaderModelAndThinkingControlsOwnExactHitRegions(t *testing.T) {
 		t.Fatal("model control hover did not clear")
 	}
 
+	application.Click(nameColumn, row)
+	application.Click(nameColumn+len("Focused work")+1, row)
 	application.Click(modelColumn, row)
 	application.Click(thinkingColumn, row)
 	application.Click(separatorColumn, row)
 	application.Send(vaxis.Mouse{Col: modelColumn, Row: row, Button: vaxis.MouseRightButton, EventType: vaxis.EventPress})
 	application.Pump(80, 24)
-	if modelPresses != 1 || thinkingPresses != 1 || hoveredBackground == baseBackground {
-		t.Fatalf("header controls = model:%d thinking:%d base:%v hovered:%v", modelPresses, thinkingPresses, baseBackground, hoveredBackground)
+	if namePresses != 1 || modelPresses != 1 || thinkingPresses != 1 || hoveredBackground == baseBackground {
+		t.Fatalf("header controls = name:%d model:%d thinking:%d base:%v hovered:%v", namePresses, modelPresses, thinkingPresses, baseBackground, hoveredBackground)
 	}
 
 	narrow := uitest.New(view)

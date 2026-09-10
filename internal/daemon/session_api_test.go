@@ -23,6 +23,18 @@ import (
 	"github.com/akonwi/kit/internal/version"
 )
 
+func TestProjectSessionSanitizesLegacyUnsafeName(t *testing.T) {
+	t.Parallel()
+
+	projected := projectSession(kitsession.SessionRecord{
+		ID: "session_test", CWD: "/repo", Name: "bad\nname",
+		ModelProvider: "test", ModelID: "echo", ConfigurationRevision: 1,
+	})
+	if projected.Name != "" {
+		t.Fatalf("projected legacy session = %+v", projected)
+	}
+}
+
 func protocolContentText(message protocol.TranscriptMessage, kind protocol.TranscriptContentKind) string {
 	var result string
 	for _, block := range message.Content {

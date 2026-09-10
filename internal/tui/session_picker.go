@@ -169,7 +169,7 @@ func (s *sessionPickerState) Build(ctx ui.BuildContext) ui.Widget {
 	children := []ui.Widget{content}
 	if snapshot.RenameOpen {
 		children = append(children, sessionRenameSurface{
-			Snapshot: snapshot,
+			Snapshot: sessionExplorerRenameSnapshot(snapshot),
 			Callbacks: sessionRenameCallbacks{
 				Changed: func(_ ui.EventContext, value string) {
 					s.SetState(func() { s.controller.SetRenameText(value) })

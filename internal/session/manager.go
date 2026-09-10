@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/droids"
@@ -233,8 +234,8 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	}
 	cwd := filepath.Clean(input.CWD)
 	name := strings.TrimSpace(input.Name)
-	if len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
-		return SessionRecord{}, fmt.Errorf("%w: session name must be valid UTF-8 without NUL and at most 256 bytes", ErrInvalidInput)
+	if !validSessionName(name) {
+		return SessionRecord{}, fmt.Errorf("%w: session name must be renderer-safe UTF-8 and at most 256 bytes", ErrInvalidInput)
 	}
 	info, err := os.Stat(cwd)
 	if err != nil || !info.IsDir() {
@@ -347,6 +348,18 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	return SessionRecord{}, err
 }
 
+func validSessionName(name string) bool {
+	if len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
+		return false
+	}
+	for _, character := range name {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return false
+		}
+	}
+	return true
+}
+
 func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
 	// Name is intentionally omitted: it is mutable after creation, while a delayed
 	// replay of the original create request must still resolve to this session.
@@ -356,22 +369,33 @@ func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
 		record.ThinkingLevel == input.ThinkingLevel && record.ArchivedAt == nil
 }
 
-// Rename replaces one persisted session's display name.
+// Rename replaces one session's display name.
 func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRecord, error) {
 	if err := m.beginOperation(); err != nil {
 		return SessionRecord{}, err
 	}
 	defer m.ops.Done()
 	name = strings.TrimSpace(name)
-	if name == "" || len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
-		return SessionRecord{}, fmt.Errorf("%w: session name must be non-empty valid UTF-8 without NUL and at most 256 bytes", ErrInvalidInput)
+	if name == "" || !validSessionName(name) {
+		return SessionRecord{}, fmt.Errorf("%w: session name must be non-empty renderer-safe UTF-8 and at most 256 bytes", ErrInvalidInput)
 	}
 	m.mu.Lock()
-	_, temporary := m.temporary[sessionID]
-	m.mu.Unlock()
-	if temporary {
-		return SessionRecord{}, fmt.Errorf("%w: temporary sessions cannot be renamed", ErrInvalidInput)
+	if m.deleting[sessionID] {
+		m.mu.Unlock()
+		return SessionRecord{}, ErrDeleteBusy
 	}
+	if temporary, ok := m.temporary[sessionID]; ok {
+		temporary.Name = name
+		updatedAt := time.Now().UTC()
+		if !updatedAt.After(temporary.UpdatedAt) {
+			updatedAt = temporary.UpdatedAt.Add(time.Nanosecond)
+		}
+		temporary.UpdatedAt = updatedAt
+		m.temporary[sessionID] = temporary
+		m.mu.Unlock()
+		return temporary, nil
+	}
+	m.mu.Unlock()
 	return m.store.RenameSession(ctx, sessionID, name)
 }
 

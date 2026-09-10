@@ -81,6 +81,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandModel {
 		t.Fatalf("engine matches = %#v, want model", commands)
 	}
+	commands = filteredPaletteCommands(false, "rename")
+	if len(commands) != 1 || commands[0].ID != paletteCommandName {
+		t.Fatalf("rename matches = %#v, want name", commands)
+	}
 	commands = filteredPaletteCommands(false, "effort")
 	if len(commands) != 1 || commands[0].ID != paletteCommandThinking {
 		t.Fatalf("effort matches = %#v, want thinking", commands)
@@ -93,6 +97,9 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 	if !paletteCommandAvailable(paletteCommandDebug, true) {
 		t.Fatal("debug command was unavailable during active work")
+	}
+	if !paletteCommandAvailable(paletteCommandName, true) {
+		t.Fatal("name command was unavailable during active work")
 	}
 	for _, command := range []paletteCommandID{paletteCommandReload, paletteCommandThinking} {
 		if !paletteCommandAvailable(command, true) {
@@ -167,7 +174,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 9 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 10 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -483,7 +490,7 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	for range 3 {
+	for range 4 {
 		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	}
 	application.Enter()

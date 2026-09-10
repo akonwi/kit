@@ -26,6 +26,7 @@ type shellSnapshot struct {
 	PaletteCommands             []paletteCommand
 	ConfigurationPicker         configurationPickerSnapshot
 	SessionDetailsOpen          bool
+	SessionRename               sessionRenameSnapshot
 	SessionExplorer             sessionExplorerSnapshot
 	AuthReturnReady             bool
 	AuthFilter                  string
@@ -66,48 +67,51 @@ type providerSelectedCallback func(ui.EventContext, string)
 type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
-	OpenAuth              ui.VoidCallback
-	SelectProvider        providerSelectedCallback
-	MoveProviderSelection selectionMovedCallback
-	AuthFilterChanged     ui.TextChangedCallback
-	AuthAPIKeyChanged     ui.TextChangedCallback
-	SubmitAPIKey          ui.TextChangedCallback
-	OpenURL               ui.TextChangedCallback
-	CopyCode              ui.VoidCallback
-	OpenActivity          func(ui.EventContext, string)
-	HoverActivity         func(ui.EventContext, string)
-	ShowTranscript        ui.VoidCallback
-	ShowActivity          ui.VoidCallback
-	CloseActivity         ui.VoidCallback
-	ScrollActivity        func(ui.EventContext, int)
-	ToggleActivityTool    func(ui.EventContext, activityToolKey)
-	SelectActivityTool    func(ui.EventContext, activityToolKey)
-	MoveActivityTool      func(ui.EventContext, int)
-	ToggleBashOutput      func(ui.EventContext, string)
-	OpenBashHistory       func(ui.EventContext, int) bool
-	BashHistoryChanged    ui.TextChangedCallback
-	SelectBashHistory     func(ui.EventContext, string)
-	ComposerChanged       ui.TextChangedCallback
-	ComposerPasted        ui.TextChangedCallback
-	CopySelection         func(string)
-	DismissToast          func(uint64)
-	OpenPalette           ui.VoidCallback
-	PaletteQueryChanged   ui.TextChangedCallback
-	MovePaletteSelection  selectionMovedCallback
-	RunPaletteQuery       ui.TextChangedCallback
-	RunPaletteCommand     func(ui.EventContext, paletteCommandID)
-	OpenModel             ui.VoidCallback
-	OpenThinking          ui.VoidCallback
-	ConfigurationQuery    ui.TextChangedCallback
-	SelectConfiguration   func(ui.EventContext, string)
-	ApplyConfiguration    ui.VoidCallback
-	SelectSession         func(ui.EventContext, string)
-	RenameSessionChanged  ui.TextChangedCallback
-	SubmitSessionRename   ui.TextChangedCallback
-	Submit                ui.TextChangedCallback
-	Retry                 ui.VoidCallback
-	Quit                  ui.VoidCallback
-	Dismiss               ui.VoidCallback
+	OpenAuth                   ui.VoidCallback
+	SelectProvider             providerSelectedCallback
+	MoveProviderSelection      selectionMovedCallback
+	AuthFilterChanged          ui.TextChangedCallback
+	AuthAPIKeyChanged          ui.TextChangedCallback
+	SubmitAPIKey               ui.TextChangedCallback
+	OpenURL                    ui.TextChangedCallback
+	CopyCode                   ui.VoidCallback
+	OpenActivity               func(ui.EventContext, string)
+	HoverActivity              func(ui.EventContext, string)
+	ShowTranscript             ui.VoidCallback
+	ShowActivity               ui.VoidCallback
+	CloseActivity              ui.VoidCallback
+	ScrollActivity             func(ui.EventContext, int)
+	ToggleActivityTool         func(ui.EventContext, activityToolKey)
+	SelectActivityTool         func(ui.EventContext, activityToolKey)
+	MoveActivityTool           func(ui.EventContext, int)
+	ToggleBashOutput           func(ui.EventContext, string)
+	OpenBashHistory            func(ui.EventContext, int) bool
+	BashHistoryChanged         ui.TextChangedCallback
+	SelectBashHistory          func(ui.EventContext, string)
+	ComposerChanged            ui.TextChangedCallback
+	ComposerPasted             ui.TextChangedCallback
+	CopySelection              func(string)
+	DismissToast               func(uint64)
+	OpenPalette                ui.VoidCallback
+	PaletteQueryChanged        ui.TextChangedCallback
+	MovePaletteSelection       selectionMovedCallback
+	RunPaletteQuery            ui.TextChangedCallback
+	RunPaletteCommand          func(ui.EventContext, paletteCommandID)
+	OpenSessionRename          ui.VoidCallback
+	OpenModel                  ui.VoidCallback
+	OpenThinking               ui.VoidCallback
+	ConfigurationQuery         ui.TextChangedCallback
+	SelectConfiguration        func(ui.EventContext, string)
+	ApplyConfiguration         ui.VoidCallback
+	SelectSession              func(ui.EventContext, string)
+	SessionRenameChanged       ui.TextChangedCallback
+	SubmitCurrentSessionRename ui.TextChangedCallback
+	RenameSessionChanged       ui.TextChangedCallback
+	SubmitSessionRename        ui.TextChangedCallback
+	Submit                     ui.TextChangedCallback
+	Retry                      ui.VoidCallback
+	Quit                       ui.VoidCallback
+	Dismiss                    ui.VoidCallback
 }
 
 type shellView struct {
@@ -185,6 +189,14 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			ContextWindow: w.Snapshot.ContextWindow, Usage: w.Snapshot.SessionUsage,
 		}))
 	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionRename.Open {
+		overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
+			Snapshot: w.Snapshot.SessionRename,
+			Callbacks: sessionRenameCallbacks{
+				Changed: w.Callbacks.SessionRenameChanged, Submitted: w.Callbacks.SubmitCurrentSessionRename,
+			},
+		}))
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionExplorer.Open {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
 			Snapshot:  w.Snapshot.SessionExplorer,
@@ -192,7 +204,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		}))
 		if w.Snapshot.SessionExplorer.RenameOpen {
 			overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
-				Snapshot: w.Snapshot.SessionExplorer,
+				Snapshot: sessionExplorerRenameSnapshot(w.Snapshot.SessionExplorer),
 				Callbacks: sessionRenameCallbacks{
 					Changed: w.Callbacks.RenameSessionChanged, Submitted: w.Callbacks.SubmitSessionRename,
 				},
@@ -393,17 +405,19 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 }
 
 func (w shellView) header(theme ui.Theme) ui.Widget {
-	left := "kit"
+	left := ui.Widget(ui.Text{Value: "kit", Overflow: ui.TextOverflowEllipsis, MaxLines: 1})
 	right := ui.Widget(ui.SizedBox{})
 	if w.conversationVisible() {
-		left = sessionDisplayName(w.Snapshot.Session)
+		left = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{ui.Flexible(headerControl{
+			Label: sessionDisplayName(w.Snapshot.Session), Primary: true, OnPressed: w.Callbacks.OpenSessionRename,
+		})}}
 		right = w.modelInformationControls(theme)
 	}
 	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{
 		Axis:               ui.Horizontal,
 		CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
-			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
+			ui.ExpandedWidget{Flex: 1, Child: left},
 			ui.ExpandedWidget{Flex: 2, Child: right},
 		},
 	})}

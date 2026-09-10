@@ -433,21 +433,22 @@ recorded manual verification exists.
 
 - [~] Core command catalog and transport-neutral command subset; the native
   palette currently exposes cwd navigation, login, reload, model/thinking
-  configuration, explicit compaction, session diagnostics, session exploration,
-  quit, and server-discovered global/project prompt
+  configuration, session naming, explicit compaction, session diagnostics,
+  session exploration, quit, and server-discovered global/project prompt
   commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
 - [x] `/cd <path>` changes the authoritative session workspace scope, records a
   durable user-origin cwd boundary for the droid, and offers the same relative,
   absolute, and home-path behavior as `change_cwd`.
 - [x] `/login`, `/reload`, `/sessions`, `/debug`, `/model`, `/thinking`,
-  `/compact`, and `/quit` are available through the native
+  `/name`, `/compact`, and `/quit` are available through the native
   command palette with a stable searchable catalog, visibly disabled rows, and
   warning-toast feedback for unavailable keyboard activation. `/sessions`,
   `/reload`, and `/thinking` remain available during active turns; reload and
   thinking changes are sampled by the droid on its next provider request.
-- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/name`,
-  `/new`, `/tree`, and release/MCP commands.
+  Session naming is also available from the clickable top-left header control.
+- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/new`,
+  `/tree`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline
   save errors.
 - [ ] Theme discovery/selection and current custom-theme compatibility.

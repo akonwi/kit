@@ -732,8 +732,12 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 }
 
 func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
+	name := record.Name
+	if !protocol.ValidSessionName(name) {
+		name = ""
+	}
 	return protocol.SessionInfo{
-		ID: record.ID, CWD: record.CWD, Name: record.Name,
+		ID: record.ID, CWD: record.CWD, Name: name,
 		Model:         record.ModelProvider + "/" + record.ModelID,
 		ThinkingLevel: record.ThinkingLevel, ConfigurationRevision: record.ConfigurationRevision,
 		CreatedAt: record.CreatedAt.Format(time.RFC3339Nano),

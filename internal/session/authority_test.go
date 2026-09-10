@@ -66,8 +66,10 @@ func TestManagerCreateIsIdempotentForClientSelectedSessionID(t *testing.T) {
 	if err != nil || replayed.ID != first.ID || replayed.Name != "Renamed session" {
 		t.Fatalf("Create() replay after rename = %+v, %v", replayed, err)
 	}
-	if _, err := manager.Rename(t.Context(), first.ID, "   "); !errors.Is(err, session.ErrInvalidInput) {
-		t.Fatalf("empty Rename() error = %v", err)
+	for _, invalid := range []string{"   ", "bad\nname", "bad\u202ename"} {
+		if _, err := manager.Rename(t.Context(), first.ID, invalid); !errors.Is(err, session.ErrInvalidInput) {
+			t.Fatalf("Rename(%q) error = %v", invalid, err)
+		}
 	}
 }
 
@@ -142,6 +144,10 @@ func TestManagerTemporarySessionUsesMemoryAndDisappearsOnDelete(t *testing.T) {
 	}
 	if created.Persistent {
 		t.Fatalf("temporary session = %+v, want non-persistent", created)
+	}
+	renamed, err := manager.Rename(t.Context(), created.ID, " Temporary work ")
+	if err != nil || renamed.Name != "Temporary work" || renamed.UpdatedAt.Before(created.UpdatedAt) {
+		t.Fatalf("Rename(temporary) = %+v, %v", renamed, err)
 	}
 	listed, err := manager.List(t.Context(), "")
 	if err != nil || len(listed) != 0 {

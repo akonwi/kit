@@ -268,7 +268,8 @@ func TestAppTerminalStatusLeavesNonAgentPromptsIdle(t *testing.T) {
 	}{
 		{name: "authentication", state: &appState{phase: phaseAuthSelect}},
 		{name: "startup failure", state: &appState{phase: phaseFailed}},
-		{name: "rename", state: &appState{phase: phaseReady, sessionExplorer: sessionExplorerController{Open: true, RenameOpen: true}}},
+		{name: "attached rename", state: &appState{phase: phaseReady, sessionRename: currentSessionRenameController{Open: true}}},
+		{name: "explorer rename", state: &appState{phase: phaseReady, sessionExplorer: sessionExplorerController{Open: true, RenameOpen: true}}},
 		{name: "delete confirmation", state: &appState{phase: phaseReady, sessionExplorer: sessionExplorerController{Open: true, DeleteOpen: true}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {

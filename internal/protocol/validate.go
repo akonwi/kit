@@ -20,6 +20,10 @@ func (input CreateSessionInput) Validate() error {
 	if input.Temporary && input.ID == "" {
 		return fmt.Errorf("temporary session id is required")
 	}
+	name := strings.TrimSpace(input.Name)
+	if name != "" && !ValidSessionName(name) {
+		return fmt.Errorf("session name must be renderer-safe UTF-8 and at most 256 bytes")
+	}
 	provider, model, ok := strings.Cut(input.Model, "/")
 	if !ok || !validRendererText(provider, 128) || !validRendererText(model, 256) {
 		return fmt.Errorf("session model must use an exact provider/model id")
@@ -208,8 +212,8 @@ func (input ChangeCWDInput) Validate() error {
 // Validate checks a session rename crossing a transport boundary.
 func (input RenameSessionInput) Validate() error {
 	name := strings.TrimSpace(input.Name)
-	if name == "" || len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
-		return fmt.Errorf("session name must be non-empty valid UTF-8 without NUL and at most 256 bytes")
+	if name == "" || !ValidSessionName(name) {
+		return fmt.Errorf("session name must be non-empty renderer-safe UTF-8 and at most 256 bytes")
 	}
 	return nil
 }
@@ -297,10 +301,19 @@ func validRendererText(value string, maximum int) bool {
 	return true
 }
 
+// ValidSessionName reports whether an optional session display name is safe to
+// project into renderer-owned text surfaces.
+func ValidSessionName(name string) bool {
+	return name == "" || validRendererText(name, 256)
+}
+
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {
 	if session.ID == "" {
 		return fmt.Errorf("session id is empty")
+	}
+	if !ValidSessionName(session.Name) {
+		return fmt.Errorf("session name is not renderer-safe UTF-8")
 	}
 	if !filepath.IsAbs(session.CWD) || !validPathText(session.CWD) {
 		return fmt.Errorf("session cwd %q is not a safe bounded absolute path", session.CWD)

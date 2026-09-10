@@ -168,6 +168,7 @@ type appState struct {
 	compactPending              bool
 	compactOperationID          string
 	sessionDetailsOpen          bool
+	sessionRename               currentSessionRenameController
 	sessionExplorer             sessionExplorerController
 	authReturnReady             bool
 	authFilter                  string
@@ -331,6 +332,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			s.activityNeedsScroll = false
 		}
 	}
+	s.sessionRename.TickFrame()
 	if s.sessionExplorer.TickFrame() {
 		keepTicking = true
 	}
@@ -467,6 +469,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaletteCommands:             s.palette.Contributions,
 		ConfigurationPicker:         s.configurationPicker.Snapshot(),
 		SessionDetailsOpen:          s.sessionDetailsOpen,
+		SessionRename:               s.sessionRename.Snapshot(),
 		SessionExplorer:             s.sessionExplorer.Snapshot(),
 		AuthReturnReady:             s.authReturnReady,
 		AuthFilter:                  s.authFilter,
@@ -689,6 +692,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
+		OpenSessionRename: func(ui.EventContext) {
+			s.openCurrentSessionRename()
+		},
 		OpenModel: func(ui.EventContext) {
 			s.openConfigurationPicker(configurationPickerModel)
 		},
@@ -706,6 +712,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		SelectSession: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
+		},
+		SessionRenameChanged: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.sessionRename.SetText(value) })
+		},
+		SubmitCurrentSessionRename: func(_ ui.EventContext, value string) {
+			s.renameCurrentSession(value)
 		},
 		RenameSessionChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.sessionExplorer.SetRenameText(value) })
@@ -732,6 +744,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.sessionRename.Open {
+				if !s.sessionRename.Pending {
+					s.SetState(func() { s.sessionRename.Cancel() })
+				}
+				return
+			}
 			if s.configurationPicker.Mode != configurationPickerClosed {
 				s.SetState(func() { s.configurationPicker.Close() })
 				return
@@ -773,6 +791,27 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 	}
 	key, ok := event.(ui.Key)
 	if !ok {
+		return ui.EventIgnored
+	}
+	if s.sessionRename.Open {
+		if key.EventType == ui.EventRelease {
+			return ui.EventHandled
+		}
+		if key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+			s.renameCurrentSession(s.sessionRename.Text)
+			return ui.EventHandled
+		}
+		if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+			return ui.EventIgnored
+		}
+		if s.sessionRename.Pending {
+			return ui.EventHandled
+		}
+		handled := false
+		s.SetState(func() { handled = s.sessionRename.HandleEditorKey(key) })
+		if handled {
+			return ui.EventHandled
+		}
 		return ui.EventIgnored
 	}
 	if s.configurationPicker.Mode != configurationPickerClosed {
@@ -2029,7 +2068,8 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.sessionExplorer.Open {
+	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
+		s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
 		return
 	}
 	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
@@ -2073,6 +2113,11 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.enterAuthSelect(true)
 	case paletteCommandModel:
 		s.openConfigurationPicker(configurationPickerModel)
+	case paletteCommandName:
+		s.openCurrentSessionRename()
+		if args != "" {
+			s.renameCurrentSession(args)
+		}
 	case paletteCommandQuit:
 		ctx.Quit()
 	case paletteCommandReload:
@@ -2432,6 +2477,50 @@ func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr err
 	return toast
 }
 
+func (s *appState) openCurrentSessionRename() {
+	if s.phase != phaseReady || s.session.ID == "" || s.sessionRename.Open || s.sessionRename.Pending ||
+		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen || s.sessionExplorer.Open || s.bashHistory.Open {
+		return
+	}
+	s.SetState(func() { s.sessionRename.Begin(s.session) })
+}
+
+func (s *appState) renameCurrentSession(value string) {
+	var generation uint64
+	var sessionID, name string
+	var started bool
+	s.SetState(func() {
+		s.sessionRename.SetText(value)
+		generation, sessionID, name, started = s.sessionRename.BeginSave()
+	})
+	if !started {
+		return
+	}
+	server := s.Widget().(app).Options.Server
+	runtime := s.Context().Runtime()
+	go func() {
+		renameContext, cancel := context.WithTimeout(s.attachmentCtx, 5*time.Second)
+		renamed, err := server.RenameSession(renameContext, sessionID, name)
+		cancel()
+		if err == nil && renamed.ID != sessionID {
+			err = errors.New("renamed session identity mismatch")
+		}
+		if err == nil && renamed.Name != name {
+			err = errors.New("renamed session name mismatch")
+		}
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			s.SetState(func() {
+				if s.sessionRename.Resolve(generation, renamed, err) && err == nil && s.session.ID == sessionID {
+					s.session.Name = renamed.Name
+				}
+			})
+		})
+	}()
+}
+
 func (s *appState) openSessionExplorer() {
 	if s.phase != phaseReady || s.sessionExplorer.Open {
 		return
@@ -2490,7 +2579,7 @@ func (s *appState) renameSelectedSession(value string) {
 			s.SetState(func() {
 				accepted = s.sessionExplorer.ResolveRename(generation, renamed, err)
 				if accepted && err == nil && s.session.ID == sessionID {
-					s.session = renamed
+					s.session.Name = renamed.Name
 				}
 			})
 		})
@@ -2639,6 +2728,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composerCursorEndGeneration++
 	s.messages = nil
 	s.configurationPicker = configurationPickerController{}
+	s.sessionRename.Reset()
 	s.cwdPending = false
 	s.reloadPending = false
 	s.compactPending = false
@@ -2855,6 +2945,12 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.sessionRename.Open {
+		if !s.sessionRename.Pending {
+			s.SetState(func() { s.sessionRename.Cancel() })
+		}
+		return
+	}
 	if s.configurationPicker.Mode != configurationPickerClosed {
 		s.SetState(func() { s.configurationPicker.Close() })
 		return

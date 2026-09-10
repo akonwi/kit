@@ -81,6 +81,16 @@ func TestSessionSnapshotValidatesPromptCommands(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotRejectsUnsafeSessionName(t *testing.T) {
+	t.Parallel()
+
+	snapshot := validTranscriptSnapshot()
+	snapshot.Session.Name = "bad\nname"
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("Validate() accepted a control character in the session name")
+	}
+}
+
 func TestSessionSnapshotRejectsInvalidUsage(t *testing.T) {
 	t.Parallel()
 

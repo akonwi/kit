@@ -739,10 +739,9 @@ type sessionRenameFieldHarnessState struct {
 
 func (s *sessionRenameFieldHarnessState) Build(ui.BuildContext) ui.Widget {
 	return sessionRenameSurface{
-		Snapshot: sessionExplorerSnapshot{
-			RenameOpen: true, RenameSessionID: "session_target", RenameText: s.value,
-			RenameCursorEnd: s.generation,
-			Sessions:        []sessionExplorerItem{{ID: "session_target", Name: "Before"}},
+		Snapshot: sessionRenameSnapshot{
+			Open: true, Target: "Before", Text: s.value,
+			CursorOffset: len((ui.LayoutContext{}).Characters(s.value)), CursorEnd: s.generation,
 		},
 		Callbacks: sessionRenameCallbacks{Changed: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.value = value })

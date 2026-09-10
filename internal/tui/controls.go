@@ -21,6 +21,7 @@ type plainButtonState struct {
 // is exactly its visible label and only a primary press activates it.
 type headerControl struct {
 	Label     string
+	Primary   bool
 	OnPressed ui.VoidCallback
 }
 
@@ -34,7 +35,11 @@ type headerControlState struct {
 func (state *headerControlState) Build(ctx ui.BuildContext) ui.Widget {
 	config := state.Widget().(headerControl)
 	theme := ui.MustDepend[ui.Theme](ctx)
-	style := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
+	foreground := theme.MutedForeground
+	if config.Primary {
+		foreground = theme.Foreground
+	}
+	style := ui.Style{Foreground: foreground, Background: theme.Background}
 	if state.hovered {
 		style.Foreground = theme.Foreground
 		style.Background = theme.SurfaceHovered
@@ -51,7 +56,7 @@ func (state *headerControlState) Build(ctx ui.BuildContext) ui.Widget {
 				state.SetState(func() { state.hovered = false })
 			}
 		},
-		Child: ui.Text{Value: config.Label, Style: style, MaxLines: 1},
+		Child: ui.Text{Value: config.Label, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 	}
 }
 
