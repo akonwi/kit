@@ -2396,25 +2396,40 @@ func (s *appState) reloadSession() {
 					s.status = "esc abort · ctrl+c detach"
 				}
 			})
-			if toast, ok := reloadToast(result, reloadErr, snapshotErr); ok {
-				s.showToast(toast)
-			}
+			s.showToast(reloadToast(result, reloadErr, snapshotErr))
 		})
 	}()
 }
 
-func reloadToast(_ protocol.ReloadSessionResult, reloadErr, snapshotErr error) (toastInput, bool) {
+func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr error) toastInput {
 	if reloadErr != nil {
 		toast := toastInput{Title: "Session reload failed", Subtitle: reloadErr.Error(), Variant: toastError}
 		if snapshotErr != nil {
 			toast.Subtitle += " · session refresh failed: " + snapshotErr.Error()
 		}
-		return toast, true
+		return toast
+	}
+	toast := toastInput{Title: "Session context reloaded", Variant: toastInfo}
+	details := append([]string(nil), result.Warnings...)
+	warning := len(result.Warnings) > 0
+	for _, diagnostic := range result.Diagnostics {
+		details = append(details, diagnostic.Message)
+		warning = warning || diagnostic.Severity == "warning"
 	}
 	if snapshotErr != nil {
-		return toastInput{Title: "Session refresh failed", Subtitle: snapshotErr.Error(), Variant: toastError}, true
+		details = append([]string{"Session refresh failed: " + snapshotErr.Error()}, details...)
+		warning = true
 	}
-	return toastInput{}, false
+	if warning {
+		toast.Variant = toastWarning
+	}
+	if len(details) > 0 {
+		toast.Subtitle = details[0]
+		if len(details) > 1 {
+			toast.Subtitle += fmt.Sprintf(" (+%d more)", len(details)-1)
+		}
+	}
+	return toast
 }
 
 func (s *appState) openSessionExplorer() {
