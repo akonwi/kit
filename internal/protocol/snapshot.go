@@ -56,6 +56,9 @@ func (snapshot SessionSnapshot) Validate() error {
 	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 {
 		return fmt.Errorf("snapshot has too many prompt commands or warnings")
 	}
+	if err := snapshot.FollowUps.Validate(); err != nil {
+		return fmt.Errorf("snapshot follow-ups: %w", err)
+	}
 	for index, warning := range snapshot.Warnings {
 		if !validRendererText(warning, 4096) || strings.TrimSpace(warning) == "" {
 			return fmt.Errorf("snapshot warning %d is invalid", index)

@@ -146,6 +146,31 @@ type PromptInput struct {
 	Text string `json:"text"`
 }
 
+// FollowUpQueue is the renderer-safe projection of deferred session prompts.
+type FollowUpQueue struct {
+	Count    int      `json:"count"`
+	Previews []string `json:"previews,omitempty"`
+}
+
+// PromptSubmission reports whether a prompt started or became a follow-up.
+type PromptSubmission struct {
+	Reservation *RunReservation `json:"reservation,omitempty"`
+	Queued      bool            `json:"queued"`
+	Queue       FollowUpQueue   `json:"queue"`
+}
+
+// RestoreFollowUpsResult returns every atomically drained follow-up.
+type RestoreFollowUpsResult struct {
+	Messages []string      `json:"messages"`
+	Queue    FollowUpQueue `json:"queue"`
+}
+
+// PromoteFollowUpsResult reports steering accepted from the follow-up queue.
+type PromoteFollowUpsResult struct {
+	Promoted int           `json:"promoted"`
+	Queue    FollowUpQueue `json:"queue"`
+}
+
 // PromptCommandInput requests execution of one discovered prompt template.
 type PromptCommandInput struct {
 	Name string `json:"name"`
@@ -339,6 +364,7 @@ type SessionSnapshot struct {
 	ContextWindow         int                 `json:"contextWindow,omitempty"`
 	Usage                 SessionUsage        `json:"usage"`
 	PromptCommands        []PromptCommand     `json:"promptCommands,omitempty"`
+	FollowUps             FollowUpQueue       `json:"followUps"`
 	Warnings              []string            `json:"warnings,omitempty"`
 }
 

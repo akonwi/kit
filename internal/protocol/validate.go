@@ -386,6 +386,66 @@ func (input PromptInput) Validate() error {
 	return nil
 }
 
+// Validate checks renderer-safe follow-up queue state.
+func (queue FollowUpQueue) Validate() error {
+	if queue.Count < 0 || queue.Count > 64 || len(queue.Previews) > queue.Count {
+		return fmt.Errorf("follow-up queue count is invalid")
+	}
+	for index, preview := range queue.Previews {
+		if strings.TrimSpace(preview) == "" || !validRendererText(preview, 1024) {
+			return fmt.Errorf("follow-up preview %d is invalid", index)
+		}
+	}
+	return nil
+}
+
+// Validate checks a queue-aware prompt submission result.
+func (result PromptSubmission) Validate() error {
+	if err := result.Queue.Validate(); err != nil {
+		return err
+	}
+	if result.Queued == (result.Reservation != nil) {
+		return fmt.Errorf("prompt submission must be either queued or reserved")
+	}
+	if result.Queued && result.Queue.Count == 0 {
+		return fmt.Errorf("queued prompt submission has an empty queue")
+	}
+	if result.Reservation != nil {
+		return result.Reservation.Validate()
+	}
+	return nil
+}
+
+// Validate checks a follow-up restoration result.
+func (result RestoreFollowUpsResult) Validate() error {
+	if err := result.Queue.Validate(); err != nil {
+		return err
+	}
+	if result.Queue.Count != 0 {
+		return fmt.Errorf("restored follow-up queue is not empty")
+	}
+	if len(result.Messages) > 64 {
+		return fmt.Errorf("too many restored follow-ups")
+	}
+	for _, message := range result.Messages {
+		if err := (PromptInput{Text: message}).Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Validate checks a follow-up promotion result.
+func (result PromoteFollowUpsResult) Validate() error {
+	if result.Promoted < 0 || result.Promoted > 64 {
+		return fmt.Errorf("promoted follow-up count is invalid")
+	}
+	if result.Queue.Count != 0 {
+		return fmt.Errorf("promoted follow-up queue is not empty")
+	}
+	return result.Queue.Validate()
+}
+
 // Validate checks a prompt-command execution request crossing a transport boundary.
 func (input PromptCommandInput) Validate() error {
 	if !validPromptCommandName(input.Name) {

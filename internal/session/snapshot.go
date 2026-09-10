@@ -100,6 +100,7 @@ type Snapshot struct {
 	ContextWindow         int
 	Usage                 SessionUsage
 	PromptCommands        []PromptCommand
+	FollowUps             FollowUpQueue
 	Warnings              []string
 }
 
@@ -144,6 +145,7 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		ContextTokens:        droidSnapshot.Context.Usage.EstimatedInput,
 		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
 		Usage:                projectSessionUsage(droidSnapshot.Usage),
+		FollowUps:            projectFollowUpQueue(loaded.followUps),
 		Warnings:             append([]string(nil), loaded.configurationWarnings...),
 	}
 	if loaded.bundle.PromptCommands != nil {

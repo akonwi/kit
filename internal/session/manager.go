@@ -18,7 +18,10 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 )
 
-const maxPromptTextBytes = 128 << 10
+const (
+	maxPromptTextBytes = 128 << 10
+	maxFollowUps       = 64
+)
 
 var (
 	ErrBusy              = errors.New("session already has an active parent run")
@@ -150,6 +153,32 @@ type runtime struct {
 	runs                  map[string]*liveRun
 	recovery              *droids.ExecutionSnapshot
 	configurationWarnings []string
+	followUps             []string
+}
+
+// FollowUpQueue is the renderer-safe state of one session's deferred prompts.
+type FollowUpQueue struct {
+	Count    int
+	Previews []string
+}
+
+// PromptSubmission reports whether a prompt started immediately or was queued.
+type PromptSubmission struct {
+	Reservation RunReservation
+	Queued      bool
+	Queue       FollowUpQueue
+}
+
+// FollowUpRestore contains every atomically drained follow-up in queue order.
+type FollowUpRestore struct {
+	Messages []string
+	Queue    FollowUpQueue
+}
+
+// FollowUpPromotion reports how many queued messages became steering.
+type FollowUpPromotion struct {
+	Promoted int
+	Queue    FollowUpQueue
 }
 
 type liveRun struct {
@@ -685,6 +714,109 @@ func (m *Manager) touchSessionActivity(ctx context.Context, sessionID string, ac
 	return m.store.TouchSession(ctx, sessionID, activityAt)
 }
 
+// SubmitPrompt atomically starts an idle session or queues a follow-up for its active turn.
+func (m *Manager) SubmitPrompt(ctx context.Context, sessionID, prompt string) (PromptSubmission, error) {
+	if err := validatePromptText(prompt); err != nil {
+		return PromptSubmission{}, err
+	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return PromptSubmission{}, err
+	}
+	loaded.transitionMu.Lock()
+	defer loaded.transitionMu.Unlock()
+	loaded.mu.Lock()
+	if loaded.activeRun != "" {
+		if len(loaded.followUps) >= maxFollowUps {
+			loaded.mu.Unlock()
+			return PromptSubmission{}, fmt.Errorf("%w: follow-up queue capacity reached", ErrBusy)
+		}
+		loaded.followUps = append(loaded.followUps, prompt)
+		queue := projectFollowUpQueue(loaded.followUps)
+		loaded.mu.Unlock()
+		return PromptSubmission{Queued: true, Queue: queue}, nil
+	}
+	loaded.mu.Unlock()
+	reservation, err := m.StartPrompt(ctx, sessionID, prompt)
+	if err != nil {
+		return PromptSubmission{}, err
+	}
+	return PromptSubmission{Reservation: reservation}, nil
+}
+
+// RestoreFollowUps atomically drains every deferred prompt in queue order.
+func (m *Manager) RestoreFollowUps(ctx context.Context, sessionID string) (FollowUpRestore, error) {
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return FollowUpRestore{}, err
+	}
+	loaded.transitionMu.Lock()
+	defer loaded.transitionMu.Unlock()
+	loaded.mu.Lock()
+	messages := append([]string(nil), loaded.followUps...)
+	loaded.followUps = nil
+	queue := projectFollowUpQueue(loaded.followUps)
+	loaded.mu.Unlock()
+	return FollowUpRestore{Messages: messages, Queue: queue}, nil
+}
+
+// PromoteFollowUps atomically removes deferred prompts as droid steering accepts them.
+func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (FollowUpPromotion, error) {
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return FollowUpPromotion{}, err
+	}
+	loaded.transitionMu.Lock()
+	defer loaded.transitionMu.Unlock()
+	loaded.mu.Lock()
+	if loaded.activeRun == "" {
+		loaded.mu.Unlock()
+		return FollowUpPromotion{}, ErrBusy
+	}
+	loaded.mu.Unlock()
+	promoted := 0
+	for {
+		loaded.mu.Lock()
+		if len(loaded.followUps) == 0 {
+			queue := projectFollowUpQueue(loaded.followUps)
+			loaded.mu.Unlock()
+			return FollowUpPromotion{Promoted: promoted, Queue: queue}, nil
+		}
+		text := loaded.followUps[0]
+		loaded.mu.Unlock()
+		if _, err := loaded.droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: text}}}, droids.PromptOptions{Steer: true}); err != nil {
+			loaded.mu.Lock()
+			queue := projectFollowUpQueue(loaded.followUps)
+			loaded.mu.Unlock()
+			return FollowUpPromotion{Promoted: promoted, Queue: queue}, err
+		}
+		loaded.mu.Lock()
+		loaded.followUps = loaded.followUps[1:]
+		loaded.mu.Unlock()
+		promoted++
+	}
+}
+
+func validatePromptText(prompt string) error {
+	if strings.TrimSpace(prompt) == "" || len(prompt) > maxPromptTextBytes || !utf8.ValidString(prompt) || strings.IndexByte(prompt, 0) >= 0 {
+		return fmt.Errorf("%w: prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB", ErrInvalidInput)
+	}
+	return nil
+}
+
+func projectFollowUpQueue(messages []string) FollowUpQueue {
+	queue := FollowUpQueue{Count: len(messages), Previews: make([]string, 0, len(messages))}
+	for _, message := range messages {
+		preview := strings.Join(strings.Fields(message), " ")
+		runes := []rune(preview)
+		if len(runes) > 160 {
+			preview = string(runes[:159]) + "…"
+		}
+		queue.Previews = append(queue.Previews, preview)
+	}
+	return queue
+}
+
 // StartPrompt admits one droid turn and returns its canonical identity.
 func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (RunReservation, error) {
 	return m.startPrompt(ctx, sessionID, prompt, "", "")
@@ -706,8 +838,10 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if commandName == "" && (strings.TrimSpace(prompt) == "" || len(prompt) > maxPromptTextBytes || !utf8.ValidString(prompt) || strings.IndexByte(prompt, 0) >= 0) {
-		return RunReservation{}, fmt.Errorf("%w: prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB", ErrInvalidInput)
+	if commandName == "" {
+		if err := validatePromptText(prompt); err != nil {
+			return RunReservation{}, err
+		}
 	}
 	loaded, err := m.runtime(ctx, sessionID)
 	if err != nil {
@@ -899,6 +1033,7 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	}
 	result := promptResultFromOutcome(sessionID, turnID, outcome, errors.Join(waitErr, drainErr))
 
+	loaded.transitionMu.Lock()
 	loaded.mu.Lock()
 	if err := loaded.events.append([]NewEvent{{
 		SessionID: sessionID, TurnID: turnID, RunID: turnID,
@@ -913,9 +1048,30 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	if loaded.activeRun == turnID {
 		loaded.activeRun = ""
 	}
-	close(run.done)
 	loaded.mu.Unlock()
 	loaded.admissionMu.Unlock()
+	m.startQueuedFollowUps(loaded, sessionID)
+	loaded.mu.Lock()
+	close(run.done)
+	loaded.mu.Unlock()
+	loaded.transitionMu.Unlock()
+}
+
+func (m *Manager) startQueuedFollowUps(loaded *runtime, sessionID string) {
+	loaded.mu.Lock()
+	if len(loaded.followUps) == 0 {
+		loaded.mu.Unlock()
+		return
+	}
+	prompt := loaded.followUps[0]
+	loaded.followUps = loaded.followUps[1:]
+	loaded.mu.Unlock()
+	if _, err := m.StartPrompt(context.Background(), sessionID, prompt); err == nil {
+		return
+	}
+	loaded.mu.Lock()
+	loaded.followUps = append([]string{prompt}, loaded.followUps...)
+	loaded.mu.Unlock()
 }
 
 func promptResultFromOutcome(sessionID, turnID string, outcome droids.Outcome, waitErr error) PromptResult {

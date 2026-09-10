@@ -658,6 +658,124 @@ func TestManagerDisposeTemporaryCancelsActiveBash(t *testing.T) {
 	}
 }
 
+func TestManagerFollowUpsQueueRestorePromoteAndAutoStart(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPrompt(t.Context(), created.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+	for _, text := range []string{"second", "third"} {
+		result, err := manager.SubmitPrompt(t.Context(), created.ID, text)
+		if err != nil || !result.Queued {
+			t.Fatalf("SubmitPrompt(%q) = %+v, %v", text, result, err)
+		}
+	}
+	restored, err := manager.RestoreFollowUps(t.Context(), created.ID)
+	if err != nil || !reflect.DeepEqual(restored.Messages, []string{"second", "third"}) || restored.Queue.Count != 0 {
+		t.Fatalf("RestoreFollowUps() = %+v, %v", restored, err)
+	}
+	for _, text := range restored.Messages {
+		if _, err := manager.SubmitPrompt(t.Context(), created.ID, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	promoted, err := manager.PromoteFollowUps(t.Context(), created.ID)
+	if err != nil || promoted.Promoted != 2 || promoted.Queue.Count != 0 {
+		t.Fatalf("PromoteFollowUps() = %+v, %v", promoted, err)
+	}
+	if _, err := manager.SubmitPrompt(t.Context(), created.ID, "automatic"); err != nil {
+		t.Fatal(err)
+	}
+	close(providers.block)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, snapshotErr := manager.Snapshot(t.Context(), created.ID)
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if snapshot.FollowUps.Count == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("queued follow-up did not start automatically: %+v", snapshot.FollowUps)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestManagerStartsQueuedFollowUpsAsDistinctTurns(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPrompt(t.Context(), created.ID, "first"); err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+	for _, text := range []string{"second", "third"} {
+		result, err := manager.SubmitPrompt(t.Context(), created.ID, text)
+		if err != nil || !result.Queued {
+			t.Fatalf("SubmitPrompt(%q) = %+v, %v", text, result, err)
+		}
+	}
+	close(providers.block)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snapshot, snapshotErr := manager.Snapshot(t.Context(), created.ID)
+		if snapshotErr != nil {
+			t.Fatal(snapshotErr)
+		}
+		if snapshot.ActiveRunID == "" && snapshot.FollowUps.Count == 0 {
+			var users []string
+			for _, message := range snapshot.Messages {
+				if message.Role != "user" {
+					continue
+				}
+				for _, content := range message.Content {
+					if content.Kind == session.TranscriptContentText {
+						users = append(users, content.Text)
+					}
+				}
+			}
+			if !reflect.DeepEqual(users, []string{"first", "second", "third"}) {
+				t.Fatalf("user turns = %#v", users)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("queued turns did not settle: active=%q queue=%+v", snapshot.ActiveRunID, snapshot.FollowUps)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestManagerRejectsDeleteWhileSessionRunIsActive(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))

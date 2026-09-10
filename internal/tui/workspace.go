@@ -35,6 +35,7 @@ type conversationWorkspaceHost struct {
 	Tabs              ui.Widget
 	Transcript        ui.Widget
 	Pending           ui.Widget
+	PendingHeight     int
 	ComposerSeparator ui.Widget
 	Composer          ui.Widget
 	PaneSeparator     ui.Widget
@@ -57,16 +58,17 @@ func (w conversationWorkspaceHost) WidgetChildren() []ui.Widget {
 
 func (w conversationWorkspaceHost) CreateRenderObject(ui.BuildContext) ui.RenderObject {
 	return &renderConversationWorkspaceHost{
-		Open: w.Open, ActivitySelected: w.ActivitySelected,
+		Open: w.Open, ActivitySelected: w.ActivitySelected, PendingHeight: w.PendingHeight,
 		SeparatorStyle: w.SeparatorStyle, LayoutState: w.LayoutState,
 	}
 }
 
 func (w conversationWorkspaceHost) UpdateRenderObject(_ ui.BuildContext, renderObject ui.RenderObject) {
 	render := renderObject.(*renderConversationWorkspaceHost)
-	if render.Open != w.Open || render.ActivitySelected != w.ActivitySelected {
+	if render.Open != w.Open || render.ActivitySelected != w.ActivitySelected || render.PendingHeight != w.PendingHeight {
 		render.Open = w.Open
 		render.ActivitySelected = w.ActivitySelected
+		render.PendingHeight = w.PendingHeight
 		render.MarkNeedsLayout()
 	}
 	if render.SeparatorStyle != w.SeparatorStyle {
@@ -84,6 +86,7 @@ type renderConversationWorkspaceHost struct {
 	ui.MultiChildRenderObject
 	Open                 bool
 	ActivitySelected     bool
+	PendingHeight        int
 	SeparatorStyle       ui.Style
 	LayoutState          *workspaceLayoutState
 	wide                 bool
@@ -305,8 +308,9 @@ func (r *renderConversationWorkspaceHost) layoutUnbounded(
 		ui.Offset{Y: yOffset},
 	)
 	pendingY := yOffset + mainSize.Height
-	layoutChild(workspacePendingChild, ui.Tight(ui.Size{Width: primary, Height: 1}), ui.Offset{Y: pendingY})
-	separatorY := pendingY + 1
+	pendingHeight := max(1, r.PendingHeight)
+	layoutChild(workspacePendingChild, ui.Tight(ui.Size{Width: primary, Height: pendingHeight}), ui.Offset{Y: pendingY})
+	separatorY := pendingY + pendingHeight
 	layoutChild(workspaceComposerSeparatorChild, ui.Tight(ui.Size{Width: primary, Height: 1}), ui.Offset{Y: separatorY})
 	layouts[workspaceComposerChild].offset = ui.Offset{Y: separatorY + 1}
 	height := separatorY + 1 + composerSize.Height
@@ -353,7 +357,7 @@ func (r *renderConversationWorkspaceHost) layoutConversationColumn(
 	}
 	pendingHeight := 0
 	if height >= 4 {
-		pendingHeight = 1
+		pendingHeight = min(max(1, r.PendingHeight), max(1, height-3))
 	}
 	mainReserve := 0
 	if height-pendingHeight-separatorHeight-composerLimit > 0 {

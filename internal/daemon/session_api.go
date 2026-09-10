@@ -36,6 +36,9 @@ type sessionService interface {
 	Configure(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
 	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
 	StartPrompt(context.Context, string, string) (protocol.RunReservation, error)
+	SubmitPrompt(context.Context, string, string) (protocol.PromptSubmission, error)
+	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
+	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
 	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, string) (protocol.PromptOutcome, error)
@@ -187,7 +190,10 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		Messages:          make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
 		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
 		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
-		Warnings:          append([]string(nil), snapshot.Warnings...),
+		FollowUps: protocol.FollowUpQueue{
+			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...),
+		},
+		Warnings: append([]string(nil), snapshot.Warnings...),
 	}
 	for _, command := range snapshot.PromptCommands {
 		result.PromptCommands = append(result.PromptCommands, protocol.PromptCommand{
@@ -377,6 +383,28 @@ func (s runtimeSessionService) StartPrompt(
 	return protocol.RunReservation{
 		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
 	}, nil
+}
+
+func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID, text string) (protocol.PromptSubmission, error) {
+	result, err := s.manager.SubmitPrompt(ctx, sessionID, text)
+	if err != nil {
+		return protocol.PromptSubmission{}, err
+	}
+	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}
+	if !result.Queued {
+		output.Reservation = &protocol.RunReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID, RunID: result.Reservation.RunID}
+	}
+	return output, nil
+}
+
+func (s runtimeSessionService) RestoreFollowUps(ctx context.Context, sessionID string) (protocol.RestoreFollowUpsResult, error) {
+	result, err := s.manager.RestoreFollowUps(ctx, sessionID)
+	return protocol.RestoreFollowUpsResult{Messages: result.Messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
+}
+
+func (s runtimeSessionService) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
+	result, err := s.manager.PromoteFollowUps(ctx, sessionID)
+	return protocol.PromoteFollowUpsResult{Promoted: result.Promoted, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
 }
 
 func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
@@ -651,6 +679,51 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid session reload result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/submissions", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.PromptInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.SubmitPrompt(request.Context(), request.PathValue("sessionID"), input.Text)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid prompt submission result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusAccepted, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/follow-ups/restore", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.RestoreFollowUps(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid follow-up restore result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/follow-ups/promote", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.PromoteFollowUps(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid follow-up promotion result: %w", err))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)

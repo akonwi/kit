@@ -264,6 +264,36 @@ func TestAutomaticCompactionUsesVisibleTurnSlot(t *testing.T) {
 	}
 }
 
+func TestFollowUpsRenderAboveComposerWithRestoreHint(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 20
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady,
+		FollowUps: protocol.FollowUpQueue{
+			Count: 4, Previews: []string{"check the tests", "then update the docs", "publish the result", "notify me"},
+		},
+		Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	if got := strings.TrimSpace(rows[height-8]); got != "" {
+		t.Fatalf("follow-up status row = %q, want reserved empty activity row", got)
+	}
+	if got := strings.TrimSpace(rows[height-7]); got != "Follow-up 1: check the tests" {
+		t.Fatalf("first follow-up row = %q", got)
+	}
+	if got := strings.TrimSpace(rows[height-6]); got != "Follow-up 2: then update the docs" {
+		t.Fatalf("second follow-up row = %q", got)
+	}
+	if got := strings.TrimSpace(rows[height-5]); got != "+2 more follow-ups" {
+		t.Fatalf("follow-up overflow row = %q", got)
+	}
+	if got := strings.TrimSpace(rows[height-1]); got != "4 queued · ↑ restore" {
+		t.Fatalf("follow-up footer = %q", got)
+	}
+}
+
 func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	t.Parallel()
 

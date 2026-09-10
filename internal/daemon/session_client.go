@@ -254,6 +254,48 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string, input pro
 	return output, nil
 }
 
+// SubmitPrompt starts an idle prompt or queues it behind active work.
+func (c *Client) SubmitPrompt(ctx context.Context, sessionID, text string) (protocol.PromptSubmission, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/submissions"
+	var output protocol.PromptSubmission
+	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{Text: text}, http.StatusAccepted, &output); err != nil {
+		return protocol.PromptSubmission{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.PromptSubmission{}, fmt.Errorf("validate daemon prompt submission: %w", err)
+	}
+	if output.Reservation != nil && output.Reservation.SessionID != sessionID {
+		return protocol.PromptSubmission{}, fmt.Errorf("daemon prompt submission identity mismatch")
+	}
+	return output, nil
+}
+
+// RestoreFollowUps atomically drains one session's deferred prompts.
+func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protocol.RestoreFollowUpsResult, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/follow-ups/restore"
+	var output protocol.RestoreFollowUpsResult
+	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.RestoreFollowUpsResult{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.RestoreFollowUpsResult{}, fmt.Errorf("validate daemon follow-up restoration: %w", err)
+	}
+	return output, nil
+}
+
+// PromoteFollowUps moves one session's deferred prompts into active steering.
+func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/follow-ups/promote"
+	var output protocol.PromoteFollowUpsResult
+	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.PromoteFollowUpsResult{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.PromoteFollowUpsResult{}, fmt.Errorf("validate daemon follow-up promotion: %w", err)
+	}
+	return output, nil
+}
+
 // StartPrompt admits a droid-owned turn and returns its canonical identity.
 func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.RunReservation, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"

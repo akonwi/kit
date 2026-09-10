@@ -13,6 +13,10 @@ type submitComposerIntent struct{}
 
 func (submitComposerIntent) IntentType() ui.IntentType { return "kit.composer.submit" }
 
+type restoreFollowUpsIntent struct{}
+
+func (restoreFollowUpsIntent) IntentType() ui.IntentType { return "kit.composer.restore-follow-ups" }
+
 type openBashHistoryIntent struct{ Delta int }
 
 func (openBashHistoryIntent) IntentType() ui.IntentType { return "kit.composer.bash-history" }
@@ -25,6 +29,7 @@ type messageComposer struct {
 	OnSubmitted         ui.TextChangedCallback
 	OpenPalette         ui.VoidCallback
 	OpenBashHistory     func(ui.EventContext, int) bool
+	RestoreFollowUps    ui.VoidCallback
 	CursorEndGeneration uint64
 }
 
@@ -91,6 +96,15 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 				return ui.EventHandled
 			}
 			return ui.EventIgnored
+		}
+	}
+	if config.RestoreFollowUps != nil {
+		shortcuts["Up"] = restoreFollowUpsIntent{}
+		actions[restoreFollowUpsIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if callback := s.Widget().(messageComposer).RestoreFollowUps; callback != nil {
+				callback(ctx)
+			}
+			return ui.EventHandled
 		}
 	}
 	if s.value == "" && config.OpenPalette != nil {

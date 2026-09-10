@@ -37,6 +37,20 @@ type Session interface {
 	Abort(context.Context, string) error
 }
 
+// FollowUpSession is the optional queue-aware prompt surface.
+type FollowUpSession interface {
+	SubmitPrompt(context.Context, string) (PromptSubmission, error)
+	RestoreFollowUps(context.Context) (protocol.RestoreFollowUpsResult, error)
+	PromoteFollowUps(context.Context) (protocol.PromoteFollowUpsResult, error)
+}
+
+// PromptSubmission reports whether a prompt started or became a follow-up.
+type PromptSubmission struct {
+	Run    Run
+	Queued bool
+	Queue  protocol.FollowUpQueue
+}
+
 // Run is one droid turn handle. Waiting may be detached or canceled without
 // aborting; Abort explicitly targets only this droid turn identity.
 type Run interface {

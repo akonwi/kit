@@ -154,6 +154,7 @@ type appState struct {
 	cancel           context.CancelFunc
 	attachmentCtx    context.Context
 	attachmentCancel context.CancelFunc
+	runWatchCancel   context.CancelFunc
 
 	phase                       phase
 	errorText                   string
@@ -198,6 +199,8 @@ type appState struct {
 	liveSequence                int64
 	turnActivity                string
 	turnThinking                string
+	followUps                   protocol.FollowUpQueue
+	followUpMutationPending     bool
 	runStopping                 bool
 	contextTokens               int
 	contextWindow               int
@@ -480,6 +483,10 @@ func scrollControllerPinnedToEnd(controller *ui.ScrollController) bool {
 }
 
 func (s *appState) resetAttachmentContext() {
+	if s.runWatchCancel != nil {
+		s.runWatchCancel()
+		s.runWatchCancel = nil
+	}
 	if s.attachmentCancel != nil {
 		s.attachmentCancel()
 	}
@@ -539,6 +546,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		AgentRunning:                s.runPending,
 		TurnActivity:                s.turnActivity,
 		TurnThinking:                s.turnThinking,
+		FollowUps:                   s.followUps,
 		ContextTokens:               s.contextTokens,
 		ContextWindow:               s.contextWindow,
 		SessionUsage:                s.sessionUsage,
@@ -718,6 +726,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 					s.requestTranscriptScroll()
 				}
 			})
+		},
+		RestoreFollowUps: func(ctx ui.EventContext) {
+			s.restoreFollowUps(ctx)
 		},
 		ComposerChanged: func(_ ui.EventContext, value string) {
 			if s.phase != phaseReady {
@@ -1125,6 +1136,7 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
+	s.followUps = snapshot.FollowUps
 }
 
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
@@ -1139,6 +1151,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	if snapshot.Session.ID != "" {
 		s.session = snapshot.Session
 	}
+	s.followUps = snapshot.FollowUps
 	currentActiveBash, hasCurrentActiveBash := findBashExecution(s.messages, s.liveMessages, s.activeBashID)
 	projected := projectTranscript(snapshot.Messages)
 	for index := range projected {
@@ -1761,6 +1774,12 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 	if attachmentCtx == nil {
 		attachmentCtx = s.ctx
 	}
+	if s.runWatchCancel != nil {
+		s.runWatchCancel()
+	}
+	watchCtx, cancel := context.WithCancel(attachmentCtx)
+	s.runWatchCancel = cancel
+	attachmentCtx = watchCtx
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
@@ -2899,6 +2918,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.reloadPending = false
 	s.compactPending = false
 	s.compactOperationID = ""
+	s.followUpMutationPending = false
 	s.resetLiveRun()
 	s.contextTokens = 0
 	s.contextWindow = 0
@@ -2960,18 +2980,174 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		s.SetState(func() { s.status = "Session configuration is changing…" })
 		return
 	}
+	text := strings.TrimSpace(value)
+	if s.bound == nil {
+		return
+	}
 	if command, excludeFromContext, ok := parseDirectBash(value); ok {
 		s.startDirectBash(value, command, excludeFromContext)
 		return
 	}
-	text := strings.TrimSpace(value)
-	if text == "" || s.bound == nil {
+	if s.runPending {
+		if text == "" {
+			s.promoteFollowUps()
+		} else {
+			s.queueFollowUp(text)
+		}
+		return
+	}
+	if text == "" {
 		return
 	}
 	bound := s.bound
 	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Run, error) {
+		if queueAware, ok := bound.(sessionclient.FollowUpSession); ok {
+			result, err := queueAware.SubmitPrompt(ctx, text)
+			if err != nil {
+				return nil, err
+			}
+			if result.Queued {
+				return nil, promptQueuedError{queue: result.Queue}
+			}
+			return result.Run, nil
+		}
 		return bound.StartPrompt(ctx, text)
 	})
+}
+
+func (s *appState) queueFollowUp(text string) {
+	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
+	if s.followUpMutationPending || !ok {
+		return
+	}
+	bound, operation, submittedDraft := s.bound, s.operation, s.composer
+	ctx, runtime := s.ctx, s.Context().Runtime()
+	s.SetState(func() { s.followUpMutationPending = true })
+	go func() {
+		result, err := followUpSession.SubmitPrompt(ctx, text)
+		var snapshot protocol.SessionSnapshot
+		var snapshotErr error
+		if err == nil && !result.Queued {
+			if result.Run == nil {
+				err = errors.New("prompt submission started without a run")
+			} else {
+				snapshot, snapshotErr = bound.Snapshot(ctx)
+			}
+		}
+		runtime.Dispatch(func() {
+			if s.operation != operation || s.bound != bound {
+				return
+			}
+			s.SetState(func() {
+				s.followUpMutationPending = false
+				if err != nil {
+					return
+				}
+				if result.Queued {
+					s.followUps = result.Queue
+					if s.composer == submittedDraft {
+						s.composer = ""
+					}
+					return
+				}
+				if snapshotErr == nil {
+					s.applySnapshot(snapshot)
+				} else {
+					s.resetLiveRun()
+					s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: text})
+					s.liveHasUser = true
+					s.runPending = true
+					s.status = "esc abort · ctrl+c detach"
+					s.markTerminalRunStarted(result.Run.ID())
+				}
+				s.activeRun = result.Run
+				s.activeRunID = result.Run.ID()
+				if s.composer == submittedDraft {
+					s.composer = ""
+				}
+			})
+			if err != nil {
+				s.showToast(toastInput{Title: "Could not queue follow-up", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			if !result.Queued {
+				s.showToast(toastInput{Title: "Prompt started", Subtitle: "The previous run finished before the message was queued.", Variant: toastInfo})
+				s.watchSession(bound, operation, result.Run.ID())
+			}
+		})
+	}()
+}
+
+func (s *appState) restoreFollowUps(_ ui.EventContext) {
+	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
+	if s.followUpMutationPending || !ok || s.followUps.Count == 0 {
+		return
+	}
+	bound, operation := s.bound, s.operation
+	ctx, runtime := s.ctx, s.Context().Runtime()
+	s.SetState(func() { s.followUpMutationPending = true })
+	go func() {
+		result, err := followUpSession.RestoreFollowUps(ctx)
+		runtime.Dispatch(func() {
+			if s.operation != operation || s.bound != bound {
+				return
+			}
+			s.SetState(func() {
+				s.followUpMutationPending = false
+				if err != nil {
+					return
+				}
+				restored := strings.Join(result.Messages, "\n\n")
+				if restored != "" && s.composer != "" {
+					restored += "\n\n" + s.composer
+				}
+				s.composer = restored
+				s.composerCursorEndGeneration++
+				s.followUps = result.Queue
+			})
+			if err != nil {
+				s.showToast(toastInput{Title: "Could not restore follow-ups", Subtitle: err.Error(), Variant: toastError})
+			}
+		})
+	}()
+}
+
+func (s *appState) promoteFollowUps() {
+	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
+	if s.followUpMutationPending || !ok || s.followUps.Count == 0 {
+		return
+	}
+	bound, operation := s.bound, s.operation
+	ctx, runtime := s.ctx, s.Context().Runtime()
+	s.SetState(func() { s.followUpMutationPending = true })
+	go func() {
+		result, err := followUpSession.PromoteFollowUps(ctx)
+		var snapshot protocol.SessionSnapshot
+		var snapshotErr error
+		if err != nil {
+			snapshot, snapshotErr = bound.Snapshot(ctx)
+		}
+		runtime.Dispatch(func() {
+			if s.operation != operation || s.bound != bound {
+				return
+			}
+			s.SetState(func() {
+				s.followUpMutationPending = false
+				if err != nil {
+					if snapshotErr == nil {
+						s.followUps = snapshot.FollowUps
+					}
+					return
+				}
+				s.followUps = result.Queue
+			})
+			if err != nil {
+				s.showToast(toastInput{Title: "Could not send follow-ups now", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			s.showToast(toastInput{Title: "Follow-ups sent", Subtitle: fmt.Sprintf("Promoted %d queued messages.", result.Promoted), Variant: toastInfo})
+		})
+	}()
 }
 
 func (s *appState) submitPromptCommand(name, args string) {
@@ -2987,6 +3163,10 @@ func (s *appState) submitPromptCommand(name, args string) {
 		return bound.StartPromptCommand(ctx, name, args)
 	})
 }
+
+type promptQueuedError struct{ queue protocol.FollowUpQueue }
+
+func (err promptQueuedError) Error() string { return "prompt queued behind active work" }
 
 func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Run, error)) {
 	if s.runPending {
@@ -3012,6 +3192,28 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 	go func() {
 		run, err := start(s.ctx)
 		if err != nil {
+			var queued promptQueuedError
+			if errors.As(err, &queued) {
+				snapshot, snapshotErr := bound.Snapshot(s.ctx)
+				runtime.Dispatch(func() {
+					if operation != s.operation {
+						return
+					}
+					s.SetState(func() {
+						s.resetLiveRun()
+						s.runPending = false
+						s.prompt = nil
+						s.followUps = queued.queue
+						if snapshotErr == nil {
+							s.applySnapshot(snapshot)
+						}
+					})
+					if snapshotErr == nil && snapshot.ActiveRunID != "" {
+						s.watchSession(bound, operation, snapshot.ActiveRunID)
+					}
+				})
+				return
+			}
 			if s.ctx.Err() == nil {
 				s.finishRun(runtime, operation, protocol.PromptOutcome{}, err)
 			}

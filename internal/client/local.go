@@ -407,6 +407,29 @@ func (c *localSession) StartPrompt(ctx context.Context, text string) (sessioncli
 	return c.runFromReservation(reservation), nil
 }
 
+func (c *localSession) SubmitPrompt(ctx context.Context, text string) (sessionclient.PromptSubmission, error) {
+	if err := ctx.Err(); err != nil {
+		return sessionclient.PromptSubmission{}, err
+	}
+	result, err := c.transport.SubmitPrompt(ctx, c.id, text)
+	if err != nil {
+		return sessionclient.PromptSubmission{}, err
+	}
+	output := sessionclient.PromptSubmission{Queued: result.Queued, Queue: result.Queue}
+	if result.Reservation != nil {
+		output.Run = c.runFromReservation(*result.Reservation)
+	}
+	return output, nil
+}
+
+func (c *localSession) RestoreFollowUps(ctx context.Context) (protocol.RestoreFollowUpsResult, error) {
+	return c.transport.RestoreFollowUps(ctx, c.id)
+}
+
+func (c *localSession) PromoteFollowUps(ctx context.Context) (protocol.PromoteFollowUpsResult, error) {
+	return c.transport.PromoteFollowUps(ctx, c.id)
+}
+
 func (c *localSession) StartPromptCommand(ctx context.Context, name, args string) (sessionclient.Run, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

@@ -40,6 +40,7 @@ type shellSnapshot struct {
 	AgentRunning                bool
 	TurnActivity                string
 	TurnThinking                string
+	FollowUps                   protocol.FollowUpQueue
 	ContextTokens               int
 	ContextWindow               int
 	SessionUsage                protocol.SessionUsage
@@ -90,6 +91,7 @@ type shellCallbacks struct {
 	SelectBashHistory          func(ui.EventContext, string)
 	ComposerChanged            ui.TextChangedCallback
 	ComposerPasted             ui.TextChangedCallback
+	RestoreFollowUps           ui.VoidCallback
 	CopySelection              func(string)
 	DismissToast               func(uint64)
 	OpenPalette                ui.VoidCallback
@@ -380,6 +382,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 				},
 			},
 			Pending:           w.pendingSlot(theme),
+			PendingHeight:     1 + min(3, w.Snapshot.FollowUps.Count),
 			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme)}},
 			Composer:          w.composer(theme),
 			PaneSeparator:     ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
@@ -636,28 +639,32 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 }
 
 func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
-	children := []ui.Widget(nil)
 	style := ui.Style{Foreground: theme.MutedForeground}
+	statusChildren := []ui.Widget(nil)
 	var status ui.Widget
 	if strings.TrimSpace(w.Snapshot.TurnThinking) != "" {
-		status = markdownInlineView{
-			Source: latestThinkingLine(w.Snapshot.TurnThinking), BaseStyle: style,
-		}
+		status = markdownInlineView{Source: latestThinkingLine(w.Snapshot.TurnThinking), BaseStyle: style}
 	} else if w.Snapshot.TurnActivity != "" {
-		status = ui.Text{
-			Value: w.Snapshot.TurnActivity, Style: style,
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}
+		status = ui.Text{Value: w.Snapshot.TurnActivity, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	}
 	if status != nil {
-		children = []ui.Widget{
-			spinner{Style: style},
-			ui.SizedBox{Width: 1},
-			ui.Expanded(status),
-		}
+		statusChildren = []ui.Widget{spinner{Style: style}, ui.SizedBox{Width: 1}, ui.Expanded(status)}
 	}
-	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStart, Children: children}
-	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), content)}
+	rows := []ui.Widget{ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStart, Children: statusChildren}}}
+	visible := min(3, len(w.Snapshot.FollowUps.Previews))
+	if w.Snapshot.FollowUps.Count > 3 {
+		visible = min(2, visible)
+	}
+	for index, preview := range w.Snapshot.FollowUps.Previews[:visible] {
+		rows = append(rows, ui.SizedBox{Height: 1, Child: ui.Text{
+			Value: fmt.Sprintf("Follow-up %d: %s", index+1, preview), Style: style,
+			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		}})
+	}
+	if w.Snapshot.FollowUps.Count > visible {
+		rows = append(rows, ui.SizedBox{Height: 1, Child: ui.Text{Value: fmt.Sprintf("+%d more follow-ups", w.Snapshot.FollowUps.Count-visible), Style: style}})
+	}
+	return ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows})
 }
 
 func (w shellView) composerSeparatorColor(theme ui.Theme) ui.Color {
@@ -672,6 +679,10 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 	composerTheme.Surface = theme.Background
 	composerTheme.SurfaceHovered = theme.Background
 	composerTheme.Selection = theme.Selection
+	var restoreFollowUps ui.VoidCallback
+	if w.Snapshot.FollowUps.Count > 0 {
+		restoreFollowUps = w.Callbacks.RestoreFollowUps
+	}
 	composer := messageComposer{
 		Value:               w.Snapshot.Composer,
 		Placeholder:         "Ask kit to do something…",
@@ -680,6 +691,7 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		OnSubmitted:         w.Callbacks.Submit,
 		OpenPalette:         w.Callbacks.OpenPalette,
 		OpenBashHistory:     w.Callbacks.OpenBashHistory,
+		RestoreFollowUps:    restoreFollowUps,
 		CursorEndGeneration: w.Snapshot.ComposerCursorEndGeneration,
 	}
 	content := ui.Widget(ui.Provider[ui.Theme]{Value: composerTheme, Child: composer})
@@ -695,6 +707,8 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 	bashError := strings.HasPrefix(w.Snapshot.Status, "Bash failed:") || strings.HasPrefix(w.Snapshot.Status, "Bash update failed:") || strings.HasPrefix(w.Snapshot.Status, "Could not resume bash:") || w.Snapshot.Status == "A bash command is already running"
 	if bashError {
 		leftStyle.Foreground = theme.DangerText
+	} else if w.Snapshot.FollowUps.Count > 0 {
+		left = fmt.Sprintf("%d queued %s ↑ restore", w.Snapshot.FollowUps.Count, glyphMiddleDot)
 	} else if strings.HasPrefix(w.Snapshot.Composer, "!!") {
 		left = "bash command " + glyphMiddleDot + " result excluded from context"
 		leftStyle.Foreground = theme.SuccessText
