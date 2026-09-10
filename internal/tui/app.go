@@ -2175,7 +2175,7 @@ func (s *appState) applyConfigurationSelection() {
 			}
 			finalErr := configureErr
 			if finalErr == nil && snapshotErr != nil {
-				s.SetState(func() { s.session = result.Session })
+				s.SetState(func() { s.applyConfigurationResult(result.Session) })
 				finalErr = fmt.Errorf("configuration applied but snapshot refresh failed: %w", snapshotErr)
 			}
 			s.SetState(func() {
@@ -2189,16 +2189,17 @@ func (s *appState) applyConfigurationSelection() {
 				s.showToast(toastInput{Title: "Configuration failed", Subtitle: configureErr.Error(), Variant: toastError})
 				return
 			}
-			for _, warning := range result.Warnings {
-				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
-			}
 			if snapshotErr != nil {
-				s.showToast(toastInput{Title: "Configuration applied", Subtitle: snapshotErr.Error(), Variant: toastWarning})
-				return
+				s.showToast(toastInput{Title: "Configuration refresh failed", Subtitle: snapshotErr.Error(), Variant: toastError})
 			}
-			s.showToast(toastInput{Title: "Configuration applied", Subtitle: result.Session.Model + " · " + result.Session.ThinkingLevel, Variant: toastInfo})
 		})
 	}()
+}
+
+func (s *appState) applyConfigurationResult(session protocol.SessionInfo) {
+	s.session = session
+	s.configurationPicker.CurrentModel = session.Model
+	s.configurationPicker.CurrentThinking = session.ThinkingLevel
 }
 
 func configurationInputForSelection(session protocol.SessionInfo, mode configurationPickerMode, selection string) protocol.ConfigureSessionInput {
@@ -2395,40 +2396,25 @@ func (s *appState) reloadSession() {
 					s.status = "esc abort · ctrl+c detach"
 				}
 			})
-			s.showToast(reloadToast(result, reloadErr, snapshotErr))
+			if toast, ok := reloadToast(result, reloadErr, snapshotErr); ok {
+				s.showToast(toast)
+			}
 		})
 	}()
 }
 
-func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr error) toastInput {
+func reloadToast(_ protocol.ReloadSessionResult, reloadErr, snapshotErr error) (toastInput, bool) {
 	if reloadErr != nil {
 		toast := toastInput{Title: "Session reload failed", Subtitle: reloadErr.Error(), Variant: toastError}
 		if snapshotErr != nil {
-			toast.Subtitle += " · transcript refresh failed: " + snapshotErr.Error()
+			toast.Subtitle += " · session refresh failed: " + snapshotErr.Error()
 		}
-		return toast
-	}
-	toast := toastInput{Title: "Session context reloaded", Variant: toastInfo}
-	details := append([]string(nil), result.Warnings...)
-	warning := len(result.Warnings) > 0
-	for _, diagnostic := range result.Diagnostics {
-		details = append(details, diagnostic.Message)
-		warning = warning || diagnostic.Severity == "warning"
+		return toast, true
 	}
 	if snapshotErr != nil {
-		details = append([]string{"Transcript refresh failed: " + snapshotErr.Error()}, details...)
-		warning = true
+		return toastInput{Title: "Session refresh failed", Subtitle: snapshotErr.Error(), Variant: toastError}, true
 	}
-	if warning {
-		toast.Variant = toastWarning
-	}
-	if len(details) > 0 {
-		toast.Subtitle = details[0]
-		if len(details) > 1 {
-			toast.Subtitle += fmt.Sprintf(" (+%d more)", len(details)-1)
-		}
-	}
-	return toast
+	return toastInput{}, false
 }
 
 func (s *appState) openSessionExplorer() {

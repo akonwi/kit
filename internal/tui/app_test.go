@@ -534,6 +534,14 @@ func TestCancelLoginDoesNotInvalidateAttachedSessionOperation(t *testing.T) {
 	}
 }
 
+func TestConfigurationResultUpdatesPickerWithoutSnapshot(t *testing.T) {
+	state := appState{configurationPicker: configurationPickerController{CurrentModel: "old/model", CurrentThinking: "low"}}
+	state.applyConfigurationResult(protocol.SessionInfo{ID: "session_test", Model: "new/model", ThinkingLevel: "high"})
+	if state.session.Model != "new/model" || state.configurationPicker.CurrentModel != "new/model" || state.configurationPicker.CurrentThinking != "high" {
+		t.Fatalf("configuration result session=%+v picker=%+v", state.session, state.configurationPicker)
+	}
+}
+
 func TestSessionMetadataSnapshotPreservesActivePresentation(t *testing.T) {
 	state := appState{
 		session:      protocol.SessionInfo{ID: "session_test", ThinkingLevel: "low"},

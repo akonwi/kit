@@ -208,26 +208,22 @@ func TestCWDChangeToastSuggestsExplicitContextReload(t *testing.T) {
 	}
 }
 
-func TestReloadToastReportsSuccessWarningsAndFailure(t *testing.T) {
+func TestReloadToastOnlyReportsErrors(t *testing.T) {
 	t.Parallel()
-	if toast := reloadToast(protocol.ReloadSessionResult{}, nil, nil); toast.Title != "Session context reloaded" || toast.Variant != toastInfo || toast.Subtitle != "" {
-		t.Fatalf("success toast = %#v", toast)
-	}
 	warnings := protocol.ReloadSessionResult{Diagnostics: []protocol.PromptDiagnostic{
-		{Severity: "warning", Message: "Could not read root guidance"}, {Severity: "warning", Message: "Local guidance was oversized"},
+		{Severity: "warning", Message: "Could not read root guidance"}, {Severity: "info", Message: "Duplicate guidance omitted"},
 	}}
-	if toast := reloadToast(warnings, nil, nil); toast.Title != "Session context reloaded" || toast.Variant != toastWarning || toast.Subtitle != "Could not read root guidance (+1 more)" {
-		t.Fatalf("warning toast = %#v", toast)
+	if toast, ok := reloadToast(protocol.ReloadSessionResult{}, nil, nil); ok || toast != (toastInput{}) {
+		t.Fatalf("successful reload toast = %#v, shown=%v", toast, ok)
 	}
-	if toast := reloadToast(protocol.ReloadSessionResult{}, errors.New("busy"), nil); toast.Title != "Session reload failed" || toast.Variant != toastError || toast.Subtitle != "busy" {
-		t.Fatalf("failure toast = %#v", toast)
+	if toast, ok := reloadToast(warnings, nil, nil); ok || toast != (toastInput{}) {
+		t.Fatalf("nonfatal reload toast = %#v, shown=%v", toast, ok)
 	}
-	info := protocol.ReloadSessionResult{Diagnostics: []protocol.PromptDiagnostic{{Severity: "info", Message: "Duplicate guidance omitted"}}}
-	if toast := reloadToast(info, nil, nil); toast.Variant != toastInfo || toast.Subtitle != "Duplicate guidance omitted" {
-		t.Fatalf("informational toast = %#v", toast)
+	if toast, ok := reloadToast(protocol.ReloadSessionResult{}, errors.New("busy"), nil); !ok || toast.Title != "Session reload failed" || toast.Variant != toastError || toast.Subtitle != "busy" {
+		t.Fatalf("failure toast = %#v, shown=%v", toast, ok)
 	}
-	if toast := reloadToast(protocol.ReloadSessionResult{}, nil, errors.New("offline")); toast.Title != "Session context reloaded" || toast.Variant != toastWarning || toast.Subtitle != "Transcript refresh failed: offline" {
-		t.Fatalf("snapshot failure toast = %#v", toast)
+	if toast, ok := reloadToast(protocol.ReloadSessionResult{}, nil, errors.New("offline")); !ok || toast.Title != "Session refresh failed" || toast.Variant != toastError || toast.Subtitle != "offline" {
+		t.Fatalf("snapshot failure toast = %#v, shown=%v", toast, ok)
 	}
 }
 

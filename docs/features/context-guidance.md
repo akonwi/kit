@@ -20,7 +20,7 @@ A nested file applies automatically only when the session cwd is inside that fil
 
 Discovery is bounded to 64 existing candidates, 128 KiB per file, and 256 KiB of aggregate context. Kit omits a whole file rather than presenting a truncated fragment. When the aggregate limit is reached, the most local project guidance takes priority.
 
-Unreadable, non-regular, invalid UTF-8, oversized, and over-budget candidates produce structured reload diagnostics without preventing an otherwise valid session from opening. The native TUI reports these through the reload result toast.
+Unreadable, non-regular, invalid UTF-8, oversized, and over-budget candidates produce structured reload diagnostics without preventing an otherwise valid session from opening. Clients receive them in the reload result; the native TUI reserves toast feedback for operation errors.
 
 ## When changes take effect
 
