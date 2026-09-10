@@ -18,46 +18,29 @@ not an architectural constraint. The v2 architecture is
 
 - [ ] not started
 - [~] in progress or foundation only
-- [x] parity verified
 - [-] intentionally removed or superseded by an accepted decision
 
-A feature reaches `[x]` only when its behavior is implemented in the applicable
-clients, persistence/migration implications are covered, and automated or
-recorded manual verification exists.
+Completed features are removed once their behavior is implemented in the
+applicable clients, persistence and migration implications are covered, and
+automated or recorded manual verification exists.
 
 ## Accepted differences
 
 - [-] `web-tui` is removed.
-- [x] OpenTUI is replaced with `vaxis/ui` as the native TUI framework.
-  Remaining behavior and visual parity are tracked under Native TUI shell.
-- [x] The TypeScript/Pi runtime is replaced by the Kit-private Go
-  `internal/droids` SDK, and Kit sessions now host one autonomous droid with a
-  dedicated SQLite Store. ADR 0006 makes that Store authoritative for turns,
-  executions, messages, files, boundaries, outcomes, and droid events; Kit's
-  SQLite database retains the session registry rather than durable projections.
-- [x] Store new v2 runtime-owned conversation data in dedicated droid SQLite
-  stores.
 - [ ] Back up and idempotently migrate existing production `~/.kit` JSONL
   session data into the v2 SQLite stores.
 - [ ] Subagents become concurrent supervised executions with durable mailboxes.
 - [ ] Custom plugins are supported through the subprocess RPC protocol only;
   in-process TypeScript plugin loading is not restored.
-- [x] Automatic context discovery uses `AGENTS.md` only; `CLAUDE.md` and
-  immediate-child scanning are intentionally not restored. See ADR 0010.
 
 ## Foundation and distribution
 
-- [x] One Go module and one `kit` executable composition root.
-- [ ] CGO-free macOS and Linux release builds; Windows is unsupported.
-- [~] Embedded, versioned database migrations.
+- [~] Replace the legacy release workflow with CGO-free macOS and Linux builds;
+  the native Go executable already cross-builds without CGO, and Windows remains
+  unsupported.
 - [ ] Embedded production web assets; users need no Bun/Node runtime.
 - [ ] Version metadata, update checks, release notes, and release packaging.
 - [ ] Install and upgrade paths for existing npm-installed users.
-- [x] Initial Cobra-backed native command tree for root TUI startup, `new`,
-  `sessions` (`threads` alias), `print`, `auth`, `daemon`, `version`, and help,
-  with exact root/print help contracts, command-specific help coverage,
-  command-local validation, verified command-layer exit behavior, and the
-  internal daemon role hidden.
 - [ ] Shell completion, stdio RPC, semantic web serving, `kit attach`, and
   noninteractive `kit sessions list`, `rename`, and `delete` commands.
 - [ ] Cold-start and warm-attach performance acceptance checks.
@@ -65,13 +48,12 @@ recorded manual verification exists.
 
 ## Application paths and migration
 
-- [~] Development defaults to `~/.kit-v2` with a `KIT_HOME` override.
 - [~] Store provider credentials with private permissions, locked atomic writes,
   generation-checked OAuth rotation, headless Codex login/logout, and native TUI
   entry for OpenAI/Anthropic API keys; headless API-key management, web
   presentation, and migration remain.
-- [ ] Preserve user-editable settings, theme, prompt, skill, agent, template,
-  MCP, and plugin-manifest surfaces.
+- [ ] Preserve user-editable settings, theme, agent, template, MCP, and
+  plugin-manifest surfaces.
 - [ ] Inventory existing `~/.kit` data before migration.
 - [ ] Create a backup before migration.
 - [ ] Idempotently migrate sessions, turns, model/thinking selections,
@@ -83,81 +65,24 @@ recorded manual verification exists.
 
 ## Daemon and server lifecycle
 
-- [x] Dispatch client and daemon roles from the same executable through a
-  Cobra command tree, staging a private atomic run-directory copy before detach
-  so `go run` cleanup cannot unlink the live daemon image. The internal daemon
-  role remains hidden from public help.
-- [~] Coordinate concurrent daemon startup with an inter-process lock.
-- [~] Authenticate every local health, management, HTTP, and WebSocket request.
-- [x] Atomically publish and validate PID, instance, version, protocol, and
-  address metadata.
-- [x] Detect stale registrations and incompatible daemon versions safely.
-- [x] Implement `kit daemon start`, `status`, `stop`, and `restart`.
-- [~] Keep active parent and subagent work running after all clients detach.
-- [~] Distinguish detach, turn abort, ephemeral-session disposal, and daemon
-  shutdown.
+- [ ] Authenticate future local WebSocket requests consistently with the
+  authenticated health, management, and session HTTP routes.
+- [ ] Keep active subagent work running after all clients detach.
 - [~] Support graceful shutdown and bounded forced cleanup of tools/plugins.
-- [ ] Add explicit resource and backpressure limits.
+- [~] Complete resource and backpressure limits across every runtime and client;
+  HTTP, event replay/subscriptions, direct bash, MCP results, and several other
+  current boundaries are already bounded.
 
 ## Session directory and concurrency
 
-- [x] List, create, open, rename, delete, and resume sessions; the native TUI
-  lists all saved sessions in an on-demand responsive explorer, and `kit new`
-  starts it with a newly persisted session for the selected working directory
-  without consulting resumable sessions. The explorer switches the local TUI
-  binding to an exact selected session and renames or deletes non-attached
-  sessions.
-- [x] Resume the most recent session for the current cwd by default, with
-  `kit new` as the explicit create-instead escape hatch.
-- [x] Support exact long/unique-short session identifiers and explicit
-  `--temp` sessions backed by in-memory droid stores and disposed after orderly
-  foreground TUI or print exit; ADR 0009 deliberately defers logical owner
-  leases for abnormal owner loss.
-- [x] Persist session cwd, name, creation time, and monotonic activity time;
-  accepted prompts, direct bash commands, cwd changes, and renames advance the
-  activity timestamp used for directory ordering and default resume.
-- [x] Persist the exact model and valid thinking-level selection at session
-  creation; restore supported values exactly, resolve missing defaults, and
-  safely clamp, persist, and report stale saved levels before opening a runtime.
-- [x] Change model and thinking level on an existing session; the Kit registry
-  atomically persists expected-revision-guarded configuration updates, the
-  manager resolves exact targets and safely adapts context before runtime
-  replacement, protocol v19 projects capabilities and applied configuration,
-  and native `/model` and `/thinking` selectors share clickable header controls.
-  See `internal/session/configuration.go`, `internal/protocol/session.go`, and
-  `internal/tui/configuration_picker.go`.
-- [x] Persist droid-owned provider usage per message, turn, and cumulative
-  conversation; include observed retry/error/abort and compaction usage exactly
-  once, preserve totals across restart and forks, project absolute snapshot/live
-  totals through protocol v19, and present them in native `/debug` details.
-  See `internal/droids/usage.go`, `internal/session/snapshot.go`,
-  `internal/protocol/session.go`, and `internal/tui/session_details.go`.
 - [~] Run different top-level sessions concurrently.
 - [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
-- [x] Keep cwd, active-session, and model-selection state explicitly owned by
-  managers, session runtimes, or clients rather than process-global variables.
-- [x] Support persisted cwd retargeting through an explicit synchronized
-  server-side workspace scope, without process-global cwd mutation or
-  cross-session interference.
 - [ ] Implement handoff and lineage without globally switching other clients.
-- [x] Implement session explorer/picker workflows and responsive presentation;
-  the native dialog loads the global directory, centers selection on the
-  attached session, supports bounded keyboard/mouse navigation, prioritizes
-  title, activity time, cwd, then short id as width permits, atomically replaces
-  the local binding from an authoritative target snapshot, and provides
-  validated retryable rename and confirmed-delete dialogs. `kit sessions`
-  reuses the explorer as a bounded primary-screen mini-TUI, preserves shell
-  scrollback while cleaning up its live region, permits management before
-  attachment, and opens an exact selection in the normal TUI.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
 
 ## Agent runtime and transcript
 
-- [x] Construct persisted Kit sessions around `internal/droids.Droid`; droids
-  owns prompt admission, turns, outcomes, history, retries, compaction, tool
-  loops, recovery, and abort, while Kit projects protocol views directly without
-  persisting parallel run or transcript records.
 - [~] Stream text, thinking, assistant messages, tool calls, tool updates, usage,
   errors, and terminal run state; droids events are projected into a bounded
   runtime-local session stream. The native TUI buffers text deltas and reveals
@@ -166,30 +91,20 @@ recorded manual verification exists.
   updates, authoritative results/details, absolute cumulative usage, execution
   state, and terminal state. Push subscriptions, richer error recovery, and full
   multi-client synchronization remain.
-- [~] Preserve droid-owned turn and stable message identities directly;
-  assistant message IDs remain stable from live start/deltas through snapshots.
 - [~] Render active and historical turns consistently after reconnect/restart;
   transcript snapshots now preserve ordered content blocks, tool call/result
   identity, bounded arguments, details, errors, and stop reasons, and the native
   TUI reconstructs an attached active run from its runtime event stream. Rich
   turn entries and atomic multi-client synchronization remain.
-- [ ] Steering, follow-up queueing, promotion, restoration, and generation
-  guards.
+- [~] Expose droids' bounded durable steering and generation guards through Kit,
+  then add follow-up queueing, promotion, and restoration.
 - [~] Abort and cooperative cancellation through providers, tools, plugins, and
   subagents.
-- [ ] Retryable provider errors with user-visible countdown/status and limits.
+- [~] Project droids' bounded retry scheduling into user-visible provider-error
+  countdown and status surfaces.
 - [~] Proactive and overflow-driven compaction with durable checkpoints; droids
   performs threshold-driven automatic compaction and protocol v19 projects its
   pending, completed, and failed lifecycle so the native TUI provides notice.
-- [~] Current context pressure and model limit reporting, distinct from
-  cumulative provider usage; session snapshots project the estimated active
-  context and model window, and the TUI renders a bare header percentage when
-  meaningful.
-- [x] Model discovery and selection with exact provider/model IDs, persisted
-  session configuration, expected revisions, context-safe replacement, and
-  default-model precedence.
-- [x] Thinking-level discovery, canonical supported-level selection, safe
-  restore-time clamping, and persistence.
 - [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport with
   Kit-owned persistent credentials and refresh rotation, headless Codex device
   login/logout, and native TUI selection/login for all three providers; broader
@@ -200,16 +115,8 @@ recorded manual verification exists.
 
 ## Built-in coding tools
 
-- [x] Read files with bounded output and line addressing.
-- [x] Exact/surgical edit behavior and useful conflict errors.
-- [x] Full-file writes with parent-directory creation.
-- [x] Directory listing, glob finding, and content search.
-- [x] Shell execution, cancellation, output bounds, exit status, and dynamic
-  session cwd, including the synchronous sequential `change_cwd` tool; relative
-  coding tools and direct bash snapshot the current workspace scope at admission.
-- [~] Direct composer `!`/`!!` bash execution; included terminal results enter
-  droid boundary history, while in-flight and excluded executions are transient.
-- [ ] URL/open-browser and platform operations behind client/platform ports.
+- [~] Move the native TUI's existing validated URL opening behind
+  client/platform ports.
 - [ ] `show_image` local-image validation and transcript presentation.
 - [ ] Attachment/image inputs with validation and provider capability handling.
 - [ ] Tool approval/interceptor behavior and remote interaction routing.
@@ -246,10 +153,11 @@ recorded manual verification exists.
   keyboard, and mouse behavior; the initial single-ranked palette opens from
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
   wraparound navigation, Enter/Escape, full-row mouse activation, a quiet empty
-  state, and an undimmed modal boundary. It exposes cwd navigation, login, idle
-  session-context reload, searchable `/model` and supported-level `/thinking`
-  selectors, explicit `/compact`, always-available `/debug` session details with
-  live cumulative usage, session exploration, quit, and
+  state, and an undimmed modal boundary. It exposes cwd navigation, login,
+  active-safe session-context reload and naming, searchable `/model` and
+  supported-level `/thinking` selectors, explicit `/compact`, always-available
+  `/debug` session details with live cumulative usage, session exploration,
+  quit, and
   dynamically discovered idle-only prompt commands with quoted arguments; session exploration opens the
   native saved-session listing and switches the attached TUI session. Completion,
   nested pickers, and non-prompt dynamic command sources remain.
@@ -320,7 +228,9 @@ recorded manual verification exists.
 - [~] Snapshot plus high-water synchronization; snapshots now bind active runs
   to runtime stream identity, cursor, and replay availability. Broader
   multi-client conformance remains.
-- [ ] Ordered, exactly-once client reduction with duplicate/gap handling.
+- [~] Complete ordered, exactly-once client reduction across transports; current
+  protocol validation and the local reducer reject duplicate, gapped, and
+  out-of-order event batches.
 - [~] Bounded event replay, resync, and snapshot fallback; session events now
   receive runtime-local sequences without SQLite writes, and local clients bind
   polling to snapshot stream metadata. Push transport and richer gap recovery
@@ -334,15 +244,10 @@ recorded manual verification exists.
   supports cancellation-safe session reload, and uses atomic ordinary and
   prompt-command admission.
 - [ ] Stdio RPC bridge with protocol-clean stdout and diagnostics on stderr.
-- [x] Explicit `kit print` client with piped stdin, exact/implicit/new/temporary
-  session choices, name/model/thinking/cwd creation selection, foreground
-  cancellation and abort, protocol-clean stdout, stable command exit codes, and
-  exact final assistant text.
 - [ ] `kit attach` native remote TUI.
 
 ## Remote serving and security
 
-- [ ] Keep the private daemon listener loopback-only.
 - [ ] Provide a separately configured remote listener.
 - [ ] Token authentication for CLI clients and secure browser session cookies.
 - [ ] Host and Origin validation for browser and WebSocket requests.
@@ -396,25 +301,11 @@ recorded manual verification exists.
 
 ## Guidance and reusable prompts
 
-- [x] Server-owned global and Git-root-to-cwd `AGENTS.md` loading with bounded
-  diagnostics, local-guidance priority, and documented precedence. ADR 0010
-  intentionally excludes `CLAUDE.md`, siblings, and immediate-child scanning.
-- [x] Explicit live session reload applies current context, skills, prompt
-  commands, and tool contributions atomically for the next provider request,
-  preserves droid history and event-stream identity, and retains the dynamic
-  workspace scope.
-- [x] User-global and project `SKILL.md` discovery, deterministic precedence,
-  bounded diagnostics, model-visible prompt summaries, source-relative location
-  guidance, the reserved embedded `kit-customization` skill, and the stable
-  `activate_skill` tool.
 - [~] Kit user/project prompt-command discovery, frontmatter descriptions,
   quoted argument expansion, server-owned execution, reload, and native palette
   contribution are complete; compact synthetic transcript identity remains.
 - [ ] Claude command compatibility and `cc:` namespacing.
 - [ ] User/project subagent definition discovery.
-- [x] Cwd navigation immediately retargets relative filesystem operations while
-  explicit reload refreshes context, skills, and prompt commands from the
-  new cwd.
 
 ## Composer references and attachments
 
@@ -436,16 +327,6 @@ recorded manual verification exists.
   session exploration, quit, and server-discovered global/project prompt
   commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
-- [x] `/cd <path>` changes the authoritative session workspace scope, records a
-  durable user-origin cwd boundary for the droid, and offers the same relative,
-  absolute, and home-path behavior as `change_cwd`.
-- [x] `/login`, `/reload`, `/sessions`, `/debug`, `/model`, `/thinking`,
-  `/name`, `/compact`, and `/quit` are available through the native
-  command palette with a stable searchable catalog, visibly disabled rows, and
-  warning-toast feedback for unavailable keyboard activation. `/sessions`,
-  `/reload`, and `/thinking` remain available during active turns; reload and
-  thinking changes are sampled by the droid on its next provider request.
-  Session naming is also available from the clickable top-left header control.
 - [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/new`,
   `/tree`, and release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline
@@ -467,10 +348,6 @@ recorded manual verification exists.
 - [ ] Pending interaction replay/pagination across reconnects.
 - [ ] Pager sectioning, auto-open setting, notes, draft attachment, restore,
   submit, and failure recovery.
-- [x] Turn Activity retained-pane navigation and live/completed scroll behavior;
-  chips open one retained source, historical sources start at the top, live
-  sources follow the bottom, and keyed rows preserve disclosure state through
-  live-to-snapshot reconciliation.
 - [ ] Scratchpad guarded reads/edits, the core `edit_scratchpad` tool, autosave,
   context injection, and fork/handoff copying.
 
@@ -494,8 +371,10 @@ recorded manual verification exists.
 ## MCP and integrations
 
 - [ ] Merge all documented MCP config locations with precedence.
-- [ ] Proxy-first list/search/describe/call tool surface.
-- [ ] Stdio and HTTP transports with lazy connection.
+- [~] Wire the private droids proxy-first list/search/describe/call foundation
+  into Kit session runtime and configuration surfaces.
+- [~] Add configured stdio and HTTP transport factories around the existing lazy
+  MCP connection lifecycle.
 - [ ] Persistent metadata cache.
 - [ ] OAuth browser flow, timeout, credential persistence, one retry after
   rejected saved auth, and logout.
@@ -512,33 +391,24 @@ recorded manual verification exists.
 
 ## Headless and automation verification
 
-- [x] Explicit `kit print` persisted, `--new`, and process-local `--temp`
-  behavior, including artifact-free orderly disposal.
-- [x] `--session`, `--new`, `--temp`, `--name`, `--model`, `--thinking`,
-  `--cwd`, option delimiter, and piped stdin behavior.
 - [ ] Headless-safe built-ins/plugins and unavailable interaction semantics.
-- [x] Final stdout, diagnostics stderr, nonzero error/abort exits, and
-  foreground cancellation.
 - [ ] End-to-end SIGINT/SIGTERM exit-code verification.
 - [ ] Long-lived stdio RPC framing, malformed input recovery, async acceptance,
   and settlement events.
-- [x] Headless `kit auth login openai-codex`, non-secret `kit auth status`, and
-  `kit auth logout openai-codex` commands.
 - [~] Authenticated manual smoke testing covers native temporary print
   execution and artifact-free disposal; tools, plugins, signals, and subagents
   remain.
 
 ## Quality gate
 
-- [x] `gofmt`, `go vet`, `go test`, and `go build` pass for all Go packages.
 - [ ] Browser format, lint, typecheck, unit, integration, and accessibility tests
   pass.
 - [~] Current CLI, daemon, session, session-client, and TUI test suites pass
   under the race detector; subagent/plugin concurrency suites remain future
   work.
 - [ ] Protocol fuzz/property tests cover malformed and adversarial records.
-- [ ] SQLite migration tests cover empty, current, repeated, partial-failure, and
-  imported-data paths.
+- [~] Extend SQLite migration tests beyond empty databases and versioned schema
+  upgrades to repeated, partial-failure, and imported-data paths.
 - [ ] macOS and Linux release artifacts pass launch and daemon lifecycle smoke
   tests.
 - [ ] No current user data is mutated before explicit migration.
@@ -550,15 +420,15 @@ recorded manual verification exists.
 
 ## Rolling target-branch delta
 
-Add every relevant behavior merged after `5c6e112` here. Do not silently expand
-or ignore the parity target.
+Add every unresolved or intentionally superseded behavior merged after
+`5c6e112` here. Remove ported entries once parity is verified; do not silently
+expand or ignore the parity target.
 
 Last audited against production `main` at `c9abdf2` (Kit v0.35.1). Version-only
 commits are omitted.
 
 | Change | Decision | Tracking |
 | --- | --- | --- |
-| Keep assistant reasoning visible alongside tool activity (`642638d`) | Ported | Native TUI shell transcript/thinking |
 | Present confirm, input, select, and guided questions in the composer dock (`9f7bbed`) | Port | Native TUI interaction surfaces; User interaction and reading workflows |
 | Add validated `show_image` and explicit transcript image previews (`a2c7434`) | Port | Built-in coding tools; Native TUI shell image capabilities |
 | Open transcript images in retained workspace panes (`e6c181f`) | Port | Native TUI workspace panes |
