@@ -66,6 +66,28 @@ func TestCompletedChangeCWDToolUpdatesSessionScopeAndRequestsToast(t *testing.T)
 	}
 }
 
+func TestSubagentFallbackToolResultRequestsEphemeralToast(t *testing.T) {
+	details, err := json.Marshal(subagentToolDetails{Warning: `Subagent "reviewer" requested unavailable model "production/reviewer"; using active model "openai/gpt-5".`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 1, Kind: protocol.SessionEventToolCompleted,
+		TurnID: "turn_1", ToolCallID: "call_1", ToolName: "subagent", Details: details,
+	}})
+	if len(state.eventToasts) != 1 {
+		t.Fatalf("subagent fallback toasts = %+v", state.eventToasts)
+	}
+	toast := state.eventToasts[0]
+	if toast.Title != "Subagent provider unavailable" || toast.Variant != toastWarning || toast.Persistent {
+		t.Fatalf("subagent fallback toast = %+v", toast)
+	}
+	if !strings.Contains(toast.Subtitle, "using active model") {
+		t.Fatalf("subagent fallback subtitle = %q", toast.Subtitle)
+	}
+}
+
 func TestTranscriptScrollWaitsForUpdatedLayout(t *testing.T) {
 	t.Parallel()
 
@@ -1112,6 +1134,14 @@ type fakeSession struct {
 }
 
 func (s fakeSession) ID() string { return s.id }
+
+func (fakeSession) Subagent(context.Context, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
+	panic("unexpected Subagent")
+}
+
+func (fakeSession) SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error) {
+	panic("unexpected SubagentTranscript")
+}
 
 func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
 	if s.snapshotFn != nil {

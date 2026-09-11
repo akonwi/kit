@@ -226,6 +226,14 @@ type fakeBoundSession struct {
 
 func (c *fakeBoundSession) ID() string { return c.server.runSessionID }
 
+func (c *fakeBoundSession) Subagent(context.Context, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
+	panic("unexpected Subagent")
+}
+
+func (c *fakeBoundSession) SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error) {
+	panic("unexpected SubagentTranscript")
+}
+
 func (c *fakeBoundSession) Snapshot(context.Context) (protocol.SessionSnapshot, error) {
 	return protocol.SessionSnapshot{}, nil
 }

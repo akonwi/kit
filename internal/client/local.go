@@ -72,6 +72,8 @@ var (
 
 var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
+var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
+var _ sessionclient.SubagentEventReader = (*localSession)(nil)
 var _ sessionclient.Run = (*localRun)(nil)
 var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 
@@ -120,6 +122,18 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 }
 
 func (c *localSession) ID() string { return c.id }
+
+func (c *localSession) Subagent(ctx context.Context, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
+	return c.transport.Subagent(ctx, c.id, input)
+}
+
+func (c *localSession) SubagentTranscript(ctx context.Context, conversationID string) (protocol.SubagentTranscript, error) {
+	return c.transport.GetSubagentTranscript(ctx, c.id, conversationID)
+}
+
+func (c *localSession) SubagentEvents(ctx context.Context, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
+	return c.transport.GetSubagentEvents(ctx, c.id, conversationID, streamID, after)
+}
 
 func (c *localSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, error) {
 	return c.transport.GetSessionVCSStatus(ctx, c.id)
@@ -388,6 +402,21 @@ func (c *localSession) StartBash(ctx context.Context, executionID, command strin
 
 func (c *localSession) AbortBash(ctx context.Context, executionID string) error {
 	return c.transport.AbortBash(ctx, c.id, executionID)
+}
+
+// Watch opens an attachment-scoped stream containing session-level events.
+func (c *localSession) Watch(ctx context.Context) (sessionclient.EventStream, error) {
+	snapshot, err := c.Snapshot(ctx)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.transport.StreamSessionEvents(ctx, c.id, snapshot.EventStreamID, snapshot.EventCursor)
+	if err != nil {
+		return nil, err
+	}
+	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
+	go stream.readSSE(ctx, body, "", true, "", snapshot.EventStreamID, snapshot.EventCursor, nil)
+	return stream, nil
 }
 
 func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.EventStream, error) {

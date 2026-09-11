@@ -69,12 +69,35 @@ func TestVisibleToastRecordsKeepsNewestCardsWithinViewport(t *testing.T) {
 		{ID: 2, toastInput: toastInput{Title: "Middle", Subtitle: "Detail"}},
 		{ID: 3, toastInput: toastInput{Title: "New", Subtitle: "Detail"}},
 	}
-	visible := visibleToastRecords(records, 10)
+	visible := visibleToastRecords(records, 100, 10)
 	if len(visible) != 2 || visible[0].ID != 2 || visible[1].ID != 3 {
 		t.Fatalf("visible short-viewport toasts = %+v", visible)
 	}
-	if smallest := visibleToastRecords(records, 3); len(smallest) != 1 || smallest[0].ID != 3 {
+	if smallest := visibleToastRecords(records, 100, 3); len(smallest) != 1 || smallest[0].ID != 3 {
 		t.Fatalf("visible minimum-viewport toasts = %+v", smallest)
+	}
+	transientBoundary := []toastRecord{
+		{ID: 1, toastInput: toastInput{Title: "Detail", Subtitle: strings.Repeat("x", 57)}},
+		{ID: 2, toastInput: toastInput{Title: "Newest"}},
+	}
+	if visible := visibleToastRecords(transientBoundary, 100, 9); len(visible) != 2 {
+		t.Fatalf("transient boundary toasts = %+v", visible)
+	}
+}
+
+func TestToastDetailWrapsWithinTheCard(t *testing.T) {
+	t.Parallel()
+	detail := `subagent "code-reviewer" has an invalid exact model identifier · /Users/person/agents/reviewer.md`
+	application := uitest.New(toastStack{Toasts: []toastRecord{{
+		ID: 1, toastInput: toastInput{Title: "Subagent definition warning", Subtitle: detail, Variant: toastWarning, Persistent: true},
+	}}})
+	application.Pump(80, 20)
+	rows := paintedRows(application, 80, 20)
+	text := strings.Join(rows, "\n")
+	for _, expected := range []string{"Subagent definition warning", `subagent "code-reviewer"`, "exact model identifier", "/Users/person/agents/reviewer.md"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("wrapped toast detail missing %q:\n%s", expected, text)
+		}
 	}
 }
 

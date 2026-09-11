@@ -42,7 +42,7 @@ func (w shellView) activityPane(theme ui.Theme) ui.Widget {
 	if w.Snapshot.Running {
 		hint = strings.TrimSuffix(hint, "esc close") + "esc abort"
 	}
-	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 			ui.Expanded(ui.Text{Value: metadata, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1}),
 			workspaceWideOnly{LayoutState: w.Snapshot.WorkspaceLayout, Child: mouseActivator{
@@ -57,7 +57,11 @@ func (w shellView) activityPane(theme ui.Theme) ui.Widget {
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
 		})},
-	}}
+	}})
+	if w.Snapshot.ActivityFocus != nil {
+		content = ui.FocusScope{AutoFocus: w.Snapshot.ActivitySelected, Child: ui.Focus(w.Snapshot.ActivityFocus, content)}
+	}
+	return content
 }
 
 func activityMetadata(toolCalls, steps int) string {
@@ -77,7 +81,13 @@ func (w shellView) activityListItem(theme ui.Theme, item activityListItem, state
 	case activityListSpacer:
 		return keyedActivityItem{ID: item.ID, Child: ui.SizedBox{Height: 1}}
 	case activityListThinking:
-		return keyedActivityItem{ID: item.ID, Child: ui.SizedBox{}}
+		return keyedActivityItem{ID: item.ID, Child: ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
+			Children: []ui.Widget{
+				ui.Text{Value: "Thinking", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}},
+				markdownView{ID: item.ID, Source: item.Section.Thinking, BaseStyle: ui.Style{Foreground: theme.MutedForeground}},
+			},
+		}}
 	case activityListProse:
 		style := ui.Style{Foreground: theme.Foreground}
 		if item.Section.Aborted {

@@ -15,6 +15,7 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	kitvcs "github.com/akonwi/kit/internal/vcs"
 )
@@ -50,6 +51,9 @@ type sessionService interface {
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
 	Bash(context.Context, string, string) (protocol.BashExecution, error)
 	AbortBash(context.Context, string, string) error
+	Subagent(context.Context, string, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
+	SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error)
+	SubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
 }
 
 type runtimeSessionService struct {
@@ -57,6 +61,8 @@ type runtimeSessionService struct {
 	availableProviders func(context.Context) []string
 	probeVCS           func(context.Context, string) (*kitvcs.Status, error)
 	fileIndexes        *sessionFileIndexCache
+	subagents          *subagent.Supervisor
+	subagentTools      *subagent.ToolService
 }
 
 func (s runtimeSessionService) Create(
@@ -219,7 +225,56 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		FollowUps: protocol.FollowUpQueue{
 			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...),
 		},
-		Warnings: append([]string(nil), snapshot.Warnings...),
+		Warnings:              append([]string(nil), snapshot.Warnings...),
+		SubagentDefinitions:   make([]protocol.SubagentDefinition, 0, len(snapshot.SubagentDefinitions)),
+		SubagentDiagnostics:   make([]protocol.SubagentDiagnostic, 0, len(snapshot.SubagentDiagnostics)),
+		SubagentConversations: make([]protocol.SubagentConversation, 0, len(snapshot.SubagentConversations)),
+		SubagentMailbox:       make([]protocol.SubagentMailboxItem, 0, len(snapshot.SubagentMailbox)),
+	}
+	for _, item := range snapshot.SubagentMailbox {
+		result.SubagentMailbox = append(result.SubagentMailbox, protocol.SubagentMailboxItem{
+			ID: item.ID, ConversationID: item.ConversationID, TaskID: item.TaskID,
+			AgentName: item.AgentName, State: item.State, Summary: item.Summary, Error: item.Error,
+			CreatedAt: item.CreatedAt.Format(time.RFC3339Nano),
+		})
+	}
+	for _, definition := range snapshot.SubagentDefinitions {
+		result.SubagentDefinitions = append(result.SubagentDefinitions, protocol.SubagentDefinition{
+			Name: definition.Name, Description: definition.Description, Model: definition.Model,
+			Source: protocol.SubagentSource{Kind: string(definition.Source.Kind), Path: definition.Source.Path, PluginID: definition.Source.PluginID},
+		})
+	}
+	for _, diagnostic := range snapshot.SubagentDiagnostics {
+		result.SubagentDiagnostics = append(result.SubagentDiagnostics, protocol.SubagentDiagnostic{
+			Severity: diagnostic.Severity, Code: diagnostic.Code, Message: diagnostic.Message,
+			Source: protocol.SubagentSource{Kind: string(diagnostic.Source.Kind), Path: diagnostic.Source.Path, PluginID: diagnostic.Source.PluginID},
+		})
+	}
+	for _, conversation := range snapshot.SubagentConversations {
+		projected := protocol.SubagentConversation{
+			ID: conversation.ID, AgentName: conversation.AgentName, Model: conversation.Model,
+			State: conversation.State, Generation: conversation.Generation,
+			ActiveTaskID: conversation.ActiveTaskID, QueuedTasks: conversation.QueuedTasks,
+			LastCompletedTaskID: conversation.LastCompletedTaskID, LastResultSummary: conversation.LastResultSummary,
+			UpdatedAt: conversation.UpdatedAt.Format(time.RFC3339Nano),
+			Tasks:     make([]protocol.SubagentTask, 0, len(conversation.Tasks)),
+		}
+		for _, task := range conversation.Tasks {
+			projectedTask := protocol.SubagentTask{
+				ID: task.ID, Sequence: task.Sequence, State: task.State,
+				CancellationGeneration: task.CancellationGeneration,
+				QueuedAt:               task.QueuedAt.Format(time.RFC3339Nano),
+				ResultSummary:          task.ResultSummary, Error: task.Error,
+			}
+			if task.StartedAt != nil {
+				projectedTask.StartedAt = task.StartedAt.Format(time.RFC3339Nano)
+			}
+			if task.FinishedAt != nil {
+				projectedTask.FinishedAt = task.FinishedAt.Format(time.RFC3339Nano)
+			}
+			projected.Tasks = append(projected.Tasks, projectedTask)
+		}
+		result.SubagentConversations = append(result.SubagentConversations, projected)
 	}
 	for _, command := range snapshot.PromptCommands {
 		result.PromptCommands = append(result.PromptCommands, protocol.PromptCommand{
@@ -248,6 +303,230 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		})
 	}
 	return result, nil
+}
+
+func (s runtimeSessionService) SubagentEvents(ctx context.Context, sessionID, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
+	conversation, err := s.subagents.Conversation(ctx, subagent.ConversationID(conversationID))
+	if err != nil || conversation.OwnerSessionID != sessionID {
+		if err == nil {
+			err = subagent.ErrNotFound
+		}
+		return protocol.SubagentLiveEventPage{}, err
+	}
+	page, err := s.subagents.LiveEvents(ctx, conversation.ID, streamID, after)
+	if err != nil {
+		return protocol.SubagentLiveEventPage{}, err
+	}
+	result := protocol.SubagentLiveEventPage{
+		StreamID: page.StreamID, FirstSequence: page.FirstSequence,
+		LastSequence: page.LastSequence, ResyncRequired: page.ResyncRequired,
+		Events: make([]protocol.SubagentLiveEvent, 0, len(page.Events)),
+	}
+	for _, event := range page.Events {
+		result.Events = append(result.Events, protocol.SubagentLiveEvent{
+			Sequence: event.Sequence, Kind: event.Kind, TurnID: event.TurnID,
+			MessageID: event.MessageID, ContentIndex: event.ContentIndex,
+			Delta: event.Delta, Text: event.Text, ToolCallID: event.ToolCallID,
+			ToolName: event.ToolName, IsError: event.IsError,
+		})
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID, conversationID string) (protocol.SubagentTranscript, error) {
+	conversation, err := s.subagents.Conversation(ctx, subagent.ConversationID(conversationID))
+	if err != nil || conversation.OwnerSessionID != sessionID {
+		if err == nil {
+			err = subagent.ErrNotFound
+		}
+		return protocol.SubagentTranscript{}, err
+	}
+	transcript, err := s.subagents.Transcript(ctx, conversation.ID)
+	if err != nil {
+		return protocol.SubagentTranscript{}, err
+	}
+	result := protocol.SubagentTranscript{ConversationID: conversationID, Messages: make([]protocol.TranscriptMessage, 0, len(transcript.Messages))}
+	for _, message := range transcript.Messages {
+		projected := protocol.TranscriptMessage{
+			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence, Role: message.Role,
+			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
+			ToolCallID: message.ToolCallID, ToolName: message.ToolName,
+			BoundaryID: message.BoundaryID, BoundaryKind: message.BoundaryKind, BoundarySource: message.BoundarySource,
+			Details: append(json.RawMessage(nil), message.Details...), IsError: message.IsError,
+			CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+		}
+		for _, block := range message.Content {
+			projected.Content = append(projected.Content, protocol.TranscriptContent{
+				Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
+				ToolCallID: block.ToolCallID, ToolName: block.ToolName,
+				Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
+				Filename: block.Filename, MediaType: block.MediaType,
+			})
+		}
+		result.Messages = append(result.Messages, projected)
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) Subagent(ctx context.Context, sessionID string, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
+	if s.subagents == nil || s.subagentTools == nil {
+		return protocol.SubagentOperationResult{}, subagent.ErrClosed
+	}
+	if err := input.Validate(); err != nil {
+		return protocol.SubagentOperationResult{}, fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	if _, err := s.manager.Get(ctx, sessionID); err != nil {
+		return protocol.SubagentOperationResult{}, err
+	}
+	result := protocol.SubagentOperationResult{}
+	switch input.Action {
+	case protocol.SubagentListAgents:
+		loaded, err := s.manager.SubagentDefinitions(ctx, sessionID)
+		if err != nil {
+			return result, err
+		}
+		for _, definition := range loaded.Catalog.Definitions() {
+			result.Definitions = append(result.Definitions, protocol.SubagentDefinition{
+				Name: definition.Name, Description: definition.Description, Model: definition.Model,
+				Source: protocol.SubagentSource{Kind: string(definition.Source.Kind), Path: definition.Source.Path, PluginID: definition.Source.PluginID},
+			})
+		}
+		for _, diagnostic := range loaded.Diagnostics {
+			result.Diagnostics = append(result.Diagnostics, protocol.SubagentDiagnostic{
+				Severity: string(diagnostic.Severity), Code: diagnostic.Code, Message: diagnostic.Message,
+				Source: protocol.SubagentSource{Kind: string(diagnostic.Source.Kind), Path: diagnostic.Source.Path, PluginID: diagnostic.Source.PluginID},
+			})
+		}
+		conversations, err := s.subagents.ListConversations(ctx, sessionID)
+		if err != nil {
+			return result, err
+		}
+		for _, conversation := range conversations {
+			projected, err := s.projectSubagentConversation(ctx, conversation)
+			if err != nil {
+				return result, err
+			}
+			result.Conversations = append(result.Conversations, projected)
+		}
+	case protocol.SubagentStart:
+		loaded, err := s.manager.SubagentDefinitions(ctx, sessionID)
+		if err != nil {
+			return result, err
+		}
+		conversation, task, warning, err := s.subagentTools.Start(ctx, sessionID, loaded.Catalog, input.Agent, input.Message)
+		if err != nil {
+			return result, err
+		}
+		projected, err := s.projectSubagentConversation(ctx, conversation)
+		if err != nil {
+			return result, err
+		}
+		projectedTask := projectSubagentTask(task)
+		result.Conversation, result.Task, result.Warning = &projected, &projectedTask, warning
+	case protocol.SubagentMessage:
+		conversation, task, err := s.subagentTools.Message(ctx, sessionID, input.Agent, subagent.ConversationID(input.ConversationID), input.Message)
+		if err != nil {
+			return result, err
+		}
+		projected, err := s.projectSubagentConversation(ctx, conversation)
+		if err != nil {
+			return result, err
+		}
+		projectedTask := projectSubagentTask(task)
+		result.Conversation, result.Task = &projected, &projectedTask
+	case protocol.SubagentInspect:
+		inspected, err := s.subagentTools.Inspect(ctx, sessionID, input.Agent, subagent.ConversationID(input.ConversationID), subagent.TaskID(input.TaskID))
+		if err != nil {
+			return result, err
+		}
+		if inspected.Conversation != nil {
+			projected, err := s.projectSubagentConversation(ctx, *inspected.Conversation)
+			if err != nil {
+				return result, err
+			}
+			result.Conversation = &projected
+		}
+		if inspected.Task != nil {
+			projected := projectSubagentTask(*inspected.Task)
+			result.Task = &projected
+		}
+		for _, task := range inspected.Tasks {
+			result.Tasks = append(result.Tasks, projectSubagentTask(task))
+		}
+	case protocol.SubagentWait:
+		task, timedOut, err := s.subagentTools.Wait(ctx, sessionID, subagent.TaskID(input.TaskID), time.Duration(input.TimeoutMS)*time.Millisecond)
+		if err != nil {
+			return result, err
+		}
+		projected := projectSubagentTask(task)
+		result.Task, result.TimedOut = &projected, timedOut
+	case protocol.SubagentCancel:
+		task, err := s.subagents.Task(ctx, subagent.TaskID(input.TaskID))
+		if err != nil || task.OwnerSessionID != sessionID {
+			if err == nil {
+				err = subagent.ErrNotFound
+			}
+			return result, err
+		}
+		if task.CancellationGeneration != input.Generation {
+			return result, subagent.ErrConflict
+		}
+		task, err = s.subagents.Cancel(ctx, task.ID, input.Generation, "canceled by client")
+		if err != nil {
+			return result, err
+		}
+		projected := projectSubagentTask(task)
+		result.Task = &projected
+	case protocol.SubagentDismiss:
+		inspected, err := s.subagentTools.Inspect(ctx, sessionID, input.Agent, subagent.ConversationID(input.ConversationID), "")
+		if err != nil || inspected.Conversation == nil {
+			return result, err
+		}
+		if inspected.Conversation.Generation != input.Generation {
+			return result, subagent.ErrConflict
+		}
+		if _, err := s.subagents.Dismiss(ctx, inspected.Conversation.ID, input.Generation, "dismissed by client"); err != nil {
+			return result, err
+		}
+		result.Dismissed = true
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) projectSubagentConversation(ctx context.Context, conversation subagent.Conversation) (protocol.SubagentConversation, error) {
+	projected := protocol.SubagentConversation{
+		ID: string(conversation.ID), AgentName: conversation.Agent.Name, Model: conversation.Model,
+		State: string(conversation.State), Generation: conversation.Generation,
+		ActiveTaskID: string(conversation.ActiveTaskID), QueuedTasks: conversation.QueuedTasks,
+		LastCompletedTaskID: string(conversation.LastCompletedTaskID), LastResultSummary: conversation.LastResultSummary,
+		UpdatedAt: conversation.UpdatedAt.Format(time.RFC3339Nano),
+	}
+	tasks, err := s.subagents.ListTasks(ctx, conversation.ID)
+	if err != nil {
+		return protocol.SubagentConversation{}, err
+	}
+	if len(tasks) > 20 {
+		tasks = tasks[len(tasks)-20:]
+	}
+	for _, task := range tasks {
+		projected.Tasks = append(projected.Tasks, projectSubagentTask(task))
+	}
+	return projected, nil
+}
+
+func projectSubagentTask(task subagent.Task) protocol.SubagentTask {
+	projected := protocol.SubagentTask{
+		ID: string(task.ID), Sequence: task.Sequence, State: string(task.State),
+		CancellationGeneration: task.CancellationGeneration,
+		QueuedAt:               task.QueuedAt.Format(time.RFC3339Nano), ResultSummary: task.ResultSummary, Error: task.Error,
+	}
+	if task.StartedAt != nil {
+		projected.StartedAt = task.StartedAt.Format(time.RFC3339Nano)
+	}
+	if task.FinishedAt != nil {
+		projected.FinishedAt = task.FinishedAt.Format(time.RFC3339Nano)
+	}
+	return projected
 }
 
 func projectSessionUsage(usage kitsession.SessionUsage) protocol.SessionUsage {
@@ -319,7 +598,8 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
 			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
 			ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow,
-			Usage: projectSessionUsagePointer(event.Usage),
+			Usage:                  projectSessionUsagePointer(event.Usage),
+			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
 		})
 	}
 	return batch
@@ -810,6 +1090,64 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/subagents/{conversationID}/events", func(writer http.ResponseWriter, request *http.Request) {
+		after := int64(0)
+		if raw := request.URL.Query().Get("after"); raw != "" {
+			parsed, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil || parsed < 0 {
+				writeSessionError(writer, fmt.Errorf("%w: child event cursor must be non-negative", errInvalidSessionRequest))
+				return
+			}
+			after = parsed
+		}
+		result, err := service.SubagentEvents(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"), request.URL.Query().Get("stream"), after)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid subagent events: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/subagents/{conversationID}/transcript", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.SubagentTranscript(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid subagent transcript: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/subagents", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.SubagentOperationInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.Subagent(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid subagent operation result: %w", err))
+			return
+		}
+		status := http.StatusOK
+		if input.Action == protocol.SubagentStart || input.Action == protocol.SubagentMessage || input.Action == protocol.SubagentCancel {
+			status = http.StatusAccepted
+		}
+		writeJSON(writer, status, result)
+	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/submissions", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -1041,16 +1379,19 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
 	switch {
-	case errors.Is(err, kitsession.ErrNotFound):
+	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, subagent.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable):
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed):
 		status = http.StatusConflict
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrClosed):
+	case errors.Is(err, subagent.ErrQueueFull):
+		status = http.StatusTooManyRequests
+		message = err.Error()
+	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):
 		status = http.StatusServiceUnavailable
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, kitsession.ErrNotTemporary), errors.Is(err, kitsession.ErrTemporary), errors.Is(err, errInvalidSessionRequest):
+	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, kitsession.ErrNotTemporary), errors.Is(err, kitsession.ErrTemporary), errors.Is(err, subagent.ErrInvalidInput), errors.Is(err, subagent.ErrTemporaryUnavailable), errors.Is(err, errInvalidSessionRequest):
 		status = http.StatusBadRequest
 		message = err.Error()
 	}

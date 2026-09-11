@@ -5,6 +5,8 @@ const (
 	glyphMiddleDot      = "·"
 	glyphCheck          = "✓"
 	glyphCross          = "✗"
+	glyphCircleFilled   = "●"
+	glyphCircleEmpty    = "○"
 	glyphCircleSlash    = "⊘"
 	glyphTimes          = "×"
 	glyphTeeLeft        = "┤"
@@ -17,4 +19,5 @@ const (
 	glyphTaskUnchecked  = "☐"
 	glyphTaskChecked    = "☑"
 	glyphTableSeparator = "│"
+	glyphHeavyLine      = "━"
 )

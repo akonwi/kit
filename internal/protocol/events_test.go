@@ -5,6 +5,27 @@ import (
 	"testing"
 )
 
+func TestSubagentChangedEventValidation(t *testing.T) {
+	t.Parallel()
+	event := SessionEvent{
+		StreamID: "stream_test", Sequence: 1, SessionID: "session_test",
+		Kind:                   SessionEventSubagentChanged,
+		SubagentConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		SubagentTaskID:         "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	batch := SessionEventBatch{StreamID: event.StreamID, FirstSequence: 1, LastSequence: 1, Events: []SessionEvent{event}}
+	if err := batch.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.RunID, event.TurnID = "turn_parent", "turn_parent"
+	if err := event.Validate(); err == nil {
+		t.Fatal("subagent event accepted parent run identity")
+	}
+}
+
 func TestSessionEventBatchValidatesExpectedTurnSequence(t *testing.T) {
 	t.Parallel()
 

@@ -152,22 +152,34 @@ type promptAdmission struct {
 	abort atomic.Bool
 }
 
+type subagentDiagnosticToastKey struct {
+	SessionID string
+	Severity  string
+	Code      string
+	Message   string
+	Kind      string
+	Path      string
+	PluginID  string
+}
+
 func (a app) CreateState() ui.State { return &appState{} }
 
 type appState struct {
 	ui.StateBase
 
-	ctx              context.Context
-	cancel           context.CancelFunc
-	attachmentCtx    context.Context
-	attachmentCancel context.CancelFunc
-	runWatchCancel   context.CancelFunc
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	attachmentCtx       context.Context
+	attachmentCancel    context.CancelFunc
+	runWatchCancel      context.CancelFunc
+	subagentWatchCancel context.CancelFunc
 
 	phase                       phase
 	errorText                   string
 	status                      string
 	toasts                      toastController
 	toastCancels                map[uint64]context.CancelFunc
+	eventToasts                 []toastInput
 	showToastOverride           func(toastInput)
 	composer                    string
 	composerCursorEndGeneration uint64
@@ -223,6 +235,25 @@ type appState struct {
 	workspaceLayout             workspaceLayoutState
 	activitySourceID            string
 	activitySelected            bool
+	subagentsOpen               bool
+	subagentDefinitions         []protocol.SubagentDefinition
+	subagentDiagnostics         []protocol.SubagentDiagnostic
+	subagentDiagnosticToasts    map[subagentDiagnosticToastKey]struct{}
+	subagentConversations       []protocol.SubagentConversation
+	subagentSelection           string
+	subagentPaneID              string
+	subagentTranscripts         map[string]protocol.SubagentTranscript
+	subagentTranscriptOrder     []string
+	subagentScrolls             map[string]*ui.ScrollController
+	subagentLive                map[string]protocol.SubagentLiveEventPage
+	subagentRequestGeneration   uint64
+	subagentRevealPending       bool
+	subagentRevealOffset        int
+	subagentDismissID           string
+	subagentDismissName         string
+	subagentDismissGeneration   uint64
+	subagentDismissPending      bool
+	subagentDismissError        string
 	hoveredActivityID           string
 	inlineActivityOpen          map[string]bool
 	activityExpanded            map[activityToolKey]bool
@@ -288,6 +319,10 @@ func (s *appState) InitState() {
 	s.location = options.Location
 	s.locationBase = options.Location
 	s.sessionDrafts = make(map[string]string)
+	s.subagentTranscripts = make(map[string]protocol.SubagentTranscript)
+	s.subagentDiagnosticToasts = make(map[subagentDiagnosticToastKey]struct{})
+	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
 	s.newSessionPending = options.NewSessionID != ""
 	if options.Authenticated {
 		s.phase = phaseLoading
@@ -375,7 +410,15 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.activityNeedsScroll || s.activityRevealPending
+	if s.subagentRevealPending {
+		if s.activityScroll.Attached() {
+			s.activityScroll.ScrollToOffset(s.subagentRevealOffset)
+			s.subagentRevealPending = false
+		} else {
+			keepTicking = true
+		}
+	}
+	return keepTicking || s.needsScroll || s.activityNeedsScroll || s.activityRevealPending || s.subagentRevealPending
 }
 
 func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
@@ -389,6 +432,17 @@ func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
 	s.terminalStatus.Update(now, name, cwd, s.terminalRunID, resolveTerminalStatus(s.terminalRunActive, s.agentFeedbackPending), setTitle)
 }
 
+func (s *appState) storeToast(input toastInput) toastShowResult {
+	result := s.toasts.Show(input)
+	for _, evicted := range result.Evicted {
+		if cancel := s.toastCancels[evicted]; cancel != nil {
+			cancel()
+			delete(s.toastCancels, evicted)
+		}
+	}
+	return result
+}
+
 func (s *appState) showToast(input toastInput) {
 	if s.showToastOverride != nil {
 		s.showToastOverride(input)
@@ -400,13 +454,7 @@ func (s *appState) showToast(input toastInput) {
 	var result toastShowResult
 	var toastContext context.Context
 	s.SetState(func() {
-		result = s.toasts.Show(input)
-		for _, evicted := range result.Evicted {
-			if cancel := s.toastCancels[evicted]; cancel != nil {
-				cancel()
-				delete(s.toastCancels, evicted)
-			}
-		}
+		result = s.storeToast(input)
 		if result.Retained && !input.Persistent {
 			var cancel context.CancelFunc
 			toastContext, cancel = context.WithCancel(s.ctx)
@@ -503,6 +551,10 @@ func (s *appState) resetAttachmentContext() {
 		s.runWatchCancel()
 		s.runWatchCancel = nil
 	}
+	if s.subagentWatchCancel != nil {
+		s.subagentWatchCancel()
+		s.subagentWatchCancel = nil
+	}
 	if s.attachmentCancel != nil {
 		s.attachmentCancel()
 	}
@@ -515,6 +567,9 @@ func (s *appState) resetAttachmentContext() {
 
 func (s *appState) Dispose() {
 	s.stopVCSMonitoring()
+	if s.subagentWatchCancel != nil {
+		s.subagentWatchCancel()
+	}
 	if s.loginCancel != nil {
 		s.loginCancel()
 	}
@@ -576,6 +631,20 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		WorkspaceLayout:             &s.workspaceLayout,
 		ActivitySourceID:            s.activitySourceID,
 		ActivitySelected:            s.activitySelected,
+		SubagentsOpen:               s.subagentsOpen,
+		SubagentDefinitions:         append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
+		SubagentDiagnostics:         append([]protocol.SubagentDiagnostic(nil), s.subagentDiagnostics...),
+		SubagentConversations:       append([]protocol.SubagentConversation(nil), s.subagentConversations...),
+		SubagentSelection:           s.subagentSelection,
+		SubagentPaneID:              s.subagentPaneID,
+		SubagentTranscripts:         cloneSubagentTranscripts(s.subagentTranscripts),
+		SubagentTranscriptOrder:     append([]string(nil), s.subagentTranscriptOrder...),
+		SubagentScroll:              s.subagentScrolls[s.subagentPaneID],
+		SubagentLive:                cloneSubagentLive(s.subagentLive),
+		SubagentDismissID:           s.subagentDismissID,
+		SubagentDismissName:         s.subagentDismissName,
+		SubagentDismissPending:      s.subagentDismissPending,
+		SubagentDismissError:        s.subagentDismissError,
 		HoveredActivityID:           s.hoveredActivityID,
 		InlineActivityOpen:          s.inlineActivityOpen,
 		ActivityExpanded:            s.activityExpanded,
@@ -655,11 +724,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() { s.activitySelected = false })
 		},
 		ShowActivity: func(ui.EventContext) {
-			if s.activitySourceID != "" {
+			if s.subagentsOpen || s.activitySourceID != "" {
 				s.SetState(func() {
 					presentation := presentTranscript(presentedMessages)
 					s.activitySelected = !s.workspaceLayout.Wide
-					if s.activitySelected && s.activityCursor.ToolCallID == "" {
+					if !s.subagentsOpen && s.activitySelected && s.activityCursor.ToolCallID == "" {
 						keys := activityToolKeys(presentation, s.activitySourceID)
 						if len(keys) > 0 {
 							s.activityCursor = keys[0]
@@ -671,6 +740,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		CloseActivity: func(ctx ui.EventContext) {
 			if s.activityFocus.HasFocus() {
 				ctx.FocusNext()
+			}
+			if s.subagentsOpen {
+				s.closeSubagents()
+				return
 			}
 			s.SetState(func() {
 				s.activitySourceID = ""
@@ -684,7 +757,62 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.activityRevealPendingLayout = false
 			})
 		},
+		CancelSubagentTask: func(_ ui.EventContext, taskID string, generation uint64) {
+			s.cancelSubagentTask(taskID, generation)
+		},
+		DismissSubagent: func(_ ui.EventContext, conversationID string, generation uint64) {
+			s.requestSubagentDismiss(conversationID, generation)
+		},
+		SelectSubagent: func(_ ui.EventContext, name string) {
+			s.SetState(func() {
+				s.subagentSelection = name
+				s.activitySelected = true
+			})
+		},
+		MoveSubagentSelection: func(_ ui.EventContext, delta int) {
+			s.SetState(func() {
+				items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+				if len(items) == 0 {
+					s.subagentSelection = ""
+					return
+				}
+				index := 0
+				for itemIndex, item := range items {
+					if item.Name == s.subagentSelection {
+						index = itemIndex
+						break
+					}
+				}
+				index = max(0, min(len(items)-1, index+delta))
+				s.subagentSelection = items[index].Name
+				s.activityScroll.ScrollToOffset(subagentRosterOffset(items, index))
+			})
+		},
+		ShowSubagentRoster: func(ui.EventContext) {
+			s.SetState(func() {
+				s.subagentPaneID = ""
+				s.activitySelected = true
+				items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+				if selected, ok := selectedSubagentRosterItem(items, s.subagentSelection); ok {
+					s.subagentSelection = selected.Name
+					s.subagentRevealOffset = subagentRosterOffset(items, subagentRosterSelectionIndex(items, selected.Name))
+					s.subagentRevealPending = true
+				}
+			})
+		},
+		OpenSubagentConversation: func(_ ui.EventContext, conversationID string) {
+			s.openSubagentConversation(conversationID)
+		},
+		CloseSubagentConversation: func(_ ui.EventContext, conversationID string) {
+			s.closeSubagentConversation(conversationID)
+		},
 		ScrollActivity: func(_ ui.EventContext, pages int) {
+			if s.subagentsOpen && s.subagentPaneID != "" {
+				if scroll := s.subagentScrolls[s.subagentPaneID]; scroll != nil && scroll.Attached() {
+					scroll.ScrollByPages(pages)
+				}
+				return
+			}
 			if s.activityScroll.Attached() {
 				s.activityScroll.ScrollByPages(pages)
 			}
@@ -887,6 +1015,19 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 	key, ok := event.(ui.Key)
 	if !ok {
 		return ui.EventIgnored
+	}
+	if s.subagentDismissID != "" {
+		if key.EventType == ui.EventRelease {
+			return ui.EventHandled
+		}
+		if key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+			s.dismissSubagent(s.subagentDismissID, s.subagentDismissGeneration)
+			return ui.EventHandled
+		}
+		if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+			return ui.EventIgnored
+		}
+		return ui.EventHandled
 	}
 	if s.sessionRename.Open {
 		if key.EventType == ui.EventRelease {
@@ -1177,6 +1318,41 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
 	s.followUps = snapshot.FollowUps
+	s.applySubagentSnapshot(snapshot)
+}
+
+func (s *appState) applySubagentSnapshot(snapshot protocol.SessionSnapshot) {
+	s.subagentDefinitions = append([]protocol.SubagentDefinition(nil), snapshot.SubagentDefinitions...)
+	s.applySubagentDiagnostics(snapshot.Session.ID, snapshot.SubagentDiagnostics)
+	s.subagentConversations = append([]protocol.SubagentConversation(nil), snapshot.SubagentConversations...)
+}
+
+func (s *appState) applySubagentDiagnostics(sessionID string, diagnostics []protocol.SubagentDiagnostic) {
+	s.subagentDiagnostics = append([]protocol.SubagentDiagnostic(nil), diagnostics...)
+	if sessionID == "" {
+		sessionID = s.session.ID
+	}
+	if s.subagentDiagnosticToasts == nil {
+		s.subagentDiagnosticToasts = make(map[subagentDiagnosticToastKey]struct{})
+	}
+	for _, diagnostic := range diagnostics {
+		key := subagentDiagnosticToastKey{
+			SessionID: sessionID, Severity: diagnostic.Severity, Code: diagnostic.Code, Message: diagnostic.Message,
+			Kind: diagnostic.Source.Kind, Path: diagnostic.Source.Path, PluginID: diagnostic.Source.PluginID,
+		}
+		if _, shown := s.subagentDiagnosticToasts[key]; shown {
+			continue
+		}
+		s.subagentDiagnosticToasts[key] = struct{}{}
+		subtitle := diagnostic.Message
+		if diagnostic.Source.Path != "" {
+			subtitle += " " + glyphMiddleDot + " " + diagnostic.Source.Path
+		}
+		s.storeToast(toastInput{
+			Title: "Subagent definition warning", Subtitle: subtitle,
+			Variant: toastWarning, Persistent: true,
+		})
+	}
 }
 
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
@@ -1188,6 +1364,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		previousActivitySource, _ = transcriptActivitySource(presentTranscript(messages).Items, s.activitySourceID)
 	}
 	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
+	s.applySubagentSnapshot(snapshot)
 	if snapshot.Session.ID != "" {
 		s.session = snapshot.Session
 	}
@@ -1398,6 +1575,10 @@ type cwdToolDetails struct {
 	Changed bool   `json:"changed"`
 }
 
+type subagentToolDetails struct {
+	Warning string `json:"warning"`
+}
+
 func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 	transcriptChanged := false
 	changedCWD := ""
@@ -1534,6 +1715,14 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 						s.location = details.CWD
 						s.vcsStatus = nil
 						changedCWD = details.CWD
+					}
+				}
+				if event.ToolName == "subagent" && !event.IsError && !event.DetailsOmitted {
+					var details subagentToolDetails
+					if json.Unmarshal(event.Details, &details) == nil && strings.TrimSpace(details.Warning) != "" {
+						s.eventToasts = append(s.eventToasts, toastInput{
+							Title: "Subagent provider unavailable", Subtitle: details.Warning, Variant: toastWarning,
+						})
 					}
 				}
 				if event.IsError {
@@ -1901,7 +2090,15 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				runtime.Dispatch(func() {
 					if operation == s.operation {
 						changedCWD := ""
-						s.SetState(func() { changedCWD = s.applyRunEvents(batch) })
+						var eventToasts []toastInput
+						s.SetState(func() {
+							changedCWD = s.applyRunEvents(batch)
+							eventToasts = append([]toastInput(nil), s.eventToasts...)
+							s.eventToasts = nil
+						})
+						for _, toast := range eventToasts {
+							s.showToast(toast)
+						}
 						if changedCWD != "" {
 							s.showToast(cwdChangeToast(changedCWD))
 							s.refreshLocation(changedCWD)
@@ -2348,7 +2545,7 @@ func (s *appState) hasActiveWork() bool {
 
 func (s *appState) openPalette() {
 	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
-		s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
+		s.subagentDismissID != "" || s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
 		return
 	}
 	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
@@ -2407,9 +2604,368 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.SetState(func() { s.sessionDetailsOpen = true })
 	case paletteCommandSessions:
 		s.openSessionExplorer()
+	case paletteCommandSubagents:
+		s.openSubagents()
 	case paletteCommandThinking:
 		s.openConfigurationPicker(configurationPickerThinking)
 	}
+}
+
+func (s *appState) openSubagents() {
+	if s.phase != phaseReady || s.bound == nil {
+		return
+	}
+	s.SetState(func() {
+		s.subagentRequestGeneration++
+		s.subagentsOpen = true
+		s.subagentPaneID = ""
+		s.activitySelected = true
+	})
+	s.refreshSubagents()
+	if s.subagentWatchCancel != nil {
+		s.subagentWatchCancel()
+	}
+	watchContext, cancel := context.WithCancel(s.attachmentCtx)
+	s.subagentWatchCancel = cancel
+	runtime := s.Context().Runtime()
+	bound := s.bound
+	watchGeneration := s.subagentRequestGeneration
+	if watcher, ok := bound.(sessionclient.SessionEventWatcher); ok {
+		go func() {
+			for watchContext.Err() == nil {
+				stream, err := watcher.Watch(watchContext)
+				if err == nil {
+					for updates := range stream.Updates() {
+						changed := false
+						for _, event := range updates {
+							changed = changed || event.Kind == protocol.SessionEventSubagentChanged
+						}
+						if !changed {
+							continue
+						}
+						runtime.Dispatch(func() {
+							if s.subagentsOpen && s.bound == bound && s.subagentRequestGeneration == watchGeneration {
+								s.refreshSubagents()
+							}
+						})
+					}
+				}
+				select {
+				case <-watchContext.Done():
+					return
+				case <-time.After(250 * time.Millisecond):
+				}
+			}
+		}()
+	}
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-watchContext.Done():
+				return
+			case <-ticker.C:
+				result, err := bound.Subagent(watchContext, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+				if err != nil || watchContext.Err() != nil {
+					continue
+				}
+				runtime.Dispatch(func() {
+					if !s.subagentsOpen || s.bound != bound || s.subagentRequestGeneration != watchGeneration {
+						return
+					}
+					s.SetState(func() { s.applySubagentResult(result) })
+					if s.subagentPaneID != "" {
+						s.refreshSubagentTranscript(s.subagentPaneID)
+					}
+				})
+			}
+		}
+	}()
+}
+
+func (s *appState) closeSubagents() {
+	if s.subagentWatchCancel != nil {
+		s.subagentWatchCancel()
+		s.subagentWatchCancel = nil
+	}
+	s.SetState(func() {
+		s.subagentRequestGeneration++
+		s.subagentsOpen = false
+		s.activitySelected = false
+		s.subagentRevealPending = false
+	})
+}
+
+func (s *appState) refreshSubagents() {
+	if s.bound == nil {
+		return
+	}
+	bound := s.bound
+	attachmentContext := s.attachmentCtx
+	requestGeneration := s.subagentRequestGeneration
+	sessionID := s.session.ID
+	runtime := s.Context().Runtime()
+	go func() {
+		result, err := bound.Subagent(attachmentContext, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+		if err != nil || attachmentContext.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if s.bound == bound && s.session.ID == sessionID && s.subagentRequestGeneration == requestGeneration {
+				s.SetState(func() { s.applySubagentResult(result) })
+			}
+		})
+	}()
+}
+
+func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) {
+	previousItems := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+	previousSelected, previousOK := selectedSubagentRosterItem(previousItems, s.subagentSelection)
+	previousIndex := -1
+	previousOffset := 0
+	if previousOK {
+		previousIndex = subagentRosterSelectionIndex(previousItems, previousSelected.Name)
+		previousOffset = subagentRosterOffset(previousItems, previousIndex)
+	}
+
+	s.subagentDefinitions = append([]protocol.SubagentDefinition(nil), result.Definitions...)
+	s.applySubagentDiagnostics(s.session.ID, result.Diagnostics)
+	s.subagentConversations = append([]protocol.SubagentConversation(nil), result.Conversations...)
+	items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+	selected, ok := selectedSubagentRosterItem(items, s.subagentSelection)
+	if !ok {
+		s.subagentSelection = ""
+		s.subagentRevealPending = false
+		s.subagentRevealOffset = 0
+		return
+	}
+	s.subagentSelection = selected.Name
+	index := subagentRosterSelectionIndex(items, selected.Name)
+	offset := subagentRosterOffset(items, index)
+	rosterVisible := s.subagentsOpen && s.subagentPaneID == ""
+	selectionMoved := !previousOK || previousSelected.Name != selected.Name || previousIndex != index || previousOffset != offset
+	if rosterVisible && selectionMoved {
+		s.subagentRevealOffset = offset
+		s.subagentRevealPending = true
+	} else if !rosterVisible {
+		s.subagentRevealPending = false
+	}
+}
+
+func (s *appState) cancelSubagentTask(taskID string, generation uint64) {
+	if s.bound == nil {
+		return
+	}
+	bound := s.bound
+	attachmentContext := s.attachmentCtx
+	requestGeneration := s.subagentRequestGeneration
+	sessionID := s.session.ID
+	runtime := s.Context().Runtime()
+	go func() {
+		_, err := bound.Subagent(attachmentContext, protocol.SubagentOperationInput{
+			Action: protocol.SubagentCancel, TaskID: taskID, Generation: generation,
+		})
+		if attachmentContext.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if s.bound != bound || s.session.ID != sessionID || s.subagentRequestGeneration != requestGeneration {
+				return
+			}
+			if err != nil {
+				s.showToast(toastInput{Title: "Could not cancel subagent task", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			s.showToast(toastInput{Title: "Subagent task cancellation requested", Variant: toastInfo})
+			s.refreshSubagents()
+		})
+	}()
+}
+
+func (s *appState) openSubagentConversation(conversationID string) {
+	if !s.subagentsOpen || s.bound == nil {
+		return
+	}
+	s.SetState(func() {
+		if _, exists := s.subagentTranscripts[conversationID]; !exists {
+			s.subagentTranscriptOrder = append(s.subagentTranscriptOrder, conversationID)
+		}
+		if s.subagentScrolls[conversationID] == nil {
+			s.subagentScrolls[conversationID] = &ui.ScrollController{}
+		}
+		s.subagentPaneID = conversationID
+		s.activitySelected = true
+		s.subagentRevealPending = false
+	})
+	s.refreshSubagentTranscript(conversationID)
+}
+
+func (s *appState) refreshSubagentTranscript(conversationID string) {
+	if s.bound == nil || conversationID == "" {
+		return
+	}
+	bound := s.bound
+	attachmentContext := s.attachmentCtx
+	runtime := s.Context().Runtime()
+	if reader, ok := bound.(sessionclient.SubagentEventReader); ok {
+		current := s.subagentLive[conversationID]
+		go func() {
+			page, err := reader.SubagentEvents(attachmentContext, conversationID, current.StreamID, current.LastSequence)
+			if err != nil || attachmentContext.Err() != nil {
+				return
+			}
+			runtime.Dispatch(func() {
+				if s.bound != bound || !containsSubagentTab(s.subagentTranscriptOrder, conversationID) {
+					return
+				}
+				s.SetState(func() {
+					if page.ResyncRequired {
+						s.subagentLive[conversationID] = protocol.SubagentLiveEventPage{}
+						return
+					}
+					merged := s.subagentLive[conversationID]
+					if merged.StreamID != "" && merged.StreamID != page.StreamID {
+						merged = protocol.SubagentLiveEventPage{}
+					}
+					merged.StreamID, merged.FirstSequence, merged.LastSequence = page.StreamID, page.FirstSequence, max(merged.LastSequence, page.LastSequence)
+					for _, event := range page.Events {
+						if event.Sequence > s.subagentLive[conversationID].LastSequence {
+							merged.Events = append(merged.Events, event)
+						}
+					}
+					if len(merged.Events) > 128 {
+						merged.Events = append([]protocol.SubagentLiveEvent(nil), merged.Events[len(merged.Events)-128:]...)
+					}
+					s.subagentLive[conversationID] = merged
+				})
+			})
+		}()
+	}
+	go func() {
+		transcript, err := bound.SubagentTranscript(attachmentContext, conversationID)
+		if err != nil || attachmentContext.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if s.bound == bound && containsSubagentTab(s.subagentTranscriptOrder, conversationID) && len(transcript.Messages) >= len(s.subagentTranscripts[conversationID].Messages) {
+				s.SetState(func() { s.subagentTranscripts[conversationID] = transcript })
+			}
+		})
+	}()
+}
+
+func (s *appState) closeSubagentConversation(conversationID string) {
+	s.SetState(func() {
+		delete(s.subagentTranscripts, conversationID)
+		delete(s.subagentScrolls, conversationID)
+		delete(s.subagentLive, conversationID)
+		for index, id := range s.subagentTranscriptOrder {
+			if id == conversationID {
+				s.subagentTranscriptOrder = append(s.subagentTranscriptOrder[:index], s.subagentTranscriptOrder[index+1:]...)
+				break
+			}
+		}
+		if s.subagentPaneID == conversationID {
+			s.subagentPaneID = ""
+		}
+	})
+}
+
+func containsSubagentTab(ids []string, target string) bool {
+	for _, id := range ids {
+		if id == target {
+			return true
+		}
+	}
+	return false
+}
+
+func cloneSubagentLive(input map[string]protocol.SubagentLiveEventPage) map[string]protocol.SubagentLiveEventPage {
+	output := make(map[string]protocol.SubagentLiveEventPage, len(input))
+	for id, page := range input {
+		page.Events = append([]protocol.SubagentLiveEvent(nil), page.Events...)
+		output[id] = page
+	}
+	return output
+}
+
+func cloneSubagentTranscripts(input map[string]protocol.SubagentTranscript) map[string]protocol.SubagentTranscript {
+	output := make(map[string]protocol.SubagentTranscript, len(input))
+	for id, transcript := range input {
+		transcript.Messages = append([]protocol.TranscriptMessage(nil), transcript.Messages...)
+		output[id] = transcript
+	}
+	return output
+}
+
+func (s *appState) requestSubagentDismiss(conversationID string, generation uint64) {
+	for _, conversation := range s.subagentConversations {
+		if conversation.ID == conversationID {
+			s.SetState(func() {
+				s.subagentDismissID = conversationID
+				s.subagentDismissName = conversation.AgentName
+				s.subagentDismissGeneration = generation
+				s.subagentDismissError = ""
+			})
+			return
+		}
+	}
+}
+
+func (s *appState) dismissSubagent(conversationID string, generation uint64) {
+	if s.bound == nil || s.subagentDismissPending {
+		return
+	}
+	s.SetState(func() {
+		s.subagentDismissPending = true
+		s.subagentDismissError = ""
+	})
+	bound := s.bound
+	attachmentContext := s.attachmentCtx
+	sessionID := s.session.ID
+	runtime := s.Context().Runtime()
+	go func() {
+		_, err := bound.Subagent(attachmentContext, protocol.SubagentOperationInput{
+			Action: protocol.SubagentDismiss, ConversationID: conversationID, Generation: generation,
+		})
+		if attachmentContext.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if s.bound != bound || s.session.ID != sessionID || s.subagentDismissID != conversationID {
+				return
+			}
+			if err != nil {
+				s.SetState(func() {
+					s.subagentDismissPending = false
+					s.subagentDismissError = err.Error()
+				})
+				return
+			}
+			s.SetState(func() {
+				s.subagentDismissID = ""
+				s.subagentDismissName = ""
+				s.subagentDismissGeneration = 0
+				s.subagentDismissPending = false
+				s.subagentDismissError = ""
+				delete(s.subagentTranscripts, conversationID)
+				delete(s.subagentScrolls, conversationID)
+				delete(s.subagentLive, conversationID)
+				for index, id := range s.subagentTranscriptOrder {
+					if id == conversationID {
+						s.subagentTranscriptOrder = append(s.subagentTranscriptOrder[:index], s.subagentTranscriptOrder[index+1:]...)
+						break
+					}
+				}
+				if s.subagentPaneID == conversationID {
+					s.subagentPaneID = ""
+				}
+			})
+			s.showToast(toastInput{Title: "Subagent dismissed", Variant: toastInfo})
+			s.refreshSubagents()
+		})
+	}()
 }
 
 func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
@@ -3106,6 +3662,24 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activityList = activityListController{}
 	s.activitySourceID = ""
 	s.activitySelected = false
+	s.subagentsOpen = false
+	s.subagentRequestGeneration++
+	s.subagentDefinitions = nil
+	s.subagentDiagnostics = nil
+	s.subagentConversations = nil
+	s.subagentSelection = ""
+	s.subagentPaneID = ""
+	s.subagentTranscripts = make(map[string]protocol.SubagentTranscript)
+	s.subagentTranscriptOrder = nil
+	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
+	s.subagentRevealPending = false
+	s.subagentRevealOffset = 0
+	s.subagentDismissID = ""
+	s.subagentDismissName = ""
+	s.subagentDismissGeneration = 0
+	s.subagentDismissPending = false
+	s.subagentDismissError = ""
 	s.inlineActivityOpen = make(map[string]bool)
 	s.hoveredActivityID = ""
 	s.activityExpanded = make(map[activityToolKey]bool)
@@ -3493,6 +4067,17 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.subagentDismissID != "" {
+		if !s.subagentDismissPending {
+			s.SetState(func() {
+				s.subagentDismissID = ""
+				s.subagentDismissName = ""
+				s.subagentDismissGeneration = 0
+				s.subagentDismissError = ""
+			})
+		}
+		return
+	}
 	if s.sessionRename.Open {
 		if !s.sessionRename.Pending {
 			s.SetState(func() { s.sessionRename.Cancel() })

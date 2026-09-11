@@ -13,17 +13,18 @@ const (
 	paletteMaxVisible   = 10
 	paletteMaxNameWidth = 32
 
-	paletteCommandCD       paletteCommandID = "cd"
-	paletteCommandCompact  paletteCommandID = "compact"
-	paletteCommandLogin    paletteCommandID = "login"
-	paletteCommandModel    paletteCommandID = "model"
-	paletteCommandName     paletteCommandID = "name"
-	paletteCommandNew      paletteCommandID = "new"
-	paletteCommandQuit     paletteCommandID = "quit"
-	paletteCommandReload   paletteCommandID = "reload"
-	paletteCommandDebug    paletteCommandID = "debug"
-	paletteCommandSessions paletteCommandID = "sessions"
-	paletteCommandThinking paletteCommandID = "thinking"
+	paletteCommandCD        paletteCommandID = "cd"
+	paletteCommandCompact   paletteCommandID = "compact"
+	paletteCommandLogin     paletteCommandID = "login"
+	paletteCommandModel     paletteCommandID = "model"
+	paletteCommandName      paletteCommandID = "name"
+	paletteCommandNew       paletteCommandID = "new"
+	paletteCommandQuit      paletteCommandID = "quit"
+	paletteCommandReload    paletteCommandID = "reload"
+	paletteCommandDebug     paletteCommandID = "debug"
+	paletteCommandSessions  paletteCommandID = "sessions"
+	paletteCommandSubagents paletteCommandID = "subagents"
+	paletteCommandThinking  paletteCommandID = "thinking"
 )
 
 type paletteCommandID string
@@ -364,6 +365,7 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
+		{ID: paletteCommandSubagents, Name: "subagents", Description: "Inspect delegated work", Aliases: []string{"agents", "delegates", "children"}},
 		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
 	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "thinking": true}

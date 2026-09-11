@@ -41,34 +41,37 @@ const (
 	EventContextUpdated      EventKind = "context.updated"
 	EventUsageUpdated        EventKind = "usage.updated"
 	EventRunFinished         EventKind = "run.finished"
+	EventSubagentChanged     EventKind = "subagent.changed"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
 type NewEvent struct {
-	SessionID          string
-	TurnID             string
-	RunID              string
-	MessageID          string
-	Kind               EventKind
-	ContentIndex       int
-	Delta              string
-	Text               string
-	Thinking           string
-	ToolCallID         string
-	ToolName           string
-	Arguments          string
-	ArgumentsTruncated bool
-	Content            []TranscriptContent
-	ContentTruncated   bool
-	Details            json.RawMessage
-	DetailsOmitted     bool
-	IsError            bool
-	Status             RunStatus
-	ErrorKind          ProviderErrorKind
-	ErrorMessage       string
-	ContextTokens      int
-	ContextWindow      int
-	Usage              *SessionUsage
+	SessionID              string
+	TurnID                 string
+	RunID                  string
+	MessageID              string
+	Kind                   EventKind
+	ContentIndex           int
+	Delta                  string
+	Text                   string
+	Thinking               string
+	ToolCallID             string
+	ToolName               string
+	Arguments              string
+	ArgumentsTruncated     bool
+	Content                []TranscriptContent
+	ContentTruncated       bool
+	Details                json.RawMessage
+	DetailsOmitted         bool
+	IsError                bool
+	Status                 RunStatus
+	ErrorKind              ProviderErrorKind
+	ErrorMessage           string
+	ContextTokens          int
+	ContextWindow          int
+	Usage                  *SessionUsage
+	SubagentConversationID string
+	SubagentTaskID         string
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -112,11 +115,23 @@ func validateSessionUsage(usage SessionUsage) error {
 
 // Validate checks that an event is safe to persist and project to clients.
 func (event NewEvent) Validate() error {
-	if event.SessionID == "" || event.TurnID == "" || event.RunID == "" {
-		return fmt.Errorf("session, turn, and run ids are required")
+	if event.SessionID == "" {
+		return fmt.Errorf("session id is required")
 	}
-	if event.RunID != event.TurnID {
-		return fmt.Errorf("run identity must equal droid turn identity")
+	if event.Kind == EventSubagentChanged {
+		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
+			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
+		}
+	} else {
+		if event.TurnID == "" || event.RunID == "" {
+			return fmt.Errorf("turn and run ids are required")
+		}
+		if event.RunID != event.TurnID {
+			return fmt.Errorf("run identity must equal droid turn identity")
+		}
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" {
+			return fmt.Errorf("parent run event cannot carry subagent identity")
+		}
 	}
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
@@ -182,6 +197,7 @@ func (event NewEvent) Validate() error {
 		if err := validateSessionUsage(*event.Usage); err != nil {
 			return err
 		}
+	case EventSubagentChanged:
 	case EventRunFinished:
 		switch event.Status {
 		case RunStatusCompleted:
@@ -197,6 +213,14 @@ func (event NewEvent) Validate() error {
 		}
 	default:
 		return fmt.Errorf("event kind %q is invalid", event.Kind)
+	}
+	if event.Kind == EventSubagentChanged {
+		if !identifier.Valid(event.SubagentConversationID, "subagent_") ||
+			(event.SubagentTaskID != "" && !identifier.Valid(event.SubagentTaskID, "task_")) ||
+			payloadBytes != 0 || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
+			return fmt.Errorf("subagent event carries invalid identity or payload")
+		}
 	}
 	switch event.ErrorKind {
 	case "", ProviderErrorAuthentication, ProviderErrorEntitlement,

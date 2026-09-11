@@ -217,9 +217,11 @@ bounded append-only event journal supports reconnect and diagnostics, but Kit
 is not implemented as a system where every state table must be rebuilt from an
 event log.
 
-On daemon startup, executions left `running` or durably queued by a previous
-process are marked `interrupted` transactionally. Messages from failed, aborted, interrupted, or
-otherwise incomplete parent turns remain available for diagnostics and UI
+On daemon startup, subagent tasks left `running` by a previous process are
+marked `interrupted` transactionally. Tasks that never left `queued` remain
+queued and become schedulable only after recovery commits; they have not crossed
+a provider or tool side-effect boundary. Messages from failed, aborted,
+interrupted, or otherwise incomplete parent turns remain available for diagnostics and UI
 history, but only completed turns are rehydrated into a new droids model
 transcript. A non-completed live runtime is discarded so its in-memory context
 cannot diverge from that replay rule.

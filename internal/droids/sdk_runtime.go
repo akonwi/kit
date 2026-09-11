@@ -2,6 +2,8 @@ package droids
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -318,6 +320,19 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	if err != nil {
 		return nil, err
 	}
+	if options.Steer && options.AdmissionKey != "" {
+		return nil, fmt.Errorf("droids: steering does not accept an admission key")
+	}
+	admissionHash := ""
+	if options.AdmissionKey != "" {
+		if !validBoundedContextValue(options.AdmissionKey, 256) {
+			return nil, fmt.Errorf("droids: prompt admission key is invalid")
+		}
+		admissionHash, err = promptAdmissionHash(message)
+		if err != nil {
+			return nil, err
+		}
+	}
 	rt := d.sdk
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -326,6 +341,16 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	}
 	if rt.contextFlight != nil {
 		return nil, ErrBusy
+	}
+	if options.AdmissionKey != "" && rt.state.AdmissionKey == options.AdmissionKey {
+		if rt.state.AdmissionHash != admissionHash {
+			return nil, ErrConflict
+		}
+		handle := rt.ensureHandleLocked()
+		if isTerminalStatus(rt.state.Status) {
+			handle.complete(outcomeFromState(rt.conversation, rt.state))
+		}
+		return handle, nil
 	}
 	if isOccupied(rt.state.Status) {
 		if !options.Steer || rt.state.Status == ExecutionInterrupted || rt.state.Status == ExecutionAborting {
@@ -389,6 +414,8 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	rt.state.CheckpointID = before.CheckpointID
 	rt.state.SessionUsage = before.SessionUsage
 	rt.state.SessionUsageInitialized = before.SessionUsageInitialized
+	rt.state.AdmissionKey = options.AdmissionKey
+	rt.state.AdmissionHash = admissionHash
 	rt.state.Status = ExecutionRunning
 	rt.state.TurnID = turnID
 	rt.state.AttemptID = attemptID
@@ -458,6 +485,19 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	rt.handle = handle
 	rt.startRunLocked()
 	return handle, nil
+}
+
+func promptAdmissionHash(message Message) (string, error) {
+	wire, err := messageToWire(message)
+	if err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func isOccupied(status ExecutionStatus) bool {

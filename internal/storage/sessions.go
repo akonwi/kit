@@ -299,12 +299,20 @@ func (s *Store) TouchSession(ctx context.Context, id string, activityAt time.Tim
 }
 
 // ArchiveSession hides a session from future loads while retaining its durable data.
+// Owned subagent conversations and queued/running work are tombstoned in the
+// same transaction, since normal archival does not activate foreign-key cascades.
 func (s *Store) ArchiveSession(ctx context.Context, id string, archivedAt time.Time) error {
 	if s == nil || s.db == nil {
 		return fmt.Errorf("store is closed")
 	}
+	archivedAt = archivedAt.UTC()
 	formatted := formatTimestamp(archivedAt)
-	result, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `
 		UPDATE sessions
 		SET archived_at = ?,
 		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
@@ -317,21 +325,27 @@ func (s *Store) ArchiveSession(ctx context.Context, id string, archivedAt time.T
 	if err != nil {
 		return err
 	}
-	if count == 1 {
-		return nil
-	}
-	var existingArchivedAt sql.NullString
-	err = s.db.QueryRowContext(ctx, `SELECT archived_at FROM sessions WHERE id = ?`, id).Scan(&existingArchivedAt)
-	if errors.Is(err, sql.ErrNoRows) {
+	if count == 0 {
+		var existingArchivedAt sql.NullString
+		err = tx.QueryRowContext(ctx, `SELECT archived_at FROM sessions WHERE id = ?`, id).Scan(&existingArchivedAt)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("session %q: %w", id, ErrNotFound)
+		}
+		if err != nil {
+			return fmt.Errorf("check archived session %q: %w", id, err)
+		}
+		if existingArchivedAt.Valid {
+			return nil
+		}
 		return fmt.Errorf("session %q: %w", id, ErrNotFound)
 	}
-	if err != nil {
-		return fmt.Errorf("check archived session %q: %w", id, err)
+	if err := archiveOwnedSubagents(ctx, tx, id, archivedAt); err != nil {
+		return fmt.Errorf("archive session %q subagents: %w", id, err)
 	}
-	if existingArchivedAt.Valid {
-		return nil
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit archived session %q: %w", id, err)
 	}
-	return fmt.Errorf("session %q: %w", id, ErrNotFound)
+	return nil
 }
 
 // GetSession loads one session by exact id, including archived tombstones.

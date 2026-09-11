@@ -10,8 +10,9 @@ import (
 )
 
 const (
-	toastLifetime = 10 * time.Second
-	toastStackMax = 5
+	toastLifetime       = 10 * time.Second
+	toastStackMax       = 5
+	toastDetailMaxLines = 4
 )
 
 type toastVariant uint8
@@ -100,6 +101,7 @@ func (toastStack) CreateState() ui.State { return &toastStackState{} }
 
 type toastStackState struct {
 	ui.StateBase
+	viewportWidth  int
 	viewportHeight int
 	displayed      map[uint64]bool
 }
@@ -118,7 +120,7 @@ func (s *toastStackState) Build(ui.BuildContext) ui.Widget {
 			delete(s.displayed, id)
 		}
 	}
-	visible := visibleToastRecords(w.Toasts, s.viewportHeight)
+	visible := visibleToastRecords(w.Toasts, s.viewportWidth, s.viewportHeight)
 	items := make([]ui.Widget, 0, len(visible))
 	for _, record := range visible {
 		record := record
@@ -136,7 +138,8 @@ func (s *toastStackState) Build(ui.BuildContext) ui.Widget {
 	return toastSizeProbe{
 		Child: toastPositioner{Child: list},
 		OnSize: func(size ui.Size) {
-			if size.Height != s.viewportHeight {
+			if size.Width != s.viewportWidth || size.Height != s.viewportHeight {
+				s.viewportWidth = size.Width
 				s.viewportHeight = size.Height
 				s.MarkNeedsBuild()
 			}
@@ -150,16 +153,26 @@ func toastEntryShouldAnimate(displayed map[uint64]bool, id uint64, enabled bool)
 	return animate
 }
 
-func visibleToastRecords(records []toastRecord, viewportHeight int) []toastRecord {
+func visibleToastRecords(records []toastRecord, viewportWidth, viewportHeight int) []toastRecord {
 	if len(records) == 0 {
 		return nil
 	}
 	available := max(1, viewportHeight-2)
 	start, used := len(records), 0
+	overlayWidth := toastOverlayWidth(viewportWidth)
 	for index := len(records) - 1; index >= 0; index-- {
 		height := 3
 		if records[index].Subtitle != "" {
-			height++
+			detailWidth := max(1, overlayWidth-2)
+			if records[index].Persistent {
+				detailWidth = max(1, detailWidth-2)
+			}
+			layout := ui.LayoutText(
+				[]ui.TextSpan{{Text: records[index].Subtitle}},
+				ui.Constraints{MaxWidth: detailWidth, MaxHeight: ui.Unbounded},
+				ui.TextLayoutOptions{SoftWrap: true, Overflow: ui.TextOverflowEllipsis, MaxLines: toastDetailMaxLines},
+			)
+			height += max(1, layout.Size.Height)
 		}
 		if used > 0 && used+height > available {
 			break
@@ -322,8 +335,8 @@ func (s *toastItemState) Build(ctx ui.BuildContext) ui.Widget {
 	}}
 	if w.Toast.Subtitle != "" {
 		text = append(text, ui.Text{
-			Value: w.Toast.Subtitle, Style: ui.Style{Foreground: theme.MutedForeground},
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+			Value: w.Toast.Subtitle, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true,
+			Overflow: ui.TextOverflowEllipsis, MaxLines: toastDetailMaxLines,
 		})
 	}
 	children := []ui.Widget{ui.Flexible(ui.Flex{

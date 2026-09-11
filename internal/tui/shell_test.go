@@ -1544,7 +1544,7 @@ func TestActivityRendersStableAssistantSections(t *testing.T) {
 	readRow := findPaintedRow(rows, "✓   read one.go")
 	grepRow := findPaintedRow(rows, "✓   grep two.go")
 	proseRow := readRow - 2
-	if readRow < 2 || !strings.Contains(rows[proseRow][84:], "First step") || grepRow != readRow+2 {
+	if readRow < 2 || !strings.Contains(rows[proseRow], "First step") || grepRow != readRow+2 {
 		t.Fatalf("activity section rows = prose %d read %d grep %d:\n%s", proseRow, readRow, grepRow, strings.Join(rows, "\n"))
 	}
 }

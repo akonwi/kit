@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/subagent"
 )
 
 type TranscriptContentKind string
@@ -78,6 +79,57 @@ type SessionUsage struct {
 	Cost        SessionUsageCost
 }
 
+type SubagentDefinition struct {
+	Name        string
+	Description string
+	Model       string
+	Source      subagent.Source
+}
+
+type SubagentDiagnostic struct {
+	Severity string
+	Code     string
+	Message  string
+	Source   subagent.Source
+}
+
+type SubagentConversation struct {
+	ID                  string
+	AgentName           string
+	Model               string
+	State               string
+	Generation          uint64
+	ActiveTaskID        string
+	QueuedTasks         int
+	LastCompletedTaskID string
+	LastResultSummary   string
+	UpdatedAt           time.Time
+	Tasks               []SubagentTask
+}
+
+type SubagentMailboxItem struct {
+	ID             string
+	ConversationID string
+	TaskID         string
+	AgentName      string
+	State          string
+	Summary        string
+	Error          string
+	CreatedAt      time.Time
+}
+
+type SubagentTask struct {
+	ID                     string
+	Sequence               uint64
+	State                  string
+	CancellationGeneration uint64
+	QueuedAt               time.Time
+	StartedAt              *time.Time
+	FinishedAt             *time.Time
+	ResultSummary          string
+	Error                  string
+}
+
 type SessionUsageCost struct {
 	Input      float64
 	Output     float64
@@ -102,6 +154,10 @@ type Snapshot struct {
 	PromptCommands        []PromptCommand
 	FollowUps             FollowUpQueue
 	Warnings              []string
+	SubagentDefinitions   []SubagentDefinition
+	SubagentDiagnostics   []SubagentDiagnostic
+	SubagentConversations []SubagentConversation
+	SubagentMailbox       []SubagentMailboxItem
 }
 
 // Snapshot projects canonical droid history directly. While a turn is active,
@@ -190,6 +246,57 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		Usage:                projectSessionUsage(droidSnapshot.Usage),
 		FollowUps:            projectFollowUpQueue(loaded.followUps),
 		Warnings:             append([]string(nil), loaded.configurationWarnings...),
+	}
+	for _, definition := range loaded.bundle.Subagents.Catalog.Definitions() {
+		result.SubagentDefinitions = append(result.SubagentDefinitions, SubagentDefinition{
+			Name: definition.Name, Description: definition.Description, Model: definition.Model, Source: definition.Source,
+		})
+	}
+	for _, diagnostic := range loaded.bundle.Subagents.Diagnostics {
+		result.SubagentDiagnostics = append(result.SubagentDiagnostics, SubagentDiagnostic{
+			Severity: string(diagnostic.Severity), Code: diagnostic.Code, Message: diagnostic.Message, Source: diagnostic.Source,
+		})
+	}
+	if m.mailbox != nil {
+		mailbox, err := m.mailbox.PendingMailbox(ctx, sessionID, 64)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		for _, item := range mailbox {
+			result.SubagentMailbox = append(result.SubagentMailbox, SubagentMailboxItem{
+				ID: item.ID, ConversationID: string(item.ConversationID), TaskID: string(item.TaskID),
+				AgentName: item.AgentName, State: string(item.State), Summary: item.Summary, Error: item.Error, CreatedAt: item.CreatedAt,
+			})
+		}
+		conversations, err := m.mailbox.ListConversations(ctx, sessionID)
+		if err != nil {
+			return Snapshot{}, err
+		}
+		for _, conversation := range conversations {
+			projected := SubagentConversation{
+				ID: string(conversation.ID), AgentName: conversation.Agent.Name, Model: conversation.Model,
+				State: string(conversation.State), Generation: conversation.Generation,
+				ActiveTaskID: string(conversation.ActiveTaskID), QueuedTasks: conversation.QueuedTasks,
+				LastCompletedTaskID: string(conversation.LastCompletedTaskID), LastResultSummary: conversation.LastResultSummary,
+				UpdatedAt: conversation.UpdatedAt,
+			}
+			tasks, err := m.mailbox.ListTasks(ctx, conversation.ID)
+			if err != nil {
+				return Snapshot{}, err
+			}
+			if len(tasks) > 20 {
+				tasks = tasks[len(tasks)-20:]
+			}
+			for _, task := range tasks {
+				projected.Tasks = append(projected.Tasks, SubagentTask{
+					ID: string(task.ID), Sequence: task.Sequence, State: string(task.State),
+					CancellationGeneration: task.CancellationGeneration,
+					QueuedAt:               task.QueuedAt, StartedAt: task.StartedAt, FinishedAt: task.FinishedAt,
+					ResultSummary: task.ResultSummary, Error: task.Error,
+				})
+			}
+			result.SubagentConversations = append(result.SubagentConversations, projected)
+		}
 	}
 	if loaded.bundle.PromptCommands != nil {
 		for _, command := range loaded.bundle.PromptCommands.Commands() {

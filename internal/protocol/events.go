@@ -30,36 +30,39 @@ const (
 	SessionEventContextUpdated      SessionEventKind = "context.updated"
 	SessionEventUsageUpdated        SessionEventKind = "usage.updated"
 	SessionEventRunFinished         SessionEventKind = "run.finished"
+	SessionEventSubagentChanged     SessionEventKind = "subagent.changed"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
 type SessionEvent struct {
-	StreamID           string              `json:"streamId"`
-	Sequence           int64               `json:"sequence"`
-	SessionID          string              `json:"sessionId"`
-	TurnID             string              `json:"turnId"`
-	RunID              string              `json:"runId"`
-	MessageID          string              `json:"messageId,omitempty"`
-	Kind               SessionEventKind    `json:"kind"`
-	ContentIndex       int                 `json:"contentIndex,omitempty"`
-	Delta              string              `json:"delta,omitempty"`
-	Text               string              `json:"text,omitempty"`
-	Thinking           string              `json:"thinking,omitempty"`
-	ToolCallID         string              `json:"toolCallId,omitempty"`
-	ToolName           string              `json:"toolName,omitempty"`
-	Arguments          string              `json:"arguments,omitempty"`
-	ArgumentsTruncated bool                `json:"argumentsTruncated,omitempty"`
-	Content            []TranscriptContent `json:"content,omitempty"`
-	ContentTruncated   bool                `json:"contentTruncated,omitempty"`
-	Details            json.RawMessage     `json:"details,omitempty"`
-	DetailsOmitted     bool                `json:"detailsOmitted,omitempty"`
-	IsError            bool                `json:"isError,omitempty"`
-	Status             RunStatus           `json:"status,omitempty"`
-	ErrorKind          ProviderErrorKind   `json:"errorKind,omitempty"`
-	ErrorMessage       string              `json:"errorMessage,omitempty"`
-	ContextTokens      int                 `json:"contextTokens,omitempty"`
-	ContextWindow      int                 `json:"contextWindow,omitempty"`
-	Usage              *SessionUsage       `json:"usage,omitempty"`
+	StreamID               string              `json:"streamId"`
+	Sequence               int64               `json:"sequence"`
+	SessionID              string              `json:"sessionId"`
+	TurnID                 string              `json:"turnId"`
+	RunID                  string              `json:"runId"`
+	MessageID              string              `json:"messageId,omitempty"`
+	Kind                   SessionEventKind    `json:"kind"`
+	ContentIndex           int                 `json:"contentIndex,omitempty"`
+	Delta                  string              `json:"delta,omitempty"`
+	Text                   string              `json:"text,omitempty"`
+	Thinking               string              `json:"thinking,omitempty"`
+	ToolCallID             string              `json:"toolCallId,omitempty"`
+	ToolName               string              `json:"toolName,omitempty"`
+	Arguments              string              `json:"arguments,omitempty"`
+	ArgumentsTruncated     bool                `json:"argumentsTruncated,omitempty"`
+	Content                []TranscriptContent `json:"content,omitempty"`
+	ContentTruncated       bool                `json:"contentTruncated,omitempty"`
+	Details                json.RawMessage     `json:"details,omitempty"`
+	DetailsOmitted         bool                `json:"detailsOmitted,omitempty"`
+	IsError                bool                `json:"isError,omitempty"`
+	Status                 RunStatus           `json:"status,omitempty"`
+	ErrorKind              ProviderErrorKind   `json:"errorKind,omitempty"`
+	ErrorMessage           string              `json:"errorMessage,omitempty"`
+	ContextTokens          int                 `json:"contextTokens,omitempty"`
+	ContextWindow          int                 `json:"contextWindow,omitempty"`
+	Usage                  *SessionUsage       `json:"usage,omitempty"`
+	SubagentConversationID string              `json:"subagentConversationId,omitempty"`
+	SubagentTaskID         string              `json:"subagentTaskId,omitempty"`
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -77,11 +80,23 @@ func (event SessionEvent) Validate() error {
 	if event.StreamID == "" || event.Sequence < 1 {
 		return fmt.Errorf("event stream id and positive sequence are required")
 	}
-	if event.SessionID == "" || event.TurnID == "" || event.RunID == "" {
-		return fmt.Errorf("event session, turn, and run ids are required")
+	if event.SessionID == "" {
+		return fmt.Errorf("event session id is required")
 	}
-	if event.RunID != event.TurnID {
-		return fmt.Errorf("event run identity must equal its droid turn identity")
+	if event.Kind == SessionEventSubagentChanged {
+		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
+			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
+		}
+	} else {
+		if event.TurnID == "" || event.RunID == "" {
+			return fmt.Errorf("event turn and run ids are required")
+		}
+		if event.RunID != event.TurnID {
+			return fmt.Errorf("event run identity must equal its droid turn identity")
+		}
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" {
+			return fmt.Errorf("parent run event cannot carry subagent identity")
+		}
 	}
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
@@ -146,6 +161,11 @@ func (event SessionEvent) Validate() error {
 		}
 		if err := event.Usage.Validate(); err != nil {
 			return fmt.Errorf("usage update: %w", err)
+		}
+	case SessionEventSubagentChanged:
+		if !validRendererText(event.SubagentConversationID, 128) ||
+			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || payloadBytes != 0 {
+			return fmt.Errorf("subagent event identity or payload is invalid")
 		}
 	case SessionEventRunFinished:
 		switch event.Status {
@@ -257,6 +277,10 @@ func (batch SessionEventBatch) Validate() error {
 		}
 		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
+		}
+		if event.Kind == SessionEventSubagentChanged {
+			previous = event.Sequence
+			continue
 		}
 		if event.RunID != activeAssistantRunID || event.Kind == SessionEventRunStarted {
 			activeAssistantRunID = event.RunID

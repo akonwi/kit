@@ -458,7 +458,8 @@ applications.
 
 ```go
 type PromptOptions struct {
-    Steer bool
+    Steer        bool
+    AdmissionKey string
 }
 
 type ExecutionHandle interface {
@@ -482,9 +483,15 @@ by the Store.
 The call context bounds admission only. Canceling it after admission does not
 abort execution. `ExecutionHandle.Wait` similarly cancels only the wait.
 
-Each successful `Prompt` call is a new instruction; the SDK does not deduplicate
-repeated caller requests. Consumers that retry across a process or network
-boundary own that policy at their boundary.
+Without an admission key, each successful `Prompt` call is a new instruction.
+An embedding application crossing a separate durable boundary may supply a
+bounded `AdmissionKey`. The key and normalized input hash are committed
+atomically with immediate prompt admission. Repeating the same key and input
+returns a handle for the original turn, including its terminal outcome after
+restart; reusing the key with different input returns `ErrConflict`.
+Admission keys are not accepted for steering. Applications remain responsible
+for choosing stable, unique keys and for deciding whether an ambiguous request
+should be retried.
 
 Provider failures, tool failures, aborts, and context overflow are represented
 by `Outcome`. Go errors from `Prompt` and `Wait` represent API, admission,

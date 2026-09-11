@@ -13,7 +13,7 @@ import (
 	"github.com/akonwi/kit/internal/session"
 )
 
-func TestInitialSchemaContainsOnlySessionRegistryMetadata(t *testing.T) {
+func TestInitialSchemaContainsSessionRegistryAndHarnessOwnedSubagentState(t *testing.T) {
 	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -36,8 +36,8 @@ func TestInitialSchemaContainsOnlySessionRegistryMetadata(t *testing.T) {
 		}
 		tables = append(tables, name)
 	}
-	want := []string{"schema_migrations", "session_cwd_mutations", "sessions"}
-	if len(tables) != len(want) || tables[0] != want[0] || tables[1] != want[1] || tables[2] != want[2] {
+	want := []string{"parent_mailbox", "schema_migrations", "session_cwd_mutations", "sessions", "subagent_conversations", "subagent_events", "subagent_tasks"}
+	if fmt.Sprint(tables) != fmt.Sprint(want) {
 		t.Fatalf("tables = %v, want %v", tables, want)
 	}
 	for _, obsolete := range []string{"turns", "parent_runs", "messages", "session_streams", "session_events"} {

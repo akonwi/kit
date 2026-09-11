@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -184,6 +186,112 @@ func TestSessionClientRejectsIncompatibleRegistryBeforeRequest(t *testing.T) {
 	}
 	if _, err := NewClient(paths).ListSessions(context.Background(), ""); !errors.Is(err, ErrIncompatibleDaemon) {
 		t.Fatalf("ListSessions() error = %v, want ErrIncompatibleDaemon", err)
+	}
+}
+
+func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(paths.Agents, "scout.md"), []byte("---\nname: scout\ndescription: inspects repositories\n---\nInspect carefully.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		result <- Run(ctx, RunOptions{
+			Paths: paths, Providers: &daemonEchoProviders{},
+			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		})
+	}()
+	client := NewClient(paths)
+	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer probeCancel()
+	for {
+		if _, _, err := client.Probe(probeContext); err == nil {
+			break
+		}
+		select {
+		case <-probeContext.Done():
+			t.Fatal("daemon did not become ready")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	sessionID := "session_77777777777777777777777777777777"
+	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{
+		ID: sessionID, CWD: t.TempDir(), Model: "test/echo", ThinkingLevel: "off",
+	})
+	if err != nil || created.ID != sessionID {
+		t.Fatalf("CreateSession() = %#v, %v", created, err)
+	}
+	listed, err := client.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+	if err != nil || len(listed.Definitions) != 1 || listed.Definitions[0].Name != "scout" {
+		t.Fatalf("Subagent(list_agents) = %#v, %v", listed, err)
+	}
+	eventSnapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	streamContext, stopStream := context.WithCancel(context.Background())
+	defer stopStream()
+	body, err := observerStream(client, streamContext, sessionID, eventSnapshot.EventStreamID, eventSnapshot.EventCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	changedEvents := make(chan protocol.SessionEvent, 1)
+	go scanSubagentChangedEvent(body, changedEvents)
+	started, err := client.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{
+		Action: protocol.SubagentStart, Agent: "scout", Message: "inspect from another client",
+	})
+	if err != nil || started.Task == nil || started.Conversation == nil {
+		t.Fatalf("Subagent(start) = %#v, %v", started, err)
+	}
+	select {
+	case event := <-changedEvents:
+		if event.SubagentConversationID != started.Conversation.ID || event.SubagentTaskID != started.Task.ID {
+			t.Fatalf("subagent changed event = %#v", event)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("attached observer did not receive subagent lifecycle event")
+	}
+	stopStream()
+	observer := NewClient(paths)
+	var observed protocol.SubagentOperationResult
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		observed, err = observer.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+		if err == nil && len(observed.Conversations) == 1 && len(observed.Conversations[0].Tasks) == 1 && observed.Conversations[0].Tasks[0].State == "completed" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("observer did not see completed task: %#v, %v", observed, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if observed.Conversations[0].Tasks[0].ID != started.Task.ID || observed.Conversations[0].LastResultSummary == "" {
+		t.Fatalf("observer roster = %#v", observed.Conversations)
+	}
+	childEvents, err := observer.GetSubagentEvents(t.Context(), sessionID, observed.Conversations[0].ID, "", 0)
+	if err != nil || childEvents.StreamID == "" || len(childEvents.Events) == 0 {
+		t.Fatalf("child live events = %#v, %v", childEvents, err)
+	}
+	transcript, err := observer.GetSubagentTranscript(t.Context(), sessionID, observed.Conversations[0].ID)
+	if err != nil || len(transcript.Messages) != 2 || transcript.Messages[0].Role != "user" || transcript.Messages[1].Role != "assistant" {
+		t.Fatalf("child transcript = %#v, %v", transcript, err)
+	}
+	snapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
+	if err != nil || len(snapshot.SubagentDefinitions) != 1 || snapshot.SubagentDefinitions[0].Name != "scout" {
+		t.Fatalf("snapshot subagents = %#v, %v", snapshot.SubagentDefinitions, err)
+	}
+	cancel()
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("daemon did not stop")
 	}
 }
 
@@ -736,6 +844,34 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		}
 	case <-restartStopContext.Done():
 		t.Fatal("restarted daemon did not stop")
+	}
+}
+
+func observerStream(client *Client, ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
+	return client.StreamSessionEvents(ctx, sessionID, streamID, after)
+}
+
+func scanSubagentChangedEvent(body io.ReadCloser, found chan<- protocol.SessionEvent) {
+	defer body.Close()
+	scanner := bufio.NewScanner(body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var batch protocol.SessionEventBatch
+		if json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &batch) != nil {
+			continue
+		}
+		for _, event := range batch.Events {
+			if event.Kind == protocol.SessionEventSubagentChanged {
+				select {
+				case found <- event:
+				default:
+				}
+				return
+			}
+		}
 	}
 }
 

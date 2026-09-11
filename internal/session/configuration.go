@@ -434,6 +434,12 @@ func resolveConfigurationThinking(model droids.Model, saved string, requested *s
 	))}, nil
 }
 
+// ResolveCompatibleThinkingLevel returns a valid effective thinking level for a model and saved configuration.
+func ResolveCompatibleThinkingLevel(model droids.Model, saved string) (string, error) {
+	effective, _, err := resolveSavedThinkingLevel(model, saved)
+	return effective, err
+}
+
 func resolveSavedThinkingLevel(model droids.Model, saved string) (string, bool, error) {
 	supported := supportedThinkingLevels(model)
 	if len(supported) == 0 {

@@ -16,6 +16,37 @@ import (
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 )
 
+func TestSDKPromptAdmissionKeyIsIdempotent(t *testing.T) {
+	providers := newReadProviders()
+	droid, err := droids.Open(t.Context(), "conversation_admission", droids.Config{
+		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/read",
+		Tools: []droids.AnyTool{readOnlyTool(&atomic.Int32{})},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	input := droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "inspect"}}}
+	first, err := droid.Prompt(t.Context(), input, droids.PromptOptions{AdmissionKey: "task_admission_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome, err := first.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("first outcome = %#v, %v", outcome, err)
+	}
+	replayed, err := droid.Prompt(t.Context(), input, droids.PromptOptions{AdmissionKey: "task_admission_1"})
+	if err != nil || replayed.TurnID() != first.TurnID() {
+		t.Fatalf("replayed handle = %v/%v, want turn %s", replayed, err, first.TurnID())
+	}
+	if outcome, err := replayed.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("replayed outcome = %#v, %v", outcome, err)
+	}
+	different := droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "different"}}}
+	if _, err := droid.Prompt(t.Context(), different, droids.PromptOptions{AdmissionKey: "task_admission_1"}); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("reused admission key error = %v", err)
+	}
+}
+
 func TestSDKMemoryAndSQLite(t *testing.T) {
 	t.Run("memory", func(t *testing.T) {
 		store := droids.NewMemoryStore()

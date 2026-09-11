@@ -271,6 +271,60 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string, input pro
 	return output, nil
 }
 
+// GetSubagentEvents loads a bounded child event page.
+func (c *Client) GetSubagentEvents(ctx context.Context, sessionID, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
+	values := url.Values{}
+	if streamID != "" {
+		values.Set("stream", streamID)
+	}
+	values.Set("after", strconv.FormatInt(after, 10))
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/subagents/" + url.PathEscape(conversationID) + "/events?" + values.Encode()
+	var output protocol.SubagentLiveEventPage
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.SubagentLiveEventPage{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SubagentLiveEventPage{}, fmt.Errorf("validate daemon subagent events: %w", err)
+	}
+	return output, nil
+}
+
+// GetSubagentTranscript loads durable child history by conversation identity.
+func (c *Client) GetSubagentTranscript(ctx context.Context, sessionID, conversationID string) (protocol.SubagentTranscript, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/subagents/" + url.PathEscape(conversationID) + "/transcript"
+	var output protocol.SubagentTranscript
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.SubagentTranscript{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SubagentTranscript{}, fmt.Errorf("validate daemon subagent transcript: %w", err)
+	}
+	if output.ConversationID != conversationID {
+		return protocol.SubagentTranscript{}, fmt.Errorf("daemon subagent transcript identity mismatch")
+	}
+	return output, nil
+}
+
+// Subagent performs one asynchronous child lifecycle operation.
+func (c *Client) Subagent(ctx context.Context, sessionID string, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.SubagentOperationResult{}, fmt.Errorf("validate subagent operation: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/subagents"
+	status := http.StatusOK
+	if input.Action == protocol.SubagentStart || input.Action == protocol.SubagentMessage || input.Action == protocol.SubagentCancel {
+		status = http.StatusAccepted
+	}
+	var output protocol.SubagentOperationResult
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, status, &output); err != nil {
+		return protocol.SubagentOperationResult{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SubagentOperationResult{}, fmt.Errorf("validate daemon subagent response: %w", err)
+	}
+	return output, nil
+}
+
 // SubmitPrompt starts an idle prompt or queues it behind active work.
 func (c *Client) SubmitPrompt(ctx context.Context, sessionID, text string) (protocol.PromptSubmission, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/submissions"

@@ -277,25 +277,27 @@ automated or recorded manual verification exists.
 
 ## Subagents
 
-- [ ] Discover Kit and compatibility agent definitions with deterministic
-  precedence.
-- [ ] Start a durable concurrent execution and return its task identity without
-  blocking for completion.
-- [ ] One independently cancellable context, droids runtime, transcript, event
-  stream, and status per conversation.
-- [ ] Bounded global/per-session concurrency.
-- [ ] Inspect, continue/message, wait, cancel, and dismiss lifecycle operations.
-- [ ] Persist full subagent activity without injecting its transcript into the
+- [~] Discover user and project agent definitions with deterministic precedence;
+  compatibility and plugin-contributed locations remain.
+- [~] Start durable concurrent execution and promptly return task identity;
+  authenticated native CLI and multi-observer smoke coverage is recorded in the
+  implementation tracker, while semantic-web parity remains.
+- [~] One independently cancellable context, droids runtime, durable transcript,
+  bounded live event stream, and status per conversation.
+- [~] Bounded global/per-session concurrency and session-fair FIFO scheduling.
+- [~] Inspect, continue/message, bounded wait, generation-safe cancel, and
+  confirmed dismiss lifecycle operations.
+- [~] Persist full subagent activity without injecting its transcript into the
   parent model context.
-- [ ] Deliver completion through the durable parent mailbox at a safe turn
-  boundary.
-- [ ] Do not automatically start a parent model call when completion arrives
-  while idle.
-- [ ] Mark in-flight work interrupted after daemon failure and expose explicit
-  recovery/retry.
-- [ ] Roster and retained transcript workspace tabs in TUI and web.
-- [ ] Compact delegation markers and live status in parent activity surfaces.
-- [ ] Prevent nested delegation until deliberately designed.
+- [~] Deliver completion through the durable parent mailbox at a safe turn
+  boundary, with idle delivery deferred until the next user run.
+- [~] Mark in-flight work interrupted after daemon restart, preserve queued work,
+  and create explicit lineage when messaging an interrupted conversation.
+- [~] Native TUI roster and retained child transcript workspace tabs; semantic
+  web workspace remains.
+- [~] Compact delegation markers and live status in parent Activity and the
+  Subagents workspace.
+- [~] Prevent nested delegation until deliberately designed.
 
 ## Guidance and reusable prompts
 

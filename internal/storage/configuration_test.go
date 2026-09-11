@@ -162,8 +162,8 @@ func TestConfigurationRevisionMigrationUpgradesExistingSessionsAtRevisionOne(t *
 	}
 	t.Cleanup(func() { _ = upgraded.Close() })
 	version, err := upgraded.CurrentMigration(t.Context())
-	if err != nil || version != 3 {
-		t.Fatalf("migration version = %d, %v; want 3", version, err)
+	if err != nil || version != 4 {
+		t.Fatalf("migration version = %d, %v; want 4", version, err)
 	}
 	record, err := upgraded.GetSession(t.Context(), "session_legacy_config")
 	if err != nil {

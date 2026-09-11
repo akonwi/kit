@@ -16,6 +16,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/subagent"
 )
 
 const (
@@ -84,13 +85,15 @@ type PromptResult struct {
 // Manager.mu.
 // Registry lookups should otherwise release Manager.mu before touching a runtime.
 type Manager struct {
-	store           Repository
-	providers       droids.Providers
-	bundleBuilder   RuntimeBundleBuilder
-	droidDirectory  string
-	temporaryDroids bool
-	bashContext     context.Context
-	cancelBash      context.CancelCauseFunc
+	store                 Repository
+	providers             droids.Providers
+	bundleBuilder         RuntimeBundleBuilder
+	mailbox               subagent.Repository
+	subagentOwnerCanceler interface{ CancelOwner(string) }
+	droidDirectory        string
+	temporaryDroids       bool
+	bashContext           context.Context
+	cancelBash            context.CancelCauseFunc
 
 	mu                sync.Mutex
 	runtimes          map[string]*runtime
@@ -247,7 +250,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		return nil, fmt.Errorf("create droid store directory: %w", err)
 	}
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
-	return &Manager{
+	manager := &Manager{
 		store: store, providers: providers, bundleBuilder: bundleBuilder,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
@@ -256,7 +259,23 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		bashActive:   make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
-	}, nil
+	}
+	if mailbox, ok := store.(subagent.Repository); ok {
+		manager.mailbox = mailbox
+	}
+	return manager, nil
+}
+
+// SetSubagentOwnerCanceler connects owner archival to the daemon-wide child supervisor.
+// It must be called during composition before sessions accept work.
+func (m *Manager) SetSubagentOwnerCanceler(canceler interface{ CancelOwner(string) }) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || len(m.runtimes) != 0 || len(m.loading) != 0 {
+		return ErrBusy
+	}
+	m.subagentOwnerCanceler = canceler
+	return nil
 }
 
 func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord, error) {
@@ -491,6 +510,9 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 	delete(m.bashHistory, sessionID)
 	delete(m.bashNextSequence, sessionID)
 	m.bashMu.Unlock()
+	if m.subagentOwnerCanceler != nil {
+		m.subagentOwnerCanceler.CancelOwner(sessionID)
+	}
 
 	m.mu.Lock()
 	if loaded != nil && m.runtimes[sessionID] == loaded {
@@ -889,6 +911,10 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	if snapshot.Active != nil {
 		release()
 		return RunReservation{}, ErrBusy
+	}
+	if err := m.deliverPendingSubagentMailbox(ctx, sessionID, loaded.droid); err != nil {
+		release()
+		return RunReservation{}, err
 	}
 	subscription, err := loaded.droid.Subscribe(context.Background(), droids.SubscribeOptions{
 		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,

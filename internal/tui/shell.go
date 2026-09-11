@@ -54,6 +54,20 @@ type shellSnapshot struct {
 	WorkspaceLayout             *workspaceLayoutState
 	ActivitySourceID            string
 	ActivitySelected            bool
+	SubagentsOpen               bool
+	SubagentDefinitions         []protocol.SubagentDefinition
+	SubagentDiagnostics         []protocol.SubagentDiagnostic
+	SubagentConversations       []protocol.SubagentConversation
+	SubagentSelection           string
+	SubagentPaneID              string
+	SubagentTranscripts         map[string]protocol.SubagentTranscript
+	SubagentTranscriptOrder     []string
+	SubagentScroll              *ui.ScrollController
+	SubagentLive                map[string]protocol.SubagentLiveEventPage
+	SubagentDismissID           string
+	SubagentDismissName         string
+	SubagentDismissPending      bool
+	SubagentDismissError        string
 	HoveredActivityID           string
 	InlineActivityOpen          map[string]bool
 	ActivityExpanded            map[activityToolKey]bool
@@ -89,6 +103,13 @@ type shellCallbacks struct {
 	ShowTranscript             ui.VoidCallback
 	ShowActivity               ui.VoidCallback
 	CloseActivity              ui.VoidCallback
+	CancelSubagentTask         func(ui.EventContext, string, uint64)
+	DismissSubagent            func(ui.EventContext, string, uint64)
+	SelectSubagent             func(ui.EventContext, string)
+	MoveSubagentSelection      selectionMovedCallback
+	ShowSubagentRoster         ui.VoidCallback
+	OpenSubagentConversation   func(ui.EventContext, string)
+	CloseSubagentConversation  func(ui.EventContext, string)
 	ScrollActivity             func(ui.EventContext, int)
 	ToggleActivityTool         func(ui.EventContext, activityToolKey)
 	SelectActivityTool         func(ui.EventContext, activityToolKey)
@@ -167,6 +188,22 @@ type movePaletteIntent struct{ Delta int }
 
 func (movePaletteIntent) IntentType() ui.IntentType { return "kit.command-palette.move" }
 
+type moveSubagentIntent struct{ Delta int }
+
+func (moveSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.move" }
+
+type openSubagentIntent struct{}
+
+func (openSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.open" }
+
+type cancelSubagentIntent struct{}
+
+func (cancelSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.cancel" }
+
+type dismissSubagentIntent struct{}
+
+func (dismissSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.dismiss" }
+
 func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	w.presentation = presentTranscript(w.Snapshot.Messages)
@@ -238,6 +275,11 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
 		}
 	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.SubagentDismissID != "" {
+		overlays = append(overlays, modalDialogEntry(subagentDismissSurface{
+			Name: w.Snapshot.SubagentDismissName, Pending: w.Snapshot.SubagentDismissPending, Error: w.Snapshot.SubagentDismissError,
+		}))
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
 		overlays = append(overlays, ui.OverlayEntry{
 			Modal: true, Barrier: clearModalBarrier{},
@@ -302,6 +344,23 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 	}
+	if w.Snapshot.ActivitySourceID != "" && w.Snapshot.ActivitySelected && w.Snapshot.WorkspaceLayout != nil && !w.Snapshot.WorkspaceLayout.Wide {
+		shortcuts["Up"] = moveActivityToolIntent{Delta: -1}
+		shortcuts["Down"] = moveActivityToolIntent{Delta: 1}
+		shortcuts["Enter"] = toggleActivityToolIntent{}
+		actions[moveActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+			if w.Callbacks.MoveActivityTool != nil {
+				w.Callbacks.MoveActivityTool(ctx, intent.(moveActivityToolIntent).Delta)
+			}
+			return ui.EventHandled
+		}
+		actions[toggleActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if w.Callbacks.ToggleActivityTool != nil && w.Snapshot.ActivityCursor.ToolCallID != "" {
+				w.Callbacks.ToggleActivityTool(ctx, w.Snapshot.ActivityCursor)
+			}
+			return ui.EventHandled
+		}
+	}
 	if w.Snapshot.PaletteOpen {
 		shortcuts["Up"] = movePaletteIntent{Delta: -1}
 		shortcuts["Down"] = movePaletteIntent{Delta: 1}
@@ -315,7 +374,16 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting || w.Snapshot.Phase == phaseAuthBrowser ||
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Callbacks.Dismiss != nil {
+			activityFocused := w.Snapshot.ActivityFocus == nil || w.Snapshot.ActivityFocus.HasFocus()
+			if w.Snapshot.SubagentsOpen && w.Snapshot.ActivitySelected && activityFocused && !w.Snapshot.PaletteOpen && w.Snapshot.SubagentDismissID == "" {
+				if w.Snapshot.SubagentPaneID != "" && w.Callbacks.ShowSubagentRoster != nil {
+					w.Callbacks.ShowSubagentRoster(ctx)
+				} else if w.Callbacks.CloseActivity != nil {
+					w.Callbacks.CloseActivity(ctx)
+				}
+			} else if !w.Snapshot.SubagentsOpen && w.Snapshot.ActivitySelected && !w.Snapshot.Running && !w.Snapshot.PaletteOpen && w.Snapshot.SubagentDismissID == "" && w.Callbacks.CloseActivity != nil {
+				w.Callbacks.CloseActivity(ctx)
+			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
 			}
 			return ui.EventHandled
@@ -362,12 +430,23 @@ func (w shellView) conversationVisible() bool {
 func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 	body := ui.Widget(ui.Expanded(w.body(theme)))
 	if w.conversationVisible() {
+		workspaceOpen := w.Snapshot.ActivitySourceID != "" || w.Snapshot.SubagentsOpen
+		secondaryPane := w.activityPane(theme)
+		if w.Snapshot.SubagentsOpen {
+			secondaryPane = w.subagentsPane(theme)
+			if w.Snapshot.SubagentPaneID != "" {
+				secondaryPane = w.subagentTranscriptPane(theme, w.Snapshot.SubagentPaneID)
+			}
+		}
 		body = ui.Expanded(conversationWorkspaceHost{
-			Open: false,
-			Tabs: ui.SizedBox{}, Transcript: w.body(theme),
+			Open: workspaceOpen, ActivitySelected: w.Snapshot.ActivitySelected,
+			Tabs: w.workspaceTabs(theme), Transcript: w.body(theme),
 			Pending: w.pendingSlot(theme), PendingHeight: 1 + min(3, w.Snapshot.FollowUps.Count),
 			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme)}},
-			Composer:          w.composer(theme), PaneSeparator: ui.SizedBox{}, Activity: ui.SizedBox{},
+			Composer:          w.composer(theme),
+			PaneSeparator:     ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
+			Activity:          secondaryPane, SeparatorStyle: ui.Style{Foreground: theme.Border},
+			LayoutState: w.Snapshot.WorkspaceLayout,
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
@@ -559,7 +638,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	} else if item.ID == w.Snapshot.HoveredActivityID {
 		background = theme.SurfaceHovered
 	}
-	prefix := ui.Widget(ui.Text{Value: glyphTriangleRight, Style: ui.Style{Foreground: theme.MutedForeground}})
+	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: ui.Style{Foreground: theme.MutedForeground}})
 	if expanded {
 		prefix = ui.Text{Value: glyphTriangleDown, Style: ui.Style{Foreground: theme.MutedForeground}}
 	} else if inProgress {
@@ -580,6 +659,9 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	header := mouseActivator{
 		Child: ui.SizedBox{Height: 1, Child: row},
 		OnPressed: func(ctx ui.EventContext) {
+			if w.Snapshot.ActivityFocus != nil {
+				w.Snapshot.ActivityFocus.RequestFocus()
+			}
 			if w.Callbacks.OpenActivity != nil {
 				w.Callbacks.OpenActivity(ctx, item.ID)
 			}
@@ -595,7 +677,14 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			}
 		},
 	}
-	children := []ui.Widget{header}
+	children := make([]ui.Widget, 0, 2)
+	for _, step := range item.Items {
+		if !step.Pending && assistantHasProse(step) {
+			children = append(children, transcriptAssistantEntry(theme, step.Message), ui.SizedBox{Height: 1})
+			break
+		}
+	}
+	children = append(children, header)
 	if expanded {
 		children = append(children, inlineActivityWindow{
 			ID: item.ID, Source: item, States: toolStates,
@@ -609,16 +698,39 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 }
 
 func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
+	tabs := []ui.Widget{workspaceTab{Label: "Transcript", Selected: !w.Snapshot.ActivitySelected, OnSelect: w.Callbacks.ShowTranscript}}
+	if w.Snapshot.SubagentsOpen {
+		tabs = append(tabs, workspaceTab{
+			Label: "Subagents", Selected: w.Snapshot.ActivitySelected && w.Snapshot.SubagentPaneID == "", Closable: true,
+			OnSelect: w.Callbacks.ShowSubagentRoster, OnClose: w.Callbacks.CloseActivity,
+		})
+		for _, conversationID := range w.Snapshot.SubagentTranscriptOrder {
+			conversationID := conversationID
+			label := subagentConversationLabel(w.Snapshot.SubagentConversations, conversationID)
+			tabs = append(tabs, workspaceTab{
+				Label: label, Selected: w.Snapshot.ActivitySelected && w.Snapshot.SubagentPaneID == conversationID, Closable: true,
+				OnSelect: func(ctx ui.EventContext) {
+					if w.Callbacks.OpenSubagentConversation != nil {
+						w.Callbacks.OpenSubagentConversation(ctx, conversationID)
+					}
+				},
+				OnClose: func(ctx ui.EventContext) {
+					if w.Callbacks.CloseSubagentConversation != nil {
+						w.Callbacks.CloseSubagentConversation(ctx, conversationID)
+					}
+				},
+			})
+		}
+	} else {
+		tabs = append(tabs, workspaceTab{
+			Label: "Activity", Selected: w.Snapshot.ActivitySelected, Closable: true,
+			OnSelect: w.Callbacks.ShowActivity, OnClose: w.Callbacks.CloseActivity,
+		})
+	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
 			ui.Decoration{Style: ui.Style{Background: theme.Background}},
-			ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-				workspaceTab{Label: "Transcript", Selected: !w.Snapshot.ActivitySelected, OnSelect: w.Callbacks.ShowTranscript},
-				workspaceTab{
-					Label: "Activity", Selected: w.Snapshot.ActivitySelected, Closable: true,
-					OnSelect: w.Callbacks.ShowActivity, OnClose: w.Callbacks.CloseActivity,
-				},
-			}},
+			ui.Flex{Axis: ui.Horizontal, Children: tabs},
 		)},
 		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
 	}}

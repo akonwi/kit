@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/akonwi/kit/internal/identifier"
 )
 
 // Validate checks cumulative usage received across a transport boundary.
@@ -53,8 +55,12 @@ func (snapshot SessionSnapshot) Validate() error {
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
 	}
-	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 {
-		return fmt.Errorf("snapshot has too many prompt commands or warnings")
+	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 ||
+		len(snapshot.SubagentDefinitions) > 128 || len(snapshot.SubagentDiagnostics) > 128 || len(snapshot.SubagentConversations) > 128 || len(snapshot.SubagentMailbox) > 64 {
+		return fmt.Errorf("snapshot has too many commands, warnings, or subagent records")
+	}
+	if err := validateSubagentSnapshot(snapshot); err != nil {
+		return err
 	}
 	if err := snapshot.FollowUps.Validate(); err != nil {
 		return fmt.Errorf("snapshot follow-ups: %w", err)
@@ -180,6 +186,121 @@ func (snapshot SessionSnapshot) Validate() error {
 		return fmt.Errorf("snapshot active bash execution does not match included bash message")
 	}
 	return nil
+}
+
+func validateSubagentSnapshot(snapshot SessionSnapshot) error {
+	seenDefinitions := make(map[string]struct{}, len(snapshot.SubagentDefinitions))
+	for index, definition := range snapshot.SubagentDefinitions {
+		if !validRendererText(definition.Name, 128) || strings.ContainsAny(definition.Name, " /\\\t\r\n") ||
+			!validRendererText(definition.Description, 1024) || !validSubagentSource(definition.Source) {
+			return fmt.Errorf("snapshot subagent definition %d is invalid", index)
+		}
+		if definition.Model != "" && !validRendererText(definition.Model, 256) {
+			return fmt.Errorf("snapshot subagent definition %d model is invalid", index)
+		}
+		if _, duplicate := seenDefinitions[definition.Name]; duplicate {
+			return fmt.Errorf("snapshot subagent definition %d duplicates %q", index, definition.Name)
+		}
+		seenDefinitions[definition.Name] = struct{}{}
+	}
+	for index, diagnostic := range snapshot.SubagentDiagnostics {
+		if diagnostic.Severity != "warning" || !validRendererText(diagnostic.Code, 256) ||
+			!validRendererText(diagnostic.Message, 4096) || !validSubagentSource(diagnostic.Source) {
+			return fmt.Errorf("snapshot subagent diagnostic %d is invalid", index)
+		}
+	}
+	for index, item := range snapshot.SubagentMailbox {
+		if !identifier.Valid(item.ID, "mail_") || !identifier.Valid(item.ConversationID, "subagent_") ||
+			!identifier.Valid(item.TaskID, "task_") || !validRendererText(item.AgentName, 128) ||
+			!validSubagentTaskState(item.State) || item.State == "queued" || item.State == "running" || len(item.Summary) > 16<<10 || len(item.Error) > 16<<10 {
+			return fmt.Errorf("snapshot subagent mailbox item %d is invalid", index)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, item.CreatedAt); err != nil {
+			return fmt.Errorf("snapshot subagent mailbox item %d createdAt is invalid", index)
+		}
+	}
+	seenConversations := make(map[string]struct{}, len(snapshot.SubagentConversations))
+	for index, conversation := range snapshot.SubagentConversations {
+		if !identifier.Valid(conversation.ID, "subagent_") || !validRendererText(conversation.AgentName, 128) ||
+			!validRendererText(conversation.Model, 256) || strings.Count(conversation.Model, "/") != 1 ||
+			conversation.Generation == 0 || conversation.QueuedTasks < 0 ||
+			(conversation.ActiveTaskID != "" && !identifier.Valid(conversation.ActiveTaskID, "task_")) ||
+			(conversation.LastCompletedTaskID != "" && !identifier.Valid(conversation.LastCompletedTaskID, "task_")) ||
+			!validSubagentConversationState(conversation.State) || len(conversation.Tasks) > 20 {
+			return fmt.Errorf("snapshot subagent conversation %d is invalid", index)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, conversation.UpdatedAt); err != nil {
+			return fmt.Errorf("snapshot subagent conversation %d updatedAt is invalid", index)
+		}
+		if _, duplicate := seenConversations[conversation.ID]; duplicate {
+			return fmt.Errorf("snapshot subagent conversation %d is duplicated", index)
+		}
+		seenConversations[conversation.ID] = struct{}{}
+		var previous uint64
+		for taskIndex, task := range conversation.Tasks {
+			if !identifier.Valid(task.ID, "task_") || task.Sequence == 0 || task.Sequence <= previous || task.QueuedAt == "" ||
+				task.CancellationGeneration == 0 || !validSubagentTaskState(task.State) {
+				return fmt.Errorf("snapshot subagent conversation %d task %d is invalid", index, taskIndex)
+			}
+			previous = task.Sequence
+			for name, value := range map[string]string{"queuedAt": task.QueuedAt, "startedAt": task.StartedAt, "finishedAt": task.FinishedAt} {
+				if value != "" {
+					if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+						return fmt.Errorf("snapshot subagent conversation %d task %d %s is invalid", index, taskIndex, name)
+					}
+				}
+			}
+			queuedAt, _ := time.Parse(time.RFC3339Nano, task.QueuedAt)
+			if task.StartedAt != "" {
+				startedAt, _ := time.Parse(time.RFC3339Nano, task.StartedAt)
+				if startedAt.Before(queuedAt) {
+					return fmt.Errorf("snapshot subagent conversation %d task %d starts before queue admission", index, taskIndex)
+				}
+			}
+			if terminalSubagentTaskState(task.State) != (task.FinishedAt != "") {
+				return fmt.Errorf("snapshot subagent conversation %d task %d terminal timestamp mismatch", index, taskIndex)
+			}
+		}
+	}
+	return nil
+}
+
+func validSubagentSource(source SubagentSource) bool {
+	if source.Kind != "user" && source.Kind != "project" && source.Kind != "plugin" {
+		return false
+	}
+	if !validRendererText(source.Path, 4096) {
+		return false
+	}
+	if source.Kind != "plugin" && !filepath.IsAbs(source.Path) {
+		return false
+	}
+	if source.Kind == "plugin" {
+		return validRendererText(source.PluginID, 256)
+	}
+	return source.PluginID == ""
+}
+
+func validSubagentConversationState(state string) bool {
+	switch state {
+	case "idle", "running", "failed", "aborted", "interrupted":
+		return true
+	default:
+		return false
+	}
+}
+
+func terminalSubagentTaskState(state string) bool {
+	return state == "completed" || state == "failed" || state == "aborted" || state == "interrupted"
+}
+
+func validSubagentTaskState(state string) bool {
+	switch state {
+	case "queued", "running", "completed", "failed", "aborted", "interrupted":
+		return true
+	default:
+		return false
+	}
 }
 
 func (message TranscriptMessage) validate() error {

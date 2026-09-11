@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
+	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
@@ -61,6 +63,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	var (
 		store             *storage.Store
 		sessionManager    *kitsession.Manager
+		subagents         *subagent.Supervisor
 		listener          net.Listener
 		instanceID        string
 		tokenPublished    bool
@@ -69,6 +72,13 @@ func Run(ctx context.Context, options RunOptions) error {
 	defer func() {
 		if listener != nil {
 			_ = listener.Close()
+		}
+		if subagents != nil {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := subagents.Shutdown(shutdownContext); err != nil {
+				logger.Error("stop subagent runtimes", "error", err)
+			}
+			cancel()
 		}
 		if sessionManager != nil {
 			shutdownContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -129,8 +139,52 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create prompt command loader: %w", err)
 	}
+	subagentLoader, err := subagent.NewFilesystemLoader(paths)
+	if err != nil {
+		return fmt.Errorf("create subagent loader: %w", err)
+	}
+	childBundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
+		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
+		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
+	})
+	if err != nil {
+		return fmt.Errorf("create child runtime bundle builder: %w", err)
+	}
+	childFactory, err := kitsession.NewChildRuntimeFactory(providers, childBundleBuilder, filepath.Join(paths.Droids, "subagents"))
+	if err != nil {
+		return fmt.Errorf("create child runtime factory: %w", err)
+	}
+	subagents, err = subagent.NewSupervisor(store, childFactory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		return fmt.Errorf("create subagent supervisor: %w", err)
+	}
+	subagentTools := &subagent.ToolService{
+		Supervisor: subagents, Owners: store,
+		ResolveConfiguration: func(ctx context.Context, selector, thinking string) (string, string, error) {
+			provider, model, err := providers.Resolve(selector)
+			if err != nil {
+				return "", "", err
+			}
+			available := false
+			for _, providerID := range providerAvailability(ctx) {
+				if providerID == model.Provider {
+					available = true
+					break
+				}
+			}
+			if provider == nil || provider.ID() != model.Provider || !available {
+				return "", "", fmt.Errorf("provider %q is unavailable", model.Provider)
+			}
+			effectiveThinking, err := kitsession.ResolveCompatibleThinkingLevel(model, thinking)
+			if err != nil {
+				return "", "", err
+			}
+			return model.Provider + "/" + model.ID, effectiveThinking, nil
+		},
+	}
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
+		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools,
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
 	})
 	if err != nil {
@@ -142,6 +196,15 @@ func Run(ctx context.Context, options RunOptions) error {
 	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
+	}
+	if err := subagents.SetEventSink(sessionManager); err != nil {
+		return fmt.Errorf("connect subagent event sink: %w", err)
+	}
+	if err := sessionManager.SetSubagentOwnerCanceler(subagents); err != nil {
+		return fmt.Errorf("connect subagent owner cancellation: %w", err)
+	}
+	if _, err := subagents.Start(ctx); err != nil {
+		return fmt.Errorf("recover and start subagent supervisor: %w", err)
 	}
 	listener, err = net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -188,8 +251,11 @@ func Run(ctx context.Context, options RunOptions) error {
 		registry:     registry,
 		token:        token,
 		store:        store,
-		sessions:     runtimeSessionService{manager: sessionManager, availableProviders: providerAvailability, fileIndexes: newSessionFileIndexCache()},
-		providers:    providerAvailability,
+		sessions: runtimeSessionService{
+			manager: sessionManager, availableProviders: providerAvailability, fileIndexes: newSessionFileIndexCache(),
+			subagents: subagents, subagentTools: subagentTools,
+		},
+		providers: providerAvailability,
 		requestStop: func() {
 			select {
 			case stop <- struct{}{}:

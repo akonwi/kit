@@ -10,6 +10,22 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 )
 
+func TestSubagentChangedEventIsSessionScoped(t *testing.T) {
+	t.Parallel()
+	event := NewEvent{
+		SessionID: "session_test", Kind: EventSubagentChanged,
+		SubagentConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		SubagentTaskID:         "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.TurnID = "turn_parent"
+	if err := event.Validate(); err == nil {
+		t.Fatal("subagent event accepted a parent turn identity")
+	}
+}
+
 func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 	t.Parallel()
 

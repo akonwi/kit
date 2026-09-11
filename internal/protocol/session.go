@@ -349,23 +349,90 @@ type SessionUsageCost struct {
 	Total      float64 `json:"total"`
 }
 
+// SubagentSource is renderer-safe definition provenance.
+type SubagentSource struct {
+	Kind     string `json:"kind"`
+	Path     string `json:"path"`
+	PluginID string `json:"pluginId,omitempty"`
+}
+
+// SubagentDefinition is model- and renderer-safe catalog metadata.
+type SubagentDefinition struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	Model       string         `json:"model,omitempty"`
+	Source      SubagentSource `json:"source"`
+}
+
+// SubagentDiagnostic reports a non-fatal definition discovery problem.
+type SubagentDiagnostic struct {
+	Severity string         `json:"severity"`
+	Code     string         `json:"code"`
+	Message  string         `json:"message"`
+	Source   SubagentSource `json:"source"`
+}
+
+// SubagentTask is one durable renderer-safe task projection.
+type SubagentTask struct {
+	ID                     string `json:"id"`
+	Sequence               uint64 `json:"sequence"`
+	State                  string `json:"state"`
+	CancellationGeneration uint64 `json:"cancellationGeneration"`
+	QueuedAt               string `json:"queuedAt"`
+	StartedAt              string `json:"startedAt,omitempty"`
+	FinishedAt             string `json:"finishedAt,omitempty"`
+	ResultSummary          string `json:"resultSummary,omitempty"`
+	Error                  string `json:"error,omitempty"`
+}
+
+// SubagentConversation is one retained roster entry with bounded recent tasks.
+type SubagentConversation struct {
+	ID                  string         `json:"id"`
+	AgentName           string         `json:"agentName"`
+	Model               string         `json:"model"`
+	State               string         `json:"state"`
+	Generation          uint64         `json:"generation"`
+	ActiveTaskID        string         `json:"activeTaskId,omitempty"`
+	QueuedTasks         int            `json:"queuedTasks"`
+	LastCompletedTaskID string         `json:"lastCompletedTaskId,omitempty"`
+	LastResultSummary   string         `json:"lastResultSummary,omitempty"`
+	UpdatedAt           string         `json:"updatedAt"`
+	Tasks               []SubagentTask `json:"tasks,omitempty"`
+}
+
+// SubagentMailboxItem is one pending bounded parent notification.
+type SubagentMailboxItem struct {
+	ID             string `json:"id"`
+	ConversationID string `json:"conversationId"`
+	TaskID         string `json:"taskId"`
+	AgentName      string `json:"agentName"`
+	State          string `json:"state"`
+	Summary        string `json:"summary,omitempty"`
+	Error          string `json:"error,omitempty"`
+	CreatedAt      string `json:"createdAt"`
+}
+
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
-	Session               SessionInfo         `json:"session"`
-	Messages              []TranscriptMessage `json:"messages"`
-	PendingBoundaries     []PendingBoundary   `json:"pendingBoundaries,omitempty"`
-	ActiveRunID           string              `json:"activeRunId,omitempty"`
-	ActiveBashExecutionID string              `json:"activeBashExecutionId,omitempty"`
-	EventStreamID         string              `json:"eventStreamId,omitempty"`
-	EventCursor           int64               `json:"eventCursor,omitempty"`
-	EventReplayFrom       int64               `json:"eventReplayFrom,omitempty"`
-	EventReplayAvailable  bool                `json:"eventReplayAvailable,omitempty"`
-	ContextTokens         int                 `json:"contextTokens,omitempty"`
-	ContextWindow         int                 `json:"contextWindow,omitempty"`
-	Usage                 SessionUsage        `json:"usage"`
-	PromptCommands        []PromptCommand     `json:"promptCommands,omitempty"`
-	FollowUps             FollowUpQueue       `json:"followUps"`
-	Warnings              []string            `json:"warnings,omitempty"`
+	Session               SessionInfo            `json:"session"`
+	Messages              []TranscriptMessage    `json:"messages"`
+	PendingBoundaries     []PendingBoundary      `json:"pendingBoundaries,omitempty"`
+	ActiveRunID           string                 `json:"activeRunId,omitempty"`
+	ActiveBashExecutionID string                 `json:"activeBashExecutionId,omitempty"`
+	EventStreamID         string                 `json:"eventStreamId,omitempty"`
+	EventCursor           int64                  `json:"eventCursor,omitempty"`
+	EventReplayFrom       int64                  `json:"eventReplayFrom,omitempty"`
+	EventReplayAvailable  bool                   `json:"eventReplayAvailable,omitempty"`
+	ContextTokens         int                    `json:"contextTokens,omitempty"`
+	ContextWindow         int                    `json:"contextWindow,omitempty"`
+	Usage                 SessionUsage           `json:"usage"`
+	PromptCommands        []PromptCommand        `json:"promptCommands,omitempty"`
+	FollowUps             FollowUpQueue          `json:"followUps"`
+	Warnings              []string               `json:"warnings,omitempty"`
+	SubagentDefinitions   []SubagentDefinition   `json:"subagentDefinitions,omitempty"`
+	SubagentDiagnostics   []SubagentDiagnostic   `json:"subagentDiagnostics,omitempty"`
+	SubagentConversations []SubagentConversation `json:"subagentConversations,omitempty"`
+	SubagentMailbox       []SubagentMailboxItem  `json:"subagentMailbox,omitempty"`
 }
 
 // RunStatus is a canonical parent-run terminal state on the wire.

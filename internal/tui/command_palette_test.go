@@ -181,7 +181,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 11 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 12 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}

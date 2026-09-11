@@ -36,6 +36,19 @@ type Session interface {
 	StartBash(context.Context, string, string, bool) (BashExecution, error)
 	AbortBash(context.Context, string) error
 	Abort(context.Context, string) error
+	Subagent(context.Context, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
+	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
+}
+
+// SubagentEventReader is the optional child live-event synchronization surface.
+type SubagentEventReader interface {
+	SubagentEvents(context.Context, string, string, int64) (protocol.SubagentLiveEventPage, error)
+}
+
+// SessionEventWatcher is the optional attachment-scoped event surface. It
+// carries session-level events such as subagent lifecycle invalidations.
+type SessionEventWatcher interface {
+	Watch(context.Context) (EventStream, error)
 }
 
 // FollowUpSession is the optional queue-aware prompt surface.

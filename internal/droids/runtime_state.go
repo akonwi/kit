@@ -58,6 +58,8 @@ type durableRuntime struct {
 	SessionUsage            SessionUsage               `json:"session_usage,omitempty"`
 	SessionUsageInitialized bool                       `json:"session_usage_initialized,omitempty"`
 	LastTransitionID        string                     `json:"last_transition_id,omitempty"`
+	AdmissionKey            string                     `json:"admission_key,omitempty"`
+	AdmissionHash           string                     `json:"admission_hash,omitempty"`
 }
 
 type durableBoundary struct {
@@ -319,6 +321,9 @@ func validateOpenedRuntime(state durableRuntime) error {
 	case cycleReady, cycleModelStarted, cycleAssistantPersisted, cycleSyntheticPending, cycleToolsAdmitted:
 	default:
 		return fmt.Errorf("droids: invalid persisted cycle phase %q", state.CyclePhase)
+	}
+	if (state.AdmissionKey == "") != (state.AdmissionHash == "") || len(state.AdmissionKey) > 256 || len(state.AdmissionHash) > 128 {
+		return fmt.Errorf("droids: persisted prompt admission identity is invalid")
 	}
 	if state.Status != ExecutionReady && state.TurnID == "" {
 		return fmt.Errorf("droids: persisted execution has no turn id")

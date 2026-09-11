@@ -33,6 +33,7 @@ type turnTranscriptItem struct {
 	Message     protocol.TranscriptMessage
 	ToolResults map[string]protocol.TranscriptMessage
 	Aborted     bool
+	Pending     bool
 }
 
 type transcriptDisplayKind string
@@ -246,10 +247,19 @@ type activityListItem struct {
 func buildActivityListItems(source transcriptDisplayItem) []activityListItem {
 	sections := buildActivitySections(source)
 	items := make([]activityListItem, 0)
-	for _, section := range sections {
+	for sectionIndex, section := range sections {
+		if sectionIndex > 0 {
+			items = append(items, activityListItem{ID: section.ID + ":spacer", Kind: activityListSpacer, Section: section})
+		}
+		if strings.TrimSpace(section.Thinking) != "" {
+			items = append(items, activityListItem{ID: section.ID + ":thinking", Kind: activityListThinking, Section: section})
+		}
 		hasProse := strings.TrimSpace(section.Prose) != ""
 		if hasProse {
 			items = append(items, activityListItem{ID: section.ID + ":prose", Kind: activityListProse, Section: section})
+			if len(section.Calls) > 0 {
+				items = append(items, activityListItem{ID: section.ID + ":prose-spacer", Kind: activityListSpacer, Section: section})
+			}
 		}
 		for _, call := range section.Calls {
 			key := activityToolKey{TurnID: section.TurnID, ToolCallID: call.ID}
@@ -343,6 +353,7 @@ type transcriptPresentation struct {
 func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 	structured := make([]protocol.TranscriptMessage, 0, len(messages))
 	toolStates := make(map[transcriptToolStateKey]transcriptMessage)
+	pendingMessages := make(map[string]bool)
 	currentTurnID := ""
 	for index, message := range messages {
 		turnID := message.TurnID
@@ -381,6 +392,7 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		if message.Role == "assistant" && message.Pending && len(message.ToolCalls) == 0 {
 			continue
 		}
+		pendingMessages[messageID] = message.Pending
 		projected := protocol.TranscriptMessage{
 			ID: messageID, TurnID: turnID, Sequence: int64(index), Role: role, Content: content,
 			Bash:       message.Bash,
@@ -406,9 +418,12 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		structured = append(structured, projected)
 	}
+	items := buildTurnTranscriptItems(structured)
+	for index := range items {
+		items[index].Pending = pendingMessages[items[index].ID]
+	}
 	return transcriptPresentation{
-		Items:      groupTranscriptDisplayItems(buildTurnTranscriptItems(structured)),
-		ToolStates: toolStates,
+		Items: groupTranscriptDisplayItems(items), ToolStates: toolStates,
 	}
 }
 

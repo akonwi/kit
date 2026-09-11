@@ -77,6 +77,10 @@ type BoundaryMessage struct {
 // PromptOptions controls behavior when the droid is occupied.
 type PromptOptions struct {
 	Steer bool
+	// AdmissionKey makes immediate prompt admission idempotent for an embedding
+	// application crossing its own durable boundary. Reuse with different input
+	// returns ErrConflict. Steering does not accept admission keys.
+	AdmissionKey string
 }
 
 // RetryPolicy configures droid-owned provider retries.
