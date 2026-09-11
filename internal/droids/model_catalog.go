@@ -170,6 +170,7 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 		return Model{}, false
 	}
 	api := ModelAPI("")
+	var reasoningMode ReasoningMode
 	var reasoningLevels []string
 	switch catalogID {
 	case "openai":
@@ -180,7 +181,7 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 		reasoningLevels = catalogEffortLevels(source.ReasoningOptions)
 	case "anthropic":
 		api = ModelAPIAnthropicMessages
-		reasoningLevels = catalogBudgetReasoningLevels(source.ReasoningOptions)
+		reasoningMode, reasoningLevels = catalogAnthropicReasoning(source.ReasoningOptions)
 	case "opencode-go":
 		npm := catalogProviderNPM(provider, source)
 		switch npm {
@@ -189,7 +190,7 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 			reasoningLevels = catalogEffortLevels(source.ReasoningOptions)
 		case "@ai-sdk/anthropic":
 			api = ModelAPIAnthropicMessages
-			reasoningLevels = catalogBudgetReasoningLevels(source.ReasoningOptions)
+			reasoningMode, reasoningLevels = catalogAnthropicReasoning(source.ReasoningOptions)
 		case "@ai-sdk/openai-compatible":
 			api = ModelAPIOpenAIChat
 			reasoningLevels = catalogEffortLevels(source.ReasoningOptions)
@@ -209,16 +210,18 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 		name = source.ID
 	}
 	return Model{
-		ID:              source.ID,
-		Name:            name,
-		Provider:        providerID,
-		API:             api,
-		Reasoning:       source.Reasoning,
-		ReasoningLevels: reasoningLevels,
-		Input:           input,
-		ContextWindow:   contextWindow,
-		MaxInputTokens:  source.Limit.Input,
-		MaxOutputTokens: source.Limit.Output,
+		ID:                            source.ID,
+		Name:                          name,
+		Provider:                      providerID,
+		API:                           api,
+		Reasoning:                     source.Reasoning,
+		ReasoningMode:                 reasoningMode,
+		ReasoningLevels:               reasoningLevels,
+		SupportsMidConversationEffort: catalogID == "anthropic" && source.ID == "claude-fable-5-1",
+		Input:                         input,
+		ContextWindow:                 contextWindow,
+		MaxInputTokens:                source.Limit.Input,
+		MaxOutputTokens:               source.Limit.Output,
 		Cost: Cost{
 			Input:      source.Cost.Input,
 			Output:     source.Cost.Output,
@@ -251,12 +254,19 @@ func catalogEffortLevels(options []modelsDevReasoningOption) []string {
 			continue
 		}
 		for _, level := range option.Values {
-			if containsString([]string{"none", "minimal", "low", "medium", "high", "xhigh"}, level) && !containsString(levels, level) {
+			if containsString([]string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}, level) && !containsString(levels, level) {
 				levels = append(levels, level)
 			}
 		}
 	}
 	return levels
+}
+
+func catalogAnthropicReasoning(options []modelsDevReasoningOption) (ReasoningMode, []string) {
+	if levels := catalogEffortLevels(options); len(levels) > 0 {
+		return ReasoningModeAdaptive, levels
+	}
+	return ReasoningModeBudget, catalogBudgetReasoningLevels(options)
 }
 
 func catalogBudgetReasoningLevels(options []modelsDevReasoningOption) []string {

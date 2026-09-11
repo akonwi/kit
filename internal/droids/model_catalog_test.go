@@ -320,8 +320,19 @@ func TestCatalogReasoningCapabilities(t *testing.T) {
 	if !ok {
 		t.Fatal("claude-opus-4-7 missing")
 	}
-	if err := validateReasoning(effortOnly, "high"); err == nil {
-		t.Fatal("fixed-budget provider accepted effort-only catalog model")
+	if effortOnly.ReasoningMode != ReasoningModeAdaptive {
+		t.Fatalf("effort-only reasoning mode = %q", effortOnly.ReasoningMode)
+	}
+	if err := validateReasoning(effortOnly, "high"); err != nil {
+		t.Fatalf("adaptive effort reasoning rejected: %v", err)
+	}
+
+	fable, ok := AnthropicModel("claude-fable-5-1")
+	if !ok {
+		t.Fatal("claude-fable-5-1 missing")
+	}
+	if fable.ReasoningMode != ReasoningModeAdaptive || !fable.SupportsMidConversationEffort || !containsString(fable.ReasoningLevels, "medium") {
+		t.Fatalf("Fable reasoning capabilities = %#v", fable)
 	}
 
 	budgetTokens, ok := AnthropicModel("claude-haiku-4-5")

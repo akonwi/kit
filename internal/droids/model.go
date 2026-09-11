@@ -18,6 +18,14 @@ const (
 // token ceiling. The zero value means a request-level limit is supported.
 type OutputLimitMode string
 
+// ReasoningMode describes how a provider configures model reasoning.
+type ReasoningMode string
+
+const (
+	ReasoningModeBudget   ReasoningMode = "budget"
+	ReasoningModeAdaptive ReasoningMode = "adaptive"
+)
+
 const (
 	// OutputLimitProviderControlled means the provider controls the actual
 	// output ceiling; Droids uses its default only for context reservation.
@@ -34,13 +42,15 @@ type Model struct {
 	API      ModelAPI
 	BaseURL  string
 
-	Reasoning       bool
-	ReasoningLevels []string // supported explicit Droids levels
-	Input           []string // "text", "image"
-	ContextWindow   int      // combined input and output capacity
-	MaxInputTokens  int      // optional stricter input-only capability
-	MaxOutputTokens int      // provider capability, not the per-request allowance
-	OutputLimitMode OutputLimitMode
+	Reasoning                     bool
+	ReasoningMode                 ReasoningMode
+	ReasoningLevels               []string // supported explicit Droids levels
+	SupportsMidConversationEffort bool     // requires managed effort configuration in message history
+	Input                         []string // "text", "image"
+	ContextWindow                 int      // combined input and output capacity
+	MaxInputTokens                int      // optional stricter input-only capability
+	MaxOutputTokens               int      // provider capability, not the per-request allowance
+	OutputLimitMode               OutputLimitMode
 
 	Cost Cost
 }
@@ -58,7 +68,7 @@ func resolveRequestMaxTokens(model Model, requested int, reasoning string) (int,
 		return 0, fmt.Errorf("droids: model %q does not support a per-request MaxTokens limit", model.ID)
 	}
 	minimum := 1
-	if model.API == ModelAPIAnthropicMessages && model.Reasoning {
+	if model.API == ModelAPIAnthropicMessages && model.Reasoning && model.ReasoningMode != ReasoningModeAdaptive {
 		if budget := int(reasoningTokenBudget(reasoning)); budget > 0 {
 			minimum = budget + 1024
 		}

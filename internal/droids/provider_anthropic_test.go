@@ -3,6 +3,7 @@ package droids
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,6 +79,7 @@ func TestAnthropicMessageConversion(t *testing.T) {
 	msgs := []Message{
 		UserMessage{Content: []InputContent{TextInput{Text: "hi"}}},
 		AssistantMessage{Content: []AssistantContent{
+			ThinkingContent{Thinking: "checking", Signature: "signature"},
 			TextContent{Text: "let me check"},
 			ToolCall{ID: "t1", Name: "get_weather", Arguments: []byte(`{"city":"Paris"}`)},
 		}},
@@ -97,6 +99,8 @@ func TestAnthropicMessageConversion(t *testing.T) {
 	for _, want := range []string{
 		`"role":"user"`,
 		`"role":"assistant"`,
+		`"type":"thinking"`,
+		`"signature":"signature"`,
 		`"type":"tool_use"`,
 		`"name":"get_weather"`,
 		`"city":"Paris"`,
@@ -183,6 +187,89 @@ func TestAnthropicDoesNotRaiseMaxTokensForReasoning(t *testing.T) {
 	case <-requested:
 		t.Fatal("invalid reasoning allowance reached provider")
 	default:
+	}
+}
+
+func TestAnthropicFableUsesManagedEffortRequest(t *testing.T) {
+	type capturedRequest struct {
+		body map[string]any
+		beta string
+	}
+	captured := make(chan capturedRequest, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Errorf("read request: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Errorf("decode request: %v\n%s", err, body)
+		}
+		captured <- capturedRequest{body: payload, beta: request.Header.Get("anthropic-beta")}
+		http.Error(writer, `{"error":{"type":"invalid_request_error","message":"captured"}}`, http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	providers, err := NewProviders(Anthropic{APIKey: "test-key", BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := providers.Model("claude-fable-5-1")
+	if !ok {
+		t.Fatal("claude-fable-5-1 missing")
+	}
+	stream := providers.Stream(context.Background(), model, Request{
+		Messages: []Message{
+			UserMessage{Content: []InputContent{TextInput{Text: "hello"}}},
+			AssistantMessage{Provider: "anthropic", Model: "claude-fable-5-1", Content: []AssistantContent{TextContent{Text: "hello"}}},
+			UserMessage{Content: []InputContent{TextInput{Text: "continue"}}},
+		},
+		Reasoning: "medium",
+	})
+	for range stream.Events() {
+	}
+
+	request := <-captured
+	thinking, _ := request.body["thinking"].(map[string]any)
+	binding, _ := thinking["block_binding"].(map[string]any)
+	if thinking["type"] != "adaptive" || thinking["display"] != "summarized" || binding["prefix_mismatch_behavior"] != "drop_block" {
+		t.Fatalf("thinking = %#v", thinking)
+	}
+	output, _ := request.body["output_config"].(map[string]any)
+	if output["effort"] != "high" {
+		t.Fatalf("output_config = %#v", output)
+	}
+	messages, _ := request.body["messages"].([]any)
+	if historicalConfig, _ := messages[1].(map[string]any); historicalConfig["role"] != "system" {
+		t.Fatalf("historical managed output config missing: %#v", messages)
+	}
+	last, _ := messages[len(messages)-1].(map[string]any)
+	if last["role"] != "system" {
+		t.Fatalf("managed messages = %#v", messages)
+	}
+	lastOutput, _ := last["output_config"].(map[string]any)
+	if lastOutput["effort"] != "high" {
+		t.Fatalf("managed output config = %#v", last)
+	}
+	for _, beta := range []string{anthropicMidConversationOutputConfigBeta, anthropicThinkingBindingControlsBeta} {
+		if !strings.Contains(request.beta, beta) {
+			t.Fatalf("anthropic-beta %q missing %q", request.beta, beta)
+		}
+	}
+}
+
+func TestAnthropicAdaptiveEffortMapping(t *testing.T) {
+	if got := anthropicEffort("minimal"); got != anthropic.OutputConfigEffortLow {
+		t.Fatalf("minimal effort = %q", got)
+	}
+	if got := anthropicEffort("max"); got != anthropic.OutputConfigEffortMax {
+		t.Fatalf("max effort = %q", got)
+	}
+	if got := anthropicBetaFeatures(true, Model{SupportsMidConversationEffort: true}, true); got != "claude-code-20250219,oauth-2025-04-20,"+anthropicFineGrainedToolsBeta+","+anthropicMidConversationOutputConfigBeta+","+anthropicThinkingBindingControlsBeta {
+		t.Fatalf("OAuth beta features = %q", got)
+	}
+	if anthropicClaudeCodeVersion != "2.1.251" {
+		t.Fatalf("Claude Code version = %q", anthropicClaudeCodeVersion)
 	}
 }
 

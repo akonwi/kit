@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/droids/anthropicoauth"
@@ -18,8 +19,12 @@ import (
 // official anthropic-sdk-go.
 
 const (
-	defaultAnthropicBaseURL  = "https://api.anthropic.com"
-	anthropicOAuthExpirySkew = 30 * time.Second
+	defaultAnthropicBaseURL                  = "https://api.anthropic.com"
+	anthropicOAuthExpirySkew                 = 30 * time.Second
+	anthropicClaudeCodeVersion               = "2.1.251"
+	anthropicFineGrainedToolsBeta            = "fine-grained-tool-streaming-2025-05-14"
+	anthropicMidConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
+	anthropicThinkingBindingControlsBeta     = "thinking-binding-controls-2026-08-01"
 )
 
 // AnthropicCredentials is either an API key or the OAuth state needed to use a
@@ -320,10 +325,28 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	if len(req.Tools) > 0 {
 		params.Tools = toAnthropicTools(req.Tools)
 	}
-	if req.Temperature != nil {
+	if req.Temperature != nil && !model.SupportsMidConversationEffort {
 		params.Temperature = param.NewOpt(*req.Temperature)
 	}
-	if budget := reasoningTokenBudget(req.Reasoning); budget > 0 && model.Reasoning {
+	requestOptions := []option.RequestOption{}
+	if beta := anthropicBetaFeatures(oauth, model, len(req.Tools) > 0); beta != "" {
+		requestOptions = append(requestOptions, option.WithHeader("anthropic-beta", beta))
+	}
+	if model.SupportsMidConversationEffort {
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
+			Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
+		}}
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffortHigh}
+		requestOptions = append(requestOptions,
+			option.WithJSONSet("thinking.block_binding.prefix_mismatch_behavior", "drop_block"),
+			option.WithJSONSet("messages", anthropicManagedEffortMessages(req.Messages, params.Messages, model.Provider, "high")),
+		)
+	} else if model.ReasoningMode == ReasoningModeAdaptive && model.Reasoning && req.Reasoning != "" && req.Reasoning != "off" && req.Reasoning != "none" {
+		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
+			Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
+		}}
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropicEffort(req.Reasoning)}
+	} else if budget := reasoningTokenBudget(req.Reasoning); budget > 0 && model.Reasoning {
 		// Anthropic requires max_tokens to include and exceed the thinking
 		// budget. Do not silently change the caller's output allowance.
 		if params.MaxTokens <= budget {
@@ -341,7 +364,7 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
 	}
 
-	stream := client.Messages.NewStreaming(ctx, params)
+	stream := client.Messages.NewStreaming(ctx, params, requestOptions...)
 	var acc anthropic.Message
 
 	for stream.Next() {
@@ -418,8 +441,7 @@ func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Cl
 				option.WithMaxRetries(0),
 				option.WithBaseURL(defaultAnthropicBaseURL),
 				option.WithHeader("Authorization", "Bearer "+credentials.AccessToken),
-				option.WithHeader("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
-				option.WithHeader("user-agent", "claude-cli/2.1.2"),
+				option.WithHeader("user-agent", "claude-cli/"+anthropicClaudeCodeVersion),
 				option.WithHeader("x-app", "cli"),
 			)
 			return &client, true, nil
@@ -442,6 +464,60 @@ func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Cl
 	options = append(options, p.options...)
 	client := anthropic.NewClient(options...)
 	return &client, false, nil
+}
+
+func anthropicBetaFeatures(oauth bool, model Model, hasTools bool) string {
+	features := make([]string, 0, 5)
+	if oauth {
+		features = append(features, "claude-code-20250219", "oauth-2025-04-20")
+	}
+	if hasTools {
+		features = append(features, anthropicFineGrainedToolsBeta)
+	}
+	if model.SupportsMidConversationEffort {
+		features = append(features, anthropicMidConversationOutputConfigBeta, anthropicThinkingBindingControlsBeta)
+	}
+	return strings.Join(features, ",")
+}
+
+func anthropicEffort(reasoning string) anthropic.OutputConfigEffort {
+	switch reasoning {
+	case "minimal", "low":
+		return anthropic.OutputConfigEffortLow
+	case "medium":
+		return anthropic.OutputConfigEffortMedium
+	case "xhigh":
+		return anthropic.OutputConfigEffortXhigh
+	case "max":
+		return anthropic.OutputConfigEffortMax
+	default:
+		return anthropic.OutputConfigEffortHigh
+	}
+}
+
+func anthropicManagedEffortMessages(source []Message, messages []anthropic.MessageParam, provider, effort string) []any {
+	managed := make([]any, 0, len(messages)*2+1)
+	for index, message := range messages {
+		if index < len(source) {
+			if assistant, ok := source[index].(AssistantMessage); ok && assistant.Provider == provider {
+				managed = append(managed, map[string]any{
+					"role": "system", "content": []any{}, "output_config": map[string]any{"effort": effort},
+				})
+			}
+		}
+		body, err := json.Marshal(message)
+		if err != nil {
+			continue
+		}
+		var value any
+		if json.Unmarshal(body, &value) == nil {
+			managed = append(managed, value)
+		}
+	}
+	managed = append(managed, map[string]any{
+		"role": "system", "content": []any{}, "output_config": map[string]any{"effort": effort},
+	})
+	return managed
 }
 
 func anthropicTerminalEvent(message AssistantMessage) StreamEvent {
@@ -572,15 +648,25 @@ func toAnthropicMessages(messages []Message) []anthropic.MessageParam {
 
 func assistantBlocks(msg AssistantMessage) []anthropic.ContentBlockParamUnion {
 	var blocks []anthropic.ContentBlockParamUnion
-	if txt := textOfContent(msg.Content); txt != "" {
-		blocks = append(blocks, anthropic.NewTextBlock(txt))
-	}
-	for _, tc := range msg.ToolCalls() {
-		var input any
-		if len(tc.Arguments) > 0 {
-			_ = json.Unmarshal(tc.Arguments, &input)
+	for _, content := range msg.Content {
+		switch block := content.(type) {
+		case TextContent:
+			if block.Text != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(block.Text))
+			}
+		case ThinkingContent:
+			if block.Signature != "" {
+				blocks = append(blocks, anthropic.NewThinkingBlock(block.Signature, block.Thinking))
+			} else if block.Thinking != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(block.Thinking))
+			}
+		case ToolCall:
+			var input any
+			if len(block.Arguments) > 0 {
+				_ = json.Unmarshal(block.Arguments, &input)
+			}
+			blocks = append(blocks, anthropic.NewToolUseBlock(providerCallID(block.ID, block.ProviderCallID), input, block.Name))
 		}
-		blocks = append(blocks, anthropic.NewToolUseBlock(providerCallID(tc.ID, tc.ProviderCallID), input, tc.Name))
 	}
 	return blocks
 }
