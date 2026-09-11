@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -405,6 +406,49 @@ func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) e
 func (c *Client) AbortSession(ctx context.Context, sessionID, runID string) error {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID) + "/abort"
 	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
+}
+
+// StreamSessionEvents opens the session's authenticated SSE event response.
+func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
+	registry, err := LoadRegistry(c.paths)
+	if err != nil {
+		return nil, err
+	}
+	if err := compatible(registry); err != nil {
+		return nil, err
+	}
+	token, err := loadToken(c.paths)
+	if err != nil {
+		return nil, err
+	}
+	values := url.Values{}
+	if streamID != "" {
+		values.Set("stream", streamID)
+	}
+	values.Set("after", strconv.FormatInt(after, 10))
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events/stream?" + values.Encode()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, registry.URL+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create daemon event stream request: %w", err)
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set(instanceHeader, registry.InstanceID)
+	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
+	response, err := c.sessionHTTP.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("contact daemon session event stream: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(response.Body, maxSessionResponseBytes))
+		return nil, &APIError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(body))}
+	}
+	if mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type")); err != nil || mediaType != "text/event-stream" {
+		response.Body.Close()
+		return nil, fmt.Errorf("daemon event stream returned content type %q", response.Header.Get("Content-Type"))
+	}
+	return response.Body, nil
 }
 
 func (c *Client) sessionJSON(

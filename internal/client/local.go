@@ -2,9 +2,12 @@
 package client
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -36,6 +39,10 @@ type localSession struct {
 	mutationGate       chan struct{}
 	pendingCWDTarget   string
 	pendingCWDMutation string
+	eventStreamID      string
+	eventCursor        int64
+	eventRunID         string
+	eventRunStarted    bool
 }
 
 type localRun struct {
@@ -129,6 +136,20 @@ func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, 
 	c.mu.Lock()
 	if c.cacheGeneration == generation {
 		c.snapshot = snapshot
+		if c.eventStreamID != snapshot.EventStreamID {
+			c.eventStreamID = ""
+			c.eventCursor = 0
+			c.eventRunID = ""
+			c.eventRunStarted = false
+		}
+		if snapshot.ActiveRunID != "" && !snapshot.EventReplayAvailable {
+			if c.eventStreamID != snapshot.EventStreamID || c.eventRunID != snapshot.ActiveRunID || c.eventCursor < snapshot.EventCursor {
+				c.eventStreamID = snapshot.EventStreamID
+				c.eventCursor = snapshot.EventCursor
+				c.eventRunID = snapshot.ActiveRunID
+				c.eventRunStarted = true
+			}
+		}
 	}
 	c.mu.Unlock()
 	return snapshot, nil
@@ -374,22 +395,45 @@ func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.
 	}
 	c.mu.Lock()
 	snapshot := c.snapshot
-	c.mu.Unlock()
 	streamID := ""
 	after := int64(0)
+	seenRunStart := false
+	resumedAssistantMessageID := ""
 	if snapshot.ActiveRunID == runID {
-		if !snapshot.EventReplayAvailable {
-			return nil, errEventResyncRequired
-		}
 		streamID = snapshot.EventStreamID
 		after = snapshot.EventReplayFrom
+		if !snapshot.EventReplayAvailable {
+			after = snapshot.EventCursor
+			seenRunStart = true
+			for index := len(snapshot.Messages) - 1; index >= 0; index-- {
+				message := snapshot.Messages[index]
+				if message.TurnID == runID && message.Role == "assistant" && message.StopReason == "" {
+					resumedAssistantMessageID = message.ID
+					break
+				}
+			}
+		}
+		if c.eventStreamID == streamID && c.eventRunID == runID && c.eventCursor >= after {
+			after = c.eventCursor
+			seenRunStart = c.eventRunStarted
+		}
 	}
-	initial, err := fetchSessionEvents(ctx, c.transport, c.id, streamID, after)
+	c.mu.Unlock()
+	body, err := c.transport.StreamSessionEvents(ctx, c.id, streamID, after)
 	if err != nil {
 		return nil, err
 	}
-	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
-	go stream.poll(ctx, c.transport, c.id, runID, initial)
+	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
+	go stream.readSSE(ctx, body, runID, seenRunStart, resumedAssistantMessageID, streamID, after, func(streamID string, cursor int64, runStarted bool) {
+		c.mu.Lock()
+		if c.eventStreamID == "" || (c.eventStreamID == streamID && cursor >= c.eventCursor) {
+			c.eventStreamID = streamID
+			c.eventCursor = cursor
+			c.eventRunID = runID
+			c.eventRunStarted = runStarted
+		}
+		c.mu.Unlock()
+	})
 	return stream, nil
 }
 
@@ -598,48 +642,59 @@ func (s *localEventStream) Err() error {
 	return s.err
 }
 
-type sessionEventTransport interface {
-	GetSessionEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
-	GetRun(context.Context, string, string) (protocol.RunInfo, error)
-}
-
-func (s *localEventStream) poll(
+func (s *localEventStream) readSSE(
 	ctx context.Context,
-	transport sessionEventTransport,
-	sessionID, runID string,
-	batch protocol.SessionEventBatch,
+	body io.ReadCloser,
+	runID string,
+	seenRunStart bool,
+	activeAssistantMessageID string,
+	expectedStreamID string,
+	after int64,
+	recordCursor func(string, int64, bool),
 ) {
+	defer body.Close()
 	defer close(s.updates)
 	defer close(s.done)
-	const (
-		pollInterval  = 50 * time.Millisecond
-		eventPageSize = 32
-	)
-	after := int64(0)
-	streamID := ""
-	failures := 0
-	polls := 0
-	terminalChecks := 0
-	seenRunStart := false
-	activeAssistantMessageID := ""
-	for {
+
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 64<<10), 8<<20)
+	var data strings.Builder
+	finished := false
+	resumedFromSnapshot := seenRunStart
+	consume := func() bool {
+		if data.Len() == 0 {
+			return true
+		}
+		var batch protocol.SessionEventBatch
+		if err := json.Unmarshal([]byte(data.String()), &batch); err != nil {
+			s.err = fmt.Errorf("decode session event stream: %w", err)
+			return false
+		}
+		data.Reset()
+		if err := batch.Validate(); err != nil {
+			s.err = fmt.Errorf("validate session event stream: %w", err)
+			return false
+		}
 		if batch.ResyncRequired {
 			s.err = errEventResyncRequired
-			return
+			return false
 		}
-		if batch.StreamID != "" {
-			if streamID != "" && batch.StreamID != streamID {
-				after = 0
-				seenRunStart = false
-				activeAssistantMessageID = ""
-			}
-			streamID = batch.StreamID
+		if expectedStreamID != "" && batch.StreamID != expectedStreamID {
+			s.err = errEventResyncRequired
+			return false
+		}
+		if expectedStreamID == "" {
+			expectedStreamID = batch.StreamID
+		}
+		if len(batch.Events) > 0 && batch.Events[0].Sequence != after+1 {
+			s.err = errEventResyncRequired
+			return false
 		}
 		matching := make([]protocol.SessionEvent, 0, len(batch.Events))
-		finished := false
+		cursor := int64(0)
 		for _, event := range batch.Events {
-			if event.Sequence > after {
-				after = event.Sequence
+			if event.Sequence > cursor {
+				cursor = event.Sequence
 			}
 			if event.RunID != runID {
 				continue
@@ -647,73 +702,76 @@ func (s *localEventStream) poll(
 			if !seenRunStart {
 				if event.Kind != protocol.SessionEventRunStarted {
 					s.err = errEventResyncRequired
-					return
+					return false
 				}
 				seenRunStart = true
+			}
+			if resumedFromSnapshot && activeAssistantMessageID == "" {
+				switch event.Kind {
+				case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta, protocol.SessionEventToolPlanned:
+					activeAssistantMessageID = event.MessageID
+				case protocol.SessionEventAssistantCompleted:
+					matching = append(matching, event)
+					continue
+				}
 			}
 			var err error
 			activeAssistantMessageID, err = reduceAssistantMessageID(activeAssistantMessageID, event)
 			if err != nil {
 				s.err = fmt.Errorf("%w: %v", errEventResyncRequired, err)
-				return
+				return false
 			}
 			matching = append(matching, event)
-			if event.Kind == protocol.SessionEventRunFinished {
-				finished = true
+			if event.Kind == protocol.SessionEventRunStarted || event.Kind == protocol.SessionEventAssistantStarted {
+				resumedFromSnapshot = false
 			}
+			finished = finished || event.Kind == protocol.SessionEventRunFinished
 		}
 		if len(matching) > 0 {
 			select {
 			case s.updates <- matching:
 			case <-ctx.Done():
 				s.err = ctx.Err()
-				return
+				return false
 			}
 		}
-		if finished {
-			return
-		}
-		if len(batch.Events) < eventPageSize {
-			timer := time.NewTimer(pollInterval)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				s.err = ctx.Err()
-				return
-			case <-timer.C:
+		if cursor > 0 {
+			after = cursor
+			if recordCursor != nil {
+				recordCursor(batch.StreamID, cursor, seenRunStart)
 			}
 		}
-		next, err := fetchSessionEvents(ctx, transport, sessionID, streamID, after)
-		if err != nil {
-			failures++
-			if !retryablePollingError(err) || failures >= 6 {
-				s.err = err
+		return !finished
+	}
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			if !consume() {
 				return
 			}
-			if err := waitForRetry(ctx, failures); err != nil {
-				s.err = err
-				return
-			}
-			batch = protocol.SessionEventBatch{StreamID: streamID}
 			continue
 		}
-		failures = 0
-		batch = next
-		polls++
-		if polls%4 == 0 {
-			requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
-			info, err := transport.GetRun(requestContext, sessionID, runID)
-			cancel()
-			if err == nil && info.Status != protocol.RunStatusQueued && info.Status != protocol.RunStatusRunning {
-				terminalChecks++
-				if terminalChecks >= 3 {
-					s.err = errTerminalEventMissing
-					return
-				}
-			} else if err == nil {
-				terminalChecks = 0
+		if strings.HasPrefix(line, "data:") {
+			value := strings.TrimPrefix(line, "data:")
+			if strings.HasPrefix(value, " ") {
+				value = value[1:]
 			}
+			if data.Len() > 0 {
+				data.WriteByte('\n')
+			}
+			data.WriteString(value)
 		}
+	}
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		s.err = fmt.Errorf("read session event stream: %w", err)
+		return
+	}
+	if ctx.Err() != nil {
+		s.err = ctx.Err()
+		return
+	}
+	if !finished {
+		s.err = errTerminalEventMissing
 	}
 }
 
@@ -742,15 +800,4 @@ func reduceAssistantMessageID(current string, event protocol.SessionEvent) (stri
 		}
 	}
 	return current, nil
-}
-
-func fetchSessionEvents(
-	ctx context.Context,
-	transport sessionEventTransport,
-	sessionID, streamID string,
-	after int64,
-) (protocol.SessionEventBatch, error) {
-	requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
-	return transport.GetSessionEvents(requestContext, sessionID, streamID, after)
 }

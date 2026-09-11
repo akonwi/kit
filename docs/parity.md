@@ -65,8 +65,8 @@ automated or recorded manual verification exists.
 
 ## Daemon and server lifecycle
 
-- [ ] Authenticate future local WebSocket requests consistently with the
-  authenticated health, management, and session HTTP routes.
+- [x] Authenticate local SSE requests consistently with the authenticated
+  health, management, and session HTTP routes.
 - [ ] Keep active subagent work running after all clients detach.
 - [~] Support graceful shutdown and bounded forced cleanup of tools/plugins.
 - [~] Complete resource and backpressure limits across every runtime and client;
@@ -89,8 +89,9 @@ automated or recorded manual verification exists.
   assistant prose atomically on message completion while following thinking,
   complete tool plans with bounded arguments, append-only structured tool
   updates, authoritative results/details, absolute cumulative usage, execution
-  state, and terminal state. Push subscriptions, richer error recovery, and full
-  multi-client synchronization remain.
+  state, and terminal state. Session-bound SSE push subscriptions now replace
+  event polling; richer error recovery and full multi-client synchronization
+  remain.
 - [~] Render active and historical turns consistently after reconnect/restart;
   transcript snapshots now preserve ordered content blocks, tool call/result
   identity, bounded arguments, details, errors, and stop reasons, and the native
@@ -233,8 +234,8 @@ automated or recorded manual verification exists.
   out-of-order event batches.
 - [~] Bounded event replay, resync, and snapshot fallback; session events now
   receive runtime-local sequences without SQLite writes, and local clients bind
-  polling to snapshot stream metadata. Push transport and richer gap recovery
-  remain.
+  SSE delivery to snapshot stream metadata under ADR 0011. Richer gap recovery
+  remains.
 - [ ] Paginated transcripts and generation-guarded mutable collections.
 - [ ] Chunked recovery for individually oversized messages/interactions.
 - [~] Command correlation and ordering relative to preceding events.
@@ -250,7 +251,7 @@ automated or recorded manual verification exists.
 
 - [ ] Provide a separately configured remote listener.
 - [ ] Token authentication for CLI clients and secure browser session cookies.
-- [ ] Host and Origin validation for browser and WebSocket requests.
+- [ ] Host and Origin validation for browser requests and SSE connections.
 - [ ] Safe loopback defaults and explicit non-loopback/insecure choices.
 - [ ] Reverse-proxy/tunnel deployment documentation; Kit does not terminate TLS.
 - [ ] Single-user semantics throughout; no account or tenant APIs.

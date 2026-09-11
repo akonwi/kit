@@ -245,6 +245,8 @@ type eventLog struct {
 	next            int64
 	events          []Event
 	replayAvailable bool
+	tailFrom        int64
+	changed         chan struct{}
 }
 
 func newEventLog() (*eventLog, error) {
@@ -252,7 +254,7 @@ func newEventLog() (*eventLog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &eventLog{streamID: id, next: 1, replayAvailable: true}, nil
+	return &eventLog{streamID: id, next: 1, replayAvailable: true, changed: make(chan struct{})}, nil
 }
 
 func (log *eventLog) reset() error {
@@ -265,6 +267,8 @@ func (log *eventLog) reset() error {
 	log.next = 1
 	log.events = nil
 	log.replayAvailable = true
+	log.tailFrom = 0
+	log.signalChangedLocked()
 	log.mu.Unlock()
 	return nil
 }
@@ -274,6 +278,7 @@ func (log *eventLog) replace(replacement *eventLog) {
 	streamID := replacement.streamID
 	next := replacement.next
 	replayAvailable := replacement.replayAvailable
+	tailFrom := replacement.tailFrom
 	replacement.mu.Unlock()
 
 	log.mu.Lock()
@@ -281,6 +286,8 @@ func (log *eventLog) replace(replacement *eventLog) {
 	log.next = next
 	log.events = nil
 	log.replayAvailable = replayAvailable
+	log.tailFrom = tailFrom
+	log.signalChangedLocked()
 	log.mu.Unlock()
 }
 
@@ -318,14 +325,40 @@ func (log *eventLog) append(events []NewEvent) error {
 	if len(log.events) > retained {
 		log.events = append([]Event(nil), log.events[len(log.events)-retained:]...)
 		log.replayAvailable = false
+		log.tailFrom = log.events[0].Sequence - 1
+	}
+	if len(events) > 0 {
+		log.signalChangedLocked()
 	}
 	return nil
 }
 
 func (log *eventLog) invalidate() {
+	streamID, err := identifier.New("stream_")
 	log.mu.Lock()
+	if err != nil {
+		// Preserve a canonical, guaranteed-distinct identity even if the random
+		// identifier source is unavailable during recovery.
+		suffix := []byte(strings.TrimPrefix(log.streamID, "stream_"))
+		if suffix[0] == '0' {
+			suffix[0] = '1'
+		} else {
+			suffix[0] = '0'
+		}
+		streamID = "stream_" + string(suffix)
+	}
+	log.streamID = streamID
+	log.next = 1
+	log.events = nil
+	log.tailFrom = 0
 	log.replayAvailable = false
+	log.signalChangedLocked()
 	log.mu.Unlock()
+}
+
+func (log *eventLog) signalChangedLocked() {
+	close(log.changed)
+	log.changed = make(chan struct{})
 }
 
 func sessionUsageDecreased(before, after SessionUsage) bool {
@@ -340,13 +373,25 @@ func sessionUsageDecreased(before, after SessionUsage) bool {
 func (log *eventLog) page(expectedStream string, after int64) EventPage {
 	log.mu.Lock()
 	defer log.mu.Unlock()
+	return log.pageLocked(expectedStream, after)
+}
+
+func (log *eventLog) pageLocked(expectedStream string, after int64) EventPage {
 	page := EventPage{StreamID: log.streamID, LastSequence: log.next - 1}
-	if !log.replayAvailable || expectedStream != "" && expectedStream != log.streamID {
+	if expectedStream != "" && expectedStream != log.streamID {
+		page.ResyncRequired = true
+		return page
+	}
+	if !log.replayAvailable && expectedStream == "" {
 		page.ResyncRequired = true
 		return page
 	}
 	if len(log.events) > 0 {
 		page.FirstSequence = log.events[0].Sequence
+	}
+	if !log.replayAvailable && after < log.tailFrom {
+		page.ResyncRequired = true
+		return page
 	}
 	if after > page.LastSequence || page.FirstSequence > after+1 {
 		page.ResyncRequired = true
@@ -367,6 +412,24 @@ func (log *eventLog) page(expectedStream string, after int64) EventPage {
 	return page
 }
 
+func (log *eventLog) wait(ctx context.Context, expectedStream string, after int64) (EventPage, error) {
+	for {
+		log.mu.Lock()
+		page := log.pageLocked(expectedStream, after)
+		if page.ResyncRequired || len(page.Events) > 0 {
+			log.mu.Unlock()
+			return page, nil
+		}
+		changed := log.changed
+		log.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return EventPage{}, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
 // Events returns a bounded page from the loaded runtime's transient stream.
 func (m *Manager) Events(ctx context.Context, sessionID, streamID string, after int64) (EventPage, error) {
 	if err := m.beginOperation(); err != nil {
@@ -381,6 +444,22 @@ func (m *Manager) Events(ctx context.Context, sessionID, streamID string, after 
 		return EventPage{}, err
 	}
 	return loaded.events.page(streamID, after), nil
+}
+
+// WaitEvents waits until a bounded event page or resynchronization signal is available.
+func (m *Manager) WaitEvents(ctx context.Context, sessionID, streamID string, after int64) (EventPage, error) {
+	if err := m.beginOperation(); err != nil {
+		return EventPage{}, err
+	}
+	defer m.ops.Done()
+	if strings.TrimSpace(sessionID) == "" || after < 0 {
+		return EventPage{}, fmt.Errorf("%w: session id and non-negative sequence are required", ErrInvalidInput)
+	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return EventPage{}, err
+	}
+	return loaded.events.wait(ctx, streamID, after)
 }
 
 func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []NewEvent {

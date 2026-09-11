@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/systemprompt"
@@ -32,6 +33,7 @@ type sessionService interface {
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
+	WaitEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
 	Configure(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
 	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
@@ -263,6 +265,18 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID s
 	if err != nil {
 		return protocol.SessionEventBatch{}, err
 	}
+	return projectSessionEventPage(page), nil
+}
+
+func (s runtimeSessionService) WaitEvents(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
+	page, err := s.manager.WaitEvents(ctx, sessionID, streamID, after)
+	if err != nil {
+		return protocol.SessionEventBatch{}, err
+	}
+	return projectSessionEventPage(page), nil
+}
+
+func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBatch {
 	batch := protocol.SessionEventBatch{
 		StreamID: page.StreamID, FirstSequence: page.FirstSequence, LastSequence: page.LastSequence,
 		ResyncRequired: page.ResyncRequired, UsageBaseline: projectSessionUsagePointer(page.UsageBaseline),
@@ -283,7 +297,7 @@ func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID s
 			Usage: projectSessionUsagePointer(event.Usage),
 		})
 	}
-	return batch, nil
+	return batch
 }
 
 func (s runtimeSessionService) Configure(ctx context.Context, sessionID string, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
@@ -591,6 +605,81 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, batch)
 	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/events/stream", func(writer http.ResponseWriter, request *http.Request) {
+		streamID, after, err := sessionEventCursor(request)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		flusher, ok := writer.(http.Flusher)
+		if !ok {
+			writeSessionError(writer, errors.New("streaming responses are unsupported"))
+			return
+		}
+		batch, err := service.Events(request.Context(), request.PathValue("sessionID"), streamID, after)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := batch.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session event batch: %w", err))
+			return
+		}
+		writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
+		writer.Header().Set("Cache-Control", "no-cache")
+		writer.Header().Set("X-Accel-Buffering", "no")
+		writer.WriteHeader(http.StatusOK)
+		if _, err := io.WriteString(writer, ": connected\n\n"); err != nil {
+			return
+		}
+		flusher.Flush()
+		initial := true
+		for {
+			if !initial {
+				waitContext, cancel := context.WithTimeout(request.Context(), 15*time.Second)
+				var waitErr error
+				batch, waitErr = service.WaitEvents(waitContext, request.PathValue("sessionID"), streamID, after)
+				cancel()
+				if waitErr != nil {
+					if errors.Is(waitErr, context.DeadlineExceeded) && request.Context().Err() == nil {
+						if _, err := io.WriteString(writer, ": heartbeat\n\n"); err != nil {
+							return
+						}
+						flusher.Flush()
+						continue
+					}
+					return
+				}
+				if err := batch.Validate(); err != nil {
+					return
+				}
+			}
+			initial = false
+			encoded, err := json.Marshal(batch)
+			if err != nil {
+				return
+			}
+			for _, event := range batch.Events {
+				if event.Sequence > after {
+					after = event.Sequence
+				}
+			}
+			if batch.StreamID != "" {
+				streamID = batch.StreamID
+			}
+			if batch.ResyncRequired {
+				if _, err := fmt.Fprintf(writer, "event: session.resync\ndata: %s\n\n", encoded); err != nil {
+					return
+				}
+				flusher.Flush()
+				return
+			}
+			if _, err := fmt.Fprintf(writer, "event: session.events\nid: %s:%d\ndata: %s\n\n", streamID, after, encoded); err != nil {
+				return
+			}
+			flusher.Flush()
+		}
+	})
 	mux.HandleFunc("POST /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.CreateSessionInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -860,6 +949,38 @@ func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
 		CreatedAt: record.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt: record.UpdatedAt.Format(time.RFC3339Nano),
 	}
+}
+
+func sessionEventCursor(request *http.Request) (string, int64, error) {
+	streamID := request.URL.Query().Get("stream")
+	rawAfter := request.URL.Query().Get("after")
+	lastEventID := request.Header.Get("Last-Event-ID")
+	if eventID := lastEventID; eventID != "" {
+		separator := strings.LastIndexByte(eventID, ':')
+		if separator <= 0 {
+			return "", 0, fmt.Errorf("%w: invalid last event id", errInvalidSessionRequest)
+		}
+		streamID = eventID[:separator]
+		rawAfter = eventID[separator+1:]
+	}
+	if lastEventID != "" && rawAfter == "" {
+		return "", 0, fmt.Errorf("%w: event cursor must include a sequence", errInvalidSessionRequest)
+	}
+	after := int64(0)
+	if rawAfter != "" {
+		parsed, err := strconv.ParseInt(rawAfter, 10, 64)
+		if err != nil || parsed < 0 {
+			return "", 0, fmt.Errorf("%w: event cursor must be a non-negative integer", errInvalidSessionRequest)
+		}
+		after = parsed
+	}
+	if after > 0 && streamID == "" {
+		return "", 0, fmt.Errorf("%w: event stream identity is required with a cursor", errInvalidSessionRequest)
+	}
+	if streamID != "" && !identifier.Valid(streamID, "stream_") {
+		return "", 0, fmt.Errorf("%w: invalid event stream identity", errInvalidSessionRequest)
+	}
+	return streamID, after, nil
 }
 
 func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target any) error {

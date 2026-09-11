@@ -127,17 +127,60 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	if err != nil {
 		return Snapshot{}, err
 	}
-	loaded.events.mu.Lock()
-	defer loaded.events.mu.Unlock()
+	for {
+		droidSnapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
+		if err != nil {
+			return Snapshot{}, err
+		}
+		if loaded.activeRun != "" && loaded.eventCursor != droidSnapshot.LastEvent {
+			if loaded.eventCursor > droidSnapshot.LastEvent {
+				continue
+			}
+			published := loaded.eventChanged
+			loaded.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				loaded.mu.Lock()
+				return Snapshot{}, ctx.Err()
+			case <-published:
+			}
+			loaded.mu.Lock()
+			continue
+		}
+		loaded.events.mu.Lock()
+		result, err := m.projectSnapshotLocked(ctx, sessionID, loaded, record, droidSnapshot)
+		if err != nil {
+			loaded.events.mu.Unlock()
+			return Snapshot{}, err
+		}
+		latest, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
+		if err != nil {
+			loaded.events.mu.Unlock()
+			return Snapshot{}, err
+		}
+		if loaded.activeRun == "" || latest.LastEvent == droidSnapshot.LastEvent {
+			loaded.events.mu.Unlock()
+			return result, nil
+		}
+		loaded.events.mu.Unlock()
+		published := loaded.eventChanged
+		loaded.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			loaded.mu.Lock()
+			return Snapshot{}, ctx.Err()
+		case <-published:
+		}
+		loaded.mu.Lock()
+	}
+}
+
+func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, loaded *runtime, record SessionRecord, droidSnapshot droids.Snapshot) (Snapshot, error) {
 	activeRunID := loaded.activeRun
 	completeActiveStream := activeRunID != "" && loaded.runs[activeRunID] != nil &&
 		loaded.runs[activeRunID].completeStream && loaded.events.replayAvailable &&
 		len(loaded.events.events) > 0 && loaded.events.events[0].Kind == EventRunStarted &&
 		loaded.events.events[0].RunID == activeRunID
-	droidSnapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
-	if err != nil {
-		return Snapshot{}, err
-	}
 	result := Snapshot{
 		Session: record, ActiveRunID: activeRunID,
 		EventStreamID: loaded.events.streamID, EventCursor: loaded.events.next - 1,

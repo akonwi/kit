@@ -1786,6 +1786,8 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 		var stream sessionclient.EventStream
 		var streamCancel context.CancelFunc
 		var updates <-chan []protocol.SessionEvent
+		streamFailures := 0
+		retryAt := time.Time{}
 		connect := func() {
 			if streamCancel != nil {
 				streamCancel()
@@ -1795,6 +1797,9 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 			if err != nil {
 				cancel()
 				streamCancel = nil
+				streamFailures++
+				exponent := min(streamFailures-1, 4)
+				retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
 				return
 			}
 			stream = connected
@@ -1820,6 +1825,20 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						streamCancel = nil
 					}
 					if stream != nil && stream.Err() != nil && attachmentCtx.Err() == nil {
+						streamFailures++
+						exponent := min(streamFailures-1, 4)
+						retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
+						snapshot, snapshotErr := bound.Snapshot(attachmentCtx)
+						if snapshotErr == nil && snapshot.ActiveRunID == runID {
+							if !snapshot.EventReplayAvailable {
+								runtime.Dispatch(func() {
+									if operation == s.operation {
+										s.SetState(func() { s.applySnapshot(snapshot) })
+									}
+								})
+							}
+							continue
+						}
 						runtime.Dispatch(func() {
 							if operation == s.operation {
 								s.SetState(func() { s.status = "Reconnecting activity… · esc abort · ctrl+c detach" })
@@ -1828,6 +1847,8 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					continue
 				}
+				streamFailures = 0
+				retryAt = time.Time{}
 				batch := append([]protocol.SessionEvent(nil), events...)
 				runtime.Dispatch(func() {
 					if operation == s.operation {
@@ -1843,8 +1864,15 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 				})
 			case <-ticker.C:
+				// Run lookup is recovery after SSE closes, not a parallel polling loop.
+				if updates != nil || time.Now().Before(retryAt) {
+					continue
+				}
 				info, err := bound.Run(attachmentCtx, runID)
 				if err != nil {
+					streamFailures++
+					exponent := min(streamFailures-1, 4)
+					retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
 					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
 							if operation == s.operation {

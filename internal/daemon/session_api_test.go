@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,95 @@ import (
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/version"
 )
+
+type eventStreamTestService struct {
+	sessionService
+	batch protocol.SessionEventBatch
+	err   error
+}
+
+func (service eventStreamTestService) Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error) {
+	return service.batch, service.err
+}
+
+func (eventStreamTestService) WaitEvents(ctx context.Context, _ string, _ string, _ int64) (protocol.SessionEventBatch, error) {
+	return protocol.SessionEventBatch{}, ctx.Err()
+}
+
+func TestSessionEventStreamValidatesBeforeCommittingResponse(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, eventStreamTestService{err: kitsession.ErrNotFound})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/session_missing/events/stream", nil)
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusNotFound, response.Body.String())
+	}
+	if strings.Contains(response.Header().Get("Content-Type"), "text/event-stream") {
+		t.Fatalf("content type = %q, want ordinary error response", response.Header().Get("Content-Type"))
+	}
+}
+
+func TestSessionEventStreamWritesResynchronizationRecord(t *testing.T) {
+	t.Parallel()
+
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, eventStreamTestService{batch: protocol.SessionEventBatch{StreamID: "stream_00000000000000000000000000000002", ResyncRequired: true}})
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/session_test/events/stream?stream=stream_00000000000000000000000000000001&after=4", nil)
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", response.Code, response.Body.String())
+	}
+	if contentType := response.Header().Get("Content-Type"); !strings.HasPrefix(contentType, "text/event-stream") {
+		t.Fatalf("content type = %q, want text/event-stream", contentType)
+	}
+	if body := response.Body.String(); !strings.Contains(body, "event: session.resync\n") || !strings.Contains(body, `"resyncRequired":true`) {
+		t.Fatalf("SSE body = %q", body)
+	}
+}
+
+func TestSessionEventCursorPrefersLastEventID(t *testing.T) {
+	t.Parallel()
+
+	request, err := http.NewRequest(http.MethodGet, "/v1/sessions/session_test/events/stream?stream=stream_00000000000000000000000000000001&after=2", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Last-Event-ID", "stream_00000000000000000000000000000002:42")
+	streamID, after, err := sessionEventCursor(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if streamID != "stream_00000000000000000000000000000002" || after != 42 {
+		t.Fatalf("cursor = %q:%d, want canonical stream cursor at 42", streamID, after)
+	}
+}
+
+func TestSessionEventCursorRejectsMissingLastEventIDSequence(t *testing.T) {
+	t.Parallel()
+
+	request, err := http.NewRequest(http.MethodGet, "/v1/sessions/session_test/events/stream", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Last-Event-ID", "stream_test:")
+	if _, _, err := sessionEventCursor(request); err == nil {
+		t.Fatal("sessionEventCursor accepted an empty Last-Event-ID sequence")
+	}
+}
+
+func TestSessionEventCursorRejectsMalformedStreamIdentity(t *testing.T) {
+	t.Parallel()
+
+	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/session_test/events/stream", nil)
+	request.Header.Set("Last-Event-ID", "stream_bad:4")
+	if _, _, err := sessionEventCursor(request); err == nil {
+		t.Fatal("sessionEventCursor accepted a malformed stream identity")
+	}
+}
 
 func TestProjectSessionSanitizesLegacyUnsafeName(t *testing.T) {
 	t.Parallel()

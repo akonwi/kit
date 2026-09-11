@@ -265,7 +265,7 @@ server internals, or plugin process implementations.
 The semantic browser client retains Solid and Mica. Transport, protocol
 reduction, and service layers remain independent of Solid where practical. The
 Go build embeds the compiled HTML, JavaScript, and CSS and serves them from the
-same authenticated server as the HTTP and WebSocket APIs.
+same authenticated server as the HTTP request and SSE APIs.
 
 Remote and persisted content is rendered as untrusted text unless it crosses an
 explicit sanitization boundary. Production assets are same-origin and require
@@ -391,7 +391,7 @@ to hold shared types.
 - accounts or multi-user hosting;
 - a Kit-managed TLS certificate authority or public cloud control plane;
 - exact resumption of interrupted provider streams or side-effecting tools;
-- multiplexing several session bindings over one WebSocket;
+- multiplexing several session bindings over one live event connection;
 - native session tabs beyond what parity requires;
 - idle session and daemon eviction policy.
 

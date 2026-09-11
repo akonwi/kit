@@ -16,6 +16,52 @@ import (
 	"github.com/gofrs/flock"
 )
 
+func TestClientStreamsAuthenticatedSessionEvents(t *testing.T) {
+	t.Parallel()
+
+	const (
+		token      = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+		instanceID = "sse-instance"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+token || request.Header.Get(instanceHeader) != instanceID {
+			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if request.Header.Get(protocolHeader) != "20" || request.Header.Get("Accept") != "text/event-stream" {
+			http.Error(writer, "invalid stream headers", http.StatusBadRequest)
+			return
+		}
+		if request.URL.Path != "/v1/sessions/session_test/events/stream" || request.URL.Query().Get("stream") != "stream_test" || request.URL.Query().Get("after") != "7" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte(": connected\n\n"))
+	}))
+	defer server.Close()
+
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRegistry(paths, Registry{
+		RegistryVersion: version.LocalRegistryVersion, ProtocolVersion: version.SessionProtocolVersion,
+		KitVersion: version.Version, PID: os.Getpid(), InstanceID: instanceID, URL: server.URL,
+		StartedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	body, err := NewClient(paths).StreamSessionEvents(t.Context(), "session_test", "stream_test", 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+}
+
 func TestManagerStopsDaemonWhoseDatabaseIsUnhealthy(t *testing.T) {
 	t.Parallel()
 

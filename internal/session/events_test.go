@@ -1,9 +1,11 @@
 package session
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/droids"
 )
@@ -96,6 +98,57 @@ func TestProjectDroidEventCarriesAbsoluteCumulativeUsage(t *testing.T) {
 	}
 }
 
+func TestEventLogAllowsContiguousRetainedSuffix(t *testing.T) {
+	t.Parallel()
+
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := make([]NewEvent, 4097)
+	for index := range events {
+		events[index] = NewEvent{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventRunStarted, Status: RunStatusRunning}
+	}
+	if err := log.append(events); err != nil {
+		t.Fatal(err)
+	}
+	page := log.page(log.streamID, log.events[0].Sequence-1)
+	if page.ResyncRequired || len(page.Events) == 0 || page.Events[0].Sequence != log.events[0].Sequence {
+		t.Fatalf("contiguous retained page = %+v", page)
+	}
+}
+
+func TestEventLogAllowsSnapshotCursorToFollowInvalidatedTail(t *testing.T) {
+	t.Parallel()
+
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := log.append([]NewEvent{{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventRunStarted, Status: RunStatusRunning}}); err != nil {
+		t.Fatal(err)
+	}
+	previousStreamID := log.streamID
+	log.invalidate()
+	if page := log.page(previousStreamID, 1); !page.ResyncRequired {
+		t.Fatalf("cursor predating invalidation did not require resynchronization: %+v", page)
+	}
+	if page := log.page("", 0); !page.ResyncRequired {
+		t.Fatalf("unbound cursor bypassed snapshot resynchronization: %+v", page)
+	}
+	snapshotCursor := log.next - 1
+	if page := log.page(log.streamID, snapshotCursor); page.ResyncRequired {
+		t.Fatalf("snapshot cursor unexpectedly required resynchronization: %+v", page)
+	}
+	if err := log.append([]NewEvent{{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventAssistantStarted, MessageID: "message_1"}}); err != nil {
+		t.Fatal(err)
+	}
+	page := log.page(log.streamID, snapshotCursor)
+	if page.ResyncRequired || len(page.Events) != 1 || page.Events[0].Kind != EventAssistantStarted {
+		t.Fatalf("snapshot tail page = %+v", page)
+	}
+}
+
 func TestEventLogRejectsDecreasingUsageWithinStream(t *testing.T) {
 	t.Parallel()
 
@@ -118,6 +171,42 @@ func TestEventLogRejectsDecreasingUsageWithinStream(t *testing.T) {
 	page := log.page(log.streamID, 0)
 	if len(page.Events) != 1 || page.Events[0].Usage == nil || page.Events[0].Usage.Input != 10 {
 		t.Fatalf("failed batch partially mutated event log: %+v", page.Events)
+	}
+}
+
+func TestEventLogWaitBroadcastsAppendedEvents(t *testing.T) {
+	t.Parallel()
+
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+	defer cancel()
+	result := make(chan EventPage, 2)
+	for range 2 {
+		go func() {
+			page, waitErr := log.wait(ctx, log.streamID, 0)
+			if waitErr == nil {
+				result <- page
+			}
+		}()
+	}
+	if err := log.append([]NewEvent{{
+		SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1",
+		Kind: EventRunStarted, Status: RunStatusRunning,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		select {
+		case page := <-result:
+			if len(page.Events) != 1 || page.Events[0].Sequence != 1 {
+				t.Fatalf("wait page = %+v", page)
+			}
+		case <-ctx.Done():
+			t.Fatal("event append did not wake every waiter")
+		}
 	}
 }
 

@@ -135,13 +135,14 @@ type temporaryDisposal struct {
 }
 
 type runtime struct {
-	droid       *droids.Droid
-	store       droids.Store
-	closeStore  func() error
-	bundle      RuntimeBundle
-	workspace   *workspaceScope
-	events      *eventLog
-	eventCursor droids.EventSequence
+	droid        *droids.Droid
+	store        droids.Store
+	closeStore   func() error
+	bundle       RuntimeBundle
+	workspace    *workspaceScope
+	events       *eventLog
+	eventCursor  droids.EventSequence
+	eventChanged chan struct{}
 
 	// Lock order is transitionMu, admissionMu, then mu, then workspace.mutationMu.
 	// admissionMu remains held for a complete parent turn. mu protects the current droid and
@@ -154,6 +155,11 @@ type runtime struct {
 	recovery              *droids.ExecutionSnapshot
 	configurationWarnings []string
 	followUps             []string
+}
+
+func (r *runtime) signalEventChangedLocked() {
+	close(r.eventChanged)
+	r.eventChanged = make(chan struct{})
 }
 
 // FollowUpQueue is the renderer-safe state of one session's deferred prompts.
@@ -1047,6 +1053,7 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	run.result = result
 	if loaded.activeRun == turnID {
 		loaded.activeRun = ""
+		loaded.signalEventChangedLocked()
 	}
 	loaded.mu.Unlock()
 	loaded.admissionMu.Unlock()
@@ -1142,18 +1149,18 @@ func projectExecutionStatus(status droids.ExecutionStatus) RunStatus {
 
 func (m *Manager) drainRunEvents(subscription droids.Subscription, loaded *runtime, sessionID, turnID, runID string) error {
 	for envelope := range subscription.Events() {
-		if envelope.Durable {
-			loaded.mu.Lock()
-			if envelope.Sequence > loaded.eventCursor {
-				loaded.eventCursor = envelope.Sequence
-			}
-			loaded.mu.Unlock()
+		loaded.mu.Lock()
+		var appendErr error
+		if envelope.TurnID == droids.TurnID(turnID) {
+			appendErr = loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event))
 		}
-		if envelope.TurnID != droids.TurnID(turnID) {
-			continue
+		if envelope.Durable && envelope.Sequence > loaded.eventCursor {
+			loaded.eventCursor = envelope.Sequence
+			loaded.signalEventChangedLocked()
 		}
-		if err := loaded.events.append(projectDroidEvent(sessionID, turnID, runID, envelope.Event)); err != nil {
-			return err
+		loaded.mu.Unlock()
+		if appendErr != nil {
+			return appendErr
 		}
 	}
 	if err := subscription.Err(); err != nil && !errors.Is(err, context.Canceled) {
@@ -1377,7 +1384,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	}
 	loaded := &runtime{
 		droid: droid, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
-		workspace: workspace, events: events, eventCursor: snapshot.LastEvent,
+		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
 		runs: make(map[string]*liveRun),
 	}
 	quiescent, err := droid.WaitQuiescent(ctx)
@@ -1442,6 +1449,7 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 		loaded.events.invalidate()
 		run.record.Status, run.record.Error, run.result = result.Status, result.ErrorMessage, result
 		loaded.activeRun = ""
+		loaded.signalEventChangedLocked()
 		close(run.done)
 		loaded.mu.Unlock()
 		loaded.admissionMu.Unlock()
@@ -1466,6 +1474,7 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 	}
 	run.record.Status, run.record.Error, run.result = result.Status, result.ErrorMessage, result
 	loaded.activeRun = ""
+	loaded.signalEventChangedLocked()
 	close(run.done)
 	loaded.mu.Unlock()
 	loaded.admissionMu.Unlock()
