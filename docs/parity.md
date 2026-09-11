@@ -107,10 +107,6 @@ automated or recorded manual verification exists.
 - [~] Proactive and overflow-driven compaction with durable checkpoints; droids
   performs threshold-driven automatic compaction and protocol v19 projects its
   pending, completed, and failed lifecycle so the native TUI provides notice.
-- [~] OpenAI/Anthropic API-key providers, OpenAI Codex OAuth, and Claude Pro/Max
-  OAuth transport with Kit-owned persistent credentials and refresh rotation,
-  headless Codex device login/logout, and native TUI selection/login; broader
-  credential management remains.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.
 - [ ] Message and composer history.
