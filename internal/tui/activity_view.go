@@ -77,16 +77,7 @@ func (w shellView) activityListItem(theme ui.Theme, item activityListItem, state
 	case activityListSpacer:
 		return keyedActivityItem{ID: item.ID, Child: ui.SizedBox{Height: 1}}
 	case activityListThinking:
-		style := ui.Style{Foreground: theme.MutedForeground}
-		return keyedActivityItem{ID: item.ID, Child: ui.Flex{
-			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
-			CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-				ui.Text{Value: "Thinking", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrItalic}},
-				ui.Padding(ui.Insets{Left: 2}, markdownView{
-					ID: item.ID, Source: item.Section.Thinking, BaseStyle: style,
-				}),
-			},
-		}}
+		return keyedActivityItem{ID: item.ID, Child: ui.SizedBox{}}
 	case activityListProse:
 		style := ui.Style{Foreground: theme.Foreground}
 		if item.Section.Aborted {
@@ -116,16 +107,17 @@ func (w keyedActivityItem) WidgetKey() ui.KeyValue { return ui.KeyValue(w.ID) }
 func (w keyedActivityItem) Build(ui.BuildContext) ui.Widget { return w.Child }
 
 type activityToolRowWidget struct {
-	Key           activityToolKey
-	Call          transcriptToolCall
-	State         transcriptMessage
-	Exists        bool
-	SourceAborted bool
-	Expanded      bool
-	Selected      bool
-	OuterScroll   *ui.ScrollController
-	OnToggle      func(ui.EventContext, activityToolKey)
-	OnSelect      func(ui.EventContext, activityToolKey)
+	Key                 activityToolKey
+	Call                transcriptToolCall
+	ContainerBackground bool
+	State               transcriptMessage
+	Exists              bool
+	SourceAborted       bool
+	Expanded            bool
+	Selected            bool
+	OuterScroll         *ui.ScrollController
+	OnToggle            func(ui.EventContext, activityToolKey)
+	OnSelect            func(ui.EventContext, activityToolKey)
 }
 
 func (w activityToolRowWidget) WidgetKey() ui.KeyValue {
@@ -164,7 +156,14 @@ func (s *activityToolRowWidgetState) Build(ctx ui.BuildContext) ui.Widget {
 	enrichment, enriched := detectActivityEnrichment(row.Call, row.State, row.Exists)
 	hasDetails := state != activityToolAborted && (enriched || output != "" || commandSummarized)
 	background := theme.Background
-	if row.Selected {
+	if row.ContainerBackground {
+		background = theme.Surface
+	}
+	if row.ContainerBackground {
+		if s.hovered {
+			background = theme.SurfaceHovered
+		}
+	} else if row.Selected {
 		background = theme.SurfacePressed
 	} else if s.hovered {
 		background = theme.SurfaceHovered

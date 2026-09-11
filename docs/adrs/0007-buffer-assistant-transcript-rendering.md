@@ -26,10 +26,12 @@ The following activity may remain live while an assistant message is pending:
 - tool progress and terminal results; and
 - fixed-slot run, retry, compaction, and abort status.
 
-Pending assistant text is not shown in the transcript or Activity prose. A
-pending assistant message with no thinking or tool activity has no transcript
-row; the fixed run-status slot provides feedback instead. Once complete, its
-prose is rendered normally as Markdown. If a client cannot reconstruct a
+Pending assistant text is not shown as normal transcript prose. Once tool
+activity begins, intermediate or pending prose may appear inside that turn's
+inline activity window instead of being presented as a committed answer. A
+pending assistant message with no tool activity has no transcript row; the
+fixed run-status slot provides feedback instead. Opening and final prose render
+normally as Markdown outside the activity window. If a client cannot reconstruct a
 completed message coherently, it resynchronizes from the authoritative droid
 snapshot rather than displaying a known-partial answer.
 
@@ -44,7 +46,7 @@ server suppresses data based on TUI presentation policy.
 - The transcript remains a stable, durable conversation record.
 - Users do not read text that may still change or end in failure.
 - Markdown parsing and layout do not repeat for every text delta.
-- Thinking and tool execution still communicate useful live progress.
+- Intermediate prose and tool execution still communicate useful live progress.
 - Other clients retain the underlying stream and can implement the same
   completion boundary without coupling it to the native renderer.
 

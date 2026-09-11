@@ -175,12 +175,12 @@ automated or recorded manual verification exists.
   The initial shell also includes startup failure, three-provider selection,
   obscured API-key entry, and cancellable Codex device-flow surfaces.
 - [~] Wide split workspace, draggable remembered ratio, narrow tabs, retained
-  pane state, and focus cycling; Activity now uses a singleton responsive host
-  with split layout at 125+ columns and labeled narrow tabs. Draggable remembered
-  ratios and the general pane registry remain.
-- [~] Activity, Scratchpad, Code Review, file, subagent, MCP, release-note, and
-  other registered workspace panes; the first native Activity pane opens from
-  transcript chips with retained source replacement and responsive layout.
+  pane state, and focus cycling for secondary workspace surfaces. Draggable
+  remembered ratios and the general pane registry remain.
+- [~] Inline turn activity plus Scratchpad, Code Review, file, subagent, MCP,
+  release-note, and other registered workspace panes; native tool activity is
+  grouped per turn and expands within the transcript using a fixed scrolling
+  window. The remaining registered panes are pending.
 - [~] Header/footer status, model/thinking/context indicators, VCS/PR location,
   plugin chrome, and update action; the shell preserves session/model header and
   status/cwd/Git footer ownership, with compact hoverable model/thinking controls

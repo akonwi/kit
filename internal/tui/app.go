@@ -220,6 +220,7 @@ type appState struct {
 	activitySourceID            string
 	activitySelected            bool
 	hoveredActivityID           string
+	inlineActivityOpen          map[string]bool
 	activityExpanded            map[activityToolKey]bool
 	activityCursor              activityToolKey
 	activityReveal              activityToolKey
@@ -277,6 +278,7 @@ func (s *appState) InitState() {
 	s.liveTools = make(map[string]int)
 	s.liveContent = make(map[int]liveContentBlock)
 	s.activityExpanded = make(map[activityToolKey]bool)
+	s.inlineActivityOpen = make(map[string]bool)
 	s.bashCollapsed = make(map[string]bool)
 	s.toastCancels = make(map[uint64]context.CancelFunc)
 	s.location = options.Location
@@ -569,6 +571,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ActivitySourceID:            s.activitySourceID,
 		ActivitySelected:            s.activitySelected,
 		HoveredActivityID:           s.hoveredActivityID,
+		InlineActivityOpen:          s.inlineActivityOpen,
 		ActivityExpanded:            s.activityExpanded,
 		ActivityCursor:              s.activityCursor,
 		BashRunning:                 s.activeBashID != "",
@@ -621,24 +624,20 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenActivity: func(_ ui.EventContext, sourceID string) {
 			s.SetState(func() {
 				presentation := presentTranscript(presentedMessages)
-				changed := s.activitySourceID != sourceID
-				s.activitySourceID = sourceID
-				s.activitySelected = !s.workspaceLayout.Wide
-				if changed {
-					s.activityExpanded = make(map[activityToolKey]bool)
+				opening := !s.inlineActivityOpen[sourceID]
+				for id := range s.inlineActivityOpen {
+					delete(s.inlineActivityOpen, id)
+				}
+				if !opening {
+					s.activitySourceID = ""
 					s.activityCursor = activityToolKey{}
-					s.activityReveal = activityToolKey{}
-					s.activityRevealPending = false
-					s.activityRevealPendingLayout = false
+					return
 				}
-				if s.activitySelected {
-					keys := activityToolKeys(presentation, sourceID)
-					if len(keys) > 0 {
-						s.activityCursor = keys[0]
-					}
-				}
-				if changed {
-					s.requestActivityScroll(transcriptActivityInProgress(presentation, sourceID))
+				s.inlineActivityOpen[sourceID] = true
+				s.activitySourceID = sourceID
+				keys := activityToolKeys(presentation, sourceID)
+				if len(keys) > 0 {
+					s.activityCursor = keys[0]
 				}
 			})
 		},
@@ -669,6 +668,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() {
 				s.activitySourceID = ""
 				s.activitySelected = false
+				s.inlineActivityOpen = make(map[string]bool)
 				s.hoveredActivityID = ""
 				s.activityExpanded = make(map[activityToolKey]bool)
 				s.activityCursor = activityToolKey{}
@@ -678,19 +678,13 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		ScrollActivity: func(_ ui.EventContext, pages int) {
-			if (s.activitySelected || s.workspaceLayout.Wide) && s.activityScroll.Attached() {
+			if s.activityScroll.Attached() {
 				s.activityScroll.ScrollByPages(pages)
 			}
 		},
 		ToggleActivityTool: func(_ ui.EventContext, key activityToolKey) {
 			s.SetState(func() {
-				expanding := !s.activityExpanded[key]
-				s.activityExpanded[key] = expanding
-				if expanding {
-					s.activityReveal = key
-					s.activityRevealPending = true
-					s.activityRevealPendingLayout = true
-				}
+				s.activityExpanded[key] = !s.activityExpanded[key]
 			})
 		},
 		SelectActivityTool: func(_ ui.EventContext, key activityToolKey) {
@@ -1212,17 +1206,16 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			}
 			if !valid[s.activityCursor] {
 				s.activityCursor = activityToolKey{}
-				if s.activitySelected {
-					keys := activityToolKeys(presentation, s.activitySourceID)
-					if len(keys) > 0 {
-						s.activityCursor = keys[0]
-					}
+				keys := activityToolKeys(presentation, s.activitySourceID)
+				if len(keys) > 0 {
+					s.activityCursor = keys[0]
 				}
 			}
 			s.followActivityIfPinned()
 		} else {
 			s.activitySourceID = ""
 			s.activitySelected = false
+			s.inlineActivityOpen = make(map[string]bool)
 			s.hoveredActivityID = ""
 			s.activityExpanded = make(map[activityToolKey]bool)
 			s.activityCursor = activityToolKey{}
@@ -1536,6 +1529,11 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			}
 		case protocol.SessionEventRunFinished:
 			transcriptChanged = true
+			for id := range s.inlineActivityOpen {
+				delete(s.inlineActivityOpen, id)
+			}
+			s.activitySourceID = ""
+			s.activityCursor = activityToolKey{}
 			s.markTerminalRunSettled(event.RunID)
 			for _, index := range s.liveTools {
 				if index >= 0 && index < len(s.liveMessages) && s.liveMessages[index].ToolStatus == "Planned" {
@@ -3070,6 +3068,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activityList = activityListController{}
 	s.activitySourceID = ""
 	s.activitySelected = false
+	s.inlineActivityOpen = make(map[string]bool)
 	s.hoveredActivityID = ""
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.activityCursor = activityToolKey{}

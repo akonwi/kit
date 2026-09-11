@@ -1,14 +1,18 @@
-# Turn activity panel
+# Inline turn activity
 
-Turn activity details open in the shell's persistent secondary workspace panel. The panel presents assistant prose, tool calls and results, bash activity, and handoff summaries while leaving the transcript available.
+Tool activity appears in the transcript as one collapsed summary row per turn. Opening the row expands its activity directly beneath the summary instead of opening a separate workspace pane.
 
-## Responsive behavior
+## Grouping
 
-- When both workspace surfaces meet their minimum useful widths, transcript and activity render side by side with the shared draggable divider.
-- On narrower terminals, the workspace switches to Transcript/Activity tabs rather than opening a modal dialog.
-- `Tab` and `Shift+Tab` cycle through Transcript and open workspace tabs.
-- Live turns follow new activity at the bottom; completed turns open at the top.
+- Opening assistant prose remains a normal transcript entry.
+- Intermediate or pending assistant prose between tool batches appears inside the activity window.
+- Final assistant prose remains a normal transcript entry.
+- Tool calls from the turn are consolidated into one activity window.
 
-## Workspace tab behavior
+## Interaction
 
-Activity uses one singleton workspace tab. Opening a tool drawer selects that tab and updates it to the requested activity, even when another workspace tab is active. Other tabs remain open and retain their state. Opening another activity item replaces the singleton tab's details rather than creating another Activity tab.
+- Activity windows are collapsed by default, including during active turns.
+- Selecting the summary row toggles the inline window.
+- The window has a fixed 12-row viewport and scrolls independently when its content exceeds that height.
+- Selecting a tool row expands its existing detail presentation without automatically moving the row.
+- Activity windows do not install keyboard navigation bindings.

@@ -53,6 +53,7 @@ type shellSnapshot struct {
 	ActivitySourceID            string
 	ActivitySelected            bool
 	HoveredActivityID           string
+	InlineActivityOpen          map[string]bool
 	ActivityExpanded            map[activityToolKey]bool
 	ActivityCursor              activityToolKey
 	BashRunning                 bool
@@ -243,7 +244,6 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	root := ui.Widget(ui.Overlay{Child: content, Entries: overlays})
 
-	workspaceWide := w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide
 	actions := map[ui.IntentType]ui.ActionFunc{
 		quitIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if w.Callbacks.Quit != nil {
@@ -252,15 +252,11 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		},
 		ui.NextFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.ActivitySourceID == "" || workspaceWide || w.Snapshot.ActivitySelected {
-				ctx.FocusNext()
-			}
+			ctx.FocusNext()
 			return ui.EventHandled
 		},
 		ui.PreviousFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.ActivitySourceID == "" || workspaceWide || w.Snapshot.ActivitySelected {
-				ctx.FocusPrevious()
-			}
+			ctx.FocusPrevious()
 			return ui.EventHandled
 		},
 	}
@@ -279,8 +275,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 	}
-	activityKeyboardActive := w.Snapshot.ActivitySelected || workspaceWide
-	if w.Snapshot.ActivitySourceID != "" && activityKeyboardActive {
+	if w.Snapshot.ActivitySourceID != "" {
 		shortcuts["Page_Up"] = scrollActivityIntent{Pages: -1}
 		shortcuts["Page_Down"] = scrollActivityIntent{Pages: 1}
 		actions[scrollActivityIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
@@ -288,23 +283,6 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				w.Callbacks.ScrollActivity(ctx, intent.(scrollActivityIntent).Pages)
 			}
 			return ui.EventHandled
-		}
-		if w.Snapshot.ActivitySelected && !workspaceWide && !w.Snapshot.PaletteOpen {
-			shortcuts["Up"] = moveActivityToolIntent{Delta: -1}
-			shortcuts["Down"] = moveActivityToolIntent{Delta: 1}
-			shortcuts["Enter"] = toggleActivityToolIntent{}
-			actions[moveActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-				if w.Callbacks.MoveActivityTool != nil {
-					w.Callbacks.MoveActivityTool(ctx, intent.(moveActivityToolIntent).Delta)
-				}
-				return ui.EventHandled
-			}
-			actions[toggleActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-				if w.Callbacks.ToggleActivityTool != nil && w.Snapshot.ActivityCursor.ToolCallID != "" {
-					w.Callbacks.ToggleActivityTool(ctx, w.Snapshot.ActivityCursor)
-				}
-				return ui.EventHandled
-			}
 		}
 	}
 	if w.Snapshot.PaletteOpen {
@@ -320,9 +298,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting || w.Snapshot.Phase == phaseAuthBrowser ||
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Snapshot.Phase == phaseReady && !w.Snapshot.PaletteOpen && !w.Snapshot.SessionExplorer.Open && !w.Snapshot.BashHistory.Open && !w.Snapshot.Running && w.Snapshot.ActivitySourceID != "" && w.Callbacks.CloseActivity != nil {
-				w.Callbacks.CloseActivity(ctx)
-			} else if w.Callbacks.Dismiss != nil {
+			if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
 			}
 			return ui.EventHandled
@@ -369,37 +345,12 @@ func (w shellView) conversationVisible() bool {
 func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 	body := ui.Widget(ui.Expanded(w.body(theme)))
 	if w.conversationVisible() {
-		activityOpen := w.Snapshot.ActivitySourceID != ""
-		activityPane := w.activityPane(theme)
-		workspaceWide := w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide
-		if activityOpen && w.Snapshot.ActivityFocus != nil {
-			activityPane = ui.Focus(w.Snapshot.ActivityFocus, activityPane)
-		}
 		body = ui.Expanded(conversationWorkspaceHost{
-			Open: activityOpen, ActivitySelected: w.Snapshot.ActivitySelected,
-			Tabs: ui.SelectionContainer{Disabled: true, Child: w.workspaceTabs(theme)},
-			Transcript: workspaceSelectionGate{
-				LayoutState: w.Snapshot.WorkspaceLayout,
-				Child: ui.FocusScope{
-					AutoFocus: activityOpen && !workspaceWide && !w.Snapshot.ActivitySelected,
-					Child:     w.body(theme),
-				},
-			},
-			Pending:           w.pendingSlot(theme),
-			PendingHeight:     1 + min(3, w.Snapshot.FollowUps.Count),
+			Open: false,
+			Tabs: ui.SizedBox{}, Transcript: w.body(theme),
+			Pending: w.pendingSlot(theme), PendingHeight: 1 + min(3, w.Snapshot.FollowUps.Count),
 			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme)}},
-			Composer:          w.composer(theme),
-			PaneSeparator:     ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
-			SeparatorStyle:    ui.Style{Foreground: theme.Border},
-			LayoutState:       w.Snapshot.WorkspaceLayout,
-			Activity: workspaceSelectionGate{
-				LayoutState: w.Snapshot.WorkspaceLayout, Activity: true,
-				Child: ui.FocusScope{
-					Trap:      activityOpen && !workspaceWide && w.Snapshot.ActivitySelected,
-					AutoFocus: activityOpen && !workspaceWide && w.Snapshot.ActivitySelected,
-					Child:     activityPane,
-				},
-			},
+			Composer:          w.composer(theme), PaneSeparator: ui.SizedBox{}, Activity: ui.SizedBox{},
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
@@ -584,14 +535,17 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	if len(calls) > visible {
 		names = append(names, fmt.Sprintf("+%d more", len(calls)-visible))
 	}
+	expanded := w.Snapshot.InlineActivityOpen[item.ID]
 	background := theme.Surface
-	if item.ID == w.Snapshot.ActivitySourceID {
+	if expanded {
 		background = theme.SurfacePressed
 	} else if item.ID == w.Snapshot.HoveredActivityID {
 		background = theme.SurfaceHovered
 	}
-	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: ui.Style{Foreground: theme.MutedForeground}})
-	if inProgress {
+	prefix := ui.Widget(ui.Text{Value: glyphTriangleRight, Style: ui.Style{Foreground: theme.MutedForeground}})
+	if expanded {
+		prefix = ui.Text{Value: glyphTriangleDown, Style: ui.Style{Foreground: theme.MutedForeground}}
+	} else if inProgress {
 		prefix = spinner{Style: ui.Style{Foreground: theme.MutedForeground}}
 	}
 	row := ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: background}}, ui.Padding(ui.Symmetric(1, 0), ui.Flex{
@@ -606,7 +560,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			}),
 		},
 	}))
-	return mouseActivator{
+	header := mouseActivator{
 		Child: ui.SizedBox{Height: 1, Child: row},
 		OnPressed: func(ctx ui.EventContext) {
 			if w.Callbacks.OpenActivity != nil {
@@ -624,6 +578,17 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			}
 		},
 	}
+	children := []ui.Widget{header}
+	if expanded {
+		children = append(children, inlineActivityWindow{
+			ID: item.ID, Source: item, States: toolStates,
+			Controller: w.Snapshot.ActivityScroll, List: w.Snapshot.ActivityList,
+			Expanded: w.Snapshot.ActivityExpanded, Cursor: w.Snapshot.ActivityCursor,
+			OuterScroll:  w.Snapshot.Scroll,
+			OnToggleTool: w.Callbacks.ToggleActivityTool, OnSelectTool: w.Callbacks.SelectActivityTool,
+		})
+	}
+	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }
 
 func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {

@@ -78,17 +78,13 @@ func TestGroupTranscriptDisplayItemsKeepsProseAndConsolidatesTurnWork(t *testing
 	}
 	wantKinds := []transcriptDisplayKind{
 		transcriptDisplaySingle,
-		transcriptDisplayAssistantProse,
 		transcriptDisplayTurnWork,
 		transcriptDisplayAssistantProse,
 	}
 	if !reflect.DeepEqual(gotKinds, wantKinds) {
 		t.Fatalf("display kinds = %v, want %v", gotKinds, wantKinds)
 	}
-	if got := assistantProse(display[1].Item.Message); got != "I will read it." {
-		t.Fatalf("assistant prose = %q", got)
-	}
-	work := display[2]
+	work := display[1]
 	if work.ID != "turn-work:turn_1:assistant_1" || len(work.Items) != 2 {
 		t.Fatalf("turn work = %+v", work)
 	}
@@ -130,7 +126,7 @@ func TestPresentTranscriptKeepsPendingThinkingAndToolsVisible(t *testing.T) {
 		t.Fatalf("pending activity = %+v, want one work item", presentation.Items)
 	}
 	sections := buildActivitySections(presentation.Items[0])
-	if len(sections) != 1 || sections[0].Thinking != "Inspecting" || sections[0].Prose != "" || len(sections[0].Calls) != 1 {
+	if len(sections) != 1 || sections[0].Thinking != "Inspecting" || sections[0].Prose != "partial response" || len(sections[0].Calls) != 1 {
 		t.Fatalf("pending activity sections = %+v", sections)
 	}
 }

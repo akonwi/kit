@@ -143,22 +143,18 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 		}
 		turnItems := items[start:end]
 		turnID := items[start].TurnID
-		buffer := make([]turnTranscriptItem, 0)
-		flush := func() {
-			if len(buffer) == 0 {
-				return
+
+		firstTool, lastTool := -1, -1
+		for index, item := range turnItems {
+			if item.Kind == transcriptItemAssistant && len(assistantToolCalls(item.Message)) > 0 {
+				if firstTool < 0 {
+					firstTool = index
+				}
+				lastTool = index
 			}
-			group := append([]turnTranscriptItem(nil), buffer...)
-			result = append(result, transcriptDisplayItem{
-				Kind: transcriptDisplayTurnWork, ID: "turn-work:" + turnID + ":" + group[0].ID,
-				TurnID: turnID, Items: group,
-			})
-			buffer = buffer[:0]
 		}
-		for index := range turnItems {
-			item := turnItems[index]
+		for index, item := range turnItems {
 			if item.Kind == transcriptItemUser || item.Kind == transcriptItemBash {
-				flush()
 				copy := item
 				result = append(result, transcriptDisplayItem{
 					Kind: transcriptDisplaySingle, ID: "single:" + item.ID,
@@ -166,24 +162,29 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 				})
 				continue
 			}
-			calls := assistantToolCalls(item.Message)
+			if firstTool >= 0 && index == firstTool {
+				work := make([]turnTranscriptItem, 0, lastTool-firstTool+1)
+				for _, candidate := range turnItems[firstTool : lastTool+1] {
+					if candidate.Kind == transcriptItemAssistant && (len(assistantToolCalls(candidate.Message)) > 0 || assistantHasProse(candidate)) {
+						work = append(work, candidate)
+					}
+				}
+				result = append(result, transcriptDisplayItem{
+					Kind: transcriptDisplayTurnWork, ID: "turn-work:" + turnID + ":" + work[0].ID,
+					TurnID: turnID, Items: work,
+				})
+			}
+			if firstTool >= 0 && index >= firstTool && index <= lastTool {
+				continue
+			}
 			if assistantHasProse(item) {
-				flush()
 				copy := item
 				result = append(result, transcriptDisplayItem{
 					Kind: transcriptDisplayAssistantProse, ID: "assistant-prose:" + item.ID,
 					TurnID: item.TurnID, Item: &copy,
 				})
-				if len(calls) > 0 {
-					buffer = append(buffer, item)
-				}
-				continue
-			}
-			if len(calls) > 0 {
-				buffer = append(buffer, item)
 			}
 		}
-		flush()
 		start = end
 	}
 	return result
@@ -245,23 +246,10 @@ type activityListItem struct {
 func buildActivityListItems(source transcriptDisplayItem) []activityListItem {
 	sections := buildActivitySections(source)
 	items := make([]activityListItem, 0)
-	for sectionIndex, section := range sections {
-		if sectionIndex > 0 {
-			items = append(items, activityListItem{ID: section.ID + ":gap", Kind: activityListSpacer})
-		}
-		hasThinking := strings.TrimSpace(section.Thinking) != ""
+	for _, section := range sections {
 		hasProse := strings.TrimSpace(section.Prose) != ""
-		if hasThinking {
-			items = append(items, activityListItem{ID: section.ID + ":thinking", Kind: activityListThinking, Section: section})
-		}
 		if hasProse {
-			if hasThinking {
-				items = append(items, activityListItem{ID: section.ID + ":thinking-gap", Kind: activityListSpacer})
-			}
 			items = append(items, activityListItem{ID: section.ID + ":prose", Kind: activityListProse, Section: section})
-		}
-		if len(section.Calls) > 0 && (hasThinking || hasProse) {
-			items = append(items, activityListItem{ID: section.ID + ":tool-gap", Kind: activityListSpacer})
 		}
 		for _, call := range section.Calls {
 			key := activityToolKey{TurnID: section.TurnID, ToolCallID: call.ID}
@@ -376,10 +364,9 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		role := message.Role
 		content := make([]protocol.TranscriptContent, 0, 2+len(message.ToolCalls))
-		// Assistant text crosses the live transport boundary so the client can
-		// assemble the completed message, but pending prose is not transcript
-		// content. Thinking and tool activity remain visible while the model runs.
-		if message.Text != "" && (message.Role != "assistant" || !message.Pending) {
+		// Pending assistant prose is retained for an inline work window once a
+		// tool call arrives. A prose-only pending message is still omitted below.
+		if message.Text != "" {
 			content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: message.Text})
 		}
 		if message.Thinking != "" {
@@ -391,7 +378,7 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 				Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated,
 			})
 		}
-		if message.Role == "assistant" && message.Pending && len(content) == 0 {
+		if message.Role == "assistant" && message.Pending && len(message.ToolCalls) == 0 {
 			continue
 		}
 		projected := protocol.TranscriptMessage{
