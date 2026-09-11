@@ -461,8 +461,13 @@ func (rt *sdkRuntime) compactCandidate(
 		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: retained context is not replayable by current model: %w", err))
 	}
 
-	provider := rt.provider
-	model := rt.droid.model
+	// Context adaptation must not depend on the model being left behind. In
+	// particular, switching providers is a recovery path when the current
+	// provider is unavailable or rate limited. Prefer the target model unless
+	// an explicit compaction model was configured. Fall back to the current
+	// model only when the target cannot replay the unmodified prefix.
+	provider := target.provider
+	model := target.model
 	if rt.config.Compaction.Model != "" {
 		resolvedProvider, resolvedModel, err := rt.config.Providers.Resolve(rt.config.Compaction.Model)
 		if err != nil {
@@ -474,7 +479,16 @@ func (rt *sdkRuntime) compactCandidate(
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, wireMessageEnvelope{}, ContextUsage{}, err
 		}
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compaction prefix is not replayable: %w", err))
+		if rt.config.Compaction.Model == "" && (model.Provider != rt.droid.model.Provider || model.ID != rt.droid.model.ID) {
+			provider, model = rt.provider, rt.droid.model
+			err = validateContextReplay(ctx, provider, model, prefix)
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, wireMessageEnvelope{}, ContextUsage{}, err
+			}
+			return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compaction prefix is not replayable: %w", err))
+		}
 	}
 	prompt := rt.config.Compaction.Prompt
 	if prompt == "" {

@@ -18,6 +18,7 @@ import (
 
 func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testing.T) {
 	providers := newAdaptationProviders()
+	providers.activeSummaryFails = true
 	store := droids.NewMemoryStore()
 	droid, err := droids.Open(t.Context(), "conversation_adapt", droids.Config{
 		Store: store, Providers: providers, Model: "test/active",
@@ -603,6 +604,7 @@ type adaptationProviders struct {
 	normalUsage          droids.Usage
 	summaryUsage         droids.Usage
 	summaryStopReason    droids.StopReason
+	activeSummaryFails   bool
 	rejectActiveForSmall bool
 	smallUnavailable     bool
 	divergentMeasure     bool
@@ -676,6 +678,13 @@ func (p *adaptationProviders) smallModel() droids.Model {
 func (p *adaptationProviders) stream(ctx context.Context, model droids.Model, request droids.Request) droids.Stream {
 	if strings.Contains(request.SystemPrompt, "Summarize the supplied conversation") {
 		p.compactions.Add(1)
+		if p.activeSummaryFails && model.ID == "active" {
+			return sdkStaticStream(droids.AssistantMessage{
+				Provider: "test", Model: model.ID, StopReason: droids.StopReasonError,
+				ErrorKind: droids.ProviderRateLimit, ErrorMessage: "active model rate limited",
+				Error: &droids.ProviderError{Kind: droids.ProviderRateLimit, Message: "active model rate limited", Retryable: true},
+			})
+		}
 		p.mu.Lock()
 		started, release := p.summaryStarted, p.blockSummary
 		p.mu.Unlock()
