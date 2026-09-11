@@ -61,6 +61,7 @@ type shellSnapshot struct {
 	SubagentSelection           string
 	SubagentPaneID              string
 	SubagentTranscripts         map[string]protocol.SubagentTranscript
+	SubagentTranscriptErrors    map[string]string
 	SubagentTranscriptOrder     []string
 	SubagentScroll              *ui.ScrollController
 	SubagentLive                map[string]protocol.SubagentLiveEventPage
@@ -109,6 +110,7 @@ type shellCallbacks struct {
 	MoveSubagentSelection      selectionMovedCallback
 	ShowSubagentRoster         ui.VoidCallback
 	OpenSubagentConversation   func(ui.EventContext, string)
+	OpenSubagentFromTool       func(ui.EventContext, string)
 	CloseSubagentConversation  func(ui.EventContext, string)
 	ScrollActivity             func(ui.EventContext, int)
 	ToggleActivityTool         func(ui.EventContext, activityToolKey)
@@ -623,14 +625,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			countLabel = "1 step"
 		}
 	}
-	visible := min(8, len(calls))
-	names := make([]string, 0, visible+1)
-	for _, call := range calls[:visible] {
-		names = append(names, toolDisplayName(call))
-	}
-	if len(calls) > visible {
-		names = append(names, fmt.Sprintf("+%d more", len(calls)-visible))
-	}
+	toolSummary := w.transcriptToolSummary(theme, item.TurnID, calls, toolStates)
 	expanded := w.Snapshot.InlineActivityOpen[item.ID]
 	background := theme.Surface
 	if expanded {
@@ -650,10 +645,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			ui.SizedBox{Width: 1},
 			ui.Text{Value: countLabel, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
 			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{
-				Value: strings.Join(names, " "+glyphMiddleDot+" "), Style: ui.Style{Foreground: theme.DisabledForeground},
-				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}),
+			ui.Expanded(toolSummary),
 		},
 	}))
 	header := mouseActivator{
@@ -690,11 +682,46 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			ID: item.ID, Source: item, States: toolStates,
 			Controller: w.Snapshot.ActivityScroll, List: w.Snapshot.ActivityList,
 			Expanded: w.Snapshot.ActivityExpanded, Cursor: w.Snapshot.ActivityCursor,
-			OuterScroll:  w.Snapshot.Scroll,
-			OnToggleTool: w.Callbacks.ToggleActivityTool, OnSelectTool: w.Callbacks.SelectActivityTool,
+			OuterScroll:           w.Snapshot.Scroll,
+			SubagentConversations: w.Snapshot.SubagentConversations,
+			OnToggleTool:          w.Callbacks.ToggleActivityTool, OnSelectTool: w.Callbacks.SelectActivityTool,
+			OnOpenSubagent: w.Callbacks.OpenSubagentFromTool,
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
+}
+
+func (w shellView) transcriptToolSummary(theme ui.Theme, turnID string, calls []transcriptToolCall, toolStates map[transcriptToolStateKey]transcriptMessage) ui.Widget {
+	visibleCount := min(8, len(calls))
+	children := make([]ui.Widget, 0, visibleCount+1)
+	prefix := func() string {
+		if len(children) == 0 {
+			return ""
+		}
+		return " " + glyphMiddleDot + " "
+	}
+	for _, call := range calls[:visibleCount] {
+		style := ui.Style{Foreground: theme.DisabledForeground}
+		agentName := subagentToolAgentName(call)
+		state, exists := toolStates[transcriptToolStateKey{TurnID: turnID, ToolCallID: call.ID}]
+		if agentName != "" && subagentToolConversationID(call, state, exists, w.Snapshot.SubagentConversations) != "" && w.Callbacks.OpenSubagentFromTool != nil {
+			children = append(children, ui.Flexible(subagentToolLink{
+				Name: prefix() + agentName, Style: style,
+				OnPressed: func(ctx ui.EventContext) { w.Callbacks.OpenSubagentFromTool(ctx, agentName) },
+			}))
+			continue
+		}
+		children = append(children, ui.Flexible(ui.Text{
+			Value: prefix() + toolDisplayName(call), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		}))
+	}
+	if len(calls) > visibleCount {
+		children = append(children, ui.Flexible(ui.Text{
+			Value: prefix() + fmt.Sprintf("+%d more", len(calls)-visibleCount), Style: ui.Style{Foreground: theme.DisabledForeground},
+			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		}))
+	}
+	return ui.Flex{Axis: ui.Horizontal, Children: children}
 }
 
 func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {

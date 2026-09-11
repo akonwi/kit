@@ -198,6 +198,41 @@ func TestApplySubagentDiagnosticsShowsPersistentToastOncePerSessionWarning(t *te
 	}
 }
 
+func TestSubagentAsyncResponseGenerationsRejectStaleResults(t *testing.T) {
+	t.Parallel()
+	state := appState{
+		subagentRequestGeneration: 4, subagentRosterGeneration: 8,
+		subagentTranscriptLoads: make(map[string]uint64), subagentLiveLoads: make(map[string]uint64),
+	}
+	if !state.subagentRosterResponseCurrent(4, 8) || state.subagentRosterResponseCurrent(4, 7) || state.subagentRosterResponseCurrent(3, 8) {
+		t.Fatal("roster response generation guard accepted stale state")
+	}
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	first := state.advanceSubagentTranscriptLoad(conversationID)
+	state.advanceSubagentTranscriptLoad(conversationID)          // close
+	third := state.advanceSubagentTranscriptLoad(conversationID) // reopen
+	if state.subagentTranscriptLoadCurrent(conversationID, first) || !state.subagentTranscriptLoadCurrent(conversationID, third) {
+		t.Fatal("transcript load generation guard accepted a prior tab lifecycle")
+	}
+	firstLive := state.advanceSubagentLiveLoad(conversationID)
+	state.advanceSubagentLiveLoad(conversationID)              // close
+	thirdLive := state.advanceSubagentLiveLoad(conversationID) // reopen
+	if state.subagentLiveLoadCurrent(conversationID, firstLive) || !state.subagentLiveLoadCurrent(conversationID, thirdLive) {
+		t.Fatal("live load generation guard accepted a prior tab lifecycle")
+	}
+}
+
+func TestApplySubagentResultDoesNotConsumePendingToolLink(t *testing.T) {
+	t.Parallel()
+	state := appState{subagentPendingAgent: "reviewer"}
+	state.applySubagentResult(protocol.SubagentOperationResult{
+		Conversations: []protocol.SubagentConversation{{ID: "subagent_stale", AgentName: "reviewer"}},
+	})
+	if state.subagentPendingAgent != "reviewer" {
+		t.Fatalf("generic roster refresh consumed pending tool link: %q", state.subagentPendingAgent)
+	}
+}
+
 func TestApplySubagentResultRevealsOnlyWhenRosterPositionChanges(t *testing.T) {
 	t.Parallel()
 	result := protocol.SubagentOperationResult{Definitions: []protocol.SubagentDefinition{{Name: "scout", Description: "Finds evidence"}}}
@@ -216,6 +251,35 @@ func TestApplySubagentResultRevealsOnlyWhenRosterPositionChanges(t *testing.T) {
 	state.applySubagentResult(result)
 	if state.subagentRevealPending {
 		t.Fatal("hidden roster requested reveal while transcript was open")
+	}
+}
+
+func TestEnsureSubagentTabFocusesExistingTab(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	tabs := ensureSubagentTab(nil, conversationID)
+	tabs = ensureSubagentTab(tabs, conversationID)
+	if len(tabs) != 1 || tabs[0] != conversationID {
+		t.Fatalf("retained tabs = %v", tabs)
+	}
+}
+
+func TestSubagentTranscriptShowsLoadFailure(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	view := shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		SubagentTranscriptErrors: map[string]string{conversationID: "transcript unavailable"},
+	}}
+	application := uitest.New(view)
+	application.Pump(100, 20)
+	text := strings.Join(paintedRows(application, 100, 20), "\n")
+	for _, expected := range []string{"Could not load transcript", "transcript unavailable"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("transcript failure missing %q:\n%s", expected, text)
+		}
 	}
 }
 

@@ -344,6 +344,15 @@ func (w shellView) subagentRosterRow(theme ui.Theme, item subagentRosterItem, se
 	}
 }
 
+func subagentConversationIDForAgent(conversations []protocol.SubagentConversation, agentName string) string {
+	for _, conversation := range conversations {
+		if conversation.AgentName == agentName {
+			return conversation.ID
+		}
+	}
+	return ""
+}
+
 func subagentConversationLabel(conversations []protocol.SubagentConversation, conversationID string) string {
 	for _, conversation := range conversations {
 		if conversation.ID == conversationID {
@@ -363,8 +372,17 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 		}
 	}
 	transcript, loaded := w.Snapshot.SubagentTranscripts[conversationID]
+	loadError := w.Snapshot.SubagentTranscriptErrors[conversationID]
 	var rows []ui.Widget
-	if !loaded {
+	if !loaded && loadError != "" {
+		rows = []ui.Widget{ui.Center(ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter,
+			Children: []ui.Widget{
+				ui.Text{Value: "Could not load transcript", Style: ui.Style{Foreground: theme.DangerText, Attribute: ui.AttrBold}},
+				ui.Text{Value: loadError, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+			},
+		})}
+	} else if !loaded {
 		rows = []ui.Widget{ui.Center(spinnerWithLabel("Loading transcript…", ui.Style{Foreground: theme.MutedForeground}))}
 	} else if len(transcript.Messages) == 0 {
 		rows = []ui.Widget{ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})}
@@ -388,6 +406,12 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 				rows = append(rows, ui.Text{Value: message.TextContent(), Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true})
 			}
 		}
+	}
+	if loaded && loadError != "" {
+		rows = append([]ui.Widget{
+			ui.Text{Value: "Transcript refresh failed: " + loadError, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
+			ui.SizedBox{Height: 1},
+		}, rows...)
 	}
 	if live := w.Snapshot.SubagentLive[conversationID]; len(live.Events) > 0 && state == "running" {
 		rows = append(rows, ui.SizedBox{Height: 1}, ui.Text{Value: "Live activity", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}})

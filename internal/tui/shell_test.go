@@ -739,22 +739,24 @@ func (w activityHarness) CreateState() ui.State { return w.State }
 
 type activityHarnessState struct {
 	ui.StateBase
-	messages            []transcriptMessage
-	sourceID            string
-	selected            bool
-	composer            string
-	turnActivity        string
-	location            string
-	transcript          ui.ScrollController
-	activity            ui.ScrollController
-	activityList        activityListController
-	activityFocus       ui.FocusNode
-	workspaceLayout     workspaceLayoutState
-	expanded            map[activityToolKey]bool
-	cursor              activityToolKey
-	reveal              activityToolKey
-	revealPending       bool
-	revealPendingLayout bool
+	messages              []transcriptMessage
+	sourceID              string
+	selected              bool
+	composer              string
+	turnActivity          string
+	location              string
+	transcript            ui.ScrollController
+	activity              ui.ScrollController
+	activityList          activityListController
+	activityFocus         ui.FocusNode
+	workspaceLayout       workspaceLayoutState
+	expanded              map[activityToolKey]bool
+	cursor                activityToolKey
+	reveal                activityToolKey
+	revealPending         bool
+	revealPendingLayout   bool
+	subagentConversations []protocol.SubagentConversation
+	openedSubagent        string
 }
 
 func (s *activityHarnessState) TickFrame(time.Time) bool {
@@ -785,6 +787,7 @@ func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
 			ActivityList: &s.activityList, ActivityFocus: &s.activityFocus,
 			WorkspaceLayout: &s.workspaceLayout, ActivitySourceID: s.sourceID, ActivitySelected: s.selected,
 			ActivityExpanded: s.expanded, ActivityCursor: s.cursor,
+			SubagentConversations: s.subagentConversations,
 		},
 		Callbacks: shellCallbacks{
 			OpenActivity: func(_ ui.EventContext, sourceID string) {
@@ -825,6 +828,9 @@ func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
 			SelectActivityTool: func(_ ui.EventContext, key activityToolKey) {
 				s.SetState(func() { s.cursor = key })
 			},
+			OpenSubagentFromTool: func(_ ui.EventContext, agentName string) {
+				s.SetState(func() { s.openedSubagent = agentName })
+			},
 			MoveActivityTool: func(_ ui.EventContext, delta int) {
 				s.SetState(func() {
 					presentation := presentTranscript(s.messages)
@@ -849,6 +855,57 @@ func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
 				s.SetState(func() { s.composer = value })
 			},
 		},
+	}
+}
+
+func TestSubagentToolNameOpensConversationFromTranscriptChip(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	state := &activityHarnessState{
+		messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{
+				{ID: "call_0", Name: "bash", Arguments: json.RawMessage(`{"command":"pwd"}`)},
+				{ID: "call_1", Name: "subagent", Arguments: json.RawMessage(`{"action":"start","agent":"reviewer","message":"inspect"}`)},
+				{ID: "call_2", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)},
+			}},
+			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "subagent", ToolStatus: "Completed", Text: "queued",
+				ToolDetails: json.RawMessage(`{"conversation":{"id":"` + conversationID + `","agent":"reviewer"}}`)},
+		},
+	}
+	application := uitest.New(activityHarness{State: state})
+	application.Pump(120, 20)
+	rows := paintedRows(application, 120, 20)
+	if findPaintedRow(rows, "bash · reviewer · read") < 0 {
+		t.Fatalf("transcript tool order changed:\n%s", strings.Join(rows, "\n"))
+	}
+	column, row := findTextCell(t, rows, "reviewer")
+	application.Click(column, row)
+	if state.openedSubagent != "reviewer" || state.sourceID != "" {
+		t.Fatalf("transcript chip click = opened:%q activity:%q", state.openedSubagent, state.sourceID)
+	}
+}
+
+func TestSubagentToolNameOpensConversationFromActivityRow(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	key := activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"}
+	state := &activityHarnessState{
+		messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+				ID: "call_1", Name: "subagent", Arguments: json.RawMessage(`{"action":"start","agent":"reviewer","message":"inspect"}`),
+			}}},
+			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "subagent", ToolStatus: "Completed", Text: "queued"},
+		},
+		sourceID: "turn-work:turn_1:assistant_1", selected: true,
+		subagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "running"}},
+	}
+	application := uitest.New(activityHarness{State: state})
+	application.Pump(120, 20)
+	rows := paintedRows(application, 120, 20)
+	column, row := findTextCell(t, rows, "reviewer")
+	application.Click(column, row)
+	if state.openedSubagent != "reviewer" || state.cursor != (activityToolKey{}) || state.expanded[key] {
+		t.Fatalf("activity name click = opened:%q cursor:%+v expanded:%t", state.openedSubagent, state.cursor, state.expanded[key])
 	}
 }
 

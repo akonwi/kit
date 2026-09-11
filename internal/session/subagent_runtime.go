@@ -340,62 +340,26 @@ func projectChildTranscriptMessage(envelope droids.MessageEnvelope, sequence int
 	default:
 		return subagent.TranscriptMessage{}, fmt.Errorf("unsupported child message %T", envelope.Message)
 	}
-	project := func(raw any) error {
-		switch block := raw.(type) {
-		case droids.TextInput:
-			message.Content = append(message.Content, subagent.TranscriptContent{Kind: "text", Text: block.Text})
-		case droids.TextContent:
-			message.Content = append(message.Content, subagent.TranscriptContent{Kind: "text", Text: block.Text})
-		case droids.ThinkingContent:
-			if !block.Redacted {
-				message.Content = append(message.Content, subagent.TranscriptContent{Kind: "thinking", Text: block.Thinking})
-			}
-		case droids.ToolCall:
-			arguments := string(block.Arguments)
-			truncated := len(arguments) > 64<<10
-			if truncated {
-				arguments = ""
-			}
-			message.Content = append(message.Content, subagent.TranscriptContent{
-				Kind: "toolCall", ToolCallID: string(block.ID), ToolName: block.Name,
-				Arguments: arguments, ArgumentsTruncated: truncated,
-			})
-		case droids.FileInput:
-			kind := "file"
-			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
-				kind = "image"
-			}
-			message.Content = append(message.Content, subagent.TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType})
-		case droids.FileContent:
-			kind := "file"
-			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
-				kind = "image"
-			}
-			message.Content = append(message.Content, subagent.TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType})
-		default:
-			return fmt.Errorf("unsupported child content %T", raw)
-		}
-		return nil
-	}
+	var projected []TranscriptContent
+	var err error
 	switch blocks := content.(type) {
 	case []droids.InputContent:
-		for _, block := range blocks {
-			if err := project(block); err != nil {
-				return subagent.TranscriptMessage{}, err
-			}
-		}
+		projected, err = projectDroidContent(blocks)
 	case []droids.AssistantContent:
-		for _, block := range blocks {
-			if err := project(block); err != nil {
-				return subagent.TranscriptMessage{}, err
-			}
-		}
+		projected, err = projectDroidContent(blocks)
 	case []droids.ResultContent:
-		for _, block := range blocks {
-			if err := project(block); err != nil {
-				return subagent.TranscriptMessage{}, err
-			}
-		}
+		projected, err = projectDroidContent(blocks)
+	}
+	if err != nil {
+		return subagent.TranscriptMessage{}, err
+	}
+	for _, block := range projected {
+		message.Content = append(message.Content, subagent.TranscriptContent{
+			Kind: string(block.Kind), Text: block.Text,
+			ToolCallID: block.ToolCallID, ToolName: block.ToolName,
+			Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
+			Filename: block.Filename, MediaType: block.MediaType,
+		})
 	}
 	return message, nil
 }

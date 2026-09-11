@@ -98,11 +98,17 @@ func (w shellView) activityListItem(theme ui.Theme, item activityListItem, state
 		}}
 	default:
 		state, exists := states[transcriptToolStateKey{TurnID: item.Key.TurnID, ToolCallID: item.Key.ToolCallID}]
+		subagentName := subagentToolAgentName(item.Call)
+		if subagentToolConversationID(item.Call, state, exists, w.Snapshot.SubagentConversations) == "" {
+			subagentName = ""
+		}
 		return activityToolRowWidget{
 			Key: item.Key, Call: item.Call, State: state, Exists: exists, SourceAborted: item.Section.Aborted,
 			Expanded: w.Snapshot.ActivityExpanded[item.Key], Selected: w.Snapshot.ActivityCursor == item.Key,
-			OuterScroll: w.Snapshot.ActivityScroll,
-			OnToggle:    w.Callbacks.ToggleActivityTool, OnSelect: w.Callbacks.SelectActivityTool,
+			OuterScroll:       w.Snapshot.ActivityScroll,
+			SubagentAgentName: subagentName,
+			OnToggle:          w.Callbacks.ToggleActivityTool, OnSelect: w.Callbacks.SelectActivityTool,
+			OnOpenSubagent: w.Callbacks.OpenSubagentFromTool,
 		}
 	}
 }
@@ -116,6 +122,42 @@ func (w keyedActivityItem) WidgetKey() ui.KeyValue { return ui.KeyValue(w.ID) }
 
 func (w keyedActivityItem) Build(ui.BuildContext) ui.Widget { return w.Child }
 
+type subagentToolLink struct {
+	Name      string
+	Style     ui.Style
+	OnPressed ui.VoidCallback
+}
+
+func (subagentToolLink) CreateState() ui.State { return &subagentToolLinkState{} }
+
+type subagentToolLinkState struct {
+	ui.StateBase
+	hovered bool
+}
+
+func (s *subagentToolLinkState) Build(ctx ui.BuildContext) ui.Widget {
+	link := s.Widget().(subagentToolLink)
+	theme := ui.MustDepend[ui.Theme](ctx)
+	style := link.Style
+	if s.hovered {
+		style.Foreground = theme.Foreground
+	}
+	return mouseActivator{
+		OnPressed: link.OnPressed,
+		OnHover: func(ui.EventContext) {
+			if !s.hovered {
+				s.SetState(func() { s.hovered = true })
+			}
+		},
+		OnHoverExit: func(ui.EventContext) {
+			if s.hovered {
+				s.SetState(func() { s.hovered = false })
+			}
+		},
+		Child: ui.Text{Value: link.Name, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+	}
+}
+
 type activityToolRowWidget struct {
 	Key                 activityToolKey
 	Call                transcriptToolCall
@@ -126,8 +168,10 @@ type activityToolRowWidget struct {
 	Expanded            bool
 	Selected            bool
 	OuterScroll         *ui.ScrollController
+	SubagentAgentName   string
 	OnToggle            func(ui.EventContext, activityToolKey)
 	OnSelect            func(ui.EventContext, activityToolKey)
+	OnOpenSubagent      func(ui.EventContext, string)
 }
 
 func (w activityToolRowWidget) WidgetKey() ui.KeyValue {
@@ -188,12 +232,19 @@ func (s *activityToolRowWidgetState) Build(ctx ui.BuildContext) ui.Widget {
 		}
 	}
 	argument := activityToolArgument(row.Call)
+	name := ui.Widget(ui.Text{Value: toolDisplayName(row.Call), Style: style, MaxLines: 1})
+	if agentName := row.SubagentAgentName; agentName != "" && row.OnOpenSubagent != nil {
+		name = subagentToolLink{
+			Name: agentName, Style: style,
+			OnPressed: func(ctx ui.EventContext) { row.OnOpenSubagent(ctx, agentName) },
+		}
+	}
 	header := ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: background}}, ui.Flex{
 		Axis: ui.Horizontal, Children: []ui.Widget{
 			icon, ui.SizedBox{Width: 1},
 			ui.Text{Value: disclosure, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
 			ui.SizedBox{Width: 1},
-			ui.Text{Value: toolDisplayName(row.Call), Style: style, MaxLines: 1},
+			name,
 			ui.SizedBox{Width: 1},
 			ui.Expanded(ui.Text{Value: argument, Style: ui.Style{Foreground: theme.Foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 		},

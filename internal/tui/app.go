@@ -24,6 +24,7 @@ import (
 const (
 	defaultThinkingLevel = "medium"
 	codexDefaultModel    = "openai-codex/gpt-5.6-sol"
+	subagentReadTimeout  = 10 * time.Second
 )
 
 // DeviceLogin performs an application-facing provider device login.
@@ -174,114 +175,123 @@ type appState struct {
 	runWatchCancel      context.CancelFunc
 	subagentWatchCancel context.CancelFunc
 
-	phase                       phase
-	errorText                   string
-	status                      string
-	toasts                      toastController
-	toastCancels                map[uint64]context.CancelFunc
-	eventToasts                 []toastInput
-	showToastOverride           func(toastInput)
-	composer                    string
-	composerCursorEndGeneration uint64
-	composerCursorOffset        int
-	composerCursorGeneration    uint64
-	palette                     paletteController
-	fileMention                 fileMentionController
-	fileIndex                   map[string]cachedFileIndex
-	configurationPicker         configurationPickerController
-	compactPending              bool
-	compactOperationID          string
-	sessionDetailsOpen          bool
-	sessionRename               currentSessionRenameController
-	sessionExplorer             sessionExplorerController
-	authReturnReady             bool
-	authFilter                  string
-	authSelection               int
-	authProviderID              string
-	authAPIKey                  string
-	authPending                 bool
-	session                     protocol.SessionInfo
-	bound                       sessionclient.Session
-	location                    string
-	locationBase                string
-	vcsStatus                   *protocol.VCSStatus
-	vcsContext                  context.Context
-	vcsCancel                   context.CancelFunc
-	sessionDrafts               map[string]string
-	sessionSwitchCancel         context.CancelFunc
-	sessionSwitchGeneration     uint64
-	sessionCreateCancel         context.CancelFunc
-	sessionCreateGeneration     uint64
-	sessionCreatePending        bool
-	messages                    []transcriptMessage
-	liveMessages                []transcriptMessage
-	liveAssistant               int
-	liveHasUser                 bool
-	liveTools                   map[string]int
-	liveContent                 map[int]liveContentBlock
-	liveSequence                int64
-	turnActivity                string
-	turnThinking                string
-	followUps                   protocol.FollowUpQueue
-	followUpMutationPending     bool
-	runStopping                 bool
-	contextTokens               int
-	contextWindow               int
-	sessionUsage                protocol.SessionUsage
-	scroll                      ui.ScrollController
-	activityScroll              ui.ScrollController
-	activityList                activityListController
-	activityFocus               ui.FocusNode
-	workspaceLayout             workspaceLayoutState
-	activitySourceID            string
-	activitySelected            bool
-	subagentsOpen               bool
-	subagentDefinitions         []protocol.SubagentDefinition
-	subagentDiagnostics         []protocol.SubagentDiagnostic
-	subagentDiagnosticToasts    map[subagentDiagnosticToastKey]struct{}
-	subagentConversations       []protocol.SubagentConversation
-	subagentSelection           string
-	subagentPaneID              string
-	subagentTranscripts         map[string]protocol.SubagentTranscript
-	subagentTranscriptOrder     []string
-	subagentScrolls             map[string]*ui.ScrollController
-	subagentLive                map[string]protocol.SubagentLiveEventPage
-	subagentRequestGeneration   uint64
-	subagentRevealPending       bool
-	subagentRevealOffset        int
-	subagentDismissID           string
-	subagentDismissName         string
-	subagentDismissGeneration   uint64
-	subagentDismissPending      bool
-	subagentDismissError        string
-	hoveredActivityID           string
-	inlineActivityOpen          map[string]bool
-	activityExpanded            map[activityToolKey]bool
-	activityCursor              activityToolKey
-	activityReveal              activityToolKey
-	activityRevealPending       bool
-	activityRevealPendingLayout bool
-	needsScroll                 bool
-	scrollPendingLayout         bool
-	activityNeedsScroll         bool
-	activityPendingLayout       bool
-	activityScrollToEnd         bool
-	activeRun                   sessionclient.Run
-	activeRunID                 string
-	runPending                  bool
-	terminalRunActive           bool
-	terminalRunID               string
-	terminalSettledRunID        string
-	agentFeedbackPending        bool
-	reloadPending               bool
-	cwdPending                  bool
-	prompt                      *promptAdmission
-	activeBash                  sessionclient.BashExecution
-	activeBashID                string
-	bashStarting                bool
-	bashAdmission               *bashAdmission
-	bashCollapsed               map[string]bool
-	bashHistory                 bashHistoryController
+	phase                        phase
+	errorText                    string
+	status                       string
+	toasts                       toastController
+	toastCancels                 map[uint64]context.CancelFunc
+	eventToasts                  []toastInput
+	showToastOverride            func(toastInput)
+	composer                     string
+	composerCursorEndGeneration  uint64
+	composerCursorOffset         int
+	composerCursorGeneration     uint64
+	palette                      paletteController
+	fileMention                  fileMentionController
+	fileIndex                    map[string]cachedFileIndex
+	configurationPicker          configurationPickerController
+	compactPending               bool
+	compactOperationID           string
+	sessionDetailsOpen           bool
+	sessionRename                currentSessionRenameController
+	sessionExplorer              sessionExplorerController
+	authReturnReady              bool
+	authFilter                   string
+	authSelection                int
+	authProviderID               string
+	authAPIKey                   string
+	authPending                  bool
+	session                      protocol.SessionInfo
+	bound                        sessionclient.Session
+	location                     string
+	locationBase                 string
+	vcsStatus                    *protocol.VCSStatus
+	vcsContext                   context.Context
+	vcsCancel                    context.CancelFunc
+	sessionDrafts                map[string]string
+	sessionSwitchCancel          context.CancelFunc
+	sessionSwitchGeneration      uint64
+	sessionCreateCancel          context.CancelFunc
+	sessionCreateGeneration      uint64
+	sessionCreatePending         bool
+	messages                     []transcriptMessage
+	liveMessages                 []transcriptMessage
+	liveAssistant                int
+	liveHasUser                  bool
+	liveTools                    map[string]int
+	liveContent                  map[int]liveContentBlock
+	liveSequence                 int64
+	turnActivity                 string
+	turnThinking                 string
+	followUps                    protocol.FollowUpQueue
+	followUpMutationPending      bool
+	runStopping                  bool
+	contextTokens                int
+	contextWindow                int
+	sessionUsage                 protocol.SessionUsage
+	scroll                       ui.ScrollController
+	activityScroll               ui.ScrollController
+	activityList                 activityListController
+	activityFocus                ui.FocusNode
+	workspaceLayout              workspaceLayoutState
+	activitySourceID             string
+	activitySelected             bool
+	subagentsOpen                bool
+	subagentDefinitions          []protocol.SubagentDefinition
+	subagentDiagnostics          []protocol.SubagentDiagnostic
+	subagentDiagnosticToasts     map[subagentDiagnosticToastKey]struct{}
+	subagentConversations        []protocol.SubagentConversation
+	subagentSelection            string
+	subagentPendingAgent         string
+	subagentPaneID               string
+	subagentTranscripts          map[string]protocol.SubagentTranscript
+	subagentTranscriptErrors     map[string]string
+	subagentTranscriptLoads      map[string]uint64
+	subagentTranscriptLoading    map[string]bool
+	subagentTranscriptOrder      []string
+	subagentScrolls              map[string]*ui.ScrollController
+	subagentLive                 map[string]protocol.SubagentLiveEventPage
+	subagentLiveLoads            map[string]uint64
+	subagentLiveLoading          map[string]bool
+	subagentRequestGeneration    uint64
+	subagentRosterGeneration     uint64
+	subagentRosterLoading        bool
+	subagentRosterRefreshPending bool
+	subagentRevealPending        bool
+	subagentRevealOffset         int
+	subagentDismissID            string
+	subagentDismissName          string
+	subagentDismissGeneration    uint64
+	subagentDismissPending       bool
+	subagentDismissError         string
+	hoveredActivityID            string
+	inlineActivityOpen           map[string]bool
+	activityExpanded             map[activityToolKey]bool
+	activityCursor               activityToolKey
+	activityReveal               activityToolKey
+	activityRevealPending        bool
+	activityRevealPendingLayout  bool
+	needsScroll                  bool
+	scrollPendingLayout          bool
+	activityNeedsScroll          bool
+	activityPendingLayout        bool
+	activityScrollToEnd          bool
+	activeRun                    sessionclient.Run
+	activeRunID                  string
+	runPending                   bool
+	terminalRunActive            bool
+	terminalRunID                string
+	terminalSettledRunID         string
+	agentFeedbackPending         bool
+	reloadPending                bool
+	cwdPending                   bool
+	prompt                       *promptAdmission
+	activeBash                   sessionclient.BashExecution
+	activeBashID                 string
+	bashStarting                 bool
+	bashAdmission                *bashAdmission
+	bashCollapsed                map[string]bool
+	bashHistory                  bashHistoryController
 
 	instructions        auth.OpenAICodexDeviceInstructions
 	browserInstructions auth.AnthropicLoginInstructions
@@ -320,9 +330,14 @@ func (s *appState) InitState() {
 	s.locationBase = options.Location
 	s.sessionDrafts = make(map[string]string)
 	s.subagentTranscripts = make(map[string]protocol.SubagentTranscript)
+	s.subagentTranscriptErrors = make(map[string]string)
+	s.subagentTranscriptLoads = make(map[string]uint64)
+	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentDiagnosticToasts = make(map[subagentDiagnosticToastKey]struct{})
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
 	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
+	s.subagentLiveLoads = make(map[string]uint64)
+	s.subagentLiveLoading = make(map[string]bool)
 	s.newSessionPending = options.NewSessionID != ""
 	if options.Authenticated {
 		s.phase = phaseLoading
@@ -638,6 +653,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SubagentSelection:           s.subagentSelection,
 		SubagentPaneID:              s.subagentPaneID,
 		SubagentTranscripts:         cloneSubagentTranscripts(s.subagentTranscripts),
+		SubagentTranscriptErrors:    cloneStringMap(s.subagentTranscriptErrors),
 		SubagentTranscriptOrder:     append([]string(nil), s.subagentTranscriptOrder...),
 		SubagentScroll:              s.subagentScrolls[s.subagentPaneID],
 		SubagentLive:                cloneSubagentLive(s.subagentLive),
@@ -718,6 +734,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		ShowTranscript: func(ctx ui.EventContext) {
+			s.cancelPendingSubagentToolOpen()
 			if s.activityFocus.HasFocus() {
 				ctx.FocusNext()
 			}
@@ -789,6 +806,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		ShowSubagentRoster: func(ui.EventContext) {
+			s.cancelPendingSubagentToolOpen()
 			s.SetState(func() {
 				s.subagentPaneID = ""
 				s.activitySelected = true
@@ -801,7 +819,15 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		OpenSubagentConversation: func(_ ui.EventContext, conversationID string) {
+			s.cancelPendingSubagentToolOpen()
+			if !s.subagentsOpen {
+				s.openSubagents()
+			}
 			s.openSubagentConversation(conversationID)
+		},
+		OpenSubagentFromTool: func(_ ui.EventContext, agentName string) {
+			s.activityFocus.RequestFocus()
+			s.openSubagentFromTool(agentName)
 		},
 		CloseSubagentConversation: func(_ ui.EventContext, conversationID string) {
 			s.closeSubagentConversation(conversationID)
@@ -2617,6 +2643,8 @@ func (s *appState) openSubagents() {
 	}
 	s.SetState(func() {
 		s.subagentRequestGeneration++
+		s.subagentRosterLoading = false
+		s.subagentRosterRefreshPending = false
 		s.subagentsOpen = true
 		s.subagentPaneID = ""
 		s.activitySelected = true
@@ -2666,15 +2694,13 @@ func (s *appState) openSubagents() {
 			case <-watchContext.Done():
 				return
 			case <-ticker.C:
-				result, err := bound.Subagent(watchContext, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
-				if err != nil || watchContext.Err() != nil {
-					continue
-				}
 				runtime.Dispatch(func() {
 					if !s.subagentsOpen || s.bound != bound || s.subagentRequestGeneration != watchGeneration {
 						return
 					}
-					s.SetState(func() { s.applySubagentResult(result) })
+					if !s.subagentRosterLoading {
+						s.refreshSubagents()
+					}
 					if s.subagentPaneID != "" {
 						s.refreshSubagentTranscript(s.subagentPaneID)
 					}
@@ -2694,6 +2720,9 @@ func (s *appState) closeSubagents() {
 		s.subagentsOpen = false
 		s.activitySelected = false
 		s.subagentRevealPending = false
+		s.subagentPendingAgent = ""
+		s.subagentRosterLoading = false
+		s.subagentRosterRefreshPending = false
 	})
 }
 
@@ -2701,22 +2730,98 @@ func (s *appState) refreshSubagents() {
 	if s.bound == nil {
 		return
 	}
+	s.subagentRosterGeneration++
+	if s.subagentRosterLoading {
+		s.subagentRosterRefreshPending = true
+		return
+	}
+	s.startSubagentRosterRequest(s.subagentRosterGeneration)
+}
+
+func (s *appState) startSubagentRosterRequest(rosterGeneration uint64) {
 	bound := s.bound
 	attachmentContext := s.attachmentCtx
 	requestGeneration := s.subagentRequestGeneration
 	sessionID := s.session.ID
 	runtime := s.Context().Runtime()
+	s.subagentRosterLoading = true
 	go func() {
-		result, err := bound.Subagent(attachmentContext, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
-		if err != nil || attachmentContext.Err() != nil {
+		requestContext, cancel := context.WithTimeout(attachmentContext, subagentReadTimeout)
+		defer cancel()
+		result, err := bound.Subagent(requestContext, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+		if attachmentContext.Err() != nil {
 			return
 		}
 		runtime.Dispatch(func() {
-			if s.bound == bound && s.session.ID == sessionID && s.subagentRequestGeneration == requestGeneration {
-				s.SetState(func() { s.applySubagentResult(result) })
+			if s.bound != bound || s.session.ID != sessionID || s.subagentRequestGeneration != requestGeneration {
+				return
+			}
+			s.subagentRosterLoading = false
+			current := s.subagentRosterResponseCurrent(requestGeneration, rosterGeneration)
+			refreshPending := s.subagentRosterRefreshPending
+			s.subagentRosterRefreshPending = false
+			if current {
+				if err != nil {
+					if s.subagentPendingAgent != "" {
+						s.SetState(func() { s.cancelPendingSubagentToolOpen() })
+						s.showToast(toastInput{Title: "Could not open subagent", Subtitle: err.Error(), Variant: toastError})
+					}
+				} else {
+					s.acceptSubagentResult(result)
+				}
+			}
+			if refreshPending && s.subagentsOpen && s.bound == bound {
+				s.startSubagentRosterRequest(s.subagentRosterGeneration)
 			}
 		})
 	}()
+}
+
+func (s *appState) subagentRosterResponseCurrent(requestGeneration, rosterGeneration uint64) bool {
+	return s.subagentRequestGeneration == requestGeneration && s.subagentRosterGeneration == rosterGeneration
+}
+
+func (s *appState) acceptSubagentResult(result protocol.SubagentOperationResult) {
+	requestedAgent, conversationID := "", ""
+	s.SetState(func() {
+		s.applySubagentResult(result)
+		requestedAgent = s.subagentPendingAgent
+		if requestedAgent != "" {
+			conversationID = subagentConversationIDForAgent(s.subagentConversations, requestedAgent)
+			s.subagentPendingAgent = ""
+		}
+	})
+	if requestedAgent == "" {
+		return
+	}
+	if conversationID == "" {
+		s.showToast(toastInput{
+			Title:    "Subagent conversation unavailable",
+			Subtitle: fmt.Sprintf("No active conversation for %q.", requestedAgent), Variant: toastWarning,
+		})
+		return
+	}
+	s.openSubagentConversation(conversationID)
+}
+
+func (s *appState) cancelPendingSubagentToolOpen() {
+	s.subagentPendingAgent = ""
+}
+
+func (s *appState) openSubagentFromTool(agentName string) {
+	agentName = strings.TrimSpace(agentName)
+	if agentName == "" || s.phase != phaseReady || s.bound == nil {
+		return
+	}
+	if !s.subagentsOpen {
+		s.openSubagents()
+	}
+	s.SetState(func() {
+		s.subagentPendingAgent = agentName
+		s.subagentSelection = agentName
+		s.activitySelected = true
+	})
+	s.refreshSubagents()
 }
 
 func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) {
@@ -2788,9 +2893,7 @@ func (s *appState) openSubagentConversation(conversationID string) {
 		return
 	}
 	s.SetState(func() {
-		if _, exists := s.subagentTranscripts[conversationID]; !exists {
-			s.subagentTranscriptOrder = append(s.subagentTranscriptOrder, conversationID)
-		}
+		s.subagentTranscriptOrder = ensureSubagentTab(s.subagentTranscriptOrder, conversationID)
 		if s.subagentScrolls[conversationID] == nil {
 			s.subagentScrolls[conversationID] = &ui.ScrollController{}
 		}
@@ -2807,16 +2910,25 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 	}
 	bound := s.bound
 	attachmentContext := s.attachmentCtx
+	sessionID := s.session.ID
 	runtime := s.Context().Runtime()
-	if reader, ok := bound.(sessionclient.SubagentEventReader); ok {
+	if reader, ok := bound.(sessionclient.SubagentEventReader); ok && !s.subagentLiveLoading[conversationID] {
+		s.subagentLiveLoading[conversationID] = true
+		liveGeneration := s.advanceSubagentLiveLoad(conversationID)
 		current := s.subagentLive[conversationID]
 		go func() {
-			page, err := reader.SubagentEvents(attachmentContext, conversationID, current.StreamID, current.LastSequence)
-			if err != nil || attachmentContext.Err() != nil {
+			requestContext, cancel := context.WithTimeout(attachmentContext, subagentReadTimeout)
+			defer cancel()
+			page, err := reader.SubagentEvents(requestContext, conversationID, current.StreamID, current.LastSequence)
+			if attachmentContext.Err() != nil {
 				return
 			}
 			runtime.Dispatch(func() {
-				if s.bound != bound || !containsSubagentTab(s.subagentTranscriptOrder, conversationID) {
+				if s.bound != bound || s.session.ID != sessionID || !s.subagentLiveLoadCurrent(conversationID, liveGeneration) || !containsSubagentTab(s.subagentTranscriptOrder, conversationID) {
+					return
+				}
+				s.subagentLiveLoading[conversationID] = false
+				if err != nil {
 					return
 				}
 				s.SetState(func() {
@@ -2842,14 +2954,32 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 			})
 		}()
 	}
+	if s.subagentTranscriptLoading[conversationID] {
+		return
+	}
+	s.subagentTranscriptLoading[conversationID] = true
+	loadGeneration := s.advanceSubagentTranscriptLoad(conversationID)
 	go func() {
-		transcript, err := bound.SubagentTranscript(attachmentContext, conversationID)
-		if err != nil || attachmentContext.Err() != nil {
+		requestContext, cancel := context.WithTimeout(attachmentContext, subagentReadTimeout)
+		defer cancel()
+		transcript, err := bound.SubagentTranscript(requestContext, conversationID)
+		if attachmentContext.Err() != nil {
 			return
 		}
 		runtime.Dispatch(func() {
-			if s.bound == bound && containsSubagentTab(s.subagentTranscriptOrder, conversationID) && len(transcript.Messages) >= len(s.subagentTranscripts[conversationID].Messages) {
-				s.SetState(func() { s.subagentTranscripts[conversationID] = transcript })
+			if s.bound != bound || s.session.ID != sessionID || !s.subagentTranscriptLoadCurrent(conversationID, loadGeneration) || !containsSubagentTab(s.subagentTranscriptOrder, conversationID) {
+				return
+			}
+			s.subagentTranscriptLoading[conversationID] = false
+			if err != nil {
+				s.SetState(func() { s.subagentTranscriptErrors[conversationID] = err.Error() })
+				return
+			}
+			if len(transcript.Messages) >= len(s.subagentTranscripts[conversationID].Messages) {
+				s.SetState(func() {
+					s.subagentTranscripts[conversationID] = transcript
+					delete(s.subagentTranscriptErrors, conversationID)
+				})
 			}
 		})
 	}()
@@ -2858,6 +2988,11 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 func (s *appState) closeSubagentConversation(conversationID string) {
 	s.SetState(func() {
 		delete(s.subagentTranscripts, conversationID)
+		delete(s.subagentTranscriptErrors, conversationID)
+		s.advanceSubagentTranscriptLoad(conversationID)
+		s.subagentTranscriptLoading[conversationID] = false
+		s.advanceSubagentLiveLoad(conversationID)
+		s.subagentLiveLoading[conversationID] = false
 		delete(s.subagentScrolls, conversationID)
 		delete(s.subagentLive, conversationID)
 		for index, id := range s.subagentTranscriptOrder {
@@ -2870,6 +3005,31 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 			s.subagentPaneID = ""
 		}
 	})
+}
+
+func (s *appState) advanceSubagentLiveLoad(conversationID string) uint64 {
+	s.subagentLiveLoads[conversationID]++
+	return s.subagentLiveLoads[conversationID]
+}
+
+func (s *appState) subagentLiveLoadCurrent(conversationID string, generation uint64) bool {
+	return s.subagentLiveLoads[conversationID] == generation
+}
+
+func (s *appState) advanceSubagentTranscriptLoad(conversationID string) uint64 {
+	s.subagentTranscriptLoads[conversationID]++
+	return s.subagentTranscriptLoads[conversationID]
+}
+
+func (s *appState) subagentTranscriptLoadCurrent(conversationID string, generation uint64) bool {
+	return s.subagentTranscriptLoads[conversationID] == generation
+}
+
+func ensureSubagentTab(ids []string, target string) []string {
+	if containsSubagentTab(ids, target) {
+		return ids
+	}
+	return append(ids, target)
 }
 
 func containsSubagentTab(ids []string, target string) bool {
@@ -2895,6 +3055,14 @@ func cloneSubagentTranscripts(input map[string]protocol.SubagentTranscript) map[
 	for id, transcript := range input {
 		transcript.Messages = append([]protocol.TranscriptMessage(nil), transcript.Messages...)
 		output[id] = transcript
+	}
+	return output
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	output := make(map[string]string, len(input))
+	for key, value := range input {
+		output[key] = value
 	}
 	return output
 }
@@ -2950,6 +3118,11 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 				s.subagentDismissPending = false
 				s.subagentDismissError = ""
 				delete(s.subagentTranscripts, conversationID)
+				delete(s.subagentTranscriptErrors, conversationID)
+				s.advanceSubagentTranscriptLoad(conversationID)
+				s.subagentTranscriptLoading[conversationID] = false
+				s.advanceSubagentLiveLoad(conversationID)
+				s.subagentLiveLoading[conversationID] = false
 				delete(s.subagentScrolls, conversationID)
 				delete(s.subagentLive, conversationID)
 				for index, id := range s.subagentTranscriptOrder {
@@ -3664,15 +3837,23 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activitySelected = false
 	s.subagentsOpen = false
 	s.subagentRequestGeneration++
+	s.subagentRosterLoading = false
+	s.subagentRosterRefreshPending = false
 	s.subagentDefinitions = nil
 	s.subagentDiagnostics = nil
 	s.subagentConversations = nil
 	s.subagentSelection = ""
+	s.subagentPendingAgent = ""
 	s.subagentPaneID = ""
 	s.subagentTranscripts = make(map[string]protocol.SubagentTranscript)
+	s.subagentTranscriptErrors = make(map[string]string)
+	s.subagentTranscriptLoads = make(map[string]uint64)
+	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentTranscriptOrder = nil
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
 	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
+	s.subagentLiveLoads = make(map[string]uint64)
+	s.subagentLiveLoading = make(map[string]bool)
 	s.subagentRevealPending = false
 	s.subagentRevealOffset = 0
 	s.subagentDismissID = ""

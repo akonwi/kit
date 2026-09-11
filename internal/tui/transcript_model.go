@@ -642,6 +642,38 @@ func toolArguments(call transcriptToolCall) map[string]any {
 	return arguments
 }
 
+func subagentToolConversationID(call transcriptToolCall, state transcriptMessage, exists bool, conversations []protocol.SubagentConversation) string {
+	agentName := subagentToolAgentName(call)
+	if agentName == "" {
+		return ""
+	}
+	if conversationID := subagentConversationIDForAgent(conversations, agentName); conversationID != "" {
+		return conversationID
+	}
+	if !exists || state.ToolDetailsOmitted || len(state.ToolDetails) == 0 {
+		return ""
+	}
+	var details struct {
+		Conversation *struct {
+			ID        string `json:"id"`
+			Agent     string `json:"agent"`
+			AgentName string `json:"agentName"`
+		} `json:"conversation"`
+	}
+	if json.Unmarshal(state.ToolDetails, &details) != nil || details.Conversation == nil {
+		return ""
+	}
+	resultAgent := details.Conversation.Agent
+	if resultAgent == "" {
+		resultAgent = details.Conversation.AgentName
+	}
+	conversationID := details.Conversation.ID
+	if resultAgent != agentName || !strings.HasPrefix(conversationID, "subagent_") || len(conversationID) > 128 || strings.ContainsAny(conversationID, " \t\r\n") {
+		return ""
+	}
+	return conversationID
+}
+
 func subagentToolAgentName(call transcriptToolCall) string {
 	if call.Name != "subagent" {
 		return ""

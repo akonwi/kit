@@ -91,7 +91,8 @@ Open `/subagents` from the command palette to view the current session's roster.
 The pane merges active conversations with discovered definitions, sorts active
 states before available agents, and shows each agent's status, description,
 model, source, and latest activity. Selecting a conversation opens a retained
-child transcript tab. Running work can be cancelled and conversations are
-dismissed through confirmed destructive dismissal. The workspace follows the
+child transcript tab. Subagent-name labels in transcript work chips and Activity
+tool rows open that same retained tab. Running work can be cancelled, and
+conversations are dismissed through confirmed destructive dismissal. The workspace follows the
 standard wide split and narrow tab layouts and refreshes only while the
 Subagents pane is open.

@@ -3,22 +3,25 @@ package tui
 import (
 	"time"
 
+	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis/ui"
 )
 
 const inlineActivityMaxRows = 12
 
 type inlineActivityWindow struct {
-	ID           string
-	Source       transcriptDisplayItem
-	Controller   *ui.ScrollController
-	List         *activityListController
-	States       map[transcriptToolStateKey]transcriptMessage
-	Expanded     map[activityToolKey]bool
-	Cursor       activityToolKey
-	OuterScroll  *ui.ScrollController
-	OnToggleTool func(ui.EventContext, activityToolKey)
-	OnSelectTool func(ui.EventContext, activityToolKey)
+	ID                    string
+	Source                transcriptDisplayItem
+	Controller            *ui.ScrollController
+	List                  *activityListController
+	States                map[transcriptToolStateKey]transcriptMessage
+	Expanded              map[activityToolKey]bool
+	Cursor                activityToolKey
+	OuterScroll           *ui.ScrollController
+	SubagentConversations []protocol.SubagentConversation
+	OnToggleTool          func(ui.EventContext, activityToolKey)
+	OnSelectTool          func(ui.EventContext, activityToolKey)
+	OnOpenSubagent        func(ui.EventContext, string)
 }
 
 func (w inlineActivityWindow) WidgetKey() ui.KeyValue { return ui.KeyValue("inline-activity:" + w.ID) }
@@ -97,12 +100,14 @@ func (s *inlineActivityWindowState) Build(ctx ui.BuildContext) ui.Widget {
 	widgets := make([]ui.Widget, len(items))
 	keys := make([]activityToolKey, len(items))
 	view := shellView{Snapshot: shellSnapshot{
-		ActivityExpanded: window.Expanded,
-		ActivityCursor:   window.Cursor,
-		Scroll:           window.OuterScroll,
+		ActivityExpanded:      window.Expanded,
+		ActivityCursor:        window.Cursor,
+		Scroll:                window.OuterScroll,
+		SubagentConversations: window.SubagentConversations,
 	}, Callbacks: shellCallbacks{
-		ToggleActivityTool: window.OnToggleTool,
-		SelectActivityTool: window.OnSelectTool,
+		ToggleActivityTool:   window.OnToggleTool,
+		SelectActivityTool:   window.OnSelectTool,
+		OpenSubagentFromTool: window.OnOpenSubagent,
 	}}
 	for index, item := range items {
 		widgets[index] = view.activityListItem(theme, item, window.States)
