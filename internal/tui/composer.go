@@ -84,10 +84,9 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 	actions := map[ui.IntentType]ui.ActionFunc{
 		submitComposerIntent{}.IntentType(): s.submit,
 	}
-	shortcuts := ui.ShortcutMap{
-		"Enter":       submitComposerIntent{},
-		"Shift+Enter": ui.InsertLineBreakIntent{},
-	}
+	shortcuts := composerEditingShortcuts()
+	shortcuts["Enter"] = submitComposerIntent{}
+	shortcuts["Shift+Enter"] = ui.InsertLineBreakIntent{}
 	if strings.HasPrefix(s.value, "!") && config.OpenBashHistory != nil {
 		shortcuts["Up"] = openBashHistoryIntent{Delta: -1}
 		shortcuts["Down"] = openBashHistoryIntent{Delta: 1}
@@ -152,6 +151,15 @@ func (s *messageComposerState) submit(ctx ui.EventContext, _ ui.Intent) ui.Event
 		callback(ctx, s.value)
 	}
 	return ui.EventHandled
+}
+
+// composerEditingShortcuts maps editor-buffer keys that vaxis does not bind by
+// default onto its text intents.
+func composerEditingShortcuts() ui.ShortcutMap {
+	return ui.ShortcutMap{
+		"Ctrl+w":       ui.DeleteTextIntent{Direction: ui.TextDeleteBackward, Unit: ui.TextMotionWord},
+		"Ctrl+Shift+w": ui.DeleteTextIntent{Direction: ui.TextDeleteForward, Unit: ui.TextMotionWord},
+	}
 }
 
 type composerPlaceholder struct {
