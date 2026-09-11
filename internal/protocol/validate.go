@@ -55,7 +55,7 @@ func (model ModelCapability) Validate() error {
 		return fmt.Errorf("model identity, name, or provider is invalid")
 	}
 	switch model.API {
-	case "openai-responses", "openai-codex-responses", "anthropic-messages":
+	case "openai-responses", "openai-codex-responses", "openai-chat-completions", "anthropic-messages":
 	default:
 		return fmt.Errorf("model API %q is invalid", model.API)
 	}

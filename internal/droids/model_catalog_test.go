@@ -253,7 +253,7 @@ func TestCatalogRejectsMalformedEntries(t *testing.T) {
 			model.Modalities.Input = append([]string(nil), valid.Modalities.Input...)
 			model.Modalities.Output = append([]string(nil), valid.Modalities.Output...)
 			tt.mutate(&model)
-			if _, ok := modelFromCatalog("openai", "openai", model); ok {
+			if _, ok := modelFromCatalog(modelsDevProvider{NPM: "@ai-sdk/openai"}, "openai", "openai", model); ok {
 				t.Fatalf("accepted malformed model %#v", model)
 			}
 		})

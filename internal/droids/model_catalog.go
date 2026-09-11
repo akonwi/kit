@@ -21,7 +21,12 @@ var embeddedModelCatalog []byte
 type modelsDevCatalog map[string]modelsDevProvider
 
 type modelsDevProvider struct {
+	NPM    string                    `json:"npm"`
 	Models map[string]modelsDevModel `json:"models"`
+}
+
+type modelsDevModelProvider struct {
+	NPM string `json:"npm"`
 }
 
 type modelsDevReasoningOption struct {
@@ -46,7 +51,8 @@ type modelsDevModel struct {
 		Input   int `json:"input"`
 		Output  int `json:"output"`
 	} `json:"limit"`
-	Cost struct {
+	Provider *modelsDevModelProvider `json:"provider"`
+	Cost     struct {
 		Input      float64 `json:"input"`
 		Output     float64 `json:"output"`
 		CacheRead  float64 `json:"cache_read"`
@@ -75,6 +81,20 @@ func OpenAIModels() []Model {
 func OpenAIModel(id string) (Model, bool) {
 	model, ok := catalogModel(builtinModelCatalog, "openai", "openai", id)
 	model.BaseURL = defaultOpenAIBaseURL
+	return model, ok
+}
+
+// OpenCodeGoModels returns a fresh copy of the built-in OpenCode Go catalog.
+func OpenCodeGoModels() []Model {
+	models := catalogModels(builtinModelCatalog, "opencode-go", "opencode-go")
+	setModelBaseURL(models, defaultOpenCodeGoBaseURL)
+	return models
+}
+
+// OpenCodeGoModel returns one model from the built-in OpenCode Go catalog.
+func OpenCodeGoModel(id string) (Model, bool) {
+	model, ok := catalogModel(builtinModelCatalog, "opencode-go", "opencode-go", id)
+	model.BaseURL = defaultOpenCodeGoBaseURL
 	return model, ok
 }
 
@@ -107,7 +127,7 @@ func catalogModel(catalog modelsDevCatalog, catalogID, providerID, id string) (M
 	if !ok || source.ID != id {
 		return Model{}, false
 	}
-	model, ok := modelFromCatalog(catalogID, providerID, source)
+	model, ok := modelFromCatalog(provider, catalogID, providerID, source)
 	return model, ok
 }
 
@@ -121,7 +141,7 @@ func catalogModels(catalog modelsDevCatalog, catalogID, providerID string) []Mod
 		if source.ID != id {
 			continue
 		}
-		if model, ok := modelFromCatalog(catalogID, providerID, source); ok {
+		if model, ok := modelFromCatalog(provider, catalogID, providerID, source); ok {
 			models = append(models, model)
 		}
 	}
@@ -129,7 +149,14 @@ func catalogModels(catalog modelsDevCatalog, catalogID, providerID string) []Mod
 	return models
 }
 
-func modelFromCatalog(catalogID, providerID string, source modelsDevModel) (Model, bool) {
+func catalogProviderNPM(provider modelsDevProvider, model modelsDevModel) string {
+	if model.Provider != nil && model.Provider.NPM != "" {
+		return model.Provider.NPM
+	}
+	return provider.NPM
+}
+
+func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, source modelsDevModel) (Model, bool) {
 	if source.ID == "" || !source.ToolCall || source.Limit.Context <= 0 || source.Limit.Output <= 0 {
 		return Model{}, false
 	}
@@ -154,6 +181,21 @@ func modelFromCatalog(catalogID, providerID string, source modelsDevModel) (Mode
 	case "anthropic":
 		api = ModelAPIAnthropicMessages
 		reasoningLevels = catalogBudgetReasoningLevels(source.ReasoningOptions)
+	case "opencode-go":
+		npm := catalogProviderNPM(provider, source)
+		switch npm {
+		case "@ai-sdk/openai":
+			api = ModelAPIOpenAIResponses
+			reasoningLevels = catalogEffortLevels(source.ReasoningOptions)
+		case "@ai-sdk/anthropic":
+			api = ModelAPIAnthropicMessages
+			reasoningLevels = catalogBudgetReasoningLevels(source.ReasoningOptions)
+		case "@ai-sdk/openai-compatible":
+			api = ModelAPIOpenAIChat
+			reasoningLevels = catalogEffortLevels(source.ReasoningOptions)
+		default:
+			return Model{}, false
+		}
 	default:
 		return Model{}, false
 	}

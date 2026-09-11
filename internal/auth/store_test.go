@@ -96,6 +96,9 @@ func TestStorePersistsAPIKeyCredentials(t *testing.T) {
 	if err := store.ReplaceAPIKey(ctx, AnthropicProviderID, "anthropic-secret"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.ReplaceAPIKey(ctx, OpenCodeGoProviderID, "opencode-go-secret"); err != nil {
+		t.Fatal(err)
+	}
 	if err := store.ReplaceAPIKey(ctx, OpenAIProviderID, "replacement-secret"); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +120,7 @@ func TestStorePersistsAPIKeyCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []CredentialInfo{{ProviderID: AnthropicProviderID, Type: "api_key"}, {ProviderID: OpenAIProviderID, Type: "api_key"}}
+	want := []CredentialInfo{{ProviderID: AnthropicProviderID, Type: "api_key"}, {ProviderID: OpenAIProviderID, Type: "api_key"}, {ProviderID: OpenCodeGoProviderID, Type: "api_key"}}
 	if !reflect.DeepEqual(listed, want) {
 		t.Fatalf("List() = %#v, want %#v", listed, want)
 	}

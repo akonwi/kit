@@ -501,8 +501,8 @@ func TestAuthSelectionDismissesToItsOpeningSurface(t *testing.T) {
 func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 	t.Parallel()
 
-	if len(authProviderOptions) != 4 {
-		t.Fatalf("provider option count = %d, want 4", len(authProviderOptions))
+	if len(authProviderOptions) != 5 {
+		t.Fatalf("provider option count = %d, want 5", len(authProviderOptions))
 	}
 	for index, want := range []struct {
 		id     string
@@ -511,6 +511,7 @@ func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 		{id: "openai-codex", method: "ChatGPT plan · device code"},
 		{id: "anthropic", method: "API key"},
 		{id: "openai", method: "API key"},
+		{id: "opencode-go", method: "API key"},
 		{id: "anthropic-oauth", method: "Pro or Max plan · browser"},
 	} {
 		got := authProviderOptions[index]
@@ -573,7 +574,7 @@ func TestClaudeSubscriptionSelectionAcceptsManualCode(t *testing.T) {
 	application.Pump(80, 24)
 	application.Enter()
 	application.Pump(80, 24)
-	for range 3 {
+	for range 4 {
 		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 		application.Pump(80, 24)
 	}

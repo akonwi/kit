@@ -76,9 +76,9 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		requestMaxTokens = 0
 	}
 	stream, err := provider.Stream(ctx, model, Request{
-		SystemPrompt: prompt,
-		Messages:     messages[:prefixEnd],
-		MaxTokens:    requestMaxTokens,
+		SessionID: string(rt.conversation), SystemPrompt: prompt,
+		Messages:  messages[:prefixEnd],
+		MaxTokens: requestMaxTokens,
 	})
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)

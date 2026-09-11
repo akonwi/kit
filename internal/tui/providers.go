@@ -30,6 +30,10 @@ var authProviderOptions = []authProviderOption{
 		Method: "API key", DefaultModel: "openai/gpt-5.6-sol",
 	},
 	{
+		ID: auth.OpenCodeGoProviderID, ProviderID: auth.OpenCodeGoProviderID, Name: "OpenCode Go",
+		Method: "API key", DefaultModel: "opencode-go/kimi-k2.7-code",
+	},
+	{
 		ID: anthropicOAuthOptionID, ProviderID: auth.AnthropicProviderID, Name: "Claude",
 		Method: "Pro or Max plan · browser", DefaultModel: "anthropic/claude-sonnet-4-6",
 	},

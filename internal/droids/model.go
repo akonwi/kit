@@ -10,6 +10,7 @@ type ModelAPI string
 const (
 	ModelAPIOpenAIResponses      ModelAPI = "openai-responses"
 	ModelAPIOpenAICodexResponses ModelAPI = "openai-codex-responses"
+	ModelAPIOpenAIChat           ModelAPI = "openai-chat-completions"
 	ModelAPIAnthropicMessages    ModelAPI = "anthropic-messages"
 )
 

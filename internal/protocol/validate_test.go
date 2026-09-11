@@ -39,6 +39,12 @@ func TestModelAndConfigurationValidation(t *testing.T) {
 	if err := catalog.Validate(); err != nil {
 		t.Fatalf("model catalog Validate() error = %v", err)
 	}
+	chatCatalog := catalog
+	chatCatalog.Models = append([]ModelCapability(nil), catalog.Models...)
+	chatCatalog.Models[0].API = "openai-chat-completions"
+	if err := chatCatalog.Validate(); err != nil {
+		t.Fatalf("Chat Completions model catalog Validate() error = %v", err)
+	}
 	if err := (ModelCatalog{}).Validate(); err != nil {
 		t.Fatalf("empty model catalog Validate() error = %v", err)
 	}

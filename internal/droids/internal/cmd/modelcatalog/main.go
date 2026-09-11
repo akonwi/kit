@@ -1,5 +1,5 @@
-// Command modelcatalog refreshes Droids' embedded OpenAI and Anthropic
-// models.dev snapshot. Run from the module root with go generate ./...
+// Command modelcatalog refreshes Droids' embedded first-party model catalogs.
+// Run from the module root with go generate ./...
 package main
 
 import (
@@ -35,7 +35,7 @@ func main() {
 		fatal(err)
 	}
 	selected := map[string]json.RawMessage{}
-	for _, provider := range []string{"anthropic", "openai"} {
+	for _, provider := range []string{"anthropic", "openai", "opencode-go"} {
 		entry, ok := catalog[provider]
 		if !ok {
 			fatal(fmt.Errorf("models.dev catalog has no %q provider", provider))

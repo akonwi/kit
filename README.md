@@ -50,8 +50,9 @@ go run ./cmd/kit auth logout openai-codex
 ```
 
 A normal `go run ./cmd/kit` invocation starts the viewport-native vaxis TUI. It
-starts or discovers the daemon, offers API-key, OpenAI Codex, and Claude Pro/Max
-browser login when credentials are missing, resumes the latest usable session
+starts or discovers the daemon, offers OpenAI, Anthropic, and OpenCode Go API-key
+login plus OpenAI Codex and Claude Pro/Max subscription login when credentials are
+missing, resumes the latest usable session
 for the selected working directory, and restores its persisted transcript snapshot. `kit sessions` opens a bounded
 primary-screen session manager before transitioning to the normal TUI for an
 opened session. `--temp` uses an in-memory session that is disposed when its
@@ -65,8 +66,11 @@ stderr. Codex can derive account and expiry metadata from
 its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
 `OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
 available when explicit metadata is needed. `ANTHROPIC_OAUTH_TOKEN` supplies a
-managed Claude subscription access token. Without explicit provider environment
-credentials, the daemon uses the locked, atomic `~/.kit-v2/auth.json` store and
+managed Claude subscription access token. `OPENCODE_API_KEY` enables the
+`opencode-go/*` model catalog through `https://opencode.ai/zen/go/v1`; models are
+routed to Responses, Chat Completions, or Anthropic Messages according to their
+models.dev metadata. Without explicit provider environment credentials, the
+daemon uses the locked, atomic `~/.kit-v2/auth.json` store and
 persists refresh-token rotations. Provider environment is read only at daemon
 startup, takes precedence over the file store, and refreshes only in memory, so
 restart the daemon after changing it. Stored login/logout generations are

@@ -323,9 +323,11 @@ func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Pr
 		anthropicSource = CredentialSourceEnvironment
 		anthropicConfig = droids.Anthropic{APIKey: key, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
 	}
+	openCodeGoKey, openCodeGoKeySource, openCodeGoSource := providerAPIKey(store, auth.OpenCodeGoProviderID, os.Getenv("OPENCODE_API_KEY"))
 	configs := []droids.ProviderConfig{
 		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL")},
 		anthropicConfig,
+		droids.OpenCodeGo{APIKey: openCodeGoKey, APIKeySource: openCodeGoKeySource},
 	}
 	accessToken := os.Getenv("OPENAI_CODEX_ACCESS_TOKEN")
 	refreshToken := os.Getenv("OPENAI_CODEX_REFRESH_TOKEN")
@@ -363,6 +365,7 @@ func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Pr
 	return providers, map[string]CredentialSource{
 		auth.OpenAIProviderID:      openAISource,
 		auth.AnthropicProviderID:   anthropicSource,
+		auth.OpenCodeGoProviderID:  openCodeGoSource,
 		auth.OpenAICodexProviderID: codexSource,
 	}, nil
 }
@@ -398,6 +401,12 @@ func availableProviderIDs(ctx context.Context, paths apphome.Paths, sources map[
 	} else {
 		record, err := store.LoadAPIKey(ctx, auth.OpenAIProviderID)
 		set[auth.OpenAIProviderID] = err == nil && record.APIKey != ""
+	}
+	if sources[auth.OpenCodeGoProviderID] == CredentialSourceEnvironment {
+		set[auth.OpenCodeGoProviderID] = os.Getenv("OPENCODE_API_KEY") != ""
+	} else {
+		record, err := store.LoadAPIKey(ctx, auth.OpenCodeGoProviderID)
+		set[auth.OpenCodeGoProviderID] = err == nil && record.APIKey != ""
 	}
 	if sources[auth.AnthropicProviderID] == CredentialSourceEnvironment {
 		set[auth.AnthropicProviderID] = os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("ANTHROPIC_OAUTH_TOKEN") != ""

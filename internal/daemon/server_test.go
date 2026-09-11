@@ -19,7 +19,7 @@ import (
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	for _, name := range []string{
-		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "OPENCODE_API_KEY",
 		"OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN", "OPENAI_CODEX_FEDRAMP",
 		"OPENAI_CODEX_EXPIRES_AT",
 	} {
@@ -43,7 +43,7 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 
 func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 	for _, name := range []string{
-		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "OPENCODE_API_KEY",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
 		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
 	} {
@@ -56,7 +56,7 @@ func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 	if _, ok := providers.Model("openai-codex/gpt-5.6-sol"); !ok {
 		t.Fatal("stored-credential Codex provider was not registered")
 	}
-	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID, auth.OpenAICodexProviderID} {
+	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID, auth.OpenCodeGoProviderID, auth.OpenAICodexProviderID} {
 		if source := sources[providerID]; source != CredentialSourceStore {
 			t.Fatalf("credential source for %s = %q", providerID, source)
 		}
@@ -65,7 +65,7 @@ func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 
 func TestProvidersFromEnvironmentLoadsStoredAPIKeys(t *testing.T) {
 	for _, name := range []string{
-		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL", "OPENCODE_API_KEY",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
 		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
 	} {
@@ -79,12 +79,15 @@ func TestProvidersFromEnvironmentLoadsStoredAPIKeys(t *testing.T) {
 	if err := store.ReplaceAPIKey(context.Background(), auth.AnthropicProviderID, "anthropic-secret"); err != nil {
 		t.Fatal(err)
 	}
+	if err := store.ReplaceAPIKey(context.Background(), auth.OpenCodeGoProviderID, "opencode-go-secret"); err != nil {
+		t.Fatal(err)
+	}
 	_, sources, err := providersFromEnvironment(context.Background(), paths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := availableProviderIDs(context.Background(), paths, sources)
-	if want := []string{auth.AnthropicProviderID, auth.OpenAIProviderID}; !slices.Equal(got, want) {
+	if want := []string{auth.AnthropicProviderID, auth.OpenAIProviderID, auth.OpenCodeGoProviderID}; !slices.Equal(got, want) {
 		t.Fatalf("available providers = %v, want %v", got, want)
 	}
 }

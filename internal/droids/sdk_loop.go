@@ -459,7 +459,7 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 		requestMaxTokens = 0
 	}
 	request := Request{
-		SystemPrompt: configuration.systemPrompt, Messages: plain,
+		SessionID: string(rt.conversation), SystemPrompt: configuration.systemPrompt, Messages: plain,
 		Tools: append([]ToolSchema(nil), configuration.toolSchemas...), Reasoning: configuration.reasoning,
 		MaxTokens: requestMaxTokens,
 	}

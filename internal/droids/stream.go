@@ -13,6 +13,8 @@ import (
 
 // Request is a single provider call: the neutral context plus per-call knobs.
 type Request struct {
+	// SessionID is a stable, opaque conversation identifier for provider affinity.
+	SessionID    string
 	SystemPrompt string
 	Messages     []Message
 	Tools        []ToolSchema
