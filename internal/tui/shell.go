@@ -437,7 +437,7 @@ func (w shellView) modelInformationControls(theme ui.Theme) ui.Widget {
 		)
 	}
 	if percentage, ok := contextPercentage(w.Snapshot.ContextTokens, w.Snapshot.ContextWindow); ok {
-		color := theme.PrimaryText
+		color := theme.MutedForeground
 		if percentage > 90 {
 			color = theme.DangerText
 		} else if percentage >= 80 {
