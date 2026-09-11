@@ -86,6 +86,7 @@ type Repository interface {
 	ListTasks(context.Context, ConversationID) ([]Task, error)
 	RecoverRunning(context.Context, time.Time) (Recovery, error)
 	PendingMailbox(context.Context, string, int) ([]MailboxItem, error)
+	PendingMailboxOwners(context.Context, string, int) ([]string, error)
 	MarkMailboxDelivered(context.Context, []string, uint64, time.Time) error
 }
 

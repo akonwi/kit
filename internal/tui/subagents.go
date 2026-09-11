@@ -362,12 +362,31 @@ func subagentConversationLabel(conversations []protocol.SubagentConversation, co
 	return "Subagent"
 }
 
+func subagentTranscriptHasFinalResponse(transcript protocol.SubagentTranscript) bool {
+	latestUser := -1
+	for index := len(transcript.Messages) - 1; index >= 0; index-- {
+		if transcript.Messages[index].Role == "user" {
+			latestUser = index
+			break
+		}
+	}
+	for index := len(transcript.Messages) - 1; index > latestUser; index-- {
+		message := transcript.Messages[index]
+		if message.Role == "assistant" {
+			return strings.TrimSpace(assistantProse(message)) != ""
+		}
+	}
+	return false
+}
+
 func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string) ui.Widget {
 	label := subagentConversationLabel(w.Snapshot.SubagentConversations, conversationID)
 	state := ""
+	finalSummary := ""
 	for _, conversation := range w.Snapshot.SubagentConversations {
 		if conversation.ID == conversationID {
 			state = conversation.State
+			finalSummary = strings.TrimSpace(conversation.LastResultSummary)
 			break
 		}
 	}
@@ -413,6 +432,13 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 			ui.SizedBox{Height: 1},
 		}, rows...)
 	}
+	if state != "running" && finalSummary != "" && !subagentTranscriptHasFinalResponse(transcript) {
+		rows = append(rows,
+			ui.SizedBox{Height: 1},
+			ui.Text{Value: "Final response", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}},
+			markdownView{ID: "subagent-final:" + conversationID, Source: finalSummary, BaseStyle: ui.Style{Foreground: theme.Foreground}},
+		)
+	}
 	if live := w.Snapshot.SubagentLive[conversationID]; len(live.Events) > 0 && state == "running" {
 		rows = append(rows, ui.SizedBox{Height: 1}, ui.Text{Value: "Live activity", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}})
 		rows = append(rows, subagentLiveRows(theme, live.Events)...)
@@ -421,9 +447,9 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 	if controller == nil {
 		controller = w.Snapshot.ActivityScroll
 	}
-	body := ui.Scrollbar{Child: ui.ScrollView{
-		Controller: controller,
-		Child:      ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}),
+	body := ui.Scrollbar{Child: ui.CustomScrollView{
+		Controller: controller, FollowOutput: true,
+		Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows})}},
 	}}
 	hint := "page up/down scroll " + glyphMiddleDot + " ctrl+d dismiss " + glyphMiddleDot + " esc back"
 	for _, conversation := range w.Snapshot.SubagentConversations {

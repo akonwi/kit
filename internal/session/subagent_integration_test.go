@@ -135,18 +135,20 @@ func TestConcurrentSubagentVerticalSlice(t *testing.T) {
 	if info, err := os.Stat(childStorePath); err != nil || info.Size() == 0 {
 		t.Fatalf("child transcript store %q = %#v, %v", childStorePath, info, err)
 	}
-	pending, err := store.PendingMailbox(t.Context(), record.ID, 10)
-	if err != nil || len(pending) != 1 {
-		t.Fatalf("idle parent mailbox = %#v, %v", pending, err)
-	}
-
-	result, err := manager.RunPrompt(t.Context(), record.ID, "use the scout result")
-	if err != nil || result.Text != "parent received child" {
-		t.Fatalf("second parent result = %#v, %v", result, err)
-	}
-	pending, err = store.PendingMailbox(t.Context(), record.ID, 10)
-	if err != nil || len(pending) != 0 {
-		t.Fatalf("mailbox after parent run = %#v, %v", pending, err)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pending, pendingErr := store.PendingMailbox(t.Context(), record.ID, 10)
+		snapshot, snapshotErr := manager.Snapshot(t.Context(), record.ID)
+		providers.mu.Lock()
+		sawMailbox := providers.parentSawMailbox
+		providers.mu.Unlock()
+		if pendingErr == nil && snapshotErr == nil && len(pending) == 0 && snapshot.ActiveRunID == "" && sawMailbox {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("autonomous parent reaction did not settle: pending=%#v snapshot=%#v mailbox=%v errors=%v/%v", pending, snapshot, sawMailbox, pendingErr, snapshotErr)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 	providers.mu.Lock()
 	defer providers.mu.Unlock()

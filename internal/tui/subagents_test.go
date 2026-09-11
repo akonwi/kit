@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -280,6 +281,107 @@ func TestSubagentTranscriptShowsLoadFailure(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("transcript failure missing %q:\n%s", expected, text)
 		}
+	}
+}
+
+func TestSubagentFinalResponseCheckUsesLatestTaskSegment(t *testing.T) {
+	t.Parallel()
+	transcript := protocol.SubagentTranscript{Messages: []protocol.TranscriptMessage{
+		{Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "first"}}},
+		{Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "first response"}}},
+		{Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "follow-up"}}},
+	}}
+	if subagentTranscriptHasFinalResponse(transcript) {
+		t.Fatal("earlier assistant response hid the latest task summary")
+	}
+	transcript.Messages = append(transcript.Messages, protocol.TranscriptMessage{
+		Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "final response"}},
+	})
+	if !subagentTranscriptHasFinalResponse(transcript) {
+		t.Fatal("latest task final response was not detected")
+	}
+}
+
+func TestReconcileSubagentTabsClosesRemotelyDismissedConversation(t *testing.T) {
+	t.Parallel()
+	removed := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	retained := "subagent_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	state := appState{
+		subagentConversations: []protocol.SubagentConversation{{ID: retained}},
+		subagentPaneID:        removed, subagentTranscriptOrder: []string{removed, retained},
+		subagentTranscripts:      map[string]protocol.SubagentTranscript{removed: {ConversationID: removed}},
+		subagentTranscriptErrors: map[string]string{removed: "stale"},
+		subagentTranscriptLoads:  make(map[string]uint64), subagentTranscriptLoading: make(map[string]bool),
+		subagentScrolls:   map[string]*ui.ScrollController{removed: {}},
+		subagentLive:      map[string]protocol.SubagentLiveEventPage{removed: {}},
+		subagentLiveLoads: make(map[string]uint64), subagentLiveLoading: make(map[string]bool),
+		subagentScrollToEndID: removed, subagentNeedsScroll: true, subagentPendingLayout: true,
+	}
+	state.reconcileSubagentTabs()
+	if state.subagentPaneID != "" || len(state.subagentTranscriptOrder) != 1 || state.subagentTranscriptOrder[0] != retained || state.subagentScrollToEndID != "" {
+		t.Fatalf("reconciled tabs = pane:%q order:%v scroll:%q", state.subagentPaneID, state.subagentTranscriptOrder, state.subagentScrollToEndID)
+	}
+}
+
+func TestSubagentTranscriptShowsCompletionSummaryWhileHistoryLoads(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		SubagentConversations: []protocol.SubagentConversation{{
+			ID: conversationID, AgentName: "reviewer", State: "idle", LastResultSummary: "The final review found no soundness issues.",
+		}},
+	}})
+	application.Pump(100, 18)
+	text := strings.Join(paintedRows(application, 100, 18), "\n")
+	for _, expected := range []string{"Final response", "The final review found no soundness issues."} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("completion summary missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestSubagentTranscriptRequestsInitialScrollToFinalResponse(t *testing.T) {
+	t.Parallel()
+	state := appState{}
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	state.requestSubagentScrollToEnd(conversationID)
+	if state.subagentScrollToEndID != conversationID || !state.subagentNeedsScroll || !state.subagentPendingLayout {
+		t.Fatalf("subagent scroll request = id:%q needs:%t pending:%t", state.subagentScrollToEndID, state.subagentNeedsScroll, state.subagentPendingLayout)
+	}
+}
+
+func TestSubagentTranscriptRendersFinalResponseAtEnd(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	now := time.Now().Format(time.RFC3339Nano)
+	messages := make([]protocol.TranscriptMessage, 0, 25)
+	for index := 0; index < 24; index++ {
+		messages = append(messages, protocol.TranscriptMessage{
+			ID: fmt.Sprintf("message_%d", index), TurnID: fmt.Sprintf("turn_%d", index), Sequence: int64(index), Role: "user",
+			Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: fmt.Sprintf("Earlier request %d", index)}}, CreatedAt: now,
+		})
+	}
+	messages = append(messages, protocol.TranscriptMessage{
+		ID: "message_final", TurnID: "turn_final", Sequence: 24, Role: "assistant", StopReason: "stop",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "FINAL SUBAGENT RESPONSE"}}, CreatedAt: now,
+	})
+	scroll := &ui.ScrollController{}
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID}, SubagentScroll: scroll,
+		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
+		SubagentTranscripts:   map[string]protocol.SubagentTranscript{conversationID: {ConversationID: conversationID, Messages: messages}},
+	}})
+	application.Pump(100, 14)
+	scroll.ScrollToEnd()
+	application.Pump(100, 14)
+	text := strings.Join(paintedRows(application, 100, 14), "\n")
+	if !strings.Contains(text, "FINAL SUBAGENT RESPONSE") {
+		t.Fatalf("final subagent response was not initially visible:\n%s", text)
 	}
 }
 

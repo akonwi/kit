@@ -18,6 +18,7 @@ const (
 	maxSubscriptionReplay     = 1000
 	maxPendingSteering        = 64
 	maxPendingBoundaries      = 64
+	maxAutonomousReactions    = 8
 )
 
 type sdkRuntime struct {
@@ -28,25 +29,26 @@ type sdkRuntime struct {
 	conversation  ConversationID
 	requestConfig atomic.Pointer[runtimeRequestConfiguration]
 
-	mu               sync.Mutex
-	abortMu          sync.Mutex
-	revision         uint64
-	lastEvent        EventSequence
-	state            durableRuntime
-	forkedFrom       *ForkPoint
-	boundaryReceipts map[string]struct{}
-	changed          chan struct{}
-	runCancel        context.CancelFunc
-	runGeneration    uint64
-	handle           *sdkExecution
-	closed           bool
-	shutdownStarted  bool
-	shutdownDone     chan struct{}
-	resumeCancel     context.CancelFunc
-	resumeFlight     *resumeFlight
-	contextFlight    *contextMaintenanceFlight
-	abortPending     bool
-	persistenceErr   error
+	mu                   sync.Mutex
+	abortMu              sync.Mutex
+	revision             uint64
+	lastEvent            EventSequence
+	state                durableRuntime
+	forkedFrom           *ForkPoint
+	boundaryReceipts     map[string]struct{}
+	boundaryConsumptions map[string]TurnID
+	changed              chan struct{}
+	runCancel            context.CancelFunc
+	runGeneration        uint64
+	handle               *sdkExecution
+	closed               bool
+	shutdownStarted      bool
+	shutdownDone         chan struct{}
+	resumeCancel         context.CancelFunc
+	resumeFlight         *resumeFlight
+	contextFlight        *contextMaintenanceFlight
+	abortPending         bool
+	persistenceErr       error
 
 	subsMu sync.Mutex
 	subs   map[*sdkSubscription]struct{}
@@ -241,10 +243,14 @@ func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error)
 	if err != nil {
 		return nil, err
 	}
+	boundaryConsumptions, err := loadBoundaryConsumptions(ctx, config.Store)
+	if err != nil {
+		return nil, err
+	}
 	rt := &sdkRuntime{
 		droid: d, config: config, store: config.Store, provider: provider, conversation: id,
 		revision: opened.Conversation.Revision, lastEvent: opened.Conversation.LastEvent,
-		state: state, forkedFrom: forkedFrom, boundaryReceipts: boundaryReceipts,
+		state: state, forkedFrom: forkedFrom, boundaryReceipts: boundaryReceipts, boundaryConsumptions: boundaryConsumptions,
 		changed: make(chan struct{}), shutdownDone: make(chan struct{}),
 		subs: make(map[*sdkSubscription]struct{}),
 	}
@@ -294,6 +300,31 @@ func loadBoundaryReceipts(ctx context.Context, store Store) (map[string]struct{}
 		after = page.Next
 		if !page.HasMore {
 			return receipts, nil
+		}
+	}
+}
+
+func loadBoundaryConsumptions(ctx context.Context, store Store) (map[string]TurnID, error) {
+	consumptions := make(map[string]TurnID)
+	var after uint64
+	for {
+		page, err := store.Records(ctx, RecordQuery{After: after, Limit: 1000, Kind: boundaryConsumptionKind})
+		if err != nil {
+			return nil, fmt.Errorf("droids: load boundary consumptions: %w", err)
+		}
+		for _, record := range page.Records {
+			var value struct {
+				ID     string `json:"id"`
+				TurnID TurnID `json:"turn_id"`
+			}
+			if json.Unmarshal(record.Payload, &value) != nil || value.ID == "" || value.TurnID == "" || value.ID != record.ID {
+				return nil, fmt.Errorf("droids: boundary consumption %q is invalid", record.ID)
+			}
+			consumptions[value.ID] = value.TurnID
+		}
+		after = page.Next
+		if !page.HasMore {
+			return consumptions, nil
 		}
 	}
 }
@@ -388,6 +419,54 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		return rt.ensureHandleLocked(), nil
 	}
 
+	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash)
+}
+
+// React durably starts a context-only turn from pending external boundaries.
+// admissionKey makes retries return the originally admitted turn. The replayed
+// result reports whether the handle belongs to an earlier admission.
+func (d *Droid) React(ctx context.Context, admissionKey string) (handle ExecutionHandle, replayed bool, err error) {
+	if d == nil || d.sdk == nil {
+		return nil, false, fmt.Errorf("droids: React requires a droid opened with droids.Open")
+	}
+	if !validBoundedContextValue(admissionKey, 256) {
+		return nil, false, fmt.Errorf("droids: reaction admission key is invalid")
+	}
+	digest := sha256.Sum256([]byte("boundary-reaction\x00" + admissionKey))
+	admissionHash := hex.EncodeToString(digest[:])
+	rt := d.sdk
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.closed {
+		return nil, false, ErrClosed
+	}
+	if rt.contextFlight != nil {
+		return nil, false, ErrBusy
+	}
+	if rt.state.AdmissionKey == admissionKey {
+		if rt.state.AdmissionHash != admissionHash {
+			return nil, false, ErrConflict
+		}
+		handle := rt.ensureHandleLocked()
+		if isTerminalStatus(rt.state.Status) {
+			handle.complete(outcomeFromState(rt.conversation, rt.state))
+		}
+		return handle, true, nil
+	}
+	if isOccupied(rt.state.Status) {
+		return nil, false, ErrBusy
+	}
+	if len(rt.state.PendingBoundaries) == 0 {
+		return nil, false, ErrUnsafeContinuation
+	}
+	if rt.state.AutonomousReactions >= maxAutonomousReactions {
+		return nil, false, ErrReactionLimit
+	}
+	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash)
+	return handle, false, err
+}
+
+func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string) (ExecutionHandle, error) {
 	turnID, err := newTurnID()
 	if err != nil {
 		return nil, err
@@ -395,14 +474,6 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	attemptID, err := newAttemptID()
 	if err != nil {
 		return nil, err
-	}
-	messageID, err := newMessageID()
-	if err != nil {
-		return nil, err
-	}
-	envelope := MessageEnvelope{
-		ID: messageID, ConversationID: rt.conversation, TurnID: turnID,
-		CreatedAt: time.Now().UTC(), Message: message,
 	}
 	before, err := cloneDurableRuntime(rt.state)
 	if err != nil {
@@ -414,14 +485,19 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 	rt.state.CheckpointID = before.CheckpointID
 	rt.state.SessionUsage = before.SessionUsage
 	rt.state.SessionUsageInitialized = before.SessionUsageInitialized
-	rt.state.AdmissionKey = options.AdmissionKey
+	rt.state.AdmissionKey = admissionKey
 	rt.state.AdmissionHash = admissionHash
+	if message == nil {
+		rt.state.AutonomousReactions = before.AutonomousReactions + 1
+		rt.state.BoundaryReaction = true
+	}
 	rt.state.Status = ExecutionRunning
 	rt.state.TurnID = turnID
 	rt.state.AttemptID = attemptID
 	rt.state.AttemptOpen = true
 	var mutations []EncodedMutation
 	var boundaryEvents []EncodedDurableEvent
+	var consumedBoundaryIDs []string
 	for _, pending := range rt.state.PendingBoundaries {
 		content, err := inputFromWire(pending.Message.Content)
 		if err != nil {
@@ -458,21 +534,43 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 			return nil, err
 		}
 		mutations = append(mutations, mutation)
+		for _, receiptID := range boundaryReceiptIDs(pending.Message) {
+			consumption, err := boundaryConsumptionMutation(receiptID, turnID)
+			if err != nil {
+				rt.state = before
+				return nil, err
+			}
+			mutations = append(mutations, consumption)
+			consumedBoundaryIDs = append(consumedBoundaryIDs, receiptID)
+		}
 		event, _ := lifecycleEvent("boundary.consumed", turnID, attemptID, map[string]any{"message_id": boundaryID, "kind": pending.Message.Kind})
 		boundaryEvents = append(boundaryEvents, event)
 	}
 	rt.state.PendingBoundaries = nil
-	if err := appendRuntimeEnvelope(&rt.state, envelope); err != nil {
-		rt.state = before
-		return nil, err
+	admittedData := map[string]any{}
+	if message != nil {
+		messageID, err := newMessageID()
+		if err != nil {
+			rt.state = before
+			return nil, err
+		}
+		envelope := MessageEnvelope{
+			ID: messageID, ConversationID: rt.conversation, TurnID: turnID,
+			CreatedAt: time.Now().UTC(), Message: *message,
+		}
+		if err := appendRuntimeEnvelope(&rt.state, envelope); err != nil {
+			rt.state = before
+			return nil, err
+		}
+		messageMutation, err := messageHistoryMutation(envelope)
+		if err != nil {
+			rt.state = before
+			return nil, err
+		}
+		mutations = append(mutations, messageMutation)
+		admittedData["message_id"] = messageID
 	}
-	messageMutation, err := messageHistoryMutation(envelope)
-	if err != nil {
-		rt.state = before
-		return nil, err
-	}
-	mutations = append(mutations, messageMutation)
-	admitted, _ := lifecycleEvent("turn.admitted", turnID, attemptID, map[string]any{"message_id": messageID})
+	admitted, _ := lifecycleEvent("turn.admitted", turnID, attemptID, admittedData)
 	started, _ := lifecycleEvent("execution.started", turnID, attemptID, nil)
 	attemptStarted, _ := lifecycleEvent("attempt.started", turnID, attemptID, nil)
 	events := append([]EncodedDurableEvent{admitted}, boundaryEvents...)
@@ -481,10 +579,34 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		rt.state = before
 		return nil, err
 	}
+	for _, id := range consumedBoundaryIDs {
+		rt.boundaryConsumptions[id] = turnID
+	}
 	handle := newSDKExecution(rt, turnID)
 	rt.handle = handle
 	rt.startRunLocked()
 	return handle, nil
+}
+
+func boundaryReceiptIDs(message BoundaryMessageWire) []string {
+	if len(message.ReceiptIDs) > 0 {
+		return message.ReceiptIDs
+	}
+	if message.ID != "" {
+		return []string{message.ID}
+	}
+	return nil
+}
+
+func boundaryConsumptionMutation(id string, turnID TurnID) (EncodedMutation, error) {
+	payload, err := json.Marshal(map[string]any{"id": id, "turn_id": turnID, "consumed_at": time.Now().UTC()})
+	if err != nil {
+		return EncodedMutation{}, err
+	}
+	return EncodedMutation{
+		Operation: MutationPut, RecordKind: boundaryConsumptionKind, RecordID: id,
+		Scope: RecordHistory, Version: recordVersion, Payload: payload,
+	}, nil
 }
 
 func promptAdmissionHash(message Message) (string, error) {
@@ -562,6 +684,7 @@ func (d *Droid) Inform(ctx context.Context, message BoundaryMessage) error {
 	if len(receiptIDs) == 0 && message.ID != "" {
 		receiptIDs = []string{message.ID}
 	}
+	wire.ReceiptIDs = append([]string(nil), receiptIDs...)
 	seenReceipts := 0
 	seen := make(map[string]struct{}, len(receiptIDs))
 	for _, receiptID := range receiptIDs {
@@ -649,6 +772,37 @@ func (d *Droid) BoundaryReceived(ctx context.Context, id string) (bool, error) {
 	}
 	_, received := d.sdk.boundaryReceipts[id]
 	return received, nil
+}
+
+// BoundaryStatus reports whether a boundary receipt is accepted, still
+// pending, or durably associated with a turn.
+func (d *Droid) BoundaryStatus(ctx context.Context, id string) (BoundaryStatus, error) {
+	if d == nil || d.sdk == nil {
+		return BoundaryStatus{}, fmt.Errorf("droids: BoundaryStatus requires a droid opened with droids.Open")
+	}
+	if err := contextError(ctx); err != nil {
+		return BoundaryStatus{}, err
+	}
+	d.sdk.mu.Lock()
+	defer d.sdk.mu.Unlock()
+	if d.sdk.closed {
+		return BoundaryStatus{}, ErrClosed
+	}
+	status := BoundaryStatus{}
+	_, status.Received = d.sdk.boundaryReceipts[id]
+	status.TurnID = d.sdk.boundaryConsumptions[id]
+	for _, pending := range d.sdk.state.PendingBoundaries {
+		for _, receiptID := range boundaryReceiptIDs(pending.Message) {
+			if receiptID == id {
+				status.Pending = true
+				break
+			}
+		}
+		if status.Pending {
+			break
+		}
+	}
+	return status, nil
 }
 
 // Pause requests a durable pause at the next safe model boundary.
@@ -1106,7 +1260,8 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 		}
 		pending.Boundaries = append(pending.Boundaries, PendingBoundarySnapshot{
 			Message: BoundaryMessage{
-				ID: boundary.Message.ID, Kind: boundary.Message.Kind, Source: boundary.Message.Source,
+				ID: boundary.Message.ID, ReceiptIDs: append([]string(nil), boundary.Message.ReceiptIDs...),
+				Kind: boundary.Message.Kind, Source: boundary.Message.Source,
 				Content: content, Details: append(json.RawMessage(nil), boundary.Message.Details...),
 			},
 			AcceptedAt: boundary.Accepted,
@@ -1646,7 +1801,8 @@ func (rt *sdkRuntime) finalizeUnresolvedToolsLocked(status ExecutionStatus) ([]E
 func executionSnapshot(state durableRuntime) ExecutionSnapshot {
 	return ExecutionSnapshot{
 		TurnID: state.TurnID, Status: state.Status, Reason: state.Reason,
-		Error: expandDurableError(state.Error),
+		BoundaryReaction: state.BoundaryReaction,
+		Error:            expandDurableError(state.Error),
 	}
 }
 

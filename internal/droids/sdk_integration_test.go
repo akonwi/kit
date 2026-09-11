@@ -47,6 +47,226 @@ func TestSDKPromptAdmissionKeyIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
+	providers := &reactionProviders{}
+	store := droids.NewMemoryStore()
+	droid, err := droids.Open(t.Context(), "conversation_reaction", droids.Config{
+		Store: store, Providers: providers, Model: "test/reaction",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	boundary := droids.BoundaryMessage{
+		ID: "mail_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "review completed"}},
+	}
+	if err := droid.Inform(t.Context(), boundary); err != nil {
+		t.Fatal(err)
+	}
+	status, err := droid.BoundaryStatus(t.Context(), boundary.ID)
+	if err != nil || !status.Received || !status.Pending || status.TurnID != "" {
+		t.Fatalf("pending boundary status = %+v, %v", status, err)
+	}
+	first, replayedAdmission, err := droid.React(t.Context(), "mailbox:"+boundary.ID)
+	if err != nil || replayedAdmission {
+		t.Fatal(err)
+	}
+	if outcome, err := first.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("reaction outcome = %#v, %v", outcome, err)
+	}
+	status, err = droid.BoundaryStatus(t.Context(), boundary.ID)
+	if err != nil || !status.Received || status.Pending || status.TurnID != first.TurnID() {
+		t.Fatalf("consumed boundary status = %+v, %v", status, err)
+	}
+	replayed, replayedAdmission, err := droid.React(t.Context(), "mailbox:"+boundary.ID)
+	if err != nil || !replayedAdmission || replayed.TurnID() != first.TurnID() {
+		t.Fatalf("replayed reaction = %v/%v, want turn %s", replayed, err, first.TurnID())
+	}
+	if _, _, err := droid.React(t.Context(), "mailbox:mail_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"); !errors.Is(err, droids.ErrUnsafeContinuation) {
+		t.Fatalf("empty reaction error = %v", err)
+	}
+	providers.mu.Lock()
+	if len(providers.requests) != 1 || len(providers.requests[0].Messages) != 1 {
+		t.Fatalf("reaction requests = %+v", providers.requests)
+	}
+	if _, ok := providers.requests[0].Messages[0].(droids.ContextMessage); !ok {
+		t.Fatalf("reaction context = %T, want ContextMessage", providers.requests[0].Messages[0])
+	}
+	providers.mu.Unlock()
+	for index := 1; index < 8; index++ {
+		id := fmt.Sprintf("mail_%032x", index)
+		if err := droid.Inform(t.Context(), droids.BoundaryMessage{
+			ID: id, Kind: "subagent_result", Source: "subagent",
+			Content: []droids.InputContent{droids.TextInput{Text: "continue reaction chain"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		handle, _, err := droid.React(t.Context(), "mailbox:"+id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := handle.Wait(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	limitedID := "mail_ffffffffffffffffffffffffffffffff"
+	if err := droid.Inform(t.Context(), droids.BoundaryMessage{
+		ID: limitedID, Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "limit reaction chain"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := droid.React(t.Context(), "mailbox:"+limitedID); !errors.Is(err, droids.ErrReactionLimit) {
+		t.Fatalf("reaction limit error = %v", err)
+	}
+	reset, err := droid.Prompt(t.Context(), droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "continue"}}}, droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reset.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	resetID := "mail_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	if err := droid.Inform(t.Context(), droids.BoundaryMessage{
+		ID: resetID, Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "reaction after user input"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterReset, _, err := droid.React(t.Context(), "mailbox:"+resetID)
+	if err != nil {
+		t.Fatalf("reaction after user input: %v", err)
+	}
+	if _, err := afterReset.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := droid.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := droids.Open(t.Context(), "conversation_reaction", droids.Config{
+		Store: store, Providers: providers, Model: "test/reaction",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	status, err = reopened.BoundaryStatus(t.Context(), boundary.ID)
+	if err != nil || status.TurnID != first.TurnID() {
+		t.Fatalf("reopened boundary status = %+v, %v", status, err)
+	}
+}
+
+func TestSDKActiveBoundaryIsDurablyAssociatedBeforeCompletion(t *testing.T) {
+	providers := newSteeringProviders()
+	droid, err := droids.Open(t.Context(), "conversation_active_boundary", droids.Config{
+		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/steer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	handle, err := droid.Prompt(t.Context(), droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "start"}}}, droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+	boundary := droids.BoundaryMessage{
+		ID: "mail_cccccccccccccccccccccccccccccccc", Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "active result"}},
+	}
+	if err := droid.Inform(t.Context(), boundary); err != nil {
+		t.Fatal(err)
+	}
+	status, err := droid.BoundaryStatus(t.Context(), boundary.ID)
+	if err != nil || !status.Pending || status.TurnID != "" {
+		t.Fatalf("accepted active boundary = %+v, %v", status, err)
+	}
+	close(providers.release)
+	if _, err := handle.Wait(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	status, err = droid.BoundaryStatus(t.Context(), boundary.ID)
+	if err != nil || status.Pending || status.TurnID != handle.TurnID() {
+		t.Fatalf("consumed active boundary = %+v, %v", status, err)
+	}
+	if requests := providers.Requests(); len(requests) != 2 {
+		t.Fatalf("provider requests = %d, want boundary reaction cycle", len(requests))
+	}
+}
+
+func TestSDKReactionLimitDefersUntilSteeringToolContinuationSettles(t *testing.T) {
+	providers := newLimitSteeringProviders()
+	var toolRuns atomic.Int32
+	droid, err := droids.Open(t.Context(), "conversation_reaction_limit_steering", droids.Config{
+		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/limit-steer",
+		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	for index := 0; index < 7; index++ {
+		id := fmt.Sprintf("mail_%032x", index+1)
+		if err := droid.Inform(t.Context(), droids.BoundaryMessage{ID: id, Kind: "subagent_result", Content: []droids.InputContent{droids.TextInput{Text: "chain"}}}); err != nil {
+			t.Fatal(err)
+		}
+		handle, _, err := droid.React(t.Context(), "mailbox:"+id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := handle.Wait(t.Context()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eighthID := "mail_88888888888888888888888888888888"
+	if err := droid.Inform(t.Context(), droids.BoundaryMessage{ID: eighthID, Kind: "subagent_result", Content: []droids.InputContent{droids.TextInput{Text: "eighth"}}}); err != nil {
+		t.Fatal(err)
+	}
+	handle, _, err := droid.React(t.Context(), "mailbox:"+eighthID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+	blockedID := "mail_99999999999999999999999999999999"
+	if err := droid.Inform(t.Context(), droids.BoundaryMessage{ID: blockedID, Kind: "subagent_result", Content: []droids.InputContent{droids.TextInput{Text: "blocked"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := droid.Prompt(t.Context(), droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "user steering"}}}, droids.PromptOptions{Steer: true}); err != nil {
+		t.Fatal(err)
+	}
+	close(providers.release)
+	outcome, err := handle.Wait(t.Context())
+	if err != nil || outcome.Status != droids.ExecutionCompleted || toolRuns.Load() != 1 {
+		t.Fatalf("deferred-limit outcome = %+v, %v; tool runs = %d", outcome, err, toolRuns.Load())
+	}
+	status, err := droid.BoundaryStatus(t.Context(), blockedID)
+	if err != nil || !status.Pending || status.TurnID != "" {
+		t.Fatalf("blocked boundary status = %+v, %v", status, err)
+	}
+	requests := providers.Requests()
+	if len(requests) != 10 {
+		t.Fatalf("provider requests = %d, want 10", len(requests))
+	}
+	var sawSteering, sawToolResult bool
+	for _, message := range requests[8].Messages {
+		if user, ok := message.(droids.UserMessage); ok && len(user.Content) == 1 {
+			if text, ok := user.Content[0].(droids.TextInput); ok && text.Text == "user steering" {
+				sawSteering = true
+			}
+		}
+	}
+	for _, message := range requests[9].Messages {
+		_, sawToolResult = message.(droids.ToolResultMessage)
+		if sawToolResult {
+			break
+		}
+	}
+	if !sawSteering || !sawToolResult {
+		t.Fatalf("steering/tool continuation = %v/%v", sawSteering, sawToolResult)
+	}
+}
+
 func TestSDKMemoryAndSQLite(t *testing.T) {
 	t.Run("memory", func(t *testing.T) {
 		store := droids.NewMemoryStore()
@@ -239,8 +459,22 @@ func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 	}
 	pending := snapshot.Pending.Boundaries[0]
 	if pending.Message.ID != boundary.ID || pending.Message.Kind != boundary.Kind ||
-		pending.Message.Source != boundary.Source || string(pending.Message.Details) != string(boundary.Details) {
+		pending.Message.Source != boundary.Source || string(pending.Message.Details) != string(boundary.Details) ||
+		len(pending.Message.ReceiptIDs) != len(receipts) || pending.Message.ReceiptIDs[len(receipts)-1] != receipts[len(receipts)-1] {
 		t.Fatalf("pending boundary = %+v, want %+v", pending, boundary)
+	}
+	handle, err := reopened.Prompt(t.Context(), droids.Input{Content: []droids.InputContent{droids.TextInput{Text: "continue"}}}, droids.PromptOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, receiptID := range []string{receipts[0], receipts[len(receipts)-1]} {
+		status, err := reopened.BoundaryStatus(t.Context(), receiptID)
+		if err != nil || status.Pending || status.TurnID != handle.TurnID() {
+			t.Fatalf("receipt %q status = %+v, %v", receiptID, status, err)
+		}
+	}
+	if _, err := handle.Wait(t.Context()); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -887,6 +1121,84 @@ func readOnlyTool(runs *atomic.Int32) droids.AnyTool {
 			return droids.ToolText("fixture contents"), nil
 		},
 	})
+}
+
+type limitSteeringProviders struct {
+	mu       sync.Mutex
+	requests []droids.Request
+	started  chan struct{}
+	release  chan struct{}
+}
+
+func newLimitSteeringProviders() *limitSteeringProviders {
+	return &limitSteeringProviders{started: make(chan struct{}), release: make(chan struct{})}
+}
+func (p *limitSteeringProviders) Models() []droids.Model { return []droids.Model{p.model()} }
+func (p *limitSteeringProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := p.Model(id)
+	if !ok {
+		return nil, droids.Model{}, errors.New("unknown model")
+	}
+	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+}
+func (p *limitSteeringProviders) Model(id string) (droids.Model, bool) {
+	return p.model(), id == "test/limit-steer" || id == "limit-steer"
+}
+func (*limitSteeringProviders) RefreshModels(context.Context) error { return nil }
+func (p *limitSteeringProviders) Stream(_ context.Context, _ droids.Model, request droids.Request) droids.Stream {
+	p.mu.Lock()
+	p.requests = append(p.requests, request)
+	call := len(p.requests)
+	p.mu.Unlock()
+	message := droids.AssistantMessage{Provider: "test", Model: "limit-steer", StopReason: droids.StopReasonStop, Content: []droids.AssistantContent{droids.TextContent{Text: "complete"}}}
+	if call == 8 {
+		return &blockingReadStream{message: message, started: p.started, release: p.release}
+	}
+	if call == 9 {
+		return sdkStaticStream(droids.AssistantMessage{
+			Provider: "test", Model: "limit-steer", StopReason: droids.StopReasonToolUse,
+			Content: []droids.AssistantContent{droids.ToolCall{ID: "call_read_fixture", Name: "read_fixture", Arguments: []byte(`{"path":"fixture.txt"}`)}},
+		})
+	}
+	return sdkStaticStream(message)
+}
+func (*limitSteeringProviders) model() droids.Model {
+	return droids.Model{ID: "limit-steer", Provider: "test", API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192}
+}
+func (p *limitSteeringProviders) Requests() []droids.Request {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return append([]droids.Request(nil), p.requests...)
+}
+
+type reactionProviders struct {
+	mu       sync.Mutex
+	requests []droids.Request
+}
+
+func (p *reactionProviders) Models() []droids.Model { return []droids.Model{p.model()} }
+func (p *reactionProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+	model, ok := p.Model(id)
+	if !ok {
+		return nil, droids.Model{}, errors.New("unknown model")
+	}
+	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+}
+func (p *reactionProviders) Model(id string) (droids.Model, bool) {
+	return p.model(), id == "test/reaction" || id == "reaction"
+}
+func (*reactionProviders) RefreshModels(context.Context) error { return nil }
+func (p *reactionProviders) Stream(_ context.Context, _ droids.Model, request droids.Request) droids.Stream {
+	p.mu.Lock()
+	p.requests = append(p.requests, request)
+	p.mu.Unlock()
+	return sdkStaticStream(droids.AssistantMessage{
+		Provider: "test", Model: "reaction", StopReason: droids.StopReasonStop,
+		Content: []droids.AssistantContent{droids.TextContent{Text: "Reaction complete."}},
+	})
+}
+func (*reactionProviders) model() droids.Model {
+	return droids.Model{ID: "reaction", Provider: "test", API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192}
 }
 
 type readProviders struct {

@@ -146,9 +146,11 @@ preserving conversational ordering.
 - [x] Emit a parent-session event immediately for attached clients.
 - [x] Inject undelivered mailbox items into an active parent only at a safe
       boundary between model turns.
-- [x] If the parent is idle, retain completion until the next user-initiated
-      parent run.
-- [x] Never start a parent model call automatically.
+- [x] If the parent is idle or unloaded, start an autonomous context-only
+      reaction turn from the durable mailbox boundary.
+- [x] Let the parent model decide whether to respond, use tools, delegate more
+      work, or stop, with bounded global concurrency and a durable consecutive
+      reaction limit.
 - [x] Mark delivery transactionally and idempotently.
 - [x] Never inject the child's full transcript into the parent context.
 - [x] Keep queued tasks canceled before execution visible in task history, but
@@ -309,7 +311,7 @@ Persistence requirements:
 - [x] Exclude nested delegation from child bundles.
 - [x] Build child prompts without copying parent transcript history.
 - [x] Add safe-boundary mailbox consumption to the parent run loop.
-- [x] Deliver idle completions only on the next user-initiated run.
+- [x] Start an autonomous parent reaction turn for idle or unloaded completions.
 - [x] Verify the child transcript never enters parent context except through the
       bounded mailbox projection.
 
@@ -371,7 +373,7 @@ all isolated files were removed after verification.
 - [x] Preservation and later execution of queued tasks after restart.
 - [x] Exactly-once mailbox insertion and delivery.
 - [x] Safe-boundary delivery while the parent is active.
-- [x] No automatic parent run while idle.
+- [x] Automatic context-only parent reaction while idle or unloaded.
 
 Run `go test -race ./...` throughout implementation.
 
@@ -381,8 +383,9 @@ A parent agent can start a configured `scout`. The tool durably queues the task
 and promptly returns its task ID while the parent continues. The scout runs when
 scheduler capacity is available, survives TUI detachment, streams status to
 another attached client, persists its transcript, and deposits completion in
-the parent mailbox. Completion reaches the parent only at a safe boundary or on
-the next user-started run. The task and conversation can be inspected, followed
+the parent mailbox. Completion reaches an active parent at a safe boundary or
+starts a context-only reaction turn when the parent is idle or unloaded. The
+model decides how to proceed. The task and conversation can be inspected, followed
 up, canceled, or dismissed. Restarting the daemon marks running work
 `interrupted`, preserves queued work, and resumes scheduling that queued work
 without corrupting either transcript.

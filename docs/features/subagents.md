@@ -77,9 +77,15 @@ task lifecycle, scheduling, bounded summaries, and the parent mailbox.
 
 A terminal task atomically creates an idempotent mailbox item. If the parent is
 active, Kit admits that item as a droids boundary for the next safe model
-boundary. If the parent is idle, no model call starts; the item is delivered
-before the next user-initiated parent run. Only bounded result metadata and the
-summary enter parent context, never the child transcript.
+boundary. If the parent is idle or unloaded, Kit loads it and starts an
+autonomous context-only reaction turn. The model sees the bounded completion
+boundary and decides whether to respond, use tools, delegate more work, or stop.
+Kit limits autonomous parent reactions to four concurrent sessions and eight
+consecutive reactions per session; reaching the chain limit leaves later
+mailbox items pending until the next user prompt. Only bounded result metadata
+and the summary enter parent context, never the child transcript. Pending
+mailbox owners are scanned after startup so a crash cannot strand a committed
+completion.
 
 Children cannot invoke the `subagent` tool. Dismissal aborts active and queued
 work, tombstones the conversation, and removes its child conversation store
@@ -91,7 +97,9 @@ Open `/subagents` from the command palette to view the current session's roster.
 The pane merges active conversations with discovered definitions, sorts active
 states before available agents, and shows each agent's status, description,
 model, source, and latest activity. Selecting a conversation opens a retained
-child transcript tab. Subagent-name labels in transcript work chips and Activity
+child transcript tab. Transcript panes follow live output when pinned, open at
+the final response, and use the durable completion summary while full history
+is still loading. Subagent-name labels in transcript work chips and Activity
 tool rows open that same retained tab. Running work can be cancelled, and
 conversations are dismissed through confirmed destructive dismissal. The workspace follows the
 standard wide split and narrow tab layouts and refreshes only while the

@@ -94,6 +94,8 @@ type Manager struct {
 	temporaryDroids       bool
 	bashContext           context.Context
 	cancelBash            context.CancelCauseFunc
+	mailboxContext        context.Context
+	cancelMailbox         context.CancelFunc
 
 	mu                sync.Mutex
 	runtimes          map[string]*runtime
@@ -112,6 +114,10 @@ type Manager struct {
 	ops               sync.WaitGroup
 	admissions        sync.WaitGroup
 	cleanups          sync.WaitGroup
+	mailboxWorkers    map[string]*mailboxReactionWorker
+	mailboxBlocked    map[string]bool
+	mailboxSlots      chan struct{}
+	mailboxStarted    bool
 
 	bashMu           sync.Mutex
 	bashActive       map[string]*activeBashExecution
@@ -119,6 +125,10 @@ type Manager struct {
 	bashNextSequence map[string]int64
 	bashSlots        chan struct{}
 	bashRuns         sync.WaitGroup
+}
+
+type mailboxReactionWorker struct {
+	dirty bool
 }
 
 type runtimeLoad struct {
@@ -199,6 +209,7 @@ type liveRun struct {
 	result         PromptResult
 	done           chan struct{}
 	completeStream bool
+	autonomous     bool
 }
 
 type ManagerOption func(*managerOptions) error
@@ -254,13 +265,16 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		return nil, fmt.Errorf("create droid store directory: %w", err)
 	}
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
+	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
 	manager := &Manager{
 		store: store, providers: providers, bundleBuilder: bundleBuilder,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
+		mailboxContext: mailboxContext, cancelMailbox: cancelMailbox,
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
-		shutdownDone: make(chan struct{}),
-		bashActive:   make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
+		shutdownDone: make(chan struct{}), mailboxWorkers: make(map[string]*mailboxReactionWorker),
+		mailboxBlocked: make(map[string]bool), mailboxSlots: make(chan struct{}, maxConcurrentReactions),
+		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
 	}
@@ -268,6 +282,26 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		manager.mailbox = mailbox
 	}
 	return manager, nil
+}
+
+// StartSubagentMailbox begins startup reconciliation and periodic delivery of
+// durable child completions after daemon component wiring is complete.
+func (m *Manager) StartSubagentMailbox() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrClosed
+	}
+	if m.mailbox == nil {
+		return nil
+	}
+	if m.mailboxStarted {
+		return nil
+	}
+	m.mailboxStarted = true
+	m.ops.Add(1)
+	go m.scanPendingSubagentMailbox()
+	return nil
 }
 
 // SetSubagentOwnerCanceler connects owner archival to the daemon-wide child supervisor.
@@ -916,10 +950,6 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		release()
 		return RunReservation{}, ErrBusy
 	}
-	if err := m.deliverPendingSubagentMailbox(ctx, sessionID, loaded.droid); err != nil {
-		release()
-		return RunReservation{}, err
-	}
 	subscription, err := loaded.droid.Subscribe(context.Background(), droids.SubscribeOptions{
 		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,
 	})
@@ -928,6 +958,12 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		return RunReservation{}, err
 	}
 	if err := m.touchSessionActivity(ctx, sessionID, time.Now().UTC()); err != nil {
+		subscription.Close()
+		release()
+		return RunReservation{}, err
+	}
+	pendingMailbox, err := m.informPendingSubagentMailbox(ctx, sessionID, loaded.droid)
+	if err != nil {
 		subscription.Close()
 		release()
 		return RunReservation{}, err
@@ -944,6 +980,28 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		return RunReservation{}, err
 	}
 	turnID := string(handle.TurnID())
+	mailboxErr := m.acknowledgeConsumedSubagentMailbox(ctx, loaded.droid, turnID, pendingMailbox)
+	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, []NewEvent{
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(prompt)},
+	})
+	if err == nil {
+		m.mu.Lock()
+		delete(m.mailboxBlocked, sessionID)
+		m.mu.Unlock()
+		if mailboxErr != nil {
+			m.wakeSubagentMailbox(sessionID)
+		}
+	}
+	return reservation, err
+}
+
+func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, handle droids.ExecutionHandle, subscription droids.Subscription, autonomous bool, initialEvents []NewEvent) (RunReservation, error) {
+	release := func() {
+		loaded.mu.Unlock()
+		loaded.admissionMu.Unlock()
+	}
+	turnID := string(handle.TurnID())
 	if err := loaded.events.reset(); err != nil {
 		_ = loaded.droid.Abort(context.Background())
 		subscription.Close()
@@ -952,14 +1010,11 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	}
 	run := &liveRun{record: RunProjection{
 		ID: turnID, SessionID: sessionID, TurnID: turnID, Status: RunStatusRunning,
-	}, done: make(chan struct{}), completeStream: true}
+	}, done: make(chan struct{}), completeStream: true, autonomous: autonomous}
 	pruneRuns(loaded.runs, 128)
 	loaded.activeRun = turnID
 	loaded.runs[turnID] = run
-	if err := loaded.events.append([]NewEvent{
-		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
-		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(prompt)},
-	}); err != nil {
+	if err := loaded.events.append(initialEvents); err != nil {
 		_ = loaded.droid.Abort(context.Background())
 		subscription.Close()
 		release()
@@ -1235,6 +1290,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		}
 		m.runtimes = nil
 		m.cancelBash(errBashShutdown)
+		m.cancelMailbox()
 		go m.finishShutdown(runtimes)
 	}
 	done := m.shutdownDone
@@ -1327,7 +1383,7 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	close(pending.done)
 	m.mu.Unlock()
 	if startRecovery {
-		go m.resumeRuntime(loaded, sessionID)
+		go m.resumeRuntimeWithLimits(loaded, sessionID)
 	}
 	m.loads.Done()
 	return loaded, err
@@ -1424,7 +1480,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	}
 	if quiescent.Execution != nil && (quiescent.Execution.Status == droids.ExecutionPaused || quiescent.Execution.Status == droids.ExecutionInterrupted) {
 		turnID := string(quiescent.TurnID)
-		run := &liveRun{record: RunProjection{ID: turnID, SessionID: record.ID, TurnID: turnID, Status: RunStatusRunning}, done: make(chan struct{})}
+		run := &liveRun{record: RunProjection{ID: turnID, SessionID: record.ID, TurnID: turnID, Status: RunStatusRunning}, done: make(chan struct{}), autonomous: quiescent.Execution.BoundaryReaction}
 		loaded.activeRun = turnID
 		loaded.runs[turnID] = run
 		copy := *quiescent.Execution
@@ -1451,6 +1507,21 @@ func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store dro
 		return nil, droids.Snapshot{}, err
 	}
 	return droid, snapshot, nil
+}
+
+func (m *Manager) resumeRuntimeWithLimits(loaded *runtime, sessionID string) {
+	acquiredReactionSlot := false
+	if loaded.recovery != nil && loaded.recovery.BoundaryReaction {
+		select {
+		case m.mailboxSlots <- struct{}{}:
+			acquiredReactionSlot = true
+		case <-m.mailboxContext.Done():
+		}
+	}
+	m.resumeRuntime(loaded, sessionID)
+	if acquiredReactionSlot {
+		<-m.mailboxSlots
+	}
 }
 
 func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {

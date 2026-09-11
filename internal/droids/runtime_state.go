@@ -8,21 +8,22 @@ import (
 )
 
 const (
-	runtimeRecordKind     = "runtime"
-	runtimeRecordID       = "current"
-	messageRecordKind     = "message"
-	turnRecordKind        = "turn"
-	attemptRecordKind     = "attempt"
-	toolRecordKind        = "tool"
-	checkpointKind        = "checkpoint"
-	boundaryReceiptKind   = "boundary_receipt"
-	compactionIntentKind  = "compaction_intent"
-	compactionReceiptKind = "compaction_receipt"
-	usageContributionKind = "usage_contribution"
-	lineageRecordKind     = "lineage"
-	lineageRecordID       = "parent"
-	recordVersion         = 1
-	eventVersion          = 1
+	runtimeRecordKind       = "runtime"
+	runtimeRecordID         = "current"
+	messageRecordKind       = "message"
+	turnRecordKind          = "turn"
+	attemptRecordKind       = "attempt"
+	toolRecordKind          = "tool"
+	checkpointKind          = "checkpoint"
+	boundaryReceiptKind     = "boundary_receipt"
+	boundaryConsumptionKind = "boundary_consumption"
+	compactionIntentKind    = "compaction_intent"
+	compactionReceiptKind   = "compaction_receipt"
+	usageContributionKind   = "usage_contribution"
+	lineageRecordKind       = "lineage"
+	lineageRecordID         = "parent"
+	recordVersion           = 1
+	eventVersion            = 1
 )
 
 type cyclePhase string
@@ -60,6 +61,9 @@ type durableRuntime struct {
 	LastTransitionID        string                     `json:"last_transition_id,omitempty"`
 	AdmissionKey            string                     `json:"admission_key,omitempty"`
 	AdmissionHash           string                     `json:"admission_hash,omitempty"`
+	AutonomousReactions     uint8                      `json:"autonomous_reactions,omitempty"`
+	BoundaryReaction        bool                       `json:"boundary_reaction,omitempty"`
+	ReactionLimitDeferred   bool                       `json:"reaction_limit_deferred,omitempty"`
 }
 
 type durableBoundary struct {
@@ -68,11 +72,12 @@ type durableBoundary struct {
 }
 
 type BoundaryMessageWire struct {
-	ID      string             `json:"id,omitempty"`
-	Kind    string             `json:"kind"`
-	Source  string             `json:"source"`
-	Content []wireInputContent `json:"content"`
-	Details json.RawMessage    `json:"details,omitempty"`
+	ID         string             `json:"id,omitempty"`
+	ReceiptIDs []string           `json:"receipt_ids,omitempty"`
+	Kind       string             `json:"kind"`
+	Source     string             `json:"source"`
+	Content    []wireInputContent `json:"content"`
+	Details    json.RawMessage    `json:"details,omitempty"`
 }
 
 type wireInputContent struct {
@@ -485,7 +490,8 @@ func boundaryToWire(message BoundaryMessage) (BoundaryMessageWire, error) {
 		return BoundaryMessageWire{}, fmt.Errorf("droids: boundary details exceed %d bytes", maxToolDetailsBytes)
 	}
 	return BoundaryMessageWire{
-		ID: message.ID, Kind: message.Kind, Source: message.Source, Content: content,
+		ID: message.ID, ReceiptIDs: append([]string(nil), message.ReceiptIDs...),
+		Kind: message.Kind, Source: message.Source, Content: content,
 		Details: append(json.RawMessage(nil), message.Details...),
 	}, nil
 }

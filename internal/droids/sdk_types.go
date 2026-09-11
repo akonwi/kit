@@ -74,6 +74,13 @@ type BoundaryMessage struct {
 	Details    json.RawMessage
 }
 
+// BoundaryStatus reports durable receipt and turn-consumption state.
+type BoundaryStatus struct {
+	Received bool
+	Pending  bool
+	TurnID   TurnID
+}
+
 // PromptOptions controls behavior when the droid is occupied.
 type PromptOptions struct {
 	Steer bool
@@ -201,6 +208,7 @@ const (
 	DroidErrorPersistence DroidErrorKind = "persistence"
 	DroidErrorCompaction  DroidErrorKind = "compaction"
 	DroidErrorUnsafe      DroidErrorKind = "unsafe_continuation"
+	DroidErrorLimit       DroidErrorKind = "limit"
 	DroidErrorInternal    DroidErrorKind = "internal"
 )
 
@@ -214,10 +222,11 @@ type DroidError struct {
 
 // ExecutionSnapshot is the current execution projection.
 type ExecutionSnapshot struct {
-	TurnID TurnID
-	Status ExecutionStatus
-	Reason string
-	Error  *DroidError
+	TurnID           TurnID
+	Status           ExecutionStatus
+	BoundaryReaction bool
+	Reason           string
+	Error            *DroidError
 }
 
 // Outcome is one execution's terminal or paused result.

@@ -206,6 +206,9 @@ func Run(ctx context.Context, options RunOptions) error {
 	if _, err := subagents.Start(ctx); err != nil {
 		return fmt.Errorf("recover and start subagent supervisor: %w", err)
 	}
+	if err := sessionManager.StartSubagentMailbox(); err != nil {
+		return fmt.Errorf("start subagent mailbox delivery: %w", err)
+	}
 	listener, err = net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)

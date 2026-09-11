@@ -758,8 +758,8 @@ func (s *Store) RecoverRunning(ctx context.Context, recoveredAt time.Time) (suba
 
 // PendingMailbox returns a bounded deterministic batch for safe-boundary delivery.
 func (s *Store) PendingMailbox(ctx context.Context, ownerSessionID string, limit int) ([]subagent.MailboxItem, error) {
-	if limit < 1 || limit > 64 {
-		return nil, fmt.Errorf("mailbox limit must be 1-64")
+	if limit < 1 || limit > 256 {
+		return nil, fmt.Errorf("mailbox limit must be 1-256")
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, owner_session_id, conversation_id, task_id, agent_name,
@@ -781,6 +781,35 @@ func (s *Store) PendingMailbox(ctx context.Context, ownerSessionID string, limit
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// PendingMailboxOwners returns owners with undelivered results in oldest-first order.
+func (s *Store) PendingMailboxOwners(ctx context.Context, afterOwner string, limit int) ([]string, error) {
+	if limit < 1 || limit > 256 {
+		return nil, fmt.Errorf("mailbox owner limit must be 1-256")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT p.owner_session_id
+		FROM parent_mailbox p
+		JOIN sessions s ON s.id = p.owner_session_id
+		WHERE p.delivered_at IS NULL AND s.archived_at IS NULL
+		  AND p.owner_session_id > ?
+		GROUP BY p.owner_session_id
+		ORDER BY p.owner_session_id
+		LIMIT ?`, afterOwner, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var owners []string
+	for rows.Next() {
+		var owner string
+		if err := rows.Scan(&owner); err != nil {
+			return nil, err
+		}
+		owners = append(owners, owner)
+	}
+	return owners, rows.Err()
 }
 
 // MarkMailboxDelivered generation-safely marks a complete batch delivered.

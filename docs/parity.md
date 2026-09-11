@@ -290,7 +290,8 @@ automated or recorded manual verification exists.
 - [~] Persist full subagent activity without injecting its transcript into the
   parent model context.
 - [~] Deliver completion through the durable parent mailbox at a safe turn
-  boundary, with idle delivery deferred until the next user run.
+  boundary, with an autonomous context-only reaction when the parent is idle or
+  unloaded.
 - [~] Mark in-flight work interrupted after daemon restart, preserve queued work,
   and create explicit lineage when messaging an interrupted conversation.
 - [~] Native TUI roster and retained child transcript workspace tabs; semantic

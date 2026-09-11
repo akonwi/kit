@@ -193,8 +193,10 @@ message, wait, cancel, and result delivery.
 Subagent state and completion are durable. Completion is placed in the parent
 session's mailbox and surfaced immediately to attached clients. It is injected
 into an active parent only at a safe boundary between model turns. If the parent
-is idle, completion waits for the next user-initiated run and does not trigger a
-new model call automatically.
+is idle or unloaded, the session manager starts an autonomous context-only
+reaction turn so the model can decide how to proceed. Mailbox delivery and
+reaction admission are idempotent, pending owners are reconciled after startup,
+and global concurrency plus per-session chain limits bound autonomous reactions.
 
 Client disconnects do not affect subagents. After a daemon crash, in-flight
 work is recorded as interrupted; Kit does not claim that an arbitrary provider

@@ -250,6 +250,9 @@ type appState struct {
 	subagentTranscriptLoading    map[string]bool
 	subagentTranscriptOrder      []string
 	subagentScrolls              map[string]*ui.ScrollController
+	subagentScrollToEndID        string
+	subagentNeedsScroll          bool
+	subagentPendingLayout        bool
 	subagentLive                 map[string]protocol.SubagentLiveEventPage
 	subagentLiveLoads            map[string]uint64
 	subagentLiveLoading          map[string]bool
@@ -407,6 +410,21 @@ func (s *appState) TickFrame(now time.Time) bool {
 				}
 			}
 			s.activityNeedsScroll = false
+		}
+	}
+	if s.subagentNeedsScroll {
+		controller := s.subagentScrolls[s.subagentScrollToEndID]
+		if s.subagentPendingLayout {
+			if controller != nil && controller.Attached() {
+				controller.ScrollToEnd()
+			}
+			s.subagentPendingLayout = false
+			keepTicking = true
+		} else {
+			if controller != nil && controller.Attached() {
+				controller.ScrollToEnd()
+			}
+			s.subagentNeedsScroll = false
 		}
 	}
 	s.sessionRename.TickFrame()
@@ -2837,6 +2855,7 @@ func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) 
 	s.subagentDefinitions = append([]protocol.SubagentDefinition(nil), result.Definitions...)
 	s.applySubagentDiagnostics(s.session.ID, result.Diagnostics)
 	s.subagentConversations = append([]protocol.SubagentConversation(nil), result.Conversations...)
+	s.reconcileSubagentTabs()
 	items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
 	selected, ok := selectedSubagentRosterItem(items, s.subagentSelection)
 	if !ok {
@@ -2856,6 +2875,37 @@ func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) 
 	} else if !rosterVisible {
 		s.subagentRevealPending = false
 	}
+}
+
+func (s *appState) reconcileSubagentTabs() {
+	active := make(map[string]struct{}, len(s.subagentConversations))
+	for _, conversation := range s.subagentConversations {
+		active[conversation.ID] = struct{}{}
+	}
+	retained := make([]string, 0, len(s.subagentTranscriptOrder))
+	for _, conversationID := range s.subagentTranscriptOrder {
+		if _, exists := active[conversationID]; exists {
+			retained = append(retained, conversationID)
+			continue
+		}
+		delete(s.subagentTranscripts, conversationID)
+		delete(s.subagentTranscriptErrors, conversationID)
+		s.advanceSubagentTranscriptLoad(conversationID)
+		s.subagentTranscriptLoading[conversationID] = false
+		s.advanceSubagentLiveLoad(conversationID)
+		s.subagentLiveLoading[conversationID] = false
+		delete(s.subagentScrolls, conversationID)
+		delete(s.subagentLive, conversationID)
+		if s.subagentPaneID == conversationID {
+			s.subagentPaneID = ""
+		}
+		if s.subagentScrollToEndID == conversationID {
+			s.subagentScrollToEndID = ""
+			s.subagentNeedsScroll = false
+			s.subagentPendingLayout = false
+		}
+	}
+	s.subagentTranscriptOrder = retained
 }
 
 func (s *appState) cancelSubagentTask(taskID string, generation uint64) {
@@ -2888,16 +2938,26 @@ func (s *appState) cancelSubagentTask(taskID string, generation uint64) {
 	}()
 }
 
+func (s *appState) requestSubagentScrollToEnd(conversationID string) {
+	s.subagentScrollToEndID = conversationID
+	s.subagentNeedsScroll = true
+	s.subagentPendingLayout = true
+}
+
 func (s *appState) openSubagentConversation(conversationID string) {
 	if !s.subagentsOpen || s.bound == nil {
 		return
 	}
 	s.SetState(func() {
+		newTab := !containsSubagentTab(s.subagentTranscriptOrder, conversationID)
 		s.subagentTranscriptOrder = ensureSubagentTab(s.subagentTranscriptOrder, conversationID)
 		if s.subagentScrolls[conversationID] == nil {
 			s.subagentScrolls[conversationID] = &ui.ScrollController{}
 		}
 		s.subagentPaneID = conversationID
+		if newTab {
+			s.requestSubagentScrollToEnd(conversationID)
+		}
 		s.activitySelected = true
 		s.subagentRevealPending = false
 	})
@@ -2931,6 +2991,7 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 				if err != nil {
 					return
 				}
+				followOutput := s.subagentPaneID == conversationID && scrollControllerPinnedToEnd(s.subagentScrolls[conversationID])
 				s.SetState(func() {
 					if page.ResyncRequired {
 						s.subagentLive[conversationID] = protocol.SubagentLiveEventPage{}
@@ -2950,6 +3011,9 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 						merged.Events = append([]protocol.SubagentLiveEvent(nil), merged.Events[len(merged.Events)-128:]...)
 					}
 					s.subagentLive[conversationID] = merged
+					if followOutput && len(page.Events) > 0 {
+						s.requestSubagentScrollToEnd(conversationID)
+					}
 				})
 			})
 		}()
@@ -2976,8 +3040,12 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 				return
 			}
 			if len(transcript.Messages) >= len(s.subagentTranscripts[conversationID].Messages) {
+				followOutput := s.subagentPaneID == conversationID && scrollControllerPinnedToEnd(s.subagentScrolls[conversationID])
 				s.SetState(func() {
 					s.subagentTranscripts[conversationID] = transcript
+					if followOutput {
+						s.requestSubagentScrollToEnd(conversationID)
+					}
 					delete(s.subagentTranscriptErrors, conversationID)
 				})
 			}
@@ -3003,6 +3071,11 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 		}
 		if s.subagentPaneID == conversationID {
 			s.subagentPaneID = ""
+		}
+		if s.subagentScrollToEndID == conversationID {
+			s.subagentScrollToEndID = ""
+			s.subagentNeedsScroll = false
+			s.subagentPendingLayout = false
 		}
 	})
 }
@@ -3133,6 +3206,11 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 				}
 				if s.subagentPaneID == conversationID {
 					s.subagentPaneID = ""
+				}
+				if s.subagentScrollToEndID == conversationID {
+					s.subagentScrollToEndID = ""
+					s.subagentNeedsScroll = false
+					s.subagentPendingLayout = false
 				}
 			})
 			s.showToast(toastInput{Title: "Subagent dismissed", Variant: toastInfo})
@@ -3851,6 +3929,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentTranscriptOrder = nil
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentScrollToEndID = ""
+	s.subagentNeedsScroll = false
+	s.subagentPendingLayout = false
 	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
 	s.subagentLiveLoads = make(map[string]uint64)
 	s.subagentLiveLoading = make(map[string]bool)

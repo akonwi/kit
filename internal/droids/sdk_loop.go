@@ -71,7 +71,11 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 		}
 
 		if err := rt.prepareModelBoundary(ctx, turnID); err != nil {
-			rt.finishRunFailure(turnID, DroidErrorPersistence, err)
+			kind := DroidErrorPersistence
+			if errors.Is(err, ErrReactionLimit) {
+				kind = DroidErrorLimit
+			}
+			rt.finishRunFailure(turnID, kind, err)
 			return
 		}
 
@@ -202,12 +206,30 @@ func (rt *sdkRuntime) prepareModelBoundary(ctx context.Context, turnID TurnID) e
 	if len(rt.state.PendingSteering) == 0 && len(rt.state.PendingBoundaries) == 0 {
 		return nil
 	}
+	subagentReaction := false
+	for _, pending := range rt.state.PendingBoundaries {
+		subagentReaction = subagentReaction || pending.Message.Kind == "subagent_result"
+	}
+	reactionLimited := subagentReaction && rt.state.AutonomousReactions >= maxAutonomousReactions
+	if reactionLimited && len(rt.state.PendingSteering) == 0 {
+		if rt.state.ReactionLimitDeferred {
+			return nil
+		}
+		return ErrReactionLimit
+	}
 	before, err := cloneDurableRuntime(rt.state)
 	if err != nil {
 		return err
 	}
+	if subagentReaction && !reactionLimited {
+		rt.state.AutonomousReactions++
+	}
+	if reactionLimited && len(rt.state.PendingSteering) > 0 {
+		rt.state.ReactionLimitDeferred = true
+	}
 	var mutations []EncodedMutation
 	var events []EncodedDurableEvent
+	var consumedBoundaryIDs []string
 	for _, wire := range rt.state.PendingSteering {
 		envelope, err := messageEnvelopeFromWire(wire)
 		if err != nil {
@@ -227,7 +249,11 @@ func (rt *sdkRuntime) prepareModelBoundary(ctx context.Context, turnID TurnID) e
 		event, _ := lifecycleEvent("steering.consumed", turnID, rt.state.AttemptID, map[string]any{"message_id": envelope.ID})
 		events = append(events, event)
 	}
-	for _, pending := range rt.state.PendingBoundaries {
+	boundaries := rt.state.PendingBoundaries
+	if reactionLimited {
+		boundaries = nil
+	}
+	for _, pending := range boundaries {
 		content, err := inputFromWire(pending.Message.Content)
 		if err != nil {
 			rt.state = before
@@ -263,16 +289,30 @@ func (rt *sdkRuntime) prepareModelBoundary(ctx context.Context, turnID TurnID) e
 			return err
 		}
 		mutations = append(mutations, mutation)
+		for _, receiptID := range boundaryReceiptIDs(pending.Message) {
+			consumption, err := boundaryConsumptionMutation(receiptID, turnID)
+			if err != nil {
+				rt.state = before
+				return err
+			}
+			mutations = append(mutations, consumption)
+			consumedBoundaryIDs = append(consumedBoundaryIDs, receiptID)
+		}
 		event, _ := lifecycleEvent("boundary.consumed", turnID, rt.state.AttemptID, map[string]any{"message_id": messageID, "kind": pending.Message.Kind})
 		events = append(events, event)
 	}
 	rt.state.PendingSteering = nil
-	rt.state.PendingBoundaries = nil
+	if !reactionLimited {
+		rt.state.PendingBoundaries = nil
+	}
 	rt.state.CyclePhase = cycleReady
 	rt.state.TerminatePending = false
 	if err := rt.commitLocked(ctx, mutations, events); err != nil {
 		rt.state = before
 		return err
+	}
+	for _, id := range consumedBoundaryIDs {
+		rt.boundaryConsumptions[id] = turnID
 	}
 	return nil
 }
@@ -1557,7 +1597,7 @@ func (rt *sdkRuntime) tryFinishRunSuccess(turnID TurnID, final *MessageEnvelope,
 		}
 		return true
 	}
-	if len(rt.state.PendingSteering) > 0 || len(rt.state.PendingBoundaries) > 0 {
+	if len(rt.state.PendingSteering) > 0 || (len(rt.state.PendingBoundaries) > 0 && !rt.state.ReactionLimitDeferred) {
 		return false
 	}
 	if final != nil {

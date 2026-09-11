@@ -152,6 +152,10 @@ func TestSubagentCompletionAndMailboxAreAtomicAndIdempotent(t *testing.T) {
 	if err != nil || len(pending) != 1 || pending[0].ID != mailbox.ID {
 		t.Fatalf("pending = %#v, %v", pending, err)
 	}
+	owners, err := store.PendingMailboxOwners(t.Context(), "", 10)
+	if err != nil || len(owners) != 1 || owners[0] != owner {
+		t.Fatalf("pending owners = %#v, %v", owners, err)
+	}
 	if err := store.MarkMailboxDelivered(t.Context(), []string{mailbox.ID}, mailbox.Generation, time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -161,6 +165,32 @@ func TestSubagentCompletionAndMailboxAreAtomicAndIdempotent(t *testing.T) {
 	pending, err = store.PendingMailbox(t.Context(), owner, 10)
 	if err != nil || len(pending) != 0 {
 		t.Fatalf("pending after delivery = %#v, %v", pending, err)
+	}
+}
+
+func TestPendingMailboxOwnersExcludeArchivedSessions(t *testing.T) {
+	store, owner := newSubagentStore(t)
+	conversation, _, err := store.Admit(t.Context(), testAdmission(owner, "inspect"), subagent.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim, err := store.ClaimNext(t.Context(), owner, subagent.DefaultLimits(), time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.Complete(t.Context(), subagent.Completion{
+		TaskID: claim.Task.ID, ConversationID: conversation.ID,
+		CancellationGeneration: claim.Task.CancellationGeneration,
+		State:                  subagent.TaskCompleted, ResultSummary: "done", FinishedAt: time.Now(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ArchiveSession(t.Context(), owner, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	owners, err := store.PendingMailboxOwners(t.Context(), "", 10)
+	if err != nil || len(owners) != 0 {
+		t.Fatalf("archived pending owners = %#v, %v", owners, err)
 	}
 }
 

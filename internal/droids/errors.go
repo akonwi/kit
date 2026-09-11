@@ -14,6 +14,7 @@ var (
 	ErrTurnNotFound           = errors.New("turn not found")
 	ErrRecordNotFound         = errors.New("record not found")
 	ErrUnsafeContinuation     = errors.New("unsafe continuation")
+	ErrReactionLimit          = errors.New("autonomous reaction limit reached")
 	ErrContextNotAdaptable    = errors.New("context cannot be adapted to target model")
 	ErrConflict               = errors.New("store revision conflict")
 	ErrStoreUninitialized     = errors.New("store is not initialized")
@@ -48,6 +49,8 @@ func safeRuntimeError(kind DroidErrorKind, err error) string {
 		return "Tool processing failed"
 	case DroidErrorUnsafe:
 		return "Droid continuation is unsafe"
+	case DroidErrorLimit:
+		return "Autonomous reaction limit reached"
 	case DroidErrorInternal:
 		return "Droid execution was interrupted"
 	default:

@@ -25,7 +25,7 @@ The initial SDK includes:
 - provider-neutral messages and content;
 - provider and model interfaces;
 - typed tools;
-- autonomous prompt admission, steering, retry, compaction, abort, and settled-conversation fork behavior;
+- autonomous prompt admission, context-only boundary reaction, steering, retry, compaction, abort, and settled-conversation fork behavior;
 - durable state and event contracts;
 - an in-memory Store;
 - a CGO-free SQLite Store;

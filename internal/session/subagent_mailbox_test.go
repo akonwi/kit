@@ -2,6 +2,7 @@ package session_test
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func TestLoadedParentPublishesSubagentLifecycleInvalidation(t *testing.T) {
 	}
 }
 
-func TestIdleSubagentCompletionWaitsForNextUserRun(t *testing.T) {
+func TestIdleSubagentCompletionStartsAutonomousParentReaction(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
 	if err != nil {
@@ -74,36 +75,153 @@ func TestIdleSubagentCompletionWaitsForNextUserRun(t *testing.T) {
 	}
 	mailbox := completeMailboxTask(t, store, record.ID, "scout result")
 	manager.MailboxAdded(t.Context(), mailbox)
-	providers.mu.Lock()
-	calls := providers.calls
-	providers.mu.Unlock()
-	if calls != 0 {
-		t.Fatalf("idle mailbox started %d provider calls", calls)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pending, pendingErr := store.PendingMailbox(t.Context(), record.ID, 10)
+		snapshot, snapshotErr := manager.Snapshot(t.Context(), record.ID)
+		providers.mu.Lock()
+		calls := providers.calls
+		providers.mu.Unlock()
+		if pendingErr == nil && snapshotErr == nil && len(pending) == 0 && snapshot.ActiveRunID == "" && calls == 1 {
+			var boundary, assistant bool
+			for _, message := range snapshot.Messages {
+				boundary = boundary || message.Role == "context" && message.BoundaryID == mailbox.ID && message.BoundaryKind == "subagent_result"
+				for _, content := range message.Content {
+					assistant = assistant || message.Role == "assistant" && content.Kind == session.TranscriptContentText && content.Text == "reply 1"
+				}
+				if message.Role == "user" {
+					t.Fatalf("autonomous reaction created a synthetic user message: %#v", message)
+				}
+			}
+			if !boundary || !assistant {
+				t.Fatalf("autonomous reaction transcript = %#v", snapshot.Messages)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("autonomous reaction did not settle: pending=%#v snapshot=%#v calls=%d errors=%v/%v", pending, snapshot, calls, pendingErr, snapshotErr)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	pending, err := store.PendingMailbox(t.Context(), record.ID, 10)
-	if err != nil || len(pending) != 1 {
-		t.Fatalf("pending mailbox = %#v, %v", pending, err)
-	}
-	result, err := manager.RunPrompt(t.Context(), record.ID, "continue")
-	if err != nil || result.Status != session.RunStatusCompleted {
-		t.Fatalf("RunPrompt() = %#v, %v", result, err)
-	}
-	pending, err = store.PendingMailbox(t.Context(), record.ID, 10)
-	if err != nil || len(pending) != 0 {
-		t.Fatalf("pending after user run = %#v, %v", pending, err)
-	}
-	snapshot, err := manager.Snapshot(t.Context(), record.ID)
+}
+
+func TestPendingSubagentMailboxStartsReactionAfterManagerRestart(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var found bool
-	for _, message := range snapshot.Messages {
-		if message.Role == "context" && message.BoundaryID == mailbox.ID && message.BoundaryKind == "subagent_result" {
-			found = true
-		}
+	providers := &authorityProviders{}
+	droidDirectory := filepath.Join(root, "droids")
+	first, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Fatalf("snapshot does not contain delivered mailbox boundary: %#v", snapshot.Messages)
+	record, err := first.Create(t.Context(), session.CreateInput{
+		ID: "session_abcdefabcdefabcdefabcdefabcdefab", CWD: root, Model: "test/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	mailbox := completeMailboxTask(t, store, record.ID, "restart result")
+	second, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(droidDirectory))
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	providers.mu.Lock()
+	callsBeforeStart := providers.calls
+	providers.mu.Unlock()
+	if callsBeforeStart != 0 {
+		t.Fatalf("mailbox scanner started before explicit composition: %d calls", callsBeforeStart)
+	}
+	if err := second.StartSubagentMailbox(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = second.Shutdown(context.Background())
+		_ = store.Close()
+	})
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		pending, pendingErr := store.PendingMailbox(t.Context(), record.ID, 10)
+		snapshot, snapshotErr := second.Snapshot(t.Context(), record.ID)
+		if pendingErr == nil && snapshotErr == nil && len(pending) == 0 && snapshot.ActiveRunID == "" {
+			var found bool
+			for _, message := range snapshot.Messages {
+				found = found || message.Role == "context" && message.BoundaryID == mailbox.ID
+			}
+			if found {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("restart mailbox reaction did not settle: pending=%#v snapshot=%#v errors=%v/%v", pending, snapshot, pendingErr, snapshotErr)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestAutonomousSubagentReactionsRespectGlobalLimit(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = manager.Shutdown(context.Background())
+		_ = store.Close()
+	})
+	owners := make([]string, 5)
+	for index := range owners {
+		owners[index] = fmt.Sprintf("session_%032x", index+1)
+		if _, err := manager.Create(t.Context(), session.CreateInput{ID: owners[index], CWD: root, Model: "test/echo"}); err != nil {
+			t.Fatal(err)
+		}
+		mailbox := completeMailboxTask(t, store, owners[index], "bounded reaction")
+		manager.MailboxAdded(t.Context(), mailbox)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		providers.mu.Lock()
+		calls := providers.calls
+		providers.mu.Unlock()
+		if calls == 4 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("provider calls = %d, want four occupied reaction slots", calls)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond)
+	providers.mu.Lock()
+	calls := providers.calls
+	providers.mu.Unlock()
+	if calls != 4 {
+		t.Fatalf("provider calls exceeded autonomous limit: %d", calls)
+	}
+	close(providers.block)
+	deadline = time.Now().Add(3 * time.Second)
+	for {
+		providers.mu.Lock()
+		calls = providers.calls
+		providers.mu.Unlock()
+		if calls == 5 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("fifth autonomous reaction did not start after slot release: calls=%d", calls)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -150,21 +268,25 @@ func TestActiveSubagentCompletionArrivesAtSafeBoundary(t *testing.T) {
 	case err := <-runErr:
 		t.Fatal(err)
 	case outcome := <-result:
-		if outcome.Status != session.RunStatusCompleted || outcome.Text != "reply 2" {
+		if outcome.Status != session.RunStatusCompleted {
 			t.Fatalf("outcome = %#v", outcome)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("parent did not settle after mailbox delivery")
 	}
-	providers.mu.Lock()
-	calls := providers.calls
-	providers.mu.Unlock()
-	if calls != 2 {
-		t.Fatalf("provider calls = %d, want safe-boundary continuation", calls)
-	}
-	pending, err := store.PendingMailbox(t.Context(), record.ID, 10)
-	if err != nil || len(pending) != 0 {
-		t.Fatalf("pending mailbox = %#v, %v", pending, err)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		providers.mu.Lock()
+		calls := providers.calls
+		providers.mu.Unlock()
+		pending, pendingErr := store.PendingMailbox(t.Context(), record.ID, 10)
+		if calls == 2 && pendingErr == nil && len(pending) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("safe-boundary delivery did not settle: calls=%d pending=%#v error=%v", calls, pending, pendingErr)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
