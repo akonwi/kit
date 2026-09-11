@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/pathglob"
 )
 
 func TestRunCommandStopsWhenOwnerProcessDies(t *testing.T) {
@@ -256,7 +257,7 @@ func TestListSortsAndMarksDirectories(t *testing.T) {
 
 func TestGlobExpansionIsBounded(t *testing.T) {
 	t.Parallel()
-	if _, err := compileGlob(strings.Repeat("{a,b}", 9), true); err == nil {
+	if _, err := pathglob.Compile(strings.Repeat("{a,b}", 9), true); err == nil {
 		t.Fatal("512-variant glob error = nil")
 	}
 }

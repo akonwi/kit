@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/pathglob"
 )
 
 const (
@@ -73,7 +74,7 @@ func executeFind(ctx context.Context, cwd string, args findArgs) (droids.ToolRes
 	}
 	normalized := filepath.ToSlash(strings.TrimPrefix(args.Pattern, "./"))
 	basenameOnly := !strings.Contains(normalized, "/")
-	matcher, err := compileGlob(normalized, true)
+	matcher, err := pathglob.Compile(normalized, true)
 	if err != nil {
 		return droids.ToolResult{}, err
 	}

@@ -125,6 +125,10 @@ func (c *localSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus
 	return c.transport.GetSessionVCSStatus(ctx, c.id)
 }
 
+func (c *localSession) FileIndex(ctx context.Context) (protocol.SessionFileIndex, error) {
+	return c.transport.GetSessionFileIndex(ctx, c.id)
+}
+
 func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error) {
 	c.mu.Lock()
 	generation := c.cacheGeneration

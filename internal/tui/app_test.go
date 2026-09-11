@@ -1120,6 +1120,10 @@ func (s fakeSession) Snapshot(context.Context) (protocol.SessionSnapshot, error)
 	return s.snapshot, nil
 }
 
+func (s fakeSession) FileIndex(context.Context) (protocol.SessionFileIndex, error) {
+	return protocol.SessionFileIndex{SessionID: s.id, CWD: s.snapshot.Session.CWD, Entries: []protocol.FileIndexEntry{}}, nil
+}
+
 func (s fakeSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, error) {
 	if s.vcsStatus != nil {
 		return s.vcsStatus(ctx)

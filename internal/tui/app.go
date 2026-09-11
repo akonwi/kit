@@ -171,7 +171,11 @@ type appState struct {
 	showToastOverride           func(toastInput)
 	composer                    string
 	composerCursorEndGeneration uint64
+	composerCursorOffset        int
+	composerCursorGeneration    uint64
 	palette                     paletteController
+	fileMention                 fileMentionController
+	fileIndex                   map[string]cachedFileIndex
 	configurationPicker         configurationPickerController
 	compactPending              bool
 	compactOperationID          string
@@ -538,6 +542,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Status:                      s.status,
 		Composer:                    s.composer,
 		ComposerCursorEndGeneration: s.composerCursorEndGeneration,
+		ComposerCursorOffset:        s.composerCursorOffset,
+		ComposerCursorGeneration:    s.composerCursorGeneration,
 		PaletteOpen:                 s.palette.Open,
 		PaletteQuery:                s.palette.Query,
 		PaletteSelection:            s.palette.Selection,
@@ -578,6 +584,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashStarting:                s.bashStarting,
 		BashCollapsed:               s.bashCollapsed,
 		BashHistory:                 s.bashHistory,
+		FileMention:                 s.fileMention,
 		Instructions:                s.instructions,
 		BrowserInstructions:         s.browserInstructions,
 		Remaining:                   s.remaining,
@@ -714,6 +721,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SelectBashHistory: func(ctx ui.EventContext, executionID string) {
 			s.selectBashHistory(ctx, executionID)
 		},
+		SelectFileMention: func(ctx ui.EventContext, path string) {
+			s.selectFileMention(ctx, path)
+		},
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
 				ctx.Copy(s.instructions.UserCode)
@@ -731,6 +741,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
+				s.fileMention.Observe(s.composer, value, true)
 				s.composer = value
 				if followTranscript {
 					s.requestTranscriptScroll()
@@ -740,7 +751,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		RestoreFollowUps: func(ctx ui.EventContext) {
 			s.restoreFollowUps(ctx)
 		},
-		ComposerChanged: func(_ ui.EventContext, value string) {
+		ComposerChanged: func(ctx ui.EventContext, value string) {
 			if s.phase != phaseReady {
 				return
 			}
@@ -751,7 +762,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				if intercepted {
 					return
 				}
+				opened := s.fileMention.Observe(s.composer, composer, false)
 				s.composer = composer
+				if opened {
+					s.loadFileMentions(ctx.Runtime())
+				}
 				if followTranscript {
 					s.requestTranscriptScroll()
 				}
@@ -840,6 +855,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 				s.cancelSessionSwitch()
 				s.SetState(func() { s.sessionExplorer.Close() })
+				return
+			}
+			if s.fileMention.Open {
+				s.SetState(func() { s.fileMention.Close() })
 				return
 			}
 			if s.bashHistory.Open {
@@ -943,6 +962,17 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		var handled bool
 		s.SetState(func() { handled = s.sessionExplorer.HandleKey(key) })
 		if handled {
+			return ui.EventHandled
+		}
+	}
+	if s.fileMention.Open {
+		var entry protocol.FileIndexEntry
+		var selectEntry, handled bool
+		s.SetState(func() { entry, selectEntry, handled = s.fileMention.HandleKey(key) })
+		if handled {
+			if selectEntry {
+				s.selectFileMention(ctx, entry.Path)
+			}
 			return ui.EventHandled
 		}
 	}
@@ -1498,6 +1528,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				if event.ToolName == "change_cwd" && !event.IsError && !event.DetailsOmitted {
 					var details cwdToolDetails
 					if json.Unmarshal(event.Details, &details) == nil && details.Changed && details.CWD != "" {
+						s.invalidateFileMentions()
 						s.session.CWD = details.CWD
 						s.locationBase = details.CWD
 						s.location = details.CWD
@@ -1875,6 +1906,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							s.showToast(cwdChangeToast(changedCWD))
 							s.refreshLocation(changedCWD)
 							s.startVCSMonitoring()
+							s.refreshFileIndex(runtime)
 						} else if vcsRefreshNeeded(batch) {
 							s.refreshVCSStatus()
 						}
@@ -2315,7 +2347,7 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
+	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
 		s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
 		return
 	}
@@ -2611,6 +2643,7 @@ func (s *appState) changeCWD(target string) {
 				s.cwdPending = false
 				s.status = ""
 				if err == nil {
+					s.invalidateFileMentions()
 					s.session = info
 					s.locationBase = info.CWD
 					s.location = info.CWD
@@ -2628,6 +2661,9 @@ func (s *appState) changeCWD(target string) {
 			}
 			s.refreshLocation(info.CWD)
 			s.startVCSMonitoring()
+			if info.CWD != previousCWD {
+				s.refreshFileIndex(runtime)
+			}
 		})
 	}()
 }
@@ -2734,7 +2770,7 @@ func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr err
 
 func (s *appState) openCurrentSessionRename() {
 	if s.phase != phaseReady || s.session.ID == "" || s.sessionRename.Open || s.sessionRename.Pending ||
-		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen || s.sessionExplorer.Open || s.bashHistory.Open {
+		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen || s.sessionExplorer.Open || s.bashHistory.Open || s.fileMention.Open {
 		return
 	}
 	s.SetState(func() { s.sessionRename.Begin(s.session) })
@@ -3043,6 +3079,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 		s.sessionDrafts[s.session.ID] = s.composer
 	}
 	s.resetAttachmentContext()
+	s.fileMention.Close()
+	s.fileMention.generation++
 	s.operation++
 	s.terminalSettledRunID = ""
 	s.session = snapshot.Session
@@ -3488,6 +3526,10 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		} else {
 			s.SetState(func() { s.sessionExplorer.Close() })
 		}
+		return
+	}
+	if s.fileMention.Open {
+		s.SetState(func() { s.fileMention.Close() })
 		return
 	}
 	if s.bashHistory.Open {

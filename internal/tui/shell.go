@@ -20,6 +20,8 @@ type shellSnapshot struct {
 	Status                      string
 	Composer                    string
 	ComposerCursorEndGeneration uint64
+	ComposerCursorOffset        int
+	ComposerCursorGeneration    uint64
 	PaletteOpen                 bool
 	PaletteQuery                string
 	PaletteSelection            paletteCommandID
@@ -60,6 +62,7 @@ type shellSnapshot struct {
 	BashStarting                bool
 	BashCollapsed               map[string]bool
 	BashHistory                 bashHistoryController
+	FileMention                 fileMentionController
 	Instructions                auth.OpenAICodexDeviceInstructions
 	BrowserInstructions         auth.AnthropicLoginInstructions
 	Remaining                   time.Duration
@@ -94,6 +97,7 @@ type shellCallbacks struct {
 	OpenBashHistory            func(ui.EventContext, int) bool
 	BashHistoryChanged         ui.TextChangedCallback
 	SelectBashHistory          func(ui.EventContext, string)
+	SelectFileMention          func(ui.EventContext, string)
 	ComposerChanged            ui.TextChangedCallback
 	ComposerPasted             ui.TextChangedCallback
 	RestoreFollowUps           ui.VoidCallback
@@ -168,6 +172,19 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	w.presentation = presentTranscript(w.Snapshot.Messages)
 	content := ui.Widget(ui.SelectionArea{Child: w.baseShell(theme)})
 	overlays := w.authOverlays(theme)
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.FileMention.Open {
+		controller := w.Snapshot.FileMention
+		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
+		primaryPercent := 100
+		if w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide {
+			primaryPercent = 60
+		}
+		overlays = append(overlays, ui.OverlayEntry{Child: fileMentionSurface{
+			Controller: &controller, Composer: w.Snapshot.Composer,
+			BottomInset: composerHeight + 4, PrimaryPercent: primaryPercent,
+			OnSelect: w.Callbacks.SelectFileMention,
+		}})
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.BashHistory.Open {
 		controller := w.Snapshot.BashHistory
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
@@ -662,6 +679,8 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		OpenBashHistory:     w.Callbacks.OpenBashHistory,
 		RestoreFollowUps:    restoreFollowUps,
 		CursorEndGeneration: w.Snapshot.ComposerCursorEndGeneration,
+		CursorOffset:        w.Snapshot.ComposerCursorOffset,
+		CursorGeneration:    w.Snapshot.ComposerCursorGeneration,
 	}
 	content := ui.Widget(ui.Provider[ui.Theme]{Value: composerTheme, Child: composer})
 	if w.Snapshot.ActivitySelected {

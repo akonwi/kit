@@ -230,6 +230,10 @@ func (c *fakeBoundSession) Snapshot(context.Context) (protocol.SessionSnapshot, 
 	return protocol.SessionSnapshot{}, nil
 }
 
+func (c *fakeBoundSession) FileIndex(context.Context) (protocol.SessionFileIndex, error) {
+	return protocol.SessionFileIndex{SessionID: c.ID(), CWD: "/tmp", Entries: []protocol.FileIndexEntry{}}, nil
+}
+
 func (c *fakeBoundSession) VCSStatus(context.Context) (protocol.SessionVCSStatus, error) {
 	return protocol.SessionVCSStatus{}, nil
 }

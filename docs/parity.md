@@ -307,9 +307,16 @@ automated or recorded manual verification exists.
 
 ## Composer references and attachments
 
-- [ ] Lazy `@file` suggestions respecting Git and Kit ignore rules.
-- [ ] Provisional trigger timing, `@@` escaping, cancellation, replacement, and
-  invalidation behavior.
+- [x] Lazy inline `@file` suggestions after whitespace or at draft start,
+  respecting hierarchical Git and Kit ignore rules, built-in project excludes,
+  symlink boundaries, and a 4,000-entry scan bound. The authoritative index is
+  built by the daemon on the session host and exposed through the bound-session
+  protocol. Indexes refresh immediately after cwd changes and after a five-minute
+  per-session cache interval; stale loads cannot update a newer session, cwd, or picker.
+- [x] Inline mention filtering, wraparound keyboard navigation, mouse selection,
+  Enter replacement, and Escape cancellation. Paste does not trigger mentions;
+  cancellation and `@@` retain the composer text rather than moving query text
+  into a separate focused input.
 - [ ] Cached `#thread` suggestions, `##` escaping, active-session exclusion, and
   bounded expansion.
 - [ ] Image and text attachment staging, restore, queue, submit, transcript, and

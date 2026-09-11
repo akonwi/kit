@@ -23,6 +23,7 @@ type Session interface {
 	ID() string
 	Snapshot(context.Context) (protocol.SessionSnapshot, error)
 	VCSStatus(context.Context) (protocol.SessionVCSStatus, error)
+	FileIndex(context.Context) (protocol.SessionFileIndex, error)
 	ChangeCWD(context.Context, string) (protocol.SessionInfo, error)
 	Reload(context.Context) (protocol.ReloadSessionResult, error)
 	Configure(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)

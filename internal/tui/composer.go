@@ -31,6 +31,8 @@ type messageComposer struct {
 	OpenBashHistory     func(ui.EventContext, int) bool
 	RestoreFollowUps    ui.VoidCallback
 	CursorEndGeneration uint64
+	CursorOffset        int
+	CursorGeneration    uint64
 }
 
 func (messageComposer) CreateState() ui.State { return &messageComposerState{} }
@@ -39,6 +41,7 @@ type messageComposerState struct {
 	ui.StateBase
 	value               string
 	cursorEndGeneration uint64
+	cursorGeneration    uint64
 	pasteChange         bool
 }
 
@@ -61,6 +64,11 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 		offset := len(s.value)
 		cursorOffset = &offset
 		s.cursorEndGeneration = config.CursorEndGeneration
+	}
+	if config.CursorGeneration != s.cursorGeneration {
+		offset := config.CursorOffset
+		cursorOffset = &offset
+		s.cursorGeneration = config.CursorGeneration
 	}
 	input := ui.TextArea{
 		Value:        s.value,

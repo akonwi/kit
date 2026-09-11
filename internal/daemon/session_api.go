@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
@@ -32,6 +33,7 @@ type sessionService interface {
 	Models(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
+	FileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	WaitEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
@@ -54,6 +56,7 @@ type runtimeSessionService struct {
 	manager            *kitsession.Manager
 	availableProviders func(context.Context) []string
 	probeVCS           func(context.Context, string) (*kitvcs.Status, error)
+	fileIndexes        *sessionFileIndexCache
 }
 
 func (s runtimeSessionService) Create(
@@ -144,6 +147,27 @@ func (s runtimeSessionService) Models(ctx context.Context) (protocol.ModelCatalo
 			ContextWindow: model.ContextWindow, MaxInputTokens: model.MaxInputTokens, MaxOutputTokens: model.MaxOutputTokens,
 			ThinkingLevels: thinking, Inputs: inputs, Available: available[model.Provider],
 		})
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) FileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.SessionFileIndex{}, err
+	}
+	var entries []fileindex.Entry
+	if s.fileIndexes != nil {
+		entries, err = s.fileIndexes.load(ctx, sessionID, record.CWD)
+	} else {
+		entries, err = fileindex.Scan(ctx, record.CWD, fileindex.Options{})
+	}
+	if err != nil {
+		return protocol.SessionFileIndex{}, err
+	}
+	result := protocol.SessionFileIndex{SessionID: sessionID, CWD: record.CWD, Entries: make([]protocol.FileIndexEntry, 0, len(entries))}
+	for _, entry := range entries {
+		result.Entries = append(result.Entries, protocol.FileIndexEntry{Path: entry.Path, IsDir: entry.IsDir})
 	}
 	return result, nil
 }
@@ -577,6 +601,19 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, snapshot)
 	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/files", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session file index: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/vcs", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.VCS(request.Context(), request.PathValue("sessionID"))
 		if err != nil {

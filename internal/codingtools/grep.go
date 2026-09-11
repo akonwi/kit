@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/pathglob"
 )
 
 const (
@@ -119,7 +120,7 @@ func executeGrep(ctx context.Context, cwd string, args grepArgs) (droids.ToolRes
 	if args.Glob != "" {
 		normalized := filepath.ToSlash(strings.TrimPrefix(args.Glob, "./"))
 		globBasename = !strings.Contains(normalized, "/")
-		fileMatcher, err = compileGlob(normalized, true)
+		fileMatcher, err = pathglob.Compile(normalized, true)
 		if err != nil {
 			return droids.ToolResult{}, err
 		}

@@ -279,6 +279,23 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		vcsStatus.Status.Head.Kind != protocol.VCSHeadUnborn || vcsStatus.Status.Head.Name != "main" || !vcsStatus.Status.Dirty {
 		t.Fatalf("GetSessionVCSStatus() = %+v", vcsStatus)
 	}
+	indexed, err := client.GetSessionFileIndex(context.Background(), created.ID)
+	if err != nil {
+		t.Fatalf("GetSessionFileIndex() error = %v", err)
+	}
+	if indexed.SessionID != created.ID || indexed.CWD != workspace {
+		t.Fatalf("GetSessionFileIndex() identity = %+v", indexed)
+	}
+	foundPrompt := false
+	for _, entry := range indexed.Entries {
+		if entry.Path == ".agents/prompts/summarize.md" {
+			foundPrompt = true
+			break
+		}
+	}
+	if !foundPrompt {
+		t.Fatalf("GetSessionFileIndex() did not contain project prompt: %+v", indexed.Entries)
+	}
 	retried, err := client.CreateSession(context.Background(), createInput)
 	if err != nil || retried.ID != created.ID {
 		t.Fatalf("retry CreateSession() = %+v, %v; want %q", retried, err, created.ID)

@@ -206,7 +206,7 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 			ui.Text{Value: "↑↓ move · enter insert · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		},
 	})
-	return bashHistoryPositioner{
+	return composerOverlayPositioner{
 		BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent,
 		Child: proportionalWidth{Percent: 80, Min: 48, Max: workspaceMinPrimary - 2, Child: ui.FocusScope{
 			Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
