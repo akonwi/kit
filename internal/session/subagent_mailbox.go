@@ -36,14 +36,40 @@ func (m *Manager) SubagentChanged(_ context.Context, owner string, conversationI
 	if loaded == nil || deleting {
 		return
 	}
-	loaded.mu.Lock()
-	defer loaded.mu.Unlock()
-	if err := loaded.events.append([]NewEvent{{
+	m.enqueueSubagentChanged(loaded, NewEvent{
 		SessionID: owner, Kind: EventSubagentChanged,
 		SubagentConversationID: string(conversationID), SubagentTaskID: string(taskID),
-	}}); err != nil {
-		loaded.events.invalidate()
+	})
+}
+
+func (m *Manager) enqueueSubagentChanged(loaded *runtime, event NewEvent) {
+	loaded.subagentEventMu.Lock()
+	copy := event
+	loaded.subagentEventPending = &copy
+	if loaded.subagentEventDraining {
+		loaded.subagentEventMu.Unlock()
+		return
 	}
+	loaded.subagentEventDraining = true
+	m.ops.Add(1)
+	loaded.subagentEventMu.Unlock()
+	go func() {
+		defer m.ops.Done()
+		for {
+			loaded.subagentEventMu.Lock()
+			pending := loaded.subagentEventPending
+			loaded.subagentEventPending = nil
+			if pending == nil {
+				loaded.subagentEventDraining = false
+				loaded.subagentEventMu.Unlock()
+				return
+			}
+			loaded.subagentEventMu.Unlock()
+			if err := loaded.events.append([]NewEvent{*pending}); err != nil {
+				loaded.events.invalidate()
+			}
+		}
+	}()
 }
 
 // MailboxAdded injects a newly completed child result only when the parent is

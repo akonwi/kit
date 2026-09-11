@@ -38,9 +38,16 @@ func TestLoadedParentPublishesSubagentLifecycleInvalidation(t *testing.T) {
 	manager.SubagentChanged(t.Context(), record.ID,
 		subagent.ConversationID("subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
 		subagent.TaskID("task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
-	page, err := manager.Events(t.Context(), record.ID, snapshot.EventStreamID, snapshot.EventCursor)
-	if err != nil || len(page.Events) != 1 || page.Events[0].Kind != session.EventSubagentChanged {
-		t.Fatalf("subagent event page = %#v, %v", page, err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		page, err := manager.Events(t.Context(), record.ID, snapshot.EventStreamID, snapshot.EventCursor)
+		if err == nil && len(page.Events) == 1 && page.Events[0].Kind == session.EventSubagentChanged {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("subagent event page = %#v, %v", page, err)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 

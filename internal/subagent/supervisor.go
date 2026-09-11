@@ -35,7 +35,7 @@ type Supervisor struct {
 	cursor            string
 	running           map[TaskID]*worker
 	live              map[ConversationID]*liveEventJournal
-	conversationLocks map[ConversationID]*sync.Mutex
+	conversationLocks map[ConversationID]*conversationLock
 	liveClock         uint64
 	changed           chan struct{}
 	startErr          error
@@ -50,6 +50,11 @@ type liveEventJournal struct {
 	updated  uint64
 }
 
+type conversationLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
 type worker struct {
 	claim      Claim
 	ctx        context.Context
@@ -58,7 +63,7 @@ type worker struct {
 
 	mu             sync.Mutex
 	runtime        ChildRuntime
-	conversationMu *sync.Mutex
+	conversationMu *conversationLock
 }
 
 // NewSupervisor constructs one daemon-wide supervisor. Start performs recovery
@@ -78,7 +83,7 @@ func NewSupervisor(repository Repository, factory ChildRuntimeFactory, limits Li
 		repository: repository, factory: factory, limits: limits, sink: sink,
 		ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), done: make(chan struct{}),
 		running: make(map[TaskID]*worker), live: make(map[ConversationID]*liveEventJournal),
-		conversationLocks: make(map[ConversationID]*sync.Mutex), changed: make(chan struct{}),
+		conversationLocks: make(map[ConversationID]*conversationLock), changed: make(chan struct{}),
 	}, nil
 }
 
@@ -220,11 +225,7 @@ func (s *Supervisor) schedule() {
 				})
 				return
 			}
-			conversationMu := s.conversationLocks[claim.Task.ConversationID]
-			if conversationMu == nil {
-				conversationMu = &sync.Mutex{}
-				s.conversationLocks[claim.Task.ConversationID] = conversationMu
-			}
+			conversationMu := s.retainConversationLockLocked(claim.Task.ConversationID)
 			owned.conversationMu = conversationMu
 			s.running[claim.Task.ID] = owned
 			if streamID, streamErr := identifier.New("substream_"); streamErr == nil {
@@ -273,8 +274,11 @@ func rotateOwners(owners []string, cursor string) []string {
 
 func (s *Supervisor) execute(owned *worker) {
 	defer s.workerWG.Done()
-	owned.conversationMu.Lock()
-	defer owned.conversationMu.Unlock()
+	owned.conversationMu.mu.Lock()
+	defer func() {
+		owned.conversationMu.mu.Unlock()
+		s.releaseConversationLock(owned.claim.Conversation.ID, owned.conversationMu)
+	}()
 	claim := owned.claim
 	if cause := context.Cause(owned.ctx); cause != nil {
 		s.finishWorker(owned, ChildOutcome{State: stateForWorkerError(cause), Error: cause.Error()}, cause)
@@ -603,22 +607,48 @@ func (s *Supervisor) CancelOwner(ownerSessionID string) {
 	s.Wake()
 }
 
-func (s *Supervisor) cleanupConversation(conversationID ConversationID) {
-	s.mu.Lock()
+func (s *Supervisor) retainConversationLockLocked(conversationID ConversationID) *conversationLock {
 	conversationMu := s.conversationLocks[conversationID]
 	if conversationMu == nil {
-		conversationMu = &sync.Mutex{}
+		conversationMu = &conversationLock{}
 		s.conversationLocks[conversationID] = conversationMu
 	}
+	conversationMu.refs++
+	return conversationMu
+}
+
+func (s *Supervisor) releaseConversationLock(conversationID ConversationID, conversationMu *conversationLock) {
+	s.mu.Lock()
+	s.releaseConversationLockLocked(conversationID, conversationMu)
+	s.mu.Unlock()
+}
+
+func (s *Supervisor) releaseConversationLockLocked(conversationID ConversationID, conversationMu *conversationLock) {
+	if conversationMu == nil || conversationMu.refs < 1 || s.conversationLocks[conversationID] != conversationMu {
+		panic("subagent: release of unretained conversation lock")
+	}
+	conversationMu.refs--
+	if conversationMu.refs == 0 {
+		delete(s.conversationLocks, conversationID)
+	}
+}
+
+func (s *Supervisor) cleanupConversation(conversationID ConversationID) {
+	s.mu.Lock()
+	conversationMu := s.retainConversationLockLocked(conversationID)
 	for _, owned := range s.running {
 		if owned.claim.Conversation.ID == conversationID {
+			s.releaseConversationLockLocked(conversationID, conversationMu)
 			s.mu.Unlock()
 			return
 		}
 	}
 	s.mu.Unlock()
-	conversationMu.Lock()
-	defer conversationMu.Unlock()
+	conversationMu.mu.Lock()
+	defer func() {
+		conversationMu.mu.Unlock()
+		s.releaseConversationLock(conversationID, conversationMu)
+	}()
 	s.mu.Lock()
 	for _, owned := range s.running {
 		if owned.claim.Conversation.ID == conversationID {
@@ -702,26 +732,24 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 		}
 		return transcript, err
 	}
-	conversationMu := s.conversationLocks[conversationID]
-	if conversationMu == nil {
-		conversationMu = &sync.Mutex{}
-		s.conversationLocks[conversationID] = conversationMu
-	}
+	conversationMu := s.retainConversationLockLocked(conversationID)
 	s.mu.Unlock()
-	conversationMu.Lock()
+	conversationMu.mu.Lock()
+	defer func() {
+		conversationMu.mu.Unlock()
+		s.releaseConversationLock(conversationID, conversationMu)
+	}()
 	// A task may have been claimed while inspection waited for ownership.
 	s.mu.Lock()
 	for _, owned := range s.running {
 		if owned.claim.Conversation.ID == conversationID {
 			s.mu.Unlock()
-			conversationMu.Unlock()
 			return Transcript{}, ErrConflict
 		}
 	}
 	s.mu.Unlock()
 	conversation, err = s.repository.Conversation(ctx, conversationID)
 	if err != nil || conversation.DismissedAt != nil {
-		conversationMu.Unlock()
 		if err == nil {
 			err = ErrDismissed
 		}
@@ -729,12 +757,10 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 	}
 	runtime, err := s.factory.Open(ctx, conversation)
 	if err != nil {
-		conversationMu.Unlock()
 		return Transcript{}, err
 	}
 	transcript, transcriptErr := runtime.Transcript(ctx)
 	closeErr := runtime.Close(context.Background())
-	conversationMu.Unlock()
 	if transcript.ConversationID == "" {
 		transcript.ConversationID = conversationID
 	}

@@ -95,7 +95,9 @@ type ChildRuntimeFactory interface {
 	Delete(context.Context, Conversation) error
 }
 
-// ChildRuntime executes one task in an isolated conversation.
+// ChildRuntime executes one task in an isolated conversation. Run and
+// Transcript may be called concurrently; implementations must synchronize
+// access to shared runtime and store state without blocking cancellation.
 type ChildRuntime interface {
 	Run(context.Context, Task, func(childTurnID string) error, func(LiveEvent)) (ChildOutcome, error)
 	Abort(context.Context) error
@@ -113,6 +115,10 @@ type ChildOutcome struct {
 
 // EventSink receives absolute lifecycle updates after authoritative commits.
 type EventSink interface {
+	// SubagentChanged runs synchronously on scheduling paths and must return
+	// promptly without performing network, disk, or other blocking I/O.
 	SubagentChanged(context.Context, string, ConversationID, TaskID)
+	// MailboxAdded runs only after the child execution slot is released and may
+	// perform bounded delivery work.
 	MailboxAdded(context.Context, MailboxItem)
 }

@@ -147,6 +147,10 @@ type runtime struct {
 	eventCursor  droids.EventSequence
 	eventChanged chan struct{}
 
+	subagentEventMu       sync.Mutex
+	subagentEventPending  *NewEvent
+	subagentEventDraining bool
+
 	// Lock order is transitionMu, admissionMu, then mu, then workspace.mutationMu.
 	// admissionMu remains held for a complete parent turn. mu protects the current droid and
 	// immutable bundle snapshot together with run bookkeeping.
