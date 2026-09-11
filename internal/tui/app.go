@@ -1511,6 +1511,9 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 		case protocol.SessionEventCompactionFailed:
 			s.setTurnActivity("Working…")
 			s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: event.ErrorMessage, Variant: toastError})
+		case protocol.SessionEventContextUpdated:
+			s.contextTokens = event.ContextTokens
+			s.contextWindow = event.ContextWindow
 		case protocol.SessionEventUsageUpdated:
 			if event.Usage != nil && !sessionUsageDecreased(s.sessionUsage, *event.Usage) {
 				s.sessionUsage = *event.Usage

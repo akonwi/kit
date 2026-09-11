@@ -294,6 +294,7 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
 			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
 			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
+			ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow,
 			Usage: projectSessionUsagePointer(event.Usage),
 		})
 	}

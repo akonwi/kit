@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -28,7 +29,7 @@ func TestClientStreamsAuthenticatedSessionEvents(t *testing.T) {
 			http.Error(writer, "unauthorized", http.StatusUnauthorized)
 			return
 		}
-		if request.Header.Get(protocolHeader) != "20" || request.Header.Get("Accept") != "text/event-stream" {
+		if request.Header.Get(protocolHeader) != strconv.Itoa(version.SessionProtocolVersion) || request.Header.Get("Accept") != "text/event-stream" {
 			http.Error(writer, "invalid stream headers", http.StatusBadRequest)
 			return
 		}

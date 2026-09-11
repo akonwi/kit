@@ -34,12 +34,15 @@ func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
 	if state.turnActivity != "Compacting session…" {
 		t.Fatalf("started compaction activity = %q", state.turnActivity)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Kind: protocol.SessionEventCompactionCompleted}})
-	if state.turnActivity != "Working…" || len(toasts) != 1 || toasts[0].Title != "Session compacted" ||
+	state.applyRunEvents([]protocol.SessionEvent{
+		{Sequence: 2, Kind: protocol.SessionEventCompactionCompleted},
+		{Sequence: 3, Kind: protocol.SessionEventContextUpdated, ContextTokens: 20, ContextWindow: 200},
+	})
+	if state.turnActivity != "Working…" || state.contextTokens != 20 || state.contextWindow != 200 || len(toasts) != 1 || toasts[0].Title != "Session compacted" ||
 		toasts[0].Subtitle != "Session context was compacted." || toasts[0].Variant != toastInfo {
-		t.Fatalf("completed compaction activity=%q toasts=%+v", state.turnActivity, toasts)
+		t.Fatalf("completed compaction activity=%q context=%d/%d toasts=%+v", state.turnActivity, state.contextTokens, state.contextWindow, toasts)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, Kind: protocol.SessionEventCompactionFailed, ErrorMessage: "Context compaction failed"}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 4, Kind: protocol.SessionEventCompactionFailed, ErrorMessage: "Context compaction failed"}})
 	if len(toasts) != 2 || toasts[1].Title != "Auto-compaction failed" || toasts[1].Subtitle != "Context compaction failed" || toasts[1].Variant != toastError {
 		t.Fatalf("failed compaction toasts = %+v", toasts)
 	}

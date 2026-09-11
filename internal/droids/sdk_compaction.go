@@ -178,7 +178,9 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	completed, _ := lifecycleEvent("compaction.completed", turnID, rt.state.AttemptID, map[string]any{
 		"checkpoint_id": checkpointID, "before": usage.EstimatedInput, "after": after.EstimatedInput,
 	})
-	contextUpdated, _ := lifecycleEvent("context.updated", turnID, rt.state.AttemptID, map[string]any{"checkpoint_id": checkpointID})
+	contextUpdated, _ := lifecycleEvent("context.updated", turnID, rt.state.AttemptID, map[string]any{
+		"checkpoint_id": checkpointID, "estimated_input": after.EstimatedInput, "context_window": after.ContextWindow,
+	})
 	if err := rt.commitLocked(ctx, []EncodedMutation{checkpoint}, []EncodedDurableEvent{completed, contextUpdated}); err != nil {
 		rt.state = before
 		return err

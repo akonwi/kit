@@ -65,19 +65,23 @@ func TestProjectDroidEventCarriesAutomaticCompactionLifecycle(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		event droids.LifecycleEvent
-		kind  EventKind
-		error string
+		event         droids.LifecycleEvent
+		kind          EventKind
+		error         string
+		contextTokens int
+		contextWindow int
 	}{
 		{event: droids.LifecycleEvent{Kind: "compaction.started", Data: json.RawMessage(`{"estimated_input":100}`)}, kind: EventCompactionStarted},
 		{event: droids.LifecycleEvent{Kind: "compaction.completed", Data: json.RawMessage(`{"before":100,"after":20}`)}, kind: EventCompactionCompleted},
+		{event: droids.LifecycleEvent{Kind: "context.updated", Data: json.RawMessage(`{"estimated_input":20,"context_window":200}`)}, kind: EventContextUpdated, contextTokens: 20, contextWindow: 200},
 		{event: droids.LifecycleEvent{Kind: "compaction.failed", Data: json.RawMessage(`{"error":"Context compaction failed"}`)}, kind: EventCompactionFailed, error: "Context compaction failed"},
 		{event: droids.LifecycleEvent{Kind: "compaction.failed", Data: json.RawMessage(`{"error":"bad\n\u202eerror"}`)}, kind: EventCompactionFailed, error: "bad error"},
 	}
 	for _, test := range tests {
 		projected := projectDroidEvent("session_1", "turn_1", "turn_1", test.event)
-		if len(projected) != 1 || projected[0].Kind != test.kind || projected[0].ErrorMessage != test.error {
-			t.Fatalf("projected compaction event = %+v, want kind %q error %q", projected, test.kind, test.error)
+		if len(projected) != 1 || projected[0].Kind != test.kind || projected[0].ErrorMessage != test.error ||
+			projected[0].ContextTokens != test.contextTokens || projected[0].ContextWindow != test.contextWindow {
+			t.Fatalf("projected compaction event = %+v, want kind %q error %q context %d/%d", projected, test.kind, test.error, test.contextTokens, test.contextWindow)
 		}
 		if err := projected[0].Validate(); err != nil {
 			t.Fatalf("projected compaction event validation error = %v", err)

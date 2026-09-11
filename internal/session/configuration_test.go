@@ -628,7 +628,7 @@ func TestAutomaticCompactionLifecycleReachesSessionEventStream(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	foundStarted, foundCompleted := false, false
+	foundStarted, foundCompleted, foundContext := false, false, false
 	var compactedRunEvents []session.EventKind
 	after := int64(0)
 	for {
@@ -643,14 +643,17 @@ func TestAutomaticCompactionLifecycleReachesSessionEventStream(t *testing.T) {
 			compactedRunEvents = append(compactedRunEvents, event.Kind)
 			foundStarted = foundStarted || event.Kind == session.EventCompactionStarted
 			foundCompleted = foundCompleted || event.Kind == session.EventCompactionCompleted
+			if event.Kind == session.EventContextUpdated {
+				foundContext = event.ContextTokens >= 0 && event.ContextWindow > 0
+			}
 		}
 		if len(page.Events) == 0 || page.Events[len(page.Events)-1].Sequence >= page.LastSequence {
 			break
 		}
 		after = page.Events[len(page.Events)-1].Sequence
 	}
-	if !foundStarted || !foundCompleted {
-		t.Fatalf("automatic compaction lifecycle started=%v completed=%v events=%v", foundStarted, foundCompleted, compactedRunEvents)
+	if !foundStarted || !foundCompleted || !foundContext {
+		t.Fatalf("automatic compaction lifecycle started=%v completed=%v context=%v events=%v", foundStarted, foundCompleted, foundContext, compactedRunEvents)
 	}
 }
 

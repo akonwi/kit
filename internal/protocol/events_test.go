@@ -30,6 +30,17 @@ func TestSessionEventValidatesAutomaticCompactionLifecycle(t *testing.T) {
 			t.Fatalf("%s Validate() error = %v", kind, err)
 		}
 	}
+	contextUpdated := base
+	contextUpdated.Kind = SessionEventContextUpdated
+	contextUpdated.ContextTokens = 20
+	contextUpdated.ContextWindow = 200
+	if err := contextUpdated.Validate(); err != nil {
+		t.Fatalf("context update Validate() error = %v", err)
+	}
+	contextUpdated.ContextWindow = 0
+	if err := contextUpdated.Validate(); err == nil {
+		t.Fatal("context update accepted an absent context window")
+	}
 	failed := base
 	failed.Kind = SessionEventCompactionFailed
 	failed.ErrorMessage = "Context compaction failed"

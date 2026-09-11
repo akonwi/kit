@@ -27,6 +27,7 @@ const (
 	SessionEventCompactionStarted   SessionEventKind = "compaction.started"
 	SessionEventCompactionCompleted SessionEventKind = "compaction.completed"
 	SessionEventCompactionFailed    SessionEventKind = "compaction.failed"
+	SessionEventContextUpdated      SessionEventKind = "context.updated"
 	SessionEventUsageUpdated        SessionEventKind = "usage.updated"
 	SessionEventRunFinished         SessionEventKind = "run.finished"
 )
@@ -56,6 +57,8 @@ type SessionEvent struct {
 	Status             RunStatus           `json:"status,omitempty"`
 	ErrorKind          ProviderErrorKind   `json:"errorKind,omitempty"`
 	ErrorMessage       string              `json:"errorMessage,omitempty"`
+	ContextTokens      int                 `json:"contextTokens,omitempty"`
+	ContextWindow      int                 `json:"contextWindow,omitempty"`
 	Usage              *SessionUsage       `json:"usage,omitempty"`
 }
 
@@ -133,6 +136,10 @@ func (event SessionEvent) Validate() error {
 		if event.ErrorKind != "" || !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes) {
 			return fmt.Errorf("failed compaction requires an error message")
 		}
+	case SessionEventContextUpdated:
+		if event.ContextTokens < 0 || event.ContextWindow <= 0 {
+			return fmt.Errorf("context update requires non-negative tokens and a positive window")
+		}
 	case SessionEventUsageUpdated:
 		if event.Usage == nil {
 			return fmt.Errorf("usage update requires an absolute session total")
@@ -171,6 +178,9 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind != SessionEventUsageUpdated && event.Usage != nil {
 		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)
+	}
+	if event.Kind != SessionEventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
+		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
 	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {

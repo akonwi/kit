@@ -661,6 +661,7 @@ func (rt *sdkRuntime) commitCompactionResult(
 	if result.Compacted {
 		updated, _ := lifecycleEvent("context.updated", "", "", map[string]any{
 			"operation_id": result.OperationID, "checkpoint_id": result.CheckpointID,
+			"estimated_input": result.After.EstimatedInput, "context_window": result.After.ContextWindow,
 		})
 		events = append(events, updated)
 	}

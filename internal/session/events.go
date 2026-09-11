@@ -38,6 +38,7 @@ const (
 	EventCompactionStarted   EventKind = "compaction.started"
 	EventCompactionCompleted EventKind = "compaction.completed"
 	EventCompactionFailed    EventKind = "compaction.failed"
+	EventContextUpdated      EventKind = "context.updated"
 	EventUsageUpdated        EventKind = "usage.updated"
 	EventRunFinished         EventKind = "run.finished"
 )
@@ -65,6 +66,8 @@ type NewEvent struct {
 	Status             RunStatus
 	ErrorKind          ProviderErrorKind
 	ErrorMessage       string
+	ContextTokens      int
+	ContextWindow      int
 	Usage              *SessionUsage
 }
 
@@ -168,6 +171,10 @@ func (event NewEvent) Validate() error {
 		if event.ErrorKind != "" || event.ErrorMessage == "" || rendererSafeLiveError(event.ErrorMessage) != event.ErrorMessage {
 			return fmt.Errorf("failed compaction requires a renderer-safe error message")
 		}
+	case EventContextUpdated:
+		if event.ContextTokens < 0 || event.ContextWindow <= 0 {
+			return fmt.Errorf("context update requires non-negative tokens and a positive window")
+		}
 	case EventUsageUpdated:
 		if event.Usage == nil {
 			return fmt.Errorf("usage update requires an absolute session total")
@@ -206,6 +213,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventUsageUpdated && event.Usage != nil {
 		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)
+	}
+	if event.Kind != EventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
+		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
 	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
@@ -555,6 +565,17 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			}
 			base.Kind = EventCompactionFailed
 			base.ErrorMessage = rendererSafeLiveError(data.Error)
+		case "context.updated":
+			var data struct {
+				EstimatedInput int `json:"estimated_input"`
+				ContextWindow  int `json:"context_window"`
+			}
+			if json.Unmarshal(typed.Data, &data) != nil || data.EstimatedInput < 0 || data.ContextWindow <= 0 {
+				return nil
+			}
+			base.Kind = EventContextUpdated
+			base.ContextTokens = data.EstimatedInput
+			base.ContextWindow = data.ContextWindow
 		default:
 			return nil
 		}
