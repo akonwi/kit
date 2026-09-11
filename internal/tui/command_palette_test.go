@@ -108,19 +108,19 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if !paletteCommandAvailable(paletteCommandName, true) {
 		t.Fatal("name command was unavailable during active work")
 	}
-	for _, command := range []paletteCommandID{paletteCommandReload, paletteCommandThinking} {
+	for _, command := range []paletteCommandID{paletteCommandModel, paletteCommandReload, paletteCommandThinking} {
 		if !paletteCommandAvailable(command, true) {
 			t.Fatalf("live command %q was unavailable during active work", command)
 		}
 	}
-	for _, command := range []paletteCommandID{paletteCommandCompact, paletteCommandModel} {
+	for _, command := range []paletteCommandID{paletteCommandCD, paletteCommandCompact} {
 		if paletteCommandAvailable(command, true) || !paletteCommandAvailable(command, false) {
 			t.Fatalf("configuration command %q availability does not follow idle state", command)
 		}
 	}
-	toast, disabled := paletteCommandDisabledToast(paletteCommandModel, true)
+	toast, disabled := paletteCommandDisabledToast(paletteCommandCD, true)
 	if !disabled || toast.Title != "Command unavailable" || toast.Subtitle != "Available when the session is idle." || toast.Variant != toastWarning {
-		t.Fatalf("disabled model toast = %+v, %v", toast, disabled)
+		t.Fatalf("disabled cd toast = %+v, %v", toast, disabled)
 	}
 	if _, disabled := paletteCommandDisabledToast(paletteCommandDebug, true); disabled {
 		t.Fatal("debug produced disabled-command feedback while available")
@@ -333,21 +333,21 @@ func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.
 	}
 	runningRows := paintedRows(application, width, height)
 	for name, description := range map[string]string{
-		"new": "Start a new session", "sessions": "Browse sessions", "reload": "Reload session context",
+		"model": "Change session model", "new": "Start a new session", "sessions": "Browse sessions", "reload": "Reload session context",
 	} {
 		column, row := findTextCell(t, runningRows, name)
 		if !strings.Contains(runningRows[row], description) || application.Cell(column, row).Style.Foreground != ui.DefaultTheme().Foreground {
 			t.Fatalf("enabled %s row = %q style=%+v", name, runningRows[row], application.Cell(column, row).Style)
 		}
 	}
-	if !strings.Contains(text, "model") || !strings.Contains(text, glyphCircleSlash+" idle only") {
+	if !strings.Contains(text, "compact") || !strings.Contains(text, glyphCircleSlash+" idle only") {
 		t.Fatalf("running palette did not retain visibly disabled idle commands:\n%s", text)
 	}
 	modelColumn, modelRow := findTextCell(t, paintedRows(application, width, height), "model")
 	application.Click(modelColumn, modelRow)
 	application.Pump(width, height)
-	if activated != "" {
-		t.Fatalf("disabled pointer activation ran %q", activated)
+	if activated != paletteCommandModel {
+		t.Fatalf("model pointer activation ran %q", activated)
 	}
 }
 
@@ -356,22 +356,22 @@ func TestCommandPalettePaintsDisabledSelectionWithoutRetargeting(t *testing.T) {
 
 	const width, height = 60, 14
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, PaletteOpen: true, PaletteSelection: paletteCommandModel, Running: true,
+		Phase: phaseReady, PaletteOpen: true, PaletteSelection: paletteCommandCompact, Running: true,
 		Scroll: &ui.ScrollController{},
 	}})
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
-	modelColumn, modelRow := findTextCell(t, rows, "model")
+	compactColumn, compactRow := findTextCell(t, rows, "compact")
 	debugColumn, debugRow := findTextCell(t, rows, "debug")
-	modelStyle := application.Cell(modelColumn, modelRow).Style
-	if modelStyle.Background == application.Cell(debugColumn, debugRow).Style.Background {
-		t.Fatal("disabled model selection had no subdued selection background")
+	compactStyle := application.Cell(compactColumn, compactRow).Style
+	if compactStyle.Background == application.Cell(debugColumn, debugRow).Style.Background {
+		t.Fatal("disabled compact selection had no subdued selection background")
 	}
-	if want := ui.DefaultTheme().DisabledForeground; modelStyle.Foreground != want {
-		t.Fatalf("disabled model foreground = %v, want %v", modelStyle.Foreground, want)
+	if want := ui.DefaultTheme().DisabledForeground; compactStyle.Foreground != want {
+		t.Fatalf("disabled compact foreground = %v, want %v", compactStyle.Foreground, want)
 	}
 	if !strings.Contains(strings.Join(rows, "\n"), glyphCircleSlash+" idle only") {
-		t.Fatalf("disabled model reason missing:\n%s", strings.Join(rows, "\n"))
+		t.Fatalf("disabled compact reason missing:\n%s", strings.Join(rows, "\n"))
 	}
 }
 
@@ -420,10 +420,10 @@ func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing
 	var presented toastInput
 	state := &appState{
 		runPending:        true,
-		palette:           paletteController{Open: true, Selection: paletteCommandModel},
+		palette:           paletteController{Open: true, Selection: paletteCommandCD},
 		showToastOverride: func(toast toastInput) { presented = toast },
 	}
-	state.runPaletteCommand(ui.EventContext{}, paletteCommandModel)
+	state.runPaletteCommand(ui.EventContext{}, paletteCommandCD)
 	if !state.palette.Open || presented.Title != "Command unavailable" || presented.Subtitle != "Available when the session is idle." || presented.Variant != toastWarning {
 		t.Fatalf("disabled app activation = open:%v toast:%+v", state.palette.Open, presented)
 	}
@@ -448,10 +448,10 @@ func TestCreateNewSessionReportsDuplicatePendingWork(t *testing.T) {
 func TestDisabledCommandToastOverlaysPaletteWithoutReplacingFooter(t *testing.T) {
 	t.Parallel()
 
-	toast, _ := paletteCommandDisabledToast(paletteCommandModel, true)
+	toast, _ := paletteCommandDisabledToast(paletteCommandCD, true)
 	application := uitest.New(ui.Overlay{
 		Child: commandPaletteSurface{Snapshot: paletteSnapshot{
-			Query: "model", Selection: paletteCommandModel, Running: true,
+			Query: "cd", Selection: paletteCommandCD, Running: true,
 		}},
 		Entries: []ui.OverlayEntry{{Child: toastStack{Toasts: []toastRecord{{ID: 1, toastInput: toast}}}}},
 	})
@@ -473,7 +473,7 @@ func TestDisabledCommandKeyboardActivationKeepsPaletteOpenForToastFeedback(t *te
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	for _, character := range "model" {
+	for _, character := range "compact" {
 		application.Key(string(character))
 	}
 	application.Enter()

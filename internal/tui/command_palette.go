@@ -400,7 +400,7 @@ func paletteCommandDisabledReason(commandID paletteCommandID, running bool) stri
 		return "idle only"
 	}
 	switch commandID {
-	case paletteCommandCD, paletteCommandCompact, paletteCommandModel:
+	case paletteCommandCD, paletteCommandCompact:
 		return "idle only"
 	default:
 		return ""

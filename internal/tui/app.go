@@ -2387,8 +2387,8 @@ func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
 		return
 	}
 	busyTransition := s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending
-	if busyTransition || (mode == configurationPickerModel && s.hasActiveWork()) {
-		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for active work before changing configuration.", Variant: toastWarning})
+	if busyTransition {
+		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for the current session transition to finish.", Variant: toastWarning})
 		return
 	}
 	server := s.Widget().(app).Options.Server
@@ -2414,7 +2414,7 @@ func (s *appState) applyConfigurationSelection() {
 	}
 	mode := s.configurationPicker.Mode
 	busyTransition := s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending
-	if busyTransition || (mode == configurationPickerModel && s.hasActiveWork()) {
+	if busyTransition {
 		return
 	}
 	selection := s.configurationPicker.Selection
