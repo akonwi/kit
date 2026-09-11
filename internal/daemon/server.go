@@ -314,10 +314,18 @@ func newHandler(options localHandlerOptions) http.Handler {
 func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {
 	store := auth.NewStore(paths.Auth)
 	openAIKey, openAIKeySource, openAISource := providerAPIKey(store, auth.OpenAIProviderID, os.Getenv("OPENAI_API_KEY"))
-	anthropicKey, anthropicKeySource, anthropicSource := providerAPIKey(store, auth.AnthropicProviderID, os.Getenv("ANTHROPIC_API_KEY"))
+	anthropicSource := CredentialSourceStore
+	anthropicConfig := droids.Anthropic{CredentialStore: store, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
+	if token := os.Getenv("ANTHROPIC_OAUTH_TOKEN"); token != "" {
+		anthropicSource = CredentialSourceEnvironment
+		anthropicConfig = droids.Anthropic{Credentials: droids.AnthropicCredentials{AccessToken: token}, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
+	} else if key := os.Getenv("ANTHROPIC_API_KEY"); key != "" {
+		anthropicSource = CredentialSourceEnvironment
+		anthropicConfig = droids.Anthropic{APIKey: key, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
+	}
 	configs := []droids.ProviderConfig{
 		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL")},
-		droids.Anthropic{APIKey: anthropicKey, APIKeySource: anthropicKeySource, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")},
+		anthropicConfig,
 	}
 	accessToken := os.Getenv("OPENAI_CODEX_ACCESS_TOKEN")
 	refreshToken := os.Getenv("OPENAI_CODEX_REFRESH_TOKEN")
@@ -385,17 +393,17 @@ func configuredProviderIDs(providers droids.Providers) []string {
 func availableProviderIDs(ctx context.Context, paths apphome.Paths, sources map[string]CredentialSource) []string {
 	set := map[string]bool{}
 	store := auth.NewStore(paths.Auth)
-	for _, providerID := range []string{auth.OpenAIProviderID, auth.AnthropicProviderID} {
-		if sources[providerID] == CredentialSourceEnvironment {
-			environmentName := "OPENAI_API_KEY"
-			if providerID == auth.AnthropicProviderID {
-				environmentName = "ANTHROPIC_API_KEY"
-			}
-			set[providerID] = os.Getenv(environmentName) != ""
-			continue
-		}
-		record, err := store.LoadAPIKey(ctx, providerID)
-		set[providerID] = err == nil && record.APIKey != ""
+	if sources[auth.OpenAIProviderID] == CredentialSourceEnvironment {
+		set[auth.OpenAIProviderID] = os.Getenv("OPENAI_API_KEY") != ""
+	} else {
+		record, err := store.LoadAPIKey(ctx, auth.OpenAIProviderID)
+		set[auth.OpenAIProviderID] = err == nil && record.APIKey != ""
+	}
+	if sources[auth.AnthropicProviderID] == CredentialSourceEnvironment {
+		set[auth.AnthropicProviderID] = os.Getenv("ANTHROPIC_API_KEY") != "" || os.Getenv("ANTHROPIC_OAUTH_TOKEN") != ""
+	} else {
+		record, err := store.LoadAnthropicCredentials(ctx)
+		set[auth.AnthropicProviderID] = err == nil && (record.Credentials.APIKey != "" || record.Credentials.AccessToken != "" || record.Credentials.RefreshToken != "")
 	}
 	if sources[auth.OpenAICodexProviderID] == CredentialSourceEnvironment {
 		set[auth.OpenAICodexProviderID] = true

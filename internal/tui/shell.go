@@ -33,6 +33,7 @@ type shellSnapshot struct {
 	AuthSelection               int
 	AuthProviderID              string
 	AuthAPIKey                  string
+	AuthCode                    string
 	AuthPending                 bool
 	Session                     protocol.SessionInfo
 	Messages                    []transcriptMessage
@@ -59,6 +60,7 @@ type shellSnapshot struct {
 	BashCollapsed               map[string]bool
 	BashHistory                 bashHistoryController
 	Instructions                auth.OpenAICodexDeviceInstructions
+	BrowserInstructions         auth.AnthropicLoginInstructions
 	Remaining                   time.Duration
 	Location                    string
 	Toasts                      []toastRecord
@@ -74,6 +76,8 @@ type shellCallbacks struct {
 	AuthFilterChanged          ui.TextChangedCallback
 	AuthAPIKeyChanged          ui.TextChangedCallback
 	SubmitAPIKey               ui.TextChangedCallback
+	AuthCodeChanged            ui.TextChangedCallback
+	SubmitAuthCode             ui.TextChangedCallback
 	OpenURL                    ui.TextChangedCallback
 	CopyCode                   ui.VoidCallback
 	OpenActivity               func(ui.EventContext, string)
@@ -313,7 +317,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 	}
-	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting ||
+	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting || w.Snapshot.Phase == phaseAuthBrowser ||
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if w.Snapshot.Phase == phaseReady && !w.Snapshot.PaletteOpen && !w.Snapshot.SessionExplorer.Open && !w.Snapshot.BashHistory.Open && !w.Snapshot.Running && w.Snapshot.ActivitySourceID != "" && w.Callbacks.CloseActivity != nil {
@@ -759,6 +763,15 @@ func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 			ui.Text{Value: "c copy code · esc cancel", Style: ui.Style{Foreground: theme.MutedForeground}},
 			true,
 		))}
+	case phaseAuthBrowser:
+		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
+			theme,
+			"Complete login",
+			"Claude Pro or Max",
+			w.browserLoginBody(theme),
+			ui.Text{Value: "enter submit · esc cancel", Style: ui.Style{Foreground: theme.MutedForeground}},
+			false,
+		))}
 	case phaseAuthAPIKey:
 		provider, _ := authProviderByID(w.Snapshot.AuthProviderID)
 		footer := "enter save · esc back"
@@ -881,6 +894,42 @@ func (w shellView) apiKeyBody(theme ui.Theme) ui.Widget {
 				OnSubmitted: w.Callbacks.SubmitAPIKey, ObscureText: true, AutoFocus: true,
 			}),
 		}},
+	)
+	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
+}
+
+func (w shellView) browserLoginBody(theme ui.Theme) ui.Widget {
+	instructions := w.Snapshot.BrowserInstructions
+	children := []ui.Widget{}
+	if w.Snapshot.Error != "" {
+		children = append(children, ui.Text{Value: w.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true}, ui.SizedBox{Height: 1})
+	}
+	if instructions.AuthorizationURL == "" {
+		children = append(children, spinnerWithLabel("Starting browser authorization…", ui.Style{Foreground: theme.MutedForeground}))
+		return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
+	}
+	linkStyle := ui.Style{Foreground: theme.AccentText, UnderlineStyle: ui.UnderlineSingle}
+	link := ui.TextSpan{Text: "https://claude.ai/oauth/authorize", Style: linkStyle}
+	if safe := safeHTTPSHyperlink(instructions.AuthorizationURL); safe != "" {
+		link.Style.Hyperlink = safe
+		link.Style.HyperlinkParams = "id=anthropic-oauth-login"
+		if w.Callbacks.OpenURL != nil {
+			link.OnPressed = func(ctx ui.EventContext) { w.Callbacks.OpenURL(ctx, safe) }
+		}
+	}
+	fieldTheme := theme
+	fieldTheme.Surface, fieldTheme.SurfaceHovered = theme.Background, theme.Background
+	children = append(children,
+		ui.Text{Value: "Complete authentication in your browser.", Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+		ui.Text{Value: "Open this URL", Style: ui.Style{Foreground: theme.MutedForeground}},
+		ui.RichText{Spans: []ui.TextSpan{link}, SoftWrap: true},
+		ui.SizedBox{Height: 1},
+		ui.Text{Value: "If the callback does not complete, paste the final redirect URL or authorization code:", Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+		ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, Children: []ui.Widget{
+			textInput(fieldTheme, textInputConfig{Value: w.Snapshot.AuthCode, OnChanged: w.Callbacks.AuthCodeChanged, OnSubmitted: w.Callbacks.SubmitAuthCode, AutoFocus: true}),
+		}},
+		ui.SizedBox{Height: 1},
+		spinnerWithLabel(w.Snapshot.Status, ui.Style{Foreground: theme.PrimaryText}),
 	)
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }

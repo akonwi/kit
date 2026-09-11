@@ -122,6 +122,16 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		fmt.Fprintf(stderr, "kit: configure OpenAI Codex login: %v\n", err)
 		return 1
 	}
+	browserLogin, err := auth.NewAnthropicOAuthLogin(auth.AnthropicOAuthLoginOptions{
+		Store: credentialStore,
+		AcquireSave: func(ctx context.Context) (func() error, error) {
+			return manager.AcquireCredentialStoreMutation(ctx, auth.AnthropicProviderID)
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: configure Claude subscription login: %v\n", err)
+		return 1
+	}
 	apiKeyLogin, err := auth.NewAPIKeyLogin(auth.APIKeyLoginOptions{
 		Store: credentialStore, AcquireSave: manager.AcquireCredentialStoreMutation,
 	})
@@ -146,6 +156,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		NewSessionName:       options.Name,
 		TemporarySession:     options.Temporary,
 		Login:                login,
+		BrowserLogin:         browserLogin,
 		APIKeyLogin:          apiKeyLogin,
 	})
 	if options.Temporary {

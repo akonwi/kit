@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/akonwi/kit/internal/droids/anthropicoauth"
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
@@ -223,5 +226,71 @@ func TestReasoningTokenBudget(t *testing.T) {
 	}
 	if reasoningTokenBudget("high") <= reasoningTokenBudget("low") {
 		t.Fatal("high budget should exceed low")
+	}
+}
+
+type anthropicTestStore struct {
+	mu     sync.Mutex
+	record AnthropicCredentialRecord
+	saves  int
+}
+
+func (s *anthropicTestStore) LoadAnthropicCredentials(context.Context) (AnthropicCredentialRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.record, nil
+}
+
+func (s *anthropicTestStore) SaveAnthropicCredentials(_ context.Context, revision string, credentials AnthropicCredentials) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if revision != s.record.Revision {
+		return "", ErrAnthropicCredentialsChanged
+	}
+	s.saves++
+	s.record = AnthropicCredentialRecord{Credentials: credentials, Revision: "revision-two"}
+	return s.record.Revision, nil
+}
+
+type anthropicTestRefresher struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (r *anthropicTestRefresher) Refresh(context.Context, anthropicoauth.Credentials) (anthropicoauth.Credentials, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls++
+	return anthropicoauth.Credentials{AccessToken: "new-access", RefreshToken: "new-refresh", ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+func TestAnthropicCredentialManagerSerializesRefresh(t *testing.T) {
+	now := time.Now()
+	store := &anthropicTestStore{record: AnthropicCredentialRecord{Credentials: AnthropicCredentials{
+		AccessToken: "old-access", RefreshToken: "old-refresh", ExpiresAt: now.Add(-time.Minute),
+	}, Revision: "revision-one"}}
+	refresher := &anthropicTestRefresher{}
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	manager := &anthropicCredentialManager{store: store, refresher: refresher, now: func() time.Time { return now }, gate: gate}
+
+	var wait sync.WaitGroup
+	for range 8 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			credentials, err := manager.resolve(context.Background())
+			if err != nil {
+				t.Errorf("resolve: %v", err)
+				return
+			}
+			if credentials.AccessToken != "new-access" {
+				t.Errorf("access token = %q", credentials.AccessToken)
+			}
+		}()
+	}
+	wait.Wait()
+	if refresher.calls != 1 || store.saves != 1 {
+		t.Fatalf("refresh calls = %d, saves = %d", refresher.calls, store.saves)
 	}
 }

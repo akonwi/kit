@@ -50,19 +50,22 @@ go run ./cmd/kit auth logout openai-codex
 ```
 
 A normal `go run ./cmd/kit` invocation starts the viewport-native vaxis TUI. It
-starts or discovers the daemon, offers provider login when credentials are
-missing, resumes the latest usable session for the selected working directory,
-and restores its persisted transcript snapshot. `kit sessions` opens a bounded
+starts or discovers the daemon, offers API-key, OpenAI Codex, and Claude Pro/Max
+browser login when credentials are missing, resumes the latest usable session
+for the selected working directory, and restores its persisted transcript snapshot. `kit sessions` opens a bounded
 primary-screen session manager before transitioning to the normal TUI for an
 opened session. `--temp` uses an in-memory session that is disposed when its
-foreground command exits.
+foreground command exits. Claude subscription login uses a localhost callback;
+if that callback cannot complete, the login dialog accepts the final redirect
+URL or authorization code.
 
 Print mode creates and resumes droids sessions through the local session-client
 boundary, writes only final assistant prose to stdout, and keeps diagnostics on
 stderr. Codex can derive account and expiry metadata from
 its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
 `OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
-available when explicit metadata is needed. Without explicit Codex environment
+available when explicit metadata is needed. `ANTHROPIC_OAUTH_TOKEN` supplies a
+managed Claude subscription access token. Without explicit provider environment
 credentials, the daemon uses the locked, atomic `~/.kit-v2/auth.json` store and
 persists refresh-token rotations. Provider environment is read only at daemon
 startup, takes precedence over the file store, and refreshes only in memory, so

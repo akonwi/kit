@@ -31,6 +31,11 @@ type DeviceLogin interface {
 	Login(context.Context, func(auth.OpenAICodexDeviceInstructions) error) error
 }
 
+// BrowserLogin performs Claude subscription browser OAuth.
+type BrowserLogin interface {
+	Login(context.Context, <-chan string, func(auth.AnthropicLoginInstructions) error) error
+}
+
 // APIKeyLogin installs an API-key credential and activates its provider.
 type APIKeyLogin interface {
 	Login(context.Context, string, string) error
@@ -54,6 +59,7 @@ type Options struct {
 	NewSessionName       string
 	TemporarySession     bool
 	Login                DeviceLogin
+	BrowserLogin         BrowserLogin
 	APIKeyLogin          APIKeyLogin
 
 	appDone        <-chan struct{}
@@ -107,6 +113,7 @@ const (
 	phaseAuthGate
 	phaseAuthSelect
 	phaseAuthWaiting
+	phaseAuthBrowser
 	phaseAuthAPIKey
 	phaseReady
 	phaseFailed
@@ -240,15 +247,18 @@ type appState struct {
 	bashCollapsed               map[string]bool
 	bashHistory                 bashHistoryController
 
-	instructions      auth.OpenAICodexDeviceInstructions
-	remaining         time.Duration
-	loginCancel       context.CancelFunc
-	loginGeneration   uint64
-	operation         uint64
-	bootstrapModel    string
-	bootstrapThinking string
-	newSessionPending bool
-	bootstrapTarget   protocol.SessionInfo
+	instructions        auth.OpenAICodexDeviceInstructions
+	browserInstructions auth.AnthropicLoginInstructions
+	remaining           time.Duration
+	authCode            string
+	authCodeInput       chan string
+	loginCancel         context.CancelFunc
+	loginGeneration     uint64
+	operation           uint64
+	bootstrapModel      string
+	bootstrapThinking   string
+	newSessionPending   bool
+	bootstrapTarget     protocol.SessionInfo
 
 	availableMu    sync.RWMutex
 	available      map[string]bool
@@ -539,6 +549,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		AuthSelection:               s.authSelection,
 		AuthProviderID:              s.authProviderID,
 		AuthAPIKey:                  s.authAPIKey,
+		AuthCode:                    s.authCode,
 		AuthPending:                 s.authPending,
 		Session:                     s.session,
 		Messages:                    presentedMessages,
@@ -565,6 +576,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashCollapsed:               s.bashCollapsed,
 		BashHistory:                 s.bashHistory,
 		Instructions:                s.instructions,
+		BrowserInstructions:         s.browserInstructions,
 		Remaining:                   s.remaining,
 		Location:                    s.location,
 		Toasts:                      s.toasts.Snapshot(),
@@ -589,6 +601,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() { s.authAPIKey = value })
 		},
 		SubmitAPIKey: s.submitAPIKey,
+		AuthCodeChanged: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.authCode = value })
+		},
+		SubmitAuthCode: s.submitAuthCode,
 		OpenURL: func(ctx ui.EventContext, raw string) {
 			if err := openExternalURL(raw); err != nil {
 				s.showToast(toastInput{Title: "Could not open browser", Subtitle: err.Error(), Variant: toastError})
@@ -1989,9 +2005,13 @@ func (s *appState) selectProvider(ctx ui.EventContext, providerID string) {
 		s.startLogin(ctx)
 		return
 	}
+	if provider.ID == anthropicOAuthOptionID {
+		s.startAnthropicLogin(ctx)
+		return
+	}
 	s.SetState(func() {
 		s.phase = phaseAuthAPIKey
-		s.authProviderID = provider.ID
+		s.authProviderID = provider.ProviderID
 		s.authAPIKey = ""
 		s.errorText = ""
 		s.status = ""
@@ -2161,6 +2181,98 @@ func (s *appState) startLogin(_ ui.EventContext) {
 			s.startBootstrap(preferredStartupModel(options.DefaultModel, codexDefaultModel), options.DefaultThinking)
 		})
 	}()
+}
+
+func (s *appState) startAnthropicLogin(_ ui.EventContext) {
+	options := s.Widget().(app).Options
+	if options.BrowserLogin == nil {
+		s.SetState(func() { s.errorText = "Claude subscription login is unavailable" })
+		return
+	}
+	s.cancelLogin()
+	loginContext, cancel := context.WithCancel(s.ctx)
+	s.loginCancel = cancel
+	generation := s.loginGeneration
+	runtime := s.Context().Runtime()
+	manualCode := make(chan string, 1)
+	s.SetState(func() {
+		s.phase = phaseAuthBrowser
+		s.errorText = ""
+		s.status = "Starting Claude sign-in…"
+		s.browserInstructions = auth.AnthropicLoginInstructions{}
+		s.authCode = ""
+		s.authCodeInput = manualCode
+		s.authFilter = ""
+		s.authProviderID = anthropicOAuthOptionID
+		s.authPending = true
+	})
+	go func() {
+		err := options.BrowserLogin.Login(loginContext, manualCode, func(instructions auth.AnthropicLoginInstructions) error {
+			runtime.Dispatch(func() {
+				if generation != s.loginGeneration {
+					return
+				}
+				s.SetState(func() {
+					s.browserInstructions = instructions
+					s.status = "Waiting for browser approval…"
+				})
+			})
+			return nil
+		})
+		wasCanceled := loginContext.Err() != nil
+		cancel()
+		if wasCanceled || s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if generation != s.loginGeneration {
+				return
+			}
+			s.loginCancel = nil
+			if err != nil {
+				s.SetState(func() {
+					s.phase = phaseAuthSelect
+					s.authPending = false
+					s.authCodeInput = nil
+					s.errorText = err.Error()
+					s.status = ""
+				})
+				return
+			}
+			s.availableMu.Lock()
+			s.available[auth.AnthropicProviderID] = true
+			s.availableMu.Unlock()
+			if s.authReturnReady {
+				s.SetState(func() {
+					s.phase = phaseReady
+					s.authReturnReady = false
+					s.authPending = false
+					s.authCodeInput = nil
+					s.status = "Connected to Claude"
+				})
+				return
+			}
+			s.SetState(func() {
+				s.phase = phaseLoading
+				s.authPending = false
+				s.authCodeInput = nil
+				s.status = "Connected to Claude"
+			})
+			s.startBootstrap(preferredStartupModel(options.DefaultModel, "anthropic/claude-sonnet-4-6"), options.DefaultThinking)
+		})
+	}()
+}
+
+func (s *appState) submitAuthCode(_ ui.EventContext, value string) {
+	value = strings.TrimSpace(value)
+	if value == "" || s.authCodeInput == nil {
+		return
+	}
+	select {
+	case s.authCodeInput <- value:
+		s.SetState(func() { s.authCode = ""; s.status = "Completing Claude sign-in…" })
+	default:
+	}
 }
 
 func preferredStartupModel(requested, fallback string) string {
@@ -3402,15 +3514,18 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			return
 		}
 		fallthrough
-	case phaseAuthWaiting:
+	case phaseAuthWaiting, phaseAuthBrowser:
 		s.cancelLogin()
 		s.SetState(func() {
 			s.phase = phaseAuthSelect
 			s.errorText = ""
 			s.status = ""
 			s.instructions = auth.OpenAICodexDeviceInstructions{}
+			s.browserInstructions = auth.AnthropicLoginInstructions{}
 			s.authProviderID = ""
 			s.authAPIKey = ""
+			s.authCode = ""
+			s.authCodeInput = nil
 			s.authPending = false
 		})
 	case phaseReady:

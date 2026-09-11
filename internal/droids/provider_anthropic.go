@@ -5,25 +5,64 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"time"
 
+	"github.com/akonwi/kit/internal/droids/anthropicoauth"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
 )
 
 // provider_anthropic.go — the Anthropic (Messages API) provider, backed by the
-// official anthropic-sdk-go. API-key auth only for now.
+// official anthropic-sdk-go.
 
-const defaultAnthropicBaseURL = "https://api.anthropic.com"
+const (
+	defaultAnthropicBaseURL  = "https://api.anthropic.com"
+	anthropicOAuthExpirySkew = 30 * time.Second
+)
+
+// AnthropicCredentials is either an API key or the OAuth state needed to use a
+// Claude Pro/Max subscription. APIKey and OAuth fields are mutually exclusive.
+type AnthropicCredentials struct {
+	APIKey       string
+	AccessToken  string
+	RefreshToken string
+	ExpiresAt    time.Time
+}
+
+// ErrAnthropicCredentialsChanged prevents a refresh from overwriting a newer
+// login, logout, or refresh generation.
+var ErrAnthropicCredentialsChanged = errors.New("Anthropic credentials changed")
+
+// AnthropicCredentialRecord is one application-owned credential generation.
+type AnthropicCredentialRecord struct {
+	Credentials AnthropicCredentials
+	Revision    string
+}
+
+// AnthropicCredentialStore provides dynamic Anthropic credentials and
+// compare-and-swap persistence for refreshed OAuth tokens.
+type AnthropicCredentialStore interface {
+	LoadAnthropicCredentials(context.Context) (AnthropicCredentialRecord, error)
+	SaveAnthropicCredentials(context.Context, string, AnthropicCredentials) (string, error)
+}
 
 // Anthropic configures an Anthropic Messages provider.
 type Anthropic struct {
 	// APIKey authenticates requests (x-api-key header).
 	APIKey string
 	// APIKeySource resolves a current key for each request. Configure at most one
-	// of APIKey and APIKeySource.
+	// of APIKey, APIKeySource, Credentials, or CredentialStore.
 	APIKeySource APIKeySource
+	// Credentials configures in-memory Claude subscription OAuth credentials.
+	Credentials AnthropicCredentials
+	// CredentialStore dynamically loads API-key or OAuth credentials and saves
+	// refreshed OAuth generations.
+	CredentialStore AnthropicCredentialStore
+	// HTTPClient optionally customizes OAuth refresh transport. Redirects are
+	// disabled before credentials are sent.
+	HTTPClient *http.Client
 	// BaseURL overrides the default endpoint (https://api.anthropic.com).
 	BaseURL string
 	// Headers are extra headers merged into every request.
@@ -39,8 +78,24 @@ func (c Anthropic) build() (providerEntry, error) {
 	if id == "" {
 		id = "anthropic"
 	}
-	if c.APIKey != "" && c.APIKeySource != nil {
-		return providerEntry{}, fmt.Errorf("droids: Anthropic requires at most one of APIKey or APIKeySource")
+	configured := 0
+	if c.APIKey != "" {
+		configured++
+	}
+	if c.APIKeySource != nil {
+		configured++
+	}
+	if anthropicCredentialsConfigured(c.Credentials) {
+		configured++
+	}
+	if c.CredentialStore != nil {
+		configured++
+	}
+	if configured > 1 {
+		return providerEntry{}, fmt.Errorf("droids: Anthropic requires at most one credential source")
+	}
+	if err := validateAnthropicCredentials(c.Credentials); err != nil {
+		return providerEntry{}, err
 	}
 
 	opts := []option.RequestOption{option.WithoutEnvironmentDefaults(), option.WithMaxRetries(0)}
@@ -67,7 +122,16 @@ func (c Anthropic) build() (providerEntry, error) {
 		models[model.ID] = model
 	}
 
-	impl := &anthropicProvider{client: &client, apiKeySource: c.APIKeySource, options: opts}
+	var credentials *anthropicCredentialManager
+	if anthropicCredentialsConfigured(c.Credentials) || c.CredentialStore != nil {
+		gate := make(chan struct{}, 1)
+		gate <- struct{}{}
+		credentials = &anthropicCredentialManager{
+			current: c.Credentials, loaded: anthropicCredentialsConfigured(c.Credentials),
+			store: c.CredentialStore, refresher: anthropicoauth.NewClient(c.HTTPClient), now: time.Now, gate: gate,
+		}
+	}
+	impl := &anthropicProvider{client: &client, apiKeySource: c.APIKeySource, credentials: credentials, options: opts}
 	return providerEntry{
 		id:        id,
 		catalogID: "anthropic",
@@ -83,7 +147,99 @@ func (c Anthropic) build() (providerEntry, error) {
 type anthropicProvider struct {
 	client       *anthropic.Client
 	apiKeySource APIKeySource
+	credentials  *anthropicCredentialManager
 	options      []option.RequestOption
+}
+
+type anthropicOAuthRefresher interface {
+	Refresh(context.Context, anthropicoauth.Credentials) (anthropicoauth.Credentials, error)
+}
+
+type anthropicCredentialManager struct {
+	current   AnthropicCredentials
+	revision  string
+	loaded    bool
+	store     AnthropicCredentialStore
+	refresher anthropicOAuthRefresher
+	now       func() time.Time
+	gate      chan struct{}
+}
+
+func anthropicCredentialsConfigured(credentials AnthropicCredentials) bool {
+	return credentials.APIKey != "" || credentials.AccessToken != "" || credentials.RefreshToken != "" || !credentials.ExpiresAt.IsZero()
+}
+
+func validateAnthropicCredentials(credentials AnthropicCredentials) error {
+	if credentials.APIKey != "" && (credentials.AccessToken != "" || credentials.RefreshToken != "" || !credentials.ExpiresAt.IsZero()) {
+		return fmt.Errorf("droids: Anthropic credentials mix API-key and OAuth fields")
+	}
+	if credentials.AccessToken == "" && credentials.RefreshToken == "" && !credentials.ExpiresAt.IsZero() {
+		return fmt.Errorf("droids: Anthropic OAuth credentials have an expiry without tokens")
+	}
+	return nil
+}
+
+func (m *anthropicCredentialManager) resolve(ctx context.Context) (AnthropicCredentials, error) {
+	select {
+	case <-ctx.Done():
+		return AnthropicCredentials{}, ctx.Err()
+	case <-m.gate:
+	}
+	defer func() { m.gate <- struct{}{} }()
+	return m.resolveOwned(ctx)
+}
+
+func (m *anthropicCredentialManager) resolveOwned(ctx context.Context) (AnthropicCredentials, error) {
+	for range 3 {
+		if m.store != nil {
+			record, err := m.store.LoadAnthropicCredentials(ctx)
+			if err != nil {
+				return AnthropicCredentials{}, fmt.Errorf("load Anthropic credentials")
+			}
+			if anthropicCredentialsConfigured(record.Credentials) != (record.Revision != "") {
+				return AnthropicCredentials{}, fmt.Errorf("Anthropic credential store returned an invalid generation")
+			}
+			if !m.loaded || record.Revision != m.revision {
+				m.current, m.revision, m.loaded = record.Credentials, record.Revision, true
+			}
+		}
+		if err := validateAnthropicCredentials(m.current); err != nil {
+			return AnthropicCredentials{}, err
+		}
+		if m.current.APIKey != "" {
+			return m.current, nil
+		}
+		if m.current.AccessToken == "" && m.current.RefreshToken == "" {
+			return AnthropicCredentials{}, fmt.Errorf("Anthropic credentials are not configured")
+		}
+		if m.current.AccessToken != "" && (m.current.ExpiresAt.IsZero() || m.now().Add(anthropicOAuthExpirySkew).Before(m.current.ExpiresAt)) {
+			return m.current, nil
+		}
+		if m.current.RefreshToken == "" {
+			return AnthropicCredentials{}, fmt.Errorf("Anthropic OAuth credentials expired and cannot be refreshed")
+		}
+		refreshed, err := m.refresher.Refresh(ctx, anthropicoauth.Credentials{
+			AccessToken: m.current.AccessToken, RefreshToken: m.current.RefreshToken, ExpiresAt: m.current.ExpiresAt,
+		})
+		if err != nil {
+			return AnthropicCredentials{}, fmt.Errorf("refresh Anthropic OAuth credentials")
+		}
+		next := AnthropicCredentials{AccessToken: refreshed.AccessToken, RefreshToken: refreshed.RefreshToken, ExpiresAt: refreshed.ExpiresAt}
+		if m.store != nil {
+			revision, err := m.store.SaveAnthropicCredentials(ctx, m.revision, next)
+			if errors.Is(err, ErrAnthropicCredentialsChanged) {
+				m.loaded = false
+				continue
+			}
+			if err != nil {
+				return AnthropicCredentials{}, fmt.Errorf("save refreshed Anthropic credentials")
+			}
+			m.revision = revision
+		}
+		m.current = next
+		return next, nil
+	}
+	return AnthropicCredentials{}, fmt.Errorf("Anthropic credentials changed repeatedly during refresh")
 }
 
 func (p *anthropicProvider) stream(ctx context.Context, model Model, req Request, _ callOptions) Stream {
@@ -132,13 +288,34 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		}
 	}
 
+	client, oauth, err := p.clientForRequest(ctx)
+	if err != nil {
+		reason := stopReasonForError(ctx)
+		kind := ErrorAuthentication
+		message := "Anthropic credentials are unavailable"
+		if reason == StopReasonAborted {
+			kind = ""
+			message = "Anthropic request aborted"
+		}
+		final := AssistantMessage{
+			Provider: model.Provider, Model: model.ID, StopReason: reason,
+			ErrorKind: kind, ErrorMessage: message, Timestamp: time.Now().UnixMilli(),
+		}
+		s.final = final
+		s.emit(StreamError{Message: final})
+		return
+	}
+
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model.ID),
 		MaxTokens: maxTokens,
 		Messages:  toAnthropicMessages(req.Messages),
 	}
+	if oauth {
+		params.System = append(params.System, anthropic.TextBlockParam{Text: "You are Claude Code, Anthropic's official CLI for Claude."})
+	}
 	if req.SystemPrompt != "" {
-		params.System = []anthropic.TextBlockParam{{Text: req.SystemPrompt}}
+		params.System = append(params.System, anthropic.TextBlockParam{Text: req.SystemPrompt})
 	}
 	if len(req.Tools) > 0 {
 		params.Tools = toAnthropicTools(req.Tools)
@@ -164,23 +341,6 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
 	}
 
-	client, err := p.clientForRequest(ctx)
-	if err != nil {
-		reason := stopReasonForError(ctx)
-		kind := ErrorAuthentication
-		message := "Anthropic credentials are unavailable"
-		if reason == StopReasonAborted {
-			kind = ""
-			message = "Anthropic request aborted"
-		}
-		final := AssistantMessage{
-			Provider: model.Provider, Model: model.ID, StopReason: reason,
-			ErrorKind: kind, ErrorMessage: message, Timestamp: time.Now().UnixMilli(),
-		}
-		s.final = final
-		s.emit(StreamError{Message: final})
-		return
-	}
 	stream := client.Messages.NewStreaming(ctx, params)
 	var acc anthropic.Message
 
@@ -244,19 +404,44 @@ func classifyAnthropicError(err error) ProviderErrorKind {
 	}
 }
 
-func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Client, error) {
+func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Client, bool, error) {
+	if p.credentials != nil {
+		credentials, err := p.credentials.resolve(ctx)
+		if err != nil {
+			return nil, false, err
+		}
+		if credentials.APIKey == "" {
+			// Subscription bearer tokens are intentionally restricted to
+			// Anthropic's fixed API origin and fixed identity headers.
+			client := anthropic.NewClient(
+				option.WithoutEnvironmentDefaults(),
+				option.WithMaxRetries(0),
+				option.WithBaseURL(defaultAnthropicBaseURL),
+				option.WithHeader("Authorization", "Bearer "+credentials.AccessToken),
+				option.WithHeader("anthropic-beta", "claude-code-20250219,oauth-2025-04-20"),
+				option.WithHeader("user-agent", "claude-cli/2.1.2"),
+				option.WithHeader("x-app", "cli"),
+			)
+			return &client, true, nil
+		}
+		options := make([]option.RequestOption, 0, len(p.options)+1)
+		options = append(options, option.WithAPIKey(credentials.APIKey))
+		options = append(options, p.options...)
+		client := anthropic.NewClient(options...)
+		return &client, false, nil
+	}
 	if p.apiKeySource == nil {
-		return p.client, nil
+		return p.client, false, nil
 	}
 	apiKey, err := p.apiKeySource(ctx)
 	if err != nil || apiKey == "" {
-		return nil, fmt.Errorf("resolve Anthropic API key")
+		return nil, false, fmt.Errorf("resolve Anthropic API key")
 	}
 	options := make([]option.RequestOption, 0, len(p.options)+1)
 	options = append(options, option.WithAPIKey(apiKey))
 	options = append(options, p.options...)
 	client := anthropic.NewClient(options...)
-	return &client, nil
+	return &client, false, nil
 }
 
 func anthropicTerminalEvent(message AssistantMessage) StreamEvent {

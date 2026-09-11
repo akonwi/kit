@@ -501,8 +501,8 @@ func TestAuthSelectionDismissesToItsOpeningSurface(t *testing.T) {
 func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 	t.Parallel()
 
-	if len(authProviderOptions) != 3 {
-		t.Fatalf("provider option count = %d, want 3", len(authProviderOptions))
+	if len(authProviderOptions) != 4 {
+		t.Fatalf("provider option count = %d, want 4", len(authProviderOptions))
 	}
 	for index, want := range []struct {
 		id     string
@@ -511,6 +511,7 @@ func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 		{id: "openai-codex", method: "ChatGPT plan · device code"},
 		{id: "anthropic", method: "API key"},
 		{id: "openai", method: "API key"},
+		{id: "anthropic-oauth", method: "Pro or Max plan · browser"},
 	} {
 		got := authProviderOptions[index]
 		if got.ID != want.id || got.Method != want.method || got.DefaultModel == "" {
@@ -520,6 +521,10 @@ func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 	filtered := filteredAuthProviders("anth")
 	if len(filtered) != 1 || filtered[0].ID != "anthropic" {
 		t.Fatalf("filtered providers = %#v", filtered)
+	}
+	filtered = filteredAuthProviders("Claude")
+	if len(filtered) != 1 || filtered[0].ID != anthropicOAuthOptionID {
+		t.Fatalf("Claude filtered providers = %#v", filtered)
 	}
 }
 
@@ -551,6 +556,48 @@ func TestAPIKeyProviderSelectionSubmitsObscuredCredential(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("API-key login was not submitted")
+	}
+}
+
+func TestClaudeSubscriptionSelectionAcceptsManualCode(t *testing.T) {
+	t.Parallel()
+
+	codes := make(chan string, 1)
+	ready := make(chan struct{})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	application := uitest.New(app{Options: Options{
+		Context: ctx, Server: &fakeServer{}, CWD: "/repo",
+		BrowserLogin: fakeBrowserLogin{codes: codes, ready: ready},
+	}})
+	application.Pump(80, 24)
+	application.Enter()
+	application.Pump(80, 24)
+	for range 3 {
+		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+		application.Pump(80, 24)
+	}
+	application.Enter()
+	select {
+	case <-ready:
+	case <-time.After(time.Second):
+		t.Fatal("Claude login instructions were not delivered")
+	}
+	application.Pump(80, 24)
+	for _, character := range "manual-code" {
+		application.Key(string(character))
+		application.Pump(80, 24)
+	}
+	application.Enter()
+
+	select {
+	case code := <-codes:
+		if code != "manual-code" {
+			t.Fatalf("manual code = %q", code)
+		}
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("manual Claude authorization code was not submitted")
 	}
 }
 
@@ -969,6 +1016,26 @@ type fakeAPIKeyLogin struct{ calls chan<- apiKeyLoginCall }
 func (f fakeAPIKeyLogin) Login(_ context.Context, providerID, apiKey string) error {
 	f.calls <- apiKeyLoginCall{providerID: providerID, apiKey: apiKey}
 	return errors.New("test login stopped")
+}
+
+type fakeBrowserLogin struct {
+	codes chan<- string
+	ready chan<- struct{}
+}
+
+func (f fakeBrowserLogin) Login(ctx context.Context, manual <-chan string, notify func(auth.AnthropicLoginInstructions) error) error {
+	if err := notify(auth.AnthropicLoginInstructions{AuthorizationURL: "https://claude.ai/oauth/authorize", RedirectURI: anthropicOAuthOptionID}); err != nil {
+		return err
+	}
+	close(f.ready)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case code := <-manual:
+		f.codes <- code
+		<-ctx.Done()
+		return ctx.Err()
+	}
 }
 
 type fakeServer struct {

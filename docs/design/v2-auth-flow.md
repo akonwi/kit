@@ -193,14 +193,15 @@ surface uses 70% of the available width, bounded to 48–96 columns:
         │ OpenAI Codex                  ChatGPT plan · device code  │
         │ Anthropic                     API key                     │
         │ OpenAI                        API key                     │
+        │ Claude                        Pro or Max plan · browser   │
         │                                                          │
         │ ↑ up · ↓ down · Enter select · Esc close                 │
         └──────────────────────────────────────────────────────────┘
 ```
 
 The list is derived from the providers currently supported by Droids: OpenAI
-Codex device login, Anthropic API key, and OpenAI API key. The focused picker
-row uses the full-width picker selection background and foreground; provider
+Codex device login, Anthropic API key, OpenAI API key, and Claude Pro/Max
+browser OAuth. The focused picker row uses the full-width picker selection background and foreground; provider
 name and method share one row. The header contains only
 the task title—an option count merely repeats what the list already shows. The
 filter remains visible, and the body owns bounded height and scrolling. The

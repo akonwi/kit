@@ -14,11 +14,12 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/droids"
 )
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 	for _, name := range []string{
-		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL",
 		"OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN", "OPENAI_CODEX_FEDRAMP",
 		"OPENAI_CODEX_EXPIRES_AT",
 	} {
@@ -42,7 +43,7 @@ func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {
 
 func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 	for _, name := range []string{
-		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
 		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
 	} {
@@ -64,7 +65,7 @@ func TestProvidersFromEnvironmentUsesCredentialStoreByDefault(t *testing.T) {
 
 func TestProvidersFromEnvironmentLoadsStoredAPIKeys(t *testing.T) {
 	for _, name := range []string{
-		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL",
+		"OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL",
 		"OPENAI_CODEX_ACCESS_TOKEN", "OPENAI_CODEX_REFRESH_TOKEN", "OPENAI_CODEX_ID_TOKEN",
 		"OPENAI_CODEX_ACCOUNT_ID", "OPENAI_CODEX_FEDRAMP", "OPENAI_CODEX_EXPIRES_AT",
 	} {
@@ -85,6 +86,26 @@ func TestProvidersFromEnvironmentLoadsStoredAPIKeys(t *testing.T) {
 	got := availableProviderIDs(context.Background(), paths, sources)
 	if want := []string{auth.AnthropicProviderID, auth.OpenAIProviderID}; !slices.Equal(got, want) {
 		t.Fatalf("available providers = %v, want %v", got, want)
+	}
+}
+
+func TestProvidersFromEnvironmentDiscoversStoredAnthropicOAuth(t *testing.T) {
+	for _, name := range []string{"ANTHROPIC_API_KEY", "ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"} {
+		t.Setenv(name, "")
+	}
+	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
+	store := auth.NewStore(paths.Auth)
+	if err := store.ReplaceAnthropicOAuthCredentials(context.Background(), droids.AnthropicCredentials{
+		AccessToken: "oauth-access", RefreshToken: "oauth-refresh", ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	_, sources, err := providersFromEnvironment(context.Background(), paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := availableProviderIDs(context.Background(), paths, sources); !slices.Contains(got, auth.AnthropicProviderID) {
+		t.Fatalf("available providers = %v", got)
 	}
 }
 

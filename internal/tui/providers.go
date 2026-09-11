@@ -6,8 +6,11 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 )
 
+const anthropicOAuthOptionID = "anthropic-oauth"
+
 type authProviderOption struct {
 	ID           string
+	ProviderID   string
 	Name         string
 	Method       string
 	DefaultModel string
@@ -15,16 +18,20 @@ type authProviderOption struct {
 
 var authProviderOptions = []authProviderOption{
 	{
-		ID: auth.OpenAICodexProviderID, Name: "OpenAI Codex",
+		ID: auth.OpenAICodexProviderID, ProviderID: auth.OpenAICodexProviderID, Name: "OpenAI Codex",
 		Method: "ChatGPT plan · device code", DefaultModel: codexDefaultModel,
 	},
 	{
-		ID: auth.AnthropicProviderID, Name: "Anthropic",
+		ID: auth.AnthropicProviderID, ProviderID: auth.AnthropicProviderID, Name: "Anthropic",
 		Method: "API key", DefaultModel: "anthropic/claude-sonnet-4-6",
 	},
 	{
-		ID: auth.OpenAIProviderID, Name: "OpenAI",
+		ID: auth.OpenAIProviderID, ProviderID: auth.OpenAIProviderID, Name: "OpenAI",
 		Method: "API key", DefaultModel: "openai/gpt-5.6-sol",
+	},
+	{
+		ID: anthropicOAuthOptionID, ProviderID: auth.AnthropicProviderID, Name: "Claude",
+		Method: "Pro or Max plan · browser", DefaultModel: "anthropic/claude-sonnet-4-6",
 	},
 }
 

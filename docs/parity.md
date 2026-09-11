@@ -49,9 +49,10 @@ automated or recorded manual verification exists.
 ## Application paths and migration
 
 - [~] Store provider credentials with private permissions, locked atomic writes,
-  generation-checked OAuth rotation, headless Codex login/logout, and native TUI
-  entry for OpenAI/Anthropic API keys; headless API-key management, web
-  presentation, and migration remain.
+  generation-checked Codex and Anthropic OAuth rotation, headless Codex
+  login/logout, and native TUI entry for OpenAI/Anthropic API keys plus Claude
+  Pro/Max browser OAuth; headless API-key/Anthropic management, web presentation,
+  and migration remain.
 - [ ] Preserve user-editable settings, theme, agent, template, MCP, and
   plugin-manifest surfaces.
 - [ ] Inventory existing `~/.kit` data before migration.
@@ -106,9 +107,9 @@ automated or recorded manual verification exists.
 - [~] Proactive and overflow-driven compaction with durable checkpoints; droids
   performs threshold-driven automatic compaction and protocol v19 projects its
   pending, completed, and failed lifecycle so the native TUI provides notice.
-- [~] OpenAI/Anthropic API-key providers and OpenAI Codex OAuth transport with
-  Kit-owned persistent credentials and refresh rotation, headless Codex device
-  login/logout, and native TUI selection/login for all three providers; broader
+- [~] OpenAI/Anthropic API-key providers, OpenAI Codex OAuth, and Claude Pro/Max
+  OAuth transport with Kit-owned persistent credentials and refresh rotation,
+  headless Codex device login/logout, and native TUI selection/login; broader
   credential management remains.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.

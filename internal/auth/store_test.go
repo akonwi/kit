@@ -445,3 +445,39 @@ func openAICodexCredentialConfigured(credentials droids.OpenAICodexCredentials) 
 		credentials.IDToken != "" || credentials.AccountID != "" ||
 		!credentials.ExpiresAt.IsZero() || credentials.FedRAMP
 }
+
+func TestAnthropicOAuthCredentialRefreshUsesRevisionGuard(t *testing.T) {
+	store := NewStore(filepath.Join(t.TempDir(), "kit", "auth.json"))
+	ctx := context.Background()
+	initial := droids.AnthropicCredentials{
+		AccessToken: "access-one", RefreshToken: "refresh-one", ExpiresAt: time.Now().Add(time.Hour),
+	}
+	if err := store.ReplaceAnthropicOAuthCredentials(ctx, initial); err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.LoadAnthropicCredentials(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Credentials.AccessToken != initial.AccessToken || record.Revision == "" {
+		t.Fatalf("loaded credential = %#v", record)
+	}
+	replacement := droids.AnthropicCredentials{
+		AccessToken: "access-two", RefreshToken: "refresh-two", ExpiresAt: time.Now().Add(2 * time.Hour),
+	}
+	if err := store.ReplaceAnthropicOAuthCredentials(ctx, replacement); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveAnthropicCredentials(ctx, record.Revision, droids.AnthropicCredentials{
+		AccessToken: "stale-access", RefreshToken: "stale-refresh", ExpiresAt: time.Now().Add(3 * time.Hour),
+	}); !errors.Is(err, droids.ErrAnthropicCredentialsChanged) {
+		t.Fatalf("stale refresh save error = %v", err)
+	}
+	got, err := store.LoadAnthropicCredentials(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Credentials.AccessToken != replacement.AccessToken {
+		t.Fatalf("stale refresh replaced current credential: %#v", got)
+	}
+}

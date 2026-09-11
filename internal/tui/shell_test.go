@@ -1874,6 +1874,28 @@ func TestAuthGateUsesShellFooterAndDeviceDialog(t *testing.T) {
 	}
 }
 
+func TestClaudeBrowserLoginDialogShowsFallbackInput(t *testing.T) {
+	t.Parallel()
+
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseAuthBrowser,
+		BrowserInstructions: auth.AnthropicLoginInstructions{
+			AuthorizationURL: "https://claude.ai/oauth/authorize?client_id=test",
+			RedirectURI:      "http://localhost:53692/callback",
+		},
+		AuthCode: "http://localhost:53692/callback?code=manual-code",
+		Status:   "Waiting for browser approval…",
+	}})
+	app.Pump(90, 24)
+	app.Pump(90, 24)
+	text := strings.Join(paintedRows(app, 90, 24), "\n")
+	for _, expected := range []string{"Claude Pro or Max", "Open this URL", "https://claude.ai/oauth/authorize", "paste the final redirect", "URL or authorization code", "http://localhost:53692/callback?code=manual-code", "Waiting for browser approval", "enter submit · esc cancel"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("Claude login dialog missing %q:\n%s", expected, text)
+		}
+	}
+}
+
 func TestCodexDeviceURLIsAPlainClickableLink(t *testing.T) {
 	t.Parallel()
 

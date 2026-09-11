@@ -62,7 +62,10 @@ func NewStore(path string) *Store {
 	return &Store{path: path, lockPath: path + ".lock"}
 }
 
-var _ droids.OpenAICodexCredentialStore = (*Store)(nil)
+var (
+	_ droids.OpenAICodexCredentialStore = (*Store)(nil)
+	_ droids.AnthropicCredentialStore   = (*Store)(nil)
+)
 
 // LoadOpenAICodexCredentials loads the current Codex credential generation. A
 // missing entry has zero credentials and an empty revision.
@@ -157,6 +160,107 @@ func (s *Store) ReplaceOpenAICodexCredentials(ctx context.Context, credentials d
 			return err
 		}
 		entries[OpenAICodexProviderID] = entry
+		return writeAuthEntries(s.path, entries)
+	})
+}
+
+// LoadAnthropicCredentials loads either the saved API key or Claude
+// subscription OAuth generation. A missing entry returns a zero record.
+func (s *Store) LoadAnthropicCredentials(ctx context.Context) (droids.AnthropicCredentialRecord, error) {
+	var record droids.AnthropicCredentialRecord
+	err := s.withLock(ctx, func() error {
+		entries, err := readAuthEntries(s.path)
+		if err != nil {
+			return err
+		}
+		raw, ok := entries[AnthropicProviderID]
+		if !ok {
+			return nil
+		}
+		var header struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(raw, &header); err != nil {
+			return fmt.Errorf("auth: decode Anthropic credential: %w", err)
+		}
+		switch header.Type {
+		case "api_key":
+			apiKey, err := decodeAPIKeyCredential(raw)
+			if err != nil {
+				return err
+			}
+			record.Credentials.APIKey, record.Revision = apiKey.APIKey, apiKey.Revision
+		case "oauth":
+			credentials, revision, err := decodeAnthropicOAuthCredential(raw)
+			if err != nil {
+				return err
+			}
+			record.Credentials, record.Revision = credentials, revision
+		default:
+			return fmt.Errorf("auth: Anthropic credential type %q is unsupported", header.Type)
+		}
+		return nil
+	})
+	return record, err
+}
+
+// SaveAnthropicCredentials atomically saves refreshed OAuth credentials when
+// expectedRevision is still current.
+func (s *Store) SaveAnthropicCredentials(ctx context.Context, expectedRevision string, credentials droids.AnthropicCredentials) (string, error) {
+	if err := validateAnthropicOAuthCredential(credentials); err != nil {
+		return "", err
+	}
+	if expectedRevision == "" {
+		return "", droids.ErrAnthropicCredentialsChanged
+	}
+	var nextRevision string
+	err := s.withLock(ctx, func() error {
+		entries, err := readAuthEntries(s.path)
+		if err != nil {
+			return err
+		}
+		raw, ok := entries[AnthropicProviderID]
+		if !ok {
+			return droids.ErrAnthropicCredentialsChanged
+		}
+		_, currentRevision, err := decodeAnthropicOAuthCredential(raw)
+		if err != nil || currentRevision != expectedRevision {
+			return droids.ErrAnthropicCredentialsChanged
+		}
+		nextRevision, err = newCredentialRevision()
+		if err != nil {
+			return err
+		}
+		entry, err := encodeAnthropicOAuthCredential(credentials, nextRevision)
+		if err != nil {
+			return err
+		}
+		entries[AnthropicProviderID] = entry
+		return writeAuthEntries(s.path, entries)
+	})
+	return nextRevision, err
+}
+
+// ReplaceAnthropicOAuthCredentials installs a freshly authenticated Claude
+// subscription credential as a new generation.
+func (s *Store) ReplaceAnthropicOAuthCredentials(ctx context.Context, credentials droids.AnthropicCredentials) error {
+	if err := validateAnthropicOAuthCredential(credentials); err != nil {
+		return err
+	}
+	return s.withLock(ctx, func() error {
+		entries, err := readAuthEntries(s.path)
+		if err != nil {
+			return err
+		}
+		revision, err := newCredentialRevision()
+		if err != nil {
+			return err
+		}
+		entry, err := encodeAnthropicOAuthCredential(credentials, revision)
+		if err != nil {
+			return err
+		}
+		entries[AnthropicProviderID] = entry
 		return writeAuthEntries(s.path, entries)
 	})
 }
@@ -469,6 +573,59 @@ func validateAPIKey(apiKey string) error {
 		if character < 0x21 || character == 0x7f {
 			return fmt.Errorf("auth: API key is missing or malformed")
 		}
+	}
+	return nil
+}
+
+type anthropicOAuthEntry struct {
+	Type         string `json:"type"`
+	AccessToken  string `json:"access"`
+	RefreshToken string `json:"refresh"`
+	ExpiresAt    int64  `json:"expires"`
+	Revision     string `json:"revision"`
+}
+
+func decodeAnthropicOAuthCredential(raw json.RawMessage) (droids.AnthropicCredentials, string, error) {
+	var entry anthropicOAuthEntry
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return droids.AnthropicCredentials{}, "", fmt.Errorf("auth: decode Anthropic OAuth credential: %w", err)
+	}
+	if entry.Type != "oauth" {
+		return droids.AnthropicCredentials{}, "", fmt.Errorf("auth: Anthropic credential type %q is unsupported", entry.Type)
+	}
+	credentials := droids.AnthropicCredentials{AccessToken: entry.AccessToken, RefreshToken: entry.RefreshToken}
+	if entry.ExpiresAt > 0 {
+		credentials.ExpiresAt = time.UnixMilli(entry.ExpiresAt).UTC()
+	}
+	if err := validateAnthropicOAuthCredential(credentials); err != nil {
+		return droids.AnthropicCredentials{}, "", err
+	}
+	if !validCredentialRevision(entry.Revision) {
+		return droids.AnthropicCredentials{}, "", fmt.Errorf("auth: Anthropic OAuth credential revision is missing or malformed")
+	}
+	return credentials, entry.Revision, nil
+}
+
+func encodeAnthropicOAuthCredential(credentials droids.AnthropicCredentials, revision string) (json.RawMessage, error) {
+	if err := validateAnthropicOAuthCredential(credentials); err != nil {
+		return nil, err
+	}
+	if !validCredentialRevision(revision) {
+		return nil, fmt.Errorf("auth: Anthropic OAuth credential revision is missing or malformed")
+	}
+	return json.Marshal(anthropicOAuthEntry{
+		Type: "oauth", AccessToken: credentials.AccessToken, RefreshToken: credentials.RefreshToken,
+		ExpiresAt: credentials.ExpiresAt.UnixMilli(), Revision: revision,
+	})
+}
+
+func validateAnthropicOAuthCredential(credentials droids.AnthropicCredentials) error {
+	if credentials.APIKey != "" || credentials.AccessToken == "" || credentials.RefreshToken == "" ||
+		malformedSecret(credentials.AccessToken) || malformedSecret(credentials.RefreshToken) {
+		return fmt.Errorf("auth: Anthropic OAuth credential is missing or malformed")
+	}
+	if credentials.ExpiresAt.IsZero() || credentials.ExpiresAt.UnixMilli() <= 0 {
+		return fmt.Errorf("auth: Anthropic OAuth credential contains an invalid expiry")
 	}
 	return nil
 }

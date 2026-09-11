@@ -52,9 +52,9 @@ directory sync. Malformed existing storage is reported and never overwritten.
 
 ### Credential generations
 
-Each newly installed or refreshed Codex entry receives a cryptographically
-random, non-secret revision. Legacy entries without a revision receive a stable
-hash-derived revision over canonical credential fields until their first
+Each newly installed or refreshed OAuth entry receives a cryptographically
+random, non-secret revision. Legacy Codex entries without a revision receive a
+stable hash-derived revision over canonical credential fields until their first
 successful write, so JSON reformatting does not create a false generation.
 
 The droids credential-store port uses compare-and-swap semantics:
@@ -71,9 +71,10 @@ on any prior non-empty revision cannot recreate a logged-out credential. An
 intentional login uses a separate replacement operation that always creates a
 new revision.
 
-The Codex provider checks the store generation before each model request. This
-lets a long-running daemon observe login, replacement, and logout without
-continuing indefinitely with a cached credential.
+The Codex and Anthropic providers check the store generation before each model
+request. This lets a long-running daemon observe login, replacement, and logout
+without continuing indefinitely with a cached credential. Anthropic entries may
+contain either an API key or a Claude Pro/Max OAuth generation, never both.
 
 ### Headless authentication
 
@@ -82,15 +83,16 @@ verification URL and validated short-lived user code, polls with cancellation,
 and installs the result as a new credential generation. `kit logout
 openai-codex` deletes the entry. `kit auth status` lists only printable provider
 IDs, credential types, and the active daemon source—never token or account
-values. TUI and browser presentation will reuse the same protocol and store
-boundaries later.
+values. The native TUI also offers Claude Pro/Max browser OAuth with a loopback
+callback and manual redirect/code fallback. It installs credentials through the
+same replacement and daemon-generation guard used by other login methods.
 
 ### Environment credentials
 
-Explicit `OPENAI_CODEX_*` environment credentials take precedence when the
-daemon starts. They are direct in-memory credentials rather than file-store
-credentials; refresh rotation is not durable. Environment changes still require
-a daemon restart. This path is intended for development and externally managed
+Explicit `OPENAI_CODEX_*` credentials and `ANTHROPIC_OAUTH_TOKEN` take
+precedence when the daemon starts. They are direct in-memory credentials rather
+than file-store credentials; refresh rotation is not durable. Environment
+changes still require a daemon restart. This path is intended for development and externally managed
 secret injection.
 
 The daemon publishes its non-secret credential source in the additive v1 local
@@ -120,7 +122,8 @@ Trade-offs:
   arbitrary same-user processes;
 - auth writes replace formatting and top-level key order;
 - a later migration must explicitly import supported entries from `~/.kit`;
-- TUI/browser login presentation and additional providers remain separate work.
+- browser-client auth presentation and headless Anthropic OAuth remain separate
+  work.
 
 ## Related
 
