@@ -53,6 +53,7 @@ type shellSnapshot struct {
 	ActivityFocus               *ui.FocusNode
 	WorkspaceLayout             *workspaceLayoutState
 	ActivitySourceID            string
+	ActivityConversationID      string
 	ActivitySelected            bool
 	SubagentsOpen               bool
 	SubagentDefinitions         []protocol.SubagentDefinition
@@ -110,8 +111,10 @@ type shellCallbacks struct {
 	MoveSubagentSelection      selectionMovedCallback
 	ShowSubagentRoster         ui.VoidCallback
 	OpenSubagentConversation   func(ui.EventContext, string)
+	OpenSubagentActivity       func(ui.EventContext, string, string)
 	OpenSubagentFromTool       func(ui.EventContext, string)
 	CloseSubagentConversation  func(ui.EventContext, string)
+	ScrollSubagentTranscript   func(ui.EventContext, string, int)
 	ScrollActivity             func(ui.EventContext, int)
 	ToggleActivityTool         func(ui.EventContext, activityToolKey)
 	SelectActivityTool         func(ui.EventContext, activityToolKey)
@@ -336,7 +339,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 	}
-	if w.Snapshot.ActivitySourceID != "" {
+	if w.Snapshot.ActivitySourceID != "" && w.Snapshot.ActivityConversationID == "" {
 		shortcuts["Page_Up"] = scrollActivityIntent{Pages: -1}
 		shortcuts["Page_Down"] = scrollActivityIntent{Pages: 1}
 		actions[scrollActivityIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
@@ -535,6 +538,14 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 	if len(presentation.Items) == 0 {
 		return emptyState(theme, "Ask a question or give a task.", "")
 	}
+	children := w.transcriptRows(theme, presentation, true)
+	return ui.Scrollbar{Child: ui.ScrollView{
+		Controller: w.Snapshot.Scroll,
+		Child:      ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}),
+	}}
+}
+
+func (w shellView) transcriptRows(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool) []ui.Widget {
 	children := make([]ui.Widget, 0, len(presentation.Items)*2)
 	for index, item := range presentation.Items {
 		if index > 0 {
@@ -556,16 +567,20 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		case transcriptDisplayAssistantProse:
 			child = transcriptAssistantEntry(theme, item.Item.Message)
 		case transcriptDisplayTurnWork:
-			child = w.transcriptWorkChip(theme, item, presentation.ToolStates)
+			workView := w
+			if !interactiveWork {
+				workView.Snapshot.InlineActivityOpen = nil
+				workView.Snapshot.HoveredActivityID = ""
+				workView.Callbacks.OpenActivity = nil
+				workView.Callbacks.HoverActivity = nil
+			}
+			child = workView.transcriptWorkChip(theme, item, presentation.ToolStates)
 		}
 		if child != nil {
 			children = append(children, keyedTranscriptItem{ID: item.ID, Child: child})
 		}
 	}
-	return ui.Scrollbar{Child: ui.ScrollView{
-		Controller: w.Snapshot.Scroll,
-		Child:      ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}),
-	}}
+	return children
 }
 
 type keyedTranscriptItem struct {
@@ -651,9 +666,6 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	header := mouseActivator{
 		Child: ui.SizedBox{Height: 1, Child: row},
 		OnPressed: func(ctx ui.EventContext) {
-			if w.Snapshot.ActivityFocus != nil {
-				w.Snapshot.ActivityFocus.RequestFocus()
-			}
 			if w.Callbacks.OpenActivity != nil {
 				w.Callbacks.OpenActivity(ctx, item.ID)
 			}
@@ -763,19 +775,24 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 	}}
 }
 
-func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
+func pendingActivityRow(theme ui.Theme, thinking, activity string) ui.Widget {
 	style := ui.Style{Foreground: theme.MutedForeground}
 	statusChildren := []ui.Widget(nil)
 	var status ui.Widget
-	if strings.TrimSpace(w.Snapshot.TurnThinking) != "" {
-		status = markdownInlineView{Source: latestThinkingLine(w.Snapshot.TurnThinking), BaseStyle: style}
-	} else if w.Snapshot.TurnActivity != "" {
-		status = ui.Text{Value: w.Snapshot.TurnActivity, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	if strings.TrimSpace(thinking) != "" {
+		status = markdownInlineView{Source: latestThinkingLine(thinking), BaseStyle: style}
+	} else if activity != "" {
+		status = ui.Text{Value: activity, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	}
 	if status != nil {
 		statusChildren = []ui.Widget{spinner{Style: style}, ui.SizedBox{Width: 1}, ui.Expanded(status)}
 	}
-	rows := []ui.Widget{ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStart, Children: statusChildren}}}
+	return ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStart, Children: statusChildren}}
+}
+
+func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
+	style := ui.Style{Foreground: theme.MutedForeground}
+	rows := []ui.Widget{pendingActivityRow(theme, w.Snapshot.TurnThinking, w.Snapshot.TurnActivity)}
 	visible := min(3, len(w.Snapshot.FollowUps.Previews))
 	if w.Snapshot.FollowUps.Count > 3 {
 		visible = min(2, visible)

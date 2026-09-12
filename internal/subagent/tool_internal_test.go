@@ -2,9 +2,47 @@ package subagent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
+
+func TestRedactInternalIdentities(t *testing.T) {
+	t.Parallel()
+	text := "child subagent_0123456789abcdef0123456789abcdef failed task_abcdef0123456789abcdef0123456789 at turn_11111111111111111111111111111111"
+	redacted := RedactInternalIdentities(text)
+	for _, prefix := range []string{"subagent_", "task_", "turn_"} {
+		if strings.Contains(redacted, prefix) {
+			t.Fatalf("redacted text retained %q: %q", prefix, redacted)
+		}
+	}
+	if !strings.Contains(redacted, "child <internal> failed <internal> at <internal>") {
+		t.Fatalf("redacted text = %q", redacted)
+	}
+}
+
+func TestModelToolUsesAgentNameWithoutStorageIdentities(t *testing.T) {
+	t.Parallel()
+	properties := modelToolParameters()["properties"].(map[string]any)
+	if len(properties) != 3 || properties["action"] == nil || properties["agent"] == nil || properties["message"] == nil {
+		t.Fatalf("model tool properties = %#v", properties)
+	}
+	projected := projectModelConversation(Conversation{
+		ID: "subagent_0123456789abcdef0123456789abcdef", Agent: Definition{Name: "reviewer"},
+		Model: "test/model", State: ConversationRunning,
+		ActiveTaskID: "task_0123456789abcdef0123456789abcdef", LastCompletedTaskID: "task_abcdef0123456789abcdef0123456789",
+	})
+	raw, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range []string{"subagent_", "task_", "conversationId", "taskId", "activeTaskId"} {
+		if strings.Contains(string(raw), identity) {
+			t.Fatalf("model projection retained %q: %s", identity, raw)
+		}
+	}
+}
 
 func TestResolveChildModelCanonicalizesAvailableSelector(t *testing.T) {
 	t.Parallel()

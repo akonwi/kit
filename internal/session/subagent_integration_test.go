@@ -152,8 +152,8 @@ func TestConcurrentSubagentVerticalSlice(t *testing.T) {
 	}
 	providers.mu.Lock()
 	defer providers.mu.Unlock()
-	if !providers.parentHadSubagentTool || providers.childHadSubagentTool || !providers.parentSawMailbox || !providers.parentSawModelFallback {
-		t.Fatalf("tool isolation/mailbox/fallback = parent tool:%v child tool:%v mailbox:%v fallback:%v", providers.parentHadSubagentTool, providers.childHadSubagentTool, providers.parentSawMailbox, providers.parentSawModelFallback)
+	if !providers.parentHadSubagentTool || providers.childHadSubagentTool || !providers.parentSawMailbox || !providers.parentSawModelFallback || !providers.childSawSteering || providers.parentSawOpaqueID {
+		t.Fatalf("tool isolation/mailbox/fallback/steering/opaque IDs = parent tool:%v child tool:%v mailbox:%v fallback:%v steering:%v opaque IDs:%v", providers.parentHadSubagentTool, providers.childHadSubagentTool, providers.parentSawMailbox, providers.parentSawModelFallback, providers.childSawSteering, providers.parentSawOpaqueID)
 	}
 	conversation, err := supervisor.Conversation(t.Context(), conversations[0].ID)
 	if err != nil {
@@ -185,6 +185,8 @@ type subagentIntegrationProviders struct {
 	childHadSubagentTool   bool
 	parentSawMailbox       bool
 	parentSawModelFallback bool
+	parentSawOpaqueID      bool
+	childSawSteering       bool
 }
 
 func (p *subagentIntegrationProviders) Models() []droids.Model { return []droids.Model{p.model()} }
@@ -212,6 +214,15 @@ func (p *subagentIntegrationProviders) Stream(ctx context.Context, _ droids.Mode
 	if child {
 		p.mu.Lock()
 		p.childHadSubagentTool = hasSubagentTool
+		for _, message := range request.Messages {
+			if user, ok := message.(droids.UserMessage); ok {
+				for _, content := range user.Content {
+					if text, ok := content.(droids.TextInput); ok && strings.Contains(text.Text, "change direction") {
+						p.childSawSteering = true
+					}
+				}
+			}
+		}
 		p.mu.Unlock()
 		select {
 		case <-p.childStarted:
@@ -234,6 +245,10 @@ func (p *subagentIntegrationProviders) Stream(ctx context.Context, _ droids.Mode
 	for _, message := range request.Messages {
 		if contextMessage, ok := message.(droids.ContextMessage); ok && contextMessage.Kind == "subagent_result" {
 			p.parentSawMailbox = true
+			raw := string(contextMessage.Details)
+			if strings.Contains(raw, "taskId") || strings.Contains(raw, "conversationId") {
+				p.parentSawOpaqueID = true
+			}
 		}
 		if result, ok := message.(droids.ToolResultMessage); ok && result.ToolName == "subagent" {
 			var details struct {
@@ -241,6 +256,10 @@ func (p *subagentIntegrationProviders) Stream(ctx context.Context, _ droids.Mode
 			}
 			if json.Unmarshal(result.Details, &details) == nil && strings.Contains(details.Warning, "using active model") {
 				p.parentSawModelFallback = true
+			}
+			raw := string(result.Details)
+			if strings.Contains(raw, "taskId") || strings.Contains(raw, "conversationId") {
+				p.parentSawOpaqueID = true
 			}
 		}
 	}
@@ -253,6 +272,16 @@ func (p *subagentIntegrationProviders) Stream(ctx context.Context, _ droids.Mode
 			Content: []droids.AssistantContent{droids.ToolCall{ID: "call_subagent", Name: "subagent", Arguments: arguments}},
 		}}
 	case 2:
+		select {
+		case <-p.childStarted:
+		case <-ctx.Done():
+		}
+		arguments, _ := json.Marshal(map[string]string{"action": "message", "agent": "scout", "message": "change direction"})
+		return &authorityStream{message: droids.AssistantMessage{
+			Provider: "test", Model: "echo", StopReason: droids.StopReasonToolUse,
+			Content: []droids.AssistantContent{droids.ToolCall{ID: "call_steer_subagent", Name: "subagent", Arguments: arguments}},
+		}}
+	case 3:
 		return &authorityStream{message: droids.AssistantMessage{
 			Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
 			Content: []droids.AssistantContent{droids.TextContent{Text: "parent continued"}},

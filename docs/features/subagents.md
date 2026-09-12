@@ -47,10 +47,15 @@ The parent receives one `subagent` tool with these actions:
 - `cancel`
 - `dismiss`
 
-`start` and `message` commit a queued task before returning its conversation and
-task IDs. They do not wait for child completion. `wait` is bounded and intended
-for exceptional synchronization rather than normal delegation. A `message`
-after interruption creates a new task linked to the interrupted task; Kit never
+The model addresses subagents only by configured agent name; conversation and
+task IDs are internal persistence details. `start(agent, message)` creates or
+continues the named child session. `message(agent, message)` durably steers its
+active droids turn through the same steering mechanism as a main session, so the
+message is consumed at the next safe model boundary without interrupting an
+in-flight provider response. If no turn is active, it starts or queues a new
+turn instead. `wait(agent)` blocks until the child has no active or queued work
+and returns immediately when it is already settled. A message after interruption
+creates a new internal task linked to the interrupted task; Kit never
 automatically retries interrupted work.
 
 Only persisted sessions can delegate. Temporary sessions return
@@ -75,15 +80,17 @@ Each conversation has its own droids SQLite store under
 `$KIT_HOME/droids/subagents/`. Kit's main SQLite database owns conversation and
 task lifecycle, scheduling, bounded summaries, and the parent mailbox.
 
-A terminal task atomically creates an idempotent mailbox item. If the parent is
+A terminal internal task atomically creates an idempotent mailbox item. If the parent is
 active, Kit admits that item as a droids boundary for the next safe model
 boundary. If the parent is idle or unloaded, Kit loads it and starts an
 autonomous context-only reaction turn. The model sees the bounded completion
 boundary and decides whether to respond, use tools, delegate more work, or stop.
 Kit limits autonomous parent reactions to four concurrent sessions and eight
 consecutive reactions per session; reaching the chain limit leaves later
-mailbox items pending until the next user prompt. Only bounded result metadata
-and the summary enter parent context, never the child transcript. Pending
+mailbox items pending until the next user prompt. Attached native clients watch
+session-wide run admission and settlement, so autonomous responses appear
+without requiring another user interaction. Only the agent identity, terminal state, bounded result metadata, and summary
+enter parent context—never internal IDs or the child transcript. Pending
 mailbox owners are scanned after startup so a crash cannot strand a committed
 completion.
 
@@ -97,9 +104,12 @@ Open `/subagents` from the command palette to view the current session's roster.
 The pane merges active conversations with discovered definitions, sorts active
 states before available agents, and shows each agent's status, description,
 model, source, and latest activity. Selecting a conversation opens a retained
-child transcript tab. Transcript panes follow live output when pinned, open at
-the final response, and use the durable completion summary while full history
-is still loading. Subagent-name labels in transcript work chips and Activity
+child transcript tab. Child panes project durable history and live events
+through the same transcript presentation used by the parent, including Markdown,
+buffered assistant prose, pending thinking, tool-work chips, and inline tool
+activity. Transcript panes follow live output when pinned, open at the final
+response, and use the durable completion summary while full history is still
+loading. Subagent-name labels in transcript work chips and Activity
 tool rows open that same retained tab. Running work can be cancelled, and
 conversations are dismissed through confirmed destructive dismissal. The workspace follows the
 standard wide split and narrow tab layouts and refreshes only while the

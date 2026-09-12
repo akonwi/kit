@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,6 +64,7 @@ type worker struct {
 
 	mu             sync.Mutex
 	runtime        ChildRuntime
+	steerable      bool
 	conversationMu *conversationLock
 }
 
@@ -302,7 +304,9 @@ func (s *Supervisor) execute(owned *worker) {
 	owned.mu.Lock()
 	owned.runtime = runtime
 	cause := context.Cause(owned.ctx)
+	owned.steerable = cause == nil
 	owned.mu.Unlock()
+	s.signalChanged()
 	if cause != nil {
 		_ = runtime.Abort(context.Background())
 	}
@@ -314,6 +318,7 @@ func (s *Supervisor) execute(owned *worker) {
 		s.publishChildEvent(claim.Task.OwnerSessionID, claim.Task.ConversationID, claim.Task.ID, event)
 	})
 	owned.mu.Lock()
+	owned.steerable = false
 	closeErr := runtime.Close(context.Background())
 	owned.runtime = nil
 	owned.mu.Unlock()
@@ -576,9 +581,12 @@ func (s *Supervisor) Dismiss(ctx context.Context, conversationID ConversationID,
 }
 
 func (s *Supervisor) cancelWorker(owned *worker, cause error) {
-	// ChildRuntime.Run owns translating context cancellation into its runtime's
-	// bounded abort path. Do not synchronously block the scheduler or caller.
+	// Exclude steering before publishing cancellation to ChildRuntime.Run. The
+	// runtime owns translating context cancellation into its bounded abort path.
+	owned.mu.Lock()
+	owned.steerable = false
 	owned.cancel(cause)
+	owned.mu.Unlock()
 }
 
 // CancelOwner stops every in-memory worker after the owner's archival transaction commits.
@@ -663,16 +671,98 @@ func (s *Supervisor) cleanupConversation(conversationID ConversationID) {
 	}
 }
 
+// Steer durably adds a user message to the active child turn. It waits through
+// the short claim/open window so callers do not need a task or runtime token.
+func (s *Supervisor) Steer(ctx context.Context, conversationID ConversationID, message string) (Conversation, error) {
+	if err := s.available(); err != nil {
+		return Conversation{}, err
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return Conversation{}, fmt.Errorf("%w: message is required", ErrInvalidInput)
+	}
+	for {
+		s.mu.Lock()
+		changed := s.changed
+		s.mu.Unlock()
+		conversation, err := s.repository.Conversation(ctx, conversationID)
+		if err != nil {
+			return Conversation{}, err
+		}
+		if conversation.DismissedAt != nil {
+			return Conversation{}, ErrDismissed
+		}
+		if conversation.ActiveTaskID == "" {
+			return conversation, ErrConflict
+		}
+		s.mu.Lock()
+		owned := s.running[conversation.ActiveTaskID]
+		s.mu.Unlock()
+		if owned != nil {
+			owned.mu.Lock()
+			runtime := owned.runtime
+			steerable := owned.steerable && context.Cause(owned.ctx) == nil
+			if runtime != nil && steerable {
+				err = runtime.Steer(ctx, message)
+			}
+			owned.mu.Unlock()
+			if runtime != nil && !steerable {
+				return conversation, ErrConflict
+			}
+			if runtime != nil {
+				if err != nil {
+					return conversation, err
+				}
+				current, loadErr := s.repository.Conversation(ctx, conversationID)
+				if loadErr != nil {
+					return Conversation{}, loadErr
+				}
+				if current.DismissedAt != nil {
+					return Conversation{}, ErrDismissed
+				}
+				return current, nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return Conversation{}, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+func conversationSettled(conversation Conversation) bool {
+	return conversation.ActiveTaskID == "" && conversation.QueuedTasks == 0
+}
+
+// WaitConversation waits until a child has no active or queued work.
+func (s *Supervisor) WaitConversation(ctx context.Context, conversationID ConversationID) (Conversation, error) {
+	for {
+		s.mu.Lock()
+		changed := s.changed
+		s.mu.Unlock()
+		conversation, err := s.repository.Conversation(ctx, conversationID)
+		if err != nil || conversationSettled(conversation) {
+			return conversation, err
+		}
+		select {
+		case <-ctx.Done():
+			return Conversation{}, ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
 // WaitTask waits for a named task to become terminal or for the caller's bounded context.
 func (s *Supervisor) WaitTask(ctx context.Context, taskID TaskID) (Task, error) {
 	for {
+		s.mu.Lock()
+		changed := s.changed
+		s.mu.Unlock()
 		task, err := s.repository.Task(ctx, taskID)
 		if err != nil || TerminalTask(task.State) {
 			return task, err
 		}
-		s.mu.Lock()
-		changed := s.changed
-		s.mu.Unlock()
 		select {
 		case <-ctx.Done():
 			return Task{}, ctx.Err()

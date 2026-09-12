@@ -7,7 +7,8 @@
 ## Goal
 
 Add first-class subagents to Kit v2 as durable, concurrent, supervised child
-executions. Starting subagent work returns a durable task identity promptly; it
+executions. The model addresses durable child sessions by configured agent
+name and never receives internal task or conversation identities. Starting work
 does not hold a parent tool call open until completion. Child work survives
 client detachment, remains isolated from the parent model context, and reports
 results through a durable parent mailbox.
@@ -62,7 +63,7 @@ Plugin-contributed definitions are deferred until the plugin supervisor exists.
 - [x] Allow at most one non-dismissed conversation for each agent name in a
       parent session.
 - [x] Give every conversation a stable conversation ID.
-- [x] Give every submitted unit of work a distinct task ID.
+- [x] Give every submitted unit of work a distinct internal task ID without exposing it to the parent model.
 - [x] Model conversation states as `idle`, `running`, `failed`, `aborted`, and
       `interrupted`.
 - [x] Model task states as `queued`, `running`, `completed`, `failed`, `aborted`,
@@ -75,8 +76,9 @@ Plugin-contributed definitions are deferred until the plugin supervisor exists.
 
 ### Durable queue
 
-- [x] `start` and `message` transactionally create a task in `queued` state
-      before returning its task ID.
+- [x] `start` and idle `message` transactionally create a task in `queued`
+      state before returning; running `message` durably steers the active droids
+      turn without creating another task.
 - [x] Keep queued tasks across client detachment and daemon restart.
 - [x] Execute tasks within one conversation strictly in submission order.
 - [x] Run at most one task per conversation at a time.
@@ -141,8 +143,9 @@ preserving conversational ordering.
 
 - [x] Persist an idempotent mailbox item when a task completes, fails, aborts
       after running, or is interrupted.
-- [x] Include task ID, conversation ID, agent identity, terminal state, and a
-      bounded result/error summary.
+- [x] Keep task and conversation identity on the internal mailbox receipt while
+      exposing only agent identity, terminal state, and a bounded result/error
+      summary to the parent model.
 - [x] Emit a parent-session event immediately for attached clients.
 - [x] Inject undelivered mailbox items into an active parent only at a safe
       boundary between model turns.
@@ -153,9 +156,8 @@ preserving conversational ordering.
       reaction limit.
 - [x] Mark delivery transactionally and idempotently.
 - [x] Never inject the child's full transcript into the parent context.
-- [x] Keep queued tasks canceled before execution visible in task history, but
-      do not deliver them to the parent model unless it explicitly waits for
-      them.
+- [x] Keep queued tasks canceled before execution visible to internal/native
+      task history without delivering them to parent model context.
 
 ### Model-facing tool
 
@@ -173,16 +175,17 @@ Semantics:
 
 - [x] `list_agents` returns discovered definitions and renderer/model-safe
       metadata.
-- [x] `start(agent, message)` creates or continues the agent's conversation,
-      durably queues work, and promptly returns conversation and task IDs.
-- [x] `message(agent|conversationId, message)` queues a follow-up in the same
-      conversation.
-- [x] `inspect(agent|conversationId|taskId)` returns current state and the latest
-      completed response summary.
-- [x] `wait(taskId, timeout?)` waits only for a bounded interval and does not
-      become the normal delegation path.
-- [x] `cancel(taskId)` generation-safely cancels only the named task.
-- [x] `dismiss(agent|conversationId)` destructively resets the conversation.
+- [x] `start(agent, message)` creates or continues the named child session and
+      promptly returns agent-scoped state without storage identities.
+- [x] `message(agent, message)` uses live droids steering when a turn is active
+      and admits new durable work when the child is settled.
+- [x] `inspect(agent)` returns current state and the latest completed response
+      summary.
+- [x] `wait(agent)` waits until no active or queued child work remains and
+      returns immediately when already settled.
+- [x] `cancel(agent)` generation-safely cancels active and queued work while
+      preserving the child session.
+- [x] `dismiss(agent)` destructively resets the child session.
 - [x] Tool guidance tells the parent to start work and continue independently
       rather than immediately waiting.
 
@@ -379,13 +382,13 @@ Run `go test -race ./...` throughout implementation.
 
 ## First vertical-slice acceptance criteria
 
-A parent agent can start a configured `scout`. The tool durably queues the task
-and promptly returns its task ID while the parent continues. The scout runs when
-scheduler capacity is available, survives TUI detachment, streams status to
-another attached client, persists its transcript, and deposits completion in
-the parent mailbox. Completion reaches an active parent at a safe boundary or
-starts a context-only reaction turn when the parent is idle or unloaded. The
-model decides how to proceed. The task and conversation can be inspected, followed
-up, canceled, or dismissed. Restarting the daemon marks running work
-`interrupted`, preserves queued work, and resumes scheduling that queued work
-without corrupting either transcript.
+A parent agent can start a configured `scout` by name and continue immediately
+without receiving a storage identity. The scout runs when scheduler capacity is
+available, accepts live steering at droids model boundaries, can be waited on by
+name until settled, survives TUI detachment, streams status to another attached
+client, persists its transcript, and deposits completion in the parent mailbox.
+Completion reaches an active parent at a safe boundary or starts a context-only
+reaction turn when the parent is idle or unloaded. The model decides how to
+proceed. The named child can be inspected, messaged, canceled, or dismissed.
+Restarting the daemon marks running work `interrupted`, preserves queued work,
+and resumes scheduling that queued work without corrupting either transcript.

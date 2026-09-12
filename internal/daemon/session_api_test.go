@@ -261,7 +261,7 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		observed, err = observer.Subagent(t.Context(), sessionID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
-		if err == nil && len(observed.Conversations) == 1 && len(observed.Conversations[0].Tasks) == 1 && observed.Conversations[0].Tasks[0].State == "completed" {
+		if err == nil && len(observed.Conversations) == 1 && observed.Conversations[0].State == "idle" && observed.Conversations[0].LastResultSummary != "" && len(observed.Conversations[0].Tasks) == 1 && observed.Conversations[0].Tasks[0].State == "completed" {
 			break
 		}
 		if time.Now().After(deadline) {

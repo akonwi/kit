@@ -186,9 +186,13 @@ A subagent is a supervised child execution with its own droids instance,
 context, transcript, status, and event stream. It runs in a goroutine and does
 not hold a parent tool call open for its lifetime.
 
-A model-facing operation may start a subagent, but it returns a durable task ID
-promptly. The session runtime owns subsequent lifecycle operations: inspect,
-message, wait, cancel, and result delivery.
+The model addresses one durable child session per configured agent name and
+never receives task or conversation storage identities. Starting or messaging
+an idle child admits durable work promptly. Messaging a running child uses the
+same droids steering path as the main session, adding input to the current turn
+at its next safe model boundary. Waiting is agent-scoped and completes when the
+child has no active or queued work. Internal task identities remain authoritative
+for scheduling, recovery, cancellation races, and idempotent result delivery.
 
 Subagent state and completion are durable. Completion is placed in the parent
 session's mailbox and surfaced immediately to attached clients. It is injected

@@ -5,16 +5,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
 )
 
-const (
-	defaultWaitTimeout = 5 * time.Second
-	maxWaitTimeout     = 30 * time.Second
-)
+var internalIdentityPattern = regexp.MustCompile(`\b(?:subagent|task|turn|message|mailbox|subreceipt)_[[:alnum:]]+\b`)
+
+// RedactInternalIdentities removes runtime and persistence identities from text
+// crossing into parent model context. Native diagnostics retain the full text.
+func RedactInternalIdentities(text string) string {
+	return internalIdentityPattern.ReplaceAllString(text, "<internal>")
+}
 
 // ToolService constructs model-facing asynchronous delegation tools.
 type ToolService struct {
@@ -34,34 +38,32 @@ func (s *ToolService) Tool(ownerSessionID string, catalog Catalog) (droids.AnyTo
 	}
 	return droids.NewTool(droids.Tool[toolArguments]{
 		Name:        "subagent",
-		Description: "Start and supervise asynchronous child-agent work. Start work, keep working independently, and inspect or wait only when needed. Actions: list_agents, start, message, inspect, wait, cancel, dismiss.",
-		Parameters: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"action":         map[string]any{"type": "string", "enum": []string{"list_agents", "start", "message", "inspect", "wait", "cancel", "dismiss"}},
-				"agent":          map[string]any{"type": "string", "description": "Configured agent name."},
-				"message":        map[string]any{"type": "string", "description": "Task or follow-up instructions."},
-				"conversationId": map[string]any{"type": "string", "description": "Stable child conversation identity."},
-				"taskId":         map[string]any{"type": "string", "description": "Stable submitted task identity."},
-				"timeoutMs":      map[string]any{"type": "integer", "minimum": 1, "maximum": maxWaitTimeout.Milliseconds()},
-			},
-			"required":             []string{"action"},
-			"additionalProperties": false,
-		},
-		Mode: droids.ModeSequential,
+		Description: "Work with durable named child-agent sessions. Address subagents only by configured agent name. Messages steer a running subagent at its next model boundary or start a new turn when it is idle. Wait blocks until the named subagent has no active or queued work. Actions: list_agents, start, message, inspect, wait, cancel, dismiss.",
+		Parameters:  modelToolParameters(),
+		Mode:        droids.ModeSequential,
 		Execute: func(ctx context.Context, _ droids.ToolContext, arguments toolArguments, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			return s.execute(ctx, ownerSessionID, copied, arguments), nil
 		},
 	})
 }
 
+func modelToolParameters() map[string]any {
+	return map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"action":  map[string]any{"type": "string", "enum": []string{"list_agents", "start", "message", "inspect", "wait", "cancel", "dismiss"}},
+			"agent":   map[string]any{"type": "string", "description": "Configured agent name."},
+			"message": map[string]any{"type": "string", "description": "Initial instructions or a live steering message."},
+		},
+		"required":             []string{"action"},
+		"additionalProperties": false,
+	}
+}
+
 type toolArguments struct {
-	Action         string `json:"action"`
-	Agent          string `json:"agent,omitempty"`
-	Message        string `json:"message,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
-	TaskID         string `json:"taskId,omitempty"`
-	TimeoutMS      int64  `json:"timeoutMs,omitempty"`
+	Action  string `json:"action"`
+	Agent   string `json:"agent,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type agentMetadata struct {
@@ -72,36 +74,17 @@ type agentMetadata struct {
 }
 
 type modelConversation struct {
-	ID                  ConversationID    `json:"id"`
-	AgentName           string            `json:"agent"`
-	Model               string            `json:"model"`
-	State               ConversationState `json:"state"`
-	Generation          uint64            `json:"generation"`
-	ActiveTaskID        TaskID            `json:"activeTaskId,omitempty"`
-	QueuedTasks         int               `json:"queuedTasks"`
-	LastCompletedTaskID TaskID            `json:"lastCompletedTaskId,omitempty"`
-	LastResultSummary   string            `json:"lastResultSummary,omitempty"`
-}
-
-type modelTask struct {
-	ID                     TaskID         `json:"id"`
-	ConversationID         ConversationID `json:"conversationId"`
-	Sequence               uint64         `json:"sequence"`
-	State                  TaskState      `json:"state"`
-	ChildTurnID            string         `json:"childTurnId,omitempty"`
-	CancellationGeneration uint64         `json:"cancellationGeneration"`
-	RetryOf                TaskID         `json:"retryOf,omitempty"`
-	ResultSummary          string         `json:"resultSummary,omitempty"`
-	Error                  string         `json:"error,omitempty"`
+	AgentName         string            `json:"agent"`
+	Model             string            `json:"model"`
+	State             ConversationState `json:"state"`
+	QueuedMessages    int               `json:"queuedMessages,omitempty"`
+	LastResultSummary string            `json:"lastResultSummary,omitempty"`
 }
 
 type toolResponse struct {
 	Action       string             `json:"action"`
 	Agents       []agentMetadata    `json:"agents,omitempty"`
 	Conversation *modelConversation `json:"conversation,omitempty"`
-	Task         *modelTask         `json:"task,omitempty"`
-	Tasks        []modelTask        `json:"tasks,omitempty"`
-	TimedOut     bool               `json:"timedOut,omitempty"`
 	Dismissed    bool               `json:"dismissed,omitempty"`
 	Warning      string             `json:"warning,omitempty"`
 	Error        string             `json:"error,omitempty"`
@@ -109,18 +92,8 @@ type toolResponse struct {
 
 func projectModelConversation(conversation Conversation) modelConversation {
 	return modelConversation{
-		ID: conversation.ID, AgentName: conversation.Agent.Name, Model: conversation.Model,
-		State: conversation.State, Generation: conversation.Generation,
-		ActiveTaskID: conversation.ActiveTaskID, QueuedTasks: conversation.QueuedTasks,
-		LastCompletedTaskID: conversation.LastCompletedTaskID, LastResultSummary: conversation.LastResultSummary,
-	}
-}
-
-func projectModelTask(task Task) modelTask {
-	return modelTask{
-		ID: task.ID, ConversationID: task.ConversationID, Sequence: task.Sequence, State: task.State,
-		ChildTurnID: task.ChildTurnID, CancellationGeneration: task.CancellationGeneration,
-		RetryOf: task.RetryOf, ResultSummary: task.ResultSummary, Error: task.Error,
+		AgentName: conversation.Agent.Name, Model: conversation.Model, State: conversation.State,
+		QueuedMessages: conversation.QueuedTasks, LastResultSummary: conversation.LastResultSummary,
 	}
 }
 
@@ -137,29 +110,31 @@ func (s *ToolService) execute(ctx context.Context, ownerSessionID string, catalo
 		}
 	case "start":
 		var conversation Conversation
-		var task Task
-		conversation, task, response.Warning, err = s.start(ctx, ownerSessionID, catalog, arguments.Agent, arguments.Message)
-		projectedConversation, projectedTask := projectModelConversation(conversation), projectModelTask(task)
-		response.Conversation, response.Task = &projectedConversation, &projectedTask
+		conversation, response.Warning, err = s.startModel(ctx, ownerSessionID, catalog, arguments.Agent, arguments.Message)
+		if err == nil {
+			projected := projectModelConversation(conversation)
+			response.Conversation = &projected
+		}
 	case "message":
 		var conversation Conversation
-		var task Task
-		conversation, task, err = s.message(ctx, ownerSessionID, arguments)
-		projectedConversation, projectedTask := projectModelConversation(conversation), projectModelTask(task)
-		response.Conversation, response.Task = &projectedConversation, &projectedTask
+		conversation, err = s.messageModel(ctx, ownerSessionID, arguments.Agent, arguments.Message)
+		if err == nil {
+			projected := projectModelConversation(conversation)
+			response.Conversation = &projected
+		}
 	case "inspect":
-		err = s.inspect(ctx, ownerSessionID, arguments, &response)
+		err = s.inspect(ctx, ownerSessionID, arguments.Agent, &response)
 	case "wait":
-		err = s.wait(ctx, ownerSessionID, arguments, &response)
+		err = s.wait(ctx, ownerSessionID, arguments.Agent, &response)
 	case "cancel":
-		err = s.cancel(ctx, ownerSessionID, arguments, &response)
+		err = s.cancel(ctx, ownerSessionID, arguments.Agent, &response)
 	case "dismiss":
-		err = s.dismiss(ctx, ownerSessionID, arguments, &response)
+		err = s.dismiss(ctx, ownerSessionID, arguments.Agent, &response)
 	default:
 		err = fmt.Errorf("%w: unsupported subagent action %q", ErrInvalidInput, arguments.Action)
 	}
 	if err != nil {
-		response.Error = err.Error()
+		response.Error = RedactInternalIdentities(err.Error())
 	}
 	raw, marshalErr := json.Marshal(response)
 	if marshalErr != nil {
@@ -206,6 +181,51 @@ func (s *ToolService) start(ctx context.Context, ownerSessionID string, catalog 
 	return conversation, task, warning, err
 }
 
+func (s *ToolService) startModel(ctx context.Context, ownerSessionID string, catalog Catalog, agentName, message string) (Conversation, string, error) {
+	definition, ok := catalog.Lookup(strings.TrimSpace(agentName))
+	if !ok {
+		return Conversation{}, "", fmt.Errorf("agent %q: %w", agentName, ErrNotFound)
+	}
+	if existing, err := s.Supervisor.ConversationByAgent(ctx, ownerSessionID, definition.Name); err == nil {
+		conversation, sendErr := s.sendToConversation(ctx, ownerSessionID, existing, message)
+		return conversation, "", sendErr
+	} else if !errors.Is(err, ErrNotFound) {
+		return Conversation{}, "", err
+	}
+	conversation, _, warning, err := s.start(ctx, ownerSessionID, catalog, definition.Name, message)
+	return conversation, warning, err
+}
+
+func (s *ToolService) messageModel(ctx context.Context, ownerSessionID, agentName, message string) (Conversation, error) {
+	conversation, err := s.resolveModelConversation(ctx, ownerSessionID, agentName)
+	if err != nil {
+		return Conversation{}, err
+	}
+	return s.sendToConversation(ctx, ownerSessionID, conversation, message)
+}
+
+func (s *ToolService) sendToConversation(ctx context.Context, ownerSessionID string, conversation Conversation, message string) (Conversation, error) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return Conversation{}, fmt.Errorf("%w: message is required", ErrInvalidInput)
+	}
+	if conversation.ActiveTaskID != "" {
+		steered, err := s.Supervisor.Steer(ctx, conversation.ID, message)
+		if err == nil {
+			return steered, nil
+		}
+		if !errors.Is(err, ErrConflict) {
+			return Conversation{}, err
+		}
+		conversation, err = s.Supervisor.Conversation(ctx, conversation.ID)
+		if err != nil {
+			return Conversation{}, err
+		}
+	}
+	admitted, _, err := s.admitFollowUp(ctx, ownerSessionID, conversation, message)
+	return admitted, err
+}
+
 func resolveChildConfiguration(
 	ctx context.Context,
 	agentName, requested, activeModel, activeThinking string,
@@ -233,11 +253,7 @@ func resolveChildConfiguration(
 	return fallbackModel, fallbackThinking, warning, nil
 }
 
-func (s *ToolService) message(ctx context.Context, ownerSessionID string, arguments toolArguments) (Conversation, Task, error) {
-	conversation, err := s.resolveConversation(ctx, ownerSessionID, arguments.Agent, arguments.ConversationID)
-	if err != nil {
-		return Conversation{}, Task{}, err
-	}
+func (s *ToolService) admitFollowUp(ctx context.Context, ownerSessionID string, conversation Conversation, message string) (Conversation, Task, error) {
 	var retryOf TaskID
 	if conversation.State == ConversationInterrupted {
 		tasks, err := s.Supervisor.ListTasks(ctx, conversation.ID)
@@ -255,93 +271,70 @@ func (s *ToolService) message(ctx context.Context, ownerSessionID string, argume
 		OwnerSessionID: ownerSessionID, ConversationID: conversation.ID, ExpectedGeneration: conversation.Generation,
 		Definition: conversation.Agent, CWD: conversation.CWD,
 		Model: conversation.Model, ThinkingLevel: conversation.ThinkingLevel,
-		Message: arguments.Message, RetryOf: retryOf, Now: time.Now().UTC(),
+		Message: message, RetryOf: retryOf, Now: time.Now().UTC(),
 	})
 }
 
-func (s *ToolService) inspect(ctx context.Context, ownerSessionID string, arguments toolArguments, response *toolResponse) error {
-	if arguments.TaskID != "" {
-		task, err := s.Supervisor.Task(ctx, TaskID(arguments.TaskID))
-		if err != nil {
-			return err
-		}
-		if task.OwnerSessionID != ownerSessionID {
-			return ErrNotFound
-		}
-		projectedTask := projectModelTask(task)
-		response.Task = &projectedTask
-		conversation, err := s.Supervisor.Conversation(ctx, task.ConversationID)
-		if err == nil {
-			projectedConversation := projectModelConversation(conversation)
-			response.Conversation = &projectedConversation
-		}
-		return err
-	}
-	conversation, err := s.resolveConversation(ctx, ownerSessionID, arguments.Agent, arguments.ConversationID)
+func (s *ToolService) message(ctx context.Context, ownerSessionID, agentName string, conversationID ConversationID, message string) (Conversation, Task, error) {
+	conversation, err := s.resolveConversation(ctx, ownerSessionID, agentName, string(conversationID))
 	if err != nil {
-		return err
+		return Conversation{}, Task{}, err
 	}
-	projectedConversation := projectModelConversation(conversation)
-	response.Conversation = &projectedConversation
-	tasks, err := s.Supervisor.ListTasks(ctx, conversation.ID)
-	if len(tasks) > 20 {
-		tasks = tasks[len(tasks)-20:]
-	}
-	response.Tasks = make([]modelTask, 0, len(tasks))
-	for _, task := range tasks {
-		response.Tasks = append(response.Tasks, projectModelTask(task))
-	}
-	return err
+	return s.admitFollowUp(ctx, ownerSessionID, conversation, message)
 }
 
-func (s *ToolService) wait(ctx context.Context, ownerSessionID string, arguments toolArguments, response *toolResponse) error {
-	if arguments.TaskID == "" {
-		return fmt.Errorf("%w: taskId is required", ErrInvalidInput)
-	}
-	timeout := defaultWaitTimeout
-	if arguments.TimeoutMS > 0 {
-		timeout = time.Duration(arguments.TimeoutMS) * time.Millisecond
-	}
-	if timeout > maxWaitTimeout {
-		return fmt.Errorf("%w: timeout exceeds %s", ErrInvalidInput, maxWaitTimeout)
-	}
-	waitContext, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	task, err := s.Supervisor.WaitTask(waitContext, TaskID(arguments.TaskID))
-	if errors.Is(err, context.DeadlineExceeded) {
-		task, err = s.Supervisor.Task(ctx, TaskID(arguments.TaskID))
-		response.TimedOut = true
-	}
+func (s *ToolService) inspect(ctx context.Context, ownerSessionID, agentName string, response *toolResponse) error {
+	conversation, err := s.resolveModelConversation(ctx, ownerSessionID, agentName)
 	if err != nil {
 		return err
 	}
-	if task.OwnerSessionID != ownerSessionID {
-		return ErrNotFound
-	}
-	projectedTask := projectModelTask(task)
-	response.Task = &projectedTask
+	projected := projectModelConversation(conversation)
+	response.Conversation = &projected
 	return nil
 }
 
-func (s *ToolService) cancel(ctx context.Context, ownerSessionID string, arguments toolArguments, response *toolResponse) error {
-	if arguments.TaskID == "" {
-		return fmt.Errorf("%w: taskId is required", ErrInvalidInput)
-	}
-	task, err := s.Supervisor.Task(ctx, TaskID(arguments.TaskID))
+func (s *ToolService) wait(ctx context.Context, ownerSessionID, agentName string, response *toolResponse) error {
+	conversation, err := s.resolveModelConversation(ctx, ownerSessionID, agentName)
 	if err != nil {
 		return err
 	}
-	if task.OwnerSessionID != ownerSessionID {
-		return ErrNotFound
+	conversation, err = s.Supervisor.WaitConversation(ctx, conversation.ID)
+	if err != nil {
+		return err
 	}
-	task, err = s.Supervisor.Cancel(ctx, task.ID, task.CancellationGeneration, "canceled by parent")
-	projectedTask := projectModelTask(task)
-	response.Task = &projectedTask
-	return err
+	projected := projectModelConversation(conversation)
+	response.Conversation = &projected
+	return nil
 }
 
-func (s *ToolService) dismiss(ctx context.Context, ownerSessionID string, arguments toolArguments, response *toolResponse) error {
-	conversation, err := s.resolveConversation(ctx, ownerSessionID, arguments.Agent, arguments.ConversationID)
+func (s *ToolService) cancel(ctx context.Context, ownerSessionID, agentName string, response *toolResponse) error {
+	conversation, err := s.resolveModelConversation(ctx, ownerSessionID, agentName)
+	if err != nil {
+		return err
+	}
+	tasks, err := s.Supervisor.ListTasks(ctx, conversation.ID)
+	if err != nil {
+		return err
+	}
+	for _, task := range tasks {
+		if task.State != TaskQueued && task.State != TaskRunning {
+			continue
+		}
+		if _, cancelErr := s.Supervisor.Cancel(ctx, task.ID, task.CancellationGeneration, "canceled by parent"); cancelErr != nil && !errors.Is(cancelErr, ErrConflict) && !errors.Is(cancelErr, ErrNotCancelable) {
+			return cancelErr
+		}
+	}
+	conversation, err = s.Supervisor.Conversation(ctx, conversation.ID)
+	if err != nil {
+		return err
+	}
+	projected := projectModelConversation(conversation)
+	response.Conversation = &projected
+	return nil
+}
+
+func (s *ToolService) dismiss(ctx context.Context, ownerSessionID, agentName string, response *toolResponse) error {
+	conversation, err := s.resolveModelConversation(ctx, ownerSessionID, agentName)
 	if err != nil {
 		return err
 	}
@@ -350,6 +343,21 @@ func (s *ToolService) dismiss(ctx context.Context, ownerSessionID string, argume
 		response.Dismissed = true
 	}
 	return err
+}
+
+func (s *ToolService) resolveModelConversation(ctx context.Context, ownerSessionID, agentName string) (Conversation, error) {
+	agentName = strings.TrimSpace(agentName)
+	if agentName == "" {
+		return Conversation{}, fmt.Errorf("%w: agent is required", ErrInvalidInput)
+	}
+	conversation, err := s.Supervisor.ConversationByAgent(ctx, ownerSessionID, agentName)
+	if err != nil {
+		return Conversation{}, err
+	}
+	if conversation.OwnerSessionID != ownerSessionID || conversation.DismissedAt != nil {
+		return Conversation{}, ErrNotFound
+	}
+	return conversation, nil
 }
 
 func (s *ToolService) resolveConversation(ctx context.Context, ownerSessionID, agentName, conversationID string) (Conversation, error) {
@@ -386,7 +394,7 @@ func (s *ToolService) Start(ctx context.Context, owner string, catalog Catalog, 
 
 // Message queues a follow-up in an existing conversation.
 func (s *ToolService) Message(ctx context.Context, owner, agent string, conversationID ConversationID, message string) (Conversation, Task, error) {
-	return s.message(ctx, owner, toolArguments{Agent: agent, ConversationID: string(conversationID), Message: message})
+	return s.message(ctx, owner, agent, conversationID, message)
 }
 
 // Inspect returns current state selected by agent, conversation, or task.
@@ -445,8 +453,12 @@ func (s *ToolService) Cancel(ctx context.Context, owner string, taskID TaskID) (
 
 // Dismiss destructively resets one active conversation.
 func (s *ToolService) Dismiss(ctx context.Context, owner, agent string, conversationID ConversationID) error {
-	response := toolResponse{}
-	return s.dismiss(ctx, owner, toolArguments{Agent: agent, ConversationID: string(conversationID)}, &response)
+	conversation, err := s.resolveConversation(ctx, owner, agent, string(conversationID))
+	if err != nil {
+		return err
+	}
+	_, err = s.Supervisor.Dismiss(ctx, conversation.ID, conversation.Generation, "dismissed by client")
+	return err
 }
 
 var _ ParentToolFactory = (*ToolService)(nil)

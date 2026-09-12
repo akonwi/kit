@@ -336,10 +336,123 @@ func TestSubagentTranscriptShowsCompletionSummaryWhileHistoryLoads(t *testing.T)
 	}})
 	application.Pump(100, 18)
 	text := strings.Join(paintedRows(application, 100, 18), "\n")
-	for _, expected := range []string{"Final response", "The final review found no soundness issues."} {
+	for _, expected := range []string{"The final review found no soundness issues."} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("completion summary missing %q:\n%s", expected, text)
 		}
+	}
+}
+
+func TestSubagentLiveEventsUseTranscriptWorkModel(t *testing.T) {
+	t.Parallel()
+	messages := subagentLiveTranscript(nil, []protocol.SubagentLiveEvent{
+		{Sequence: 1, Kind: "message.thinking.delta", TurnID: "turn_1", MessageID: "assistant_1", Delta: "Inspecting carefully"},
+		{Sequence: 2, Kind: "tool.planned", TurnID: "turn_1", MessageID: "assistant_1", ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 3, Kind: "message.completed", TurnID: "turn_1", MessageID: "assistant_1"},
+		{Sequence: 4, Kind: "tool.started", TurnID: "turn_1", ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 5, Kind: "tool.completed", TurnID: "turn_1", ToolCallID: "call_1", ToolName: "read", Text: "file contents"},
+	})
+	if len(messages) != 2 || messages[0].Role != "assistant" || messages[0].Pending || messages[0].Thinking != "Inspecting carefully" || len(messages[0].ToolCalls) != 1 || messages[1].Role != "tool" || messages[1].ToolStatus != "Completed" {
+		t.Fatalf("projected live transcript = %+v", messages)
+	}
+	presentation := presentTranscript(messages)
+	if len(presentation.Items) != 1 || presentation.Items[0].Kind != transcriptDisplayTurnWork {
+		t.Fatalf("live transcript presentation = %+v", presentation.Items)
+	}
+}
+
+func TestSubagentLiveToolStateSurvivesDurableDeclarationAndScopesByTurn(t *testing.T) {
+	t.Parallel()
+	durable := []protocol.TranscriptMessage{{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read"}},
+	}}
+	messages := subagentLiveTranscript(durable, []protocol.SubagentLiveEvent{
+		{Sequence: 1, Kind: "tool.started", TurnID: "turn_1", ToolCallID: "call_1", ToolName: "read"},
+		{Sequence: 2, Kind: "tool.started", TurnID: "turn_2", ToolCallID: "call_1", ToolName: "read"},
+	})
+	if len(messages) != 2 || messages[0].TurnID != "turn_1" || messages[1].TurnID != "turn_2" {
+		t.Fatalf("turn-scoped live tools = %+v", messages)
+	}
+}
+
+func TestActivityPresentationUsesOwningSubagentTranscript(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	state := appState{
+		subagentConversations: []protocol.SubagentConversation{{ID: conversationID, State: "idle"}},
+		subagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
+			ConversationID: conversationID,
+			Messages: []protocol.TranscriptMessage{{
+				ID: "child_assistant", TurnID: "child_turn", Role: "assistant",
+				Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentToolCall, ToolCallID: "child_call", ToolName: "read"}},
+			}},
+		}},
+		subagentLive: make(map[string]protocol.SubagentLiveEventPage),
+	}
+	main := []transcriptMessage{{ID: "main_assistant", TurnID: "main_turn", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "main_call", Name: "bash"}}}}
+	child := state.activityPresentation(main, conversationID)
+	if len(child.Items) != 1 || child.Items[0].TurnID != "child_turn" {
+		t.Fatalf("child activity presentation = %+v", child.Items)
+	}
+	parent := state.activityPresentation(main, "")
+	if len(parent.Items) != 1 || parent.Items[0].TurnID != "main_turn" {
+		t.Fatalf("parent activity presentation = %+v", parent.Items)
+	}
+}
+
+func TestSubagentTranscriptUsesSharedToolWorkPresentation(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
+		SubagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
+			ConversationID: conversationID,
+			Messages: []protocol.TranscriptMessage{
+				{ID: "user_1", TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect README"}}},
+				{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{
+					{Kind: protocol.TranscriptContentText, Text: "I'll inspect it."},
+					{Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+				}},
+				{ID: "tool_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "README contents"}}},
+				{ID: "assistant_2", TurnID: "turn_1", Role: "assistant", StopReason: "stop", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspection complete."}}},
+			},
+		}},
+	}})
+	application.Pump(100, 22)
+	text := strings.Join(paintedRows(application, 100, 22), "\n")
+	for _, expected := range []string{"Inspect README", "I'll inspect it.", "1 tool call", "read", "Inspection complete."} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("shared transcript presentation missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestChildActivityPageScrollStaysWithSubagentTranscript(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	childPages, parentPages := 0, 0
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		SubagentsOpen: true, ActivitySelected: true, ActivitySourceID: "turn-work:child", ActivityConversationID: conversationID,
+		WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "running"}},
+	}, Callbacks: shellCallbacks{
+		ScrollSubagentTranscript: func(_ ui.EventContext, id string, pages int) {
+			if id == conversationID {
+				childPages += pages
+			}
+		},
+		ScrollActivity: func(_ ui.EventContext, pages int) { parentPages += pages },
+	}})
+	application.Pump(100, 20)
+	application.Send(vaxis.Key{Keycode: vaxis.KeyPgDown})
+	if childPages != 1 || parentPages != 0 {
+		t.Fatalf("page scroll = child:%d parent:%d", childPages, parentPages)
 	}
 }
 

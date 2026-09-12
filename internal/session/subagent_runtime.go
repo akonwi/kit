@@ -154,6 +154,14 @@ type childRuntime struct {
 	closed bool
 }
 
+func (r *childRuntime) Steer(ctx context.Context, message string) error {
+	_, err := r.droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: message}}}, droids.PromptOptions{Steer: true})
+	if errors.Is(err, droids.ErrConflict) {
+		return subagent.ErrConflict
+	}
+	return err
+}
+
 func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted func(string) error, emit func(subagent.LiveEvent)) (subagent.ChildOutcome, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -247,6 +255,9 @@ func projectChildLiveEvent(envelope droids.EventEnvelope) (subagent.LiveEvent, b
 		result.Text, result.IsError = childResultText(event.Result.Content), event.IsError || event.Result.IsError
 	case droids.MessageEnd:
 		result.Kind = "message.completed"
+		if assistant, ok := event.Message.(droids.AssistantMessage); ok {
+			result.MessageID = assistant.ID
+		}
 	default:
 		return subagent.LiveEvent{}, false
 	}

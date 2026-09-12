@@ -379,21 +379,155 @@ func subagentTranscriptHasFinalResponse(transcript protocol.SubagentTranscript) 
 	return false
 }
 
+func subagentLiveTranscript(messages []protocol.TranscriptMessage, events []protocol.SubagentLiveEvent) []transcriptMessage {
+	durableMessages := make(map[string]bool, len(messages))
+	durableToolResults := make(map[transcriptToolStateKey]bool)
+	for _, message := range messages {
+		durableMessages[message.ID] = true
+		if message.Role == "tool" && message.ToolCallID != "" {
+			durableToolResults[transcriptToolStateKey{TurnID: message.TurnID, ToolCallID: message.ToolCallID}] = true
+		}
+	}
+	live := make([]transcriptMessage, 0)
+	assistants := make(map[string]int)
+	tools := make(map[transcriptToolStateKey]int)
+	ensureAssistant := func(event protocol.SubagentLiveEvent) *transcriptMessage {
+		if event.MessageID == "" || durableMessages[event.MessageID] {
+			return nil
+		}
+		if index, exists := assistants[event.MessageID]; exists {
+			return &live[index]
+		}
+		assistants[event.MessageID] = len(live)
+		live = append(live, transcriptMessage{ID: event.MessageID, TurnID: event.TurnID, Role: "assistant", Pending: true})
+		return &live[len(live)-1]
+	}
+	ensureTool := func(event protocol.SubagentLiveEvent) *transcriptMessage {
+		key := transcriptToolStateKey{TurnID: event.TurnID, ToolCallID: event.ToolCallID}
+		if event.ToolCallID == "" || durableToolResults[key] {
+			return nil
+		}
+		if index, exists := tools[key]; exists {
+			return &live[index]
+		}
+		tools[key] = len(live)
+		live = append(live, transcriptMessage{
+			ID: "live-tool:" + event.ToolCallID, TurnID: event.TurnID, Role: "tool",
+			ToolCallID: event.ToolCallID, ToolName: event.ToolName, ToolStatus: "Running…", Pending: true,
+		})
+		return &live[len(live)-1]
+	}
+	for _, event := range events {
+		switch event.Kind {
+		case "message.text.delta":
+			if assistant := ensureAssistant(event); assistant != nil {
+				assistant.Text += event.Delta
+			}
+		case "message.thinking.delta":
+			if assistant := ensureAssistant(event); assistant != nil {
+				assistant.Thinking += event.Delta
+			}
+		case "message.completed":
+			if assistant := ensureAssistant(event); assistant != nil {
+				assistant.Pending = false
+			}
+		case "tool.planned":
+			if assistant := ensureAssistant(event); assistant != nil && event.ToolCallID != "" {
+				found := false
+				for _, call := range assistant.ToolCalls {
+					found = found || call.ID == event.ToolCallID
+				}
+				if !found {
+					assistant.ToolCalls = append(assistant.ToolCalls, transcriptToolCall{ID: event.ToolCallID, Name: event.ToolName})
+				}
+			}
+		case "tool.started":
+			if tool := ensureTool(event); tool != nil {
+				tool.ToolName = event.ToolName
+				tool.ToolStatus = "Running…"
+				tool.Pending = true
+			}
+		case "tool.updated":
+			if tool := ensureTool(event); tool != nil {
+				tool.ToolName = event.ToolName
+				tool.Text += event.Text
+				tool.ToolStatus = "Running…"
+				tool.Pending = true
+			}
+		case "tool.completed":
+			if tool := ensureTool(event); tool != nil {
+				tool.ToolName = event.ToolName
+				tool.Text = event.Text
+				tool.ToolContent = []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: event.Text}}
+				tool.IsError = event.IsError
+				tool.Pending = false
+				if event.IsError {
+					tool.ToolStatus = "Failed"
+				} else {
+					tool.ToolStatus = "Completed"
+				}
+			}
+		}
+	}
+	return live
+}
+
+func subagentPaneMessages(conversation protocol.SubagentConversation, transcript protocol.SubagentTranscript, live protocol.SubagentLiveEventPage) []transcriptMessage {
+	messages := projectTranscript(transcript.Messages)
+	if conversation.State == "running" {
+		messages = append(messages, subagentLiveTranscript(transcript.Messages, live.Events)...)
+	}
+	if conversation.State != "running" && strings.TrimSpace(conversation.LastResultSummary) != "" && !subagentTranscriptHasFinalResponse(transcript) {
+		messages = append(messages, transcriptMessage{
+			ID: "subagent-final:" + conversation.ID, Role: "assistant", Text: strings.TrimSpace(conversation.LastResultSummary),
+		})
+	}
+	return messages
+}
+
+func subagentPendingStatus(messages []transcriptMessage) (thinking, activity string) {
+	for index := len(messages) - 1; index >= 0; index-- {
+		message := messages[index]
+		if !message.Pending {
+			continue
+		}
+		if message.Role == "assistant" && strings.TrimSpace(message.Thinking) != "" {
+			return message.Thinking, ""
+		}
+		return "", "Working…"
+	}
+	return "", ""
+}
+
 func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string) ui.Widget {
 	label := subagentConversationLabel(w.Snapshot.SubagentConversations, conversationID)
-	state := ""
-	finalSummary := ""
-	for _, conversation := range w.Snapshot.SubagentConversations {
-		if conversation.ID == conversationID {
-			state = conversation.State
-			finalSummary = strings.TrimSpace(conversation.LastResultSummary)
+	conversation := protocol.SubagentConversation{ID: conversationID}
+	for _, candidate := range w.Snapshot.SubagentConversations {
+		if candidate.ID == conversationID {
+			conversation = candidate
 			break
 		}
 	}
+	state := conversation.State
 	transcript, loaded := w.Snapshot.SubagentTranscripts[conversationID]
 	loadError := w.Snapshot.SubagentTranscriptErrors[conversationID]
+	controller := w.Snapshot.SubagentScroll
+	if controller == nil {
+		controller = w.Snapshot.ActivityScroll
+	}
+	messages := subagentPaneMessages(conversation, transcript, w.Snapshot.SubagentLive[conversationID])
+	presentation := presentTranscript(messages)
 	var rows []ui.Widget
-	if !loaded && loadError != "" {
+	if len(presentation.Items) > 0 {
+		transcriptView := w
+		transcriptView.Snapshot.Scroll = controller
+		transcriptView.Callbacks.OpenActivity = func(ctx ui.EventContext, sourceID string) {
+			if w.Callbacks.OpenSubagentActivity != nil {
+				w.Callbacks.OpenSubagentActivity(ctx, conversationID, sourceID)
+			}
+		}
+		rows = transcriptView.transcriptRows(theme, presentation, true)
+	} else if !loaded && loadError != "" {
 		rows = []ui.Widget{ui.Center(ui.Flex{
 			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter,
 			Children: []ui.Widget{
@@ -403,28 +537,8 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 		})}
 	} else if !loaded {
 		rows = []ui.Widget{ui.Center(spinnerWithLabel("Loading transcript…", ui.Style{Foreground: theme.MutedForeground}))}
-	} else if len(transcript.Messages) == 0 {
-		rows = []ui.Widget{ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})}
 	} else {
-		for index, message := range transcript.Messages {
-			if index > 0 {
-				rows = append(rows, ui.SizedBox{Height: 1})
-			}
-			switch message.Role {
-			case "user":
-				rows = append(rows, transcriptUserEntry(theme, message))
-			case "assistant":
-				rows = append(rows, transcriptAssistantEntry(theme, message))
-			case "tool":
-				rows = append(rows, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-					ui.Text{Value: glyphCheck + " " + message.ToolName, Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
-					ui.SizedBox{Width: 1},
-					ui.Expanded(ui.Text{Value: message.TextContent(), Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-				}})
-			case "context":
-				rows = append(rows, ui.Text{Value: message.TextContent(), Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true})
-			}
-		}
+		rows = []ui.Widget{ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})}
 	}
 	if loaded && loadError != "" {
 		rows = append([]ui.Widget{
@@ -432,25 +546,11 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 			ui.SizedBox{Height: 1},
 		}, rows...)
 	}
-	if state != "running" && finalSummary != "" && !subagentTranscriptHasFinalResponse(transcript) {
-		rows = append(rows,
-			ui.SizedBox{Height: 1},
-			ui.Text{Value: "Final response", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}},
-			markdownView{ID: "subagent-final:" + conversationID, Source: finalSummary, BaseStyle: ui.Style{Foreground: theme.Foreground}},
-		)
-	}
-	if live := w.Snapshot.SubagentLive[conversationID]; len(live.Events) > 0 && state == "running" {
-		rows = append(rows, ui.SizedBox{Height: 1}, ui.Text{Value: "Live activity", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}})
-		rows = append(rows, subagentLiveRows(theme, live.Events)...)
-	}
-	controller := w.Snapshot.SubagentScroll
-	if controller == nil {
-		controller = w.Snapshot.ActivityScroll
-	}
 	body := ui.Scrollbar{Child: ui.CustomScrollView{
 		Controller: controller, FollowOutput: true,
 		Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows})}},
 	}}
+	thinking, activity := subagentPendingStatus(messages)
 	hint := "page up/down scroll " + glyphMiddleDot + " ctrl+d dismiss " + glyphMiddleDot + " esc back"
 	for _, conversation := range w.Snapshot.SubagentConversations {
 		if conversation.ID == conversationID {
@@ -476,6 +576,7 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 		}})},
 		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
 		ui.Expanded(body),
+		ui.Padding(ui.Symmetric(1, 0), pendingActivityRow(theme, thinking, activity)),
 		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
@@ -503,8 +604,8 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 			return ui.EventHandled
 		},
 		scrollActivityIntent{}.IntentType(): func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if w.Callbacks.ScrollActivity != nil {
-				w.Callbacks.ScrollActivity(ctx, intent.(scrollActivityIntent).Pages)
+			if w.Callbacks.ScrollSubagentTranscript != nil {
+				w.Callbacks.ScrollSubagentTranscript(ctx, conversationID, intent.(scrollActivityIntent).Pages)
 			}
 			return ui.EventHandled
 		},
@@ -530,49 +631,4 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 		content = ui.FocusScope{AutoFocus: w.Snapshot.ActivitySelected, Child: content}
 	}
 	return content
-}
-
-func subagentLiveRows(theme ui.Theme, events []protocol.SubagentLiveEvent) []ui.Widget {
-	var thinking, text strings.Builder
-	toolOrder := make([]string, 0)
-	tools := make(map[string]protocol.SubagentLiveEvent)
-	for _, event := range events {
-		switch event.Kind {
-		case "message.thinking.delta":
-			thinking.WriteString(event.Delta)
-		case "message.text.delta":
-			text.WriteString(event.Delta)
-		case "tool.started", "tool.updated", "tool.completed":
-			if _, exists := tools[event.ToolCallID]; !exists {
-				toolOrder = append(toolOrder, event.ToolCallID)
-			}
-			tools[event.ToolCallID] = event
-		}
-	}
-	rows := make([]ui.Widget, 0, len(toolOrder)+2)
-	if value := strings.TrimSpace(thinking.String()); value != "" {
-		rows = append(rows, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			spinner{Style: ui.Style{Foreground: theme.MutedForeground}}, ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{Value: value, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-		}})
-	}
-	if value := strings.TrimSpace(text.String()); value != "" {
-		rows = append(rows, ui.Text{Value: value, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true})
-	}
-	for _, id := range toolOrder {
-		event := tools[id]
-		icon := ui.Widget(spinner{Style: ui.Style{Foreground: theme.MutedForeground}})
-		if event.Kind == "tool.completed" {
-			if event.IsError {
-				icon = ui.Text{Value: glyphCross, Style: ui.Style{Foreground: theme.DangerText}}
-			} else {
-				icon = ui.Text{Value: glyphCheck, Style: ui.Style{Foreground: theme.AccentText}}
-			}
-		}
-		rows = append(rows, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			icon, ui.SizedBox{Width: 1}, ui.Text{Value: event.ToolName, Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
-			ui.SizedBox{Width: 1}, ui.Expanded(ui.Text{Value: event.Text, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-		}})
-	}
-	return rows
 }

@@ -102,6 +102,32 @@ func (transport *scriptedMutationTransport) GetSessionSnapshot(context.Context, 
 	return transport.snapshot, nil
 }
 
+func TestAttachmentEventStreamIncludesRunLifecycleEvents(t *testing.T) {
+	t.Parallel()
+	batch := protocol.SessionEventBatch{
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 3,
+		Events: []protocol.SessionEvent{
+			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventRunStarted, Status: protocol.RunStatusRunning},
+			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventAssistantCompleted, MessageID: "message_one"},
+			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
+		},
+	}
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := io.NopCloser(strings.NewReader("event: session.events\nid: stream_test:3\ndata: " + string(encoded) + "\n\n"))
+	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
+	go stream.readSSE(t.Context(), body, "", true, "", "stream_test", 0, nil, true)
+	var received []protocol.SessionEvent
+	for events := range stream.Updates() {
+		received = append(received, events...)
+	}
+	if len(received) != 3 || received[0].Kind != protocol.SessionEventRunStarted || received[2].Kind != protocol.SessionEventRunFinished {
+		t.Fatalf("attachment events = %#v", received)
+	}
+}
+
 func TestLocalEventStreamReadsSSEUntilBoundRunFinishes(t *testing.T) {
 	t.Parallel()
 
@@ -119,7 +145,7 @@ func TestLocalEventStreamReadsSSEUntilBoundRunFinishes(t *testing.T) {
 	}
 	body := io.NopCloser(strings.NewReader(": connected\n\nevent: session.events\nid: stream_test:3\ndata: " + string(encoded) + "\n\n"))
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
-	go stream.readSSE(t.Context(), body, "run_test", false, "", "", 0, nil)
+	go stream.readSSE(t.Context(), body, "run_test", false, "", "", 0, nil, false)
 
 	var received []protocol.SessionEvent
 	for events := range stream.Updates() {
@@ -153,7 +179,7 @@ func TestLocalEventStreamResumesFromSnapshotBaseline(t *testing.T) {
 	var cursor int64
 	go stream.readSSE(t.Context(), body, "run_test", true, "message_test", "stream_test", 41, func(_ string, value int64, _ bool) {
 		cursor = value
-	})
+	}, false)
 
 	var received []protocol.SessionEvent
 	for events := range stream.Updates() {
@@ -177,7 +203,7 @@ func TestLocalEventStreamReportsResynchronizationRecord(t *testing.T) {
 	}
 	body := io.NopCloser(strings.NewReader("event: session.resync\ndata: " + string(encoded) + "\n\n"))
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 1), done: make(chan struct{})}
-	go stream.readSSE(t.Context(), body, "run_test", false, "", "", 0, nil)
+	go stream.readSSE(t.Context(), body, "run_test", false, "", "", 0, nil, false)
 	for range stream.Updates() {
 	}
 	if err := stream.Err(); !errors.Is(err, errEventResyncRequired) {
@@ -203,7 +229,7 @@ func TestLocalEventStreamDoesNotAdvanceCursorBeforeDelivery(t *testing.T) {
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
 	advanced := make(chan struct{}, 1)
 	body := io.NopCloser(strings.NewReader("data: " + string(encoded) + "\n\n"))
-	go stream.readSSE(ctx, body, "run_test", false, "", "", 0, func(string, int64, bool) { advanced <- struct{}{} })
+	go stream.readSSE(ctx, body, "run_test", false, "", "", 0, func(string, int64, bool) { advanced <- struct{}{} }, false)
 	cancel()
 	<-stream.done
 	select {
@@ -229,7 +255,7 @@ func TestLocalEventStreamRejectsSequenceGapAcrossRecords(t *testing.T) {
 		payload.WriteString("data: " + string(encoded) + "\n\n")
 	}
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
-	go stream.readSSE(t.Context(), io.NopCloser(strings.NewReader(payload.String())), "run_test", false, "", "stream_test", 0, nil)
+	go stream.readSSE(t.Context(), io.NopCloser(strings.NewReader(payload.String())), "run_test", false, "", "stream_test", 0, nil, false)
 	for range stream.Updates() {
 	}
 	if err := stream.Err(); !errors.Is(err, errEventResyncRequired) {

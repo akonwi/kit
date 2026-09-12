@@ -46,9 +46,10 @@ type SubagentEventReader interface {
 }
 
 // SessionEventWatcher is the optional attachment-scoped event surface. It
-// carries session-level events such as subagent lifecycle invalidations.
+// carries all session events so an idle client can discover externally admitted
+// runs as well as session-level invalidations.
 type SessionEventWatcher interface {
-	Watch(context.Context) (EventStream, error)
+	Watch(context.Context) (protocol.SessionSnapshot, EventStream, error)
 }
 
 // FollowUpSession is the optional queue-aware prompt surface.

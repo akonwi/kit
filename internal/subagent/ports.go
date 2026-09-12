@@ -96,11 +96,12 @@ type ChildRuntimeFactory interface {
 	Delete(context.Context, Conversation) error
 }
 
-// ChildRuntime executes one task in an isolated conversation. Run and
+// ChildRuntime executes one task in an isolated conversation. Run, Steer, and
 // Transcript may be called concurrently; implementations must synchronize
 // access to shared runtime and store state without blocking cancellation.
 type ChildRuntime interface {
 	Run(context.Context, Task, func(childTurnID string) error, func(LiveEvent)) (ChildOutcome, error)
+	Steer(context.Context, string) error
 	Abort(context.Context) error
 	Transcript(context.Context) (Transcript, error)
 	Close(context.Context) error

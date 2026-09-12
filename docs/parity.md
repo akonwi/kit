@@ -279,14 +279,16 @@ automated or recorded manual verification exists.
 
 - [~] Discover user and project agent definitions with deterministic precedence;
   compatibility and plugin-contributed locations remain.
-- [~] Start durable concurrent execution and promptly return task identity;
-  authenticated native CLI and multi-observer smoke coverage is recorded in the
-  implementation tracker, while semantic-web parity remains.
+- [~] Start durable concurrent execution through agent-name-only model tools;
+  internal task identities remain private, authenticated native CLI and
+  multi-observer smoke coverage is recorded in the implementation tracker, and
+  semantic-web parity remains.
 - [~] One independently cancellable context, droids runtime, durable transcript,
   bounded live event stream, and status per conversation.
 - [~] Bounded global/per-session concurrency and session-fair FIFO scheduling.
-- [~] Inspect, continue/message, bounded wait, generation-safe cancel, and
-  confirmed dismiss lifecycle operations.
+- [~] Agent-scoped inspect, live droids steering, wait-until-settled, cancel,
+  and confirmed dismiss lifecycle operations; lower-level native protocol
+  operations retain generation-safe internal identities.
 - [~] Persist full subagent activity without injecting its transcript into the
   parent model context.
 - [~] Deliver completion through the durable parent mailbox at a safe turn

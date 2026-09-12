@@ -475,10 +475,11 @@ func (d *Droid) Prompt(
 ) (ExecutionHandle, error)
 ```
 
-All prompts start immediately when the droid is ready. When it is occupied,
-`options.Steer` selects whether to reject the input or steer the current turn.
-`Prompt` returns only after prompt or steering admission is durably acknowledged
-by the Store.
+Zero-option prompts start immediately when the droid is ready. With
+`options.Steer`, admission requires an active steerable turn; an idle droid
+returns `ErrConflict` rather than starting a new turn. When occupied, the option
+selects whether to reject the input or steer the current turn. `Prompt` returns
+only after prompt or steering admission is durably acknowledged by the Store.
 
 The call context bounds admission only. Canceling it after admission does not
 abort execution. `ExecutionHandle.Wait` similarly cancels only the wait.
@@ -591,17 +592,17 @@ admitting the input.
 
 ### Steering
 
-With `PromptOptions{Steer: true}`, `Prompt` also starts immediately when the
-droid is ready. When a turn is active or paused, it durably records the input as
-pending steering for that turn and returns the current execution handle. Pending
-steering is consumed in
+With `PromptOptions{Steer: true}`, an idle droid returns `ErrConflict`. When a
+turn is active or paused, `Prompt` durably records the input as pending steering
+for that turn and returns the current execution handle. Pending steering is consumed in
 acceptance order after the active assistant response and complete tool batch,
 before the next provider request. It keeps an otherwise complete execution
 alive. Steering accepted while paused waits for resume.
 
 A recoverable interrupted turn is not steerable and must first be resumed or
-aborted. Admission is serialized with settlement, so an input racing normal
-settlement becomes an immediate prompt rather than being lost.
+aborted. Admission is serialized with settlement, so steering that loses a race
+with normal settlement returns `ErrConflict`; the embedding application may
+then admit an ordinary new turn without risking an orphaned instruction.
 
 ### Caller-managed follow-ups
 

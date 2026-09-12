@@ -27,6 +27,67 @@ func liveToolMessage(t *testing.T, state *appState, callID string) transcriptMes
 	return transcriptMessage{}
 }
 
+func TestAcceptedPromptMergesDeferredAutonomousResponse(t *testing.T) {
+	t.Parallel()
+	state := appState{
+		operation:    7,
+		messages:     []transcriptMessage{{Role: "assistant", Text: "older"}},
+		liveMessages: []transcriptMessage{{Role: "user", Text: "new prompt"}},
+		deferredSessionSnapshot: &protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{{
+			Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "autonomous response"}},
+		}}},
+	}
+	if !state.acceptPromptAdmission(7, appTestRun{id: "run_new"}) {
+		t.Fatal("prompt admission was rejected")
+	}
+	if state.deferredSessionSnapshot != nil || state.activeRunID != "run_new" || len(state.messages) != 1 || state.messages[0].Text != "autonomous response" || len(state.liveMessages) != 1 {
+		t.Fatalf("accepted state = deferred:%v run:%q messages:%+v live:%+v", state.deferredSessionSnapshot, state.activeRunID, state.messages, state.liveMessages)
+	}
+}
+
+type appTestRun struct{ id string }
+
+func (r appTestRun) ID() string { return r.id }
+func (appTestRun) Wait(context.Context) (protocol.PromptOutcome, error) {
+	return protocol.PromptOutcome{}, nil
+}
+func (appTestRun) Abort(context.Context) error { return nil }
+
+func TestAttachedSnapshotReconcilesCompletedAndSuccessorRuns(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name                       string
+		pending                    bool
+		activeRunID, snapshotRunID string
+		want                       bool
+	}{
+		{name: "idle baseline catches completed run", want: true},
+		{name: "admission keeps optimistic prompt", pending: true, want: false},
+		{name: "same active run stays with current watcher", pending: true, activeRunID: "run_a", snapshotRunID: "run_a", want: false},
+		{name: "successor replaces stale active run", pending: true, activeRunID: "run_a", snapshotRunID: "run_b", want: true},
+		{name: "terminal snapshot settles stale active run", pending: true, activeRunID: "run_a", want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldApplyAttachedSnapshot(test.pending, test.activeRunID, test.snapshotRunID); got != test.want {
+				t.Fatalf("should apply = %t, want %t", got, test.want)
+			}
+		})
+	}
+}
+
+func TestAttachedRunLifecycleFindsAutonomousRunBoundaries(t *testing.T) {
+	t.Parallel()
+	started, finished, status := attachedRunLifecycle([]protocol.SessionEvent{
+		{Kind: protocol.SessionEventSubagentChanged},
+		{Kind: protocol.SessionEventRunStarted, RunID: "run_autonomous", Status: protocol.RunStatusRunning},
+		{Kind: protocol.SessionEventAssistantCompleted, RunID: "run_autonomous"},
+		{Kind: protocol.SessionEventRunFinished, RunID: "run_autonomous", Status: protocol.RunStatusCompleted},
+	})
+	if started != "run_autonomous" || finished != "run_autonomous" || status != protocol.RunStatusCompleted {
+		t.Fatalf("attached lifecycle = started:%q finished:%q status:%q", started, finished, status)
+	}
+}
+
 func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
 	var toasts []toastInput
 	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}

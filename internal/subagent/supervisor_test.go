@@ -15,6 +15,104 @@ import (
 	"github.com/akonwi/kit/internal/subagent"
 )
 
+func TestSupervisorSteersActiveConversationAndWaitsForIdle(t *testing.T) {
+	store := openSupervisorStore(t)
+	owner := createSupervisorOwner(t, store, "steering")
+	factory := newGatedChildFactory()
+	supervisor, err := subagent.NewSupervisor(store, factory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
+	conversation, task, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "initial", time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if started := waitStarted(t, factory.started); started != task.ID {
+		t.Fatalf("started task = %q, want %q", started, task.ID)
+	}
+	steered, err := supervisor.Steer(t.Context(), conversation.ID, "change direction")
+	if err != nil || steered.ActiveTaskID != task.ID {
+		t.Fatalf("steer = %#v, %v", steered, err)
+	}
+	select {
+	case message := <-factory.steered:
+		if message != "change direction" {
+			t.Fatalf("steering message = %q", message)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("active child was not steered")
+	}
+	factory.release(task.ID)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	settled, err := supervisor.WaitConversation(ctx, conversation.ID)
+	cancel()
+	if err != nil || settled.ActiveTaskID != "" || settled.QueuedTasks != 0 || settled.State != subagent.ConversationIdle {
+		t.Fatalf("settled conversation = %#v, %v", settled, err)
+	}
+	startedAt := time.Now()
+	if immediate, err := supervisor.WaitConversation(t.Context(), conversation.ID); err != nil || immediate.State != subagent.ConversationIdle || time.Since(startedAt) > 100*time.Millisecond {
+		t.Fatalf("immediate idle wait = %#v, %v", immediate, err)
+	}
+}
+
+func TestWaitConversationDoesNotMissCompletionNotification(t *testing.T) {
+	store := openSupervisorStore(t)
+	owner := createSupervisorOwner(t, store, "wait-notification")
+	repository := &conversationGateRepository{Repository: store}
+	factory := newGatedChildFactory()
+	supervisor, err := subagent.NewSupervisor(repository, factory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
+	conversation, task, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "initial", time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, factory.started)
+	repository.arm()
+	waitDone := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_, waitErr := supervisor.WaitConversation(ctx, conversation.ID)
+		waitDone <- waitErr
+	}()
+	select {
+	case <-repository.read:
+	case <-time.After(3 * time.Second):
+		t.Fatal("wait did not read running conversation")
+	}
+	factory.release(task.ID)
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		current, loadErr := store.Task(t.Context(), task.ID)
+		if loadErr == nil && subagent.TerminalTask(current.State) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("task did not complete while wait read was suspended")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(repository.release)
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("wait missed completion notification")
+	}
+}
+
 func TestSupervisorSchedulesSessionFairFIFOAndSurvivesAdmissionContext(t *testing.T) {
 	store := openSupervisorStore(t)
 	ownerA := createSupervisorOwner(t, store, "a")
@@ -326,6 +424,32 @@ func (r *failingCompletionRepository) Complete(ctx context.Context, completion s
 	return r.Repository.Complete(ctx, completion)
 }
 
+type conversationGateRepository struct {
+	subagent.Repository
+	enabled atomic.Bool
+	read    chan struct{}
+	release chan struct{}
+}
+
+func (r *conversationGateRepository) arm() {
+	r.read = make(chan struct{})
+	r.release = make(chan struct{})
+	r.enabled.Store(true)
+}
+
+func (r *conversationGateRepository) Conversation(ctx context.Context, id subagent.ConversationID) (subagent.Conversation, error) {
+	conversation, err := r.Repository.Conversation(ctx, id)
+	if r.enabled.CompareAndSwap(true, false) {
+		close(r.read)
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return subagent.Conversation{}, ctx.Err()
+		}
+	}
+	return conversation, err
+}
+
 type claimGateRepository struct {
 	subagent.Repository
 	claimed chan subagent.Claim
@@ -348,12 +472,16 @@ func (r *claimGateRepository) ClaimNext(ctx context.Context, owner string, limit
 
 type gatedChildFactory struct {
 	started chan subagent.TaskID
+	steered chan string
 	mu      sync.Mutex
 	gates   map[subagent.TaskID]chan struct{}
 }
 
 func newGatedChildFactory() *gatedChildFactory {
-	return &gatedChildFactory{started: make(chan subagent.TaskID, 32), gates: make(map[subagent.TaskID]chan struct{})}
+	return &gatedChildFactory{
+		started: make(chan subagent.TaskID, 32), steered: make(chan string, 32),
+		gates: make(map[subagent.TaskID]chan struct{}),
+	}
 }
 
 func (f *gatedChildFactory) Open(_ context.Context, _ subagent.Conversation) (subagent.ChildRuntime, error) {
@@ -392,6 +520,10 @@ func (r *gatedChildRuntime) Run(ctx context.Context, task subagent.Task, admitte
 	}
 }
 
+func (r *gatedChildRuntime) Steer(_ context.Context, message string) error {
+	r.factory.steered <- message
+	return nil
+}
 func (*gatedChildRuntime) Abort(context.Context) error { return nil }
 func (*gatedChildRuntime) Transcript(context.Context) (subagent.Transcript, error) {
 	return subagent.Transcript{}, nil

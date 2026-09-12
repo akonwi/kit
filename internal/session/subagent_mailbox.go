@@ -452,10 +452,8 @@ func mailboxBoundary(items []subagent.MailboxItem) (droids.BoundaryMessage, erro
 		return droids.BoundaryMessage{}, errors.New("subagent mailbox batch is empty")
 	}
 	type detailItem struct {
-		ConversationID string `json:"conversationId"`
-		TaskID         string `json:"taskId"`
-		Agent          string `json:"agent"`
-		State          string `json:"state"`
+		Agent string `json:"agent"`
+		State string `json:"state"`
 	}
 	var text strings.Builder
 	detailsItems := make([]detailItem, 0, len(items))
@@ -464,25 +462,22 @@ func mailboxBoundary(items []subagent.MailboxItem) (droids.BoundaryMessage, erro
 		if index > 0 {
 			text.WriteString("\n\n")
 		}
-		fmt.Fprintf(&text, "Subagent %s task %s finished with state %s.", item.AgentName, item.TaskID, item.State)
+		fmt.Fprintf(&text, "Subagent %s finished with state %s.", item.AgentName, item.State)
 		if summary := boundedMailboxContext(item.Summary); summary != "" {
 			text.WriteString("\nResult summary: ")
 			text.WriteString(summary)
 		}
-		if terminalError := boundedMailboxContext(item.Error); terminalError != "" {
+		if terminalError := boundedMailboxContext(subagent.RedactInternalIdentities(item.Error)); terminalError != "" {
 			text.WriteString("\nError: ")
 			text.WriteString(terminalError)
 		}
-		detailsItems = append(detailsItems, detailItem{
-			ConversationID: string(item.ConversationID), TaskID: string(item.TaskID),
-			Agent: item.AgentName, State: string(item.State),
-		})
+		detailsItems = append(detailsItems, detailItem{Agent: item.AgentName, State: string(item.State)})
 		receipts = append(receipts, item.ID)
 	}
 	details, err := droids.EncodeDetails(struct {
 		Version int          `json:"version"`
 		Items   []detailItem `json:"items"`
-	}{Version: 1, Items: detailsItems})
+	}{Version: 2, Items: detailsItems})
 	if err != nil {
 		return droids.BoundaryMessage{}, err
 	}

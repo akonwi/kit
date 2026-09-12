@@ -716,6 +716,28 @@ func TestSDKSteeringKeepsNoToolResponseAlive(t *testing.T) {
 	}
 }
 
+func TestSDKSteeringRequiresActiveTurn(t *testing.T) {
+	droid, err := droids.Open(t.Context(), "conversation_idle_steer", droids.Config{
+		Store: droids.NewMemoryStore(), Providers: newSteeringProviders(), Model: "test/steer",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	if _, err := droid.Prompt(t.Context(), droids.Input{
+		Content: []droids.InputContent{droids.TextInput{Text: "must not start"}},
+	}, droids.PromptOptions{Steer: true}); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("idle steering error = %v, want conflict", err)
+	}
+	history, err := droid.History(t.Context(), droids.HistoryQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Messages) != 0 {
+		t.Fatalf("idle steering persisted %d messages", len(history.Messages))
+	}
+}
+
 func TestSDKLengthTruncatedToolCallGetsSyntheticResult(t *testing.T) {
 	providers := &truncatedToolProviders{}
 	var toolRuns atomic.Int32

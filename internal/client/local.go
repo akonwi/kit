@@ -404,19 +404,19 @@ func (c *localSession) AbortBash(ctx context.Context, executionID string) error 
 	return c.transport.AbortBash(ctx, c.id, executionID)
 }
 
-// Watch opens an attachment-scoped stream containing session-level events.
-func (c *localSession) Watch(ctx context.Context) (sessionclient.EventStream, error) {
+// Watch returns an exact baseline and all subsequent attachment-scoped events.
+func (c *localSession) Watch(ctx context.Context) (protocol.SessionSnapshot, sessionclient.EventStream, error) {
 	snapshot, err := c.Snapshot(ctx)
 	if err != nil {
-		return nil, err
+		return protocol.SessionSnapshot{}, nil, err
 	}
 	body, err := c.transport.StreamSessionEvents(ctx, c.id, snapshot.EventStreamID, snapshot.EventCursor)
 	if err != nil {
-		return nil, err
+		return protocol.SessionSnapshot{}, nil, err
 	}
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
-	go stream.readSSE(ctx, body, "", true, "", snapshot.EventStreamID, snapshot.EventCursor, nil)
-	return stream, nil
+	go stream.readSSE(ctx, body, "", true, "", snapshot.EventStreamID, snapshot.EventCursor, nil, true)
+	return snapshot, stream, nil
 }
 
 func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.EventStream, error) {
@@ -466,7 +466,7 @@ func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.
 			c.eventRunStarted = runStarted
 		}
 		c.mu.Unlock()
-	})
+	}, false)
 	return stream, nil
 }
 
@@ -684,6 +684,7 @@ func (s *localEventStream) readSSE(
 	expectedStreamID string,
 	after int64,
 	recordCursor func(string, int64, bool),
+	allRuns bool,
 ) {
 	defer body.Close()
 	defer close(s.updates)
@@ -728,6 +729,10 @@ func (s *localEventStream) readSSE(
 		for _, event := range batch.Events {
 			if event.Sequence > cursor {
 				cursor = event.Sequence
+			}
+			if allRuns {
+				matching = append(matching, event)
+				continue
 			}
 			if event.RunID != runID {
 				continue

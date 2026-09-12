@@ -168,12 +168,18 @@ func (a app) CreateState() ui.State { return &appState{} }
 type appState struct {
 	ui.StateBase
 
-	ctx                 context.Context
-	cancel              context.CancelFunc
-	attachmentCtx       context.Context
-	attachmentCancel    context.CancelFunc
-	runWatchCancel      context.CancelFunc
-	subagentWatchCancel context.CancelFunc
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	attachmentCtx           context.Context
+	attachmentCancel        context.CancelFunc
+	runWatchCancel          context.CancelFunc
+	runWatchID              string
+	runWatchGeneration      uint64
+	notifiedRunIDs          map[string]bool
+	notifiedRunOrder        []string
+	sessionWatchCancel      context.CancelFunc
+	deferredSessionSnapshot *protocol.SessionSnapshot
+	subagentWatchCancel     context.CancelFunc
 
 	phase                        phase
 	errorText                    string
@@ -235,6 +241,7 @@ type appState struct {
 	activityFocus                ui.FocusNode
 	workspaceLayout              workspaceLayoutState
 	activitySourceID             string
+	activityConversationID       string
 	activitySelected             bool
 	subagentsOpen                bool
 	subagentDefinitions          []protocol.SubagentDefinition
@@ -584,6 +591,12 @@ func (s *appState) resetAttachmentContext() {
 		s.runWatchCancel()
 		s.runWatchCancel = nil
 	}
+	s.runWatchID = ""
+	s.runWatchGeneration++
+	if s.sessionWatchCancel != nil {
+		s.sessionWatchCancel()
+		s.sessionWatchCancel = nil
+	}
 	if s.subagentWatchCancel != nil {
 		s.subagentWatchCancel()
 		s.subagentWatchCancel = nil
@@ -600,6 +613,9 @@ func (s *appState) resetAttachmentContext() {
 
 func (s *appState) Dispose() {
 	s.stopVCSMonitoring()
+	if s.sessionWatchCancel != nil {
+		s.sessionWatchCancel()
+	}
 	if s.subagentWatchCancel != nil {
 		s.subagentWatchCancel()
 	}
@@ -618,6 +634,21 @@ func (s *appState) Dispose() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+}
+
+func (s *appState) activityPresentation(mainMessages []transcriptMessage, conversationID string) transcriptPresentation {
+	if conversationID != "" {
+		conversation := protocol.SubagentConversation{ID: conversationID}
+		for _, candidate := range s.subagentConversations {
+			if candidate.ID == conversationID {
+				conversation = candidate
+				break
+			}
+		}
+		messages := subagentPaneMessages(conversation, s.subagentTranscripts[conversationID], s.subagentLive[conversationID])
+		return presentTranscript(messages)
+	}
+	return presentTranscript(mainMessages)
 }
 
 func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
@@ -663,6 +694,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ActivityFocus:               &s.activityFocus,
 		WorkspaceLayout:             &s.workspaceLayout,
 		ActivitySourceID:            s.activitySourceID,
+		ActivityConversationID:      s.activityConversationID,
 		ActivitySelected:            s.activitySelected,
 		SubagentsOpen:               s.subagentsOpen,
 		SubagentDefinitions:         append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
@@ -732,8 +764,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 		},
 		OpenActivity: func(_ ui.EventContext, sourceID string) {
+			if !s.subagentsOpen {
+				s.activityFocus.RequestFocus()
+			}
 			s.SetState(func() {
-				presentation := presentTranscript(presentedMessages)
+				s.activityConversationID = ""
+				presentation := s.activityPresentation(presentedMessages, "")
 				opening := !s.inlineActivityOpen[sourceID]
 				for id := range s.inlineActivityOpen {
 					delete(s.inlineActivityOpen, id)
@@ -761,7 +797,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ShowActivity: func(ui.EventContext) {
 			if s.subagentsOpen || s.activitySourceID != "" {
 				s.SetState(func() {
-					presentation := presentTranscript(presentedMessages)
+					presentation := s.activityPresentation(presentedMessages, s.activityConversationID)
 					s.activitySelected = !s.workspaceLayout.Wide
 					if !s.subagentsOpen && s.activitySelected && s.activityCursor.ToolCallID == "" {
 						keys := activityToolKeys(presentation, s.activitySourceID)
@@ -782,6 +818,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			s.SetState(func() {
 				s.activitySourceID = ""
+				s.activityConversationID = ""
 				s.activitySelected = false
 				s.inlineActivityOpen = make(map[string]bool)
 				s.hoveredActivityID = ""
@@ -843,6 +880,29 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			s.openSubagentConversation(conversationID)
 		},
+		OpenSubagentActivity: func(_ ui.EventContext, conversationID, sourceID string) {
+			s.activityFocus.RequestFocus()
+			s.SetState(func() {
+				presentation := s.activityPresentation(presentedMessages, conversationID)
+				opening := !s.inlineActivityOpen[sourceID]
+				for id := range s.inlineActivityOpen {
+					delete(s.inlineActivityOpen, id)
+				}
+				if !opening {
+					s.activitySourceID = ""
+					s.activityConversationID = ""
+					s.activityCursor = activityToolKey{}
+					return
+				}
+				s.inlineActivityOpen[sourceID] = true
+				s.activitySourceID = sourceID
+				s.activityConversationID = conversationID
+				keys := activityToolKeys(presentation, sourceID)
+				if len(keys) > 0 {
+					s.activityCursor = keys[0]
+				}
+			})
+		},
 		OpenSubagentFromTool: func(_ ui.EventContext, agentName string) {
 			s.activityFocus.RequestFocus()
 			s.openSubagentFromTool(agentName)
@@ -850,13 +910,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		CloseSubagentConversation: func(_ ui.EventContext, conversationID string) {
 			s.closeSubagentConversation(conversationID)
 		},
-		ScrollActivity: func(_ ui.EventContext, pages int) {
-			if s.subagentsOpen && s.subagentPaneID != "" {
-				if scroll := s.subagentScrolls[s.subagentPaneID]; scroll != nil && scroll.Attached() {
-					scroll.ScrollByPages(pages)
-				}
-				return
+		ScrollSubagentTranscript: func(_ ui.EventContext, conversationID string, pages int) {
+			if scroll := s.subagentScrolls[conversationID]; scroll != nil && scroll.Attached() {
+				scroll.ScrollByPages(pages)
 			}
+		},
+		ScrollActivity: func(_ ui.EventContext, pages int) {
 			if s.activityScroll.Attached() {
 				s.activityScroll.ScrollByPages(pages)
 			}
@@ -871,7 +930,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		MoveActivityTool: func(_ ui.EventContext, delta int) {
 			s.SetState(func() {
-				presentation := presentTranscript(presentedMessages)
+				presentation := s.activityPresentation(presentedMessages, s.activityConversationID)
 				keys := activityToolKeys(presentation, s.activitySourceID)
 				s.activityCursor = moveActivityToolCursor(keys, s.activityCursor, delta)
 				if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
@@ -1261,6 +1320,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
 			}
 			s.startVCSMonitoring()
+			s.watchAttachedSession(bound, operation)
 			if running {
 				s.watchSession(bound, operation, snapshot.ActiveRunID)
 			}
@@ -1401,7 +1461,7 @@ func (s *appState) applySubagentDiagnostics(sessionID string, diagnostics []prot
 
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	var previousActivitySource transcriptDisplayItem
-	if s.activitySourceID != "" {
+	if s.activitySourceID != "" && s.activityConversationID == "" {
 		messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
 		messages = append(messages, s.messages...)
 		messages = append(messages, s.liveMessages...)
@@ -1436,7 +1496,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	}
 	s.messages = projected
 	s.resetLiveRun()
-	if s.activitySourceID != "" {
+	if s.activitySourceID != "" && s.activityConversationID == "" {
 		presentation := presentTranscript(s.messages)
 		source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID)
 		if !ok {
@@ -1465,6 +1525,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			s.followActivityIfPinned()
 		} else {
 			s.activitySourceID = ""
+			s.activityConversationID = ""
 			s.activitySelected = false
 			s.inlineActivityOpen = make(map[string]bool)
 			s.hoveredActivityID = ""
@@ -1793,11 +1854,13 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			}
 		case protocol.SessionEventRunFinished:
 			transcriptChanged = true
-			for id := range s.inlineActivityOpen {
-				delete(s.inlineActivityOpen, id)
+			if s.activityConversationID == "" {
+				for id := range s.inlineActivityOpen {
+					delete(s.inlineActivityOpen, id)
+				}
+				s.activitySourceID = ""
+				s.activityCursor = activityToolKey{}
 			}
-			s.activitySourceID = ""
-			s.activityCursor = activityToolKey{}
 			s.markTerminalRunSettled(event.RunID)
 			for _, index := range s.liveTools {
 				if index >= 0 && index < len(s.liveMessages) && s.liveMessages[index].ToolStatus == "Planned" {
@@ -2049,7 +2112,120 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 	s.followTranscriptIfPinned()
 }
 
+func attachedRunLifecycle(events []protocol.SessionEvent) (startedRunID, finishedRunID string, status protocol.RunStatus) {
+	for _, event := range events {
+		switch event.Kind {
+		case protocol.SessionEventRunStarted:
+			startedRunID = event.RunID
+		case protocol.SessionEventRunFinished:
+			finishedRunID = event.RunID
+			status = event.Status
+		}
+	}
+	return startedRunID, finishedRunID, status
+}
+
+func shouldApplyAttachedSnapshot(runPending bool, activeRunID, snapshotRunID string) bool {
+	if runPending && activeRunID == "" && snapshotRunID == "" {
+		return false
+	}
+	return snapshotRunID == "" || snapshotRunID != activeRunID
+}
+
+func (s *appState) watchAttachedSession(bound sessionclient.Session, operation uint64) {
+	watcher, ok := bound.(sessionclient.SessionEventWatcher)
+	if !ok {
+		return
+	}
+	if s.sessionWatchCancel != nil {
+		s.sessionWatchCancel()
+	}
+	watchContext, cancel := context.WithCancel(s.attachmentCtx)
+	s.sessionWatchCancel = cancel
+	runtime := s.Context().Runtime()
+	applySnapshot := func(snapshot protocol.SessionSnapshot, finishedRunID string, status protocol.RunStatus) {
+		runtime.Dispatch(func() {
+			if operation != s.operation || s.bound != bound {
+				return
+			}
+			if !shouldApplyAttachedSnapshot(s.runPending, s.activeRunID, snapshot.ActiveRunID) {
+				copy := snapshot
+				s.deferredSessionSnapshot = &copy
+				return
+			}
+			s.deferredSessionSnapshot = nil
+			alreadySettled := finishedRunID != "" && finishedRunID == s.terminalSettledRunID
+			nextRunID := snapshot.ActiveRunID
+			s.SetState(func() {
+				s.applySnapshot(snapshot)
+				if nextRunID != "" {
+					s.activeRun = nil
+					s.prompt = nil
+					s.status = "esc abort · ctrl+c detach"
+				} else {
+					s.activeRun = nil
+					s.prompt = nil
+					if finishedRunID != "" {
+						s.markTerminalRunSettled(finishedRunID)
+					}
+				}
+			})
+			if nextRunID != "" && s.runWatchID != nextRunID {
+				s.watchSession(bound, operation, nextRunID)
+			} else if finishedRunID != "" && !alreadySettled {
+				s.notifyTurnSettledOnce(finishedRunID, status)
+			}
+		})
+	}
+	reconcile := func(finishedRunID string, status protocol.RunStatus) bool {
+		delay := 50 * time.Millisecond
+		for watchContext.Err() == nil {
+			snapshot, err := bound.Snapshot(watchContext)
+			if err == nil {
+				applySnapshot(snapshot, finishedRunID, status)
+				return true
+			}
+			timer := time.NewTimer(delay)
+			select {
+			case <-watchContext.Done():
+				timer.Stop()
+				return false
+			case <-timer.C:
+				if delay < 2*time.Second {
+					delay *= 2
+				}
+			}
+		}
+		return false
+	}
+	go func() {
+		for watchContext.Err() == nil {
+			baseline, stream, err := watcher.Watch(watchContext)
+			if err == nil {
+				applySnapshot(baseline, "", "")
+				for updates := range stream.Updates() {
+					startedRunID, finishedRunID, status := attachedRunLifecycle(updates)
+					if startedRunID == "" && finishedRunID == "" {
+						continue
+					}
+					if !reconcile(finishedRunID, status) {
+						return
+					}
+				}
+			}
+			select {
+			case <-watchContext.Done():
+				return
+			case <-time.After(250 * time.Millisecond):
+			}
+		}
+	}()
+}
+
 func (s *appState) watchSession(bound sessionclient.Session, operation uint64, runID string) {
+	if s.runWatchCancel != nil && s.runWatchID == runID {
+		return
+	}
 	runtime := s.Context().Runtime()
 	attachmentCtx := s.attachmentCtx
 	if attachmentCtx == nil {
@@ -2058,8 +2234,11 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 	if s.runWatchCancel != nil {
 		s.runWatchCancel()
 	}
+	s.runWatchGeneration++
+	watchGeneration := s.runWatchGeneration
 	watchCtx, cancel := context.WithCancel(attachmentCtx)
 	s.runWatchCancel = cancel
+	s.runWatchID = runID
 	attachmentCtx = watchCtx
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
@@ -2113,7 +2292,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						if snapshotErr == nil && snapshot.ActiveRunID == runID {
 							if !snapshot.EventReplayAvailable {
 								runtime.Dispatch(func() {
-									if operation == s.operation {
+									if operation == s.operation && watchGeneration == s.runWatchGeneration {
 										s.SetState(func() { s.applySnapshot(snapshot) })
 									}
 								})
@@ -2121,7 +2300,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							continue
 						}
 						runtime.Dispatch(func() {
-							if operation == s.operation {
+							if operation == s.operation && watchGeneration == s.runWatchGeneration {
 								s.SetState(func() { s.status = "Reconnecting activity… · esc abort · ctrl+c detach" })
 							}
 						})
@@ -2132,7 +2311,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				retryAt = time.Time{}
 				batch := append([]protocol.SessionEvent(nil), events...)
 				runtime.Dispatch(func() {
-					if operation == s.operation {
+					if operation == s.operation && watchGeneration == s.runWatchGeneration {
 						changedCWD := ""
 						var eventToasts []toastInput
 						s.SetState(func() {
@@ -2165,7 +2344,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
 					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
-							if operation == s.operation {
+							if operation == s.operation && watchGeneration == s.runWatchGeneration {
 								s.SetState(func() { s.status = "Reconnecting… · esc abort · ctrl+c detach" })
 							}
 						})
@@ -2180,7 +2359,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				}
 				settledRunID := runID
 				runtime.Dispatch(func() {
-					if operation == s.operation {
+					if operation == s.operation && watchGeneration == s.runWatchGeneration {
 						s.SetState(func() { s.markTerminalRunSettled(settledRunID) })
 					}
 				})
@@ -2192,15 +2371,15 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					if snapshotFailures >= 6 {
 						runtime.Dispatch(func() {
-							if operation == s.operation {
+							if operation == s.operation && watchGeneration == s.runWatchGeneration {
 								s.SetState(func() { s.settleRunWithoutSnapshot(info, err) })
-								s.notifyTurnSettled(info.Status)
+								s.notifyTurnSettledOnce(info.RunID, info.Status)
 							}
 						})
 						return
 					}
 					runtime.Dispatch(func() {
-						if operation == s.operation {
+						if operation == s.operation && watchGeneration == s.runWatchGeneration {
 							s.SetState(func() { s.status = "Run finished · reconnecting transcript… · ctrl+c detach" })
 						}
 					})
@@ -2224,7 +2403,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 				}
 				runtime.Dispatch(func() {
-					if operation != s.operation {
+					if operation != s.operation || watchGeneration != s.runWatchGeneration {
 						return
 					}
 					s.SetState(func() {
@@ -2237,10 +2416,11 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							s.messages = append(s.messages, transcriptMessage{Role: "error", Text: message})
 						}
 						if nextRunID != "" {
+							s.runWatchID = nextRunID
 							s.status = "esc abort · ctrl+c detach"
 						}
 					})
-					s.notifyTurnSettled(info.Status)
+					s.notifyTurnSettledOnce(info.RunID, info.Status)
 				})
 				if nextRunID == "" {
 					return
@@ -2253,6 +2433,26 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 			}
 		}
 	}()
+}
+
+func (s *appState) notifyTurnSettledOnce(runID string, status protocol.RunStatus) {
+	if runID == "" {
+		return
+	}
+	if s.notifiedRunIDs == nil {
+		s.notifiedRunIDs = make(map[string]bool)
+	}
+	if s.notifiedRunIDs[runID] {
+		return
+	}
+	s.notifiedRunIDs[runID] = true
+	s.notifiedRunOrder = append(s.notifiedRunOrder, runID)
+	if len(s.notifiedRunOrder) > 64 {
+		oldest := s.notifiedRunOrder[0]
+		s.notifiedRunOrder = s.notifiedRunOrder[1:]
+		delete(s.notifiedRunIDs, oldest)
+	}
+	s.notifyTurnSettled(status)
 }
 
 func (s *appState) notifyTurnSettled(status protocol.RunStatus) {
@@ -2679,7 +2879,7 @@ func (s *appState) openSubagents() {
 	if watcher, ok := bound.(sessionclient.SessionEventWatcher); ok {
 		go func() {
 			for watchContext.Err() == nil {
-				stream, err := watcher.Watch(watchContext)
+				_, stream, err := watcher.Watch(watchContext)
 				if err == nil {
 					for updates := range stream.Updates() {
 						changed := false
@@ -2741,6 +2941,12 @@ func (s *appState) closeSubagents() {
 		s.subagentPendingAgent = ""
 		s.subagentRosterLoading = false
 		s.subagentRosterRefreshPending = false
+		if s.activityConversationID != "" {
+			s.activitySourceID = ""
+			s.activityConversationID = ""
+			s.inlineActivityOpen = make(map[string]bool)
+			s.activityCursor = activityToolKey{}
+		}
 	})
 }
 
@@ -2899,6 +3105,12 @@ func (s *appState) reconcileSubagentTabs() {
 		if s.subagentPaneID == conversationID {
 			s.subagentPaneID = ""
 		}
+		if s.activityConversationID == conversationID {
+			s.activitySourceID = ""
+			s.activityConversationID = ""
+			s.inlineActivityOpen = make(map[string]bool)
+			s.activityCursor = activityToolKey{}
+		}
 		if s.subagentScrollToEndID == conversationID {
 			s.subagentScrollToEndID = ""
 			s.subagentNeedsScroll = false
@@ -2955,6 +3167,12 @@ func (s *appState) openSubagentConversation(conversationID string) {
 			s.subagentScrolls[conversationID] = &ui.ScrollController{}
 		}
 		s.subagentPaneID = conversationID
+		if s.activityConversationID != "" && s.activityConversationID != conversationID {
+			s.activitySourceID = ""
+			s.activityConversationID = ""
+			s.inlineActivityOpen = make(map[string]bool)
+			s.activityCursor = activityToolKey{}
+		}
 		if newTab {
 			s.requestSubagentScrollToEnd(conversationID)
 		}
@@ -3071,6 +3289,12 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 		}
 		if s.subagentPaneID == conversationID {
 			s.subagentPaneID = ""
+		}
+		if s.activityConversationID == conversationID {
+			s.activitySourceID = ""
+			s.activityConversationID = ""
+			s.inlineActivityOpen = make(map[string]bool)
+			s.activityCursor = activityToolKey{}
 		}
 		if s.subagentScrollToEndID == conversationID {
 			s.subagentScrollToEndID = ""
@@ -3755,8 +3979,13 @@ func (s *appState) createNewSession() {
 				s.showToast(toastInput{Title: "New session failed", Subtitle: err.Error(), Variant: toastError})
 				return
 			}
-			s.SetState(func() { s.installSession(bound, snapshot, location) })
+			var operation uint64
+			s.SetState(func() {
+				s.installSession(bound, snapshot, location)
+				operation = s.operation
+			})
 			s.startVCSMonitoring()
+			s.watchAttachedSession(bound, operation)
 		})
 	}()
 }
@@ -3841,6 +4070,7 @@ func (s *appState) switchSelectedSession() {
 				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
 			}
 			s.startVCSMonitoring()
+			s.watchAttachedSession(bound, operation)
 			if nextRunID != "" {
 				s.watchSession(bound, operation, nextRunID)
 			}
@@ -3890,6 +4120,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.fileMention.generation++
 	s.operation++
 	s.terminalSettledRunID = ""
+	s.notifiedRunIDs = make(map[string]bool)
+	s.notifiedRunOrder = nil
+	s.deferredSessionSnapshot = nil
 	s.session = snapshot.Session
 	s.bound = bound
 	s.location = location
@@ -3912,6 +4145,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activityScroll = ui.ScrollController{}
 	s.activityList = activityListController{}
 	s.activitySourceID = ""
+	s.activityConversationID = ""
 	s.activitySelected = false
 	s.subagentsOpen = false
 	s.subagentRequestGeneration++
@@ -4221,6 +4455,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 						s.prompt = nil
 						s.followUps = queued.queue
 						if snapshotErr == nil {
+							s.deferredSessionSnapshot = nil
 							s.applySnapshot(snapshot)
 						}
 					})
@@ -4267,6 +4502,16 @@ func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run
 	if operation != s.operation {
 		return false
 	}
+	if deferred := s.deferredSessionSnapshot; deferred != nil {
+		s.messages = projectTranscript(deferred.Messages)
+		s.applySubagentSnapshot(*deferred)
+		s.followUps = deferred.FollowUps
+		s.contextTokens = deferred.ContextTokens
+		s.contextWindow = deferred.ContextWindow
+		s.sessionUsage = deferred.Usage
+		s.followTranscriptIfPinned()
+		s.deferredSessionSnapshot = nil
+	}
 	s.activeRun = run
 	s.activeRunID = run.ID()
 	if s.terminalRunActive && s.terminalRunID == "" {
@@ -4278,15 +4523,21 @@ func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run
 func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome protocol.PromptOutcome, runErr error) {
 	var snapshot protocol.SessionSnapshot
 	var snapshotErr error
-	if runErr == nil && outcome.Status == protocol.RunStatusCompleted && s.bound != nil {
+	if s.bound != nil {
 		snapshot, snapshotErr = s.bound.Snapshot(s.ctx)
 	}
 	runtime.Dispatch(func() {
 		if operation != s.operation {
 			return
 		}
+		if (snapshotErr != nil || snapshot.Session.ID == "") && s.deferredSessionSnapshot != nil {
+			snapshot = *s.deferredSessionSnapshot
+			snapshotErr = nil
+		}
+		s.deferredSessionSnapshot = nil
 		nextRunID := ""
 		nextBashID := ""
+		reconciledSubmission := false
 		s.SetState(func() {
 			s.markTerminalRunSettled(s.activeRunID)
 			s.activeRun = nil
@@ -4296,9 +4547,20 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 			s.status = ""
 			s.followTranscriptIfPinned()
 			if runErr != nil {
-				s.messages = append(s.messages, s.liveMessages...)
-				s.resetLiveRun()
-				s.messages = append(s.messages, transcriptMessage{Role: "error", Text: runErr.Error()})
+				if snapshotErr == nil && snapshot.Session.ID != "" {
+					reconciledSubmission = true
+					s.applySnapshot(snapshot)
+					nextRunID = snapshot.ActiveRunID
+					if s.activeBash == nil {
+						nextBashID = snapshot.ActiveBashExecutionID
+					}
+				} else {
+					s.messages = append(s.messages, s.liveMessages...)
+					s.resetLiveRun()
+				}
+				if snapshotErr != nil || snapshot.Session.ID == "" {
+					s.messages = append(s.messages, transcriptMessage{Role: "error", Text: runErr.Error()})
+				}
 				return
 			}
 			if outcome.Status != protocol.RunStatusCompleted {
@@ -4319,6 +4581,9 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 			}
 			s.messages = append(s.messages, transcriptMessage{Role: "assistant", Text: outcome.Text})
 		})
+		if runErr != nil && reconciledSubmission {
+			s.showToast(toastInput{Title: "Prompt submission reconciled", Subtitle: runErr.Error(), Variant: toastWarning})
+		}
 		if nextRunID != "" && s.bound != nil {
 			s.watchSession(s.bound, s.operation, nextRunID)
 		}

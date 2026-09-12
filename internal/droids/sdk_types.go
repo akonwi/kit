@@ -81,8 +81,10 @@ type BoundaryStatus struct {
 	TurnID   TurnID
 }
 
-// PromptOptions controls behavior when the droid is occupied.
+// PromptOptions controls prompt admission behavior.
 type PromptOptions struct {
+	// Steer requires an active turn and durably adds the input at its next model
+	// boundary. It returns ErrConflict rather than starting a new turn when idle.
 	Steer bool
 	// AdmissionKey makes immediate prompt admission idempotent for an embedding
 	// application crossing its own durable boundary. Reuse with different input

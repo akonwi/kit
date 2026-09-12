@@ -418,6 +418,9 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		}
 		return rt.ensureHandleLocked(), nil
 	}
+	if options.Steer {
+		return nil, ErrConflict
+	}
 
 	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash)
 }
