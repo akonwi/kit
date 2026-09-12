@@ -78,6 +78,14 @@ func TestRuntimeBundleBuilderOwnsMatchingSubagentCatalogAndTool(t *testing.T) {
 	if len(bundle.Tools) != 9 || bundle.Subagents.Catalog.Len() != 1 || factory.owner != record.ID || factory.catalog.Len() != 1 {
 		t.Fatalf("bundle/factory mismatch: tools=%d definitions=%d owner=%q factory definitions=%d", len(bundle.Tools), bundle.Subagents.Catalog.Len(), factory.owner, factory.catalog.Len())
 	}
+	if !strings.Contains(bundle.Prompt.Prompt, "<available_subagents>") ||
+		!strings.Contains(bundle.Prompt.Prompt, "<name>scout</name>") ||
+		!strings.Contains(bundle.Prompt.Prompt, "<description>finds things</description>") {
+		t.Fatalf("bundle prompt has no matching subagent catalog:\n%s", bundle.Prompt.Prompt)
+	}
+	if strings.Contains(bundle.Prompt.Prompt, "<model>") {
+		t.Fatalf("bundle prompt exposes subagent model:\n%s", bundle.Prompt.Prompt)
+	}
 	copy := bundle.Subagents.Catalog.Definitions()
 	copy[0].Name = "mutated"
 	if definition, ok := bundle.Subagents.Catalog.Lookup("scout"); !ok || definition.Name != "scout" {

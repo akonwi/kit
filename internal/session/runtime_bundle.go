@@ -113,12 +113,25 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		return RuntimeBundle{}, err
 	}
 	catalog.Diagnostics = append(catalog.Diagnostics, discoveryDiagnostics...)
+	sections := []systemprompt.Section{catalog}
+	var subagents subagent.LoadResult
+	if b.subagentLoader != nil {
+		subagents, err = b.subagentLoader.Load(ctx, record.CWD)
+		if err != nil {
+			return RuntimeBundle{}, err
+		}
+		subagentCatalog, catalogErr := subagents.Catalog.CatalogSection()
+		if catalogErr != nil {
+			return RuntimeBundle{}, catalogErr
+		}
+		sections = append(sections, subagentCatalog)
+	}
 	request := systemprompt.Request{SessionID: record.ID, CWD: record.CWD}
 	var result systemprompt.Result
 	if b.context == nil {
-		result, err = b.composer.BuildWith(ctx, request, catalog)
+		result, err = b.composer.BuildWith(ctx, request, sections...)
 	} else {
-		result, err = b.context.BuildWith(ctx, request, catalog)
+		result, err = b.context.BuildWith(ctx, request, sections...)
 	}
 	if err != nil {
 		return RuntimeBundle{}, err
@@ -138,12 +151,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 	}
 	tools := codingtools.NewDynamic(currentCWD)
 	tools = append(tools, registry.ActivateTool())
-	var subagents subagent.LoadResult
 	if b.subagentLoader != nil {
-		subagents, err = b.subagentLoader.Load(ctx, record.CWD)
-		if err != nil {
-			return RuntimeBundle{}, err
-		}
 		tool, toolErr := b.subagentToolFactory.Tool(record.ID, subagents.Catalog)
 		if toolErr != nil {
 			return RuntimeBundle{}, toolErr
