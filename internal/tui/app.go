@@ -126,6 +126,7 @@ type transcriptMessage struct {
 	Role                   string
 	Text                   string
 	Thinking               string
+	Content                []protocol.TranscriptContent
 	ToolCallID             string
 	ToolCalls              []transcriptToolCall
 	ToolName               string
@@ -136,6 +137,8 @@ type transcriptMessage struct {
 	ToolContentTruncated   bool
 	ToolDetails            json.RawMessage
 	ToolDetailsOmitted     bool
+	StopReason             string
+	ErrorMessage           string
 	IsError                bool
 	Aborted                bool
 	Pending                bool
@@ -1510,6 +1513,20 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	}
 }
 
+func projectTranscriptContent(content []protocol.TranscriptContent) []protocol.TranscriptContent {
+	projected := make([]protocol.TranscriptContent, 0, len(content))
+	for _, block := range content {
+		switch block.Kind {
+		case protocol.TranscriptContentImage:
+			block = protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: "[image]"}
+		case protocol.TranscriptContentFile:
+			block = protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: "[file: " + block.Filename + "]"}
+		}
+		projected = append(projected, block)
+	}
+	return projected
+}
+
 func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessage {
 	result := make([]transcriptMessage, 0, len(messages))
 	for _, message := range messages {
@@ -1562,10 +1579,12 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 		}
 		result = append(result, transcriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Role: message.Role,
-			Text: text, Thinking: thinking, ToolCallID: message.ToolCallID, ToolCalls: calls,
+			Text: text, Thinking: thinking, Content: projectTranscriptContent(message.Content),
+			ToolCallID: message.ToolCallID, ToolCalls: calls,
 			ToolName: message.ToolName, ToolStatus: status,
 			ToolContent: append([]protocol.TranscriptContent(nil), message.Content...),
-			ToolDetails: append(json.RawMessage(nil), message.Details...), IsError: message.IsError,
+			ToolDetails: append(json.RawMessage(nil), message.Details...),
+			StopReason:  message.StopReason, ErrorMessage: message.ErrorMessage, IsError: message.IsError,
 			Aborted: message.StopReason == "aborted",
 		})
 	}

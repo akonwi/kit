@@ -340,10 +340,70 @@ type transcriptPresentation struct {
 	ToolStates map[transcriptToolStateKey]transcriptMessage
 }
 
+func orderedTranscriptSegmentID(messageID string, start int) string {
+	if start == 0 {
+		return messageID
+	}
+	return fmt.Sprintf("%s:ordered:%d", messageID, start)
+}
+
+func expandOrderedAssistantContent(messages []protocol.TranscriptMessage, orderedMessages map[string]bool) []protocol.TranscriptMessage {
+	expanded := make([]protocol.TranscriptMessage, 0, len(messages))
+	for _, message := range messages {
+		if message.Role != "assistant" || !orderedMessages[message.ID] || len(message.Content) == 0 {
+			expanded = append(expanded, message)
+			continue
+		}
+		segments := make([]protocol.TranscriptMessage, 0, len(message.Content))
+		for start := 0; start < len(message.Content); {
+			end := start + 1
+			if message.Content[start].Kind == protocol.TranscriptContentText {
+				for end < len(message.Content) && message.Content[end].Kind == protocol.TranscriptContentText {
+					end++
+				}
+			} else {
+				hasToolCall := message.Content[start].Kind == protocol.TranscriptContentToolCall
+				for end < len(message.Content) && message.Content[end].Kind != protocol.TranscriptContentText {
+					if hasToolCall && message.Content[end].Kind == protocol.TranscriptContentThinking {
+						break
+					}
+					hasToolCall = hasToolCall || message.Content[end].Kind == protocol.TranscriptContentToolCall
+					end++
+				}
+			}
+			segment := message
+			segment.ID = orderedTranscriptSegmentID(message.ID, start)
+			segment.Content = append([]protocol.TranscriptContent(nil), message.Content[start:end]...)
+			segments = append(segments, segment)
+			start = end
+		}
+		for index := range segments {
+			segments[index].StopReason = ""
+			segments[index].ErrorMessage = ""
+			segments[index].IsError = false
+		}
+		if message.ErrorMessage != "" && (message.StopReason == "error" || message.StopReason == "aborted") {
+			terminal := message
+			terminal.ID = orderedTranscriptSegmentID(message.ID, len(message.Content))
+			terminal.Content = []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: message.ErrorMessage}}
+			segments = append(segments, terminal)
+		} else {
+			last := &segments[len(segments)-1]
+			last.StopReason = message.StopReason
+			last.ErrorMessage = message.ErrorMessage
+			last.IsError = message.IsError
+		}
+		expanded = append(expanded, segments...)
+	}
+	return expanded
+}
+
 func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 	structured := make([]protocol.TranscriptMessage, 0, len(messages))
 	toolStates := make(map[transcriptToolStateKey]transcriptMessage)
 	pendingMessages := make(map[string]bool)
+	orderedMessages := make(map[string]bool)
+	failedTurns := make(map[string]bool)
 	currentTurnID := ""
 	for index, message := range messages {
 		turnID := message.TurnID
@@ -364,28 +424,38 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 			messageID = "local-message:" + strconv.Itoa(index)
 		}
 		role := message.Role
-		content := make([]protocol.TranscriptContent, 0, 2+len(message.ToolCalls))
-		// Pending assistant prose is retained for an inline work window once a
-		// tool call arrives. A prose-only pending message is still omitted below.
-		if message.Text != "" {
-			content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: message.Text})
-		}
-		if message.Thinking != "" {
-			content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentThinking, Text: message.Thinking})
-		}
-		for _, call := range message.ToolCalls {
-			content = append(content, protocol.TranscriptContent{
-				Kind: protocol.TranscriptContentToolCall, ToolCallID: call.ID, ToolName: call.Name,
-				Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated,
-			})
+		content := append([]protocol.TranscriptContent(nil), message.Content...)
+		if len(content) > 0 {
+			orderedMessages[messageID] = true
+		} else {
+			content = make([]protocol.TranscriptContent, 0, 2+len(message.ToolCalls))
+			// Pending assistant prose is retained for an inline work window once a
+			// tool call arrives. A prose-only pending message is still omitted below.
+			if message.Text != "" {
+				content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: message.Text})
+			}
+			if message.Thinking != "" {
+				content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentThinking, Text: message.Thinking})
+			}
+			for _, call := range message.ToolCalls {
+				content = append(content, protocol.TranscriptContent{
+					Kind: protocol.TranscriptContentToolCall, ToolCallID: call.ID, ToolName: call.Name,
+					Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated,
+				})
+			}
 		}
 		if message.Role == "assistant" && message.Pending && len(message.ToolCalls) == 0 {
 			continue
 		}
 		pendingMessages[messageID] = message.Pending
+		if message.Pending && orderedMessages[messageID] {
+			for contentIndex := range content {
+				pendingMessages[orderedTranscriptSegmentID(messageID, contentIndex)] = true
+			}
+		}
 		projected := protocol.TranscriptMessage{
 			ID: messageID, TurnID: turnID, Sequence: int64(index), Role: role, Content: content,
-			Bash:       message.Bash,
+			Bash: message.Bash, StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
 			ToolCallID: message.ToolCallID, ToolName: message.ToolName, Details: message.ToolDetails,
 			IsError: message.IsError,
 		}
@@ -400,6 +470,9 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 			projected.ErrorMessage = message.Text
 			projected.IsError = true
 		}
+		if projected.Role == "assistant" && projected.StopReason == "error" {
+			failedTurns[turnID] = true
+		}
 		if role == "tool" {
 			if len(message.ToolContent) > 0 {
 				projected.Content = append([]protocol.TranscriptContent(nil), message.ToolContent...)
@@ -408,9 +481,18 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		structured = append(structured, projected)
 	}
-	items := buildTurnTranscriptItems(structured)
+	items := buildTurnTranscriptItems(expandOrderedAssistantContent(structured, orderedMessages))
 	for index := range items {
 		items[index].Pending = pendingMessages[items[index].ID]
+		if !failedTurns[items[index].TurnID] {
+			continue
+		}
+		for _, call := range assistantToolCalls(items[index].Message) {
+			key := transcriptToolStateKey{TurnID: items[index].TurnID, ToolCallID: call.ID}
+			if _, exists := toolStates[key]; !exists {
+				toolStates[key] = transcriptMessage{TurnID: items[index].TurnID, ToolCallID: call.ID, ToolName: call.Name, ToolStatus: "Failed", IsError: true}
+			}
+		}
 	}
 	return transcriptPresentation{
 		Items: groupTranscriptDisplayItems(items), ToolStates: toolStates,

@@ -177,6 +177,102 @@ func TestPresentTranscriptKeepsPendingThinkingAndToolsVisible(t *testing.T) {
 	}
 }
 
+func TestHistoricalProjectionPreservesInterleavedContentOrder(t *testing.T) {
+	t.Parallel()
+
+	messages := projectTranscript([]protocol.TranscriptMessage{{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant",
+		Content: []protocol.TranscriptContent{
+			thinkingBlock("inspect first"),
+			toolCallBlock("call_1", "read", `{"path":"one.md"}`),
+			textBlock("First result."),
+			thinkingBlock("inspect next"),
+			toolCallBlock("call_2", "read", `{"path":"two.md"}`),
+			textBlock("Second result."),
+		},
+	}})
+	presentation := presentTranscript(messages)
+	if len(presentation.Items) != 4 {
+		t.Fatalf("interleaved display = %+v, want work, prose, work, prose", presentation.Items)
+	}
+	wantKinds := []transcriptDisplayKind{
+		transcriptDisplayTurnWork, transcriptDisplayAssistantProse,
+		transcriptDisplayTurnWork, transcriptDisplayAssistantProse,
+	}
+	for index, want := range wantKinds {
+		if presentation.Items[index].Kind != want {
+			t.Fatalf("display[%d].kind = %q, want %q", index, presentation.Items[index].Kind, want)
+		}
+	}
+	if got := assistantProse(presentation.Items[1].Item.Message); got != "First result." {
+		t.Fatalf("first prose = %q", got)
+	}
+	if got := assistantProse(presentation.Items[3].Item.Message); got != "Second result." {
+		t.Fatalf("second prose = %q", got)
+	}
+	first := buildActivitySections(presentation.Items[0])
+	second := buildActivitySections(presentation.Items[2])
+	if len(first) != 1 || first[0].Thinking != "inspect first" || len(first[0].Calls) != 1 || first[0].Calls[0].ID != "call_1" {
+		t.Fatalf("first activity = %+v", first)
+	}
+	if len(second) != 1 || second[0].Thinking != "inspect next" || len(second[0].Calls) != 1 || second[0].Calls[0].ID != "call_2" {
+		t.Fatalf("second activity = %+v", second)
+	}
+}
+
+func TestHistoricalProjectionKeepsThinkingWithTheFollowingToolCall(t *testing.T) {
+	t.Parallel()
+
+	messages := projectTranscript([]protocol.TranscriptMessage{{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant",
+		Content: []protocol.TranscriptContent{
+			toolCallBlock("call_1", "read", `{"path":"one.md"}`),
+			thinkingBlock("next step"),
+			toolCallBlock("call_2", "read", `{"path":"two.md"}`),
+		},
+	}})
+	presentation := presentTranscript(messages)
+	if len(presentation.Items) != 1 || presentation.Items[0].Kind != transcriptDisplayTurnWork {
+		t.Fatalf("ordered work = %+v, want one contiguous batch", presentation.Items)
+	}
+	sections := buildActivitySections(presentation.Items[0])
+	if len(sections) != 2 || len(sections[0].Calls) != 1 || sections[0].Calls[0].ID != "call_1" || sections[0].Thinking != "" {
+		t.Fatalf("first work section = %+v", sections)
+	}
+	if len(sections[1].Calls) != 1 || sections[1].Calls[0].ID != "call_2" || sections[1].Thinking != "next step" {
+		t.Fatalf("second work section = %+v", sections)
+	}
+}
+
+func TestHistoricalProjectionAppendsTerminalErrorAfterOrderedContent(t *testing.T) {
+	t.Parallel()
+
+	messages := projectTranscript([]protocol.TranscriptMessage{{
+		ID: "assistant_1", TurnID: "turn_1", Role: "assistant",
+		Content: []protocol.TranscriptContent{
+			toolCallBlock("call_1", "read", `{"path":"README.md"}`),
+			textBlock("Partial answer."),
+		},
+		StopReason: "error", ErrorMessage: "provider disconnected", IsError: true,
+	}})
+	presentation := presentTranscript(messages)
+	if len(presentation.Items) != 3 || presentation.Items[0].Kind != transcriptDisplayTurnWork {
+		t.Fatalf("terminal error display = %+v, want work, prose, error", presentation.Items)
+	}
+	if got := assistantProse(presentation.Items[1].Item.Message); got != "Partial answer." {
+		t.Fatalf("completed prose = %q", got)
+	}
+	errorItem := presentation.Items[2].Item.Message
+	if got := assistantProse(errorItem); got != "provider disconnected" || !errorItem.IsError || errorItem.StopReason != "error" {
+		t.Fatalf("terminal error = %+v, prose %q", errorItem, got)
+	}
+	state, exists := presentation.ToolStates[transcriptToolStateKey{TurnID: "turn_1", ToolCallID: "call_1"}]
+	resolved := resolveActivityToolState(state, exists, false)
+	if !exists || resolved != activityToolFailed {
+		t.Fatalf("unresolved terminal tool state = %+v, exists %v, resolved %v, want failed", state, exists, resolved)
+	}
+}
+
 func TestThinkingWithoutToolsDoesNotCreateActivityWork(t *testing.T) {
 	t.Parallel()
 

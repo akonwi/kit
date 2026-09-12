@@ -46,19 +46,11 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 
 ### Transcript and activity
 
-- [~] TUI-TRANSCRIPT-001 — Render active and historical Markdown, thinking,
-  tool activity, code, structured updates, errors, and usage consistently after
-  attach, reconnect, and restart. Depends on `CORE-RUN-001` and `CORE-RUN-002`.
 - [ ] TUI-TRANSCRIPT-002 — Add syntax highlighting and drag-safe in-app link
   activation while preserving selectable text and terminal-native copying.
 - [~] TUI-TRANSCRIPT-003 — Present model/thinking selection, context
   pressure/capacity, retry countdowns, compaction lifecycle, cancellation, and
   terminal run state without obscuring retained evidence.
-- [~] TUI-TRANSCRIPT-004 — Preserve chronological assistant prose and contiguous
-  tool-call batches; present each batch with count and failure state, and each
-  call as a human-readable action with a typed argument-summary chip. Expand
-  batches directly in transcript flow without nested scrolling or inline result
-  output. See the [tool activity design](../design/tui-tool-activity.md).
 
 ### Composer, sessions, and commands
 
@@ -116,6 +108,9 @@ resolving this decision.
 
 ## Post-R1
 
+- [ ] TUI-TRANSCRIPT-006 — Progressively enrich tool-call presentation with
+  bounded recorded output and explicit truncated-content and omitted-detail
+  evidence, preserving equivalent presentation for live and restored activity.
 - [ ] TUI-MERMAID-001 — Render Mermaid diagrams inline with a safe visual
   fallback, or adopt an explicitly reviewed native equivalent.
 - [ ] TUI-THREAD-001 — Present cached `#thread` suggestions, escaping, bounded
