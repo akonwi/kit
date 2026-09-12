@@ -30,14 +30,17 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [~] CORE-LIFE-001 — Shut down gracefully and bound forced cleanup of providers,
-  tools, MCP connections, and other owned child work.
 - [~] CORE-LIFE-002 — Enforce explicit resource and backpressure limits across
   HTTP, event replay and subscriptions, direct tools, MCP, and clients.
 - [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
   leaking credentials or protocol output.
 - [ ] CORE-LIFE-004 — Meet documented cold-start and warm-attach acceptance
   thresholds on supported release platforms.
+- [ ] CORE-LIFE-005 — Enforce a hard shutdown deadline for provider streams,
+  direct tool processes, and subagent runtimes that ignore cooperative
+  cancellation, without allowing late cleanup to access closed shared storage.
+- [ ] CORE-LIFE-006 — Attach configured MCP managers to their owning runtimes and
+  close in-flight calls, sessions, and transports within the shutdown deadline.
 - [ ] CORE-SESSION-001 — Let multiple clients observe and control one
   authoritative session without lost updates or client-global active-session
   state.

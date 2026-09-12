@@ -34,16 +34,20 @@ the initial release.
 ## Requirement states
 
 - `[ ]` not started
-- `[~]` in progress or only partially implemented
+- `[~]` actively in progress; not a summary for mixed completed and outstanding
+  scope
 - `[x]` complete; retained only as a dependency tombstone
 - `[-]` rejected or superseded by an accepted decision
 
 Stable IDs are never reused. An initial-release decision must be resolved into
-**R1 required** or **Post-R1** before a release candidate. Completed checklist
-items are removed after implementation, persistence and migration implications,
-and automated or recorded manual verification are complete. A stable ID remains
-as a terse `[x]` tombstone while an outstanding requirement depends on it. Git
-history and referenced implementation plans retain the full completion record.
+**R1 required** or **Post-R1** before a release candidate. Do not leave a broad
+requirement partial after its completed and outstanding scope can be identified.
+Remove the completed scope and replace the remainder with concrete, observable
+`[ ]` requirements using new stable IDs. Completed checklist items are removed
+after implementation, persistence and migration implications, and automated or
+recorded manual verification are complete. A stable ID remains as a terse `[x]`
+tombstone only while an outstanding requirement depends on it. Git history
+retains the full completion record.
 
 When adding a requirement:
 
