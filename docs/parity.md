@@ -29,9 +29,9 @@ automated or recorded manual verification exists.
 - [-] `web-tui` is removed.
 - [ ] Back up and idempotently migrate existing production `~/.kit` JSONL
   session data into the v2 SQLite stores.
-- [ ] Subagents become concurrent supervised executions with durable mailboxes.
-- [ ] Custom plugins are supported through the subprocess RPC protocol only;
-  in-process TypeScript plugin loading is not restored.
+- [-] Subagents are concurrent supervised executions with durable mailboxes.
+- [-] In-process TypeScript plugin loading is not restored; custom plugins will
+  use the subprocess RPC protocol.
 
 ## Foundation and distribution
 
@@ -39,7 +39,7 @@ automated or recorded manual verification exists.
   the native Go executable already cross-builds without CGO, and Windows remains
   unsupported.
 - [ ] Embedded production web assets; users need no Bun/Node runtime.
-- [ ] Version metadata, update checks, release notes, and release packaging.
+- [ ] Update checks, release notes, and native release packaging.
 - [ ] Install and upgrade paths for existing npm-installed users.
 - [ ] Shell completion, stdio RPC, semantic web serving, `kit attach`, and
   noninteractive `kit sessions list`, `rename`, and `delete` commands.
@@ -66,9 +66,6 @@ automated or recorded manual verification exists.
 
 ## Daemon and server lifecycle
 
-- [x] Authenticate local SSE requests consistently with the authenticated
-  health, management, and session HTTP routes.
-- [ ] Keep active subagent work running after all clients detach.
 - [~] Support graceful shutdown and bounded forced cleanup of tools/plugins.
 - [~] Complete resource and backpressure limits across every runtime and client;
   HTTP, event replay/subscriptions, direct bash, MCP results, and several other
@@ -76,8 +73,6 @@ automated or recorded manual verification exists.
 
 ## Session directory and concurrency
 
-- [~] Run different top-level sessions concurrently.
-- [~] Serialize one parent run per session while preserving queue semantics.
 - [ ] Allow several clients to observe/control one authoritative session.
 - [ ] Implement handoff and lineage without globally switching other clients.
 - [ ] Preserve scratchpad behavior across forks/handoffs.
@@ -98,14 +93,12 @@ automated or recorded manual verification exists.
   identity, bounded arguments, details, errors, and stop reasons, and the native
   TUI reconstructs an attached active run from its runtime event stream. Rich
   turn entries and atomic multi-client synchronization remain.
-- [~] Expose droids' bounded durable steering and generation guards through Kit,
-  then add follow-up queueing, promotion, and restoration.
 - [~] Abort and cooperative cancellation through providers, tools, plugins, and
   subagents.
 - [~] Project droids' bounded retry scheduling into user-visible provider-error
   countdown and status surfaces.
 - [~] Proactive and overflow-driven compaction with durable checkpoints; droids
-  performs threshold-driven automatic compaction and protocol v19 projects its
+  performs threshold-driven automatic compaction and protocol v22 projects its
   pending, completed, and failed lifecycle so the native TUI provides notice.
 - [ ] Automatic session naming.
 - [ ] Session transcript replacement/recovery semantics.
@@ -143,10 +136,11 @@ automated or recorded manual verification exists.
 - [ ] Mermaid inline rendering and safe visual fallback, or an explicitly
   reviewed native equivalent.
 - [~] Fixed composer with multiline editing, cursor behavior, drafts, history,
-  attachments, pending queue, and abort state; the focused full-width composer
-  starts at one row, grows to ten rows with multiline input, accepts bracketed
-  paste without triggering commands or submission, submits prompts, preserves
-  text while busy, and exposes abort state.
+  attachments, follow-up queueing, and abort state; the focused full-width
+  composer starts at one row, grows to ten rows with multiline input, accepts
+  bracketed paste without triggering commands or submission, submits prompts
+  and follow-ups, restores and promotes queued work, and exposes abort state.
+  Draft persistence, composer history, and attachments remain.
 - [~] Command palette with filtering, completion, arguments, nested pickers,
   keyboard, and mouse behavior; the initial single-ranked palette opens from
   `Ctrl+P` or an empty-composer `/`, supports fuzzy matching, identity-stable
@@ -154,10 +148,10 @@ automated or recorded manual verification exists.
   state, and an undimmed modal boundary. It exposes cwd navigation, login,
   active-safe session-context reload and naming, searchable `/model` and
   supported-level `/thinking` selectors, explicit `/compact`, always-available
-  `/debug` session details with live cumulative usage, session exploration,
-  quit, and
-  dynamically discovered idle-only prompt commands with quoted arguments; session exploration opens the
-  native saved-session listing and switches the attached TUI session. Completion,
+  `/debug` session details with live cumulative usage, session exploration, new
+  sessions, subagent inspection, quit, and dynamically discovered idle-only
+  prompt commands with quoted arguments; session exploration opens the native
+  saved-session listing and switches the attached TUI session. Completion,
   nested pickers, and non-prompt dynamic command sources remain.
 - [ ] Layered focus, configurable intent keybindings, conflict reporting, and
   overlay precedence.
@@ -173,10 +167,8 @@ automated or recorded manual verification exists.
 - [~] Wide split workspace, draggable remembered ratio, narrow tabs, retained
   pane state, and focus cycling for secondary workspace surfaces. Draggable
   remembered ratios and the general pane registry remain.
-- [~] Inline turn activity plus Scratchpad, Code Review, file, subagent, MCP,
-  release-note, and other registered workspace panes; native tool activity is
-  grouped per turn and expands within the transcript using a fixed scrolling
-  window. The remaining registered panes are pending.
+- [ ] Scratchpad, Code Review, file, MCP, release-note, and other registered
+  workspace panes.
 - [~] Header/footer status, model/thinking/context indicators, VCS/PR location,
   plugin chrome, and update action; the shell preserves session/model header and
   status/cwd/Git footer ownership, with compact hoverable model/thinking controls
@@ -213,13 +205,14 @@ automated or recorded manual verification exists.
 - [~] Versioned server capability negotiation.
 - [~] Separate server-scoped and immutable session-scoped APIs.
 - [~] Canonical wire-safe records with runtime validation in Go and TypeScript;
-  protocol v19 exposes retry-safe client-selected persisted or temporary
+  protocol v22 exposes retry-safe client-selected persisted or temporary
   session IDs, validated session rename, persisted cwd mutation, and
   archival/disposal deletion,
   session-scoped context reload metadata and diagnostics, renderer-safe prompt
-  command catalogs and server-owned prompt-command execution, droid-owned turn
-  identity, direct canonical history, context/pending boundaries, runtime stream
-  synchronization metadata, bounded tool arguments, stable live assistant
+  command catalogs and server-owned prompt-command execution, validated
+  subagent catalogs, snapshots, events, and lifecycle operations, droid-owned
+  turn identity, direct canonical history, context/pending boundaries, runtime
+  stream synchronization metadata, bounded tool arguments, stable live assistant
   message IDs, validated cumulative usage snapshots/updates, model capabilities,
   revision-guarded session configuration, idempotent explicit compaction, and
   session/cwd-correlated volatile VCS status. TypeScript contracts remain.
@@ -277,30 +270,9 @@ automated or recorded manual verification exists.
 
 ## Subagents
 
-- [~] Discover user and project agent definitions with deterministic precedence;
-  compatibility and plugin-contributed locations remain.
-- [~] Start durable concurrent execution through agent-name-only model tools;
-  internal task identities remain private, authenticated native CLI and
-  multi-observer smoke coverage is recorded in the implementation tracker, and
-  semantic-web parity remains.
-- [~] One independently cancellable context, droids runtime, durable transcript,
-  bounded live event stream, and status per conversation.
-- [~] Bounded global/per-session concurrency and session-fair FIFO scheduling.
-- [~] Agent-scoped inspect, live droids steering, wait-until-settled, cancel,
-  and confirmed dismiss lifecycle operations; lower-level native protocol
-  operations retain generation-safe internal identities.
-- [~] Persist full subagent activity without injecting its transcript into the
-  parent model context.
-- [~] Deliver completion through the durable parent mailbox at a safe turn
-  boundary, with an autonomous context-only reaction when the parent is idle or
-  unloaded.
-- [~] Mark in-flight work interrupted after daemon restart, preserve queued work,
-  and create explicit lineage when messaging an interrupted conversation.
-- [~] Native TUI roster and retained child transcript workspace tabs; semantic
-  web workspace remains.
-- [~] Compact delegation markers and live status in parent Activity and the
-  Subagents workspace.
-- [~] Prevent nested delegation until deliberately designed.
+- [ ] Add compatibility definition locations and plugin-contributed definitions.
+- [ ] Migrate production subagent history.
+- [ ] Add the semantic web roster and retained child transcript workspace.
 
 ## Guidance and reusable prompts
 
@@ -308,20 +280,9 @@ automated or recorded manual verification exists.
   quoted argument expansion, server-owned execution, reload, and native palette
   contribution are complete; compact synthetic transcript identity remains.
 - [ ] Claude command compatibility and `cc:` namespacing.
-- [ ] User/project subagent definition discovery.
 
 ## Composer references and attachments
 
-- [x] Lazy inline `@file` suggestions after whitespace or at draft start,
-  respecting hierarchical Git and Kit ignore rules, built-in project excludes,
-  symlink boundaries, and a 4,000-entry scan bound. The authoritative index is
-  built by the daemon on the session host and exposed through the bound-session
-  protocol. Indexes refresh immediately after cwd changes and after a five-minute
-  per-session cache interval; stale loads cannot update a newer session, cwd, or picker.
-- [x] Inline mention filtering, wraparound keyboard navigation, mouse selection,
-  Enter replacement, and Escape cancellation. Paste does not trigger mentions;
-  cancellation and `@@` retain the composer text rather than moving query text
-  into a separate focused input.
 - [ ] Cached `#thread` suggestions, `##` escaping, active-session exclusion, and
   bounded expansion.
 - [ ] Image and text attachment staging, restore, queue, submit, transcript, and
@@ -334,11 +295,11 @@ automated or recorded manual verification exists.
 - [~] Core command catalog and transport-neutral command subset; the native
   palette currently exposes cwd navigation, login, reload, model/thinking
   configuration, session naming, explicit compaction, session diagnostics,
-  session exploration, quit, and server-discovered global/project prompt
-  commands with arguments.
+  session exploration, new sessions, subagent inspection, quit, and
+  server-discovered global/project prompt commands with arguments.
 - [ ] Dynamic command registration with canonical ownership and generations.
-- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/new`,
-  `/tree`, and release/MCP commands.
+- [ ] `/settings`, `/pager`, `/code-review`, `/handoff`, `/logout`, `/tree`, and
+  release/MCP commands.
 - [ ] Immediate settings application, validation, atomic persistence, and inline
   save errors.
 - [ ] Theme discovery/selection and current custom-theme compatibility.
@@ -405,17 +366,15 @@ automated or recorded manual verification exists.
 - [ ] End-to-end SIGINT/SIGTERM exit-code verification.
 - [ ] Long-lived stdio RPC framing, malformed input recovery, async acceptance,
   and settlement events.
-- [~] Authenticated manual smoke testing covers native temporary print
-  execution and artifact-free disposal; tools, plugins, signals, and subagents
-  remain.
+- [ ] Complete authenticated manual smoke testing for tools, plugins, and
+  signals.
 
 ## Quality gate
 
 - [ ] Browser format, lint, typecheck, unit, integration, and accessibility tests
   pass.
-- [~] Current CLI, daemon, session, session-client, and TUI test suites pass
-  under the race detector; subagent/plugin concurrency suites remain future
-  work.
+- [ ] All concurrency-sensitive packages, including future plugin suites, pass
+  under the race detector.
 - [ ] Protocol fuzz/property tests cover malformed and adversarial records.
 - [~] Extend SQLite migration tests beyond empty databases and versioned schema
   upgrades to repeated, partial-failure, and imported-data paths.
