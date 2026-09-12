@@ -19,9 +19,6 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   by R1 surfaces.
 - [~] TUI-SHELL-002 — Complete layered focus and deterministic overlay
   precedence for the built-in keymap.
-- [~] TUI-SHELL-003 — Present bounded toasts, confirmations, inputs, selectors,
-  startup/auth failures, fatal errors, and interactive tool surfaces with clear
-  focus and cancellation behavior.
 
 ### Directory, file, and diff workspace
 
