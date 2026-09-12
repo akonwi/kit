@@ -37,8 +37,8 @@ Production `main` at `c9abdf2` provides:
 
 Production's `run` action blocks the parent tool call until the child finishes.
 V2 intentionally replaces this with concurrent supervised execution and durable
-queueing. Production's `app/docs/features/subagents.md` is stale; the code and
-`docs/subagent-session-storage.md` describe its current persistence behavior.
+queueing. Production's `app/docs/features/subagents.md` is stale; the retained
+TypeScript source is the reference for its persistence behavior.
 
 ## Scope
 
