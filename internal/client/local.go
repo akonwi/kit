@@ -370,6 +370,10 @@ func (c *localSession) Abort(ctx context.Context, runID string) error {
 	return c.transport.AbortSession(ctx, c.id, runID)
 }
 
+func (c *localSession) RespondInteraction(ctx context.Context, response protocol.InteractionResponse) error {
+	return c.transport.RespondInteraction(ctx, c.id, response)
+}
+
 func (c *localSession) Bash(ctx context.Context, executionID string) (sessionclient.BashExecution, error) {
 	requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()

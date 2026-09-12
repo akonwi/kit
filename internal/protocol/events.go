@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/akonwi/kit/internal/identifier"
 )
 
 const (
@@ -15,24 +17,26 @@ const (
 type SessionEventKind string
 
 const (
-	SessionEventRunStarted          SessionEventKind = "run.started"
-	SessionEventUserMessage         SessionEventKind = "message.user"
-	SessionEventAssistantStarted    SessionEventKind = "assistant.started"
-	SessionEventAssistantTextDelta  SessionEventKind = "assistant.text.delta"
-	SessionEventThinkingDelta       SessionEventKind = "assistant.thinking.delta"
-	SessionEventAssistantCompleted  SessionEventKind = "assistant.completed"
-	SessionEventToolPlanned         SessionEventKind = "tool.planned"
-	SessionEventToolStarted         SessionEventKind = "tool.started"
-	SessionEventToolUpdated         SessionEventKind = "tool.updated"
-	SessionEventToolCompleted       SessionEventKind = "tool.completed"
-	SessionEventCompactionStarted   SessionEventKind = "compaction.started"
-	SessionEventCompactionCompleted SessionEventKind = "compaction.completed"
-	SessionEventCompactionFailed    SessionEventKind = "compaction.failed"
-	SessionEventContextUpdated      SessionEventKind = "context.updated"
-	SessionEventUsageUpdated        SessionEventKind = "usage.updated"
-	SessionEventRunFinished         SessionEventKind = "run.finished"
-	SessionEventSessionRenamed      SessionEventKind = "session.renamed"
-	SessionEventSubagentChanged     SessionEventKind = "subagent.changed"
+	SessionEventRunStarted           SessionEventKind = "run.started"
+	SessionEventUserMessage          SessionEventKind = "message.user"
+	SessionEventAssistantStarted     SessionEventKind = "assistant.started"
+	SessionEventAssistantTextDelta   SessionEventKind = "assistant.text.delta"
+	SessionEventThinkingDelta        SessionEventKind = "assistant.thinking.delta"
+	SessionEventAssistantCompleted   SessionEventKind = "assistant.completed"
+	SessionEventToolPlanned          SessionEventKind = "tool.planned"
+	SessionEventToolStarted          SessionEventKind = "tool.started"
+	SessionEventToolUpdated          SessionEventKind = "tool.updated"
+	SessionEventToolCompleted        SessionEventKind = "tool.completed"
+	SessionEventCompactionStarted    SessionEventKind = "compaction.started"
+	SessionEventCompactionCompleted  SessionEventKind = "compaction.completed"
+	SessionEventCompactionFailed     SessionEventKind = "compaction.failed"
+	SessionEventContextUpdated       SessionEventKind = "context.updated"
+	SessionEventUsageUpdated         SessionEventKind = "usage.updated"
+	SessionEventRunFinished          SessionEventKind = "run.finished"
+	SessionEventSessionRenamed       SessionEventKind = "session.renamed"
+	SessionEventSubagentChanged      SessionEventKind = "subagent.changed"
+	SessionEventInteractionRequested SessionEventKind = "interaction.requested"
+	SessionEventInteractionResolved  SessionEventKind = "interaction.resolved"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -66,6 +70,9 @@ type SessionEvent struct {
 	SessionName            string              `json:"sessionName,omitempty"`
 	SubagentConversationID string              `json:"subagentConversationId,omitempty"`
 	SubagentTaskID         string              `json:"subagentTaskId,omitempty"`
+	Interaction            *InteractionRequest `json:"interaction,omitempty"`
+	InteractionID          string              `json:"interactionId,omitempty"`
+	InteractionResolution  string              `json:"interactionResolution,omitempty"`
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -108,7 +115,14 @@ func (event SessionEvent) Validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
+	if event.Interaction != nil {
+		raw, err := json.Marshal(event.Interaction)
+		if err != nil {
+			return fmt.Errorf("encode interaction event: %w", err)
+		}
+		payloadBytes += len(raw)
+	}
 	for _, block := range event.Content {
 		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
 	}
@@ -178,6 +192,17 @@ func (event SessionEvent) Validate() error {
 			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || payloadBytes != 0 {
 			return fmt.Errorf("subagent event identity or payload is invalid")
 		}
+	case SessionEventInteractionRequested:
+		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
+			return fmt.Errorf("interaction request event is invalid")
+		}
+		if err := event.Interaction.Validate(); err != nil {
+			return err
+		}
+	case SessionEventInteractionResolved:
+		if event.Interaction != nil || !identifier.Valid(event.InteractionID, "interaction_") || !validProtocolInteractionResolution(event.InteractionResolution) {
+			return fmt.Errorf("interaction resolution event is invalid")
+		}
 	case SessionEventRunFinished:
 		switch event.Status {
 		case RunStatusCompleted:
@@ -223,6 +248,12 @@ func (event SessionEvent) Validate() error {
 	if event.Kind != SessionEventSessionRenamed && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
 	}
+	if event.Kind != SessionEventInteractionRequested && event.Interaction != nil {
+		return fmt.Errorf("event kind %q cannot carry an interaction", event.Kind)
+	}
+	if event.Kind != SessionEventInteractionResolved && (event.InteractionID != "" || event.InteractionResolution != "") {
+		return fmt.Errorf("event kind %q cannot carry interaction resolution data", event.Kind)
+	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
@@ -256,6 +287,15 @@ func (event SessionEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry a message id", event.Kind)
 	}
 	return nil
+}
+
+func validProtocolInteractionResolution(reason string) bool {
+	switch reason {
+	case "answered", "negative_confirmation", "user_cancelled", "run_abort", "deleted", "shutdown", "unavailable":
+		return true
+	default:
+		return false
+	}
 }
 
 // Validate checks event ordering and runtime-stream identity for a transport page.

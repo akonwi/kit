@@ -55,7 +55,7 @@ func (snapshot SessionSnapshot) Validate() error {
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
 	}
-	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 ||
+	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions ||
 		len(snapshot.SubagentDefinitions) > 128 || len(snapshot.SubagentDiagnostics) > 128 || len(snapshot.SubagentConversations) > 128 || len(snapshot.SubagentMailbox) > 64 {
 		return fmt.Errorf("snapshot has too many commands, warnings, or subagent records")
 	}
@@ -64,6 +64,19 @@ func (snapshot SessionSnapshot) Validate() error {
 	}
 	if err := snapshot.FollowUps.Validate(); err != nil {
 		return fmt.Errorf("snapshot follow-ups: %w", err)
+	}
+	seenInteractions := make(map[string]struct{}, len(snapshot.PendingInteractions))
+	for index, interaction := range snapshot.PendingInteractions {
+		if err := interaction.Validate(); err != nil {
+			return fmt.Errorf("snapshot interaction %d: %w", index, err)
+		}
+		if interaction.SessionID != snapshot.Session.ID {
+			return fmt.Errorf("snapshot interaction %d session identity mismatch", index)
+		}
+		if _, duplicate := seenInteractions[interaction.ID]; duplicate {
+			return fmt.Errorf("snapshot interaction %d is duplicated", index)
+		}
+		seenInteractions[interaction.ID] = struct{}{}
 	}
 	for index, warning := range snapshot.Warnings {
 		if !validRendererText(warning, 4096) || strings.TrimSpace(warning) == "" {

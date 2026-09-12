@@ -128,7 +128,6 @@ commits are omitted.
 
 | Change | R1 decision | Tracking |
 | --- | --- | --- |
-| Present confirm, input, select, and guided questions in the composer dock (`9f7bbed`) | Required | `CORE-INT-001`, `TUI-INT-001` |
 | Add validated `show_image` and explicit transcript image previews (`a2c7434`) | Required | `CORE-ATT-002`, `TUI-ATT-002` |
 | Open transcript images in retained workspace panes (`e6c181f`) | Required | `TUI-ATT-002` |
 | Submit structured code-review feedback without a generic prompt preamble (`0fc9f94`) | Post-R1 | `CORE-REVIEW-001`, `TUI-REVIEW-001` |

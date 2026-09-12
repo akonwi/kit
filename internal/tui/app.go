@@ -232,6 +232,7 @@ type appState struct {
 	turnActivity                 string
 	turnThinking                 string
 	followUps                    protocol.FollowUpQueue
+	pendingInteractions          []protocol.InteractionRequest
 	followUpMutationPending      bool
 	runStopping                  bool
 	contextTokens                int
@@ -633,6 +634,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		TurnActivity:                s.turnActivity,
 		TurnThinking:                s.turnThinking,
 		FollowUps:                   s.followUps,
+		PendingInteractions:         append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
 		ContextTokens:               s.contextTokens,
 		ContextWindow:               s.contextWindow,
 		SessionUsage:                s.sessionUsage,
@@ -906,6 +908,25 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 					s.requestTranscriptScroll()
 				}
 			})
+		},
+		RespondInteraction: func(_ ui.EventContext, response protocol.InteractionResponse, complete func(error)) {
+			interactionSession, ok := s.bound.(sessionclient.InteractionSession)
+			if !ok {
+				complete(fmt.Errorf("interaction session is unavailable"))
+				return
+			}
+			runtime := s.Context().Runtime()
+			go func() {
+				requestContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				err := interactionSession.RespondInteraction(requestContext, response)
+				runtime.Dispatch(func() {
+					complete(err)
+					if err != nil {
+						s.showToast(toastInput{Title: "Could not submit response", Subtitle: err.Error(), Variant: toastError})
+					}
+				})
+			}()
 		},
 		RestoreFollowUps: func(ctx ui.EventContext) {
 			s.restoreFollowUps(ctx)
@@ -1350,6 +1371,10 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
 	s.followUps = snapshot.FollowUps
+	if s.liveSequence == 0 || (snapshot.EventStreamID == s.metadataStreamID && snapshot.EventCursor >= s.liveSequence) {
+		s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
+		s.agentFeedbackPending = len(s.pendingInteractions) > 0
+	}
 	s.applySubagentSnapshot(snapshot)
 }
 
@@ -1416,6 +1441,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		s.session.Name = name
 	}
 	s.followUps = snapshot.FollowUps
+	s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
 	currentActiveBash, hasCurrentActiveBash := findBashExecution(s.messages, s.liveMessages, s.activeBashID)
 	projected := projectTranscript(snapshot.Messages)
 	for index := range projected {
@@ -1490,8 +1516,13 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		s.activeBash = nil
 		s.activeBashID = ""
 	}
+	s.agentFeedbackPending = len(s.pendingInteractions) > 0
 	if s.runPending {
-		s.turnActivity = "Working…"
+		if s.agentFeedbackPending {
+			s.turnActivity = "Waiting for feedback…"
+		} else {
+			s.turnActivity = "Working…"
+		}
 	}
 	if !s.runPending {
 		s.activeRun = nil
@@ -1774,6 +1805,34 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				} else {
 					s.liveMessages[index].ToolStatus = "Completed"
 				}
+			}
+		case protocol.SessionEventInteractionRequested:
+			if event.Interaction != nil {
+				found := false
+				for _, pending := range s.pendingInteractions {
+					if pending.ID == event.Interaction.ID {
+						found = true
+						break
+					}
+				}
+				if !found {
+					s.pendingInteractions = append(s.pendingInteractions, *event.Interaction)
+				}
+				s.agentFeedbackPending = true
+				s.setTurnActivity("Waiting for feedback…")
+			}
+		case protocol.SessionEventInteractionResolved:
+			for index := range s.pendingInteractions {
+				if s.pendingInteractions[index].ID == event.InteractionID {
+					s.pendingInteractions = append(s.pendingInteractions[:index], s.pendingInteractions[index+1:]...)
+					break
+				}
+			}
+			s.agentFeedbackPending = len(s.pendingInteractions) > 0
+			if s.agentFeedbackPending {
+				s.setTurnActivity("Waiting for feedback…")
+			} else {
+				s.setTurnActivity("Working…")
 			}
 		case protocol.SessionEventCompactionStarted:
 			s.setTurnThinking("")

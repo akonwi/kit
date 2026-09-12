@@ -30,18 +30,19 @@ const (
 // bottom-anchored conversation controls. In wide mode the secondary pane spans
 // the full body beside the transcript, pending status, and composer column.
 type conversationWorkspaceHost struct {
-	Open              bool
-	ActivitySelected  bool
-	Tabs              ui.Widget
-	Transcript        ui.Widget
-	Pending           ui.Widget
-	PendingHeight     int
-	ComposerSeparator ui.Widget
-	Composer          ui.Widget
-	PaneSeparator     ui.Widget
-	Activity          ui.Widget
-	SeparatorStyle    ui.Style
-	LayoutState       *workspaceLayoutState
+	Open                bool
+	ActivitySelected    bool
+	Tabs                ui.Widget
+	Transcript          ui.Widget
+	Pending             ui.Widget
+	PendingHeight       int
+	ComposerSeparator   ui.Widget
+	Composer            ui.Widget
+	ComposerHeightLimit int
+	PaneSeparator       ui.Widget
+	Activity            ui.Widget
+	SeparatorStyle      ui.Style
+	LayoutState         *workspaceLayoutState
 }
 
 func (w conversationWorkspaceHost) WidgetChildren() []ui.Widget {
@@ -58,17 +59,18 @@ func (w conversationWorkspaceHost) WidgetChildren() []ui.Widget {
 
 func (w conversationWorkspaceHost) CreateRenderObject(ui.BuildContext) ui.RenderObject {
 	return &renderConversationWorkspaceHost{
-		Open: w.Open, ActivitySelected: w.ActivitySelected, PendingHeight: w.PendingHeight,
+		Open: w.Open, ActivitySelected: w.ActivitySelected, PendingHeight: w.PendingHeight, ComposerHeightLimit: w.ComposerHeightLimit,
 		SeparatorStyle: w.SeparatorStyle, LayoutState: w.LayoutState,
 	}
 }
 
 func (w conversationWorkspaceHost) UpdateRenderObject(_ ui.BuildContext, renderObject ui.RenderObject) {
 	render := renderObject.(*renderConversationWorkspaceHost)
-	if render.Open != w.Open || render.ActivitySelected != w.ActivitySelected || render.PendingHeight != w.PendingHeight {
+	if render.Open != w.Open || render.ActivitySelected != w.ActivitySelected || render.PendingHeight != w.PendingHeight || render.ComposerHeightLimit != w.ComposerHeightLimit {
 		render.Open = w.Open
 		render.ActivitySelected = w.ActivitySelected
 		render.PendingHeight = w.PendingHeight
+		render.ComposerHeightLimit = w.ComposerHeightLimit
 		render.MarkNeedsLayout()
 	}
 	if render.SeparatorStyle != w.SeparatorStyle {
@@ -87,6 +89,7 @@ type renderConversationWorkspaceHost struct {
 	Open                 bool
 	ActivitySelected     bool
 	PendingHeight        int
+	ComposerHeightLimit  int
 	SeparatorStyle       ui.Style
 	LayoutState          *workspaceLayoutState
 	wide                 bool
@@ -297,9 +300,13 @@ func (r *renderConversationWorkspaceHost) layoutUnbounded(
 		hide(workspaceActivityChild)
 	}
 
+	composerLimit := r.ComposerHeightLimit
+	if composerLimit <= 0 {
+		composerLimit = composerMaxHeight
+	}
 	composerSize := layoutChild(
 		workspaceComposerChild,
-		ui.Constraints{MinWidth: primary, MaxWidth: primary, MaxHeight: composerMaxHeight},
+		ui.Constraints{MinWidth: primary, MaxWidth: primary, MaxHeight: composerLimit},
 		ui.Offset{},
 	)
 	mainSize := layoutChild(
@@ -308,7 +315,7 @@ func (r *renderConversationWorkspaceHost) layoutUnbounded(
 		ui.Offset{Y: yOffset},
 	)
 	pendingY := yOffset + mainSize.Height
-	pendingHeight := max(1, r.PendingHeight)
+	pendingHeight := max(0, r.PendingHeight)
 	layoutChild(workspacePendingChild, ui.Tight(ui.Size{Width: primary, Height: pendingHeight}), ui.Offset{Y: pendingY})
 	separatorY := pendingY + pendingHeight
 	layoutChild(workspaceComposerSeparatorChild, ui.Tight(ui.Size{Width: primary, Height: 1}), ui.Offset{Y: separatorY})
@@ -357,14 +364,18 @@ func (r *renderConversationWorkspaceHost) layoutConversationColumn(
 	}
 	pendingHeight := 0
 	if height >= 4 {
-		pendingHeight = min(max(1, r.PendingHeight), max(1, height-3))
+		pendingHeight = min(max(0, r.PendingHeight), max(1, height-3))
 	}
 	mainReserve := 0
 	if height-pendingHeight-separatorHeight-composerLimit > 0 {
 		mainReserve = 1
 	}
 	if composerLimit > 0 {
-		composerLimit = min(composerMaxHeight, height-pendingHeight-separatorHeight-mainReserve)
+		configuredLimit := r.ComposerHeightLimit
+		if configuredLimit <= 0 {
+			configuredLimit = composerMaxHeight
+		}
+		composerLimit = min(configuredLimit, height-pendingHeight-separatorHeight-mainReserve)
 	}
 	composerSize := layoutChild(
 		workspaceComposerChild,

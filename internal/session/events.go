@@ -25,24 +25,26 @@ const (
 )
 
 const (
-	EventRunStarted          EventKind = "run.started"
-	EventUserMessage         EventKind = "message.user"
-	EventAssistantStarted    EventKind = "assistant.started"
-	EventAssistantTextDelta  EventKind = "assistant.text.delta"
-	EventThinkingDelta       EventKind = "assistant.thinking.delta"
-	EventAssistantCompleted  EventKind = "assistant.completed"
-	EventToolPlanned         EventKind = "tool.planned"
-	EventToolStarted         EventKind = "tool.started"
-	EventToolUpdated         EventKind = "tool.updated"
-	EventToolCompleted       EventKind = "tool.completed"
-	EventCompactionStarted   EventKind = "compaction.started"
-	EventCompactionCompleted EventKind = "compaction.completed"
-	EventCompactionFailed    EventKind = "compaction.failed"
-	EventContextUpdated      EventKind = "context.updated"
-	EventUsageUpdated        EventKind = "usage.updated"
-	EventRunFinished         EventKind = "run.finished"
-	EventSessionRenamed      EventKind = "session.renamed"
-	EventSubagentChanged     EventKind = "subagent.changed"
+	EventRunStarted           EventKind = "run.started"
+	EventUserMessage          EventKind = "message.user"
+	EventAssistantStarted     EventKind = "assistant.started"
+	EventAssistantTextDelta   EventKind = "assistant.text.delta"
+	EventThinkingDelta        EventKind = "assistant.thinking.delta"
+	EventAssistantCompleted   EventKind = "assistant.completed"
+	EventToolPlanned          EventKind = "tool.planned"
+	EventToolStarted          EventKind = "tool.started"
+	EventToolUpdated          EventKind = "tool.updated"
+	EventToolCompleted        EventKind = "tool.completed"
+	EventCompactionStarted    EventKind = "compaction.started"
+	EventCompactionCompleted  EventKind = "compaction.completed"
+	EventCompactionFailed     EventKind = "compaction.failed"
+	EventContextUpdated       EventKind = "context.updated"
+	EventUsageUpdated         EventKind = "usage.updated"
+	EventRunFinished          EventKind = "run.finished"
+	EventSessionRenamed       EventKind = "session.renamed"
+	EventSubagentChanged      EventKind = "subagent.changed"
+	EventInteractionRequested EventKind = "interaction.requested"
+	EventInteractionResolved  EventKind = "interaction.resolved"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -74,6 +76,9 @@ type NewEvent struct {
 	SessionName            string
 	SubagentConversationID string
 	SubagentTaskID         string
+	Interaction            *InteractionRequest
+	InteractionID          string
+	InteractionResolution  string
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -142,7 +147,14 @@ func (event NewEvent) Validate() error {
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
+	if event.Interaction != nil {
+		raw, err := json.Marshal(event.Interaction)
+		if err != nil {
+			return fmt.Errorf("encode interaction event: %w", err)
+		}
+		payloadBytes += len(raw)
+	}
 	for _, block := range event.Content {
 		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
 	}
@@ -208,6 +220,17 @@ func (event NewEvent) Validate() error {
 			return fmt.Errorf("session rename event requires a renderer-safe name")
 		}
 	case EventSubagentChanged:
+	case EventInteractionRequested:
+		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.ID == "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
+			return fmt.Errorf("interaction request event is invalid")
+		}
+		if err := validateInteractionRequest(*event.Interaction); err != nil {
+			return err
+		}
+	case EventInteractionResolved:
+		if event.Interaction != nil || !identifier.Valid(event.InteractionID, "interaction_") || !validInteractionResolution(event.InteractionResolution) {
+			return fmt.Errorf("interaction resolution event is invalid")
+		}
 	case EventRunFinished:
 		switch event.Status {
 		case RunStatusCompleted:
@@ -261,6 +284,12 @@ func (event NewEvent) Validate() error {
 	if event.Kind != EventSessionRenamed && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
 	}
+	if event.Kind != EventInteractionRequested && event.Interaction != nil {
+		return fmt.Errorf("event kind %q cannot carry an interaction request", event.Kind)
+	}
+	if event.Kind != EventInteractionResolved && (event.InteractionID != "" || event.InteractionResolution != "") {
+		return fmt.Errorf("event kind %q cannot carry interaction resolution data", event.Kind)
+	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
@@ -291,6 +320,15 @@ func (event NewEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry a message id", event.Kind)
 	}
 	return nil
+}
+
+func validInteractionResolution(reason string) bool {
+	switch reason {
+	case "answered", "negative_confirmation", "user_cancelled", "run_abort", "deleted", "shutdown", "unavailable":
+		return true
+	default:
+		return false
+	}
 }
 
 type eventLog struct {

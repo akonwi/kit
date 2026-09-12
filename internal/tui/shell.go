@@ -44,6 +44,7 @@ type shellSnapshot struct {
 	TurnActivity                string
 	TurnThinking                string
 	FollowUps                   protocol.FollowUpQueue
+	PendingInteractions         []protocol.InteractionRequest
 	ContextTokens               int
 	ContextWindow               int
 	SessionUsage                protocol.SessionUsage
@@ -126,6 +127,7 @@ type shellCallbacks struct {
 	ComposerChanged            ui.TextChangedCallback
 	ComposerPasted             ui.TextChangedCallback
 	RestoreFollowUps           ui.VoidCallback
+	RespondInteraction         func(ui.EventContext, protocol.InteractionResponse, func(error))
 	CopySelection              func(string)
 	DismissToast               func(uint64)
 	OpenPalette                ui.VoidCallback
@@ -410,14 +412,28 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 		if w.Snapshot.SubagentPaneID != "" {
 			secondaryPane = w.subagentTranscriptPane(theme, w.Snapshot.SubagentPaneID)
 		}
+		pending := w.pendingSlot(theme)
+		pendingHeight := 1 + min(3, w.Snapshot.FollowUps.Count)
+		composer := w.composer(theme)
+		composerHeightLimit := composerMaxHeight
+		if len(w.Snapshot.PendingInteractions) > 0 {
+			request := w.Snapshot.PendingInteractions[0]
+			pending = ui.SizedBox{}
+			pendingHeight = 0
+			composerHeightLimit = 14
+			composer = ui.Stack{Children: []ui.Widget{
+				ui.Positioned{Left: 0, Top: 0, Child: ui.SizedBox{Height: 0, Child: composer}},
+				interactionDock{Request: request, QueueLength: len(w.Snapshot.PendingInteractions), OnRespond: w.Callbacks.RespondInteraction},
+			}}
+		}
 		body = ui.Expanded(conversationWorkspaceHost{
 			Open: workspaceOpen, ActivitySelected: w.Snapshot.ActivitySelected,
 			Tabs: w.workspaceTabs(theme), Transcript: w.body(theme),
-			Pending: w.pendingSlot(theme), PendingHeight: 1 + min(3, w.Snapshot.FollowUps.Count),
+			Pending: pending, PendingHeight: pendingHeight,
 			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme)}},
-			Composer:          w.composer(theme),
-			PaneSeparator:     ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
-			Activity:          secondaryPane, SeparatorStyle: ui.Style{Foreground: theme.Border},
+			Composer:          composer, ComposerHeightLimit: composerHeightLimit,
+			PaneSeparator: ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
+			Activity:      secondaryPane, SeparatorStyle: ui.Style{Foreground: theme.Border},
 			LayoutState: w.Snapshot.WorkspaceLayout,
 		})
 	}

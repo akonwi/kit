@@ -108,9 +108,22 @@ Examples: `InlinePicker`, compact overflow pickers, toast notifications.
 - Transient pickers commonly use `pickerBg` and avoid extra framing when placement already establishes the boundary
 - Toasts are the exception: use `theme.bg` with a semantic variant-colored border and matching status icon/text
 
+### Interaction dock
+
+Examples: model and plugin confirmation, short input, selection, and guided-question requests.
+
+- Replaces the composer and pending-status row while an interaction is active
+- Spans the primary transcript column without a modal backdrop
+- Leaves the transcript visible, selectable, and mouse-scrollable
+- Owns keyboard focus and provides explicit submit and cancel actions
+- Uses a measured, bounded share of terminal height and windows long content
+- Preserves and restores the composer draft, cursor, attachments, and queued follow-ups
+- Shows the oldest server-owned pending request and identifies queue position when needed
+- Must not cancel a server-owned request merely because this client switches sessions or detaches
+
 ### Dialog
 
-Examples: settings, login, guided questions, session exploration, command palette, workspace file finder.
+Examples: settings, login, session exploration, command palette, workspace file finder.
 
 - Centered above the current screen without dimming or recoloring the background
   unless it is a picker-style dialog

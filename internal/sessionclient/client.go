@@ -41,6 +41,11 @@ type Session interface {
 }
 
 // SubagentEventReader is the optional child live-event synchronization surface.
+// InteractionSession is the optional structured model-user response surface.
+type InteractionSession interface {
+	RespondInteraction(context.Context, protocol.InteractionResponse) error
+}
+
 type SubagentEventReader interface {
 	SubagentEvents(context.Context, string, string, int64) (protocol.SubagentLiveEventPage, error)
 }

@@ -84,9 +84,6 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 
 ### User interaction and integrations
 
-- [ ] TUI-INT-001 — Present confirm, input, select, and one-question guided
-  question flows in the composer dock with exact cancellation behavior. Depends
-  on `CORE-INT-001` and `CORE-INT-002`.
 - [ ] TUI-MCP-001 — Present MCP connection, authentication, failure, and debug
   state without exposing credentials. Depends on `CORE-MCP-004` and
   `CORE-MCP-005`.

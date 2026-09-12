@@ -433,6 +433,7 @@ type SessionSnapshot struct {
 	SubagentDiagnostics   []SubagentDiagnostic   `json:"subagentDiagnostics,omitempty"`
 	SubagentConversations []SubagentConversation `json:"subagentConversations,omitempty"`
 	SubagentMailbox       []SubagentMailboxItem  `json:"subagentMailbox,omitempty"`
+	PendingInteractions   []InteractionRequest   `json:"pendingInteractions,omitempty"`
 }
 
 // RunStatus is a canonical parent-run terminal state on the wire.

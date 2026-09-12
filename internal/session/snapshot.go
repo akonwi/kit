@@ -158,6 +158,7 @@ type Snapshot struct {
 	SubagentDiagnostics   []SubagentDiagnostic
 	SubagentConversations []SubagentConversation
 	SubagentMailbox       []SubagentMailboxItem
+	PendingInteractions   []InteractionRequest
 }
 
 // Snapshot projects canonical droid history directly. While a turn is active,
@@ -205,8 +206,9 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			unlockMetadata()
 			return Snapshot{}, err
 		}
+		pendingInteractions := loaded.interactions.snapshot()
 		loaded.events.mu.Lock()
-		result, err := m.projectSnapshotLocked(ctx, sessionID, loaded, record, droidSnapshot)
+		result, err := m.projectSnapshotLocked(ctx, sessionID, loaded, record, droidSnapshot, pendingInteractions)
 		if err != nil {
 			loaded.events.mu.Unlock()
 			unlockMetadata()
@@ -237,7 +239,7 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	}
 }
 
-func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, loaded *runtime, record SessionRecord, droidSnapshot droids.Snapshot) (Snapshot, error) {
+func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, loaded *runtime, record SessionRecord, droidSnapshot droids.Snapshot, pendingInteractions []InteractionRequest) (Snapshot, error) {
 	activeRunID := loaded.activeRun
 	completeActiveStream := activeRunID != "" && loaded.runs[activeRunID] != nil &&
 		loaded.runs[activeRunID].completeStream && loaded.events.replayAvailable &&
@@ -252,6 +254,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		Usage:                projectSessionUsage(droidSnapshot.Usage),
 		FollowUps:            projectFollowUpQueue(loaded.followUps),
 		Warnings:             append([]string(nil), loaded.configurationWarnings...),
+		PendingInteractions:  pendingInteractions,
 	}
 	for _, definition := range loaded.bundle.Subagents.Catalog.Definitions() {
 		result.SubagentDefinitions = append(result.SubagentDefinitions, SubagentDefinition{

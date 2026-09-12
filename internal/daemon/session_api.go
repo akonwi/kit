@@ -48,6 +48,7 @@ type sessionService interface {
 	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, string) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
+	RespondInteraction(context.Context, string, protocol.InteractionResponse) error
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
 	Bash(context.Context, string, string) (protocol.BashExecution, error)
 	AbortBash(context.Context, string, string) error
@@ -230,6 +231,10 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		SubagentDiagnostics:   make([]protocol.SubagentDiagnostic, 0, len(snapshot.SubagentDiagnostics)),
 		SubagentConversations: make([]protocol.SubagentConversation, 0, len(snapshot.SubagentConversations)),
 		SubagentMailbox:       make([]protocol.SubagentMailboxItem, 0, len(snapshot.SubagentMailbox)),
+		PendingInteractions:   make([]protocol.InteractionRequest, 0, len(snapshot.PendingInteractions)),
+	}
+	for _, interaction := range snapshot.PendingInteractions {
+		result.PendingInteractions = append(result.PendingInteractions, projectInteractionRequest(interaction))
 	}
 	for _, item := range snapshot.SubagentMailbox {
 		result.SubagentMailbox = append(result.SubagentMailbox, protocol.SubagentMailboxItem{
@@ -579,6 +584,21 @@ func (s runtimeSessionService) WaitEvents(ctx context.Context, sessionID, stream
 	return projectSessionEventPage(page), nil
 }
 
+func projectInteractionRequest(request kitsession.InteractionRequest) protocol.InteractionRequest {
+	result := protocol.InteractionRequest{ID: request.ID, SessionID: request.SessionID, RunID: request.RunID, ToolCallID: request.ToolCallID, Kind: protocol.InteractionKind(request.Kind), Title: request.Title, Detail: request.Detail, CreatedAt: request.CreatedAt.Format(time.RFC3339Nano), Options: make([]protocol.InteractionOption, 0, len(request.Options)), Questions: make([]protocol.InteractionQuestion, 0, len(request.Questions))}
+	for _, option := range request.Options {
+		result.Options = append(result.Options, protocol.InteractionOption{ID: option.ID, Label: option.Label, Detail: option.Detail})
+	}
+	for _, question := range request.Questions {
+		projected := protocol.InteractionQuestion{ID: question.ID, Prompt: question.Prompt, Detail: question.Detail, Kind: protocol.InteractionQuestionKind(question.Kind), Required: question.Required, Options: make([]protocol.InteractionOption, 0, len(question.Options))}
+		for _, option := range question.Options {
+			projected.Options = append(projected.Options, protocol.InteractionOption{ID: option.ID, Label: option.Label, Detail: option.Detail})
+		}
+		result.Questions = append(result.Questions, projected)
+	}
+	return result
+}
+
 func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBatch {
 	batch := protocol.SessionEventBatch{
 		StreamID: page.StreamID, FirstSequence: page.FirstSequence, LastSequence: page.LastSequence,
@@ -586,7 +606,7 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 		Events: make([]protocol.SessionEvent, 0, len(page.Events)),
 	}
 	for _, event := range page.Events {
-		batch.Events = append(batch.Events, protocol.SessionEvent{
+		projected := protocol.SessionEvent{
 			StreamID: event.StreamID, Sequence: event.Sequence,
 			SessionID: event.SessionID, TurnID: event.TurnID, RunID: event.RunID,
 			MessageID: event.MessageID, Kind: protocol.SessionEventKind(event.Kind), ContentIndex: event.ContentIndex,
@@ -601,7 +621,13 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			Usage:                  projectSessionUsagePointer(event.Usage),
 			SessionName:            event.SessionName,
 			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
-		})
+			InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution,
+		}
+		if event.Interaction != nil {
+			interaction := projectInteractionRequest(*event.Interaction)
+			projected.Interaction = &interaction
+		}
+		batch.Events = append(batch.Events, projected)
 	}
 	return batch
 }
@@ -785,6 +811,14 @@ func projectProviderErrorKind(kind kitsession.ProviderErrorKind) protocol.Provid
 
 func (s runtimeSessionService) Abort(ctx context.Context, sessionID, runID string) error {
 	return s.manager.Abort(ctx, sessionID, runID)
+}
+
+func (s runtimeSessionService) RespondInteraction(ctx context.Context, sessionID string, response protocol.InteractionResponse) error {
+	answers := make(map[string]kitsession.InteractionAnswer, len(response.Answers))
+	for id, answer := range response.Answers {
+		answers[id] = kitsession.InteractionAnswer{Text: answer.Text, Boolean: answer.Boolean, OptionIDs: append([]string(nil), answer.OptionIDs...), Skipped: answer.Skipped}
+	}
+	return s.manager.RespondInteraction(ctx, sessionID, kitsession.InteractionResponse{RequestID: response.RequestID, Cancelled: response.Cancelled, Confirmed: response.Confirmed, Value: response.Value, SelectedOptionID: response.SelectedOptionID, Answers: answers})
 }
 
 func (s runtimeSessionService) StartBash(ctx context.Context, sessionID string, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
@@ -1303,6 +1337,26 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, run)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/interactions/{interactionID}/response", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.InteractionResponse
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if input.RequestID != request.PathValue("interactionID") {
+			writeSessionError(writer, fmt.Errorf("%w: interaction identity mismatch", errInvalidSessionRequest))
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		if err := service.RespondInteraction(request.Context(), request.PathValue("sessionID"), input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, map[string]bool{"settled": true})
+	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/runs/{runID}/abort", func(writer http.ResponseWriter, request *http.Request) {
 		if err := service.Abort(
 			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
@@ -1380,13 +1434,13 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
 	switch {
-	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, subagent.ErrNotFound):
+	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound), errors.Is(err, subagent.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed):
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed):
 		status = http.StatusConflict
 		message = err.Error()
-	case errors.Is(err, subagent.ErrQueueFull):
+	case errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull):
 		status = http.StatusTooManyRequests
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):

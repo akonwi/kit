@@ -193,6 +193,8 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	if err != nil {
 		return ConfigureSessionResult{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, err)
 	}
+	replacement.Prompt.Prompt += interactionPromptGuidance
+	replacement.Tools = append(replacement.Tools, interactionTools(sessionID, loaded.interactions)...)
 	replacement.Tools = append(replacement.Tools, m.changeCWDTool(sessionID, loaded.workspace))
 	nextEvents, err := newEventLog()
 	if err != nil {

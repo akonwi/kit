@@ -472,6 +472,12 @@ func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) e
 	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
 }
 
+// RespondInteraction atomically settles one pending model-user interaction.
+func (c *Client) RespondInteraction(ctx context.Context, sessionID string, response protocol.InteractionResponse) error {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interactions/" + url.PathEscape(response.RequestID) + "/response"
+	return c.sessionJSON(ctx, http.MethodPost, path, response, http.StatusOK, nil)
+}
+
 // AbortSession requests cancellation of a loaded session's active run.
 func (c *Client) AbortSession(ctx context.Context, sessionID, runID string) error {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID) + "/abort"

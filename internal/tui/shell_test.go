@@ -294,6 +294,43 @@ func TestFollowUpsRenderAboveComposerWithRestoreHint(t *testing.T) {
 	}
 }
 
+func TestInteractionDockReplacesComposerAndShowsQueuePosition(t *testing.T) {
+	t.Parallel()
+
+	const width, height = 80, 20
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Composer: "preserved draft", Scroll: &ui.ScrollController{},
+		PendingInteractions: []protocol.InteractionRequest{
+			{ID: "interaction_one", Kind: protocol.InteractionConfirm, Title: "Deploy now?", Detail: "This updates production."},
+			{ID: "interaction_two", Kind: protocol.InteractionInput, Title: "Release note"},
+		},
+	}})
+	app.Pump(width, height)
+	painted := strings.Join(paintedRows(app, width, height), "\n")
+	for _, expected := range []string{"Deploy now?", "1 of 2", "This updates production.", "Yes", "No", "y yes · n no · esc cancel", "Cancel"} {
+		if !strings.Contains(painted, expected) {
+			t.Fatalf("interaction dock does not contain %q:\n%s", expected, painted)
+		}
+	}
+}
+
+func TestInteractionEventsDriveFeedbackState(t *testing.T) {
+	t.Parallel()
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
+	request := protocol.InteractionRequest{ID: "interaction_one", Kind: protocol.InteractionConfirm, Title: "Continue?"}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventInteractionRequested, Interaction: &request}, {Sequence: 2, Kind: protocol.SessionEventInteractionRequested, Interaction: &request}})
+	if len(state.pendingInteractions) != 1 {
+		t.Fatalf("duplicate requested events produced %d pending interactions", len(state.pendingInteractions))
+	}
+	if !state.agentFeedbackPending || state.turnActivity != "Waiting for feedback…" {
+		t.Fatalf("requested interaction state = (%v, %q)", state.agentFeedbackPending, state.turnActivity)
+	}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, Kind: protocol.SessionEventInteractionResolved, InteractionID: request.ID, InteractionResolution: "answered"}})
+	if state.agentFeedbackPending || state.turnActivity != "Working…" {
+		t.Fatalf("resolved interaction state = (%v, %q)", state.agentFeedbackPending, state.turnActivity)
+	}
+}
+
 func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	t.Parallel()
 

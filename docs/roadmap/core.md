@@ -91,11 +91,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
   restoration, transcript projection, and cleanup.
 - [ ] CORE-ATT-002 — Implement validated `show_image` results and a client-safe
   transcript representation. Depends on `CORE-ATT-001`.
-- [ ] CORE-INT-001 — Implement `confirm_from_user`, `input_from_user`,
-  `select_from_user`, and one-question text/select/multiselect/boolean guided
-  questions with optional detail and canonical result/cancellation shapes.
-- [ ] CORE-INT-002 — Resolve multi-client interactions using the first valid
-  response and replay pending interactions safely after reconnect.
+- [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
+  `WEB-INT-001`.
+- [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained
+  for `WEB-INT-001`.
 - [ ] CORE-TOOL-002 — Implement approval/interceptor behavior without allowing a
   client to bypass server-owned tool policy.
 

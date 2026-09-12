@@ -54,6 +54,8 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	if errnth != nil {
 		return ReloadResult{}, fmt.Errorf("build replacement runtime bundle for session %q: %w", sessionID, errnth)
 	}
+	replacement.Prompt.Prompt += interactionPromptGuidance
+	replacement.Tools = append(replacement.Tools, interactionTools(sessionID, loaded.interactions)...)
 	replacement.Tools = append(replacement.Tools, m.changeCWDTool(sessionID, loaded.workspace))
 	if m.isClosed() {
 		return ReloadResult{}, ErrClosed

@@ -174,6 +174,7 @@ type runtime struct {
 	recovery              *droids.ExecutionSnapshot
 	configurationWarnings []string
 	followUps             []string
+	interactions          *interactionBroker
 }
 
 func (r *runtime) signalEventChangedLocked() {
@@ -615,7 +616,7 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		// Archival is the authoritative delete commit. Runtime cleanup is best
 		// effort so an interrupted client cannot turn a committed delete into a
 		// misleading retryable failure or allow a second runtime to load.
-		_ = loaded.close(ctx)
+		_ = loaded.close(ctx, "deleted")
 	}
 	return nil
 }
@@ -753,7 +754,7 @@ func (m *Manager) finishTemporaryDisposal(
 	if loaded != nil {
 		loaded.mu.Lock()
 		loaded.workspace.mutationMu.Lock()
-		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background()))
+		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background(), "deleted"))
 	}
 	m.bashMu.Lock()
 	delete(m.bashHistory, sessionID)
@@ -1364,7 +1365,7 @@ func (m *Manager) finishShutdown(runtimes []*runtime) {
 	var shutdownErr error
 	for _, loaded := range runtimes {
 		loaded.mu.Lock()
-		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background()))
+		shutdownErr = errors.Join(shutdownErr, loaded.close(context.Background(), "shutdown"))
 		loaded.mu.Unlock()
 	}
 	m.admissions.Wait()
@@ -1418,7 +1419,7 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	startRecovery := false
 	if m.closed || m.deleting[sessionID] {
 		if loaded != nil {
-			_ = loaded.close(context.Background())
+			_ = loaded.close(context.Background(), "unavailable")
 		}
 		if m.closed {
 			loaded, err = nil, ErrClosed
@@ -1482,6 +1483,17 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	if err != nil {
 		return nil, fmt.Errorf("build runtime bundle for session %q: %w", record.ID, err)
 	}
+	var loaded *runtime
+	interactions := newInteractionBroker(func(event NewEvent) {
+		if loaded == nil {
+			return
+		}
+		if err := loaded.events.append([]NewEvent{event}); err != nil {
+			loaded.events.invalidate()
+		}
+	})
+	bundle.Prompt.Prompt += interactionPromptGuidance
+	bundle.Tools = append(bundle.Tools, interactionTools(record.ID, interactions)...)
 	bundle.Tools = append(bundle.Tools, m.changeCWDTool(record.ID, workspace))
 	var store droids.Store
 	closeStore := func() error { return nil }
@@ -1522,14 +1534,15 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = closeStore()
 		return nil, err
 	}
-	loaded := &runtime{
+	loaded = &runtime{
 		droid: droid, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
-		runs: make(map[string]*liveRun),
+		runs: make(map[string]*liveRun), interactions: interactions,
 	}
+	interactions.authority = &loaded.mu
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {
-		_ = loaded.close(context.Background())
+		_ = loaded.close(context.Background(), "unavailable")
 		return nil, err
 	}
 	if quiescent.Execution != nil && (quiescent.Execution.Status == droids.ExecutionPaused || quiescent.Execution.Status == droids.ExecutionInterrupted) {
@@ -1635,7 +1648,10 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 	loaded.admissionMu.Unlock()
 }
 
-func (r *runtime) close(ctx context.Context) error {
+func (r *runtime) close(ctx context.Context, interactionReason string) error {
+	if r.interactions != nil {
+		r.interactions.cancelAll(interactionReason)
+	}
 	return errors.Join(r.droid.Shutdown(ctx), r.closeStore())
 }
 
