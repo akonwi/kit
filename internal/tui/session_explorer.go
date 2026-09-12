@@ -164,6 +164,15 @@ func (c *sessionExplorerController) Select(sessionID string) {
 	}
 }
 
+func (c *sessionExplorerController) ApplyExternalRename(sessionID, name string) bool {
+	index := sessionIndex(c.Sessions, sessionID)
+	if index < 0 {
+		return false
+	}
+	c.Sessions[index].Name = name
+	return true
+}
+
 func (c *sessionExplorerController) BeginRename() bool {
 	if _, ok := c.ActivatableSelection(); !ok {
 		return false

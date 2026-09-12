@@ -179,10 +179,6 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 	}
 	loaded.mu.Lock()
 	defer loaded.mu.Unlock()
-	record, err := m.sessionRecordAtWorkspace(ctx, sessionID, loaded.workspace)
-	if err != nil {
-		return Snapshot{}, err
-	}
 	for {
 		droidSnapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 		if err != nil {
@@ -203,22 +199,32 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			loaded.mu.Lock()
 			continue
 		}
+		unlockMetadata := m.lockSessionMetadata(sessionID)
+		record, err := m.sessionRecordAtWorkspace(ctx, sessionID, loaded.workspace)
+		if err != nil {
+			unlockMetadata()
+			return Snapshot{}, err
+		}
 		loaded.events.mu.Lock()
 		result, err := m.projectSnapshotLocked(ctx, sessionID, loaded, record, droidSnapshot)
 		if err != nil {
 			loaded.events.mu.Unlock()
+			unlockMetadata()
 			return Snapshot{}, err
 		}
 		latest, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 		if err != nil {
 			loaded.events.mu.Unlock()
+			unlockMetadata()
 			return Snapshot{}, err
 		}
 		if loaded.activeRun == "" || latest.LastEvent == droidSnapshot.LastEvent {
 			loaded.events.mu.Unlock()
+			unlockMetadata()
 			return result, nil
 		}
 		loaded.events.mu.Unlock()
+		unlockMetadata()
 		published := loaded.eventChanged
 		loaded.mu.Unlock()
 		select {

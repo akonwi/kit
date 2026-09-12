@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+func TestSessionRenamedEventValidation(t *testing.T) {
+	t.Parallel()
+	event := SessionEvent{
+		StreamID: "stream_test", Sequence: 1, SessionID: "session_test",
+		Kind: SessionEventSessionRenamed, SessionName: "Renamed session",
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	batch := SessionEventBatch{StreamID: event.StreamID, FirstSequence: 1, LastSequence: 1, Events: []SessionEvent{event}}
+	if err := batch.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.TurnID, event.RunID = "turn_parent", "turn_parent"
+	if err := event.Validate(); err == nil {
+		t.Fatal("session rename event accepted parent run identity")
+	}
+}
+
 func TestSubagentChangedEventValidation(t *testing.T) {
 	t.Parallel()
 	event := SessionEvent{
@@ -186,6 +205,18 @@ func TestSessionEventBatchRejectsAssistantIdentityChange(t *testing.T) {
 	}}
 	if err := batch.Validate(); err == nil {
 		t.Fatal("Validate() accepted an assistant identity change")
+	}
+}
+
+func TestSessionEventBatchPreservesAssistantIdentityAcrossRename(t *testing.T) {
+	t.Parallel()
+	batch := SessionEventBatch{StreamID: "stream_test", FirstSequence: 1, LastSequence: 3, Events: []SessionEvent{
+		{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", MessageID: "message_one", Kind: SessionEventAssistantStarted},
+		{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", Kind: SessionEventSessionRenamed, SessionName: "Renamed"},
+		{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", MessageID: "message_one", Kind: SessionEventAssistantTextDelta, Delta: "continued"},
+	}}
+	if err := batch.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v", err)
 	}
 }
 

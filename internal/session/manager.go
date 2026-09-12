@@ -98,6 +98,7 @@ type Manager struct {
 	cancelMailbox         context.CancelFunc
 
 	mu                sync.Mutex
+	metadataGates     map[string]*sync.Mutex
 	runtimes          map[string]*runtime
 	loading           map[string]*runtimeLoad
 	deleting          map[string]bool
@@ -161,7 +162,8 @@ type runtime struct {
 	subagentEventPending  *NewEvent
 	subagentEventDraining bool
 
-	// Lock order is transitionMu, admissionMu, then mu, then workspace.mutationMu.
+	// Lock order is transitionMu, admissionMu, then mu, workspace.mutationMu,
+	// and the event-log mutex. Manager.mu is never held while acquiring them.
 	// admissionMu remains held for a complete parent turn. mu protects the current droid and
 	// immutable bundle snapshot together with run bookkeeping.
 	transitionMu          sync.Mutex
@@ -461,6 +463,21 @@ func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
 		record.ThinkingLevel == input.ThinkingLevel && record.ArchivedAt == nil
 }
 
+func (m *Manager) lockSessionMetadata(sessionID string) func() {
+	m.mu.Lock()
+	if m.metadataGates == nil {
+		m.metadataGates = make(map[string]*sync.Mutex)
+	}
+	gate := m.metadataGates[sessionID]
+	if gate == nil {
+		gate = &sync.Mutex{}
+		m.metadataGates[sessionID] = gate
+	}
+	m.mu.Unlock()
+	gate.Lock()
+	return gate.Unlock
+}
+
 // Rename replaces one session's display name.
 func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRecord, error) {
 	if err := m.beginOperation(); err != nil {
@@ -471,24 +488,61 @@ func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRe
 	if name == "" || !validSessionName(name) {
 		return SessionRecord{}, fmt.Errorf("%w: session name must be non-empty renderer-safe UTF-8 and at most 256 bytes", ErrInvalidInput)
 	}
+	unlockMetadata := m.lockSessionMetadata(sessionID)
+	defer unlockMetadata()
 	m.mu.Lock()
 	if m.deleting[sessionID] {
 		m.mu.Unlock()
 		return SessionRecord{}, ErrDeleteBusy
 	}
-	if temporary, ok := m.temporary[sessionID]; ok {
-		temporary.Name = name
-		updatedAt := time.Now().UTC()
-		if !updatedAt.After(temporary.UpdatedAt) {
-			updatedAt = temporary.UpdatedAt.Add(time.Nanosecond)
-		}
-		temporary.UpdatedAt = updatedAt
-		m.temporary[sessionID] = temporary
-		m.mu.Unlock()
-		return temporary, nil
-	}
+	_, temporary := m.temporary[sessionID]
 	m.mu.Unlock()
-	return m.store.RenameSession(ctx, sessionID, name)
+	if temporary {
+		m.mu.Lock()
+		if m.deleting[sessionID] {
+			m.mu.Unlock()
+			return SessionRecord{}, ErrDeleteBusy
+		}
+		record, ok := m.temporary[sessionID]
+		if !ok {
+			m.mu.Unlock()
+			return SessionRecord{}, fmt.Errorf("session %q: %w", sessionID, ErrNotFound)
+		}
+		record.Name = name
+		updatedAt := time.Now().UTC()
+		if !updatedAt.After(record.UpdatedAt) {
+			updatedAt = record.UpdatedAt.Add(time.Nanosecond)
+		}
+		record.UpdatedAt = updatedAt
+		m.temporary[sessionID] = record
+		loaded := m.runtimes[sessionID]
+		m.mu.Unlock()
+		m.publishSessionRenamed(loaded, record)
+		return record, nil
+	}
+	renamed, err := m.store.RenameSession(ctx, sessionID, name)
+	if err != nil {
+		return SessionRecord{}, err
+	}
+	m.mu.Lock()
+	loaded := m.runtimes[sessionID]
+	deleting := m.deleting[sessionID]
+	m.mu.Unlock()
+	if !deleting {
+		m.publishSessionRenamed(loaded, renamed)
+	}
+	return renamed, nil
+}
+
+func (m *Manager) publishSessionRenamed(loaded *runtime, record SessionRecord) {
+	if loaded == nil {
+		return
+	}
+	if err := loaded.events.append([]NewEvent{{
+		SessionID: record.ID, Kind: EventSessionRenamed, SessionName: record.Name,
+	}}); err != nil {
+		loaded.events.invalidate()
+	}
 }
 
 // Delete archives a persisted session and releases an idle loaded runtime.

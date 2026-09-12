@@ -10,6 +10,22 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 )
 
+func TestSessionRenamedEventIsSessionScoped(t *testing.T) {
+	t.Parallel()
+	event := NewEvent{SessionID: "session_test", Kind: EventSessionRenamed, SessionName: "Renamed session"}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.TurnID, event.RunID = "turn_parent", "turn_parent"
+	if err := event.Validate(); err == nil {
+		t.Fatal("session rename event accepted parent turn identity")
+	}
+	event.TurnID, event.RunID, event.Text = "", "", "unexpected"
+	if err := event.Validate(); err == nil {
+		t.Fatal("session rename event accepted unrelated payload")
+	}
+}
+
 func TestSubagentChangedEventIsSessionScoped(t *testing.T) {
 	t.Parallel()
 	event := NewEvent{

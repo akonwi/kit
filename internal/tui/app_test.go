@@ -27,6 +27,39 @@ func liveToolMessage(t *testing.T, state *appState, callID string) transcriptMes
 	return transcriptMessage{}
 }
 
+func TestSessionRenameEventUpdatesAttachedSessionAndExplorer(t *testing.T) {
+	t.Parallel()
+	state := appState{
+		session: protocol.SessionInfo{ID: "session_1", Name: "Before"},
+		sessionExplorer: sessionExplorerController{Sessions: []sessionExplorerItem{{
+			ID: "session_1", Name: "Before",
+		}}},
+	}
+	state.applySessionMetadataEvents([]protocol.SessionEvent{{
+		StreamID: "stream_1", Sequence: 3, SessionID: "session_1", Kind: protocol.SessionEventSessionRenamed, SessionName: "After",
+	}})
+	state.applySnapshot(protocol.SessionSnapshot{
+		Session: protocol.SessionInfo{ID: "session_1", Name: "Before"}, EventStreamID: "stream_1", EventCursor: 2,
+	})
+	if state.session.Name != "After" || state.sessionExplorer.Sessions[0].Name != "After" || state.metadataStreamID != "stream_1" || state.metadataSequence != 3 {
+		t.Fatalf("renamed state = session:%+v explorer:%+v", state.session, state.sessionExplorer.Sessions)
+	}
+}
+
+func TestSessionMetadataBaselineReplacesEventStreamAuthority(t *testing.T) {
+	t.Parallel()
+	state := appState{
+		session:          protocol.SessionInfo{ID: "session_1", Name: "Old"},
+		metadataStreamID: "stream_old", metadataSequence: 9,
+	}
+	state.applySessionMetadataBaseline(protocol.SessionSnapshot{
+		Session: protocol.SessionInfo{ID: "session_1", Name: "Authoritative"}, EventStreamID: "stream_new", EventCursor: 0,
+	})
+	if state.session.Name != "Authoritative" || state.metadataStreamID != "stream_new" || state.metadataSequence != 0 {
+		t.Fatalf("metadata baseline = session:%+v stream:%q sequence:%d", state.session, state.metadataStreamID, state.metadataSequence)
+	}
+}
+
 func TestAcceptedPromptMergesDeferredAutonomousResponse(t *testing.T) {
 	t.Parallel()
 	state := appState{

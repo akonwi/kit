@@ -599,6 +599,7 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
 			ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow,
 			Usage:                  projectSessionUsagePointer(event.Usage),
+			SessionName:            event.SessionName,
 			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
 		})
 	}

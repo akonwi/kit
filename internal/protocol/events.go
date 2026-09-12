@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -30,6 +31,7 @@ const (
 	SessionEventContextUpdated      SessionEventKind = "context.updated"
 	SessionEventUsageUpdated        SessionEventKind = "usage.updated"
 	SessionEventRunFinished         SessionEventKind = "run.finished"
+	SessionEventSessionRenamed      SessionEventKind = "session.renamed"
 	SessionEventSubagentChanged     SessionEventKind = "subagent.changed"
 )
 
@@ -61,6 +63,7 @@ type SessionEvent struct {
 	ContextTokens          int                 `json:"contextTokens,omitempty"`
 	ContextWindow          int                 `json:"contextWindow,omitempty"`
 	Usage                  *SessionUsage       `json:"usage,omitempty"`
+	SessionName            string              `json:"sessionName,omitempty"`
 	SubagentConversationID string              `json:"subagentConversationId,omitempty"`
 	SubagentTaskID         string              `json:"subagentTaskId,omitempty"`
 }
@@ -83,7 +86,11 @@ func (event SessionEvent) Validate() error {
 	if event.SessionID == "" {
 		return fmt.Errorf("event session id is required")
 	}
-	if event.Kind == SessionEventSubagentChanged {
+	if event.Kind == SessionEventSessionRenamed {
+		if event.TurnID != "" || event.RunID != "" {
+			return fmt.Errorf("session rename event cannot carry parent turn identity")
+		}
+	} else if event.Kind == SessionEventSubagentChanged {
 		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
 		}
@@ -101,7 +108,7 @@ func (event SessionEvent) Validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName)
 	for _, block := range event.Content {
 		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
 	}
@@ -162,6 +169,10 @@ func (event SessionEvent) Validate() error {
 		if err := event.Usage.Validate(); err != nil {
 			return fmt.Errorf("usage update: %w", err)
 		}
+	case SessionEventSessionRenamed:
+		if strings.TrimSpace(event.SessionName) != event.SessionName || !validRendererText(event.SessionName, 256) {
+			return fmt.Errorf("session rename event requires a renderer-safe name")
+		}
 	case SessionEventSubagentChanged:
 		if !validRendererText(event.SubagentConversationID, 128) ||
 			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || payloadBytes != 0 {
@@ -183,6 +194,13 @@ func (event SessionEvent) Validate() error {
 	default:
 		return fmt.Errorf("event kind %q is invalid", event.Kind)
 	}
+	if event.Kind == SessionEventSessionRenamed {
+		if payloadBytes != len(event.SessionName) || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" ||
+			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
+			return fmt.Errorf("session rename event carries invalid payload")
+		}
+	}
 	switch event.ErrorKind {
 	case "", ProviderErrorAuthentication, ProviderErrorEntitlement,
 		ProviderErrorUsageLimit, ProviderErrorRateLimit, ProviderErrorTransport,
@@ -201,6 +219,9 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind != SessionEventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
 		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
+	}
+	if event.Kind != SessionEventSessionRenamed && event.SessionName != "" {
+		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
 	}
 	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
@@ -278,7 +299,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if event.Kind == SessionEventSubagentChanged {
+		if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSubagentChanged {
 			previous = event.Sequence
 			continue
 		}

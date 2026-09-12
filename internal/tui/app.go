@@ -227,6 +227,8 @@ type appState struct {
 	liveTools                    map[string]int
 	liveContent                  map[int]liveContentBlock
 	liveSequence                 int64
+	metadataStreamID             string
+	metadataSequence             int64
 	turnActivity                 string
 	turnThinking                 string
 	followUps                    protocol.FollowUpQueue
@@ -1459,6 +1461,16 @@ func (s *appState) applySubagentDiagnostics(sessionID string, diagnostics []prot
 	}
 }
 
+func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapshot) {
+	if snapshot.Session.ID == "" {
+		return
+	}
+	s.session.Name = snapshot.Session.Name
+	s.metadataStreamID = snapshot.EventStreamID
+	s.metadataSequence = snapshot.EventCursor
+	s.sessionExplorer.ApplyExternalRename(snapshot.Session.ID, snapshot.Session.Name)
+}
+
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	var previousActivitySource transcriptDisplayItem
 	if s.activitySourceID != "" && s.activityConversationID == "" {
@@ -1470,7 +1482,12 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
 	s.applySubagentSnapshot(snapshot)
 	if snapshot.Session.ID != "" {
+		name := snapshot.Session.Name
+		if s.metadataStreamID != "" && (snapshot.EventStreamID != s.metadataStreamID || snapshot.EventCursor < s.metadataSequence) {
+			name = s.session.Name
+		}
 		s.session = snapshot.Session
+		s.session.Name = name
 	}
 	s.followUps = snapshot.FollowUps
 	currentActiveBash, hasCurrentActiveBash := findBashExecution(s.messages, s.liveMessages, s.activeBashID)
@@ -2112,6 +2129,22 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 	s.followTranscriptIfPinned()
 }
 
+func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) {
+	for _, event := range events {
+		if event.Kind != protocol.SessionEventSessionRenamed || event.SessionID != s.session.ID {
+			continue
+		}
+		if (s.metadataStreamID != "" && event.StreamID != s.metadataStreamID) ||
+			(event.StreamID == s.metadataStreamID && event.Sequence <= s.metadataSequence) {
+			continue
+		}
+		s.metadataStreamID = event.StreamID
+		s.metadataSequence = event.Sequence
+		s.session.Name = event.SessionName
+		s.sessionExplorer.ApplyExternalRename(event.SessionID, event.SessionName)
+	}
+}
+
 func attachedRunLifecycle(events []protocol.SessionEvent) (startedRunID, finishedRunID string, status protocol.RunStatus) {
 	for _, event := range events {
 		switch event.Kind {
@@ -2150,13 +2183,17 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 			}
 			if !shouldApplyAttachedSnapshot(s.runPending, s.activeRunID, snapshot.ActiveRunID) {
 				copy := snapshot
-				s.deferredSessionSnapshot = &copy
+				s.SetState(func() {
+					s.applySessionMetadataBaseline(snapshot)
+					s.deferredSessionSnapshot = &copy
+				})
 				return
 			}
 			s.deferredSessionSnapshot = nil
 			alreadySettled := finishedRunID != "" && finishedRunID == s.terminalSettledRunID
 			nextRunID := snapshot.ActiveRunID
 			s.SetState(func() {
+				s.applySessionMetadataBaseline(snapshot)
 				s.applySnapshot(snapshot)
 				if nextRunID != "" {
 					s.activeRun = nil
@@ -2204,6 +2241,18 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 			if err == nil {
 				applySnapshot(baseline, "", "")
 				for updates := range stream.Updates() {
+					hasMetadata := false
+					for _, event := range updates {
+						hasMetadata = hasMetadata || event.Kind == protocol.SessionEventSessionRenamed
+					}
+					if hasMetadata {
+						copy := append([]protocol.SessionEvent(nil), updates...)
+						runtime.Dispatch(func() {
+							if operation == s.operation && s.bound == bound {
+								s.SetState(func() { s.applySessionMetadataEvents(copy) })
+							}
+						})
+					}
 					startedRunID, finishedRunID, status := attachedRunLifecycle(updates)
 					if startedRunID == "" && finishedRunID == "" {
 						continue
@@ -4124,6 +4173,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.notifiedRunOrder = nil
 	s.deferredSessionSnapshot = nil
 	s.session = snapshot.Session
+	s.metadataStreamID = snapshot.EventStreamID
+	s.metadataSequence = snapshot.EventCursor
 	s.bound = bound
 	s.location = location
 	s.locationBase = location

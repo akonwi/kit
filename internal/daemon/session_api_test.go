@@ -408,9 +408,17 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil || retried.ID != created.ID {
 		t.Fatalf("retry CreateSession() = %+v, %v; want %q", retried, err, created.ID)
 	}
+	renameBaseline, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	renamed, err := client.RenameSession(context.Background(), created.ID, " Renamed API session ")
 	if err != nil || renamed.ID != created.ID || renamed.Name != "Renamed API session" {
 		t.Fatalf("RenameSession() = %+v, %v", renamed, err)
+	}
+	renameEvents, err := client.GetSessionEvents(context.Background(), created.ID, renameBaseline.EventStreamID, renameBaseline.EventCursor)
+	if err != nil || len(renameEvents.Events) != 1 || renameEvents.Events[0].Kind != protocol.SessionEventSessionRenamed || renameEvents.Events[0].SessionName != renamed.Name {
+		t.Fatalf("rename events = %+v, %v", renameEvents, err)
 	}
 	deleteID, err := identifier.New("session_")
 	if err != nil {
