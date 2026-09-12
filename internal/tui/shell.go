@@ -103,7 +103,6 @@ type shellCallbacks struct {
 	OpenActivity               func(ui.EventContext, string)
 	HoverActivity              func(ui.EventContext, string)
 	ShowTranscript             ui.VoidCallback
-	ShowActivity               ui.VoidCallback
 	CloseActivity              ui.VoidCallback
 	CancelSubagentTask         func(ui.EventContext, string, uint64)
 	DismissSubagent            func(ui.EventContext, string, uint64)
@@ -339,33 +338,6 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 	}
-	if w.Snapshot.ActivitySourceID != "" && w.Snapshot.ActivityConversationID == "" {
-		shortcuts["Page_Up"] = scrollActivityIntent{Pages: -1}
-		shortcuts["Page_Down"] = scrollActivityIntent{Pages: 1}
-		actions[scrollActivityIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if w.Callbacks.ScrollActivity != nil {
-				w.Callbacks.ScrollActivity(ctx, intent.(scrollActivityIntent).Pages)
-			}
-			return ui.EventHandled
-		}
-	}
-	if w.Snapshot.ActivitySourceID != "" && w.Snapshot.ActivitySelected && w.Snapshot.WorkspaceLayout != nil && !w.Snapshot.WorkspaceLayout.Wide {
-		shortcuts["Up"] = moveActivityToolIntent{Delta: -1}
-		shortcuts["Down"] = moveActivityToolIntent{Delta: 1}
-		shortcuts["Enter"] = toggleActivityToolIntent{}
-		actions[moveActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if w.Callbacks.MoveActivityTool != nil {
-				w.Callbacks.MoveActivityTool(ctx, intent.(moveActivityToolIntent).Delta)
-			}
-			return ui.EventHandled
-		}
-		actions[toggleActivityToolIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Callbacks.ToggleActivityTool != nil && w.Snapshot.ActivityCursor.ToolCallID != "" {
-				w.Callbacks.ToggleActivityTool(ctx, w.Snapshot.ActivityCursor)
-			}
-			return ui.EventHandled
-		}
-	}
 	if w.Snapshot.PaletteOpen {
 		shortcuts["Up"] = movePaletteIntent{Delta: -1}
 		shortcuts["Down"] = movePaletteIntent{Delta: 1}
@@ -386,8 +358,6 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				} else if w.Callbacks.CloseActivity != nil {
 					w.Callbacks.CloseActivity(ctx)
 				}
-			} else if !w.Snapshot.SubagentsOpen && w.Snapshot.ActivitySelected && !w.Snapshot.Running && !w.Snapshot.PaletteOpen && w.Snapshot.SubagentDismissID == "" && w.Callbacks.CloseActivity != nil {
-				w.Callbacks.CloseActivity(ctx)
 			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
 			}
@@ -435,13 +405,10 @@ func (w shellView) conversationVisible() bool {
 func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 	body := ui.Widget(ui.Expanded(w.body(theme)))
 	if w.conversationVisible() {
-		workspaceOpen := w.Snapshot.ActivitySourceID != "" || w.Snapshot.SubagentsOpen
-		secondaryPane := w.activityPane(theme)
-		if w.Snapshot.SubagentsOpen {
-			secondaryPane = w.subagentsPane(theme)
-			if w.Snapshot.SubagentPaneID != "" {
-				secondaryPane = w.subagentTranscriptPane(theme, w.Snapshot.SubagentPaneID)
-			}
+		workspaceOpen := w.Snapshot.SubagentsOpen
+		secondaryPane := w.subagentsPane(theme)
+		if w.Snapshot.SubagentPaneID != "" {
+			secondaryPane = w.subagentTranscriptPane(theme, w.Snapshot.SubagentPaneID)
 		}
 		body = ui.Expanded(conversationWorkspaceHost{
 			Open: workspaceOpen, ActivitySelected: w.Snapshot.ActivitySelected,
@@ -760,11 +727,6 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 				},
 			})
 		}
-	} else {
-		tabs = append(tabs, workspaceTab{
-			Label: "Activity", Selected: w.Snapshot.ActivitySelected, Closable: true,
-			OnSelect: w.Callbacks.ShowActivity, OnClose: w.Callbacks.CloseActivity,
-		})
 	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.DecoratedBox(

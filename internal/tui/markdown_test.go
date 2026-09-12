@@ -35,13 +35,14 @@ func TestShellRendersTranscriptAndActivityMarkdown(t *testing.T) {
 	layout := workspaceLayoutState{}
 	app = uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Messages: messages, Scroll: &ui.ScrollController{},
-		ActivitySourceID: "turn-work:turn_1:assistant_1", ActivitySelected: true,
-		ActivityScroll: &ui.ScrollController{}, ActivityList: &activityListController{},
+		ActivitySourceID:   "turn-work:turn_1:assistant_1",
+		InlineActivityOpen: map[string]bool{"turn-work:turn_1:assistant_1": true},
+		ActivityScroll:     &ui.ScrollController{}, ActivityList: &activityListController{},
 		WorkspaceLayout: &layout, ActivityExpanded: map[activityToolKey]bool{},
 	}})
 	app.Pump(80, 28)
 	activity := strings.Join(paintedRows(app, 80, 28), "\n")
-	for _, expected := range []string{"Thinking", "Reasoning", "• inspect first", "Plan", "• read"} {
+	for _, expected := range []string{"Thinking", "Plan", "• read"} {
 		if !strings.Contains(activity, expected) {
 			t.Fatalf("Activity Markdown %q missing:\n%s", expected, activity)
 		}

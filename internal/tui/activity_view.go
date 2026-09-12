@@ -1,80 +1,10 @@
 package tui
 
 import (
-	"strconv"
 	"strings"
 
 	"go.rockorager.dev/vaxis/ui"
 )
-
-func (w shellView) activityPane(theme ui.Theme) ui.Widget {
-	presentation := w.presentation
-	source, ok := transcriptActivitySource(presentation.Items, w.Snapshot.ActivitySourceID)
-	if !ok {
-		return ui.Center(ui.Text{Value: "No activity to display", Style: ui.Style{Foreground: theme.MutedForeground}})
-	}
-	sections := buildActivitySections(source)
-	calls := displayItemToolCalls(source)
-	metadata := activityMetadata(len(calls), len(sections))
-	items := buildActivityListItems(source)
-	if len(items) == 0 {
-		items = []activityListItem{{ID: "activity-empty", Kind: activityListProse, Section: activitySection{Prose: "Nothing to show here yet"}}}
-	}
-	itemWidgets := make([]ui.Widget, len(items))
-	toolKeys := make([]activityToolKey, len(items))
-	for index, item := range items {
-		itemWidgets[index] = w.activityListItem(theme, item, presentation.ToolStates)
-		if item.Kind == activityListTool {
-			toolKeys[index] = item.Key
-		}
-	}
-	body := ui.Scrollbar{Child: ui.ScrollView{
-		Controller: w.Snapshot.ActivityScroll,
-		Child: ui.Padding(ui.All(1), activityList{
-			Controller: w.Snapshot.ActivityList, OuterScroll: w.Snapshot.ActivityScroll,
-			ToolKeys: toolKeys, Children: itemWidgets,
-		}),
-	}}
-	hint := "click details " + glyphMiddleDot + " page up/down scroll " + glyphMiddleDot + " esc close"
-	if w.Snapshot.ActivitySelected && w.Snapshot.WorkspaceLayout != nil && !w.Snapshot.WorkspaceLayout.Wide {
-		hint = "↑↓ rows " + glyphMiddleDot + " enter details " + glyphMiddleDot + " page up/down scroll " + glyphMiddleDot + " esc close"
-	}
-	if w.Snapshot.Running {
-		hint = strings.TrimSuffix(hint, "esc close") + "esc abort"
-	}
-	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			ui.Expanded(ui.Text{Value: metadata, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1}),
-			workspaceWideOnly{LayoutState: w.Snapshot.WorkspaceLayout, Child: mouseActivator{
-				OnPressed: w.Callbacks.CloseActivity, Child: ui.Text{
-					Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground},
-				},
-			}},
-		}})},
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
-		ui.Expanded(body),
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
-		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
-			Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
-		})},
-	}})
-	if w.Snapshot.ActivityFocus != nil {
-		content = ui.FocusScope{AutoFocus: w.Snapshot.ActivitySelected, Child: ui.Focus(w.Snapshot.ActivityFocus, content)}
-	}
-	return content
-}
-
-func activityMetadata(toolCalls, steps int) string {
-	toolLabel := "tool calls"
-	if toolCalls == 1 {
-		toolLabel = "tool call"
-	}
-	stepLabel := "steps"
-	if steps == 1 {
-		stepLabel = "step"
-	}
-	return strconv.Itoa(toolCalls) + " " + toolLabel + " " + glyphMiddleDot + " " + strconv.Itoa(steps) + " " + stepLabel
-}
 
 func (w shellView) activityListItem(theme ui.Theme, item activityListItem, states map[transcriptToolStateKey]transcriptMessage) ui.Widget {
 	switch item.Kind {

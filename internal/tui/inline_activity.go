@@ -38,24 +38,20 @@ type inlineActivityWindowState struct {
 }
 
 func (s *inlineActivityWindowState) InitState() {
-	s.viewportRows = 1
+	s.viewportRows = inlineActivityMaxRows
 	s.needsMeasure = true
 	s.needsEnd = true
 }
 
-func (s *inlineActivityWindowState) DidUpdateWidget(old ui.Widget) {
-	previous := old.(inlineActivityWindow)
+func (s *inlineActivityWindowState) DidUpdateWidget(ui.Widget) {
 	current := s.Widget().(inlineActivityWindow)
-	if previous.ID != current.ID || transcriptActivityInProgress(
-		transcriptPresentation{Items: []transcriptDisplayItem{current.Source}, ToolStates: current.States}, current.Source.ID,
-	) {
-		s.needsMeasure = true
-		scroll := &s.scroll
-		if current.Controller != nil {
-			scroll = current.Controller
-		}
-		s.needsEnd = scrollControllerPinnedToEnd(scroll)
+	s.viewportRows = inlineActivityMaxRows
+	s.needsMeasure = true
+	scroll := &s.scroll
+	if current.Controller != nil {
+		scroll = current.Controller
 	}
+	s.needsEnd = scrollControllerPinnedToEnd(scroll)
 }
 
 func (s *inlineActivityWindowState) TickFrame(time.Time) bool {
@@ -67,10 +63,13 @@ func (s *inlineActivityWindowState) TickFrame(time.Time) bool {
 	if !scroll.Attached() {
 		return s.needsMeasure || s.needsEnd
 	}
+	if s.needsMeasure {
+		s.needsMeasure = false
+		return true
+	}
 	metrics := scroll.Metrics()
 	rows := max(1, metrics.ContentHeight)
 	viewport := min(inlineActivityMaxRows, rows)
-	s.needsMeasure = false
 	if rows != s.contentRows || viewport != s.viewportRows {
 		s.SetState(func() {
 			s.contentRows = rows

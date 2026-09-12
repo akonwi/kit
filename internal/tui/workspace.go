@@ -27,7 +27,7 @@ const (
 )
 
 // conversationWorkspaceHost owns both responsive workspace placement and the
-// bottom-anchored conversation controls. In wide mode the Activity pane spans
+// bottom-anchored conversation controls. In wide mode the secondary pane spans
 // the full body beside the transcript, pending status, and composer column.
 type conversationWorkspaceHost struct {
 	Open              bool

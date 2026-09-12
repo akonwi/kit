@@ -280,14 +280,8 @@ type appState struct {
 	inlineActivityOpen           map[string]bool
 	activityExpanded             map[activityToolKey]bool
 	activityCursor               activityToolKey
-	activityReveal               activityToolKey
-	activityRevealPending        bool
-	activityRevealPendingLayout  bool
 	needsScroll                  bool
 	scrollPendingLayout          bool
-	activityNeedsScroll          bool
-	activityPendingLayout        bool
-	activityScrollToEnd          bool
 	activeRun                    sessionclient.Run
 	activeRunID                  string
 	runPending                   bool
@@ -397,30 +391,6 @@ func (s *appState) TickFrame(now time.Time) bool {
 			s.needsScroll = false
 		}
 	}
-	if s.activityNeedsScroll {
-		if s.activityPendingLayout {
-			// Keep following the last completed layout even when another live event
-			// resets the post-layout request before its follow-up frame can run.
-			if s.activityScroll.Attached() {
-				if s.activityScrollToEnd {
-					s.activityScroll.ScrollToEnd()
-				} else {
-					s.activityScroll.ScrollToStart()
-				}
-			}
-			s.activityPendingLayout = false
-			keepTicking = true
-		} else {
-			if s.activityScroll.Attached() {
-				if s.activityScrollToEnd {
-					s.activityScroll.ScrollToEnd()
-				} else {
-					s.activityScroll.ScrollToStart()
-				}
-			}
-			s.activityNeedsScroll = false
-		}
-	}
 	if s.subagentNeedsScroll {
 		controller := s.subagentScrolls[s.subagentScrollToEndID]
 		if s.subagentPendingLayout {
@@ -440,18 +410,6 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.sessionExplorer.TickFrame() {
 		keepTicking = true
 	}
-	if s.activityRevealPending {
-		if s.activityRevealPendingLayout {
-			s.activityRevealPendingLayout = false
-			keepTicking = true
-		} else if s.activityList.Attached() {
-			s.activityList.Reveal(s.activityReveal)
-			s.activityReveal = activityToolKey{}
-			s.activityRevealPending = false
-		} else {
-			keepTicking = true
-		}
-	}
 	if s.subagentRevealPending {
 		if s.activityScroll.Attached() {
 			s.activityScroll.ScrollToOffset(s.subagentRevealOffset)
@@ -460,7 +418,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.activityNeedsScroll || s.activityRevealPending || s.subagentRevealPending
+	return keepTicking || s.needsScroll || s.subagentRevealPending
 }
 
 func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
@@ -565,18 +523,6 @@ func (s *appState) requestTranscriptScroll() {
 func (s *appState) followTranscriptIfPinned() {
 	if scrollControllerPinnedToEnd(&s.scroll) {
 		s.requestTranscriptScroll()
-	}
-}
-
-func (s *appState) requestActivityScroll(toEnd bool) {
-	s.activityNeedsScroll = true
-	s.activityPendingLayout = true
-	s.activityScrollToEnd = toEnd
-}
-
-func (s *appState) followActivityIfPinned() {
-	if scrollControllerPinnedToEnd(&s.activityScroll) {
-		s.requestActivityScroll(true)
 	}
 }
 
@@ -766,9 +712,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 		},
 		OpenActivity: func(_ ui.EventContext, sourceID string) {
-			if !s.subagentsOpen {
-				s.activityFocus.RequestFocus()
-			}
 			s.SetState(func() {
 				s.activityConversationID = ""
 				presentation := s.activityPresentation(presentedMessages, "")
@@ -796,20 +739,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			s.SetState(func() { s.activitySelected = false })
 		},
-		ShowActivity: func(ui.EventContext) {
-			if s.subagentsOpen || s.activitySourceID != "" {
-				s.SetState(func() {
-					presentation := s.activityPresentation(presentedMessages, s.activityConversationID)
-					s.activitySelected = !s.workspaceLayout.Wide
-					if !s.subagentsOpen && s.activitySelected && s.activityCursor.ToolCallID == "" {
-						keys := activityToolKeys(presentation, s.activitySourceID)
-						if len(keys) > 0 {
-							s.activityCursor = keys[0]
-						}
-					}
-				})
-			}
-		},
 		CloseActivity: func(ctx ui.EventContext) {
 			if s.activityFocus.HasFocus() {
 				ctx.FocusNext()
@@ -826,9 +755,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.hoveredActivityID = ""
 				s.activityExpanded = make(map[activityToolKey]bool)
 				s.activityCursor = activityToolKey{}
-				s.activityReveal = activityToolKey{}
-				s.activityRevealPending = false
-				s.activityRevealPendingLayout = false
 			})
 		},
 		CancelSubagentTask: func(_ ui.EventContext, taskID string, generation uint64) {
@@ -1539,7 +1465,6 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 					s.activityCursor = keys[0]
 				}
 			}
-			s.followActivityIfPinned()
 		} else {
 			s.activitySourceID = ""
 			s.activityConversationID = ""
@@ -1548,9 +1473,6 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			s.hoveredActivityID = ""
 			s.activityExpanded = make(map[activityToolKey]bool)
 			s.activityCursor = activityToolKey{}
-			s.activityReveal = activityToolKey{}
-			s.activityRevealPending = false
-			s.activityRevealPendingLayout = false
 		}
 	}
 	s.followTranscriptIfPinned()
@@ -1893,20 +1815,6 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 	if len(events) > 0 {
 		if transcriptChanged {
 			s.followTranscriptIfPinned()
-		}
-		if s.activitySourceID != "" {
-			messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
-			messages = append(messages, s.messages...)
-			messages = append(messages, s.liveMessages...)
-			presentation := presentTranscript(messages)
-			if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
-				for _, event := range events {
-					if event.TurnID == source.TurnID {
-						s.followActivityIfPinned()
-						break
-					}
-				}
-			}
 		}
 	}
 	return changedCWD
@@ -4231,12 +4139,6 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.hoveredActivityID = ""
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.activityCursor = activityToolKey{}
-	s.activityReveal = activityToolKey{}
-	s.activityRevealPending = false
-	s.activityRevealPendingLayout = false
-	s.activityNeedsScroll = false
-	s.activityPendingLayout = false
-	s.activityScrollToEnd = false
 	s.activeRun = nil
 	s.activeRunID = ""
 	s.runPending = false

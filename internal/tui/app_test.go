@@ -195,18 +195,6 @@ func TestTranscriptScrollWaitsForUpdatedLayout(t *testing.T) {
 	}
 }
 
-func TestActivityRevealWaitsForExpandedLayout(t *testing.T) {
-	t.Parallel()
-
-	state := appState{
-		activityReveal:        activityToolKey{TurnID: "turn_1", ToolCallID: "call_1"},
-		activityRevealPending: true, activityRevealPendingLayout: true,
-	}
-	if !state.TickFrame(time.Now()) || !state.activityRevealPending || state.activityRevealPendingLayout {
-		t.Fatalf("first reveal frame = pending:%t layout:%t", state.activityRevealPending, state.activityRevealPendingLayout)
-	}
-}
-
 func TestPendingTranscriptFollowUsesLatestCompletedLayout(t *testing.T) {
 	t.Parallel()
 
@@ -238,106 +226,6 @@ func TestPendingTranscriptFollowUsesLatestCompletedLayout(t *testing.T) {
 	metrics = state.scroll.Metrics()
 	if metrics.ScrollOffset != metrics.MaxScrollOffset {
 		t.Fatalf("repeated live update starved transcript follow: %+v", metrics)
-	}
-}
-
-func TestPendingActivityFollowUsesLatestCompletedLayout(t *testing.T) {
-	t.Parallel()
-
-	calls := make([]transcriptToolCall, 24)
-	for index := range calls {
-		calls[index] = transcriptToolCall{
-			ID: "call_" + strconv.Itoa(index), Name: "read",
-			Arguments: json.RawMessage(`{"path":"README.md"}`),
-		}
-	}
-	messages := []transcriptMessage{{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: calls}}
-	state := appState{}
-	layout := workspaceLayoutState{Wide: true}
-	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Messages: messages, Scroll: &state.scroll,
-		ActivitySourceID: "turn-work:turn_1:assistant_1", ActivityScroll: &state.activityScroll,
-		ActivityList: &state.activityList, WorkspaceLayout: &layout,
-	}})
-	app.Pump(140, 16)
-	state.activityScroll.ScrollToStart()
-	state.requestActivityScroll(true)
-	state.TickFrame(time.Now())
-	metrics := state.activityScroll.Metrics()
-	if metrics.MaxScrollOffset == 0 || metrics.ScrollOffset != metrics.MaxScrollOffset {
-		t.Fatalf("pending Activity follow = %+v, want latest completed layout at end", metrics)
-	}
-
-	state.activityScroll.ScrollToStart()
-	state.requestActivityScroll(true)
-	state.TickFrame(time.Now())
-	metrics = state.activityScroll.Metrics()
-	if metrics.ScrollOffset != metrics.MaxScrollOffset {
-		t.Fatalf("repeated live update starved Activity follow: %+v", metrics)
-	}
-}
-
-func TestTranscriptAndActivityFollowPreserveUserScroll(t *testing.T) {
-	t.Parallel()
-
-	calls := make([]transcriptToolCall, 24)
-	for index := range calls {
-		calls[index] = transcriptToolCall{
-			ID: "call_" + strconv.Itoa(index), Name: "read",
-			Arguments: json.RawMessage(`{"path":"README.md"}`),
-		}
-	}
-	messages := make([]transcriptMessage, 24)
-	for index := range messages {
-		messages[index] = transcriptMessage{
-			ID: "prose_" + strconv.Itoa(index), TurnID: "turn_0", Role: "assistant", Text: "transcript row",
-		}
-	}
-	messages = append(messages, transcriptMessage{
-		ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: calls,
-	})
-	state := appState{}
-	layout := workspaceLayoutState{Wide: true}
-	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Messages: messages, Scroll: &state.scroll,
-		ActivitySourceID: "turn-work:turn_1:assistant_1", ActivityScroll: &state.activityScroll,
-		ActivityList: &state.activityList, WorkspaceLayout: &layout,
-	}})
-	app.Pump(140, 16)
-	state.scroll.ScrollToStart()
-	state.activityScroll.ScrollToStart()
-	if state.scroll.Metrics().MaxScrollOffset == 0 || state.activityScroll.Metrics().MaxScrollOffset == 0 {
-		t.Fatal("test content did not overflow both transcript surfaces")
-	}
-
-	state.followTranscriptIfPinned()
-	state.followActivityIfPinned()
-	if state.needsScroll || state.activityNeedsScroll {
-		t.Fatalf("follow requested while user was away from end: transcript=%t activity=%t", state.needsScroll, state.activityNeedsScroll)
-	}
-	if state.scroll.Metrics().ScrollOffset != 0 || state.activityScroll.Metrics().ScrollOffset != 0 {
-		t.Fatalf("user scroll changed: transcript=%+v activity=%+v", state.scroll.Metrics(), state.activityScroll.Metrics())
-	}
-
-	state.scroll.ScrollToEnd()
-	state.activityScroll.ScrollToEnd()
-	state.followTranscriptIfPinned()
-	state.followActivityIfPinned()
-	if !state.needsScroll || !state.activityNeedsScroll || !state.activityScrollToEnd {
-		t.Fatalf("pinned surfaces did not keep following: transcript=%t activity=%t toEnd=%t", state.needsScroll, state.activityNeedsScroll, state.activityScrollToEnd)
-	}
-}
-
-func TestActivityScrollWaitsForUpdatedLayout(t *testing.T) {
-	t.Parallel()
-
-	state := appState{}
-	state.requestActivityScroll(true)
-	if !state.TickFrame(time.Now()) || !state.activityNeedsScroll || state.activityPendingLayout {
-		t.Fatalf("first activity frame = needs:%t pending:%t", state.activityNeedsScroll, state.activityPendingLayout)
-	}
-	if state.TickFrame(time.Now()) || state.activityNeedsScroll {
-		t.Fatalf("second activity frame = needs:%t, want settled", state.activityNeedsScroll)
 	}
 }
 
