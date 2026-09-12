@@ -23,6 +23,26 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   startup/auth failures, fatal errors, and interactive tool surfaces with clear
   focus and cancellation behavior.
 
+### Directory, file, and diff workspace
+
+- [ ] TUI-WORK-001 — Register retained directory, file, and diff panes with
+  stable identity, deduplication, predictable open/close/focus behavior, and
+  preserved selection and scroll state across pane switches and responsive
+  narrow/wide transitions.
+- [ ] TUI-DIR-001 — Provide a workspace-rooted directory explorer with lazy,
+  bounded expansion; path filtering; keyboard and mouse navigation; visible
+  loading, empty, and error states; refresh; and direct file opening. Depends on
+  `CORE-WORK-001`.
+- [ ] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
+  line numbers, vertical and horizontal navigation, truncation/staleness
+  feedback, refresh that preserves position when possible, and safe binary or
+  unreadable-file handling. Depends on `CORE-WORK-001`.
+- [ ] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree and agent
+  edits with changed-file and hunk navigation, semantic added/removed/context
+  styling, line-number gutters, unified and split layouts where width permits,
+  and explicit loading, empty, stale, truncated, and error states. Depends on
+  `CORE-DIFF-001`.
+
 ### Transcript and activity
 
 - [~] TUI-TRANSCRIPT-001 — Render active and historical Markdown, thinking,
@@ -48,8 +68,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
   persistence failures. Depends on `CORE-SET-001`.
 - [ ] TUI-SET-002 — Expose R1 settings for default model/thinking, retry
-  behavior, guided questions, and remembered workspace ratios. Depends on
-  `CORE-SET-002`.
+  behavior, guided questions, preferred diff layout, and remembered workspace
+  ratios. Depends on `CORE-SET-002`.
 
 ### Images and attachments
 
@@ -77,7 +97,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
 - [ ] TUI-TEST-001 — Pass deterministic presentation, keyboard/mouse, focus,
-  attachment/image, interaction, reconnect, and narrow/wide layout suites.
+  directory/file/diff, attachment/image, interaction, reconnect, and narrow/wide
+  layout suites.
 
 ## R1 decision
 
@@ -100,14 +121,14 @@ resolving this decision.
   draft attachments, restoration, submission, and failure recovery.
 - [ ] TUI-SCRATCH-001 — Add a scratchpad workspace with guarded edits and
   autosave feedback. Depends on `CORE-SCRATCH-001`.
-- [ ] TUI-REVIEW-001 — Add target pickers, repository-drawer deduplication,
-  changed/skipped-file navigation, responsive unified/split diffs, full-file
-  panes, and revision-pinned file/line/range notes. Depends on `CORE-REVIEW-001`.
+- [ ] TUI-REVIEW-001 — Extend `TUI-DIFF-001` with review target pickers,
+  skipped-file navigation, full-file panes, and revision-pinned file/line/range
+  notes. Depends on `CORE-REVIEW-001`.
 - [ ] TUI-REVIEW-002 — Project, remove, restore, draft, and submit structured
   review attachments immediately; refresh remote data without resetting
   unchanged local state. Depends on `CORE-REVIEW-002`.
-- [ ] TUI-WORK-001 — Add file, release-note, and other approved retained
-  workspace panes without duplicating server state.
+- [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
+  panes without duplicating server state.
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/handoff`, `/tree`, and other
   commands when their owning Post-R1 capabilities are implemented.
 - [ ] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe
@@ -115,5 +136,4 @@ resolving this decision.
 - [ ] TUI-PLUGIN-001 — Present plugin header/footer contributions, theme tokens,
   hide claims, activation, failure, cleanup, reload, and restart. Depends on
   `CORE-PLUGIN-004`, `CORE-PLUGIN-005`, and `CORE-PLUGIN-006`.
-- [ ] TUI-SET-003 — Expose Post-R1 defaults for diff view and pager behavior
-  when their owning workflows exist.
+- [ ] TUI-SET-003 — Expose Post-R1 pager defaults when that workflow exists.

@@ -71,6 +71,8 @@ It must provide:
   restoration, cleanup, transcript previews, and `show_image` behavior;
 - theme discovery, selection, persistence, and current custom-theme
   compatibility in the native TUI;
+- native directory exploration plus retained file and diff viewing with complete
+  keyboard, mouse, narrow-layout, loading, empty, and failure UX;
 - safe install and upgrade paths, actionable diagnostics, bounded resource use,
   and release verification.
 
