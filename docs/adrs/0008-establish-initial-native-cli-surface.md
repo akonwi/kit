@@ -290,4 +290,4 @@ This ADR supersedes the initial local-client command spellings shown in ADR
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
 - [0009: Keep temporary sessions process-local and defer owner leases](./0009-keep-temporary-sessions-process-local.md)
-- [`../parity.md`](../parity.md)
+- [`../roadmap.md`](../roadmap.md)

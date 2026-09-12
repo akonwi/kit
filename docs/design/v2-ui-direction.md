@@ -4,7 +4,7 @@
 
 Active direction. Accepted rules move into `.agents/skills/design/SKILL.md` as
 they are decided; unresolved topics remain explicit explorations here.
-Implementation progress is tracked in `docs/parity.md`.
+Implementation progress is tracked in `docs/roadmap/tui.md`.
 
 ## Research baseline
 
@@ -303,5 +303,5 @@ candidate v2 states:
 1. How should one ranked palette balance relevance, recency, exact matching,
    type, and scope without visible result groups?
 2. Which additional pane bindings, if any, deserve defaults?
-3. Which v0.34 interactions are parity requirements versus deliberate v2
+3. Which v0.34 interactions are R1 requirements versus deliberate v2
    simplifications?

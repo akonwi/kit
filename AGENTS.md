@@ -6,7 +6,7 @@ Kit is a standalone, single-user, terminal-first coding agent distributed as one
 Go executable for macOS and Linux. Windows is intentionally unsupported. The
 current rewrite architecture is canonical in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and merge parity is tracked in [`docs/parity.md`](docs/parity.md).
+and release scope is tracked in [`docs/roadmap.md`](docs/roadmap.md).
 
 During rewrite development, Kit must use `~/.kit-v2` by default. Never read or
 mutate current `~/.kit` state without an explicit migration operation.
@@ -47,11 +47,11 @@ uses Solid and Mica at build time and is embedded in the Go executable.
 - Once an interface is accepted, implement through it rather than bypassing it
   for expediency.
 - Record architectural decisions under `docs/adrs/` and deferred work in the
-  parity ledger or `backlog/`.
+  roadmap or `backlog/`.
 - Write ADRs as descriptions of the proposed or accepted target state and its
   rationale. Do not narrate previous implementations or historical state in an
-  ADR; put necessary historical comparisons in migration documents, the parity
-  ledger, or commit history instead.
+  ADR; put necessary historical comparisons in migration documents, the
+  roadmap, or commit history instead.
 
 ## Go conventions
 
@@ -95,5 +95,5 @@ For browser-client changes, run its formatting, lint, typecheck, unit, and
 browser suites defined by the web workspace. Bun is a development/build-time
 dependency only and must not become a user runtime requirement.
 
-Before merging the rewrite, run the authenticated print/RPC/plugin/subagent
-smoke suite and the migration suite described in `docs/parity.md`.
+Before releasing the rewrite, satisfy the R1 verification gates in
+`docs/roadmap.md` and `docs/roadmap/core.md`.

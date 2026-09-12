@@ -47,7 +47,7 @@ suffix.
 
 Production's TypeScript client also uses filesystem watchers for lower-latency
 external worktree, index, and ref changes. That event-driven refresh remains a
-parity follow-up unless polling latency is accepted as an intentional
+roadmap follow-up unless polling latency is accepted as an intentional
 difference.
 
 GitHub pull-request metadata through `gh` is a separate feature and is not part

@@ -1,4 +1,4 @@
-# Session model, thinking, and usage parity plan
+# Session model, thinking, and usage implementation plan
 
 ## Status
 
@@ -6,13 +6,12 @@ Planned. This file is an implementation checklist, not an accepted architecture
 record. Promote durable architectural decisions into an ADR if implementation
 changes the ownership boundaries established by ADR 0006.
 
-Related parity entries:
+Related roadmap entries:
 
-- [`docs/parity.md`](../docs/parity.md): session metadata persistence
-- [`docs/parity.md`](../docs/parity.md): context usage and model limits
-- [`docs/parity.md`](../docs/parity.md): model selection
-- [`docs/parity.md`](../docs/parity.md): thinking-level discovery and persistence
-- [`docs/parity.md`](../docs/parity.md): `/model`, `/thinking`, and `/debug`
+- [`docs/roadmap/core.md`](../docs/roadmap/core.md): session configuration,
+  context usage, model limits, and persistence
+- [`docs/roadmap/tui.md`](../docs/roadmap/tui.md): `/model`, `/thinking`, and
+  `/debug` presentation
 
 ## Current behavior
 
@@ -184,12 +183,12 @@ after registry commit    -> persisted model is new
 
 ## Implementation checklist
 
-### 1. Separate the parity ledger
+### 1. Separate roadmap requirements
 
 - [x] Split the broad model/thinking/usage line into independently verifiable
   entries for initial persistence, mutable configuration, and cumulative usage.
 - [x] Keep context pressure and cumulative provider usage described separately.
-- [ ] Add final implementation and test references to the relevant parity
+- [ ] Add final implementation and test references to the relevant roadmap
   entries as each remaining slice is completed.
 
 ### 2. Droids: quiescent model adaptation
@@ -358,8 +357,8 @@ manager, protocol, and `/compact` command are wired.
   event-stream replacement, and shared session configuration are
   concurrency-sensitive.
 - [ ] Run authenticated provider smoke tests for model and thinking selection.
-- [ ] Update `docs/parity.md` statuses only after behavior and verification are
-  complete.
+- [ ] Update the core and TUI roadmap entries only after behavior and
+  verification are complete.
 
 ## Out of scope for this plan
 

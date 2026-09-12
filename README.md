@@ -6,7 +6,7 @@ remote sessions, concurrent subagents, and language-neutral process plugins.
 The `kit-v2` branch is a ground-up Go rewrite for macOS and Linux. Windows is
 not a supported target. Its architecture is recorded in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and replacement parity is tracked in [`docs/parity.md`](docs/parity.md).
+and release scope is tracked in [`docs/roadmap.md`](docs/roadmap.md).
 
 ## Architecture
 
@@ -89,4 +89,4 @@ go test ./...
 ```
 
 Historical TypeScript application code remains temporarily in `app/` and
-`packages/` as a parity reference while native replacements are built.
+`packages/` as a behavioral reference while native replacements are built.

@@ -2,7 +2,7 @@
 
 > Temporary implementation tracker. Delete this document after the work is
 > complete and durable requirements have been incorporated into the relevant
-> ADRs, product documentation, and parity ledger.
+> ADRs, product documentation, and roadmap.
 
 ## Goal
 
@@ -328,7 +328,7 @@ Persistence requirements:
 - [x] Test reconnect, multiple observers, client detachment, and narrow/wide
       workspace layouts.
 
-### Phase 6: parity extensions
+### Phase 6: roadmap extensions
 
 - [ ] Add plugin-contributed definitions after plugin supervision exists.
 - [ ] Add the semantic web workspace.

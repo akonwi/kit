@@ -130,4 +130,4 @@ The implementation must demonstrate:
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
 - [0008: Establish the initial native CLI surface](./0008-establish-initial-native-cli-surface.md)
-- [`../parity.md`](../parity.md)
+- [`../roadmap.md`](../roadmap.md)

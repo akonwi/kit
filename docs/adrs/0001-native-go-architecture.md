@@ -30,16 +30,18 @@ The rewrite has these hard constraints:
 - custom plugins are isolated child processes using a language-neutral RPC
   protocol;
 - the system is always single-user, including remote deployments;
-- the rewrite is mergeable only after feature and UX parity, except for
-  explicitly accepted changes.
+- the rewrite is releasable only after the initial production-replacement scope
+  in the roadmap is complete.
 
 ## Decision
 
 ### Product and distribution
 
 Kit ships as one Go executable for macOS and Linux. Windows is not a supported
-target. The executable contains the CLI, local daemon, remote server, session
-runtime, plugin supervisor, native TUI, and embedded web assets.
+target. The target executable contains the CLI, local daemon, remote server,
+session runtime, plugin supervisor, native TUI, and embedded web assets. The initial
+production release may omit Post-R1 remote, plugin, and web capabilities without
+changing their eventual ownership or process boundaries.
 
 The browser client may use TypeScript, Solid, Mica, and Bun at build time. Its
 compiled static assets are embedded into the Go executable. No JavaScript
@@ -252,7 +254,7 @@ not silently read or mutate `~/.kit` while under development.
 Before replacement of the current implementation, Kit will provide an
 idempotent migration from `~/.kit` with a backup and explicit version marker.
 The migration never rewrites the only copy of old data in place. After migration
-and parity validation, the production default can return to `~/.kit`.
+and R1 migration validation, the production default can return to `~/.kit`.
 
 ### Native TUI
 
@@ -321,18 +323,19 @@ Non-loopback deployments require TLS from a trusted tunnel or reverse proxy
 unless the user makes an explicit insecure development choice. Host and Origin
 validation remain active.
 
-### Delivery and parity
+### Delivery and roadmap
 
-Development proceeds through a thin end-to-end walking skeleton that proves the
-risky boundaries: native client, daemon, droids run, SQLite, session protocol,
-web client, remote attach, one external plugin, and one concurrent subagent.
+Development proceeds through end-to-end slices that prove risky boundaries
+without making every target client or integration an initial-release dependency.
+The first production release is a local, terminal-first replacement with safe
+migration; later milestones add the semantic web client, remote attach, and
+external plugins.
 
-The walking skeleton is not the merge gate. Because this is a replacement, the
-branch is mergeable only after the parity ledger is complete against baseline
-commit `5c6e112`, plus deliberate triage of relevant changes made on the target
-branch during the rewrite.
+The release gate is the R1 scope in the roadmap, not complete behavioral parity
+with a historical baseline. Relevant changes made on production `main` during
+the rewrite are triaged explicitly as R1, Post-R1, or superseded work.
 
-Intentional non-parity is limited to recorded decisions, initially:
+Recorded replacement decisions include:
 
 - remove `web-tui`;
 - replace OpenTUI with vaxis/ui;
@@ -380,7 +383,7 @@ to hold shared types.
 
 ### Trade-offs
 
-- Rebuilding the OpenTUI client in vaxis/ui is substantial parity work.
+- Rebuilding the OpenTUI client in vaxis/ui is substantial product work.
 - The daemon adds process discovery, authentication, upgrade, logging, and
   lifecycle responsibilities.
 - Runtime, storage, protocol, and client projections intentionally duplicate
@@ -400,12 +403,12 @@ to hold shared types.
 - a Kit-managed TLS certificate authority or public cloud control plane;
 - exact resumption of interrupted provider streams or side-effecting tools;
 - multiplexing several session bindings over one live event connection;
-- native session tabs beyond what parity requires;
+- native session tabs beyond the initial roadmap scope;
 - idle session and daemon eviction policy.
 
 ## Related
 
-- [`../parity.md`](../parity.md)
+- [`../roadmap.md`](../roadmap.md)
 - [0002: Internalize the droids agent core](./0002-internalize-agent-core.md)
 - [0003: Provider credential storage](./0003-provider-credential-storage.md)
 - Historical implementation and ADRs at Git commit `5c6e112`
